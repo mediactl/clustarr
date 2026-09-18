@@ -118,6 +118,33 @@ var tokenFuncs = map[string]func(c Context, pad, trunc int) string{
 	"tmdbid":                  func(c Context, _, _ int) string { return c.TmdbID },
 	"mediainfo audiocodec":    func(c Context, _, _ int) string { return firstAudioCodec(c.MediaInfo) },
 	"mediainfo audiochannels": func(c Context, _, _ int) string { return firstAudioChannels(c.MediaInfo) },
+	"season":                  func(c Context, pad, _ int) string { return padInt(c.Season, pad) },
+	"episode":                 func(c Context, pad, _ int) string { return padInt(firstOr(c.Episodes), pad) },
+	"absolute":                func(c Context, pad, _ int) string { return padInt(firstOr(c.Absolute), pad) },
+	"episode cleantitle":      func(c Context, _, trunc int) string { return truncate(cleanTitle(c.EpisodeTitle), trunc) },
+}
+
+func padInt(n, width int) string {
+	if width > 0 {
+		return fmt.Sprintf("%0*d", width, n)
+	}
+	return strconv.Itoa(n)
+}
+
+func firstOr(xs []int) int {
+	if len(xs) == 0 {
+		return 0
+	}
+	return xs[0]
+}
+
+// truncate is rune-safe: it never splits a multi-byte rune.
+func truncate(s string, n int) string {
+	runes := []rune(s)
+	if n <= 0 || len(runes) <= n {
+		return s
+	}
+	return string(runes[:n])
 }
 
 func firstAudioCodec(mi commonv1.MediaInfo) string {

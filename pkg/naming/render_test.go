@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package naming_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -71,4 +72,28 @@ func TestRenderSplitBracketAcrossTwoAdjacentTokens(t *testing.T) {
 	got, err := e.Render("{[MediaInfo AudioCodec}{ MediaInfo AudioChannels]}", c)
 	require.NoError(t, err)
 	require.Equal(t, "[EAC3 5.1]", got, "note A2's split-bracket idiom: two single-brace tokens forming one pair")
+}
+
+func TestRenderZeroPadsSeasonAndEpisode(t *testing.T) {
+	e := naming.NewEngine(naming.Config{})
+	c := naming.Context{Season: 1, Episodes: []int{2}}
+	got, err := e.Render("S{season:00}E{episode:00}", c)
+	require.NoError(t, err)
+	require.Equal(t, "S01E02", got)
+}
+
+func TestRenderZeroPadsAbsoluteToThreeDigits(t *testing.T) {
+	e := naming.NewEngine(naming.Config{})
+	got, err := e.Render("{absolute:000}", naming.Context{Absolute: []int{7}})
+	require.NoError(t, err)
+	require.Equal(t, "007", got)
+}
+
+func TestRenderTruncatesEpisodeCleanTitleToNChars(t *testing.T) {
+	e := naming.NewEngine(naming.Config{})
+	long := strings.Repeat("Long Episode Title ", 10) // 190 runes
+	got, err := e.Render("{Episode CleanTitle:90}", naming.Context{EpisodeTitle: long})
+	require.NoError(t, err)
+	require.Len(t, got, 90)
+	require.Equal(t, long[:90], got)
 }
