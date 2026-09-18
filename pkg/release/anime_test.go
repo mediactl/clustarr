@@ -74,14 +74,41 @@ func TestParseSeriesAnimeOVASpecialToken(t *testing.T) {
 
 // TestParseSeriesAnimeOVAPrefixWithoutWordBoundaryIsNotASpecial is the
 // regression the missing \b in animeSpecialRegex caused: "OVAN" is not the
-// word "OVA", so it must not flip Special to true, and the episode number
-// that follows it must still come through as an absolute episode via the
-// normal fallback.
+// word "OVA", so it must not flip Special to true.
+//
+// Note on what changed here: this test previously also asserted
+// Absolute == [1], recovered via a general "tolerate any word before the
+// number" fallback in animeAbsoluteRegex. That general tolerance was
+// itself a bug (fix round 3, finding 2): it also swallowed a genuinely
+// different word like "Season" ("Some Show - Season 12" would wrongly
+// yield an absolute episode 12). Replacing it with the requested small,
+// explicit allowlist (Episode/Ep/E/#) is mathematically incompatible with
+// still recovering a number after "OVAN" — "OVAN" isn't in that allowlist,
+// by design, since it isn't a real episode marker — so the parse now
+// correctly reports "no anime pattern matched" instead of guessing.
+// Verified with a regexp2 scratch check before changing this assertion:
+// the new pattern returns no match at all for "Show - OVAN 01 ...". What
+// this test still guards against — the actual point of the fix that
+// introduced it — is preserved: no false Special=true and no silently
+// wrong Absolute value, just an honest error.
 func TestParseSeriesAnimeOVAPrefixWithoutWordBoundaryIsNotASpecial(t *testing.T) {
-	p, err := parseSeries("[SubsPlease] Show - OVAN 01 (1080p) [HASH].mkv", Options{SeriesType: "anime"})
+	_, err := parseSeries("[SubsPlease] Show - OVAN 01 (1080p) [HASH].mkv", Options{SeriesType: "anime"})
+	require.Error(t, err)
+}
+
+// TestParseSeriesAnimeAbsoluteEpisodeMarkerAllowlist covers fix round 3's
+// finding 2: animeAbsoluteRegex tolerates exactly Episode/Ep/E/# (case-
+// insensitive) between the title separator and the episode number, not an
+// arbitrary word — "Season" is deliberately not on that list, so a title
+// using it must fall through to the "no anime pattern" error rather than
+// silently treating "12" as an absolute episode number.
+func TestParseSeriesAnimeAbsoluteEpisodeMarkerAllowlist(t *testing.T) {
+	p, err := parseSeries("[SubsPlease] Show - Episode 12 (1080p) [HASH].mkv", Options{SeriesType: "anime"})
 	require.NoError(t, err)
-	assert.False(t, p.Special)
-	assert.Equal(t, []int{1}, p.Absolute)
+	assert.Equal(t, []int{12}, p.Absolute)
+
+	_, err = parseSeries("[SubsPlease] Show - Season 12 (1080p) [HASH].mkv", Options{SeriesType: "anime"})
+	require.Error(t, err)
 }
 
 func TestParseSeriesAnimeBatchRangesExpandInclusive(t *testing.T) {

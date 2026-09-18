@@ -72,3 +72,28 @@ func TestParseHintsStreamingRecognizesKnownServiceVocabulary(t *testing.T) {
 		})
 	}
 }
+
+// TestParseHintsStreamingUsesRlsCanonicalCollectionTag verifies that
+// Hints.Streaming reports the exact string rls's own taginfo.csv
+// canonicalizes a collection tag to (the "Tag" column, not whatever
+// variant of the token appeared in the title) — confirmed empirically
+// against rls v0.6.0's taginfo.csv (type=collection rows) before writing
+// this: "iP"/"iPlayer" both canonicalize to Release.Collection == "iPlayer",
+// and "iT"/"iTunes" both canonicalize to "iTunes". Both of taginfo.csv's
+// regexes for these are case-sensitive ((?-i:iP)(?:layer)? and
+// (?-i:iT)(?:unes)?), so the titles below use that exact casing.
+func TestParseHintsStreamingUsesRlsCanonicalCollectionTag(t *testing.T) {
+	tests := []struct {
+		title string
+		want  string
+	}{
+		{"Blue.Planet.II.S01E01.One.Ocean.1080p.iP.WEB-DL.AAC2.0.H.264-NTb", "iPlayer"},
+		{"Oppenheimer.2023.1080p.iT.WEB-DL.DDP5.1.H.264-FLUX", "iTunes"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			h := parseHints(tt.title)
+			assert.Equal(t, []string{tt.want}, h.Streaming)
+		})
+	}
+}

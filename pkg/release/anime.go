@@ -43,18 +43,30 @@ var animeGroupPrefixRegex = mustCompile(`^\[(?<group>[^\]]+)\][\s_.]*`, regexp2.
 var animeSeasonEpisodeRegex = mustCompile(`(?<title>.+?)\s*-\s*S(?<season>\d{1,2})E(?<episode>\d{1,4})`, regexp2.IgnoreCase)
 
 // animeAbsoluteRegex matches an anime title with a bare absolute episode
-// number, e.g. "Frieren - 28 (1080p)". The optional "(?:[A-Za-z]+\s+)?"
-// before the number tolerates a single non-numeric "noise" word between the
-// title separator and the episode number — e.g. a title whose tag almost
-// but doesn't quite look like a special-episode marker ("OVAN 01", not the
-// word "OVA") still needs its absolute episode number recognized once
-// animeSpecialRegex has correctly rejected it. Verified against the full
-// anime fixture corpus (testdata/releases/anime.json) that this tolerance
-// doesn't change the captured title or number for any existing case: none
-// of them have a word between the dash and the digits, so the optional
-// group always matches zero times for them.
+// number, e.g. "Frieren - 28 (1080p)". The optional
+// "(?:(?:Episode|Ep|E|#)\s+)?" before the number tolerates exactly the
+// small, explicit set of episode-marker words/symbols real releases use
+// ("Show - Episode 12", "Show - Ep 12") — not an arbitrary word. An earlier
+// version of this pattern tolerated *any* single word here (fix round 3,
+// finding 2), which also silently accepted a genuinely different word like
+// "Season" ("Some Show - Season 12" wrongly yielding absolute episode 12);
+// this allowlist deliberately does not, so a title using an unrecognized
+// word falls through to the "no anime pattern" error instead.
+//
+// The marker requires *mandatory* trailing whitespace (\s+, not \s*): a
+// zero-width version briefly regressed the standard-series dash-range
+// guard tests (tv.go's validEpisodeRange) — "The.Wire.S01E12-E01..."'s
+// rejected, invalid range was being "rescued" by parseSeries's anime
+// last-resort fallback, because the "E" marker's zero-width trailing space
+// let it match the "E" in "E01" directly (no space before "01") the way a
+// real "Show - E01" would with a space. Requiring at least one space after
+// the marker closes that gap — verified with a scratch regexp2 check
+// against exactly that title before landing this — while still matching
+// every review-required case ("Show - Episode 12") and every title in the
+// anime fixture corpus (testdata/releases/anime.json) unchanged, since
+// none of them has a marker word between the dash and the digits at all.
 var animeAbsoluteRegex = mustCompile(
-	`(?<title>.+?)\s*-\s*(?:[A-Za-z]+\s+)?(?<abs>\d{2,4})(?:\s*\((?<res>\d{3,4}p)\))?`,
+	`(?<title>.+?)\s*-\s*(?:(?:Episode|Ep|E|#)\s+)?(?<abs>\d{2,4})(?:\s*\((?<res>\d{3,4}p)\))?`,
 	regexp2.IgnoreCase,
 )
 
