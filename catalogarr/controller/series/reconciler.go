@@ -431,6 +431,36 @@ func (r *Reconciler) ensureEpisode(ctx context.Context, s *catalogv1alpha1.Serie
 	if d.AbsoluteNumber != nil {
 		statusAC = statusAC.WithAbsoluteNumber(*d.AbsoluteNumber)
 	}
+
+	// Pass through the Episode reconciler's own fields verbatim (same field
+	// manager, k8s.ManagerCatalogarr, disjoint concerns). Load-bearing, not
+	// decorative -- see the identical, longer comment in the episode
+	// package's reconciler.go for why: server-side apply tracks one field
+	// set per manager name, not per call site, so omitting a field this
+	// manager previously sent releases it. ep here is either the
+	// just-Get'd existing Episode (its Status already holds whatever the
+	// Episode reconciler last computed) or, for a brand-new Episode, a
+	// zero Status -- in which case every guard below is false and there is
+	// nothing to preserve yet.
+	if ep.Status.ObservedGeneration != 0 {
+		statusAC = statusAC.WithObservedGeneration(ep.Status.ObservedGeneration)
+	}
+	if ep.Status.Phase != "" {
+		statusAC = statusAC.WithPhase(ep.Status.Phase)
+	}
+	statusAC = statusAC.WithHasFile(ep.Status.HasFile)
+	if ep.Status.FileRef != nil {
+		statusAC = statusAC.WithFileRef(*ep.Status.FileRef)
+	}
+	if ep.Status.FileQuality != nil {
+		statusAC = statusAC.WithFileQuality(*ep.Status.FileQuality)
+	}
+	statusAC = statusAC.WithFileFormatScore(ep.Status.FileFormatScore)
+	statusAC = statusAC.WithCutoffMet(ep.Status.CutoffMet)
+	if ep.Status.ActiveDownloadRef != nil {
+		statusAC = statusAC.WithActiveDownloadRef(*ep.Status.ActiveDownloadRef)
+	}
+
 	_, err = k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Episode(d.Name, s.Namespace).WithStatus(statusAC))
 	return err
 }
