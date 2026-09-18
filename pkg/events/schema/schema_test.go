@@ -59,6 +59,7 @@ func allPayloads() []schema.Payload {
 		schema.TranscodeProgress{},
 		schema.SubtitleEvent{},
 		schema.FetchTask{},
+		schema.ScanTask{},
 	}
 }
 
