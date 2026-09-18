@@ -24,7 +24,6 @@ package ui
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -57,14 +56,15 @@ type Options struct {
 	// cluster. A nil Entries behaves as if it always returned no rows.
 	Entries func(context.Context) []pipeline.Entry
 
-	// Logger receives the startup warning and handler error logs. Defaults
-	// to slog.Default() when both this and Logging are zero; [Run] fills it
-	// from Logging when nil, so a test can still inject its own logger
-	// directly here without going through the Logging/flag path.
-	Logger *slog.Logger
-
-	// Logging configures the root logger [Run] builds when Logger is nil.
-	// The zero value is a reasonable default: JSON to stderr at info level.
+	// Logging configures the root logger [Run] builds and installs on the
+	// context every request descends from. The zero value is a reasonable
+	// default: JSON to stderr at info level.
+	//
+	// There is no Logger field, and [Server] has no logger of its own:
+	// handlers log through logging.FromContext(r.Context()), which in
+	// production is the logger Run put on the server's BaseContext and in
+	// httptest is the discard logger. A test that wants the lines injects a
+	// context, not a struct field.
 	Logging logging.Options
 
 	// Tracing configures the OpenTelemetry SDK. The zero value is a valid,
@@ -86,23 +86,25 @@ func (o Options) Validate() error { return nil }
 // function, not an interface, so a test can supply cluster state without a
 // cluster.
 type Server struct {
-	opts   Options
-	logger *slog.Logger
+	opts Options
 }
 
-// NewServer builds a Server from opts and logs [authWarning]. Construction
-// never fails and never touches the network; call [Server.Handler] to get
-// something an http.Server (or httptest) can serve.
-func NewServer(opts Options) *Server {
+// NewServer builds a Server from opts and logs [authWarning] through the
+// logger ctx carries. Construction never fails and never touches the
+// network; call [Server.Handler] to get something an http.Server (or
+// httptest) can serve.
+//
+// ctx is taken for the warning alone and is not retained: CLAUDE.md's
+// logging invariant is that the logger travels in the context, never on a
+// struct, and the warning is the one line this service logs outside a
+// request. Everything else logs through
+// logging.FromContext(r.Context()).
+func NewServer(ctx context.Context, opts Options) *Server {
 	if opts.Entries == nil {
 		opts.Entries = func(context.Context) []pipeline.Entry { return nil }
 	}
-	logger := opts.Logger
-	if logger == nil {
-		logger = slog.Default()
-	}
-	logger.Warn(authWarning)
-	return &Server{opts: opts, logger: logger}
+	logging.FromContext(ctx).Warn(authWarning)
+	return &Server{opts: opts}
 }
 
 // Handler returns the composed HTTP handler for every route this service

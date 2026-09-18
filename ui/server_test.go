@@ -19,7 +19,9 @@ package ui_test
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -28,12 +30,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/pipeline"
 	"github.com/mediactl/clustarr/ui"
 )
 
 func TestPipelinePageRendersWithoutACluster(t *testing.T) {
-	srv := ui.NewServer(ui.Options{Entries: func(context.Context) []pipeline.Entry {
+	srv := ui.NewServer(t.Context(), ui.Options{Entries: func(context.Context) []pipeline.Entry {
 		return []pipeline.Entry{{Title: "The Shawshank Redemption", Stage: pipeline.StageDownloading, Percent: 42}}
 	}})
 	rec := httptest.NewRecorder()
@@ -44,14 +47,14 @@ func TestPipelinePageRendersWithoutACluster(t *testing.T) {
 }
 
 func TestHealthzDoesNotDependOnTheCluster(t *testing.T) {
-	srv := ui.NewServer(ui.Options{})
+	srv := ui.NewServer(t.Context(), ui.Options{})
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestPipelinePageRendersWithNoEntries(t *testing.T) {
-	srv := ui.NewServer(ui.Options{})
+	srv := ui.NewServer(t.Context(), ui.Options{})
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/pipeline", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -59,7 +62,7 @@ func TestPipelinePageRendersWithNoEntries(t *testing.T) {
 }
 
 func TestIndexRedirectsToPipeline(t *testing.T) {
-	srv := ui.NewServer(ui.Options{})
+	srv := ui.NewServer(t.Context(), ui.Options{})
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 	require.Equal(t, http.StatusFound, rec.Code)
@@ -67,7 +70,7 @@ func TestIndexRedirectsToPipeline(t *testing.T) {
 }
 
 func TestPipelineEventsStreamsServerSentEvents(t *testing.T) {
-	srv := ui.NewServer(ui.Options{Entries: func(context.Context) []pipeline.Entry {
+	srv := ui.NewServer(t.Context(), ui.Options{Entries: func(context.Context) []pipeline.Entry {
 		return []pipeline.Entry{{Title: "The Shawshank Redemption", Stage: pipeline.StageDownloading, Percent: 42}}
 	}})
 
@@ -107,4 +110,24 @@ func TestPipelineEventsStreamsServerSentEvents(t *testing.T) {
 	require.Contains(t, joined, "Shawshank")
 	require.NotContains(t, joined, `"title"`)
 	require.NotContains(t, joined, `"stage"`)
+}
+
+// TestNewServerWarnsThroughTheContextLogger covers the removal of
+// ui.Server's *slog.Logger field (CLAUDE.md: "no logger struct fields").
+//
+// The auth warning is the one line this service logs outside a request, so
+// it is the one that would have justified keeping a field. It does not:
+// NewServer takes a ctx for it and keeps nothing. Everything else logs
+// through logging.FromContext(r.Context()), which ui.Run installs via the
+// http.Server's BaseContext and which degrades to the discard logger under
+// httptest -- the designed behaviour, and why the tests above can call
+// NewServer with a bare context and see no output.
+func TestNewServerWarnsThroughTheContextLogger(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := logging.NewContext(t.Context(), slog.New(slog.NewJSONHandler(&buf, nil)))
+
+	ui.NewServer(ctx, ui.Options{})
+
+	require.Contains(t, buf.String(), "no built-in authentication",
+		"NewServer must log the §A3.5 warning through the logger on its context")
 }

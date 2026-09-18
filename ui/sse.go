@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/pipeline"
 	"github.com/mediactl/clustarr/ui/views"
 )
@@ -87,7 +88,7 @@ func (s *Server) writePipelineEvent(w http.ResponseWriter, ctx context.Context) 
 
 	var fragment bytes.Buffer
 	if err := views.PipelineRows(entries).Render(ctx, &fragment); err != nil {
-		s.logger.Error("render pipeline rows for sse", "error", err)
+		logging.FromContext(ctx).Error("render pipeline rows for sse", "error", err)
 		return false
 	}
 

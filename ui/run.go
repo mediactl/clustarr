@@ -26,7 +26,6 @@ import (
 	"time"
 
 	"github.com/mediactl/clustarr/pkg/obs"
-	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
 // shutdownGrace is how long Run waits for in-flight requests -- including an
@@ -55,11 +54,8 @@ func Run(ctx context.Context, o Options) error {
 		return fmt.Errorf("ui: %w", err)
 	}
 	defer shutdown()
-	if o.Logger == nil {
-		o.Logger = logging.FromContext(ctx)
-	}
 
-	srv := NewServer(o)
+	srv := NewServer(ctx, o)
 	httpSrv := &http.Server{
 		Addr:              o.BindAddress,
 		Handler:           srv.Handler(),

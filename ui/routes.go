@@ -20,11 +20,12 @@ package ui
 import (
 	"net/http"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/ui/views"
 )
 
 // routes builds the route table. It is a method so handlers can close over
-// s.opts and s.logger without package-level state.
+// s.opts without package-level state.
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 
@@ -58,6 +59,6 @@ func (s *Server) handlePipeline(w http.ResponseWriter, r *http.Request) {
 	entries := s.opts.Entries(r.Context())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.Pipeline(entries).Render(r.Context(), w); err != nil {
-		s.logger.Error("render pipeline page", "error", err)
+		logging.FromContext(r.Context()).Error("render pipeline page", "error", err)
 	}
 }
