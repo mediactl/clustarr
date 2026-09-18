@@ -117,7 +117,7 @@ func (p *Provider) Search(ctx context.Context, q subtitles.Query) ([]subtitles.C
 		tracing.RecordError(span, err)
 		return nil, fmt.Errorf("subtitles: opensubtitlescom search: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		err := statusToProviderError(p.Name(), resp)
 		tracing.RecordError(span, err)
@@ -194,7 +194,7 @@ func (p *Provider) Download(ctx context.Context, c subtitles.Candidate) ([]byte,
 		tracing.RecordError(span, err)
 		return nil, "", fmt.Errorf("subtitles: opensubtitlescom download: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		err := statusToProviderError(p.Name(), resp)
 		tracing.RecordError(span, err)
@@ -215,7 +215,7 @@ func (p *Provider) Download(ctx context.Context, c subtitles.Candidate) ([]byte,
 		tracing.RecordError(span, err)
 		return nil, "", fmt.Errorf("subtitles: opensubtitlescom fetch link: %w", err)
 	}
-	defer fileResp.Body.Close()
+	defer func() { _ = fileResp.Body.Close() }()
 	raw, err := io.ReadAll(fileResp.Body)
 	if err != nil {
 		return nil, "", fmt.Errorf("subtitles: opensubtitlescom read body: %w", err)

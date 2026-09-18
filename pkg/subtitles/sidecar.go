@@ -53,10 +53,10 @@ func (Writer) Write(ctx context.Context, path string, content []byte) error {
 		return fmt.Errorf("subtitles: create temp file in %s: %w", dir, err)
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName) // no-op once the rename below succeeds
+	defer func() { _ = os.Remove(tmpName) }() // no-op once the rename below succeeds
 
 	if _, err := tmp.Write(content); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("subtitles: write %s: %w", tmpName, err)
 	}
 	if err := tmp.Close(); err != nil {

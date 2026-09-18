@@ -117,7 +117,7 @@ func (p *Provider) Search(ctx context.Context, q subtitles.Query) ([]subtitles.C
 		tracing.RecordError(span, err)
 		return nil, fmt.Errorf("subtitles: gestdown search: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusLocked { // 423 "refreshing, retry in 30s" — research note §4.2, gestdown.py's _retry_on_423
 		err := &subtitles.ProviderError{Provider: p.Name(), Kind: subtitles.KindServiceUnavailable, RetryAfter: 30 * time.Second}
 		tracing.RecordError(span, err)
@@ -174,7 +174,7 @@ func (p *Provider) Download(ctx context.Context, c subtitles.Candidate) ([]byte,
 		tracing.RecordError(span, err)
 		return nil, "", fmt.Errorf("subtitles: gestdown download: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		err := &subtitles.ProviderError{Provider: p.Name(), Kind: subtitles.KindServiceUnavailable, Err: fmt.Errorf("http %d", resp.StatusCode)}
 		tracing.RecordError(span, err)

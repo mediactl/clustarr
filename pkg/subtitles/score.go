@@ -56,6 +56,7 @@ var episodeWeights = map[string]int{
 	MatchSource: 25, MatchReleaseGroup: 20, MatchAudioCodec: 1, MatchResolution: 1,
 	MatchVideoCodec: 1, MatchHearingImpaired: 1, MatchStreamingService: 1,
 }
+
 var movieWeights = map[string]int{
 	MatchHash: 179, MatchTitle: 60, MatchYear: 40, MatchSource: 30, MatchEdition: 30,
 	MatchReleaseGroup: 15, MatchAudioCodec: 1, MatchResolution: 1, MatchVideoCodec: 1,

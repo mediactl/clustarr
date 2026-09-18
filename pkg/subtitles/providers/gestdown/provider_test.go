@@ -39,7 +39,7 @@ func TestSearchByTVDBSeasonEpisodeLanguage(t *testing.T) {
 	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
-		w.Write(fixture)
+		_, _ = w.Write(fixture)
 	}))
 	defer srv.Close()
 
@@ -65,7 +65,7 @@ func TestDownloadFetchesTheDownloadURI(t *testing.T) {
 	const srtBody = "1\n00:00:01,000 --> 00:00:02,000\nHi.\n"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/subtitles/download/abc123" {
-			w.Write([]byte(srtBody))
+			_, _ = w.Write([]byte(srtBody))
 			return
 		}
 		http.NotFound(w, r)

@@ -39,6 +39,7 @@ func (f fakeProvider) HIVerifiable() bool                   { return f.caps.Hash
 func (f fakeProvider) Search(context.Context, subtitles.Query) ([]subtitles.Candidate, error) {
 	return nil, nil
 }
+
 func (f fakeProvider) Download(context.Context, subtitles.Candidate) ([]byte, string, error) {
 	return nil, "", nil
 }

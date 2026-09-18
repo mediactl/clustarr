@@ -53,10 +53,10 @@ func TestSearchSendsMoviehashIDsLanguagesAndHIParams(t *testing.T) {
 	srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/login":
-			w.Write(readFixture(t, "login.json"))
+			_, _ = w.Write(readFixture(t, "login.json"))
 		case "/subtitles":
 			gotQuery = r.URL.Query()
-			w.Write(readFixture(t, "search.json"))
+			_, _ = w.Write(readFixture(t, "search.json"))
 		default:
 			http.NotFound(w, r)
 		}
@@ -92,10 +92,10 @@ func TestSearchMapsForcedAndHILangKeysToHearingImpairedAndForeignPartsOnly(t *te
 	srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/login":
-			w.Write(readFixture(t, "login.json"))
+			_, _ = w.Write(readFixture(t, "login.json"))
 		case "/subtitles":
 			queries = append(queries, r.URL.Query())
-			w.Write(readFixture(t, "search.json"))
+			_, _ = w.Write(readFixture(t, "search.json"))
 		}
 	})
 	p := opensubtitlescom.New(opensubtitlescom.Config{APIKey: "k", Username: "u", Password: "p", Endpoint: srv.URL})
@@ -117,12 +117,12 @@ func TestDownloadFetchesTheLinkedFileAndReturnsItsName(t *testing.T) {
 	srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/login":
-			w.Write(readFixture(t, "login.json"))
+			_, _ = w.Write(readFixture(t, "login.json"))
 		case r.URL.Path == "/download" && r.Method == http.MethodPost:
 			fixture := strings.Replace(string(readFixture(t, "download.json")), "REPLACED_AT_TEST_TIME", "http://"+r.Host+"/dl/abcdefgh", 1)
-			w.Write([]byte(fixture))
+			_, _ = w.Write([]byte(fixture))
 		case r.URL.Path == "/dl/abcdefgh":
-			w.Write([]byte(srtBody))
+			_, _ = w.Write([]byte(srtBody))
 		default:
 			http.NotFound(w, r)
 		}
@@ -139,10 +139,10 @@ func TestDownloadReturnsATypedQuotaExceededErrorOn406(t *testing.T) {
 	srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/login":
-			w.Write(readFixture(t, "login.json"))
+			_, _ = w.Write(readFixture(t, "login.json"))
 		case "/download":
 			w.WriteHeader(http.StatusNotAcceptable)
-			w.Write(readFixture(t, "quota_exceeded_406.json"))
+			_, _ = w.Write(readFixture(t, "quota_exceeded_406.json"))
 		}
 	})
 	p := opensubtitlescom.New(opensubtitlescom.Config{APIKey: "k", Username: "u", Password: "p", Endpoint: srv.URL})
@@ -159,11 +159,11 @@ func TestDownloadReturnsATypedRateLimitedErrorOn429WithRetryAfter(t *testing.T) 
 	srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/login":
-			w.Write(readFixture(t, "login.json"))
+			_, _ = w.Write(readFixture(t, "login.json"))
 		case "/download":
 			w.Header().Set("Retry-After", "5")
 			w.WriteHeader(http.StatusTooManyRequests)
-			w.Write([]byte(`{"message":"Too many requests"}`))
+			_, _ = w.Write([]byte(`{"message":"Too many requests"}`))
 		}
 	})
 	p := opensubtitlescom.New(opensubtitlescom.Config{APIKey: "k", Username: "u", Password: "p", Endpoint: srv.URL})

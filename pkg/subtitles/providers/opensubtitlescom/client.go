@@ -119,7 +119,7 @@ func (p *Provider) EnsureLoggedIn(ctx context.Context) error {
 		tracing.RecordError(span, err)
 		return fmt.Errorf("subtitles: opensubtitlescom login: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		err := statusToProviderError(p.Name(), resp)

@@ -40,7 +40,7 @@ func TestLoginCachesTheTokenAndDoesNotReLoginOnASecondCall(t *testing.T) {
 			loginCalls++
 			assert.Equal(t, "test-api-key", r.Header.Get("Api-Key"))
 			w.Header().Set("Content-Type", "application/json")
-			w.Write(fixture)
+			_, _ = w.Write(fixture)
 			return
 		}
 		http.NotFound(w, r)

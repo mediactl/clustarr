@@ -61,8 +61,11 @@ func kindOf(err error) (string, bool) {
 	return "", false
 }
 
-func IsQuotaExceeded(err error) bool { k, ok := kindOf(err); return ok && k == KindDownloadLimitExceeded }
-func IsRateLimited(err error) bool   { k, ok := kindOf(err); return ok && k == KindTooManyRequests }
+func IsQuotaExceeded(err error) bool {
+	k, ok := kindOf(err)
+	return ok && k == KindDownloadLimitExceeded
+}
+func IsRateLimited(err error) bool { k, ok := kindOf(err); return ok && k == KindTooManyRequests }
 
 // defaultDurations is spec §6.5 / research note §10's verbatim table.
 var defaultDurations = map[string]time.Duration{
