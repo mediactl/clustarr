@@ -1,0 +1,7 @@
+ V....D libx265              libx265 H.265 / HEVC (codec hevc)
+ V....D hevc_amf             AMD AMF HEVC encoder (codec hevc)
+ V....D hevc_nvenc           NVIDIA NVENC hevc encoder (codec hevc)
+ V..... hevc_qsv             HEVC (Intel Quick Sync Video acceleration) (codec hevc)
+ V..... hevc_v4l2m2m         V4L2 mem2mem HEVC encoder wrapper (codec hevc)
+ V....D hevc_vaapi           H.265/HEVC (VAAPI) (codec hevc)
+ V....D hevc_vulkan          H.265/HEVC (Vulkan) (codec hevc)
