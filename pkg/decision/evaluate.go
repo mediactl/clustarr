@@ -147,15 +147,27 @@ func buildRankKey(p quality.Profile, o Options, t Target, parsed *release.Parsed
 	return key
 }
 
+// preferLargestRatio is how close PrefMBPerMin must sit to MaxMBPerMin before
+// the pair is read as TRaSH's "no effective ceiling, take the biggest" sentinel
+// rather than a real target. The real tables sit at 0.9995 (movies and anime,
+// 1999/2000) and 0.9950 (series, 995/1000), while an ordinary profile's
+// preferred size is far below its max, so 0.99 separates them with room to
+// spare. An absolute tolerance does NOT work here: `Pref >= Max-1` matches
+// 1999/2000 but misses 995/1000.
+const preferLargestRatio = 0.99
+
 // preferLargest reports whether q's preferred size is TRaSH's own "biggest"
 // sentinel rather than a real target: the shipped tables set PrefMBPerMin
-// one below MaxMBPerMin (1999/2000 movies, 995/1000 series+anime) to mean
-// exactly that (docs/research/quality.md §2.2: `"2000" is the UI value for
-// unlimited, 1999 preferred = "biggest"`). A profile's SizeLimits override
-// that sets a materially lower preferred value is a real target and takes
-// the closest-to-preferred branch instead.
+// just below MaxMBPerMin (1999/2000 movies and anime, 995/1000 series) to
+// mean exactly that (docs/research/quality.md §2.2: `"2000" is the UI value
+// for unlimited, 1999 preferred = "biggest"`). A profile's SizeLimits
+// override that sets a materially lower preferred value is a real target
+// and takes the closest-to-preferred branch instead.
 func preferLargest(sl quality.SizeLimit) bool {
-	return sl.MaxMBPerMin == 0 || sl.PrefMBPerMin >= sl.MaxMBPerMin-1
+	if sl.MaxMBPerMin == 0 {
+		return true // unlimited
+	}
+	return sl.PrefMBPerMin >= sl.MaxMBPerMin*preferLargestRatio
 }
 
 func abs64(n int64) int64 {
