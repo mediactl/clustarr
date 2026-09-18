@@ -25,8 +25,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // to the metadata gateway (Task C5, field manager
 // k8s.ManagerCatalogarrWorker). The per-Episode provider fields
 // (title/overview/airDate/tvdbID/absoluteNumber/runtimeMinutes) are written
-// by this reconciler too, but under the same k8s.ManagerCatalogarr field
-// manager as the Episode controller's own Phase/Conditions write -- the two
-// stay on disjoint fields by convention, not by a field-manager split (see
-// the episode package's doc comment).
+// by this reconciler too, under the distinct k8s.ManagerCatalogarrSeries
+// field manager -- not k8s.ManagerCatalogarr, which the Episode controller
+// uses for that Episode's own Phase/Conditions/HasFile/etc. Two writers on
+// one object cannot safely share one field manager name: server-side apply
+// replaces a manager's whole ownership set on every apply, so an apply that
+// omits a field the SAME manager previously sent releases it, silently
+// erasing the other writer's fields the next time either side reconciles.
+// This was found empirically during this task's development (see
+// k8s.ManagerCatalogarrSeries's own doc comment and CLAUDE.md) and is why
+// the split is a distinct manager, not a same-manager convention.
 package series

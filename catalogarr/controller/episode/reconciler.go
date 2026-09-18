@@ -281,42 +281,18 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	// not called -- see the identical rationale in the movie package's
 	// reconciler.go.
 
-	// Pass through the Series reconciler's own fields verbatim (same field
-	// manager, k8s.ManagerCatalogarr, disjoint concerns). This is load-
-	// bearing, not decorative: server-side apply tracks one field set PER
-	// MANAGER NAME, not per call site, so an apply that omits a field this
-	// manager previously sent RELEASES it (proven empirically against a
-	// real envtest apiserver during this task's development, the same
-	// mechanism pkg/k8s/patch_envtest_test.go's
-	// TestPatchStatusReleasesItsOwnFieldsOnly demonstrates for a single
-	// writer). Without this, this reconciler's own patch would silently
-	// wipe the title/overview/airDate/etc the Series reconciler just wrote
-	// on its next pass, and vice versa. Conditions is exempt: it is a
-	// +listType=map keyed by type, and SSA merges list entries by that key
-	// regardless of which manager sent which entry, so it does not need
-	// re-asserting here.
-	if ep.Status.TvdbID != 0 {
-		statusAC = statusAC.WithTvdbID(ep.Status.TvdbID)
-	}
-	if ep.Status.Title != "" {
-		statusAC = statusAC.WithTitle(ep.Status.Title)
-	}
-	if ep.Status.Overview != "" {
-		statusAC = statusAC.WithOverview(ep.Status.Overview)
-	}
-	if ep.Status.AirDate != nil {
-		statusAC = statusAC.WithAirDate(*ep.Status.AirDate)
-	}
-	if ep.Status.RuntimeMinutes != 0 {
-		statusAC = statusAC.WithRuntimeMinutes(ep.Status.RuntimeMinutes)
-	}
-	if ep.Status.AbsoluteNumber != nil {
-		statusAC = statusAC.WithAbsoluteNumber(*ep.Status.AbsoluteNumber)
-	}
-	if ep.Status.FinaleType != "" {
-		statusAC = statusAC.WithFinaleType(ep.Status.FinaleType)
-	}
-
+	// This reconciler owns exactly Phase/Conditions/HasFile/FileRef/
+	// FileQuality/FileFormatScore/CutoffMet/ActiveDownloadRef/
+	// ObservedGeneration under k8s.ManagerCatalogarr. The Series reconciler
+	// writes this Episode's provider-sourced fields
+	// (Title/Overview/AirDate/TvdbID/RuntimeMinutes/AbsoluteNumber/
+	// FinaleType) under the distinct k8s.ManagerCatalogarrSeries, so no
+	// pass-through of those fields is needed here: server-side apply tracks
+	// ownership per (manager name, field), and two different manager names
+	// on the same object never collide or release each other's fields --
+	// only two writers sharing ONE manager name do that (see this
+	// package's doc comment and k8s.ManagerCatalogarrSeries's own comment
+	// for the empirical finding that drove this split).
 	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Episode(ep.Name, ep.Namespace).WithStatus(statusAC)); err != nil {
 		return ctrl.Result{}, err
 	}

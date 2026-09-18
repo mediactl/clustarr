@@ -107,10 +107,13 @@ type bus interface {
 //
 // The per-Episode provider fields this reconciler writes
 // (title/overview/airDate/tvdbID/absoluteNumber/runtimeMinutes) are applied
-// under the same k8s.ManagerCatalogarr field manager the Episode
-// controller's own reconciler uses for Phase/Conditions -- the two stay on
-// disjoint fields by convention (documented on the episode package's
-// Reconciler too), the same way grabarr/grabarr-engine split Download.
+// under the distinct k8s.ManagerCatalogarrSeries field manager, never
+// k8s.ManagerCatalogarr (the Episode controller's own reconciler uses that
+// one for Phase/Conditions/HasFile/etc). Two field manager NAMES, the same
+// way grabarr/grabarr-engine split Download -- not the same name on
+// disjoint fields by convention, which server-side apply does not actually
+// keep disjoint (a same-manager apply that omits a field the manager
+// previously sent releases it; see ManagerCatalogarrSeries's doc comment).
 type Reconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
@@ -432,36 +435,18 @@ func (r *Reconciler) ensureEpisode(ctx context.Context, s *catalogv1alpha1.Serie
 		statusAC = statusAC.WithAbsoluteNumber(*d.AbsoluteNumber)
 	}
 
-	// Pass through the Episode reconciler's own fields verbatim (same field
-	// manager, k8s.ManagerCatalogarr, disjoint concerns). Load-bearing, not
-	// decorative -- see the identical, longer comment in the episode
-	// package's reconciler.go for why: server-side apply tracks one field
-	// set per manager name, not per call site, so omitting a field this
-	// manager previously sent releases it. ep here is either the
-	// just-Get'd existing Episode (its Status already holds whatever the
-	// Episode reconciler last computed) or, for a brand-new Episode, a
-	// zero Status -- in which case every guard below is false and there is
-	// nothing to preserve yet.
-	if ep.Status.ObservedGeneration != 0 {
-		statusAC = statusAC.WithObservedGeneration(ep.Status.ObservedGeneration)
-	}
-	if ep.Status.Phase != "" {
-		statusAC = statusAC.WithPhase(ep.Status.Phase)
-	}
-	statusAC = statusAC.WithHasFile(ep.Status.HasFile)
-	if ep.Status.FileRef != nil {
-		statusAC = statusAC.WithFileRef(*ep.Status.FileRef)
-	}
-	if ep.Status.FileQuality != nil {
-		statusAC = statusAC.WithFileQuality(*ep.Status.FileQuality)
-	}
-	statusAC = statusAC.WithFileFormatScore(ep.Status.FileFormatScore)
-	statusAC = statusAC.WithCutoffMet(ep.Status.CutoffMet)
-	if ep.Status.ActiveDownloadRef != nil {
-		statusAC = statusAC.WithActiveDownloadRef(*ep.Status.ActiveDownloadRef)
-	}
-
-	_, err = k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Episode(d.Name, s.Namespace).WithStatus(statusAC))
+	// k8s.ManagerCatalogarrSeries, not k8s.ManagerCatalogarr: this reconciler
+	// writes an Episode it owns but does not itself compute the phase for,
+	// and server-side apply replaces a manager's whole ownership set on
+	// every apply -- two writers sharing one manager name on one object
+	// would silently release each other's fields (confirmed empirically
+	// against a real apiserver during this task's development; see
+	// CLAUDE.md and k8s.ManagerCatalogarrSeries's own doc comment). A
+	// distinct manager makes the split native: no re-assertion of the
+	// Episode reconciler's own fields needed here, and if the two ever
+	// genuinely claim the same field the apiserver reports a loud conflict
+	// instead of losing data quietly.
+	_, err = k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarrSeries, catalogac.Episode(d.Name, s.Namespace).WithStatus(statusAC))
 	return err
 }
 
