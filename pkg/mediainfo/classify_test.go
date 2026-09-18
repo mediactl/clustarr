@@ -95,3 +95,12 @@ func TestVideoDynamicRangeType(t *testing.T) {
 		assert.Equal(t, want, VideoDynamicRangeType(in), in)
 	}
 }
+
+func TestAudioChannelsString(t *testing.T) {
+	assert.Equal(t, "1.0", AudioChannelsString("mono", 1))
+	assert.Equal(t, "2.0", AudioChannelsString("stereo", 2))
+	assert.Equal(t, "5.1", AudioChannelsString("5.1", 6))
+	assert.Equal(t, "5.1", AudioChannelsString("5.1(side)", 6))
+	assert.Equal(t, "7.1", AudioChannelsString("7.1(wide)", 8))
+	assert.Equal(t, "3.0", AudioChannelsString("", 3))
+}

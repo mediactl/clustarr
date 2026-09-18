@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package mediainfo
 
 import (
+	"fmt"
 	"math"
 	"path/filepath"
 	"strconv"
@@ -137,4 +138,25 @@ var videoDynamicRangeType = map[commonv1.HdrFormat]string{
 // {MediaInfo VideoDynamicRangeType} token expects.
 func VideoDynamicRangeType(hdr commonv1.HdrFormat) string {
 	return videoDynamicRangeType[hdr]
+}
+
+// AudioChannelsString renders a channel layout as the *arr display
+// string ("5.1", "7.1", "2.0"). It prefers ffprobe's channel_layout,
+// stripping any positional suffix ("5.1(side)" -> "5.1"; see
+// docs/research/transcode.md §2.2), and falls back to "<channels>.0"
+// when the layout is empty or unrecognized.
+func AudioChannelsString(channelLayout string, channels int32) string {
+	switch channelLayout {
+	case "mono":
+		return "1.0"
+	case "stereo":
+		return "2.0"
+	}
+	if i := strings.IndexByte(channelLayout, '('); i >= 0 {
+		channelLayout = channelLayout[:i]
+	}
+	if channelLayout != "" {
+		return channelLayout
+	}
+	return fmt.Sprintf("%d.0", channels)
 }
