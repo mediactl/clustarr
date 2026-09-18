@@ -43,12 +43,22 @@ import (
 )
 
 // testMessage is the minimal events.Message Handle needs: it only reads the
-// envelope and returns, letting the bus settle the delivery.
-type testMessage struct{ env *events.Envelope }
+// envelope and the delivery count, and lets the bus settle the delivery.
+type testMessage struct {
+	env *events.Envelope
+	// attempt is the 1-based delivery count; zero reads as the first
+	// delivery, which is what a bus hands a fresh message.
+	attempt uint64
+}
 
-func (m testMessage) Envelope() *events.Envelope               { return m.env }
-func (m testMessage) Subject() string                          { return "" }
-func (m testMessage) Attempt() uint64                          { return 1 }
+func (m testMessage) Envelope() *events.Envelope { return m.env }
+func (m testMessage) Subject() string            { return "" }
+func (m testMessage) Attempt() uint64 {
+	if m.attempt == 0 {
+		return 1
+	}
+	return m.attempt
+}
 func (m testMessage) Ack(context.Context) error                { return nil }
 func (m testMessage) Nak(context.Context, time.Duration) error { return nil }
 func (m testMessage) Term(context.Context, string) error       { return nil }
@@ -331,25 +341,6 @@ func TestWorkerHandleDiscardsWhatItCannotServe(t *testing.T) {
 				return e
 			},
 		},
-		{
-			name: "an interactive task whose Search is already TTL-deleted",
-			env: func() *events.Envelope {
-				return f.envelope(t, schema.SearchTask{
-					MediaRef:  commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
-					Reason:    schema.SearchReasonInteractive,
-					SearchRef: &schema.Ref{Namespace: f.ns, Name: "already-gone"},
-				})
-			},
-		},
-		{
-			name: "a target that no longer exists",
-			env: func() *events.Envelope {
-				return f.envelope(t, schema.SearchTask{
-					MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "deleted-movie"},
-					Reason:   schema.SearchReasonMissing,
-				})
-			},
-		},
 	}
 
 	for _, tc := range tests {
@@ -358,6 +349,51 @@ func TestWorkerHandleDiscardsWhatItCannotServe(t *testing.T) {
 			require.Error(t, err)
 			var de *events.DiscardError
 			require.ErrorAs(t, err, &de, "a task that can never succeed must be dead-lettered, not retried forever")
+		})
+	}
+}
+
+// TestWorkerHandleRetriesAMissingObjectOnceThenDiscards pins the cache-warm
+// race: the producer writes an object through the apiserver and publishes, and
+// the worker reads it back through a watch, so a first miss may just mean the
+// informer is a beat behind. Dead-lettering there would kill a good search AND
+// strand its Search object in Running until the controller times it out.
+func TestWorkerHandleRetriesAMissingObjectOnceThenDiscards(t *testing.T) {
+	ctx := context.Background()
+	f := newWorkerFixture(t, "worker-missing")
+
+	tests := []struct {
+		name string
+		task schema.SearchTask
+	}{
+		{
+			name: "an interactive task whose Search is already TTL-deleted",
+			task: schema.SearchTask{
+				MediaRef:  commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
+				Reason:    schema.SearchReasonInteractive,
+				SearchRef: &schema.Ref{Namespace: f.ns, Name: "already-gone"},
+			},
+		},
+		{
+			name: "a target that no longer exists",
+			task: schema.SearchTask{
+				MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "deleted-movie"},
+				Reason:   schema.SearchReasonMissing,
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			env := f.envelope(t, tc.task)
+
+			err := f.worker.Handle(ctx, testMessage{env: env, attempt: 1})
+			var re *events.RetryError
+			require.ErrorAs(t, err, &re, "the first delivery must nak, not dead-letter")
+
+			err = f.worker.Handle(ctx, testMessage{env: env, attempt: 2})
+			var de *events.DiscardError
+			require.ErrorAs(t, err, &de, "a redelivery that still cannot find the object is dead-lettered")
 		})
 	}
 }

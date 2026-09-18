@@ -61,6 +61,18 @@ import (
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
 
+// cacheWarmRetry is how long to wait before looking again for an object a task
+// depends on that the worker's informer cache has not seen yet.
+//
+// The producer writes the object through the apiserver and then publishes; the
+// worker reads it back through a watch. Nothing orders those two, so a task can
+// legitimately arrive microseconds before the object does. Discarding on the
+// first miss would dead-letter a perfectly good search because a cache was a
+// beat behind -- and leave its Search stuck in Running until the controller's
+// timeout. One short retry closes the race; an object that is really gone is
+// discarded on the next delivery.
+const cacheWarmRetry = 2 * time.Second
+
 // EvaluateFunc is the seam onto pkg/decision.Evaluate. It exists so a test can
 // drive Handle's plumbing -- the snapshot, the RPC, the ranking, the two sinks
 // -- without also exercising the decision engine's own rule table, which has
@@ -186,9 +198,10 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		key := client.ObjectKey{Namespace: ns, Name: task.SearchRef.Name}
 		if err := w.Client.Get(ctx, key, srch); err != nil {
 			if apierrors.IsNotFound(err) {
-				// Searches are TTL-deleted; one that is already gone has
-				// nowhere to put results.
-				return events.Discard("Search object no longer exists", err)
+				// Searches are TTL-deleted; one that is really gone has
+				// nowhere to put results. See missingObject for why the
+				// first miss is retried instead.
+				return missingObject(m, "Search object no longer exists", err)
 			}
 			return fmt.Errorf("get Search %s: %w", key, err)
 		}
@@ -197,7 +210,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	snap, err := w.snapshot(ctx, ns, task.MediaRef)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			return events.Discard("target no longer exists", err)
+			return missingObject(m, "target no longer exists", err)
 		}
 		tracing.RecordError(span, err)
 		return err
@@ -215,7 +228,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		return err // already an events.RetryError from busSearchRPC, or a plain error -> backoff nak
 	}
 
-	opts, err := w.decisionOptions(ctx, ns, task, profile)
+	opts, err := w.decisionOptions(ctx, ns, task)
 	if err != nil {
 		return err
 	}
@@ -226,12 +239,22 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	ranked := RankAndCap(decisions, opts, int(req.Limit))
 
 	w.log(ctx).Info("search: decided",
-		"releases", len(rels), "approved", countApproved(decisions), "kept", len(ranked))
+		"releases", len(rels), "approved", countApproved(decisions), "kept", len(ranked),
+		"truncated", resp.Truncated)
 
 	if srch != nil {
 		return w.writeSearchStatus(ctx, srch, resp, ranked)
 	}
 	return w.sink().Deliver(ctx, task, ranked)
+}
+
+// missingObject settles a NotFound on an object this task depends on: retry
+// once to ride out an informer that has not caught up, then dead-letter.
+func missingObject(m events.Message, reason string, err error) error {
+	if m.Attempt() <= 1 {
+		return events.Retry(cacheWarmRetry, err)
+	}
+	return events.Discard(reason, err)
 }
 
 // namespaceOf resolves the namespace the task's objects live in. The envelope
@@ -295,7 +318,7 @@ func (w *Worker) buildRequest(task schema.SearchTask, snap itemSnapshot, srch *c
 // decisionOptions assembles pkg/decision's Options. PreferredProtocol is left
 // empty on purpose: pkg/decision falls back to the profile's own preferred
 // protocol, and there is no second source for it in this path.
-func (w *Worker) decisionOptions(ctx context.Context, ns string, task schema.SearchTask, _ quality.Profile) (decision.Options, error) {
+func (w *Worker) decisionOptions(ctx context.Context, ns string, task schema.SearchTask) (decision.Options, error) {
 	enabled, err := w.enabledProtocols(ctx, ns)
 	if err != nil {
 		return decision.Options{}, err
