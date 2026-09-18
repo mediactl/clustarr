@@ -1,0 +1,305 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package rssmatcher
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/catalogarr/worker/grab"
+	"github.com/mediactl/clustarr/pkg/decision"
+	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/metrics"
+	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/quality/catalogue"
+)
+
+// matchRetry is how long Handle waits before re-reading the catalog after a
+// failed List. It is short because the read is against the manager's cache and
+// a failure there is a blip, and because CLUSTARR_RELEASES is a high-volume
+// stream whose consumer holds only 256 in flight.
+const matchRetry = 5 * time.Second
+
+// grabRetry is how long Handle waits after a failed grab, matching the grab
+// worker's own figure.
+const grabRetry = 10 * time.Second
+
+// EvaluateFunc is pkg/decision.Evaluate's signature, injectable for tests.
+type EvaluateFunc func(
+	ctx context.Context,
+	t decision.Target,
+	p quality.Profile,
+	cat *catalogue.Catalogue,
+	rels []commonv1.ReleaseInfo,
+	o decision.Options,
+) []decision.Decision
+
+// Deps is everything the handler needs from the process around it.
+type Deps struct {
+	Client client.Client
+	Bus    events.Bus
+
+	// Catalogue is the resolved TRaSH custom-format corpus. Nil means
+	// catalogue.LoadedCatalogue().
+	Catalogue *catalogue.Catalogue
+
+	// Evaluate defaults to decision.Evaluate.
+	Evaluate EvaluateFunc
+
+	// Now is a seam for tests; nil means time.Now.
+	Now func() time.Time
+}
+
+func (d Deps) now() time.Time {
+	if d.Now != nil {
+		return d.Now()
+	}
+	return time.Now()
+}
+
+func (d Deps) catalogue() *catalogue.Catalogue {
+	if d.Catalogue != nil {
+		return d.Catalogue
+	}
+	return catalogue.LoadedCatalogue()
+}
+
+func (d Deps) evaluate() EvaluateFunc {
+	if d.Evaluate != nil {
+		return d.Evaluate
+	}
+	return decision.Evaluate
+}
+
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;episodes;delayprofiles;qualityprofiles,verbs=get;list;watch
+// +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch
+
+// Handler is the catalogarr-rss-matcher consumer.
+type Handler struct {
+	Deps Deps
+}
+
+// NewHandler returns a Handler over d.
+func NewHandler(d Deps) *Handler { return &Handler{Deps: d} }
+
+// Subscription is the catalogarr-rss-matcher durable consumer from §5's
+// table: the whole clustarr.rel.> firehose, AckWait 30s, MaxDeliver 6,
+// BackOff 1s/5s/30s/2m/10m, MaxAckPending 256. It is read from
+// events.Default() rather than restated so the tuning lives in one place.
+func (h *Handler) Subscription() events.Subscription {
+	spec, ok := events.Default().Consumer(events.ConsumerCatalogRSSMatcher)
+	if !ok {
+		// Unreachable: ConsumerCatalogRSSMatcher is in defaultConsumers().
+		// A zero Subscription fails Validate loudly at Subscribe time rather
+		// than silently consuming nothing.
+		return events.Subscription{}
+	}
+	return spec.Subscription()
+}
+
+// SetupWithManager registers the subscription as a manager.Runnable so it
+// starts with the manager and drains on shutdown. See the package doc for the
+// full registration C12 performs, including IndexFields.
+func (h *Handler) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
+	return mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		stop, err := bus.Subscribe(ctx, h.Subscription(), h.Handle)
+		if err != nil {
+			return fmt.Errorf("catalogarr: subscribe rss-matcher: %w", err)
+		}
+		defer stop()
+		<-ctx.Done()
+		return nil
+	}))
+}
+
+// Handle runs §8.7's per-release evaluation: match, decide, and hand an
+// approved release to the same grab path a search uses.
+//
+// Most releases match nothing. That is the expected case on a firehose, and it
+// acknowledges immediately without a single write.
+func (h *Handler) Handle(ctx context.Context, m events.Message) error {
+	ctx, span := tracing.Start(ctx, "rssmatcher.Handler.Handle")
+	defer span.End()
+
+	env := m.Envelope()
+	var rel schema.Release
+	if err := schema.Decode(env.Schema, env.Data, &rel); err != nil {
+		return events.Discard("rssmatcher: malformed Release", err)
+	}
+	// Every catalogarr consumer splits the envelope key on "/" for its
+	// namespace, and indexarr must follow the same convention on
+	// clustarr.rel.> -- "<namespace>/<indexerName>". Guessing a namespace
+	// instead would fan one indexer's releases across the whole cluster.
+	ns, _, ok := strings.Cut(env.Key, "/")
+	if !ok || ns == "" {
+		return events.Discard("rssmatcher: envelope key is not <namespace>/<indexerName>",
+			fmt.Errorf("key=%q", env.Key))
+	}
+	ctx = logging.With(ctx, "kind", string(rel.Kind), "namespace", ns, "indexer", rel.Info.IndexerRef)
+	log := logging.FromContext(ctx)
+
+	targets, err := Match(ctx, h.Deps.Client, ns, rel)
+	if err != nil {
+		return events.Retry(matchRetry, err)
+	}
+	if len(targets) == 0 {
+		return nil
+	}
+	log.Debug("rssmatcher: release matched", "targets", len(targets))
+
+	now := h.Deps.now()
+	blocklist := blocklistFor(ctx, h.Deps.Client, ns, now)
+	for _, ref := range targets {
+		if err := h.decideOne(ctx, ns, ref, rel, blocklist, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// decideOne evaluates the release against one matched item and, if it is
+// approved, hands it to grab.Decide -- the same entry point the search
+// worker's sink uses, which is what makes §8.7's "the same delay/lease/grab
+// path" literally true.
+func (h *Handler) decideOne(
+	ctx context.Context,
+	ns string,
+	ref commonv1.MediaRef,
+	rel schema.Release,
+	blocklist func(infohash, title string) bool,
+	now time.Time,
+) error {
+	log := logging.FromContext(ctx).With("item", ref.Name)
+
+	st, err := resolve(ctx, h.Deps.Client, ns, ref, now)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			// The item was deleted between the index lookup and this read.
+			log.Debug("rssmatcher: matched item no longer exists")
+			return nil
+		}
+		if errors.Is(err, grab.ErrUnsupportedKind) {
+			return nil
+		}
+		return events.Retry(matchRetry, err)
+	}
+	if !st.monitored {
+		return nil
+	}
+
+	profile, err := resolveQualityProfile(ctx, h.Deps.Client, st.qualityProfile, h.Deps.catalogue())
+	if err != nil {
+		// A missing or invalid profile is a configuration problem, not a
+		// transient one: retrying it six times and dead-lettering would bury
+		// one release per indexer row. Skipping this item and acknowledging
+		// keeps the firehose flowing; the next RSS row for the same item
+		// retries it for free once the profile is fixed.
+		log.Warn("rssmatcher: cannot resolve the quality profile; skipping this item", "error", err)
+		return nil
+	}
+	delaySpec, err := resolveDelayProfile(ctx, h.Deps.Client, ns, st.delayProfileRef, st.tags)
+	if err != nil {
+		return events.Retry(matchRetry, err)
+	}
+
+	input := decision.Target{
+		Kind:             ref.Kind,
+		Key:              events.MediaKey(string(ref.Kind), ns, ref.Name),
+		Monitored:        st.monitored,
+		Available:        st.available,
+		RuntimeMinutes:   st.runtimeMinutes,
+		OriginalLanguage: st.originalLanguage,
+		Current:          st.currentFile,
+		Queue:            queueFor(ctx, h.Deps.Client, ns, ref),
+		Blocklist:        blocklist,
+	}
+	opts := decisionOptions(ctx, h.Deps.Client, ns, delaySpec, rel)
+
+	decisions := h.Deps.evaluate()(ctx, input, profile, h.Deps.catalogue(), []commonv1.ReleaseInfo{rel.Info}, opts)
+	if len(decisions) == 0 || !decisions[0].Approved {
+		recordRejections(ref.Kind, decisions)
+		return nil
+	}
+
+	approved := decisions[0]
+	if err := grab.Decide(ctx,
+		grab.Deps{Client: h.Deps.Client, Bus: h.Deps.Bus, Now: h.Deps.Now},
+		profile,
+		delaySpec,
+		grab.Approved{
+			Namespace: ns,
+			Target:    commonv1.MediaRef{Kind: ref.Kind, Name: ref.Name},
+			Keys:      ref.Keys,
+			Release:   withScore(approved),
+			GrabbedBy: downloadv1alpha1.GrabSourceRSS,
+		}); err != nil {
+		if errors.Is(err, grab.ErrDuplicateGrab) {
+			// Another path got there first. Acknowledge: redelivering would
+			// only lose the same race again.
+			log.Debug("rssmatcher: already grabbed elsewhere")
+			return nil
+		}
+		if errors.Is(err, grab.ErrUnsupportedKind) {
+			return nil
+		}
+		return events.Retry(grabRetry, err)
+	}
+	return nil
+}
+
+// withScore folds the decision's resolved custom-format score and matched
+// format names back onto the release, so the Download, the pending entry and
+// the release.grabbed event all carry what the decision actually used rather
+// than whatever the indexer happened to report.
+func withScore(d decision.Decision) commonv1.ReleaseInfo {
+	rel := d.Release
+	rel.FormatScore = int32(d.Score)
+	if len(d.Matched) > 0 {
+		rel.MatchedFormats = d.Matched
+	}
+	return rel
+}
+
+// recordRejections reports why a matched release was turned down. The labels
+// are kind, decision and reason -- all bounded -- and never the release title
+// or the item name.
+func recordRejections(kind commonv1.MediaKind, ds []decision.Decision) {
+	for _, d := range ds {
+		if d.Approved {
+			continue
+		}
+		reason := string(commonv1.RejectionPermanent)
+		if d.TemporarilyRejected {
+			reason = string(commonv1.RejectionTemporary)
+		}
+		metrics.SearchDecisionsTotal.WithLabelValues(string(kind), "rejected", reason).Inc()
+	}
+}
