@@ -122,5 +122,25 @@ func (l *Limiter) SetConfig(key string, cfg Config) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.configs[key] = cfg
-	delete(l.buckets, key) // recreated lazily on next use with the new Config
+	if b, ok := l.buckets[key]; ok {
+		limit := rate.Limit(cfg.RPS)
+		if cfg.RPS <= 0 {
+			limit = rate.Inf
+		}
+		b.SetLimit(limit)
+		b.SetBurst(burstOrOne(cfg.Burst))
+		return
+	}
+	l.buckets[key] = newBucket(cfg)
+}
+
+// Remove drops key's bucket, so a future Wait/Allow recreates it from the
+// current default Config. Callers remove a key when its owning resource
+// (an Indexer, a DownloadClient) is deleted, so the map does not grow
+// without bound over the process lifetime.
+func (l *Limiter) Remove(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.buckets, key)
+	delete(l.configs, key)
 }

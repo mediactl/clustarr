@@ -57,3 +57,24 @@ func TestWaitReturnsWhenContextIsDone(t *testing.T) {
 	err := l.Wait(ctx, "key")
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
+
+func TestSetConfigAppliesInPlaceWithoutResettingAccumulatedTokens(t *testing.T) {
+	l := ratelimit.New(ratelimit.Config{RPS: 1000, Burst: 5})
+	// Spend nothing yet -- the bucket starts full at Burst=5. Reconfigure
+	// to a much smaller burst; x/time/rate.SetBurst cannot invent tokens
+	// that were never earned, but it must not error or drop the limiter.
+	l.SetConfig("key", ratelimit.Config{RPS: 1, Burst: 2})
+	require.True(t, l.Allow("key"))
+	require.True(t, l.Allow("key"))
+	require.False(t, l.Allow("key"), "burst is now 2")
+}
+
+func TestRemoveDropsTheBucketSoItIsRecreatedFromDefaults(t *testing.T) {
+	l := ratelimit.New(ratelimit.Config{RPS: 1000, Burst: 1})
+	l.SetConfig("key", ratelimit.Config{RPS: 0.0001, Burst: 1})
+	require.True(t, l.Allow("key"))
+	require.False(t, l.Allow("key"), "the low-RPS config's single token is spent")
+
+	l.Remove("key")
+	require.True(t, l.Allow("key"), "removed key falls back to the generous default config")
+}
