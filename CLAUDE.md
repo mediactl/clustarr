@@ -97,6 +97,13 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
 - **controller-gen v0.22.0's `applyconfiguration` generator ignores output rules**
   — it writes next to the types regardless of `output:...:dir`. The Makefile
   documents the workaround.
+- **Server-side apply is not additive across two `Apply` calls from the same
+  field manager.** A second apply that omits a field the first one set *removes*
+  it, because the manager's ownership set is replaced per apply, not merged. A
+  controller that applies spec fields and then applies labels in the same
+  reconcile will silently erase the first write. Build one apply configuration
+  carrying everything that manager owns, and re-assert previously-owned fields
+  on every subsequent apply. Found in Phase C, the hard way.
 - **Never run `go get` or `go mod tidy` from parallel agents.** They corrupt
   `go.mod`. Add every dependency serially up front, then tell workers not to touch
   it.
