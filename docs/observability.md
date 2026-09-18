@@ -23,7 +23,7 @@ collector that is receiving exactly what it should: nothing.
 | `/metrics` endpoint and the 21 registered series | **Wired.** `pkg/obs/metrics.Register` runs once per process, so every series is exposed and scrapeable. Nothing increments the domain series yet, so most read `0`. | M1–M5, as each controller lands |
 | `TracerProvider`, OTLP exporter, `--tracing-*` flags | **Wired.** `pkg/obs/tracing.Setup` installs the provider and the W3C propagator. | — |
 | Spans around `Reconcile`, work handlers, provider calls, `ffmpeg` | **Not yet.** `tracing.Start` has no production call sites; there is nothing to sample, so an enabled exporter sends nothing. | M1–M5, with the code each span wraps |
-| Trace propagation across the bus (`Clustarr-Trace`) | **Not yet.** `pkg/events` defines the header and `tracing.Inject`/`Extract` implement it, but no publish or subscribe path calls them. | Phase C, inside `pkg/events` so no caller can forget |
+| Trace propagation across the bus (`Clustarr-Trace`) | **Wired inside `pkg/events`.** Both `natsbus.Bus` and `membus.Bus` take an `events.Hooks{BeforePublish, AfterReceive}` through a `WithHooks` constructor option and call it around every publish and every receive, before the handler runs; a nil hook (the default) is a no-op, so a bus built with none behaves exactly as before. `pkg/obs.BusHooks()` returns `events.Hooks{BeforePublish: tracing.Inject, AfterReceive: tracing.Extract}` unchanged — `pkg/obs/bootstrap_test.go`'s `TestBusHooksCarryOneTraceAcrossPublishAndConsume` proves a span started before a publish is the parent of the span the consumer starts after receiving, across an in-memory bus. **Not yet true in production**, though: the one call site that builds the real bus, `pkg/k8s.ConnectBus`, still calls `natsbus.New(nc)` with no hooks, so no service passes `BusHooks()` yet. | Phase C lands the mechanism inside `pkg/events`, so no future publisher or consumer can forget it. Wiring `pkg/k8s.ConnectBus` to pass `natsbus.WithHooks(obs.BusHooks())`, and so exercising the first real end-to-end trace, is M1 per amendment §A4. |
 | `/healthz`, `/readyz` and the `ping` check | **Wired** on every service. | — |
 | Per-role readiness checks | **Partly.** Only the JetStream check (every service) and `importarr`'s `/data` check exist; the rest of the table below is design. | M2–M5 |
 
@@ -127,11 +127,21 @@ started in one service then becomes the parent of a span started by the service
 that consumes the message it published — one trace, five services, zero
 correlation IDs to thread through code by hand.
 
-**Not wired yet.** Nothing outside `pkg/obs/tracing`'s own tests calls `Inject`
-or `Extract`, and no publish or subscribe path sets or reads the header, so
-today a trace ends at the process that started it. Wiring it belongs inside
-`pkg/events` — a publish/subscribe hook, so no caller can forget — and Phase C
-owns it as a task of its own.
+**The mechanism is wired; the production call site is not, yet.** `natsbus.Bus`
+and `membus.Bus` both take an `events.Hooks{BeforePublish, AfterReceive}`
+through a `WithHooks` constructor option and call it around every publish and
+every receive — `BeforePublish` before the envelope is encoded onto the wire,
+`AfterReceive` before the handler, with its returned context becoming the
+handler's — so no publish or subscribe path can forget to propagate the
+header once its bus is built with hooks installed. `pkg/obs.BusHooks()` wires
+`Inject` and `Extract` into that shape unchanged, and
+`pkg/obs/bootstrap_test.go` proves a trace crosses a publish and a consume
+over an in-memory bus. What is still missing is the one place a real bus gets
+built: `pkg/k8s.ConnectBus` calls `natsbus.New(nc)` with no `WithHooks` option,
+so no running service passes `BusHooks()` to its bus yet, and today a trace
+still ends at the process that started it in production. Amendment §A4
+assigns wiring that call site, and so the first end-to-end exercise of one
+trace, to M1.
 
 Sampling defaults to parent-based with a configurable ratio; whatever the
 ratio, a span that ends in an error is always sampled. An operator chasing one

@@ -81,6 +81,25 @@ func TestBusContract(t *testing.T) {
 	})
 }
 
+func TestHooksContract(t *testing.T) {
+	contracttest.RunHooksContract(t,
+		func() events.Bus {
+			bus, err := natsbus.New(connect(t))
+			if err != nil {
+				t.Fatalf("natsbus.New: %v", err)
+			}
+			return bus
+		},
+		func(h events.Hooks) events.Bus {
+			bus, err := natsbus.New(connect(t), natsbus.WithHooks(h))
+			if err != nil {
+				t.Fatalf("natsbus.New: %v", err)
+			}
+			return bus
+		},
+	)
+}
+
 // TestEnsureDefaultTopology applies the production topology, shrunk only to a
 // single replica, so every stream, durable consumer and bucket in the design
 // is validated against a real server.

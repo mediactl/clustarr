@@ -77,6 +77,19 @@ func Run(t *testing.T, newBus func() events.Bus) {
 	RunBusContract(t, newBus)
 }
 
+// RunHooksContract runs the publish/receive observability-hooks conformance
+// case against a bus built with no hooks (newBus, reusing RunBusContract's
+// constructor) and a bus built with hooks installed (newBusWithHooks). It is
+// a separate entry point from RunBusContract because installing hooks
+// changes the bus's construction, not just its topology: natsbus and membus
+// each accept events.Hooks through a constructor Option.
+func RunHooksContract(t *testing.T, newBus func() events.Bus,
+	newBusWithHooks func(events.Hooks) events.Bus,
+) {
+	t.Helper()
+	t.Run("Hooks", func(t *testing.T) { testHooksContract(t, newBus, newBusWithHooks) })
+}
+
 // setup builds a bus with the contract topology applied and registers its
 // shutdown.
 func setup(t *testing.T, newBus func() events.Bus) (context.Context, events.Bus) {
@@ -733,4 +746,117 @@ func testUnknownSubject(t *testing.T, newBus func() events.Bus) {
 	if err == nil {
 		t.Fatal("Publish to a subject with no stream succeeded")
 	}
+}
+
+// hooksCtxKey is the context key the hook cases' synthetic AfterReceive hook
+// uses to hand the extracted trace to the handler. It is local to this test
+// file, not events.HeaderTrace or pkg/obs/tracing, because pkg/events must
+// not import pkg/obs and this suite proves the bus calls the hooks correctly
+// without depending on what a real observability hook does with them.
+type hooksCtxKey struct{}
+
+// hookDelivery is what a hook-case handler reports back about one delivery:
+// the trace carried by the wire envelope it received, and what -- if
+// anything -- the AfterReceive hook stashed on its context.
+type hookDelivery struct {
+	envTrace string
+	ctxTrace string
+	ctxSet   bool
+}
+
+// subscribeForHooks subscribes a handler that reports each delivery's
+// envelope trace and hook-stamped context value to the returned channel.
+func subscribeForHooks(t *testing.T, ctx context.Context, bus events.Bus, durable string) chan hookDelivery {
+	t.Helper()
+	got := make(chan hookDelivery, 1)
+	stop, err := bus.Subscribe(ctx, events.Subscription{
+		Stream:      events.StreamEvents,
+		Durable:     durable,
+		Filters:     []string{events.FilterAllEvents},
+		AckWait:     5 * time.Second,
+		MaxDeliver:  3,
+		Backoff:     []time.Duration{50 * time.Millisecond},
+		MaxInFlight: 4,
+	}, func(ctx context.Context, m events.Message) error {
+		v, ok := ctx.Value(hooksCtxKey{}).(string)
+		select {
+		case got <- hookDelivery{envTrace: m.Envelope().Trace, ctxTrace: v, ctxSet: ok}:
+		default:
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	t.Cleanup(stop)
+	return got
+}
+
+// testHooksContract covers Task C1: a BeforePublish hook must stamp the
+// outbound envelope before it is encoded onto the wire, an AfterReceive hook
+// must run before the handler and its returned context must be what the
+// handler receives, and with no hooks installed neither must happen and
+// nothing must break.
+func testHooksContract(t *testing.T, newBus func() events.Bus,
+	newBusWithHooks func(events.Hooks) events.Bus,
+) {
+	const wantTrace = "00-11112222333344445555666677778888-9999aaaabbbbcccc-01"
+
+	t.Run("HooksInstalledStampAndPropagate", func(t *testing.T) {
+		hooks := events.Hooks{
+			BeforePublish: func(_ context.Context, e *events.Envelope) {
+				e.Trace = wantTrace
+			},
+			AfterReceive: func(ctx context.Context, e *events.Envelope) context.Context {
+				return context.WithValue(ctx, hooksCtxKey{}, e.Trace)
+			},
+		}
+		ctx, bus := setup(t, func() events.Bus { return newBusWithHooks(hooks) })
+		got := subscribeForHooks(t, ctx, bus, "ct-hooks-on")
+
+		subject := events.CatalogItemSubject("movie", events.ActionAdded, "uid-hooks-on")
+		env := envelope("evt-hooks-on", "catalog.ItemEvent.v1", map[string]string{"k": "v"})
+		env.Trace = "" // the hook, not this field, must be what stamps it
+		if _, err := bus.Publish(ctx, subject, env); err != nil {
+			t.Fatalf("Publish: %v", err)
+		}
+
+		select {
+		case d := <-got:
+			if d.envTrace != wantTrace {
+				t.Errorf("delivered Envelope.Trace = %q, want %q (BeforePublish should have stamped it "+
+					"before encoding)", d.envTrace, wantTrace)
+			}
+			if !d.ctxSet || d.ctxTrace != wantTrace {
+				t.Errorf("handler context trace = (set=%v) %q, want %q from AfterReceive",
+					d.ctxSet, d.ctxTrace, wantTrace)
+			}
+		case <-time.After(Timeout):
+			t.Fatal("handler was never invoked")
+		}
+	})
+
+	t.Run("NoHooksIsANoOp", func(t *testing.T) {
+		ctx, bus := setup(t, newBus)
+		got := subscribeForHooks(t, ctx, bus, "ct-hooks-off")
+
+		subject := events.CatalogItemSubject("movie", events.ActionAdded, "uid-hooks-off")
+		env := envelope("evt-hooks-off", "catalog.ItemEvent.v1", map[string]string{"k": "v"})
+		env.Trace = ""
+		if _, err := bus.Publish(ctx, subject, env); err != nil {
+			t.Fatalf("Publish: %v", err)
+		}
+
+		select {
+		case d := <-got:
+			if d.envTrace != "" {
+				t.Errorf("delivered Envelope.Trace = %q, want empty with no hooks installed", d.envTrace)
+			}
+			if d.ctxSet {
+				t.Errorf("handler context carried the hook's key (%q) with no hooks installed", d.ctxTrace)
+			}
+		case <-time.After(Timeout):
+			t.Fatal("handler was never invoked")
+		}
+	})
 }

@@ -48,9 +48,24 @@ import (
 // costs nothing.
 const pollInterval = 2 * time.Millisecond
 
+// options is the resolved effect of a list of Option values.
+type options struct {
+	hooks events.Hooks
+}
+
+// Option configures the bus. It mirrors natsbus's functional-option style.
+type Option func(*options)
+
+// WithHooks installs the observability hooks called around every publish and
+// receive. The default is the zero events.Hooks, which are no-ops.
+func WithHooks(h events.Hooks) Option {
+	return func(o *options) { o.hooks = h }
+}
+
 // Bus is an in-process events.Bus.
 type Bus struct {
 	clock clockwork.Clock
+	opts  options
 
 	mu         sync.Mutex
 	closed     bool
@@ -72,12 +87,17 @@ var _ events.Bus = (*Bus)(nil)
 // clock may be nil, in which case a real clock is used. A fake clock makes
 // redelivery, schedules and TTL deterministic, but note that the subscription
 // loops poll, so a fake clock must be advanced from another goroutine.
-func New(clock clockwork.Clock) *Bus {
+func New(clock clockwork.Clock, opts ...Option) *Bus {
 	if clock == nil {
 		clock = clockwork.NewRealClock()
 	}
+	var o options
+	for _, fn := range opts {
+		fn(&o)
+	}
 	return &Bus{
 		clock:      clock,
+		opts:       o,
 		streams:    map[string]*stream{},
 		buckets:    map[string]*bucket{},
 		responders: map[string][]*responder{},
@@ -186,6 +206,7 @@ func (b *Bus) Publish(ctx context.Context, subject string, e *events.Envelope,
 	if env.Time.IsZero() {
 		env.Time = b.clock.Now().UTC()
 	}
+	b.opts.hooks.RunBeforePublish(ctx, env)
 	return st.publish(b.clock.Now(), subject, env, o.ScheduleAt)
 }
 
@@ -294,6 +315,7 @@ func (b *Bus) deliver(ctx context.Context, st *stream, sub events.Subscription,
 		})
 		return
 	}
+	hctx := b.opts.hooks.RunAfterReceive(ctx, msg.Envelope())
 	var err error
 	func() {
 		defer func() {
@@ -301,7 +323,7 @@ func (b *Bus) deliver(ctx context.Context, st *stream, sub events.Subscription,
 				err = events.Discard(fmt.Sprintf("handler panicked: %v", r), nil)
 			}
 		}()
-		err = h(ctx, msg)
+		err = h(hctx, msg)
 	}()
 	if msg.settledByHandler() {
 		return

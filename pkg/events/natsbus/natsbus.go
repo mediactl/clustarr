@@ -50,6 +50,7 @@ type options struct {
 	domain         string
 	apiPrefix      string
 	requestTimeout time.Duration
+	hooks          events.Hooks
 }
 
 // Option configures the bus.
@@ -69,6 +70,12 @@ func WithAPIPrefix(p string) Option {
 // context carries none.
 func WithRequestTimeout(d time.Duration) Option {
 	return func(o *options) { o.requestTimeout = d }
+}
+
+// WithHooks installs the observability hooks called around every publish and
+// receive. The default is the zero events.Hooks, which are no-ops.
+func WithHooks(h events.Hooks) Option {
+	return func(o *options) { o.hooks = h }
 }
 
 // Bus is a JetStream-backed events.Bus.
@@ -185,6 +192,7 @@ func (b *Bus) Publish(ctx context.Context, subject string, e *events.Envelope,
 	if env.Time.IsZero() {
 		env.Time = time.Now().UTC()
 	}
+	b.opts.hooks.RunBeforePublish(ctx, env)
 
 	msg := &nats.Msg{Subject: subject, Data: env.Data, Header: nats.Header{}}
 	for k, v := range env.ToHeaders() {
@@ -291,6 +299,7 @@ func (b *Bus) handle(ctx context.Context, sub events.Subscription,
 	h events.Handler, jm jetstream.Msg,
 ) {
 	msg := newMessage(jm)
+	hctx := b.opts.hooks.RunAfterReceive(ctx, msg.Envelope())
 	var err error
 	func() {
 		defer func() {
@@ -298,7 +307,7 @@ func (b *Bus) handle(ctx context.Context, sub events.Subscription,
 				err = events.Discard(fmt.Sprintf("handler panicked: %v", r), nil)
 			}
 		}()
-		err = h(ctx, msg)
+		err = h(hctx, msg)
 	}()
 	if msg.settledByHandler() {
 		return

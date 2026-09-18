@@ -264,3 +264,49 @@ type Bus interface {
 	// responder.
 	Close() error
 }
+
+// Hooks are the observability hooks a bus implementation calls around every
+// publish and receive. They are plain function fields rather than an
+// interface onto a specific observability package because pkg/events must
+// not import pkg/obs: the dependency points the other way. Each concrete Bus
+// (natsbus.Bus, membus.Bus) accepts a Hooks value through a constructor
+// option, matching the package's existing functional-option style; service
+// wiring supplies the hooks, typically pkg/obs/tracing.Inject and Extract via
+// obs.BusHooks().
+//
+// The zero value is the correct "no observability" default: both fields are
+// nil-checked before use, so a bus stays usable in tests and anywhere else
+// with no hooks installed.
+type Hooks struct {
+	// BeforePublish runs on every outbound envelope, before it is encoded
+	// onto the wire, so a header it sets (e.g. HeaderTrace) is on the wire
+	// copy. pkg/obs/tracing.Inject satisfies it as written.
+	BeforePublish func(ctx context.Context, e *Envelope)
+
+	// AfterReceive runs on every inbound envelope, before the handler, and
+	// returns the context the handler is given. pkg/obs/tracing.Extract
+	// satisfies it as written.
+	AfterReceive func(ctx context.Context, e *Envelope) context.Context
+}
+
+// RunBeforePublish calls h.BeforePublish if it is set. It is a no-op on the
+// zero Hooks, so bus implementations can call it unconditionally.
+func (h Hooks) RunBeforePublish(ctx context.Context, e *Envelope) {
+	if h.BeforePublish != nil {
+		h.BeforePublish(ctx, e)
+	}
+}
+
+// RunAfterReceive calls h.AfterReceive if it is set and returns its result.
+// A nil hook, or a hook that itself returns nil, is treated as "ctx
+// unchanged" rather than as a nil context -- so bus implementations can call
+// it unconditionally and pass the result straight to the handler.
+func (h Hooks) RunAfterReceive(ctx context.Context, e *Envelope) context.Context {
+	if h.AfterReceive == nil {
+		return ctx
+	}
+	if out := h.AfterReceive(ctx, e); out != nil {
+		return out
+	}
+	return ctx
+}

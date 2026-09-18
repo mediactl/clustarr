@@ -35,6 +35,7 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
@@ -102,4 +103,22 @@ func Bootstrap(ctx context.Context, lo logging.Options, to tracing.Options) (con
 			logging.FromContext(ctx).Warn("tracing shutdown", "err", err)
 		}
 	}, nil
+}
+
+// BusHooks returns the events.Hooks wired to this package's tracing helpers,
+// unchanged: BeforePublish is tracing.Inject and AfterReceive is
+// tracing.Extract. Passing the result to a bus constructor's hooks option
+// (natsbus.WithHooks, membus.WithHooks) is what lets one trace span a
+// publish and a consume across the bus -- see events.Hooks and
+// pkg/events/contracttest's Hooks case.
+//
+// pkg/events must not import pkg/obs, so it cannot supply this wiring
+// itself; every service's Run is expected to call BusHooks() when it
+// connects its bus, after calling Bootstrap, which is what installs the
+// TracerProvider Inject and Extract read and write through.
+func BusHooks() events.Hooks {
+	return events.Hooks{
+		BeforePublish: tracing.Inject,
+		AfterReceive:  tracing.Extract,
+	}
 }

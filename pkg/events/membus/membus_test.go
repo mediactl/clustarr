@@ -31,6 +31,13 @@ func TestBusContract(t *testing.T) {
 	contracttest.RunBusContract(t, func() events.Bus { return membus.New(nil) })
 }
 
+func TestHooksContract(t *testing.T) {
+	contracttest.RunHooksContract(t,
+		func() events.Bus { return membus.New(nil) },
+		func(h events.Hooks) events.Bus { return membus.New(nil, membus.WithHooks(h)) },
+	)
+}
+
 func TestPublishWithoutEnsure(t *testing.T) {
 	bus := membus.New(nil)
 	defer func() { _ = bus.Close() }()
