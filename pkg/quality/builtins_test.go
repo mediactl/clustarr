@@ -162,7 +162,7 @@ func TestLoadedCatalogueBuildsFromAllEmbeddedFormatFamilies(t *testing.T) {
 		"anime-web-tier-02", "anime-web-tier-03", "anime-web-tier-04", "anime-web-tier-05", "anime-web-tier-06",
 		"anime-lq-groups", "dubs-only", "vostfr",
 		"anime-cr", "anime-dsnp", "anime-nf", "anime-amzn", "anime-funi", "anime-abema",
-		"anime-adn", "anime-b-global", "anime-bilibili", "anime-hidive", "anime-wkn",
+		"anime-adn", "anime-b-global", "anime-bilibili", "anime-hidive", "anime-wkn", //nolint:misspell // "adn" is ADN (Anime Digital Network), a real streaming-service slug, not a typo for "and"
 	} {
 		require.Contains(t, cat.Formats, slug)
 	}

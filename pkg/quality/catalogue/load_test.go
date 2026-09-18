@@ -205,7 +205,7 @@ func TestEmbeddedAnimeExtraFamilyDecodes(t *testing.T) {
 
 	streamingWant := map[string]int{
 		"anime-cr": 6, "anime-dsnp": 5, "anime-nf": 4, "anime-amzn": 3, "anime-funi": 2,
-		"anime-abema": 1, "anime-adn": 1, "anime-b-global": 0, "anime-bilibili": 0,
+		"anime-abema": 1, "anime-adn": 1, "anime-b-global": 0, "anime-bilibili": 0, //nolint:misspell // "adn" is ADN (Anime Digital Network), a real streaming-service slug, not a typo for "and"
 		"anime-hidive": 0, "anime-wkn": 0,
 	}
 	for slug, want := range streamingWant {

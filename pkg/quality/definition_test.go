@@ -62,10 +62,19 @@ func TestLookupResolvesNonVideoTables(t *testing.T) {
 		kind, name string
 		wantWeight int
 	}{
-		{"music", "FLAC", 6}, {"music", "MP3-192", 5}, {"music", "WAV", 8},
-		{"book", "PDF", 1}, {"book", "MOBI", 2}, {"book", "EPUB", 3}, {"book", "AZW3", 4},
-		{"audiobook", "MP3", 2}, {"audiobook", "M4B", 3}, {"audiobook", "FLAC", 4},
-		{"comic", "PDF", 1}, {"comic", "CBR", 2}, {"comic", "CBZ", 3},
+		{"music", "FLAC", 6},
+		{"music", "MP3-192", 5},
+		{"music", "WAV", 8},
+		{"book", "PDF", 1},
+		{"book", "MOBI", 2},
+		{"book", "EPUB", 3},
+		{"book", "AZW3", 4},
+		{"audiobook", "MP3", 2},
+		{"audiobook", "M4B", 3},
+		{"audiobook", "FLAC", 4},
+		{"comic", "PDF", 1},
+		{"comic", "CBR", 2},
+		{"comic", "CBZ", 3},
 	}
 	for _, tc := range cases {
 		def, ok := quality.Lookup(tc.kind, tc.name)

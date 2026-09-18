@@ -31,7 +31,7 @@ import (
 const threeDPattern = `(?<=\b[12]\d{3}\b).*\b(3d|sbs|half[.-]ou|half[.-]sbs)\b`
 
 func TestKnownProblematicTRaSHPatternsRejectUnderStdlibRegexp(t *testing.T) {
-	_, err := regexp.Compile(threeDPattern)
+	_, err := regexp.Compile(threeDPattern) //nolint:gocritic,staticcheck // deliberately capturing the compile error (stdlib rejects the lookbehind), not using MustCompile -- SA1000's static regex check flags the same intentional invalidity
 	require.Error(t, err, "stdlib regexp must reject lookbehind -- if this starts passing, Go's regexp package changed and the regexp2 dependency should be re-justified")
 }
 

@@ -224,15 +224,17 @@ func baseSizeTable(name string) map[string]SizeLimit {
 // can detect drift. Map iteration order in Go is randomized, so every map is
 // sorted before hashing.
 func hashProfile(p Profile) string {
+	// hash.Hash.Write (via fmt.Fprintf) never returns an error per its own
+	// doc contract, so every Fprintf return here is deliberately ignored.
 	h := sha256.New()
-	fmt.Fprintf(h, "cutoff=%d|upgrade=%t|min=%d|cutoffFmt=%d|minUpgrade=%d|lang=%s|proper=%s\n",
+	_, _ = fmt.Fprintf(h, "cutoff=%d|upgrade=%t|min=%d|cutoffFmt=%d|minUpgrade=%d|lang=%s|proper=%s\n",
 		p.CutoffIndex, p.UpgradeAllowed, p.MinFormatScore, p.CutoffFormatScore, p.MinUpgradeFormatScore, p.Language, p.ProperPolicy)
 	for _, tier := range p.Tiers {
 		names := make([]string, len(tier))
 		for i, d := range tier {
 			names[i] = d.Name
 		}
-		fmt.Fprintf(h, "tier=%s\n", strings.Join(names, ","))
+		_, _ = fmt.Fprintf(h, "tier=%s\n", strings.Join(names, ","))
 	}
 	keys := make([]string, 0, len(p.Scores))
 	for k := range p.Scores {
@@ -240,7 +242,7 @@ func hashProfile(p Profile) string {
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		fmt.Fprintf(h, "score=%s:%d\n", k, p.Scores[k])
+		_, _ = fmt.Fprintf(h, "score=%s:%d\n", k, p.Scores[k])
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
