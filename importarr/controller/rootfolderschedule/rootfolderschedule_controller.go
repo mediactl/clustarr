@@ -57,6 +57,24 @@ const (
 	// schedule would otherwise ask for a twelve-month RequeueAfter, and a
 	// timer that long is a timer nobody can reason about.
 	maxRequeue = 12 * time.Hour
+
+	// maxCatchUp bounds how stale a recorded tick may be before the
+	// RootFolder is simply re-adopted.
+	//
+	// It exists because the skip loop below walks one iteration per elapsed
+	// period: a hand-edited or corrupted-but-parseable tick of
+	// "0001-01-01T00:00:00Z" against "* * * * *" is on the order of 10^9
+	// iterations, which burns a worker goroutine straight through the
+	// five-minute ReconciliationTimeout. A week caps the worst legal case
+	// at 10080 iterations, which is microseconds.
+	//
+	// Re-adopting rather than clamping `last` is deliberate. Clamping would
+	// break long-period schedules: with "0 0 1 * *" and a tick two months
+	// old, a clamped `last` of now-7d puts the next tick in the FUTURE, so
+	// this month's scan would be skipped entirely. Re-adoption fires once
+	// now and re-anchors the schedule, which is the same number of scans
+	// and the same following tick.
+	maxCatchUp = 7 * 24 * time.Hour
 )
 
 // Event reasons this controller emits.
@@ -121,9 +139,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 
 	now := r.now()
 	last, adopted := lastTick(&rf)
-	if !adopted {
-		// Never seen before: scan once on adoption, then let the schedule
-		// take over. Everything after this is driven by the annotation.
+	if !adopted || now.Sub(last) > maxCatchUp {
+		// Never seen before, unreadable, or so stale that which scheduled
+		// slot it named has stopped meaning anything: scan once and
+		// re-anchor. Everything after this is driven by the annotation.
 		return r.fire(ctx, &rf, now.Truncate(time.Minute))
 	}
 
@@ -144,8 +163,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	// The tick is due. Ticks are not backfilled: if several are past, the
 	// most recent one is fired and the rest are dropped, so a controller
 	// that was down for a week does not walk the library seven times.
+	//
+	// maxCatchUp above bounds this to at most a week of ticks; the
+	// ctx.Err() check is the belt to that braces, so that even a schedule
+	// nobody anticipated cannot outrun the reconcile timeout.
 	tick := next
 	for {
+		if err := ctx.Err(); err != nil {
+			return ctrl.Result{}, err
+		}
 		following := sched.Next(tick)
 		if following.IsZero() || following.After(now) {
 			break

@@ -89,6 +89,7 @@ docker-build: ## Build controller and media images.
 
 .PHONY: test
 test: envtest ## Run unit and envtest suites.
+	@mkdir -p "$${CLUSTARR_TEST_MEDIA_ROOT:-/data/media}" 2>/dev/null || echo "warning: could not create $${CLUSTARR_TEST_MEDIA_ROOT:-/data/media}; importarr's scan suites will skip"
 	KUBEBUILDER_ASSETS="$(shell $(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test ./... -coverprofile cover.out
 
 .PHONY: test-unit

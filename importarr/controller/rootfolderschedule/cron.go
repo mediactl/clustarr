@@ -39,25 +39,60 @@ type Schedule interface {
 //
 // # Why this is not github.com/robfig/cron/v3
 //
-// The plan called for robfig/cron v3.0.1, and this task's brief states it was
-// pre-added to go.mod by an earlier task. It was not: neither go.mod nor
-// go.sum mentions it, and the module cache holds only the unrelated v1. A
-// worker must never run `go get` (parallel agents corrupt go.mod that way),
-// so the alternative to the ~150 lines below was leaving the whole scan
-// schedule unimplemented. This parser is deliberately a drop-in for the one
-// call site it has -- ParseSchedule/Schedule.Next mirror robfig's
-// ParseStandard/Schedule.Next -- so swapping the dependency back in later is
-// a two-line change plus deleting this file.
+// This parser is a deliberate choice, not a stopgap, and swapping
+// robfig/cron/v3 in would regress behaviour in three ways this controller
+// depends on. (It began as a workaround -- the dependency the plan promised
+// was never added to go.mod, and a worker must not run `go get` -- but the
+// review that followed established it should stay.)
 //
-// Semantics follow Vixie cron, as robfig's ParseStandard does:
+//  1. Next is strictly-after-MINUTE here, strictly-after-SECOND in robfig.
+//     The controller stores a minute-truncated tick in
+//     AnnotationLastTick, so robfig would answer Next(tick) with
+//     tick+1s: due immediately, fired, re-stamped, and due again --
+//     a scan loop rather than a schedule.
+//  2. Times here are UTC. robfig's ParseStandard binds time.Local, so the
+//     same expression would mean different instants on differently
+//     configured nodes, and a RootFolder carries no timezone to
+//     disambiguate with.
+//  3. Day-of-week 7 is Sunday here, as in Vixie cron. robfig bounds dow at
+//     {0,6} and returns an error for 7, so "0 3 * * 7" -- a perfectly
+//     ordinary expression that works today -- would become a
+//     reconcile.TerminalError on somebody's existing RootFolder.
 //
-//   - a field is a comma-separated list of "*", "n", "a-b", "*/step" or
-//     "a-b/step";
-//   - months accept jan..dec and days-of-week sun..sat, case-insensitively;
+// Semantics follow Vixie cron:
+//
+//   - a field is a comma-separated list of "*", "?", "n", "a-b", "n/step",
+//     "*/step" or "a-b/step";
+//   - "?" is accepted as a synonym for "*", which is what robfig and the
+//     Quartz-flavoured expressions people paste in both do;
+//   - months accept jan..dec and days-of-week sun..sat, case-insensitively,
+//     including in ranges (jan-mar, mon-fri);
 //   - day-of-week 7 is Sunday, the same day as 0;
 //   - when day-of-month and day-of-week are BOTH restricted, a time matches
 //     if it satisfies EITHER, not both. When one is "*", the other simply
 //     applies.
+//
+// # Deliberate divergences, pinned by tests
+//
+// Two behaviours are this parser's own and are asserted in cron_test.go so
+// that a later reader does not "fix" them into something else:
+//
+//   - "n/1" means exactly n, not "n to the end of the range". A step of 1
+//     adds nothing to a bare value, and reading "5/1" as 5,6,7,...,59 is a
+//     surprise nobody writes on purpose. "n/step" with step > 1 does run to
+//     the end of the range, the way Vixie reads it.
+//   - "*/1" counts as RESTRICTED for the day-of-month/day-of-week OR rule,
+//     where a bare "*" counts as unrestricted. The two select the same set,
+//     but only the literal "*" carries Vixie's "this field is not
+//     specified" meaning.
+//
+// # Not supported, and rejected rather than guessed
+//
+// Wrapping ranges ("22-2"), sub-minute @every intervals, non-standard field
+// counts and unknown descriptors all return an error naming the problem.
+// Nothing here silently reinterprets an expression it does not understand:
+// a schedule that quietly means something other than what was written is
+// worse than one that refuses to load.
 //
 // Times are evaluated in UTC. Cluster workloads run on UTC clocks and a
 // RootFolder carries no timezone, so a local-time schedule would silently
@@ -125,7 +160,11 @@ func parseDescriptor(spec string) (Schedule, error) {
 			return nil, fmt.Errorf("cron: @every duration %q: %w", strings.TrimSpace(rest), err)
 		}
 		if d < time.Minute {
-			return nil, fmt.Errorf("cron: @every interval %s is shorter than a minute", d)
+			// A scan schedule is evaluated to whole minutes throughout,
+			// so a sub-minute interval cannot be honoured. Saying so
+			// beats silently rounding it to a minute or to zero.
+			return nil, fmt.Errorf(
+				"cron: @every interval %s is shorter than a minute; the smallest supported interval is 1m", d)
 		}
 		return everySchedule{d: d.Truncate(time.Minute)}, nil
 	}
@@ -146,9 +185,16 @@ func parseDescriptor(spec string) (Schedule, error) {
 	return ParseSchedule(equivalent)
 }
 
+// isAny reports whether a single list element selects the whole range.
+func isAny(part string) bool { return part == "*" || part == "?" }
+
+// isWildcard reports whether a whole field is unrestricted in Vixie's sense,
+// which is what drives the day-of-month/day-of-week OR rule. Only a bare "*"
+// or "?" counts: "*/1" selects the same set but carries a step, and is
+// treated as restricted (see the package-level note on divergences).
 func isWildcard(field string) bool {
 	for _, part := range strings.Split(field, ",") {
-		if strings.TrimSpace(part) == "*" {
+		if isAny(strings.TrimSpace(part)) {
 			return true
 		}
 	}
@@ -174,9 +220,10 @@ func parseField(field string, minValue, maxValue uint, names map[string]uint) (u
 			part = strings.TrimSpace(base)
 		}
 
-		// "*" is the whole range; anything else is a value or an a-b range.
+		// "*" (and its "?" synonym) is the whole range; anything else is a
+		// value or an a-b range.
 		low, high := minValue, maxValue
-		if part != "*" {
+		if !isAny(part) {
 			lowStr, highStr, isRange := strings.Cut(part, "-")
 			var err error
 			if low, err = parseValue(lowStr, names); err != nil {
@@ -194,7 +241,15 @@ func parseField(field string, minValue, maxValue uint, names map[string]uint) (u
 			}
 		}
 
-		if low < minValue || high > maxValue || low > high {
+		switch {
+		case low > high:
+			// Vixie cron does not wrap a range, and neither does this:
+			// "22-2" is far more likely to be a mistake than a request
+			// for a nightly window, and guessing which would be the
+			// worst of both.
+			return 0, fmt.Errorf(
+				"range start %d is after range end %d; wrapping ranges such as 22-2 are not supported", low, high)
+		case low < minValue || high > maxValue:
 			return 0, fmt.Errorf("range %d-%d is outside %d-%d", low, high, minValue, maxValue)
 		}
 		for v := low; v <= high; v += step {

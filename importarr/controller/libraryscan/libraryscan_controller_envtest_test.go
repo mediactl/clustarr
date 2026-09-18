@@ -154,34 +154,70 @@ func TestReconcileWaitsForTheRootFolder(t *testing.T) {
 
 // Server-side apply replaces a manager's ownership set on every apply, so an
 // early return that sent conditions alone would release every other field
-// this controller owns. The object is driven to a populated steady state
-// first: a blank object cannot observe a release.
+// this controller owns -- reading as a healthy scan being zeroed by a
+// transient missing RootFolder.
+//
+// Observing that release takes more than a populated object: it takes an
+// object whose counters `importarr` SOLELY owns. If a fixture's own
+// c.Status().Update() co-owns them, a released field keeps the other
+// manager's value and the test passes whether or not the bug is present.
+// So the steady state here is built by the controller itself -- a real start
+// apply, then a real poll apply -- and the test asserts sole ownership before
+// it triggers anything.
 func TestReconcilePendingDoesNotReleaseTheRestOfTheStatus(t *testing.T) {
 	ctx := context.Background()
 	c := requireEnvtest(t)
 	ns := createNamespace(t, ctx, c, "ls-pending-release")
-
-	started := metav1.NewTime(time.Now().Add(-time.Minute))
+	rf := readyRootFolder(t, ctx, c, ns, mediaTempDir(t))
 	scan := seedScan(t, ctx, c, ns,
 		catalogv1alpha1.LibraryScanSpec{RootFolderRef: "movies"},
-		catalogv1alpha1.LibraryScanStatus{
-			Phase:     catalogv1alpha1.ScanPhasePending,
-			StartedAt: &started,
-			FilesSeen: 12, FilesMatched: 9, ItemsCreated: 3, ItemsUpdated: 6, FilesSkipped: 2,
-			Unmatched: []catalogv1alpha1.UnmatchedFile{{
-				Path: "orphan.mkv", Reason: "no id, no title match", SeenAt: started,
-			}},
-		})
+		catalogv1alpha1.LibraryScanStatus{})
 
-	// First reconcile: the controller takes ownership of everything above
-	// while the RootFolder is still missing.
-	r := &libraryscan.Reconciler{Client: c, Bus: newBus(t, ctx), Clock: time.Now}
-	require.NoError(t, errOf(r.Reconcile(ctx, request(ns, scan.Name))))
-	// Second reconcile: the same early return runs again against a status
-	// this manager now owns, which is where a partial apply would show.
+	bus := newBus(t, ctx)
+	r := &libraryscan.Reconciler{Client: c, Bus: bus, Clock: time.Now}
+
+	// 1. A real start apply: Running, startedAt, conditions -- all written
+	//    by importarr, nothing seeded.
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns, scan.Name))))
 
+	// 2. A real poll apply, so the counters and the unmatched list are
+	//    populated by importarr too.
+	putProgress(t, ctx, bus, string(scan.UID), rescan.Progress{
+		FilesSeen: 12, FilesMatched: 9, ItemsCreated: 3, ItemsUpdated: 6, FilesSkipped: 2,
+		Unmatched: []rescan.UnmatchedFile{{
+			Path: "orphan.mkv", Reason: "no id, no title match", SeenAt: time.Now(),
+		}},
+	})
+	require.NoError(t, errOf(r.Reconcile(ctx, request(ns, scan.Name))))
+
+	// 3. The premise, asserted rather than assumed: importarr is the SOLE
+	//    owner of the fields whose release this test is looking for.
+	populated := getScan(t, ctx, c, ns, scan.Name)
+	require.Equal(t, int64(12), populated.Status.FilesSeen)
+	for _, path := range []string{
+		"status.filesSeen", "status.filesMatched", "status.itemsCreated",
+		"status.itemsUpdated", "status.filesSkipped", "status.unmatched", "status.startedAt",
+	} {
+		require.Equal(t, []string{string(k8s.ManagerImportarr)},
+			managersFor(t, populated.ManagedFields, "status", path),
+			"%s must be owned by importarr alone, or a release cannot be observed", path)
+	}
+
+	// 4. Now drive it into the early return: the RootFolder stops being
+	//    Ready, and the scan is rewound to Pending so Reconcile dispatches
+	//    to start. Rewinding touches status.phase and nothing else, so the
+	//    counters keep importarr as their only owner.
+	setRootFolderReady(t, ctx, c, rf, false)
+	setScanPhase(t, ctx, c, scan, catalogv1alpha1.ScanPhasePending)
+	require.Equal(t, []string{string(k8s.ManagerImportarr)},
+		managersFor(t, getScan(t, ctx, c, ns, scan.Name).ManagedFields, "status", "status.filesSeen"),
+		"rewinding the phase must not have taken the counters away from importarr")
+
+	require.NoError(t, errOf(r.Reconcile(ctx, request(ns, scan.Name))))
+
+	// 5. The early return ran. Everything importarr owned must still be here.
 	after := getScan(t, ctx, c, ns, scan.Name)
+	assert.Equal(t, catalogv1alpha1.ScanPhasePending, after.Status.Phase)
 	assert.Equal(t, int64(12), after.Status.FilesSeen)
 	assert.Equal(t, int64(9), after.Status.FilesMatched)
 	assert.Equal(t, int64(3), after.Status.ItemsCreated)
@@ -189,6 +225,10 @@ func TestReconcilePendingDoesNotReleaseTheRestOfTheStatus(t *testing.T) {
 	assert.Equal(t, int64(2), after.Status.FilesSkipped)
 	require.NotNil(t, after.Status.StartedAt)
 	assert.Len(t, after.Status.Unmatched, 1)
+
+	cond := k8s.FindCondition(after.Status.Conditions, k8s.ConditionReady)
+	require.NotNil(t, cond)
+	assert.Equal(t, "RootFolderNotReady", cond.Reason, "the early return did run")
 }
 
 // The poll step aggregates the worker's checkpoint and honours the CRD's

@@ -62,6 +62,39 @@ func TestParseScheduleNext(t *testing.T) {
 		{name: "@monthly", spec: "@monthly", from: "2026-09-18T01:00:00Z", want: "2026-10-01T00:00:00Z"},
 		{name: "@yearly", spec: "@yearly", from: "2026-09-18T01:00:00Z", want: "2027-01-01T00:00:00Z"},
 		{name: "@every interval", spec: "@every 6h", from: "2026-09-18T01:00:00Z", want: "2026-09-18T07:00:00Z"},
+		{name: "@midnight is @daily", spec: "@midnight", from: "2026-09-18T01:00:00Z", want: "2026-09-19T00:00:00Z"},
+		{name: "@annually is @yearly", spec: "@annually", from: "2026-09-18T01:00:00Z", want: "2027-01-01T00:00:00Z"},
+		{name: "descriptors are case-insensitive", spec: "@DAILY", from: "2026-09-18T01:00:00Z", want: "2026-09-19T00:00:00Z"},
+
+		// n/step: "from n to the end of the range, every step".
+		{name: "n/step starts at n", spec: "5/15 * * * *", from: "2026-09-18T03:00:00Z", want: "2026-09-18T03:05:00Z"},
+		{name: "n/step walks to the end of the range", spec: "5/15 * * * *", from: "2026-09-18T03:36:00Z", want: "2026-09-18T03:50:00Z"},
+		{name: "n/step wraps into the next hour, not past 59", spec: "5/15 * * * *", from: "2026-09-18T03:51:00Z", want: "2026-09-18T04:05:00Z"},
+
+		// a-b/step: stepped, and bounded by b.
+		{name: "a-b/step inside the range", spec: "0-30/10 * * * *", from: "2026-09-18T03:01:00Z", want: "2026-09-18T03:10:00Z"},
+		{name: "a-b/step stops at b", spec: "0-30/10 * * * *", from: "2026-09-18T03:31:00Z", want: "2026-09-18T04:00:00Z"},
+		{name: "a-b/step on hours", spec: "0 9-17/4 * * *", from: "2026-09-18T10:00:00Z", want: "2026-09-18T13:00:00Z"},
+
+		// Named ranges, in both name fields.
+		{name: "a weekday-name range skips the weekend", spec: "0 6 * * mon-fri", from: "2026-09-19T00:00:00Z", want: "2026-09-21T06:00:00Z"},
+		{name: "a weekday-name range matches inside itself", spec: "0 6 * * mon-fri", from: "2026-09-22T07:00:00Z", want: "2026-09-23T06:00:00Z"},
+		{name: "a month-name range", spec: "0 0 1 jan-mar *", from: "2026-09-18T00:00:00Z", want: "2027-01-01T00:00:00Z"},
+		{name: "a stepped month-name range", spec: "0 0 1 jan-dec/3 *", from: "2026-09-18T00:00:00Z", want: "2026-10-01T00:00:00Z"},
+		{name: "names are case-insensitive", spec: "0 4 * * SUN", from: "2026-09-18T00:00:00Z", want: "2026-09-20T04:00:00Z"},
+
+		// "?" is a synonym for "*", as robfig and Quartz-flavoured
+		// expressions both treat it.
+		{name: "? in day-of-week", spec: "0 3 * * ?", from: "2026-09-18T01:15:00Z", want: "2026-09-18T03:00:00Z"},
+		{name: "? in day-of-month", spec: "0 3 ? * *", from: "2026-09-18T01:15:00Z", want: "2026-09-18T03:00:00Z"},
+		{name: "? in both day fields", spec: "0 3 ? * ?", from: "2026-09-18T04:00:00Z", want: "2026-09-19T03:00:00Z"},
+		{name: "? takes a step, being a plain synonym for *", spec: "0 3 ?/2 * *", from: "2026-09-18T04:00:00Z", want: "2026-09-19T03:00:00Z"},
+
+		// A list containing "*" is the whole range, whatever else it names.
+		{name: "a list containing * is the whole range", spec: "1,* * * * *", from: "2026-09-18T03:00:30Z", want: "2026-09-18T03:01:00Z"},
+		{name: "a plain list of minutes", spec: "5,20,50 * * * *", from: "2026-09-18T03:21:00Z", want: "2026-09-18T03:50:00Z"},
+		{name: "a list mixing a value and a range", spec: "0,30-32 * * * *", from: "2026-09-18T03:01:00Z", want: "2026-09-18T03:30:00Z"},
+		{name: "a list mixing a name and a number", spec: "0 4 * * sun,3", from: "2026-09-21T00:00:00Z", want: "2026-09-23T04:00:00Z"},
 		// A local-time input is evaluated in UTC, so the same expression
 		// means the same instant on every node.
 		{name: "a non-UTC input is normalised", spec: "0 3 * * *", from: "2026-09-18T01:15:00+02:00", want: "2026-09-18T03:00:00Z"},
@@ -84,6 +117,62 @@ func TestParseScheduleNextGivesUpOnAnImpossibleDate(t *testing.T) {
 	assert.True(t, sched.Next(at("2026-09-18T00:00:00Z")).IsZero())
 }
 
+// The two things this parser deliberately does not support must say so, not
+// merely fail. A schedule that refuses to load with "bad value" sends the
+// operator hunting; one that names the unsupported construct does not.
+func TestUnsupportedConstructsAreNamedInTheError(t *testing.T) {
+	tests := []struct{ name, spec, wantSubstring string }{
+		{
+			name: "a wrapping range names wrapping",
+			spec: "0 22-2 * * *", wantSubstring: "wrapping ranges",
+		},
+		{
+			name: "a sub-minute @every names the smallest interval",
+			spec: "@every 30s", wantSubstring: "smallest supported interval is 1m",
+		},
+		{
+			name: "an unknown descriptor names the descriptor",
+			spec: "@fortnightly", wantSubstring: "@fortnightly",
+		},
+		{
+			name: "a wrong field count names the expected fields",
+			spec: "0 3 * *", wantSubstring: "minute hour day-of-month month day-of-week",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := rootfolderschedule.ParseSchedule(tc.spec)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantSubstring)
+		})
+	}
+}
+
+// Two behaviours are this parser's own rather than inherited, and are pinned
+// here so a later reader does not "fix" them by accident. See the divergence
+// note in cron.go's package documentation.
+func TestDocumentedDivergencesFromVixie(t *testing.T) {
+	// "n/1" is exactly n. Vixie would read it as n..max step 1.
+	sched, err := rootfolderschedule.ParseSchedule("5/1 * * * *")
+	require.NoError(t, err)
+	assert.Equal(t, at("2026-09-18T04:05:00Z"), sched.Next(at("2026-09-18T03:05:00Z")),
+		`"5/1" selects minute 5 only, not 5 through 59`)
+
+	// "*/1" selects every value, but counts as RESTRICTED for the
+	// day-of-month/day-of-week OR rule, where a bare "*" does not. With dom
+	// "*/1" and dow "fri", the OR rule makes every day match; with a bare
+	// "*" for dom, only Fridays would.
+	ored, err := rootfolderschedule.ParseSchedule("0 0 */1 * fri")
+	require.NoError(t, err)
+	assert.Equal(t, at("2026-09-19T00:00:00Z"), ored.Next(at("2026-09-18T01:00:00Z")),
+		`"*/1" is restricted, so the dom-or-dow rule matches every day`)
+
+	anded, err := rootfolderschedule.ParseSchedule("0 0 * * fri")
+	require.NoError(t, err)
+	assert.Equal(t, at("2026-09-25T00:00:00Z"), anded.Next(at("2026-09-18T01:00:00Z")),
+		`a bare "*" is unrestricted, so only Fridays match`)
+}
+
 func TestParseScheduleRejectsBadExpressions(t *testing.T) {
 	tests := []struct{ name, spec string }{
 		{name: "empty", spec: ""},
@@ -102,6 +191,12 @@ func TestParseScheduleRejectsBadExpressions(t *testing.T) {
 		{name: "bad @every duration", spec: "@every never"},
 		{name: "@every below a minute", spec: "@every 30s"},
 		{name: "empty list element", spec: "0,,5 * * * *"},
+		{name: "a wrapping hour range", spec: "0 22-2 * * *"},
+		{name: "a wrapping weekday-name range", spec: "0 6 * * fri-mon"},
+		{name: "a wrapping minute range", spec: "50-10 * * * *"},
+		{name: "a range with a bad step", spec: "0-30/x * * * *"},
+		{name: "a negative value", spec: "-5 * * * *"},
+		{name: "a bare step with no field", spec: "/5 * * * *"},
 	}
 
 	for _, tc := range tests {

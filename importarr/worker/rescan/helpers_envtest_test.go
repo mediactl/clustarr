@@ -128,17 +128,31 @@ func createNamespace(t *testing.T, ctx context.Context, c client.Client, name st
 // (`self.startsWith('/data/media/')`) that the envtest apiserver enforces, so
 // a root folder pointed at /tmp is rejected before any of this code runs.
 // /data is the RWX volume spec §11 mounts in every media-touching pod and is
-// where the e2e suites plant files too. CLUSTARR_TEST_MEDIA_ROOT overrides
-// the prefix for an environment where /data is not writable; the CEL rule
-// means such an override still has to start with /data/media/.
+// where the e2e suites plant files too.
+//
+// A writable media root is a prerequisite of this suite in exactly the way
+// KUBEBUILDER_ASSETS is, and the ffprobe binary is elsewhere in the tree, so
+// its absence is a named skip rather than a failure: a missing prerequisite
+// and a broken scanner must not look the same in the output. `make test`
+// creates the directory, and CLUSTARR_TEST_MEDIA_ROOT overrides it (the CEL
+// rule means any override still has to start with /data/media/).
 func mediaTempDir(t *testing.T) string {
 	t.Helper()
 	prefix := os.Getenv("CLUSTARR_TEST_MEDIA_ROOT")
 	if prefix == "" {
 		prefix = "/data/media"
 	}
+	if err := os.MkdirAll(prefix, 0o755); err != nil {
+		t.Skipf("%s is not creatable (%v); RootFolder.spec.path must start with /data/media/, "+
+			"so run `make test`, or `mkdir -p %s` by hand, or set CLUSTARR_TEST_MEDIA_ROOT "+
+			"to a writable directory under /data/media/", prefix, err, prefix)
+	}
 	dir, err := os.MkdirTemp(prefix, "clustarr-rescan-")
-	require.NoError(t, err, "plant the test library under %s", prefix)
+	if err != nil {
+		t.Skipf("%s is not writable (%v); RootFolder.spec.path must start with /data/media/, "+
+			"so run `make test`, or make %s writable, or set CLUSTARR_TEST_MEDIA_ROOT "+
+			"to a writable directory under /data/media/", prefix, err, prefix)
+	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return dir
 }

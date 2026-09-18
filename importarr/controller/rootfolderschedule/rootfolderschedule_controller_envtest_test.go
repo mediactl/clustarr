@@ -236,7 +236,7 @@ func TestReconcileDoesNotBackfillMissedTicks(t *testing.T) {
 	c := requireEnvtest(t)
 	ns := createNamespace(t, ctx, c, "rfs-no-backfill")
 	newRootFolder(t, ctx, c, ns, "0 3 * * *",
-		map[string]string{rootfolderschedule.AnnotationLastTick: "2026-09-11T03:00:00Z"})
+		map[string]string{rootfolderschedule.AnnotationLastTick: "2026-09-14T03:00:00Z"})
 
 	now := time.Date(2026, 9, 18, 10, 0, 0, 0, time.UTC)
 	r := &rootfolderschedule.Reconciler{
@@ -250,6 +250,64 @@ func TestReconcileDoesNotBackfillMissedTicks(t *testing.T) {
 	require.NoError(t, c.Get(ctx, request(ns).NamespacedName, &after))
 	assert.Equal(t, "2026-09-18T03:00:00Z", after.Annotations[rootfolderschedule.AnnotationLastTick],
 		"the most recent missed tick is the one fired; the older ones are dropped")
+}
+
+// A tick so stale that walking forward from it would take a billion
+// iterations must not do that. It is re-adopted instead: one scan now, and
+// the schedule re-anchored. Without the maxCatchUp guard this test does not
+// finish -- which is the point.
+func TestReconcileReadoptsRatherThanWalkingAMillionMissedTicks(t *testing.T) {
+	ctx := context.Background()
+	c := requireEnvtest(t)
+	ns := createNamespace(t, ctx, c, "rfs-ancient-tick")
+	// Parseable, wildly stale, and paired with the densest legal schedule:
+	// the shape a hand-edited or corrupted annotation takes.
+	newRootFolder(t, ctx, c, ns, "* * * * *",
+		map[string]string{rootfolderschedule.AnnotationLastTick: "0001-01-01T00:00:00Z"})
+
+	r := &rootfolderschedule.Reconciler{Client: c, Recorder: record.NewFakeRecorder(10), Clock: time.Now}
+
+	done := make(chan error, 1)
+	go func() { done <- errOf(r.Reconcile(ctx, request(ns))) }()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(30 * time.Second):
+		t.Fatal("Reconcile did not finish: the missed-tick walk is unbounded")
+	}
+
+	assert.Len(t, listScans(t, ctx, c, ns), 1, "exactly one scan, not one per missed minute")
+
+	var after catalogv1alpha1.RootFolder
+	require.NoError(t, c.Get(ctx, request(ns).NamespacedName, &after))
+	stamped, err := time.Parse(time.RFC3339, after.Annotations[rootfolderschedule.AnnotationLastTick])
+	require.NoError(t, err)
+	assert.WithinDuration(t, time.Now(), stamped, time.Minute,
+		"the schedule is re-anchored to now rather than to year 1")
+}
+
+// A tick just inside the catch-up window still walks forward normally, so
+// the guard above has not quietly turned every late scan into a re-adoption.
+func TestReconcileStillFiresTheRealTickJustInsideTheCatchUpWindow(t *testing.T) {
+	ctx := context.Background()
+	c := requireEnvtest(t)
+	ns := createNamespace(t, ctx, c, "rfs-inside-window")
+	// Six days and seven hours stale: inside the seven-day window, so the
+	// scheduled slot is still meaningful and is the one fired.
+	newRootFolder(t, ctx, c, ns, "0 3 * * *",
+		map[string]string{rootfolderschedule.AnnotationLastTick: "2026-09-12T03:00:00Z"})
+
+	now := time.Date(2026, 9, 18, 10, 0, 0, 0, time.UTC)
+	r := &rootfolderschedule.Reconciler{
+		Client: c, Recorder: record.NewFakeRecorder(10), Clock: func() time.Time { return now },
+	}
+	require.NoError(t, errOf(r.Reconcile(ctx, request(ns))))
+
+	assert.Len(t, listScans(t, ctx, c, ns), 1)
+	var after catalogv1alpha1.RootFolder
+	require.NoError(t, c.Get(ctx, request(ns).NamespacedName, &after))
+	assert.Equal(t, "2026-09-18T03:00:00Z", after.Annotations[rootfolderschedule.AnnotationLastTick],
+		"just inside the window, so the real missed tick is fired rather than re-adopting")
 }
 
 // An unparseable schedule is a spec problem no retry can fix. This controller

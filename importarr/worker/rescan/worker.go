@@ -24,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -369,12 +370,19 @@ func candidateFor(m *catalogv1alpha1.Movie) MovieCandidate {
 }
 
 // relPath renders a walked path the way catalogv1alpha1.UnmatchedFile
-// documents it: relative to the root folder being walked. It falls back to
-// the absolute path when the two are unrelated, which cannot happen for a
-// path fsops.Walk produced but keeps the field non-empty if it ever does.
+// documents it: relative to the ROOT FOLDER, which is not the same as the
+// walked directory whenever LibraryScan.spec.subpath narrows the scan.
+//
+// It falls back to the absolute path when the two are unrelated, or when the
+// result would climb out of the root with "..", which would be a root folder
+// and a task path that do not belong together -- better an absolute path in
+// status than a misleading relative one.
 func relPath(root, path string) string {
+	if root == "" {
+		return path
+	}
 	rel, err := filepath.Rel(root, path)
-	if err != nil || rel == "" {
+	if err != nil || rel == "" || rel == "." || strings.HasPrefix(rel, "..") {
 		return path
 	}
 	return rel

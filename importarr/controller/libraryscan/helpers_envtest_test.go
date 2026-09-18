@@ -127,17 +127,38 @@ func createNamespace(t *testing.T, ctx context.Context, c client.Client, name st
 	return name
 }
 
-// mediaTempDir plants a test library under /data/media, which
-// RootFolder.spec.path's CEL rule requires; see the same helper in
-// importarr/worker/rescan for the full reasoning.
+// mediaTempDir returns a fresh, empty directory to plant a test library in,
+// removed when the test ends.
+//
+// It cannot be t.TempDir(): RootFolder.spec.path carries a CEL rule
+// (`self.startsWith('/data/media/')`) that the envtest apiserver enforces, so
+// a root folder pointed at /tmp is rejected before any of this code runs.
+// /data is the RWX volume spec §11 mounts in every media-touching pod and is
+// where the e2e suites plant files too.
+//
+// A writable media root is a prerequisite of this suite in exactly the way
+// KUBEBUILDER_ASSETS is, and the ffprobe binary is elsewhere in the tree, so
+// its absence is a named skip rather than a failure: a missing prerequisite
+// and a broken scanner must not look the same in the output. `make test`
+// creates the directory, and CLUSTARR_TEST_MEDIA_ROOT overrides it (the CEL
+// rule means any override still has to start with /data/media/).
 func mediaTempDir(t *testing.T) string {
 	t.Helper()
 	prefix := os.Getenv("CLUSTARR_TEST_MEDIA_ROOT")
 	if prefix == "" {
 		prefix = "/data/media"
 	}
+	if err := os.MkdirAll(prefix, 0o755); err != nil {
+		t.Skipf("%s is not creatable (%v); RootFolder.spec.path must start with /data/media/, "+
+			"so run `make test`, or `mkdir -p %s` by hand, or set CLUSTARR_TEST_MEDIA_ROOT "+
+			"to a writable directory under /data/media/", prefix, err, prefix)
+	}
 	dir, err := os.MkdirTemp(prefix, "clustarr-libraryscan-")
-	require.NoError(t, err, "plant the test library under %s", prefix)
+	if err != nil {
+		t.Skipf("%s is not writable (%v); RootFolder.spec.path must start with /data/media/, "+
+			"so run `make test`, or make %s writable, or set CLUSTARR_TEST_MEDIA_ROOT "+
+			"to a writable directory under /data/media/", prefix, err, prefix)
+	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return dir
 }
@@ -172,17 +193,43 @@ func readyRootFolder(t *testing.T, ctx context.Context, c client.Client, ns, pat
 		},
 	}
 	require.NoError(t, c.Create(ctx, rf))
+	setRootFolderReady(t, ctx, c, rf, true)
+	return rf
+}
+
+// setRootFolderReady flips the Ready condition catalogarr's own RootFolder
+// reconciler owns. It is a plain fixture write; that reconciler is not
+// running here.
+func setRootFolderReady(t *testing.T, ctx context.Context, c client.Client, rf *catalogv1alpha1.RootFolder, ready bool) {
+	t.Helper()
+	status := metav1.ConditionFalse
+	reason := "PathNotFound"
+	if ready {
+		status = metav1.ConditionTrue
+		reason = "Reconciled"
+	}
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(rf), rf))
 	rf.Status.Conditions = []metav1.Condition{{
 		Type:               catalogv1alpha1.RootFolderConditionReady,
-		Status:             metav1.ConditionTrue,
-		Reason:             "Reconciled",
+		Status:             status,
+		Reason:             reason,
 		LastTransitionTime: metav1.Now(),
 	}}
-	// A plain test-fixture write standing in for catalogarr's RootFolder
-	// reconciler, which is not running here. Production status writes go
-	// through k8s.PatchStatus; forbidigo scopes that rule to non-test code.
-	require.NoError(t, c.Status().Update(ctx, rf)) //nolint:forbidigo // test fixture, not a production status write
-	return rf
+	//nolint:forbidigo // test fixture standing in for catalogarr's RootFolder reconciler
+	require.NoError(t, c.Status().Update(ctx, rf))
+}
+
+// setScanPhase rewinds a scan to a given phase so the next Reconcile
+// dispatches down a chosen branch. It changes ONLY status.phase, so
+// server-side apply hands only that one field to the test's manager and every
+// other status field keeps the owner it already had -- which is what lets a
+// release of those other fields still be observed.
+func setScanPhase(t *testing.T, ctx context.Context, c client.Client, scan *catalogv1alpha1.LibraryScan, phase catalogv1alpha1.ScanPhase) {
+	t.Helper()
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(scan), scan))
+	scan.Status.Phase = phase
+	//nolint:forbidigo // test fixture rewinding the phase, not a production status write
+	require.NoError(t, c.Status().Update(ctx, scan))
 }
 
 // seedScan creates a LibraryScan and, when status is non-zero, drives it to
@@ -281,7 +328,22 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
 // subresource, or "" when nobody owns it.
 func managerFor(t *testing.T, entries []metav1.ManagedFieldsEntry, subresource, jsonPath string) string {
 	t.Helper()
+	owners := managersFor(t, entries, subresource, jsonPath)
+	if len(owners) == 0 {
+		return ""
+	}
+	return owners[0]
+}
+
+// managersFor returns EVERY manager owning jsonPath. A server-side-apply
+// release is only observable when the releasing manager is the sole owner --
+// if a test fixture's own Update co-owns the field, the value survives the
+// release and the test passes for the wrong reason. Tests that assert a
+// release therefore assert sole ownership first.
+func managersFor(t *testing.T, entries []metav1.ManagedFieldsEntry, subresource, jsonPath string) []string {
+	t.Helper()
 	parts := splitPath(jsonPath)
+	var owners []string
 	for _, e := range entries {
 		if e.Subresource != subresource || e.FieldsV1 == nil {
 			continue
@@ -289,10 +351,10 @@ func managerFor(t *testing.T, entries []metav1.ManagedFieldsEntry, subresource, 
 		var fields map[string]any
 		require.NoError(t, json.Unmarshal(e.FieldsV1.GetRawBytes(), &fields))
 		if ownsPath(fields, parts) {
-			return e.Manager
+			owners = append(owners, e.Manager)
 		}
 	}
-	return ""
+	return owners
 }
 
 func splitPath(jsonPath string) []string {

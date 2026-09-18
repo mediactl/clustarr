@@ -86,10 +86,17 @@ func newFixture(t *testing.T, ctx context.Context, name string, kind catalogv1al
 }
 
 func (f *fixture) task(dryRun bool) schema.ScanTask {
+	return f.taskForSubpath("", dryRun)
+}
+
+// taskForSubpath builds the task the LibraryScan controller would publish for
+// a scan narrowed to one directory: Path is the root folder joined with the
+// subpath, while RootFolderRef still names the root folder itself.
+func (f *fixture) taskForSubpath(subpath string, dryRun bool) schema.ScanTask {
 	return schema.ScanTask{
 		LibraryScanRef: schema.Ref{Namespace: f.ns, Name: f.scan.Name, UID: string(f.scan.UID)},
 		RootFolderRef:  schema.Ref{Namespace: f.ns, Name: f.rf.Name},
-		Path:           f.root,
+		Path:           filepath.Join(f.root, subpath),
 		Mode:           string(f.scan.Spec.Mode),
 		DryRun:         dryRun,
 	}
@@ -169,6 +176,11 @@ func TestHandleCreatesMovieAndMediaFileSpecForAConfidentMatch(t *testing.T) {
 	assert.False(t, mf.Spec.ModTime.IsZero())
 	assert.Equal(t, "Bluray-1080p", mf.Spec.Quality.Name, "the quality frozen at import comes from the parsed release")
 	assert.NotEmpty(t, mf.Spec.Languages)
+	// pkg/release mis-parses this layout's group as "1080p". spec.releaseGroup
+	// is frozen at import and custom formats score on it, so the worker drops
+	// a known-garbage group rather than freezing it. See releasegroup.go.
+	assert.Empty(t, mf.Spec.ReleaseGroup,
+		"a group that is really a quality token must not be frozen into spec")
 
 	// The two-writer split: importarr owns MediaFileSpec, catalogarr owns
 	// all of MediaFileStatus. Nothing here may have touched status.
@@ -284,6 +296,30 @@ func TestHandleRecordsAnUnattributableFileWithAReason(t *testing.T) {
 	var movies catalogv1alpha1.MovieList
 	require.NoError(t, f.c.List(ctx, &movies, client.InNamespace(f.ns)))
 	assert.Empty(t, movies.Items, "the scanner never guesses an item into existence")
+}
+
+// An unmatched path is relative to the ROOT FOLDER, per the CRD field. When
+// spec.subpath narrows the walk, the subpath is part of that relative path
+// and must not be swallowed: two files with the same basename under different
+// subpaths would otherwise be indistinguishable in status.
+func TestHandleRecordsUnmatchedPathsRelativeToTheRootFolderNotTheSubpath(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t, ctx, "rw-subpath", catalogv1alpha1.RootFolderKindMovie, "hd-bluray-web", catalogv1alpha1.ScanModeFull)
+
+	subpath := "Unsorted"
+	rel := filepath.Join(subpath, "Some Unknown Film (2024)", "Some Unknown Film (2024).mkv")
+	mustWriteFile(t, filepath.Join(f.root, rel), sampleFloor)
+	// A second, identically named file outside the subpath, to prove the
+	// recorded paths could actually be told apart.
+	mustWriteFile(t, filepath.Join(f.root, "Some Unknown Film (2024)", "Some Unknown Film (2024).mkv"), sampleFloor)
+
+	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.taskForSubpath(subpath, false))))
+
+	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
+	assert.Equal(t, int64(1), got.FilesSeen, "only the subpath is walked")
+	require.Len(t, got.Unmatched, 1)
+	assert.Equal(t, rel, got.Unmatched[0].Path,
+		"the path keeps its subpath prefix, because it is relative to the root folder")
 }
 
 // Library rescan handles movie root folders. Anything else is reported as an

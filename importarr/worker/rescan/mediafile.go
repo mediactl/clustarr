@@ -47,7 +47,11 @@ import (
 // catalogarr's job (spec §8.5).
 func (w *Worker) handleMediaFile(ctx context.Context, st *scanState, path string, info os.FileInfo) error {
 	now := w.now()
-	rel := relPath(st.task.Path, path)
+	// Relative to the ROOT FOLDER, which is what
+	// catalogv1alpha1.UnmatchedFile.Path documents -- not to the walked
+	// path, which is the root folder joined with spec.subpath and would
+	// drop that prefix from every recorded entry.
+	rel := relPath(st.root.Spec.Path, path)
 
 	// Library rescan understands movie root folders. A file under any other
 	// kind is reported honestly rather than guessed at: extending this to
@@ -186,6 +190,10 @@ func (w *Worker) applyMovie(ctx context.Context, st *scanState, name string, tmd
 // MediaFileSpec field: the observed path, size and mtime, and the release
 // identity pkg/release parsed and spec §8.4 freezes at import.
 //
+// releaseGroup goes through releaseGroupOrEmpty rather than straight from the
+// parser: see releasegroup.go for the pkg/release defect that guard
+// compensates for, and why a frozen field makes it worth compensating for.
+//
 // formatScore, matchedFormats and profileHash are deliberately left at their
 // zero values. They are importarr's fields, but scoring them needs the item's
 // QualityProfile and pkg/quality/catalogue's custom-format evaluation, which
@@ -207,7 +215,7 @@ func (w *Worker) applyMediaFile(
 		WithQuality(parsed.Quality).
 		WithRevision(parsed.Revision).
 		WithReleaseType(parsed.ReleaseType).
-		WithReleaseGroup(parsed.Group).
+		WithReleaseGroup(releaseGroupOrEmpty(parsed)).
 		WithEdition(parsed.Edition)
 	if len(parsed.Languages) > 0 {
 		spec = spec.WithLanguages(parsed.Languages...)
