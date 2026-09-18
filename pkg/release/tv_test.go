@@ -18,8 +18,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package release
 
 import (
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/dlclark/regexp2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -78,4 +81,28 @@ func TestParseSeriesSeasonPacks(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestParseSeriesCascadePropagatesRegexTimeoutInsteadOfFallingThrough forces
+// a genuine regexp2 MatchTimeout inside the standard-family stage (by
+// temporarily swapping seasonOnlyRegex for a classic catastrophic-
+// backtracking pattern with a tiny timeout) and asserts that parseSeries's
+// standard->daily->anime fallback cascade (tv.go) returns that timeout
+// immediately rather than treating it as "no match" and trying the next
+// family.
+func TestParseSeriesCascadePropagatesRegexTimeoutInsteadOfFallingThrough(t *testing.T) {
+	original := seasonOnlyRegex
+	pathological := regexp2.MustCompile(`(a+)+$`, regexp2.None)
+	pathological.MatchTimeout = 1 * time.Millisecond
+	seasonOnlyRegex = pathological
+	defer func() { seasonOnlyRegex = original }()
+
+	// No "S\d+E\d+"/"S\d+" token, so dashRangeEpisodeRegex and
+	// multiEpisodeRegex both cleanly report "no match" first, leaving
+	// seasonOnlyRegex (now pathological) as the one that actually runs.
+	title := "Show." + strings.Repeat("a", 30) + "!.720p.HDTV-GROUP"
+
+	_, err := parseSeries(title, Options{})
+	require.Error(t, err)
+	assert.True(t, isRegexTimeout(err), "expected a regexp2 match-timeout error, got: %v", err)
 }

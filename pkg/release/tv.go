@@ -70,6 +70,12 @@ var partialSeasonRegex = mustCompile(`part\s?\d`, regexp2.IgnoreCase)
 // standard family "accidentally", leaving the bracket group embedded in the
 // title instead of parsed out); anything else tries standard, then daily,
 // then anime, before giving up.
+//
+// At every stage, a regexp2 MatchTimeout (isRegexTimeout, quality.go) is
+// returned immediately rather than treated as "this family didn't match" —
+// a timeout means the engine gave up on a pathological input, not that the
+// title is genuinely some other shape, so falling through to the next
+// family would both waste the same budget again and mask the real failure.
 func parseSeries(title string, o Options) (*ParsedRelease, error) {
 	switch o.SeriesType {
 	case "daily":
@@ -77,17 +83,32 @@ func parseSeries(title string, o Options) (*ParsedRelease, error) {
 	case "anime":
 		return parseAnimeSeries(title)
 	default:
-		if ok, err := animeBracketPrefixRegex.MatchString(title); err == nil && ok {
-			if p, err := parseAnimeSeries(title); err == nil {
+		if ok, err := animeBracketPrefixRegex.MatchString(title); err != nil {
+			if isRegexTimeout(err) {
+				return nil, fmt.Errorf("release: series: anime-prefix check: %w", err)
+			}
+		} else if ok {
+			p, err := parseAnimeSeries(title)
+			if err == nil {
 				return p, nil
 			}
+			if isRegexTimeout(err) {
+				return nil, err
+			}
 		}
+
 		if p, err := parseStandardSeries(title); err == nil {
 			return p, nil
+		} else if isRegexTimeout(err) {
+			return nil, err
 		}
+
 		if p, err := parseDailySeries(title); err == nil {
 			return p, nil
+		} else if isRegexTimeout(err) {
+			return nil, err
 		}
+
 		return parseAnimeSeries(title)
 	}
 }

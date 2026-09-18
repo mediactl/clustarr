@@ -20,6 +20,7 @@ package release
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/dlclark/regexp2"
@@ -37,6 +38,22 @@ func mustCompile(pattern string, opt regexp2.RegexOptions) *regexp2.Regexp {
 	re := regexp2.MustCompile(pattern, opt)
 	re.MatchTimeout = regexTimeout
 	return re
+}
+
+// isRegexTimeout reports whether err originated from a regexp2 MatchTimeout.
+// dlclark/regexp2 v1.12.0 has no exported sentinel or typed error for this —
+// runner.go's checkTimeout returns a bare fmt.Errorf("match timeout after
+// %v on input `%v`", ...) — so this is a text match on that message rather
+// than errors.Is/errors.As. It still works through any number of layers of
+// this package's own %w-wrapping, since fmt.Errorf's %w preserves the
+// wrapped error's message text in the resulting Error() string.
+//
+// Every fallback stage in parseSeries's cascade (tv.go) checks this before
+// deciding whether to try the next family: a timeout must propagate
+// immediately, not be silently treated as "this family didn't match, try
+// the next one."
+func isRegexTimeout(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "match timeout")
 }
 
 // sourceRegex ports Radarr/Sonarr's QualityParser.SourceRegex named-group
