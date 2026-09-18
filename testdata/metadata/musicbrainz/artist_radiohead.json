@@ -1,0 +1,13 @@
+{
+  "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+  "name": "Radiohead",
+  "sort-name": "Radiohead",
+  "type": "Group",
+  "country": "GB",
+  "life-span": {"begin": "1985", "ended": false},
+  "tags": [{"name": "alternative rock", "count": 12}],
+  "rating": {"value": 4.5, "votes-count": 120},
+  "relations": [
+    {"type": "wikidata", "type-id": "b2f95d3c", "url": {"resource": "https://www.wikidata.org/wiki/Q6033"}}
+  ]
+}
