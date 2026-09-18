@@ -34,6 +34,17 @@ const (
 	// cross-group status writer (Download.status.import).
 	ManagerCatalogarr FieldManager = "catalogarr"
 
+	// ManagerCatalogarrSeries is the catalogarr Series reconciler when it writes
+	// to an Episode it owns -- the provider-derived per-episode fields and the
+	// monitor mode it applies on fanout. It is deliberately distinct from
+	// ManagerCatalogarr, which the Episode reconciler uses for that Episode's own
+	// status: server-side apply replaces a manager's whole ownership set on every
+	// apply, so two writers sharing one manager name on one object silently
+	// release each other's fields. Distinct managers make the split native --
+	// and if they ever both claim the same field, the apiserver reports a loud
+	// conflict instead of losing data quietly.
+	ManagerCatalogarrSeries FieldManager = "catalogarr-series"
+
 	// ManagerCatalogarrWorker is the catalogarr queue worker, covering the
 	// search, grab, import, importlist and rss-matcher consumers.
 	ManagerCatalogarrWorker FieldManager = "catalogarr-worker"
