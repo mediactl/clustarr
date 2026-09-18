@@ -64,6 +64,14 @@ func TestParseSeriesAnimeAbsoluteAndBracketGroup(t *testing.T) {
 	}
 }
 
+func TestParseSeriesAnimeOVASpecialToken(t *testing.T) {
+	p, err := parseSeries("[SubsPlease] My Hero Academia - OVA 01 (1080p) [HASH].mkv", Options{SeriesType: "anime"})
+	require.NoError(t, err)
+	assert.Equal(t, "My Hero Academia", p.Title)
+	assert.Equal(t, "SubsPlease", p.Group)
+	assert.True(t, p.Special)
+}
+
 func TestParseSeriesAnimeBatchRangesExpandInclusive(t *testing.T) {
 	tests := []struct {
 		name     string

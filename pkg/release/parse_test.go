@@ -66,6 +66,31 @@ func TestParseRejectsEmptyTitle(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// TestParseTitlesAlwaysHasTitleFirstAcrossEveryKind verifies the package-
+// wide invariant that ParsedRelease.Titles always starts with Title, even
+// for kinds (series, album, comic, ...) whose own parser doesn't build a
+// multi-entry Titles list itself — Parse's dispatch (parse.go) backfills
+// Titles = [Title] for any kind that left it empty.
+func TestParseTitlesAlwaysHasTitleFirstAcrossEveryKind(t *testing.T) {
+	tests := []struct {
+		name  string
+		title string
+		kind  commonv1.MediaKind
+	}{
+		{"episode", "Severance.S02E03.1080p.ATVP.WEB-DL.DDP5.1.Atmos.H.264-NTb", commonv1.MediaKindEpisode},
+		{"album", "Pink Floyd - The Dark Side of the Moon (1973) [FLAC]", commonv1.MediaKindAlbum},
+		{"comic", "Saga 001 (2012) (Digital) (Zone-Empire).cbz", commonv1.MediaKindComic},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := release.ParseKind(tt.title, tt.kind)
+			require.NoError(t, err)
+			require.NotEmpty(t, p.Titles)
+			assert.Equal(t, p.Title, p.Titles[0])
+		})
+	}
+}
+
 func TestParseNeverPanicsOnMalformedInput(t *testing.T) {
 	inputs := []string{
 		"", " ", ".", "-", "[", "]", "S01E", "1999", strings.Repeat("a", 5000),

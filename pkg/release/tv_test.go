@@ -122,6 +122,26 @@ func TestParseSeriesStandardDashRangeRejectsDescendingAndOversized(t *testing.T)
 	}
 }
 
+func TestParseSeriesSpecialFlagsSeasonZeroButNotTitleContainingTheWord(t *testing.T) {
+	tests := []struct {
+		name    string
+		title   string
+		special bool
+	}{
+		{"season zero is a special", "Doctor.Who.S00E01.The.Feast.of.Steven.720p.HDTV.x264-GROUP", true},
+		// "Special" here is part of the show's actual title, not a special-
+		// episode tag, so it must not flip Special to true.
+		{"special in the title itself", "Special.Ops.S01E01.720p.WEB-DL.x264-GROUP", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := parseSeries(tt.title, Options{SeriesType: "standard"})
+			require.NoError(t, err)
+			assert.Equal(t, tt.special, p.Special)
+		})
+	}
+}
+
 // TestParseSeriesCascadePropagatesRegexTimeoutInsteadOfFallingThrough forces
 // a genuine regexp2 MatchTimeout inside the standard-family stage (by
 // temporarily swapping seasonOnlyRegex for a classic catastrophic-

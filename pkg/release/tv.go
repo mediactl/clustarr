@@ -172,6 +172,23 @@ func atoiGroup(m *regexp2.Match, name string) (int, error) {
 	return v, nil
 }
 
+// specialFromMatch reports whether a standard-family match should flag
+// Special: either one of the parsed seasons is 0 (S00 is *arr's convention
+// for specials), or a standalone SPECIAL/OVA/OAD/NCOP/NCED token
+// (specialTokenRegex, classify.go) appears in the *tag region* — the part
+// of title after m's own match, i.e. after the S/E marker — never inside
+// the captured series title itself, so a real show named "Special Ops"
+// isn't misflagged.
+func specialFromMatch(title string, m *regexp2.Match, seasons []int) bool {
+	for _, s := range seasons {
+		if s == 0 {
+			return true
+		}
+	}
+	tag := title[len(m.String()):]
+	return hasSpecialToken(tag)
+}
+
 // parseStandardSeries tries, in order: dash-range multi-episode, single/
 // multi-episode, then season-only (full/multi/partial season pack).
 func parseStandardSeries(title string) (*ParsedRelease, error) {
@@ -197,6 +214,7 @@ func parseStandardSeries(title string) (*ParsedRelease, error) {
 				Episodes: intRange(start, end),
 			}
 			p.ReleaseType = releaseTypeForEpisodes(p.Episodes)
+			p.Special = specialFromMatch(title, m, p.Seasons)
 			return finishSeries(title, p), nil
 		}
 		// Descending or implausibly long: not a legitimate range — fall
@@ -226,6 +244,7 @@ func parseStandardSeries(title string) (*ParsedRelease, error) {
 			Episodes: episodes,
 		}
 		p.ReleaseType = releaseTypeForEpisodes(episodes)
+		p.Special = specialFromMatch(title, m, p.Seasons)
 		return finishSeries(title, p), nil
 	}
 
@@ -257,6 +276,7 @@ func parseStandardSeries(title string) (*ParsedRelease, error) {
 			p.FullSeason = true
 		}
 		p.ReleaseType = commonv1.ReleaseTypeSeasonPack
+		p.Special = specialFromMatch(title, m, p.Seasons)
 		return finishSeries(title, p), nil
 	}
 

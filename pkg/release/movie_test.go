@@ -57,3 +57,28 @@ func TestParseMovieTitleYearAndQuality(t *testing.T) {
 		})
 	}
 }
+
+func TestParseMovieTitlesIncludesAlternateTitles(t *testing.T) {
+	tests := []struct {
+		name   string
+		title  string
+		titles []string
+	}{
+		{
+			"AKA alternate title", "Le.Samourai.AKA.The.Samurai.1967.1080p.BluRay.x264-GROUP",
+			[]string{"Le Samourai", "The Samurai"},
+		},
+		{
+			"plain title has no alternates", "The.Matrix.1999.1080p.BluRay.x264-GROUP",
+			[]string{"The Matrix"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := release.ParseKind(tt.title, commonv1.MediaKindMovie)
+			require.NoError(t, err)
+			assert.Equal(t, tt.titles[0], p.Title, "Titles[0] must equal Title")
+			assert.Equal(t, tt.titles, p.Titles)
+		})
+	}
+}

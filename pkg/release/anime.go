@@ -59,6 +59,16 @@ var animeBatchRegex = mustCompile(
 	regexp2.IgnoreCase,
 )
 
+// animeSpecialRegex matches an anime special/OVA/OAD release that names an
+// episode-marker token instead of a plain absolute number, e.g.
+// "My Hero Academia - OVA 01 (1080p)". Tried before animeBatchRegex and
+// animeAbsoluteRegex, both of which require digits immediately after the
+// title separator and so can't match this shape at all.
+var animeSpecialRegex = mustCompile(
+	`(?<title>.+?)\s*-\s*(?<tag>SPECIAL|OVA|OAD|NCOP|NCED)\.?\s*(?<num>\d{1,4})?`,
+	regexp2.IgnoreCase,
+)
+
 // parseAnime consumes the leading bracket group (if any) from title, then
 // matches the remainder against the season+episode pattern before falling
 // back to the absolute-episode pattern, filling p.Title/p.Group/p.Seasons/
@@ -92,6 +102,19 @@ func parseAnime(title string, p *ParsedRelease) error {
 			return fmt.Errorf("release: anime: parsing episode: %w", convErr)
 		}
 		p.Seasons, p.Episodes = []int{season}, []int{episode}
+		return nil
+	}
+
+	if m, err := animeSpecialRegex.FindStringMatch(work); err != nil {
+		return fmt.Errorf("release: anime: special match: %w", err)
+	} else if m != nil {
+		p.Title = strings.TrimSpace(m.GroupByName("title").String())
+		p.Special = true
+		if numGrp := m.GroupByName("num"); numGrp != nil && len(numGrp.Captures) > 0 {
+			if n, convErr := strconv.Atoi(numGrp.String()); convErr == nil {
+				p.Absolute = []int{n}
+			}
+		}
 		return nil
 	}
 

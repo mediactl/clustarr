@@ -37,20 +37,37 @@ func Parse(title string, o Options) (*ParsedRelease, error) {
 		kind = ClassifyKind(title)
 	}
 
+	var (
+		p   *ParsedRelease
+		err error
+	)
 	switch kind {
 	case commonv1.MediaKindMovie:
-		return parseMovie(title)
+		p, err = parseMovie(title)
 	case commonv1.MediaKindSeries, commonv1.MediaKindEpisode:
-		return parseSeries(title, o)
+		p, err = parseSeries(title, o)
 	case commonv1.MediaKindAlbum, commonv1.MediaKindArtist:
-		return parseMusic(title)
+		p, err = parseMusic(title)
 	case commonv1.MediaKindBook, commonv1.MediaKindAudiobook, commonv1.MediaKindAuthor:
-		return parseBook(title)
+		p, err = parseBook(title)
 	case commonv1.MediaKindComic, commonv1.MediaKindIssue:
-		return parseComic(title)
+		p, err = parseComic(title)
 	default:
 		return nil, fmt.Errorf("release: unknown media kind %q", kind)
 	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Titles always contains Title first: movie.go's buildTitles already
+	// populates a multi-entry Titles for a title with an AKA/aka/slash
+	// alternate; every other per-kind parser leaves Titles at its zero
+	// value, so backfill the single-entry invariant here rather than
+	// repeating "Titles: []string{p.Title}" in each of them.
+	if len(p.Titles) == 0 {
+		p.Titles = []string{p.Title}
+	}
+	return p, nil
 }
 
 // ParseKind is sugar for Parse(title, Options{Kind: kind}).

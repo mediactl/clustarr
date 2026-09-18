@@ -51,6 +51,20 @@ var artistAlbumYearShapeRegex = mustCompile(`.+\s-\s.+\s\(\d{4}\)`, regexp2.Igno
 // animeBracketPrefixRegex catches a leading "[Group] " anime-style prefix.
 var animeBracketPrefixRegex = mustCompile(`^\[[^\]]+\]`, regexp2.IgnoreCase)
 
+// specialTokenRegex catches a standalone special-episode marker: SPECIAL,
+// OVA (original video animation), OAD (original animation DVD), NCOP
+// (non-credit opening) or NCED (non-credit ending). It is deliberately
+// checked against a *tag region* (the part of a title after the series
+// title/S-E match was consumed), not the whole title, in both tv.go and
+// anime.go: a real show can be legitimately named "Special Ops", and
+// checking the whole string would misfire on that.
+var specialTokenRegex = mustCompile(`\b(?:SPECIAL|OVA|OAD|NCOP|NCED)\b`, regexp2.IgnoreCase)
+
+func hasSpecialToken(s string) bool {
+	ok, err := specialTokenRegex.MatchString(s)
+	return err == nil && ok
+}
+
 func matchesAny(title string, res ...*regexp2.Regexp) bool {
 	for _, re := range res {
 		if ok, err := re.MatchString(title); err == nil && ok {
