@@ -18,10 +18,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package subtitles
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
+
+	"github.com/mediactl/clustarr/pkg/fsops"
 )
 
 // Writer writes already-normalised subtitle content to an already-resolved
@@ -37,33 +39,26 @@ type Writer struct{}
 
 func NewWriter() Writer { return Writer{} }
 
-// Write atomically replaces the file at path with content: it writes to a
-// temp file in the same directory, then renames it into place, so a reader
-// never observes a partially-written subtitle file.
-func (Writer) Write(ctx context.Context, path string, content []byte) error {
+// Write atomically replaces the file at path with content, creating it
+// with mode: it delegates to fsops.AtomicWrite, which writes a .partial
+// file beside the destination, fsyncs both that file and the directory,
+// then renames it into place. A reader never observes a partial subtitle
+// and a crash never leaves a truncated one.
+//
+// mode is the caller's (RootFolderSpec.Perms.FileMode, "0664" by
+// default): sidecars sit beside the video in a group-shared library, so a
+// media server running as another uid in the same group must be able to
+// read them. The process umask still applies; the deployment sets
+// UMASK 002 (spec section 11).
+func (Writer) Write(ctx context.Context, path string, content []byte, mode os.FileMode) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
 
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".subtitles-*.tmp")
-	if err != nil {
-		return fmt.Errorf("subtitles: create temp file in %s: %w", dir, err)
-	}
-	tmpName := tmp.Name()
-	defer func() { _ = os.Remove(tmpName) }() // no-op once the rename below succeeds
-
-	if _, err := tmp.Write(content); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("subtitles: write %s: %w", tmpName, err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("subtitles: close %s: %w", tmpName, err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		return fmt.Errorf("subtitles: rename %s to %s: %w", tmpName, path, err)
+	if err := fsops.AtomicWrite(path, bytes.NewReader(content), mode); err != nil {
+		return fmt.Errorf("subtitles: write sidecar %s: %w", path, err)
 	}
 	return nil
 }

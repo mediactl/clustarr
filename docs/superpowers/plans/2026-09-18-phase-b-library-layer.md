@@ -73,6 +73,7 @@ Cross-package imports permitted inside Phase B (everything else is forbidden and
 | `pkg/quality` | `pkg/release` | custom-format matching runs over `release.ParsedRelease` |
 | `pkg/cardigann` | `pkg/torznab`, `pkg/newznab` | definitions emit `torznab.Release`; categories map through `newznab.CategoryID` |
 | `pkg/subtitles` | `pkg/release` | `subtitles.Query.Release *release.ParsedRelease` (spec §7) |
+| `pkg/subtitles` | `pkg/fsops` | atomic sidecar writes (`fsops.AtomicWrite`) — added by the post-Phase-B fix wave (ruling F2); this was a gap in the table as dispatched, so B8 wrote sidecars 0600 and unsynced |
 | `pkg/transcode` | `pkg/mediainfo` | `Plan` reads a probe |
 | `pkg/quality` | `api/catalog/v1alpha1` (types only) | `QualityProfileSpec` is the profile model; built-ins ship as it |
 | any | `pkg/obs/logging`, `pkg/obs/tracing`, `pkg/ratelimit` | logging, spans, backoff |
