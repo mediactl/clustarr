@@ -20,6 +20,7 @@ package fsops
 import (
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -38,4 +39,32 @@ func TestMoveAtomicRenamesWithinOneFilesystem(t *testing.T) {
 	got, err := os.ReadFile(dst)
 	require.NoError(t, err)
 	require.Equal(t, "payload", string(got))
+}
+
+func TestMoveAtomicFallsBackOnEXDEVAndLeavesNoPartial(t *testing.T) {
+	old := renameFunc
+	t.Cleanup(func() { renameFunc = old })
+	calls := 0
+	renameFunc = func(o, n string) error {
+		calls++
+		if calls == 1 {
+			return &os.LinkError{Op: "rename", Err: syscall.EXDEV}
+		}
+		return os.Rename(o, n) // the .partial -> dst rename must still use the real one
+	}
+
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.mkv")
+	dst := filepath.Join(dir, "dst.mkv")
+	require.NoError(t, os.WriteFile(src, []byte("payload"), 0o664))
+
+	require.NoError(t, MoveAtomic(src, dst))
+
+	_, err := os.Stat(src)
+	require.True(t, os.IsNotExist(err), "source must be removed after the EXDEV fallback")
+	got, err := os.ReadFile(dst)
+	require.NoError(t, err)
+	require.Equal(t, "payload", string(got))
+	_, err = os.Stat(dst + ".partial")
+	require.True(t, os.IsNotExist(err), ".partial must not remain")
 }
