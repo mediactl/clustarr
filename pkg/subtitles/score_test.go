@@ -175,3 +175,37 @@ func TestGuessMatchesNilTargetYieldsNoMatchesAndNoError(t *testing.T) {
 	got := subtitles.GuessMatches(common.MediaKindMovie, nil, "Movie.Name.2020.1080p.BluRay.x265-SPARKS")
 	assert.Empty(t, got)
 }
+
+func TestScoreWithNilMatchesReturnsZero(t *testing.T) {
+	require.NotPanics(t, func() {
+		score, without := subtitles.Score(common.MediaKindMovie, nil)
+		assert.Equal(t, 0, score)
+		assert.Equal(t, 0, without)
+	})
+}
+
+func TestScoreWithEmptyMatchesReturnsZero(t *testing.T) {
+	score, without := subtitles.Score(common.MediaKindEpisode, map[string]bool{})
+	assert.Equal(t, 0, score)
+	assert.Equal(t, 0, without)
+}
+
+func TestCandidateMatchesWithNilRawAndNilWantHIReturnsEmptyMap(t *testing.T) {
+	require.NotPanics(t, func() {
+		got := subtitles.CandidateMatches(common.MediaKindMovie, true, false, nil, nil)
+		assert.Empty(t, got)
+	})
+}
+
+func TestCandidateMatchesWithEmptyRawReturnsEmptyMap(t *testing.T) {
+	got := subtitles.CandidateMatches(common.MediaKindEpisode, true, false, nil, map[string]bool{})
+	assert.Empty(t, got)
+}
+
+func TestGuessMatchesWithEmptyReleaseInfoYieldsNoMatchesAndNoError(t *testing.T) {
+	target := &release.ParsedRelease{Group: "SPARKS"}
+	require.NotPanics(t, func() {
+		got := subtitles.GuessMatches(common.MediaKindMovie, target, "")
+		assert.Empty(t, got, "release.Parse errors on an empty title; GuessMatches must swallow that as no matches, not panic or error")
+	})
+}
