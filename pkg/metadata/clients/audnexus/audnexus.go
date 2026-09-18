@@ -249,7 +249,7 @@ func (c *Client) doGet(ctx context.Context, path string, out any) error {
 	switch resp.StatusCode {
 	case http.StatusOK:
 		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-			return fmt.Errorf("audnexus: decode %s: %w", path, err)
+			return fmt.Errorf("audnexus: decode %s: %w: %w", path, metadata.ErrDecode, err)
 		}
 		return nil
 	case http.StatusNotFound:

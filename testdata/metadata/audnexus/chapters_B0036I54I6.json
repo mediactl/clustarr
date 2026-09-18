@@ -1,0 +1,11 @@
+{
+  "asin": "B0036I54I6",
+  "brandIntroDurationMs": 2043,
+  "brandOutroDurationMs": 5061,
+  "isAccurate": true,
+  "runtimeLengthMs": 37800000,
+  "chapters": [
+    {"title": "Opening Credits", "startOffsetMs": 0, "startOffsetSec": 0, "lengthMs": 4000},
+    {"title": "Chapter 1: An Unexpected Party", "startOffsetMs": 4000, "startOffsetSec": 4, "lengthMs": 600000}
+  ]
+}

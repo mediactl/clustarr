@@ -71,3 +71,61 @@ func TestAudiobookMapsA404ToErrNotFound(t *testing.T) {
 
 	require.ErrorIs(t, err, metadata.ErrNotFound)
 }
+
+// TestChaptersMapsTheChapterListing exercises /books/{asin}/chapters,
+// documented in docs/research/metadata.md §2.6.
+func TestChaptersMapsTheChapterListing(t *testing.T) {
+	body, err := os.ReadFile("../../../../testdata/metadata/audnexus/chapters_B0036I54I6.json")
+	require.NoError(t, err)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/books/B0036I54I6/chapters", r.URL.Path)
+		require.Equal(t, "us", r.URL.Query().Get("region"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+
+	c := audnexus.New(srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+
+	chapters, err := c.Chapters(context.Background(), "B0036I54I6", "us")
+
+	require.NoError(t, err)
+	require.Len(t, chapters, 2)
+	require.Equal(t, "Opening Credits", chapters[0].Title)
+	require.EqualValues(t, 0, chapters[0].StartOffsetMs)
+	require.EqualValues(t, 4000, chapters[0].LengthMs)
+	require.Equal(t, "Chapter 1: An Unexpected Party", chapters[1].Title)
+	require.EqualValues(t, 4000, chapters[1].StartOffsetMs)
+	require.EqualValues(t, 600000, chapters[1].LengthMs)
+}
+
+func TestAudiobookRejectsMalformedResponseBodies(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"empty body", ""},
+		{"truncated JSON", `{"id": 1, "title": "Hea`},
+		{"garbage bytes", "not json at all {{{"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer srv.Close()
+			c := audnexus.New(srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+
+			var a *metadata.Audiobook
+			var err error
+			require.NotPanics(t, func() {
+				a, err = c.Audiobook(context.Background(), "B0036I54I6", "us")
+			})
+
+			require.Nil(t, a)
+			require.Error(t, err)
+			require.ErrorIs(t, err, metadata.ErrDecode)
+		})
+	}
+}
