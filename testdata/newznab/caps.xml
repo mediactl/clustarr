@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<caps>
+  <server version="1.1" title="Usenet Test Indexer" strapline="Test caps fixture" email="test@example.invalid" url="https://usenet.example.invalid" image="https://usenet.example.invalid/favicon.ico"/>
+  <limits default="100" max="100"/>
+  <searching>
+    <search available="yes" supportedParams="q"/>
+    <tv-search available="yes" supportedParams="q,season,ep,tvdbid"/>
+    <movie-search available="no" supportedParams="q"/>
+    <music-search available="yes" supportedParams="q,artist,album,label,track"/>
+    <audio-search available="yes" supportedParams="q,artist,album,label,track"/>
+    <book-search available="no" supportedParams="q"/>
+  </searching>
+  <categories>
+    <category id="3000" name="Audio">
+      <subcat id="3030" name="Audio/Audiobook"/>
+      <subcat id="3040" name="Audio/Lossless"/>
+    </category>
+  </categories>
+</caps>

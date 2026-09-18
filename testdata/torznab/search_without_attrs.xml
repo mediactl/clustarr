@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Bare Indexer</title>
+    <item>
+      <title>Some.Movie.2024.1080p.WEB-DL.DDP5.1.H.264-GRP</title>
+      <guid>https://tracker.example.invalid/details/124</guid>
+      <link>https://tracker.example.invalid/download/124</link>
+      <pubDate>Wed, 17 Sep 2026 10:11:12 +0000</pubDate>
+      <size>1234567890</size>
+      <category>2000</category>
+    </item>
+  </channel>
+</rss>

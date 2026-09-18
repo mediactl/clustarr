@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<caps>
+  <server version="1.1" title="Clustarr Test Indexer" strapline="Test caps fixture" email="test@example.invalid" url="https://indexer.example.invalid" image="https://indexer.example.invalid/favicon.ico"/>
+  <limits default="50" max="100"/>
+  <searching>
+    <search available="yes" supportedParams="q" searchEngine="raw"/>
+    <tv-search available="yes" supportedParams="q,season,ep,imdbid,tvdbid"/>
+    <movie-search available="yes" supportedParams="q,imdbid,tmdbid"/>
+    <music-search available="no" supportedParams="q"/>
+    <audio-search available="no" supportedParams="q"/>
+    <book-search available="no" supportedParams="q"/>
+  </searching>
+  <categories>
+    <category id="2000" name="Movies">
+      <subcat id="2040" name="Movies/HD"/>
+      <subcat id="2045" name="Movies/UHD"/>
+    </category>
+    <category id="5000" name="TV">
+      <subcat id="5040" name="TV/HD"/>
+      <subcat id="5070" name="TV/Anime"/>
+    </category>
+  </categories>
+  <tags>
+    <tag name="freeleech" description="Download doesn't count toward ratio"/>
+  </tags>
+</caps>

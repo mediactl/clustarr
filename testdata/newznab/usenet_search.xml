@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/">
+  <channel>
+    <title>Usenet Test Indexer</title>
+    <item>
+      <title>Some.Album.2026.FLAC-GRP</title>
+      <guid>https://usenet.example.invalid/details/9</guid>
+      <link>https://usenet.example.invalid/download/9</link>
+      <pubDate>Wed, 17 Sep 2026 08:00:00 +0000</pubDate>
+      <size>987654321</size>
+      <category>3000</category>
+      <newznab:attr name="category" value="3000"/>
+      <newznab:attr name="group" value="alt.binaries.sounds.flac"/>
+      <newznab:attr name="poster" value="uploader@example.invalid"/>
+      <newznab:attr name="usenetdate" value="Wed, 17 Sep 2026 07:55:00 +0000"/>
+      <newznab:attr name="password" value="0"/>
+      <newznab:attr name="nfo" value="1"/>
+    </item>
+  </channel>
+</rss>
