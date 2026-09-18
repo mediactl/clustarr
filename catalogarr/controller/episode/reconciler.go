@@ -336,4 +336,3 @@ func (r *Reconciler) resolveProfile(ctx context.Context, ep *catalogv1alpha1.Epi
 	}
 	return &p, nil
 }
-
