@@ -29,6 +29,9 @@ import (
 
 	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -232,4 +235,65 @@ func TestServeRPCLookupEpisodesRequiresATVDBID(t *testing.T) {
 	req := schema.MetadataRequest{Kind: commonv1.MediaKindEpisode, IDs: map[string]string{"order": "official"}}
 	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
 	require.NotEmpty(t, resp.Error)
+}
+
+// TestServeRPCHandlersCreateASpanPerVerb is review round 1's Important fix:
+// the RPC surface previously never called tracing.Start, unlike worker.go
+// (which spans both the handler and the nested registry call). Concretely,
+// the bus's Serve callback hands each inbound RPC request a bare
+// context.Background() -- pkg/events' Requester.Serve does not yet extract
+// Clustarr-Trace from the request, a gap tracked and fixed separately by
+// the task that owns pkg/events -- so every RPC-triggered provider call ran
+// with no parent context at all, and the provider client's own span became
+// an orphaned root. This is likely the majority of interactive gateway
+// traffic: import-list searches, resolver calls and episode listings.
+//
+// This test only proves a span is created per RPC verb (name and count),
+// per the reviewer's own scoping: proving the eventual parent link is the
+// other task's job once it lands, not this test's.
+func TestServeRPCHandlersCreateASpanPerVerb(t *testing.T) {
+	prevTP := otel.GetTracerProvider()
+	recorder := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder), sdktrace.WithSampler(sdktrace.AlwaysSample()))
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() { otel.SetTracerProvider(prevTP) })
+
+	body, err := os.ReadFile("../../testdata/metadata/tmdb/movie_27205.json")
+	require.NoError(t, err)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(srv.Close)
+	movieClient, err := tmdb.New("test-key", srv.Client(), srv.URL, pkgmetadata.NewLimiter(1000, 1))
+	require.NoError(t, err)
+
+	reg := &pkgmetadata.Registry{
+		Movies:    []pkgmetadata.MovieProvider{movieClient},
+		Series:    []pkgmetadata.SeriesProvider{stubSeriesProvider{episodes: []pkgmetadata.Episode{{Title: "Pilot"}}}},
+		Resolvers: []pkgmetadata.IDResolver{stubResolver{add: pkgmetadata.ExternalIDs{"imdb": "tt1375666"}}},
+	}
+	bus := newTestBus(t)
+	require.NoError(t, ServeRPC(bus, reg))
+
+	var resp schema.MetadataResponse
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup,
+		schema.MetadataRequest{Kind: commonv1.MediaKindMovie, IDs: map[string]string{"tmdb": "27205"}}, &resp))
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup,
+		schema.MetadataRequest{Kind: commonv1.MediaKindEpisode, IDs: map[string]string{"tvdb": "1", "order": "official"}}, &resp))
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataSearch,
+		schema.MetadataRequest{Kind: commonv1.MediaKindMovie, Text: "Inception"}, &resp))
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataResolve,
+		schema.MetadataRequest{Kind: commonv1.MediaKindMovie, IDs: map[string]string{"tmdb": "27205"}}, &resp))
+
+	seen := map[string]int{}
+	for _, s := range recorder.Ended() {
+		seen[s.Name()]++
+	}
+	for _, name := range []string{
+		"metadata.rpc.serve.lookup", "metadata.rpc.serve.search", "metadata.rpc.serve.resolve",
+		"metadata.rpc.lookup", "metadata.rpc.lookupEpisodes", "metadata.rpc.search", "metadata.rpc.resolve",
+	} {
+		require.Positive(t, seen[name], "expected at least one ended span named %q, saw spans: %v", name, seen)
+	}
 }
