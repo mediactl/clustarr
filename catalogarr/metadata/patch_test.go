@@ -96,3 +96,34 @@ func TestBuildMovieMetadataACOmitsCollectionWithoutATMDBID(t *testing.T) {
 	ac = buildMovieMetadataAC(withoutTMDB, time.Now())
 	require.Nil(t, ac.Collection, "CollectionRef.TmdbID is +required; without one, omit the collection rather than send a zero id")
 }
+
+func TestBuildSeriesMetadataACMapsAlternateTitlesAsStructsNotStrings(t *testing.T) {
+	scene := int32(1)
+	s := &pkgmetadata.Series{
+		IDs:    pkgmetadata.ExternalIDs{pkgmetadata.KeyTVDB: "121361"},
+		Title:  "Game of Thrones",
+		Status: pkgmetadata.SeriesStatusEnded,
+		Genres: []string{"Drama", "Fantasy"},
+		AlternateTitles: []pkgmetadata.AltTitle{
+			{Title: "GoT", SceneSeason: &scene},
+			{Title: "Le Trône de Fer"},
+		},
+	}
+	ac := buildSeriesMetadataAC(s, time.Now())
+
+	require.Equal(t, "Game of Thrones", *ac.Title)
+	require.Equal(t, catalogv1alpha1.SeriesRunStatus("ended"), *ac.Status)
+	require.Len(t, ac.AlternateTitles, 2)
+	require.Equal(t, "GoT", *ac.AlternateTitles[0].Title)
+	require.EqualValues(t, 1, *ac.AlternateTitles[0].SceneSeason)
+	require.Nil(t, ac.AlternateTitles[1].SceneSeason)
+}
+
+func TestBuildSeriesMetadataACCapsAlternateTitlesAt100(t *testing.T) {
+	s := &pkgmetadata.Series{Title: "Padded"}
+	for i := 0; i < 150; i++ {
+		s.AlternateTitles = append(s.AlternateTitles, pkgmetadata.AltTitle{Title: "Alt"})
+	}
+	ac := buildSeriesMetadataAC(s, time.Now())
+	require.Len(t, ac.AlternateTitles, 100, "SeriesMetadata.AlternateTitles: +kubebuilder:validation:MaxItems=100")
+}

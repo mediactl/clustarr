@@ -108,3 +108,48 @@ func buildMovieMetadataAC(m *pkgmetadata.Movie, now time.Time) *catalogac.MovieM
 	}
 	return ac
 }
+
+// buildSeriesMetadataAC maps a fetched provider Series onto
+// SeriesStatus.metadata. Unlike Movie, Series' CRD AlternateTitles is
+// []AltTitle{Title, SceneSeason}, not []string -- map the struct, not just
+// the title.
+func buildSeriesMetadataAC(s *pkgmetadata.Series, now time.Time) *catalogac.SeriesMetadataApplyConfiguration {
+	ac := catalogac.SeriesMetadata().
+		WithTitle(s.Title).
+		WithSortTitle(s.SortTitle).
+		WithNetwork(s.Network).
+		WithAirTime(s.AirTime).
+		WithOverview(s.Overview).
+		WithCertification(s.Certification).
+		WithOriginalLanguage(s.OriginalLanguage).
+		WithYear(s.Year).
+		WithRuntimeMinutes(s.Runtime).
+		WithStatus(catalogv1alpha1.SeriesRunStatus(s.Status)).
+		WithExternalIDs(s.IDs).
+		WithRefreshedAt(metav1.NewTime(now))
+
+	if len(s.Genres) > 0 {
+		ac.WithGenres(s.Genres...)
+	}
+	for _, img := range s.Images {
+		if len(ac.Images) >= 50 {
+			break
+		}
+		t, ok := mapImageType(img.Type)
+		if !ok {
+			continue
+		}
+		ac.WithImages(catalogac.Image().WithType(t).WithURL(img.URL))
+	}
+	for _, at := range s.AlternateTitles {
+		if len(ac.AlternateTitles) >= 100 {
+			break
+		}
+		alt := catalogac.AltTitle().WithTitle(at.Title)
+		if at.SceneSeason != nil {
+			alt.WithSceneSeason(*at.SceneSeason)
+		}
+		ac.WithAlternateTitles(alt)
+	}
+	return ac
+}
