@@ -258,7 +258,11 @@ func Plan(info MediaInfo, profile ProfileSpec, caps Capabilities, meta PlanMeta)
 	} else {
 		plan.Decision = DecisionEncode
 		reason := "video requires transcoding to hevc/main10/yuv420p10le"
-		if class == hdrDolbyVision && v0.HDR.DolbyVision != nil && v0.HDR.DolbyVision.Profile == 7 {
+		if class == hdrDolbyVision && v0.HDR.DolbyVision != nil && v0.HDR.DolbyVision.Profile == 7 &&
+			profile.HDR.DolbyVision == DolbyVisionDowngradeToHDR10 {
+			// Only claim a downgrade when hdr.dolbyVision's active mode is
+			// actually downgradeToHDR10 -- a profile-7 source under a
+			// passthrough policy never downgrades anything.
 			reason += ", profile 7 dual-layer Dolby Vision downgraded to HDR10 (enhancement layer dropped)"
 		}
 		plan.Reason = reason

@@ -218,3 +218,47 @@ func TestPlanAndArgsNeverPanicOnAZeroDenominatorFrameRate(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "0", keyintMin)
 }
+
+// TestPlanOnlyAppendsTheDV7DowngradeReasonWhenTheActiveModeActuallyDowngrades
+// covers the controller ruling on the DV7 golden's reason string: the
+// "downgraded to HDR10" suffix must be tied to hdr.dolbyVision actually
+// being downgradeToHDR10, not merely to the source being profile 7 -- a
+// profile-7 source under a passthrough policy never downgrades anything.
+func TestPlanOnlyAppendsTheDV7DowngradeReasonWhenTheActiveModeActuallyDowngrades(t *testing.T) {
+	dv7Info := transcode.MediaInfo{
+		Path:   "/media/movies/Example (2019)/Example (2019).mkv",
+		Format: transcode.FormatInfo{Duration: 2 * time.Hour},
+		Video: []transcode.VideoStream{{
+			Codec: "h264", PixFmt: "yuv420p", Width: 1920, Height: 1080,
+			FrameRate: transcode.Rational{Num: 24, Den: 1},
+			HDR: transcode.HDRInfo{
+				Format:      commonv1.HdrFormatDolbyVision,
+				DolbyVision: &mediainfo.DoviRecord{Profile: 7, ELPresent: true, BLPresent: true},
+			},
+		}},
+		Audio: []transcode.AudioStream{{Codec: "aac", Channels: 2, Language: "eng", Disposition: transcode.Disposition{Default: true}}},
+	}
+	caps := transcode.Capabilities{Encoders: map[transcode.Tier]bool{transcode.TierCPUx265: true}}
+	meta := transcode.PlanMeta{ProfileName: "t", ProfileHash: "h", Threads: 8}
+
+	downgrade := defaultProfile()
+	downgrade.HDR.DolbyVision = transcode.DolbyVisionDowngradeToHDR10
+
+	maxRate := int32(40000)
+	bufSize := int32(60000)
+	passthrough := defaultProfile() // HDR.DolbyVision defaults to Passthrough
+	passthrough.Video.MaxRateKbps = &maxRate
+	passthrough.Video.BufSizeKbps = &bufSize
+
+	p, err := transcode.Plan(dv7Info, downgrade, caps, meta)
+	require.NoError(t, err)
+	require.Equal(t, transcode.DecisionEncode, p.Decision)
+	require.Contains(t, p.Reason, "profile 7 dual-layer Dolby Vision downgraded to HDR10",
+		"downgradeToHDR10 must append the suffix")
+
+	p, err = transcode.Plan(dv7Info, passthrough, caps, meta)
+	require.NoError(t, err)
+	require.Equal(t, transcode.DecisionEncode, p.Decision)
+	require.NotContains(t, p.Reason, "downgraded to HDR10",
+		"a profile-7 source under a passthrough policy never downgrades anything")
+}
