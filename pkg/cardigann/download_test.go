@@ -126,3 +126,28 @@ func TestEngineDownloadBuildsMagnetFromInfoHash(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "magnet:?xt=urn:btih:ABCDEF0123456789ABCDEF0123456789ABCDEF01&dn=Some.Release.Name", string(body))
 }
+
+// TestEngineDownloadMagnetShortCircuitsBeforeSessionCheck asserts that a
+// magnet link is returned without ever touching the network or the
+// ErrSessionRequired gate, even for a definition whose login method
+// would otherwise require an established Session first. No httptest
+// server is set up at all — if Download tried to make a network call
+// here, there would be nothing listening and the test would fail with a
+// dial error instead of succeeding.
+func TestEngineDownloadMagnetShortCircuitsBeforeSessionCheck(t *testing.T) {
+	def := &cardigann.Definition{
+		Links: []string{"https://example.invalid/"},
+		Login: &cardigann.LoginBlock{Method: "cookie", Cookies: []string{"session_id"}},
+	}
+	cfg, err := cardigann.NewConfig(def, "https://example.invalid/", nil)
+	require.NoError(t, err)
+	require.Nil(t, cfg.Session) // never logged in
+
+	eng := cardigann.Engine{}
+	rc, err := eng.Download(context.Background(), def, cfg, "magnet:?xt=urn:btih:ABCDEF0123456789ABCDEF0123456789ABCDEF01")
+	require.NoError(t, err)
+	defer func() { _ = rc.Close() }()
+	body, err := io.ReadAll(rc)
+	require.NoError(t, err)
+	assert.Equal(t, "magnet:?xt=urn:btih:ABCDEF0123456789ABCDEF0123456789ABCDEF01", string(body))
+}

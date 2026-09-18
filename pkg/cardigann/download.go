@@ -37,11 +37,14 @@ import (
 // a "magnet:" URI); with no Selectors match, InfoHash (if set) builds a
 // magnet URI from the extracted hash and title.
 func (e Engine) Download(ctx context.Context, def *Definition, cfg Config, link string) (io.ReadCloser, error) {
-	if loginRequiresSession(def.Login) && cfg.Session == nil {
-		return nil, ErrSessionRequired
-	}
+	// A magnet link needs no network access at all — it is returned
+	// as-is regardless of whether this definition requires a login
+	// session, so that check is deliberately below this one.
 	if strings.HasPrefix(link, "magnet:") {
 		return io.NopCloser(strings.NewReader(link)), nil
+	}
+	if loginRequiresSession(def.Login) && cfg.Session == nil {
+		return nil, ErrSessionRequired
 	}
 	if def.Download == nil {
 		return e.fetch(ctx, cfg, link)
@@ -104,11 +107,8 @@ func (e Engine) resolveLink(ctx context.Context, cfg Config, val string) (io.Rea
 }
 
 // fetch GETs link (resolved against cfg.BaseURL) and buffers the whole
-// body — every Client body this package reads is capped indirectly by
-// e.do's io.ReadAll over a definition-controlled response, matching
-// torznab.Client's own 8 MiB cap in spirit (this package has no separate
-// size limit of its own; the indexer controller's http.Client sets
-// response size/timeout policy).
+// body — bounded by e.do's own maxResponseBodyBytes cap, the same 8 MiB
+// limit pkg/torznab.Client uses.
 func (e Engine) fetch(ctx context.Context, cfg Config, link string) (io.ReadCloser, error) {
 	u, err := resolveURL(cfg.BaseURL, link)
 	if err != nil {
