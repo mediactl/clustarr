@@ -19,7 +19,10 @@ package transcode
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -252,16 +255,372 @@ func Plan(info MediaInfo, profile ProfileSpec, caps Capabilities, meta PlanMeta)
 	if videoCompliant(v0) {
 		plan.Decision = DecisionRemuxOnly
 		plan.Reason = "video already compliant; remuxing audio/subtitles/container only"
-		return plan, nil
+	} else {
+		plan.Decision = DecisionEncode
+		reason := "video requires transcoding to hevc/main10/yuv420p10le"
+		if class == hdrDolbyVision && v0.HDR.DolbyVision != nil && v0.HDR.DolbyVision.Profile == 7 {
+			reason += ", profile 7 dual-layer Dolby Vision downgraded to HDR10 (enhancement layer dropped)"
+		}
+		plan.Reason = reason
 	}
 
-	plan.Decision = DecisionEncode
-	reason := "video requires transcoding to hevc/main10/yuv420p10le"
-	if class == hdrDolbyVision && v0.HDR.DolbyVision != nil && v0.HDR.DolbyVision.Profile == 7 {
-		reason += ", profile 7 dual-layer Dolby Vision downgraded to HDR10 (enhancement layer dropped)"
-	}
-	plan.Reason = reason
+	renderPlan(plan, info, profile, meta, class)
 	return plan, nil
+}
+
+// renderPlan fills every ffmpeg-facing field of an already-decided
+// RemuxOnly/Encode plan: Output, Maps, Filters, VideoArgs, Audio,
+// Subtitles, Attachments, HDR, Tags and Expect.
+func renderPlan(plan *PlanResult, info MediaInfo, profile ProfileSpec, meta PlanMeta, class hdrBucket) {
+	v0 := info.Video[0]
+
+	stem := strings.TrimSuffix(info.Path, filepath.Ext(info.Path))
+	plan.Output = stem + ".part." + containerExt(plan.Container)
+
+	plan.Audio = buildAudioPlan(info, profile)
+	plan.Subtitles = buildSubtitlePlan(info, profile, plan.Container)
+	plan.Attachments = len(info.Attachments) > 0 && profile.Subtitles.CopyAttachments
+	plan.Maps = buildMaps(plan.Audio, plan.Subtitles)
+
+	dvMode := profile.HDR.DolbyVision
+	if class != hdrNone {
+		plan.Filters = append(plan.Filters, hdrSetParamsFilter(v0))
+	}
+
+	if plan.Decision == DecisionRemuxOnly {
+		plan.VideoArgs = []string{"-c:v", "copy"}
+	} else {
+		switch plan.Tier {
+		case TierNVENC:
+			plan.VideoArgs = nvencVideoArgs(profile.Video)
+		case TierQSV:
+			plan.HWInit = qsvHWInit()
+			plan.VideoArgs = qsvVideoArgs(profile.Video)
+		case TierVAAPI:
+			plan.HWInit = vaapiHWInit()
+			plan.Filters = append([]string{"scale_vaapi=format=p010"}, plan.Filters...)
+			plan.VideoArgs = vaapiVideoArgs(profile.Video)
+		default: // TierCPUx265
+			plan.VideoArgs = cpuVideoArgs(profile.Video, v0, class, dvMode, meta.Threads)
+		}
+	}
+
+	if plan.Container == ContainerMP4 {
+		plan.VideoArgs = append(plan.VideoArgs, "-tag:v", "hvc1")
+	}
+
+	plan.HDR = buildHDRParams(class, dvMode, v0.HDR)
+	plan.Tags = map[string]string{"CLUSTARR_PROFILE": meta.ProfileName + "@" + meta.ProfileHash}
+	plan.Expect = buildExpectation(plan, profile)
+}
+
+// -- audio/subtitle track planning -----------------------------------------
+
+func buildAudioPlan(info MediaInfo, profile ProfileSpec) []AudioTrackPlan {
+	var out []AudioTrackPlan
+	for _, a := range info.Audio {
+		if len(profile.Audio.Languages) > 0 && !containsString(profile.Audio.Languages, a.Language) {
+			continue
+		}
+		if profile.Audio.DropCommentary && looksLikeCommentary(a) {
+			continue
+		}
+		out = append(out, AudioTrackPlan{
+			SourceIndex: a.Index,
+			Action:      AudioActionEncode,
+			Codec:       profile.Audio.Codec,
+			BitrateKbps: BitrateForChannels(a.Channels, profile.Audio.BitratePerChannelKbps),
+			Language:    a.Language,
+			Default:     a.Disposition.Default,
+		})
+		if keepOriginalTrack(profile.Audio.KeepOriginal, a) {
+			out = append(out, AudioTrackPlan{
+				SourceIndex: a.Index,
+				Action:      AudioActionCopy,
+				Codec:       "copy",
+				Language:    a.Language,
+			})
+		}
+	}
+	return out
+}
+
+func looksLikeCommentary(a AudioStream) bool {
+	return a.Disposition.Comment || strings.Contains(strings.ToLower(a.Title), "commentary")
+}
+
+func keepOriginalTrack(policy KeepOriginalPolicy, a AudioStream) bool {
+	switch policy {
+	case KeepOriginalAlways:
+		return true
+	case KeepOriginalLossless:
+		return a.Lossless
+	case KeepOriginalAtmos:
+		return a.Atmos
+	default: // never, or unrecognised
+		return false
+	}
+}
+
+func buildSubtitlePlan(info MediaInfo, profile ProfileSpec, container Container) []int32 {
+	var out []int32
+	for _, s := range info.Subtitles {
+		if s.Bitmap {
+			// note §6: MP4 cannot carry bitmap (PGS/VobSub) subtitles.
+			if !profile.Subtitles.CopyBitmap || container == ContainerMP4 {
+				continue
+			}
+		} else if !profile.Subtitles.CopyText {
+			continue
+		}
+		out = append(out, s.Index)
+	}
+	return out
+}
+
+func buildMaps(audio []AudioTrackPlan, subs []int32) []string {
+	maps := []string{"-map", "0:v:0"}
+	for _, a := range audio {
+		maps = append(maps, "-map", fmt.Sprintf("0:a:%d", a.SourceIndex))
+	}
+	for _, s := range subs {
+		maps = append(maps, "-map", fmt.Sprintf("0:s:%d", s))
+	}
+	maps = append(maps, "-map_metadata", "0", "-map_chapters", "0")
+	return maps
+}
+
+// -- HDR / colour rendering --------------------------------------------------
+
+// hdrSetParamsFilter renders the "-vf setparams=..." filter emitted
+// whenever a source carries any HDR classification, so decoders downstream
+// are immune to sources whose container tags are missing or wrong (note
+// §3.4 pitfall paragraph).
+func hdrSetParamsFilter(vs VideoStream) string {
+	return fmt.Sprintf("setparams=color_primaries=%s:color_trc=%s:colorspace=%s:range=%s",
+		vs.ColorPrimaries, vs.ColorTransfer, vs.ColorSpace, vs.ColorRange)
+}
+
+// x265Range maps ffprobe's color_range vocabulary ("tv"/"pc") to x265's
+// ("limited"/"full"); anything else (including unset) defaults to limited,
+// the overwhelmingly common case for broadcast/BD-sourced HDR.
+func x265Range(colorRange string) string {
+	if colorRange == "pc" {
+		return "full"
+	}
+	return "limited"
+}
+
+// x265Params assembles -x265-params deterministically as an explicit
+// ordered list -- never by ranging a map, which Go randomizes. The one
+// exception, profile.Video.ExtraX265Params, is appended sorted by key.
+func x265Params(threads int32, v VideoSpec, vs VideoStream, class hdrBucket, dvMode DolbyVisionMode) string {
+	parts := []string{
+		fmt.Sprintf("pools=%d", threads),
+		"frame-threads=0",
+		fmt.Sprintf("ref=%d", v.Refs),
+		fmt.Sprintf("rc-lookahead=%d", v.RCLookahead),
+	}
+	switch {
+	case class == hdrDolbyVision && dvMode == DolbyVisionPassthrough:
+		// Profile 5 carries no base-layer HDR10 static metadata to tag; the
+		// RPU itself carries dynamic metadata (note §3.5).
+		parts = append(parts, "repeat-headers=1")
+	case class == hdrHDR10 || class == hdrHDR10Plus || (class == hdrDolbyVision && dvMode == DolbyVisionDowngradeToHDR10):
+		parts = append(parts, "hdr10=1", "hdr10-opt=1", "repeat-headers=1")
+		if vs.ColorPrimaries != "" {
+			parts = append(parts, "colorprim="+vs.ColorPrimaries)
+		}
+		if vs.ColorTransfer != "" {
+			parts = append(parts, "transfer="+vs.ColorTransfer)
+		}
+		if vs.ColorSpace != "" {
+			parts = append(parts, "colormatrix="+vs.ColorSpace)
+		}
+		parts = append(parts, "range="+x265Range(vs.ColorRange))
+		if vs.HDR.MasteringDisplay != nil {
+			parts = append(parts, "master-display="+vs.HDR.MasteringDisplay.X265())
+		}
+		if vs.HDR.ContentLight != nil {
+			parts = append(parts, "max-cll="+vs.HDR.ContentLight.X265())
+		}
+	case class == hdrHLG:
+		parts = append(parts, "repeat-headers=1")
+	default: // hdrNone
+		parts = append(parts, fmt.Sprintf("aq-mode=%d", v.AQMode))
+	}
+
+	if len(v.ExtraX265Params) > 0 {
+		keys := make([]string, 0, len(v.ExtraX265Params))
+		for k := range v.ExtraX265Params {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			parts = append(parts, k+"="+v.ExtraX265Params[k])
+		}
+	}
+	return strings.Join(parts, ":")
+}
+
+func buildHDRParams(class hdrBucket, dvMode DolbyVisionMode, hdr HDRInfo) HDRParams {
+	p := HDRParams{Mode: "none"}
+	switch class {
+	case hdrHDR10, hdrHDR10Plus:
+		p.Mode = "hdr10"
+	case hdrHLG:
+		p.Mode = "hlg"
+	case hdrDolbyVision:
+		p.Mode = "dolbyVision"
+		if hdr.DolbyVision != nil {
+			p.DolbyVisionProfile = hdr.DolbyVision.Profile
+		}
+		p.RequiresVBV = dvMode == DolbyVisionPassthrough
+	}
+	if hdr.MasteringDisplay != nil {
+		p.MasterDisplay = hdr.MasteringDisplay.X265()
+	}
+	if hdr.ContentLight != nil {
+		p.MaxCLL = hdr.ContentLight.X265()
+	}
+	return p
+}
+
+// -- per-tier video argument builders ---------------------------------------
+
+// roundFPS rounds a frame-rate Rational to the nearest whole frame per
+// second (23.976 -> 24). The float64 division is a local, immediately
+// discarded intermediate -- never an exported value.
+func roundFPS(r Rational) int32 {
+	if r.Den == 0 {
+		return 0
+	}
+	return int32(math.Round(float64(r.Num) / float64(r.Den)))
+}
+
+func cpuVideoArgs(v VideoSpec, vs VideoStream, class hdrBucket, dvMode DolbyVisionMode, threads int32) []string {
+	hdr := class != hdrNone
+	crf := CRFFor(v.CRF, vs.Height, hdr)
+	fpsRounded := roundFPS(vs.FrameRate)
+	keyint := v.KeyintFactor * fpsRounded
+
+	args := []string{"-c:v", "libx265", "-preset", v.Preset}
+	if v.Tune != nil {
+		args = append(args, "-tune", *v.Tune)
+	}
+	args = append(args,
+		"-crf", strconv.Itoa(int(crf)),
+		"-pix_fmt", v.PixelFormat,
+		"-profile:v", v.Profile,
+		"-flags", "+cgop",
+		"-g", strconv.Itoa(int(keyint)),
+		"-keyint_min", strconv.Itoa(int(fpsRounded)),
+		"-bf", strconv.Itoa(int(v.BFrames)),
+	)
+	if class == hdrDolbyVision && dvMode == DolbyVisionPassthrough {
+		// note §3.5: Dolby Vision requires VBV settings to enable HRD.
+		args = append(args, "-dolbyvision", "1")
+		if v.MaxRateKbps != nil {
+			args = append(args, "-maxrate", fmt.Sprintf("%dk", *v.MaxRateKbps))
+		}
+		if v.BufSizeKbps != nil {
+			args = append(args, "-bufsize", fmt.Sprintf("%dk", *v.BufSizeKbps))
+		}
+	}
+	args = append(args, "-x265-params", x265Params(threads, v, vs, class, dvMode))
+	return args
+}
+
+func nvencVideoArgs(v VideoSpec) []string {
+	return []string{
+		"-c:v", "hevc_nvenc",
+		"-preset", v.NVENC.Preset,
+		"-tune", v.NVENC.Tune,
+		"-rc", "vbr",
+		"-cq", strconv.Itoa(int(v.NVENC.CQ)),
+		"-b:v", "0",
+		"-multipass", v.NVENC.Multipass,
+		"-bf", strconv.Itoa(int(v.BFrames)),
+		"-b_ref_mode", v.NVENC.BRefMode,
+		"-spatial-aq", "1",
+		"-temporal-aq", "1",
+		"-rc-lookahead", strconv.Itoa(int(v.RCLookahead)),
+		"-profile:v", v.Profile,
+		"-tier", "high",
+		"-pix_fmt", "p010le",
+	}
+}
+
+func qsvHWInit() []string {
+	return []string{"-init_hw_device", "qsv=hw", "-filter_hw_device", "hw", "-hwaccel", "qsv", "-hwaccel_output_format", "qsv"}
+}
+
+func qsvVideoArgs(v VideoSpec) []string {
+	return []string{
+		"-c:v", "hevc_qsv",
+		"-preset", v.QSV.Preset,
+		"-global_quality", strconv.Itoa(int(v.QSV.GlobalQuality)),
+		"-extbrc", "1",
+		"-look_ahead_depth", strconv.Itoa(int(v.QSV.LookAheadDepth)),
+		"-scenario", "archive",
+		"-profile:v", v.Profile,
+	}
+}
+
+func vaapiHWInit() []string {
+	return []string{"-init_hw_device", "vaapi=va:/dev/dri/renderD128", "-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi"}
+}
+
+// vaapiQP is VAAPI's fixed constant-QP value. ProfileSpec has no VAAPISpec
+// (note §4.3: VAAPI is the vendor-neutral fallback with far fewer tunables
+// than QSV/NVENC), so this is a package constant rather than a profile
+// field.
+const vaapiQP = 24
+
+func vaapiVideoArgs(v VideoSpec) []string {
+	return []string{
+		"-c:v", "hevc_vaapi",
+		"-profile:v", v.Profile,
+		"-rc_mode", "CQP",
+		"-qp", strconv.Itoa(vaapiQP),
+		"-sei", "hdr",
+	}
+}
+
+// -- output shape -------------------------------------------------------
+
+func containerExt(c Container) string {
+	if c == ContainerMP4 {
+		return "mp4"
+	}
+	return "mkv"
+}
+
+func containerFormatName(c Container) string {
+	if c == ContainerMP4 {
+		return "mp4"
+	}
+	return "matroska"
+}
+
+func outputPixFmt(tier Tier, v VideoSpec) string {
+	switch tier {
+	case TierNVENC, TierVAAPI:
+		return "p010le"
+	default:
+		return v.PixelFormat
+	}
+}
+
+func buildExpectation(plan *PlanResult, profile ProfileSpec) Expectation {
+	streams := int32(1) + int32(len(plan.Audio)) + int32(len(plan.Subtitles))
+	return Expectation{
+		DurationTolMillis: 1000,
+		Streams:           streams,
+		VideoCodec:        profile.Video.Codec,
+		PixelFormat:       outputPixFmt(plan.Tier, profile.Video),
+		MinOutputBytes:    1024,
+	}
 }
 
 // resolutionClass buckets a source's frame height into the three CRFTable
