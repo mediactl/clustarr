@@ -97,18 +97,18 @@ type HDRInfo struct {
 type VideoStream struct {
 	Index                                                 int32
 	Codec, Profile                                        string
-	Level                                                  int32
-	PixFmt                                                 string
-	BitDepth                                               int32
-	Width, Height                                          int32
-	FrameRate                                              Rational
-	FieldOrder                                             string // "progressive"|"tt"|"bb"|"tb"|"bt"
-	ColorRange, ColorPrimaries, ColorTransfer, ColorSpace  string
-	HDR                                                    HDRInfo
-	Packets                                                int64
-	Duration                                               time.Duration
-	Disposition                                            Disposition
-	Language, Title                                        string
+	Level                                                 int32
+	PixFmt                                                string
+	BitDepth                                              int32
+	Width, Height                                         int32
+	FrameRate                                             Rational
+	FieldOrder                                            string // "progressive"|"tt"|"bb"|"tb"|"bt"
+	ColorRange, ColorPrimaries, ColorTransfer, ColorSpace string
+	HDR                                                   HDRInfo
+	Packets                                               int64
+	Duration                                              time.Duration
+	Disposition                                           Disposition
+	Language, Title                                       string
 }
 
 // AudioStream is one audio stream of a MediaInfo.
@@ -198,6 +198,13 @@ func FromProbe(mi *commonv1.MediaInfo, raw *mediainfo.Raw) (MediaInfo, error) {
 		out.Tags = tagsToMap(raw.Format.TagList)
 	}
 
+	// Index on VideoStream/AudioStream/SubtitleStream/AttachmentStream is
+	// the type-relative position ffmpeg's "0:v:N"/"0:a:N"/"0:s:N"/"0:t:N"
+	// stream specifiers expect -- NOT raw.Streams' absolute, container-wide
+	// index. Plan/Args build "-map 0:a:<AudioTrackPlan.SourceIndex>" etc.
+	// directly from these fields, so they must already be in ffmpeg's
+	// vocabulary.
+	var videoIdx, audioIdx, subIdx, attachIdx int32
 	haveFirstVideo := false
 	for _, s := range raw.Streams {
 		if s == nil {
@@ -206,7 +213,7 @@ func FromProbe(mi *commonv1.MediaInfo, raw *mediainfo.Raw) (MediaInfo, error) {
 		switch ffprobe.StreamType(s.CodecType) {
 		case ffprobe.StreamVideo:
 			vs := VideoStream{
-				Index:       int32(s.Index),
+				Index:       videoIdx,
 				Codec:       s.CodecName,
 				Profile:     s.Profile,
 				Level:       int32(s.Level),
@@ -241,13 +248,14 @@ func FromProbe(mi *commonv1.MediaInfo, raw *mediainfo.Raw) (MediaInfo, error) {
 				vs.ColorSpace = s.ColorSpace
 			}
 			out.Video = append(out.Video, vs)
+			videoIdx++
 
 		case ffprobe.StreamAudio:
 			codec := s.CodecName
 			profile := s.Profile
 			title := tagString(s.TagList, "title")
 			out.Audio = append(out.Audio, AudioStream{
-				Index:         int32(s.Index),
+				Index:         audioIdx,
 				Codec:         codec,
 				Profile:       profile,
 				Channels:      int32(s.Channels),
@@ -260,23 +268,26 @@ func FromProbe(mi *commonv1.MediaInfo, raw *mediainfo.Raw) (MediaInfo, error) {
 				Title:         title,
 				Disposition:   dispositionFrom(s.Disposition),
 			})
+			audioIdx++
 
 		case ffprobe.StreamSubtitle:
 			out.Subtitles = append(out.Subtitles, SubtitleStream{
-				Index:       int32(s.Index),
+				Index:       subIdx,
 				Codec:       s.CodecName,
 				Bitmap:      isBitmapSubtitle(s.CodecName),
 				Language:    tagString(s.TagList, "language"),
 				Title:       tagString(s.TagList, "title"),
 				Disposition: dispositionFrom(s.Disposition),
 			})
+			subIdx++
 
 		case ffprobe.StreamAttachment:
 			out.Attachments = append(out.Attachments, AttachmentStream{
-				Index:    int32(s.Index),
+				Index:    attachIdx,
 				Filename: tagString(s.TagList, "filename"),
 				MimeType: tagString(s.TagList, "mimetype"),
 			})
+			attachIdx++
 		}
 	}
 

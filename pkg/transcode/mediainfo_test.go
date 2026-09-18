@@ -65,7 +65,22 @@ func rawFixture() *mediainfo.Raw {
 				TagList:       ffprobe.Tags{"language": "eng"},
 			},
 			{
-				Index:     2,
+				// A second audio track, at absolute ffprobe index 2, proves
+				// AudioStream.Index is the audio-type-relative position (1)
+				// ffmpeg's "0:a:1" expects, not the raw absolute index (2).
+				Index:         2,
+				CodecName:     "aac",
+				CodecType:     "audio",
+				Channels:      2,
+				ChannelLayout: "stereo",
+				SampleRate:    "48000",
+				BitRate:       "128000",
+				TagList:       ffprobe.Tags{"language": "spa"},
+			},
+			{
+				// At absolute ffprobe index 3, proving SubtitleStream.Index
+				// is likewise subtitle-type-relative (0), not absolute.
+				Index:     3,
 				CodecName: "hdmv_pgs_subtitle",
 				CodecType: "subtitle",
 				TagList:   ffprobe.Tags{"language": "eng"},
@@ -131,9 +146,9 @@ func TestFromProbeMapsEveryField(t *testing.T) {
 	require.Nil(t, v.HDR.DolbyVision)
 	require.False(t, v.HDR.HasHDR10Plus)
 
-	require.Len(t, info.Audio, 1)
+	require.Len(t, info.Audio, 2)
 	a := info.Audio[0]
-	require.Equal(t, int32(1), a.Index)
+	require.Equal(t, int32(0), a.Index, "audio-type-relative, not the absolute ffprobe stream index (1)")
 	require.Equal(t, "eac3", a.Codec)
 	require.Equal(t, int32(6), a.Channels)
 	require.Equal(t, "5.1(side)", a.ChannelLayout)
@@ -143,10 +158,14 @@ func TestFromProbeMapsEveryField(t *testing.T) {
 	require.True(t, a.Disposition.Default)
 	require.False(t, a.Lossless)
 	require.False(t, a.Atmos)
+	a2 := info.Audio[1]
+	require.Equal(t, int32(1), a2.Index, "audio-type-relative, not the absolute ffprobe stream index (2)")
+	require.Equal(t, "aac", a2.Codec)
+	require.Equal(t, "spa", a2.Language)
 
 	require.Len(t, info.Subtitles, 1)
 	s := info.Subtitles[0]
-	require.Equal(t, int32(2), s.Index)
+	require.Equal(t, int32(0), s.Index, "subtitle-type-relative, not the absolute ffprobe stream index (3)")
 	require.Equal(t, "hdmv_pgs_subtitle", s.Codec)
 	require.True(t, s.Bitmap)
 	require.Equal(t, "eng", s.Language)
@@ -170,4 +189,68 @@ func TestFromProbeRejectsARawWithNoVideoStream(t *testing.T) {
 	raw.Streams = raw.Streams[1:] // drop the video stream, keep audio/subs
 	_, err := transcode.FromProbe(mediaInfoFixture(), raw)
 	require.Error(t, err)
+}
+
+// TestFromProbePlusPlanReproducesTheHDR10Golden proves FromProbe's output
+// feeds Plan/Args exactly like the hand-built MediaInfo in
+// TestArgsGoldenHDR102160pCPU (args_test.go) does: same golden file, same
+// argv. Neither commonv1.MediaInfo nor mediainfo.Raw carries the source
+// path (Probe's caller already has it, having passed it in), so this test
+// sets info.Path after FromProbe returns -- exactly what a real caller
+// (the Phase E worker) does before calling Plan.
+func TestFromProbePlusPlanReproducesTheHDR10Golden(t *testing.T) {
+	raw := &mediainfo.Raw{
+		Format: &ffprobe.Format{
+			FormatName:      "matroska,webm",
+			DurationSeconds: 7200,
+			Size:            "20000000000",
+			BitRate:         "22000000",
+		},
+		Streams: []*ffprobe.Stream{
+			{
+				Index:      0,
+				CodecName:  "h264",
+				CodecType:  "video",
+				PixFmt:     "yuv420p10le",
+				Width:      3840,
+				Height:     2160,
+				RFrameRate: "24000/1001",
+			},
+			{
+				Index:         1,
+				CodecName:     "aac",
+				CodecType:     "audio",
+				Channels:      2,
+				ChannelLayout: "stereo",
+				SampleRate:    "48000",
+				BitRate:       "128000",
+				Disposition:   ffprobe.StreamDisposition{Default: 1},
+				TagList:       ffprobe.Tags{"language": "eng"},
+			},
+		},
+		ColorPrimaries: "bt2020",
+		ColorTransfer:  "smpte2084",
+		ColorSpace:     "bt2020nc",
+		ColorRange:     "tv",
+		MasteringDisplay: &mediainfo.MasteringDisplay{
+			GreenX: 13250, GreenY: 34500,
+			BlueX: 7500, BlueY: 3000,
+			RedX: 34000, RedY: 16000,
+			WhiteX: 15635, WhiteY: 16450,
+			MaxLuminance: 10000000, MinLuminance: 1,
+		},
+		ContentLight: &mediainfo.ContentLight{MaxCLL: 1000, MaxFALL: 400},
+	}
+	mi := &commonv1.MediaInfo{Hdr: commonv1.HdrFormatHDR10, VideoBitDepth: 10}
+
+	info, err := transcode.FromProbe(mi, raw)
+	require.NoError(t, err)
+	info.Path = "/media/movies/Example (2019)/Example (2019).mkv" // see doc comment above
+
+	plan, err := transcode.Plan(info, defaultProfile(), testCaps, testMeta)
+	require.NoError(t, err)
+	require.Equal(t, transcode.DecisionEncode, plan.Decision)
+	require.Equal(t, transcode.TierCPUx265, plan.Tier)
+
+	assertGolden(t, "hdr10_2160p_cpu", transcode.Args(plan))
 }
