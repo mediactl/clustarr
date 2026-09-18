@@ -1,5 +1,10 @@
-# ServiceMonitors for the seven service Deployments. One per Service in
-# config/manager, all scraping the same `metrics` port.
+# ServiceMonitors for the nine metrics-serving Deployments. One per Service
+# in config/manager that stands up a controller-runtime metrics listener,
+# all scraping the same `metrics` port. ui is the one Deployment without
+# one: it runs no manager, so it serves no metrics port.
+#
+# This list is kept in step with charts/clustarr/templates/servicemonitor.yaml
+# by TestChartAndKustomizeAgreePerComponent in cmd/clustarr.
 #
 # §13: controller-runtime metrics plus metrics.RegisterRESTClientMetrics() are
 # served on :8443 BEHIND THE AUTHN/AUTHZ FILTER, so the endpoint is https and
@@ -175,6 +180,56 @@ spec:
       app.kubernetes.io/name: clustarr
       app.kubernetes.io/part-of: clustarr
       app.kubernetes.io/component: captionarr-worker
+  endpoints:
+  - port: metrics
+    path: /metrics
+    scheme: https
+    interval: 30s
+    scrapeTimeout: 10s
+    bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    tlsConfig:
+      insecureSkipVerify: true
+---
+# importarr: import-list, import-exclusion and library-scan controllers.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: importarr
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: importarr
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: clustarr
+      app.kubernetes.io/part-of: clustarr
+      app.kubernetes.io/component: importarr
+  endpoints:
+  - port: metrics
+    path: /metrics
+    scheme: https
+    interval: 30s
+    scrapeTimeout: 10s
+    bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    tlsConfig:
+      insecureSkipVerify: true
+---
+# importarr-worker: scan, list and fileimport workers.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: importarr-worker
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: importarr-worker
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: clustarr
+      app.kubernetes.io/part-of: clustarr
+      app.kubernetes.io/component: importarr-worker
   endpoints:
   - port: metrics
     path: /metrics
