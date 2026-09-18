@@ -18,6 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package fsops
 
 import (
+	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,4 +44,28 @@ func TestAtomicWriteReplacesTheTargetWithoutATemporaryFileLeftBehind(t *testing.
 	require.NoError(t, err)
 	require.Len(t, entries, 1, "no .partial file should remain")
 	require.Equal(t, "movie.nfo", entries[0].Name())
+}
+
+type failingReader struct{ n int }
+
+func (r *failingReader) Read(p []byte) (int, error) {
+	if r.n <= 0 {
+		return 0, errors.New("simulated read failure")
+	}
+	n := copy(p, bytes.Repeat([]byte{'x'}, r.n))
+	r.n -= n
+	return n, nil
+}
+
+func TestAtomicWriteLeavesNoPartialFileOnFailure(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "movie.mkv")
+
+	err := AtomicWrite(path, &failingReader{n: 4}, 0o664)
+	require.Error(t, err)
+
+	_, statErr := os.Stat(path)
+	require.True(t, os.IsNotExist(statErr), "target must not exist")
+	_, statErr = os.Stat(path + ".partial")
+	require.True(t, os.IsNotExist(statErr), ".partial must not exist")
 }
