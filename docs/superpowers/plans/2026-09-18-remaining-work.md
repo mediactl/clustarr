@@ -845,7 +845,7 @@ reports any that are left.
 
 **Depends on:** Phase A, and Phase B's `release`, `quality`, `naming`, `mediainfo`, `metadata`, `fsops`.
 
-**Gate:** an envtest suite that creates a Movie, drives it to `Wanted`, and a `LibraryScan` that discovers a planted file and creates the MediaFile. Plus the **two-writer MediaFile test** amendment §A5 demands: `importarr` and `catalogarr` both apply, neither clobbers the other's fields.
+**Gate:** an envtest suite that creates a Movie, drives it to `Wanted`, and a `LibraryScan` that discovers a planted file and creates the MediaFile. Plus the **two-writer MediaFile test** amendment §A1.3 demands: `importarr` and `catalogarr` both apply, neither clobbers the other's fields.
 
 **Also in this phase — trace propagation across the bus.** `pkg/obs/tracing`
 landed as a library: `Inject`, `Extract` and `Start` have no production call
@@ -948,16 +948,18 @@ milestone in spec §16 and every amendment section:
 4. **Idempotency.** `kubectl rollout restart` of every controller mid-flight,
    then a rerun of scenario 1's inputs: no duplicate Download, TranscodeJob or
    SubtitleRequest; no duplicate files.
-5. **Series and Episodes (M1).** A Series with two Episodes; a season pack is
-   grabbed once and both Episodes gain MediaFiles; one daily-numbered and one
-   anime absolute-numbered case.
+5. **Series and Episodes (M1).** A Series with two Episodes, one daily-numbered
+   and one anime absolute-numbered, each gaining a MediaFile. In Phase C the
+   files arrive through the rescan importarr owns, since nothing grabs yet;
+   Phase D extends this scenario so a season pack is grabbed once and both
+   Episodes gain MediaFiles from that download.
 6. **Usenet (M3).** Usenet DownloadClient against the NNTP stub; NZB from the
    fixture Newznab; par2 repair and RAR unpack; `Imported`.
 7. **Library rescan (A1).** Files planted in a RootFolder — matchable,
    unmatchable, a sample and an extra — then a LibraryScan: MediaFiles for the
    matchable ones, everything else in `status.unmatched` with a reason, no
    speculative item; the RootFolder schedule fires a second scan.
-8. **Two-writer MediaFile (A5).** After a probe refresh, `managedFields` shows
+8. **Two-writer MediaFile (A1.3).** After a probe refresh, `managedFields` shows
    `importarr` on `status.file`/`status.probe` and `catalogarr` on
    `status.quality`/`status.formatScore`/conditions, and neither clobbered the
    other.
