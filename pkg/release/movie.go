@@ -70,5 +70,7 @@ func parseMovie(title string) (*ParsedRelease, error) {
 		Hash:        hash,
 		Edition:     edition,
 		ReleaseType: commonv1.ReleaseTypeSingle,
+		Hints:       parseHints(title),
+		Languages:   parseLanguages(title),
 	}, nil
 }

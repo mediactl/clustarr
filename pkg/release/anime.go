@@ -110,5 +110,6 @@ func parseAnimeSeries(title string) (*ParsedRelease, error) {
 	p.Quality = q
 	p.Revision = rev
 	p.ReleaseType = releaseTypeForEpisodes(p.Episodes)
+	p.Hints = parseHints(title)
 	return p, nil
 }
