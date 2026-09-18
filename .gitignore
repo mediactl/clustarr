@@ -4,3 +4,4 @@ dist/
 cover.out
 .env
 .data/
+/clustarr/clustarr

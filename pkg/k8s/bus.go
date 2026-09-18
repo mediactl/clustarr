@@ -75,6 +75,17 @@ func ConnectBus(url, service string) (*natsbus.Bus, *nats.Conn, error) {
 	return bus, nc, nil
 }
 
+// BusTopology is the topology this process should install: the default from
+// pkg/events, collapsed to a single replica when [Options.BusSingleNode] is
+// set.
+func (o Options) BusTopology() events.Topology {
+	t := events.Default()
+	if o.BusSingleNode {
+		return t.ForSingleNode()
+	}
+	return t
+}
+
 // EnsureTopology creates the streams, consumers and buckets in t.
 //
 // Every replica of every service calls this at startup: it is idempotent by

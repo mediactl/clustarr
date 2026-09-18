@@ -1,134 +1,125 @@
 # Clustarr
 
-Create a golang based project for Kubernetes (controllers + CRDs) that contains the following packages.
+A distributed, event-driven media stack for Kubernetes: controllers and CRDs that
+manage a media collection end to end, from wanting something through finding,
+downloading, importing, transcoding and subtitling it.
 
-The idea of this project is to allow for a highly distributed, event driven media stack that manages a media collection end to end.
+Custom resources are the interface. `kubectl get movies,downloads,transcodejobs`
+is the UI, and the web UI is a view over the same resources.
 
-This will include:
+## Read before designing anything
 
-- Indexers
-- Downloaders
-- Import lists (desired media)
-- Metadata (media metadata)
+- `docs/superpowers/specs/2026-09-18-clustarr-design.md` — the design of record.
+  Field-level CRD definitions, event subjects, data flows, milestones.
+- `docs/superpowers/specs/2026-09-18-clustarr-design-amendment-1.md` — adds
+  `importarr`, observability and the UI. **Where the two disagree, the amendment
+  wins.**
+- `docs/adr/0001..0008` — why NATS, why GPL-3.0, why Jobs for transcode, and so on.
+- `docs/research/*.md` — nine verified research notes (TRaSH quality model,
+  Prowlarr/Cardigann, queue comparison, torrent/usenet, controller-runtime,
+  ffmpeg, Bazarr, metadata providers, naming). Long: `grep -n '^#'` first, then
+  read the section. They contain verified API shapes — prefer them over guessing.
 
-## Download service (Downloadarr?)
+The spec is authoritative for names, fields and behaviour. Do not invent fields;
+do not drop them.
 
-Collection of download clients.
+## Services
 
-- Usenet downloader
-- Torrent download (github.com/anacrolix/torrent)
+One Go module, one cobra binary: `clustarr <service> --role <role>`.
 
-We will need a distributed task queue of some sort - this should be designed.
+| Dir | Owns |
+| --- | --- |
+| `catalogarr/` | Media domain (movies, series, music, books, comics, audiobooks), metadata gateway, release decisions |
+| `importarr/` | Everything entering the library: root-folder rescan, import lists, completed-download import |
+| `indexarr/` | Indexer aggregation, Cardigann engine, local release index (SQLite FTS5) |
+| `grabarr/` | Download clients: torrent (anacrolix) and usenet engines |
+| `squasharr/` | Transcode to HEVC 10-bit + AAC, as batch Jobs |
+| `captionarr/` | Subtitles, Bazarr-equivalent, distributed |
+| `ui/` | Server-rendered web UI (templ + htmx + SSE); never writes status |
 
-- Compare options like Redis, Kafka, etc
+API groups: `{catalog,index,download,transcode,subtitle}.clustarr.io/v1alpha1`.
+Module `github.com/mediactl/clustarr`. Licence GPL-3.0 (lets us port *arr and
+Bazarr logic verbatim — keep the header on every file).
 
-## Inventory service (name needed)
+## Invariants — do not break these
 
-stores collections of various media types
+- **One controller-writer per resource.** The sole exception is `MediaFile`:
+  `importarr` owns what it observed (`status.file`, `status.probe`), `catalogarr`
+  owns what it decided (`status.quality`, `status.formatScore`, conditions).
+  Split by field manager on disjoint fields.
+- **All status writes go through `pkg/k8s.PatchStatus`** (server-side apply with a
+  named field manager). `.Status().Update()` and `.Status().Patch()` are banned
+  outside `pkg/k8s` and golangci-lint's forbidigo rule enforces it.
+- **No `float32`/`float64` in `api/`.** controller-gen rejects them without
+  `allowDangerousTypes`, and floats do not round-trip across API clients. Use
+  `resource.Quantity` for decimals a human types (e.g. seed ratio `"2.0"`) and
+  scaled integers for machine telemetry: `Milli` (thousandths, 23.976 fps →
+  `23976`), `Centis` (hundredths), `Percent` (whole 0-100).
+- **Kubernetes watches are the default coupling**; NATS is the exception, for
+  rate-limited or long-running work, RPC, the release firehose and KV leases.
+- **Cap every status list** with `+kubebuilder:validation:MaxItems`. Unbounded
+  lists in status are how operators melt etcd.
+- **The scanner never guesses.** Unattributable files go to
+  `LibraryScan.status.unmatched` with the reason, never a speculative item.
+- **The UI never writes status** and owns no CRD. User actions patch spec or
+  create short-lived resources, so anything the UI does, `kubectl` can do.
 
-- movies
-- tv
-- music
-- books (comics, manga, etc)
-- audiobooks
+## Commands
 
-Tracks releases, quality, monitored, minimum availability, root folder, metadata
+```bash
+make generate      # deepcopy + apply configurations
+make manifests     # CRDs + RBAC into config/
+make build         # binary into bin/  (never bare `go build` — it drops a binary in the repo root)
+make test          # unit + envtest, sets KUBEBUILDER_ASSETS
+make lint          # golangci-lint v2
+make kind-up       # local cluster with NATS, then: make install deploy
+```
 
-## Importer service (name needed)
+Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
+`kustomize`, `golangci-lint-v2`. envtest assets are Kubernetes 1.37.0.
 
-This service will reconcile existing media stored in the root folders and upsert custom resources for each found.
+## Gotchas found the hard way
 
-This service will also reconcile import lists from multiple supported sources and reconcile custom resources from the import list items.
+- **`go test ./...` passing does not mean the CRDs are valid.** `pkg/crdcheck`
+  and the envtest suites skip silently when `KUBEBUILDER_ASSETS` is unset. Only
+  `make test` (or exporting the assets path) compiles the CEL rules against a real
+  apiserver. A suite that finishes in milliseconds skipped.
+- **controller-gen v0.22.0's `applyconfiguration` generator ignores output rules**
+  — it writes next to the types regardless of `output:...:dir`. The Makefile
+  documents the workaround.
+- **Never run `go get` or `go mod tidy` from parallel agents.** They corrupt
+  `go.mod`. Add every dependency serially up front, then tell workers not to touch
+  it.
+- **Use `github.com/dlclark/regexp2`, not stdlib `regexp`, for TRaSH patterns.**
+  Go's RE2 rejects 157 of the 2791 custom-format regexes (backtracking,
+  lookaround). Set `IgnoreCase` and a `MatchTimeout`.
+- **Quality profiles are TRaSH-only and opinionated.** Built-in profiles ship as
+  embedded data; custom-format editing is deliberately not exposed.
 
-The import lists can/should be run on a schedule.
+## Code conventions
 
-## Indexer service (name needed)
+- GPL-3.0 header from `hack/boilerplate.go.txt` on every Go file.
+- Logging is `slog` carried through `context` (`pkg/obs/logging.FromContext`). No
+  package-level logger, no logger struct fields. controller-runtime gets a
+  `logr.FromSlogHandler` bridge at startup.
+- Spans wrap every `Reconcile`, work handler, outbound provider call and ffmpeg
+  run; propagation rides the `Clustarr-Trace` header already in `pkg/events`.
+- Prometheus metrics use the `clustarr_` prefix and base units. **Never label by
+  title, path or release name** — unbounded cardinality.
+- Tests: table-driven, testify, fixtures under `testdata/`. Pure functions where
+  the logic is tricky (`pkg/pipeline.Project`, `pkg/transcode.Plan`) so it is
+  testable without a cluster.
 
-This service will aggregate various remote indexers into a universal search engine for findign media releases.
+## Status
 
-It will behave like a hybrid of Prowlarr and Elastic search.
+Pre-alpha. Nothing reconciles yet.
 
-## Transcoding service (name needed)
+Done: all 28 CRDs across five groups (generate cleanly, install into a real
+apiserver); `pkg/events` (NATS + in-memory implementations behind one contract
+suite); `pkg/k8s`; the binary and manager wiring; deployment manifests, Helm chart
+and images; the ADRs.
 
-This service will transcode downloaded media into the desired end state. Ideally, this will be optimized HEVC (ACC audio) 10bit optimized (compressed) format.
-
-This service should schedule workers to distribute the transcoding task to quickly scale and complete all required transcode jobs.
-
-## Subtitle service (name needed)
-
-This service will perform the basic functionality of bazarr, but highly distributed.
-
-### Layout
-
-Each service should be under its own directory (package) with shared code in pkg.
-
-Something like this (names not decided - brainstorm this)
-
-- api
-- cmd
-- downloadarr
-- indexarr
-- inventorri
-- transcodarr
-- pkg
-
-### Metadata
-
-Borrow from the radarr and sonarr projects for populating media metadata. TVDB, OpenSubtitles, etc.
-
-### Quality profiles
-
-Borrow from radarr and sonarr.
-
-We should support *only* an optinionated subset like trash guides.
-
-### Indexers
-
-Borrow from prowlarr.
-
-## Observability
-
-Include slog logging (dependency injection pattern with context)
-
-Include open telemetry spans
-
-Include prometheus metrics for downloaded files, download speeds, etc.
-
-Discover useful metrics and include them in our docs and code.
-
-Include health check, readiness, etc endpoints for the K8S workloads.
-
-## UI
-
-Build a UI for the application using:
-
-- github.com/a-h/templ (HTML Templating)
-- github.com/axadrn/shadcn-templ (UI Components)
-
-The UI should include:
-
-- Media pipeline page (Similar to Radarr/Sonarr activity)
-  - Page should contain an element per media item reconciling
-  - Each item should show which stage of the process it's in
-    - Searching for Metadata -> Metadata Found -> Metadata synced
-    - Searching for releases -> Release selected
-    - Downloading release -> Download progress (est time) -> Release downloaded
-    - Searching for subtitles (if non english) -> Subtitles found
-    - Downloading subtitles -> Download progress -> Subtitle downloaded
-    - Transcoding file -> Transcode progress (est time) -> Transcoding complete
-
-- Library page
-  - Should show all collected and monitored media
-    - Status indicator for collection status
-  - Each item should include the cover art
-    - Clicking an item presents a modal with the item info
-  - Toolbar with bulk operation and filtering inputs
-
-- Pages for Downloaders
-  - Presents items in the queue
-  - Shows download speed per item (downloading)
-  - Shows estimated time to completion
-
-- Import lists page
-
-- Settings page
+Next, in order: M1 catalog core and library rescan → M2 indexers → M3 downloads,
+import and the first UI slice → M4 transcode → M5 subtitles → M6 Prowlarr parity,
+import lists and non-video inventory. Milestone detail is in the spec's §16 and
+amendment §A4.
