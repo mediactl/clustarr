@@ -308,7 +308,14 @@ func DataReadyChecker(path string) healthz.Checker {
 // reconcilers land in the milestones below.
 //
 // TODO(M1): ImportList, ImportExclusion, LibraryScan, RootFolder schedule
-// controllers.
+// controllers. (amendment §A1.2, §A1.3; §6.1, §16 M1)
+// TODO(M3): the importer -- Watches Downloads, Completed/Seeding/Failed via
+// k8s.StatusFieldIn, and the only cross-group status write in the project
+// (Download.status.import). Moved here from catalogarr by amendment §A1.2;
+// it is the reason MediaFile has a split writer, with importarr owning
+// status.file and status.probe (what it observed) and catalogarr owning
+// status.quality and status.formatScore (what it decided).
+// (§6.1, §10, §16 M3)
 func setupControllers(mgr ctrl.Manager, o Options) error {
 	_, _ = mgr, o
 	return nil
@@ -318,10 +325,16 @@ func setupControllers(mgr ctrl.Manager, o Options) error {
 // work.importarr.list and work.importarr.fileimport consumers (amendment
 // §A1.6). It registers nothing yet.
 //
-// TODO(M1): scan, list and fileimport consumers, chunked by directory so a
-// large library scan is not one multi-hour unit of work. The scanner never
-// guesses: an unattributable file goes to LibraryScan.status.unmatched with
-// the reason, never a speculative item.
+// TODO(M1): the scan and list consumers (work.importarr.scan,
+// work.importarr.list), chunked by directory so a large library scan is not
+// one multi-hour unit of work. The scanner never guesses: an unattributable
+// file goes to LibraryScan.status.unmatched with the reason, never a
+// speculative item. (amendment §A1.3, §A1.6; §16 M1)
+// TODO(M3): the fileimport consumer (work.importarr.fileimport), the
+// CompletedDownloadService port, and the Download.status.import write it
+// performs. Moved here from catalogarr by amendment §A1.2. (§16 M3)
+// TODO(M6): the import-list consumer's non-video sources, alongside the
+// non-video inventory kinds. (§16 M6)
 func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	_, _, _ = mgr, bus, o
 	return nil

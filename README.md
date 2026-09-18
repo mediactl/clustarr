@@ -44,7 +44,7 @@ Seven services, one `clustarr` binary, invoked as `clustarr <service> --role <ro
 
 | Service | Responsibility |
 |---|---|
-| **catalogarr** | Inventory (movies, series, episodes, music, books, comics, audiobooks), metadata, import lists, quality/delay decisions and the file importer. |
+| **catalogarr** | Inventory (movies, series, episodes, music, books, comics, audiobooks), the metadata gateway, and release decisions: quality/delay profiles, search, grab and RSS matching. |
 | **importarr** | Everything entering the library: root-folder rescan, import lists and completed-download import. |
 | **indexarr** | Aggregates Torznab/Newznab and Cardigann indexers into one search API, with a local release index and RSS sync. |
 | **grabarr** | Download clients: the embedded anacrolix BitTorrent engine and an embedded usenet pipeline, plus download lifecycle and blocklisting. |
@@ -75,7 +75,7 @@ Requires Go 1.27, Docker, `kind` and `kubectl`.
 
 ```sh
 make kind-up    # create a kind cluster, mount ./.data at /data, install NATS with JetStream
-make install    # server-side apply the 28 CRDs
+make install    # server-side apply the 29 CRDs
 make deploy     # apply the namespace, PVC, RBAC, NATS and manager manifests
 ```
 

@@ -807,6 +807,38 @@ No Kubernetes types. Each package is owned by one agent; paths are disjoint.
 
 **Dependencies to pre-add serially:** `dlclark/regexp2`, `moistari/rls`, `vansante/go-ffprobe.v2`, `PuerkitoBio/goquery`, `antchfx/xmlquery`, `tidwall/gjson`, `goccy/go-yaml`, `santhosh-tekuri/jsonschema/v6`, `Masterminds/sprig/v3`, `asticode/go-astisub`, `cyruzin/golang-tmdb`, `musicbrainzws2`, `lithammer/fuzzysearch`, `gabriel-vasile/mimetype`, `hashicorp/golang-lru/v2`, `golang.org/x/time`, `golang.org/x/net`.
 
+**Pre-adding is not enough on its own.** `go mod tidy` removes every module
+nothing imports, and a pre-add step by definition adds modules nothing imports
+yet. `templui`, `tailwind-merge-go`, `robfig/cron` and `otelhttp` were all
+pre-added in Phase A and all silently stripped by the next tidy (commit
+`361d348`); the agent that needed them then had to add them again, serially,
+which is exactly what pre-adding was supposed to avoid.
+
+So the pre-add step must also commit a blank-import file that keeps them
+alive:
+
+```go
+//go:build tools
+
+// Package deps exists only to keep `go mod tidy` from removing modules that
+// are pre-added for a later task but not yet imported by real code. Delete an
+// entry the moment a real importer lands -- an entry that outlives its task is
+// a dependency nobody can account for.
+package deps
+
+import (
+	_ "github.com/dlclark/regexp2"
+	_ "github.com/moistari/rls"
+	// ... one line per pre-added module
+)
+```
+
+Put it at `hack/deps/deps.go`. The `tools` build tag keeps it out of every
+normal build while still counting as an import for `tidy`. The tidying task at
+the end of the phase deletes the entries whose real importers have landed, and
+reports any that are left.
+
+
 ### Phase C: M1 catalog core and library rescan
 
 `catalogarr` controllers for Movie, Series, Episode, MediaFile, RootFolder, QualityProfile, DelayProfile, MetadataProvider, ImportExclusion and Search; the metadata gateway; search, grab and RSS-matcher workers with the KV grab lease and delay profiles; the wanted cron. `importarr` controllers for LibraryScan and the RootFolder schedule, plus the rescan worker with the never-guess rule.
@@ -814,6 +846,19 @@ No Kubernetes types. Each package is owned by one agent; paths are disjoint.
 **Depends on:** Phase A, and Phase B's `release`, `quality`, `naming`, `mediainfo`, `metadata`, `fsops`.
 
 **Gate:** an envtest suite that creates a Movie, drives it to `Wanted`, and a `LibraryScan` that discovers a planted file and creates the MediaFile. Plus the **two-writer MediaFile test** amendment §A5 demands: `importarr` and `catalogarr` both apply, neither clobbers the other's fields.
+
+**Also in this phase — trace propagation across the bus.** `pkg/obs/tracing`
+landed as a library: `Inject`, `Extract` and `Start` have no production call
+sites, and `pkg/events` defines the `Clustarr-Trace` header but nothing writes
+or reads it, so today a trace ends at the process that started it. Wire it
+INSIDE `pkg/events` — a publish hook that injects the active span context and
+a subscribe hook that extracts it — so no caller can forget, rather than at
+each call site. It carries a dependency-direction question worth settling
+first: `pkg/events` must not import `pkg/obs`, so the hook is a function field
+or small interface on the bus that `pkg/obs` (or the service wiring) supplies.
+Amendment §A4 assigns the first end-to-end exercise of one trace to M1, which
+is this phase, and docs/observability.md currently marks the whole leg "not
+wired yet".
 
 ### Phase D: M2 indexers, M3 downloads and import
 

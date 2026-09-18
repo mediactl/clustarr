@@ -10,6 +10,26 @@ It documents the stack defined in the design amendment, §A2
 this document and the amendment ever disagree, the amendment is the source of
 truth and this file is stale — file an issue.
 
+## Status: what is wired today
+
+Clustarr is pre-alpha and nothing reconciles yet. This guide describes the
+observability stack as designed, and most of it is a working library waiting
+for its first caller. Read this table before you spend a day debugging a
+collector that is receiving exactly what it should: nothing.
+
+| Piece | Today | Lands in |
+|---|---|---|
+| Structured logging, `--log-*` flags, logger in context | **Wired.** Every service builds its logger in `pkg/obs.Bootstrap` and controller-runtime's own output is bridged onto the same stream. | — |
+| `/metrics` endpoint and the 21 registered series | **Wired.** `pkg/obs/metrics.Register` runs once per process, so every series is exposed and scrapeable. Nothing increments the domain series yet, so most read `0`. | M1–M5, as each controller lands |
+| `TracerProvider`, OTLP exporter, `--tracing-*` flags | **Wired.** `pkg/obs/tracing.Setup` installs the provider and the W3C propagator. | — |
+| Spans around `Reconcile`, work handlers, provider calls, `ffmpeg` | **Not yet.** `tracing.Start` has no production call sites; there is nothing to sample, so an enabled exporter sends nothing. | M1–M5, with the code each span wraps |
+| Trace propagation across the bus (`Clustarr-Trace`) | **Not yet.** `pkg/events` defines the header and `tracing.Inject`/`Extract` implement it, but no publish or subscribe path calls them. | Phase C, inside `pkg/events` so no caller can forget |
+| `/healthz`, `/readyz` and the `ping` check | **Wired** on every service. | — |
+| Per-role readiness checks | **Partly.** Only the JetStream check (every service) and `importarr`'s `/data` check exist; the rest of the table below is design. | M2–M5 |
+
+Everything below is written in the present tense where it is built and marked
+where it is not.
+
 ## Endpoints
 
 Every `clustarr <service>` process serves the same three endpoints, on the same
@@ -78,28 +98,39 @@ file.
 
 ## Traces
 
-Every service is instrumented with OpenTelemetry, exported over OTLP. Spans
-wrap:
+Every service installs an OpenTelemetry `TracerProvider` at startup, exporting
+over OTLP when `--tracing-enabled` is set. That part is built today.
 
-- every controller `Reconcile` call,
-- every work-queue handler,
-- every outbound HTTP call to an indexer or a metadata provider,
-- every `ffmpeg` invocation, and
-- every filesystem import.
+The spans themselves are not: `pkg/obs/tracing.Start` has no production call
+sites yet, so a collector pointed at a running Clustarr receives an empty
+stream. As each milestone lands, spans **will** wrap:
 
-Every log line emitted while one of those spans is open carries `trace_id` and
-`span_id` (via `pkg/obs/logging`'s context enrichment), so a trace ID from a
-dashboard is also a `grep` key against the structured logs.
+- every controller `Reconcile` call (M1 onwards),
+- every work-queue handler (M1 onwards),
+- every outbound HTTP call to an indexer or a metadata provider (M1, M2),
+- every `ffmpeg` invocation (M4), and
+- every filesystem import (M3).
+
+`tracing.Start` already enriches the logger carried by the context with
+`trace_id` and `span_id`, so once a span wraps a code path, every log line
+emitted underneath it carries both and a trace ID from a dashboard is also a
+`grep` key against the structured logs.
 
 ### Propagation across services
 
-Spans inside one process nest the ordinary way. What makes Clustarr's traces
-worth opening is that they do not stop at a process boundary: `pkg/events`
-carries a `Clustarr-Trace` header on every NATS message with a W3C
-`traceparent` in it. The bus injects it on publish and extracts it on receive,
-so a span started in one service becomes the parent of a span started by the
-service that consumes the message it published — one trace, five services,
-zero correlation IDs to thread through code by hand.
+Spans inside one process nest the ordinary way. What will make Clustarr's
+traces worth opening is that they do not stop at a process boundary:
+`pkg/events` defines a `Clustarr-Trace` header on the envelope, carrying a W3C
+`traceparent`, and `pkg/obs/tracing.Inject`/`Extract` read and write it. A span
+started in one service then becomes the parent of a span started by the service
+that consumes the message it published — one trace, five services, zero
+correlation IDs to thread through code by hand.
+
+**Not wired yet.** Nothing outside `pkg/obs/tracing`'s own tests calls `Inject`
+or `Extract`, and no publish or subscribe path sets or reads the header, so
+today a trace ends at the process that started it. Wiring it belongs inside
+`pkg/events` — a publish/subscribe hook, so no caller can forget — and Phase C
+owns it as a task of its own.
 
 Sampling defaults to parent-based with a configurable ratio; whatever the
 ratio, a span that ends in an error is always sampled. An operator chasing one
@@ -127,7 +158,11 @@ per-service trace attribution.
 This is the flow the tracing stack is built to make legible — the base
 design's event flow (§8) is otherwise hard to follow in production because it
 crosses five independently-scaled services. Reading it top to bottom is
-reading one `traceparent` end to end:
+reading one `traceparent` end to end.
+
+It is the target, not today: none of the spans below exist yet. Amendment §A4
+assigns the first end-to-end exercise of this trace to M1, and the **Status**
+table above says which piece arrives when.
 
 1. **Want** — a `Movie`/`Episode` becomes `Wanted`. `catalogarr`'s reconciler
    span publishes `work.catalogarr.search.<tier>.<mediaKey>`, carrying the
@@ -149,10 +184,10 @@ reading one `traceparent` end to end:
    instead of being clamped into the last bucket — but the engine's periodic
    status reconciles remain part of the same trace via the `Download`'s
    owned events.
-5. **Import** — `catalogarr`'s (soon `importarr`'s) import worker consumes
-   `work.catalogarr.import.normal.<uid>` once the `Download` reaches
+5. **Import** — `importarr`'s fileimport worker consumes
+   `work.importarr.fileimport.<download>` once the `Download` reaches
    `Completed`/`Seeding`; its span covers probing, naming and the
-   hardlink-or-copy/move.
+   hardlink-or-copy/move. (Amendment §A1.2 moved this out of `catalogarr`.)
 6. **Transcode** — `squasharr`'s `transcodeprofile` controller reacts to the
    new `MediaFile.status.probeHash` (a Kubernetes watch, not a NATS hop, so
    this leg's parent is the import span's trace context carried on the
@@ -173,14 +208,17 @@ download never finished; one that stops at step 5 means the file is sitting in
 `ping` check to both — liveness never depends on anything external, because a
 JetStream blip must not restart every controller in the cluster at once. Every
 service adds `/readyz` checks on top of that ping for the dependencies its role
-genuinely needs, matching §A2.4 (amendment) and §13 (base design):
+genuinely needs, matching §A2.4 (amendment) and §13 (base design).
 
-| Dependency | Checked by | Why it is readiness, not liveness |
-|---|---|---|
-| NATS connectivity + JetStream ping (`pkg/k8s.BusReadyChecker`) | Every service that consumes work: `catalogarr`, `indexarr`, `grabarr`, `squasharr`, `captionarr`, `importarr` | A NATS outage should pull the pod out of Service rotation, not restart it — a controller whose Kubernetes watches are still healthy has useful reconcile work to do regardless. |
-| Release index volume open (SQLite FTS5) | `indexarr` | The local index is how `indexarr` answers queries fast; if it failed to open, the pod cannot do its job even though the process is alive. |
-| `/data` writability | Every service that touches files: `grabarr` (engines), `importarr`, `squasharr` (worker), `captionarr` (worker) | An RWX volume that has gone read-only (a common CephFS/NFS failure mode) must stop new work without crash-looping the pod. |
-| Torrent engine re-attach complete | `grabarr` torrent engines | An engine restart has to re-attach every persisted torrent from `/data/torrents/.state/*.torrent` before it is safe to accept new adds; readiness gates that, not liveness. |
+The **Status** column says which of these a running pod performs today; the
+rest land with the code whose dependency they guard.
+
+| Dependency | Checked by | Status | Why it is readiness, not liveness |
+|---|---|---|---|
+| NATS connectivity + JetStream ping (`pkg/k8s.BusReadyChecker`) | Every service that consumes work: `catalogarr`, `indexarr`, `grabarr`, `squasharr`, `captionarr`, `importarr` | **Wired** | A NATS outage should pull the pod out of Service rotation, not restart it — a controller whose Kubernetes watches are still healthy has useful reconcile work to do regardless. |
+| Release index volume open (SQLite FTS5) | `indexarr` | M2 | The local index is how `indexarr` answers queries fast; if it failed to open, the pod cannot do its job even though the process is alive. |
+| `/data` writability | `importarr` today; `grabarr` (engines), `squasharr` (worker) and `captionarr` (worker) as each starts touching files | **Wired for `importarr`** (`importarr.DataReadyChecker`); M3–M5 for the rest | An RWX volume that has gone read-only (a common CephFS/NFS failure mode) must stop new work without crash-looping the pod. |
+| Torrent engine re-attach complete | `grabarr` torrent engines | M3 | An engine restart has to re-attach every persisted torrent from `/data/torrents/.state/*.torrent` before it is safe to accept new adds; readiness gates that, not liveness. |
 
 A pod that is unready but alive keeps its existing work going (an engine keeps
 seeding, a controller keeps watching) while Kubernetes stops routing new

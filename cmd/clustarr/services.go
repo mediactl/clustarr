@@ -76,9 +76,11 @@ func newCatalogarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comma
 	cmd := &cobra.Command{
 		Use:   "catalogarr",
 		Short: "Inventory, metadata and release decisions",
-		Long: "catalogarr owns catalog.clustarr.io: the media items themselves, their metadata,\n" +
-			"import lists, quality decisions and the importer that turns a finished Download\n" +
-			"into a MediaFile.",
+		Long: "catalogarr owns catalog.clustarr.io: inventory, the metadata gateway and\n" +
+			"release decisions (search, grab, rss-matcher).\n\n" +
+			"Everything entering the library -- root-folder rescan, import lists and\n" +
+			"completed-download import -- belongs to `clustarr importarr` (amendment §A1.2,\n" +
+			"§A1.3), not here.",
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 	}

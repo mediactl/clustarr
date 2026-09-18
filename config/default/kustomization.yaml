@@ -2,7 +2,7 @@
 #
 #   kustomize build config/default | kubectl apply --server-side -f -
 #
-# Composes the 28 CRDs, RBAC, the seven service Deployments and the dev NATS
+# Composes the 29 CRDs, RBAC, the ten service Deployments and the dev NATS
 # StatefulSet into the clustarr-system namespace, and declares the two PVCs
 # from §11.
 #

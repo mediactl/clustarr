@@ -3,7 +3,7 @@
 **Empty on purpose.** Samples land here per Kind, together with the
 controller that gives that Kind meaning -- not before.
 
-The 28 CRDs in `config/crd/bases` are generated and install cleanly, so it
+The 29 CRDs in `config/crd/bases` are generated and install cleanly, so it
 would be easy to write plausible-looking CR YAML for all of them today. It
 would also be wrong: a sample is a claim about what the controller does with
 those fields (which values are valid together, what defaults apply, what the

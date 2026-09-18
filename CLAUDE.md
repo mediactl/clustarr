@@ -112,14 +112,32 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
 
 ## Status
 
-Pre-alpha. Nothing reconciles yet.
+Pre-alpha. **Nothing reconciles yet** — every `setupControllers` and
+`setupWorkers` is still an empty registration point.
 
-Done: all 28 CRDs across five groups (generate cleanly, install into a real
+M0 (done): all 29 CRDs across five groups (generate cleanly, install into a real
 apiserver); `pkg/events` (NATS + in-memory implementations behind one contract
 suite); `pkg/k8s`; the binary and manager wiring; deployment manifests, Helm chart
 and images; the ADRs.
 
-Next, in order: M1 catalog core and library rescan → M2 indexers → M3 downloads,
-import and the first UI slice → M4 transcode → M5 subtitles → M6 Prowlarr parity,
-import lists and non-video inventory. Milestone detail is in the spec's §16 and
-amendment §A4.
+Phase A (done): `pkg/obs` — `logging` (slog through context), `tracing`
+(TracerProvider, W3C propagation) and `metrics` (21 `clustarr_` series), plus
+`obs.Bootstrap`, the one call each service's `Run` makes to stand all three up;
+`docs/observability.md`; the `LibraryScan` kind and the `importarr` service
+skeleton (controllers/worker roles, `/data` readiness, the
+`CLUSTARR_WORK_IMPORTARR` stream); `pkg/pipeline` and the `ui` skeleton
+(templ + htmx + SSE, pipeline page and stream); all nine services wired into
+`clustarr <service>` and `clustarr all`. The observability libraries have few
+production callers yet: `tracing.Start`, `Inject` and `Extract` are exercised
+only by their own tests, and `docs/observability.md`'s Status banner says what
+is wired and what is not.
+
+Next: **Phase B**, the library layer — eleven pure-Go packages with no
+Kubernetes types (`release`, `quality`, `naming`, `mediainfo`, `transcode`,
+`torznab`/`newznab`, `cardigann`, `subtitles`, `metadata`, `importlist`,
+`fsops`/`ratelimit`). Then **Phase C** (M1 catalog core and library rescan,
+plus wiring trace propagation into `pkg/events`), and on through M2 indexers →
+M3 downloads, import and the first UI slice → M4 transcode → M5 subtitles →
+M6 Prowlarr parity, import lists and non-video inventory. Phase detail is in
+`docs/superpowers/plans/2026-09-18-remaining-work.md`; milestone detail is in
+the spec's §16 and amendment §A4.

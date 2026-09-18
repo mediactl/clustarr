@@ -15,9 +15,14 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package catalogarr is the inventory, metadata, import-list, decision and
-// import service. It owns catalog.clustarr.io and is the only service that
-// writes to another group's status (Download.status.import, §10).
+// Package catalogarr is the inventory, metadata gateway and release-decision
+// service. It owns catalog.clustarr.io.
+//
+// Everything that ENTERS the library belongs to importarr, not here:
+// amendment §A1.2 and §A1.3 moved the completed-download importer, the
+// import lists and the root-folder rescan out of this service, along with
+// the cross-group Download.status.import write §10 used to assign it. What
+// stays is inventory, metadata and deciding which release to grab.
 package catalogarr
 
 import (
@@ -65,8 +70,9 @@ const (
 	// RoleController runs the catalog controllers. Leader-elected.
 	RoleController Role = "controller"
 
-	// RoleWorker runs the search, grab, import, importlist and rss-matcher
-	// consumers. Every replica runs them.
+	// RoleWorker runs the search, grab and rss-matcher consumers. Every
+	// replica runs them. The import and importlist consumers are
+	// importarr's (amendment §A1.2, §A1.3).
 	RoleWorker Role = "worker"
 
 	// RoleMetadata is the metadata gateway: it owns every outbound metadata
@@ -247,12 +253,14 @@ func Run(ctx context.Context, o Options) error {
 // the reconcilers land in the milestones below.
 //
 // TODO(M1): movie, series, episode, mediafile, rootfolder, qualityprofile,
-// delayprofile, metadataprovider, importexclusion, search. (§6.1, §16 M1)
-// TODO(M3): importer -- Watches Downloads, Completed/Seeding/Failed via
-// k8s.StatusFieldIn, and the only cross-group status write in the project.
-// (§6.1, §10, §16 M3)
-// TODO(M6): artist, album, author, book, audiobook, comic, issue, importlist.
+// delayprofile, metadataprovider, search. (§6.1, §16 M1)
+// TODO(M6): artist, album, author, book, audiobook, comic, issue.
 // (§6.1, §16 M6)
+//
+// The importer, importlist and importexclusion controllers are NOT here:
+// amendment §A1.2/§A1.3 moved them to importarr, whose run.go carries the
+// TODOs. Building them here would break the MediaFile single-writer split
+// (importarr owns what it observed, catalogarr owns what it decided).
 //
 // wantedcron (the 12h missing/cutoff-unmet scan) lands with M1 as a manager
 // Runnable rather than a reconciler.
@@ -268,9 +276,11 @@ func setupControllers(mgr ctrl.Manager, o Options) error {
 // delay profiles; the metadata gateway (RoleMetadata) serving
 // rpc.catalogarr.metadata.* with per-provider rate limiters and the otter/KV
 // cache tiers. (§6.1, §16 M1)
-// TODO(M3): the import consumer (CompletedDownloadService port). (§16 M3)
-// TODO(M6): the importlist consumer, and the history sink plus DLQ projector
-// (RoleHistory) writing events.k8s.io Events on the owning CR. (§13, §16 M6)
+// TODO(M6): the history sink plus DLQ projector (RoleHistory) writing
+// events.k8s.io Events on the owning CR. (§13, §16 M6)
+//
+// The import and importlist consumers are importarr's
+// (work.importarr.fileimport, work.importarr.list -- amendment §A1.6).
 func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	_, _, _ = mgr, bus, o
 	return nil
