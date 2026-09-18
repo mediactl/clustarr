@@ -770,7 +770,7 @@ func TestMovieReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			catalogac.MovieStatus().WithMetadata(
 				catalogac.MovieMetadata().WithTitle("Steady State").WithYear(2020).
 					WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).
-					WithDigitalRelease(metav1.NewTime(time.Now().Add(-24*time.Hour))).
+					WithDigitalRelease(metav1.NewTime(time.Now().Add(-24 * time.Hour))).
 					WithRefreshedAt(oldRefresh),
 			),
 		)
