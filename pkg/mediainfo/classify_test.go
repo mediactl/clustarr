@@ -77,3 +77,21 @@ func TestClassifyHDR(t *testing.T) {
 		})
 	}
 }
+
+func TestVideoDynamicRangeType(t *testing.T) {
+	cases := map[commonv1.HdrFormat]string{
+		commonv1.HdrFormatNone:                 "",
+		commonv1.HdrFormatPQ10:                 "PQ10",
+		commonv1.HdrFormatHDR10:                "HDR10",
+		commonv1.HdrFormatHDR10Plus:            "HDR10+",
+		commonv1.HdrFormatHLG10:                "HLG",
+		commonv1.HdrFormatDolbyVision:          "DV",
+		commonv1.HdrFormatDolbyVisionHDR10:     "DV HDR10",
+		commonv1.HdrFormatDolbyVisionSDR:       "DV SDR",
+		commonv1.HdrFormatDolbyVisionHLG:       "DV HLG",
+		commonv1.HdrFormatDolbyVisionHDR10Plus: "DV HDR10+",
+	}
+	for in, want := range cases {
+		assert.Equal(t, want, VideoDynamicRangeType(in), in)
+	}
+}
