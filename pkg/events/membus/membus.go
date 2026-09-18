@@ -375,6 +375,14 @@ func (b *Bus) Serve(subject, queue string,
 }
 
 // Request calls a responder and decodes its single reply.
+//
+// A request is a publish, so it runs BeforePublish exactly like Publish
+// does: a hook that stamps a trace (tracing.Inject) puts it on the request
+// envelope, and call runs AfterReceive on that envelope before starting the
+// responder's handler -- see responder.call. The reply is deliberately NOT
+// run through BeforePublish: see natsbus.Bus.Request's doc comment, which
+// this mirrors, for why request/reply's synchronous round trip has no
+// second hop for a hook to bridge on the way back.
 func (b *Bus) Request(ctx context.Context, subject string, in, out any) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -389,7 +397,9 @@ func (b *Bus) Request(ctx context.Context, subject string, in, out any) error {
 	if r == nil {
 		return fmt.Errorf("membus: %q: %w", subject, events.ErrNoResponders)
 	}
-	return r.call(ctx, in, out)
+	reqEnv := &events.Envelope{}
+	b.opts.hooks.RunBeforePublish(ctx, reqEnv)
+	return r.call(ctx, reqEnv, b.opts.hooks, in, out)
 }
 
 func pickResponder(all map[string][]*responder, subject string) *responder {

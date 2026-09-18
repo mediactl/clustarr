@@ -356,6 +356,18 @@ func (b *Bus) Serve(subject, queue string,
 			ctx, cancel = context.WithTimeout(ctx, b.opts.requestTimeout)
 			defer cancel()
 		}
+		// AfterReceive mirrors the subscribe path (see handle): extract
+		// whatever Request's BeforePublish call stamped in HeaderTrace, so
+		// the handler's own spans and any outbound provider calls it makes
+		// are children of the caller's trace rather than orphaned roots.
+		reqEnv := &events.Envelope{}
+		if m.Header != nil {
+			if tp := m.Header.Get(events.HeaderTrace); tp != "" {
+				reqEnv.Trace = tp
+			}
+		}
+		ctx = b.opts.hooks.RunAfterReceive(ctx, reqEnv)
+
 		data, err := h(ctx, m.Data)
 		if err != nil {
 			reply := &nats.Msg{Subject: m.Reply, Header: nats.Header{}}
@@ -386,6 +398,16 @@ func (b *Bus) Serve(subject, queue string,
 }
 
 // Request sends in to subject and decodes the single reply into out.
+//
+// The request runs BeforePublish, exactly like Publish: a hook that stamps a
+// trace (tracing.Inject) puts it in the wire request's HeaderTrace, and
+// Serve's callback runs AfterReceive to pick it back up before its handler
+// runs. The REPLY does not run BeforePublish, deliberately: unlike a
+// fire-and-forget publish, a request/reply round trip is synchronous from
+// the caller's point of view -- Request returns into the very ctx (and
+// span) the caller already holds, so there is no second, independent hop
+// for a hook to bridge on the way back, and nothing on the receiving end
+// would ever read a trace header stamped on the reply.
 func (b *Bus) Request(ctx context.Context, subject string, in, out any) error {
 	b.mu.Lock()
 	closed := b.closed
@@ -413,7 +435,15 @@ func (b *Bus) Request(ctx context.Context, subject string, in, out any) error {
 		defer cancel()
 	}
 
-	reply, err := b.nc.RequestWithContext(ctx, subject, data)
+	reqEnv := &events.Envelope{}
+	b.opts.hooks.RunBeforePublish(ctx, reqEnv)
+	msg := &nats.Msg{Subject: subject, Data: data}
+	if reqEnv.Trace != "" {
+		msg.Header = nats.Header{}
+		msg.Header.Set(events.HeaderTrace, reqEnv.Trace)
+	}
+
+	reply, err := b.nc.RequestMsgWithContext(ctx, msg)
 	if err != nil {
 		if errors.Is(err, nats.ErrNoResponders) {
 			return fmt.Errorf("natsbus: %q: %w", subject, events.ErrNoResponders)

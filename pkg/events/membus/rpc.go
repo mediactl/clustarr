@@ -21,6 +21,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/mediactl/clustarr/pkg/events"
 )
 
 // responder is one in-process request/reply handler.
@@ -32,7 +34,12 @@ type responder struct {
 
 // call encodes in, runs the handler on its own goroutine so a slow responder
 // cannot outlive the caller's context, and decodes the reply into out.
-func (r *responder) call(ctx context.Context, in, out any) error {
+//
+// reqEnv carries whatever Bus.Request's BeforePublish call stamped on the
+// request. call runs AfterReceive on it before starting the handler, so the
+// handler's context matches what the subscribe path hands a work handler --
+// see Bus.deliver.
+func (r *responder) call(ctx context.Context, reqEnv *events.Envelope, hooks events.Hooks, in, out any) error {
 	var req []byte
 	switch v := in.(type) {
 	case nil:
@@ -46,13 +53,15 @@ func (r *responder) call(ctx context.Context, in, out any) error {
 		req = b
 	}
 
+	hctx := hooks.RunAfterReceive(ctx, reqEnv)
+
 	type result struct {
 		data []byte
 		err  error
 	}
 	ch := make(chan result, 1)
 	go func() {
-		data, err := r.handle(ctx, req)
+		data, err := r.handle(hctx, req)
 		ch <- result{data: data, err: err}
 	}()
 

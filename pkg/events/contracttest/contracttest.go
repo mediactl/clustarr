@@ -859,4 +859,158 @@ func testHooksContract(t *testing.T, newBus func() events.Bus,
 			t.Fatal("handler was never invoked")
 		}
 	})
+
+	// The two cases below hold each hook to firing independently: a nil
+	// BeforePublish must not stop AfterReceive from running, and a nil
+	// AfterReceive must not stop BeforePublish from stamping the wire
+	// envelope. Both RunBeforePublish and RunAfterReceive nil-check their
+	// own field only, so this is a low-risk regression lock, not a case
+	// expected to find a new bug.
+
+	t.Run("OnlyBeforePublishSet", func(t *testing.T) {
+		hooks := events.Hooks{
+			BeforePublish: func(_ context.Context, e *events.Envelope) {
+				e.Trace = wantTrace
+			},
+			// AfterReceive is deliberately nil.
+		}
+		ctx, bus := setup(t, func() events.Bus { return newBusWithHooks(hooks) })
+		got := subscribeForHooks(t, ctx, bus, "ct-hooks-before-only")
+
+		subject := events.CatalogItemSubject("movie", events.ActionAdded, "uid-hooks-before-only")
+		env := envelope("evt-hooks-before-only", "catalog.ItemEvent.v1", map[string]string{"k": "v"})
+		env.Trace = ""
+		if _, err := bus.Publish(ctx, subject, env); err != nil {
+			t.Fatalf("Publish: %v", err)
+		}
+
+		select {
+		case d := <-got:
+			if d.envTrace != wantTrace {
+				t.Errorf("delivered Envelope.Trace = %q, want %q (BeforePublish alone should still "+
+					"stamp it)", d.envTrace, wantTrace)
+			}
+			if d.ctxSet {
+				t.Errorf("handler context carried the hook's key (%q) with AfterReceive nil", d.ctxTrace)
+			}
+		case <-time.After(Timeout):
+			t.Fatal("handler was never invoked")
+		}
+	})
+
+	t.Run("OnlyAfterReceiveSet", func(t *testing.T) {
+		hooks := events.Hooks{
+			// BeforePublish is deliberately nil.
+			AfterReceive: func(ctx context.Context, e *events.Envelope) context.Context {
+				return context.WithValue(ctx, hooksCtxKey{}, e.Trace)
+			},
+		}
+		ctx, bus := setup(t, func() events.Bus { return newBusWithHooks(hooks) })
+		got := subscribeForHooks(t, ctx, bus, "ct-hooks-after-only")
+
+		subject := events.CatalogItemSubject("movie", events.ActionAdded, "uid-hooks-after-only")
+		env := envelope("evt-hooks-after-only", "catalog.ItemEvent.v1", map[string]string{"k": "v"})
+		env.Trace = ""
+		if _, err := bus.Publish(ctx, subject, env); err != nil {
+			t.Fatalf("Publish: %v", err)
+		}
+
+		select {
+		case d := <-got:
+			if d.envTrace != "" {
+				t.Errorf("delivered Envelope.Trace = %q, want empty with BeforePublish nil", d.envTrace)
+			}
+			if !d.ctxSet || d.ctxTrace != "" {
+				t.Errorf("handler context trace = (set=%v) %q, want set=true value=\"\" from "+
+					"AfterReceive (it must still run even though BeforePublish is nil)",
+					d.ctxSet, d.ctxTrace)
+			}
+		case <-time.After(Timeout):
+			t.Fatal("handler was never invoked")
+		}
+	})
+
+	// RPC request/reply must be held to the same contract as publish/
+	// subscribe: BeforePublish runs on the outbound request (a request IS a
+	// publish) and AfterReceive runs on the inbound request before the
+	// responder's handler, so a handler's own spans and any outbound calls
+	// it makes are children of the caller's trace rather than orphaned
+	// roots. The reply leg is deliberately NOT run through the hooks -- see
+	// natsbus.Bus.Request's doc comment for why: a request/reply round trip
+	// is synchronous from the caller's point of view, so there is no second,
+	// independent hop for a hook to bridge on the way back.
+
+	t.Run("RPCRequestReplyPropagatesTrace", func(t *testing.T) {
+		hooks := events.Hooks{
+			BeforePublish: func(_ context.Context, e *events.Envelope) {
+				e.Trace = wantTrace
+			},
+			AfterReceive: func(ctx context.Context, e *events.Envelope) context.Context {
+				return context.WithValue(ctx, hooksCtxKey{}, e.Trace)
+			},
+		}
+		ctx, bus := setup(t, func() events.Bus { return newBusWithHooks(hooks) })
+		got := make(chan hookDelivery, 1)
+
+		err := bus.Serve(events.RPCIndexSearch, events.QueueGroupIndexarr,
+			func(ctx context.Context, _ []byte) ([]byte, error) {
+				v, ok := ctx.Value(hooksCtxKey{}).(string)
+				select {
+				case got <- hookDelivery{ctxTrace: v, ctxSet: ok}:
+				default:
+				}
+				return []byte(`{}`), nil
+			})
+		if err != nil {
+			t.Fatalf("Serve: %v", err)
+		}
+
+		var out map[string]any
+		if err := bus.Request(ctx, events.RPCIndexSearch, map[string]string{"k": "v"}, &out); err != nil {
+			t.Fatalf("Request: %v", err)
+		}
+
+		select {
+		case d := <-got:
+			if !d.ctxSet || d.ctxTrace != wantTrace {
+				t.Errorf("RPC handler context trace = (set=%v) %q, want %q from AfterReceive",
+					d.ctxSet, d.ctxTrace, wantTrace)
+			}
+		case <-time.After(Timeout):
+			t.Fatal("RPC handler was never invoked")
+		}
+	})
+
+	t.Run("RPCRequestReplyNoHooksIsANoOp", func(t *testing.T) {
+		ctx, bus := setup(t, newBus)
+		got := make(chan hookDelivery, 1)
+
+		err := bus.Serve(events.RPCIndexSearch, events.QueueGroupIndexarr,
+			func(ctx context.Context, _ []byte) ([]byte, error) {
+				v, ok := ctx.Value(hooksCtxKey{}).(string)
+				select {
+				case got <- hookDelivery{ctxTrace: v, ctxSet: ok}:
+				default:
+				}
+				return []byte(`{}`), nil
+			})
+		if err != nil {
+			t.Fatalf("Serve: %v", err)
+		}
+
+		var out map[string]any
+		if err := bus.Request(ctx, events.RPCIndexSearch, map[string]string{"k": "v"}, &out); err != nil {
+			t.Fatalf("Request: %v", err)
+		}
+
+		select {
+		case d := <-got:
+			if d.ctxSet {
+				t.Errorf("RPC handler context carried the hook's key (%q) with no hooks installed",
+					d.ctxTrace)
+			}
+		case <-time.After(Timeout):
+			t.Fatal("RPC handler was never invoked")
+		}
+	})
 }
