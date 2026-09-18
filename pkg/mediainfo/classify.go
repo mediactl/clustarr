@@ -148,24 +148,39 @@ func AudioChannelsString(channelLayout string, channels int32) string {
 	return fmt.Sprintf("%d.0", channels)
 }
 
-// ResolutionFromDimensions buckets a frame size into the *arr resolution
-// values docs/research/naming.md documents (480, 576, 720, 1080, 2160),
-// banding on height.
+// ResolutionFromDimensions buckets a frame size into one of
+// commonv1's Resolution* values, banding on height: every frame lands on
+// the nearest standard resolution at or above its own height, with 2160p
+// as the top bucket. A frame with no usable dimensions (both zero, or
+// negative) is commonv1.ResolutionUnknown rather than a guess -- the
+// scanner never invents a value it did not observe.
+//
+// When only the width is known the height is derived at 16:9, which is
+// what docs/research/naming.md's resolution table assumes.
 func ResolutionFromDimensions(width, height int32) int32 {
+	if width < 0 || height < 0 {
+		return commonv1.ResolutionUnknown // corrupt probe output, not a frame size
+	}
 	h := height
-	if h == 0 && width > 0 {
+	if h == 0 {
 		h = width * 9 / 16
 	}
 	switch {
-	case h <= 480:
-		return 480
-	case h <= 576:
-		return 576
-	case h <= 720:
-		return 720
-	case h <= 1080:
-		return 1080
+	case h <= 0:
+		return commonv1.ResolutionUnknown
+	case h <= commonv1.Resolution360p:
+		return commonv1.Resolution360p
+	case h <= commonv1.Resolution480p:
+		return commonv1.Resolution480p
+	case h <= commonv1.Resolution540p:
+		return commonv1.Resolution540p
+	case h <= commonv1.Resolution576p:
+		return commonv1.Resolution576p
+	case h <= commonv1.Resolution720p:
+		return commonv1.Resolution720p
+	case h <= commonv1.Resolution1080p:
+		return commonv1.Resolution1080p
 	default:
-		return 2160
+		return commonv1.Resolution2160p
 	}
 }

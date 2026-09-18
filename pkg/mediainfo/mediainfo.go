@@ -20,7 +20,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // full ffprobe result, the Dolby Vision configuration record, and typed
 // SMPTE ST 2086 mastering-display / content-light metadata) that
 // api/common/v1alpha1.MediaInfo has no room for and pkg/transcode's
-// Planner needs. See docs/superpowers/specs/2026-09-18-clustarr-design.md
+// planner needs. See docs/superpowers/specs/2026-09-18-clustarr-design.md
 // §7 and docs/research/transcode.md §2.
 package mediainfo
 
@@ -37,9 +37,13 @@ import (
 
 // Raw is the unabridged ffprobe result for one file: every stream, the
 // container format and chapters, plus the HDR/Dolby-Vision and colour
-// detail the CRD-facing MediaInfo cannot hold. pkg/transcode.Planner.Plan
-// takes Raw as its second argument; catalogarr's MediaFile status only
-// ever sees the mapped MediaInfo Probe returns alongside it.
+// detail the CRD-facing MediaInfo cannot hold.
+// pkg/transcode.FromProbe(mi *commonv1.MediaInfo, raw *mediainfo.Raw)
+// takes Raw as its second argument and folds both into the
+// transcode.MediaInfo that transcode.Plan reads (spec §7's
+// Planner.Plan(mi, raw, hw) is satisfied by that pair -- there is no
+// Planner type); catalogarr's MediaFile status only ever sees the mapped
+// MediaInfo Probe returns alongside it.
 type Raw struct {
 	Format   *ffprobe.Format
 	Streams  []*ffprobe.Stream

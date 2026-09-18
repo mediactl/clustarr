@@ -415,10 +415,15 @@ func x265Range(colorRange string) string {
 	return "limited"
 }
 
-// x265Params assembles -x265-params deterministically as an explicit
+// X265Params assembles -x265-params deterministically as an explicit
 // ordered list -- never by ranging a map, which Go randomizes. The one
 // exception, profile.Video.ExtraX265Params, is appended sorted by key.
-func x265Params(threads int32, v VideoSpec, vs VideoStream, class hdrBucket, dvMode DolbyVisionMode) string {
+//
+// Exported because spec §7 names it ("func X265Params(...) string //
+// golden-tested"); the goldens in testdata/transcode/ cover the string it
+// renders for every CPU tier. Its hdrBucket argument is package-internal,
+// so in practice Args is what a caller outside this package uses.
+func X265Params(threads int32, v VideoSpec, vs VideoStream, class hdrBucket, dvMode DolbyVisionMode) string {
 	parts := []string{
 		fmt.Sprintf("pools=%d", threads),
 		"frame-threads=0",
@@ -531,7 +536,7 @@ func cpuVideoArgs(v VideoSpec, vs VideoStream, class hdrBucket, dvMode DolbyVisi
 			args = append(args, "-bufsize", fmt.Sprintf("%dk", *v.BufSizeKbps))
 		}
 	}
-	args = append(args, "-x265-params", x265Params(threads, v, vs, class, dvMode))
+	args = append(args, "-x265-params", X265Params(threads, v, vs, class, dvMode))
 	return args
 }
 

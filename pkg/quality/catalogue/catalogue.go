@@ -21,6 +21,7 @@ import (
 	"context"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/dlclark/regexp2"
@@ -47,14 +48,28 @@ func compileTRaSH(pattern string) (*regexp2.Regexp, error) {
 	return re, nil
 }
 
-// matchTRaSH runs re against s, treating a timeout as "no match" rather than
-// an error, and logging the timeout through ctx so an operator can find the
-// pathological pattern without the caller having to thread an error return
-// through every Condition kind.
+// matchFailureMessage picks the log message for a regexp2 MatchString
+// failure. A MatchTimeout is the expected one, but it is not the only
+// possible error and regexp2 exports no sentinel for it -- the timeout is a
+// plain fmt.Errorf("match timeout after %v on input `%v`", ...) built in
+// runner.go -- so the message is selected from that text rather than
+// asserting every failure is a timeout.
+func matchFailureMessage(err error) string {
+	if err != nil && strings.Contains(err.Error(), "match timeout") {
+		return "regexp2 match timed out"
+	}
+	return "regexp2 match failed"
+}
+
+// matchTRaSH runs re against s, treating any match failure as "no match"
+// rather than an error, and logging it through ctx so an operator can find
+// the pathological pattern without the caller having to thread an error
+// return through every Condition kind.
 func matchTRaSH(ctx context.Context, re *regexp2.Regexp, name, s string) bool {
 	ok, err := re.MatchString(s)
 	if err != nil {
-		logging.FromContext(ctx).Warn("regexp2 match timed out", "condition", name, "timeout", trashMatchTimeout)
+		logging.FromContext(ctx).Warn(matchFailureMessage(err),
+			"condition", name, "timeout", trashMatchTimeout, "err", err)
 		return false
 	}
 	return ok

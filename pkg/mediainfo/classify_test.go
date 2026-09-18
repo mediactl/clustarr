@@ -111,9 +111,30 @@ func TestAudioChannelsString(t *testing.T) {
 }
 
 func TestResolutionFromDimensions(t *testing.T) {
-	assert.Equal(t, int32(480), ResolutionFromDimensions(320, 240))
-	assert.Equal(t, int32(576), ResolutionFromDimensions(720, 576))
-	assert.Equal(t, int32(720), ResolutionFromDimensions(1280, 720))
-	assert.Equal(t, int32(1080), ResolutionFromDimensions(1920, 1080))
-	assert.Equal(t, int32(2160), ResolutionFromDimensions(3840, 2160))
+	tests := []struct {
+		name          string
+		width, height int32
+		want          int32
+	}{
+		{"no dimensions at all", 0, 0, commonv1.ResolutionUnknown},
+		{"negative height", 640, -1, commonv1.ResolutionUnknown},
+		{"negative width, no height", -640, 0, commonv1.ResolutionUnknown},
+		{"240p bands up to 360p", 320, 240, commonv1.Resolution360p},
+		{"360p exactly", 640, 360, commonv1.Resolution360p},
+		{"one line over 360p", 640, 361, commonv1.Resolution480p},
+		{"480p exactly", 640, 480, commonv1.Resolution480p},
+		{"one line over 480p", 640, 481, commonv1.Resolution540p},
+		{"540p exactly", 960, 540, commonv1.Resolution540p},
+		{"576p exactly", 720, 576, commonv1.Resolution576p},
+		{"720p exactly", 1280, 720, commonv1.Resolution720p},
+		{"1080p exactly", 1920, 1080, commonv1.Resolution1080p},
+		{"2160p exactly", 3840, 2160, commonv1.Resolution2160p},
+		{"4320p bands down to 2160p, the highest bucket", 7680, 4320, commonv1.Resolution2160p},
+		{"width only, 16:9 assumed", 1920, 0, commonv1.Resolution1080p},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, ResolutionFromDimensions(tt.width, tt.height))
+		})
+	}
 }
