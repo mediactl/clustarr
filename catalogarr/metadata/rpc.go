@@ -61,7 +61,16 @@ func ServeRPC(bus events.Requester, reg *pkgmetadata.Registry) error {
 	return nil
 }
 
+// lookup answers rpc.catalogarr.metadata.lookup. MediaKindEpisode is a verb
+// Task C6 needs and pkg/metadata.Registry.Lookup does not support (its
+// switch covers movie/series/artist/author/audiobook/comic only, because
+// "first entity from the first provider that succeeds" is the wrong shape
+// for a list) -- dispatch it to lookupEpisodes before falling through to
+// Registry.Lookup for every other kind.
 func lookup(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataRequest) schema.MetadataResponse {
+	if req.Kind == commonv1.MediaKindEpisode {
+		return lookupEpisodes(ctx, reg, req)
+	}
 	v, err := reg.Lookup(ctx, req.Kind, req.IDs)
 	if err != nil {
 		return schema.MetadataResponse{Kind: req.Kind, Error: err.Error()}
@@ -71,6 +80,33 @@ func lookup(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataR
 		return schema.MetadataResponse{Kind: req.Kind, Error: err.Error()}
 	}
 	return schema.MetadataResponse{Kind: req.Kind, IDs: idsOf(v), Result: result}
+}
+
+// lookupEpisodes is the Task C6 contract: Kind=MediaKindEpisode,
+// IDs={"tvdb": tvdbID, "order": order}, order a plain string matching
+// SeriesProvider.Episodes' own parameter (not pkg/metadata's typed
+// SeasonOrder, which that method does not take). Answers with Results, one
+// JSON-encoded pkg/metadata.Episode per entry, first SeriesProvider-that-
+// succeeds over reg.Series.
+func lookupEpisodes(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataRequest) schema.MetadataResponse {
+	tvdbID, ok := req.IDs[pkgmetadata.KeyTVDB]
+	if !ok {
+		return schema.MetadataResponse{Kind: req.Kind, Error: fmt.Sprintf("metadata: episode lookup requires %q in ids", pkgmetadata.KeyTVDB)}
+	}
+	order := req.IDs["order"]
+	var lastErr error
+	for _, p := range reg.Series {
+		episodes, err := p.Episodes(ctx, tvdbID, order)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		return schema.MetadataResponse{Kind: req.Kind, Provider: p.Name(), Results: marshalAll(episodes)}
+	}
+	if lastErr == nil {
+		lastErr = pkgmetadata.ErrNotFound
+	}
+	return schema.MetadataResponse{Kind: req.Kind, Error: lastErr.Error()}
 }
 
 // search dispatches by kind. Only the kinds whose Provider interface (go doc

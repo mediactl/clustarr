@@ -20,10 +20,12 @@ package metadata
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/require"
@@ -165,4 +167,62 @@ func TestServeRPCResolveMergesEveryResolver(t *testing.T) {
 	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataResolve, req, &resp))
 	require.Equal(t, "27205", resp.IDs["tmdb"])
 	require.Equal(t, "tt1375666", resp.IDs["imdb"])
+}
+
+type stubSeriesProvider struct {
+	episodes  []pkgmetadata.Episode
+	err       error
+	wantOrder string
+}
+
+func (p stubSeriesProvider) Name() string { return "tvdb" }
+func (p stubSeriesProvider) Capabilities() pkgmetadata.Capabilities {
+	return pkgmetadata.Capabilities{}
+}
+func (p stubSeriesProvider) Series(context.Context, string) (*pkgmetadata.Series, error) {
+	return nil, pkgmetadata.ErrNotFound
+}
+func (p stubSeriesProvider) Episodes(_ context.Context, tvdbID, order string) ([]pkgmetadata.Episode, error) {
+	if p.wantOrder != "" && order != p.wantOrder {
+		return nil, fmt.Errorf("unexpected order %q", order)
+	}
+	return p.episodes, p.err
+}
+func (p stubSeriesProvider) Updates(context.Context, time.Time) ([]string, error) { return nil, nil }
+
+func TestServeRPCLookupListsEpisodesForTaskC6(t *testing.T) {
+	reg := &pkgmetadata.Registry{Series: []pkgmetadata.SeriesProvider{stubSeriesProvider{
+		wantOrder: "absolute",
+		episodes: []pkgmetadata.Episode{
+			{SeasonNumber: 1, EpisodeNumber: 1, Title: "Pilot"},
+			{SeasonNumber: 1, EpisodeNumber: 2, Title: "Two"},
+		},
+	}}}
+	bus := newTestBus(t)
+	require.NoError(t, ServeRPC(bus, reg))
+
+	var resp schema.MetadataResponse
+	req := schema.MetadataRequest{
+		Kind: commonv1.MediaKindEpisode,
+		IDs:  map[string]string{"tvdb": "121361", "order": "absolute"},
+	}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
+
+	require.Empty(t, resp.Error)
+	require.Equal(t, "tvdb", resp.Provider)
+	require.Len(t, resp.Results, 2)
+	var ep pkgmetadata.Episode
+	require.NoError(t, json.Unmarshal(resp.Results[0], &ep))
+	require.Equal(t, "Pilot", ep.Title)
+}
+
+func TestServeRPCLookupEpisodesRequiresATVDBID(t *testing.T) {
+	reg := &pkgmetadata.Registry{}
+	bus := newTestBus(t)
+	require.NoError(t, ServeRPC(bus, reg))
+
+	var resp schema.MetadataResponse
+	req := schema.MetadataRequest{Kind: commonv1.MediaKindEpisode, IDs: map[string]string{"order": "official"}}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
+	require.NotEmpty(t, resp.Error)
 }
