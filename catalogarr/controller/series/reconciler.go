@@ -102,7 +102,7 @@ type bus interface {
 // is the sole writer of status.phase, status.path, status.seasons,
 // status.episodeCount and status.episodeFileCount; status.metadata belongs
 // to the metadata gateway (Task C5, field manager
-// k8s.ManagerCatalogarrWorker) and this reconciler never builds a
+// k8s.ManagerCatalogarrMetadata) and this reconciler never builds a
 // SeriesStatusApplyConfiguration that calls WithMetadata.
 //
 // The per-Episode provider fields this reconciler writes

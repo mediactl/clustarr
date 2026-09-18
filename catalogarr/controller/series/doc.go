@@ -23,7 +23,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Series is the sole writer of status.phase, status.path, status.seasons,
 // status.episodeCount and status.episodeFileCount; status.metadata belongs
 // to the metadata gateway (Task C5, field manager
-// k8s.ManagerCatalogarrWorker). The per-Episode provider fields
+// k8s.ManagerCatalogarrMetadata). The per-Episode provider fields
 // (title/overview/airDate/tvdbID/absoluteNumber/runtimeMinutes) are written
 // by this reconciler too, under the distinct k8s.ManagerCatalogarrSeries
 // field manager -- not k8s.ManagerCatalogarr, which the Episode controller

@@ -24,5 +24,5 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // status.fileQuality, status.fileFormatScore, status.cutoffMet and
 // status.activeDownloadRef (§3's single-writer rule); status.metadata
 // belongs to the metadata gateway (Task C5, field manager
-// k8s.ManagerCatalogarrWorker) and this package never writes it.
+// k8s.ManagerCatalogarrMetadata) and this package never writes it.
 package movie

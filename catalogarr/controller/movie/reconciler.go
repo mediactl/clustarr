@@ -81,9 +81,16 @@ const (
 // status.hasFile, status.fileRef, status.fileQuality,
 // status.fileFormatScore, status.cutoffMet and status.activeDownloadRef
 // (§3's single-writer rule); status.metadata belongs to the metadata
-// gateway (Task C5, field manager k8s.ManagerCatalogarrWorker) and this
+// gateway (Task C5, field manager k8s.ManagerCatalogarrMetadata) and this
 // reconciler never builds a MovieStatusApplyConfiguration that calls
 // WithMetadata.
+//
+// status.activeDownloadRef is the exception to "sole writer" as of Phase C
+// wave 2: the grab worker also writes it, under k8s.ManagerCatalogarrGrab.
+// Both go through k8s.PatchStatus, which passes client.ForceOwnership, so
+// ownership moves to whichever wrote last instead of raising a conflict,
+// and the clear-by-omission below only takes effect while this reconciler
+// happens to hold the field. Task C12 adjudicates which side keeps it.
 type Reconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
