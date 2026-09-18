@@ -111,6 +111,18 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   the logic is tricky (`pkg/pipeline.Project`, `pkg/transcode.Plan`) so it is
   testable without a cluster.
 
+### Conventions across `pkg/`
+
+- **The caller owns rate limiting.** A library package accepts an injected
+  limiter (`torznab.WithRateLimit`, the metadata and OpenSubtitles clients) and
+  never defaults one on; the controller holds one limiter per host.
+- **Every HTTP response body is read through a cap** — a package-level max, an
+  `io.LimitReader(body, max+1)` and an `ErrResponseTooLarge` sentinel.
+- **Provider errors expose sentinels** (`metadata.ErrNotFound`,
+  `subtitles.ErrNotFound`, …) so `errors.Is` works through `Unwrap`.
+- **Filesystem writes that must survive a crash go through `pkg/fsops`**
+  (`AtomicWrite` fsyncs the file and its parent and takes an explicit mode).
+
 ## Status
 
 Pre-alpha. **Nothing reconciles yet** — every `setupControllers` and

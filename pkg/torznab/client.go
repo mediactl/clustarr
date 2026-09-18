@@ -39,10 +39,6 @@ import (
 // api/index/v1alpha1.
 const defaultTimeout = 30 * time.Second
 
-// defaultRequestInterval matches Prowlarr's RateLimit default
-// (docs/research/indexers.md §6).
-const defaultRequestInterval = 2 * time.Second
-
 // ClientOption configures a Client built by NewClient.
 type ClientOption func(*Client)
 
@@ -51,7 +47,11 @@ func WithTimeout(d time.Duration) ClientOption {
 	return func(c *Client) { c.hc.Timeout = d }
 }
 
-// WithRateLimit overrides the per-host rate limit.
+// WithRateLimit paces every request this client issues. There is no
+// default: a Client built without this option does not rate-limit at all,
+// because the caller owns pacing (see the package doc). Prowlarr's own
+// default, for a caller that wants it, is one request every two seconds
+// (docs/research/indexers.md §6): WithRateLimit(rate.Every(2*time.Second), 1).
 func WithRateLimit(r rate.Limit, burst int) ClientOption {
 	return func(c *Client) { c.limiter = rate.NewLimiter(r, burst) }
 }
@@ -80,9 +80,9 @@ func WithHTTPClient(hc *http.Client) ClientOption {
 }
 
 // Client is a Torznab/Newznab HTTP client for one indexer host: context
-// aware, rate limited per host (2s/request default, matching Prowlarr's
-// RateLimit default from §6), API-key authenticated, with an optional
-// caller-supplied dial function for proxying.
+// aware, API-key authenticated, with an optional caller-supplied dial
+// function for proxying and an optional caller-supplied rate limiter
+// (WithRateLimit). It does not pace itself.
 type Client struct {
 	baseURL *url.URL
 	apikey  string
@@ -107,7 +107,6 @@ func NewClient(baseURL, apikey string, opts ...ClientOption) (*Client, error) {
 			Timeout:   defaultTimeout,
 			Transport: &http.Transport{},
 		},
-		limiter: rate.NewLimiter(rate.Every(defaultRequestInterval), 1),
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -124,11 +123,16 @@ func (c *Client) do(ctx context.Context, values url.Values) (*http.Response, err
 
 	logging.FromContext(ctx).Debug("torznab: request", "url", c.baseURL.String(), "t", values.Get("t"))
 
-	// Wait returns ctx.Err() immediately when ctx is already cancelled or
-	// its deadline has passed, without ever issuing the request -- this is
-	// what makes context cancellation propagate out of Search/Caps without
-	// a separate manual check.
-	if err := c.limiter.Wait(ctx); err != nil {
+	// An already-cancelled or expired context never issues a request; this
+	// is what makes cancellation propagate out of Search/Caps unwrapped.
+	// rate.Limiter.Wait has the same property, so the check is the limiter's
+	// when the caller supplied one.
+	if c.limiter != nil {
+		if err := c.limiter.Wait(ctx); err != nil {
+			tracing.RecordError(span, err)
+			return nil, err
+		}
+	} else if err := ctx.Err(); err != nil {
 		tracing.RecordError(span, err)
 		return nil, err
 	}

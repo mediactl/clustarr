@@ -75,6 +75,35 @@ func TestClientRateLimitsPerHost(t *testing.T) {
 	require.GreaterOrEqual(t, hits[1].Sub(hits[0]), 40*time.Millisecond, "the second request must wait for the limiter")
 }
 
+// TestClientDoesNotRateLimitByDefault covers ruling F4: pacing is the
+// caller's job. A client built with no WithRateLimit option must not hold
+// requests back at all -- the indexarr controller owns one limiter per
+// indexer host, and a library default would stack a second limiter in
+// series underneath it.
+func TestClientDoesNotRateLimitByDefault(t *testing.T) {
+	var hits []time.Time
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits = append(hits, time.Now())
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(`<rss><channel></channel></rss>`))
+	}))
+	defer srv.Close()
+
+	c, err := torznab.NewClient(srv.URL, "")
+	require.NoError(t, err)
+
+	start := time.Now()
+	_, err = c.Search(context.Background(), torznab.Query{Type: torznab.ModeSearch})
+	require.NoError(t, err)
+	_, err = c.Search(context.Background(), torznab.Query{Type: torznab.ModeSearch})
+	require.NoError(t, err)
+
+	require.Len(t, hits, 2)
+	require.Less(t, hits[1].Sub(hits[0]), 500*time.Millisecond,
+		"back-to-back requests must not be paced when no limiter was supplied")
+	require.Less(t, time.Since(start), time.Second)
+}
+
 func TestClientMapsHTTPStatusesToError(t *testing.T) {
 	cases := []struct {
 		name       string

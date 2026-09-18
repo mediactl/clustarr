@@ -16,8 +16,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package torznab is the Torznab/Newznab wire client: caps, search and
-// error parsing, a rate-limited HTTP client and the server-side encoders
-// that are exact inverses of the parsers.
+// error parsing, an HTTP client and the server-side encoders that are
+// exact inverses of the parsers.
+//
+// The caller owns pacing. Client does not rate-limit unless built with
+// WithRateLimit: the controller that drives it holds one limiter per
+// indexer host (Indexer.spec.rateLimit), and a library-side default would
+// sit in series underneath it and silently halve the configured rate.
 package torznab
 
 import (
