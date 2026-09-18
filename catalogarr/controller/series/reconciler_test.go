@@ -23,6 +23,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -140,7 +141,15 @@ func (c combinedBus) Request(ctx context.Context, subject string, in, out any) e
 // process-global registry (see the movie package's identical note), so
 // every scenario needing the real, auto-wired controller lives as a t.Run
 // under one Test function that calls this exactly once.
-func startManager(t *testing.T, ctx context.Context, cfg *rest.Config, bus combinedBus) client.Client {
+// reconcileCounter counts Reconcile invocations across every object the
+// manager's controller processes, so a test can assert on the delta around
+// a specific operation without a data race.
+type reconcileCounter struct{ n atomic.Int64 }
+
+func (c *reconcileCounter) inc()         { c.n.Add(1) }
+func (c *reconcileCounter) count() int64 { return c.n.Load() }
+
+func startManager(t *testing.T, ctx context.Context, cfg *rest.Config, bus combinedBus) (client.Client, *reconcileCounter) {
 	t.Helper()
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
@@ -149,17 +158,19 @@ func startManager(t *testing.T, ctx context.Context, cfg *rest.Config, bus combi
 	})
 	require.NoError(t, err)
 
+	counter := &reconcileCounter{}
 	r := &series.Reconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("series"), //nolint:staticcheck // matches C12's run.go registration line verbatim
-		Bus:      bus,
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		Recorder:    mgr.GetEventRecorderFor("series"), //nolint:staticcheck // matches C12's run.go registration line verbatim
+		Bus:         bus,
+		OnReconcile: counter.inc,
 	}
 	require.NoError(t, r.SetupWithManager(mgr))
 
 	go func() { _ = mgr.Start(ctx) }()
 	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))
-	return mgr.GetClient()
+	return mgr.GetClient(), counter
 }
 
 func waitForPhase(t *testing.T, ctx context.Context, c client.Client, ns, name string) catalogv1alpha1.Series {
@@ -189,7 +200,7 @@ func TestSeriesReconcilerRealController(t *testing.T) {
 	requester := &fakeEpisodeRPC{}
 	bus := combinedBus{Publisher: realBus, requester: requester}
 
-	c := startManager(t, ctx, cfg, bus)
+	c, counter := startManager(t, ctx, cfg, bus)
 	require.NoError(t, c.Create(ctx, testNamespace("series-ns")))
 	require.NoError(t, c.Create(ctx, testRootFolder("series-ns", "tv-root", "/data/media/tv")))
 
@@ -403,6 +414,64 @@ func TestSeriesReconcilerRealController(t *testing.T) {
 		require.Len(t, got.Status.Seasons, 1)
 		assert.EqualValues(t, 1, got.Status.Seasons[0].EpisodeFileCount)
 		assert.EqualValues(t, 2, got.Status.Seasons[0].EpisodeCount)
+	})
+
+	// The concrete proof that seriesPredicate (GenerationChanged Or
+	// StatusFieldChanged on status.metadata.refreshedAt) wakes this
+	// controller when the metadata gateway writes status.metadata, but this
+	// controller's own status write (which never touches status.metadata)
+	// does not loop it -- the same shape as the movie package's
+	// TestMovieReconcilerMetadataRefreshSelfLoopGuard subtest. It runs last
+	// and in its own namespace so the reconcileCounter delta, taken from a
+	// snapshot immediately before its own writes, is not confused by any
+	// other subtest's residual work.
+	t.Run("metadata refresh triggers reconcile but the controller's own write does not loop", func(t *testing.T) {
+		requester.episodes, requester.err = nil, nil
+
+		s := &catalogv1alpha1.Series{
+			ObjectMeta: metav1.ObjectMeta{Name: "selfloop-series", Namespace: "series-ns"},
+			Spec:       catalogv1alpha1.SeriesSpec{TvdbID: 99999, QualityProfileRef: "none", RootFolderRef: "tv-root"},
+		}
+		require.NoError(t, c.Create(ctx, s))
+
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Series
+			if err := c.Get(ctx, types.NamespacedName{Namespace: "series-ns", Name: "selfloop-series"}, &got); err != nil {
+				return false
+			}
+			return got.Status.Phase != ""
+		}, 5*time.Second, 20*time.Millisecond, "the initial create must reconcile to a settled phase")
+
+		n := counter.count()
+
+		metaAC := catalogac.Series(s.Name, s.Namespace).WithStatus(
+			catalogac.SeriesStatus().WithMetadata(
+				catalogac.SeriesMetadata().WithTitle("Self Loop Series").WithYear(2020).
+					WithStatus(catalogv1alpha1.SeriesRunStatusContinuing).WithRefreshedAt(metav1.Now()),
+			),
+		)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, metaAC)
+		require.NoError(t, err)
+
+		require.Eventually(t, func() bool { return counter.count() > n }, 5*time.Second, 20*time.Millisecond,
+			"the gateway's metadata write must wake this controller")
+
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Series
+			if err := c.Get(ctx, types.NamespacedName{Namespace: "series-ns", Name: "selfloop-series"}, &got); err != nil {
+				return false
+			}
+			cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.SeriesConditionMetadataReady)
+			return cond != nil && cond.Status == metav1.ConditionTrue
+		}, 5*time.Second, 20*time.Millisecond)
+
+		n2 := counter.count()
+		assert.Equal(t, int64(1), n2-n, "the gateway write must cause exactly one reconcile, not a cascade")
+
+		require.Never(t, func() bool {
+			return counter.count() > n2
+		}, 500*time.Millisecond, 20*time.Millisecond,
+			"this controller's own status patch must not re-trigger itself")
 	})
 }
 
