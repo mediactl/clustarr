@@ -272,11 +272,19 @@ func partialDateToTime(d mbtypes.PartialDate) (time.Time, bool) {
 }
 
 // mapError maps musicbrainzws2's *ClientError HTTP status onto metadata's
-// sentinel errors.
+// sentinel errors. Verified against the real library
+// (go.uploadedlobster.com/musicbrainzws2@v0.19.0's client.go,
+// handleErrorResponse): a StatusCode of 0 means the library never got a
+// clean HTTP-status-plus-body round trip to report -- most commonly its own
+// resty client's automatic JSON unmarshal failing on a 200 response with a
+// malformed body, but also a bare transport-level failure -- so it is
+// wrapped as metadata.ErrDecode rather than leaking the library's raw error
+// text as this package's only signal. Any error that is not even a
+// *ClientError gets the same treatment, for the same reason.
 func mapError(err error) error {
 	var clientErr *mb.ClientError
 	if !errors.As(err, &clientErr) {
-		return fmt.Errorf("musicbrainz: %w", err)
+		return fmt.Errorf("musicbrainz: %w: %w", metadata.ErrDecode, err)
 	}
 	switch clientErr.StatusCode {
 	case http.StatusNotFound:
@@ -285,6 +293,8 @@ func mapError(err error) error {
 		return metadata.ErrAuth
 	case http.StatusTooManyRequests:
 		return &metadata.RateLimitedError{Provider: "musicbrainz"}
+	case 0:
+		return fmt.Errorf("musicbrainz: %w: %w", metadata.ErrDecode, err)
 	default:
 		return fmt.Errorf("musicbrainz: %w", err)
 	}
