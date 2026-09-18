@@ -21,6 +21,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -472,6 +473,20 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		require.NoError(t, schema.Decode(envelope.Schema, envelope.Data, &task))
 		assert.Equal(t, commonv1.MediaKindMovie, task.MediaRef.Kind)
 		assert.Equal(t, "the-matrix", task.MediaRef.Name)
+
+		// The envelope key and the subject's media key are different things
+		// and must not be conflated. Every consumer recovers the namespace
+		// with strings.Cut(env.Key, "/") -- catalogarr/metadata/worker.go,
+		// the grab handler, the rss matcher and the search worker all do it,
+		// and all of them events.Discard to the DLQ when the cut fails. A
+		// media key is tokenised for the wire and has no slash left to cut
+		// on, so publishing one as the envelope key dead-letters every task
+		// on first delivery.
+		ns, name, ok := strings.Cut(envelope.Key, "/")
+		require.True(t, ok, "envelope key %q must be <namespace>/<name>", envelope.Key)
+		assert.Equal(t, "metadata-ns", ns)
+		assert.Equal(t, "the-matrix", name)
+		assert.NotContains(t, mediaKey, "/", "a media key is a single subject token")
 	})
 
 	// A watched MediaFile rolls up HasFile/FileRef/FileQuality/CutoffMet and

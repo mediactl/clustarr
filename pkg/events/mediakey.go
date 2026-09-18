@@ -48,6 +48,14 @@ const mediaKeyHashLen = 10
 // matter how the prefix is flattened. The prefix stays only so a subject or a
 // KV key is still readable when someone is watching the bus.
 //
+// A media key is NOT an Envelope.Key. The envelope key is the
+// <namespace>/<name> routing key every worker parses with
+// strings.Cut(key, "/") to recover the namespace it must Get the object
+// from, and a worker that cannot cut it discards the message to the DLQ. A
+// media key has been through tok() and has no slash left to cut on, so
+// publishing one as the envelope key dead-letters the task on first
+// delivery. Build both, and keep them in separate variables.
+//
 // kind is the commonv1.MediaKind as a string; this package deliberately does
 // not import the API types, so callers convert.
 func MediaKey(kind, namespace, name string) string {

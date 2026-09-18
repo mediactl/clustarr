@@ -237,6 +237,11 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 	metaReady := !stale
 
 	if stale {
+		// The envelope key is the <namespace>/<name> routing key every
+		// worker parses to recover the namespace; the media key is the
+		// subject token. They are not interchangeable -- the media key
+		// is tokenised for the wire and has no slash to cut on.
+		envKey := s.Namespace + "/" + s.Name
 		mediaKey := events.MediaKey(string(commonv1.MediaKindSeries), s.Namespace, s.Name)
 		schemaName, data, err := schema.Encode(schema.MetadataTask{
 			MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindSeries, Name: s.Name},
@@ -249,7 +254,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 			Type:   "catalog.MetadataTask",
 			Schema: schemaName,
 			Source: "catalogarr@" + version.String(),
-			Key:    mediaKey,
+			Key:    envKey,
 			Time:   now,
 			Data:   data,
 		}
