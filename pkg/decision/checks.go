@@ -18,8 +18,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package decision
 
 import (
+	"strings"
+
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/release"
 )
 
 // protocolRejection is ProtocolSpecification: a protocol absent from
@@ -59,4 +62,35 @@ func qualityRejections(p quality.Profile, rel common.ReleaseInfo, score int) []c
 			"custom format score %d is below the profile minimum %d", score, p.MinFormatScore))
 	}
 	return out
+}
+
+// languageRejection is LanguageSpecification, using Profile.LanguageName --
+// go doc ./pkg/quality: "'original' and 'any' pass through unchanged, an
+// empty Language stays empty (no constraint)".
+func languageRejection(t Target, p quality.Profile, parsed *release.ParsedRelease) *common.Rejection {
+	switch p.LanguageName {
+	case "", "any":
+		return nil
+	case "original":
+		if containsFold(parsed.Languages, t.OriginalLanguage) {
+			return nil
+		}
+		r := newRejection(ReasonWantedLanguage, "original language %s is wanted, but found %v", t.OriginalLanguage, parsed.Languages)
+		return &r
+	default:
+		if containsFold(parsed.Languages, p.LanguageName) {
+			return nil
+		}
+		r := newRejection(ReasonWantedLanguage, "%s is wanted, but found %v", p.LanguageName, parsed.Languages)
+		return &r
+	}
+}
+
+func containsFold(haystack []string, needle string) bool {
+	for _, s := range haystack {
+		if strings.EqualFold(s, needle) {
+			return true
+		}
+	}
+	return false
 }

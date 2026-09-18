@@ -24,6 +24,7 @@ import (
 
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/release"
 )
 
 func TestProtocolRejection(t *testing.T) {
@@ -77,5 +78,32 @@ func TestQualityRejections(t *testing.T) {
 	t.Run("both fail at once", func(t *testing.T) {
 		got := qualityRejections(p, common.ReleaseInfo{Quality: webdl720.Quality}, 0)
 		require.Len(t, got, 2)
+	})
+}
+
+func TestLanguageRejection(t *testing.T) {
+	t.Run("any accepts everything", func(t *testing.T) {
+		p := quality.Profile{LanguageName: "any"}
+		require.Nil(t, languageRejection(Target{}, p, &release.ParsedRelease{Languages: []string{"French"}}))
+	})
+	t.Run("original language present", func(t *testing.T) {
+		p := quality.Profile{LanguageName: "original"}
+		tg := Target{OriginalLanguage: "Japanese"}
+		require.Nil(t, languageRejection(tg, p, &release.ParsedRelease{Languages: []string{"Japanese", "English"}}))
+	})
+	t.Run("original language missing rejects", func(t *testing.T) {
+		p := quality.Profile{LanguageName: "original"}
+		tg := Target{OriginalLanguage: "Japanese"}
+		got := languageRejection(tg, p, &release.ParsedRelease{Languages: []string{"English"}})
+		require.NotNil(t, got)
+		require.Contains(t, got.Reason, ReasonWantedLanguage.Code)
+	})
+	t.Run("specific wanted language missing rejects", func(t *testing.T) {
+		p := quality.Profile{LanguageName: "German"}
+		require.NotNil(t, languageRejection(Target{}, p, &release.ParsedRelease{Languages: []string{"English"}}))
+	})
+	t.Run("empty LanguageName means no constraint", func(t *testing.T) {
+		p := quality.Profile{LanguageName: ""}
+		require.Nil(t, languageRejection(Target{}, p, &release.ParsedRelease{Languages: nil}))
 	})
 }
