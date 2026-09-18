@@ -42,3 +42,33 @@ func TestRenderLeavesLiteralTextAlone(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "no tokens here", got)
 }
+
+func TestRenderOmitsWrapperWhenTokenIsEmpty(t *testing.T) {
+	e := naming.NewEngine(naming.Config{})
+	got, err := e.Render("{Movie Title}{-Release Group}", naming.Context{Title: "Heat"})
+	require.NoError(t, err)
+	require.Equal(t, "Heat", got, "empty Release Group must drop the leading dash too")
+}
+
+func TestRenderKeepsWrapperWhenTokenIsPresent(t *testing.T) {
+	e := naming.NewEngine(naming.Config{})
+	got, err := e.Render("{Movie Title}{-Release Group}", naming.Context{Title: "Heat", ReleaseGroup: "RlsGrp"})
+	require.NoError(t, err)
+	require.Equal(t, "Heat-RlsGrp", got)
+}
+
+func TestRenderProviderIDTokens(t *testing.T) {
+	e := naming.NewEngine(naming.Config{})
+	c := naming.Context{Title: "The Matrix", Year: 1999, TmdbID: "603"}
+	got, err := e.Render("{Movie Title} ({Release Year}) [tmdbid-{TmdbId}]", c)
+	require.NoError(t, err)
+	require.Equal(t, "The Matrix (1999) [tmdbid-603]", got)
+}
+
+func TestRenderSplitBracketAcrossTwoAdjacentTokens(t *testing.T) {
+	e := naming.NewEngine(naming.Config{})
+	c := naming.Context{MediaInfo: commonv1.MediaInfo{Audio: []commonv1.AudioStream{{Codec: "EAC3", Channels: 6}}}}
+	got, err := e.Render("{[MediaInfo AudioCodec}{ MediaInfo AudioChannels]}", c)
+	require.NoError(t, err)
+	require.Equal(t, "[EAC3 5.1]", got, "note A2's split-bracket idiom: two single-brace tokens forming one pair")
+}

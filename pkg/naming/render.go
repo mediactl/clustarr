@@ -22,6 +22,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
 var tokenRe = regexp.MustCompile(`\{([^{}]*)\}`)
@@ -108,8 +110,35 @@ func normalizeTokenName(s string) string {
 }
 
 // tokenFuncs is grown by every later step; this step seeds it with the
-// three tokens Step 1's test needs.
+// tokens exercised so far.
 var tokenFuncs = map[string]func(c Context, pad, trunc int) string{
-	"movie title":  func(c Context, _, _ int) string { return c.Title },
-	"release year": func(c Context, _, _ int) string { return yearString(c.Year) },
+	"movie title":             func(c Context, _, _ int) string { return c.Title },
+	"release year":            func(c Context, _, _ int) string { return yearString(c.Year) },
+	"release group":           func(c Context, _, _ int) string { return c.ReleaseGroup },
+	"tmdbid":                  func(c Context, _, _ int) string { return c.TmdbID },
+	"mediainfo audiocodec":    func(c Context, _, _ int) string { return firstAudioCodec(c.MediaInfo) },
+	"mediainfo audiochannels": func(c Context, _, _ int) string { return firstAudioChannels(c.MediaInfo) },
+}
+
+func firstAudioCodec(mi commonv1.MediaInfo) string {
+	if len(mi.Audio) == 0 {
+		return ""
+	}
+	return mi.Audio[0].Codec
+}
+
+// audioChannelLayout maps a raw channel count to the *arr channel-layout
+// label. 6 physical channels is the well-known "5.1" layout (5 full-range +
+// 1 low-frequency effects channel), not a bare "6.0".
+var audioChannelLayout = map[int32]string{1: "1.0", 2: "2.0", 6: "5.1", 8: "7.1"}
+
+func firstAudioChannels(mi commonv1.MediaInfo) string {
+	if len(mi.Audio) == 0 {
+		return ""
+	}
+	n := mi.Audio[0].Channels
+	if label, ok := audioChannelLayout[n]; ok {
+		return label
+	}
+	return fmt.Sprintf("%d.0", n)
 }
