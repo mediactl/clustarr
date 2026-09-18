@@ -108,10 +108,15 @@ func TestMatchAppliesPerKindGroupThenAllGroupsSemantics(t *testing.T) {
 }
 
 func TestMatchEvaluatesLanguageIndexerFlagAndReleaseTypeKinds(t *testing.T) {
+	// "Original" is the sentinel languageByID[-2] resolves to (languages.go)
+	// and evalCondition special-cases; "English"/"French" are
+	// release.ParsedRelease.Languages' own vocabulary (pkg/release/language.go's
+	// parseLanguages) -- using the real vocabulary here, not arbitrary
+	// placeholders, keeps this test honest about what actually has to match.
 	notOriginal := &catalogue.Format{
 		Slug: "not-original",
 		Conditions: []catalogue.Condition{
-			{Kind: catalogue.CondLanguage, Name: "Not Original", Negate: true, Language: "original"},
+			{Kind: catalogue.CondLanguage, Name: "Not Original", Negate: true, Language: "Original"},
 		},
 	}
 	seasonPack := &catalogue.Format{
@@ -130,12 +135,12 @@ func TestMatchEvaluatesLanguageIndexerFlagAndReleaseTypeKinds(t *testing.T) {
 		"not-original": notOriginal, "season-pack": seasonPack, "freeleech": freeleech,
 	}}
 
-	r := &release.ParsedRelease{Title: "x", Languages: []string{"fr"}}
-	got := cat.Match(context.Background(), r, catalogue.ItemContext{OriginalLanguage: "en", IndexerFlags: []string{"freeleech"}, ReleaseType: common.ReleaseTypeSeasonPack})
+	r := &release.ParsedRelease{Title: "x", Languages: []string{"French"}}
+	got := cat.Match(context.Background(), r, catalogue.ItemContext{OriginalLanguage: "English", IndexerFlags: []string{"freeleech"}, ReleaseType: common.ReleaseTypeSeasonPack})
 	require.ElementsMatch(t, []string{"not-original", "season-pack", "freeleech"}, got)
 
-	rOriginal := &release.ParsedRelease{Title: "x", Languages: []string{"en"}}
-	got = cat.Match(context.Background(), rOriginal, catalogue.ItemContext{OriginalLanguage: "en", ReleaseType: common.ReleaseTypeSingle})
+	rOriginal := &release.ParsedRelease{Title: "x", Languages: []string{"English"}}
+	got = cat.Match(context.Background(), rOriginal, catalogue.ItemContext{OriginalLanguage: "English", ReleaseType: common.ReleaseTypeSingle})
 	require.ElementsMatch(t, []string{}, got)
 }
 
@@ -187,7 +192,7 @@ func TestMatchAgainstRealEmbeddedFormats(t *testing.T) {
 	all := loadAllEmbeddedFormats(t)
 	cat := &catalogue.Catalogue{Formats: all}
 
-	// Every case carries Languages: []string{"en"} and is matched against
+	// Every case carries Languages: []string{"English"} and is matched against
 	// ItemContext{OriginalLanguage: "en"}: without them, the embedded
 	// language-not-original/language-not-english formats (Step 18) would
 	// spuriously match every case here, since an *empty* language list
@@ -203,7 +208,7 @@ func TestMatchAgainstRealEmbeddedFormats(t *testing.T) {
 			"Bluray 1080p from a HD Bluray Tier 01 group",
 			&release.ParsedRelease{
 				Title: "Movie.Title.2020.1080p.BluRay.DTS-HD.MA.5.1.x264-CtrlHD", Group: "CtrlHD",
-				Quality: common.Quality{Source: common.SourceBluray, Resolution: common.Resolution1080p}, Languages: []string{"en"},
+				Quality: common.Quality{Source: common.SourceBluray, Resolution: common.Resolution1080p}, Languages: []string{"English"},
 			},
 			[]string{"hd-bluray-tier-01"},
 		},
@@ -211,7 +216,7 @@ func TestMatchAgainstRealEmbeddedFormats(t *testing.T) {
 			"Bluray 1080p Remux from a Remux Tier 01 group is not HD Bluray Tier 01",
 			&release.ParsedRelease{
 				Title: "Movie.Title.2020.1080p.BluRay.REMUX.AVC.DTS-HD.MA-FraMeSToR", Group: "FraMeSToR",
-				Quality: common.Quality{Source: common.SourceBluray, Resolution: common.Resolution1080p, Modifier: common.ModifierRemux}, Languages: []string{"en"},
+				Quality: common.Quality{Source: common.SourceBluray, Resolution: common.Resolution1080p, Modifier: common.ModifierRemux}, Languages: []string{"English"},
 			},
 			[]string{"remux-tier-01"},
 		},
@@ -226,7 +231,7 @@ func TestMatchAgainstRealEmbeddedFormats(t *testing.T) {
 			"WEBDL 1080p from a WEB Tier 01 group, repack",
 			&release.ParsedRelease{
 				Title: "Movie.Title.2020.Repack.1080p.WEB-DL.DDP5.1.H.264-NTb", Group: "NTb",
-				Quality: common.Quality{Source: common.SourceWebDL, Resolution: common.Resolution1080p}, Languages: []string{"en"},
+				Quality: common.Quality{Source: common.SourceWebDL, Resolution: common.Resolution1080p}, Languages: []string{"English"},
 			},
 			[]string{"web-tier-01", "repack-proper", "v2"},
 		},
@@ -234,7 +239,7 @@ func TestMatchAgainstRealEmbeddedFormats(t *testing.T) {
 			"UHD Bluray Tier 01 group at 2160p, not WEB",
 			&release.ParsedRelease{
 				Title: "Movie.Title.2020.2160p.UHD.BluRay.x265-DON", Group: "DON",
-				Quality: common.Quality{Source: common.SourceBluray, Resolution: common.Resolution2160p}, Languages: []string{"en"},
+				Quality: common.Quality{Source: common.SourceBluray, Resolution: common.Resolution2160p}, Languages: []string{"English"},
 			},
 			[]string{"uhd-bluray-tier-01"},
 		},
@@ -246,14 +251,14 @@ func TestMatchAgainstRealEmbeddedFormats(t *testing.T) {
 			"AMZN WEBDL matches amzn but not any bluray tier",
 			&release.ParsedRelease{
 				Title: "Series.Title.S01.1080p.AMZN.WEB-DL.DDP5.1.H.264-NTb", Group: "NTb",
-				Quality: common.Quality{Source: common.SourceWebDL, Resolution: common.Resolution1080p}, Languages: []string{"en"},
+				Quality: common.Quality{Source: common.SourceWebDL, Resolution: common.Resolution1080p}, Languages: []string{"English"},
 			},
 			[]string{"amzn", "anime-amzn", "web-tier-01"},
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := cat.Match(context.Background(), tc.r, catalogue.ItemContext{OriginalLanguage: "en"})
+			got := cat.Match(context.Background(), tc.r, catalogue.ItemContext{OriginalLanguage: "English"})
 			require.ElementsMatch(t, tc.want, got)
 		})
 	}
@@ -307,4 +312,48 @@ func TestMatchTRaSHTimeoutIsTreatedAsNoMatch(t *testing.T) {
 	evil := strings.Repeat("a", 40) + "!"
 	got := catalogue.MatchTRaSHForTest(context.Background(), re, "evil", evil)
 	require.False(t, got, "a timed-out match must be treated as no match, never as a panic or a hang")
+}
+
+// TestMatchRequiresADetectedAsianLanguageForAnimeDualAudio is the controller-
+// ruled fix (fix round 1, Important #1): anime-dual-audio's real upstream CF
+// carries a third Kind-group of three non-required LanguageSpecification
+// conditions (Japanese=8, Chinese=10, Korean=21), which under this package's
+// group-then-all-groups semantics are collectively required -- at least one
+// of the three must be present, alongside the two ReleaseTitle groups this
+// package already embedded. Before this fix, anime-dual-audio matched on
+// title text alone.
+func TestMatchRequiresADetectedAsianLanguageForAnimeDualAudio(t *testing.T) {
+	all := loadAllEmbeddedFormats(t)
+	cat := &catalogue.Catalogue{Formats: all}
+
+	title := "Anime.Title.S01.DUAL.Audio.1080p.BluRay.x264-GROUP"
+
+	withJapanese := &release.ParsedRelease{Title: title, Languages: []string{"Japanese"}}
+	got := cat.Match(context.Background(), withJapanese, catalogue.ItemContext{})
+	require.Contains(t, got, "anime-dual-audio", "a detected Japanese language tag must satisfy the Language Kind-group")
+
+	withEnglishOnly := &release.ParsedRelease{Title: title, Languages: []string{"English"}}
+	got = cat.Match(context.Background(), withEnglishOnly, catalogue.ItemContext{})
+	require.NotContains(t, got, "anime-dual-audio", "English-only must not satisfy the Japanese/Chinese/Korean Language Kind-group")
+}
+
+// TestLanguageNotEnglishComparesAgainstPkgReleasesRealVocabulary is a
+// regression test for a bug this fix round found while establishing the
+// language.go vocabulary: pkg/release.ParsedRelease.Languages is populated
+// with English display names ("English", "French", ...), never ISO codes,
+// but language-not-english's embedded condition compared against "en" --
+// a value r.Languages can never contain -- so the negated condition matched
+// every release unconditionally, applying language-not-english's -10000
+// penalty regardless of actual language.
+func TestLanguageNotEnglishComparesAgainstPkgReleasesRealVocabulary(t *testing.T) {
+	all := loadAllEmbeddedFormats(t)
+	cat := &catalogue.Catalogue{Formats: all}
+
+	english := &release.ParsedRelease{Title: "x", Languages: []string{"English"}}
+	got := cat.Match(context.Background(), english, catalogue.ItemContext{})
+	require.NotContains(t, got, "language-not-english", "an English release must not be flagged as not-English")
+
+	french := &release.ParsedRelease{Title: "x", Languages: []string{"French"}}
+	got = cat.Match(context.Background(), french, catalogue.ItemContext{})
+	require.Contains(t, got, "language-not-english", "a French release must be flagged as not-English")
 }

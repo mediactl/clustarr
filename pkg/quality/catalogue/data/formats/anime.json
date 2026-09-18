@@ -36,7 +36,10 @@
     "scores": {},
     "conditions": [
       {"kind": "ReleaseTitle", "name": "Dual Audio", "required": true, "pattern": "dual[ ._-]?(audio)|[([]dual[])]|\\b(JA|ZH|KO)(?= ?\\+ ?.*?\\b(EN))|\\b(EN)(?= ?\\+ ?.*?\\b(JA|ZH|KO))|\\b(Japanese|Chinese|Korean) ?[ ._\\+&-] ?\\b(English)|\\b(English) ?[ ._\\+&-] ?\\b(Japanese|Chinese|Korean)|\\b(\\d{3,4}(p|i)|4K|U(ltra)?HD)\\b.*\\b(DUAL)\\b(?!.*\\(|\\))"},
-      {"kind": "ReleaseTitle", "name": "Not Single Language Only", "negate": true, "required": true, "pattern": "\\[(JA|ZH|KO)\\]"}
+      {"kind": "ReleaseTitle", "name": "Not Single Language Only", "negate": true, "required": true, "pattern": "\\[(JA|ZH|KO)\\]"},
+      {"kind": "Language", "name": "Japanese Language", "value": "Japanese"},
+      {"kind": "Language", "name": "Chinese Language", "value": "Chinese"},
+      {"kind": "Language", "name": "Korean Language", "value": "Korean"}
     ]
   },
   {

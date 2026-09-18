@@ -1349,6 +1349,11 @@
         "kind": "ReleaseTitle",
         "name": "URANIME",
         "pattern": "\\b(URANIME)\\b"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "ZigZag",
+        "pattern": "\\[ZigZag\\]|-ZigZab\b"
       }
     ]
   },

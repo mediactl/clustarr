@@ -246,6 +246,7 @@ func TestEmbeddedAnimeFamilyDecodes(t *testing.T) {
 	require.Len(t, bySlug, 12)
 	require.Equal(t, -10000, bySlug["anime-raws"].Scores["default"])
 	require.Len(t, bySlug["anime-dual-audio"].Scores, 0)
+	require.Len(t, bySlug["anime-dual-audio"].Conditions, 5, "2 ReleaseTitle + 3 Language (Japanese/Chinese/Korean, fix round 1 Important #1)")
 	require.Len(t, bySlug["uncensored"].Scores, 0)
 	require.Len(t, bySlug["10bit"].Scores, 0)
 	require.Equal(t, -51, bySlug["v0"].Scores["default"])

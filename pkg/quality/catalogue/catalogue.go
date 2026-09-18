@@ -99,7 +99,7 @@ type Condition struct {
 	Source         common.Source      // CondSource
 	Resolution     int32              // CondResolution
 	Modifier       common.Modifier    // CondModifier
-	Language       string             // CondLanguage; "original" resolves against ItemContext.OriginalLanguage
+	Language       string             // CondLanguage; "Original" (languageByID[-2]) resolves against ItemContext.OriginalLanguage. Otherwise an English display name from languageByID (languages.go), matching release.ParsedRelease.Languages' own vocabulary -- never an ISO code.
 	ExceptLanguage bool               // CondLanguage
 	Flag           string             // CondIndexerFlag
 	ReleaseType    common.ReleaseType // CondReleaseType
@@ -129,6 +129,10 @@ type Catalogue struct {
 // release.ParsedRelease.ReleaseType -- e.g. a season pack matched against one
 // missing episode).
 type ItemContext struct {
+	// OriginalLanguage must use the same English-display-name vocabulary as
+	// release.ParsedRelease.Languages (see languages.go's languageByID doc
+	// comment) -- e.g. "Japanese", not "ja" or "jpn" -- for a "language ==
+	// original" Condition to ever match.
 	OriginalLanguage string
 	IndexerFlags     []string
 	ReleaseType      common.ReleaseType
@@ -160,7 +164,7 @@ func evalCondition(ctx context.Context, c Condition, r *release.ParsedRelease, i
 		// data set does not use yet; it is decoded onto Condition but not
 		// read here.
 		want := c.Language
-		if want == "original" {
+		if want == "Original" {
 			want = ic.OriginalLanguage
 		}
 		raw = slices.Contains(r.Languages, want)
