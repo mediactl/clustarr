@@ -74,3 +74,29 @@ func TestDeviceFlowStartThenPollPendingThenAuthorized(t *testing.T) {
 	assert.Equal(t, "76ba4c9d287960a7202585dc793977529c1cec84b04c684bc5be4cbc36e8c4a", tok.RefreshToken)
 	assert.False(t, tok.ExpiresAt.IsZero())
 }
+
+func TestDeviceFlowPollTerminalStates(t *testing.T) {
+	tests := map[string]struct {
+		status int
+		want   trakt.PollStatus
+	}{
+		"invalid code": {status: http.StatusNotFound, want: trakt.PollStatusInvalidCode},
+		"already used": {status: http.StatusConflict, want: trakt.PollStatusAlreadyUsed},
+		"expired":      {status: http.StatusGone, want: trakt.PollStatusExpired},
+		"denied":       {status: 418, want: trakt.PollStatusDenied},
+		"slow down":    {status: http.StatusTooManyRequests, want: trakt.PollStatusSlowDown},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.status)
+			}))
+			defer srv.Close()
+			flow := trakt.NewDeviceFlow(trakt.Credentials{}, trakt.WithBaseURL(srv.URL))
+			status, tok, err := flow.Poll(t.Context(), trakt.DeviceCode{DeviceCode: "x"})
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, status)
+			assert.Zero(t, tok)
+		})
+	}
+}
