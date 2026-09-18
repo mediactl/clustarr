@@ -176,6 +176,51 @@ func TestEmbeddedTiersExtraFamilyDecodes(t *testing.T) {
 	require.Equal(t, 925, bySlug["remux-tier-03"].Scores["anime-radarr"])
 }
 
+func TestEmbeddedAnimeExtraFamilyDecodes(t *testing.T) {
+	bySlug := decodeEmbeddedFamily(t, "anime_extra.json")
+	require.Len(t, bySlug, 26, "7 BD tiers + 5 Web tiers + 3 unwanted + 11 streaming = 26")
+
+	bdWant := map[string]int{
+		"anime-bd-tier-02": 1300, "anime-bd-tier-03": 1200, "anime-bd-tier-04": 1100,
+		"anime-bd-tier-05": 1000, "anime-bd-tier-06": 900, "anime-bd-tier-07": 800, "anime-bd-tier-08": 700,
+	}
+	for slug, want := range bdWant {
+		require.Equal(t, want, bySlug[slug].Scores["default"], slug)
+	}
+	webWant := map[string]int{
+		"anime-web-tier-02": 500, "anime-web-tier-03": 400, "anime-web-tier-04": 300,
+		"anime-web-tier-05": 200, "anime-web-tier-06": 100,
+	}
+	for slug, want := range webWant {
+		require.Equal(t, want, bySlug[slug].Scores["default"], slug)
+	}
+	for _, slug := range []string{"anime-lq-groups", "dubs-only", "vostfr"} {
+		require.Equal(t, -10000, bySlug[slug].Scores["default"], slug)
+	}
+	// anime-lq-groups diverges between apps on 4 of its ~94 release-group
+	// patterns (case-sensitivity of trailing \b vs $ anchors); only radarr's
+	// copy -- the one actually embedded -- is listed in TrashIDs.
+	require.Contains(t, bySlug["anime-lq-groups"].TrashIDs, "radarr")
+	require.NotContains(t, bySlug["anime-lq-groups"].TrashIDs, "sonarr")
+
+	streamingWant := map[string]int{
+		"anime-cr": 6, "anime-dsnp": 5, "anime-nf": 4, "anime-amzn": 3, "anime-funi": 2,
+		"anime-abema": 1, "anime-adn": 1, "anime-b-global": 0, "anime-bilibili": 0,
+		"anime-hidive": 0, "anime-wkn": 0,
+	}
+	for slug, want := range streamingWant {
+		f := bySlug[slug]
+		require.NotNil(t, f, slug)
+		require.Equal(t, want, f.Scores["anime-sonarr"], slug)
+		require.NotContains(t, f.Scores, "default", slug)
+		require.Contains(t, f.TrashIDs, "sonarr", slug)
+		require.NotContains(t, f.TrashIDs, "radarr", slug)
+	}
+	// anime-amzn is a distinct slug/trash_id from Step 21's streamingBoost-
+	// gated "amzn" -- both exist, unrelated.
+	require.NotEqual(t, bySlug["anime-amzn"].TrashIDs["sonarr"], "b3b3a6ac74ecbd56bcdbefa4799fb9df")
+}
+
 func TestEmbeddedStreamingFamilyDecodes(t *testing.T) {
 	bySlug := decodeEmbeddedFamily(t, "streaming.json")
 	require.Len(t, bySlug, 1)

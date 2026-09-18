@@ -237,12 +237,16 @@ func TestMatchAgainstRealEmbeddedFormats(t *testing.T) {
 			[]string{"uhd-bluray-tier-01"},
 		},
 		{
+			// "anime-amzn" (Step 23b) also legitimately matches: its
+			// ReleaseTitle pattern is the same generic "amzn|amazon(hd)?"
+			// token match with a WEBDL/WEBRIP Source group, just scored only
+			// under anime-sonarr rather than gated by streamingBoost.
 			"AMZN WEBDL matches amzn but not any bluray tier",
 			&release.ParsedRelease{
 				Title: "Series.Title.S01.1080p.AMZN.WEB-DL.DDP5.1.H.264-NTb", Group: "NTb",
 				Quality: common.Quality{Source: common.SourceWebDL, Resolution: common.Resolution1080p}, Languages: []string{"en"},
 			},
-			[]string{"amzn", "web-tier-01"},
+			[]string{"amzn", "anime-amzn", "web-tier-01"},
 		},
 	}
 	for _, tc := range cases {
