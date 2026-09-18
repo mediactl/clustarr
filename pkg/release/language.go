@@ -30,13 +30,24 @@ var multiRegex = mustCompile(`[_.\s]multi[_.\s]`, regexp2.IgnoreCase)
 // no behavioral payoff until pkg/decision's language-profile matching
 // exists to consume the extra entries, and the table is additive to extend
 // later, not a breaking change to parseLanguages's signature.
+// The Chinese alternation adds CHS/CHT (simplified/traditional scene
+// encoding tokens), GB/BIG5 (the same distinction under their other common
+// spelling), the full word "Chinese", and the CJK literal "中文" -- the
+// scene-token and human-language forms a Chinese release actually carries,
+// so that a detected Chinese language can satisfy the anime-dual-audio
+// custom format's Language Kind-group (Radarr language id 10; see
+// pkg/quality/catalogue/languages.go's own note that this table's missing
+// Chinese entry was exactly why that group could never fire for a Chinese
+// release). \b keeps GB (two ASCII letters) from matching inside an
+// unrelated token like a "1GB" size suffix.
 var languageRegex = mustCompile(
 	`\b(?<French>FRENCH|VFF|VFQ)\b|\b(?<German>GERMAN)\b|\b(?<Spanish>SPANISH)\b|`+
-		`\b(?<Italian>ITALIAN)\b|\b(?<Japanese>JAPANESE)\b|\b(?<Korean>KOREAN)\b`,
+		`\b(?<Italian>ITALIAN)\b|\b(?<Japanese>JAPANESE)\b|\b(?<Korean>KOREAN)\b|`+
+		`\b(?<Chinese>CHS|CHT|GB|BIG5|Chinese|中文)\b`,
 	regexp2.IgnoreCase,
 )
 
-var languageGroups = []string{"French", "German", "Spanish", "Italian", "Japanese", "Korean"}
+var languageGroups = []string{"French", "German", "Spanish", "Italian", "Japanese", "Korean", "Chinese"}
 
 // parseLanguages extracts the language tags from a release title. MULTi
 // short-circuits to ["Original"]; no match defaults to ["English"], mirroring

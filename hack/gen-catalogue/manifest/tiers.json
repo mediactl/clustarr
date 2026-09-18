@@ -1,0 +1,379 @@
+[
+  {
+    "slug": "hd-bluray-tier-01",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "ed27ebfef2f323e964fb1f61391bcb35"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 1800
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "BLURAY"
+      },
+      {
+        "kind": "Modifier",
+        "name": "Not REMUX"
+      },
+      {
+        "kind": "Resolution",
+        "name": "Not 2160p"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "ATELiER"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "BBQ"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "BMF"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "c0kE"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "Chotab"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "CRiSC"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "CtrlHD"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "D-Z0N3"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "Dariush"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "decibeL"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "DON"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "EbP"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "EDPH"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "Geek"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "LolHD"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "NCmt"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "PTer"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "TayTO"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "TDD"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "TnP"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "VietHD"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "ZQ"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "ZoroSenpai"
+      }
+    ]
+  },
+  {
+    "slug": "uhd-bluray-tier-01",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "4d74ac4c4db0b64bff6ce0cffef99bf0"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 1800
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Modifier",
+        "name": "Not REMUX"
+      },
+      {
+        "kind": "Source",
+        "name": "Not WEBDL"
+      },
+      {
+        "kind": "Source",
+        "name": "Not WEBRIP"
+      },
+      {
+        "kind": "Resolution",
+        "name": "2160p"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "CtrlHD"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "MainFrame"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "DON"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "W4NK3R"
+      }
+    ]
+  },
+  {
+    "slug": "remux-tier-01",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "3a3ff47579026e76d6504ebea39390de"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 1950
+      },
+      {
+        "key": "anime-radarr",
+        "value": 975
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Modifier",
+        "name": "Remux"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "3L"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "ATELiER"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "BiZKiT"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "BLURANiUM"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "BMF"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "CiNEPHiLES"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "FraMeSToR"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "PiRAMiDHEAD"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "PmP"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "WiLDCAT"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "ZQ"
+      }
+    ]
+  },
+  {
+    "slug": "web-tier-01",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "c20f169ef63c5f40c2def54abaf4438e"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 1700
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "WEBDL"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBRIP"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "ABBIE"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "AJP69"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "APEX"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "BLUTONiUM"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "BYNDR"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "CMRG"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "CRFW"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "CRUD"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "FLUX"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "GNOME"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "HONE"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "KiNGS"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "Kitsune"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "MADSKY"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "NOSiViD"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "NTb"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "NTG"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "RAWR"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "SiC"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "TEPES"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "TheFarm"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "ZoroSenpai"
+      }
+    ]
+  },
+  {
+    "slug": "web-scene",
+    "apps": [
+      {
+        "app": "sonarr",
+        "trashId": "d0c516558625b04b363fa6c5c2c7cfd4"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 1600
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "ReleaseGroup",
+        "name": "DEFLATE"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "INFLATE"
+      }
+    ]
+  }
+]

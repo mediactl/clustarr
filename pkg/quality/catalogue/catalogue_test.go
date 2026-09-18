@@ -337,6 +337,77 @@ func TestMatchRequiresADetectedAsianLanguageForAnimeDualAudio(t *testing.T) {
 	require.NotContains(t, got, "anime-dual-audio", "English-only must not satisfy the Japanese/Chinese/Korean Language Kind-group")
 }
 
+// TestEvalConditionExceptLanguage pins ExceptLanguage's semantics, sourced
+// from Radarr's own LanguageSpecification.IsSatisfiedByWithoutNegate (the
+// vendored corpus never sets the field to true anywhere -- see the task
+// report -- so this is grounded in the upstream implementation, not
+// guessed from the field's name): when ExceptLanguage is true, the raw
+// match is "the release carries at least one language that is *not* the
+// condition's Language" (an existential check over every detected
+// language), not a plain negation of "contains Language" -- those two
+// readings coincide for a single-language release but differ for a
+// dual-audio one, which is exactly the case this field exists for.
+//
+// Three formats exercise "set" (except-english, ExceptLanguage true,
+// Negate false), "unset" (plain-english, ExceptLanguage false -- the zero
+// value, ordinary containment, unchanged by this fix) and "negated"
+// (negated-except-english, Negate true stacked on top of ExceptLanguage
+// true, proving the two flags compose via evalCondition's existing generic
+// "apply Negate to the raw match" rule rather than ExceptLanguage
+// special-casing Negate away).
+func TestEvalConditionExceptLanguage(t *testing.T) {
+	exceptEnglish := &catalogue.Format{
+		Slug: "except-english",
+		Conditions: []catalogue.Condition{
+			{Kind: catalogue.CondLanguage, Name: "Except English", Language: "English", ExceptLanguage: true},
+		},
+	}
+	plainEnglish := &catalogue.Format{
+		Slug: "plain-english",
+		Conditions: []catalogue.Condition{
+			{Kind: catalogue.CondLanguage, Name: "English", Language: "English"},
+		},
+	}
+	negatedExceptEnglish := &catalogue.Format{
+		Slug: "negated-except-english",
+		Conditions: []catalogue.Condition{
+			{Kind: catalogue.CondLanguage, Name: "Not Except English", Negate: true, Language: "English", ExceptLanguage: true},
+		},
+	}
+	cat := &catalogue.Catalogue{Formats: map[string]*catalogue.Format{
+		"except-english": exceptEnglish, "plain-english": plainEnglish, "negated-except-english": negatedExceptEnglish,
+	}}
+
+	cases := []struct {
+		name      string
+		languages []string
+		want      []string
+	}{
+		{
+			"dual audio (English + Japanese): a non-English language is present",
+			[]string{"English", "Japanese"},
+			[]string{"except-english", "plain-english"},
+		},
+		{
+			"English only: no language differs from English",
+			[]string{"English"},
+			[]string{"plain-english", "negated-except-english"},
+		},
+		{
+			"French only: French is a language other than English",
+			[]string{"French"},
+			[]string{"except-english"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &release.ParsedRelease{Title: "x", Languages: tc.languages}
+			got := cat.Match(context.Background(), r, catalogue.ItemContext{})
+			require.ElementsMatch(t, tc.want, got)
+		})
+	}
+}
+
 // TestLanguageNotEnglishComparesAgainstPkgReleasesRealVocabulary is a
 // regression test for a bug this fix round found while establishing the
 // language.go vocabulary: pkg/release.ParsedRelease.Languages is populated

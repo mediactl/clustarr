@@ -39,3 +39,37 @@ func TestParseLanguagesDefaultsToEnglish(t *testing.T) {
 		})
 	}
 }
+
+// TestParseLanguagesDetectsChinese covers the scene-token and full-word
+// forms the anime-dual-audio custom format's "Chinese Language"
+// LanguageSpecification (Radarr id 10) needs r.Languages to ever carry
+// "Chinese" -- languageRegex previously had no Chinese entry at all, so
+// that condition could never fire for a Chinese release (see this task's
+// brief). GB and BIG5 are the simplified/traditional encoding tokens
+// Chinese-language scene and fansub groups use; the negative case pins the
+// word-boundary risk those two short tokens carry (a size suffix like
+// "1GB" must not spuriously match).
+func TestParseLanguagesDetectsChinese(t *testing.T) {
+	tests := []struct {
+		name  string
+		title string
+		want  []string
+	}{
+		{"CHS scene token", "Movie.Title.2020.CHS.1080p.WEB-DL.H.264-GROUP", []string{"Chinese"}},
+		{"CHT scene token", "Movie.Title.2020.CHT.1080p.WEB-DL.H.264-GROUP", []string{"Chinese"}},
+		{"GB scene token", "Movie.Title.2020.GB.1080p.WEB-DL.H.264-GROUP", []string{"Chinese"}},
+		{"BIG5 scene token", "Movie.Title.2020.BIG5.1080p.WEB-DL.H.264-GROUP", []string{"Chinese"}},
+		{"Chinese word", "Movie.Title.2020.Chinese.1080p.WEB-DL.H.264-GROUP", []string{"Chinese"}},
+		{"CJK token", "Movie.Title.2020.中文.1080p.WEB-DL.H.264-GROUP", []string{"Chinese"}},
+		{
+			"negative: a size suffix must not be mistaken for the GB scene token",
+			"Movie.Title.2020.1080p.WEB-DL.H.264.1GB-GROUP",
+			[]string{"English"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, parseLanguages(tt.title))
+		})
+	}
+}

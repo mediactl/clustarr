@@ -1,0 +1,470 @@
+[
+  {
+    "slug": "hd-bluray-tier-02",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "c20c8647f2746a1f4c4262b0fbbeeeae"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 1750
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "BLURAY"
+      },
+      {
+        "kind": "Modifier",
+        "name": "Not REMUX"
+      },
+      {
+        "kind": "Resolution",
+        "name": "Not 2160p"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "EA"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "HiDt"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "HiSD"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "iFT"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "NTb"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "QOQ"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "SA89"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "sbR"
+      }
+    ]
+  },
+  {
+    "slug": "hd-bluray-tier-03",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "5608c71bcebba0a5e666223bae8c9227"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 1700
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "BLURAY"
+      },
+      {
+        "kind": "Modifier",
+        "name": "Not REMUX"
+      },
+      {
+        "kind": "Resolution",
+        "name": "Not 2160p"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "BHDStudio"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "hallowed"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "HiFi"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "HONE"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "LoRD"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "playHD"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "SPHD"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "W4NK3R"
+      }
+    ]
+  },
+  {
+    "slug": "uhd-bluray-tier-02",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "a58f517a70193f8e578056642178419d"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 1750
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Modifier",
+        "name": "Not REMUX"
+      },
+      {
+        "kind": "Source",
+        "name": "Not WEBDL"
+      },
+      {
+        "kind": "Source",
+        "name": "Not WEBRIP"
+      },
+      {
+        "kind": "Resolution",
+        "name": "2160p"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "HiDt"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "HQMUX"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "RandomBytes"
+      }
+    ]
+  },
+  {
+    "slug": "uhd-bluray-tier-03",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "e71939fae578037e7aed3ee219bbe7c1"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 1700
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Modifier",
+        "name": "Not REMUX"
+      },
+      {
+        "kind": "Source",
+        "name": "Not WEBDL"
+      },
+      {
+        "kind": "Source",
+        "name": "Not WEBRIP"
+      },
+      {
+        "kind": "Resolution",
+        "name": "2160p"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "BHDStudio"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "hallowed"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "HONE"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "PTer"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "SPHD"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "WEBDV"
+      }
+    ]
+  },
+  {
+    "slug": "remux-tier-02",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "9f98181fe5a3fbeb0cc29340da2a468a"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 1900
+      },
+      {
+        "key": "anime-radarr",
+        "value": 950
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Modifier",
+        "name": "Remux"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "NCmt"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "playBD"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "SiCFoI"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "SURFINBIRD"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "TEPES"
+      }
+    ]
+  },
+  {
+    "slug": "remux-tier-03",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "8baaf0b3142bf4d94c42a724f034e27a"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 1850
+      },
+      {
+        "key": "anime-radarr",
+        "value": 925
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Modifier",
+        "name": "Remux"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "12GaugeShotgun"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "decibeL"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "EPSiLON"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "HiFi"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "iFT"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "KRaLiMaRKo"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "NTb"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "PTP"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "SumVision"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "TOA"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "TRiToN"
+      }
+    ]
+  },
+  {
+    "slug": "web-tier-02",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "403816d65392c79236dcb6dd591aeda4"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 1650
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "WEBDL"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBRIP"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "dB"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "Flights"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "MiU"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "monkee"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "MZABI"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "PHOENiX"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "playWEB"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "SbR"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "SMURF"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "TOMMY"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "XEBEC"
+      }
+    ]
+  },
+  {
+    "slug": "web-tier-03",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "af94e0fe497124d1f9ce732069ec8c3b"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 1600
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "WEBDL"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBRIP"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "BLOOM"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "Dooky"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "GNOMiSSiON"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "NINJACENTRAL"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "NPMS"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "ROCCaT"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "SiGMA"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "SLiGNOME"
+      },
+      {
+        "kind": "ReleaseGroup",
+        "name": "SwAgLaNdEr"
+      }
+    ]
+  }
+]

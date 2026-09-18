@@ -5,7 +5,7 @@
     "trashIds": {"radarr": "dc98083864ea246d05a42df0d05f81cc", "sonarr": "47435ece6b99a0b477caf360e79ba0bb"},
     "scores": {"default": -10000},
     "conditions": [
-      {"kind": "ReleaseTitle", "name": "x265/HEVC", "pattern": "[xh][ ._-]?265|\\bHEVC(\\b|\\d)", "required": true},
+      {"kind": "ReleaseTitle", "name": "x265/HEVC", "required": true, "pattern": "[xh][ ._-]?265|\\bHEVC(\\b|\\d)"},
       {"kind": "Resolution", "name": "Not 2160p", "negate": true, "required": true, "resolution": 2160}
     ]
   },
@@ -15,7 +15,7 @@
     "trashIds": {"radarr": "cae4ca30163749b891686f95532519bd", "sonarr": "15a05bc7c1a36e2b57fd628f8977e2fc"},
     "scores": {"default": -10000, "anime-radarr": -10000, "anime-sonarr": -10000},
     "conditions": [
-      {"kind": "ReleaseTitle", "name": "AV1", "pattern": "\\bAV1\\b", "required": true}
+      {"kind": "ReleaseTitle", "name": "AV1", "required": true, "pattern": "\\bAV1\\b"}
     ]
   },
   {
@@ -24,7 +24,7 @@
     "trashIds": {"radarr": "0a3f082873eb454bde444150b70253cc"},
     "scores": {"default": -10000},
     "conditions": [
-      {"kind": "ReleaseTitle", "name": "Extras", "pattern": "(?<=\\b[12]\\d{3}\\b).*\\b(Extras|Bonus|Extended[ ._-]Clip)\\b", "required": true}
+      {"kind": "ReleaseTitle", "name": "Extras", "required": true, "pattern": "(?<=\\b[12]\\d{3}\\b).*\\b(Extras|Bonus|Extended[ ._-]Clip)\\b"}
     ]
   },
   {

@@ -1,0 +1,109 @@
+[
+  {
+    "slug": "repack-proper",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "e7718d7a3ce595f289bfee26adc178f5"
+      },
+      {
+        "app": "sonarr",
+        "trashId": "ec8fa7296b64e8cd390a1600981f3923"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 5
+      },
+      {
+        "key": "anime-radarr",
+        "value": 1
+      },
+      {
+        "key": "anime-sonarr",
+        "value": 1
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "ReleaseTitle",
+        "name": "Repack/Proper/Rerip"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Not Higher Version Repack/Proper"
+      }
+    ]
+  },
+  {
+    "slug": "repack2",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "ae43b294509409a6a13919dedd4764c4"
+      },
+      {
+        "app": "sonarr",
+        "trashId": "eb3d5cc0a2be0db205fb823640db6a3c"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 6
+      },
+      {
+        "key": "anime-radarr",
+        "value": 2
+      },
+      {
+        "key": "anime-sonarr",
+        "value": 2
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "ReleaseTitle",
+        "name": "Repack/Proper 2 or REAL.PROPER/REPACK"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Not Repack/Proper 3"
+      }
+    ]
+  },
+  {
+    "slug": "repack3",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "5caaaa1c08c1742aa4342d8c4cc463f2"
+      },
+      {
+        "app": "sonarr",
+        "trashId": "44e7c4de10ae50265753082e5dc76047"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 7
+      },
+      {
+        "key": "anime-radarr",
+        "value": 3
+      },
+      {
+        "key": "anime-sonarr",
+        "value": 3
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "ReleaseTitle",
+        "name": "Repack/Proper 3 or REAL.REAL.PROPER/REPACK"
+      }
+    ]
+  }
+]

@@ -1,0 +1,36 @@
+[
+  {
+    "slug": "amzn",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "b3b3a6ac74ecbd56bcdbefa4799fb9df"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 75
+      },
+      {
+        "key": "anime-sonarr",
+        "value": 3
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "ReleaseTitle",
+        "name": "Amazon"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBDL"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBRIP"
+      }
+    ],
+    "group": "streamingBoost"
+  }
+]

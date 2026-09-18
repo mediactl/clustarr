@@ -1,0 +1,24 @@
+[
+  {
+    "slug": "season-pack",
+    "apps": [
+      {
+        "app": "sonarr",
+        "trashId": "3bc5f395426614e155e585a2f056cdf1"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 10
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "ReleaseType",
+        "name": "Season Packs"
+      }
+    ],
+    "group": "seasonPack"
+  }
+]

@@ -2,2513 +2,644 @@
   {
     "slug": "anime-bd-tier-02",
     "name": "Anime BD Tier 02",
-    "trashIds": {
-      "radarr": "66926c8fa9312bc74ab71bf69aae4f4a",
-      "sonarr": "ed7f1e315e000aef424a58517fa48727"
-    },
-    "scores": {
-      "default": 1300
-    },
+    "trashIds": {"radarr": "66926c8fa9312bc74ab71bf69aae4f4a", "sonarr": "ed7f1e315e000aef424a58517fa48727"},
+    "scores": {"default": 1300},
     "conditions": [
-      {
-        "kind": "Source",
-        "name": "Bluray",
-        "value": "bluray"
-      },
-      {
-        "kind": "Source",
-        "name": "DVD",
-        "value": "dvd"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Aergia",
-        "pattern": "\\[Aergia\\]|-Aergia(?!-raws)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Arg0",
-        "pattern": "\\b(Arg0)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Arid",
-        "pattern": "\\[Arid\\]|-Arid\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "BlackRose",
-        "pattern": "\\b(BlackRose)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "FateSucks",
-        "pattern": "\\b(FateSucks)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "hydes",
-        "pattern": "\\b(hydes)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "hchcsen",
-        "pattern": "\\b(hchcsen)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "JOHNTiTOR",
-        "pattern": "\\b(JOHNTiTOR)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "JySzE",
-        "pattern": "\\b(JySzE)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "koala",
-        "pattern": "\\[koala\\]|-koala\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Kulot",
-        "pattern": "\\b(Kulot)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "LostYears",
-        "pattern": "\\b(LostYears)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Lulu",
-        "pattern": "\\[Lulu\\]|-Lulu\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Meakes",
-        "pattern": "\\b(Meakes)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Orphan",
-        "pattern": "\\[Orphan\\]|-Orphan\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Vodes",
-        "pattern": "\\[Vodes\\]|(?<!Not)-Vodes\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "WAP",
-        "pattern": "\\b(WAP)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "YURI",
-        "pattern": "\\[YURI\\]|-YURI\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "ZeroBuild",
-        "pattern": "\\b(ZeroBuild)\\b"
-      }
+      {"kind": "Source", "name": "Bluray", "value": "bluray"},
+      {"kind": "Source", "name": "DVD", "value": "dvd"},
+      {"kind": "ReleaseTitle", "name": "Aergia", "pattern": "\\[Aergia\\]|-Aergia(?!-raws)\\b"},
+      {"kind": "ReleaseTitle", "name": "Arg0", "pattern": "\\b(Arg0)\\b"},
+      {"kind": "ReleaseTitle", "name": "Arid", "pattern": "\\[Arid\\]|-Arid\\b"},
+      {"kind": "ReleaseTitle", "name": "BlackRose", "pattern": "\\b(BlackRose)\\b"},
+      {"kind": "ReleaseTitle", "name": "FateSucks", "pattern": "\\b(FateSucks)\\b"},
+      {"kind": "ReleaseTitle", "name": "hydes", "pattern": "\\b(hydes)\\b"},
+      {"kind": "ReleaseTitle", "name": "hchcsen", "pattern": "\\b(hchcsen)\\b"},
+      {"kind": "ReleaseTitle", "name": "JOHNTiTOR", "pattern": "\\b(JOHNTiTOR)\\b"},
+      {"kind": "ReleaseTitle", "name": "JySzE", "pattern": "\\b(JySzE)\\b"},
+      {"kind": "ReleaseTitle", "name": "koala", "pattern": "\\[koala\\]|-koala\\b"},
+      {"kind": "ReleaseTitle", "name": "Kulot", "pattern": "\\b(Kulot)\\b"},
+      {"kind": "ReleaseTitle", "name": "LostYears", "pattern": "\\b(LostYears)\\b"},
+      {"kind": "ReleaseTitle", "name": "Lulu", "pattern": "\\[Lulu\\]|-Lulu\\b"},
+      {"kind": "ReleaseTitle", "name": "Meakes", "pattern": "\\b(Meakes)\\b"},
+      {"kind": "ReleaseTitle", "name": "Orphan", "pattern": "\\[Orphan\\]|-Orphan\\b"},
+      {"kind": "ReleaseTitle", "name": "Vodes", "pattern": "\\[Vodes\\]|(?<!Not)-Vodes\\b"},
+      {"kind": "ReleaseTitle", "name": "WAP", "pattern": "\\b(WAP)\\b"},
+      {"kind": "ReleaseTitle", "name": "YURI", "pattern": "\\[YURI\\]|-YURI\\b"},
+      {"kind": "ReleaseTitle", "name": "ZeroBuild", "pattern": "\\b(ZeroBuild)\\b"}
     ]
   },
   {
     "slug": "anime-bd-tier-03",
     "name": "Anime BD Tier 03",
-    "trashIds": {
-      "radarr": "fa857662bad28d5ff21a6e611869a0ff",
-      "sonarr": "096e406c92baa713da4a72d88030b815"
-    },
-    "scores": {
-      "default": 1200
-    },
+    "trashIds": {"radarr": "fa857662bad28d5ff21a6e611869a0ff", "sonarr": "096e406c92baa713da4a72d88030b815"},
+    "scores": {"default": 1200},
     "conditions": [
-      {
-        "kind": "Source",
-        "name": "Bluray",
-        "value": "bluray"
-      },
-      {
-        "kind": "Source",
-        "name": "DVD",
-        "value": "dvd"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "ARC",
-        "pattern": "\\[ARC\\]|-ARC\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "BBT-RMX",
-        "pattern": "\\b(BBT-RMX)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "cappybara",
-        "pattern": "\\[cappybara\\]|-cappybara\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "ChucksMux",
-        "pattern": "\\b(ChucksMux)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "CRUCiBLE",
-        "pattern": "\\[CRUCiBLE\\]|-CRUCiBLE\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "CUNNY",
-        "pattern": "\\b(CUNNY)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Cunnysseur",
-        "pattern": "\\b(Cunnysseur)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Doc",
-        "pattern": "\\[Doc\\]|-Doc\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "fig",
-        "pattern": "\\[fig\\]|-fig\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Headpatter",
-        "pattern": "\\[Headpatter\\]|-Headpatter\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Inka-Subs",
-        "pattern": "\\b(Inka-Subs)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "LaCroiX",
-        "pattern": "\\b(LaCroiX)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Legion",
-        "pattern": "\\[Legion\\]|-Legion\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Mehul",
-        "pattern": "\\[Mehul\\]|-Mehul\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "MTBB",
-        "pattern": "\\b(MTBB)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Mysteria",
-        "pattern": "\\[Mysteria\\]|-Mysteria\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "NAN0",
-        "pattern": "(?<=remux).*\\b(NAN0)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "nekotan",
-        "pattern": "\\b(nekotan)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Netaro",
-        "pattern": "\\b(Netaro)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Noiy",
-        "pattern": "\\b(Noiy)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "npz",
-        "pattern": "\\b(npz)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "NTRX",
-        "pattern": "\\b(NTRX)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Okay-Subs",
-        "pattern": "\\b(Okay-Subs)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "P9",
-        "pattern": "\\b(P9)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "PMR",
-        "pattern": "^(?=.*\\b(PMR)\\b)(?=.*\\b(Remux)\\b)"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "RUDY",
-        "pattern": "\\[RUDY\\]|-RUDY\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "RaiN",
-        "pattern": "\\[RaiN\\]|-RaiN\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "RMX",
-        "pattern": "\\b(RMX)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Sekkon",
-        "pattern": "\\b(Sekkon)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Serendipity",
-        "pattern": "\\[Serendipity\\]|-Serendipity\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "sgt",
-        "pattern": "\\[sgt\\]|-sgt\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "SubsMix",
-        "pattern": "\\b(SubsMix)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Sylvar",
-        "pattern": "\\b(Sylvar)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "uba",
-        "pattern": "\\[uba\\]|-uba\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "ZR",
-        "pattern": "\\b(ZR)\\b|-ZR-"
-      }
+      {"kind": "Source", "name": "Bluray", "value": "bluray"},
+      {"kind": "Source", "name": "DVD", "value": "dvd"},
+      {"kind": "ReleaseTitle", "name": "ARC", "pattern": "\\[ARC\\]|-ARC\\b"},
+      {"kind": "ReleaseTitle", "name": "BBT-RMX", "pattern": "\\b(BBT-RMX)\\b"},
+      {"kind": "ReleaseTitle", "name": "cappybara", "pattern": "\\[cappybara\\]|-cappybara\\b"},
+      {"kind": "ReleaseTitle", "name": "ChucksMux", "pattern": "\\b(ChucksMux)\\b"},
+      {"kind": "ReleaseTitle", "name": "CRUCiBLE", "pattern": "\\[CRUCiBLE\\]|-CRUCiBLE\\b"},
+      {"kind": "ReleaseTitle", "name": "CUNNY", "pattern": "\\b(CUNNY)\\b"},
+      {"kind": "ReleaseTitle", "name": "Cunnysseur", "pattern": "\\b(Cunnysseur)\\b"},
+      {"kind": "ReleaseTitle", "name": "Doc", "pattern": "\\[Doc\\]|-Doc\\b"},
+      {"kind": "ReleaseTitle", "name": "fig", "pattern": "\\[fig\\]|-fig\\b"},
+      {"kind": "ReleaseTitle", "name": "Headpatter", "pattern": "\\[Headpatter\\]|-Headpatter\\b"},
+      {"kind": "ReleaseTitle", "name": "Inka-Subs", "pattern": "\\b(Inka-Subs)\\b"},
+      {"kind": "ReleaseTitle", "name": "LaCroiX", "pattern": "\\b(LaCroiX)\\b"},
+      {"kind": "ReleaseTitle", "name": "Legion", "pattern": "\\[Legion\\]|-Legion\\b"},
+      {"kind": "ReleaseTitle", "name": "Mehul", "pattern": "\\[Mehul\\]|-Mehul\\b"},
+      {"kind": "ReleaseTitle", "name": "MTBB", "pattern": "\\b(MTBB)\\b"},
+      {"kind": "ReleaseTitle", "name": "Mysteria", "pattern": "\\[Mysteria\\]|-Mysteria\\b"},
+      {"kind": "ReleaseTitle", "name": "NAN0", "pattern": "(?<=remux).*\\b(NAN0)\\b"},
+      {"kind": "ReleaseTitle", "name": "nekotan", "pattern": "\\b(nekotan)\\b"},
+      {"kind": "ReleaseTitle", "name": "Netaro", "pattern": "\\b(Netaro)\\b"},
+      {"kind": "ReleaseTitle", "name": "Noiy", "pattern": "\\b(Noiy)\\b"},
+      {"kind": "ReleaseTitle", "name": "npz", "pattern": "\\b(npz)\\b"},
+      {"kind": "ReleaseTitle", "name": "NTRX", "pattern": "\\b(NTRX)\\b"},
+      {"kind": "ReleaseTitle", "name": "Okay-Subs", "pattern": "\\b(Okay-Subs)\\b"},
+      {"kind": "ReleaseTitle", "name": "P9", "pattern": "\\b(P9)\\b"},
+      {"kind": "ReleaseTitle", "name": "PMR", "pattern": "^(?=.*\\b(PMR)\\b)(?=.*\\b(Remux)\\b)"},
+      {"kind": "ReleaseTitle", "name": "RUDY", "pattern": "\\[RUDY\\]|-RUDY\\b"},
+      {"kind": "ReleaseTitle", "name": "RaiN", "pattern": "\\[RaiN\\]|-RaiN\\b"},
+      {"kind": "ReleaseTitle", "name": "RMX", "pattern": "\\b(RMX)\\b"},
+      {"kind": "ReleaseTitle", "name": "Sekkon", "pattern": "\\b(Sekkon)\\b"},
+      {"kind": "ReleaseTitle", "name": "Serendipity", "pattern": "\\[Serendipity\\]|-Serendipity\\b"},
+      {"kind": "ReleaseTitle", "name": "sgt", "pattern": "\\[sgt\\]|-sgt\\b"},
+      {"kind": "ReleaseTitle", "name": "SubsMix", "pattern": "\\b(SubsMix)\\b"},
+      {"kind": "ReleaseTitle", "name": "Sylvar", "pattern": "\\b(Sylvar)\\b"},
+      {"kind": "ReleaseTitle", "name": "uba", "pattern": "\\[uba\\]|-uba\\b"},
+      {"kind": "ReleaseTitle", "name": "ZR", "pattern": "\\b(ZR)\\b|-ZR-"}
     ]
   },
   {
     "slug": "anime-bd-tier-04",
     "name": "Anime BD Tier 04",
-    "trashIds": {
-      "radarr": "f262f1299d99b1a2263375e8fa2ddbb3",
-      "sonarr": "30feba9da3030c5ed1e0f7d610bcadc4"
-    },
-    "scores": {
-      "default": 1100
-    },
+    "trashIds": {"radarr": "f262f1299d99b1a2263375e8fa2ddbb3", "sonarr": "30feba9da3030c5ed1e0f7d610bcadc4"},
+    "scores": {"default": 1100},
     "conditions": [
-      {
-        "kind": "Source",
-        "name": "Bluray",
-        "value": "bluray"
-      },
-      {
-        "kind": "Source",
-        "name": "DVD",
-        "value": "dvd"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "ABdex",
-        "pattern": "\\b(ABdex)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Afro",
-        "pattern": "\\[Afro\\]|-Afro\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "aRMX",
-        "pattern": "\\b(aRMX)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "BiRJU",
-        "pattern": "\\b(BiRJU)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "BKC",
-        "pattern": "\\b(BKC)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "CBT",
-        "pattern": "\\b(CBT)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Chimera",
-        "pattern": "\\[Chimera\\]|-Chimera\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "derp",
-        "pattern": "\\[derp\\]|-derp\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "DIY",
-        "pattern": "\\[DIY\\]|-DIY\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "EXP",
-        "pattern": "\\[EXP\\]|-EXP\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Foxtrot",
-        "pattern": "\\[Foxtrot\\]|-Foxtrot\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "grimf",
-        "pattern": "\\b(grimf)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "IK",
-        "pattern": "\\b(IK)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Iznjie Biznjie",
-        "pattern": "\\b(Iznjie[ .-]Biznjie)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Kaleido-subs",
-        "pattern": "\\b(Kaleido-subs)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Kametsu",
-        "pattern": "\\b(Kametsu)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Kawatare",
-        "pattern": "\\[Kawatare\\]|-Kawatare\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "KH",
-        "pattern": "\\b(KH)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "LazyRemux",
-        "pattern": "\\b(LazyRemux)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Metal",
-        "pattern": "\\[Metal\\]|-Metal\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "MK",
-        "pattern": "\\b(MK)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "neko-kBaraka",
-        "pattern": "\\b(neko-kBaraka)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "OZR",
-        "pattern": "\\b(OZR)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Pizza",
-        "pattern": "\\[Pizza\\]|-Pizza\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "pog42",
-        "pattern": "\\b(pog42)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Quetzal",
-        "pattern": "\\b(Quetzal)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Reza",
-        "pattern": "\\b(Reza)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "SCY",
-        "pattern": "\\b(SCY)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Shimatta",
-        "pattern": "\\b(Shimatta)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Smoke",
-        "pattern": "\\[Smoke\\]|-Smoke\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Spirale",
-        "pattern": "\\b(Spirale)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "UDF",
-        "pattern": "\\b(UDF)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "UQW",
-        "pattern": "\\b(UQW)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Virtuality",
-        "pattern": "\\b(Virtuality)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Vanilla",
-        "pattern": "\\[Vanilla\\]|-Vanilla\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "VULCAN",
-        "pattern": "\\[VULCAN\\]|-VULCAN\\b"
-      }
+      {"kind": "Source", "name": "Bluray", "value": "bluray"},
+      {"kind": "Source", "name": "DVD", "value": "dvd"},
+      {"kind": "ReleaseTitle", "name": "ABdex", "pattern": "\\b(ABdex)\\b"},
+      {"kind": "ReleaseTitle", "name": "Afro", "pattern": "\\[Afro\\]|-Afro\\b"},
+      {"kind": "ReleaseTitle", "name": "aRMX", "pattern": "\\b(aRMX)\\b"},
+      {"kind": "ReleaseTitle", "name": "BiRJU", "pattern": "\\b(BiRJU)\\b"},
+      {"kind": "ReleaseTitle", "name": "BKC", "pattern": "\\b(BKC)\\b"},
+      {"kind": "ReleaseTitle", "name": "CBT", "pattern": "\\b(CBT)\\b"},
+      {"kind": "ReleaseTitle", "name": "Chimera", "pattern": "\\[Chimera\\]|-Chimera\\b"},
+      {"kind": "ReleaseTitle", "name": "derp", "pattern": "\\[derp\\]|-derp\\b"},
+      {"kind": "ReleaseTitle", "name": "DIY", "pattern": "\\[DIY\\]|-DIY\\b"},
+      {"kind": "ReleaseTitle", "name": "EXP", "pattern": "\\[EXP\\]|-EXP\\b"},
+      {"kind": "ReleaseTitle", "name": "Foxtrot", "pattern": "\\[Foxtrot\\]|-Foxtrot\\b"},
+      {"kind": "ReleaseTitle", "name": "grimf", "pattern": "\\b(grimf)\\b"},
+      {"kind": "ReleaseTitle", "name": "IK", "pattern": "\\b(IK)\\b"},
+      {"kind": "ReleaseTitle", "name": "Iznjie Biznjie", "pattern": "\\b(Iznjie[ .-]Biznjie)\\b"},
+      {"kind": "ReleaseTitle", "name": "Kaleido-subs", "pattern": "\\b(Kaleido-subs)\\b"},
+      {"kind": "ReleaseTitle", "name": "Kametsu", "pattern": "\\b(Kametsu)\\b"},
+      {"kind": "ReleaseTitle", "name": "Kawatare", "pattern": "\\[Kawatare\\]|-Kawatare\\b"},
+      {"kind": "ReleaseTitle", "name": "KH", "pattern": "\\b(KH)\\b"},
+      {"kind": "ReleaseTitle", "name": "LazyRemux", "pattern": "\\b(LazyRemux)\\b"},
+      {"kind": "ReleaseTitle", "name": "Metal", "pattern": "\\[Metal\\]|-Metal\\b"},
+      {"kind": "ReleaseTitle", "name": "MK", "pattern": "\\b(MK)\\b"},
+      {"kind": "ReleaseTitle", "name": "neko-kBaraka", "pattern": "\\b(neko-kBaraka)\\b"},
+      {"kind": "ReleaseTitle", "name": "OZR", "pattern": "\\b(OZR)\\b"},
+      {"kind": "ReleaseTitle", "name": "Pizza", "pattern": "\\[Pizza\\]|-Pizza\\b"},
+      {"kind": "ReleaseTitle", "name": "pog42", "pattern": "\\b(pog42)\\b"},
+      {"kind": "ReleaseTitle", "name": "Quetzal", "pattern": "\\b(Quetzal)\\b"},
+      {"kind": "ReleaseTitle", "name": "Reza", "pattern": "\\b(Reza)\\b"},
+      {"kind": "ReleaseTitle", "name": "SCY", "pattern": "\\b(SCY)\\b"},
+      {"kind": "ReleaseTitle", "name": "Shimatta", "pattern": "\\b(Shimatta)\\b"},
+      {"kind": "ReleaseTitle", "name": "Smoke", "pattern": "\\[Smoke\\]|-Smoke\\b"},
+      {"kind": "ReleaseTitle", "name": "Spirale", "pattern": "\\b(Spirale)\\b"},
+      {"kind": "ReleaseTitle", "name": "UDF", "pattern": "\\b(UDF)\\b"},
+      {"kind": "ReleaseTitle", "name": "UQW", "pattern": "\\b(UQW)\\b"},
+      {"kind": "ReleaseTitle", "name": "Virtuality", "pattern": "\\b(Virtuality)\\b"},
+      {"kind": "ReleaseTitle", "name": "Vanilla", "pattern": "\\[Vanilla\\]|-Vanilla\\b"},
+      {"kind": "ReleaseTitle", "name": "VULCAN", "pattern": "\\[VULCAN\\]|-VULCAN\\b"}
     ]
   },
   {
     "slug": "anime-bd-tier-05",
     "name": "Anime BD Tier 05",
-    "trashIds": {
-      "radarr": "ca864ed93c7b431150cc6748dc34875d",
-      "sonarr": "545a76b14ddc349b8b185a6344e28b04"
-    },
-    "scores": {
-      "default": 1000
-    },
+    "trashIds": {"radarr": "ca864ed93c7b431150cc6748dc34875d", "sonarr": "545a76b14ddc349b8b185a6344e28b04"},
+    "scores": {"default": 1000},
     "conditions": [
-      {
-        "kind": "Source",
-        "name": "Bluray",
-        "value": "bluray"
-      },
-      {
-        "kind": "Source",
-        "name": "DVD",
-        "value": "dvd"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Animorphs",
-        "pattern": "\\b(Animorphs)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "AOmundson",
-        "pattern": "\\b(AOmundson)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "ASC",
-        "pattern": "\\b(ASC)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Baws",
-        "pattern": "\\b(Baws|McBalls)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Beatrice",
-        "pattern": "\\[Beatrice\\]|-Beatrice(?!-raws)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "B00BA",
-        "pattern": "\\b(B00BA)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Cait-Sidhe",
-        "pattern": "\\b(Cait-Sidhe)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "CsS",
-        "pattern": "\\b(CsS)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "CTR",
-        "pattern": "\\b(CTR)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "D4C",
-        "pattern": "\\b(D4C)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "deanzel",
-        "pattern": "\\b(deanzel)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Drag",
-        "pattern": "\\[Drag\\]|-Drag\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "eldon",
-        "pattern": "\\b(eldon)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Freehold",
-        "pattern": "\\b(Freehold)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "GHS",
-        "pattern": "\\b(GHS)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Hark0N",
-        "pattern": "\\b(Hark0N)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Holomux",
-        "pattern": "\\b(Holomux)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Judgement",
-        "pattern": "\\[Judgment\\]|-Judgment\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "MC",
-        "pattern": "\\b(MC)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "mottoj",
-        "pattern": "\\b(mottoj)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "NH",
-        "pattern": "\\b(NH)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "NTRM",
-        "pattern": "\\b(NTRM)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "o7",
-        "pattern": "\\b(o7)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "QM",
-        "pattern": "\\b(QM)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Thighs",
-        "pattern": "\\[Thighs\\]|-Thighs\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "TTGA",
-        "pattern": "\\b(TTGA)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "UltraRemux",
-        "pattern": "\\b(UltraRemux)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "WBDP",
-        "pattern": "\\b(WBDP)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "WSE",
-        "pattern": "\\b(WSE)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Yuki",
-        "pattern": "\\[Yuki\\]|-Yuki\\b"
-      }
+      {"kind": "Source", "name": "Bluray", "value": "bluray"},
+      {"kind": "Source", "name": "DVD", "value": "dvd"},
+      {"kind": "ReleaseTitle", "name": "Animorphs", "pattern": "\\b(Animorphs)\\b"},
+      {"kind": "ReleaseTitle", "name": "AOmundson", "pattern": "\\b(AOmundson)\\b"},
+      {"kind": "ReleaseTitle", "name": "ASC", "pattern": "\\b(ASC)\\b"},
+      {"kind": "ReleaseTitle", "name": "Baws", "pattern": "\\b(Baws|McBalls)\\b"},
+      {"kind": "ReleaseTitle", "name": "Beatrice", "pattern": "\\[Beatrice\\]|-Beatrice(?!-raws)\\b"},
+      {"kind": "ReleaseTitle", "name": "B00BA", "pattern": "\\b(B00BA)\\b"},
+      {"kind": "ReleaseTitle", "name": "Cait-Sidhe", "pattern": "\\b(Cait-Sidhe)\\b"},
+      {"kind": "ReleaseTitle", "name": "CsS", "pattern": "\\b(CsS)\\b"},
+      {"kind": "ReleaseTitle", "name": "CTR", "pattern": "\\b(CTR)\\b"},
+      {"kind": "ReleaseTitle", "name": "D4C", "pattern": "\\b(D4C)\\b"},
+      {"kind": "ReleaseTitle", "name": "deanzel", "pattern": "\\b(deanzel)\\b"},
+      {"kind": "ReleaseTitle", "name": "Drag", "pattern": "\\[Drag\\]|-Drag\\b"},
+      {"kind": "ReleaseTitle", "name": "eldon", "pattern": "\\b(eldon)\\b"},
+      {"kind": "ReleaseTitle", "name": "Freehold", "pattern": "\\b(Freehold)\\b"},
+      {"kind": "ReleaseTitle", "name": "GHS", "pattern": "\\b(GHS)\\b"},
+      {"kind": "ReleaseTitle", "name": "Hark0N", "pattern": "\\b(Hark0N)\\b"},
+      {"kind": "ReleaseTitle", "name": "Holomux", "pattern": "\\b(Holomux)\\b"},
+      {"kind": "ReleaseTitle", "name": "Judgement", "pattern": "\\[Judgment\\]|-Judgment\\b"},
+      {"kind": "ReleaseTitle", "name": "MC", "pattern": "\\b(MC)\\b"},
+      {"kind": "ReleaseTitle", "name": "mottoj", "pattern": "\\b(mottoj)\\b"},
+      {"kind": "ReleaseTitle", "name": "NH", "pattern": "\\b(NH)\\b"},
+      {"kind": "ReleaseTitle", "name": "NTRM", "pattern": "\\b(NTRM)\\b"},
+      {"kind": "ReleaseTitle", "name": "o7", "pattern": "\\b(o7)\\b"},
+      {"kind": "ReleaseTitle", "name": "QM", "pattern": "\\b(QM)\\b"},
+      {"kind": "ReleaseTitle", "name": "Thighs", "pattern": "\\[Thighs\\]|-Thighs\\b"},
+      {"kind": "ReleaseTitle", "name": "TTGA", "pattern": "\\b(TTGA)\\b"},
+      {"kind": "ReleaseTitle", "name": "UltraRemux", "pattern": "\\b(UltraRemux)\\b"},
+      {"kind": "ReleaseTitle", "name": "WBDP", "pattern": "\\b(WBDP)\\b"},
+      {"kind": "ReleaseTitle", "name": "WSE", "pattern": "\\b(WSE)\\b"},
+      {"kind": "ReleaseTitle", "name": "Yuki", "pattern": "\\[Yuki\\]|-Yuki\\b"}
     ]
   },
   {
     "slug": "anime-bd-tier-06",
     "name": "Anime BD Tier 06",
-    "trashIds": {
-      "radarr": "9dce189b960fddf47891b7484ee886ca",
-      "sonarr": "25d2afecab632b1582eaf03b63055f72"
-    },
-    "scores": {
-      "default": 900
-    },
+    "trashIds": {"radarr": "9dce189b960fddf47891b7484ee886ca", "sonarr": "25d2afecab632b1582eaf03b63055f72"},
+    "scores": {"default": 900},
     "conditions": [
-      {
-        "kind": "Source",
-        "name": "Bluray",
-        "value": "bluray"
-      },
-      {
-        "kind": "Source",
-        "name": "DVD",
-        "value": "dvd"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "ANE",
-        "pattern": "\\[ANE\\]|-ANE$"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Bunny-Apocalypse",
-        "pattern": "\\b(Bunny-Apocalypse)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "CyC",
-        "pattern": "\\b(CyC)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Datte13",
-        "pattern": "\\b(Datte13)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "EJF",
-        "pattern": "\\b(EJF)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "GetItTwisted",
-        "pattern": "\\b(GetItTwisted)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "GSK_kun",
-        "pattern": "\\b(GSK[._-]kun)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "iKaos",
-        "pattern": "\\b(iKaos)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "karios",
-        "pattern": "\\b(karios)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Pookie",
-        "pattern": "\\b(Pookie)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "RASETSU",
-        "pattern": "\\b(RASETSU)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Starbez",
-        "pattern": "\\b(Starbez)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Tsundere",
-        "pattern": "\\[Tsundere\\]|-Tsundere(?!-)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Yoghurt",
-        "pattern": "\\b(Yoghurt)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "YURASUKA",
-        "pattern": "\\[YURASUKA\\]|-YURASUKA\\b"
-      }
+      {"kind": "Source", "name": "Bluray", "value": "bluray"},
+      {"kind": "Source", "name": "DVD", "value": "dvd"},
+      {"kind": "ReleaseTitle", "name": "ANE", "pattern": "\\[ANE\\]|-ANE$"},
+      {"kind": "ReleaseTitle", "name": "Bunny-Apocalypse", "pattern": "\\b(Bunny-Apocalypse)\\b"},
+      {"kind": "ReleaseTitle", "name": "CyC", "pattern": "\\b(CyC)\\b"},
+      {"kind": "ReleaseTitle", "name": "Datte13", "pattern": "\\b(Datte13)\\b"},
+      {"kind": "ReleaseTitle", "name": "EJF", "pattern": "\\b(EJF)\\b"},
+      {"kind": "ReleaseTitle", "name": "GetItTwisted", "pattern": "\\b(GetItTwisted)\\b"},
+      {"kind": "ReleaseTitle", "name": "GSK_kun", "pattern": "\\b(GSK[._-]kun)\\b"},
+      {"kind": "ReleaseTitle", "name": "iKaos", "pattern": "\\b(iKaos)\\b"},
+      {"kind": "ReleaseTitle", "name": "karios", "pattern": "\\b(karios)\\b"},
+      {"kind": "ReleaseTitle", "name": "Pookie", "pattern": "\\b(Pookie)\\b"},
+      {"kind": "ReleaseTitle", "name": "RASETSU", "pattern": "\\b(RASETSU)\\b"},
+      {"kind": "ReleaseTitle", "name": "Starbez", "pattern": "\\b(Starbez)\\b"},
+      {"kind": "ReleaseTitle", "name": "Tsundere", "pattern": "\\[Tsundere\\]|-Tsundere(?!-)\\b"},
+      {"kind": "ReleaseTitle", "name": "Yoghurt", "pattern": "\\b(Yoghurt)\\b"},
+      {"kind": "ReleaseTitle", "name": "YURASUKA", "pattern": "\\[YURASUKA\\]|-YURASUKA\\b"}
     ]
   },
   {
     "slug": "anime-bd-tier-07",
     "name": "Anime BD Tier 07",
-    "trashIds": {
-      "radarr": "1ef101b3a82646b40e0cab7fc92cd896",
-      "sonarr": "0329044e3d9137b08502a9f84a7e58db"
-    },
-    "scores": {
-      "default": 800
-    },
+    "trashIds": {"radarr": "1ef101b3a82646b40e0cab7fc92cd896", "sonarr": "0329044e3d9137b08502a9f84a7e58db"},
+    "scores": {"default": 800},
     "conditions": [
-      {
-        "kind": "Source",
-        "name": "Bluray",
-        "value": "bluray"
-      },
-      {
-        "kind": "Source",
-        "name": "DVD",
-        "value": "dvd"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "9volt",
-        "pattern": "\\b(9volt)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "AC",
-        "pattern": "\\[AC\\]|-AC$"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Almighty",
-        "pattern": "\\[Almighty\\]|-Almighty\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Asakura",
-        "pattern": "\\[Asakura\\]|-Asakura\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Asenshi",
-        "pattern": "\\b(Asenshi)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "BlurayDesuYo",
-        "pattern": "\\b(BlurayDesuYo)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Bolshevik",
-        "pattern": "\\[Bolshevik\\]|-Bolshevik\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Brrrrrrr",
-        "pattern": "\\b(Brrrrrrr)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Chihiro",
-        "pattern": "\\[Chihiro\\]|-Chihiro\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Commie",
-        "pattern": "\\b(Commie)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Crow",
-        "pattern": "\\[Crow\\]|-Crow\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Dae",
-        "pattern": "\\b(Dae)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Dekinai",
-        "pattern": "\\[Dekinai\\]|-Dekinai\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Dragon-Releases",
-        "pattern": "\\b(Dragon-Releases)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "DragsterPS",
-        "pattern": "\\b(DragsterPS)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Exiled-Destiny",
-        "pattern": "\\b(Exiled-Destiny|E-D)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "FFF",
-        "pattern": "\\b(FFF)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Final8",
-        "pattern": "\\b(Final8)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Geonope",
-        "pattern": "\\b(Geonope)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "GJM",
-        "pattern": "\\b(GJM)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "iAHD",
-        "pattern": "\\b(iAHD)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "inid4c",
-        "pattern": "\\b(inid4c)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Koten_Gars",
-        "pattern": "\\b(Koten[ ._-]Gars)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "kuchikirukia",
-        "pattern": "\\b(kuchikirukia)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "LCE",
-        "pattern": "\\b(LCE)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "NTW",
-        "pattern": "\\b(NTW)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "orz",
-        "pattern": "\\b(orz)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "RAI",
-        "pattern": "\\b(RAI)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "REVO",
-        "pattern": "\\b(REVO)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "SCP-2223",
-        "pattern": "\\b(SCP-2223)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Senjou",
-        "pattern": "\\[Senjou\\]|-Senjou\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "SEV",
-        "pattern": "\\b(SEV)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "THORA",
-        "pattern": "\\b(THORA)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Vivid",
-        "pattern": "\\[Vivid\\]|-Vivid\\b"
-      }
+      {"kind": "Source", "name": "Bluray", "value": "bluray"},
+      {"kind": "Source", "name": "DVD", "value": "dvd"},
+      {"kind": "ReleaseTitle", "name": "9volt", "pattern": "\\b(9volt)\\b"},
+      {"kind": "ReleaseTitle", "name": "AC", "pattern": "\\[AC\\]|-AC$"},
+      {"kind": "ReleaseTitle", "name": "Almighty", "pattern": "\\[Almighty\\]|-Almighty\\b"},
+      {"kind": "ReleaseTitle", "name": "Asakura", "pattern": "\\[Asakura\\]|-Asakura\\b"},
+      {"kind": "ReleaseTitle", "name": "Asenshi", "pattern": "\\b(Asenshi)\\b"},
+      {"kind": "ReleaseTitle", "name": "BlurayDesuYo", "pattern": "\\b(BlurayDesuYo)\\b"},
+      {"kind": "ReleaseTitle", "name": "Bolshevik", "pattern": "\\[Bolshevik\\]|-Bolshevik\\b"},
+      {"kind": "ReleaseTitle", "name": "Brrrrrrr", "pattern": "\\b(Brrrrrrr)\\b"},
+      {"kind": "ReleaseTitle", "name": "Chihiro", "pattern": "\\[Chihiro\\]|-Chihiro\\b"},
+      {"kind": "ReleaseTitle", "name": "Commie", "pattern": "\\b(Commie)\\b"},
+      {"kind": "ReleaseTitle", "name": "Crow", "pattern": "\\[Crow\\]|-Crow\\b"},
+      {"kind": "ReleaseTitle", "name": "Dae", "pattern": "\\b(Dae)\\b"},
+      {"kind": "ReleaseTitle", "name": "Dekinai", "pattern": "\\[Dekinai\\]|-Dekinai\\b"},
+      {"kind": "ReleaseTitle", "name": "Dragon-Releases", "pattern": "\\b(Dragon-Releases)\\b"},
+      {"kind": "ReleaseTitle", "name": "DragsterPS", "pattern": "\\b(DragsterPS)\\b"},
+      {"kind": "ReleaseTitle", "name": "Exiled-Destiny", "pattern": "\\b(Exiled-Destiny|E-D)\\b"},
+      {"kind": "ReleaseTitle", "name": "FFF", "pattern": "\\b(FFF)\\b"},
+      {"kind": "ReleaseTitle", "name": "Final8", "pattern": "\\b(Final8)\\b"},
+      {"kind": "ReleaseTitle", "name": "Geonope", "pattern": "\\b(Geonope)\\b"},
+      {"kind": "ReleaseTitle", "name": "GJM", "pattern": "\\b(GJM)\\b"},
+      {"kind": "ReleaseTitle", "name": "iAHD", "pattern": "\\b(iAHD)\\b"},
+      {"kind": "ReleaseTitle", "name": "inid4c", "pattern": "\\b(inid4c)\\b"},
+      {"kind": "ReleaseTitle", "name": "Koten_Gars", "pattern": "\\b(Koten[ ._-]Gars)\\b"},
+      {"kind": "ReleaseTitle", "name": "kuchikirukia", "pattern": "\\b(kuchikirukia)\\b"},
+      {"kind": "ReleaseTitle", "name": "LCE", "pattern": "\\b(LCE)\\b"},
+      {"kind": "ReleaseTitle", "name": "NTW", "pattern": "\\b(NTW)\\b"},
+      {"kind": "ReleaseTitle", "name": "orz", "pattern": "\\b(orz)\\b"},
+      {"kind": "ReleaseTitle", "name": "RAI", "pattern": "\\b(RAI)\\b"},
+      {"kind": "ReleaseTitle", "name": "REVO", "pattern": "\\b(REVO)\\b"},
+      {"kind": "ReleaseTitle", "name": "SCP-2223", "pattern": "\\b(SCP-2223)\\b"},
+      {"kind": "ReleaseTitle", "name": "Senjou", "pattern": "\\[Senjou\\]|-Senjou\\b"},
+      {"kind": "ReleaseTitle", "name": "SEV", "pattern": "\\b(SEV)\\b"},
+      {"kind": "ReleaseTitle", "name": "THORA", "pattern": "\\b(THORA)\\b"},
+      {"kind": "ReleaseTitle", "name": "Vivid", "pattern": "\\[Vivid\\]|-Vivid\\b"}
     ]
   },
   {
     "slug": "anime-bd-tier-08",
     "name": "Anime BD Tier 08",
-    "trashIds": {
-      "radarr": "6115ccd6640b978234cc47f2c1f2cadc",
-      "sonarr": "c81bbfb47fed3d5a3ad027d077f889de"
-    },
-    "scores": {
-      "default": 700
-    },
+    "trashIds": {"radarr": "6115ccd6640b978234cc47f2c1f2cadc", "sonarr": "c81bbfb47fed3d5a3ad027d077f889de"},
+    "scores": {"default": 700},
     "conditions": [
-      {
-        "kind": "Source",
-        "name": "Bluray",
-        "value": "bluray"
-      },
-      {
-        "kind": "Source",
-        "name": "DVD",
-        "value": "dvd"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "AkihitoSubs",
-        "pattern": "\\b(AkihitoSubs)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Arukoru",
-        "pattern": "\\b(Arukoru)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "EDGE",
-        "pattern": "\\[EDGE\\]|-EDGE\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "EMBER",
-        "pattern": "\\[EMBER\\]|-EMBER\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "GHOST",
-        "pattern": "\\[GHOST\\]|-GHOST\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Judas",
-        "pattern": "\\[Judas\\]|-Judas"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "naiyas",
-        "pattern": "\\[naiyas\\]|-naiyas\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Nep_Blanc",
-        "pattern": "\\b(Nep[ ._-]Blanc)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Prof",
-        "pattern": "\\[Prof\\]|-Prof\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Shirσ",
-        "pattern": "\\b(Shirσ)\\b"
-      }
+      {"kind": "Source", "name": "Bluray", "value": "bluray"},
+      {"kind": "Source", "name": "DVD", "value": "dvd"},
+      {"kind": "ReleaseTitle", "name": "AkihitoSubs", "pattern": "\\b(AkihitoSubs)\\b"},
+      {"kind": "ReleaseTitle", "name": "Arukoru", "pattern": "\\b(Arukoru)\\b"},
+      {"kind": "ReleaseTitle", "name": "EDGE", "pattern": "\\[EDGE\\]|-EDGE\\b"},
+      {"kind": "ReleaseTitle", "name": "EMBER", "pattern": "\\[EMBER\\]|-EMBER\\b"},
+      {"kind": "ReleaseTitle", "name": "GHOST", "pattern": "\\[GHOST\\]|-GHOST\\b"},
+      {"kind": "ReleaseTitle", "name": "Judas", "pattern": "\\[Judas\\]|-Judas"},
+      {"kind": "ReleaseTitle", "name": "naiyas", "pattern": "\\[naiyas\\]|-naiyas\\b"},
+      {"kind": "ReleaseTitle", "name": "Nep_Blanc", "pattern": "\\b(Nep[ ._-]Blanc)\\b"},
+      {"kind": "ReleaseTitle", "name": "Prof", "pattern": "\\[Prof\\]|-Prof\\b"},
+      {"kind": "ReleaseTitle", "name": "Shirσ", "pattern": "\\b(Shirσ)\\b"}
     ]
   },
   {
     "slug": "anime-web-tier-02",
     "name": "Anime Web Tier 02",
-    "trashIds": {
-      "radarr": "8526c54e36b4962d340fce52ef030e76",
-      "sonarr": "19180499de5ef2b84b6ec59aae444696"
-    },
-    "scores": {
-      "default": 500
-    },
+    "trashIds": {"radarr": "8526c54e36b4962d340fce52ef030e76", "sonarr": "19180499de5ef2b84b6ec59aae444696"},
+    "scores": {"default": 500},
     "conditions": [
-      {
-        "kind": "Source",
-        "name": "WEBDL",
-        "value": "webdl"
-      },
-      {
-        "kind": "Source",
-        "name": "WEBRIP",
-        "value": "webrip"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "0x539",
-        "pattern": "\\b(0x539)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Asakura",
-        "pattern": "\\[Asakura\\]|-Asakura\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "BlackRose",
-        "pattern": "\\b(BlackRose)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Cyan",
-        "pattern": "\\[Cyan\\]|-Cyan\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Cytox",
-        "pattern": "\\b(Cytox)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Dae",
-        "pattern": "\\[Dae\\]|-Dae\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Foxtrot",
-        "pattern": "\\[Foxtrot\\]|-Foxtrot\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Gao",
-        "pattern": "\\[Gao\\]|-Gao\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "GSK_kun",
-        "pattern": "\\b(GSK[._-]kun)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Half-Baked",
-        "pattern": "\\b(Half-Baked)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "HatSubs",
-        "pattern": "\\b(HatSubs)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "MALD",
-        "pattern": "\\b(MALD)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "MTBB",
-        "pattern": "\\b(MTBB)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Not-Vodes",
-        "pattern": "\\[Not-Vodes\\]|-Not-Vodes\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Okay-Subs",
-        "pattern": "\\b(Okay-Subs)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Pizza",
-        "pattern": "\\[Pizza\\]|-Pizza\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Reza",
-        "pattern": "\\b(Reza)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Slyfox",
-        "pattern": "\\b(Slyfox)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "SoLCE",
-        "pattern": "\\b(SoLCE)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Tenshi",
-        "pattern": "\\[tenshi\\]|-tenshi$"
-      }
+      {"kind": "Source", "name": "WEBDL", "value": "webdl"},
+      {"kind": "Source", "name": "WEBRIP", "value": "webrip"},
+      {"kind": "ReleaseTitle", "name": "0x539", "pattern": "\\b(0x539)\\b"},
+      {"kind": "ReleaseTitle", "name": "Asakura", "pattern": "\\[Asakura\\]|-Asakura\\b"},
+      {"kind": "ReleaseTitle", "name": "BlackRose", "pattern": "\\b(BlackRose)\\b"},
+      {"kind": "ReleaseTitle", "name": "Cyan", "pattern": "\\[Cyan\\]|-Cyan\\b"},
+      {"kind": "ReleaseTitle", "name": "Cytox", "pattern": "\\b(Cytox)\\b"},
+      {"kind": "ReleaseTitle", "name": "Dae", "pattern": "\\[Dae\\]|-Dae\\b"},
+      {"kind": "ReleaseTitle", "name": "Foxtrot", "pattern": "\\[Foxtrot\\]|-Foxtrot\\b"},
+      {"kind": "ReleaseTitle", "name": "Gao", "pattern": "\\[Gao\\]|-Gao\\b"},
+      {"kind": "ReleaseTitle", "name": "GSK_kun", "pattern": "\\b(GSK[._-]kun)\\b"},
+      {"kind": "ReleaseTitle", "name": "Half-Baked", "pattern": "\\b(Half-Baked)\\b"},
+      {"kind": "ReleaseTitle", "name": "HatSubs", "pattern": "\\b(HatSubs)\\b"},
+      {"kind": "ReleaseTitle", "name": "MALD", "pattern": "\\b(MALD)\\b"},
+      {"kind": "ReleaseTitle", "name": "MTBB", "pattern": "\\b(MTBB)\\b"},
+      {"kind": "ReleaseTitle", "name": "Not-Vodes", "pattern": "\\[Not-Vodes\\]|-Not-Vodes\\b"},
+      {"kind": "ReleaseTitle", "name": "Okay-Subs", "pattern": "\\b(Okay-Subs)\\b"},
+      {"kind": "ReleaseTitle", "name": "Pizza", "pattern": "\\[Pizza\\]|-Pizza\\b"},
+      {"kind": "ReleaseTitle", "name": "Reza", "pattern": "\\b(Reza)\\b"},
+      {"kind": "ReleaseTitle", "name": "Slyfox", "pattern": "\\b(Slyfox)\\b"},
+      {"kind": "ReleaseTitle", "name": "SoLCE", "pattern": "\\b(SoLCE)\\b"},
+      {"kind": "ReleaseTitle", "name": "Tenshi", "pattern": "\\[tenshi\\]|-tenshi$"}
     ]
   },
   {
     "slug": "anime-web-tier-03",
     "name": "Anime Web Tier 03",
-    "trashIds": {
-      "radarr": "de41e72708d2c856fa261094c85e965d",
-      "sonarr": "c27f2ae6a4e82373b0f1da094e2489ad"
-    },
-    "scores": {
-      "default": 400
-    },
+    "trashIds": {"radarr": "de41e72708d2c856fa261094c85e965d", "sonarr": "c27f2ae6a4e82373b0f1da094e2489ad"},
+    "scores": {"default": 400},
     "conditions": [
-      {
-        "kind": "Source",
-        "name": "WEBDL",
-        "value": "webdl"
-      },
-      {
-        "kind": "Source",
-        "name": "WEBRIP",
-        "value": "webrip"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "AnoZu",
-        "pattern": "\\b(AnoZu)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Dooky",
-        "pattern": "\\b(Dooky)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Kitsune",
-        "pattern": "\\[Kitsune\\]|-Kitsune\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "SubsPlus+",
-        "pattern": "\\b(SubsPlus\\+?)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "ZR",
-        "pattern": "\\b(ZR)\\b"
-      }
+      {"kind": "Source", "name": "WEBDL", "value": "webdl"},
+      {"kind": "Source", "name": "WEBRIP", "value": "webrip"},
+      {"kind": "ReleaseTitle", "name": "AnoZu", "pattern": "\\b(AnoZu)\\b"},
+      {"kind": "ReleaseTitle", "name": "Dooky", "pattern": "\\b(Dooky)\\b"},
+      {"kind": "ReleaseTitle", "name": "Kitsune", "pattern": "\\[Kitsune\\]|-Kitsune\\b"},
+      {"kind": "ReleaseTitle", "name": "SubsPlus+", "pattern": "\\b(SubsPlus\\+?)\\b"},
+      {"kind": "ReleaseTitle", "name": "ZR", "pattern": "\\b(ZR)\\b"}
     ]
   },
   {
     "slug": "anime-web-tier-04",
     "name": "Anime Web Tier 04",
-    "trashIds": {
-      "radarr": "9edaeee9ea3bcd585da9b7c0ac3fc54f",
-      "sonarr": "4fd5528a3a8024e6b49f9c67053ea5f3"
-    },
-    "scores": {
-      "default": 300
-    },
+    "trashIds": {"radarr": "9edaeee9ea3bcd585da9b7c0ac3fc54f", "sonarr": "4fd5528a3a8024e6b49f9c67053ea5f3"},
+    "scores": {"default": 300},
     "conditions": [
-      {
-        "kind": "Source",
-        "name": "WEBDL",
-        "value": "webdl"
-      },
-      {
-        "kind": "Source",
-        "name": "WEBRIP",
-        "value": "webrip"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Erai-Raws",
-        "pattern": "\\b(Erai-raws)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "ToonsHub",
-        "pattern": "\\b(ToonsHub)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "VARYG",
-        "pattern": "\\b(VARYG)\\b"
-      }
+      {"kind": "Source", "name": "WEBDL", "value": "webdl"},
+      {"kind": "Source", "name": "WEBRIP", "value": "webrip"},
+      {"kind": "ReleaseTitle", "name": "Erai-Raws", "pattern": "\\b(Erai-raws)\\b"},
+      {"kind": "ReleaseTitle", "name": "ToonsHub", "pattern": "\\b(ToonsHub)\\b"},
+      {"kind": "ReleaseTitle", "name": "VARYG", "pattern": "\\b(VARYG)\\b"}
     ]
   },
   {
     "slug": "anime-web-tier-05",
     "name": "Anime Web Tier 05",
-    "trashIds": {
-      "radarr": "22d953bbe897857b517928f3652b8dd3",
-      "sonarr": "29c2a13d091144f63307e4a8ce963a39"
-    },
-    "scores": {
-      "default": 200
-    },
+    "trashIds": {"radarr": "22d953bbe897857b517928f3652b8dd3", "sonarr": "29c2a13d091144f63307e4a8ce963a39"},
+    "scores": {"default": 200},
     "conditions": [
-      {
-        "kind": "Source",
-        "name": "WEBDL",
-        "value": "webdl"
-      },
-      {
-        "kind": "Source",
-        "name": "WEBRIP",
-        "value": "webrip"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "BlueLobster",
-        "pattern": "\\b(BlueLobster)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "GST",
-        "pattern": "\\b(GST)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "HorribleRips",
-        "pattern": "\\b(HorribleRips)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "HorribleSubs",
-        "pattern": "\\b(HorribleSubs)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "KAN3D2M",
-        "pattern": "\\b(KAN3D2M)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "KiyoshiStar",
-        "pattern": "\\b(KS|KiyoshiStar)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Lia",
-        "pattern": "\\[Lia\\]|-Lia\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "NanDesuKa",
-        "pattern": "\\b(NanDesuKa)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "PlayWeb",
-        "pattern": "\\b(PlayWeb)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "SobsPlease",
-        "pattern": "\\b(SobsPlease)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Some-Stuffs",
-        "pattern": "\\b(Some-Stuffs)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "SubsPlease",
-        "pattern": "\\b(SubsPlease)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "URANIME",
-        "pattern": "\\b(URANIME)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "ZigZag",
-        "pattern": "\\[ZigZag\\]|-ZigZab\b"
-      }
+      {"kind": "Source", "name": "WEBDL", "value": "webdl"},
+      {"kind": "Source", "name": "WEBRIP", "value": "webrip"},
+      {"kind": "ReleaseTitle", "name": "BlueLobster", "pattern": "\\b(BlueLobster)\\b"},
+      {"kind": "ReleaseTitle", "name": "GST", "pattern": "\\b(GST)\\b"},
+      {"kind": "ReleaseTitle", "name": "HorribleRips", "pattern": "\\b(HorribleRips)\\b"},
+      {"kind": "ReleaseTitle", "name": "HorribleSubs", "pattern": "\\b(HorribleSubs)\\b"},
+      {"kind": "ReleaseTitle", "name": "KAN3D2M", "pattern": "\\b(KAN3D2M)\\b"},
+      {"kind": "ReleaseTitle", "name": "KiyoshiStar", "pattern": "\\b(KS|KiyoshiStar)\\b"},
+      {"kind": "ReleaseTitle", "name": "Lia", "pattern": "\\[Lia\\]|-Lia\\b"},
+      {"kind": "ReleaseTitle", "name": "NanDesuKa", "pattern": "\\b(NanDesuKa)\\b"},
+      {"kind": "ReleaseTitle", "name": "PlayWeb", "pattern": "\\b(PlayWeb)\\b"},
+      {"kind": "ReleaseTitle", "name": "SobsPlease", "pattern": "\\b(SobsPlease)\\b"},
+      {"kind": "ReleaseTitle", "name": "Some-Stuffs", "pattern": "\\b(Some-Stuffs)\\b"},
+      {"kind": "ReleaseTitle", "name": "SubsPlease", "pattern": "\\b(SubsPlease)\\b"},
+      {"kind": "ReleaseTitle", "name": "URANIME", "pattern": "\\b(URANIME)\\b"},
+      {"kind": "ReleaseTitle", "name": "ZigZag", "pattern": "\\[ZigZag\\]|-ZigZab\b"}
     ]
   },
   {
     "slug": "anime-web-tier-06",
     "name": "Anime Web Tier 06",
-    "trashIds": {
-      "radarr": "a786fbc0eae05afe3bb51aee3c83a9d4",
-      "sonarr": "dc262f88d74c651b12e9d90b39f6c753"
-    },
-    "scores": {
-      "default": 100
-    },
+    "trashIds": {"radarr": "a786fbc0eae05afe3bb51aee3c83a9d4", "sonarr": "dc262f88d74c651b12e9d90b39f6c753"},
+    "scores": {"default": 100},
     "conditions": [
-      {
-        "kind": "Source",
-        "name": "WEBDL",
-        "value": "webdl"
-      },
-      {
-        "kind": "Source",
-        "name": "WEBRIP",
-        "value": "webrip"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "9volt",
-        "pattern": "\\b(9volt)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Asenshi",
-        "pattern": "\\b(Asenshi)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Chihiro",
-        "pattern": "\\[Chihiro\\]|-Chihiro\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Commie",
-        "pattern": "\\b(Commie)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "DameDesuYo",
-        "pattern": "\\b(DameDesuYo)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Doki",
-        "pattern": "\\[Doki\\]|-Doki\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "GJM",
-        "pattern": "\\b(GJM)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Kaleido",
-        "pattern": "\\b(Kaleido)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Kantai",
-        "pattern": "\\[Kantai\\]|-Kantai\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "KawaSubs",
-        "pattern": "\\b(KawaSubs)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Tsundere",
-        "pattern": "\\[Tsundere\\]|-Tsundere(?!-)\\b"
-      }
+      {"kind": "Source", "name": "WEBDL", "value": "webdl"},
+      {"kind": "Source", "name": "WEBRIP", "value": "webrip"},
+      {"kind": "ReleaseTitle", "name": "9volt", "pattern": "\\b(9volt)\\b"},
+      {"kind": "ReleaseTitle", "name": "Asenshi", "pattern": "\\b(Asenshi)\\b"},
+      {"kind": "ReleaseTitle", "name": "Chihiro", "pattern": "\\[Chihiro\\]|-Chihiro\\b"},
+      {"kind": "ReleaseTitle", "name": "Commie", "pattern": "\\b(Commie)\\b"},
+      {"kind": "ReleaseTitle", "name": "DameDesuYo", "pattern": "\\b(DameDesuYo)\\b"},
+      {"kind": "ReleaseTitle", "name": "Doki", "pattern": "\\[Doki\\]|-Doki\\b"},
+      {"kind": "ReleaseTitle", "name": "GJM", "pattern": "\\b(GJM)\\b"},
+      {"kind": "ReleaseTitle", "name": "Kaleido", "pattern": "\\b(Kaleido)\\b"},
+      {"kind": "ReleaseTitle", "name": "Kantai", "pattern": "\\[Kantai\\]|-Kantai\\b"},
+      {"kind": "ReleaseTitle", "name": "KawaSubs", "pattern": "\\b(KawaSubs)\\b"},
+      {"kind": "ReleaseTitle", "name": "Tsundere", "pattern": "\\[Tsundere\\]|-Tsundere(?!-)\\b"}
     ]
   },
   {
     "slug": "anime-lq-groups",
     "name": "Anime LQ Groups",
-    "trashIds": {
-      "radarr": "b0fdc5897f68c9a68c70c25169f77447"
-    },
-    "scores": {
-      "default": -10000
-    },
+    "trashIds": {"radarr": "b0fdc5897f68c9a68c70c25169f77447"},
+    "scores": {"default": -10000},
     "conditions": [
-      {
-        "kind": "ReleaseTitle",
-        "name": "$tore-Chill",
-        "pattern": "\\b(\\$tore-Chill)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "0neshot",
-        "pattern": "\\b(0neshot)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "224",
-        "pattern": "\\[224\\]|-224\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "A-Destiny",
-        "pattern": "\\b(A-Destiny)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "AceAres",
-        "pattern": "\\b(AceAres)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "AhmadDev",
-        "pattern": "\\b(AhmadDev)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Anime Chap",
-        "pattern": "\\b(Anime[ .-]?Chap)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Anime Land",
-        "pattern": "\\b(Anime[ .-]?Land)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Anime Time",
-        "pattern": "\\b(Anime[ .-]?Time)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "AnimeDynastyEN",
-        "pattern": "\\b(AnimeDynastyEN)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "AnimeKuro",
-        "pattern": "\\b(AnimeKuro)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "AnimeRG",
-        "pattern": "\\b(AnimeRG)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Animesubs",
-        "pattern": "\\b(Animesubs)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "AnimeTR",
-        "pattern": "\\b(AnimeTR)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Anitsu",
-        "pattern": "\\b(Anitsu)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "AniVoid",
-        "pattern": "\\b(AniVoid)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "ArataEnc",
-        "pattern": "\\b(ArataEnc)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "AREY",
-        "pattern": "\\b(AREY)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Ari",
-        "pattern": "\\[Ari\\]|-Ari\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "ASW",
-        "pattern": "\\b(ASW)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "BJX",
-        "pattern": "\\b(BJX)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "BlackLuster",
-        "pattern": "\\b(BlackLuster)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "bonkai77",
-        "pattern": "\\b(bonkai77)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "CameEsp",
-        "pattern": "\\b(CameEsp)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Cat66",
-        "pattern": "\\b(Cat66)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "CBB",
-        "pattern": "\\b(CBB)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Cerberus",
-        "pattern": "\\[Cerberus\\]|-Cerberus\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Cleo",
-        "pattern": "\\[Cleo\\]|-Cleo"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "CuaP",
-        "pattern": "\\b(CuaP)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "DaddySubs",
-        "pattern": "\\[Daddy(Subs)?\\]|-Daddy(Subs)?\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "DARKFLiX",
-        "pattern": "\\b(DARKFLiX)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "DB",
-        "pattern": "\\[DB\\]"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "DBArabic",
-        "pattern": "\\b(DBArabic)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Deadmau- RAWS",
-        "pattern": "\\b(Deadmau[ .-]?[ .-]?RAWS)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "DKB",
-        "pattern": "\\b(DKB)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "DP",
-        "pattern": "\\b(DP)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "DsunS",
-        "pattern": "\\b(DsunS)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Emmid",
-        "pattern": "\\[Emmid\\]|-Emmid\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "ExREN",
-        "pattern": "\\b(ExREN)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "FAV",
-        "pattern": "\\[FAV\\]|-FAV\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Fish",
-        "pattern": "\\b((Baked|Dead|Space)Fish)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "FunArts",
-        "pattern": "\\b(FunArts)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "GERMini",
-        "pattern": "\\b(GERMini)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Hakata Ramen",
-        "pattern": "\\b(Hakata[ .-]?Ramen)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Hall_of_C",
-        "pattern": "\\b(Hall_of_C)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Hatsuyuki",
-        "pattern": "\\[Hatsuyuki\\]|-Hatsuyuki\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "HAV1T",
-        "pattern": "\\b(HAV1T)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "HENiL",
-        "pattern": "\\b(HENiL)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Hitoku",
-        "pattern": "\\[Hitoku\\]|-Hitoku\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "HollowRoxas",
-        "pattern": "\\b(HollowRoxas)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "HR",
-        "pattern": "\\[HR\\]|-HR\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "ICEBLUE",
-        "pattern": "\\b(ICEBLUE)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "iPUNISHER",
-        "pattern": "\\b(iPUNISHER)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "JacobSwaggedUp",
-        "pattern": "\\b(JacobSwaggedUp)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Johnny-englishsubs",
-        "pattern": "\\b(Johnny-englishsubs)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Kallango",
-        "pattern": "\\[Kallango\\]|-Kallango\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Kanjouteki",
-        "pattern": "\\b(Kanjouteki)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "KEKMASTERS",
-        "pattern": "\\b(KEKMASTERS)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Kirion",
-        "pattern": "\\b(Kirion)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "KQRM",
-        "pattern": "\\b(KQRM)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "KRP",
-        "pattern": "\\b(KRP)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "LoliHouse",
-        "pattern": "\\b(LoliHouse)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "M@nI",
-        "pattern": "\\b(M@nI)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "mal lu zen",
-        "pattern": "\\b(mal[ .-]lu[ .-]zen)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Man.K",
-        "pattern": "\\b(Man\\.K)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Maximus",
-        "pattern": "\\[Maximus\\]|-Maximus\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "MD",
-        "pattern": "\\[MD\\]|-MD\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "mdcx",
-        "pattern": "\\b(mdcx)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Metaljerk",
-        "pattern": "\\b(Metaljerk)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "MGD",
-        "pattern": "\\b(MGD)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "MiniFreeza",
-        "pattern": "\\b(MiniFreeza)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "MiniMTBB",
-        "pattern": "\\b(MiniMTBB)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "MinisCuba",
-        "pattern": "\\b(MinisCuba)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "MiniTheatre",
-        "pattern": "\\b(MiniTheatre)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Mites",
-        "pattern": "\\b(Mites)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Modders Bay",
-        "pattern": "\\b(Modders[ .-]?Bay)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Mr. Deadpool",
-        "pattern": "\\b(Mr\\.Deadpool)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "NemDiggers",
-        "pattern": "\\b(NemDiggers)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "neoHEVC",
-        "pattern": "\\b(neoHEVC)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Nokou",
-        "pattern": "\\b(Nokou)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "NoobSubs",
-        "pattern": "\\b(N[eo][wo]b[ ._-]?Subs)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "NS",
-        "pattern": "\\b(NS)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Nyanpasu",
-        "pattern": "\\b(Nyanpasu)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "OldCastle",
-        "pattern": "\\b(OldCastle)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Pantsu",
-        "pattern": "\\[Pantsu\\]|-Pantsu\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Pao",
-        "pattern": "\\[Pao\\]|-Pao\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "phazer11",
-        "pattern": "\\b(phazer11)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Pixel",
-        "pattern": "\\[Pixel\\]|-Pixel\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Plex Friendly",
-        "pattern": "\\b(Plex[ .-]?Friendly)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "PnPSubs",
-        "pattern": "\\b(PnPSubs)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Polarwindz",
-        "pattern": "\\b(Polarwindz)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Project-gxs",
-        "pattern": "\\b(Project-gxs)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "PuyaSubs",
-        "pattern": "\\b(PuyaSubs)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "QaS",
-        "pattern": "\\b(QAS)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "QCE",
-        "pattern": "\\b(QCE)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Rando235",
-        "pattern": "\\b(Rando235)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Ranger",
-        "pattern": "\\[Ranger\\]|-Ranger\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Rapta",
-        "pattern": "\\[Rapta\\]|-Rapta\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Raw Files",
-        "pattern": "\\b(M2TS|BDMV|BDVD)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Raze",
-        "pattern": "\\[Raze\\]|-Raze\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Reaktor",
-        "pattern": "\\b(Reaktor)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "RightShiftBy2",
-        "pattern": "\\b(RightShiftBy2)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Rip Time",
-        "pattern": "\\b(Rip[ .-]?Time)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "SAD",
-        "pattern": "\\[SAD\\]|-SAD\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Salieri",
-        "pattern": "\\b(Salieri)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Samir755",
-        "pattern": "\\b(Samir755)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "SanKyuu",
-        "pattern": "\\b(SanKyuu)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "SEiN",
-        "pattern": "\\[SEiN\\]|-SEiN\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "sekkusu&ok",
-        "pattern": "\\b(sekkusu&ok)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "SHFS",
-        "pattern": "\\b(SHFS)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "shincaps",
-        "pattern": "\\b(shincaps)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "SLAX",
-        "pattern": "\\b(SLAX)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Sokudo",
-        "pattern": "\\[Sokudo\\]|-Sokudo\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "SRW",
-        "pattern": "\\b(SRW)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "SSA",
-        "pattern": "\\b(SSA)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "StrayGods",
-        "pattern": "\\b(StrayGods)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Suki Desu",
-        "pattern": "\\[Suki[ .-]?Desu\\]|-Suki[ .-]?Desu\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "TeamTurquoize",
-        "pattern": "\\b(TeamTurquoize)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Tenrai Sensei",
-        "pattern": "\\b(Tenrai[ .-]?Sensei)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "TnF",
-        "pattern": "\\b(TnF)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "TOPKEK",
-        "pattern": "\\b(TOPKEK)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Trix",
-        "pattern": "\\[Trix\\]|-Trix\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "U3-Web",
-        "pattern": "\\b(U3-Web)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "UNBIASED",
-        "pattern": "\\[UNBIASED\\]|-UNBIASED\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "uP",
-        "pattern": "\\[uP\\]"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "USD",
-        "pattern": "\\[USD\\]|-USD\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Valenciano",
-        "pattern": "\\b(Valenciano)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "VipapkStudios",
-        "pattern": "\\b(VipapkStudios)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Wardevil",
-        "pattern": "\\[Wardevil\\]|-Wardevil\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "WtF Anime",
-        "pattern": "\\b(WtF[ ._-]?Anime)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "xiao-av1",
-        "pattern": "\\b(xiao-av1)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Yabai_Desu_NeRandomRemux",
-        "pattern": "\\b(Yabai_Desu_NeRandomRemux)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "YakuboEncodes",
-        "pattern": "\\b(YakuboEncodes)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "youshikibi",
-        "pattern": "\\b(youshikibi)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "YuiSubs",
-        "pattern": "\\b(YuiSubs)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Yun",
-        "pattern": "\\[Yun\\]|-Yun\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "zza",
-        "pattern": "\\[zza\\]|-zza\\b"
-      }
+      {"kind": "ReleaseTitle", "name": "$tore-Chill", "pattern": "\\b(\\$tore-Chill)\\b"},
+      {"kind": "ReleaseTitle", "name": "0neshot", "pattern": "\\b(0neshot)\\b"},
+      {"kind": "ReleaseTitle", "name": "224", "pattern": "\\[224\\]|-224\\b"},
+      {"kind": "ReleaseTitle", "name": "A-Destiny", "pattern": "\\b(A-Destiny)\\b"},
+      {"kind": "ReleaseTitle", "name": "AceAres", "pattern": "\\b(AceAres)\\b"},
+      {"kind": "ReleaseTitle", "name": "AhmadDev", "pattern": "\\b(AhmadDev)\\b"},
+      {"kind": "ReleaseTitle", "name": "Anime Chap", "pattern": "\\b(Anime[ .-]?Chap)\\b"},
+      {"kind": "ReleaseTitle", "name": "Anime Land", "pattern": "\\b(Anime[ .-]?Land)\\b"},
+      {"kind": "ReleaseTitle", "name": "Anime Time", "pattern": "\\b(Anime[ .-]?Time)\\b"},
+      {"kind": "ReleaseTitle", "name": "AnimeDynastyEN", "pattern": "\\b(AnimeDynastyEN)\\b"},
+      {"kind": "ReleaseTitle", "name": "AnimeKuro", "pattern": "\\b(AnimeKuro)\\b"},
+      {"kind": "ReleaseTitle", "name": "AnimeRG", "pattern": "\\b(AnimeRG)\\b"},
+      {"kind": "ReleaseTitle", "name": "Animesubs", "pattern": "\\b(Animesubs)\\b"},
+      {"kind": "ReleaseTitle", "name": "AnimeTR", "pattern": "\\b(AnimeTR)\\b"},
+      {"kind": "ReleaseTitle", "name": "Anitsu", "pattern": "\\b(Anitsu)\\b"},
+      {"kind": "ReleaseTitle", "name": "AniVoid", "pattern": "\\b(AniVoid)\\b"},
+      {"kind": "ReleaseTitle", "name": "ArataEnc", "pattern": "\\b(ArataEnc)\\b"},
+      {"kind": "ReleaseTitle", "name": "AREY", "pattern": "\\b(AREY)\\b"},
+      {"kind": "ReleaseTitle", "name": "Ari", "pattern": "\\[Ari\\]|-Ari\\b"},
+      {"kind": "ReleaseTitle", "name": "ASW", "pattern": "\\b(ASW)\\b"},
+      {"kind": "ReleaseTitle", "name": "BJX", "pattern": "\\b(BJX)\\b"},
+      {"kind": "ReleaseTitle", "name": "BlackLuster", "pattern": "\\b(BlackLuster)\\b"},
+      {"kind": "ReleaseTitle", "name": "bonkai77", "pattern": "\\b(bonkai77)\\b"},
+      {"kind": "ReleaseTitle", "name": "CameEsp", "pattern": "\\b(CameEsp)\\b"},
+      {"kind": "ReleaseTitle", "name": "Cat66", "pattern": "\\b(Cat66)\\b"},
+      {"kind": "ReleaseTitle", "name": "CBB", "pattern": "\\b(CBB)\\b"},
+      {"kind": "ReleaseTitle", "name": "Cerberus", "pattern": "\\[Cerberus\\]|-Cerberus\\b"},
+      {"kind": "ReleaseTitle", "name": "Cleo", "pattern": "\\[Cleo\\]|-Cleo"},
+      {"kind": "ReleaseTitle", "name": "CuaP", "pattern": "\\b(CuaP)\\b"},
+      {"kind": "ReleaseTitle", "name": "DaddySubs", "pattern": "\\[Daddy(Subs)?\\]|-Daddy(Subs)?\\b"},
+      {"kind": "ReleaseTitle", "name": "DARKFLiX", "pattern": "\\b(DARKFLiX)\\b"},
+      {"kind": "ReleaseTitle", "name": "DB", "pattern": "\\[DB\\]"},
+      {"kind": "ReleaseTitle", "name": "DBArabic", "pattern": "\\b(DBArabic)\\b"},
+      {"kind": "ReleaseTitle", "name": "Deadmau- RAWS", "pattern": "\\b(Deadmau[ .-]?[ .-]?RAWS)\\b"},
+      {"kind": "ReleaseTitle", "name": "DKB", "pattern": "\\b(DKB)\\b"},
+      {"kind": "ReleaseTitle", "name": "DP", "pattern": "\\b(DP)\\b"},
+      {"kind": "ReleaseTitle", "name": "DsunS", "pattern": "\\b(DsunS)\\b"},
+      {"kind": "ReleaseTitle", "name": "Emmid", "pattern": "\\[Emmid\\]|-Emmid\\b"},
+      {"kind": "ReleaseTitle", "name": "ExREN", "pattern": "\\b(ExREN)\\b"},
+      {"kind": "ReleaseTitle", "name": "FAV", "pattern": "\\[FAV\\]|-FAV\\b"},
+      {"kind": "ReleaseTitle", "name": "Fish", "pattern": "\\b((Baked|Dead|Space)Fish)\\b"},
+      {"kind": "ReleaseTitle", "name": "FunArts", "pattern": "\\b(FunArts)\\b"},
+      {"kind": "ReleaseTitle", "name": "GERMini", "pattern": "\\b(GERMini)\\b"},
+      {"kind": "ReleaseTitle", "name": "Hakata Ramen", "pattern": "\\b(Hakata[ .-]?Ramen)\\b"},
+      {"kind": "ReleaseTitle", "name": "Hall_of_C", "pattern": "\\b(Hall_of_C)\\b"},
+      {"kind": "ReleaseTitle", "name": "Hatsuyuki", "pattern": "\\[Hatsuyuki\\]|-Hatsuyuki\\b"},
+      {"kind": "ReleaseTitle", "name": "HAV1T", "pattern": "\\b(HAV1T)\\b"},
+      {"kind": "ReleaseTitle", "name": "HENiL", "pattern": "\\b(HENiL)\\b"},
+      {"kind": "ReleaseTitle", "name": "Hitoku", "pattern": "\\[Hitoku\\]|-Hitoku\\b"},
+      {"kind": "ReleaseTitle", "name": "HollowRoxas", "pattern": "\\b(HollowRoxas)\\b"},
+      {"kind": "ReleaseTitle", "name": "HR", "pattern": "\\[HR\\]|-HR\\b"},
+      {"kind": "ReleaseTitle", "name": "ICEBLUE", "pattern": "\\b(ICEBLUE)\\b"},
+      {"kind": "ReleaseTitle", "name": "iPUNISHER", "pattern": "\\b(iPUNISHER)\\b"},
+      {"kind": "ReleaseTitle", "name": "JacobSwaggedUp", "pattern": "\\b(JacobSwaggedUp)\\b"},
+      {"kind": "ReleaseTitle", "name": "Johnny-englishsubs", "pattern": "\\b(Johnny-englishsubs)\\b"},
+      {"kind": "ReleaseTitle", "name": "Kallango", "pattern": "\\[Kallango\\]|-Kallango\\b"},
+      {"kind": "ReleaseTitle", "name": "Kanjouteki", "pattern": "\\b(Kanjouteki)\\b"},
+      {"kind": "ReleaseTitle", "name": "KEKMASTERS", "pattern": "\\b(KEKMASTERS)\\b"},
+      {"kind": "ReleaseTitle", "name": "Kirion", "pattern": "\\b(Kirion)\\b"},
+      {"kind": "ReleaseTitle", "name": "KQRM", "pattern": "\\b(KQRM)\\b"},
+      {"kind": "ReleaseTitle", "name": "KRP", "pattern": "\\b(KRP)\\b"},
+      {"kind": "ReleaseTitle", "name": "LoliHouse", "pattern": "\\b(LoliHouse)\\b"},
+      {"kind": "ReleaseTitle", "name": "M@nI", "pattern": "\\b(M@nI)\\b"},
+      {"kind": "ReleaseTitle", "name": "mal lu zen", "pattern": "\\b(mal[ .-]lu[ .-]zen)\\b"},
+      {"kind": "ReleaseTitle", "name": "Man.K", "pattern": "\\b(Man\\.K)\\b"},
+      {"kind": "ReleaseTitle", "name": "Maximus", "pattern": "\\[Maximus\\]|-Maximus\\b"},
+      {"kind": "ReleaseTitle", "name": "MD", "pattern": "\\[MD\\]|-MD\\b"},
+      {"kind": "ReleaseTitle", "name": "mdcx", "pattern": "\\b(mdcx)\\b"},
+      {"kind": "ReleaseTitle", "name": "Metaljerk", "pattern": "\\b(Metaljerk)\\b"},
+      {"kind": "ReleaseTitle", "name": "MGD", "pattern": "\\b(MGD)\\b"},
+      {"kind": "ReleaseTitle", "name": "MiniFreeza", "pattern": "\\b(MiniFreeza)\\b"},
+      {"kind": "ReleaseTitle", "name": "MiniMTBB", "pattern": "\\b(MiniMTBB)\\b"},
+      {"kind": "ReleaseTitle", "name": "MinisCuba", "pattern": "\\b(MinisCuba)\\b"},
+      {"kind": "ReleaseTitle", "name": "MiniTheatre", "pattern": "\\b(MiniTheatre)\\b"},
+      {"kind": "ReleaseTitle", "name": "Mites", "pattern": "\\b(Mites)\\b"},
+      {"kind": "ReleaseTitle", "name": "Modders Bay", "pattern": "\\b(Modders[ .-]?Bay)\\b"},
+      {"kind": "ReleaseTitle", "name": "Mr. Deadpool", "pattern": "\\b(Mr\\.Deadpool)\\b"},
+      {"kind": "ReleaseTitle", "name": "NemDiggers", "pattern": "\\b(NemDiggers)\\b"},
+      {"kind": "ReleaseTitle", "name": "neoHEVC", "pattern": "\\b(neoHEVC)\\b"},
+      {"kind": "ReleaseTitle", "name": "Nokou", "pattern": "\\b(Nokou)\\b"},
+      {"kind": "ReleaseTitle", "name": "NoobSubs", "pattern": "\\b(N[eo][wo]b[ ._-]?Subs)\\b"},
+      {"kind": "ReleaseTitle", "name": "NS", "pattern": "\\b(NS)\\b"},
+      {"kind": "ReleaseTitle", "name": "Nyanpasu", "pattern": "\\b(Nyanpasu)\\b"},
+      {"kind": "ReleaseTitle", "name": "OldCastle", "pattern": "\\b(OldCastle)\\b"},
+      {"kind": "ReleaseTitle", "name": "Pantsu", "pattern": "\\[Pantsu\\]|-Pantsu\\b"},
+      {"kind": "ReleaseTitle", "name": "Pao", "pattern": "\\[Pao\\]|-Pao\\b"},
+      {"kind": "ReleaseTitle", "name": "phazer11", "pattern": "\\b(phazer11)\\b"},
+      {"kind": "ReleaseTitle", "name": "Pixel", "pattern": "\\[Pixel\\]|-Pixel\\b"},
+      {"kind": "ReleaseTitle", "name": "Plex Friendly", "pattern": "\\b(Plex[ .-]?Friendly)\\b"},
+      {"kind": "ReleaseTitle", "name": "PnPSubs", "pattern": "\\b(PnPSubs)\\b"},
+      {"kind": "ReleaseTitle", "name": "Polarwindz", "pattern": "\\b(Polarwindz)\\b"},
+      {"kind": "ReleaseTitle", "name": "Project-gxs", "pattern": "\\b(Project-gxs)\\b"},
+      {"kind": "ReleaseTitle", "name": "PuyaSubs", "pattern": "\\b(PuyaSubs)\\b"},
+      {"kind": "ReleaseTitle", "name": "QaS", "pattern": "\\b(QAS)\\b"},
+      {"kind": "ReleaseTitle", "name": "QCE", "pattern": "\\b(QCE)\\b"},
+      {"kind": "ReleaseTitle", "name": "Rando235", "pattern": "\\b(Rando235)\\b"},
+      {"kind": "ReleaseTitle", "name": "Ranger", "pattern": "\\[Ranger\\]|-Ranger\\b"},
+      {"kind": "ReleaseTitle", "name": "Rapta", "pattern": "\\[Rapta\\]|-Rapta\\b"},
+      {"kind": "ReleaseTitle", "name": "Raw Files", "pattern": "\\b(M2TS|BDMV|BDVD)\\b"},
+      {"kind": "ReleaseTitle", "name": "Raze", "pattern": "\\[Raze\\]|-Raze\\b"},
+      {"kind": "ReleaseTitle", "name": "Reaktor", "pattern": "\\b(Reaktor)\\b"},
+      {"kind": "ReleaseTitle", "name": "RightShiftBy2", "pattern": "\\b(RightShiftBy2)\\b"},
+      {"kind": "ReleaseTitle", "name": "Rip Time", "pattern": "\\b(Rip[ .-]?Time)\\b"},
+      {"kind": "ReleaseTitle", "name": "SAD", "pattern": "\\[SAD\\]|-SAD\\b"},
+      {"kind": "ReleaseTitle", "name": "Salieri", "pattern": "\\b(Salieri)\\b"},
+      {"kind": "ReleaseTitle", "name": "Samir755", "pattern": "\\b(Samir755)\\b"},
+      {"kind": "ReleaseTitle", "name": "SanKyuu", "pattern": "\\b(SanKyuu)\\b"},
+      {"kind": "ReleaseTitle", "name": "SEiN", "pattern": "\\[SEiN\\]|-SEiN\\b"},
+      {"kind": "ReleaseTitle", "name": "sekkusu&ok", "pattern": "\\b(sekkusu&ok)\\b"},
+      {"kind": "ReleaseTitle", "name": "SHFS", "pattern": "\\b(SHFS)\\b"},
+      {"kind": "ReleaseTitle", "name": "shincaps", "pattern": "\\b(shincaps)\\b"},
+      {"kind": "ReleaseTitle", "name": "SLAX", "pattern": "\\b(SLAX)\\b"},
+      {"kind": "ReleaseTitle", "name": "Sokudo", "pattern": "\\[Sokudo\\]|-Sokudo\\b"},
+      {"kind": "ReleaseTitle", "name": "SRW", "pattern": "\\b(SRW)\\b"},
+      {"kind": "ReleaseTitle", "name": "SSA", "pattern": "\\b(SSA)\\b"},
+      {"kind": "ReleaseTitle", "name": "StrayGods", "pattern": "\\b(StrayGods)\\b"},
+      {"kind": "ReleaseTitle", "name": "Suki Desu", "pattern": "\\[Suki[ .-]?Desu\\]|-Suki[ .-]?Desu\\b"},
+      {"kind": "ReleaseTitle", "name": "TeamTurquoize", "pattern": "\\b(TeamTurquoize)\\b"},
+      {"kind": "ReleaseTitle", "name": "Tenrai Sensei", "pattern": "\\b(Tenrai[ .-]?Sensei)\\b"},
+      {"kind": "ReleaseTitle", "name": "TnF", "pattern": "\\b(TnF)\\b"},
+      {"kind": "ReleaseTitle", "name": "TOPKEK", "pattern": "\\b(TOPKEK)\\b"},
+      {"kind": "ReleaseTitle", "name": "Trix", "pattern": "\\[Trix\\]|-Trix\\b"},
+      {"kind": "ReleaseTitle", "name": "U3-Web", "pattern": "\\b(U3-Web)\\b"},
+      {"kind": "ReleaseTitle", "name": "UNBIASED", "pattern": "\\[UNBIASED\\]|-UNBIASED\\b"},
+      {"kind": "ReleaseTitle", "name": "uP", "pattern": "\\[uP\\]"},
+      {"kind": "ReleaseTitle", "name": "USD", "pattern": "\\[USD\\]|-USD\\b"},
+      {"kind": "ReleaseTitle", "name": "Valenciano", "pattern": "\\b(Valenciano)\\b"},
+      {"kind": "ReleaseTitle", "name": "VipapkStudios", "pattern": "\\b(VipapkStudios)\\b"},
+      {"kind": "ReleaseTitle", "name": "Wardevil", "pattern": "\\[Wardevil\\]|-Wardevil\\b"},
+      {"kind": "ReleaseTitle", "name": "WtF Anime", "pattern": "\\b(WtF[ ._-]?Anime)\\b"},
+      {"kind": "ReleaseTitle", "name": "xiao-av1", "pattern": "\\b(xiao-av1)\\b"},
+      {"kind": "ReleaseTitle", "name": "Yabai_Desu_NeRandomRemux", "pattern": "\\b(Yabai_Desu_NeRandomRemux)\\b"},
+      {"kind": "ReleaseTitle", "name": "YakuboEncodes", "pattern": "\\b(YakuboEncodes)\\b"},
+      {"kind": "ReleaseTitle", "name": "youshikibi", "pattern": "\\b(youshikibi)\\b"},
+      {"kind": "ReleaseTitle", "name": "YuiSubs", "pattern": "\\b(YuiSubs)\\b"},
+      {"kind": "ReleaseTitle", "name": "Yun", "pattern": "\\[Yun\\]|-Yun\\b"},
+      {"kind": "ReleaseTitle", "name": "zza", "pattern": "\\[zza\\]|-zza\\b"}
     ]
   },
   {
     "slug": "dubs-only",
     "name": "Dubs Only",
-    "trashIds": {
-      "radarr": "b23eae459cc960816f2d6ba84af45055",
-      "sonarr": "9c14d194486c4014d422adc64092d794"
-    },
-    "scores": {
-      "default": -10000
-    },
+    "trashIds": {"radarr": "b23eae459cc960816f2d6ba84af45055", "sonarr": "9c14d194486c4014d422adc64092d794"},
+    "scores": {"default": -10000},
     "conditions": [
-      {
-        "kind": "ReleaseTitle",
-        "name": "Dubbed",
-        "pattern": "^(?!.*(Dual|Multi)[-_. ]?Audio).*((?<!multi-)\\b(dub(bed)?)\\b|(funi|eng(lish)?)_?dub)"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Golumpa",
-        "pattern": "\\b(Golumpa)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "KaiDubs (Not Dual Audio)",
-        "pattern": "^(?!.*(dual[ ._-]?audio|[([]dual[])]|(JA|ZH|KO)\\+EN|EN\\+(JA|ZH|KO))).*\\b(KaiDubs)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "KamiFS",
-        "pattern": "\\b(KamiFS)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "KS (Not Dual Audio)",
-        "pattern": "^(?!.*(dual[ ._-]?audio|[([]dual[])]|(JA|ZH|KO)\\+EN|EN\\+(JA|ZH|KO))).*\\bKS\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "torenter69",
-        "pattern": "\\b(torenter69)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Yameii",
-        "pattern": "\\[Yameii\\]|-Yameii\\b"
-      }
+      {"kind": "ReleaseTitle", "name": "Dubbed", "pattern": "^(?!.*(Dual|Multi)[-_. ]?Audio).*((?<!multi-)\\b(dub(bed)?)\\b|(funi|eng(lish)?)_?dub)"},
+      {"kind": "ReleaseTitle", "name": "Golumpa", "pattern": "\\b(Golumpa)\\b"},
+      {"kind": "ReleaseTitle", "name": "KaiDubs (Not Dual Audio)", "pattern": "^(?!.*(dual[ ._-]?audio|[([]dual[])]|(JA|ZH|KO)\\+EN|EN\\+(JA|ZH|KO))).*\\b(KaiDubs)\\b"},
+      {"kind": "ReleaseTitle", "name": "KamiFS", "pattern": "\\b(KamiFS)\\b"},
+      {"kind": "ReleaseTitle", "name": "KS (Not Dual Audio)", "pattern": "^(?!.*(dual[ ._-]?audio|[([]dual[])]|(JA|ZH|KO)\\+EN|EN\\+(JA|ZH|KO))).*\\bKS\\b"},
+      {"kind": "ReleaseTitle", "name": "torenter69", "pattern": "\\b(torenter69)\\b"},
+      {"kind": "ReleaseTitle", "name": "Yameii", "pattern": "\\[Yameii\\]|-Yameii\\b"}
     ]
   },
   {
     "slug": "vostfr",
     "name": "VOSTFR",
-    "trashIds": {
-      "radarr": "9172b2f683f6223e3a1846427b417a3d",
-      "sonarr": "07a32f77690263bb9fda1842db7e273f"
-    },
-    "scores": {
-      "default": -10000
-    },
+    "trashIds": {"radarr": "9172b2f683f6223e3a1846427b417a3d", "sonarr": "07a32f77690263bb9fda1842db7e273f"},
+    "scores": {"default": -10000},
     "conditions": [
-      {
-        "kind": "ReleaseTitle",
-        "name": "VOSTFR",
-        "pattern": "\\b(VOST.*?FR(E|A)?)\\b"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "SUBFRENCH",
-        "pattern": "\\b(SUBFR(A|ENCH)?)\\b"
-      }
+      {"kind": "ReleaseTitle", "name": "VOSTFR", "pattern": "\\b(VOST.*?FR(E|A)?)\\b"},
+      {"kind": "ReleaseTitle", "name": "SUBFRENCH", "pattern": "\\b(SUBFR(A|ENCH)?)\\b"}
     ]
   },
   {
     "slug": "anime-cr",
     "name": "CR",
-    "trashIds": {
-      "sonarr": "3e0b26604165f463f3e8e192261e7284"
-    },
-    "scores": {
-      "anime-sonarr": 6
-    },
+    "trashIds": {"sonarr": "3e0b26604165f463f3e8e192261e7284"},
+    "scores": {"anime-sonarr": 6},
     "conditions": [
-      {
-        "kind": "Source",
-        "name": "WEBDL",
-        "value": "webdl"
-      },
-      {
-        "kind": "Source",
-        "name": "WEBRIP",
-        "value": "webrip"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Crunchyroll",
-        "required": true,
-        "pattern": "\\b(C(runchy)?[ .-]?R(oll)?)\\b"
-      }
+      {"kind": "Source", "name": "WEBDL", "value": "webdl"},
+      {"kind": "Source", "name": "WEBRIP", "value": "webrip"},
+      {"kind": "ReleaseTitle", "name": "Crunchyroll", "required": true, "pattern": "\\b(C(runchy)?[ .-]?R(oll)?)\\b"}
     ]
   },
   {
     "slug": "anime-dsnp",
     "name": "DSNP",
-    "trashIds": {
-      "sonarr": "89358767a60cc28783cdc3d0be9388a4"
-    },
-    "scores": {
-      "anime-sonarr": 5
-    },
+    "trashIds": {"sonarr": "89358767a60cc28783cdc3d0be9388a4"},
+    "scores": {"anime-sonarr": 5},
     "conditions": [
-      {
-        "kind": "ReleaseTitle",
-        "name": "Disney+",
-        "required": true,
-        "pattern": "\\b(dsnp|dsny|disney|Disney\\+)\\b"
-      },
-      {
-        "kind": "Source",
-        "name": "WEBDL",
-        "value": "webdl"
-      },
-      {
-        "kind": "Source",
-        "name": "WEBRIP",
-        "value": "webrip"
-      }
+      {"kind": "ReleaseTitle", "name": "Disney+", "required": true, "pattern": "\\b(dsnp|dsny|disney|Disney\\+)\\b"},
+      {"kind": "Source", "name": "WEBDL", "value": "webdl"},
+      {"kind": "Source", "name": "WEBRIP", "value": "webrip"}
     ]
   },
   {
     "slug": "anime-nf",
     "name": "NF",
-    "trashIds": {
-      "sonarr": "d34870697c9db575f17700212167be23"
-    },
-    "scores": {
-      "anime-sonarr": 4
-    },
+    "trashIds": {"sonarr": "d34870697c9db575f17700212167be23"},
+    "scores": {"anime-sonarr": 4},
     "conditions": [
-      {
-        "kind": "ReleaseTitle",
-        "name": "Netflix",
-        "required": true,
-        "pattern": "\\b(nf|netflix(u?hd)?)\\b"
-      },
-      {
-        "kind": "Source",
-        "name": "WEBDL",
-        "value": "webdl"
-      },
-      {
-        "kind": "Source",
-        "name": "WEBRIP",
-        "value": "webrip"
-      }
+      {"kind": "ReleaseTitle", "name": "Netflix", "required": true, "pattern": "\\b(nf|netflix(u?hd)?)\\b"},
+      {"kind": "Source", "name": "WEBDL", "value": "webdl"},
+      {"kind": "Source", "name": "WEBRIP", "value": "webrip"}
     ]
   },
   {
     "slug": "anime-amzn",
     "name": "AMZN",
-    "trashIds": {
-      "sonarr": "d660701077794679fd59e8bdf4ce3a29"
-    },
-    "scores": {
-      "anime-sonarr": 3
-    },
+    "trashIds": {"sonarr": "d660701077794679fd59e8bdf4ce3a29"},
+    "scores": {"anime-sonarr": 3},
     "conditions": [
-      {
-        "kind": "ReleaseTitle",
-        "name": "Amazon",
-        "required": true,
-        "pattern": "\\b(amzn|amazon(hd)?)\\b"
-      },
-      {
-        "kind": "Source",
-        "name": "WEBDL",
-        "value": "webdl"
-      },
-      {
-        "kind": "Source",
-        "name": "WEBRIP",
-        "value": "webrip"
-      }
+      {"kind": "ReleaseTitle", "name": "Amazon", "required": true, "pattern": "\\b(amzn|amazon(hd)?)\\b"},
+      {"kind": "Source", "name": "WEBDL", "value": "webdl"},
+      {"kind": "Source", "name": "WEBRIP", "value": "webrip"}
     ]
   },
   {
     "slug": "anime-funi",
     "name": "FUNi",
-    "trashIds": {
-      "sonarr": "1284d18e693de8efe0fe7d6b3e0b9170"
-    },
-    "scores": {
-      "anime-sonarr": 2
-    },
+    "trashIds": {"sonarr": "1284d18e693de8efe0fe7d6b3e0b9170"},
+    "scores": {"anime-sonarr": 2},
     "conditions": [
-      {
-        "kind": "Source",
-        "name": "WEBDL",
-        "value": "webdl"
-      },
-      {
-        "kind": "Source",
-        "name": "WEBRIP",
-        "value": "webrip"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Funimation",
-        "required": true,
-        "pattern": "\\b(FUNi(mation)?)\\b"
-      }
+      {"kind": "Source", "name": "WEBDL", "value": "webdl"},
+      {"kind": "Source", "name": "WEBRIP", "value": "webrip"},
+      {"kind": "ReleaseTitle", "name": "Funimation", "required": true, "pattern": "\\b(FUNi(mation)?)\\b"}
     ]
   },
   {
     "slug": "anime-abema",
     "name": "ABEMA",
-    "trashIds": {
-      "sonarr": "a370d974bc7b80374de1d9ba7519760b"
-    },
-    "scores": {
-      "anime-sonarr": 1
-    },
+    "trashIds": {"sonarr": "a370d974bc7b80374de1d9ba7519760b"},
+    "scores": {"anime-sonarr": 1},
     "conditions": [
-      {
-        "kind": "ReleaseTitle",
-        "name": "ABEMA",
-        "required": true,
-        "pattern": "\\b(ABEMA[ ._-]?(TV)?)\\b"
-      },
-      {
-        "kind": "Source",
-        "name": "WEBDL",
-        "value": "webdl"
-      },
-      {
-        "kind": "Source",
-        "name": "WEBRIP",
-        "value": "webrip"
-      }
+      {"kind": "ReleaseTitle", "name": "ABEMA", "required": true, "pattern": "\\b(ABEMA[ ._-]?(TV)?)\\b"},
+      {"kind": "Source", "name": "WEBDL", "value": "webdl"},
+      {"kind": "Source", "name": "WEBRIP", "value": "webrip"}
     ]
   },
   {
     "slug": "anime-adn",
     "name": "ADN",
-    "trashIds": {
-      "sonarr": "d54cd2bf1326287275b56bccedb72ee2"
-    },
-    "scores": {
-      "anime-sonarr": 1
-    },
+    "trashIds": {"sonarr": "d54cd2bf1326287275b56bccedb72ee2"},
+    "scores": {"anime-sonarr": 1},
     "conditions": [
-      {
-        "kind": "Source",
-        "name": "WEBDL",
-        "value": "webdl"
-      },
-      {
-        "kind": "Source",
-        "name": "WEBRIP",
-        "value": "webrip"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "ADN",
-        "required": true,
-        "pattern": "\\b(ADN)\\b"
-      }
+      {"kind": "Source", "name": "WEBDL", "value": "webdl"},
+      {"kind": "Source", "name": "WEBRIP", "value": "webrip"},
+      {"kind": "ReleaseTitle", "name": "ADN", "required": true, "pattern": "\\b(ADN)\\b"}
     ]
   },
   {
     "slug": "anime-b-global",
     "name": "B-Global",
-    "trashIds": {
-      "sonarr": "7dd31f3dee6d2ef8eeaa156e23c3857e"
-    },
-    "scores": {
-      "anime-sonarr": 0
-    },
+    "trashIds": {"sonarr": "7dd31f3dee6d2ef8eeaa156e23c3857e"},
+    "scores": {"anime-sonarr": 0},
     "conditions": [
-      {
-        "kind": "Source",
-        "name": "WEBDL",
-        "value": "webdl"
-      },
-      {
-        "kind": "Source",
-        "name": "WEBRIP",
-        "value": "webrip"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "B-Global",
-        "required": true,
-        "pattern": "\\b(B[ .-]?Global)\\b"
-      }
+      {"kind": "Source", "name": "WEBDL", "value": "webdl"},
+      {"kind": "Source", "name": "WEBRIP", "value": "webrip"},
+      {"kind": "ReleaseTitle", "name": "B-Global", "required": true, "pattern": "\\b(B[ .-]?Global)\\b"}
     ]
   },
   {
     "slug": "anime-bilibili",
     "name": "Bilibili",
-    "trashIds": {
-      "sonarr": "4c67ff059210182b59cdd41697b8cb08"
-    },
-    "scores": {
-      "anime-sonarr": 0
-    },
+    "trashIds": {"sonarr": "4c67ff059210182b59cdd41697b8cb08"},
+    "scores": {"anime-sonarr": 0},
     "conditions": [
-      {
-        "kind": "Source",
-        "name": "WEBDL",
-        "value": "webdl"
-      },
-      {
-        "kind": "Source",
-        "name": "WEBRIP",
-        "value": "webrip"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "Bilibili",
-        "required": true,
-        "pattern": "\\b(Bili(bili)?)\\b"
-      }
+      {"kind": "Source", "name": "WEBDL", "value": "webdl"},
+      {"kind": "Source", "name": "WEBRIP", "value": "webrip"},
+      {"kind": "ReleaseTitle", "name": "Bilibili", "required": true, "pattern": "\\b(Bili(bili)?)\\b"}
     ]
   },
   {
     "slug": "anime-hidive",
     "name": "HIDIVE",
-    "trashIds": {
-      "sonarr": "570b03b3145a25011bf073274a407259"
-    },
-    "scores": {
-      "anime-sonarr": 0
-    },
+    "trashIds": {"sonarr": "570b03b3145a25011bf073274a407259"},
+    "scores": {"anime-sonarr": 0},
     "conditions": [
-      {
-        "kind": "Source",
-        "name": "WEBDL",
-        "value": "webdl"
-      },
-      {
-        "kind": "Source",
-        "name": "WEBRIP",
-        "value": "webrip"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "HIDIVE",
-        "required": true,
-        "pattern": "\\b(HIDI(VE)?)\\b"
-      }
+      {"kind": "Source", "name": "WEBDL", "value": "webdl"},
+      {"kind": "Source", "name": "WEBRIP", "value": "webrip"},
+      {"kind": "ReleaseTitle", "name": "HIDIVE", "required": true, "pattern": "\\b(HIDI(VE)?)\\b"}
     ]
   },
   {
     "slug": "anime-wkn",
     "name": "WKN",
-    "trashIds": {
-      "sonarr": "e5e6405d439dcd1af90962538acd4fe0"
-    },
-    "scores": {
-      "anime-sonarr": 0
-    },
+    "trashIds": {"sonarr": "e5e6405d439dcd1af90962538acd4fe0"},
+    "scores": {"anime-sonarr": 0},
     "conditions": [
-      {
-        "kind": "Source",
-        "name": "WEBDL",
-        "value": "webdl"
-      },
-      {
-        "kind": "Source",
-        "name": "WEBRIP",
-        "value": "webrip"
-      },
-      {
-        "kind": "ReleaseTitle",
-        "name": "WKN",
-        "required": true,
-        "pattern": "\\b(WKN|Waka(nim)?)\\b"
-      }
+      {"kind": "Source", "name": "WEBDL", "value": "webdl"},
+      {"kind": "Source", "name": "WEBRIP", "value": "webrip"},
+      {"kind": "ReleaseTitle", "name": "WKN", "required": true, "pattern": "\\b(WKN|Waka(nim)?)\\b"}
     ]
   }
 ]

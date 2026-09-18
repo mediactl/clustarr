@@ -1,0 +1,479 @@
+[
+  {
+    "slug": "anime-raws",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "06b6542a47037d1e33b15aa3677c2365"
+      },
+      {
+        "app": "sonarr",
+        "trashId": "b4a1b3d705159cdca36d71e57ca86871"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": -10000
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "ReleaseTitle",
+        "name": "AsukaRaws"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Beatrice-Raws"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Daddy-Raws"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Fumi-Raws"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "IrizaRaws"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Kawaiika-Raws"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "km"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Koi-Raws"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Lilith-Raws"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "LowPower-Raws"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Moozzi2"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "NanakoRaws"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "NC-Raws"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "neko-raws"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "New-raws"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Ohys-Raws"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Pandoratv-Raws"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Raws-Maji"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "ReinForce"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Scryous-Raws"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Seicher-Raws"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Shiniori-Raws"
+      }
+    ]
+  },
+  {
+    "slug": "anime-dual-audio",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "4a3b087eea2ce012fcc1ce319259a3be"
+      },
+      {
+        "app": "sonarr",
+        "trashId": "418f50b10f1907201b6cfdf881f467b7"
+      }
+    ],
+    "scores": [],
+    "conditions": [
+      {
+        "kind": "ReleaseTitle",
+        "name": "Dual Audio"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Not Single Language Only"
+      },
+      {
+        "kind": "Language",
+        "name": "Japanese Language"
+      },
+      {
+        "kind": "Language",
+        "name": "Chinese Language"
+      },
+      {
+        "kind": "Language",
+        "name": "Korean Language"
+      }
+    ]
+  },
+  {
+    "slug": "uncensored",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "064af5f084a0a24458cc8ecd3220f93f"
+      }
+    ],
+    "scores": [],
+    "conditions": [
+      {
+        "kind": "ReleaseTitle",
+        "name": "Uncensored"
+      }
+    ]
+  },
+  {
+    "slug": "10bit",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "a5d148168c4506b55cf53984107c396e"
+      }
+    ],
+    "scores": [],
+    "conditions": [
+      {
+        "kind": "ReleaseTitle",
+        "name": "10bit"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "hi10p"
+      }
+    ]
+  },
+  {
+    "slug": "v0",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "c259005cbaeb5ab44c06eddb4751e70c"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": -51
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "ReleaseTitle",
+        "name": "v0"
+      }
+    ]
+  },
+  {
+    "slug": "v1",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "5f400539421b8fcf71d51e6384434573"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 1
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "ReleaseTitle",
+        "name": "v1"
+      }
+    ]
+  },
+  {
+    "slug": "v2",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "3df5e6dfef4b09bb6002f732bed5b774"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 2
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "ReleaseTitle",
+        "name": "v2"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Not Higher Versions"
+      }
+    ]
+  },
+  {
+    "slug": "v3",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "db92c27ba606996b146b57fbe6d09186"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 3
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "ReleaseTitle",
+        "name": "v3"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Not Higher Versions"
+      }
+    ]
+  },
+  {
+    "slug": "v4",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "d4e5e842fad129a3c097bdb2d20d31a0"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 4
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "ReleaseTitle",
+        "name": "v4"
+      }
+    ]
+  },
+  {
+    "slug": "anime-bd-tier-01",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "fb3ccc5d5cc8f77c9055d4cb4561dded"
+      },
+      {
+        "app": "sonarr",
+        "trashId": "949c16fe0a8147f50ba82cc2df9411c9"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 1400
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "Bluray"
+      },
+      {
+        "kind": "Source",
+        "name": "DVD"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "DemiHuman"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "FLE"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Flugel"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "LYS1TH3A"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Moxie"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "sam"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "smol"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "SoM"
+      }
+    ]
+  },
+  {
+    "slug": "anime-web-tier-01",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "8167cffba4febfb9a6988ef24f274e7e"
+      },
+      {
+        "app": "sonarr",
+        "trashId": "e0014372773c8f0e1bef8824f00c7dc4"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 600
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "WEBDL"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBRIP"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Arg0"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Arid"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Baws"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "FLE"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "LostYears"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "LYS1TH3A"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "McBalls"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "sam"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "SCY"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Setsugen"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "smol"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "SoM"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Vodes"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Z4ST1N"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "ZeroBuild"
+      }
+    ]
+  },
+  {
+    "slug": "vrv",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "60f6d50cbd3cfc3e9a8c00e3a30c3114"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 10
+      },
+      {
+        "key": "anime-sonarr",
+        "value": 3
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "ReleaseTitle",
+        "name": "VRV"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBDL"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBRIP"
+      }
+    ]
+  }
+]

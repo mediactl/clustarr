@@ -5,7 +5,7 @@
     "trashIds": {"radarr": "e7718d7a3ce595f289bfee26adc178f5", "sonarr": "ec8fa7296b64e8cd390a1600981f3923"},
     "scores": {"default": 5, "anime-radarr": 1, "anime-sonarr": 1},
     "conditions": [
-      {"kind": "ReleaseTitle", "name": "Repack/Proper/Rerip", "pattern": "\\b(Repack|Proper|Rerip)\\b", "required": true},
+      {"kind": "ReleaseTitle", "name": "Repack/Proper/Rerip", "required": true, "pattern": "\\b(Repack|Proper|Rerip)\\b"},
       {"kind": "ReleaseTitle", "name": "Not Higher Version Repack/Proper", "negate": true, "required": true, "pattern": "\\b((repack|proper)[23])\\b|\\bREAL\\.(REAL\\.)?(PROPER|REPACK)\\b"}
     ]
   },
@@ -15,7 +15,7 @@
     "trashIds": {"radarr": "ae43b294509409a6a13919dedd4764c4", "sonarr": "eb3d5cc0a2be0db205fb823640db6a3c"},
     "scores": {"default": 6, "anime-radarr": 2, "anime-sonarr": 2},
     "conditions": [
-      {"kind": "ReleaseTitle", "name": "Repack/Proper 2 or REAL.PROPER/REPACK", "pattern": "\\b((repack|proper)2)\\b|\\b(REAL\\.(PROPER|REPACK))\\b", "required": true},
+      {"kind": "ReleaseTitle", "name": "Repack/Proper 2 or REAL.PROPER/REPACK", "required": true, "pattern": "\\b((repack|proper)2)\\b|\\b(REAL\\.(PROPER|REPACK))\\b"},
       {"kind": "ReleaseTitle", "name": "Not Repack/Proper 3", "negate": true, "required": true, "pattern": "\\b((repack|proper)3)\\b|\\bREAL\\.(REAL\\.)(PROPER|REPACK)\\b"}
     ]
   },
@@ -25,7 +25,7 @@
     "trashIds": {"radarr": "5caaaa1c08c1742aa4342d8c4cc463f2", "sonarr": "44e7c4de10ae50265753082e5dc76047"},
     "scores": {"default": 7, "anime-radarr": 3, "anime-sonarr": 3},
     "conditions": [
-      {"kind": "ReleaseTitle", "name": "Repack/Proper 3 or REAL.REAL.PROPER/REPACK", "pattern": "\\b((repack|proper)3)\\b|\\b(REAL\\.REAL\\.(PROPER|REPACK))\\b", "required": true}
+      {"kind": "ReleaseTitle", "name": "Repack/Proper 3 or REAL.REAL.PROPER/REPACK", "required": true, "pattern": "\\b((repack|proper)3)\\b|\\b(REAL\\.REAL\\.(PROPER|REPACK))\\b"}
     ]
   }
 ]

@@ -62,31 +62,48 @@
     ]
   },
   {
-    "slug": "v0", "name": "v0", "trashIds": {"radarr": "c259005cbaeb5ab44c06eddb4751e70c"}, "scores": {"default": -51},
-    "conditions": [{"kind": "ReleaseTitle", "name": "v0", "required": true, "pattern": "(\\b|\\d)(v0)\\b"}]
+    "slug": "v0",
+    "name": "v0",
+    "trashIds": {"radarr": "c259005cbaeb5ab44c06eddb4751e70c"},
+    "scores": {"default": -51},
+    "conditions": [
+      {"kind": "ReleaseTitle", "name": "v0", "required": true, "pattern": "(\\b|\\d)(v0)\\b"}
+    ]
   },
   {
-    "slug": "v1", "name": "v1", "trashIds": {"radarr": "5f400539421b8fcf71d51e6384434573"}, "scores": {"default": 1},
+    "slug": "v1",
+    "name": "v1",
+    "trashIds": {"radarr": "5f400539421b8fcf71d51e6384434573"},
+    "scores": {"default": 1},
     "conditions": [
       {"kind": "ReleaseTitle", "name": "v1", "required": true, "pattern": "(\\b|\\d)(v1)\\b"}
     ]
   },
   {
-    "slug": "v2", "name": "v2", "trashIds": {"radarr": "3df5e6dfef4b09bb6002f732bed5b774"}, "scores": {"default": 2},
+    "slug": "v2",
+    "name": "v2",
+    "trashIds": {"radarr": "3df5e6dfef4b09bb6002f732bed5b774"},
+    "scores": {"default": 2},
     "conditions": [
       {"kind": "ReleaseTitle", "name": "v2", "required": true, "pattern": "(\\b|\\d)(v2)\\b|\\b(Repack|Proper|Rerip)\\b"},
       {"kind": "ReleaseTitle", "name": "Not Higher Versions", "negate": true, "required": true, "pattern": "(\\b|\\d)(v[3-4])\\b|\\b((repack|proper)[23])\\b|\\bREAL\\.(REAL\\.)?(PROPER|REPACK)\\b"}
     ]
   },
   {
-    "slug": "v3", "name": "v3", "trashIds": {"radarr": "db92c27ba606996b146b57fbe6d09186"}, "scores": {"default": 3},
+    "slug": "v3",
+    "name": "v3",
+    "trashIds": {"radarr": "db92c27ba606996b146b57fbe6d09186"},
+    "scores": {"default": 3},
     "conditions": [
       {"kind": "ReleaseTitle", "name": "v3", "required": true, "pattern": "(\\b|\\d)(v3)\\b|\\b((repack|proper)2)\\b|\\b(REAL\\.(PROPER|REPACK))\\b"},
       {"kind": "ReleaseTitle", "name": "Not Higher Versions", "negate": true, "required": true, "pattern": "(\\b|\\d)(v[4])\\b|\\b((repack|proper)3)\\b|\\bREAL\\.(REAL\\.)(PROPER|REPACK)\\b"}
     ]
   },
   {
-    "slug": "v4", "name": "v4", "trashIds": {"radarr": "d4e5e842fad129a3c097bdb2d20d31a0"}, "scores": {"default": 4},
+    "slug": "v4",
+    "name": "v4",
+    "trashIds": {"radarr": "d4e5e842fad129a3c097bdb2d20d31a0"},
+    "scores": {"default": 4},
     "conditions": [
       {"kind": "ReleaseTitle", "name": "v4", "required": true, "pattern": "(\\b|\\d)(v4)\\b|\\b((repack|proper)3)\\b|\\b(REAL\\.REAL\\.(PROPER|REPACK))\\b"}
     ]
@@ -135,7 +152,9 @@
     ]
   },
   {
-    "slug": "vrv", "name": "VRV", "trashIds": {"radarr": "60f6d50cbd3cfc3e9a8c00e3a30c3114"},
+    "slug": "vrv",
+    "name": "VRV",
+    "trashIds": {"radarr": "60f6d50cbd3cfc3e9a8c00e3a30c3114"},
     "scores": {"default": 10, "anime-sonarr": 3},
     "conditions": [
       {"kind": "ReleaseTitle", "name": "VRV", "required": true, "pattern": "\\b(vrv)\\b"},

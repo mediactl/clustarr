@@ -1,0 +1,2240 @@
+[
+  {
+    "slug": "anime-bd-tier-02",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "66926c8fa9312bc74ab71bf69aae4f4a"
+      },
+      {
+        "app": "sonarr",
+        "trashId": "ed7f1e315e000aef424a58517fa48727"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 1300
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "Bluray"
+      },
+      {
+        "kind": "Source",
+        "name": "DVD"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Aergia"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Arg0"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Arid"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "BlackRose"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "FateSucks"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "hydes"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "hchcsen"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "JOHNTiTOR"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "JySzE"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "koala"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Kulot"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "LostYears"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Lulu"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Meakes"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Orphan"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Vodes"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "WAP"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "YURI"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "ZeroBuild"
+      }
+    ]
+  },
+  {
+    "slug": "anime-bd-tier-03",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "fa857662bad28d5ff21a6e611869a0ff"
+      },
+      {
+        "app": "sonarr",
+        "trashId": "096e406c92baa713da4a72d88030b815"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 1200
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "Bluray"
+      },
+      {
+        "kind": "Source",
+        "name": "DVD"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "ARC"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "BBT-RMX"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "cappybara"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "ChucksMux"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "CRUCiBLE"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "CUNNY"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Cunnysseur"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Doc"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "fig"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Headpatter"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Inka-Subs"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "LaCroiX"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Legion"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Mehul"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "MTBB"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Mysteria"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "NAN0"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "nekotan"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Netaro"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Noiy"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "npz"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "NTRX"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Okay-Subs"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "P9"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "PMR"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "RUDY"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "RaiN"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "RMX"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Sekkon"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Serendipity"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "sgt"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "SubsMix"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Sylvar"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "uba"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "ZR"
+      }
+    ]
+  },
+  {
+    "slug": "anime-bd-tier-04",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "f262f1299d99b1a2263375e8fa2ddbb3"
+      },
+      {
+        "app": "sonarr",
+        "trashId": "30feba9da3030c5ed1e0f7d610bcadc4"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 1100
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "Bluray"
+      },
+      {
+        "kind": "Source",
+        "name": "DVD"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "ABdex"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Afro"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "aRMX"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "BiRJU"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "BKC"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "CBT"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Chimera"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "derp"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "DIY"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "EXP"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Foxtrot"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "grimf"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "IK"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Iznjie Biznjie"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Kaleido-subs"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Kametsu"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Kawatare"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "KH"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "LazyRemux"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Metal"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "MK"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "neko-kBaraka"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "OZR"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Pizza"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "pog42"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Quetzal"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Reza"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "SCY"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Shimatta"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Smoke"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Spirale"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "UDF"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "UQW"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Virtuality"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Vanilla"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "VULCAN"
+      }
+    ]
+  },
+  {
+    "slug": "anime-bd-tier-05",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "ca864ed93c7b431150cc6748dc34875d"
+      },
+      {
+        "app": "sonarr",
+        "trashId": "545a76b14ddc349b8b185a6344e28b04"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 1000
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "Bluray"
+      },
+      {
+        "kind": "Source",
+        "name": "DVD"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Animorphs"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "AOmundson"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "ASC"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Baws"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Beatrice"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "B00BA"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Cait-Sidhe"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "CsS"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "CTR"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "D4C"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "deanzel"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Drag"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "eldon"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Freehold"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "GHS"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Hark0N"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Holomux"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Judgement"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "MC"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "mottoj"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "NH"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "NTRM"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "o7"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "QM"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Thighs"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "TTGA"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "UltraRemux"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "WBDP"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "WSE"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Yuki"
+      }
+    ]
+  },
+  {
+    "slug": "anime-bd-tier-06",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "9dce189b960fddf47891b7484ee886ca"
+      },
+      {
+        "app": "sonarr",
+        "trashId": "25d2afecab632b1582eaf03b63055f72"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 900
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "Bluray"
+      },
+      {
+        "kind": "Source",
+        "name": "DVD"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "ANE"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Bunny-Apocalypse"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "CyC"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Datte13"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "EJF"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "GetItTwisted"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "GSK_kun"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "iKaos"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "karios"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Pookie"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "RASETSU"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Starbez"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Tsundere"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Yoghurt"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "YURASUKA"
+      }
+    ]
+  },
+  {
+    "slug": "anime-bd-tier-07",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "1ef101b3a82646b40e0cab7fc92cd896"
+      },
+      {
+        "app": "sonarr",
+        "trashId": "0329044e3d9137b08502a9f84a7e58db"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 800
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "Bluray"
+      },
+      {
+        "kind": "Source",
+        "name": "DVD"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "9volt"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "AC"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Almighty"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Asakura"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Asenshi"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "BlurayDesuYo"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Bolshevik"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Brrrrrrr"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Chihiro"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Commie"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Crow"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Dae"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Dekinai"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Dragon-Releases"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "DragsterPS"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Exiled-Destiny"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "FFF"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Final8"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Geonope"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "GJM"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "iAHD"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "inid4c"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Koten_Gars"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "kuchikirukia"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "LCE"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "NTW"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "orz"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "RAI"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "REVO"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "SCP-2223"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Senjou"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "SEV"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "THORA"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Vivid"
+      }
+    ]
+  },
+  {
+    "slug": "anime-bd-tier-08",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "6115ccd6640b978234cc47f2c1f2cadc"
+      },
+      {
+        "app": "sonarr",
+        "trashId": "c81bbfb47fed3d5a3ad027d077f889de"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 700
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "Bluray"
+      },
+      {
+        "kind": "Source",
+        "name": "DVD"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "AkihitoSubs"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Arukoru"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "EDGE"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "EMBER"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "GHOST"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Judas"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "naiyas"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Nep_Blanc"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Prof"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Shir\u03c3"
+      }
+    ]
+  },
+  {
+    "slug": "anime-web-tier-02",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "8526c54e36b4962d340fce52ef030e76"
+      },
+      {
+        "app": "sonarr",
+        "trashId": "19180499de5ef2b84b6ec59aae444696"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 500
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "WEBDL"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBRIP"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "0x539"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Asakura"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "BlackRose"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Cyan"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Cytox"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Dae"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Foxtrot"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Gao"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "GSK_kun"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Half-Baked"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "HatSubs"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "MALD"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "MTBB"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Not-Vodes"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Okay-Subs"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Pizza"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Reza"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Slyfox"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "SoLCE"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Tenshi"
+      }
+    ]
+  },
+  {
+    "slug": "anime-web-tier-03",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "de41e72708d2c856fa261094c85e965d"
+      },
+      {
+        "app": "sonarr",
+        "trashId": "c27f2ae6a4e82373b0f1da094e2489ad"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 400
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "WEBDL"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBRIP"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "AnoZu"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Dooky"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Kitsune"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "SubsPlus+"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "ZR"
+      }
+    ]
+  },
+  {
+    "slug": "anime-web-tier-04",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "9edaeee9ea3bcd585da9b7c0ac3fc54f"
+      },
+      {
+        "app": "sonarr",
+        "trashId": "4fd5528a3a8024e6b49f9c67053ea5f3"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 300
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "WEBDL"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBRIP"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Erai-Raws"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "ToonsHub"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "VARYG"
+      }
+    ]
+  },
+  {
+    "slug": "anime-web-tier-05",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "22d953bbe897857b517928f3652b8dd3"
+      },
+      {
+        "app": "sonarr",
+        "trashId": "29c2a13d091144f63307e4a8ce963a39"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 200
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "WEBDL"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBRIP"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "BlueLobster"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "GST"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "HorribleRips"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "HorribleSubs"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "KAN3D2M"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "KiyoshiStar"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Lia"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "NanDesuKa"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "PlayWeb"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "SobsPlease"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Some-Stuffs"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "SubsPlease"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "URANIME"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "ZigZag"
+      }
+    ]
+  },
+  {
+    "slug": "anime-web-tier-06",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "a786fbc0eae05afe3bb51aee3c83a9d4"
+      },
+      {
+        "app": "sonarr",
+        "trashId": "dc262f88d74c651b12e9d90b39f6c753"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 100
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "WEBDL"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBRIP"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "9volt"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Asenshi"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Chihiro"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Commie"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "DameDesuYo"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Doki"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "GJM"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Kaleido"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Kantai"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "KawaSubs"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Tsundere"
+      }
+    ]
+  },
+  {
+    "slug": "anime-lq-groups",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "b0fdc5897f68c9a68c70c25169f77447"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": -10000
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "ReleaseTitle",
+        "name": "$tore-Chill"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "0neshot"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "224"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "A-Destiny"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "AceAres"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "AhmadDev"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Anime Chap"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Anime Land"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Anime Time"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "AnimeDynastyEN"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "AnimeKuro"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "AnimeRG"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Animesubs"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "AnimeTR"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Anitsu"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "AniVoid"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "ArataEnc"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "AREY"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Ari"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "ASW"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "BJX"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "BlackLuster"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "bonkai77"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "CameEsp"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Cat66"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "CBB"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Cerberus"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Cleo"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "CuaP"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "DaddySubs"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "DARKFLiX"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "DB"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "DBArabic"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Deadmau- RAWS"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "DKB"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "DP"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "DsunS"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Emmid"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "ExREN"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "FAV"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Fish"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "FunArts"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "GERMini"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Hakata Ramen"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Hall_of_C"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Hatsuyuki"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "HAV1T"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "HENiL"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Hitoku"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "HollowRoxas"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "HR"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "ICEBLUE"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "iPUNISHER"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "JacobSwaggedUp"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Johnny-englishsubs"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Kallango"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Kanjouteki"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "KEKMASTERS"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Kirion"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "KQRM"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "KRP"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "LoliHouse"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "M@nI"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "mal lu zen"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Man.K"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Maximus"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "MD"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "mdcx"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Metaljerk"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "MGD"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "MiniFreeza"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "MiniMTBB"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "MinisCuba"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "MiniTheatre"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Mites"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Modders Bay"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Mr. Deadpool"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "NemDiggers"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "neoHEVC"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Nokou"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "NoobSubs"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "NS"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Nyanpasu"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "OldCastle"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Pantsu"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Pao"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "phazer11"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Pixel"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Plex Friendly"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "PnPSubs"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Polarwindz"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Project-gxs"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "PuyaSubs"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "QaS"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "QCE"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Rando235"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Ranger"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Rapta"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Raw Files"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Raze"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Reaktor"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "RightShiftBy2"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Rip Time"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "SAD"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Salieri"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Samir755"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "SanKyuu"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "SEiN"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "sekkusu&ok"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "SHFS"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "shincaps"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "SLAX"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Sokudo"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "SRW"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "SSA"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "StrayGods"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Suki Desu"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "TeamTurquoize"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Tenrai Sensei"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "TnF"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "TOPKEK"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Trix"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "U3-Web"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "UNBIASED"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "uP"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "USD"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Valenciano"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "VipapkStudios"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Wardevil"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "WtF Anime"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "xiao-av1"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Yabai_Desu_NeRandomRemux"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "YakuboEncodes"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "youshikibi"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "YuiSubs"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Yun"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "zza"
+      }
+    ]
+  },
+  {
+    "slug": "dubs-only",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "b23eae459cc960816f2d6ba84af45055"
+      },
+      {
+        "app": "sonarr",
+        "trashId": "9c14d194486c4014d422adc64092d794"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": -10000
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "ReleaseTitle",
+        "name": "Dubbed"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Golumpa"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "KaiDubs (Not Dual Audio)"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "KamiFS"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "KS (Not Dual Audio)"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "torenter69"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Yameii"
+      }
+    ]
+  },
+  {
+    "slug": "vostfr",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "9172b2f683f6223e3a1846427b417a3d"
+      },
+      {
+        "app": "sonarr",
+        "trashId": "07a32f77690263bb9fda1842db7e273f"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": -10000
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "ReleaseTitle",
+        "name": "VOSTFR"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "SUBFRENCH"
+      }
+    ]
+  },
+  {
+    "slug": "anime-cr",
+    "apps": [
+      {
+        "app": "sonarr",
+        "trashId": "3e0b26604165f463f3e8e192261e7284"
+      }
+    ],
+    "scores": [
+      {
+        "key": "anime-sonarr",
+        "value": 6
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "WEBDL"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBRIP"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Crunchyroll"
+      }
+    ]
+  },
+  {
+    "slug": "anime-dsnp",
+    "apps": [
+      {
+        "app": "sonarr",
+        "trashId": "89358767a60cc28783cdc3d0be9388a4"
+      }
+    ],
+    "scores": [
+      {
+        "key": "anime-sonarr",
+        "value": 5
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "ReleaseTitle",
+        "name": "Disney+"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBDL"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBRIP"
+      }
+    ]
+  },
+  {
+    "slug": "anime-nf",
+    "apps": [
+      {
+        "app": "sonarr",
+        "trashId": "d34870697c9db575f17700212167be23"
+      }
+    ],
+    "scores": [
+      {
+        "key": "anime-sonarr",
+        "value": 4
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "ReleaseTitle",
+        "name": "Netflix"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBDL"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBRIP"
+      }
+    ]
+  },
+  {
+    "slug": "anime-amzn",
+    "apps": [
+      {
+        "app": "sonarr",
+        "trashId": "d660701077794679fd59e8bdf4ce3a29"
+      }
+    ],
+    "scores": [
+      {
+        "key": "anime-sonarr",
+        "value": 3
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "ReleaseTitle",
+        "name": "Amazon"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBDL"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBRIP"
+      }
+    ]
+  },
+  {
+    "slug": "anime-funi",
+    "apps": [
+      {
+        "app": "sonarr",
+        "trashId": "1284d18e693de8efe0fe7d6b3e0b9170"
+      }
+    ],
+    "scores": [
+      {
+        "key": "anime-sonarr",
+        "value": 2
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "WEBDL"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBRIP"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Funimation"
+      }
+    ]
+  },
+  {
+    "slug": "anime-abema",
+    "apps": [
+      {
+        "app": "sonarr",
+        "trashId": "a370d974bc7b80374de1d9ba7519760b"
+      }
+    ],
+    "scores": [
+      {
+        "key": "anime-sonarr",
+        "value": 1
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "ReleaseTitle",
+        "name": "ABEMA"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBDL"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBRIP"
+      }
+    ]
+  },
+  {
+    "slug": "anime-adn",
+    "apps": [
+      {
+        "app": "sonarr",
+        "trashId": "d54cd2bf1326287275b56bccedb72ee2"
+      }
+    ],
+    "scores": [
+      {
+        "key": "anime-sonarr",
+        "value": 1
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "WEBDL"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBRIP"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "ADN"
+      }
+    ]
+  },
+  {
+    "slug": "anime-b-global",
+    "apps": [
+      {
+        "app": "sonarr",
+        "trashId": "7dd31f3dee6d2ef8eeaa156e23c3857e"
+      }
+    ],
+    "scores": [
+      {
+        "key": "anime-sonarr",
+        "value": 0
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "WEBDL"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBRIP"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "B-Global"
+      }
+    ]
+  },
+  {
+    "slug": "anime-bilibili",
+    "apps": [
+      {
+        "app": "sonarr",
+        "trashId": "4c67ff059210182b59cdd41697b8cb08"
+      }
+    ],
+    "scores": [
+      {
+        "key": "anime-sonarr",
+        "value": 0
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "WEBDL"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBRIP"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "Bilibili"
+      }
+    ]
+  },
+  {
+    "slug": "anime-hidive",
+    "apps": [
+      {
+        "app": "sonarr",
+        "trashId": "570b03b3145a25011bf073274a407259"
+      }
+    ],
+    "scores": [
+      {
+        "key": "anime-sonarr",
+        "value": 0
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "WEBDL"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBRIP"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "HIDIVE"
+      }
+    ]
+  },
+  {
+    "slug": "anime-wkn",
+    "apps": [
+      {
+        "app": "sonarr",
+        "trashId": "e5e6405d439dcd1af90962538acd4fe0"
+      }
+    ],
+    "scores": [
+      {
+        "key": "anime-sonarr",
+        "value": 0
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "Source",
+        "name": "WEBDL"
+      },
+      {
+        "kind": "Source",
+        "name": "WEBRIP"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "WKN"
+      }
+    ]
+  }
+]

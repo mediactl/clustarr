@@ -115,7 +115,7 @@ type Condition struct {
 	Resolution     int32              // CondResolution
 	Modifier       common.Modifier    // CondModifier
 	Language       string             // CondLanguage; "Original" (languageByID[-2]) resolves against ItemContext.OriginalLanguage. Otherwise an English display name from languageByID (languages.go), matching release.ParsedRelease.Languages' own vocabulary -- never an ISO code.
-	ExceptLanguage bool               // CondLanguage
+	ExceptLanguage bool               // CondLanguage; true means "any detected language other than Language", not a negation of "contains Language" -- see evalCondition's CondLanguage case.
 	Flag           string             // CondIndexerFlag
 	ReleaseType    common.ReleaseType // CondReleaseType
 }
@@ -174,15 +174,29 @@ func evalCondition(ctx context.Context, c Condition, r *release.ParsedRelease, i
 	case CondModifier:
 		raw = r.Quality.Modifier == c.Modifier
 	case CondLanguage:
-		// TODO(generator sync): ExceptLanguage is reserved for a future
-		// per-language-exception list the note mentions but the curated
-		// data set does not use yet; it is decoded onto Condition but not
-		// read here.
 		want := c.Language
 		if want == "Original" {
 			want = ic.OriginalLanguage
 		}
-		raw = slices.Contains(r.Languages, want)
+		if c.ExceptLanguage {
+			// Radarr's LanguageSpecification.IsSatisfiedByWithoutNegate:
+			// when ExceptLanguage is set, the raw match is "any language
+			// differs from the compared language" -- an existential check
+			// over every detected language, not a plain negation of
+			// "contains want". The two coincide for a single-language
+			// release but diverge for a dual-audio one (e.g. [English,
+			// Japanese] against want=English: "except English" is still
+			// satisfied, because Japanese is present too), which is the
+			// scenario this field exists for. The vendored corpus never
+			// sets this field true (docs/research/quality.md's own
+			// "ExceptLanguage => any language != Value" note is the
+			// verified source for this, not a corpus example -- see the
+			// task report), so this is grounded in the upstream
+			// implementation, not guessed from the field's name.
+			raw = slices.ContainsFunc(r.Languages, func(l string) bool { return l != want })
+		} else {
+			raw = slices.Contains(r.Languages, want)
+		}
 	case CondIndexerFlag:
 		raw = slices.Contains(ic.IndexerFlags, c.Flag)
 	case CondReleaseType:

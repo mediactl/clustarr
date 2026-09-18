@@ -1,0 +1,89 @@
+[
+  {
+    "slug": "hdr",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "493b6d1dbec3c3364c59d7607f7e3405"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 500
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "ReleaseTitle",
+        "name": "DV With HDR10 fallback"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "HDR"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "HDR10"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "HDR10+"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "HLG"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "PQ"
+      },
+      {
+        "kind": "ReleaseTitle",
+        "name": "RlsGrp (Missing HDR)"
+      }
+    ]
+  },
+  {
+    "slug": "dv-boost",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "b337d6812e06c200ec9a2d3cfa9d20a7"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 1000
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "ReleaseTitle",
+        "name": "DV"
+      }
+    ]
+  },
+  {
+    "slug": "hdr10-plus-boost",
+    "apps": [
+      {
+        "app": "radarr",
+        "trashId": "caa37d0df9c348912df1fb1d88f9273a"
+      }
+    ],
+    "scores": [
+      {
+        "key": "default",
+        "value": 100
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "ReleaseTitle",
+        "name": "HDR10+"
+      }
+    ]
+  }
+]
