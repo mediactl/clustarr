@@ -16291,6 +16291,11 @@ not pass them — so as things stand the propagation exists and never runs in pr
 amendment §A4's "first end-to-end trace at M1" cannot be true. C1 could not fix this itself:
 `pkg/k8s` and the service `run.go` files are this task's paths, not C1's.
 
+While you are here, close the one gap C1's review left: its hooks contract covers both-hooks-set
+and neither-set, but not the partial cases (`BeforePublish` set with `AfterReceive` nil, and the
+reverse). Installing the hooks for real is when partial configuration first becomes possible, so
+add those two contract subtests in the same round.
+
 Give `ConnectBus` a variadic option parameter, pass `obs.BusHooks()` from each service's
 `Run`, and prove it end to end: a test asserting a published envelope carries the trace when
 the bus was built the way a service builds it. Decide deliberately whether `pkg/k8s` may
