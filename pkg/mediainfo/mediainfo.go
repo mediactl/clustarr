@@ -24,7 +24,68 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // §7 and docs/research/transcode.md §2.
 package mediainfo
 
-import "fmt"
+import (
+	"fmt"
+
+	ffprobe "gopkg.in/vansante/go-ffprobe.v2"
+)
+
+// Raw is the unabridged ffprobe result for one file: every stream, the
+// container format and chapters, plus the HDR/Dolby-Vision and colour
+// detail the CRD-facing MediaInfo cannot hold. pkg/transcode.Planner.Plan
+// takes Raw as its second argument; catalogarr's MediaFile status only
+// ever sees the mapped MediaInfo Probe returns alongside it.
+type Raw struct {
+	Format   *ffprobe.Format
+	Streams  []*ffprobe.Stream
+	Chapters []*ffprobe.Chapter
+
+	// ColorPrimaries, ColorTransfer, ColorSpace and ColorRange are read
+	// from the first decoded frame (the second ffprobe call, mergeFrame),
+	// more reliable than the stream-level tags for some encoders --
+	// docs/research/transcode.md §2.1.
+	ColorPrimaries string
+	ColorTransfer  string
+	ColorSpace     string
+	ColorRange     string
+
+	// Dovi is the primary video stream's "DOVI configuration record" side
+	// data, nil when the source carries no Dolby Vision RPU.
+	Dovi *DoviRecord
+
+	// HasHDR10Plus is true when the first frame carries "HDR Dynamic
+	// Metadata SMPTE2094-40 (HDR10+)" side data.
+	HasHDR10Plus bool
+
+	// MasteringDisplay is the first frame's SMPTE ST 2086 mastering-display
+	// side data, nil when the source carries none.
+	MasteringDisplay *MasteringDisplay
+
+	// ContentLight is the first frame's MaxCLL/MaxFALL side data, nil when
+	// the source carries none.
+	ContentLight *ContentLight
+}
+
+// DoviRecord is the "DOVI configuration record" stream side data
+// (libavutil/side_data.c field names; docs/research/transcode.md §2.2).
+type DoviRecord struct {
+	VersionMajor, VersionMinor       int32
+	Profile, Level                   int32
+	RPUPresent, ELPresent, BLPresent bool
+	BLSignalCompatibilityID          int32
+	MDCompression                    string
+}
+
+// buildRaw copies pd's streams/format/chapters onto Raw and extracts the
+// primary video stream's Dolby Vision record. mergeFrame adds the
+// frame-level merge on top.
+func buildRaw(pd *ffprobe.ProbeData) *Raw {
+	raw := &Raw{Format: pd.Format, Streams: pd.Streams, Chapters: pd.Chapters}
+	if v := pd.FirstVideoStream(); v != nil {
+		raw.Dovi = parseDoviRecord(v.SideDataList)
+	}
+	return raw
+}
 
 // MasteringDisplay is SMPTE ST 2086 mastering-display metadata.
 // Chromaticities are numerators over a fixed denominator of 50000 (CIE
