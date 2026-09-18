@@ -27,6 +27,8 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/pipeline"
 )
 
@@ -56,12 +58,27 @@ type Options struct {
 	Entries func(context.Context) []pipeline.Entry
 
 	// Logger receives the startup warning and handler error logs. Defaults
-	// to slog.Default().
-	//
-	// pkg/obs/logging is being written by a different task in this same
-	// phase; ui does not depend on it and uses slog directly.
+	// to slog.Default() when both this and Logging are zero; [Run] fills it
+	// from Logging when nil, so a test can still inject its own logger
+	// directly here without going through the Logging/flag path.
 	Logger *slog.Logger
+
+	// Logging configures the root logger [Run] builds when Logger is nil.
+	// The zero value is a reasonable default: JSON to stderr at info level.
+	Logging logging.Options
+
+	// Tracing configures the OpenTelemetry SDK. The zero value is a valid,
+	// sampling TracerProvider that exports nowhere -- see
+	// pkg/obs/tracing.Setup. ui has no controller-runtime manager of its
+	// own, so [Run], not [NewServer], is what calls tracing.Setup.
+	Tracing tracing.Options
 }
+
+// Validate exists so ui.Options satisfies the same shape every other
+// service's Options does (cmd/clustarr's deploy-manifest test executes every
+// Deployment's argv and calls Validate() on whatever it produced). There is
+// nothing to check yet: ui takes no --role and reaches no cluster.
+func (o Options) Validate() error { return nil }
 
 // Server is the ui service's whole surface: an HTTP handler and nothing
 // else. It holds no client, no cache and no field manager -- Options.Entries

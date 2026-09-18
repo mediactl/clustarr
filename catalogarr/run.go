@@ -31,6 +31,8 @@ import (
 
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
 // Service identity, from §2 and §6.1.
@@ -133,6 +135,15 @@ type Options struct {
 
 	// Role is the --role value.
 	Role Role
+
+	// Logging configures this process's root logger. The zero value is a
+	// reasonable default: JSON to stderr at info level.
+	Logging logging.Options
+
+	// Tracing configures the OpenTelemetry SDK. The zero value is a valid,
+	// sampling TracerProvider that exports nowhere -- see
+	// pkg/obs/tracing.Setup.
+	Tracing tracing.Options
 }
 
 // DefaultOptions returns the options the Deployment gets with no flags.
@@ -171,6 +182,17 @@ func Run(ctx context.Context, o Options) error {
 	if err := o.Validate(); err != nil {
 		return err
 	}
+
+	logger := logging.New(o.Logging)
+	ctrl.SetLogger(logging.LogrBridge(logger))
+	ctx = logging.NewContext(ctx, logger)
+
+	shutdown, err := tracing.Setup(ctx, o.Tracing)
+	if err != nil {
+		return fmt.Errorf("catalogarr: tracing: %w", err)
+	}
+	defer func() { _ = shutdown(context.Background()) }()
+
 	log := ctrl.LoggerFrom(ctx).WithName(ServiceName)
 	k8s.RegisterRESTClientMetrics()
 

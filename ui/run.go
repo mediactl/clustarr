@@ -24,6 +24,9 @@ import (
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
 // shutdownGrace is how long Run waits for in-flight requests -- including an
@@ -42,6 +45,18 @@ func Run(ctx context.Context, o Options) error {
 	if o.BindAddress == "" {
 		o.BindAddress = DefaultBindAddress
 	}
+
+	logger := logging.New(o.Logging)
+	ctx = logging.NewContext(ctx, logger)
+	if o.Logger == nil {
+		o.Logger = logger
+	}
+
+	shutdown, err := tracing.Setup(ctx, o.Tracing)
+	if err != nil {
+		return fmt.Errorf("ui: tracing: %w", err)
+	}
+	defer func() { _ = shutdown(context.Background()) }()
 
 	srv := NewServer(o)
 	httpSrv := &http.Server{
