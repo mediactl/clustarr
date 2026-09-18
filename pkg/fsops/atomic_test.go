@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -68,4 +69,43 @@ func TestAtomicWriteLeavesNoPartialFileOnFailure(t *testing.T) {
 	require.True(t, os.IsNotExist(statErr), "target must not exist")
 	_, statErr = os.Stat(path + ".partial")
 	require.True(t, os.IsNotExist(statErr), ".partial must not exist")
+}
+
+// TestAtomicWriteAppliesTheModeOverAStalePartialFile: O_CREATE applies mode
+// only when it creates the file, so a .partial left behind by a crashed
+// write (or by a process with a different umask) used to donate its own
+// permissions to the renamed result. Callers pass the mode that must end up
+// on disk -- RootFolderSpec.Perms.FileMode, 0664 by default, which a media
+// server running as another uid in the media group has to be able to read.
+func TestAtomicWriteAppliesTheModeOverAStalePartialFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "movie.nfo")
+	require.NoError(t, os.WriteFile(path+".partial", []byte("crashed"), 0o600))
+	require.NoError(t, os.Chmod(path+".partial", 0o600)) // defeat the umask on creation
+
+	require.NoError(t, AtomicWrite(path, strings.NewReader("fresh content"), 0o664))
+
+	fi, err := os.Stat(path)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o664), fi.Mode().Perm())
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, "fresh content", string(got))
+}
+
+// TestAtomicWriteModeSurvivesTheUmask: the mode a caller passes is the mode
+// on disk, not the mode minus the ambient umask. This test deliberately does
+// not clear the umask (this machine's is 022, which would strip the group
+// write bit from 0664 at creation time).
+func TestAtomicWriteModeSurvivesTheUmask(t *testing.T) {
+	old := syscall.Umask(0o077)
+	t.Cleanup(func() { syscall.Umask(old) })
+
+	path := filepath.Join(t.TempDir(), "movie.nfo")
+	require.NoError(t, AtomicWrite(path, strings.NewReader("x"), 0o664))
+
+	fi, err := os.Stat(path)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o664), fi.Mode().Perm())
 }

@@ -159,3 +159,24 @@ func TestFiltersRejectMalformedArgumentsWithoutPanicking(t *testing.T) {
 		})
 	}
 }
+
+// TestQuerystringFilterErrorDoesNotLeakTheLink is the same class as ruling
+// F6: url.Parse returns a *url.Error whose message embeds the whole input,
+// and the querystring filter's input is a selector-extracted tracker link
+// -- which is precisely where a passkey lives, since extracting one is why
+// the filter exists.
+func TestQuerystringFilterErrorDoesNotLeakTheLink(t *testing.T) {
+	const secret = "SUPERSECRETPASSKEY"
+	fn, ok := cardigann.Filters["querystring"]
+	require.True(t, ok)
+
+	for _, link := range []string{
+		"https://tracker.test/dl.php?passkey=" + secret + "\x7f", // control character
+		"https://tracker.test/dl%zz.php?passkey=" + secret,       // bad percent-escape in the path
+	} {
+		_, err := fn(context.Background(), link, []string{"passkey"}, &cardigann.TemplateContext{})
+		require.Error(t, err)
+		assert.NotContains(t, err.Error(), secret)
+		assert.Contains(t, err.Error(), "querystring")
+	}
+}

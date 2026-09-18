@@ -28,11 +28,24 @@ import (
 // path: it writes to path+".partial" in path's own directory, fsyncs that
 // file and its directory, then renames it onto path. Any failure along
 // the way removes the .partial file first.
+//
+// mode is the mode the finished file carries, unconditionally: O_CREATE
+// applies a mode only when it creates the file, so a .partial left behind
+// by a crashed write would otherwise donate its own permissions to the
+// result, and the process umask would mask the rest. The explicit Chmod
+// below defeats both -- callers pass the mode that has to end up on disk
+// (RootFolderSpec.Perms.FileMode, "0664" by default, so a media server
+// running as another uid in the media group can read what we wrote).
 func AtomicWrite(path string, r io.Reader, mode os.FileMode) error {
 	tmp := path + ".partial"
 	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
 	if err != nil {
 		return fmt.Errorf("fsops: create %s: %w", tmp, err)
+	}
+	if err := f.Chmod(mode); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return fmt.Errorf("fsops: chmod %s: %w", tmp, err)
 	}
 	if _, err := io.Copy(f, r); err != nil {
 		_ = f.Close()

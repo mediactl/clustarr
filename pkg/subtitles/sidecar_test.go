@@ -1,3 +1,5 @@
+//go:build unix
+
 /*
 Copyright 2026 The Clustarr Authors.
 
@@ -30,18 +32,23 @@ import (
 	"github.com/mediactl/clustarr/pkg/subtitles"
 )
 
-// clearUmask drops the process umask for the duration of a test so an
-// assertion on the created file's mode sees the mode that was asked for.
-// Production sets UMASK 002 (spec section 11) so a 0664 sidecar survives
-// there; a developer's 022 would silently strip the group write bit.
-func clearUmask(t *testing.T) {
+// withRestrictiveUmask sets a 0077 umask for the duration of a test, so an
+// assertion that the sidecar carries the mode the caller asked for actually
+// proves it: the write path chmods explicitly (fsops.AtomicWrite) rather
+// than relying on O_CREATE's mode, which the umask masks. Sidecars sit in a
+// group-shared library -- production sets UMASK 002 (spec section 11) --
+// and 0077 is the hostile case that would silently strip the group bits.
+//
+// This is why the file carries //go:build unix: syscall.Umask is
+// Unix-only, and so is the permission model it is asserting.
+func withRestrictiveUmask(t *testing.T) {
 	t.Helper()
-	old := syscall.Umask(0)
+	old := syscall.Umask(0o077)
 	t.Cleanup(func() { syscall.Umask(old) })
 }
 
 func TestWriterWritesAtomicallyAndOverwrites(t *testing.T) {
-	clearUmask(t)
+	withRestrictiveUmask(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "Movie.en.srt")
 
@@ -79,7 +86,7 @@ func TestWriterWritesAtomicallyAndOverwrites(t *testing.T) {
 }
 
 func TestWriterHonoursARestrictiveMode(t *testing.T) {
-	clearUmask(t)
+	withRestrictiveUmask(t)
 	path := filepath.Join(t.TempDir(), "Movie.en.srt")
 	require.NoError(t, subtitles.NewWriter().Write(context.Background(), path, []byte("x"), 0o600))
 	fi, err := os.Stat(path)

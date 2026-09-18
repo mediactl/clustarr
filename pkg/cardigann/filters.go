@@ -80,7 +80,12 @@ func arg(args []string, i int) string {
 func filterQuerystring(_ context.Context, value string, args []string, _ *TemplateContext) (string, error) {
 	u, err := url.Parse(value)
 	if err != nil {
-		return "", fmt.Errorf("cardigann: querystring: %w", err)
+		// value is a selector-extracted tracker link -- extracting a
+		// passkey out of one is why this filter exists -- and
+		// url.Error.Error() embeds its whole input, so the error is
+		// reduced to its cause (ruling F6). The link itself is never
+		// interpolated here.
+		return "", fmt.Errorf("cardigann: querystring: %w", redactErr(err))
 	}
 	return u.Query().Get(arg(args, 0)), nil
 }
