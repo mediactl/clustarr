@@ -73,7 +73,7 @@ func New(cfg Config) *Provider {
 }
 
 func (p *Provider) Name() string       { return "gestdown" }
-func (p *Provider) HIVerifiable() bool { return false } // not in research note §4.1's hearing_impaired_verifiable list; gestdown.py sets hash_verifiable=False and hearing_impaired_verifiable=True on the *subtitle*, but this package tracks HIVerifiable per-provider, and Gestdown never corroborates a hash match (it has none) — see subtitles.Capabilities.HashVerifiable below.
+func (p *Provider) HIVerifiable() bool { return true } // research note §4.1's hearing_impaired_verifiable list explicitly includes gestdown, confirmed against gestdown.py's own `hearing_impaired_verifiable = True` class attribute — the brief's own Step 42 draft said false here, which contradicts the note it cites; corrected, see the task report.
 func (p *Provider) Capabilities() subtitles.Capabilities {
 	return subtitles.Capabilities{Episodes: true} // TV only, research note §4.2
 }
