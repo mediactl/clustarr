@@ -36,6 +36,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -45,6 +46,12 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
+
+// tracingShutdownTimeout bounds how long Run waits for the OpenTelemetry
+// exporter to flush and close on the way out. It is not tied to
+// GracefulShutdownTimeout: that governs the controller-runtime manager's own
+// drain, which has already completed by the time this runs.
+const tracingShutdownTimeout = 5 * time.Second
 
 // Service identity, from §2 and amendment §A1.6.
 const (
@@ -215,7 +222,13 @@ func Run(ctx context.Context, o Options) error {
 	if err != nil {
 		return fmt.Errorf("importarr: tracing: %w", err)
 	}
-	defer func() { _ = shutdown(context.Background()) }()
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), tracingShutdownTimeout)
+		defer cancel()
+		if err := shutdown(shutdownCtx); err != nil {
+			logging.FromContext(ctx).Warn("tracing shutdown", "err", err)
+		}
+	}()
 
 	log := ctrl.LoggerFrom(ctx).WithName(ServiceName)
 	k8s.RegisterRESTClientMetrics()

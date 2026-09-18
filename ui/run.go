@@ -34,6 +34,11 @@ import (
 // listener closed.
 const shutdownGrace = 5 * time.Second
 
+// tracingShutdownTimeout bounds how long Run waits for the OpenTelemetry
+// exporter to flush and close on the way out. Distinct from shutdownGrace,
+// which bounds the HTTP server's own drain, not the tracer's.
+const tracingShutdownTimeout = 5 * time.Second
+
 // Run starts the ui HTTP server and blocks until ctx is cancelled or the
 // server fails to serve. It is the same shape as the other services'
 // Run(ctx, Options) entrypoints (see captionarr.Run, squasharr.Run, ...) so
@@ -56,7 +61,13 @@ func Run(ctx context.Context, o Options) error {
 	if err != nil {
 		return fmt.Errorf("ui: tracing: %w", err)
 	}
-	defer func() { _ = shutdown(context.Background()) }()
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), tracingShutdownTimeout)
+		defer cancel()
+		if err := shutdown(shutdownCtx); err != nil {
+			logging.FromContext(ctx).Warn("tracing shutdown", "err", err)
+		}
+	}()
 
 	srv := NewServer(o)
 	httpSrv := &http.Server{
