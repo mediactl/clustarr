@@ -141,6 +141,44 @@ func TestEngineLoginCaptchaRequiredSignal(t *testing.T) {
 	assert.Equal(t, "image", captchaErr.Type)
 }
 
+// TestEngineLoginPost covers the "post" login method, the one mode the
+// brief's own quoted login_test.go content never exercises (form, cookie,
+// get, and get's oneurl sibling all have coverage above/via the shared
+// loginGet path) — added for this task's own completeness self-review
+// ("every login mode").
+func TestEngineLoginPost(t *testing.T) {
+	var gotUser, gotPass string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.NoError(t, r.ParseForm())
+		gotUser, gotPass = r.Form.Get("username"), r.Form.Get("password")
+		http.SetCookie(w, &http.Cookie{Name: "session", Value: "xyz"})
+	}))
+	defer srv.Close()
+
+	def := &cardigann.Definition{
+		Links: []string{srv.URL + "/"},
+		Login: &cardigann.LoginBlock{
+			Method: "post", Path: "login",
+			Inputs: map[string]cardigann.Scalar{
+				"username": "{{ .Config.username }}",
+				"password": "{{ .Config.password }}",
+			},
+		},
+	}
+	cfg, err := cardigann.NewConfig(def, srv.URL+"/", map[string]string{"username": "bob", "password": "hunter2"})
+	require.NoError(t, err)
+
+	eng := cardigann.Engine{HTTP: srv.Client()}
+	sess, err := eng.Login(context.Background(), def, cfg)
+	require.NoError(t, err)
+	require.NotNil(t, sess)
+	assert.Equal(t, "bob", gotUser)
+	assert.Equal(t, "hunter2", gotPass)
+	require.Len(t, sess.Cookies, 1)
+	assert.Equal(t, "session", sess.Cookies[0].Name)
+}
+
 func TestEngineDetectsCloudflareChallenge(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "cloudflare")
