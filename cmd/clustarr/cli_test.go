@@ -30,6 +30,7 @@ import (
 	"github.com/mediactl/clustarr/captionarr"
 	"github.com/mediactl/clustarr/catalogarr"
 	"github.com/mediactl/clustarr/grabarr"
+	"github.com/mediactl/clustarr/importarr"
 	"github.com/mediactl/clustarr/indexarr"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/version"
@@ -72,7 +73,9 @@ func TestRootListsEveryService(t *testing.T) {
 	if err != nil {
 		t.Fatalf("clustarr --help: %v", err)
 	}
-	for _, want := range []string{"catalogarr", "indexarr", "grabarr", "squasharr", "captionarr", "all", "version"} {
+	for _, want := range []string{
+		"catalogarr", "importarr", "indexarr", "grabarr", "squasharr", "captionarr", "ui", "all", "version",
+	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("help does not mention %q:\n%s", want, out)
 		}
@@ -282,11 +285,17 @@ func TestUnknownRoleIsRejected(t *testing.T) {
 }
 
 func TestEverySubcommandBuildsManagerOptions(t *testing.T) {
-	// One place that proves all five services can render manager options
-	// without a cluster, a kubeconfig or a NATS server.
+	// One place that proves every controller-runtime-backed service can
+	// render manager options without a cluster, a kubeconfig or a NATS
+	// server. ui is absent: it builds no ctrl.Options, having no manager.
 	cases := map[string]func() ctrl.Options{
 		"catalogarr": func() ctrl.Options {
 			o := catalogarr.DefaultOptions()
+			o.Namespace = "clustarr"
+			return o.ManagerOptions()
+		},
+		"importarr": func() ctrl.Options {
+			o := importarr.DefaultOptions()
 			o.Namespace = "clustarr"
 			return o.ManagerOptions()
 		},
@@ -313,6 +322,7 @@ func TestEverySubcommandBuildsManagerOptions(t *testing.T) {
 	}
 	wantIDs := map[string]string{
 		"catalogarr": catalogarr.LeaderElectionID,
+		"importarr":  importarr.LeaderElectionID,
 		"indexarr":   indexarr.LeaderElectionID,
 		"grabarr":    grabarr.LeaderElectionID,
 		"squasharr":  squasharr.LeaderElectionID,

@@ -31,8 +31,10 @@ import (
 	"github.com/mediactl/clustarr/captionarr"
 	"github.com/mediactl/clustarr/catalogarr"
 	"github.com/mediactl/clustarr/grabarr"
+	"github.com/mediactl/clustarr/importarr"
 	"github.com/mediactl/clustarr/indexarr"
 	"github.com/mediactl/clustarr/squasharr"
+	"github.com/mediactl/clustarr/ui"
 )
 
 // validatable is what every service's Options satisfies, so one table can
@@ -58,6 +60,11 @@ var topology = map[string]struct {
 	"squasharr":           {replicas: 1, leaderElect: true},
 	"captionarr":          {replicas: 1, leaderElect: true},
 	"captionarr-worker":   {replicas: 2},
+	"importarr":           {replicas: 1, leaderElect: true},
+	"importarr-worker":    {replicas: 2},
+	// ui has no --leader-elect and no --role: it runs no controller-runtime
+	// manager and reconciles nothing (amendment §A3).
+	"ui": {replicas: 1},
 }
 
 // TestManagerManifestsMatchTheCLI reads every Deployment in config/manager and
@@ -189,17 +196,17 @@ func deploymentsIn(t *testing.T, path string) []appsv1.Deployment {
 	}
 }
 
-// stubEveryService replaces all five entrypoints with recorders, so a caller
-// can execute an arbitrary argv without knowing which service it names.
+// stubEveryService replaces every entrypoint with a recorder, so a caller can
+// execute an arbitrary argv without knowing which service it names.
 func stubEveryService(t *testing.T) *validatable {
 	t.Helper()
 	var got validatable
 
-	catalog, index, grab, squash, caption :=
-		runCatalogarr, runIndexarr, runGrabarr, runSquasharr, runCaptionarr
+	catalog, index, grab, squash, caption, importa, uiRun :=
+		runCatalogarr, runIndexarr, runGrabarr, runSquasharr, runCaptionarr, runImportarr, runUI
 	t.Cleanup(func() {
-		runCatalogarr, runIndexarr, runGrabarr, runSquasharr, runCaptionarr =
-			catalog, index, grab, squash, caption
+		runCatalogarr, runIndexarr, runGrabarr, runSquasharr, runCaptionarr, runImportarr, runUI =
+			catalog, index, grab, squash, caption, importa, uiRun
 	})
 
 	runCatalogarr = func(_ context.Context, o catalogarr.Options) error { got = o; return nil }
@@ -207,6 +214,8 @@ func stubEveryService(t *testing.T) *validatable {
 	runGrabarr = func(_ context.Context, o grabarr.Options) error { got = o; return nil }
 	runSquasharr = func(_ context.Context, o squasharr.Options) error { got = o; return nil }
 	runCaptionarr = func(_ context.Context, o captionarr.Options) error { got = o; return nil }
+	runImportarr = func(_ context.Context, o importarr.Options) error { got = o; return nil }
+	runUI = func(_ context.Context, o ui.Options) error { got = o; return nil }
 	return &got
 }
 

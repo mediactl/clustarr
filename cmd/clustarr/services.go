@@ -26,8 +26,12 @@ import (
 	"github.com/mediactl/clustarr/captionarr"
 	"github.com/mediactl/clustarr/catalogarr"
 	"github.com/mediactl/clustarr/grabarr"
+	"github.com/mediactl/clustarr/importarr"
 	"github.com/mediactl/clustarr/indexarr"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/squasharr"
+	"github.com/mediactl/clustarr/ui"
 )
 
 // The service entrypoints, as variables so the package's tests can execute a
@@ -35,11 +39,25 @@ import (
 // or reaching for a kubeconfig.
 var (
 	runCatalogarr = catalogarr.Run
+	runImportarr  = importarr.Run
 	runIndexarr   = indexarr.Run
 	runGrabarr    = grabarr.Run
 	runSquasharr  = squasharr.Run
 	runCaptionarr = captionarr.Run
+	runUI         = ui.Run
 )
+
+// tracingFor derives the per-service tracing.Options from the root command's
+// shared flags, stamping ServiceName so every span this process starts
+// carries a resource.service.name distinct from every other Clustarr
+// process. common is dereferenced here, once per command execution, after
+// cobra has finished parsing -- never stored, so two subcommands (or two
+// `execute` calls in a test) never share a mutable tracing.Options.
+func tracingFor(common *tracing.Options, serviceName string) tracing.Options {
+	to := *common
+	to.ServiceName = serviceName
+	return to
+}
 
 // roleUsage renders a --role help string from a service's own role list, so
 // the help can never drift from what Validate accepts.
@@ -51,7 +69,7 @@ func roleUsage[R fmt.Stringer](roles []R) string {
 	return "What this replica does: " + strings.Join(names, "|") + "."
 }
 
-func newCatalogarrCommand() *cobra.Command {
+func newCatalogarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	defaults := catalogarr.DefaultOptions()
 	var role string
 
@@ -75,12 +93,14 @@ func newCatalogarrCommand() *cobra.Command {
 		return runCatalogarr(cmd.Context(), catalogarr.Options{
 			Options: *common,
 			Role:    catalogarr.Role(role),
+			Logging: *lo,
+			Tracing: tracingFor(to, catalogarr.ServiceName),
 		})
 	}
 	return cmd
 }
 
-func newIndexarrCommand() *cobra.Command {
+func newIndexarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	defaults := indexarr.DefaultOptions()
 	var (
 		role      string
@@ -111,12 +131,14 @@ func newIndexarrCommand() *cobra.Command {
 			Role:              indexarr.Role(role),
 			IndexPath:         indexPath,
 			FacadeBindAddress: facade,
+			Logging:           *lo,
+			Tracing:           tracingFor(to, indexarr.ServiceName),
 		})
 	}
 	return cmd
 }
 
-func newGrabarrCommand() *cobra.Command {
+func newGrabarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	defaults := grabarr.DefaultOptions()
 	var (
 		role    string
@@ -151,12 +173,14 @@ func newGrabarrCommand() *cobra.Command {
 			Engine:     engine,
 			DataDir:    dataDir,
 			ScratchDir: scratch,
+			Logging:    *lo,
+			Tracing:    tracingFor(to, grabarr.ServiceName),
 		})
 	}
 	return cmd
 }
 
-func newSquasharrCommand() *cobra.Command {
+func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	defaults := squasharr.DefaultOptions()
 	var (
 		role    string
@@ -195,12 +219,14 @@ func newSquasharrCommand() *cobra.Command {
 			Slots:   budget,
 			DataDir: dataDir,
 			JobName: jobName,
+			Logging: *lo,
+			Tracing: tracingFor(to, squasharr.ServiceName),
 		})
 	}
 	return cmd
 }
 
-func newCaptionarrCommand() *cobra.Command {
+func newCaptionarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	defaults := captionarr.DefaultOptions()
 	var (
 		role    string
@@ -226,6 +252,73 @@ func newCaptionarrCommand() *cobra.Command {
 			Options: *common,
 			Role:    captionarr.Role(role),
 			DataDir: dataDir,
+			Logging: *lo,
+			Tracing: tracingFor(to, captionarr.ServiceName),
+		})
+	}
+	return cmd
+}
+
+func newImportarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
+	defaults := importarr.DefaultOptions()
+	var (
+		role     string
+		dataPath string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "importarr",
+		Short: "Root-folder rescan, import lists and completed-download import",
+		Long: "importarr owns everything entering the library: root-folder rescan, import\n" +
+			"lists and completed-download import. It owns no CRD group of its own; its\n" +
+			"controllers and workers read and write catalog.clustarr.io and\n" +
+			"download.clustarr.io resources under their own field manager (amendment §A1.6).",
+		Args:         cobra.NoArgs,
+		SilenceUsage: true,
+	}
+	common := bindCommonFlags(cmd.Flags())
+	cmd.Flags().StringVar(&role, "role", defaults.Role.String(), roleUsage(importarr.Roles()))
+	cmd.Flags().StringVar(&dataPath, "data-path", defaults.DataPath,
+		"RWX media volume, mounted by the importarr-worker Deployment. The controller "+
+			"Deployment does not mount it and only needs this to be non-empty.")
+
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		return runImportarr(cmd.Context(), importarr.Options{
+			Options:  *common,
+			Role:     importarr.Role(role),
+			DataPath: dataPath,
+			Logging:  *lo,
+			Tracing:  tracingFor(to, importarr.ServiceName),
+		})
+	}
+	return cmd
+}
+
+func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
+	var bindAddress string
+
+	cmd := &cobra.Command{
+		Use:   "ui",
+		Short: "Server-rendered web UI",
+		Long: "ui is the server-rendered web UI (templ + htmx + SSE): it never writes status and\n" +
+			"owns no CRD of its own, so it takes no --role. It ships with no login of its own\n" +
+			"and must sit behind ingress authentication (design amendment §A3.5).",
+		Args:         cobra.NoArgs,
+		SilenceUsage: true,
+	}
+	cmd.Flags().StringVar(&bindAddress, "bind-address", ui.DefaultBindAddress,
+		"Address the HTTP server listens on. Serves /healthz, the Pipeline page and its "+
+			"SSE stream on this one address -- ui runs no separate metrics or health port.")
+
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		return runUI(cmd.Context(), ui.Options{
+			BindAddress: bindAddress,
+			// TODO(M3): back Entries with a controller-runtime cache-backed
+			// projection over the Pipeline resources. Until then the Pipeline
+			// page renders with no rows rather than reaching for a cluster ui
+			// has no client for.
+			Logging: *lo,
+			Tracing: tracingFor(to, "ui"),
 		})
 	}
 	return cmd

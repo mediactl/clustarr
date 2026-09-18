@@ -26,6 +26,8 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
 // The environment variables a Clustarr Deployment sets, each the default for
@@ -94,6 +96,36 @@ func bindCommonFlags(fs *pflag.FlagSet) *k8s.Options {
 		"How long to let runnables drain on SIGTERM before the manager returns.")
 
 	return &o
+}
+
+// bindObservabilityFlags registers the logging and tracing flags every
+// subcommand shares and returns the options they write into.
+//
+// Unlike bindCommonFlags (called once per subcommand, on that subcommand's own
+// FlagSet), this is called once on the ROOT command's persistent flags: every
+// subcommand -- including `all` -- inherits the same --log-* and --tracing-*
+// flags rather than each defining its own copy, and every RunE built from the
+// pointers this returns sees the values cobra parsed before dispatching to it.
+//
+// The two returned pointers must come from a single NewRootCommand call and
+// never be shared across calls: a package-level pair would let flag values
+// parsed by one `execute` in a test leak into the next.
+func bindObservabilityFlags(fs *pflag.FlagSet) (*logging.Options, *tracing.Options) {
+	lo := &logging.Options{}
+	logging.BindFlags(fs, lo)
+
+	to := &tracing.Options{SampleRatio: 1}
+	fs.BoolVar(&to.Enabled, "tracing-enabled", to.Enabled,
+		"Export spans over OTLP gRPC. Sampling still runs when this is off; only the exporter is skipped.")
+	fs.StringVar(&to.Endpoint, "tracing-endpoint", to.Endpoint,
+		`OTLP gRPC collector endpoint, e.g. "otel-collector:4317". Read only when --tracing-enabled.`)
+	fs.BoolVar(&to.Insecure, "tracing-insecure", to.Insecure,
+		"Disable transport security on the OTLP gRPC connection. Read only when --tracing-enabled.")
+	fs.Float64Var(&to.SampleRatio, "tracing-sample-ratio", to.SampleRatio,
+		"Fraction (0..1) of root spans sampled. A span whose parent was sampled is always sampled "+
+			"regardless of this ratio; collector-side tail sampling is what keeps every erroring span, "+
+			"not this SDK-side setting (docs/observability.md).")
+	return lo, to
 }
 
 // offsetAddress shifts the port of a "host:port" bind address by n, leaving
