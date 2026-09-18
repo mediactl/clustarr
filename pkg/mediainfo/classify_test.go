@@ -21,6 +21,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
 func TestBitDepthFromPixFmt(t *testing.T) {
@@ -50,4 +52,28 @@ func TestKbpsFromBitRate(t *testing.T) {
 func TestContainerFromPath(t *testing.T) {
 	assert.Equal(t, "mp4", containerFromPath("testdata/mediainfo/sample_h264_8bit.mp4"))
 	assert.Equal(t, "mkv", containerFromPath("/data/movies/Foo/Foo.MKV"))
+}
+
+func TestClassifyHDR(t *testing.T) {
+	tests := map[string]struct {
+		raw  *Raw
+		want commonv1.HdrFormat
+	}{
+		"nil raw":                      {nil, commonv1.HdrFormatNone},
+		"no colour tags":               {&Raw{}, commonv1.HdrFormatNone},
+		"hlg":                          {&Raw{ColorTransfer: "arib-std-b67"}, commonv1.HdrFormatHLG10},
+		"pq10, smpte2084 no mdcv":      {&Raw{ColorTransfer: "smpte2084"}, commonv1.HdrFormatPQ10},
+		"hdr10, smpte2084 with mdcv":   {&Raw{ColorTransfer: "smpte2084", MasteringDisplay: &MasteringDisplay{}}, commonv1.HdrFormatHDR10},
+		"hdr10plus":                    {&Raw{ColorTransfer: "smpte2084", MasteringDisplay: &MasteringDisplay{}, HasHDR10Plus: true}, commonv1.HdrFormatHDR10Plus},
+		"dv profile 5":                 {&Raw{Dovi: &DoviRecord{Profile: 5, BLSignalCompatibilityID: 0}}, commonv1.HdrFormatDolbyVision},
+		"dv profile 7 (EL dropped)":    {&Raw{Dovi: &DoviRecord{Profile: 7, BLSignalCompatibilityID: 6}}, commonv1.HdrFormatDolbyVisionHDR10},
+		"dv profile 8, compat 1 hdr10": {&Raw{Dovi: &DoviRecord{Profile: 8, BLSignalCompatibilityID: 1}}, commonv1.HdrFormatDolbyVisionHDR10},
+		"dv profile 8, compat 2 sdr":   {&Raw{Dovi: &DoviRecord{Profile: 8, BLSignalCompatibilityID: 2}}, commonv1.HdrFormatDolbyVisionSDR},
+		"dv profile 8, compat 4 hlg":   {&Raw{Dovi: &DoviRecord{Profile: 8, BLSignalCompatibilityID: 4}}, commonv1.HdrFormatDolbyVisionHLG},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tc.want, ClassifyHDR(tc.raw))
+		})
+	}
 }

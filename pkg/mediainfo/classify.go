@@ -22,6 +22,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
 // bitDepthFromPixFmt returns the video bit depth ffprobe's pix_fmt
@@ -70,4 +72,47 @@ func kbpsFromBitRate(bitRate string) int32 {
 // ("mov,mp4,m4a,3gp,3g2,mj2" for an .mp4), which is not usable as-is.
 func containerFromPath(path string) string {
 	return strings.ToLower(strings.TrimPrefix(filepath.Ext(path), "."))
+}
+
+// ClassifyHDR derives the api/common HDR vocabulary from raw's Dolby
+// Vision record and frame-level colour tags, per
+// docs/research/transcode.md §2.3 "Deriving HDRFormat" and §3.5's
+// profile/compat-id table.
+func ClassifyHDR(raw *Raw) commonv1.HdrFormat {
+	if raw == nil {
+		return commonv1.HdrFormatNone
+	}
+	if raw.Dovi != nil {
+		switch raw.Dovi.Profile {
+		case 5:
+			return commonv1.HdrFormatDolbyVision
+		case 7:
+			// FFmpeg's decoder drops the enhancement layer, so a profile 7
+			// base layer decodes as HDR10 (docs/research/transcode.md §3.5).
+			return commonv1.HdrFormatDolbyVisionHDR10
+		}
+		switch raw.Dovi.BLSignalCompatibilityID {
+		case 1:
+			return commonv1.HdrFormatDolbyVisionHDR10
+		case 2:
+			return commonv1.HdrFormatDolbyVisionSDR
+		case 4:
+			return commonv1.HdrFormatDolbyVisionHLG
+		default:
+			return commonv1.HdrFormatDolbyVision
+		}
+	}
+	switch {
+	case raw.HasHDR10Plus:
+		return commonv1.HdrFormatHDR10Plus
+	case raw.ColorTransfer == "smpte2084":
+		if raw.MasteringDisplay != nil {
+			return commonv1.HdrFormatHDR10
+		}
+		return commonv1.HdrFormatPQ10
+	case raw.ColorTransfer == "arib-std-b67":
+		return commonv1.HdrFormatHLG10
+	default:
+		return commonv1.HdrFormatNone
+	}
 }
