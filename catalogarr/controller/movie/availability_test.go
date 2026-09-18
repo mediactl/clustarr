@@ -46,23 +46,40 @@ func TestAvailability(t *testing.T) {
 	}{
 		{"tba always available, nil metadata", catalogv1alpha1.MinimumAvailabilityTBA, nil, 0, true, time.Time{}},
 		{"announced always available", catalogv1alpha1.MinimumAvailabilityAnnounced, &catalogv1alpha1.MovieMetadata{}, 30, true, time.Time{}},
-		{"inCinemas known, past date, no delay", catalogv1alpha1.MinimumAvailabilityInCinemas,
-			&catalogv1alpha1.MovieMetadata{InCinemas: mt(2026, 8, 1)}, 0, true, time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)},
-		{"inCinemas known, future date", catalogv1alpha1.MinimumAvailabilityInCinemas,
-			&catalogv1alpha1.MovieMetadata{InCinemas: mt(2026, 10, 1)}, 0, false, time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)},
-		{"inCinemas known, delay pushes it past now", catalogv1alpha1.MinimumAvailabilityInCinemas,
-			&catalogv1alpha1.MovieMetadata{InCinemas: mt(2026, 9, 10)}, 14, false, time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)},
-		{"inCinemas requested but unknown falls through to released-style logic",
+		{
+			"inCinemas known, past date, no delay", catalogv1alpha1.MinimumAvailabilityInCinemas,
+			&catalogv1alpha1.MovieMetadata{InCinemas: mt(2026, 8, 1)}, 0, true, time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			"inCinemas known, future date", catalogv1alpha1.MinimumAvailabilityInCinemas,
+			&catalogv1alpha1.MovieMetadata{InCinemas: mt(2026, 10, 1)}, 0, false, time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			"inCinemas known, delay pushes it past now", catalogv1alpha1.MinimumAvailabilityInCinemas,
+			&catalogv1alpha1.MovieMetadata{InCinemas: mt(2026, 9, 10)}, 14, false, time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			"inCinemas requested but unknown falls through to released-style logic",
 			catalogv1alpha1.MinimumAvailabilityInCinemas,
-			&catalogv1alpha1.MovieMetadata{PhysicalRelease: mt(2026, 9, 1)}, 0, true, time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)},
-		{"released, both dates known, picks the earlier", catalogv1alpha1.MinimumAvailabilityReleased,
-			&catalogv1alpha1.MovieMetadata{PhysicalRelease: mt(2026, 10, 1), DigitalRelease: mt(2026, 9, 1)}, 0, true, time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)},
-		{"released, only digital known", catalogv1alpha1.MinimumAvailabilityReleased,
-			&catalogv1alpha1.MovieMetadata{DigitalRelease: mt(2026, 9, 20)}, 0, false, time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC)},
-		{"released, only inCinemas known, +90 days", catalogv1alpha1.MinimumAvailabilityReleased,
-			&catalogv1alpha1.MovieMetadata{InCinemas: mt(2026, 1, 1)}, 0, true, time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)},
-		{"released, nothing known, never available", catalogv1alpha1.MinimumAvailabilityReleased,
-			&catalogv1alpha1.MovieMetadata{}, 0, false, time.Time{}},
+			&catalogv1alpha1.MovieMetadata{PhysicalRelease: mt(2026, 9, 1)}, 0, true, time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			"released, both dates known, picks the earlier", catalogv1alpha1.MinimumAvailabilityReleased,
+			&catalogv1alpha1.MovieMetadata{PhysicalRelease: mt(2026, 10, 1), DigitalRelease: mt(2026, 9, 1)}, 0, true, time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			"released, only digital known", catalogv1alpha1.MinimumAvailabilityReleased,
+			&catalogv1alpha1.MovieMetadata{DigitalRelease: mt(2026, 9, 20)}, 0, false, time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			"released, only inCinemas known, +90 days", catalogv1alpha1.MinimumAvailabilityReleased,
+			&catalogv1alpha1.MovieMetadata{InCinemas: mt(2026, 1, 1)}, 0, true, time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			"released, nothing known, never available", catalogv1alpha1.MinimumAvailabilityReleased,
+			&catalogv1alpha1.MovieMetadata{}, 0, false,
+			time.Time{},
+		},
 		{"released, nil metadata, never available", catalogv1alpha1.MinimumAvailabilityReleased, nil, 0, false, time.Time{}},
 	}
 	for _, c := range cases {

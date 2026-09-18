@@ -77,7 +77,7 @@ func Availability(
 			date = meta.DigitalRelease.Time
 			known = true
 		case meta.InCinemas != nil:
-			date = meta.InCinemas.Time.AddDate(0, 0, 90)
+			date = meta.InCinemas.AddDate(0, 0, 90)
 			known = true
 		}
 	}
