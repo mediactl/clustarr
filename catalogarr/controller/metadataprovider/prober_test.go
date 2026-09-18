@@ -21,9 +21,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/metadata"
@@ -204,6 +206,20 @@ func TestAudnexusProberSucceeds(t *testing.T) {
 	}
 }
 
-// isAuthError/isRateLimited unit tests (TestIsAuthErrorMatchesWrappedErrAuth,
-// TestIsRateLimitedMatchesRateLimitedError) are added alongside controller.go
-// in a later step, since those two helpers live there.
+// TestIsAuthErrorMatchesWrappedErrAuth and TestIsRateLimitedMatchesRateLimitedError
+// guard the two isAuthError/isRateLimited helpers controller.go uses to map
+// a Probe error onto conditions. They live here, in the unexported test
+// package, because those helpers are unexported.
+func TestIsAuthErrorMatchesWrappedErrAuth(t *testing.T) {
+	wrapped := fmt.Errorf("tmdb: %w", metadata.ErrAuth)
+	if !isAuthError(wrapped) {
+		t.Error("isAuthError did not match a wrapped metadata.ErrAuth")
+	}
+}
+
+func TestIsRateLimitedMatchesRateLimitedError(t *testing.T) {
+	wrapped := fmt.Errorf("tmdb: %w", &metadata.RateLimitedError{Provider: "tmdb", RetryAfter: time.Minute})
+	if !isRateLimited(wrapped) {
+		t.Error("isRateLimited did not match a wrapped *metadata.RateLimitedError")
+	}
+}
