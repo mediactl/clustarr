@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package fsops
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"os"
@@ -42,11 +43,22 @@ var (
 // root or CAP_CHOWN; the RWX volume's fsGroup/UMASK 002 setup (spec §11)
 // is the primary permission mechanism and this is only a best-effort
 // supplement for a root-running worker.
-func SetPermissions(path string, fileMode, dirMode os.FileMode, uid, gid int) error {
+//
+// ctx is checked once before the walk starts and once per visited entry,
+// so a large tree stops promptly on cancellation instead of finishing the
+// whole chmod/chown pass; the returned error wraps ctx's error so
+// errors.Is(err, context.Canceled) (or context.DeadlineExceeded) holds.
+func SetPermissions(ctx context.Context, path string, fileMode, dirMode os.FileMode, uid, gid int) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("fsops: set permissions %s: %w", path, err)
+	}
 	root := geteuid() == 0
 	return filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("fsops: set permissions %s: %w", p, ctxErr)
 		}
 		mode := fileMode
 		if d.IsDir() {

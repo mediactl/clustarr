@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package fsops
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -59,7 +60,17 @@ func Recycle(root, path string) (string, error) {
 // not time.Now(), so the sweeper is deterministically testable. A
 // subdirectory name that does not parse as yyyy-mm-dd is left alone
 // rather than guessed at, per amendment §A1.5's never-guess rule.
-func SweepRecycleBin(root string, retention time.Duration, now time.Time) (int, error) {
+//
+// ctx is checked once before reading root and once per directory entry,
+// so a large bin stops promptly on cancellation instead of finishing the
+// whole sweep; the returned error wraps ctx's error so
+// errors.Is(err, context.Canceled) (or context.DeadlineExceeded) holds.
+// removed still reports how many entries were removed before
+// cancellation was observed.
+func SweepRecycleBin(ctx context.Context, root string, retention time.Duration, now time.Time) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, fmt.Errorf("fsops: sweep recycle bin %s: %w", root, err)
+	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -71,6 +82,9 @@ func SweepRecycleBin(root string, retention time.Duration, now time.Time) (int, 
 	cutoff := now.Add(-retention)
 	removed := 0
 	for _, e := range entries {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return removed, fmt.Errorf("fsops: sweep recycle bin %s: %w", root, ctxErr)
+		}
 		if !e.IsDir() {
 			continue
 		}
