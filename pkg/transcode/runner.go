@@ -19,9 +19,15 @@ package transcode
 
 import (
 	"bufio"
+	"context"
+	"fmt"
 	"math"
+	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
 // Progress mirrors TranscodeJobStatus.Progress's scaled-int fields exactly
@@ -43,6 +49,19 @@ type Progress struct {
 // calling emit once per block. durationMillis is the source duration, used
 // to derive Percent; 0 disables the percentage (Percent stays 0).
 func ParseProgressStream(sc *bufio.Scanner, durationMillis int64, emit func(Progress)) error {
+	return scanProgressBlocks(sc, func(fields map[string]string, _ bool) {
+		emit(progressFromFields(fields, durationMillis))
+	})
+}
+
+// scanProgressBlocks is the shared block-accumulator behind
+// ParseProgressStream and Runner.Run: it reads sc's key=value lines,
+// accumulating one block per "progress=continue"/"progress=end" line, and
+// calls onBlock once per block with the raw fields and whether this was the
+// terminal "end" block. Run needs the isEnd flag itself (to decide whether
+// ffmpeg finished cleanly), which is why it builds on this rather than
+// ParseProgressStream directly.
+func scanProgressBlocks(sc *bufio.Scanner, onBlock func(fields map[string]string, isEnd bool)) error {
 	fields := make(map[string]string)
 	for sc.Scan() {
 		key, value, ok := strings.Cut(sc.Text(), "=")
@@ -56,7 +75,7 @@ func ParseProgressStream(sc *bufio.Scanner, durationMillis int64, emit func(Prog
 		if key != "progress" || (value != "continue" && value != "end") {
 			continue
 		}
-		emit(progressFromFields(fields, durationMillis))
+		onBlock(fields, value == "end")
 		fields = make(map[string]string)
 	}
 	return sc.Err()
@@ -122,4 +141,108 @@ func parseBitrateKbps(s string) int32 {
 		return 0
 	}
 	return int32(f) // truncates towards zero, matching "truncates to whole kbps"
+}
+
+// stderrTailLimit matches TranscodeJobStatus.StderrTail's MaxLength (see
+// api/transcode/v1alpha1), so RunError.StderrTail can be copied straight
+// into CRD status.
+const stderrTailLimit = 4096
+
+// stderrTail is an io.Writer that keeps only the most recently written
+// stderrTailLimit bytes.
+type stderrTail struct{ buf []byte }
+
+func (w *stderrTail) Write(p []byte) (int, error) {
+	w.buf = append(w.buf, p...)
+	if len(w.buf) > stderrTailLimit {
+		w.buf = w.buf[len(w.buf)-stderrTailLimit:]
+	}
+	return len(p), nil
+}
+
+func (w *stderrTail) String() string { return string(w.buf) }
+
+// RunError is returned by Runner.Run on any non-nil-error exit: a bad exit
+// code, a signal, or ffmpeg exiting cleanly without ever reporting
+// progress=end. StderrTail is capped at 4096 bytes, the same limit as
+// TranscodeJobStatus.StderrTail, so a caller can copy it directly into CRD
+// status.
+type RunError struct {
+	ExitCode   int
+	StderrTail string
+	Err        error
+}
+
+func (e *RunError) Error() string {
+	return fmt.Sprintf("transcode: ffmpeg exited %d: %s", e.ExitCode, e.StderrTail)
+}
+
+func (e *RunError) Unwrap() error { return e.Err }
+
+// Runner runs ffmpeg for a rendered Plan.
+type Runner struct{ FFmpegPath string }
+
+// NewRunner returns a Runner that shells out to ffmpegPath.
+func NewRunner(ffmpegPath string) Runner { return Runner{FFmpegPath: ffmpegPath} }
+
+// Run executes plan's rendered argv (via Args(plan)), streaming Progress to
+// the progress callback at ffmpeg's own -stats_period cadence (Args always
+// renders -stats_period 1) until a final progress=end block. Returns nil on
+// a clean exit with progress=end observed; otherwise a *RunError.
+func (r Runner) Run(ctx context.Context, plan *PlanResult, progress func(Progress)) error {
+	ctx, span := tracing.Start(ctx, "transcode.run")
+	defer span.End()
+
+	args := Args(plan)
+	logger := logging.FromContext(ctx)
+	logger.Info("transcode: running ffmpeg", "argv", args)
+
+	cmd := exec.CommandContext(ctx, r.FFmpegPath, args...)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("transcode: run: stdout pipe: %w", err)
+	}
+	tail := &stderrTail{}
+	cmd.Stderr = tail
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("transcode: run: start: %w", err)
+	}
+
+	var sawEnd bool
+	var last Progress
+	scanDone := make(chan error, 1)
+	go func() {
+		scanDone <- scanProgressBlocks(bufio.NewScanner(stdout), func(fields map[string]string, isEnd bool) {
+			p := progressFromFields(fields, 0)
+			if isEnd {
+				sawEnd = true
+				p.Percent = 100
+			}
+			last = p
+			progress(p)
+		})
+	}()
+
+	waitErr := cmd.Wait()
+	<-scanDone // scanDone's send happens-after the goroutine's writes to sawEnd/last
+
+	if waitErr != nil || !sawEnd {
+		exitCode := -1
+		if cmd.ProcessState != nil {
+			exitCode = cmd.ProcessState.ExitCode()
+		}
+		cause := waitErr
+		if cause == nil {
+			cause = fmt.Errorf("transcode: run: ffmpeg exited cleanly without a progress=end block")
+		}
+		runErr := &RunError{ExitCode: exitCode, StderrTail: tail.String(), Err: cause}
+		tracing.RecordError(span, runErr)
+		logger.Error("transcode: ffmpeg run failed", "error", runErr, "exitCode", exitCode, "progress", last)
+		return runErr
+	}
+
+	logger.Info("transcode: ffmpeg run complete", "progress", last)
+	return nil
 }

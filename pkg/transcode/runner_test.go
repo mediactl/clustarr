@@ -19,7 +19,9 @@ package transcode_test
 
 import (
 	"bufio"
+	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -45,4 +47,27 @@ func TestParseProgressBlockMatchesTheVerifiedNoteExample(t *testing.T) {
 	require.Equal(t, int32(9240), p.SpeedMilli)    // speed=9.24x -> 9240
 	require.Equal(t, int32(623), p.BitrateKbps)    // "623.4kbits/s" -> 623
 	require.Equal(t, int32(30), p.Percent)         // 3000ms / 10000ms duration
+}
+
+func TestRunReturnsATypedErrorWithTheStderrTailOnNonZeroExit(t *testing.T) {
+	if _, err := os.Stat("/usr/bin/ffmpeg"); err != nil {
+		t.Skip("ffmpeg not present on this box")
+	}
+	r := transcode.NewRunner("/usr/bin/ffmpeg")
+	plan := &transcode.PlanResult{
+		Decision:  transcode.DecisionEncode,
+		Input:     "/nonexistent/does-not-exist.mkv", // ffmpeg exits 1 with "No such file or directory"
+		Output:    filepath.Join(t.TempDir(), "out.part.mkv"),
+		Container: transcode.ContainerMKV,
+		VideoArgs: []string{"-c:v", "copy"},
+	}
+
+	err := r.Run(context.Background(), plan, func(transcode.Progress) {})
+	require.Error(t, err)
+
+	var runErr *transcode.RunError
+	require.ErrorAs(t, err, &runErr)
+	require.NotZero(t, runErr.ExitCode)
+	require.Contains(t, strings.ToLower(runErr.StderrTail), "no such file")
+	require.LessOrEqual(t, len(runErr.StderrTail), 4096)
 }
