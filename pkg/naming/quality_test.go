@@ -38,6 +38,8 @@ func TestRenderQualityFull(t *testing.T) {
 		{"remux 1080p", commonv1.Quality{Source: commonv1.SourceBluray, Resolution: 1080, Modifier: commonv1.ModifierRemux}, commonv1.Revision{Version: 1}, "Remux-1080p"},
 		{"sdtv", commonv1.Quality{Source: commonv1.SourceTV, Resolution: 480}, commonv1.Revision{Version: 1}, "SDTV"},
 		{"real", commonv1.Quality{Source: commonv1.SourceWebRip, Resolution: 720}, commonv1.Revision{Version: 1, Real: 1}, "WEBRip-720p REAL"},
+		{"remux at a below-720p TV source still carries the resolution suffix", commonv1.Quality{Source: commonv1.SourceTV, Resolution: 480, Modifier: commonv1.ModifierRemux}, commonv1.Revision{Version: 1}, "Remux-480p"},
+		{"br-disk at a below-720p TV source still carries the resolution suffix", commonv1.Quality{Source: commonv1.SourceTV, Resolution: 480, Modifier: commonv1.ModifierBRDisk}, commonv1.Revision{Version: 1}, "BR-DISK-480p"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

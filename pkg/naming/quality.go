@@ -40,11 +40,15 @@ var sourceDisplay = map[commonv1.Source]string{
 // with a proper/repack/real suffix, following the Radarr/Sonarr naming
 // convention. Below-720p TV source collapses to the fixed name "SDTV" with
 // no resolution suffix -- SDTV is itself a complete quality-tier name in
-// the *arr vocabulary, not "SDTV-480p"; the same collapse applies with any
-// Modifier (Remux, BR-DISK) that itself already carries no resolution.
+// the *arr vocabulary, not "SDTV-480p". That collapse applies only to a
+// plain TV source: a Remux or BR-DISK modifier always keeps its resolution
+// suffix (e.g. "Remux-480p"), even on a Quality whose Source also happens
+// to be tv, since Remux/BR-DISK are themselves complete quality tiers
+// distinct from SDTV's "no useful resolution" case.
 func qualityFull(q commonv1.Quality, r commonv1.Revision) string {
 	base := sourceDisplay[q.Source]
-	sdtv := q.Source == commonv1.SourceTV && q.Resolution > 0 && q.Resolution < 720
+	modified := q.Modifier == commonv1.ModifierRemux || q.Modifier == commonv1.ModifierBRDisk
+	sdtv := !modified && q.Source == commonv1.SourceTV && q.Resolution > 0 && q.Resolution < 720
 	if sdtv {
 		base = "SDTV"
 	}
