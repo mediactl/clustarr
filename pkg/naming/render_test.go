@@ -97,3 +97,84 @@ func TestRenderTruncatesEpisodeCleanTitleToNChars(t *testing.T) {
 	require.Len(t, got, 90)
 	require.Equal(t, long[:90], got)
 }
+
+// TestRenderMalformedInput feeds Render garbage, truncated and empty
+// templates, per the global constraint that every parser has a test for
+// each. Every case must return a well-defined (output, error) pair and
+// must not panic; none of these are valid *arr templates, but Render's
+// single-pass, non-nesting regex (\{[^{}]*\}) gives every one of them a
+// well-defined, if sometimes surprising, outcome rather than failing to
+// compile or looping.
+func TestRenderMalformedInput(t *testing.T) {
+	tests := []struct {
+		name    string
+		tmpl    string
+		ctx     naming.Context
+		want    string
+		wantErr error // nil means no error
+	}{
+		{
+			name: "empty template",
+			tmpl: "",
+			ctx:  naming.Context{},
+			want: "",
+		},
+		{
+			name: "unbalanced open brace: no closing brace, so no token matches and the text is literal",
+			tmpl: "{Movie Title",
+			ctx:  naming.Context{Title: "Heat"},
+			want: "{Movie Title",
+		},
+		{
+			name: "unbalanced close brace: no opening brace, so no token matches and the text is literal",
+			tmpl: "Movie Title}",
+			ctx:  naming.Context{Title: "Heat"},
+			want: "Movie Title}",
+		},
+		{
+			name:    "empty token: {} has no token name",
+			tmpl:    "{}",
+			ctx:     naming.Context{},
+			want:    "",
+			wantErr: naming.ErrUnknownToken,
+		},
+		{
+			name: "nested braces: the grammar does not nest, so the outer braces are literal text around one inner token",
+			tmpl: "{{Movie Title}}",
+			ctx:  naming.Context{Title: "Heat"},
+			want: "{Heat}",
+		},
+		{
+			name:    "wrapper character only, no token name",
+			tmpl:    "{-}",
+			ctx:     naming.Context{},
+			want:    "",
+			wantErr: naming.ErrUnknownToken,
+		},
+		{
+			name:    "modifier only, no token name",
+			tmpl:    "{:00}",
+			ctx:     naming.Context{},
+			want:    "",
+			wantErr: naming.ErrUnknownToken,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := naming.NewEngine(naming.Config{})
+
+			var got string
+			var err error
+			require.NotPanics(t, func() {
+				got, err = e.Render(tt.tmpl, tt.ctx)
+			})
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
