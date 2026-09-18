@@ -54,7 +54,7 @@ func MovieHash(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("mediainfo: movie hash: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	st, err := f.Stat()
 	if err != nil {
