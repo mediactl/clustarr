@@ -1,0 +1,114 @@
+[
+  {
+    "slug": "hd-bluray-tier-01",
+    "name": "HD Bluray Tier 01",
+    "trashIds": {"radarr": "ed27ebfef2f323e964fb1f61391bcb35"},
+    "scores": {"default": 1800},
+    "conditions": [
+      {"kind": "Source", "name": "BLURAY", "required": true, "value": "bluray"},
+      {"kind": "Modifier", "name": "Not REMUX", "negate": true, "required": true, "value": "remux"},
+      {"kind": "Resolution", "name": "Not 2160p", "negate": true, "required": true, "resolution": 2160},
+      {"kind": "ReleaseGroup", "name": "ATELiER", "pattern": "^(ATELiER)$"},
+      {"kind": "ReleaseGroup", "name": "BBQ", "pattern": "^(BBQ)$"},
+      {"kind": "ReleaseGroup", "name": "BMF", "pattern": "^(BMF)$"},
+      {"kind": "ReleaseGroup", "name": "c0kE", "pattern": "^(c0kE)$"},
+      {"kind": "ReleaseGroup", "name": "Chotab", "pattern": "^(Chotab)$"},
+      {"kind": "ReleaseGroup", "name": "CRiSC", "pattern": "^(CRiSC)$"},
+      {"kind": "ReleaseGroup", "name": "CtrlHD", "pattern": "^(CtrlHD)$"},
+      {"kind": "ReleaseGroup", "name": "D-Z0N3", "pattern": "^(D-Z0N3)$"},
+      {"kind": "ReleaseGroup", "name": "Dariush", "pattern": "^(Dariush)$"},
+      {"kind": "ReleaseGroup", "name": "decibeL", "pattern": "^(decibeL)$"},
+      {"kind": "ReleaseGroup", "name": "DON", "pattern": "^(DON)$"},
+      {"kind": "ReleaseGroup", "name": "EbP", "pattern": "^(EbP)$"},
+      {"kind": "ReleaseGroup", "name": "EDPH", "pattern": "^(EDPH)$"},
+      {"kind": "ReleaseGroup", "name": "Geek", "pattern": "^(Geek)$"},
+      {"kind": "ReleaseGroup", "name": "LolHD", "pattern": "^(LolHD)$"},
+      {"kind": "ReleaseGroup", "name": "NCmt", "pattern": "^(NCmt)$"},
+      {"kind": "ReleaseGroup", "name": "PTer", "pattern": "^(PTer)$"},
+      {"kind": "ReleaseGroup", "name": "TayTO", "pattern": "^(TayTO)$"},
+      {"kind": "ReleaseGroup", "name": "TDD", "pattern": "^(TDD)$"},
+      {"kind": "ReleaseGroup", "name": "TnP", "pattern": "^(TnP)$"},
+      {"kind": "ReleaseGroup", "name": "VietHD", "pattern": "^(VietHD)$"},
+      {"kind": "ReleaseGroup", "name": "ZQ", "pattern": "^(ZQ)$"},
+      {"kind": "ReleaseGroup", "name": "ZoroSenpai", "pattern": "^(ZoroSenpai)$"}
+    ]
+  },
+  {
+    "slug": "uhd-bluray-tier-01",
+    "name": "UHD Bluray Tier 01",
+    "trashIds": {"radarr": "4d74ac4c4db0b64bff6ce0cffef99bf0"},
+    "scores": {"default": 1800},
+    "conditions": [
+      {"kind": "Modifier", "name": "Not REMUX", "negate": true, "required": true, "value": "remux"},
+      {"kind": "Source", "name": "Not WEBDL", "negate": true, "required": true, "value": "webdl"},
+      {"kind": "Source", "name": "Not WEBRIP", "negate": true, "required": true, "value": "webrip"},
+      {"kind": "Resolution", "name": "2160p", "required": true, "resolution": 2160},
+      {"kind": "ReleaseGroup", "name": "CtrlHD", "pattern": "^(CtrlHD)$"},
+      {"kind": "ReleaseGroup", "name": "MainFrame", "pattern": "^(MainFrame)$"},
+      {"kind": "ReleaseGroup", "name": "DON", "pattern": "^(DON)$"},
+      {"kind": "ReleaseGroup", "name": "W4NK3R", "pattern": "^(W4NK3R)$"}
+    ]
+  },
+  {
+    "slug": "remux-tier-01",
+    "name": "Remux Tier 01",
+    "trashIds": {"radarr": "3a3ff47579026e76d6504ebea39390de"},
+    "scores": {"default": 1950, "anime-radarr": 975, "anime-sonarr": 975},
+    "conditions": [
+      {"kind": "Modifier", "name": "Remux", "required": true, "value": "remux"},
+      {"kind": "ReleaseGroup", "name": "3L", "pattern": "^(3L)$"},
+      {"kind": "ReleaseGroup", "name": "ATELiER", "pattern": "^(ATELiER)$"},
+      {"kind": "ReleaseGroup", "name": "BiZKiT", "pattern": "^(BiZKiT)$"},
+      {"kind": "ReleaseGroup", "name": "BLURANiUM", "pattern": "^(BLURANiUM)$"},
+      {"kind": "ReleaseGroup", "name": "BMF", "pattern": "^(BMF)$"},
+      {"kind": "ReleaseGroup", "name": "CiNEPHiLES", "pattern": "^(CiNEPHiLES)$"},
+      {"kind": "ReleaseGroup", "name": "FraMeSToR", "pattern": "^(FraMeSToR)$"},
+      {"kind": "ReleaseGroup", "name": "PiRAMiDHEAD", "pattern": "^(PiRAMiDHEAD)$"},
+      {"kind": "ReleaseGroup", "name": "PmP", "pattern": "^(PmP)$"},
+      {"kind": "ReleaseGroup", "name": "WiLDCAT", "pattern": "^(WiLDCAT)$"},
+      {"kind": "ReleaseGroup", "name": "ZQ", "pattern": "^(ZQ)$"}
+    ]
+  },
+  {
+    "slug": "web-tier-01",
+    "name": "WEB Tier 01",
+    "trashIds": {"radarr": "c20f169ef63c5f40c2def54abaf4438e"},
+    "scores": {"default": 1700},
+    "conditions": [
+      {"kind": "Source", "name": "WEBDL", "value": "webdl"},
+      {"kind": "Source", "name": "WEBRIP", "value": "webrip"},
+      {"kind": "ReleaseGroup", "name": "ABBIE", "pattern": "^(ABBIE)$"},
+      {"kind": "ReleaseGroup", "name": "AJP69", "pattern": "^(AJP69)$"},
+      {"kind": "ReleaseGroup", "name": "APEX", "pattern": "^(APEX|PAXA|PEXA|XEPA)$"},
+      {"kind": "ReleaseGroup", "name": "BLUTONiUM", "pattern": "^(BLUTONiUM)$"},
+      {"kind": "ReleaseGroup", "name": "BYNDR", "pattern": "^(BYNDR)$"},
+      {"kind": "ReleaseGroup", "name": "CMRG", "pattern": "^(CMRG)$"},
+      {"kind": "ReleaseGroup", "name": "CRFW", "pattern": "^(CRFW)$"},
+      {"kind": "ReleaseGroup", "name": "CRUD", "pattern": "^(CRUD)$"},
+      {"kind": "ReleaseGroup", "name": "FLUX", "pattern": "^(FLUX)$"},
+      {"kind": "ReleaseGroup", "name": "GNOME", "pattern": "^(GNOME)$"},
+      {"kind": "ReleaseGroup", "name": "HONE", "pattern": "^(HONE)$"},
+      {"kind": "ReleaseGroup", "name": "KiNGS", "pattern": "^(KiNGS)$"},
+      {"kind": "ReleaseGroup", "name": "Kitsune", "pattern": "^(Kitsune)$"},
+      {"kind": "ReleaseGroup", "name": "MADSKY", "pattern": "^(MADSKY)$"},
+      {"kind": "ReleaseGroup", "name": "NOSiViD", "pattern": "^(NOSiViD)$"},
+      {"kind": "ReleaseGroup", "name": "NTb", "pattern": "^(NTb)$"},
+      {"kind": "ReleaseGroup", "name": "NTG", "pattern": "^(NTG)$"},
+      {"kind": "ReleaseGroup", "name": "RAWR", "pattern": "^(RAWR)$"},
+      {"kind": "ReleaseGroup", "name": "SiC", "pattern": "^(SiC)$"},
+      {"kind": "ReleaseGroup", "name": "TEPES", "pattern": "^(TEPES)$"},
+      {"kind": "ReleaseGroup", "name": "TheFarm", "pattern": "^(TheFarm)$"},
+      {"kind": "ReleaseGroup", "name": "ZoroSenpai", "pattern": "^(ZoroSenpai)$"}
+    ]
+  },
+  {
+    "slug": "web-scene",
+    "name": "WEB Scene",
+    "trashIds": {"sonarr": "d0c516558625b04b363fa6c5c2c7cfd4"},
+    "scores": {"default": 1600},
+    "conditions": [
+      {"kind": "ReleaseGroup", "name": "DEFLATE", "pattern": "^(DEFLATE)$"},
+      {"kind": "ReleaseGroup", "name": "INFLATE", "pattern": "^(INFLATE)$"}
+    ]
+  }
+]

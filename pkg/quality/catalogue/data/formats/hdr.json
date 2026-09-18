@@ -1,0 +1,35 @@
+[
+  {
+    "slug": "hdr",
+    "name": "HDR",
+    "trashIds": {"radarr": "493b6d1dbec3c3364c59d7607f7e3405"},
+    "scores": {"default": 500},
+    "conditions": [
+      {"kind": "ReleaseTitle", "name": "DV With HDR10 fallback", "pattern": "^(?=.*\\b(dv|dovi|dolby[ .]?v(ision)?)\\b)(?!(?=.*\\b(WEB[ ._-]?(DL|Rip)?)\\b)(?!.*\\b(hulu)\\b))"},
+      {"kind": "ReleaseTitle", "name": "HDR", "pattern": "\\b(HDR)\\b"},
+      {"kind": "ReleaseTitle", "name": "HDR10", "pattern": "\\b(HDR10(?![+]|P(lus)?))"},
+      {"kind": "ReleaseTitle", "name": "HDR10+", "pattern": "\\b(HDR10(?=[+]|P(lus)?))"},
+      {"kind": "ReleaseTitle", "name": "HLG", "pattern": "\\b(HLG)\\b"},
+      {"kind": "ReleaseTitle", "name": "PQ", "pattern": "\\b(PQ)\\b"},
+      {"kind": "ReleaseTitle", "name": "RlsGrp (Missing HDR)", "pattern": "^(?=.*\\b(FraMeSToR|HQMUX|SiCFoI)\\b)(?=.*\\b(2160p)\\b)(?!.*\\b(HDR10([+]|P(lus)?)))(?!.*\\b(SDR)\\b).*"}
+    ]
+  },
+  {
+    "slug": "dv-boost",
+    "name": "DV Boost",
+    "trashIds": {"radarr": "b337d6812e06c200ec9a2d3cfa9d20a7"},
+    "scores": {"default": 1000},
+    "conditions": [
+      {"kind": "ReleaseTitle", "name": "DV", "pattern": "\\b(dv|dovi|dolby[ .]?v(ision)?)\\b"}
+    ]
+  },
+  {
+    "slug": "hdr10-plus-boost",
+    "name": "HDR10+ Boost",
+    "trashIds": {"radarr": "caa37d0df9c348912df1fb1d88f9273a"},
+    "scores": {"default": 100},
+    "conditions": [
+      {"kind": "ReleaseTitle", "name": "HDR10+", "pattern": "\\b(HDR10(?=[+]|P(lus)?))"}
+    ]
+  }
+]

@@ -156,3 +156,99 @@ func TestScoreSumsMatchedFormatsAndDefaultsUnscoredSlugsToZero(t *testing.T) {
 	require.ElementsMatch(t, []string{"a", "b", "c"}, matched)
 	require.Equal(t, -9900, score) // 100 + -10000 + 0(unscored "c") = -9900
 }
+
+// loadAllEmbeddedFormats reads and decodes every data/formats/*.json family
+// file, keyed by slug. Shared by TestMatchAgainstRealEmbeddedFormats below
+// and by parity_test.go's TestEveryEmbeddedFormatMatchesItsCorpusSource.
+func loadAllEmbeddedFormats(t *testing.T) map[string]*catalogue.Format {
+	t.Helper()
+	entries, err := catalogue.FormatFS().ReadDir("data/formats")
+	require.NoError(t, err)
+	out := map[string]*catalogue.Format{}
+	for _, e := range entries {
+		doc, err := catalogue.FormatFS().ReadFile("data/formats/" + e.Name())
+		require.NoError(t, err)
+		formats, err := catalogue.DecodeFormats(doc)
+		require.NoError(t, err)
+		for _, f := range formats {
+			out[f.Slug] = f
+		}
+	}
+	return out
+}
+
+// TestMatchAgainstRealEmbeddedFormats is the regression test that would have
+// caught a broken generated-dynamic-hdr two-Kind-group or a
+// uhd-bluray-tier-01 double-negated-Source bug: it runs Match against every
+// embedded format at once with real release titles.
+func TestMatchAgainstRealEmbeddedFormats(t *testing.T) {
+	all := loadAllEmbeddedFormats(t)
+	cat := &catalogue.Catalogue{Formats: all}
+
+	// Every case carries Languages: []string{"en"} and is matched against
+	// ItemContext{OriginalLanguage: "en"}: without them, the embedded
+	// language-not-original/language-not-english formats (Step 18) would
+	// spuriously match every case here, since an *empty* language list
+	// vacuously satisfies a negated "contains" check -- that is the correct
+	// per-condition semantics (see catalogue.go's evalCondition doc), not a
+	// bug to work around by weakening it; realistic fixture data avoids it.
+	cases := []struct {
+		name string
+		r    *release.ParsedRelease
+		want []string
+	}{
+		{
+			"Bluray 1080p from a HD Bluray Tier 01 group",
+			&release.ParsedRelease{
+				Title: "Movie.Title.2020.1080p.BluRay.DTS-HD.MA.5.1.x264-CtrlHD", Group: "CtrlHD",
+				Quality: common.Quality{Source: common.SourceBluray, Resolution: common.Resolution1080p}, Languages: []string{"en"},
+			},
+			[]string{"hd-bluray-tier-01"},
+		},
+		{
+			"Bluray 1080p Remux from a Remux Tier 01 group is not HD Bluray Tier 01",
+			&release.ParsedRelease{
+				Title: "Movie.Title.2020.1080p.BluRay.REMUX.AVC.DTS-HD.MA-FraMeSToR", Group: "FraMeSToR",
+				Quality: common.Quality{Source: common.SourceBluray, Resolution: common.Resolution1080p, Modifier: common.ModifierRemux}, Languages: []string{"en"},
+			},
+			[]string{"remux-tier-01"},
+		},
+		{
+			// "v2" also legitimately matches: its real (corpus-verified,
+			// Step 22) pattern is `(\b|\d)(v2)\b|\b(Repack|Proper|Rerip)\b`,
+			// so a bare "Repack" with no explicit version number matches it
+			// too (the "Not Higher Versions" negated condition only excludes
+			// an explicit v3/v4 or repack2/3/REAL) -- this is real upstream
+			// TRaSH behavior, not a test bug; Match is scoreSet-agnostic, so
+			// this anime-family format matches regardless of profile.
+			"WEBDL 1080p from a WEB Tier 01 group, repack",
+			&release.ParsedRelease{
+				Title: "Movie.Title.2020.Repack.1080p.WEB-DL.DDP5.1.H.264-NTb", Group: "NTb",
+				Quality: common.Quality{Source: common.SourceWebDL, Resolution: common.Resolution1080p}, Languages: []string{"en"},
+			},
+			[]string{"web-tier-01", "repack-proper", "v2"},
+		},
+		{
+			"UHD Bluray Tier 01 group at 2160p, not WEB",
+			&release.ParsedRelease{
+				Title: "Movie.Title.2020.2160p.UHD.BluRay.x265-DON", Group: "DON",
+				Quality: common.Quality{Source: common.SourceBluray, Resolution: common.Resolution2160p}, Languages: []string{"en"},
+			},
+			[]string{"uhd-bluray-tier-01"},
+		},
+		{
+			"AMZN WEBDL matches amzn but not any bluray tier",
+			&release.ParsedRelease{
+				Title: "Series.Title.S01.1080p.AMZN.WEB-DL.DDP5.1.H.264-NTb", Group: "NTb",
+				Quality: common.Quality{Source: common.SourceWebDL, Resolution: common.Resolution1080p}, Languages: []string{"en"},
+			},
+			[]string{"amzn", "web-tier-01"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := cat.Match(context.Background(), tc.r, catalogue.ItemContext{OriginalLanguage: "en"})
+			require.ElementsMatch(t, tc.want, got)
+		})
+	}
+}

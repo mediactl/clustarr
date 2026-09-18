@@ -1,0 +1,20 @@
+[
+  {
+    "slug": "language-not-original",
+    "name": "Language: Not Original",
+    "trashIds": {"radarr": "d6e9318c875905d6cfb5bee961afcea9"},
+    "scores": {"default": -10000},
+    "conditions": [
+      {"kind": "Language", "name": "Not Original Language", "negate": true, "value": "original"}
+    ]
+  },
+  {
+    "slug": "language-not-english",
+    "name": "Language: Not English",
+    "trashIds": {"radarr": "0dc8aec3bd1c47cd6c40c46ecd27e846"},
+    "scores": {"default": -10000},
+    "conditions": [
+      {"kind": "Language", "name": "Not English Language", "negate": true, "value": "en"}
+    ]
+  }
+]

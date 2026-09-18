@@ -1,0 +1,14 @@
+[
+  {
+    "slug": "amzn",
+    "name": "AMZN",
+    "trashIds": {"radarr": "b3b3a6ac74ecbd56bcdbefa4799fb9df"},
+    "scores": {"default": 75, "anime-sonarr": 3},
+    "group": "streamingBoost",
+    "conditions": [
+      {"kind": "ReleaseTitle", "name": "Amazon", "pattern": "\\b(amzn|amazon(hd)?)\\b", "required": true},
+      {"kind": "Source", "name": "WEBDL", "value": "webdl"},
+      {"kind": "Source", "name": "WEBRIP", "value": "webrip"}
+    ]
+  }
+]

@@ -1,0 +1,58 @@
+[
+  {
+    "slug": "x265-hd",
+    "name": "x265 (HD)",
+    "trashIds": {"radarr": "dc98083864ea246d05a42df0d05f81cc", "sonarr": "47435ece6b99a0b477caf360e79ba0bb"},
+    "scores": {"default": -10000},
+    "conditions": [
+      {"kind": "ReleaseTitle", "name": "x265/HEVC", "pattern": "[xh][ ._-]?265|\\bHEVC(\\b|\\d)", "required": true},
+      {"kind": "Resolution", "name": "Not 2160p", "negate": true, "required": true, "resolution": 2160}
+    ]
+  },
+  {
+    "slug": "av1",
+    "name": "AV1",
+    "trashIds": {"radarr": "cae4ca30163749b891686f95532519bd", "sonarr": "15a05bc7c1a36e2b57fd628f8977e2fc"},
+    "scores": {"default": -10000, "anime-radarr": -10000, "anime-sonarr": -10000},
+    "conditions": [
+      {"kind": "ReleaseTitle", "name": "AV1", "pattern": "\\bAV1\\b", "required": true}
+    ]
+  },
+  {
+    "slug": "extras",
+    "name": "Extras",
+    "trashIds": {"radarr": "0a3f082873eb454bde444150b70253cc"},
+    "scores": {"default": -10000},
+    "conditions": [
+      {"kind": "ReleaseTitle", "name": "Extras", "pattern": "(?<=\\b[12]\\d{3}\\b).*\\b(Extras|Bonus|Extended[ ._-]Clip)\\b", "required": true}
+    ]
+  },
+  {
+    "slug": "br-disk",
+    "name": "BR-DISK",
+    "trashIds": {"radarr": "ed38b889b31be83fda192888e2286d83"},
+    "scores": {"default": -10000},
+    "conditions": [
+      {"kind": "ReleaseTitle", "name": "BR-DISK", "required": true, "pattern": "^(?!.*\\b((?<!HD[._ -]|HD)DVD|BDRip|MKV|XviD|WMV|d3g|(BD)?REMUX|^(?=.*1080p)(?=.*HEVC)|[xh][-_. ]?26[45]|German.*[DM]L|((?<=\\d{4}).*German.*([DM]L)?)(?=.*\\b(AVC|HEVC|VC[-_. ]?1|MVC|MPEG[-_. ]?2)\\b))\\b)(((?=.*\\b(Blu[-_. ]?ray|BD|HD[-_. ]?DVD)\\b)(?=.*\\b(AVC|HEVC|VC[-_. ]?1|MVC|MPEG[-_. ]?2|BDMV|ISO)\\b))|^((?=.*\\b(((?=.*\\b((.*_)?COMPLETE.*|Dis[ck])\\b)(?=.*(Blu[-_. ]?ray|HD[-_. ]?DVD)))|3D[-_. ]?BD|BR[-_. ]?DISK|Full[-_. ]?Blu[-_. ]?ray|^((?=.*((BD|UHD)[-_. ]?(25|50|66|100|ISO)))))))).*"}
+    ]
+  },
+  {
+    "slug": "generated-dynamic-hdr",
+    "name": "Generated Dynamic HDR",
+    "trashIds": {"radarr": "e6886871085226c3da1830830146846c"},
+    "scores": {"default": -10000},
+    "conditions": [
+      {"kind": "ReleaseGroup", "name": "BiTOR", "pattern": "^(BiTOR)$"},
+      {"kind": "ReleaseGroup", "name": "DepraveD", "pattern": "^(DepraveD)$"},
+      {"kind": "ReleaseGroup", "name": "Flights", "pattern": "^(Flights)$"},
+      {"kind": "ReleaseGroup", "name": "GuyZo", "pattern": "^(GuyZo|BR-GuyZo)$"},
+      {"kind": "ReleaseGroup", "name": "SasukeducK", "pattern": "^(SasukeducK)$"},
+      {"kind": "ReleaseGroup", "name": "tarunk9c", "pattern": "^(tarunk9c)$"},
+      {"kind": "ReleaseGroup", "name": "VD0N", "pattern": "^(VD0N)$"},
+      {"kind": "ReleaseGroup", "name": "VECTOR", "pattern": "^(VECTOR)$"},
+      {"kind": "ReleaseGroup", "name": "VisionXpert", "pattern": "^(VisionXpert)$"},
+      {"kind": "ReleaseTitle", "name": "HDR10+", "pattern": "\\bHDR10(\\+|P(lus)?\\b)"},
+      {"kind": "ReleaseTitle", "name": "DV", "pattern": "\\b(dv|dovi|dolby[ .]?v(ision)?)\\b"}
+    ]
+  }
+]

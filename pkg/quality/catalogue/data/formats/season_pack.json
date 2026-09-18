@@ -1,0 +1,12 @@
+[
+  {
+    "slug": "season-pack",
+    "name": "Season Pack",
+    "trashIds": {"sonarr": "3bc5f395426614e155e585a2f056cdf1"},
+    "scores": {"default": 10},
+    "group": "seasonPack",
+    "conditions": [
+      {"kind": "ReleaseType", "name": "Season Packs", "value": "seasonPack"}
+    ]
+  }
+]
