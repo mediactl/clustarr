@@ -32,7 +32,7 @@ spec:
       type: string
     - jsonPath: .status.progress.percent
       name: Progress
-      type: number
+      type: integer
     - jsonPath: .status.attempts
       name: Attempts
       priority: 1

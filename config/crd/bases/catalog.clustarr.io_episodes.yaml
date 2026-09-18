@@ -1,0 +1,361 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: episodes.catalog.clustarr.io
+spec:
+  group: catalog.clustarr.io
+  names:
+    categories:
+    - clustarr
+    - catalog
+    - media
+    kind: Episode
+    listKind: EpisodeList
+    plural: episodes
+    shortNames:
+    - ep
+    singular: episode
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.seriesRef
+      name: Series
+      type: string
+    - jsonPath: .spec.seasonNumber
+      name: Season
+      type: integer
+    - jsonPath: .spec.episodeNumber
+      name: Episode
+      type: integer
+    - jsonPath: .status.title
+      name: Title
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.hasFile
+      name: File
+      type: boolean
+    - jsonPath: .status.conditions[?(@.type=="Aired")].status
+      name: Aired
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Episode is one episode of a Series. Episodes are created and owned by the
+          Series controller and named <series>-s<NN>e<NN>, or <series>-<yyyy-mm-dd>
+          for daily series.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              EpisodeSpec defines the desired state of Episode. Episodes are created and
+              owned by their Series; only Monitored is meant to be edited by users.
+            properties:
+              episodeNumber:
+                description: EpisodeNumber is the episode number within the season.
+                format: int32
+                minimum: 0
+                type: integer
+                x-kubernetes-validations:
+                - message: episodeNumber is immutable
+                  rule: self == oldSelf
+              monitored:
+                default: true
+                description: |-
+                  Monitored enables automatic searching for this episode. The Series
+                  controller sets it at creation and per the series' monitorNewItems; after
+                  that it belongs to the user.
+                type: boolean
+              seasonNumber:
+                description: SeasonNumber is the season the episode belongs to; 0
+                  is the specials season.
+                format: int32
+                minimum: 0
+                type: integer
+                x-kubernetes-validations:
+                - message: seasonNumber is immutable
+                  rule: self == oldSelf
+              seriesRef:
+                description: SeriesRef is the name of the owning Series in the same
+                  namespace.
+                type: string
+                x-kubernetes-validations:
+                - message: seriesRef is immutable
+                  rule: self == oldSelf
+            required:
+            - episodeNumber
+            - seasonNumber
+            - seriesRef
+            type: object
+          status:
+            description: EpisodeStatus describes the observed state of Episode.
+            properties:
+              absoluteNumber:
+                description: AbsoluteNumber is the absolute episode number, used for
+                  anime.
+                format: int32
+                type: integer
+              activeDownloadRef:
+                description: ActiveDownloadRef is the Download currently working on
+                  this episode.
+                type: string
+              airDate:
+                description: AirDate is when the episode first aired.
+                format: date-time
+                type: string
+              conditions:
+                description: Conditions represent the latest available observations
+                  of the episode's state.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                maxItems: 8
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              cutoffMet:
+                description: CutoffMet is true when the imported file meets the profile
+                  cutoff.
+                type: boolean
+              fileFormatScore:
+                description: FileFormatScore is the custom-format score of the imported
+                  file.
+                format: int32
+                type: integer
+              fileQuality:
+                description: FileQuality is the quality of the imported file.
+                properties:
+                  modifier:
+                    description: Modifier refines the quality (remux, screener, ...).
+                    enum:
+                    - none
+                    - regional
+                    - screener
+                    - rawhd
+                    - brdisk
+                    - remux
+                    type: string
+                  name:
+                    description: Name is the canonical quality definition name.
+                    type: string
+                  resolution:
+                    description: Resolution is the vertical resolution in lines. Video
+                      only.
+                    enum:
+                    - 0
+                    - 360
+                    - 480
+                    - 540
+                    - 576
+                    - 720
+                    - 1080
+                    - 2160
+                    format: int32
+                    type: integer
+                  source:
+                    description: Source is the release source. Video only.
+                    enum:
+                    - unknown
+                    - cam
+                    - telesync
+                    - telecine
+                    - workprint
+                    - dvd
+                    - tv
+                    - webdl
+                    - webrip
+                    - bluray
+                    type: string
+                required:
+                - name
+                type: object
+              fileRef:
+                description: FileRef is the name of the MediaFile backing the episode.
+                type: string
+              finaleType:
+                description: FinaleType marks a season or series finale, e.g. "season"
+                  or "series".
+                type: string
+              hasFile:
+                description: HasFile is true while a MediaFile backs the episode.
+                type: boolean
+              lastSearchedAt:
+                description: LastSearchedAt is when the episode was last searched
+                  for.
+                format: date-time
+                type: string
+              observedGeneration:
+                description: ObservedGeneration is the generation of the spec this
+                  status reflects.
+                format: int64
+                type: integer
+              overview:
+                description: Overview is the episode synopsis.
+                type: string
+              pendingGrab:
+                description: PendingGrab is a chosen release waiting out a DelayProfile
+                  delay.
+                properties:
+                  grabAt:
+                    description: GrabAt is when the delay expires and the grab will
+                      be issued.
+                    format: date-time
+                    type: string
+                  protocol:
+                    description: Protocol is the transfer protocol of the pending
+                      release.
+                    enum:
+                    - torrent
+                    - usenet
+                    type: string
+                  releaseTitle:
+                    description: ReleaseTitle is the raw title of the release that
+                      will be grabbed.
+                    type: string
+                required:
+                - grabAt
+                - releaseTitle
+                type: object
+              phase:
+                description: Phase is the coarse lifecycle state of the episode.
+                enum:
+                - Unaired
+                - Wanted
+                - Delayed
+                - Downloading
+                - Imported
+                - CutoffUnmet
+                - Unmonitored
+                type: string
+              runtimeMinutes:
+                description: RuntimeMinutes is the episode runtime in minutes.
+                format: int32
+                type: integer
+              sceneNumbering:
+                description: SceneNumbering is the numbering scene releases use for
+                  this episode.
+                properties:
+                  absolute:
+                    description: Absolute is the scene absolute episode number.
+                    format: int32
+                    type: integer
+                  episode:
+                    description: Episode is the scene episode number.
+                    format: int32
+                    type: integer
+                  season:
+                    description: Season is the scene season number.
+                    format: int32
+                    type: integer
+                  unverified:
+                    description: Unverified is true when the mapping has not been
+                      confirmed upstream.
+                    type: boolean
+                type: object
+              searchAttempts:
+                description: SearchAttempts counts the searches made for this episode.
+                properties:
+                  count:
+                    description: Count is the total number of attempts so far.
+                    format: int32
+                    type: integer
+                  initial:
+                    description: Initial is when the first attempt was made.
+                    format: date-time
+                    type: string
+                  latest:
+                    description: Latest is when the most recent attempt was made.
+                    format: date-time
+                    type: string
+                type: object
+              title:
+                description: Title is the episode title.
+                type: string
+              tvdbID:
+                description: TvdbID is the TheTVDB episode ID.
+                format: int64
+                type: integer
+            type: object
+        type: object
+    selectableFields:
+    - jsonPath: .spec.seriesRef
+    served: true
+    storage: true
+    subresources:
+      status: {}

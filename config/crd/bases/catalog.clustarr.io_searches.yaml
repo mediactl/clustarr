@@ -1,0 +1,559 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: searches.catalog.clustarr.io
+spec:
+  group: catalog.clustarr.io
+  names:
+    categories:
+    - clustarr
+    - catalog
+    kind: Search
+    listKind: SearchList
+    plural: searches
+    shortNames:
+    - srch
+    singular: search
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.indexerOutcomes[0].count
+      name: Results
+      type: integer
+    - jsonPath: .status.startedAt
+      name: Started
+      type: date
+    - jsonPath: .status.finishedAt
+      name: Finished
+      type: date
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Search is a short-lived interactive search. It is deleted once spec.ttl has
+          elapsed after the search completed.
+
+          Apply-configuration generation is disabled for Search and SearchList.
+          SearchStatus.Results is []ReleaseDecision, which embeds common.ReleaseInfo
+          inline exactly as the spec writes it. controller-tools v0.22.0 flattens that
+          embedded cross-package schema and then rewrites the $refs inside it using the
+          *embedding* package, so common.Quality and common.Protocol are looked up as
+          catalog.v1alpha1.Quality / catalog.v1alpha1.Protocol and the generator panics
+          with "allSchemas schema is missing referenced type" (see convertRefs in
+          pkg/applyconfiguration/openapi.go). Every other catalog kind still gets an
+          apply configuration. Re-enable once controller-tools resolves those refs
+          against the package that owns the embedded type.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: SearchSpec defines the desired state of Search.
+            properties:
+              categories:
+                description: Categories restricts the search to these Newznab/Torznab
+                  category IDs.
+                items:
+                  format: int32
+                  type: integer
+                maxItems: 100
+                type: array
+              grab:
+                description: |-
+                  Grab lists the release GUIDs the user wants grabbed; the controller
+                  creates a Download for each.
+                items:
+                  type: string
+                maxItems: 50
+                type: array
+              indexerRefs:
+                description: |-
+                  IndexerRefs restricts the search to these Indexers; empty means all
+                  indexers that support interactive search.
+                items:
+                  type: string
+                maxItems: 100
+                type: array
+              kinds:
+                description: Kinds restricts the search to these media kinds.
+                items:
+                  description: MediaKind identifies what kind of catalog item a reference
+                    points at.
+                  enum:
+                  - movie
+                  - series
+                  - episode
+                  - artist
+                  - album
+                  - author
+                  - book
+                  - audiobook
+                  - comic
+                  - issue
+                  type: string
+                maxItems: 10
+                type: array
+              limit:
+                default: 100
+                description: Limit caps how many results are kept.
+                format: int32
+                maximum: 200
+                minimum: 1
+                type: integer
+              mediaRef:
+                description: MediaRef searches for a specific catalog item, using
+                  its provider IDs.
+                properties:
+                  keys:
+                    description: Keys lists the Episode or Issue names covered by
+                      a pack release.
+                    items:
+                      type: string
+                    maxItems: 200
+                    type: array
+                  kind:
+                    description: Kind is the media kind of the referenced object.
+                    enum:
+                    - movie
+                    - series
+                    - episode
+                    - artist
+                    - album
+                    - author
+                    - book
+                    - audiobook
+                    - comic
+                    - issue
+                    type: string
+                  name:
+                    description: |-
+                      Name is the name of the referenced object; it lives in the same
+                      namespace as the object holding the reference.
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
+              override:
+                description: Override allows grabbing results that were permanently
+                  rejected.
+                type: boolean
+              query:
+                description: Query is a free-text search term.
+                type: string
+              ttl:
+                default: 1h
+                description: TTL is how long the Search object lives after it completes.
+                type: string
+            type: object
+            x-kubernetes-validations:
+            - message: exactly one of query or mediaRef must be set
+              rule: '(has(self.query) ? 1 : 0) + (has(self.mediaRef) ? 1 : 0) == 1'
+          status:
+            description: SearchStatus describes the observed state of Search.
+            properties:
+              conditions:
+                description: Conditions represent the latest available observations
+                  of the search's state.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                maxItems: 8
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              finishedAt:
+                description: FinishedAt is when the search finished.
+                format: date-time
+                type: string
+              grabbed:
+                description: Grabbed reports what happened to each requested grab.
+                items:
+                  description: GrabResult reports what happened to one requested grab.
+                  properties:
+                    downloadRef:
+                      description: DownloadRef is the Download that was created.
+                      type: string
+                    error:
+                      description: Error is why the grab failed, if it did.
+                      type: string
+                    guid:
+                      description: GUID is the release GUID the user asked to grab.
+                      type: string
+                  required:
+                  - guid
+                  type: object
+                maxItems: 50
+                type: array
+                x-kubernetes-list-map-keys:
+                - guid
+                x-kubernetes-list-type: map
+              indexerOutcomes:
+                description: IndexerOutcomes records how each selected indexer fared.
+                items:
+                  description: IndexerOutcome records how one indexer fared during
+                    the search.
+                  properties:
+                    count:
+                      description: Count is how many releases the indexer returned.
+                      format: int32
+                      type: integer
+                    durationMs:
+                      description: DurationMs is how long the indexer took, in milliseconds.
+                      format: int32
+                      type: integer
+                    error:
+                      description: Error is the error the indexer returned, if any.
+                      type: string
+                    name:
+                      description: Name is the Indexer the outcome belongs to.
+                      type: string
+                    state:
+                      description: State is how the indexer answered.
+                      enum:
+                      - ok
+                      - timeout
+                      - error
+                      - skipped
+                      type: string
+                  required:
+                  - name
+                  type: object
+                maxItems: 100
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+              observedGeneration:
+                description: ObservedGeneration is the generation of the spec this
+                  status reflects.
+                format: int64
+                type: integer
+              phase:
+                description: Phase is the coarse lifecycle state of the search.
+                enum:
+                - Pending
+                - Running
+                - Completed
+                - Failed
+                type: string
+              results:
+                description: Results is the ranked result set with the decision engine's
+                  verdicts.
+                items:
+                  description: |-
+                    ReleaseDecision is one search result together with the decision engine's
+                    verdict on it.
+                  properties:
+                    approved:
+                      description: Approved is true when the release passed every
+                        check.
+                      type: boolean
+                    categories:
+                      description: Categories lists the Newznab/Torznab category IDs
+                        of the release.
+                      items:
+                        format: int32
+                        type: integer
+                      type: array
+                    downloadURL:
+                      description: DownloadURL is the .torrent / .nzb download link.
+                      type: string
+                    edition:
+                      description: Edition is the edition parsed from the release
+                        title, e.g. Director's Cut.
+                      type: string
+                    formatScore:
+                      description: FormatScore is the total custom-format score of
+                        the release.
+                      format: int32
+                      type: integer
+                    guid:
+                      description: GUID is the indexer-scoped unique identifier of
+                        the release.
+                      type: string
+                    ids:
+                      additionalProperties:
+                        type: string
+                      description: |-
+                        IDs maps external ID providers (tmdb, imdb, tvdb, ...) to the ID the
+                        indexer reported for the release.
+                      type: object
+                    indexerFlags:
+                      description: IndexerFlags lists indexer-specific flags on the
+                        release.
+                      items:
+                        enum:
+                        - freeleech
+                        - halfleech
+                        - neutralleech
+                        - doubleupload
+                        - internal
+                        - exclusive
+                        - scene
+                        type: string
+                      type: array
+                    indexerName:
+                      description: IndexerName is the display name of the indexer
+                        at search time.
+                      type: string
+                    indexerRef:
+                      description: IndexerRef is the name of the Indexer the release
+                        came from.
+                      type: string
+                    infoHash:
+                      description: InfoHash is the torrent info hash, when known.
+                      type: string
+                    infoURL:
+                      description: InfoURL is the release details page on the indexer.
+                      type: string
+                    languages:
+                      description: Languages lists the languages parsed from the release
+                        title.
+                      items:
+                        type: string
+                      type: array
+                    leechers:
+                      description: Leechers is the leecher count reported by the indexer.
+                        Torrent only.
+                      format: int32
+                      type: integer
+                    magnetURL:
+                      description: MagnetURL is the magnet link, for torrent releases
+                        that expose one.
+                      type: string
+                    matchedFormats:
+                      description: MatchedFormats lists the names of the custom formats
+                        that matched.
+                      items:
+                        type: string
+                      type: array
+                    protocol:
+                      description: Protocol is the transfer protocol of the release.
+                      enum:
+                      - torrent
+                      - usenet
+                      type: string
+                    publishedAt:
+                      description: PublishedAt is when the indexer published the release.
+                      format: date-time
+                      type: string
+                    quality:
+                      description: Quality is the quality parsed from the release
+                        title.
+                      properties:
+                        modifier:
+                          description: Modifier refines the quality (remux, screener,
+                            ...).
+                          enum:
+                          - none
+                          - regional
+                          - screener
+                          - rawhd
+                          - brdisk
+                          - remux
+                          type: string
+                        name:
+                          description: Name is the canonical quality definition name.
+                          type: string
+                        resolution:
+                          description: Resolution is the vertical resolution in lines.
+                            Video only.
+                          enum:
+                          - 0
+                          - 360
+                          - 480
+                          - 540
+                          - 576
+                          - 720
+                          - 1080
+                          - 2160
+                          format: int32
+                          type: integer
+                        source:
+                          description: Source is the release source. Video only.
+                          enum:
+                          - unknown
+                          - cam
+                          - telesync
+                          - telecine
+                          - workprint
+                          - dvd
+                          - tv
+                          - webdl
+                          - webrip
+                          - bluray
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    rank:
+                      description: Rank is the release's position in the ranked result
+                        set; lower is better.
+                      format: int32
+                      type: integer
+                    rejections:
+                      description: Rejections explains why the release was not approved.
+                      items:
+                        description: Rejection explains why a release was not grabbed
+                          or a file was not imported.
+                        properties:
+                          reason:
+                            description: Reason is a human-readable explanation of
+                              the rejection.
+                            type: string
+                          type:
+                            description: Type says whether the rejection is permanent
+                              or temporary.
+                            enum:
+                            - Permanent
+                            - Temporary
+                            type: string
+                        type: object
+                      maxItems: 20
+                      type: array
+                    releaseGroup:
+                      description: ReleaseGroup is the release group parsed from the
+                        release title.
+                      type: string
+                    releaseType:
+                      description: ReleaseType classifies how many catalog items the
+                        release covers.
+                      enum:
+                      - single
+                      - multi
+                      - seasonPack
+                      - album
+                      - book
+                      - issue
+                      type: string
+                    revision:
+                      description: Revision is the proper/repack revision parsed from
+                        the release title.
+                      properties:
+                        real:
+                          default: 0
+                          description: Real counts REAL re-releases that fix a broken
+                            proper.
+                          format: int32
+                          type: integer
+                        repack:
+                          default: false
+                          description: Repack is true when the release is flagged
+                            as a repack.
+                          type: boolean
+                        version:
+                          default: 1
+                          description: Version is the release version; 1 is the original,
+                            2+ are propers.
+                          format: int32
+                          type: integer
+                      type: object
+                    seeders:
+                      description: Seeders is the seeder count reported by the indexer.
+                        Torrent only.
+                      format: int32
+                      type: integer
+                    sizeBytes:
+                      description: SizeBytes is the release size in bytes.
+                      format: int64
+                      type: integer
+                    temporarilyRejected:
+                      description: TemporarilyRejected is true when the release may
+                        pass a later run.
+                      type: boolean
+                    title:
+                      description: Title is the raw release title as published by
+                        the indexer.
+                      type: string
+                  type: object
+                maxItems: 200
+                type: array
+              startedAt:
+                description: StartedAt is when the search began.
+                format: date-time
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

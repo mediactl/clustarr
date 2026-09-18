@@ -12,20 +12,42 @@ MEDIA_IMG ?= ghcr.io/mediactl/clustarr-media:dev
 API_PATHS := ./api/...
 CRD_DIR := config/crd/bases
 
+# Service packages the RBAC role is generated from. They are scaffolded over
+# time, so the manifests target only passes the ones that exist on disk.
+RBAC_DIRS := catalogarr indexarr grabarr squasharr captionarr
+
 .PHONY: all
 all: generate manifests build
 
 ##@ Development
 
+# controller-gen v0.22.0's applyconfiguration generator ignores output rules: it
+# writes straight to disk at <pkg dir>/<kubebuilder:ac:output:package>, so no
+# output:applyconfiguration:dir flag is passed below (it is silently discarded).
+# Generation is opt-in per package via +kubebuilder:ac:generate=true and the
+# destination is set per group by +kubebuilder:ac:output:package, both in each
+# groupversion_info.go.
 .PHONY: generate
 generate: ## Generate DeepCopy and apply-configuration code.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="$(API_PATHS)"
-	$(CONTROLLER_GEN) applyconfiguration:headerFile="hack/boilerplate.go.txt" paths="$(API_PATHS)" output:applyconfiguration:dir=./api/applyconfiguration
+	$(CONTROLLER_GEN) applyconfiguration:headerFile="hack/boilerplate.go.txt" paths="$(API_PATHS)"
 
+# The service packages the RBAC role is derived from are scaffolded incrementally,
+# so the recipe only feeds controller-gen the RBAC_DIRS that exist; with none of
+# them present the rbac generator is skipped rather than failing the target.
 .PHONY: manifests
 manifests: ## Generate CRDs and RBAC.
 	$(CONTROLLER_GEN) crd paths="$(API_PATHS)" output:crd:artifacts:config=$(CRD_DIR)
-	$(CONTROLLER_GEN) rbac:roleName=clustarr-manager paths="./catalogarr/... ./indexarr/... ./grabarr/... ./squasharr/... ./captionarr/..." output:rbac:artifacts:config=config/rbac
+	@paths=""; for d in $(RBAC_DIRS); do \
+		if [ -d "$$d" ]; then paths="$$paths ./$$d/..."; fi; \
+	done; \
+	if [ -n "$$paths" ]; then \
+		echo "$(CONTROLLER_GEN) rbac:roleName=clustarr-manager paths=\"$$paths\" output:rbac:artifacts:config=config/rbac"; \
+		mkdir -p config/rbac; \
+		$(CONTROLLER_GEN) rbac:roleName=clustarr-manager paths="$$paths" output:rbac:artifacts:config=config/rbac; \
+	else \
+		echo "skipping rbac: none of ($(RBAC_DIRS)) exist yet"; \
+	fi
 
 .PHONY: fmt
 fmt: ## Run gofmt.

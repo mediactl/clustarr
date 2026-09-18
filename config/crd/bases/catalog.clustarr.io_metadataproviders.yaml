@@ -1,0 +1,290 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: metadataproviders.catalog.clustarr.io
+spec:
+  group: catalog.clustarr.io
+  names:
+    categories:
+    - clustarr
+    - catalog
+    kind: MetadataProvider
+    listKind: MetadataProviderList
+    plural: metadataproviders
+    shortNames:
+    - mdp
+    singular: metadataprovider
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.type
+      name: Type
+      type: string
+    - jsonPath: .spec.enabled
+      name: Enabled
+      type: boolean
+    - jsonPath: .spec.priority
+      name: Priority
+      type: integer
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Throttled")].status
+      name: Throttled
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: MetadataProvider is a configured upstream metadata service.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: MetadataProviderSpec defines the desired state of MetadataProvider.
+            properties:
+              baseURL:
+                description: BaseURL overrides the provider's default endpoint.
+                type: string
+              cacheTTL:
+                description: CacheTTL sets how long each class of answer is cached.
+                properties:
+                  announced:
+                    description: Announced is the TTL for items that are announced
+                      but not yet released.
+                    type: string
+                  crosswalk:
+                    description: Crosswalk is the TTL for ID crosswalk lookups between
+                      providers.
+                    type: string
+                  ended:
+                    description: Ended is the TTL for items whose production has ended.
+                    type: string
+                  released:
+                    description: Released is the TTL for items that have been released.
+                    type: string
+                  search:
+                    description: Search is the TTL for search results.
+                    type: string
+                type: object
+              contactUserAgent:
+                description: |-
+                  ContactUserAgent is the contact string sent in the User-Agent header. It
+                  is required by musicbrainz and openlibrary.
+                type: string
+              enabled:
+                default: true
+                description: Enabled turns the provider on or off without deleting
+                  it.
+                type: boolean
+              language:
+                default: en
+                description: Language is the BCP-47 language metadata is requested
+                  in.
+                type: string
+              priority:
+                default: 50
+                description: Priority orders providers that can answer the same question;
+                  lower wins.
+                format: int32
+                maximum: 100
+                minimum: 1
+                type: integer
+              rateLimit:
+                description: RateLimit caps how fast the provider may be called.
+                properties:
+                  burst:
+                    description: Burst is how many requests may be issued back to
+                      back.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  perDay:
+                    description: PerDay caps the total number of requests per calendar
+                      day.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  requestsPerSecond:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: |-
+                      RequestsPerSecond is the sustained request rate, written as a decimal
+                      quantity such as "1.5" rather than a float, which CRD schemas do not allow.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                type: object
+              region:
+                default: US
+                description: Region is the ISO 3166-1 region used for release dates
+                  and certifications.
+                type: string
+              secretRef:
+                description: |-
+                  SecretRef names a Secret in the same namespace holding the credentials.
+                  Recognised keys are apiKey, pin and bearer.
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+              type:
+                description: |-
+                  Type is the upstream metadata service; it identifies the provider and is
+                  immutable.
+                enum:
+                - tmdb
+                - tvdb
+                - musicbrainz
+                - coverart
+                - fanart
+                - openlibrary
+                - hardcover
+                - audnexus
+                - comicvine
+                - metron
+                - mangadex
+                - anilist
+                - kitsu
+                - animelists
+                type: string
+                x-kubernetes-validations:
+                - message: type is immutable
+                  rule: self == oldSelf
+            required:
+            - type
+            type: object
+            x-kubernetes-validations:
+            - message: contactUserAgent is required for musicbrainz and openlibrary
+              rule: '!(self.type in [''musicbrainz'',''openlibrary'']) || (has(self.contactUserAgent)
+                && self.contactUserAgent.size() != 0)'
+          status:
+            description: MetadataProviderStatus describes the observed state of MetadataProvider.
+            properties:
+              conditions:
+                description: Conditions represent the latest available observations
+                  of the provider's state.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                maxItems: 8
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              lastError:
+                description: LastError is the most recent error returned by the provider.
+                type: string
+              lastSuccessAt:
+                description: LastSuccessAt is when the provider last answered successfully.
+                format: date-time
+                type: string
+              observedGeneration:
+                description: ObservedGeneration is the generation of the spec this
+                  status reflects.
+                format: int64
+                type: integer
+              quotaRemaining:
+                description: QuotaRemaining is how many requests are left in the current
+                  quota window.
+                format: int32
+                type: integer
+              quotaResetAt:
+                description: QuotaResetAt is when the quota window rolls over.
+                format: date-time
+                type: string
+              throttledUntil:
+                description: ThrottledUntil is when calls to the provider may resume.
+                format: date-time
+                type: string
+              tokenExpiresAt:
+                description: TokenExpiresAt is when the current access token expires.
+                format: date-time
+                type: string
+            type: object
+        type: object
+    selectableFields:
+    - jsonPath: .spec.type
+    served: true
+    storage: true
+    subresources:
+      status: {}

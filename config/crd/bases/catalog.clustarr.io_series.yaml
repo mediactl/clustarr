@@ -1,0 +1,482 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: series.catalog.clustarr.io
+spec:
+  group: catalog.clustarr.io
+  names:
+    categories:
+    - clustarr
+    - catalog
+    - media
+    kind: Series
+    listKind: SeriesList
+    plural: series
+    shortNames:
+    - ser
+    singular: series
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.metadata.title
+      name: Title
+      type: string
+    - jsonPath: .spec.seriesType
+      name: Type
+      type: string
+    - jsonPath: .spec.monitored
+      name: Monitored
+      type: boolean
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.episodeCount
+      name: Episodes
+      type: integer
+    - jsonPath: .status.episodeFileCount
+      name: Files
+      type: integer
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Series is a monitored television series in the catalog.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: SeriesSpec defines the desired state of Series.
+            properties:
+              addOptions:
+                description: AddOptions are applied once, when the series is first
+                  reconciled.
+                properties:
+                  ignoreEpisodesWithFiles:
+                    description: IgnoreEpisodesWithFiles leaves episodes that already
+                      have a file unmonitored.
+                    type: boolean
+                  ignoreEpisodesWithoutFiles:
+                    description: IgnoreEpisodesWithoutFiles leaves episodes without
+                      a file unmonitored.
+                    type: boolean
+                  monitor:
+                    default: all
+                    description: Monitor selects which episodes start out monitored.
+                    enum:
+                    - all
+                    - future
+                    - missing
+                    - existing
+                    - firstSeason
+                    - lastSeason
+                    - pilot
+                    - recent
+                    - monitorSpecials
+                    - unmonitorSpecials
+                    - none
+                    - skip
+                    type: string
+                  searchForCutoffUnmet:
+                    default: false
+                    description: SearchForCutoffUnmet searches for episodes below
+                      the profile cutoff on add.
+                    type: boolean
+                  searchForMissing:
+                    default: true
+                    description: SearchForMissing searches for missing episodes on
+                      add.
+                    type: boolean
+                type: object
+              delayProfileRef:
+                description: DelayProfileRef pins a DelayProfile; unset falls back
+                  to tag matching.
+                type: string
+              episodeOrder:
+                default: official
+                description: |-
+                  EpisodeOrder is the numbering scheme releases are matched against.
+                  Anime series are forced to absolute ordering.
+                enum:
+                - official
+                - dvd
+                - absolute
+                type: string
+              folder:
+                description: Folder overrides the folder name under the root folder.
+                type: string
+              monitorNewItems:
+                default: all
+                description: |-
+                  MonitorNewItems says what happens to seasons and episodes discovered
+                  after the series was added.
+                enum:
+                - all
+                - none
+                type: string
+              monitored:
+                default: true
+                description: Monitored enables automatic searching and importing for
+                  this series.
+                type: boolean
+              qualityProfileRef:
+                description: QualityProfileRef is the QualityProfile episodes are
+                  ranked against.
+                type: string
+              rootFolderRef:
+                description: RootFolderRef is the RootFolder the series is stored
+                  under.
+                type: string
+              seasonFolder:
+                default: true
+                description: SeasonFolder stores each season in its own folder.
+                type: boolean
+              seasons:
+                description: Seasons overrides monitoring per season.
+                items:
+                  description: SeasonSpec turns monitoring on or off for one season.
+                  properties:
+                    monitored:
+                      default: true
+                      description: Monitored enables automatic searching for the season's
+                        episodes.
+                      type: boolean
+                    number:
+                      description: Number is the season number; 0 is the specials
+                        season.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                  required:
+                  - number
+                  type: object
+                maxItems: 200
+                type: array
+                x-kubernetes-list-map-keys:
+                - number
+                x-kubernetes-list-type: map
+              seriesType:
+                default: standard
+                description: SeriesType selects the numbering and naming dialect.
+                enum:
+                - standard
+                - daily
+                - anime
+                type: string
+              source:
+                description: Source records the ImportList that added the series,
+                  if any.
+                properties:
+                  importListRef:
+                    description: |-
+                      ImportListRef is the name of the ImportList that added the item. Empty
+                      means the item was added manually.
+                    type: string
+                type: object
+              subtitleProfileRef:
+                description: SubtitleProfileRef pins a SubtitleProfile.
+                type: string
+              tags:
+                description: Tags select DelayProfiles, TranscodeProfiles and SubtitleProfiles.
+                items:
+                  type: string
+                maxItems: 64
+                type: array
+              transcodeProfileRef:
+                description: TranscodeProfileRef pins a TranscodeProfile.
+                type: string
+              tvdbID:
+                description: TvdbID is the TheTVDB series ID; it identifies the series
+                  and is immutable.
+                format: int64
+                type: integer
+                x-kubernetes-validations:
+                - message: tvdbID is immutable
+                  rule: self == oldSelf
+            required:
+            - qualityProfileRef
+            - rootFolderRef
+            - tvdbID
+            type: object
+          status:
+            description: SeriesStatus describes the observed state of Series.
+            properties:
+              addOptionsApplied:
+                description: AddOptionsApplied is true once spec.addOptions has been
+                  acted on.
+                type: boolean
+              conditions:
+                description: Conditions represent the latest available observations
+                  of the series' state.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                maxItems: 8
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              episodeCount:
+                description: EpisodeCount is the number of Episode objects owned by
+                  the series.
+                format: int32
+                type: integer
+              episodeFileCount:
+                description: EpisodeFileCount is the number of episodes with an imported
+                  file.
+                format: int32
+                type: integer
+              lastSearchedAt:
+                description: LastSearchedAt is when the series was last searched for.
+                format: date-time
+                type: string
+              metadata:
+                description: Metadata is the cached provider metadata.
+                properties:
+                  airTime:
+                    description: AirTime is the local broadcast time, e.g. "21:00".
+                    type: string
+                  alternateTitles:
+                    description: |-
+                      AlternateTitles lists other titles the series is released under, with the
+                      scene season each numbers against where relevant.
+                    items:
+                      description: |-
+                        AltTitle is an alternate title for a series, optionally scoped to the scene
+                        season it applies to.
+                      properties:
+                        sceneSeason:
+                          description: SceneSeason is the scene season the alternate
+                            title numbers against.
+                          format: int32
+                          type: integer
+                        title:
+                          description: Title is the alternate title.
+                          type: string
+                      required:
+                      - title
+                      type: object
+                    maxItems: 100
+                    type: array
+                  certification:
+                    description: Certification is the content rating in the configured
+                      region.
+                    type: string
+                  externalIDs:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      ExternalIDs maps provider names (tvdb, tmdb, imdb, tvmaze, anidb,
+                      anilist, mal, kitsu) to their IDs.
+                    type: object
+                  genres:
+                    description: Genres lists the genres.
+                    items:
+                      type: string
+                    maxItems: 30
+                    type: array
+                  images:
+                    description: Images lists the artwork published by the provider.
+                    items:
+                      description: Image is one artwork URL published by a metadata
+                        provider.
+                      properties:
+                        type:
+                          description: Type classifies the image.
+                          enum:
+                          - poster
+                          - fanart
+                          - logo
+                          type: string
+                        url:
+                          description: URL is where the image can be fetched.
+                          type: string
+                      required:
+                      - type
+                      - url
+                      type: object
+                    maxItems: 50
+                    type: array
+                  network:
+                    description: Network is the broadcaster or streaming service.
+                    type: string
+                  originalLanguage:
+                    description: OriginalLanguage is the BCP-47 tag of the original
+                      language.
+                    type: string
+                  overview:
+                    description: Overview is the synopsis.
+                    type: string
+                  refreshedAt:
+                    description: RefreshedAt is when the metadata was last fetched.
+                    format: date-time
+                    type: string
+                  runtimeMinutes:
+                    description: RuntimeMinutes is the nominal episode runtime in
+                      minutes.
+                    format: int32
+                    type: integer
+                  sortTitle:
+                    description: SortTitle is the title used for sorting.
+                    type: string
+                  status:
+                    description: Status is the upstream production status.
+                    enum:
+                    - continuing
+                    - ended
+                    - upcoming
+                    type: string
+                  title:
+                    description: Title is the localised title.
+                    type: string
+                  year:
+                    description: Year is the first-aired year.
+                    format: int32
+                    type: integer
+                type: object
+              nextAiring:
+                description: NextAiring is when the next episode airs.
+                format: date-time
+                type: string
+              observedGeneration:
+                description: ObservedGeneration is the generation of the spec this
+                  status reflects.
+                format: int64
+                type: integer
+              path:
+                description: Path is the resolved folder on disk.
+                type: string
+              phase:
+                description: Phase is the coarse lifecycle state of the series.
+                enum:
+                - Pending
+                - Ready
+                - Unmonitored
+                type: string
+              previousAiring:
+                description: PreviousAiring is when the most recent episode aired.
+                format: date-time
+                type: string
+              seasons:
+                description: Seasons is the per-season rollup.
+                items:
+                  description: SeasonStatus is the observed state of one season.
+                  properties:
+                    episodeCount:
+                      description: EpisodeCount is the number of episodes in the season.
+                      format: int32
+                      type: integer
+                    episodeFileCount:
+                      description: EpisodeFileCount is the number of episodes with
+                        an imported file.
+                      format: int32
+                      type: integer
+                    monitored:
+                      description: Monitored mirrors the effective monitored flag
+                        of the season.
+                      type: boolean
+                    nextAiring:
+                      description: NextAiring is when the next episode of the season
+                        airs.
+                      format: date-time
+                      type: string
+                    number:
+                      description: Number is the season number; 0 is the specials
+                        season.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    sizeBytes:
+                      description: SizeBytes is the total size of the season's imported
+                        files.
+                      format: int64
+                      type: integer
+                  required:
+                  - number
+                  type: object
+                maxItems: 200
+                type: array
+                x-kubernetes-list-map-keys:
+                - number
+                x-kubernetes-list-type: map
+            type: object
+        type: object
+    selectableFields:
+    - jsonPath: .spec.tvdbID
+    served: true
+    storage: true
+    subresources:
+      status: {}

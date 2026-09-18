@@ -19,6 +19,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // transcode.clustarr.io v1alpha1 API group (owner: squasharr).
 //
 // +kubebuilder:object:generate=true
+// +kubebuilder:ac:generate=true
+// +kubebuilder:ac:output:package=../../applyconfiguration/transcode
 // +groupName=transcode.clustarr.io
 package v1alpha1
 

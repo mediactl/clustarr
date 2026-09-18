@@ -1,0 +1,523 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package events
+
+import (
+	"errors"
+	"fmt"
+	"time"
+)
+
+// Retention is a stream's message retention policy.
+type Retention string
+
+// Retention policies.
+const (
+	// RetentionLimits keeps messages until MaxAge or MaxBytes is reached.
+	RetentionLimits Retention = "limits"
+
+	// RetentionInterest keeps a message until every known consumer has
+	// acknowledged it.
+	RetentionInterest Retention = "interest"
+
+	// RetentionWorkQueue removes a message as soon as one worker
+	// acknowledges it. It is immutable once a stream exists.
+	RetentionWorkQueue Retention = "workqueue"
+)
+
+// Storage is a stream's backing store.
+type Storage string
+
+// Storage kinds.
+const (
+	StorageFile   Storage = "file"
+	StorageMemory Storage = "memory"
+)
+
+// DiscardPolicy is what a stream does when it hits a limit.
+type DiscardPolicy string
+
+// Discard policies.
+const (
+	// DiscardOld drops the oldest message to make room.
+	DiscardOld DiscardPolicy = "old"
+
+	// DiscardNew rejects the publish with ErrQueueFull rather than dropping
+	// anything already stored. It cannot be combined with
+	// StreamSpec.AllowMsgSchedules: nats-server rejects that pairing.
+	DiscardNew DiscardPolicy = "new"
+)
+
+// Byte-size helpers for stream limits.
+const (
+	MiB = 1 << 20
+	GiB = 1 << 30
+)
+
+// StreamSpec is the declarative configuration of one stream.
+type StreamSpec struct {
+	Name              string
+	Description       string
+	Subjects          []string
+	Retention         Retention
+	Storage           Storage
+	Discard           DiscardPolicy
+	MaxAge            time.Duration
+	MaxBytes          int64
+	Duplicates        time.Duration
+	Replicas          int
+	DenyDelete        bool
+	Compression       bool
+	AllowMsgSchedules bool
+}
+
+// ConsumerSpec is the declarative configuration of one durable pull consumer.
+type ConsumerSpec struct {
+	Name          string
+	Stream        string
+	Description   string
+	Filters       []string
+	AckWait       time.Duration
+	MaxDeliver    int
+	BackOff       []time.Duration
+	MaxAckPending int
+	Heartbeat     time.Duration
+}
+
+// Subscription converts the spec into the subscription a worker passes to
+// Subscriber.Subscribe, so worker code never restates the tuning.
+func (c ConsumerSpec) Subscription() Subscription {
+	return Subscription{
+		Stream:      c.Stream,
+		Durable:     c.Name,
+		Filters:     append([]string(nil), c.Filters...),
+		AckWait:     c.AckWait,
+		MaxDeliver:  c.MaxDeliver,
+		Backoff:     append([]time.Duration(nil), c.BackOff...),
+		MaxInFlight: c.MaxAckPending,
+		Heartbeat:   c.Heartbeat,
+	}
+}
+
+// BucketSpec is the declarative configuration of one key/value bucket.
+type BucketSpec struct {
+	Name        string
+	Description string
+	TTL         time.Duration
+	History     uint8
+	Storage     Storage
+	Replicas    int
+
+	// LimitMarkerTTL is how long tombstones for TTL-expired keys are kept.
+	// A non-zero value is required for per-key TTL (KV WithTTL) to work.
+	LimitMarkerTTL time.Duration
+}
+
+// Topology is the full broker layout Clustarr expects: every stream, durable
+// consumer and key/value bucket.
+type Topology struct {
+	Streams   []StreamSpec
+	Consumers []ConsumerSpec
+	Buckets   []BucketSpec
+}
+
+// Stream returns the named stream spec.
+func (t Topology) Stream(name string) (StreamSpec, bool) {
+	for _, s := range t.Streams {
+		if s.Name == name {
+			return s, true
+		}
+	}
+	return StreamSpec{}, false
+}
+
+// Consumer returns the named consumer spec.
+func (t Topology) Consumer(name string) (ConsumerSpec, bool) {
+	for _, c := range t.Consumers {
+		if c.Name == name {
+			return c, true
+		}
+	}
+	return ConsumerSpec{}, false
+}
+
+// StreamForSubject returns the stream whose subject filters cover subject.
+func (t Topology) StreamForSubject(subject string) (StreamSpec, bool) {
+	for _, s := range t.Streams {
+		for _, f := range s.Subjects {
+			if SubjectMatches(f, subject) {
+				return s, true
+			}
+		}
+	}
+	return StreamSpec{}, false
+}
+
+// ForSingleNode returns a copy of t with one replica per stream and bucket
+// and memory storage throughout. It is what tests and single-node dev
+// clusters apply; production applies Default unchanged.
+func (t Topology) ForSingleNode() Topology {
+	out := t.clone()
+	for i := range out.Streams {
+		out.Streams[i].Replicas = 1
+		out.Streams[i].Storage = StorageMemory
+		out.Streams[i].Compression = false
+		out.Streams[i].DenyDelete = false
+	}
+	for i := range out.Buckets {
+		out.Buckets[i].Replicas = 1
+		out.Buckets[i].Storage = StorageMemory
+	}
+	return out
+}
+
+func (t Topology) clone() Topology {
+	out := Topology{
+		Streams:   append([]StreamSpec(nil), t.Streams...),
+		Consumers: append([]ConsumerSpec(nil), t.Consumers...),
+		Buckets:   append([]BucketSpec(nil), t.Buckets...),
+	}
+	for i := range out.Streams {
+		out.Streams[i].Subjects = append([]string(nil), out.Streams[i].Subjects...)
+	}
+	for i := range out.Consumers {
+		out.Consumers[i].Filters = append([]string(nil), out.Consumers[i].Filters...)
+		out.Consumers[i].BackOff = append([]time.Duration(nil), out.Consumers[i].BackOff...)
+	}
+	return out
+}
+
+// Validate checks the invariants the runtime depends on:
+//
+//   - every consumer names a stream in the topology;
+//   - every consumer filter is covered by that stream's subjects;
+//   - MaxDeliver is strictly greater than len(BackOff), so the last attempt
+//     is a real attempt and not an unused backoff step;
+//   - every WorkQueue stream allows message schedules, since delay profiles
+//     publish grabs into the future, and no stream pairs schedules with
+//     DiscardNew, which nats-server refuses;
+//   - the dead-letter stream exists.
+func (t Topology) Validate() error {
+	var errs []error
+	seen := map[string]StreamSpec{}
+	for _, s := range t.Streams {
+		if s.Name == "" {
+			errs = append(errs, fieldErr("StreamSpec.Name", "is required"))
+			continue
+		}
+		if _, dup := seen[s.Name]; dup {
+			errs = append(errs, fieldErr("StreamSpec.Name", "duplicate stream "+s.Name))
+		}
+		seen[s.Name] = s
+		if len(s.Subjects) == 0 {
+			errs = append(errs, fieldErr(s.Name+".Subjects", "is required"))
+		}
+		if s.Retention == RetentionWorkQueue && !s.AllowMsgSchedules {
+			errs = append(errs, fieldErr(s.Name+".AllowMsgSchedules",
+				"work streams must allow message schedules, so delay profiles "+
+					"can publish a grab into the future"))
+		}
+		if s.AllowMsgSchedules && s.Discard == DiscardNew {
+			errs = append(errs, fieldErr(s.Name+".Discard",
+				"nats-server refuses DiscardNew on a stream that allows message "+
+					"schedules; use DiscardOld and size MaxBytes for headroom"))
+		}
+	}
+	if _, ok := seen[StreamDLQ]; !ok {
+		errs = append(errs, fieldErr("Topology.Streams",
+			"the "+StreamDLQ+" stream is required"))
+	}
+	names := map[string]bool{}
+	for _, c := range t.Consumers {
+		if c.Name == "" {
+			errs = append(errs, fieldErr("ConsumerSpec.Name", "is required"))
+			continue
+		}
+		if names[c.Name] {
+			errs = append(errs, fieldErr("ConsumerSpec.Name", "duplicate consumer "+c.Name))
+		}
+		names[c.Name] = true
+		s, ok := seen[c.Stream]
+		if !ok {
+			errs = append(errs, fieldErr(c.Name+".Stream",
+				"unknown stream "+c.Stream))
+			continue
+		}
+		if c.MaxDeliver <= len(c.BackOff) {
+			errs = append(errs, fieldErr(c.Name+".MaxDeliver",
+				fmt.Sprintf("must be strictly greater than len(BackOff)=%d, got %d",
+					len(c.BackOff), c.MaxDeliver)))
+		}
+		if len(c.Filters) == 0 {
+			errs = append(errs, fieldErr(c.Name+".Filters", "is required"))
+		}
+		for _, f := range c.Filters {
+			if !subjectCovered(s.Subjects, f) {
+				errs = append(errs, fieldErr(c.Name+".Filters",
+					"filter "+f+" is outside stream "+s.Name))
+			}
+		}
+	}
+	buckets := map[string]bool{}
+	for _, b := range t.Buckets {
+		if b.Name == "" {
+			errs = append(errs, fieldErr("BucketSpec.Name", "is required"))
+			continue
+		}
+		if buckets[b.Name] {
+			errs = append(errs, fieldErr("BucketSpec.Name", "duplicate bucket "+b.Name))
+		}
+		buckets[b.Name] = true
+		for _, r := range b.Name {
+			if r == '.' {
+				errs = append(errs, fieldErr("BucketSpec.Name",
+					"bucket names cannot contain dots: "+b.Name))
+				break
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// subjectCovered reports whether filter is inside one of the stream subjects.
+// A stream subject of "a.b.>" covers "a.b.c.>" and "a.b.c.d".
+func subjectCovered(subjects []string, filter string) bool {
+	probe := filter
+	if n := len(probe); n > 2 && probe[n-2:] == ".>" {
+		probe = probe[:n-2] + ".x"
+	}
+	for _, s := range subjects {
+		if s == filter || SubjectMatches(s, probe) {
+			return true
+		}
+	}
+	return false
+}
+
+func fieldErr(field, msg string) error {
+	return fmt.Errorf("events: %s %s", field, msg)
+}
+
+// Default returns the production topology from the Clustarr design: six
+// streams, thirteen durable consumers and ten key/value buckets.
+func Default() Topology {
+	return Topology{
+		Streams:   defaultStreams(),
+		Consumers: defaultConsumers(),
+		Buckets:   defaultBuckets(),
+	}
+}
+
+func defaultStreams() []StreamSpec {
+	// Work streams keep WorkQueue retention, an hour of deduplication and
+	// message schedules, which delay profiles need to publish a grab into
+	// the future.
+	//
+	// The design asks for DiscardNew as well, so a full queue refuses new
+	// tasks instead of dropping queued ones. nats-server rejects that
+	// pairing outright ("message scheduling cannot use discard new"), so
+	// these streams use DiscardOld and are sized with enough headroom that
+	// the limit is an alarm, not a routine event. Publishers still handle
+	// ErrQueueFull, which remains reachable on any stream an operator
+	// configures with DiscardNew.
+	work := func(name, filter string, maxBytes int64) StreamSpec {
+		return StreamSpec{
+			Name:              name,
+			Subjects:          []string{filter},
+			Retention:         RetentionWorkQueue,
+			Storage:           StorageFile,
+			Discard:           DiscardOld,
+			MaxBytes:          maxBytes,
+			Duplicates:        time.Hour,
+			Replicas:          3,
+			AllowMsgSchedules: true,
+		}
+	}
+	return []StreamSpec{
+		{
+			Name:        StreamEvents,
+			Description: "Domain events consumed by the history projector.",
+			Subjects:    []string{FilterAllEvents},
+			Retention:   RetentionLimits,
+			Storage:     StorageFile,
+			Discard:     DiscardOld,
+			MaxAge:      168 * time.Hour,
+			MaxBytes:    2 * GiB,
+			Duplicates:  10 * time.Minute,
+			Replicas:    3,
+			DenyDelete:  true,
+			Compression: true,
+		},
+		{
+			Name:        StreamReleases,
+			Description: "Parsed indexer releases fanned out to the RSS matcher.",
+			Subjects:    []string{FilterAllReleases},
+			Retention:   RetentionLimits,
+			Storage:     StorageFile,
+			Discard:     DiscardOld,
+			MaxAge:      72 * time.Hour,
+			MaxBytes:    4 * GiB,
+			Duplicates:  2 * time.Hour,
+			Replicas:    3,
+		},
+		work(StreamWorkCatalogarr, FilterWorkCatalogarr, 1*GiB),
+		work(StreamWorkIndexarr, FilterWorkIndexarr, 256*MiB),
+		work(StreamWorkCaptionarr, FilterWorkCaptionarr, 256*MiB),
+		{
+			Name:        StreamDLQ,
+			Description: "Dead-lettered tasks awaiting operator replay.",
+			Subjects:    []string{FilterAllDLQ},
+			Retention:   RetentionLimits,
+			Storage:     StorageFile,
+			Discard:     DiscardOld,
+			MaxAge:      720 * time.Hour,
+			MaxBytes:    1 * GiB,
+			Duplicates:  10 * time.Minute,
+			Replicas:    3,
+		},
+	}
+}
+
+func defaultConsumers() []ConsumerSpec {
+	s := time.Second
+	m := time.Minute
+	h := time.Hour
+	return []ConsumerSpec{
+		{
+			Name: ConsumerCatalogRSSMatcher, Stream: StreamReleases,
+			Filters: []string{FilterAllReleases},
+			AckWait: 30 * s, MaxDeliver: 6,
+			BackOff:       []time.Duration{1 * s, 5 * s, 30 * s, 2 * m, 10 * m},
+			MaxAckPending: 256,
+		},
+		{
+			Name: ConsumerCatalogSearchHigh, Stream: StreamWorkCatalogarr,
+			Filters: []string{"clustarr.work.catalogarr.search.high.>"},
+			AckWait: 120 * s, MaxDeliver: 5,
+			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m},
+			MaxAckPending: 8,
+		},
+		{
+			Name: ConsumerCatalogSearchNorm, Stream: StreamWorkCatalogarr,
+			Filters: []string{
+				"clustarr.work.catalogarr.search.normal.>",
+				"clustarr.work.catalogarr.search.low.>",
+				FilterCatalogWanted,
+			},
+			AckWait: 120 * s, MaxDeliver: 5,
+			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m, 1 * h},
+			MaxAckPending: 8,
+		},
+		{
+			Name: ConsumerCatalogGrab, Stream: StreamWorkCatalogarr,
+			Filters: []string{FilterCatalogGrab},
+			AckWait: 60 * s, MaxDeliver: 5,
+			BackOff:       []time.Duration{10 * s, 1 * m, 5 * m},
+			MaxAckPending: 16,
+		},
+		{
+			Name: ConsumerCatalogImport, Stream: StreamWorkCatalogarr,
+			Filters: []string{FilterCatalogImport},
+			AckWait: 300 * s, MaxDeliver: 5,
+			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m},
+			MaxAckPending: 4, Heartbeat: 60 * s,
+		},
+		{
+			Name: ConsumerCatalogMetadata, Stream: StreamWorkCatalogarr,
+			Filters: []string{FilterCatalogMetadata},
+			AckWait: 60 * s, MaxDeliver: 8,
+			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
+			MaxAckPending: 32,
+		},
+		{
+			Name: ConsumerCatalogImportList, Stream: StreamWorkCatalogarr,
+			Filters: []string{FilterCatalogList},
+			AckWait: 300 * s, MaxDeliver: 4,
+			BackOff:       []time.Duration{5 * m, 30 * m, 2 * h},
+			MaxAckPending: 2, Heartbeat: 60 * s,
+		},
+		{
+			Name: ConsumerCatalogHistory, Stream: StreamEvents,
+			Filters: []string{FilterAllEvents},
+			AckWait: 30 * s, MaxDeliver: 3,
+			BackOff:       []time.Duration{5 * s, 30 * s},
+			MaxAckPending: 512,
+		},
+		{
+			Name: ConsumerIndexRSS, Stream: StreamWorkIndexarr,
+			Filters: []string{FilterIndexRSS},
+			AckWait: 120 * s, MaxDeliver: 4,
+			BackOff:       []time.Duration{1 * m, 5 * m, 15 * m},
+			MaxAckPending: 4,
+		},
+		{
+			Name: ConsumerIndexDefinitions, Stream: StreamWorkIndexarr,
+			Filters: []string{FilterIndexDefs},
+			AckWait: 300 * s, MaxDeliver: 3,
+			BackOff:       []time.Duration{5 * m, 30 * m},
+			MaxAckPending: 1,
+		},
+		{
+			Name: ConsumerCaptionFetchHigh, Stream: StreamWorkCaptionarr,
+			Filters: []string{"clustarr.work.captionarr.fetch.high.>"},
+			AckWait: 90 * s, MaxDeliver: 8,
+			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
+			MaxAckPending: 16,
+		},
+		{
+			Name: ConsumerCaptionFetchNormal, Stream: StreamWorkCaptionarr,
+			Filters: []string{
+				"clustarr.work.captionarr.fetch.normal.>",
+				"clustarr.work.captionarr.fetch.low.>",
+			},
+			AckWait: 90 * s, MaxDeliver: 8,
+			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
+			MaxAckPending: 16,
+		},
+		{
+			Name: ConsumerDLQProjector, Stream: StreamDLQ,
+			Filters: []string{FilterAllDLQ},
+			AckWait: 30 * s, MaxDeliver: 3,
+			BackOff:       []time.Duration{5 * s, 30 * s},
+			MaxAckPending: 64,
+		},
+	}
+}
+
+func defaultBuckets() []BucketSpec {
+	const marker = 5 * time.Minute
+	b := func(name string, ttl time.Duration, desc string) BucketSpec {
+		return BucketSpec{
+			Name: name, TTL: ttl, Description: desc,
+			History: 1, Storage: StorageFile, Replicas: 3,
+			LimitMarkerTTL: marker,
+		}
+	}
+	return []BucketSpec{
+		b(BucketLeases, 0, "Double-grab guard; keys are created, never put."),
+		b(BucketPending, 7*24*time.Hour, "Best pending candidate per media key."),
+		b(BucketIndexerSessions, 30*24*time.Hour, "Cardigann cookies and JWTs."),
+		b(BucketIndexerLimits, 2*24*time.Hour, "Query and grab timestamp rings."),
+		b(BucketProviderThrottle, 24*time.Hour, "Subtitle provider throttle table."),
+		b(BucketMetadataCache, 30*24*time.Hour, "L2 metadata cache."),
+		b(BucketSearchCache, 35*time.Minute, "Raw indexer search results."),
+		b(BucketProgress, 10*time.Minute, "1 Hz download and transcode telemetry."),
+		b(BucketImportList, 7*24*time.Hour, "Import list items, kept out of status."),
+		b(BucketDedup, 24*time.Hour, "Import fingerprints for re-import no-ops."),
+	}
+}

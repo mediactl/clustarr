@@ -1,0 +1,541 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: subtitleprofiles.subtitle.clustarr.io
+spec:
+  group: subtitle.clustarr.io
+  names:
+    categories:
+    - clustarr
+    kind: SubtitleProfile
+    listKind: SubtitleProfileList
+    plural: subtitleprofiles
+    singular: subtitleprofile
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.default
+      name: Default
+      type: boolean
+    - jsonPath: .spec.cutoff
+      name: Cutoff
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.matchingFiles
+      name: Matching
+      type: integer
+    - jsonPath: .status.wantedKeys
+      name: Wanted
+      priority: 1
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          SubtitleProfile describes the subtitle languages wanted for the MediaFiles
+          it selects, and how candidates are scored, filtered and written.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: SubtitleProfileSpec defines the desired state of SubtitleProfile.
+            properties:
+              cutoff:
+                description: |-
+                  Cutoff is the langKey whose satisfaction stops further searching for the
+                  media file. Unset means any wanted language satisfies the cutoff.
+                maxLength: 64
+                type: string
+              default:
+                default: false
+                description: |-
+                  Default marks this profile as the cluster default, used by media files no
+                  other profile selects. Exactly one profile may be the default; the
+                  controller sets Invalid on the newer one.
+                type: boolean
+              embedded:
+                default: {}
+                description: Embedded controls how subtitle tracks inside the container
+                  are used.
+                properties:
+                  extract:
+                    default: true
+                    description: |-
+                      Extract writes a matching embedded track out as a sidecar instead of
+                      searching providers for it.
+                    type: boolean
+                  ignoreASS:
+                    default: false
+                    description: IgnoreASS ignores ASS/SSA tracks when matching embedded
+                      subtitles.
+                    type: boolean
+                  ignorePGS:
+                    default: false
+                    description: IgnorePGS ignores image-based PGS tracks when matching
+                      embedded subtitles.
+                    type: boolean
+                  ignoreVobSub:
+                    default: false
+                    description: IgnoreVobSub ignores image-based VobSub tracks when
+                      matching embedded subtitles.
+                    type: boolean
+                  skipCommentary:
+                    default: true
+                    description: SkipCommentary ignores tracks whose title marks them
+                      as commentary.
+                    type: boolean
+                type: object
+              hiExtension:
+                default: sdh
+                description: HIExtension is the filename infix used for hearing-impaired
+                  sidecars.
+                enum:
+                - sdh
+                - hi
+                - cc
+                type: string
+              languageEquals:
+                description: |-
+                  LanguageEquals lists "<from>:<to>" aliases that make two language tags
+                  interchangeable when matching candidates, e.g. "pt-BR:pt".
+                items:
+                  pattern: ^[A-Za-z]{2,8}(-[A-Za-z0-9]{2,8})*:[A-Za-z]{2,8}(-[A-Za-z0-9]{2,8})*$
+                  type: string
+                maxItems: 32
+                type: array
+              languages:
+                description: Languages lists the wanted languages, keyed by langKey.
+                items:
+                  description: |-
+                    LanguageItem is one wanted language of a SubtitleProfile, together with the
+                    forced / hearing-impaired / audio flags that make it distinct from another
+                    entry for the same BCP-47 language.
+                  properties:
+                    audioExclude:
+                      default: false
+                      description: |-
+                        AudioExclude skips this entry when the media file already has an audio
+                        track in the same language.
+                      type: boolean
+                    audioOnlyInclude:
+                      default: false
+                      description: |-
+                        AudioOnlyInclude only wants this entry when the media file has an audio
+                        track in the same language. It is the inverse of audioExclude and the two
+                        may not both be true.
+                      type: boolean
+                    forced:
+                      default: false
+                      description: |-
+                        Forced wants only forced subtitles (foreign-dialogue-only tracks) for
+                        this entry.
+                      type: boolean
+                    hi:
+                      default: prefer
+                      description: HI says how hearing-impaired (SDH) subtitles are
+                        treated for this entry.
+                      enum:
+                      - required
+                      - prefer
+                      - excluded
+                      type: string
+                    key:
+                      description: |-
+                        Key is the stable identity of this entry inside the profile, of the form
+                        <language>[:forced][:hi], e.g. "en", "en:forced" or "pt-BR:hi". It is the
+                        langKey referenced by spec.cutoff, SubtitleRequest.spec.languages and
+                        SubtitleRequest.status.items[].langKey.
+
+                        The canonical key is derivable from language, forced and hi; the
+                        controller rejects a key that does not match them.
+                      maxLength: 64
+                      minLength: 1
+                      pattern: ^[A-Za-z]{2,8}(-[A-Za-z0-9]{2,8})*(:forced)?(:hi)?$
+                      type: string
+                    language:
+                      description: |-
+                        Language is the BCP-47 language tag of the wanted subtitle, e.g. "en",
+                        "pt-BR" or "zh-Hant".
+                      maxLength: 32
+                      minLength: 2
+                      pattern: ^[A-Za-z]{2,8}(-[A-Za-z0-9]{2,8})*$
+                      type: string
+                  required:
+                  - key
+                  - language
+                  type: object
+                maxItems: 20
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - key
+                x-kubernetes-list-type: map
+              minScorePercent:
+                default: {}
+                description: |-
+                  MinScorePercent is the minimum candidate score, as a percentage of the
+                  maximum achievable score, required before a subtitle is downloaded.
+                properties:
+                  episode:
+                    default: 90
+                    description: Episode is the threshold applied to episode media
+                      files.
+                    format: int32
+                    maximum: 100
+                    minimum: 0
+                    type: integer
+                  movie:
+                    default: 70
+                    description: Movie is the threshold applied to movie media files.
+                    format: int32
+                    maximum: 100
+                    minimum: 0
+                    type: integer
+                type: object
+              mods:
+                description: Mods lists the transformations applied to a downloaded
+                  subtitle, in order.
+                items:
+                  description: |-
+                    SubtitleMod names a post-download transformation applied to a downloaded
+                    subtitle before it is written to disk.
+                  enum:
+                  - removeHI
+                  - removeTags
+                  - ocrFixes
+                  - common
+                  - fixUppercase
+                  - reverseRTL
+                  - color
+                  type: string
+                maxItems: 7
+                type: array
+                x-kubernetes-list-type: atomic
+              mustContain:
+                description: |-
+                  MustContain lists regular expressions that must all match the release
+                  information of a candidate subtitle for it to be accepted.
+                items:
+                  maxLength: 256
+                  type: string
+                maxItems: 32
+                type: array
+              mustNotContain:
+                description: |-
+                  MustNotContain lists regular expressions that must none match the release
+                  information of a candidate subtitle for it to be accepted.
+                items:
+                  maxLength: 256
+                  type: string
+                maxItems: 32
+                type: array
+              originalFormat:
+                default: false
+                description: |-
+                  OriginalFormat writes the subtitle in the format the provider served it
+                  instead of converting it to SubRip.
+                type: boolean
+              providers:
+                description: |-
+                  Providers is the ordered list of SubtitleProvider names to search. Empty
+                  means every enabled provider, in priority order.
+                items:
+                  maxLength: 253
+                  type: string
+                maxItems: 32
+                type: array
+                x-kubernetes-list-type: atomic
+              search:
+                default: {}
+                description: Search paces provider searches for wanted languages.
+                properties:
+                  adaptiveDelay:
+                    default: 504h
+                    description: |-
+                      AdaptiveDelay is how long after a media file's release date searches keep
+                      running at the base interval before backing off.
+                    type: string
+                  adaptiveDelta:
+                    default: 168h
+                    description: AdaptiveDelta is the interval used once adaptiveDelay
+                      has elapsed.
+                    type: string
+                  interval:
+                    default: 6h
+                    description: Interval is the base delay between searches for a
+                      wanted language.
+                    type: string
+                type: object
+              selector:
+                description: |-
+                  Selector matches MediaFile labels this profile applies to. Only video
+                  kinds (movie, episode) are eligible; enforced by the controller.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+              sync:
+                description: Sync configures subtitle re-timing. Deferred in v1alpha1.
+                properties:
+                  enabled:
+                    default: false
+                    description: Enabled turns re-timing on. Must be false in v1alpha1.
+                    type: boolean
+                  gss:
+                    default: true
+                    description: GSS uses golden-section search when aligning (ffsubsync).
+                    type: boolean
+                  maxOffsetSeconds:
+                    default: 60
+                    description: |-
+                      MaxOffsetSeconds is the largest shift, in seconds, that may be applied
+                      before the result is rejected as a mismatch.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  noFixFramerate:
+                    default: true
+                    description: NoFixFramerate disables framerate-ratio correction
+                      during alignment.
+                    type: boolean
+                  thresholdPercent:
+                    default: {}
+                    description: |-
+                      ThresholdPercent is the minimum subtitle score, per media kind, below
+                      which a subtitle is not worth re-timing.
+                    properties:
+                      episode:
+                        default: 90
+                        description: Episode is the threshold applied to episode media
+                          files.
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
+                      movie:
+                        default: 70
+                        description: Movie is the threshold applied to movie media
+                          files.
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
+                    type: object
+                  tool:
+                    description: Tool is the re-timing tool to run.
+                    enum:
+                    - ffsubsync
+                    - alass
+                    type: string
+                type: object
+                x-kubernetes-validations:
+                - message: 'subtitle sync is not supported in v1alpha1: sync.enabled
+                    must be false'
+                  rule: '!has(self.enabled) || !self.enabled'
+              upgrade:
+                default: {}
+                description: Upgrade controls re-searching already downloaded languages.
+                properties:
+                  enabled:
+                    default: true
+                    description: Enabled turns upgrade searches on.
+                    type: boolean
+                  interval:
+                    default: 12h
+                    description: Interval is the delay between upgrade searches for
+                      one language.
+                    type: string
+                  lookbackDays:
+                    default: 7
+                    description: |-
+                      LookbackDays is how many days after the original download upgrades are
+                      still attempted.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  minDeltaPoints:
+                    default: 3
+                    description: |-
+                      MinDeltaPoints is the minimum score improvement, in score points, that a
+                      candidate must offer before it replaces the current subtitle.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                type: object
+              whisper:
+                description: Whisper configures speech-to-text generation. Deferred
+                  in v1alpha1.
+                properties:
+                  enabled:
+                    default: false
+                    description: Enabled turns generation on. Must be false in v1alpha1.
+                    type: boolean
+                  providerRef:
+                    description: ProviderRef is the name of the SubtitleProvider of
+                      type whisper to use.
+                    maxLength: 253
+                    type: string
+                type: object
+                x-kubernetes-validations:
+                - message: 'whisper generation is not supported in v1alpha1: whisper.enabled
+                    must be false'
+                  rule: '!has(self.enabled) || !self.enabled'
+            required:
+            - languages
+            type: object
+            x-kubernetes-validations:
+            - message: cutoff must be one of spec.languages[].key
+              rule: '!has(self.cutoff) || self.languages.exists(l, l.key == self.cutoff)'
+            - message: a language may not set both audioExclude and audioOnlyInclude
+              rule: self.languages.all(l, !(l.audioExclude && l.audioOnlyInclude))
+          status:
+            description: SubtitleProfileStatus defines the observed state of SubtitleProfile.
+            properties:
+              conditions:
+                description: Conditions holds Ready and Invalid.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              matchingFiles:
+                description: MatchingFiles is the number of MediaFiles selected by
+                  this profile.
+                format: int32
+                type: integer
+              observedGeneration:
+                description: ObservedGeneration is the most recent generation observed
+                  by the controller.
+                format: int64
+                type: integer
+              wantedKeys:
+                description: WantedKeys is the resolved, canonical set of langKeys
+                  this profile wants.
+                items:
+                  maxLength: 64
+                  type: string
+                maxItems: 20
+                type: array
+                x-kubernetes-list-type: set
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

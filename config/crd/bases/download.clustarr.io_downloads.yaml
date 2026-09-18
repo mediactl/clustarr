@@ -1,0 +1,842 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: downloads.download.clustarr.io
+spec:
+  group: download.clustarr.io
+  names:
+    categories:
+    - clustarr
+    kind: Download
+    listKind: DownloadList
+    plural: downloads
+    shortNames:
+    - dl
+    singular: download
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .spec.protocol
+      name: Protocol
+      type: string
+    - jsonPath: .spec.clientRef
+      name: Client
+      type: string
+    - jsonPath: .status.progressPercent
+      name: Progress
+      type: integer
+    - jsonPath: .status.etaSeconds
+      name: ETA
+      priority: 1
+      type: integer
+    - jsonPath: .status.import.state
+      name: Import
+      priority: 1
+      type: string
+    - jsonPath: .spec.release.title
+      name: Title
+      priority: 1
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Download is one release being transferred by a DownloadClient. It carries an
+          ownerReference to the catalog object in spec.target, so deleting the media
+          deletes its in-flight downloads, and it is named deterministically as
+          "<target>-<sha1(release guid)[:10]>" so a repeated grab of the same release
+          for the same target is an idempotent create rather than a duplicate.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: DownloadSpec defines the desired state of Download.
+            properties:
+              clientRef:
+                description: |-
+                  ClientRef is the DownloadClient handling this Download, in the same
+                  namespace. Left empty it is resolved once by grabarr at admission from
+                  the enabled clients of the matching protocol; once set it is immutable.
+                type: string
+              grabbedBy:
+                description: GrabbedBy records what caused the grab.
+                enum:
+                - rss
+                - search
+                - interactive
+                - push
+                - redownload
+                type: string
+              manual:
+                description: |-
+                  Manual marks an operator-forced grab. The importer then skips the
+                  monitored and minimum-availability checks it would otherwise apply.
+                type: boolean
+              paused:
+                description: Paused suspends the transfer without removing it from
+                  the engine.
+                type: boolean
+              priority:
+                default: normal
+                description: Priority orders this Download within its engine's queue.
+                enum:
+                - high
+                - normal
+                - low
+                type: string
+              protocol:
+                description: |-
+                  Protocol is the transfer protocol of the release; it selects the class of
+                  DownloadClient that may take the work. Immutable.
+                enum:
+                - torrent
+                - usenet
+                type: string
+                x-kubernetes-validations:
+                - message: protocol is immutable
+                  rule: self == oldSelf
+              qualityProfileRef:
+                description: |-
+                  QualityProfileRef is the QualityProfile the grab decision used; the
+                  importer re-checks the finished files against it.
+                type: string
+              release:
+                description: |-
+                  Release is the indexer release snapshot this grab was decided from. It is
+                  immutable: re-deciding means creating a new Download.
+                properties:
+                  categories:
+                    description: Categories lists the Newznab/Torznab category IDs
+                      of the release.
+                    items:
+                      format: int32
+                      type: integer
+                    type: array
+                  downloadURL:
+                    description: DownloadURL is the .torrent / .nzb download link.
+                    type: string
+                  edition:
+                    description: Edition is the edition parsed from the release title,
+                      e.g. Director's Cut.
+                    type: string
+                  formatScore:
+                    description: FormatScore is the total custom-format score of the
+                      release.
+                    format: int32
+                    type: integer
+                  guid:
+                    description: GUID is the indexer-scoped unique identifier of the
+                      release.
+                    type: string
+                  ids:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      IDs maps external ID providers (tmdb, imdb, tvdb, ...) to the ID the
+                      indexer reported for the release.
+                    type: object
+                  indexerFlags:
+                    description: IndexerFlags lists indexer-specific flags on the
+                      release.
+                    items:
+                      enum:
+                      - freeleech
+                      - halfleech
+                      - neutralleech
+                      - doubleupload
+                      - internal
+                      - exclusive
+                      - scene
+                      type: string
+                    type: array
+                  indexerName:
+                    description: IndexerName is the display name of the indexer at
+                      search time.
+                    type: string
+                  indexerRef:
+                    description: IndexerRef is the name of the Indexer the release
+                      came from.
+                    type: string
+                  infoHash:
+                    description: InfoHash is the torrent info hash, when known.
+                    type: string
+                  infoURL:
+                    description: InfoURL is the release details page on the indexer.
+                    type: string
+                  languages:
+                    description: Languages lists the languages parsed from the release
+                      title.
+                    items:
+                      type: string
+                    type: array
+                  leechers:
+                    description: Leechers is the leecher count reported by the indexer.
+                      Torrent only.
+                    format: int32
+                    type: integer
+                  magnetURL:
+                    description: MagnetURL is the magnet link, for torrent releases
+                      that expose one.
+                    type: string
+                  matchedFormats:
+                    description: MatchedFormats lists the names of the custom formats
+                      that matched.
+                    items:
+                      type: string
+                    type: array
+                  protocol:
+                    description: Protocol is the transfer protocol of the release.
+                    enum:
+                    - torrent
+                    - usenet
+                    type: string
+                  publishedAt:
+                    description: PublishedAt is when the indexer published the release.
+                    format: date-time
+                    type: string
+                  quality:
+                    description: Quality is the quality parsed from the release title.
+                    properties:
+                      modifier:
+                        description: Modifier refines the quality (remux, screener,
+                          ...).
+                        enum:
+                        - none
+                        - regional
+                        - screener
+                        - rawhd
+                        - brdisk
+                        - remux
+                        type: string
+                      name:
+                        description: Name is the canonical quality definition name.
+                        type: string
+                      resolution:
+                        description: Resolution is the vertical resolution in lines.
+                          Video only.
+                        enum:
+                        - 0
+                        - 360
+                        - 480
+                        - 540
+                        - 576
+                        - 720
+                        - 1080
+                        - 2160
+                        format: int32
+                        type: integer
+                      source:
+                        description: Source is the release source. Video only.
+                        enum:
+                        - unknown
+                        - cam
+                        - telesync
+                        - telecine
+                        - workprint
+                        - dvd
+                        - tv
+                        - webdl
+                        - webrip
+                        - bluray
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  releaseGroup:
+                    description: ReleaseGroup is the release group parsed from the
+                      release title.
+                    type: string
+                  releaseType:
+                    description: ReleaseType classifies how many catalog items the
+                      release covers.
+                    enum:
+                    - single
+                    - multi
+                    - seasonPack
+                    - album
+                    - book
+                    - issue
+                    type: string
+                  revision:
+                    description: Revision is the proper/repack revision parsed from
+                      the release title.
+                    properties:
+                      real:
+                        default: 0
+                        description: Real counts REAL re-releases that fix a broken
+                          proper.
+                        format: int32
+                        type: integer
+                      repack:
+                        default: false
+                        description: Repack is true when the release is flagged as
+                          a repack.
+                        type: boolean
+                      version:
+                        default: 1
+                        description: Version is the release version; 1 is the original,
+                          2+ are propers.
+                        format: int32
+                        type: integer
+                    type: object
+                  seeders:
+                    description: Seeders is the seeder count reported by the indexer.
+                      Torrent only.
+                    format: int32
+                    type: integer
+                  sizeBytes:
+                    description: SizeBytes is the release size in bytes.
+                    format: int64
+                    type: integer
+                  title:
+                    description: Title is the raw release title as published by the
+                      indexer.
+                    type: string
+                type: object
+                x-kubernetes-validations:
+                - message: release identity is immutable
+                  rule: self.guid == oldSelf.guid && self.indexerRef == oldSelf.indexerRef
+                    && self.title == oldSelf.title && self.protocol == oldSelf.protocol
+                    && self.infoHash == oldSelf.infoHash
+              removeDataOnDelete:
+                default: true
+                description: |-
+                  RemoveDataOnDelete deletes the downloaded data when the Download object
+                  is deleted. Imported files already linked into the library are untouched.
+                type: boolean
+              removeOnImport:
+                default: true
+                description: |-
+                  RemoveOnImport removes the transfer from the engine once the import
+                  succeeds and, for torrents, the seed goal is met.
+                type: boolean
+              seedCriteria:
+                description: |-
+                  SeedCriteria overrides the client's default seed goal for this Download.
+                  Torrent only.
+                properties:
+                  inactiveTime:
+                    description: InactiveTime is how long a torrent may sit without
+                      activity before it is considered stalled.
+                    type: string
+                  packSeedTime:
+                    description: PackSeedTime is how long a pack (season, discography)
+                      torrent must seed before removal.
+                    type: string
+                  ratio:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: |-
+                      Ratio is the upload/download ratio to reach before the torrent may be removed,
+                      written as a decimal string such as "2.0". Quantity is used instead of a float
+                      so the value round-trips exactly across API clients.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  seedTime:
+                    description: SeedTime is how long a single-item torrent must seed
+                      before removal.
+                    type: string
+                type: object
+              source:
+                description: Source is where the payload comes from. Immutable.
+                properties:
+                  expectedInfoHash:
+                    description: |-
+                      ExpectedInfoHash is the info hash the resolved torrent must have. The
+                      engine refuses a mismatch, which stops an indexer from swapping content
+                      out from under a grab decision. Torrent only.
+                    pattern: ^[0-9a-f]{40}([0-9a-f]{24})?$
+                    type: string
+                  indexerDownload:
+                    description: |-
+                      IndexerDownload names a release to resolve through indexarr. This is the
+                      normal path: the indexer applies auth, rate limits and proxying, and
+                      returns the payload to the engine.
+                    properties:
+                      guid:
+                        description: |-
+                          GUID is the indexer-scoped unique identifier of the release. It is the
+                          input to the Download's deterministic name.
+                        minLength: 1
+                        type: string
+                      indexerRef:
+                        description: |-
+                          IndexerRef is the name of the Indexer that published the release, in the
+                          same namespace as the Download.
+                        minLength: 1
+                        type: string
+                      url:
+                        description: |-
+                          URL is the indexer's download link for the release. grabarr fetches it
+                          through indexarr, which applies the indexer's auth and proxy settings.
+                        maxLength: 2048
+                        type: string
+                    required:
+                    - guid
+                    - indexerRef
+                    type: object
+                  magnetURL:
+                    description: MagnetURL is a magnet link the torrent engine can
+                      add directly.
+                    maxLength: 4096
+                    pattern: ^magnet:\?.+$
+                    type: string
+                  nzbURL:
+                    description: NZBURL is a directly fetchable .nzb URL that needs
+                      no indexer credentials.
+                    maxLength: 2048
+                    type: string
+                  torrentURL:
+                    description: |-
+                      TorrentURL is a directly fetchable .torrent URL that needs no indexer
+                      credentials.
+                    maxLength: 2048
+                    type: string
+                type: object
+                x-kubernetes-validations:
+                - message: source is immutable
+                  rule: self == oldSelf
+                - message: exactly one of magnetURL, torrentURL, nzbURL or indexerDownload
+                    must be set
+                  rule: '(has(self.magnetURL) ? 1 : 0) + (has(self.torrentURL) ? 1
+                    : 0) + (has(self.nzbURL) ? 1 : 0) + (has(self.indexerDownload)
+                    ? 1 : 0) == 1'
+              target:
+                description: |-
+                  Target is the catalog item the content is destined for. It is also the
+                  ownerReference of this Download. Immutable.
+                properties:
+                  keys:
+                    description: Keys lists the Episode or Issue names covered by
+                      a pack release.
+                    items:
+                      type: string
+                    maxItems: 200
+                    type: array
+                  kind:
+                    description: Kind is the media kind of the referenced object.
+                    enum:
+                    - movie
+                    - series
+                    - episode
+                    - artist
+                    - album
+                    - author
+                    - book
+                    - audiobook
+                    - comic
+                    - issue
+                    type: string
+                  name:
+                    description: |-
+                      Name is the name of the referenced object; it lives in the same
+                      namespace as the object holding the reference.
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
+                x-kubernetes-validations:
+                - message: target is immutable
+                  rule: self == oldSelf
+            required:
+            - protocol
+            - release
+            - source
+            - target
+            type: object
+            x-kubernetes-validations:
+            - message: clientRef is immutable once set
+              rule: '!has(oldSelf.clientRef) || oldSelf.clientRef.size() == 0 || (has(self.clientRef)
+                && self.clientRef == oldSelf.clientRef)'
+          status:
+            description: |-
+              DownloadStatus defines the observed state of Download. Three writers share
+              it through server-side apply on disjoint field sets: the grabarr controller
+              owns the lifecycle fields, the grabarr-engine replica owns the telemetry
+              fields, and catalogarr owns status.import.
+            properties:
+              blocklistedUntil:
+                description: |-
+                  BlocklistedUntil is when this release stops being blocklisted. It is
+                  meaningful only together with the download.clustarr.io/blocklisted label;
+                  grabarr deletes the Download once the deadline passes.
+                format: date-time
+                type: string
+              canBeRemoved:
+                description: |-
+                  CanBeRemoved is true when the engine has no reason to keep the transfer,
+                  e.g. the seed goal is met and the import finished.
+                type: boolean
+              canMoveFiles:
+                description: |-
+                  CanMoveFiles is true when the importer may hardlink or move the files out
+                  of the download directory right now.
+                type: boolean
+              completedAt:
+                description: CompletedAt is when the content finished downloading.
+                format: date-time
+                type: string
+              conditions:
+                description: Conditions holds Assigned, Downloaded, SeedGoalMet, Imported
+                  and Failed.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              contentRoot:
+                description: ContentRoot is the directory the file paths in status.files
+                  are relative to.
+                maxLength: 1024
+                type: string
+              downloadID:
+                description: |-
+                  DownloadID is the engine's own handle for the transfer, e.g. the info
+                  hash or NZB id.
+                maxLength: 256
+                type: string
+              downloadRateBps:
+                description: DownloadRateBps is the current download rate in bytes
+                  per second.
+                format: int64
+                type: integer
+              downloadedBytes:
+                description: DownloadedBytes is how many bytes have been fetched.
+                format: int64
+                type: integer
+              engine:
+                description: |-
+                  Engine is the engine replica that owns the transfer, "<client>-<ordinal>".
+                  It is set once, when the Download is assigned, and the label
+                  download.clustarr.io/engine mirrors it so replicas can select their work.
+                type: string
+              etaSeconds:
+                description: |-
+                  ETASeconds is the estimated number of seconds until the transfer
+                  completes. Unset when the engine cannot estimate one.
+                format: int32
+                minimum: 0
+                type: integer
+              failureReason:
+                description: FailureReason is the machine-readable cause of a failure.
+                enum:
+                - none
+                - missingArticles
+                - diskFull
+                - encrypted
+                - stalled
+                - writeError
+                - timeout
+                - importRejected
+                - manual
+                type: string
+              files:
+                description: Files lists the files in the transfer.
+                items:
+                  description: DownloadFile is one file within a transfer.
+                  properties:
+                    path:
+                      description: Path is the file path relative to status.contentRoot.
+                        It keys the list.
+                      maxLength: 1024
+                      minLength: 1
+                      type: string
+                    sizeBytes:
+                      description: SizeBytes is the file's size in bytes.
+                      format: int64
+                      type: integer
+                    skipped:
+                      description: |-
+                        Skipped is true when the engine was told not to fetch this file, e.g. a
+                        sample or an unwanted extra in a pack.
+                      type: boolean
+                  required:
+                  - path
+                  type: object
+                maxItems: 200
+                type: array
+                x-kubernetes-list-map-keys:
+                - path
+                x-kubernetes-list-type: map
+              health:
+                description: Health reports article availability. Usenet only.
+                properties:
+                  criticalHealthPercent:
+                    description: |-
+                      CriticalHealthPercent is the floor below which par2 recovery can no
+                      longer repair the download, as a whole percentage.
+                    format: int32
+                    maximum: 100
+                    minimum: 0
+                    type: integer
+                  failedArticles:
+                    description: FailedArticles is the number of articles that could
+                      not be fetched.
+                    format: int32
+                    type: integer
+                  healthPercent:
+                    description: |-
+                      HealthPercent is the share of articles successfully fetched so far, as a
+                      whole percentage.
+                    format: int32
+                    maximum: 100
+                    minimum: 0
+                    type: integer
+                  totalArticles:
+                    description: TotalArticles is the number of articles in the NZB.
+                    format: int32
+                    type: integer
+                type: object
+              import:
+                description: |-
+                  Import is the import outcome. It is the one cross-service field on this
+                  object: catalogarr, not grabarr, writes it, through server-side apply
+                  with its own field manager, and grabarr never touches it. grabarr reads
+                  it to decide when a Download may be removed or blocklisted.
+                properties:
+                  imported:
+                    description: Imported lists the files that were placed in the
+                      library.
+                    items:
+                      description: ImportedFile records one file that made it into
+                        the library.
+                      properties:
+                        destPath:
+                          description: DestPath is the path the file now has in the
+                            library.
+                          maxLength: 1024
+                          type: string
+                        mediaFileRef:
+                          description: MediaFileRef is the name of the MediaFile created
+                            for the file.
+                          type: string
+                        sourcePath:
+                          description: SourcePath is the path the file had inside
+                            the download.
+                          maxLength: 1024
+                          type: string
+                      type: object
+                    maxItems: 200
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  importedAt:
+                    description: ImportedAt is when the import finished.
+                    format: date-time
+                    type: string
+                  message:
+                    description: Message explains the current state in human-readable
+                      terms.
+                    maxLength: 2048
+                    type: string
+                  rejections:
+                    description: Rejections lists why individual files were not imported.
+                    items:
+                      maxLength: 1024
+                      type: string
+                    maxItems: 200
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  state:
+                    description: State is the import phase.
+                    enum:
+                    - pending
+                    - blocked
+                    - importing
+                    - imported
+                    - ignored
+                    type: string
+                type: object
+              isEncrypted:
+                description: IsEncrypted is true when the content turned out to be
+                  password protected.
+                type: boolean
+              lastProgressAt:
+                description: |-
+                  LastProgressAt is when downloadedBytes last increased; the stall detector
+                  works from it.
+                format: date-time
+                type: string
+              message:
+                description: Message is the engine's latest human-readable note.
+                maxLength: 2048
+                type: string
+              observedGeneration:
+                description: |-
+                  ObservedGeneration is the spec generation this status was computed from.
+                  Written by the grabarr controller.
+                format: int64
+                type: integer
+              outputPath:
+                description: OutputPath is where the finished content was published.
+                maxLength: 1024
+                type: string
+              peers:
+                description: Peers is the number of connected peers. Torrent only.
+                format: int32
+                type: integer
+              phase:
+                description: Phase is the lifecycle phase. Written by the grabarr
+                  controller.
+                enum:
+                - Pending
+                - Assigned
+                - Queued
+                - Downloading
+                - Paused
+                - Completed
+                - Seeding
+                - Imported
+                - Failed
+                - Blocklisted
+                - Removing
+                type: string
+              progressPercent:
+                description: |-
+                  ProgressPercent is the share of wanted bytes fetched so far, as a whole
+                  percentage. It is an integer on purpose: status telemetry uses scaled
+                  integers, never floating point.
+                format: int32
+                maximum: 100
+                minimum: 0
+                type: integer
+              ratioMilli:
+                description: |-
+                  RatioMilli is uploadedBytes/downloadedBytes in thousandths, so a ratio of
+                  1.5 is 1500. Compare it against spec.seedCriteria.ratio, which is the
+                  same number written as a decimal Quantity. Torrent only.
+                format: int32
+                minimum: 0
+                type: integer
+              remainingBytes:
+                description: RemainingBytes is how many wanted bytes are still missing.
+                format: int64
+                type: integer
+              seedGoalMetAt:
+                description: SeedGoalMetAt is when the torrent satisfied its seed
+                  criteria.
+                format: date-time
+                type: string
+              seedTimeSeconds:
+                description: SeedTimeSeconds is how long the torrent has been seeding.
+                format: int64
+                type: integer
+              seeders:
+                description: Seeders is the number of seeders the engine currently
+                  sees. Torrent only.
+                format: int32
+                type: integer
+              stage:
+                description: Stage is the fine-grained engine stage. Written by grabarr-engine.
+                enum:
+                - fetchingMetadata
+                - transferring
+                - verifying
+                - repairing
+                - extracting
+                - publishing
+                - seeding
+                - done
+                type: string
+              startedAt:
+                description: StartedAt is when the engine began transferring.
+                format: date-time
+                type: string
+              totalBytes:
+                description: TotalBytes is the size of the wanted content.
+                format: int64
+                type: integer
+              uploadRateBps:
+                description: UploadRateBps is the current upload rate in bytes per
+                  second.
+                format: int64
+                type: integer
+              uploadedBytes:
+                description: UploadedBytes is how many bytes have been uploaded. Torrent
+                  only.
+                format: int64
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

@@ -314,7 +314,7 @@ type TranscodeJobStatus struct {
 // +kubebuilder:printcolumn:name="MediaFile",type="string",JSONPath=".spec.mediaFileRef"
 // +kubebuilder:printcolumn:name="Profile",type="string",JSONPath=".spec.profileRef"
 // +kubebuilder:printcolumn:name="Mode",type="string",JSONPath=".status.plan.mode",priority=1
-// +kubebuilder:printcolumn:name="Progress",type="number",JSONPath=".status.progress.percent"
+// +kubebuilder:printcolumn:name="Progress",type="integer",JSONPath=".status.progress.percent"
 // +kubebuilder:printcolumn:name="Attempts",type="integer",JSONPath=".status.attempts",priority=1
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 type TranscodeJob struct {

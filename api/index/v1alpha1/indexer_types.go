@@ -186,7 +186,26 @@ type IndexerSpec struct {
 	Tags []string `json:"tags,omitempty"`
 }
 
+// SubCategory is a leaf Newznab category, such as 2040 "Movies/HD" under the
+// 2000 "Movies" parent.
+type SubCategory struct {
+	// ID is the Newznab category id.
+	// +optional
+	ID int32 `json:"id,omitempty"`
+
+	// Name is the sub-category's display name.
+	// +optional
+	Name string `json:"name,omitempty"`
+}
+
 // Category is a Newznab category with its sub-categories.
+//
+// The spec writes Sub as []Category, i.e. an arbitrarily deep tree. A CRD
+// schema cannot be recursive: controller-gen truncates the recursion to
+// `items: {}` and the apiserver then rejects the CRD with "must not be empty
+// for specified array items". The Newznab category tree is exactly two levels
+// deep (a 1000-aligned parent and its leaves), so Sub is []SubCategory, which
+// carries the same id/name payload with a schema the apiserver accepts.
 type Category struct {
 	// ID is the Newznab category id.
 	// +optional
@@ -199,7 +218,7 @@ type Category struct {
 	// Sub lists the sub-categories of this category.
 	// +optional
 	// +kubebuilder:validation:MaxItems=200
-	Sub []Category `json:"sub,omitempty"`
+	Sub []SubCategory `json:"sub,omitempty"`
 }
 
 // Caps is the capability set reported by the indexer.

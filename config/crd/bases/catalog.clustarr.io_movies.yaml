@@ -1,0 +1,563 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: movies.catalog.clustarr.io
+spec:
+  group: catalog.clustarr.io
+  names:
+    categories:
+    - clustarr
+    - catalog
+    - media
+    kind: Movie
+    listKind: MovieList
+    plural: movies
+    shortNames:
+    - mov
+    singular: movie
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.metadata.title
+      name: Title
+      type: string
+    - jsonPath: .status.metadata.year
+      name: Year
+      type: integer
+    - jsonPath: .spec.monitored
+      name: Monitored
+      type: boolean
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.hasFile
+      name: File
+      type: boolean
+    - jsonPath: .status.fileQuality.name
+      name: Quality
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Movie is a monitored film in the catalog.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: MovieSpec defines the desired state of Movie.
+            properties:
+              addOptions:
+                description: AddOptions are applied once, when the movie is first
+                  reconciled.
+                properties:
+                  addMethod:
+                    default: manual
+                    description: AddMethod records how the movie was added.
+                    enum:
+                    - manual
+                    - list
+                    - collection
+                    type: string
+                  monitor:
+                    default: movieOnly
+                    description: Monitor says whether the collection is monitored
+                      alongside the movie.
+                    enum:
+                    - movieOnly
+                    - movieAndCollection
+                    - none
+                    type: string
+                  searchForMovie:
+                    default: true
+                    description: SearchForMovie triggers an automatic search on add.
+                    type: boolean
+                type: object
+              availabilityDelayDays:
+                default: 0
+                description: |-
+                  AvailabilityDelayDays shifts the availability date later (or, when
+                  negative, earlier) by this many days.
+                format: int32
+                type: integer
+              collection:
+                description: |-
+                  Collection holds the defaults used for movies added from this movie's
+                  TMDB collection.
+                properties:
+                  minimumAvailability:
+                    description: MinimumAvailability is the minimum availability for
+                      collection members.
+                    enum:
+                    - tba
+                    - announced
+                    - inCinemas
+                    - released
+                    type: string
+                  monitor:
+                    description: Monitor monitors the other movies in the collection.
+                    type: boolean
+                  qualityProfileRef:
+                    description: QualityProfileRef is the QualityProfile for collection
+                      members.
+                    type: string
+                  rootFolderRef:
+                    description: RootFolderRef is the RootFolder for collection members.
+                    type: string
+                  searchOnAdd:
+                    description: SearchOnAdd searches for collection members as they
+                      are added.
+                    type: boolean
+                type: object
+              delayProfileRef:
+                description: DelayProfileRef pins a DelayProfile; unset falls back
+                  to tag matching.
+                type: string
+              folder:
+                description: Folder overrides the folder name under the root folder.
+                type: string
+              minimumAvailability:
+                default: released
+                description: |-
+                  MinimumAvailability is how far into its release cycle the movie must be
+                  before it is searched for automatically.
+                enum:
+                - tba
+                - announced
+                - inCinemas
+                - released
+                type: string
+              monitored:
+                default: true
+                description: Monitored enables automatic searching and importing for
+                  this movie.
+                type: boolean
+              qualityProfileRef:
+                description: QualityProfileRef is the QualityProfile this movie is
+                  ranked against.
+                type: string
+              region:
+                default: US
+                description: Region is the ISO 3166-1 region whose release dates and
+                  certification are used.
+                type: string
+              rootFolderRef:
+                description: RootFolderRef is the RootFolder the movie is stored under.
+                type: string
+              source:
+                description: Source records the ImportList that added the movie, if
+                  any.
+                properties:
+                  importListRef:
+                    description: |-
+                      ImportListRef is the name of the ImportList that added the item. Empty
+                      means the item was added manually.
+                    type: string
+                type: object
+              subtitleProfileRef:
+                description: |-
+                  SubtitleProfileRef pins a SubtitleProfile; unset falls back to the
+                  RootFolder defaults and selectors.
+                type: string
+              tags:
+                description: Tags select DelayProfiles, TranscodeProfiles and SubtitleProfiles.
+                items:
+                  type: string
+                maxItems: 64
+                type: array
+              tmdbID:
+                description: TmdbID is the TMDB movie ID; it identifies the movie
+                  and is immutable.
+                format: int64
+                type: integer
+                x-kubernetes-validations:
+                - message: tmdbID is immutable
+                  rule: self == oldSelf
+              transcodeProfileRef:
+                description: |-
+                  TranscodeProfileRef pins a TranscodeProfile; unset falls back to the
+                  RootFolder defaults and transcodarr's selectors.
+                type: string
+            required:
+            - qualityProfileRef
+            - rootFolderRef
+            - tmdbID
+            type: object
+          status:
+            description: MovieStatus describes the observed state of Movie.
+            properties:
+              activeDownloadRef:
+                description: ActiveDownloadRef is the Download currently working on
+                  this movie.
+                type: string
+              addOptionsApplied:
+                description: AddOptionsApplied is true once spec.addOptions has been
+                  acted on.
+                type: boolean
+              available:
+                description: Available is true once minimumAvailability has been reached.
+                type: boolean
+              availableAt:
+                description: AvailableAt is when the movie became, or will become,
+                  available.
+                format: date-time
+                type: string
+              conditions:
+                description: Conditions represent the latest available observations
+                  of the movie's state.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                maxItems: 8
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              cutoffMet:
+                description: CutoffMet is true when the imported file meets the profile
+                  cutoff.
+                type: boolean
+              fileFormatScore:
+                description: FileFormatScore is the custom-format score of the imported
+                  file.
+                format: int32
+                type: integer
+              fileQuality:
+                description: FileQuality is the quality of the imported file.
+                properties:
+                  modifier:
+                    description: Modifier refines the quality (remux, screener, ...).
+                    enum:
+                    - none
+                    - regional
+                    - screener
+                    - rawhd
+                    - brdisk
+                    - remux
+                    type: string
+                  name:
+                    description: Name is the canonical quality definition name.
+                    type: string
+                  resolution:
+                    description: Resolution is the vertical resolution in lines. Video
+                      only.
+                    enum:
+                    - 0
+                    - 360
+                    - 480
+                    - 540
+                    - 576
+                    - 720
+                    - 1080
+                    - 2160
+                    format: int32
+                    type: integer
+                  source:
+                    description: Source is the release source. Video only.
+                    enum:
+                    - unknown
+                    - cam
+                    - telesync
+                    - telecine
+                    - workprint
+                    - dvd
+                    - tv
+                    - webdl
+                    - webrip
+                    - bluray
+                    type: string
+                required:
+                - name
+                type: object
+              fileRef:
+                description: FileRef is the name of the MediaFile backing the movie.
+                type: string
+              hasFile:
+                description: HasFile is true while a MediaFile backs the movie.
+                type: boolean
+              lastSearchedAt:
+                description: LastSearchedAt is when the movie was last searched for.
+                format: date-time
+                type: string
+              metadata:
+                description: Metadata is the cached provider metadata.
+                properties:
+                  alternateTitles:
+                    description: AlternateTitles lists other titles the movie is released
+                      under.
+                    items:
+                      type: string
+                    maxItems: 50
+                    type: array
+                  certification:
+                    description: Certification is the content rating in the configured
+                      region.
+                    type: string
+                  collection:
+                    description: Collection is the TMDB collection the movie belongs
+                      to.
+                    properties:
+                      name:
+                        description: Name is the collection name.
+                        type: string
+                      tmdbID:
+                        description: TmdbID is the TMDB collection ID.
+                        format: int64
+                        type: integer
+                    required:
+                    - tmdbID
+                    type: object
+                  digitalRelease:
+                    description: DigitalRelease is the digital release date.
+                    format: date-time
+                    type: string
+                  externalIDs:
+                    additionalProperties:
+                      type: string
+                    description: ExternalIDs maps provider names (tmdb, imdb, ...)
+                      to their IDs.
+                    type: object
+                  genres:
+                    description: Genres lists the genres.
+                    items:
+                      type: string
+                    maxItems: 30
+                    type: array
+                  images:
+                    description: Images lists the artwork published by the provider.
+                    items:
+                      description: Image is one artwork URL published by a metadata
+                        provider.
+                      properties:
+                        type:
+                          description: Type classifies the image.
+                          enum:
+                          - poster
+                          - fanart
+                          - logo
+                          type: string
+                        url:
+                          description: URL is where the image can be fetched.
+                          type: string
+                      required:
+                      - type
+                      - url
+                      type: object
+                    maxItems: 50
+                    type: array
+                  inCinemas:
+                    description: InCinemas is the theatrical release date.
+                    format: date-time
+                    type: string
+                  originalLanguage:
+                    description: OriginalLanguage is the BCP-47 tag of the original
+                      language.
+                    type: string
+                  originalTitle:
+                    description: OriginalTitle is the title in the original language.
+                    type: string
+                  overview:
+                    description: Overview is the synopsis.
+                    type: string
+                  physicalRelease:
+                    description: PhysicalRelease is the disc release date.
+                    format: date-time
+                    type: string
+                  refreshedAt:
+                    description: RefreshedAt is when the metadata was last fetched.
+                    format: date-time
+                    type: string
+                  releaseDates:
+                    description: ReleaseDates lists the per-country release dates.
+                    items:
+                      description: ReleaseDate is one regional release date reported
+                        by TMDB.
+                      properties:
+                        country:
+                          description: Country is the ISO 3166-1 country code of the
+                            release.
+                          type: string
+                        date:
+                          description: Date is the release date.
+                          format: date-time
+                          type: string
+                        type:
+                          description: |-
+                            Type is the TMDB release type: 1 premiere, 2 limited, 3 theatrical,
+                            4 digital, 5 physical, 6 TV.
+                          format: int32
+                          maximum: 6
+                          minimum: 1
+                          type: integer
+                      required:
+                      - country
+                      - date
+                      - type
+                      type: object
+                    maxItems: 60
+                    type: array
+                  runtimeMinutes:
+                    description: RuntimeMinutes is the runtime in minutes.
+                    format: int32
+                    type: integer
+                  sortTitle:
+                    description: SortTitle is the title used for sorting.
+                    type: string
+                  status:
+                    description: Status is where the movie sits in its release cycle.
+                    enum:
+                    - tba
+                    - announced
+                    - inCinemas
+                    - released
+                    type: string
+                  title:
+                    description: Title is the localised title.
+                    type: string
+                  year:
+                    description: Year is the release year.
+                    format: int32
+                    type: integer
+                type: object
+              observedGeneration:
+                description: ObservedGeneration is the generation of the spec this
+                  status reflects.
+                format: int64
+                type: integer
+              path:
+                description: Path is the resolved folder on disk.
+                type: string
+              pendingGrab:
+                description: PendingGrab is a chosen release waiting out a DelayProfile
+                  delay.
+                properties:
+                  grabAt:
+                    description: GrabAt is when the delay expires and the grab will
+                      be issued.
+                    format: date-time
+                    type: string
+                  protocol:
+                    description: Protocol is the transfer protocol of the pending
+                      release.
+                    enum:
+                    - torrent
+                    - usenet
+                    type: string
+                  releaseTitle:
+                    description: ReleaseTitle is the raw title of the release that
+                      will be grabbed.
+                    type: string
+                required:
+                - grabAt
+                - releaseTitle
+                type: object
+              phase:
+                description: Phase is the coarse lifecycle state of the movie.
+                enum:
+                - Pending
+                - Unavailable
+                - Wanted
+                - Delayed
+                - Downloading
+                - Imported
+                - CutoffUnmet
+                - Unmonitored
+                type: string
+              searchAttempts:
+                description: SearchAttempts counts the searches made for this movie.
+                properties:
+                  count:
+                    description: Count is the total number of attempts so far.
+                    format: int32
+                    type: integer
+                  initial:
+                    description: Initial is when the first attempt was made.
+                    format: date-time
+                    type: string
+                  latest:
+                    description: Latest is when the most recent attempt was made.
+                    format: date-time
+                    type: string
+                type: object
+            type: object
+        type: object
+    selectableFields:
+    - jsonPath: .spec.tmdbID
+    served: true
+    storage: true
+    subresources:
+      status: {}

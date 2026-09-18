@@ -254,7 +254,15 @@ spec:
                   categories:
                     description: Categories is the category tree the indexer exposes.
                     items:
-                      description: Category is a Newznab category with its sub-categories.
+                      description: |-
+                        Category is a Newznab category with its sub-categories.
+
+                        The spec writes Sub as []Category, i.e. an arbitrarily deep tree. A CRD
+                        schema cannot be recursive: controller-gen truncates the recursion to
+                        `items: {}` and the apiserver then rejects the CRD with "must not be empty
+                        for specified array items". The Newznab category tree is exactly two levels
+                        deep (a 1000-aligned parent and its leaves), so Sub is []SubCategory, which
+                        carries the same id/name payload with a schema the apiserver accepts.
                       properties:
                         id:
                           description: ID is the Newznab category id.
@@ -265,7 +273,19 @@ spec:
                           type: string
                         sub:
                           description: Sub lists the sub-categories of this category.
-                          items: {}
+                          items:
+                            description: |-
+                              SubCategory is a leaf Newznab category, such as 2040 "Movies/HD" under the
+                              2000 "Movies" parent.
+                            properties:
+                              id:
+                                description: ID is the Newznab category id.
+                                format: int32
+                                type: integer
+                              name:
+                                description: Name is the sub-category's display name.
+                                type: string
+                            type: object
                           maxItems: 200
                           type: array
                       type: object

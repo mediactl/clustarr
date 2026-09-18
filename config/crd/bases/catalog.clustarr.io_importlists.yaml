@@ -1,0 +1,449 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: importlists.catalog.clustarr.io
+spec:
+  group: catalog.clustarr.io
+  names:
+    categories:
+    - clustarr
+    - catalog
+    kind: ImportList
+    listKind: ImportListList
+    plural: importlists
+    shortNames:
+    - il
+    singular: importlist
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.enabled
+      name: Enabled
+      type: boolean
+    - jsonPath: .spec.syncLevel
+      name: Sync
+      type: string
+    - jsonPath: .status.itemCount
+      name: Items
+      type: integer
+    - jsonPath: .status.addedCount
+      name: Added
+      type: integer
+    - jsonPath: .status.lastSyncAt
+      name: Last Sync
+      type: date
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          ImportList is a remote list of desired media that catalogarr keeps the
+          catalog in step with.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ImportListSpec defines the desired state of ImportList.
+            properties:
+              arr:
+                description: Arr follows the library of another *arr instance.
+                properties:
+                  baseURL:
+                    description: BaseURL is the instance's base URL.
+                    type: string
+                  kind:
+                    description: Kind is the *arr flavour being followed.
+                    enum:
+                    - radarr
+                    - sonarr
+                    - lidarr
+                    - readarr
+                    - clustarr
+                    type: string
+                required:
+                - baseURL
+                - kind
+                type: object
+              automaticAdd:
+                default: true
+                description: AutomaticAdd adds items as they appear; when false the
+                  list is only reported.
+                type: boolean
+              custom:
+                description: Custom follows an arbitrary JSON or RSS feed.
+                properties:
+                  format:
+                    default: json
+                    description: Format is the wire format the feed is served in.
+                    enum:
+                    - json
+                    - rss
+                    type: string
+                  url:
+                    description: URL is the feed URL.
+                    type: string
+                required:
+                - url
+                type: object
+              defaults:
+                description: Defaults are applied to every catalog item this list
+                  adds.
+                properties:
+                  delayProfileRef:
+                    description: DelayProfileRef pins a DelayProfile on added items.
+                    type: string
+                  minimumAvailability:
+                    default: released
+                    description: MinimumAvailability is the minimum availability put
+                      on added movies.
+                    enum:
+                    - tba
+                    - announced
+                    - inCinemas
+                    - released
+                    type: string
+                  monitorNewItems:
+                    default: all
+                    description: MonitorNewItems is the monitorNewItems mode put on
+                      added parents.
+                    enum:
+                    - all
+                    - none
+                    - new
+                    type: string
+                  monitored:
+                    default: true
+                    description: Monitored is the monitored flag put on added items.
+                    type: boolean
+                  qualityProfileRef:
+                    description: QualityProfileRef is the QualityProfile added items
+                      are ranked against.
+                    type: string
+                  rootFolderRef:
+                    description: RootFolderRef is the RootFolder added items are stored
+                      under.
+                    type: string
+                  searchOnAdd:
+                    default: true
+                    description: SearchOnAdd searches for an item as soon as the list
+                      adds it.
+                    type: boolean
+                  seasonFolder:
+                    default: true
+                    description: SeasonFolder is the season-folder flag put on added
+                      series.
+                    type: boolean
+                  seriesType:
+                    default: standard
+                    description: SeriesType is the series type put on added series.
+                    enum:
+                    - standard
+                    - daily
+                    - anime
+                    type: string
+                  tags:
+                    description: Tags are applied to every item the list adds.
+                    items:
+                      type: string
+                    maxItems: 64
+                    type: array
+                required:
+                - qualityProfileRef
+                - rootFolderRef
+                type: object
+              enabled:
+                default: true
+                description: Enabled turns the list on or off without deleting it.
+                type: boolean
+              imdbCSV:
+                description: ImdbCSV follows a list of IMDb IDs stored in a ConfigMap.
+                properties:
+                  configMapRef:
+                    description: ConfigMapRef names the ConfigMap in the same namespace
+                      holding the CSV.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                required:
+                - configMapRef
+                type: object
+              kinds:
+                description: Kinds are the catalog kinds this list may add.
+                items:
+                  enum:
+                  - movie
+                  - series
+                  - album
+                  - book
+                  - audiobook
+                  - comic
+                  type: string
+                maxItems: 6
+                minItems: 1
+                type: array
+              mdblist:
+                description: Mdblist follows a list hosted on mdblist.com.
+                properties:
+                  url:
+                    description: URL is the mdblist list URL.
+                    type: string
+                required:
+                - url
+                type: object
+              plex:
+                description: Plex follows the authenticated user's Plex watchlist.
+                type: object
+              refreshInterval:
+                description: |-
+                  RefreshInterval is how often the list is polled. It is clamped up to the
+                  provider minimum: 12h for trakt, tmdb and mdblist, 6h for plex and
+                  custom, 15m for arr, 24h for stevenLu.
+                type: string
+              secretRef:
+                description: SecretRef names a Secret in the same namespace holding
+                  the credentials.
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+              stevenLu:
+                description: StevenLu follows the Steven Lu popular-movies feed.
+                type: object
+              syncLevel:
+                default: logOnly
+                description: SyncLevel says what happens to items that have fallen
+                  off the list.
+                enum:
+                - disabled
+                - logOnly
+                - keepAndUnmonitor
+                - removeAndKeep
+                - removeAndDelete
+                type: string
+              tmdb:
+                description: Tmdb follows a TMDB list or discover query.
+                properties:
+                  discover:
+                    additionalProperties:
+                      type: string
+                    description: Discover is a TMDB discover query, as raw query parameters.
+                    maxProperties: 32
+                    type: object
+                  listID:
+                    description: ListID is the numeric ID of a TMDB list.
+                    type: string
+                type: object
+              trakt:
+                description: Trakt follows a list on Trakt.
+                properties:
+                  limit:
+                    description: Limit caps how many entries are taken from the list.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  listSlug:
+                    description: ListSlug is the slug of a user list, for listType
+                      "list".
+                    type: string
+                  listType:
+                    description: ListType is the kind of Trakt list being followed.
+                    enum:
+                    - watchlist
+                    - list
+                    - collection
+                    - popular
+                    - trending
+                    type: string
+                  username:
+                    description: Username is the Trakt user the list belongs to.
+                    type: string
+                required:
+                - listType
+                type: object
+            required:
+            - defaults
+            - kinds
+            type: object
+            x-kubernetes-validations:
+            - message: exactly one of trakt, plex, tmdb, mdblist, stevenLu, imdbCSV,
+                custom or arr must be set
+              rule: '(has(self.trakt) ? 1 : 0) + (has(self.plex) ? 1 : 0) + (has(self.tmdb)
+                ? 1 : 0) + (has(self.mdblist) ? 1 : 0) + (has(self.stevenLu) ? 1 :
+                0) + (has(self.imdbCSV) ? 1 : 0) + (has(self.custom) ? 1 : 0) + (has(self.arr)
+                ? 1 : 0) == 1'
+          status:
+            description: |-
+              ImportListStatus describes the observed state of ImportList. The list's own
+              items live in the clustarr-importlist KV bucket, not here.
+            properties:
+              addedCount:
+                description: AddedCount is how many catalog items the last sync created.
+                format: int32
+                type: integer
+              auth:
+                description: Auth tracks an in-flight device-code authorization flow.
+                properties:
+                  expiresAt:
+                    description: ExpiresAt is when the user code stops being accepted.
+                    format: date-time
+                    type: string
+                  state:
+                    default: none
+                    description: State is where the flow has got to.
+                    enum:
+                    - none
+                    - pending
+                    - authorized
+                    - expired
+                    type: string
+                  tokenExpiresAt:
+                    description: TokenExpiresAt is when the granted access token expires.
+                    format: date-time
+                    type: string
+                  userCode:
+                    description: UserCode is the code the user types at the verification
+                      URL.
+                    type: string
+                  verificationURL:
+                    description: VerificationURL is where the user goes to approve
+                      the flow.
+                    type: string
+                type: object
+              conditions:
+                description: Conditions represent the latest available observations
+                  of the list's state.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                maxItems: 8
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              excludedCount:
+                description: ExcludedCount is how many entries an ImportExclusion
+                  suppressed.
+                format: int32
+                type: integer
+              itemCount:
+                description: ItemCount is how many entries the last sync returned.
+                format: int32
+                type: integer
+              lastError:
+                description: LastError is the most recent sync error.
+                type: string
+              lastSyncAt:
+                description: LastSyncAt is when the list was last polled.
+                format: date-time
+                type: string
+              nextSyncAt:
+                description: NextSyncAt is when the list will next be polled.
+                format: date-time
+                type: string
+              observedGeneration:
+                description: ObservedGeneration is the generation of the spec this
+                  status reflects.
+                format: int64
+                type: integer
+              removedCount:
+                description: RemovedCount is how many catalog items the last sync
+                  removed or unmonitored.
+                format: int32
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

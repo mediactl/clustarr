@@ -1,0 +1,324 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: comics.catalog.clustarr.io
+spec:
+  group: catalog.clustarr.io
+  names:
+    categories:
+    - clustarr
+    - catalog
+    - media
+    kind: Comic
+    listKind: ComicList
+    plural: comics
+    shortNames:
+    - cmc
+    singular: comic
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.metadata.title
+      name: Title
+      type: string
+    - jsonPath: .spec.kind
+      name: Kind
+      type: string
+    - jsonPath: .spec.source
+      name: Source
+      type: string
+    - jsonPath: .spec.monitored
+      name: Monitored
+      type: boolean
+    - jsonPath: .status.issueFileCount
+      name: Files
+      type: integer
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Comic is a monitored comic or manga volume in the catalog. Its issues are
+          separate Issue objects rather than an unbounded status list.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ComicSpec defines the desired state of Comic.
+            properties:
+              addSource:
+                description: |-
+                  AddSource records the ImportList that added the comic, if any. It is
+                  named addSource rather than source because spec.source already names the
+                  metadata provider.
+                properties:
+                  importListRef:
+                    description: |-
+                      ImportListRef is the name of the ImportList that added the item. Empty
+                      means the item was added manually.
+                    type: string
+                type: object
+              delayProfileRef:
+                description: DelayProfileRef pins a DelayProfile; unset falls back
+                  to tag matching.
+                type: string
+              folder:
+                description: Folder overrides the folder name under the root folder.
+                type: string
+              kind:
+                default: comic
+                description: Kind distinguishes western comics from manga.
+                enum:
+                - comic
+                - manga
+                type: string
+              monitorNewIssues:
+                default: true
+                description: MonitorNewIssues monitors issues discovered after the
+                  comic was added.
+                type: boolean
+              monitored:
+                default: true
+                description: Monitored enables automatic searching and importing for
+                  this comic.
+                type: boolean
+              qualityProfileRef:
+                description: |-
+                  QualityProfileRef is the QualityProfile issues are ranked against; it
+                  must be a profile whose mediaKind is comic.
+                type: string
+              rootFolderRef:
+                description: RootFolderRef is the RootFolder the comic is stored under.
+                type: string
+              source:
+                description: Source is the upstream the comic's metadata comes from.
+                enum:
+                - comicvine
+                - mangadex
+                type: string
+                x-kubernetes-validations:
+                - message: source is immutable
+                  rule: self == oldSelf
+              sourceID:
+                description: SourceID is the ComicVine volume ID or MangaDex manga
+                  UUID.
+                type: string
+                x-kubernetes-validations:
+                - message: sourceID is immutable
+                  rule: self == oldSelf
+              specialVersion:
+                default: normal
+                description: SpecialVersion says how the volume is collected and numbered.
+                enum:
+                - normal
+                - tpb
+                - oneShot
+                - hardCover
+                - omnibus
+                - volumeAsIssue
+                type: string
+              tags:
+                description: Tags select DelayProfiles and other tag-matched policy.
+                items:
+                  type: string
+                maxItems: 64
+                type: array
+              unmonitoredIssues:
+                description: |-
+                  UnmonitoredIssues lists the issue numbers the user unmonitored. It is
+                  kept here so the choice survives Issue objects being recreated.
+                items:
+                  type: string
+                maxItems: 1000
+                type: array
+            required:
+            - qualityProfileRef
+            - rootFolderRef
+            - source
+            - sourceID
+            type: object
+          status:
+            description: ComicStatus describes the observed state of Comic.
+            properties:
+              conditions:
+                description: Conditions represent the latest available observations
+                  of the comic's state.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                maxItems: 8
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              issueFileCount:
+                description: IssueFileCount is the number of issues with an imported
+                  file.
+                format: int32
+                type: integer
+              metadata:
+                description: Metadata is the cached provider metadata.
+                properties:
+                  ageRating:
+                    description: AgeRating is the provider's age rating.
+                    type: string
+                  externalIDs:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      ExternalIDs maps provider names (comicvine, metron, mangadex, anilist,
+                      mal) to their IDs.
+                    type: object
+                  images:
+                    description: Images lists the cover art published by the provider.
+                    items:
+                      description: Image is one artwork URL published by a metadata
+                        provider.
+                      properties:
+                        type:
+                          description: Type classifies the image.
+                          enum:
+                          - poster
+                          - fanart
+                          - logo
+                          type: string
+                        url:
+                          description: URL is where the image can be fetched.
+                          type: string
+                      required:
+                      - type
+                      - url
+                      type: object
+                    maxItems: 50
+                    type: array
+                  issueCount:
+                    description: IssueCount is the number of issues the provider lists.
+                    format: int32
+                    type: integer
+                  manga:
+                    description: Manga says whether the volume is manga and how it
+                      reads.
+                    enum:
+                    - unknown
+                    - "no"
+                    - "yes"
+                    - yesAndRightToLeft
+                    type: string
+                  overview:
+                    description: Overview is the synopsis.
+                    type: string
+                  publisher:
+                    description: Publisher is the publishing house.
+                    type: string
+                  refreshedAt:
+                    description: RefreshedAt is when the metadata was last fetched.
+                    format: date-time
+                    type: string
+                  title:
+                    description: Title is the volume title.
+                    type: string
+                  volumeNumber:
+                    description: VolumeNumber is the volume number within the title,
+                      when numbered.
+                    format: int32
+                    type: integer
+                  year:
+                    description: Year is the year the volume started.
+                    format: int32
+                    type: integer
+                type: object
+              nextPullDate:
+                description: NextPullDate is when the next issue is expected on the
+                  pull list.
+                format: date-time
+                type: string
+              observedGeneration:
+                description: ObservedGeneration is the generation of the spec this
+                  status reflects.
+                format: int64
+                type: integer
+              path:
+                description: Path is the resolved folder on disk.
+                type: string
+            type: object
+        type: object
+    selectableFields:
+    - jsonPath: .spec.sourceID
+    served: true
+    storage: true
+    subresources:
+      status: {}

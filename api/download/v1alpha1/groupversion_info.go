@@ -19,6 +19,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // group: DownloadClient and Download. The group is owned by grabarr.
 //
 // +kubebuilder:object:generate=true
+// +kubebuilder:ac:generate=true
+// +kubebuilder:ac:output:package=../../applyconfiguration/download
 // +groupName=download.clustarr.io
 package v1alpha1
 

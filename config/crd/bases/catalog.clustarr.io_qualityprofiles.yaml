@@ -1,0 +1,380 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: qualityprofiles.catalog.clustarr.io
+spec:
+  group: catalog.clustarr.io
+  names:
+    categories:
+    - clustarr
+    - catalog
+    kind: QualityProfile
+    listKind: QualityProfileList
+    plural: qualityprofiles
+    shortNames:
+    - qp
+    singular: qualityprofile
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.mediaKind
+      name: Media
+      type: string
+    - jsonPath: .spec.cutoff
+      name: Cutoff
+      type: string
+    - jsonPath: .spec.scoreSet
+      name: Score Set
+      type: string
+    - jsonPath: .spec.builtIn
+      name: Built-In
+      type: boolean
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          QualityProfile is an opinionated, TRaSH-shaped ranking of qualities and
+          custom formats.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: QualityProfileSpec defines the desired state of QualityProfile.
+            properties:
+              builtIn:
+                default: false
+                description: |-
+                  BuiltIn marks a profile shipped by the chart; built-ins are immutable and
+                  are meant to be copied rather than edited.
+                type: boolean
+                x-kubernetes-validations:
+                - message: builtIn is immutable
+                  rule: self == oldSelf
+              cutoff:
+                description: Cutoff is the name of the tier at which upgrading stops.
+                maxLength: 64
+                minLength: 1
+                type: string
+              cutoffFormatScore:
+                default: 10000
+                description: CutoffFormatScore is the score at which format upgrading
+                  stops.
+                format: int32
+                type: integer
+              enabledFormatGroups:
+                description: EnabledFormatGroups switches on optional TRaSH custom-format
+                  families.
+                items:
+                  enum:
+                  - audio
+                  - movieVersions
+                  - streamingBoost
+                  - seasonPack
+                  - unwantedOptional
+                  type: string
+                maxItems: 16
+                type: array
+              formatScores:
+                description: |-
+                  FormatScores overrides individual catalogue scores. An unknown slug raises
+                  the Invalid condition.
+                items:
+                  description: FormatScore overrides the catalogue score of one custom
+                    format.
+                  properties:
+                    format:
+                      description: Format is the custom-format catalogue slug.
+                      maxLength: 64
+                      minLength: 1
+                      type: string
+                    score:
+                      description: Score is the score applied when the format matches.
+                      format: int32
+                      type: integer
+                  required:
+                  - format
+                  - score
+                  type: object
+                maxItems: 200
+                type: array
+                x-kubernetes-list-map-keys:
+                - format
+                x-kubernetes-list-type: map
+              language:
+                default: original
+                description: 'Language is the accepted language: "original", "any"
+                  or a BCP-47 tag.'
+                maxLength: 64
+                type: string
+              mediaKind:
+                description: MediaKind is the family of media this profile applies
+                  to.
+                enum:
+                - video
+                - music
+                - book
+                - audiobook
+                - comic
+                type: string
+                x-kubernetes-validations:
+                - message: mediaKind is immutable
+                  rule: self == oldSelf
+              minFormatScore:
+                default: 0
+                description: MinFormatScore is the lowest custom-format score a release
+                  may have.
+                format: int32
+                type: integer
+              minUpgradeFormatScore:
+                default: 1
+                description: MinUpgradeFormatScore is the score improvement an upgrade
+                  must deliver.
+                format: int32
+                type: integer
+              preferredProtocol:
+                default: any
+                description: |-
+                  PreferredProtocol ranks one protocol above the other. It is a ranking key
+                  only; grab delays live in DelayProfile.
+                enum:
+                - usenet
+                - torrent
+                - any
+                type: string
+              properPolicy:
+                default: preferAndUpgrade
+                description: ProperPolicy says how propers and repacks are treated.
+                enum:
+                - preferAndUpgrade
+                - doNotUpgrade
+                - doNotPrefer
+                type: string
+              scoreSet:
+                default: default
+                description: ScoreSet selects which TRaSH score column is applied.
+                enum:
+                - default
+                - anime-radarr
+                - anime-sonarr
+                type: string
+              sizeLimits:
+                description: SizeLimits overrides the size table per quality.
+                items:
+                  description: |-
+                    SizeLimit overrides the size table for one quality. The values are megabytes
+                    per minute of runtime, written as decimal quantities such as "12.5" rather
+                    than floats, which CRD schemas do not allow.
+                  properties:
+                    maxMBPerMinute:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      description: MaxMBPerMinute is the largest accepted size in
+                        MB per runtime minute.
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    minMBPerMinute:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      description: MinMBPerMinute is the smallest accepted size in
+                        MB per runtime minute.
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    preferredMBPerMinute:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      description: PreferredMBPerMinute is the ideal size in MB per
+                        runtime minute.
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    quality:
+                      description: Quality is the canonical quality name the limits
+                        apply to.
+                      maxLength: 64
+                      minLength: 1
+                      type: string
+                  required:
+                  - quality
+                  type: object
+                maxItems: 200
+                type: array
+                x-kubernetes-list-map-keys:
+                - quality
+                x-kubernetes-list-type: map
+              sizeTable:
+                default: movie
+                description: SizeTable selects the built-in size limit table.
+                enum:
+                - movie
+                - series
+                - anime
+                - none
+                type: string
+              tiers:
+                description: Tiers lists the quality tiers best first, in TRaSH order.
+                items:
+                  description: |-
+                    Tier is one rung of a quality profile; every quality in a tier is considered
+                    equivalent, and tiers are listed best first.
+                  properties:
+                    name:
+                      description: Name is the tier name; it is what Cutoff refers
+                        to.
+                      maxLength: 64
+                      minLength: 1
+                      type: string
+                    qualities:
+                      description: Qualities lists the canonical quality names or
+                        aliases in this tier.
+                      items:
+                        maxLength: 64
+                        type: string
+                      maxItems: 8
+                      minItems: 1
+                      type: array
+                  required:
+                  - name
+                  - qualities
+                  type: object
+                maxItems: 40
+                minItems: 1
+                type: array
+              upgradeAllowed:
+                default: true
+                description: UpgradeAllowed lets an already-imported item be replaced
+                  by a better release.
+                type: boolean
+            required:
+            - cutoff
+            - mediaKind
+            - tiers
+            type: object
+            x-kubernetes-validations:
+            - message: built-in profiles are immutable; copy the profile instead
+              rule: '!oldSelf.builtIn || self == oldSelf'
+            - message: cutoff must be the name of one of the tiers
+              rule: self.tiers.exists(t, t.name == self.cutoff)
+          status:
+            description: QualityProfileStatus describes the observed state of QualityProfile.
+            properties:
+              catalogueVersion:
+                description: CatalogueVersion is the custom-format catalogue the profile
+                  resolved against.
+                type: string
+              conditions:
+                description: Conditions represent the latest available observations
+                  of the profile's state.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                maxItems: 8
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              hash:
+                description: |-
+                  Hash identifies the resolved profile; MediaFile records it at import so
+                  that a profile change can be detected.
+                type: string
+              observedGeneration:
+                description: ObservedGeneration is the generation of the spec this
+                  status reflects.
+                format: int64
+                type: integer
+              qualityOrder:
+                description: |-
+                  QualityOrder is the flattened canonical quality order, best first. It is
+                  capped at tiers (40) times qualities per tier (8).
+                items:
+                  type: string
+                maxItems: 320
+                type: array
+              resolvedFormats:
+                description: ResolvedFormats is the number of custom formats the profile
+                  scores.
+                format: int32
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

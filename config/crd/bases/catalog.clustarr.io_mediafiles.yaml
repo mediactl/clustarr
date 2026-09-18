@@ -1,0 +1,584 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: mediafiles.catalog.clustarr.io
+spec:
+  group: catalog.clustarr.io
+  names:
+    categories:
+    - clustarr
+    - catalog
+    kind: MediaFile
+    listKind: MediaFileList
+    plural: mediafiles
+    shortNames:
+    - mf
+    singular: mediafile
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.mediaRef.name
+      name: Media
+      type: string
+    - jsonPath: .spec.mediaRef.kind
+      name: Kind
+      type: string
+    - jsonPath: .spec.quality.name
+      name: Quality
+      type: string
+    - jsonPath: .spec.formatScore
+      name: Score
+      type: integer
+    - jsonPath: .spec.sizeBytes
+      name: Size
+      type: integer
+    - jsonPath: .status.conditions[?(@.type=="Probed")].status
+      name: Probed
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          MediaFile is one file on disk backing a catalog item. It is the pivot every
+          other service hangs off: downloadarr creates it at import, transcodarr and
+          subtitlarr read its probe and write back through status.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              MediaFileSpec defines the desired state of MediaFile. Only catalogarr writes
+              it: other services read it and report back through status.
+            properties:
+              edition:
+                description: Edition is the edition parsed from the source release.
+                type: string
+              formatScore:
+                description: FormatScore is the custom-format score of the source
+                  release at import.
+                format: int32
+                type: integer
+              importedFrom:
+                description: ImportedFrom records where the file came from.
+                properties:
+                  downloadRef:
+                    description: DownloadRef is the name of the Download the file
+                      was imported from.
+                    type: string
+                  importedAt:
+                    description: ImportedAt is when the file was imported.
+                    format: date-time
+                    type: string
+                  indexerName:
+                    description: IndexerName is the display name of the indexer the
+                      release came from.
+                    type: string
+                  manual:
+                    description: Manual is true when a user imported the file by hand.
+                    type: boolean
+                  protocol:
+                    description: Protocol is the transfer protocol the release was
+                      fetched over.
+                    enum:
+                    - torrent
+                    - usenet
+                    type: string
+                  releaseTitle:
+                    description: ReleaseTitle is the raw title of the release the
+                      file came from.
+                    type: string
+                type: object
+              languages:
+                description: Languages lists the languages parsed from the source
+                  release.
+                items:
+                  type: string
+                maxItems: 64
+                type: array
+              matchedFormats:
+                description: MatchedFormats lists the custom-format slugs that matched
+                  at import.
+                items:
+                  type: string
+                maxItems: 200
+                type: array
+              mediaRef:
+                description: MediaRef points at the catalog item this file backs.
+                properties:
+                  keys:
+                    description: Keys lists the Episode or Issue names covered by
+                      a pack release.
+                    items:
+                      type: string
+                    maxItems: 200
+                    type: array
+                  kind:
+                    description: Kind is the media kind of the referenced object.
+                    enum:
+                    - movie
+                    - series
+                    - episode
+                    - artist
+                    - album
+                    - author
+                    - book
+                    - audiobook
+                    - comic
+                    - issue
+                    type: string
+                  name:
+                    description: |-
+                      Name is the name of the referenced object; it lives in the same
+                      namespace as the object holding the reference.
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
+                x-kubernetes-validations:
+                - message: mediaRef is immutable
+                  rule: self == oldSelf
+              modTime:
+                description: ModTime is the file's modification time.
+                format: date-time
+                type: string
+              original:
+                default: true
+                description: |-
+                  Original is true while this is the file as imported; it goes false once a
+                  transcode replaces it.
+                type: boolean
+              path:
+                description: |-
+                  Path is the file's absolute path. It changes only when catalogarr renames
+                  the file or swaps in a transcode.
+                type: string
+              profileHash:
+                description: ProfileHash is the QualityProfile status.hash the file
+                  was scored against.
+                type: string
+              quality:
+                description: Quality is the quality frozen at import; transcoding
+                  never rewrites it.
+                properties:
+                  modifier:
+                    description: Modifier refines the quality (remux, screener, ...).
+                    enum:
+                    - none
+                    - regional
+                    - screener
+                    - rawhd
+                    - brdisk
+                    - remux
+                    type: string
+                  name:
+                    description: Name is the canonical quality definition name.
+                    type: string
+                  resolution:
+                    description: Resolution is the vertical resolution in lines. Video
+                      only.
+                    enum:
+                    - 0
+                    - 360
+                    - 480
+                    - 540
+                    - 576
+                    - 720
+                    - 1080
+                    - 2160
+                    format: int32
+                    type: integer
+                  source:
+                    description: Source is the release source. Video only.
+                    enum:
+                    - unknown
+                    - cam
+                    - telesync
+                    - telecine
+                    - workprint
+                    - dvd
+                    - tv
+                    - webdl
+                    - webrip
+                    - bluray
+                    type: string
+                required:
+                - name
+                type: object
+              releaseGroup:
+                description: ReleaseGroup is the release group parsed from the source
+                  release.
+                type: string
+              releaseType:
+                description: ReleaseType classifies how many catalog items the source
+                  release covered.
+                enum:
+                - single
+                - multi
+                - seasonPack
+                - album
+                - book
+                - issue
+                type: string
+              revision:
+                description: Revision is the proper/repack revision frozen at import.
+                properties:
+                  real:
+                    default: 0
+                    description: Real counts REAL re-releases that fix a broken proper.
+                    format: int32
+                    type: integer
+                  repack:
+                    default: false
+                    description: Repack is true when the release is flagged as a repack.
+                    type: boolean
+                  version:
+                    default: 1
+                    description: Version is the release version; 1 is the original,
+                      2+ are propers.
+                    format: int32
+                    type: integer
+                type: object
+              sizeBytes:
+                description: SizeBytes is the file size in bytes.
+                format: int64
+                minimum: 0
+                type: integer
+            required:
+            - mediaRef
+            - path
+            type: object
+          status:
+            description: MediaFileStatus describes the observed state of MediaFile.
+            properties:
+              conditions:
+                description: Conditions represent the latest available observations
+                  of the file's state.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                maxItems: 8
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              mediaInfo:
+                description: MediaInfo is the technical description produced by the
+                  probe.
+                properties:
+                  attachments:
+                    description: Attachments is the number of attachment streams (fonts,
+                      cover art).
+                    format: int32
+                    type: integer
+                  audio:
+                    description: Audio lists the audio tracks.
+                    items:
+                      description: AudioStream describes one audio track of a media
+                        file.
+                      properties:
+                        bitrateKbps:
+                          description: BitrateKbps is the track bitrate in kilobits
+                            per second.
+                          format: int32
+                          type: integer
+                        channels:
+                          description: Channels is the channel count (2 = stereo,
+                            6 = 5.1, 8 = 7.1).
+                          format: int32
+                          type: integer
+                        codec:
+                          description: Codec is the audio codec name, e.g. aac, eac3,
+                            truehd, flac.
+                          type: string
+                        commentary:
+                          description: Commentary is true when the track is a commentary
+                            track.
+                          type: boolean
+                        default:
+                          description: Default is true when the container flags this
+                            as the default audio track.
+                          type: boolean
+                        index:
+                          description: Index is the zero-based stream index inside
+                            the container.
+                          format: int32
+                          type: integer
+                        language:
+                          description: Language is the ISO 639 language tag of the
+                            track.
+                          type: string
+                        profile:
+                          description: Profile is the codec profile, if any, e.g.
+                            Atmos or DTS-HD MA.
+                          type: string
+                        title:
+                          description: Title is the track title from the container
+                            metadata.
+                          type: string
+                      type: object
+                    maxItems: 64
+                    type: array
+                  chapters:
+                    description: Chapters is the number of chapters.
+                    format: int32
+                    type: integer
+                  container:
+                    description: Container is the container format, e.g. mkv, mp4,
+                      flac, epub.
+                    type: string
+                  doviBLCompatID:
+                    description: DoviBLCompatID is the Dolby Vision base-layer compatibility
+                      ID, when present.
+                    format: int32
+                    type: integer
+                  doviProfile:
+                    description: DoviProfile is the Dolby Vision profile number, when
+                      present.
+                    format: int32
+                    type: integer
+                  fpsMilli:
+                    description: |-
+                      FpsMilli is the video frame rate in thousandths of a frame per second,
+                      so 23.976 fps is 23976. Scaled integers are used instead of floats because
+                      CRD schemas discourage floating-point values.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  hdr:
+                    description: Hdr is the HDR format of the video stream.
+                    enum:
+                    - none
+                    - pq10
+                    - hdr10
+                    - hdr10plus
+                    - hlg10
+                    - dolbyVision
+                    - dolbyVisionHdr10
+                    - dolbyVisionSdr
+                    - dolbyVisionHlg
+                    - dolbyVisionHdr10Plus
+                    type: string
+                  height:
+                    description: Height is the video frame height in pixels.
+                    format: int32
+                    type: integer
+                  pixelFormat:
+                    description: PixelFormat is the pixel format, e.g. yuv420p10le.
+                    type: string
+                  runtimeMillis:
+                    description: RuntimeMillis is the total duration of the file in
+                      milliseconds.
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  subtitles:
+                    description: Subtitles lists the embedded subtitle tracks.
+                    items:
+                      description: SubtitleStream describes one subtitle track of
+                        a media file.
+                      properties:
+                        bitmap:
+                          description: Bitmap is true for image-based subtitles (PGS,
+                            VobSub) as opposed to text.
+                          type: boolean
+                        codec:
+                          description: Codec is the subtitle codec name, e.g. subrip,
+                            ass, hdmv_pgs_subtitle.
+                          type: string
+                        forced:
+                          description: Forced is true when the track is flagged as
+                            forced.
+                          type: boolean
+                        hearingImpaired:
+                          description: HearingImpaired is true when the track is flagged
+                            as SDH / hearing impaired.
+                          type: boolean
+                        index:
+                          description: Index is the zero-based stream index inside
+                            the container.
+                          format: int32
+                          type: integer
+                        language:
+                          description: Language is the ISO 639 language tag of the
+                            track.
+                          type: string
+                        title:
+                          description: Title is the track title from the container
+                            metadata.
+                          type: string
+                      type: object
+                    maxItems: 64
+                    type: array
+                  videoBitDepth:
+                    description: VideoBitDepth is the video bit depth (8, 10, 12).
+                    format: int32
+                    type: integer
+                  videoBitrateKbps:
+                    description: VideoBitrateKbps is the video bitrate in kilobits
+                      per second.
+                    format: int32
+                    type: integer
+                  videoCodec:
+                    description: VideoCodec is the video codec name, e.g. h264, hevc,
+                      av1.
+                    type: string
+                  videoProfile:
+                    description: VideoProfile is the video codec profile, e.g. Main
+                      10.
+                    type: string
+                  width:
+                    description: Width is the video frame width in pixels.
+                    format: int32
+                    type: integer
+                type: object
+              observedGeneration:
+                description: ObservedGeneration is the generation of the spec this
+                  status reflects.
+                format: int64
+                type: integer
+              probeHash:
+                description: ProbeHash is sha1(path|size|mtime); a change makes downstream
+                  services replan.
+                type: string
+              probedAt:
+                description: ProbedAt is when the file was last probed.
+                format: date-time
+                type: string
+              sidecars:
+                description: Sidecars lists the subtitle and metadata files found
+                  next to this one.
+                items:
+                  description: Sidecar is a subtitle or metadata file sitting next
+                    to the media file.
+                  properties:
+                    forced:
+                      description: Forced is true when the sidecar is a forced subtitle
+                        track.
+                      type: boolean
+                    hi:
+                      description: HI is true when the sidecar is a hearing-impaired
+                        (SDH) subtitle track.
+                      type: boolean
+                    language:
+                      description: Language is the ISO 639 language tag of the sidecar.
+                      type: string
+                    path:
+                      description: Path is the sidecar's absolute path.
+                      type: string
+                  required:
+                  - path
+                  type: object
+                maxItems: 50
+                type: array
+                x-kubernetes-list-map-keys:
+                - path
+                x-kubernetes-list-type: map
+              transcode:
+                description: Transcode is transcodarr's view of this file.
+                properties:
+                  compliant:
+                    description: Compliant is true when the file already matches its
+                      TranscodeProfile.
+                    type: boolean
+                  jobRef:
+                    description: JobRef is the TranscodeJob currently working on the
+                      file.
+                    type: string
+                  lastResult:
+                    default: none
+                    description: LastResult is the outcome of the most recent transcode.
+                    enum:
+                    - none
+                    - succeeded
+                    - failed
+                    - skipped
+                    type: string
+                  profileTag:
+                    description: ProfileTag identifies the TranscodeProfile revision
+                      compliance was judged against.
+                    type: string
+                type: object
+            type: object
+        type: object
+    selectableFields:
+    - jsonPath: .spec.mediaRef.name
+    served: true
+    storage: true
+    subresources:
+      status: {}

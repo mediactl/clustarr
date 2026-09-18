@@ -20,6 +20,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // IndexerProxy (owned by indexarr).
 //
 // +kubebuilder:object:generate=true
+// +kubebuilder:ac:generate=true
+// +kubebuilder:ac:output:package=../../applyconfiguration/index
 // +groupName=index.clustarr.io
 package v1alpha1
 

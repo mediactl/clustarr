@@ -1,0 +1,362 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: subtitlerequests.subtitle.clustarr.io
+spec:
+  group: subtitle.clustarr.io
+  names:
+    categories:
+    - clustarr
+    kind: SubtitleRequest
+    listKind: SubtitleRequestList
+    plural: subtitlerequests
+    singular: subtitlerequest
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .spec.mediaFileRef
+      name: MediaFile
+      type: string
+    - jsonPath: .spec.profileRef
+      name: Profile
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Satisfied")].status
+      name: Satisfied
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="CutoffMet")].status
+      name: Cutoff
+      priority: 1
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          SubtitleRequest is the subtitle work for one video MediaFile: one item per
+          wanted language. It is owned by the MediaFile and shares its name.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: SubtitleRequestSpec defines the desired state of SubtitleRequest.
+            properties:
+              forceSearch:
+                default: false
+                description: |-
+                  ForceSearch requests one immediate search of every unsatisfied language,
+                  ignoring nextSearchAt. It is one-shot: the controller resets it to false
+                  once the search has been dispatched.
+                type: boolean
+              languages:
+                description: |-
+                  Languages overrides the profile's wanted langKeys for this media file.
+                  Every entry must be one of the profile's language keys.
+                items:
+                  maxLength: 64
+                  type: string
+                maxItems: 20
+                type: array
+                x-kubernetes-list-type: set
+              mediaFileRef:
+                description: |-
+                  MediaFileRef is the name of the video MediaFile this request covers, in
+                  the same namespace. It is immutable and equals the object's own name.
+                maxLength: 253
+                minLength: 1
+                type: string
+                x-kubernetes-validations:
+                - message: mediaFileRef is immutable
+                  rule: self == oldSelf
+              minScoreOverride:
+                description: |-
+                  MinScoreOverride overrides the profile's minimum score percentage for
+                  this media file.
+                format: int32
+                maximum: 100
+                minimum: 0
+                type: integer
+              profileRef:
+                description: |-
+                  ProfileRef is the name of the SubtitleProfile to apply. Empty lets the
+                  controller select by label, falling back to the default profile.
+                maxLength: 253
+                type: string
+            required:
+            - mediaFileRef
+            type: object
+          status:
+            description: SubtitleRequestStatus defines the observed state of SubtitleRequest.
+            properties:
+              conditions:
+                description: Conditions holds Planned, Satisfied and CutoffMet.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              existing:
+                description: Existing lists the subtitles already present for the
+                  media file.
+                items:
+                  description: |-
+                    ExistingSub is a subtitle already present for the media file, found by
+                    probing the container and scanning the media file's directory.
+                  properties:
+                    langKey:
+                      description: LangKey is the profile language key this subtitle
+                        satisfies.
+                      maxLength: 64
+                      minLength: 1
+                      type: string
+                    path:
+                      description: |-
+                        Path is the sidecar path relative to the media file's directory, or the
+                        media file itself for an embedded track.
+                      maxLength: 1024
+                      type: string
+                    source:
+                      description: |-
+                        Source says whether the subtitle is embedded in the container or a
+                        sidecar file.
+                      enum:
+                      - embedded
+                      - sidecar
+                      type: string
+                    streamIndex:
+                      description: |-
+                        StreamIndex is the zero-based container stream index of an embedded
+                        track. Unset for sidecars.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                  required:
+                  - langKey
+                  - source
+                  type: object
+                maxItems: 64
+                type: array
+                x-kubernetes-list-type: atomic
+              fileFingerprint:
+                description: |-
+                  FileFingerprint is the size and modification time of the target media
+                  file at the time of the last probe. It is the dedup key: an unchanged
+                  fingerprint means existing, probeHash and the downloaded items still
+                  describe the file on disk.
+                properties:
+                  modTime:
+                    description: |-
+                      ModTime is the modification timestamp of the media file, truncated to
+                      whole seconds as Kubernetes timestamps are.
+                    format: date-time
+                    type: string
+                  sizeBytes:
+                    description: SizeBytes is the size of the media file in bytes.
+                    format: int64
+                    minimum: 0
+                    type: integer
+                type: object
+              items:
+                description: Items is the per-language work unit list, keyed by langKey.
+                items:
+                  description: |-
+                    SubtitleItem is the work unit for one wanted language of one media file: its
+                    state, the chosen candidate and the search backoff.
+
+                    The controller owns nextSearchAt and attempts; captionarr-worker owns the
+                    remaining fields and applies them server-side, so the two writers stay
+                    disjoint within an item.
+                  properties:
+                    attempts:
+                      description: Attempts tracks how often this language has been
+                        searched.
+                      properties:
+                        count:
+                          description: Count is the total number of attempts so far.
+                          format: int32
+                          type: integer
+                        initial:
+                          description: Initial is when the first attempt was made.
+                          format: date-time
+                          type: string
+                        latest:
+                          description: Latest is when the most recent attempt was
+                            made.
+                          format: date-time
+                          type: string
+                      type: object
+                    downloadedAt:
+                      description: DownloadedAt is when the chosen candidate was written
+                        to disk.
+                      format: date-time
+                      type: string
+                    langKey:
+                      description: LangKey is the profile language key this item covers.
+                      maxLength: 64
+                      minLength: 1
+                      type: string
+                    lastError:
+                      description: LastError is the error from the most recent failed
+                        attempt.
+                      maxLength: 512
+                      type: string
+                    nextSearchAt:
+                      description: |-
+                        NextSearchAt is when the next search for this language becomes due; it is
+                        the backoff schedule the controller derives from the profile's search and
+                        upgrade intervals and from attempts.
+                      format: date-time
+                      type: string
+                    path:
+                      description: Path is the written sidecar path relative to the
+                        media file's directory.
+                      maxLength: 1024
+                      type: string
+                    provider:
+                      description: Provider is the name of the SubtitleProvider the
+                        chosen candidate came from.
+                      maxLength: 253
+                      type: string
+                    score:
+                      description: Score is the score of the chosen candidate.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    scoreOutOf:
+                      description: |-
+                        ScoreOutOf is the maximum score achievable for this media file, against
+                        which score is compared to derive the percentage the profile requires.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    state:
+                      description: State is the current per-language state.
+                      enum:
+                      - pending
+                      - searching
+                      - downloaded
+                      - upgradable
+                      - unavailable
+                      - failed
+                      type: string
+                    subtitleID:
+                      description: |-
+                        SubtitleID is the provider-scoped identifier of the chosen candidate,
+                        used to avoid re-downloading it and to blacklist it on a bad match.
+                      maxLength: 256
+                      type: string
+                  required:
+                  - langKey
+                  - state
+                  type: object
+                maxItems: 20
+                type: array
+                x-kubernetes-list-map-keys:
+                - langKey
+                x-kubernetes-list-type: map
+              observedGeneration:
+                description: ObservedGeneration is the most recent generation observed
+                  by the controller.
+                format: int64
+                type: integer
+              phase:
+                description: Phase is the coarse lifecycle phase.
+                enum:
+                - Satisfied
+                - Wanted
+                - Searching
+                - Blocked
+                type: string
+              probeHash:
+                description: |-
+                  ProbeHash identifies the container probe the existing list was derived
+                  from, so the probe is not repeated while the file is unchanged.
+                maxLength: 128
+                type: string
+              profileGeneration:
+                description: |-
+                  ProfileGeneration is the metadata.generation of the SubtitleProfile the
+                  current plan was computed from; a newer profile forces a replan.
+                format: int64
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
