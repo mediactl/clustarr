@@ -287,7 +287,7 @@ func managerFor(t *testing.T, entries []metav1.ManagedFieldsEntry, subresource, 
 			continue
 		}
 		var fields map[string]any
-		require.NoError(t, json.Unmarshal(e.FieldsV1.Raw, &fields))
+		require.NoError(t, json.Unmarshal(e.FieldsV1.GetRawBytes(), &fields))
 		if ownsPath(fields, parts) {
 			return e.Manager
 		}

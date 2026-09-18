@@ -93,7 +93,7 @@ func (r *Reconciler) now() time.Time {
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
 	ctx, span := tracing.Start(ctx, "rootfolderschedule.Reconcile")
 	defer span.End()
-	ctx = logging.NewContext(ctx, logging.FromContext(ctx).With("rootFolder", req.NamespacedName.String()))
+	ctx = logging.NewContext(ctx, logging.FromContext(ctx).With("rootFolder", req.String()))
 
 	var rf catalogv1alpha1.RootFolder
 	if err := r.Client.Get(ctx, req.NamespacedName, &rf); err != nil {
@@ -224,7 +224,12 @@ func requeueFor(d time.Duration) time.Duration {
 
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=libraryscans,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
+// record.EventRecorder (the recorder Movie and Series use, and the one
+// mgr.GetEventRecorderFor returns) writes core/v1 Events, so the core group is
+// what this needs. Wave 1's controllers declare events.k8s.io for the same
+// recorder; that looks like a mismatch worth a follow-up, and is not corrected
+// here because pkg/k8s and catalogarr are not this task's paths.
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // SetupWithManager registers the schedule controller.
 //

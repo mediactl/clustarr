@@ -174,11 +174,9 @@ func parseField(field string, minValue, maxValue uint, names map[string]uint) (u
 			part = strings.TrimSpace(base)
 		}
 
+		// "*" is the whole range; anything else is a value or an a-b range.
 		low, high := minValue, maxValue
-		switch {
-		case part == "*":
-			// the full range
-		default:
+		if part != "*" {
 			lowStr, highStr, isRange := strings.Cut(part, "-")
 			var err error
 			if low, err = parseValue(lowStr, names); err != nil {

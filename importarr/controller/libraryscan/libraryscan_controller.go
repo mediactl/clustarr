@@ -111,7 +111,7 @@ func (r *Reconciler) now() time.Time {
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
 	ctx, span := tracing.Start(ctx, "libraryscan.Reconcile")
 	defer span.End()
-	ctx = logging.NewContext(ctx, logging.FromContext(ctx).With("libraryScan", req.NamespacedName.String()))
+	ctx = logging.NewContext(ctx, logging.FromContext(ctx).With("libraryScan", req.String()))
 
 	var scan catalogv1alpha1.LibraryScan
 	if err := r.Client.Get(ctx, req.NamespacedName, &scan); err != nil {
@@ -313,7 +313,7 @@ func (r *Reconciler) maybeExpire(ctx context.Context, scan *catalogv1alpha1.Libr
 		return ctrl.Result{RequeueAfter: ttl(scan)}, nil
 	}
 
-	expiry := finished.Time.Add(ttl(scan))
+	expiry := finished.Add(ttl(scan))
 	if now.Before(expiry) {
 		return ctrl.Result{RequeueAfter: expiry.Sub(now)}, nil
 	}

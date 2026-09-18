@@ -86,22 +86,12 @@ type Reconciler struct {
 
 	// Bus holds the exclusion index.
 	Bus events.Bus
-
-	// Clock is the time source, injected so tests are deterministic.
-	Clock func() time.Time
-}
-
-func (r *Reconciler) now() time.Time {
-	if r.Clock != nil {
-		return r.Clock()
-	}
-	return time.Now()
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
 	ctx, span := tracing.Start(ctx, "importexclusion.Reconcile")
 	defer span.End()
-	ctx = logging.NewContext(ctx, logging.FromContext(ctx).With("importExclusion", req.NamespacedName.String()))
+	ctx = logging.NewContext(ctx, logging.FromContext(ctx).With("importExclusion", req.String()))
 
 	var ex catalogv1alpha1.ImportExclusion
 	if err := r.Client.Get(ctx, req.NamespacedName, &ex); err != nil {

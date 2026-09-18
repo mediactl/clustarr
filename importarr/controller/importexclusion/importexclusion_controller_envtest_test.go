@@ -139,7 +139,7 @@ func TestReconcilePutsAnIndexKeyPerRecognizedExternalID(t *testing.T) {
 	})
 
 	bus := newBus(t, ctx)
-	r := &importexclusion.Reconciler{Client: c, Bus: bus, Clock: time.Now}
+	r := &importexclusion.Reconciler{Client: c, Bus: bus}
 	res, err := r.Reconcile(ctx, request(ns))
 	require.NoError(t, err)
 	assert.Positive(t, res.RequeueAfter, "the index is re-asserted periodically")
@@ -175,7 +175,7 @@ func TestReconcileRemovesStaleIndexKeysWhenExternalIDsChange(t *testing.T) {
 	})
 
 	bus := newBus(t, ctx)
-	r := &importexclusion.Reconciler{Client: c, Bus: bus, Clock: time.Now}
+	r := &importexclusion.Reconciler{Client: c, Bus: bus}
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns))))
 	_, err := getEntry(t, ctx, bus, events.ExclusionKey("tmdb", "949"))
 	require.NoError(t, err)
@@ -210,7 +210,7 @@ func TestReconcileRefreshesTheEntryWhenTheReasonChanges(t *testing.T) {
 	})
 
 	bus := newBus(t, ctx)
-	r := &importexclusion.Reconciler{Client: c, Bus: bus, Clock: time.Now}
+	r := &importexclusion.Reconciler{Client: c, Bus: bus}
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns))))
 
 	var current catalogv1alpha1.ImportExclusion
@@ -236,7 +236,7 @@ func TestReconcileRemovesIndexKeysOnDelete(t *testing.T) {
 	})
 
 	bus := newBus(t, ctx)
-	r := &importexclusion.Reconciler{Client: c, Bus: bus, Clock: time.Now}
+	r := &importexclusion.Reconciler{Client: c, Bus: bus}
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns))))
 
 	require.NoError(t, c.Delete(ctx, ex))
@@ -279,7 +279,7 @@ func TestFinalizerFallsBackToTheSpecWhenNothingWasRecorded(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, c.Delete(ctx, &current))
 
-	r := &importexclusion.Reconciler{Client: c, Bus: bus, Clock: time.Now}
+	r := &importexclusion.Reconciler{Client: c, Bus: bus}
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns))))
 
 	_, err = bus.KV(events.BucketImportExclusions).Get(ctx, events.ExclusionKey("tmdb", "949"))
@@ -298,7 +298,7 @@ func TestReconcileRejectsAnExclusionWithNoRecognizedID(t *testing.T) {
 	})
 
 	bus := newBus(t, ctx)
-	r := &importexclusion.Reconciler{Client: c, Bus: bus, Clock: time.Now}
+	r := &importexclusion.Reconciler{Client: c, Bus: bus}
 	_, err := r.Reconcile(ctx, request(ns))
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, reconcile.TerminalError(nil)), "want a TerminalError, got %v", err)
@@ -325,7 +325,7 @@ func TestReconcileDoesNotResetTheMatchCounter(t *testing.T) {
 	})
 
 	bus := newBus(t, ctx)
-	r := &importexclusion.Reconciler{Client: c, Bus: bus, Clock: time.Now}
+	r := &importexclusion.Reconciler{Client: c, Bus: bus}
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns))))
 
 	// Drive it to the steady state the import-list path would leave: a
@@ -358,7 +358,7 @@ func managerFor(t *testing.T, entries []metav1.ManagedFieldsEntry, subresource, 
 			continue
 		}
 		var fields map[string]any
-		require.NoError(t, json.Unmarshal(e.FieldsV1.Raw, &fields))
+		require.NoError(t, json.Unmarshal(e.FieldsV1.GetRawBytes(), &fields))
 		if ownsPath(fields, parts) {
 			return e.Manager
 		}

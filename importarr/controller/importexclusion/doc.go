@@ -56,7 +56,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //	if err := (&importexclusion.Reconciler{
 //	        Client: mgr.GetClient(),
 //	        Bus:    bus,
-//	        Clock:  time.Now,
 //	}).SetupWithManager(mgr); err != nil {
 //	        return fmt.Errorf("importarr: importexclusion: %w", err)
 //	}
