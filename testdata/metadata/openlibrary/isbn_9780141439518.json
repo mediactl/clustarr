@@ -1,0 +1,11 @@
+{
+  "key": "/books/OL3355576M",
+  "title": "Pride and Prejudice",
+  "authors": [{"key": "/authors/OL21594A"}],
+  "publishers": ["Penguin Classics"],
+  "publish_date": "2003",
+  "isbn_10": ["0141439513"],
+  "isbn_13": ["9780141439518"],
+  "covers": [8739161],
+  "works": [{"key": "/works/OL138052W"}]
+}
