@@ -162,6 +162,25 @@ func TestClientCapsXMLErrorBodyBecomesError(t *testing.T) {
 	require.Equal(t, 200, terr.HTTPStatus)
 }
 
+func TestClientRejectsAnOversizedResponseBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/rss+xml")
+		// One byte over the client's body size limit -- an indexer
+		// misbehaving (or serving something malicious) must not let the
+		// client buffer an unbounded amount of memory reading it.
+		buf := make([]byte, 8<<20+1)
+		_, _ = w.Write(buf)
+	}))
+	defer srv.Close()
+
+	c, err := torznab.NewClient(srv.URL, "")
+	require.NoError(t, err)
+
+	_, err = c.Search(context.Background(), torznab.Query{Type: torznab.ModeSearch})
+	require.Error(t, err)
+	require.ErrorIs(t, err, torznab.ErrResponseTooLarge)
+}
+
 func mustOpen(t *testing.T, path string) *os.File {
 	t.Helper()
 	f, err := os.Open(path)

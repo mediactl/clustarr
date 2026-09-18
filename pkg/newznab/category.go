@@ -166,9 +166,18 @@ var tree = []Category{
 // Tree returns the full standard tree for the five families Clustarr uses
 // (2000/3000/5000/7000/8000; §4.4). It is the source of truth Expand and
 // pkg/torznab.WriteCaps read from.
+//
+// Every call returns an independent copy: Category.Sub is deep-copied, not
+// just the top-level Category slice, so a caller mutating an element of one
+// Tree() call's result (including a Sub entry) can never corrupt the
+// package-level tree that a later Tree() or Expand() call reads from.
 func Tree() []Category {
 	out := make([]Category, len(tree))
-	copy(out, tree)
+	for i, c := range tree {
+		sub := make([]SubCategory, len(c.Sub))
+		copy(sub, c.Sub)
+		out[i] = Category{ID: c.ID, Name: c.Name, Sub: sub}
+	}
 	return out
 }
 

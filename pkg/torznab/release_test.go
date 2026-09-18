@@ -117,6 +117,75 @@ func TestParseItemBadPubDateReturnsErrorNotPanic(t *testing.T) {
 	})
 }
 
+// TestParseItemMalformedNumericValuesDegradeGracefully covers the "one bad
+// value doesn't ruin the whole item" contract for numeric fields that
+// aren't wrapped in a *T and so can't simply be left nil: an out-of-band
+// string in a numeric slot must leave that field at its zero value (or, for
+// a pointer-typed attr field, nil) and must not turn into a decode error or
+// a panic, exactly like every other malformed torznab:/newznab: attr this
+// package already tolerates (see applyAttr's use of parseInt32/parseFloat64).
+func TestParseItemMalformedNumericValuesDegradeGracefully(t *testing.T) {
+	cases := []struct {
+		name  string
+		body  string
+		check func(t *testing.T, r torznab.Release)
+	}{
+		{
+			name: "seeders attr is not a number",
+			body: `<item><title>x</title><guid>g</guid><attr name="seeders" value="not-a-number"/></item>`,
+			check: func(t *testing.T, r torznab.Release) {
+				require.Nil(t, r.Seeders)
+			},
+		},
+		{
+			name: "size element is a humanized string, not a number",
+			body: `<item><title>x</title><guid>g</guid><size>12.5GB</size></item>`,
+			check: func(t *testing.T, r torznab.Release) {
+				require.Equal(t, int64(0), r.Size)
+			},
+		},
+		{
+			name: "downloadvolumefactor attr is not a number",
+			body: `<item><title>x</title><guid>g</guid><attr name="downloadvolumefactor" value="free"/></item>`,
+			check: func(t *testing.T, r torznab.Release) {
+				require.Nil(t, r.DownloadVolumeFactor)
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var r torznab.Release
+			require.NotPanics(t, func() {
+				var err error
+				r, err = torznab.ParseItem(strings.NewReader(tc.body))
+				require.NoError(t, err, "a malformed numeric value must degrade, not fail the whole parse")
+			})
+			tc.check(t, r)
+		})
+	}
+}
+
+// TestParseResultsMalformedNumericValueInOneItemDoesNotFailTheWholeFeed is
+// the ParseResults-level counterpart: a bad value inside one <item> among
+// several must not prevent the other items in the same feed from parsing.
+func TestParseResultsMalformedNumericValueInOneItemDoesNotFailTheWholeFeed(t *testing.T) {
+	const body = `<rss><channel>
+		<item><title>bad</title><guid>g1</guid><size>12.5GB</size><attr name="seeders" value="not-a-number"/></item>
+		<item><title>good</title><guid>g2</guid><size>100</size></item>
+	</channel></rss>`
+
+	var rels []torznab.Release
+	require.NotPanics(t, func() {
+		var err error
+		rels, err = torznab.ParseResults(strings.NewReader(body))
+		require.NoError(t, err)
+	})
+	require.Len(t, rels, 2)
+	require.Equal(t, int64(0), rels[0].Size)
+	require.Nil(t, rels[0].Seeders)
+	require.Equal(t, int64(100), rels[1].Size)
+}
+
 func parseResultsFile(t *testing.T, path string) []torznab.Release {
 	t.Helper()
 	f, err := os.Open(path)

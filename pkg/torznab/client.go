@@ -20,6 +20,7 @@ package torznab
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -149,8 +150,22 @@ func (c *Client) do(ctx context.Context, values url.Values) (*http.Response, err
 	return resp, nil
 }
 
+// maxResponseBodyBytes bounds how much of an indexer's response Client will
+// buffer into memory. Without a bound, one misbehaving (or malicious)
+// indexer's oversized response could exhaust memory in a fan-out search
+// across many indexers; 8 MiB comfortably covers a real caps/search
+// document with room to spare.
+const maxResponseBodyBytes = 8 << 20 // 8 MiB
+
+// ErrResponseTooLarge is returned by Client.Caps and Client.Search when an
+// indexer's response body exceeds maxResponseBodyBytes.
+var ErrResponseTooLarge = errors.New("torznab: response body exceeds size limit")
+
 // Caps fetches and parses t=caps.
 func (c *Client) Caps(ctx context.Context) (Caps, error) {
+	ctx, span := tracing.Start(ctx, "torznab.caps")
+	defer span.End()
+
 	v := url.Values{"t": {"caps"}}
 	if c.apikey != "" {
 		v.Set("apikey", c.apikey)
@@ -158,12 +173,14 @@ func (c *Client) Caps(ctx context.Context) (Caps, error) {
 
 	resp, err := c.do(ctx, v)
 	if err != nil {
+		tracing.RecordError(span, err)
 		return Caps{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	body, err := readOrError(resp)
 	if err != nil {
+		tracing.RecordError(span, err)
 		return Caps{}, err
 	}
 	return ParseCaps(bytes.NewReader(body))
@@ -171,14 +188,19 @@ func (c *Client) Caps(ctx context.Context) (Caps, error) {
 
 // Search runs q and parses the resulting item feed.
 func (c *Client) Search(ctx context.Context, q Query) ([]Release, error) {
+	ctx, span := tracing.Start(ctx, "torznab.search")
+	defer span.End()
+
 	resp, err := c.do(ctx, q.Values(c.apikey))
 	if err != nil {
+		tracing.RecordError(span, err)
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	body, err := readOrError(resp)
 	if err != nil {
+		tracing.RecordError(span, err)
 		return nil, err
 	}
 	return ParseResults(bytes.NewReader(body))
@@ -190,15 +212,22 @@ func (c *Client) Search(ctx context.Context, q Query) ([]Release, error) {
 // per §4.5 these never carry an XML body at all) or an XML <error> element
 // in the body itself, since Newznab conventionally answers every error with
 // plain HTTP 200 (§4.5). Any other non-2xx status with no <error> body
-// becomes a generic error.
+// becomes a generic error. The read itself is capped at
+// maxResponseBodyBytes.
 func readOrError(resp *http.Response) ([]byte, error) {
 	if err := httpStatusError(resp); err != nil {
 		return nil, err
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	// Read one byte past the limit so a body that is exactly at the limit
+	// is accepted while anything larger is detected without ever buffering
+	// more than maxResponseBodyBytes+1 bytes.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes+1))
 	if err != nil {
 		return nil, err
+	}
+	if len(body) > maxResponseBodyBytes {
+		return nil, fmt.Errorf("%w: at least %d bytes", ErrResponseTooLarge, len(body))
 	}
 
 	if e, perr := ParseError(bytes.NewReader(body)); perr == nil && e != nil {

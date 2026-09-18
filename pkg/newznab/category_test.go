@@ -27,6 +27,21 @@ import (
 	"github.com/mediactl/clustarr/pkg/newznab"
 )
 
+func TestTreeReturnsAnIndependentCopyEachCall(t *testing.T) {
+	first := newznab.Tree()
+
+	// Mutate both a top-level field and a nested Sub entry on the returned
+	// tree.
+	first[0].Name = "TAMPERED"
+	first[0].Sub[0].Name = "TAMPERED-SUB"
+	first[0].Sub[0].ID = 999999
+
+	second := newznab.Tree()
+	require.NotEqual(t, "TAMPERED", second[0].Name, "mutating a top-level field of one Tree() call must not affect a later call")
+	require.NotEqual(t, "TAMPERED-SUB", second[0].Sub[0].Name, "mutating a Sub entry of one Tree() call must not affect a later call (Sub must be deep-copied, not aliased)")
+	require.NotEqual(t, newznab.CategoryID(999999), second[0].Sub[0].ID)
+}
+
 func TestTreeCoversTheFiveFamiliesClustarrUses(t *testing.T) {
 	tree := newznab.Tree()
 	byID := map[newznab.CategoryID]newznab.Category{}

@@ -94,13 +94,22 @@ type wireAttr struct {
 }
 
 // wireItem mirrors a single <item> 1:1 (docs/research/indexers.md §4.2).
+//
+// Size is a string, not an int64: encoding/xml aborts the ENTIRE Decode
+// with an error the moment any element it is unmarshaling into a numeric
+// Go field fails strconv parsing, which would turn one item's malformed
+// <size> into a hard failure for the whole feed (see
+// TestParseResultsMalformedNumericValueInOneItemDoesNotFailTheWholeFeed).
+// Keeping it a string here and parsing it ourselves in newRelease lets a
+// bad value degrade to Release.Size == 0, the same graceful-degradation
+// contract every torznab:/newznab: attr already gets via parseInt32 etc.
 type wireItem struct {
 	Title       string         `xml:"title"`
 	GUID        string         `xml:"guid"`
 	Link        string         `xml:"link"`
 	Comments    string         `xml:"comments"`
 	PubDate     string         `xml:"pubDate"`
-	Size        int64          `xml:"size"`
+	Size        string         `xml:"size"`
 	Description string         `xml:"description"`
 	Categories  []int32        `xml:"category"`
 	Enclosure   *wireEnclosure `xml:"enclosure"`
@@ -145,8 +154,13 @@ func ParseResults(r io.Reader) ([]Release, error) {
 func newRelease(w wireItem) (Release, error) {
 	rel := Release{
 		Title: w.Title, GUID: w.GUID, Link: w.Link, CommentURL: w.Comments,
-		Size: w.Size, Description: w.Description,
-		IDs: map[string]string{}, Attrs: map[string][]string{},
+		Description: w.Description,
+		IDs:         map[string]string{}, Attrs: map[string][]string{},
+	}
+	// A malformed <size> (e.g. a humanized string like "12.5GB") degrades
+	// to 0 rather than failing the parse -- see wireItem's doc comment.
+	if v, err := strconv.ParseInt(w.Size, 10, 64); err == nil {
+		rel.Size = v
 	}
 	if w.PubDate != "" {
 		t, err := time.Parse(time.RFC1123Z, w.PubDate)
