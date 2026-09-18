@@ -1,0 +1,13 @@
+[{
+  "name": "uhd-bluray-web",
+  "_source": "radarr trash_id 64fb5f9858489bdac2af690e27c8f42f",
+  "mediaKind": "video",
+  "tiers": [
+    {"name": "Bluray-2160p", "qualities": ["Bluray-2160p"]},
+    {"name": "WEB 2160p", "qualities": ["WEBRip-2160p", "WEBDL-2160p"]}
+  ],
+  "cutoff": "Bluray-2160p", "upgradeAllowed": true,
+  "minFormatScore": 0, "cutoffFormatScore": 10000, "minUpgradeFormatScore": 1,
+  "scoreSet": "default", "language": "original", "properPolicy": "preferAndUpgrade",
+  "sizeTable": "movie", "preferredProtocol": "any"
+}]

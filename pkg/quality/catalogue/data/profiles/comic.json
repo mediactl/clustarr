@@ -1,0 +1,8 @@
+[{
+  "name": "comic", "mediaKind": "comic",
+  "tiers": [
+    {"name": "PDF", "qualities": ["PDF"]}, {"name": "CBR", "qualities": ["CBR"]}, {"name": "CBZ", "qualities": ["CBZ"]}
+  ],
+  "cutoff": "CBZ", "upgradeAllowed": true, "cutoffFormatScore": 10000, "minUpgradeFormatScore": 1,
+  "scoreSet": "default", "language": "original", "properPolicy": "preferAndUpgrade", "sizeTable": "none"
+}]

@@ -40,6 +40,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
@@ -47,15 +48,17 @@ import (
 //go:embed data/formats/*.json
 var formatFS embed.FS
 
+//go:embed data/profiles/*.json
+var profileFS embed.FS
+
 // FormatFS exposes the embedded format family files for tests and for
 // LoadedCatalogue.
-//
-// profileFS/ProfileFS (the equivalent accessor for data/profiles/*.json)
-// are added once the first profile seed file exists (Step 35 below) --
-// go:embed requires at least one matching file at compile time, so
-// declaring an empty directory's directive here would break the build for
-// every step in between.
 func FormatFS() embed.FS { return formatFS }
+
+// ProfileFS exposes the embedded profile seeds for pkg/quality to decode
+// (pkg/quality/catalogue cannot decode them itself -- resolving a profile
+// needs quality.Lookup, and quality already imports catalogue).
+func ProfileFS() embed.FS { return profileFS }
 
 // formatJSON mirrors Format's shape for decoding; Conditions[].Pattern is a
 // string here and compiled into Condition.Pattern by DecodeFormats.
@@ -118,4 +121,49 @@ func DecodeFormats(doc []byte) ([]*Format, error) {
 		formats = append(formats, f)
 	}
 	return formats, nil
+}
+
+var (
+	loadedOnce sync.Once
+	loaded     *Catalogue
+	loadErr    error
+)
+
+// LoadedCatalogue returns the process-wide Catalogue built once from every
+// data/formats/*.json file at first use. A malformed embedded file is a
+// program bug baked in at compile time (the data is go:embed-ed, not read at
+// runtime), so this panics rather than returning an error -- there is no
+// reasonable recovery for a service that cannot load its own quality
+// catalogue, and every embedded file already has its own decode test
+// (load_test.go) that would have caught this before it ever reached
+// LoadedCatalogue.
+func LoadedCatalogue() *Catalogue {
+	loadedOnce.Do(func() {
+		entries, err := formatFS.ReadDir("data/formats")
+		if err != nil {
+			loadErr = err
+			return
+		}
+		formats := map[string]*Format{}
+		for _, e := range entries {
+			doc, err := formatFS.ReadFile("data/formats/" + e.Name())
+			if err != nil {
+				loadErr = fmt.Errorf("%s: %w", e.Name(), err)
+				return
+			}
+			fs, err := DecodeFormats(doc)
+			if err != nil {
+				loadErr = fmt.Errorf("%s: %w", e.Name(), err)
+				return
+			}
+			for _, f := range fs {
+				formats[f.Slug] = f
+			}
+		}
+		loaded = &Catalogue{Version: "bootstrap-2026-09-18", Formats: formats}
+	})
+	if loadErr != nil {
+		panic(fmt.Sprintf("quality/catalogue: LoadedCatalogue: %v", loadErr))
+	}
+	return loaded
 }

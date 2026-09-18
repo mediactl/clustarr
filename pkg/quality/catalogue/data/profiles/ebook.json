@@ -1,0 +1,9 @@
+[{
+  "name": "ebook", "mediaKind": "book",
+  "tiers": [
+    {"name": "PDF", "qualities": ["PDF"]}, {"name": "MOBI", "qualities": ["MOBI"]},
+    {"name": "EPUB", "qualities": ["EPUB"]}, {"name": "AZW3", "qualities": ["AZW3"]}
+  ],
+  "cutoff": "MOBI", "upgradeAllowed": true, "cutoffFormatScore": 10000, "minUpgradeFormatScore": 1,
+  "scoreSet": "default", "language": "original", "properPolicy": "preferAndUpgrade", "sizeTable": "none"
+}]

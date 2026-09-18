@@ -1,0 +1,20 @@
+[{
+  "name": "anime-remux-1080p",
+  "_source": "radarr trash_id 722b624f9af1e492284c4bc842153a38",
+  "mediaKind": "video",
+  "tiers": [
+    {"name": "Remux 1080p", "qualities": ["Remux-1080p", "Bluray-1080p"]},
+    {"name": "WEB 1080p", "qualities": ["HDTV-1080p", "WEBRip-1080p", "WEBDL-1080p"]},
+    {"name": "Bluray-720p", "qualities": ["Bluray-720p"]},
+    {"name": "WEB 720p", "qualities": ["HDTV-720p", "WEBRip-720p", "WEBDL-720p"]},
+    {"name": "Bluray-576p", "qualities": ["Bluray-576p"]},
+    {"name": "Bluray-480p", "qualities": ["Bluray-480p"]},
+    {"name": "WEB 480p", "qualities": ["WEBRip-480p", "WEBDL-480p"]},
+    {"name": "DVD", "qualities": ["DVD"]},
+    {"name": "SDTV", "qualities": ["SDTV"]}
+  ],
+  "cutoff": "Remux 1080p", "upgradeAllowed": true,
+  "minFormatScore": 100, "cutoffFormatScore": 10000, "minUpgradeFormatScore": 1,
+  "scoreSet": "anime-radarr", "language": "original", "properPolicy": "preferAndUpgrade",
+  "sizeTable": "anime", "preferredProtocol": "any"
+}]

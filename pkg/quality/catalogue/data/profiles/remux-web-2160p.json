@@ -1,0 +1,13 @@
+[{
+  "name": "remux-web-2160p",
+  "_source": "radarr trash_id fd161a61e3ab826d3a22d53f935696dd",
+  "mediaKind": "video",
+  "tiers": [
+    {"name": "Remux-2160p", "qualities": ["Remux-2160p"]},
+    {"name": "WEB 2160p", "qualities": ["WEBRip-2160p", "WEBDL-2160p"]}
+  ],
+  "cutoff": "Remux-2160p", "upgradeAllowed": true,
+  "minFormatScore": 0, "cutoffFormatScore": 10000, "minUpgradeFormatScore": 1,
+  "scoreSet": "default", "language": "original", "properPolicy": "preferAndUpgrade",
+  "sizeTable": "movie", "preferredProtocol": "any"
+}]

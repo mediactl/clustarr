@@ -1,0 +1,19 @@
+[{
+  "name": "anime-web-1080p",
+  "_source": "sonarr trash_id 20e0fc959f1f1704bed501f23bdae76f (upstream name '[Anime] Remux-1080p', upstream cutoff 'Bluray 1080p') -- cutoff overridden to 'WEB 1080p' to match spec's literal built-in name; see task doc scope decision 2",
+  "mediaKind": "video",
+  "tiers": [
+    {"name": "Bluray 1080p", "qualities": ["Remux-1080p", "Bluray-1080p"]},
+    {"name": "WEB 1080p", "qualities": ["HDTV-1080p", "WEBRip-1080p", "WEBDL-1080p"]},
+    {"name": "Bluray-720p", "qualities": ["Bluray-720p"]},
+    {"name": "WEB 720p", "qualities": ["HDTV-720p", "WEBRip-720p", "WEBDL-720p"]},
+    {"name": "Bluray-480p", "qualities": ["Bluray-480p"]},
+    {"name": "WEB 480p", "qualities": ["WEBRip-480p", "WEBDL-480p"]},
+    {"name": "DVD", "qualities": ["DVD"]},
+    {"name": "SDTV", "qualities": ["SDTV"]}
+  ],
+  "cutoff": "WEB 1080p", "upgradeAllowed": true,
+  "minFormatScore": 100, "cutoffFormatScore": 10000, "minUpgradeFormatScore": 1,
+  "scoreSet": "anime-sonarr", "language": "original", "properPolicy": "preferAndUpgrade",
+  "sizeTable": "anime", "preferredProtocol": "any"
+}]

@@ -1,0 +1,11 @@
+[{
+  "name": "web-2160p",
+  "_source": "sonarr trash_id d1498e7d189fbe6c7110ceaabb7473e6",
+  "mediaKind": "video",
+  "tiers": [{"name": "WEB 2160p", "qualities": ["WEBRip-2160p", "WEBDL-2160p"]}],
+  "cutoff": "WEB 2160p", "upgradeAllowed": true,
+  "minFormatScore": 0, "cutoffFormatScore": 10000, "minUpgradeFormatScore": 1,
+  "scoreSet": "default", "enabledFormatGroups": ["streamingBoost", "seasonPack"],
+  "language": "original", "properPolicy": "preferAndUpgrade",
+  "sizeTable": "series", "preferredProtocol": "any"
+}]

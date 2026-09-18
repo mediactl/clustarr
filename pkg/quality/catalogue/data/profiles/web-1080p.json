@@ -1,0 +1,11 @@
+[{
+  "name": "web-1080p",
+  "_source": "sonarr trash_id 72dae194fc92bf828f32cde7744e51a1 -- chosen over radarr's simpler web-1080p.json because MediaKind has no movie/series split and Sonarr's is the richer definition (WEB Scene, streaming boost)",
+  "mediaKind": "video",
+  "tiers": [{"name": "WEB 1080p", "qualities": ["WEBRip-1080p", "WEBDL-1080p"]}],
+  "cutoff": "WEB 1080p", "upgradeAllowed": true,
+  "minFormatScore": 0, "cutoffFormatScore": 10000, "minUpgradeFormatScore": 1,
+  "scoreSet": "default", "enabledFormatGroups": ["streamingBoost", "seasonPack"],
+  "language": "original", "properPolicy": "preferAndUpgrade",
+  "sizeTable": "series", "preferredProtocol": "any"
+}]
