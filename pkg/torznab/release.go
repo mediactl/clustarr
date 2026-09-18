@@ -76,10 +76,16 @@ type Release struct {
 	Attrs map[string][]string
 }
 
-// wireEnclosure mirrors an RSS <enclosure> element.
+// wireEnclosure mirrors an RSS <enclosure> element. Length is a string, not
+// an int64, for the same reason wireItem.Size is: encoding/xml aborts the
+// ENTIRE Decode -- not just this nested struct -- the moment an attribute
+// it is unmarshaling into a numeric Go field fails strconv parsing (see
+// wireItem's doc comment). Length is not currently surfaced on Release
+// (nothing reads it), so no further parsing of it is needed here; keeping
+// it a string is enough to stop a malformed value from aborting the item.
 type wireEnclosure struct {
 	URL    string `xml:"url,attr"`
-	Length int64  `xml:"length,attr"`
+	Length string `xml:"length,attr"`
 	Type   string `xml:"type,attr"`
 }
 
@@ -95,13 +101,16 @@ type wireAttr struct {
 
 // wireItem mirrors a single <item> 1:1 (docs/research/indexers.md §4.2).
 //
-// Size is a string, not an int64: encoding/xml aborts the ENTIRE Decode
-// with an error the moment any element it is unmarshaling into a numeric
-// Go field fails strconv parsing, which would turn one item's malformed
-// <size> into a hard failure for the whole feed (see
-// TestParseResultsMalformedNumericValueInOneItemDoesNotFailTheWholeFeed).
-// Keeping it a string here and parsing it ourselves in newRelease lets a
-// bad value degrade to Release.Size == 0, the same graceful-degradation
+// Size and Categories are strings, not int64/[]int32: encoding/xml aborts
+// the ENTIRE Decode with an error the moment any element it is
+// unmarshaling into a numeric Go field fails strconv parsing, which would
+// turn one item's malformed <size> or <category> into a hard failure for
+// the whole feed (see
+// TestParseResultsMalformedNumericValueInOneItemDoesNotFailTheWholeFeed and
+// TestParseResultsMalformedCategoryInOneItemDoesNotFailTheWholeFeed).
+// Keeping them strings here and parsing them ourselves in newRelease lets a
+// bad value degrade -- Release.Size to 0, a bad <category> to simply being
+// skipped -- instead of failing the parse, the same graceful-degradation
 // contract every torznab:/newznab: attr already gets via parseInt32 etc.
 type wireItem struct {
 	Title       string         `xml:"title"`
@@ -111,7 +120,7 @@ type wireItem struct {
 	PubDate     string         `xml:"pubDate"`
 	Size        string         `xml:"size"`
 	Description string         `xml:"description"`
-	Categories  []int32        `xml:"category"`
+	Categories  []string       `xml:"category"`
 	Enclosure   *wireEnclosure `xml:"enclosure"`
 	Extra       []wireAttr     `xml:",any"` // every element the named fields above don't claim
 }
@@ -176,7 +185,14 @@ func newRelease(w wireItem) (Release, error) {
 		rel.PubDate = t.UTC()
 	}
 	for _, c := range w.Categories {
-		rel.Categories = append(rel.Categories, newznab.CategoryID(c))
+		// A non-numeric <category> (e.g. a slug like "tv/hd" some
+		// indexers emit instead of the numeric Newznab id) is skipped,
+		// not fatal; ParseInt's bitSize=32 also rejects an out-of-range
+		// value the same way it already does for every torznab:/newznab:
+		// attr parsed via parseInt32.
+		if id, err := strconv.ParseInt(c, 10, 32); err == nil {
+			rel.addCategoryIfAbsent(newznab.CategoryID(id))
+		}
 	}
 	if w.Enclosure != nil && rel.Link == "" {
 		rel.Link = w.Enclosure.URL

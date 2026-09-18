@@ -186,6 +186,77 @@ func TestParseResultsMalformedNumericValueInOneItemDoesNotFailTheWholeFeed(t *te
 	require.Equal(t, int64(100), rels[1].Size)
 }
 
+// TestParseItemSkipsNonNumericCategoriesButKeepsValidOnes covers the same
+// encoding/xml hard-abort risk as Size, but for the base <category>
+// elements: a non-numeric category id (some indexers, notably certain
+// Jackett/Cardigann definitions, emit a slug like "tv/hd" instead of the
+// numeric Newznab id) must be skipped, not abort the whole item's parse,
+// while a well-formed sibling <category> is still kept.
+func TestParseItemSkipsNonNumericCategoriesButKeepsValidOnes(t *testing.T) {
+	const body = `<item><title>x</title><guid>g</guid><category>tv/hd</category><category>5040</category></item>`
+
+	var r torznab.Release
+	require.NotPanics(t, func() {
+		var err error
+		r, err = torznab.ParseItem(strings.NewReader(body))
+		require.NoError(t, err, "a non-numeric <category> must degrade, not fail the whole parse")
+	})
+	require.Equal(t, []newznab.CategoryID{newznab.CatTVHD}, r.Categories)
+}
+
+// TestParseResultsMalformedCategoryInOneItemDoesNotFailTheWholeFeed is the
+// ParseResults-level counterpart of the test above: a bad <category> value
+// inside one item among several must not prevent the other items in the
+// same feed from parsing, and must not corrupt that item's own valid
+// categories.
+func TestParseResultsMalformedCategoryInOneItemDoesNotFailTheWholeFeed(t *testing.T) {
+	const body = `<rss><channel>
+		<item><title>bad</title><guid>g1</guid><category>tv/hd</category><category>5040</category></item>
+		<item><title>good</title><guid>g2</guid><category>2000</category></item>
+	</channel></rss>`
+
+	var rels []torznab.Release
+	require.NotPanics(t, func() {
+		var err error
+		rels, err = torznab.ParseResults(strings.NewReader(body))
+		require.NoError(t, err)
+	})
+	require.Len(t, rels, 2)
+	require.Equal(t, []newznab.CategoryID{newznab.CatTVHD}, rels[0].Categories)
+	require.Equal(t, []newznab.CategoryID{newznab.CatMovies}, rels[1].Categories)
+}
+
+// TestParseItemDuplicateCategoriesAreDeduped proves the base <category>
+// loop dedups against itself, not only against the separate
+// torznab:attr-category loop (see TestParseItemWithAttrs, whose fixture
+// carries the same ids in both places already).
+func TestParseItemDuplicateCategoriesAreDeduped(t *testing.T) {
+	const body = `<item><title>x</title><guid>g</guid><category>5040</category><category>5040</category></item>`
+
+	r, err := torznab.ParseItem(strings.NewReader(body))
+	require.NoError(t, err)
+	require.Equal(t, []newznab.CategoryID{newznab.CatTVHD}, r.Categories)
+}
+
+// TestParseItemMalformedEnclosureLengthDoesNotAbortParse covers the same
+// hard-abort risk in the nested wireEnclosure.Length attribute: it is
+// never surfaced on Release (there is no typed field for it), but a
+// malformed value must not prevent the rest of the item -- including
+// Link, populated from the same <enclosure> element -- from parsing.
+func TestParseItemMalformedEnclosureLengthDoesNotAbortParse(t *testing.T) {
+	const body = `<item><title>x</title><guid>g</guid>` +
+		`<enclosure url="https://tracker.example.invalid/dl/1" length="not-a-number" type="application/x-bittorrent"/>` +
+		`</item>`
+
+	var r torznab.Release
+	require.NotPanics(t, func() {
+		var err error
+		r, err = torznab.ParseItem(strings.NewReader(body))
+		require.NoError(t, err, "a malformed enclosure length must degrade, not fail the whole parse")
+	})
+	require.Equal(t, "https://tracker.example.invalid/dl/1", r.Link)
+}
+
 func parseResultsFile(t *testing.T, path string) []torznab.Release {
 	t.Helper()
 	f, err := os.Open(path)
