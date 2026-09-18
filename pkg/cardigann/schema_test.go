@@ -50,3 +50,41 @@ func TestLoadRejectsWhatValidateRejects(t *testing.T) {
 	_, err := cardigann.Load([]byte("id: x\n"))
 	require.Error(t, err)
 }
+
+// TestValidateAndLoadRejectMalformedInputWithoutPanicking is the
+// plan-mandated (docs/superpowers/plans, Global Constraints: "Malformed
+// input never panics") malformed-input coverage for this package's two
+// entry points that take a raw, un-decoded byte slice straight off the
+// wire (an IndexerDefinition.spec.yaml a cluster admin could hand-author
+// badly): empty, whitespace-only, truncated (an unterminated quoted
+// scalar — a realistic copy-paste accident) and outright binary garbage.
+// Every case must produce a non-nil error from both functions and must
+// never panic.
+func TestValidateAndLoadRejectMalformedInputWithoutPanicking(t *testing.T) {
+	cases := []struct {
+		name string
+		data []byte
+	}{
+		{"empty", []byte("")},
+		{"nil", nil},
+		{"whitespace only", []byte("   \n\t\n")},
+		{"truncated unterminated quoted scalar", []byte("id: 'unterminated string\nname: x")},
+		{"truncated flow mapping", []byte("id: x\ncaps: {categories: {")},
+		{"binary garbage", []byte{0x00, 0xFF, 0x02, 0x80, 0x81, '\n', 'x', ':', '{', '}', '['}},
+		{"garbage with stray brackets", []byte("\x00\x01\x02not yaml at all: [[[{{{")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var validateErr, loadErr error
+			require.NotPanics(t, func() {
+				validateErr = cardigann.Validate(tc.data)
+			})
+			assert.Error(t, validateErr)
+
+			require.NotPanics(t, func() {
+				_, loadErr = cardigann.Load(tc.data)
+			})
+			assert.Error(t, loadErr)
+		})
+	}
+}

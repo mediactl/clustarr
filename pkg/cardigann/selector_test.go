@@ -19,6 +19,7 @@ package cardigann_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -122,4 +123,69 @@ func TestSelectorBlockExtractRemoveStripsNestedElementFirst(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, "4.2 GB", val)
+}
+
+// TestParseDocHandlesEmptyTruncatedAndGarbageInputWithoutPanicking is the
+// plan-mandated (Global Constraints: "Malformed input never panics")
+// coverage for ParseDoc, the one function in this package that takes a
+// raw, un-decoded response body straight off the wire for all three
+// backends. HTML is the one documented pass-through: golang.org/x/net/html
+// (goquery's underlying parser) implements the HTML5 tree-construction
+// algorithm's error recovery and, by design, never fails to produce some
+// document, even from empty, truncated or outright binary input — verified
+// directly, not assumed, before writing this test's require.NoError(t, err)
+// for the HTML cases (JSON and XML have no such guarantee and are expected
+// to error).
+func TestParseDocHandlesEmptyTruncatedAndGarbageInputWithoutPanicking(t *testing.T) {
+	htmlCases := [][]byte{
+		[]byte(""),
+		[]byte("<table><tr><td>unterminated"),
+		{0x00, 0xFF, 0x02, '<', '>', 0x80},
+	}
+	for i, data := range htmlCases {
+		t.Run(fmt.Sprintf("html-%d", i), func(t *testing.T) {
+			var doc cardigann.Doc
+			var err error
+			require.NotPanics(t, func() {
+				doc, err = cardigann.ParseDoc(cardigann.ResponseHTML, data)
+			})
+			require.NoError(t, err, "HTML5 parsing is documented to never fail outright")
+			require.NotPanics(t, func() {
+				_, ok := doc.Select("nonexistent-selector")
+				assert.False(t, ok)
+				assert.Empty(t, doc.Rows("nonexistent-selector"))
+				_, _ = doc.Text("")
+			})
+		})
+	}
+
+	jsonCases := [][]byte{
+		[]byte(""),
+		[]byte(`{"data": [{"a": 1`),
+		{0x00, 0xFF, '{', ':', 0x80},
+	}
+	for i, data := range jsonCases {
+		t.Run(fmt.Sprintf("json-%d", i), func(t *testing.T) {
+			var err error
+			require.NotPanics(t, func() {
+				_, err = cardigann.ParseDoc(cardigann.ResponseJSON, data)
+			})
+			assert.Error(t, err)
+		})
+	}
+
+	xmlCases := [][]byte{
+		[]byte(""),
+		[]byte("<item><title>unterminated"),
+		{0x00, 0xFF, '<', '>', 0x80},
+	}
+	for i, data := range xmlCases {
+		t.Run(fmt.Sprintf("xml-%d", i), func(t *testing.T) {
+			var err error
+			require.NotPanics(t, func() {
+				_, err = cardigann.ParseDoc(cardigann.ResponseXML, data)
+			})
+			assert.Error(t, err)
+		})
+	}
 }

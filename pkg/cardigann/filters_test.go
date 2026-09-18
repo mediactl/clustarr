@@ -121,3 +121,41 @@ func TestGetBytes(t *testing.T) {
 	_, err := cardigann.GetBytes("")
 	assert.Error(t, err)
 }
+
+// TestFiltersRejectMalformedArgumentsWithoutPanicking is the
+// plan-mandated (Global Constraints: "Malformed input never panics")
+// coverage for bad filter arguments — a definition author's typo (a bad
+// regexp, a non-numeric split index, a date the given .NET format can't
+// parse, a jsonjoinarray path that isn't an array) or a missing argument
+// entirely (wrong arg count), across the filters where a bad argument is
+// actually observable as an error rather than silently accepted (e.g. an
+// empty regexp pattern is itself valid regex, so it is not a case here).
+func TestFiltersRejectMalformedArgumentsWithoutPanicking(t *testing.T) {
+	cases := []struct {
+		name, filter, value string
+		args                []string
+	}{
+		{"regexp: invalid pattern", "regexp", "abc", []string{"["}},
+		{"re_replace: invalid pattern", "re_replace", "abc", []string{"[", "x"}},
+		{"split: non-numeric index", "split", "a/b/c", []string{"/", "abc"}},
+		{"split: missing index (wrong arg count)", "split", "a/b/c", []string{"/"}},
+		{"dateparse: unparseable value", "dateparse", "not-a-date", []string{"yyyy-MM-dd"}},
+		{"dateparse: missing format (wrong arg count)", "dateparse", "not-empty", nil},
+		{"jsonjoinarray: non-array target", "jsonjoinarray", `{"genres":"not-an-array"}`, []string{"genres", ","}},
+		{"jsonjoinarray: malformed json body", "jsonjoinarray", `not json`, []string{"genres", ","}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fn, ok := cardigann.Filters[tc.filter]
+			require.True(t, ok)
+
+			var got string
+			var err error
+			require.NotPanics(t, func() {
+				got, err = fn(context.Background(), tc.value, tc.args, &cardigann.TemplateContext{})
+			})
+			assert.Error(t, err)
+			assert.Empty(t, got)
+		})
+	}
+}
