@@ -112,7 +112,7 @@ func blocklistActive(d *downloadv1alpha1.Download, now time.Time) bool {
 	if d.Status.BlocklistedUntil == nil {
 		return true
 	}
-	return d.Status.BlocklistedUntil.Time.After(now)
+	return d.Status.BlocklistedUntil.After(now)
 }
 
 // isTerminal reports whether a Download can no longer occupy the queue. A

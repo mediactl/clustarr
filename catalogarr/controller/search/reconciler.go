@@ -70,6 +70,14 @@ const SearchRunningTimeout = 5 * time.Minute
 // work stream is applying back-pressure.
 const queueFullRequeue = time.Minute
 
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=searches,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=searches/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=series,verbs=get;list;watch
+// +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
+
 // Reconciler reconciles Search. It is the sole writer of Search's
 // status.phase, status.conditions, status.observedGeneration,
 // status.startedAt and status.grabbed; the search worker owns the disjoint
@@ -457,9 +465,9 @@ func (r *Reconciler) ttlDeadline(s *catalogv1alpha1.Search) time.Time {
 	}
 	switch {
 	case s.Status.FinishedAt != nil:
-		return s.Status.FinishedAt.Time.Add(ttl)
+		return s.Status.FinishedAt.Add(ttl)
 	case s.Status.Phase == catalogv1alpha1.SearchPhaseFailed && s.Status.StartedAt != nil:
-		return s.Status.StartedAt.Time.Add(ttl)
+		return s.Status.StartedAt.Add(ttl)
 	default:
 		return time.Time{}
 	}

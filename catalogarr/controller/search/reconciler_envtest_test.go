@@ -271,7 +271,7 @@ func TestReconcileFailsAStuckRunningSearchWithoutReleasingItsSteadyState(t *test
 	require.NotNil(t, cond)
 	require.Equal(t, "Timeout", cond.Reason)
 	require.NotNil(t, got.Status.StartedAt, "the failure path must re-send every field it owns")
-	require.Equal(t, before.Status.StartedAt.Time.UTC(), got.Status.StartedAt.Time.UTC())
+	require.Equal(t, before.Status.StartedAt.UTC(), got.Status.StartedAt.UTC())
 }
 
 func TestReconcileHandlesSpecGrab(t *testing.T) {

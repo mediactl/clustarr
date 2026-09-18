@@ -107,13 +107,13 @@ func (b *SearchApplyConfiguration) WithNamespace(v string) *SearchApplyConfigura
 
 // WithKind sets kind.
 func (b *SearchApplyConfiguration) WithKind(v string) *SearchApplyConfiguration {
-	b.TypeMetaApplyConfiguration.Kind = &v
+	b.Kind = &v
 	return b
 }
 
 // WithAPIVersion sets apiVersion.
 func (b *SearchApplyConfiguration) WithAPIVersion(v string) *SearchApplyConfiguration {
-	b.TypeMetaApplyConfiguration.APIVersion = &v
+	b.APIVersion = &v
 	return b
 }
 
@@ -136,11 +136,11 @@ func (b *SearchApplyConfiguration) GetNamespace() *string {
 }
 
 // GetKind implements k8s.ApplyConfiguration.
-func (b *SearchApplyConfiguration) GetKind() *string { return b.TypeMetaApplyConfiguration.Kind }
+func (b *SearchApplyConfiguration) GetKind() *string { return b.Kind }
 
 // GetAPIVersion implements k8s.ApplyConfiguration.
 func (b *SearchApplyConfiguration) GetAPIVersion() *string {
-	return b.TypeMetaApplyConfiguration.APIVersion
+	return b.APIVersion
 }
 
 // WithObservedGeneration sets status.observedGeneration.
