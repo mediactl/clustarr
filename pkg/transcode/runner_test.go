@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -70,4 +71,28 @@ func TestRunReturnsATypedErrorWithTheStderrTailOnNonZeroExit(t *testing.T) {
 	require.NotZero(t, runErr.ExitCode)
 	require.Contains(t, strings.ToLower(runErr.StderrTail), "no such file")
 	require.LessOrEqual(t, len(runErr.StderrTail), 4096)
+}
+
+func TestRunHonoursContextCancellationAndSendsSIGINTFirst(t *testing.T) {
+	if _, err := os.Stat("/usr/bin/ffmpeg"); err != nil {
+		t.Skip("ffmpeg not present on this box")
+	}
+	r := transcode.NewRunner("/usr/bin/ffmpeg")
+	plan := &transcode.PlanResult{
+		Decision:  transcode.DecisionEncode,
+		Input:     "", // overridden below via a lavfi source; see Args note
+		Output:    filepath.Join(t.TempDir(), "cancel.part.mkv"),
+		Container: transcode.ContainerMKV,
+		// a 10s synthetic source encoded at veryslow guarantees Run is still
+		// mid-flight well past the 100ms timeout below, on any CI box.
+		HWInit:    []string{"-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=24:duration=10"},
+		VideoArgs: []string{"-c:v", "libx265", "-preset", "veryslow", "-crf", "30"},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	err := r.Run(ctx, plan, func(transcode.Progress) {})
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 }

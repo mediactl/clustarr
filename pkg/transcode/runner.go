@@ -25,10 +25,17 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
+
+// runCancelGrace is how long Run waits after sending SIGINT before
+// exec.Cmd.WaitDelay escalates to SIGKILL (note §10 RunOptions: "ctx
+// cancellation sends SIGINT... then SIGKILL after grace").
+const runCancelGrace = 5 * time.Second
 
 // Progress mirrors TranscodeJobStatus.Progress's scaled-int fields exactly
 // -- FPSMilli, SpeedMilli, OutTimeMillis, Percent, BitrateKbps -- so a
@@ -198,6 +205,12 @@ func (r Runner) Run(ctx context.Context, plan *PlanResult, progress func(Progres
 	logger.Info("transcode: running ffmpeg", "argv", args)
 
 	cmd := exec.CommandContext(ctx, r.FFmpegPath, args...)
+	// exec.CommandContext's default cancellation is an immediate
+	// Process.Kill (SIGKILL), which never lets ffmpeg flush a clean
+	// trailer. Send SIGINT first and only escalate to SIGKILL after
+	// runCancelGrace (exec.Cmd.Cancel/WaitDelay, stdlib since Go 1.20).
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGINT) }
+	cmd.WaitDelay = runCancelGrace
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -229,6 +242,17 @@ func (r Runner) Run(ctx context.Context, plan *PlanResult, progress func(Progres
 	<-scanDone // scanDone's send happens-after the goroutine's writes to sawEnd/last
 
 	if waitErr != nil || !sawEnd {
+		// Cancellation is not an encode failure: report ctx.Err() (wrapped,
+		// so errors.Is(err, context.DeadlineExceeded/Canceled) holds for
+		// the caller) instead of a *RunError built from the SIGINT/SIGKILL
+		// exit status.
+		if ctx.Err() != nil {
+			cancelErr := fmt.Errorf("transcode: run: %w", ctx.Err())
+			tracing.RecordError(span, cancelErr)
+			logger.Info("transcode: ffmpeg run cancelled", "error", cancelErr, "progress", last)
+			return cancelErr
+		}
+
 		exitCode := -1
 		if cmd.ProcessState != nil {
 			exitCode = cmd.ProcessState.ExitCode()
