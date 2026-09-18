@@ -41,14 +41,6 @@ import (
 
 const defaultBaseURL = "https://openlibrary.org"
 
-// openLibraryAuthorKey is the ExternalIDs key this client reads/writes for
-// an Open Library author id (an "OLxxxxxxA" key). It is not one of
-// pkg/metadata's recognised keys (ids.go defines only KeyOpenLibraryWork and
-// KeyOpenLibraryEdition) -- ExternalIDs is a plain map, and an unrecognised
-// key round-trips through Validate unchecked, so this needs no change to
-// the shared crosswalk.
-const openLibraryAuthorKey = "olauthor"
-
 // Client is a metadata.BookProvider backed by Open Library.
 type Client struct {
 	http      *http.Client
@@ -121,16 +113,16 @@ func (c *Client) SearchBooks(ctx context.Context, q string) ([]metadata.SearchHi
 	return hits, nil
 }
 
-// Author fetches a single author by their Open Library id (the openLibraryAuthorKey
-// entry of ids).
+// Author fetches a single author by their Open Library id
+// (ids[metadata.KeyOpenLibraryAuthor]).
 func (c *Client) Author(ctx context.Context, ids metadata.ExternalIDs) (*metadata.Author, error) {
 	ctx, span := tracing.Start(ctx, "metadata.openlibrary.Author")
 	defer span.End()
 	logger := logging.FromContext(ctx)
 
-	olid, ok := ids[openLibraryAuthorKey]
+	olid, ok := ids[metadata.KeyOpenLibraryAuthor]
 	if !ok {
-		err := fmt.Errorf("openlibrary: Author requires %q in ExternalIDs", openLibraryAuthorKey)
+		err := fmt.Errorf("openlibrary: Author requires %q in ExternalIDs", metadata.KeyOpenLibraryAuthor)
 		tracing.RecordError(span, err)
 		return nil, err
 	}
@@ -149,7 +141,7 @@ func (c *Client) Author(ctx context.Context, ids metadata.ExternalIDs) (*metadat
 	}
 
 	a := &metadata.Author{
-		IDs:      metadata.ExternalIDs{openLibraryAuthorKey: olid},
+		IDs:      metadata.ExternalIDs{metadata.KeyOpenLibraryAuthor: olid},
 		Name:     raw.Name,
 		Overview: decodeOpenLibraryText(raw.Bio),
 	}
@@ -350,7 +342,7 @@ func (c *Client) doGet(ctx context.Context, path string, out any) error {
 	switch resp.StatusCode {
 	case http.StatusOK:
 		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-			return fmt.Errorf("openlibrary: decode %s: %w", path, err)
+			return fmt.Errorf("openlibrary: decode %s: %w: %w", path, metadata.ErrDecode, err)
 		}
 		return nil
 	case http.StatusNotFound:

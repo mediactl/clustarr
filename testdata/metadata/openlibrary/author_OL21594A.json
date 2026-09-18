@@ -1,0 +1,10 @@
+{
+  "key": "/authors/OL21594A",
+  "name": "Jane Austen",
+  "birth_date": "1775-12-16",
+  "death_date": "1817-07-18",
+  "bio": {
+    "type": "/type/text",
+    "value": "Jane Austen was an English novelist known for her romantic fiction."
+  }
+}

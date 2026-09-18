@@ -1,0 +1,9 @@
+{
+  "key": "/works/OL138052W",
+  "title": "Pride and Prejudice",
+  "description": {
+    "type": "/type/text",
+    "value": "Pride and Prejudice follows the emotional development of Elizabeth Bennet."
+  },
+  "subjects": ["Fiction", "England", "Social classes"]
+}
