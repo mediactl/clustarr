@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
@@ -70,5 +71,35 @@ func TestTargetRuntimeMinutes(t *testing.T) {
 	t.Run("non-video kind has no runtime/size model", func(t *testing.T) {
 		_, ok := targetRuntimeMinutes(Target{Kind: common.MediaKindBook}, &release.ParsedRelease{})
 		require.False(t, ok)
+	})
+}
+
+func TestSizeRejections(t *testing.T) {
+	bluray1080, _ := quality.Lookup("video", "Bluray-1080p")
+	p := quality.Profile{Sizes: quality.MovieSizeTable()}
+	tg := Target{Kind: common.MediaKindMovie} // RuntimeMinutes 0 -> falls back to 110
+
+	t.Run("within bounds", func(t *testing.T) {
+		rel := common.ReleaseInfo{Quality: bluray1080.Quality, SizeBytes: 10_200_000_000} // ~9.5 GiB
+		require.Empty(t, sizeRejections(tg, p, &release.ParsedRelease{}, rel))
+	})
+
+	t.Run("below the 50.8 MB/min floor at 110 minutes", func(t *testing.T) {
+		// 50.8 MB/min * 110 min * 1024 * 1024 = 5,859,442,688 bytes exactly.
+		rel := common.ReleaseInfo{Quality: bluray1080.Quality, SizeBytes: 5_000_000_000}
+		got := sizeRejections(tg, p, &release.ParsedRelease{}, rel)
+		require.Len(t, got, 1)
+		require.Equal(t, common.RejectionPermanent, got[0].Type)
+		require.Contains(t, got[0].Reason, ReasonBelowMinimumSize.Code)
+	})
+
+	t.Run("zero size is unknown, not rejected -- ported from AcceptableSizeSpecification", func(t *testing.T) {
+		rel := common.ReleaseInfo{Quality: bluray1080.Quality, SizeBytes: 0}
+		require.Empty(t, sizeRejections(tg, p, &release.ParsedRelease{}, rel))
+	})
+
+	t.Run("quality absent from the size table is not checked", func(t *testing.T) {
+		rel := common.ReleaseInfo{Quality: common.Quality{Name: "Unknown-Table-Entry"}, SizeBytes: 1}
+		require.Empty(t, sizeRejections(tg, p, &release.ParsedRelease{}, rel))
 	})
 }

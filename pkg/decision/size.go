@@ -19,6 +19,7 @@ package decision
 
 import (
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
@@ -85,4 +86,33 @@ func targetRuntimeMinutes(t Target, parsed *release.ParsedRelease) (minutes int,
 	default:
 		return 0, false
 	}
+}
+
+// sizeRejections is AcceptableSizeSpecification, ported: a release with
+// unknown size (0) is never rejected; a quality absent from p.Sizes (e.g.
+// SizeTable "none") is never checked; otherwise both bounds are enforced,
+// with MaxMBPerMin 0 meaning unlimited (quality.SizeLimits' own convention).
+func sizeRejections(t Target, p quality.Profile, parsed *release.ParsedRelease, rel common.ReleaseInfo) []common.Rejection {
+	if rel.SizeBytes <= 0 {
+		return nil
+	}
+	if _, hasLimits := p.Sizes[rel.Quality.Name]; !hasLimits {
+		return nil
+	}
+	minutes, ok := targetRuntimeMinutes(t, parsed)
+	if !ok {
+		return nil
+	}
+	minBytes, maxBytes := quality.SizeLimits(p, rel.Quality, minutes)
+
+	var out []common.Rejection
+	if minBytes > 0 && rel.SizeBytes < minBytes {
+		out = append(out, newRejection(ReasonBelowMinimumSize,
+			"%d bytes is below the %s minimum of %d bytes at %d minutes", rel.SizeBytes, rel.Quality.Name, minBytes, minutes))
+	}
+	if maxBytes > 0 && rel.SizeBytes > maxBytes {
+		out = append(out, newRejection(ReasonAboveMaximumSize,
+			"%d bytes is above the %s maximum of %d bytes at %d minutes", rel.SizeBytes, rel.Quality.Name, maxBytes, minutes))
+	}
+	return out
 }
