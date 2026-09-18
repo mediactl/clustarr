@@ -188,3 +188,82 @@ func TestHandlerSkipsTheProviderOnACacheHit(t *testing.T) {
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
 	require.Equal(t, "Inception (cached)", got.Status.Metadata.Title)
 }
+
+type erroringMovieProvider struct{ err error }
+
+func (p erroringMovieProvider) Name() string { return "erroring" }
+func (p erroringMovieProvider) Capabilities() pkgmetadata.Capabilities {
+	return pkgmetadata.Capabilities{}
+}
+func (p erroringMovieProvider) Movie(context.Context, string, string) (*pkgmetadata.Movie, error) {
+	return nil, p.err
+}
+func (p erroringMovieProvider) FindMovie(context.Context, pkgmetadata.ExternalIDs) (*pkgmetadata.Movie, error) {
+	return nil, p.err
+}
+func (p erroringMovieProvider) SearchMovies(context.Context, string, int) ([]pkgmetadata.MovieHit, error) {
+	return nil, p.err
+}
+
+func TestHandlerMapsRateLimitedToRetry(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	const ns, name = "hratelimit", "inception"
+	newMovie(t, ctx, c, ns, name, 27205)
+
+	h := &metadata.Handler{
+		Client: c,
+		Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{
+			erroringMovieProvider{err: &pkgmetadata.RateLimitedError{Provider: "tmdb", RetryAfter: 45 * time.Second}},
+		}},
+		Cache: noopCache{},
+	}
+	env := &events.Envelope{Key: ns + "/" + name, Schema: schema.MetadataTask{}.Schema()}
+	task := schema.MetadataTask{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name}}
+	var err error
+	_, env.Data, err = schema.Encode(task)
+	require.NoError(t, err)
+
+	err = h.Handle(ctx, testMessage{env: env})
+	var re *events.RetryError
+	require.ErrorAs(t, err, &re)
+	require.Equal(t, 45*time.Second, re.After)
+}
+
+func TestHandlerMapsNotFoundToDiscard(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	const ns, name = "hnotfound", "inception"
+	newMovie(t, ctx, c, ns, name, 27205)
+
+	h := &metadata.Handler{
+		Client:   c,
+		Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{erroringMovieProvider{err: pkgmetadata.ErrNotFound}}},
+		Cache:    noopCache{},
+	}
+	env := &events.Envelope{Key: ns + "/" + name, Schema: schema.MetadataTask{}.Schema()}
+	task := schema.MetadataTask{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name}}
+	var err error
+	_, env.Data, err = schema.Encode(task)
+	require.NoError(t, err)
+
+	err = h.Handle(ctx, testMessage{env: env})
+	var de *events.DiscardError
+	require.ErrorAs(t, err, &de)
+}
+
+func TestHandlerDiscardsAnUnsupportedKind(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	h := &metadata.Handler{Client: c, Registry: &pkgmetadata.Registry{}, Cache: noopCache{}}
+
+	env := &events.Envelope{Key: "ns/artist-1", Schema: schema.MetadataTask{}.Schema()}
+	task := schema.MetadataTask{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindArtist, Name: "artist-1"}}
+	var err error
+	_, env.Data, err = schema.Encode(task)
+	require.NoError(t, err)
+
+	err = h.Handle(ctx, testMessage{env: env})
+	var de *events.DiscardError
+	require.ErrorAs(t, err, &de)
+}
