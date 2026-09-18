@@ -83,15 +83,16 @@ func firstStream(streams []*ffprobe.Stream, t ffprobe.StreamType) *ffprobe.Strea
 
 func toAudioStream(s *ffprobe.Stream) commonv1.AudioStream {
 	return commonv1.AudioStream{
-		Index:       int32(s.Index),
-		Codec:       s.CodecName,
-		Profile:     s.Profile,
-		Language:    s.Tags.Language,
-		Title:       s.Tags.Title,
-		Channels:    int32(s.Channels),
-		BitrateKbps: kbpsFromBitRate(s.BitRate),
-		Default:     s.Disposition.Default == 1,
-		Commentary:  s.Disposition.Comment == 1,
+		Index:         int32(s.Index),
+		Codec:         s.CodecName,
+		Profile:       s.Profile,
+		Language:      s.Tags.Language,
+		Title:         s.Tags.Title,
+		Channels:      int32(s.Channels),
+		ChannelLayout: s.ChannelLayout,
+		BitrateKbps:   kbpsFromBitRate(s.BitRate),
+		Default:       s.Disposition.Default == 1,
+		Commentary:    s.Disposition.Comment == 1,
 	}
 }
 

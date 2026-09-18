@@ -32,7 +32,7 @@ func TestToMediaInfo(t *testing.T) {
 		Format: &ffprobe.Format{Filename: "movie.mkv", DurationSeconds: 7384.5},
 		Streams: []*ffprobe.Stream{
 			{Index: 0, CodecType: "video", CodecName: "hevc", Profile: "Main 10", Width: 3840, Height: 2160, PixFmt: "yuv420p10le", RFrameRate: "24000/1001", BitRate: "15000000"},
-			{Index: 1, CodecType: "audio", CodecName: "eac3", Profile: "Atmos", Channels: 8, BitRate: "768000", Disposition: ffprobe.StreamDisposition{Default: 1}, Tags: ffprobe.StreamTags{Language: "eng", Title: "Atmos 7.1"}},
+			{Index: 1, CodecType: "audio", CodecName: "eac3", Profile: "Atmos", Channels: 8, ChannelLayout: "5.1(side)", BitRate: "768000", Disposition: ffprobe.StreamDisposition{Default: 1}, Tags: ffprobe.StreamTags{Language: "eng", Title: "Atmos 7.1"}},
 			{Index: 2, CodecType: "audio", CodecName: "ac3", Channels: 6, BitRate: "640000", Disposition: ffprobe.StreamDisposition{Comment: 1}, Tags: ffprobe.StreamTags{Language: "eng", Title: "Commentary"}},
 			{Index: 3, CodecType: "subtitle", CodecName: "hdmv_pgs_subtitle", Disposition: ffprobe.StreamDisposition{Forced: 1}, Tags: ffprobe.StreamTags{Language: "eng"}},
 			{Index: 4, CodecType: "attachment"},
@@ -65,6 +65,7 @@ func TestToMediaInfo(t *testing.T) {
 	assert.Equal(t, "Atmos", mi.Audio[0].Profile)
 	assert.Equal(t, "eng", mi.Audio[0].Language)
 	assert.Equal(t, int32(8), mi.Audio[0].Channels)
+	assert.Equal(t, "5.1(side)", mi.Audio[0].ChannelLayout)
 	assert.Equal(t, int32(768), mi.Audio[0].BitrateKbps)
 	assert.True(t, mi.Audio[0].Default)
 	assert.True(t, mi.Audio[1].Commentary)
