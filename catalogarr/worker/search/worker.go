@@ -362,24 +362,17 @@ func (w *Worker) enabledProtocols(ctx context.Context, ns string) (map[string]bo
 
 // releaseInfos projects the RPC reply onto what pkg/decision consumes.
 //
-// PublishedAt is backfilled when the indexer did not report one: ReleaseInfo
-// carries it as a non-pointer metav1.Time, which marshals to JSON null when
-// zero, and the CRD schema types it as a non-nullable string -- so a release
-// with no publish date cannot be persisted at all. FetchedAt (when indexarr
-// read the release) is the closest true statement, and it is also what usenet
-// age ranking needs; falling back to "now" only happens when the reply carried
-// neither.
-func releaseInfos(rels []schema.Release, now time.Time) []commonv1.ReleaseInfo {
+// PublishedAt is passed through exactly as the indexer reported it, including
+// absence. It used to be backfilled here, because a non-pointer metav1.Time
+// marshalled to null and the CRD typed it non-nullable, so a release with no
+// publish date could not be persisted at all. It is a *metav1.Time now, so
+// absence round-trips, and backfilling would be a lie with consequences:
+// pkg/decision ranks usenet releases by publish age, so substituting FetchedAt
+// or now makes a dateless release sort as brand new.
+func releaseInfos(rels []schema.Release, _ time.Time) []commonv1.ReleaseInfo {
 	out := make([]commonv1.ReleaseInfo, 0, len(rels))
 	for _, r := range rels {
 		info := r.Info
-		if info.PublishedAt.IsZero() {
-			if !r.FetchedAt.IsZero() {
-				info.PublishedAt = metav1.NewTime(r.FetchedAt)
-			} else {
-				info.PublishedAt = metav1.NewTime(now)
-			}
-		}
 		out = append(out, info)
 	}
 	return out

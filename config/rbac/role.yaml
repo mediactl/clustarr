@@ -7,6 +7,17 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
+  - delayprofiles
+  - mediafiles
+  - qualityprofiles
+  - rootfolders
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
   - episodes
   verbs:
   - create
@@ -28,6 +39,7 @@ rules:
   resources:
   - episodes/status
   - movies/status
+  - searches/status
   - series/status
   verbs:
   - get
@@ -36,17 +48,8 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
-  - mediafiles
-  - qualityprofiles
-  - rootfolders
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
   - movies
+  - searches
   - series
   verbs:
   - create
@@ -59,10 +62,21 @@ rules:
 - apiGroups:
   - download.clustarr.io
   resources:
-  - downloads
+  - downloadclients
   verbs:
   - get
   - list
+  - watch
+- apiGroups:
+  - download.clustarr.io
+  resources:
+  - downloads
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - events.k8s.io
@@ -71,3 +85,11 @@ rules:
   verbs:
   - create
   - patch
+- apiGroups:
+  - index.clustarr.io
+  resources:
+  - indexers
+  verbs:
+  - get
+  - list
+  - watch

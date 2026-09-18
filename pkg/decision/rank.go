@@ -112,6 +112,12 @@ func seedersOrAgeScore(rel common.ReleaseInfo) float64 {
 		}
 		return math.Round(math.Log10(float64(*rel.Seeders)))
 	case common.ProtocolUsenet:
+		// No reported publish date is not the same as a very old or a very
+		// new one, so an unknown date scores neutral rather than winning or
+		// losing the tiebreak outright.
+		if rel.PublishedAt == nil {
+			return 0
+		}
 		days, hours, _ := release.Age(rel.PublishedAt.Time, time.Now())
 		switch {
 		case hours < 1:

@@ -21,6 +21,8 @@ import (
 	"context"
 	"testing"
 
+	"k8s.io/utils/ptr"
+
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -59,7 +61,7 @@ func TestSearchApplyConfigurationRoundTripsThroughPatchStatus(t *testing.T) {
 					GUID:        "g1",
 					Title:       "The.Matrix.1999.1080p.BluRay.x264-GROUP",
 					Seeders:     &seeders,
-					PublishedAt: metav1.Now(),
+					PublishedAt: ptr.To(metav1.Now()),
 				},
 				Approved: true,
 				Rank:     1,
@@ -108,7 +110,7 @@ func TestSearchApplyConfigurationReleasesOmittedFields(t *testing.T) {
 			WithPhase(catalogv1alpha1.SearchPhaseCompleted).
 			WithStartedAt(metav1.Now()).
 			WithResults(catalogv1alpha1.ReleaseDecision{
-				ReleaseInfo: commonv1.ReleaseInfo{GUID: "g1", PublishedAt: metav1.Now()},
+				ReleaseInfo: commonv1.ReleaseInfo{GUID: "g1", PublishedAt: ptr.To(metav1.Now())},
 				Approved:    true,
 				Rank:        1,
 			}),

@@ -24,6 +24,8 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/utils/ptr"
+
 	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/require"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -209,7 +211,7 @@ func approvedResult(guid string) catalogv1alpha1.ReleaseDecision {
 		ReleaseInfo: commonv1.ReleaseInfo{
 			GUID: guid, IndexerRef: "idx", Title: "The.Matrix.1999.1080p.BluRay.x264-GROUP",
 			Protocol: commonv1.ProtocolTorrent, DownloadURL: "https://idx.example/dl/" + guid,
-			PublishedAt: metav1.Now(),
+			PublishedAt: ptr.To(metav1.Now()),
 		},
 		Approved: true, Rank: 1,
 	}
@@ -220,7 +222,7 @@ func rejectedResult(guid string) catalogv1alpha1.ReleaseDecision {
 		ReleaseInfo: commonv1.ReleaseInfo{
 			GUID: guid, IndexerRef: "idx", Title: "The.Matrix.1999.480p.CAM-BAD",
 			Protocol: commonv1.ProtocolTorrent, DownloadURL: "https://idx.example/dl/" + guid,
-			PublishedAt: metav1.Now(),
+			PublishedAt: ptr.To(metav1.Now()),
 		},
 		Rejections: []commonv1.Rejection{{Reason: "release group is unwanted", Type: commonv1.RejectionPermanent}},
 		Rank:       2,

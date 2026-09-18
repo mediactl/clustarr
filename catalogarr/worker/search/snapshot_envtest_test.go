@@ -182,7 +182,13 @@ func TestWorkerSnapshotOfAnAnimeEpisodeWithAFile(t *testing.T) {
 	require.False(t, opts.UserInvoked)
 
 	require.Len(t, rels, 1)
-	require.False(t, rels[0].PublishedAt.IsZero())
+	// A release the indexer gave no pubDate for now arrives as a genuine nil
+	// rather than a manufactured date. It used to be backfilled because a
+	// non-pointer metav1.Time could not be persisted at all; PublishedAt is a
+	// pointer now, so absence survives, and pkg/decision scores an unknown
+	// date neutrally instead of ranking it as brand new.
+	require.Nil(t, rels[0].PublishedAt,
+		"an absent publish date must pass through unmodified, not be backfilled")
 
 	reqs := rpc.Requests()
 	require.Len(t, reqs, 1)

@@ -22,6 +22,8 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/utils/ptr"
+
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -68,7 +70,7 @@ func newDownload(t *testing.T, ctx context.Context, c client.Client, ns string, 
 				Title:       f.title,
 				Protocol:    commonv1.ProtocolTorrent,
 				InfoHash:    f.hash,
-				PublishedAt: metav1.Now(),
+				PublishedAt: ptr.To(metav1.Now()),
 				Quality:     f.quality,
 				FormatScore: f.formatScore,
 			},

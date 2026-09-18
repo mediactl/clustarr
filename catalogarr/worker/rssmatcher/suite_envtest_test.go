@@ -284,4 +284,4 @@ func createDelayProfile(t *testing.T, ctx context.Context, c client.Client, ns s
 	require.NoError(t, c.Create(ctx, dp))
 }
 
-func metaTime(t time.Time) metav1.Time { return metav1.NewTime(t) }
+func metaTime(t time.Time) *metav1.Time { return &metav1.Time{Time: t} }

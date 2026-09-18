@@ -92,9 +92,21 @@ type ReleaseInfo struct {
 	// +optional
 	SizeBytes int64 `json:"sizeBytes,omitempty"`
 
-	// PublishedAt is when the indexer published the release.
+	// PublishedAt is when the indexer published the release, or nil when the
+	// indexer did not report one.
+	//
+	// This is a pointer because a value would be unpersistable: omitempty does
+	// not fire on a struct, metav1.Time marshals its zero value to null, and
+	// controller-gen types a non-pointer metav1.Time as a non-nullable
+	// date-time string -- so the apiserver rejected the whole resource for any
+	// release whose indexer reported no pubDate, which hard-failed the grab.
+	//
+	// Absence is also genuinely different from a date, and callers must not
+	// paper over it: ranking uses publish age as the usenet tiebreaker, so
+	// substituting "now" makes a dateless release sort as brand new and
+	// substituting the zero time makes it sort as ancient. Neither is true.
 	// +optional
-	PublishedAt metav1.Time `json:"publishedAt,omitempty"`
+	PublishedAt *metav1.Time `json:"publishedAt,omitempty"`
 
 	// DownloadURL is the .torrent / .nzb download link.
 	// +optional

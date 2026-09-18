@@ -24,6 +24,8 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/utils/ptr"
+
 	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -185,7 +187,7 @@ func torrentRelease(guid, indexerRef string, q commonv1.Quality, score int32) co
 		// metav1.Time value (not a pointer) whose `omitempty` cannot fire on
 		// a struct, so a zero value marshals to `null` and the Download CRD's
 		// schema rejects it. See the task report's finding on this.
-		PublishedAt: metav1.NewTime(testNow.Add(-time.Hour)),
+		PublishedAt: ptr.To(metav1.NewTime(testNow.Add(-time.Hour))),
 		MagnetURL:   "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
 		Title:       "The.Thing.1982.1080p.BluRay.x264-GROUP",
 		Quality:     q,

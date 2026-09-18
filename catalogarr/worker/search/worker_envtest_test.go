@@ -257,8 +257,13 @@ func TestWorkerHandleWritesAnInteractiveSearchesResults(t *testing.T) {
 	require.Equal(t, int32(1), got.Status.Results[0].Rank)
 	require.Equal(t, "g-low", got.Status.Results[1].GUID)
 	require.Equal(t, int32(2), got.Status.Results[1].Rank)
-	require.False(t, got.Status.Results[0].PublishedAt.IsZero(),
-		"a release with no publish date is backfilled from fetchedAt; a zero one cannot be persisted")
+	// The apiserver accepts and round-trips a release with no publish date.
+	// This is the regression test for the defect three separate tasks hit:
+	// a non-pointer metav1.Time marshalled to null against a non-nullable
+	// schema, so the whole status apply was rejected and every grab of a
+	// dateless release hard-failed.
+	require.Nil(t, got.Status.Results[0].PublishedAt,
+		"an absent publish date must persist as absent rather than being rejected or invented")
 	require.Len(t, got.Status.IndexerOutcomes, 1)
 	require.Equal(t, catalogv1alpha1.IndexerOutcomeOK, got.Status.IndexerOutcomes[0].State)
 	require.Equal(t, int32(120), got.Status.IndexerOutcomes[0].DurationMs)
