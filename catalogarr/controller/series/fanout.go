@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package series
 
 import (
+	"strconv"
 	"time"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -53,6 +54,13 @@ type DesiredEpisode struct {
 	Overview       string
 	AirDate        *time.Time
 	RuntimeMinutes int32
+	// TvdbID is the TheTVDB episode ID, parsed from the provider's
+	// ExternalIDs (metadata.KeyTVDB). It is left at its Go zero value (0)
+	// when the provider sent no tvdb key, or one that does not parse as a
+	// base-10 int64 -- the same "leave it unset rather than fail the whole
+	// fan-out" behaviour buildMovieMetadataAC uses for CollectionRef's own
+	// TmdbID (catalogarr/metadata/patch.go).
+	TvdbID int64
 
 	// Monitored is non-nil on the first fan-out (addOptionsApplied == false,
 	// decided by InitialEpisodeMonitored) and for a brand-new episode
@@ -216,10 +224,17 @@ func DesiredEpisodes(
 			monitored = nil
 		}
 
+		var tvdbID int64
+		if raw, ok := ep.IDs[metadata.KeyTVDB]; ok {
+			if id, err := strconv.ParseInt(raw, 10, 64); err == nil {
+				tvdbID = id
+			}
+		}
+
 		out = append(out, DesiredEpisode{
 			Name: name, SeasonNumber: ep.SeasonNumber, EpisodeNumber: ep.EpisodeNumber,
 			AbsoluteNumber: ep.AbsoluteNumber, Title: ep.Title, Overview: ep.Overview,
-			AirDate: ep.AirDate, RuntimeMinutes: ep.Runtime, Monitored: monitored,
+			AirDate: ep.AirDate, RuntimeMinutes: ep.Runtime, TvdbID: tvdbID, Monitored: monitored,
 		})
 	}
 	return out

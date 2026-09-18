@@ -960,6 +960,102 @@ func TestSeriesReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 	})
 }
 
+// TestSeriesEnsureEpisodeProviderFieldRefresh is the review's Important
+// finding: ensureEpisode's provider-sourced fields must have an explicit,
+// tested policy for what happens when a later refresh comes back with a
+// value this manager previously sent now blank/nil, not an accidental one.
+// The decision this test pins: Title, Overview and RuntimeMinutes (plain
+// scalars, where the provider has no way to distinguish "no data" from a
+// real empty/zero) are sent unconditionally on every ensureEpisode call, so
+// a provider that genuinely drops a synopsis or runtime is reflected
+// faithfully, exactly like Title already was. AirDate and AbsoluteNumber
+// (pointers, where the provider DOES distinguish "no data" via nil) keep
+// their guard -- omitting the field when the pointer is nil deliberately
+// releases (clears) a previously-cached value under SSA, the same
+// documented convention as movie.Reconciler's ActiveDownloadRef clearing.
+// TvdbID is asserted here too: it was missing from the fan-out entirely
+// until this same round (self-discovered against the brief's Step 17 field
+// list, not a review finding), so this is also its only coverage through
+// the real ensureEpisode path.
+func TestSeriesEnsureEpisodeProviderFieldRefresh(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfg := newTestConfig(t)
+	c := startCacheOnly(t, ctx, cfg)
+	require.NoError(t, c.Create(ctx, testNamespace("refresh-ns")))
+	require.NoError(t, c.Create(ctx, testRootFolder("refresh-ns", "tv-root", "/data/media/tv")))
+
+	airDate := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	absNum := int32(7)
+	requester := &fakeEpisodeRPC{episodes: []metadata.Episode{
+		{
+			SeasonNumber: 1, EpisodeNumber: 1, Title: "Pilot", Overview: "A synopsis.",
+			AirDate: &airDate, Runtime: 42, AbsoluteNumber: &absNum,
+			IDs: metadata.ExternalIDs{metadata.KeyTVDB: "6053919"},
+		},
+	}}
+	bus := combinedBus{Publisher: fakePublisher{}, requester: requester}
+	r := &series.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: record.NewFakeRecorder(10), Bus: bus}
+
+	s := &catalogv1alpha1.Series{
+		ObjectMeta: metav1.ObjectMeta{Name: "refresh-series", Namespace: "refresh-ns"},
+		Spec: catalogv1alpha1.SeriesSpec{
+			TvdbID: 66666, QualityProfileRef: "none", RootFolderRef: "tv-root",
+			AddOptions: catalogv1alpha1.SeriesAddOptions{Monitor: catalogv1alpha1.SeriesMonitorAll},
+		},
+	}
+	require.NoError(t, c.Create(ctx, s))
+
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "refresh-ns", Name: "refresh-series"}}
+	_, err := r.Reconcile(ctx, req)
+	require.NoError(t, err)
+
+	epKey := types.NamespacedName{Namespace: "refresh-ns", Name: "refresh-series-s01e01"}
+	var full catalogv1alpha1.Episode
+	require.Eventually(t, func() bool {
+		if err := c.Get(ctx, epKey, &full); err != nil {
+			return false
+		}
+		return full.Status.RuntimeMinutes == 42
+	}, 5*time.Second, 10*time.Millisecond, "setup: first fan-out never landed the full provider record")
+
+	assert.Equal(t, "Pilot", full.Status.Title)
+	assert.Equal(t, "A synopsis.", full.Status.Overview)
+	require.NotNil(t, full.Status.AirDate)
+	assert.True(t, full.Status.AirDate.Time.Equal(airDate))
+	require.NotNil(t, full.Status.AbsoluteNumber)
+	assert.EqualValues(t, 7, *full.Status.AbsoluteNumber)
+	assert.EqualValues(t, 6053919, full.Status.TvdbID)
+
+	// A later refresh: same episode (season/episode match, so ensureEpisode
+	// updates the existing Episode rather than creating a new one), but the
+	// provider now sends a blank overview/runtime and no air date/absolute
+	// number at all -- exactly the shape a provider drop looks like.
+	requester.episodes = []metadata.Episode{
+		{SeasonNumber: 1, EpisodeNumber: 1, Title: "Pilot"},
+	}
+	_, err = r.Reconcile(ctx, req)
+	require.NoError(t, err)
+
+	// RuntimeMinutes 42 -> 0 is an unambiguous state transition (unlike
+	// polling on AirDate == nil, which could spuriously match a read still
+	// stale from before the first reconcile's write), so it is what this
+	// poll waits on before reading the rest of the object.
+	var cleared catalogv1alpha1.Episode
+	require.Eventually(t, func() bool {
+		if err := c.Get(ctx, epKey, &cleared); err != nil {
+			return false
+		}
+		return cleared.Status.RuntimeMinutes == 0
+	}, 5*time.Second, 10*time.Millisecond, "the blank refresh never landed")
+
+	assert.Equal(t, "Pilot", cleared.Status.Title, "Title is unaffected by this refresh")
+	assert.Empty(t, cleared.Status.Overview, "Overview must be sent unconditionally, clearing the stale synopsis")
+	assert.Zero(t, cleared.Status.RuntimeMinutes, "RuntimeMinutes must be sent unconditionally, clearing the stale runtime")
+	assert.Nil(t, cleared.Status.AirDate, "AirDate must be released (cleared) when the provider sends no air date")
+	assert.Nil(t, cleared.Status.AbsoluteNumber, "AbsoluteNumber must be released (cleared) when the provider sends no absolute number")
+}
+
 // fakePublisher is a tiny local Publisher that always returns err, used to
 // prove the QueueFull path without spinning up a DiscardNew membus stream.
 type fakePublisher struct{ err error }

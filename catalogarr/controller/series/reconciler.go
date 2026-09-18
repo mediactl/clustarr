@@ -427,10 +427,19 @@ func (r *Reconciler) syncEpisodes(ctx context.Context, s *catalogv1alpha1.Series
 }
 
 // ensureEpisode gets or creates the Episode named d.Name, then patches its
-// provider-sourced status fields under k8s.ManagerCatalogarr. spec.monitored
-// is only ever set on Create (d.Monitored != nil there per
+// provider-sourced status fields under k8s.ManagerCatalogarrSeries.
+// spec.monitored is only ever set on Create (d.Monitored != nil there per
 // DesiredEpisodes's contract); an already-existing Episode's spec.monitored
 // is never touched, since it belongs to the user after creation.
+//
+// Field-clearing policy on a refresh that comes back with less data than a
+// previous one: Title/Overview/RuntimeMinutes/TvdbID are always sent, so a
+// provider that genuinely drops a value clears it here too; AirDate/
+// AbsoluteNumber are only sent when non-nil, deliberately leaving (and so
+// releasing, under SSA) a previously-cached value once the provider stops
+// reporting it. See the inline comments below for why the split follows
+// metadata.Episode's own types, and
+// TestSeriesEnsureEpisodeProviderFieldRefresh for the pinning test.
 func (r *Reconciler) ensureEpisode(ctx context.Context, s *catalogv1alpha1.Series, d DesiredEpisode) error {
 	var ep catalogv1alpha1.Episode
 	key := types.NamespacedName{Namespace: s.Namespace, Name: d.Name}
@@ -458,15 +467,32 @@ func (r *Reconciler) ensureEpisode(ctx context.Context, s *catalogv1alpha1.Serie
 		return err
 	}
 
-	statusAC := catalogac.EpisodeStatus().WithTitle(d.Title)
-	if d.Overview != "" {
-		statusAC = statusAC.WithOverview(d.Overview)
-	}
+	// Title, Overview, RuntimeMinutes and TvdbID are sent unconditionally,
+	// even when the fresh value is the Go zero value ("" / 0): these are
+	// plain scalars in metadata.Episode, so there is no way to tell "the
+	// provider has no synopsis/runtime/tvdb id for this episode" apart from
+	// "the provider's value happens to be empty/zero" -- both look the same
+	// once they reach DesiredEpisode. Deciding to always send them means a
+	// provider that genuinely drops a previously-known value is reflected
+	// faithfully on the very next refresh, the same as Title already was
+	// before this decision was made explicit (see
+	// TestSeriesEnsureEpisodeProviderFieldRefresh, which pins exactly this).
+	statusAC := catalogac.EpisodeStatus().
+		WithTitle(d.Title).
+		WithOverview(d.Overview).
+		WithRuntimeMinutes(d.RuntimeMinutes).
+		WithTvdbID(d.TvdbID)
+	// AirDate and AbsoluteNumber keep their nil-guard: unlike the fields
+	// above, metadata.Episode represents these as pointers, so the provider
+	// DOES distinguish "no air date/absolute number for this episode" (nil)
+	// from a real value. Omitting the field here when the pointer is nil is
+	// deliberate: server-side apply releases a field this manager
+	// previously sent and now omits (pkg/k8s.PatchStatus's doc), which is
+	// how a value this manager cached on an earlier refresh gets cleared
+	// once the provider stops sending it -- the same documented convention
+	// as movie.Reconciler's ActiveDownloadRef clearing on !active.
 	if d.AirDate != nil {
 		statusAC = statusAC.WithAirDate(metav1.NewTime(*d.AirDate))
-	}
-	if d.RuntimeMinutes != 0 {
-		statusAC = statusAC.WithRuntimeMinutes(d.RuntimeMinutes)
 	}
 	if d.AbsoluteNumber != nil {
 		statusAC = statusAC.WithAbsoluteNumber(*d.AbsoluteNumber)

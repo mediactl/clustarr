@@ -147,6 +147,46 @@ func TestDesiredEpisodesExistingEpisodeMonitoredStaysNil(t *testing.T) {
 	assert.Nil(t, got[0].Monitored, "an already-existing episode's monitored flag must not be touched")
 }
 
+// TestDesiredEpisodesPassesThroughTvdbID proves the brief's Step 17 list
+// (title/overview/airDate/tvdbID/absoluteNumber/runtimeMinutes) is complete:
+// DesiredEpisode.TvdbID comes from metadata.Episode.IDs[metadata.KeyTVDB],
+// parsed as the int64 EpisodeStatus.TvdbID expects. This field was missing
+// entirely from the first cut of this fan-out -- self-discovered, not from
+// a review finding -- and stayed at its Go zero value (0) on every Episode
+// this reconciler ever wrote.
+func TestDesiredEpisodesPassesThroughTvdbID(t *testing.T) {
+	now := time.Date(2026, 9, 18, 0, 0, 0, 0, time.UTC)
+	s := &catalogv1alpha1.Series{
+		ObjectMeta: metav1.ObjectMeta{Name: "the-expanse"},
+		Spec:       catalogv1alpha1.SeriesSpec{SeriesType: catalogv1alpha1.SeriesTypeStandard, AddOptions: catalogv1alpha1.SeriesAddOptions{Monitor: catalogv1alpha1.SeriesMonitorAll}},
+	}
+
+	t.Run("a numeric tvdb id in IDs is parsed through", func(t *testing.T) {
+		provided := []metadata.Episode{
+			{SeasonNumber: 1, EpisodeNumber: 1, Title: "Dulcinea", IDs: metadata.ExternalIDs{metadata.KeyTVDB: "6053919"}},
+		}
+		got := series.DesiredEpisodes(s, false, map[string]bool{}, provided, now)
+		require.Len(t, got, 1)
+		assert.EqualValues(t, 6053919, got[0].TvdbID)
+	})
+
+	t.Run("no tvdb id in IDs leaves it at zero", func(t *testing.T) {
+		provided := []metadata.Episode{{SeasonNumber: 1, EpisodeNumber: 2, Title: "no ids"}}
+		got := series.DesiredEpisodes(s, false, map[string]bool{}, provided, now)
+		require.Len(t, got, 1)
+		assert.Zero(t, got[0].TvdbID)
+	})
+
+	t.Run("an unparseable tvdb id leaves it at zero rather than erroring", func(t *testing.T) {
+		provided := []metadata.Episode{
+			{SeasonNumber: 1, EpisodeNumber: 3, Title: "garbage id", IDs: metadata.ExternalIDs{metadata.KeyTVDB: "not-a-number"}},
+		}
+		got := series.DesiredEpisodes(s, false, map[string]bool{}, provided, now)
+		require.Len(t, got, 1)
+		assert.Zero(t, got[0].TvdbID)
+	})
+}
+
 func TestDesiredEpisodesDedupesByProvidedSeasonEpisode(t *testing.T) {
 	now := time.Date(2026, 9, 18, 0, 0, 0, 0, time.UTC)
 	s := &catalogv1alpha1.Series{
