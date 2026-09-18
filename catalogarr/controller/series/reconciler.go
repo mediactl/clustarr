@@ -114,6 +114,9 @@ type bus interface {
 // disjoint fields by convention, which server-side apply does not actually
 // keep disjoint (a same-manager apply that omits a field the manager
 // previously sent releases it; see ManagerCatalogarrSeries's doc comment).
+// All of these are EpisodeStatus fields, so this is a status-versus-status
+// split within one subresource, not a spec-versus-status one like
+// MediaFile's -- see this package's doc.go for the full reasoning.
 type Reconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme

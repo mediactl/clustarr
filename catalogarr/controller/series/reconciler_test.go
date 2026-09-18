@@ -525,6 +525,21 @@ func ptrBoolTrue(p *bool) bool { return p != nil && *p }
 // prove each manager owns exactly its own field set and neither write lost
 // the other's data -- including after a second Series reconcile, proving
 // the split needs no ongoing re-assertion from either side.
+//
+// Unlike MediaFile's spec-versus-status split, both sides here write to the
+// SAME subresource: Title/Overview/AirDate/TvdbID/RuntimeMinutes/
+// AbsoluteNumber/FinaleType are EpisodeStatus fields, not EpisodeSpec
+// (confirmed against episode_types.go -- EpisodeSpec holds only
+// SeriesRef/SeasonNumber/EpisodeNumber, immutable and set once at Create,
+// never through server-side apply, plus Monitored, which Series also only
+// ever sets once at Create). So this is a status-versus-status split
+// exactly like grabarr/grabarr-engine's on DownloadStatus (§5): distinct
+// field manager NAMES on disjoint fields within one subresource, not a
+// subresource split. That is what makes it correct, and it is why the
+// assertions below check specific field-path names via statusFieldNames
+// rather than just "an entry for each manager exists" -- two managers both
+// present on the same subresource proves nothing about disjointness on
+// their own.
 func TestSeriesEpisodeFieldManagersStayDisjoint(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -554,8 +569,18 @@ func TestSeriesEpisodeFieldManagersStayDisjoint(t *testing.T) {
 
 	epKey := types.NamespacedName{Namespace: "fieldmanager-ns", Name: "field-manager-series-s01e01"}
 	var ep catalogv1alpha1.Episode
-	require.NoError(t, c.Get(ctx, epKey, &ep))
-	assert.Equal(t, "Pilot", ep.Status.Title)
+	// The cache is eventually consistent: c.Get right after r.Reconcile
+	// (which wrote via k8s.PatchStatus, straight to the API server) can
+	// observe a resourceVersion older than what the server already has,
+	// until the informer's watch stream catches up. Poll rather than a
+	// single Get, the same pattern used throughout the movie/episode
+	// packages' own reconciler tests.
+	require.Eventually(t, func() bool {
+		if err := c.Get(ctx, epKey, &ep); err != nil {
+			return false
+		}
+		return ep.Status.Title == "Pilot"
+	}, 5*time.Second, 10*time.Millisecond, "Series' real ensureEpisode never landed status.title")
 
 	// Series' write landed under catalogarr-series, claiming exactly the
 	// provider field it set (title) and nothing Episode-owned.
@@ -578,7 +603,14 @@ func TestSeriesEpisodeFieldManagersStayDisjoint(t *testing.T) {
 	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, epAC)
 	require.NoError(t, err)
 
-	require.NoError(t, c.Get(ctx, epKey, &ep))
+	// Same eventually-consistent-cache reasoning as above: this Get must
+	// not run before the informer has observed the write it just made.
+	require.Eventually(t, func() bool {
+		if err := c.Get(ctx, epKey, &ep); err != nil {
+			return false
+		}
+		return ep.Status.Phase == catalogv1alpha1.EpisodePhaseImported
+	}, 5*time.Second, 10*time.Millisecond, "the simulated Episode write never landed status.phase")
 	// Neither write lost the other's data.
 	assert.Equal(t, "Pilot", ep.Status.Title, "the Episode reconciler's simulated write must not clobber Series' provider field")
 	assert.Equal(t, catalogv1alpha1.EpisodePhaseImported, ep.Status.Phase)

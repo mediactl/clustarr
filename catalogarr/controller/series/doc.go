@@ -35,4 +35,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // This was found empirically during this task's development (see
 // k8s.ManagerCatalogarrSeries's own doc comment and CLAUDE.md) and is why
 // the split is a distinct manager, not a same-manager convention.
+//
+// This is a status-versus-status split, not a spec-versus-status one like
+// MediaFile's: every field this reconciler writes on an Episode
+// (title/overview/airDate/tvdbID/runtimeMinutes/absoluteNumber/finaleType)
+// is an EpisodeStatus field. EpisodeSpec's only fields
+// (seriesRef/seasonNumber/episodeNumber, immutable; monitored) are set once
+// at Create, not through repeated server-side apply, so they carry none of
+// the same-manager clobbering risk the status fields do. Distinct field
+// manager NAMES on disjoint fields within one subresource is exactly the
+// §5 grabarr/grabarr-engine pattern on DownloadStatus.
 package series

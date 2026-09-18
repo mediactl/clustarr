@@ -39,4 +39,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // WithRuntimeMinutes -- those are the Series reconciler's alone, and being
 // on a different field manager means this reconciler does not even need to
 // pass them through to avoid clobbering them.
+//
+// Unlike MediaFile's spec-versus-status split, both reconcilers here write
+// within the SAME subresource (status): every field the Series reconciler
+// sets on an Episode is genuinely an EpisodeStatus field, confirmed against
+// episode_types.go -- EpisodeSpec carries only
+// seriesRef/seasonNumber/episodeNumber (immutable) and monitored, both set
+// once at Create rather than through repeated server-side apply, so they
+// carry none of the same-manager clobbering risk the status fields do.
 package episode
