@@ -14,7 +14,7 @@ maintainers:
 - name: mediactl
   url: https://github.com/mediactl
 # Chart version; bumped on every chart change.
-version: 0.1.0
+version: 0.2.0
 # Version of Clustarr itself. Also the default image tag -- see values.yaml.
 appVersion: "0.1.0"
 # CEL validation rules in the CRDs and podFailurePolicy on the transcode Jobs

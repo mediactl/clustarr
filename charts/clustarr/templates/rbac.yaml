@@ -11,11 +11,15 @@ manager performs. No create/update/delete on Clustarr kinds.
 {{- $components := list }}
 {{- if .Values.catalogarr.enabled }}{{ $components = append $components "catalogarr" }}{{ end }}
 {{- if .Values.catalogarrMetadata.enabled }}{{ $components = append $components "catalogarr-metadata" }}{{ end }}
+{{- if .Values.importarr.enabled }}{{ $components = append $components "importarr" }}{{ end }}
+{{- if .Values.importarrWorker.enabled }}{{ $components = append $components "importarr-worker" }}{{ end }}
 {{- if .Values.indexarr.enabled }}{{ $components = append $components "indexarr" }}{{ end }}
 {{- if .Values.grabarr.enabled }}{{ $components = append $components "grabarr" }}{{ end }}
 {{- if .Values.squasharr.enabled }}{{ $components = append $components "squasharr" }}{{ end }}
 {{- if .Values.captionarr.enabled }}{{ $components = append $components "captionarr" }}{{ end }}
 {{- if .Values.captionarrWorker.enabled }}{{ $components = append $components "captionarr-worker" }}{{ end }}
+{{/* ui is deliberately absent: it has no controller-runtime manager, reads
+     no cluster state yet, and so needs no ClusterRole/RoleBinding. */}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:

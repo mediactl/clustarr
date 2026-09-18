@@ -22,8 +22,11 @@ labels:
 resources:
 - catalogarr.yaml
 - catalogarr-metadata.yaml
+- importarr.yaml
+- importarr-worker.yaml
 - indexarr.yaml
 - grabarr.yaml
 - squasharr.yaml
 - captionarr.yaml
 - captionarr-worker.yaml
+- ui.yaml

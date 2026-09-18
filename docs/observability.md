@@ -105,6 +105,14 @@ Sampling defaults to parent-based with a configurable ratio; whatever the
 ratio, a span that ends in an error is always sampled. An operator chasing one
 failed grab does not need to hope it landed in the 1%.
 
+That "always sampled" guarantee is enforced by the collector's tail sampling,
+not by this SDK: `pkg/obs/tracing.Setup` installs a head sampler
+(`ParentBased(TraceIDRatioBased(...))`) that decides at span *start*, before
+the span has an outcome to look at, so the ratio it applies is the whole
+guarantee this process can give on its own -- the collector must run a tail
+sampling policy that keeps every trace containing an error for the promise
+above to hold end to end.
+
 ### One trace, want to subtitles
 
 This is the flow the tracing stack is built to make legible — the base

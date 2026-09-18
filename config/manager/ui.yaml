@@ -1,0 +1,98 @@
+# ui -- server-rendered web UI: templ for markup, htmx and SSE for live
+# updates. Design spec amendment §A3.
+#
+# No controller-runtime manager: ui owns no CRD, writes no status, and never
+# leader-elects. It serves /healthz, the Pipeline page and its SSE stream all
+# on one port (8080) -- there is no separate metrics or health port the way
+# every other service has, because there is no controller-runtime manager
+# standing one up. It ships with no login of its own and MUST sit behind
+# ingress authentication (design amendment §A3.5); nothing here adds that,
+# because §A3.5 leaves it to whatever ingress controller the cluster runs.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ui
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ui
+  labels:
+    app.kubernetes.io/component: ui
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: ui
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http
+    protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ui
+  labels:
+    app.kubernetes.io/component: ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: ui
+    spec:
+      serviceAccountName: ui
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: ui
+        # ghcr.io/mediactl/clustarr: the distroless image. ui touches no
+        # media file and needs no ffmpeg/ffprobe toolchain (amendment §A3.1).
+        image: ghcr.io/mediactl/clustarr:dev
+        args: ["ui"]
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 20
+        readinessProbe:
+          # ui has no external dependency yet (Options.Entries is a
+          # placeholder returning no rows until the M3 cache-backed
+          # projection lands), so /healthz doubles as readiness.
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}

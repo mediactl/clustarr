@@ -184,6 +184,38 @@ catalogarrMetadata:
   tolerations: []
   affinity: {}
 
+# import-list, import-exclusion, library-scan and root-folder schedule
+# controllers (leader-elected). Amendment §A1.6. Does not mount /data: the
+# scan/list/fileimport work itself runs on importarrWorker.
+importarr:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# The scan, list and fileimport consumers, on every replica. Amendment §A1.6.
+importarrWorker:
+  enabled: true
+  replicas: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
 # Indexer controllers, search RPC, RSS worker, SQLite release index, Torznab
 # facade. MUST be 1: the index is a local SQLite database on an RWO PVC. The
 # chart fails the render on any other value.
@@ -272,6 +304,27 @@ captionarrWorker:
     limits:
       cpu: "1"
       memory: 1Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Server-rendered web UI (templ + htmx + SSE). Design spec amendment §A3. No
+# controller-runtime manager, no CRD, no status writes -- see the note in
+# templates/deployments.yaml for why it does not use clustarr.workload. Ships
+# with no login of its own and MUST sit behind ingress authentication.
+ui:
+  enabled: true
+  replicas: 1
+  service:
+    type: ClusterIP
+    port: 8080
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
   nodeSelector: {}
   tolerations: []
   affinity: {}

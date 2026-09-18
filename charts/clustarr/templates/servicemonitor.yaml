@@ -18,11 +18,15 @@ rules:
 {{- $components := list }}
 {{- if .Values.catalogarr.enabled }}{{ $components = append $components "catalogarr" }}{{ end }}
 {{- if .Values.catalogarrMetadata.enabled }}{{ $components = append $components "catalogarr-metadata" }}{{ end }}
+{{- if .Values.importarr.enabled }}{{ $components = append $components "importarr" }}{{ end }}
+{{- if .Values.importarrWorker.enabled }}{{ $components = append $components "importarr-worker" }}{{ end }}
 {{- if .Values.indexarr.enabled }}{{ $components = append $components "indexarr" }}{{ end }}
 {{- if .Values.grabarr.enabled }}{{ $components = append $components "grabarr" }}{{ end }}
 {{- if .Values.squasharr.enabled }}{{ $components = append $components "squasharr" }}{{ end }}
 {{- if .Values.captionarr.enabled }}{{ $components = append $components "captionarr" }}{{ end }}
 {{- if .Values.captionarrWorker.enabled }}{{ $components = append $components "captionarr-worker" }}{{ end }}
+{{/* ui has no metrics port -- no controller-runtime manager standing one
+     up -- so it gets no ServiceMonitor. */}}
 {{- range $components }}
 ---
 apiVersion: monitoring.coreos.com/v1

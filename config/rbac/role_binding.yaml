@@ -94,3 +94,32 @@ subjects:
 - kind: ServiceAccount
   name: captionarr-worker
   namespace: clustarr-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: clustarr-importarr-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: clustarr-manager-role
+subjects:
+- kind: ServiceAccount
+  name: importarr
+  namespace: clustarr-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: clustarr-importarr-worker-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: clustarr-manager-role
+subjects:
+- kind: ServiceAccount
+  name: importarr-worker
+  namespace: clustarr-system
+# ui is deliberately absent here: it has no controller-runtime manager, reads
+# no cluster state yet (Options.Entries is a placeholder pending the M3
+# cache-backed projection), and so needs no binding to clustarr-manager-role.

@@ -1,0 +1,114 @@
+# importarr -- import-list, import-exclusion, library-scan and root-folder
+# schedule controllers (leader-elected). Amendment §A1.6, design spec §3.
+#
+# The scan.importarr, list.importarr and fileimport.importarr work itself
+# runs on importarr-worker, on every replica; this Deployment owns only the
+# controllers and does not mount /data.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: importarr
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: importarr
+  labels:
+    app.kubernetes.io/component: importarr
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: importarr
+  ports:
+  - name: metrics
+    port: 8443
+    targetPort: metrics
+    protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: importarr
+  labels:
+    app.kubernetes.io/component: importarr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: importarr
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: importarr
+    spec:
+      serviceAccountName: importarr
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: importarr
+        # clustarr-media: the import worker shares this family's toolchain
+        # (hardlink/move, ffprobe) even though the controller replica itself
+        # does not touch files -- one image per binary family, not per role.
+        image: ghcr.io/mediactl/clustarr-media:dev
+        # --leader-elect: §3 and §12 run the controllers under a lease so
+        # only one replica reconciles. The flag defaults to off, so a
+        # controller Deployment that omits it reconciles from every replica.
+        # --nats-single-node: config/default ships the single-server dev NATS
+        # in config/nats, which cannot host the R3 streams events.Default()
+        # asks for (§12). charts/clustarr deploys a clustered NATS and derives
+        # this from the subchart instead.
+        args: ["importarr", "--role", "controller", "--leader-elect", "--nats-single-node"]
+        env:
+        - name: NATS_URL
+          value: nats://nats.clustarr-system.svc:4222
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        ports:
+        - name: metrics
+          containerPort: 8443
+          protocol: TCP
+        - name: health
+          containerPort: 8081
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          # §13: readiness is a JetStream ping.
+          httpGet:
+            path: /readyz
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 50m
+            memory: 192Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}

@@ -26,6 +26,7 @@ resources:
 - bases/catalog.clustarr.io_importexclusions.yaml
 - bases/catalog.clustarr.io_importlists.yaml
 - bases/catalog.clustarr.io_issues.yaml
+- bases/catalog.clustarr.io_libraryscans.yaml
 - bases/catalog.clustarr.io_mediafiles.yaml
 - bases/catalog.clustarr.io_metadataproviders.yaml
 - bases/catalog.clustarr.io_movies.yaml

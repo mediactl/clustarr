@@ -1,4 +1,6 @@
-# RBAC for the seven service Deployments in config/manager.
+# RBAC for the service Deployments in config/manager that touch the cluster.
+# ui is the one exception: it has no controller-runtime manager yet and gets
+# no ClusterRoleBinding (see the note in role_binding.yaml).
 #
 # role.yaml is a PLACEHOLDER. `make manifests` regenerates it with
 # controller-gen from the +kubebuilder:rbac markers on the reconcilers, which

@@ -7,6 +7,12 @@ Services in this release:
 {{- if .Values.catalogarrMetadata.enabled }}
   catalogarr-metadata  1  metadata gateway (pinned to 1: in-process rate limiters)
 {{- end }}
+{{- if .Values.importarr.enabled }}
+  importarr            {{ .Values.importarr.replicas }}  import-list/exclusion, library-scan and root-folder schedule controllers
+{{- end }}
+{{- if .Values.importarrWorker.enabled }}
+  importarr-worker     {{ .Values.importarrWorker.replicas }}  scan, list and fileimport consumers
+{{- end }}
 {{- if .Values.indexarr.enabled }}
   indexarr             1  search/RSS/Torznab (pinned to 1: RWO SQLite index)
 {{- end }}
@@ -21,6 +27,9 @@ Services in this release:
 {{- end }}
 {{- if .Values.captionarrWorker.enabled }}
   captionarr-worker    {{ if .Values.keda.enabled }}{{ .Values.keda.captionarrWorker.minReplicas }}-{{ .Values.keda.captionarrWorker.maxReplicas }} (KEDA){{ else }}{{ .Values.captionarrWorker.replicas }} (fixed){{ end }}  subtitle fetch consumers
+{{- end }}
+{{- if .Values.ui.enabled }}
+  ui                   {{ .Values.ui.replicas }}  web UI (no login of its own -- put it behind ingress authentication)
 {{- end }}
 
 Watch them come up:
