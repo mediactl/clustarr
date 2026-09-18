@@ -20,6 +20,7 @@ package mediafile_test
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -447,4 +448,56 @@ func TestReconcileFixtureDrivenEpisodeRollup(t *testing.T) {
 	assert.Equal(t, "WEBDL-1080p", ep2.Status.FileQuality.Name)
 	assert.False(t, ep2.Status.CutoffMet)
 	assert.Equal(t, catalogv1alpha1.EpisodePhaseCutoffUnmet, ep2.Status.Phase)
+}
+
+// skipIfNoFFprobe mirrors pkg/mediainfo/probe_test.go's own unexported
+// helper of the same name -- that one lives in a different package and is
+// not importable, so this task's real-ffprobe test carries its own copy.
+func skipIfNoFFprobe(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		t.Skip("ffprobe not on PATH")
+	}
+}
+
+// TestReconcileRealFFprobe is the one place this task's fake probe and the
+// real mediainfo.Probe connect end to end: NewReconciler's default Probe
+// (unlike every other test in this file, which overrides it with fakeProbe)
+// runs the actual ffprobe binary against a Phase B fixture. It skips
+// cleanly, naming ffprobe, when the binary is not on PATH; every other
+// reconcile behaviour this task cares about already has an ffprobe-free
+// fixture-driven test (TestMediaFileFieldManagersStayDisjoint,
+// TestReconcileFixtureDrivenMovieRollup/EpisodeRollup).
+func TestReconcileRealFFprobe(t *testing.T) {
+	skipIfNoFFprobe(t)
+	c, _ := startEnv(t)
+	ctx := t.Context()
+	const ns, name = "realffprobe", "sample-abc1234567"
+	dir := t.TempDir()
+	mustNamespace(t, ctx, c, ns)
+	mustQualityProfile(t, ctx, c, "qp-video")
+	mustMovie(t, ctx, c, ns, "inception", "qp-video")
+
+	src, err := os.ReadFile("../../../testdata/mediainfo/sample_h264_8bit.mp4")
+	require.NoError(t, err)
+	path := writeFile(t, dir, "sample.mp4", src)
+	stat, err := os.Stat(path)
+	require.NoError(t, err)
+
+	importarrCreatesMediaFileFor(t, ctx, c, ns, name,
+		commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "inception"},
+		path, stat.Size(), stat.ModTime(),
+		commonv1.Quality{Name: "Bluray-1080p", Source: commonv1.SourceBluray, Resolution: commonv1.Resolution1080p, Modifier: commonv1.ModifierNone})
+
+	r := mediafile.NewReconciler(c, k8s.MustNewScheme(), nil)
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: name}}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	var got catalogv1alpha1.MediaFile
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	require.NotNil(t, got.Status.MediaInfo)
+	assert.Equal(t, "h264", got.Status.MediaInfo.VideoCodec)
+	require.NotEmpty(t, got.Status.MediaInfo.Audio)
+	assert.NotEmpty(t, got.Status.MediaInfo.Audio[0].ChannelLayout)
 }
