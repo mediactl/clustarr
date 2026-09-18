@@ -97,13 +97,25 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
 - **controller-gen v0.22.0's `applyconfiguration` generator ignores output rules**
   — it writes next to the types regardless of `output:...:dir`. The Makefile
   documents the workaround.
-- **Server-side apply is not additive across two `Apply` calls from the same
-  field manager.** A second apply that omits a field the first one set *removes*
-  it, because the manager's ownership set is replaced per apply, not merged. A
-  controller that applies spec fields and then applies labels in the same
-  reconcile will silently erase the first write. Build one apply configuration
-  carrying everything that manager owns, and re-assert previously-owned fields
-  on every subsequent apply. Found in Phase C, the hard way.
+- **Server-side apply replaces a field manager's ownership set on every apply —
+  it does not merge.** Any field that manager previously sent and now omits is
+  *released*, which reads as "reset to zero" on the object. This bit three
+  different ways in Phase C alone, so treat every `PatchStatus` call as a
+  complete declaration of everything that manager owns:
+  - Two applies in one reconcile (spec, then labels): the second erased the
+    first. Build one apply configuration instead.
+  - A boolean stopped being sent once it was true: it flipped back to false.
+    Keep sending it.
+  - **An early-return path built a partial status** (conditions only) and
+    returned: it wiped `Phase`, `Path`, and every rollup field the happy path
+    had set. This is the dangerous one, because the early return is usually a
+    transient failure — a full queue, a missing RootFolder — so a healthy
+    object gets silently gutted by a blip.
+
+  Tests miss all three unless they act on an object that **already has status**.
+  A test that creates a blank object, triggers the path and asserts cannot
+  observe a release, because there was nothing to release. Exercise the failure
+  path against an object already in its steady state.
 - **Never run `go get` or `go mod tidy` from parallel agents.** They corrupt
   `go.mod`. Add every dependency serially up front, then tell workers not to touch
   it.
