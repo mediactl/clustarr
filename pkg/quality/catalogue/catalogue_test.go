@@ -136,3 +136,23 @@ func TestMatchEvaluatesLanguageIndexerFlagAndReleaseTypeKinds(t *testing.T) {
 	got = cat.Match(context.Background(), rOriginal, catalogue.ItemContext{OriginalLanguage: "en", ReleaseType: common.ReleaseTypeSingle})
 	require.ElementsMatch(t, []string{}, got)
 }
+
+// TestScoreSumsMatchedFormatsAndDefaultsUnscoredSlugsToZero exercises
+// Catalogue.Score directly against a plain score map (not a *quality.Profile
+// -- pkg/quality imports pkg/quality/catalogue, so a test here importing
+// pkg/quality back would recreate the cycle the other direction; the score
+// map is exactly what Catalogue.Score takes to avoid it in production too,
+// see that method's doc comment).
+func TestScoreSumsMatchedFormatsAndDefaultsUnscoredSlugsToZero(t *testing.T) {
+	cat := &catalogue.Catalogue{Formats: map[string]*catalogue.Format{
+		"a": {Slug: "a", Conditions: []catalogue.Condition{{Kind: catalogue.CondReleaseTitle, Required: true, Pattern: mustCompile(t, `A`)}}},
+		"b": {Slug: "b", Conditions: []catalogue.Condition{{Kind: catalogue.CondReleaseTitle, Required: true, Pattern: mustCompile(t, `B`)}}},
+		"c": {Slug: "c", Conditions: []catalogue.Condition{{Kind: catalogue.CondReleaseTitle, Required: true, Pattern: mustCompile(t, `C`)}}},
+	}}
+	scores := map[string]int{"a": 100, "b": -10000} // "c" intentionally not in scores
+	r := &release.ParsedRelease{Title: "A.B.C.Release"}
+
+	score, matched := cat.Score(context.Background(), scores, r, catalogue.ItemContext{})
+	require.ElementsMatch(t, []string{"a", "b", "c"}, matched)
+	require.Equal(t, -9900, score) // 100 + -10000 + 0(unscored "c") = -9900
+}
