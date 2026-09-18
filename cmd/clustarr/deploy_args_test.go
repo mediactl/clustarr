@@ -24,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
@@ -33,6 +34,7 @@ import (
 	"github.com/mediactl/clustarr/grabarr"
 	"github.com/mediactl/clustarr/importarr"
 	"github.com/mediactl/clustarr/indexarr"
+	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/squasharr"
 	"github.com/mediactl/clustarr/ui"
 )
@@ -296,5 +298,59 @@ func TestEnvironmentSuppliesDefaults(t *testing.T) {
 	}
 	if index.IndexPath != "/elsewhere/releases.db" {
 		t.Errorf("--index-path did not override $%s: %q", indexPathEnv, index.IndexPath)
+	}
+}
+
+// TestWorkerGracePeriodsCoverAckWait pins a link that lives half in Go and
+// half in YAML, and that nothing else can see: a worker Deployment's
+// terminationGracePeriodSeconds must be at least the AckWait of every
+// consumer it drains. Below that, SIGTERM kills the pod before it can finish
+// or release an in-flight message, and the task sits invisible until AckWait
+// expires.
+//
+// config/manager/captionarr-worker.yaml already documents the rule in a
+// comment ("terminationGracePeriodSeconds is set to the JetStream AckWait");
+// this is the check. importarr-worker is the reason it exists -- its three
+// consumers (amendment §A1.6) were added with the manifest already written.
+func TestWorkerGracePeriodsCoverAckWait(t *testing.T) {
+	// Deployment name -> the consumers that Deployment's role drains.
+	workers := map[string][]string{
+		"importarr-worker": {
+			events.ConsumerImportScan,
+			events.ConsumerImportList,
+			events.ConsumerImportFile,
+		},
+		"captionarr-worker": {
+			events.ConsumerCaptionFetchHigh,
+			events.ConsumerCaptionFetchNormal,
+		},
+	}
+
+	top := events.Default()
+	for name, consumers := range workers {
+		path := filepath.Join("../../config/manager", name+".yaml")
+		deployments := deploymentsIn(t, path)
+		if len(deployments) != 1 {
+			t.Fatalf("%s declares %d Deployments, want 1", path, len(deployments))
+		}
+		grace := deployments[0].Spec.Template.Spec.TerminationGracePeriodSeconds
+		if grace == nil {
+			t.Errorf("%s sets no terminationGracePeriodSeconds", path)
+			continue
+		}
+		graceDur := time.Duration(*grace) * time.Second
+
+		for _, cname := range consumers {
+			c, ok := top.Consumer(cname)
+			if !ok {
+				t.Errorf("%s: consumer %q is not in the default topology", name, cname)
+				continue
+			}
+			if c.AckWait > graceDur {
+				t.Errorf("%s: consumer %s AckWait = %s exceeds terminationGracePeriodSeconds = %s in %s; "+
+					"a SIGTERMed worker cannot release its message before the pod is killed",
+					name, c.Name, c.AckWait, graceDur, path)
+			}
+		}
 	}
 }

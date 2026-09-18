@@ -61,6 +61,100 @@ func TestWorkStreamsAllowSchedules(t *testing.T) {
 	}
 }
 
+// TestEveryWorkStreamHasAConsumer is the assertion that would have caught
+// CLUSTARR_WORK_IMPORTARR's absence from the other side: a work stream with
+// no consumer is work nobody drains, and `importarr --role worker` installed
+// a topology it could consume nothing from. Topology.Validate cannot check
+// this -- it only walks consumers towards streams, never the reverse.
+func TestEveryWorkStreamHasAConsumer(t *testing.T) {
+	top := events.Default()
+	for _, s := range top.Streams {
+		if s.Retention != events.RetentionWorkQueue {
+			continue
+		}
+		found := false
+		for _, c := range top.Consumers {
+			if c.Stream == s.Name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("work stream %s has no consumer: nothing drains it", s.Name)
+		}
+	}
+}
+
+// TestImportarrWorkTopology pins amendment §A1.6 verbatim: the stream, its
+// work-queue retention, and the three subjects its workers consume.
+func TestImportarrWorkTopology(t *testing.T) {
+	top := events.Default()
+
+	stream, ok := top.Stream(events.StreamWorkImportarr)
+	if !ok {
+		t.Fatalf("%s is missing from the default topology", events.StreamWorkImportarr)
+	}
+	if stream.Retention != events.RetentionWorkQueue {
+		t.Errorf("%s retention = %q, want %q (§A1.6)",
+			stream.Name, stream.Retention, events.RetentionWorkQueue)
+	}
+	if !stream.AllowMsgSchedules {
+		t.Errorf("%s does not allow message schedules", stream.Name)
+	}
+
+	// Each builder's output must land in this stream and match exactly the
+	// consumer that is meant to drain it. Building the subject rather than
+	// restating it means the test breaks if a builder changes shape.
+	cases := []struct {
+		subject  string
+		consumer string
+	}{
+		{events.WorkScanSubject("movies"), events.ConsumerImportScan},
+		{events.WorkListSubject("trakt-watchlist"), events.ConsumerImportList},
+		{events.WorkFileImportSubject("9f1c0d7e"), events.ConsumerImportFile},
+	}
+	for _, tc := range cases {
+		got, ok := top.StreamForSubject(tc.subject)
+		if !ok || got.Name != events.StreamWorkImportarr {
+			t.Errorf("%s routes to %v (found=%v), want %s",
+				tc.subject, got.Name, ok, events.StreamWorkImportarr)
+		}
+		c, ok := top.Consumer(tc.consumer)
+		if !ok {
+			t.Errorf("consumer %s is missing", tc.consumer)
+			continue
+		}
+		if c.Stream != events.StreamWorkImportarr {
+			t.Errorf("consumer %s reads %s, want %s", c.Name, c.Stream, events.StreamWorkImportarr)
+		}
+		matched := false
+		for _, f := range c.Filters {
+			if events.SubjectMatches(f, tc.subject) {
+				matched = true
+			}
+		}
+		if !matched {
+			t.Errorf("consumer %s does not match %s (filters %v)", c.Name, tc.subject, c.Filters)
+		}
+		// A scheduled publish must stay inside the stream and miss every
+		// consumer filter; the importarr subjects carry no priority token,
+		// so this is worth pinning for them specifically.
+		sched, err := events.ScheduleSubject(tc.subject)
+		if err != nil {
+			t.Errorf("ScheduleSubject(%s): %v", tc.subject, err)
+			continue
+		}
+		if s, ok := top.StreamForSubject(sched); !ok || s.Name != events.StreamWorkImportarr {
+			t.Errorf("scheduled %s leaves the stream", sched)
+		}
+		for _, f := range c.Filters {
+			if events.SubjectMatches(f, sched) {
+				t.Errorf("scheduled %s matches consumer filter %s and would re-trigger itself", sched, f)
+			}
+		}
+	}
+}
+
 func TestTopologyValidateCatchesBadConsumer(t *testing.T) {
 	top := events.Default()
 	top.Consumers = append(top.Consumers, events.ConsumerSpec{

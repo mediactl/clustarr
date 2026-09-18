@@ -29,6 +29,7 @@ const (
 	StreamEvents         = "CLUSTARR_EVENTS"
 	StreamReleases       = "CLUSTARR_RELEASES"
 	StreamWorkCatalogarr = "CLUSTARR_WORK_CATALOGARR"
+	StreamWorkImportarr  = "CLUSTARR_WORK_IMPORTARR"
 	StreamWorkIndexarr   = "CLUSTARR_WORK_INDEXARR"
 	StreamWorkCaptionarr = "CLUSTARR_WORK_CAPTIONARR"
 	StreamDLQ            = "CLUSTARR_DLQ"
@@ -50,6 +51,7 @@ const (
 	FilterAllEvents       = "clustarr.evt.>"
 	FilterAllReleases     = "clustarr.rel.>"
 	FilterWorkCatalogarr  = "clustarr.work.catalogarr.>"
+	FilterWorkImportarr   = "clustarr.work.importarr.>"
 	FilterWorkIndexarr    = "clustarr.work.indexarr.>"
 	FilterWorkCaptionarr  = "clustarr.work.captionarr.>"
 	FilterAllDLQ          = "clustarr.dlq.>"
@@ -59,6 +61,9 @@ const (
 	FilterCatalogMetadata = "clustarr.work.catalogarr.metadata.>"
 	FilterCatalogList     = "clustarr.work.catalogarr.importlist.>"
 	FilterCatalogWanted   = "clustarr.work.catalogarr.wantedscan.>"
+	FilterImportScan      = "clustarr.work.importarr.scan.>"
+	FilterImportList      = "clustarr.work.importarr.list.>"
+	FilterImportFile      = "clustarr.work.importarr.fileimport.>"
 	FilterIndexRSS        = "clustarr.work.indexarr.rss.>"
 	FilterIndexDefs       = "clustarr.work.indexarr.definitions.>"
 	FilterCaptionFetch    = "clustarr.work.captionarr.fetch.>"
@@ -74,6 +79,9 @@ const (
 	ConsumerCatalogMetadata    = "catalogarr-metadata"
 	ConsumerCatalogImportList  = "catalogarr-importlist"
 	ConsumerCatalogHistory     = "catalogarr-history"
+	ConsumerImportScan         = "importarr-scan"
+	ConsumerImportList         = "importarr-list"
+	ConsumerImportFile         = "importarr-fileimport"
 	ConsumerIndexRSS           = "indexarr-rss"
 	ConsumerIndexDefinitions   = "indexarr-definitions"
 	ConsumerCaptionFetchHigh   = "captionarr-fetch-high"
@@ -239,6 +247,34 @@ func WorkImportListSubject(uid string) string {
 // clustarr.work.catalogarr.wantedscan.low.<namespace>.
 func WorkWantedScanSubject(namespace string) string {
 	return "clustarr.work.catalogarr.wantedscan.low." + tok(namespace)
+}
+
+// The three importarr work subjects (amendment §A1.6). Unlike the catalogarr
+// and captionarr work subjects they carry no priority token: the amendment
+// spells them out as work.importarr.scan.<rootfolder>,
+// work.importarr.list.<importlist> and work.importarr.fileimport.<download>,
+// and there are no high/normal/low lanes to choose between -- one consumer
+// drains each task type. They are still clustarr.work.<service>.<task>.<id>,
+// five tokens, so [ScheduleSubject] accepts them.
+
+// WorkScanSubject builds clustarr.work.importarr.scan.<rootfolder>. A scan of
+// a large library is chunked by directory, so rootFolder here identifies the
+// scan's root and the chunk rides in the payload, not the subject: a subject
+// token per directory would make the work-queue stream's subject cardinality
+// grow with the library.
+func WorkScanSubject(rootFolder string) string {
+	return "clustarr.work.importarr.scan." + tok(rootFolder)
+}
+
+// WorkListSubject builds clustarr.work.importarr.list.<importlist>.
+func WorkListSubject(importList string) string {
+	return "clustarr.work.importarr.list." + tok(importList)
+}
+
+// WorkFileImportSubject builds
+// clustarr.work.importarr.fileimport.<download>.
+func WorkFileImportSubject(downloadUID string) string {
+	return "clustarr.work.importarr.fileimport." + tok(downloadUID)
 }
 
 // WorkRSSSubject builds clustarr.work.indexarr.rss.normal.<indexer-uid>.

@@ -313,8 +313,8 @@ func fieldErr(field, msg string) error {
 	return fmt.Errorf("events: %s %s", field, msg)
 }
 
-// Default returns the production topology from the Clustarr design: six
-// streams, thirteen durable consumers and ten key/value buckets.
+// Default returns the production topology from the Clustarr design: seven
+// streams, sixteen durable consumers and ten key/value buckets.
 func Default() Topology {
 	return Topology{
 		Streams:   defaultStreams(),
@@ -376,6 +376,12 @@ func defaultStreams() []StreamSpec {
 			Replicas:    3,
 		},
 		work(StreamWorkCatalogarr, FilterWorkCatalogarr, 1*GiB),
+		// importarr (amendment §A1.6). Sized above indexarr's and
+		// captionarr's because a first scan of a large library enqueues one
+		// message per directory chunk and every completed download enqueues
+		// a fileimport; the other two enqueue per indexer and per subtitle
+		// request.
+		work(StreamWorkImportarr, FilterWorkImportarr, 512*MiB),
 		work(StreamWorkIndexarr, FilterWorkIndexarr, 256*MiB),
 		work(StreamWorkCaptionarr, FilterWorkCaptionarr, 256*MiB),
 		{
@@ -457,6 +463,37 @@ func defaultConsumers() []ConsumerSpec {
 			AckWait: 30 * s, MaxDeliver: 3,
 			BackOff:       []time.Duration{5 * s, 30 * s},
 			MaxAckPending: 512,
+		},
+		// importarr (amendment §A1.6). AckWait is 60s on all three, which is
+		// the floor set by terminationGracePeriodSeconds: 60 in
+		// config/manager/importarr-worker.yaml. A worker that is SIGTERMed
+		// must be able to finish or give up an in-flight message inside the
+		// grace period, or the pod is killed mid-task and the message is
+		// only redelivered after AckWait expires. Any unit of work that can
+		// outlast 60s -- a chunked directory walk, a large hardlink-or-copy
+		// import -- must send in-progress acks rather than have its AckWait
+		// raised past the grace period, and the manifest and this value must
+		// be changed together.
+		{
+			Name: ConsumerImportScan, Stream: StreamWorkImportarr,
+			Filters: []string{FilterImportScan},
+			AckWait: 60 * s, MaxDeliver: 4,
+			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m},
+			MaxAckPending: 4, Heartbeat: 30 * s,
+		},
+		{
+			Name: ConsumerImportList, Stream: StreamWorkImportarr,
+			Filters: []string{FilterImportList},
+			AckWait: 60 * s, MaxDeliver: 4,
+			BackOff:       []time.Duration{5 * m, 30 * m, 2 * h},
+			MaxAckPending: 2, Heartbeat: 30 * s,
+		},
+		{
+			Name: ConsumerImportFile, Stream: StreamWorkImportarr,
+			Filters: []string{FilterImportFile},
+			AckWait: 60 * s, MaxDeliver: 5,
+			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m, 1 * h},
+			MaxAckPending: 4, Heartbeat: 30 * s,
 		},
 		{
 			Name: ConsumerIndexRSS, Stream: StreamWorkIndexarr,
