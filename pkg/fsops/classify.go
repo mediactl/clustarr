@@ -18,6 +18,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package fsops
 
 import (
+	"context"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -91,4 +94,73 @@ func IsSample(path string, size int64) bool {
 		return true
 	}
 	return MediaExtensions[strings.ToLower(filepath.Ext(base))] && size > 0 && size < sampleMaxBytes
+}
+
+// FileClass is what Walk classifies a regular file as.
+type FileClass int
+
+const (
+	ClassMedia FileClass = iota
+	ClassSample
+	ClassExtra
+	ClassPart
+	ClassOther
+)
+
+func (c FileClass) String() string {
+	switch c {
+	case ClassMedia:
+		return "media"
+	case ClassSample:
+		return "sample"
+	case ClassExtra:
+		return "extra"
+	case ClassPart:
+		return "part"
+	default:
+		return "other"
+	}
+}
+
+func classify(path string, size int64) FileClass {
+	switch {
+	case IsPart(path):
+		return ClassPart
+	case IsExtra(path):
+		return ClassExtra
+	case IsSample(path, size):
+		return ClassSample
+	case MediaExtensions[strings.ToLower(filepath.Ext(path))]:
+		return ClassMedia
+	default:
+		return ClassOther
+	}
+}
+
+// Walk walks root in lexical order and calls fn for every regular file
+// with its classification: IsPart first, then IsExtra (an extras folder
+// literally named "samples" is real Jellyfin extras content per the
+// verified list, so the folder check must win over the filename-based
+// IsSample check), then IsSample, then ClassMedia if the extension is in
+// MediaExtensions, else ClassOther. It never drops a file silently --
+// every regular file under root reaches fn exactly once. Walk returns
+// ctx.Err() as soon as ctx is cancelled between files, and returns fn's
+// first non-nil error unwrapped.
+func Walk(ctx context.Context, root string, fn func(path string, info os.FileInfo, class FileClass) error) error {
+	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, infoErr := d.Info()
+		if infoErr != nil {
+			return infoErr
+		}
+		return fn(p, info, classify(p, info.Size()))
+	})
 }
