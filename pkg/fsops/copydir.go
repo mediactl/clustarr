@@ -76,7 +76,7 @@ func CopyDir(ctx context.Context, src, dst string, progress func(copiedBytes, to
 		if infoErr != nil {
 			return infoErr
 		}
-		if err := copyFile(p, target); err != nil {
+		if err := copyFile(ctx, p, target); err != nil {
 			return err
 		}
 		copied += info.Size()

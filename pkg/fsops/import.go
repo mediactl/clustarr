@@ -82,7 +82,7 @@ func Import(ctx context.Context, src, dst string, mode ImportMode) error {
 			tracing.RecordError(span, err)
 			return err
 		}
-		if err := copyFile(src, dst); err != nil {
+		if err := copyFile(ctx, src, dst); err != nil {
 			tracing.RecordError(span, err)
 			return fmt.Errorf("fsops: import %s: %w", src, err)
 		}

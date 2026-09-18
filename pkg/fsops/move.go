@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package fsops
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,7 +39,7 @@ func MoveAtomic(src, dst string) error {
 	}
 
 	tmp := dst + ".partial"
-	if err := copyFile(src, tmp); err != nil {
+	if err := copyFile(context.Background(), src, tmp); err != nil {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("fsops: copy %s to %s: %w", src, tmp, err)
 	}

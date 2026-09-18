@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package fsops_test
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -59,4 +60,30 @@ func TestImportDispatchesByMode(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestImportCopyStopsMidFileOnCancellationAndRemovesPartial(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.mkv")
+	dst := filepath.Join(dir, "dst.mkv")
+	// Large enough to span several of io.Copy's default ~32KiB chunks,
+	// so a cancellation that fires after the first chunk genuinely stops
+	// the transfer mid-file rather than before it starts.
+	payload := bytes.Repeat([]byte{'x'}, 5*1024*1024)
+	require.NoError(t, os.WriteFile(src, payload, 0o664))
+
+	// Call 1 lets the first chunk read through copyFile's ctx-checking
+	// reader proceed; call 2 onward reports cancelled.
+	ctx := &cancelAfterNChecks{Context: context.Background(), n: 1}
+
+	err := fsops.Import(ctx, src, dst, fsops.ImportCopy)
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.Canceled)
+	require.GreaterOrEqual(t, ctx.calls, 2,
+		"copyFile must check ctx.Err() more than once -- between chunks, not only at the start")
+
+	_, statErr := os.Stat(dst)
+	require.True(t, os.IsNotExist(statErr), "dst must not exist after a mid-copy cancellation")
+	_, statErr = os.Stat(dst + ".partial")
+	require.True(t, os.IsNotExist(statErr), ".partial must be removed, not left behind")
 }

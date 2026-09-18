@@ -18,8 +18,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package fsops
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -46,7 +48,7 @@ func HardlinkOrCopy(src, dst string) (bool, error) {
 		}
 		return true, nil
 	}
-	if err := copyFile(src, dst); err != nil {
+	if err := copyFile(context.Background(), src, dst); err != nil {
 		return false, fmt.Errorf("fsops: copy fallback for %s to %s: %w", src, dst, err)
 	}
 	return false, nil
@@ -61,7 +63,15 @@ func isEXDEV(err error) bool {
 // copyFile copies src to dst, creating dst's parent directory and
 // preserving src's permission bits, via AtomicWrite so a copy failure
 // never leaves a partial dst.
-func copyFile(src, dst string) error {
+//
+// ctx is checked between chunks (see ctxReader) via AtomicWrite's
+// io.Copy, so a long copy notices cancellation mid-transfer -- and, via
+// AtomicWrite's own cleanup-on-error path, never leaves dst's ".partial"
+// behind -- instead of only before the copy starts or after it finishes.
+// context.Background() is a valid ctx for copyFile's two ctx-less spec
+// §7 callers (HardlinkOrCopy's fallback, MoveAtomic's EXDEV path), which
+// simply never cancel.
+func copyFile(ctx context.Context, src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return fmt.Errorf("fsops: open %s: %w", src, err)
@@ -74,5 +84,24 @@ func copyFile(src, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o775); err != nil {
 		return fmt.Errorf("fsops: mkdir %s: %w", filepath.Dir(dst), err)
 	}
-	return AtomicWrite(dst, in, info.Mode().Perm())
+	return AtomicWrite(dst, &ctxReader{ctx: ctx, r: in}, info.Mode().Perm())
+}
+
+// ctxReader makes r's Read calls observe ctx. Wrapping in as a plain
+// io.Reader (rather than passing the *os.File through directly) also
+// defeats io.Copy's io.ReaderFrom/io.WriterTo fast paths -- notably
+// *os.File-to-*os.File copy_file_range -- forcing the generic, buffered
+// copyBuffer loop, which is what actually calls Read (and therefore
+// checks ctx) more than once for a multi-chunk file instead of handing
+// the whole transfer to the kernel in one call.
+type ctxReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (cr *ctxReader) Read(p []byte) (int, error) {
+	if err := cr.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return cr.r.Read(p)
 }

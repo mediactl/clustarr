@@ -68,3 +68,29 @@ func TestCopyDirStopsOnContextCancellation(t *testing.T) {
 	err := fsops.CopyDir(ctx, src, dst, nil)
 	require.ErrorIs(t, err, context.Canceled)
 }
+
+func TestCopyDirStopsMidFileOnCancellationAndRemovesPartial(t *testing.T) {
+	src := t.TempDir()
+	// Large enough to span several of io.Copy's default ~32KiB chunks.
+	require.NoError(t, os.WriteFile(filepath.Join(src, "big.mkv"), bytes.Repeat([]byte{'y'}, 5*1024*1024), 0o664))
+
+	dst := filepath.Join(t.TempDir(), "dst")
+
+	// Call 1 is CopyDir's own per-entry check for the source root
+	// directory (nil, so dst is created); call 2 is the per-entry check
+	// for big.mkv (nil, so copyFile starts); call 3 is the first chunk
+	// read inside copyFile (nil, so at least one chunk is copied); call
+	// 4 is the second chunk read, which reports cancelled.
+	ctx := &cancelAfterNChecks{Context: context.Background(), n: 3}
+
+	err := fsops.CopyDir(ctx, src, dst, nil)
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.Canceled)
+	require.GreaterOrEqual(t, ctx.calls, 4,
+		"copyFile must check ctx.Err() more than once per file -- between chunks, not only at the start")
+
+	_, statErr := os.Stat(filepath.Join(dst, "big.mkv"))
+	require.True(t, os.IsNotExist(statErr), "dst file must not exist after a mid-copy cancellation")
+	_, statErr = os.Stat(filepath.Join(dst, "big.mkv.partial"))
+	require.True(t, os.IsNotExist(statErr), ".partial must be removed, not left behind")
+}
