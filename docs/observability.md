@@ -113,6 +113,15 @@ guarantee this process can give on its own -- the collector must run a tail
 sampling policy that keeps every trace containing an error for the promise
 above to hold end to end.
 
+`Setup` also installs at most one `TracerProvider` per process (a `sync.Once`
+guard, exactly like `pkg/obs/metrics.Register`'s): under `clustarr all`, which
+runs every service in one process for kind and development, every span from
+every service therefore carries `service.name="clustarr"` rather than its own
+name, because one process has one `TracerProvider` and there is nothing to
+attribute a span to but the process as a whole. Run services separately (one
+`clustarr <service>` per process, as every real Deployment does) for
+per-service trace attribution.
+
 ### One trace, want to subtitles
 
 This is the flow the tracing stack is built to make legible — the base

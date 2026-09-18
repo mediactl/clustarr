@@ -5,9 +5,14 @@ media collection end to end — finding releases on indexers, downloading them o
 BitTorrent, importing and naming the files, transcoding them to HEVC 10-bit with AAC audio, and
 fetching subtitles — with custom resources as the interface and a NATS JetStream bus underneath.
 
-There is no web UI, by design. `kubectl get movies,downloads,transcodejobs,subtitlerequests -A`
-is the UI. Everything a user configures is a custom resource; everything a user waits on is a
-custom resource with a status and conditions.
+`kubectl get movies,downloads,transcodejobs,subtitlerequests -A` is the ground truth: everything a
+user configures is a custom resource, everything a user waits on is a custom resource with a
+status and conditions. There is also a server-rendered web UI (templ + htmx + SSE) as a view over
+those same resources — it writes no status and owns no CRD of its own, so anything it does,
+`kubectl` can do too. At this stage it is a skeleton: a Pipeline page and its live SSE stream,
+wired to a placeholder that returns no rows until a real, cache-backed projection lands. It ships
+with no authentication of its own and must sit behind whatever ingress authentication the cluster
+already runs.
 
 It takes its domain logic from the projects that already got it right: release parsing, quality
 decisions and naming from Radarr/Sonarr/Lidarr/Readarr, indexer definitions from Prowlarr,
