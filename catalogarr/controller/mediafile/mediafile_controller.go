@@ -147,28 +147,43 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		if swap != nil {
 			original = false
 		}
-		// mirrorLabels is computed on every probe -- it is what Reconcile
-		// calls, not duplicated logic -- with original already reflecting an
-		// incorporated swap, so LabelOriginal flips to "false" in the same
-		// call that flips spec.original. The result is only actually sent
-		// to the apiserver bundled with the swap-triggered spec Apply below:
-		// a standalone k8s.Apply(...WithLabels...) on every probe would give
-		// catalogarr a managedFields entry on the MAIN resource (subresource
-		// "") before any transcode ever happens, which is exactly what this
-		// task's two-writer split forbids -- catalogarr's only main-resource
-		// writes are spec.sizeBytes/modTime/original, and only once a
-		// transcode swap is incorporated (see "Resolving the field-manager
-		// split").
+
+		// mirrorLabels is applied on every probe, not only alongside a
+		// transcode swap: spec §8.4 says the MediaFile reconciler "probes,
+		// sets labels, probeHash, Probed" unconditionally, and
+		// metadata.labels is neither spec nor status -- disjoint from
+		// everything importarr's MediaFileSpec Apply owns, so there is no
+		// two-writer reason to withhold it pre-transcode (ruled on
+		// explicitly after the mandatory gate's original, overly broad
+		// "no main-resource claim" assertion was narrowed to "no spec.*
+		// claim"). original already reflects an incorporated swap by this
+		// point, so LabelOriginal flips to "false" in the same reconcile
+		// that flips spec.original.
+		//
+		// Labels and the spec fields both go in ONE k8s.Apply call, not
+		// two: server-side apply is not additive across separate Apply
+		// calls from the same field manager -- each call fully declares
+		// that manager's current field set, so a later, narrower Apply
+		// from catalogarr would silently release whatever an earlier one
+		// in the same reconcile had just claimed. !original (true from the
+		// first swap onward, since mf.Spec.Original was force-set false)
+		// means catalogarr re-asserts sizeBytes/modTime/original with the
+		// current probe's fresh values on every Apply from here on, not
+		// only the reconcile that first incorporates a swap -- otherwise a
+		// later labels-only Apply (triggered by, say, a stale re-probe with
+		// no new TranscodeJob) would erase fields catalogarr already owns.
 		labels := mirrorLabels(mf.Spec.MediaRef.Kind, mf.Spec.Quality, mi, original)
-		if swap != nil {
-			specAC := catalogac.MediaFileSpec().
+		mainAC := catalogac.MediaFile(mf.Name, mf.Namespace).WithLabels(labels)
+		if !original {
+			mainAC = mainAC.WithSpec(catalogac.MediaFileSpec().
 				WithSizeBytes(ps.SizeBytes).
 				WithModTime(ps.ModTime).
-				WithOriginal(false)
-			if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerCatalogarr,
-				catalogac.MediaFile(mf.Name, mf.Namespace).WithSpec(specAC).WithLabels(labels)); err != nil {
-				return ctrl.Result{}, err
-			}
+				WithOriginal(false))
+		}
+		if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerCatalogarr, mainAC); err != nil {
+			return ctrl.Result{}, err
+		}
+		if swap != nil {
 			log.Info("incorporated transcode swap", "transcodeJob", swap.Name)
 		}
 
