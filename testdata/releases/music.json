@@ -1,0 +1,66 @@
+[
+  {
+    "title": "Pink Floyd - The Dark Side of the Moon (1973) [FLAC]",
+    "kind": "album",
+    "want": {
+      "title": "Pink Floyd - The Dark Side of the Moon",
+      "year": 1973
+    }
+  },
+  {
+    "title": "Daft Punk - Discovery (2001) [MP3 320]",
+    "kind": "album",
+    "want": {
+      "title": "Daft Punk - Discovery",
+      "year": 2001
+    }
+  },
+  {
+    "title": "Fleetwood Mac - Rumours (1977) [FLAC]",
+    "kind": "album",
+    "want": {
+      "title": "Fleetwood Mac - Rumours",
+      "year": 1977
+    }
+  },
+  {
+    "title": "Radiohead - OK Computer (1997) [FLAC]",
+    "kind": "album",
+    "want": {
+      "title": "Radiohead - OK Computer",
+      "year": 1997
+    }
+  },
+  {
+    "title": "Michael Jackson - Thriller (1982) [MP3 VBR]",
+    "kind": "album",
+    "want": {
+      "title": "Michael Jackson - Thriller",
+      "year": 1982
+    }
+  },
+  {
+    "title": "The Beatles - Abbey Road (1969) [ALAC]",
+    "kind": "album",
+    "want": {
+      "title": "The Beatles - Abbey Road",
+      "year": 1969
+    }
+  },
+  {
+    "title": "Miles Davis - Kind of Blue (1959) [FLAC 24bit]",
+    "kind": "album",
+    "want": {
+      "title": "Miles Davis - Kind of Blue",
+      "year": 1959
+    }
+  },
+  {
+    "title": "Bob Dylan - Highway 61 Revisited (1965) [WAV]",
+    "kind": "album",
+    "want": {
+      "title": "Bob Dylan - Highway 61 Revisited",
+      "year": 1965
+    }
+  }
+]

@@ -55,6 +55,21 @@ var partialSeasonRegex = mustCompile(`part\s?\d`, regexp2.IgnoreCase)
 
 // parseSeries parses a TV release title according to o.SeriesType
 // ("standard" when empty, "daily" or "anime").
+//
+// When SeriesType is pinned, only that family is tried — a caller who
+// already knows a series is daily or anime gets that family's errors
+// verbatim, not a confusing standard-family mismatch. When it is left at
+// "standard" (the default), ParseKind and ClassifyKind have no way to
+// signal SeriesType at all (per their documented signatures), so this is
+// what makes ParseKind(title, MediaKindEpisode) usable for a daily or anime
+// title without the caller reaching for the lower-level Parse+Options entry
+// point: a leading "[Group] " bracket is tried as anime first, since it's
+// an unambiguous anime signal even when the rest of the title also happens
+// to contain a syntactically valid S/E token (e.g.
+// "[SubsPlease] Attack on Titan - S04E28 ..." would otherwise match the
+// standard family "accidentally", leaving the bracket group embedded in the
+// title instead of parsed out); anything else tries standard, then daily,
+// then anime, before giving up.
 func parseSeries(title string, o Options) (*ParsedRelease, error) {
 	switch o.SeriesType {
 	case "daily":
@@ -62,7 +77,18 @@ func parseSeries(title string, o Options) (*ParsedRelease, error) {
 	case "anime":
 		return parseAnimeSeries(title)
 	default:
-		return parseStandardSeries(title)
+		if ok, err := animeBracketPrefixRegex.MatchString(title); err == nil && ok {
+			if p, err := parseAnimeSeries(title); err == nil {
+				return p, nil
+			}
+		}
+		if p, err := parseStandardSeries(title); err == nil {
+			return p, nil
+		}
+		if p, err := parseDailySeries(title); err == nil {
+			return p, nil
+		}
+		return parseAnimeSeries(title)
 	}
 }
 

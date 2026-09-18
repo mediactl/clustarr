@@ -1,0 +1,176 @@
+[
+  {
+    "title": "Breaking.Bad.S05.1080p.BluRay.x264-DEMAND",
+    "kind": "episode",
+    "want": {
+      "title": "Breaking Bad",
+      "qualityName": "Bluray-1080p",
+      "group": "DEMAND",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        5
+      ],
+      "fullSeason": true
+    }
+  },
+  {
+    "title": "The.Wire.S01-S05.720p.BluRay.x264-DEMAND",
+    "kind": "episode",
+    "want": {
+      "title": "The Wire",
+      "qualityName": "Bluray-720p",
+      "group": "DEMAND",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "fullSeason": true,
+      "multiSeason": true
+    }
+  },
+  {
+    "title": "Fargo.S01.PROPER.720p.BluRay.x264-DEMAND",
+    "kind": "episode",
+    "want": {
+      "title": "Fargo",
+      "qualityName": "Bluray-720p",
+      "group": "DEMAND",
+      "properVersion": 2,
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1
+      ],
+      "fullSeason": true
+    }
+  },
+  {
+    "title": "The.Crown.S04.1080p.NF.WEBRip.x264-GROUP",
+    "kind": "episode",
+    "want": {
+      "title": "The Crown",
+      "qualityName": "WEBRip-1080p",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        4
+      ],
+      "fullSeason": true
+    }
+  },
+  {
+    "title": "Ozark.S02.Part2.1080p.NF.WEB-DL.DDP5.1.H.264-NTb",
+    "kind": "episode",
+    "want": {
+      "title": "Ozark",
+      "qualityName": "WEBDL-1080p",
+      "group": "NTb",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        2
+      ],
+      "partial": true
+    }
+  },
+  {
+    "title": "Better.Call.Saul.S03-S04.720p.AMZN.WEB-DL.DDP5.1.H.264-NTb",
+    "kind": "episode",
+    "want": {
+      "title": "Better Call Saul",
+      "qualityName": "WEBDL-720p",
+      "group": "NTb",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        3,
+        4
+      ],
+      "fullSeason": true,
+      "multiSeason": true
+    }
+  },
+  {
+    "title": "House.of.Cards.S01.Part1.1080p.NF.WEBRip.x264-GROUP",
+    "kind": "episode",
+    "want": {
+      "title": "House of Cards",
+      "qualityName": "WEBRip-1080p",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1
+      ],
+      "partial": true
+    }
+  },
+  {
+    "title": "Stranger.Things.S01-S04.1080p.BluRay.x264-ROVERS",
+    "kind": "episode",
+    "want": {
+      "title": "Stranger Things",
+      "qualityName": "Bluray-1080p",
+      "group": "ROVERS",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "fullSeason": true,
+      "multiSeason": true
+    }
+  },
+  {
+    "title": "The.Sopranos.S01.DVDRip.XviD-GROUP",
+    "kind": "episode",
+    "want": {
+      "title": "The Sopranos",
+      "qualityName": "DVD",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1
+      ],
+      "fullSeason": true
+    }
+  },
+  {
+    "title": "Twin.Peaks.S01-S02.480p.BluRay.x264-DEMAND",
+    "kind": "episode",
+    "want": {
+      "title": "Twin Peaks",
+      "qualityName": "Bluray-480p",
+      "group": "DEMAND",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1,
+        2
+      ],
+      "fullSeason": true,
+      "multiSeason": true
+    }
+  }
+]

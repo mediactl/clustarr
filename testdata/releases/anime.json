@@ -1,0 +1,184 @@
+[
+  {
+    "title": "[SubsPlease] Frieren - 28 (1080p) [F02B9CDC].mkv",
+    "kind": "episode",
+    "want": {
+      "title": "Frieren",
+      "group": "SubsPlease",
+      "absolute": [
+        28
+      ]
+    }
+  },
+  {
+    "title": "[Erai-raws] One Piece - 1090 [1080p][Multiple Subtitle].mkv",
+    "kind": "episode",
+    "want": {
+      "title": "One Piece",
+      "group": "Erai-raws",
+      "absolute": [
+        1090
+      ]
+    }
+  },
+  {
+    "title": "[SubsPlease] Attack on Titan - S04E28 (1080p) [ABCD1234].mkv",
+    "kind": "episode",
+    "want": {
+      "title": "Attack on Titan",
+      "group": "SubsPlease",
+      "seasons": [
+        4
+      ],
+      "episodes": [
+        28
+      ]
+    }
+  },
+  {
+    "title": "[SubsPlease] Jujutsu Kaisen - 24 (1080p) [1A2B3C4D].mkv",
+    "kind": "episode",
+    "want": {
+      "title": "Jujutsu Kaisen",
+      "group": "SubsPlease",
+      "absolute": [
+        24
+      ]
+    }
+  },
+  {
+    "title": "[SubsPlease] Demon Slayer - 11 (1080p) [2B3C4D5E].mkv",
+    "kind": "episode",
+    "want": {
+      "title": "Demon Slayer",
+      "group": "SubsPlease",
+      "absolute": [
+        11
+      ]
+    }
+  },
+  {
+    "title": "[SubsPlease] Chainsaw Man - 07 (1080p) [3C4D5E6F].mkv",
+    "kind": "episode",
+    "want": {
+      "title": "Chainsaw Man",
+      "group": "SubsPlease",
+      "absolute": [
+        7
+      ]
+    }
+  },
+  {
+    "title": "[SubsPlease] Spy x Family - 13 (1080p) [4D5E6F7A].mkv",
+    "kind": "episode",
+    "want": {
+      "title": "Spy x Family",
+      "group": "SubsPlease",
+      "absolute": [
+        13
+      ]
+    }
+  },
+  {
+    "title": "[Erai-raws] Vinland Saga - 24 [1080p][Multiple Subtitle].mkv",
+    "kind": "episode",
+    "want": {
+      "title": "Vinland Saga",
+      "group": "Erai-raws",
+      "absolute": [
+        24
+      ]
+    }
+  },
+  {
+    "title": "[Erai-raws] Jujutsu Kaisen - 01 [1080p][Multiple Subtitle].mkv",
+    "kind": "episode",
+    "want": {
+      "title": "Jujutsu Kaisen",
+      "group": "Erai-raws",
+      "absolute": [
+        1
+      ]
+    }
+  },
+  {
+    "title": "[SubsPlease] Bleach - Thousand-Year Blood War - 26 (1080p) [5E6F7A8B].mkv",
+    "kind": "episode",
+    "want": {
+      "title": "Bleach - Thousand-Year Blood War",
+      "group": "SubsPlease",
+      "absolute": [
+        26
+      ]
+    }
+  },
+  {
+    "title": "[SubsPlease] My Hero Academia - 138 (1080p) [6F7A8B9C].mkv",
+    "kind": "episode",
+    "want": {
+      "title": "My Hero Academia",
+      "group": "SubsPlease",
+      "absolute": [
+        138
+      ]
+    }
+  },
+  {
+    "title": "[SubsPlease] Naruto Shippuden - 500 (1080p) [7A8B9C0D].mkv",
+    "kind": "episode",
+    "want": {
+      "title": "Naruto Shippuden",
+      "group": "SubsPlease",
+      "absolute": [
+        500
+      ]
+    }
+  },
+  {
+    "title": "[SubsPlease] One Punch Man - 12 (1080p) [8B9C0D1E].mkv",
+    "kind": "episode",
+    "want": {
+      "title": "One Punch Man",
+      "group": "SubsPlease",
+      "absolute": [
+        12
+      ]
+    }
+  },
+  {
+    "title": "[SubsPlease] Attack on Titan - S03E22 (1080p) [9C0D1E2F].mkv",
+    "kind": "episode",
+    "want": {
+      "title": "Attack on Titan",
+      "group": "SubsPlease",
+      "seasons": [
+        3
+      ],
+      "episodes": [
+        22
+      ]
+    }
+  },
+  {
+    "title": "[SubsPlease] Fullmetal Alchemist Brotherhood - 64 (1080p) [0D1E2F3A].mkv",
+    "kind": "episode",
+    "want": {
+      "title": "Fullmetal Alchemist Brotherhood",
+      "group": "SubsPlease",
+      "absolute": [
+        64
+      ]
+    }
+  },
+  {
+    "title": "[Erai-raws] Mushoku Tensei - 11 [1080p][Multiple Subtitle].mkv",
+    "kind": "episode",
+    "want": {
+      "title": "Mushoku Tensei",
+      "group": "Erai-raws",
+      "absolute": [
+        11
+      ]
+    }
+  }
+]

@@ -1,0 +1,98 @@
+[
+  {
+    "title": "The.Daily.Show.2018.10.12.Trevor.Noah.720p.WEB.x264-CookieMonster",
+    "kind": "episode",
+    "want": {
+      "title": "The Daily Show",
+      "group": "CookieMonster",
+      "languages": [
+        "English"
+      ],
+      "airDate": "2018-10-12"
+    }
+  },
+  {
+    "title": "Late.Night.with.Seth.Meyers.2020.03.15.1080p.WEB.x264-GROUP",
+    "kind": "episode",
+    "want": {
+      "title": "Late Night with Seth Meyers",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ],
+      "airDate": "2020-03-15"
+    }
+  },
+  {
+    "title": "Conan.2019.05.20.1080p.WEB.x264-GROUP",
+    "kind": "episode",
+    "want": {
+      "title": "Conan",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ],
+      "airDate": "2019-05-20"
+    }
+  },
+  {
+    "title": "The.Tonight.Show.2021.07.04.1080p.WEB.x264-GROUP",
+    "kind": "episode",
+    "want": {
+      "title": "The Tonight Show",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ],
+      "airDate": "2021-07-04"
+    }
+  },
+  {
+    "title": "Jimmy.Kimmel.Live.2017.11.09.720p.WEB.x264-GROUP",
+    "kind": "episode",
+    "want": {
+      "title": "Jimmy Kimmel Live",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ],
+      "airDate": "2017-11-09"
+    }
+  },
+  {
+    "title": "Last.Week.Tonight.2022.02.13.1080p.WEB.x264-GROUP",
+    "kind": "episode",
+    "want": {
+      "title": "Last Week Tonight",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ],
+      "airDate": "2022-02-13"
+    }
+  },
+  {
+    "title": "The.Daily.Show.2015.01.05.480p.WEB.x264-GROUP",
+    "kind": "episode",
+    "want": {
+      "title": "The Daily Show",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ],
+      "airDate": "2015-01-05"
+    }
+  },
+  {
+    "title": "Real.Time.with.Bill.Maher.2020.10.16.1080p.WEB.x264-GROUP",
+    "kind": "episode",
+    "want": {
+      "title": "Real Time with Bill Maher",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ],
+      "airDate": "2020-10-16"
+    }
+  }
+]

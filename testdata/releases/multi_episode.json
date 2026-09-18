@@ -1,0 +1,172 @@
+[
+  {
+    "title": "The.Bear.S03E01E02.720p.HULU.WEB-DL.DDP5.1.H.264-NTb",
+    "kind": "episode",
+    "want": {
+      "title": "The Bear",
+      "qualityName": "WEBDL-720p",
+      "group": "NTb",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        3
+      ],
+      "episodes": [
+        1,
+        2
+      ]
+    }
+  },
+  {
+    "title": "Fringe.S05E01-E03.1080p.BluRay.x264-DEMAND",
+    "kind": "episode",
+    "want": {
+      "title": "Fringe",
+      "qualityName": "Bluray-1080p",
+      "group": "DEMAND",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        5
+      ],
+      "episodes": [
+        1,
+        2,
+        3
+      ]
+    }
+  },
+  {
+    "title": "Severance.S01E01E02.1080p.ATVP.WEB-DL.DDP5.1.Atmos.H.264-NTb",
+    "kind": "episode",
+    "want": {
+      "title": "Severance",
+      "qualityName": "WEBDL-1080p",
+      "group": "NTb",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1
+      ],
+      "episodes": [
+        1,
+        2
+      ]
+    }
+  },
+  {
+    "title": "Chernobyl.S01E01-E05.1080p.AMZN.WEB-DL.DDP5.1.H.264-NTb",
+    "kind": "episode",
+    "want": {
+      "title": "Chernobyl",
+      "qualityName": "WEBDL-1080p",
+      "group": "NTb",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1
+      ],
+      "episodes": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    }
+  },
+  {
+    "title": "Better.Call.Saul.S01E01E02E03.720p.BluRay.x264-DEMAND",
+    "kind": "episode",
+    "want": {
+      "title": "Better Call Saul",
+      "qualityName": "Bluray-720p",
+      "group": "DEMAND",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1
+      ],
+      "episodes": [
+        1,
+        2,
+        3
+      ]
+    }
+  },
+  {
+    "title": "The.Wire.S01E01-E10.720p.BluRay.x264-DEMAND",
+    "kind": "episode",
+    "want": {
+      "title": "The Wire",
+      "qualityName": "Bluray-720p",
+      "group": "DEMAND",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1
+      ],
+      "episodes": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ]
+    }
+  },
+  {
+    "title": "True.Detective.S01E01E02.1080p.WEBRip.x264-DEMAND",
+    "kind": "episode",
+    "want": {
+      "title": "True Detective",
+      "qualityName": "WEBRip-1080p",
+      "group": "DEMAND",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1
+      ],
+      "episodes": [
+        1,
+        2
+      ]
+    }
+  },
+  {
+    "title": "Ozark.S04E01-E07.1080p.NF.WEB-DL.DDP5.1.H.264-NTb",
+    "kind": "episode",
+    "want": {
+      "title": "Ozark",
+      "qualityName": "WEBDL-1080p",
+      "group": "NTb",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        4
+      ],
+      "episodes": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    }
+  }
+]

@@ -1,0 +1,452 @@
+[
+  {
+    "title": "Dune.Part.Two.2024.EXTENDED.2160p.UHD.BluRay.REMUX.HDR.HEVC.TrueHD.7.1.Atmos-FraMeSToR",
+    "kind": "movie",
+    "want": {
+      "title": "Dune Part Two",
+      "year": 2024,
+      "qualityName": "Remux-2160p",
+      "group": "FraMeSToR",
+      "edition": "Extended",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "Oppenheimer.2023.1080p.AMZN.WEB-DL.DDP5.1.H.264-FLUX",
+    "kind": "movie",
+    "want": {
+      "title": "Oppenheimer",
+      "year": 2023,
+      "qualityName": "WEBDL-1080p",
+      "group": "FLUX",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "The.Matrix.1999.1080p.BluRay.x264.YIFY",
+    "kind": "movie",
+    "want": {
+      "title": "The Matrix",
+      "year": 1999,
+      "qualityName": "Bluray-1080p",
+      "group": "YIFY",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "Blade.Runner.1982.Directors.Cut.1080p.BluRay.x264-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "Blade Runner",
+      "year": 1982,
+      "qualityName": "Bluray-1080p",
+      "group": "GROUP",
+      "edition": "Director's Cut",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "Everything.Everywhere.All.at.Once.2022.PROPER.1080p.WEB-DL.DDP5.1.H.264-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "Everything Everywhere All at Once",
+      "year": 2022,
+      "qualityName": "WEBDL-1080p",
+      "group": "GROUP",
+      "properVersion": 2,
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "Poor.Things.2023.REPACK.2160p.WEB-DL.DDP5.1.Atmos.H.265-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "Poor Things",
+      "year": 2023,
+      "qualityName": "WEBDL-2160p",
+      "group": "GROUP",
+      "properVersion": 2,
+      "repack": true,
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "Killers.of.the.Flower.Moon.2023.720p.HDTV.x264-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "Killers of the Flower Moon",
+      "year": 2023,
+      "qualityName": "HDTV-720p",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "Anatomy.of.a.Fall.2023.FRENCH.1080p.BluRay.x264-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "Anatomy of a Fall",
+      "year": 2023,
+      "qualityName": "Bluray-1080p",
+      "group": "GROUP",
+      "languages": [
+        "French"
+      ]
+    }
+  },
+  {
+    "title": "Life.of.Pi.2012.HDTV.XviD-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "Life of Pi",
+      "year": 2012,
+      "qualityName": "SDTV",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "Life.is.Beautiful.1997.DVD.XviD-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "Life is Beautiful",
+      "year": 1997,
+      "qualityName": "DVD",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "The.Grand.Budapest.Hotel.2014.720p.WEB-DL.DD5.1.H.264-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "The Grand Budapest Hotel",
+      "year": 2014,
+      "qualityName": "WEBDL-720p",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "Parasite.2019.720p.BluRay.x264-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "Parasite",
+      "year": 2019,
+      "qualityName": "Bluray-720p",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "Moonlight.2016.480p.WEB-DL.x264-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "Moonlight",
+      "year": 2016,
+      "qualityName": "WEBDL-480p",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "Spotlight.2015.1080p.HDTV.x264-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "Spotlight",
+      "year": 2015,
+      "qualityName": "HDTV-1080p",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "The.Artist.2011.RawHD.HDTV.x264-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "The Artist",
+      "year": 2011,
+      "qualityName": "Raw-HD",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "Whiplash.2014.480p.WEBRip.x264-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "Whiplash",
+      "year": 2014,
+      "qualityName": "WEBRip-480p",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "La.La.Land.2016.720p.WEBRip.x264-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "La La Land",
+      "year": 2016,
+      "qualityName": "WEBRip-720p",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "Get.Out.2017.1080p.WEBRip.x264-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "Get Out",
+      "year": 2017,
+      "qualityName": "WEBRip-1080p",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "Nomadland.2020.2160p.HDTV.x264-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "Nomadland",
+      "year": 2020,
+      "qualityName": "HDTV-2160p",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "Roma.2018.2160p.WEBRip.x264-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "Roma",
+      "year": 2018,
+      "qualityName": "WEBRip-2160p",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "1917.2019.2160p.BluRay.x264-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "1917",
+      "year": 2019,
+      "qualityName": "Bluray-2160p",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "Rear.Window.1954.480p.BluRay.x264-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "Rear Window",
+      "year": 1954,
+      "qualityName": "Bluray-480p",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "Metropolis.1927.576p.BluRay.x264-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "Metropolis",
+      "year": 1927,
+      "qualityName": "Bluray-576p",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "Casablanca.1942.COMPLETE.BLURAY-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "Casablanca",
+      "year": 1942,
+      "qualityName": "BR-DISK",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "The.Godfather.1972.DVDR-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "The Godfather",
+      "year": 1972,
+      "qualityName": "DVD-R",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "X-Men.2000.WORKPRINT.XviD-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "X-Men",
+      "year": 2000,
+      "qualityName": "WORKPRINT",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "Joker.2019.CAM.XviD-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "Joker",
+      "year": 2019,
+      "qualityName": "CAM",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "Tenet.2020.TELESYNC.x264-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "Tenet",
+      "year": 2020,
+      "qualityName": "TELESYNC",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "Inception.2010.TELECINE.x264-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "Inception",
+      "year": 2010,
+      "qualityName": "TELECINE",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "The.Shape.of.Water.2017.DVDSCR.XviD-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "The Shape of Water",
+      "year": 2017,
+      "qualityName": "DVDSCR",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "Amadeus.1984.REGIONAL.XviD-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "Amadeus",
+      "year": 1984,
+      "qualityName": "REGIONAL",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "Interstellar.2014.1080p.BluRay.REMUX.DTS-HD.MA.5.1-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "Interstellar",
+      "year": 2014,
+      "qualityName": "Remux-1080p",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "Whiplash.2014.REPACK2.720p.BluRay.x264-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "Whiplash",
+      "year": 2014,
+      "qualityName": "Bluray-720p",
+      "group": "GROUP",
+      "properVersion": 2,
+      "repack": true,
+      "languages": [
+        "English"
+      ]
+    }
+  },
+  {
+    "title": "The.Intouchables.2011.FRENCH.EXTENDED.1080p.BluRay.x264-GROUP",
+    "kind": "movie",
+    "want": {
+      "title": "The Intouchables",
+      "year": 2011,
+      "qualityName": "Bluray-1080p",
+      "group": "GROUP",
+      "edition": "Extended",
+      "languages": [
+        "French"
+      ]
+    }
+  }
+]

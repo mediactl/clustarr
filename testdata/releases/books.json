@@ -1,0 +1,50 @@
+[
+  {
+    "title": "Andy Weir - Project Hail Mary (2021) [EPUB]",
+    "kind": "book",
+    "want": {
+      "title": "Project Hail Mary",
+      "year": 2021
+    }
+  },
+  {
+    "title": "Frank Herbert - Dune (1965) [MOBI]",
+    "kind": "book",
+    "want": {
+      "title": "Dune",
+      "year": 1965
+    }
+  },
+  {
+    "title": "Isaac Asimov - Foundation (1951) [AZW3]",
+    "kind": "book",
+    "want": {
+      "title": "Foundation",
+      "year": 1951
+    }
+  },
+  {
+    "title": "George Orwell - Nineteen Eighty-Four (1949) [PDF]",
+    "kind": "book",
+    "want": {
+      "title": "Nineteen Eighty-Four",
+      "year": 1949
+    }
+  },
+  {
+    "title": "Ursula K. Le Guin - The Left Hand of Darkness (1969) [EPUB]",
+    "kind": "book",
+    "want": {
+      "title": "The Left Hand of Darkness",
+      "year": 1969
+    }
+  },
+  {
+    "title": "Neal Stephenson - Snow Crash (1992) [MOBI]",
+    "kind": "book",
+    "want": {
+      "title": "Snow Crash",
+      "year": 1992
+    }
+  }
+]

@@ -1,0 +1,437 @@
+[
+  {
+    "title": "Breaking.Bad.S05E14.Ozymandias.1080p.BluRay.x264-DEMAND",
+    "kind": "episode",
+    "want": {
+      "title": "Breaking Bad",
+      "qualityName": "Bluray-1080p",
+      "group": "DEMAND",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        5
+      ],
+      "episodes": [
+        14
+      ]
+    }
+  },
+  {
+    "title": "The.Wire.S01E01.The.Target.720p.BluRay.x264-DEMAND",
+    "kind": "episode",
+    "want": {
+      "title": "The Wire",
+      "qualityName": "Bluray-720p",
+      "group": "DEMAND",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1
+      ],
+      "episodes": [
+        1
+      ]
+    }
+  },
+  {
+    "title": "Chernobyl.S01E01.1.23.45.1080p.AMZN.WEB-DL.DDP5.1.H.264-NTb",
+    "kind": "episode",
+    "want": {
+      "title": "Chernobyl",
+      "qualityName": "WEBDL-1080p",
+      "group": "NTb",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1
+      ],
+      "episodes": [
+        1
+      ]
+    }
+  },
+  {
+    "title": "Fargo.S02E01.Waiting.for.Dutch.720p.HDTV.x264-KILLERS",
+    "kind": "episode",
+    "want": {
+      "title": "Fargo",
+      "qualityName": "HDTV-720p",
+      "group": "KILLERS",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        2
+      ],
+      "episodes": [
+        1
+      ]
+    }
+  },
+  {
+    "title": "True.Detective.S01E01.The.Long.Bright.Dark.1080p.WEBRip.x264-DEMAND",
+    "kind": "episode",
+    "want": {
+      "title": "True Detective",
+      "qualityName": "WEBRip-1080p",
+      "group": "DEMAND",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1
+      ],
+      "episodes": [
+        1
+      ]
+    }
+  },
+  {
+    "title": "Mr.Robot.S01E01.480p.WEB-DL.x264-GROUP",
+    "kind": "episode",
+    "want": {
+      "title": "Mr Robot",
+      "qualityName": "WEBDL-480p",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1
+      ],
+      "episodes": [
+        1
+      ]
+    }
+  },
+  {
+    "title": "The.Mandalorian.S01E01.1080p.DSNP.WEB-DL.DDP5.1.H.264-NTb",
+    "kind": "episode",
+    "want": {
+      "title": "The Mandalorian",
+      "qualityName": "WEBDL-1080p",
+      "group": "NTb",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1
+      ],
+      "episodes": [
+        1
+      ]
+    }
+  },
+  {
+    "title": "House.of.the.Dragon.S01E01.2160p.HMAX.WEB-DL.DDP5.1.Atmos.H.265-NTb",
+    "kind": "episode",
+    "want": {
+      "title": "House of the Dragon",
+      "qualityName": "WEBDL-2160p",
+      "group": "NTb",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1
+      ],
+      "episodes": [
+        1
+      ]
+    }
+  },
+  {
+    "title": "The.Last.of.Us.S01E03.Long.Long.Time.1080p.AMZN.WEB-DL.DDP5.1.Atmos.H.264-NTb",
+    "kind": "episode",
+    "want": {
+      "title": "The Last of Us",
+      "qualityName": "WEBDL-1080p",
+      "group": "NTb",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1
+      ],
+      "episodes": [
+        3
+      ]
+    }
+  },
+  {
+    "title": "Succession.S04E03.Connors.Wedding.720p.HMAX.WEBRip.x264-NTb",
+    "kind": "episode",
+    "want": {
+      "title": "Succession",
+      "qualityName": "WEBRip-720p",
+      "group": "NTb",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        4
+      ],
+      "episodes": [
+        3
+      ]
+    }
+  },
+  {
+    "title": "Ozark.S01E01.Sugarwood.1080p.NF.WEBRip.x264-GROUP",
+    "kind": "episode",
+    "want": {
+      "title": "Ozark",
+      "qualityName": "WEBRip-1080p",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1
+      ],
+      "episodes": [
+        1
+      ]
+    }
+  },
+  {
+    "title": "Better.Call.Saul.S06E13.Saul.Gone.2160p.AMZN.WEB-DL.DDP5.1.H.265-NTb",
+    "kind": "episode",
+    "want": {
+      "title": "Better Call Saul",
+      "qualityName": "WEBDL-2160p",
+      "group": "NTb",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        6
+      ],
+      "episodes": [
+        13
+      ]
+    }
+  },
+  {
+    "title": "Game.of.Thrones.S08E06.The.Iron.Throne.1080p.BluRay.x264-ROVERS",
+    "kind": "episode",
+    "want": {
+      "title": "Game of Thrones",
+      "qualityName": "Bluray-1080p",
+      "group": "ROVERS",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        8
+      ],
+      "episodes": [
+        6
+      ]
+    }
+  },
+  {
+    "title": "Stranger.Things.S04E09.The.Piggyback.720p.NF.WEBRip.x264-GROUP",
+    "kind": "episode",
+    "want": {
+      "title": "Stranger Things",
+      "qualityName": "WEBRip-720p",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        4
+      ],
+      "episodes": [
+        9
+      ]
+    }
+  },
+  {
+    "title": "The.Crown.S01E01.Wolferton.Splash.DVDRip.XviD-GROUP",
+    "kind": "episode",
+    "want": {
+      "title": "The Crown",
+      "qualityName": "DVD",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1
+      ],
+      "episodes": [
+        1
+      ]
+    }
+  },
+  {
+    "title": "Seinfeld.S03E01.The.Note.HDTV.XviD-GROUP",
+    "kind": "episode",
+    "want": {
+      "title": "Seinfeld",
+      "qualityName": "SDTV",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        3
+      ],
+      "episodes": [
+        1
+      ]
+    }
+  },
+  {
+    "title": "Fargo.S01E01.The.Crocodiles.Dilemma.PROPER.720p.BluRay.x264-DEMAND",
+    "kind": "episode",
+    "want": {
+      "title": "Fargo",
+      "qualityName": "Bluray-720p",
+      "group": "DEMAND",
+      "properVersion": 2,
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1
+      ],
+      "episodes": [
+        1
+      ]
+    }
+  },
+  {
+    "title": "The.Wire.S02E01.Ebb.Tide.REPACK.1080p.BluRay.x264-DEMAND",
+    "kind": "episode",
+    "want": {
+      "title": "The Wire",
+      "qualityName": "Bluray-1080p",
+      "group": "DEMAND",
+      "properVersion": 2,
+      "repack": true,
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        2
+      ],
+      "episodes": [
+        1
+      ]
+    }
+  },
+  {
+    "title": "The.Sopranos.S01E01.Pilot.1080p.BluRay.x264-DEMAND",
+    "kind": "episode",
+    "want": {
+      "title": "The Sopranos",
+      "qualityName": "Bluray-1080p",
+      "group": "DEMAND",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1
+      ],
+      "episodes": [
+        1
+      ]
+    }
+  },
+  {
+    "title": "Twin.Peaks.S01E01.720p.BluRay.x264-DEMAND",
+    "kind": "episode",
+    "want": {
+      "title": "Twin Peaks",
+      "qualityName": "Bluray-720p",
+      "group": "DEMAND",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1
+      ],
+      "episodes": [
+        1
+      ]
+    }
+  },
+  {
+    "title": "The.X-Files.S01E01.Pilot.480p.WEBRip.x264-GROUP",
+    "kind": "episode",
+    "want": {
+      "title": "The X-Files",
+      "qualityName": "WEBRip-480p",
+      "group": "GROUP",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1
+      ],
+      "episodes": [
+        1
+      ]
+    }
+  },
+  {
+    "title": "Deadwood.S01E01.Deadwood.2160p.WEB-DL.DDP5.1.H.265-NTb",
+    "kind": "episode",
+    "want": {
+      "title": "Deadwood",
+      "qualityName": "WEBDL-2160p",
+      "group": "NTb",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1
+      ],
+      "episodes": [
+        1
+      ]
+    }
+  },
+  {
+    "title": "The.Boys.S03E01.Payback.1080p.AMZN.WEBRip.x264-NTb",
+    "kind": "episode",
+    "want": {
+      "title": "The Boys",
+      "qualityName": "WEBRip-1080p",
+      "group": "NTb",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        3
+      ],
+      "episodes": [
+        1
+      ]
+    }
+  },
+  {
+    "title": "Firefly.S01E01.Serenity.576p.BluRay.x264-DEMAND",
+    "kind": "episode",
+    "want": {
+      "title": "Firefly",
+      "qualityName": "Bluray-576p",
+      "group": "DEMAND",
+      "languages": [
+        "English"
+      ],
+      "seasons": [
+        1
+      ],
+      "episodes": [
+        1
+      ]
+    }
+  }
+]
