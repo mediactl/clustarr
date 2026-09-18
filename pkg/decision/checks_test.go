@@ -18,12 +18,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package decision
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
@@ -212,5 +214,29 @@ func TestUpgradeRejection(t *testing.T) {
 		got := upgradeRejection(np, tg, quality.Candidate{Quality: bluray1080.Quality, Revision: common.Revision{Version: 1}})
 		require.NotNil(t, got)
 		require.Contains(t, got.Reason, ReasonUpgradesNotAllowed.Code)
+	})
+}
+
+func TestEvaluateAdversarial(t *testing.T) {
+	p := quality.Profile{LanguageName: "any", Sizes: quality.MovieSizeTable()}
+	tg := Target{Kind: common.MediaKindMovie, Available: true}
+	o := Options{UserInvoked: true, ProtocolsEnabled: map[string]bool{"torrent": true, "usenet": true}}
+
+	t.Run("unparseable title rejects with exactly one reason and Parsed is nil", func(t *testing.T) {
+		rel := common.ReleaseInfo{Title: "", Protocol: common.ProtocolTorrent}
+		ds := Evaluate(context.Background(), tg, p, &catalogue.Catalogue{}, []common.ReleaseInfo{rel}, o)
+		require.Len(t, ds, 1)
+		require.False(t, ds[0].Approved)
+		require.Nil(t, ds[0].Parsed)
+	})
+
+	t.Run("empty release slice returns an empty, non-nil slice", func(t *testing.T) {
+		ds := Evaluate(context.Background(), tg, p, &catalogue.Catalogue{}, nil, o)
+		require.NotNil(t, ds)
+		require.Empty(t, ds)
+	})
+
+	t.Run("Rank on an empty slice does not panic", func(t *testing.T) {
+		require.Empty(t, Rank(nil, o))
 	})
 }
