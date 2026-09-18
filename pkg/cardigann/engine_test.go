@@ -78,3 +78,60 @@ func TestEngineDoAcceptsResponseAtExactlyTheSizeLimit(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, body, maxResponseBodyBytesForTest)
 }
+
+// TestEngineErrorsDoNotLeakQuerySecrets covers ruling F6. Definition inputs
+// are rendered from .Config.<setting> and SettingsField.Type supports
+// "password", so a real definition puts apikey/passkey/rsskey in the query
+// string. Those errors end up in Indexer.status and in logs, so no error
+// this package returns may carry a query string — while still naming the
+// host and path, which is what makes the error diagnosable.
+func TestEngineErrorsDoNotLeakQuerySecrets(t *testing.T) {
+	const secret = "SUPERSECRETPASSKEY"
+
+	t.Run("transport error", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+		base := srv.URL
+		srv.Close() // nothing is listening: Do fails with a *url.Error carrying the full URL
+
+		def := &cardigann.Definition{Links: []string{base + "/"}}
+		cfg, err := cardigann.NewConfig(def, base+"/", nil)
+		require.NoError(t, err)
+
+		_, err = cardigann.Engine{}.Download(context.Background(), def, cfg, "/dl.php?id=42&apikey="+secret)
+		require.Error(t, err)
+		assert.NotContains(t, err.Error(), secret)
+		assert.NotContains(t, err.Error(), "apikey")
+		assert.Contains(t, err.Error(), "/dl.php", "the path must survive redaction")
+	})
+
+	t.Run("oversized body error", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write(bytes.Repeat([]byte("a"), maxResponseBodyBytesForTest+1))
+		}))
+		defer srv.Close()
+
+		def := &cardigann.Definition{Links: []string{srv.URL + "/"}}
+		cfg, err := cardigann.NewConfig(def, srv.URL+"/", nil)
+		require.NoError(t, err)
+
+		_, err = cardigann.Engine{HTTP: srv.Client()}.Download(context.Background(), def, cfg, "/dl.php?passkey="+secret)
+		require.Error(t, err)
+		require.ErrorIs(t, err, cardigann.ErrResponseTooLarge)
+		assert.NotContains(t, err.Error(), secret)
+		assert.Contains(t, err.Error(), "/dl.php")
+	})
+
+	t.Run("unparseable path", func(t *testing.T) {
+		// A path url.Parse rejects (a control character) never reaches the
+		// network, so this covers resolveURL's own error, which used to
+		// interpolate the whole rendered path -- query string and all.
+		def := &cardigann.Definition{Links: []string{"http://tracker.test/"}}
+		cfg, err := cardigann.NewConfig(def, "http://tracker.test/", nil)
+		require.NoError(t, err)
+
+		_, err = cardigann.Engine{}.Download(context.Background(), def, cfg, "/dl.php?apikey="+secret+"\x7f")
+		require.Error(t, err)
+		assert.NotContains(t, err.Error(), secret)
+		assert.Contains(t, err.Error(), "/dl.php")
+	})
+}

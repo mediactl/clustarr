@@ -94,7 +94,7 @@ func (e Engine) Download(ctx context.Context, def *Definition, cfg Config, link 
 	if db.InfoHash != nil {
 		return e.buildMagnet(ctx, tc, db.InfoHash, beforeDoc, doc)
 	}
-	return nil, fmt.Errorf("cardigann: no download selector matched for %q", link)
+	return nil, fmt.Errorf("cardigann: no download selector matched for %q", redactRawURL(link))
 }
 
 // resolveLink fetches val, or — when it is itself a "magnet:" URI —
@@ -116,7 +116,7 @@ func (e Engine) fetch(ctx context.Context, cfg Config, link string) (io.ReadClos
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, fmt.Errorf("cardigann: build request: %w", err)
+		return nil, fmt.Errorf("cardigann: build request: %w", redactErr(err))
 	}
 	attachSession(req, cfg.Session)
 	_, body, err := e.do(ctx, req)
@@ -157,19 +157,19 @@ func (e Engine) runBefore(ctx context.Context, cfg Config, tc *TemplateContext, 
 	if method == http.MethodGet {
 		parsed, err := url.Parse(u)
 		if err != nil {
-			return Doc{}, fmt.Errorf("cardigann: before url %q: %w", u, err)
+			return Doc{}, fmt.Errorf("cardigann: before url %q: %w", redactRawURL(u), redactErr(err))
 		}
 		if q := values.Encode(); q != "" {
 			parsed.RawQuery = q
 		}
 		req, err = http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 		if err != nil {
-			return Doc{}, fmt.Errorf("cardigann: build request: %w", err)
+			return Doc{}, fmt.Errorf("cardigann: build request: %w", redactErr(err))
 		}
 	} else {
 		req, err = http.NewRequestWithContext(ctx, method, u, strings.NewReader(values.Encode()))
 		if err != nil {
-			return Doc{}, fmt.Errorf("cardigann: build request: %w", err)
+			return Doc{}, fmt.Errorf("cardigann: build request: %w", redactErr(err))
 		}
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
