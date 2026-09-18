@@ -36,14 +36,26 @@ func (e Engine) Render(tmpl string, c Context) (string, error) {
 		}
 		prefix, name, suffix := splitWrapper(raw[1 : len(raw)-1])
 		base, pad, trunc := splitModifier(name)
-		entry, ok := tokenFuncs[normalizeTokenName(base)]
-		if !ok {
-			errOut = fmt.Errorf("%w: %q", ErrUnknownToken, base)
-			return raw
-		}
-		val := entry.fn(c, pad, trunc)
-		if entry.colonSensitive {
-			val = replaceColon(val, e.Config.ColonReplacement)
+		key := normalizeTokenName(base)
+
+		var val string
+		switch key {
+		// episoderange (and Step 8's absoluterange) need e.Config, which a
+		// package-level tokenFuncs closure cannot reach -- see these two
+		// cases handled specially here instead of rebuilding the whole map
+		// per Engine on every Render call.
+		case "episoderange":
+			val = formatEpisodeRange(c.Season, c.Episodes, e.Config.MultiEpisodeStyle)
+		default:
+			entry, ok := tokenFuncs[key]
+			if !ok {
+				errOut = fmt.Errorf("%w: %q", ErrUnknownToken, base)
+				return raw
+			}
+			val = entry.fn(c, pad, trunc)
+			if entry.colonSensitive {
+				val = replaceColon(val, e.Config.ColonReplacement)
+			}
 		}
 		if val == "" {
 			return ""

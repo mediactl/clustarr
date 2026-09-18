@@ -22,6 +22,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/naming"
 )
 
@@ -50,4 +51,45 @@ func TestSeriesFolderJellyfinIDTag(t *testing.T) {
 	got, err := e.SeriesFolder(c)
 	require.NoError(t, err)
 	require.Equal(t, "The Series Title! (2010) [tvdbid-153021]", got)
+}
+
+func TestEpisodeFileStandard(t *testing.T) {
+	e := naming.NewEngine(naming.Config{Dialect: naming.DialectJellyfin})
+	c := naming.Context{
+		SeriesTitle: "The Series Title!", SeriesYear: 2010,
+		Season: 1, Episodes: []int{1}, EpisodeTitle: "Episode Title 1",
+		Quality:  commonv1.Quality{Source: commonv1.SourceWebDL, Resolution: 1080},
+		Revision: commonv1.Revision{Version: 2}, ReleaseGroup: "RlsGrp",
+	}
+	got, err := e.EpisodeFile(c)
+	require.NoError(t, err)
+	require.Equal(t, "The Series Title! (2010) - S01E01 - Episode Title 1 [WEBDL-1080p Proper]-RlsGrp", got)
+}
+
+func TestMultiEpisodeJoinStyles(t *testing.T) {
+	tests := []struct {
+		style naming.MultiEpisodeStyle
+		want  string
+	}{
+		{naming.MultiEpisodeExtend, "S01E01-02-03"},
+		{naming.MultiEpisodeRepeat, "S01E01E02E03"},
+		{naming.MultiEpisodeScene, "S01E01-E02-E03"},
+		{naming.MultiEpisodeRange, "S01E01-03"},
+		{naming.MultiEpisodePrefixedRange, "S01E01-E03"},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.style), func(t *testing.T) {
+			e := naming.NewEngine(naming.Config{MultiEpisodeStyle: tt.style})
+			got, err := e.Render("{episodeRange}", naming.Context{Season: 1, Episodes: []int{1, 2, 3}})
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestMultiEpisodeDuplicateStyleTwoEpisodes(t *testing.T) {
+	e := naming.NewEngine(naming.Config{MultiEpisodeStyle: naming.MultiEpisodeDuplicate})
+	got, err := e.Render("{episodeRange}", naming.Context{Season: 1, Episodes: []int{1, 2}})
+	require.NoError(t, err)
+	require.Equal(t, "S01E01.S01E02", got)
 }

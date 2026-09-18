@@ -17,7 +17,66 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package naming
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
+
+const episodeFileStandardTemplate = "{Series CleanTitleWithoutYear} ({Series Year}) - S{season:00}E{episode:00} - {Episode CleanTitle:90} {[Quality Full]}{-Release Group}"
+
+// formatEpisodeRange joins season/episode numbers per the six
+// MultiEpisodeStyle values, following the *arr naming-token tables. A
+// single episode always renders as the plain "S01E01" form regardless of
+// style.
+func formatEpisodeRange(season int, episodes []int, style MultiEpisodeStyle) string {
+	if len(episodes) == 0 {
+		return ""
+	}
+	if len(episodes) == 1 {
+		return fmt.Sprintf("S%02dE%02d", season, episodes[0])
+	}
+	switch style {
+	case MultiEpisodeDuplicate:
+		parts := make([]string, len(episodes))
+		for i, ep := range episodes {
+			parts[i] = fmt.Sprintf("S%02dE%02d", season, ep)
+		}
+		return strings.Join(parts, ".")
+	case MultiEpisodeRepeat:
+		var b strings.Builder
+		fmt.Fprintf(&b, "S%02d", season)
+		for _, ep := range episodes {
+			fmt.Fprintf(&b, "E%02d", ep)
+		}
+		return b.String()
+	case MultiEpisodeScene:
+		var b strings.Builder
+		fmt.Fprintf(&b, "S%02dE%02d", season, episodes[0])
+		for _, ep := range episodes[1:] {
+			fmt.Fprintf(&b, "-E%02d", ep)
+		}
+		return b.String()
+	case MultiEpisodeRange:
+		return fmt.Sprintf("S%02dE%02d-%02d", season, episodes[0], episodes[len(episodes)-1])
+	case MultiEpisodePrefixedRange:
+		return fmt.Sprintf("S%02dE%02d-E%02d", season, episodes[0], episodes[len(episodes)-1])
+	default: // MultiEpisodeExtend and the zero value
+		var b strings.Builder
+		fmt.Fprintf(&b, "S%02dE%02d", season, episodes[0])
+		for _, ep := range episodes[1:] {
+			fmt.Fprintf(&b, "-%02d", ep)
+		}
+		return b.String()
+	}
+}
+
+// EpisodeFile renders the standard-form episode file name. Step 8 extends
+// this method to dispatch to the anime and daily forms too, by inspecting
+// Context: Absolute numbering selects anime, a non-nil AirDate selects
+// daily.
+func (e Engine) EpisodeFile(c Context) (string, error) {
+	return e.Render(e.overrideOr(TokenEpisodeFile, episodeFileStandardTemplate), c)
+}
 
 // SeasonFolder renders the season subfolder name. Season 0 is specials:
 // every dialect but Kodi names it "Season 00"; Kodi's own convention (and
