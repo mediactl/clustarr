@@ -1,0 +1,20 @@
+{
+  "asin": "B0036I54I6",
+  "title": "The Hobbit",
+  "subtitle": "",
+  "authors": [{"asin": "B000AQ1S22", "name": "J.R.R. Tolkien"}],
+  "narrators": [{"name": "Rob Inglis"}],
+  "publisherName": "Recorded Books",
+  "releaseDate": "2012-08-15T00:00:00.000Z",
+  "runtimeLengthMin": 630,
+  "summary": "<p>Bilbo Baggins is a hobbit who enjoys a comfortable, unambitious life.</p>",
+  "description": "Bilbo Baggins is a hobbit who enjoys a comfortable life.",
+  "image": "https://m.media-amazon.com/images/I/91b0C2YNSrL.jpg",
+  "genres": [{"asin": "18580606011", "name": "Fantasy", "type": "genre"}],
+  "seriesPrimary": {"asin": "B0036I54HW", "name": "The Lord of the Rings", "position": "0"},
+  "rating": "4.8",
+  "language": "english",
+  "formatType": "unabridged",
+  "isAdult": false,
+  "isbn": "9780618968633"
+}
