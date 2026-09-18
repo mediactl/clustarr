@@ -51,10 +51,16 @@ func TestDecodeProfileSeedsDecodesOneProfile(t *testing.T) {
 
 func TestDecodeProfileSeedsOnMalformedJSONReturnsErrorNotPanic(t *testing.T) {
 	_, err := quality.DecodeProfileSeeds([]byte(`{not valid json`))
-	require.Error(t, err)
+	require.Error(t, err, "garbage input")
+
+	_, err = quality.DecodeProfileSeeds([]byte(`[{"name":"x",`))
+	require.Error(t, err, "truncated input")
+
+	_, err = quality.DecodeProfileSeeds([]byte(``))
+	require.Error(t, err, "empty input is not valid JSON")
 
 	seeds, err := quality.DecodeProfileSeeds([]byte(`[]`))
-	require.NoError(t, err)
+	require.NoError(t, err, "an empty array is valid, just yields no seeds")
 	require.Empty(t, seeds)
 }
 

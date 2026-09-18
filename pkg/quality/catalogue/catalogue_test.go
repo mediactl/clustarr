@@ -19,7 +19,9 @@ package catalogue_test
 
 import (
 	"context"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/dlclark/regexp2"
 	"github.com/stretchr/testify/require"
@@ -255,4 +257,54 @@ func TestMatchAgainstRealEmbeddedFormats(t *testing.T) {
 			require.ElementsMatch(t, tc.want, got)
 		})
 	}
+}
+
+// TestMatchOnEmptyCatalogueAndEmptyReleaseDoesNotPanic is the adversarial
+// pass over a Catalogue with a nil Formats map and a completely zero-value
+// ParsedRelease -- neither should panic Match.
+func TestMatchOnEmptyCatalogueAndEmptyReleaseDoesNotPanic(t *testing.T) {
+	cat := &catalogue.Catalogue{} // nil Formats map
+	got := cat.Match(context.Background(), &release.ParsedRelease{}, catalogue.ItemContext{})
+	require.Empty(t, got)
+
+	score, matched := cat.Score(context.Background(), nil, &release.ParsedRelease{}, catalogue.ItemContext{})
+	require.Zero(t, score)
+	require.Empty(t, matched)
+}
+
+// TestDecodeFormatsOnMalformedJSONReturnsErrorNotPanic covers garbage,
+// truncated and empty input, per the global constraint that every
+// parser/decoder has at least one test feeding it each.
+func TestDecodeFormatsOnMalformedJSONReturnsErrorNotPanic(t *testing.T) {
+	_, err := catalogue.DecodeFormats([]byte(`{not valid json`))
+	require.Error(t, err, "garbage input")
+
+	_, err = catalogue.DecodeFormats([]byte(`[{"slug":"x","conditions":[{"kind":"ReleaseTitle","pattern":"(unterminated"}]}]`))
+	require.Error(t, err, "an unparsable regexp2 pattern must fail the file, not panic")
+
+	_, err = catalogue.DecodeFormats([]byte(`[{"slug":"x","conditions":`))
+	require.Error(t, err, "truncated input")
+
+	formats, err := catalogue.DecodeFormats([]byte(``))
+	require.Error(t, err, "empty input is not valid JSON")
+	require.Nil(t, formats)
+
+	formats, err = catalogue.DecodeFormats([]byte(`[]`))
+	require.NoError(t, err, "an empty array is valid, just yields no formats")
+	require.Empty(t, formats)
+}
+
+// TestMatchTRaSHTimeoutIsTreatedAsNoMatch forces a real regexp2 timeout with
+// classic catastrophic-backtracking input, proving the "timeout = no match +
+// log" behavior (spec §9) actually triggers rather than only existing in
+// theory. This must stay fast: MatchTimeout is set far below the package
+// default so the test does not itself hang.
+func TestMatchTRaSHTimeoutIsTreatedAsNoMatch(t *testing.T) {
+	re, err := regexp2.Compile(`^(a+)+$`, regexp2.None)
+	require.NoError(t, err)
+	re.MatchTimeout = 1 * time.Nanosecond
+
+	evil := strings.Repeat("a", 40) + "!"
+	got := catalogue.MatchTRaSHForTest(context.Background(), re, "evil", evil)
+	require.False(t, got, "a timed-out match must be treated as no match, never as a panic or a hang")
 }
