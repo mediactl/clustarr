@@ -54,6 +54,48 @@ func TestParseProgressBlockMatchesTheVerifiedNoteExample(t *testing.T) {
 	require.Equal(t, int32(30), p.Percent)         // 3000ms / 10000ms duration
 }
 
+// TestParseProgressStreamNeverPanicsOnMalformedInput covers the global
+// constraint that every parser has at least one test feeding it garbage,
+// truncated and empty input -- ParseProgressStream/progressFromFields must
+// never panic and must produce the documented zero/partial outcomes.
+func TestParseProgressStreamNeverPanicsOnMalformedInput(t *testing.T) {
+	cases := []struct {
+		name       string
+		input      string
+		wantEvents int
+	}{
+		{"empty input", "", 0},
+		{"pure garbage, no '=' anywhere, no terminal marker", "not a valid line\nkey\n\t\n", 0},
+		{"garbage key=value shapes with no terminal marker", "=noKey\nkey=value=with=extra=equals\n===\n", 0},
+		{"truncated block: real fields but no progress=continue/end line", "frame=10\nfps=5.0\nout_time_us=1000\nbitrate=64.0kbits/s\n", 0},
+		{"garbage lines ahead of a clean progress=end block", "garbage\n=\nframe=5\nprogress=end\n", 1},
+		{"unrecognised keys mixed into an otherwise normal continue block", "frame=1\nstream_0_0_q=36.0\ndup_frames=0\ndrop_frames=0\nunknown_field=whatever\nprogress=continue\n", 1},
+		{"N/A for every numeric field", "frame=N/A\nfps=N/A\nout_time_us=N/A\nspeed=N/A\nbitrate=N/A\nprogress=end\n", 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got []transcode.Progress
+			err := transcode.ParseProgressStream(bufio.NewScanner(strings.NewReader(tc.input)), 10_000, func(p transcode.Progress) {
+				got = append(got, p)
+			})
+			require.NoError(t, err)
+			require.Len(t, got, tc.wantEvents)
+		})
+	}
+
+	// "N/A everywhere" must parse as an all-zero Progress (Frame included --
+	// parseIntField has no special-cased "N/A" string, it just relies on
+	// strconv.ParseInt failing harmlessly), never a panic on any field.
+	var naProgress transcode.Progress
+	err := transcode.ParseProgressStream(
+		bufio.NewScanner(strings.NewReader("frame=N/A\nfps=N/A\nout_time_us=N/A\nspeed=N/A\nbitrate=N/A\nprogress=end\n")),
+		10_000,
+		func(p transcode.Progress) { naProgress = p },
+	)
+	require.NoError(t, err)
+	require.Equal(t, transcode.Progress{}, naProgress, "every field must parse as its zero value, not panic")
+}
+
 func TestRunReturnsATypedErrorWithTheStderrTailOnNonZeroExit(t *testing.T) {
 	if _, err := os.Stat("/usr/bin/ffmpeg"); err != nil {
 		t.Skip("ffmpeg not present on this box")

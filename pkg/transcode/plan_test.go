@@ -172,3 +172,49 @@ func TestFallbackTier(t *testing.T) {
 	_, ok = transcode.FallbackTier(transcode.TierNVENC, neither)
 	require.False(t, ok, "nvenc has no documented fallback")
 }
+
+// argAfter returns the argv element immediately following the first
+// occurrence of flag, and whether flag was found at all.
+func argAfter(args []string, flag string) (string, bool) {
+	for i, a := range args {
+		if a == flag && i+1 < len(args) {
+			return args[i+1], true
+		}
+	}
+	return "", false
+}
+
+// TestPlanAndArgsNeverPanicOnAZeroDenominatorFrameRate covers the same
+// "malformed input never panics" constraint for a source whose FrameRate
+// carries a zero denominator (division by zero) -- this belongs beside
+// CRFFor/roundFPS, not the -progress parser: no ffmpeg -progress field ever
+// carries a "num/den" frame rate, so the zero-denominator hazard lives in
+// Rational/roundFPS (plan.go), not in progressFromFields (runner.go).
+func TestPlanAndArgsNeverPanicOnAZeroDenominatorFrameRate(t *testing.T) {
+	info := transcode.MediaInfo{
+		Path:   "/media/movies/Example (2019)/Example (2019).mkv",
+		Format: transcode.FormatInfo{Duration: 2 * time.Hour},
+		Video: []transcode.VideoStream{{
+			Codec: "h264", PixFmt: "yuv420p", Width: 1920, Height: 1080,
+			FrameRate: transcode.Rational{Num: 24, Den: 0}, // malformed: division by zero
+		}},
+		Audio: []transcode.AudioStream{{Codec: "aac", Channels: 2, Language: "eng"}},
+	}
+	caps := transcode.Capabilities{Encoders: map[transcode.Tier]bool{transcode.TierCPUx265: true}}
+	meta := transcode.PlanMeta{ProfileName: "t", ProfileHash: "h", Threads: 8}
+
+	p, err := transcode.Plan(info, defaultProfile(), caps, meta)
+	require.NoError(t, err)
+	require.Equal(t, transcode.DecisionEncode, p.Decision)
+
+	// roundFPS(Rational{24, 0}) is documented to return 0 rather than
+	// dividing by zero; -g/-keyint_min render "0" instead of panicking.
+	args := transcode.Args(p)
+	g, ok := argAfter(args, "-g")
+	require.True(t, ok)
+	require.Equal(t, "0", g)
+
+	keyintMin, ok := argAfter(args, "-keyint_min")
+	require.True(t, ok)
+	require.Equal(t, "0", keyintMin)
+}
