@@ -39,6 +39,15 @@ import (
 
 const defaultBaseURL = "https://api4.thetvdb.com/v4"
 
+// waitOnLimiter is c.limiter.Wait, indirected through a package variable so
+// a white-box test (limiter_internal_test.go) can count how many times
+// doRequest waits on the limiter -- once per request attempt, including the
+// retry after a 401 -- without this package's public constructor growing a
+// test-only seam.
+var waitOnLimiter = func(ctx context.Context, l *rate.Limiter) error {
+	return l.Wait(ctx)
+}
+
 // Client is a metadata.SeriesProvider backed by TheTVDB v4.
 type Client struct {
 	authState
@@ -267,7 +276,7 @@ func parseDate(s string) (time.Time, bool) {
 // once more and retries the request once before giving up with
 // metadata.ErrAuth.
 func (c *Client) doRequest(ctx context.Context, method, path string, out any) error {
-	if err := c.limiter.Wait(ctx); err != nil {
+	if err := waitOnLimiter(ctx, c.limiter); err != nil {
 		return err
 	}
 	if c.currentToken() == "" {
@@ -285,6 +294,12 @@ func (c *Client) doRequest(ctx context.Context, method, path string, out any) er
 		if err := c.authenticate(ctx); err != nil {
 			return err
 		}
+		// The retried request is a second, distinct call against the
+		// provider and must draw its own token from the limiter -- the
+		// first Wait above only covers the request that came back 401.
+		if err := waitOnLimiter(ctx, c.limiter); err != nil {
+			return err
+		}
 		resp, err = c.rawRequest(ctx, method, path)
 		if err != nil {
 			return err
@@ -299,7 +314,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, out any) er
 	switch resp.StatusCode {
 	case http.StatusOK:
 		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-			return fmt.Errorf("tvdb: decode %s: %w", path, err)
+			return fmt.Errorf("tvdb: decode %s: %w: %w", path, metadata.ErrDecode, err)
 		}
 		return nil
 	case http.StatusNotFound:

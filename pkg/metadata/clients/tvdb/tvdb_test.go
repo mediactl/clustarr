@@ -114,3 +114,42 @@ func TestUpdatesReturnsRecordIDsSinceTheGivenTime(t *testing.T) {
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{"121361", "3254641"}, ids)
 }
+
+func TestSeriesRejectsMalformedResponseBodies(t *testing.T) {
+	login, err := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
+	require.NoError(t, err)
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"empty body", ""},
+		{"truncated JSON", `{"id": 1, "title": "Hea`},
+		{"garbage bytes", "not json at all {{{"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/login":
+					_, _ = w.Write(login)
+				case "/series/121361/extended":
+					_, _ = w.Write([]byte(tt.body))
+				default:
+					t.Fatalf("unexpected request: %s", r.URL.Path)
+				}
+			}))
+			defer srv.Close()
+			c := tvdb.New("test-key", "test-pin", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+
+			var s *metadata.Series
+			require.NotPanics(t, func() {
+				s, err = c.Series(context.Background(), "121361")
+			})
+
+			require.Nil(t, s)
+			require.Error(t, err)
+			require.ErrorIs(t, err, metadata.ErrDecode)
+		})
+	}
+}
