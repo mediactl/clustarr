@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package naming_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -48,4 +49,17 @@ func TestSanitizePathPreservesUnicodeTitles(t *testing.T) {
 func TestSanitizePathKeepsSeparatorsWhenIsPath(t *testing.T) {
 	got := naming.SanitizePath("movies/The Matrix (1999)/file.mkv", naming.SanitizeOptions{ReplaceIllegal: true, IsPath: true, MaxComponentBytes: 255, MaxTotalBytes: 4096})
 	require.Equal(t, "movies/The Matrix (1999)/file.mkv", got)
+}
+
+func TestSanitizePathCapsComponentLength(t *testing.T) {
+	long := strings.Repeat("A", 300)
+	got := naming.SanitizePath(long, naming.SanitizeOptions{MaxComponentBytes: 255, MaxTotalBytes: 4096})
+	require.Len(t, got, 255)
+}
+
+func TestSanitizePathCapsTotalLengthByShrinkingLastSegment(t *testing.T) {
+	longLeaf := strings.Repeat("B", 4090)
+	got := naming.SanitizePath("movies/"+longLeaf, naming.SanitizeOptions{IsPath: true, MaxComponentBytes: 4096, MaxTotalBytes: 4096})
+	require.LessOrEqual(t, len(got), 4096)
+	require.True(t, strings.HasPrefix(got, "movies/"))
 }
