@@ -1,0 +1,21 @@
+{
+  "language": { "culture": "en-US", "name": "English" },
+  "matchingSubtitles": [
+    {
+      "subtitleId": "abc123",
+      "version": "DIMENSION",
+      "downloadUri": "/subtitles/download/abc123",
+      "completed": true,
+      "hearingImpaired": false,
+      "qualities": ["720p"]
+    },
+    {
+      "subtitleId": "def456",
+      "version": "LOL",
+      "downloadUri": "/subtitles/download/def456",
+      "completed": false,
+      "hearingImpaired": false,
+      "qualities": []
+    }
+  ]
+}
