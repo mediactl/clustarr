@@ -58,6 +58,24 @@ func TestInjectWithNoActiveSpanLeavesTraceEmpty(t *testing.T) {
 	require.Empty(t, e.Trace, "Inject must not fabricate a trace when ctx carries no span")
 }
 
+// TestInjectWithNilEnvelope proves Inject is safe to call with a nil
+// envelope even when ctx carries an active span — the common case right
+// after tracing.Start — mirroring Extract's own nil guard.
+func TestInjectWithNilEnvelope(t *testing.T) {
+	shutdown, err := tracing.Setup(context.Background(), tracing.Options{
+		Enabled: false, ServiceName: "test", SampleRatio: 1,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = shutdown(context.Background()) })
+
+	ctx, span := tracing.Start(context.Background(), "producer")
+	defer span.End()
+
+	require.NotPanics(t, func() {
+		tracing.Inject(ctx, nil)
+	})
+}
+
 func TestExtractWithNoTraceHeaderReturnsContextUnchanged(t *testing.T) {
 	e := &events.Envelope{Type: "test"}
 	ctx := context.Background()

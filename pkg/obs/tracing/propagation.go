@@ -35,8 +35,13 @@ const traceparentKey = "traceparent"
 // events.HeaderTrace) as a W3C traceparent, so the next service to receive e
 // over NATS can continue the same trace. It is a no-op, leaving e.Trace
 // untouched, if ctx carries no valid span context (for example, tracing was
-// never started, or Setup was never called).
+// never started, or Setup was never called), and it is safe to call with a
+// nil e, mirroring Extract's own nil guard.
 func Inject(ctx context.Context, e *events.Envelope) {
+	if e == nil {
+		return
+	}
+
 	carrier := propagation.MapCarrier{}
 	propagation.TraceContext{}.Inject(ctx, carrier)
 
