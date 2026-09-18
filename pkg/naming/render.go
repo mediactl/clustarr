@@ -126,18 +126,22 @@ type tokenEntry struct {
 // tokenFuncs is grown by every later step; this step seeds it with the
 // tokens exercised so far.
 var tokenFuncs = map[string]tokenEntry{
-	"movie title":             {fn: func(c Context, _, _ int) string { return c.Title }, colonSensitive: true},
-	"movie cleantitle":        {fn: func(c Context, _, _ int) string { return cleanTitle(c.Title) }, colonSensitive: true},
-	"movie titlethe":          {fn: func(c Context, _, _ int) string { return titleThe(c.Title) }, colonSensitive: true},
-	"release year":            {fn: func(c Context, _, _ int) string { return yearString(c.Year) }},
-	"release group":           {fn: func(c Context, _, _ int) string { return c.ReleaseGroup }},
-	"tmdbid":                  {fn: func(c Context, _, _ int) string { return c.TmdbID }},
-	"mediainfo audiocodec":    {fn: func(c Context, _, _ int) string { return firstAudioCodec(c.MediaInfo) }},
-	"mediainfo audiochannels": {fn: func(c Context, _, _ int) string { return firstAudioChannels(c.MediaInfo) }},
-	"season":                  {fn: func(c Context, pad, _ int) string { return padInt(c.Season, pad) }},
-	"episode":                 {fn: func(c Context, pad, _ int) string { return padInt(firstOr(c.Episodes), pad) }},
-	"absolute":                {fn: func(c Context, pad, _ int) string { return padInt(firstOr(c.Absolute), pad) }},
-	"episode cleantitle":      {fn: func(c Context, _, trunc int) string { return truncate(cleanTitle(c.EpisodeTitle), trunc) }},
+	"movie title":                     {fn: func(c Context, _, _ int) string { return c.Title }, colonSensitive: true},
+	"movie cleantitle":                {fn: func(c Context, _, _ int) string { return cleanTitle(c.Title) }, colonSensitive: true},
+	"movie titlethe":                  {fn: func(c Context, _, _ int) string { return titleThe(c.Title) }, colonSensitive: true},
+	"release year":                    {fn: func(c Context, _, _ int) string { return yearString(c.Year) }},
+	"release group":                   {fn: func(c Context, _, _ int) string { return c.ReleaseGroup }},
+	"tmdbid":                          {fn: func(c Context, _, _ int) string { return c.TmdbID }},
+	"mediainfo audiocodec":            {fn: func(c Context, _, _ int) string { return firstAudioCodec(c.MediaInfo) }},
+	"mediainfo audiochannels":         {fn: func(c Context, _, _ int) string { return firstAudioChannels(c.MediaInfo) }},
+	"season":                          {fn: func(c Context, pad, _ int) string { return padInt(c.Season, pad) }},
+	"episode":                         {fn: func(c Context, pad, _ int) string { return padInt(firstOr(c.Episodes), pad) }},
+	"absolute":                        {fn: func(c Context, pad, _ int) string { return padInt(firstOr(c.Absolute), pad) }},
+	"episode cleantitle":              {fn: func(c Context, _, trunc int) string { return truncate(cleanTitle(c.EpisodeTitle), trunc) }},
+	"quality full":                    {fn: func(c Context, _, _ int) string { return qualityFull(c.Quality, c.Revision) }},
+	"mediainfo videodynamicrangetype": {fn: func(c Context, _, _ int) string { return hdrDisplay[c.MediaInfo.Hdr] }},
+	"edition tags":                    {fn: func(c Context, _, _ int) string { return c.Edition }},
+	"custom formats":                  {fn: func(c Context, _, _ int) string { return strings.Join(c.CustomFormats, " ") }},
 }
 
 func padInt(n, width int) string {
