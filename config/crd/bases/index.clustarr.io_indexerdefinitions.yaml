@@ -1,0 +1,199 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: indexerdefinitions.index.clustarr.io
+spec:
+  group: index.clustarr.io
+  names:
+    categories:
+    - clustarr
+    kind: IndexerDefinition
+    listKind: IndexerDefinitionList
+    plural: indexerdefinitions
+    shortNames:
+    - idxdef
+    singular: indexerdefinition
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.id
+      name: ID
+      type: string
+    - jsonPath: .status.protocol
+      name: Protocol
+      type: string
+    - jsonPath: .status.type
+      name: Type
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Valid")].status
+      name: Valid
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          IndexerDefinition is a custom or overriding Cardigann definition. The
+          bundled definitions ship in the image and are not represented as objects.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: IndexerDefinitionSpec defines the desired state of IndexerDefinition.
+            properties:
+              replaces:
+                description: |-
+                  Replaces names the bundled definition id this definition overrides.
+                  When unset the definition is added alongside the bundled set.
+                type: string
+              yaml:
+                description: |-
+                  YAML is the full Cardigann definition. It is validated by the
+                  controller against the bundled schema.json (v11).
+                maxLength: 1048576
+                type: string
+            required:
+            - yaml
+            type: object
+          status:
+            description: IndexerDefinitionStatus defines the observed state of IndexerDefinition.
+            properties:
+              caps:
+                description: Caps summarises the search modes and categories the definition
+                  supports.
+                properties:
+                  categories:
+                    description: Categories lists the Newznab category ids the definition
+                      maps.
+                    items:
+                      format: int32
+                      type: integer
+                    maxItems: 200
+                    type: array
+                  modes:
+                    additionalProperties:
+                      items:
+                        type: string
+                      type: array
+                    description: |-
+                      Modes maps a search mode (search, tv-search, movie-search, ...) to the
+                      query parameters it supports.
+                    type: object
+                type: object
+              conditions:
+                description: Conditions represent the latest available observations
+                  of the definition's state.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              id:
+                description: ID is the Cardigann definition id parsed from spec.yaml.
+                type: string
+              language:
+                description: Language is the definition's primary language (e.g. en-US).
+                type: string
+              name:
+                description: Name is the human-readable indexer name parsed from spec.yaml.
+                type: string
+              observedGeneration:
+                description: ObservedGeneration is the most recent generation observed
+                  by the controller.
+                format: int64
+                type: integer
+              protocol:
+                description: Protocol is the transfer protocol the definition serves.
+                enum:
+                - torrent
+                - usenet
+                type: string
+              sha256:
+                description: Sha256 is the hex digest of spec.yaml as last validated.
+                type: string
+              type:
+                description: Type is the privacy class of the definition.
+                enum:
+                - public
+                - semiPrivate
+                - private
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

@@ -1,0 +1,48 @@
+# syntax=docker/dockerfile:1.7
+#
+# ghcr.io/mediactl/clustarr -- static, cgo-free build of the single `clustarr`
+# binary on distroless. Used by indexarr (§2 of the design spec); the media
+# services use Dockerfile.media / Dockerfile.media-cuda, which share this
+# build-stage shape.
+#
+#   docker build -f images/Dockerfile.controller -t ghcr.io/mediactl/clustarr:dev .
+
+ARG GO_VERSION=1.27
+
+# ---------------------------------------------------------------------------
+# build: compile ./cmd/clustarr
+# ---------------------------------------------------------------------------
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION} AS build
+ARG TARGETOS
+ARG TARGETARCH
+ARG VERSION=dev
+
+WORKDIR /src
+ENV CGO_ENABLED=0 \
+    GOFLAGS=-trimpath
+
+# Warm the module cache separately so source edits do not re-download.
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build \
+      -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=${VERSION}" \
+      -o /out/clustarr ./cmd/clustarr
+
+# ---------------------------------------------------------------------------
+# final: distroless static, non-root (uid 65532)
+# ---------------------------------------------------------------------------
+FROM gcr.io/distroless/static:nonroot
+LABEL org.opencontainers.image.source="https://github.com/mediactl/clustarr" \
+      org.opencontainers.image.licenses="GPL-3.0-only" \
+      org.opencontainers.image.title="clustarr"
+
+COPY --from=build /out/clustarr /clustarr
+
+USER 65532:65532
+ENTRYPOINT ["/clustarr"]

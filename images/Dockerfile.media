@@ -1,0 +1,134 @@
+# syntax=docker/dockerfile:1.7
+#
+# ghcr.io/mediactl/clustarr-media -- the `clustarr` binary plus the media
+# toolchain (ffmpeg/ffprobe, par2) for catalogarr, grabarr, squasharr and
+# captionarr (§2 of the design spec).
+#
+#   docker build -f images/Dockerfile.media -t ghcr.io/mediactl/clustarr-media:dev .
+#
+# Choices (see the design spec §2 and docs/research/download.md, transcode.md):
+#
+# * CGO build. The usenet pipeline depends on javi11/nntppool/v4, which is
+#   cgo-only (bundled rapidyenc SIMD objects). The result links against glibc,
+#   libstdc++ and libresolv, so the build stage is pinned to the *-bookworm
+#   Go image and the final stage is debian:bookworm-slim -- same glibc, no
+#   "GLIBC_x.yz not found" surprises.
+#
+# * ffmpeg: static GPL build from BtbN/FFmpeg-Builds rather than the distro
+#   package. Debian bookworm ships ffmpeg 5.1; the spec needs ffmpeg 9 with
+#   libx265 4.x (Dolby Vision RPU passthrough, HDR10 metadata) and the NVENC
+#   headers compiled in. The BtbN GPL tarball has all of that, ships ffprobe,
+#   and only needs the NVIDIA driver libraries at runtime (injected by the
+#   NVIDIA container runtime, see Dockerfile.media-cuda). Override
+#   FFMPEG_BRANCH / FFMPEG_URL to pin a specific build; set FFMPEG_SHA256 to
+#   verify the download.
+#
+# * par2: par2cmdline-turbo v1.5.0 static release binary. It is not packaged in
+#   Debian (the `par2` package is classic par2cmdline 0.8, ~10x slower). Set
+#   PAR2_SOURCE=distro to use the apt package instead, PAR2_SHA256 to verify.
+#
+# Runtime contract: non-root uid/gid 1000 (matches the fsGroup in
+# config/manager), /data is the RWX media volume (§11), /scratch is node-local
+# scratch for the usenet engine. The binary must apply umask 002 itself (§11);
+# there is no shell entrypoint.
+
+ARG GO_VERSION=1.27
+ARG FFMPEG_BRANCH=9.0
+ARG PAR2_VERSION=v1.5.0
+
+# ---------------------------------------------------------------------------
+# build: compile ./cmd/clustarr with cgo (native arch)
+# ---------------------------------------------------------------------------
+FROM golang:${GO_VERSION}-bookworm AS build
+ARG VERSION=dev
+
+WORKDIR /src
+ENV CGO_ENABLED=1 \
+    GOFLAGS=-trimpath
+
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go build \
+      -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=${VERSION}" \
+      -o /out/clustarr ./cmd/clustarr
+
+# ---------------------------------------------------------------------------
+# tools: fetch ffmpeg/ffprobe and par2
+# ---------------------------------------------------------------------------
+FROM debian:bookworm-slim AS tools
+ARG TARGETARCH
+ARG FFMPEG_BRANCH
+ARG FFMPEG_URL=""
+ARG FFMPEG_SHA256=""
+ARG PAR2_VERSION
+ARG PAR2_SOURCE=turbo
+ARG PAR2_SHA256=""
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl xz-utils \
+ && rm -rf /var/lib/apt/lists/*
+
+# ffmpeg + ffprobe
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) ff_arch=linux64 ;; \
+      arm64) ff_arch=linuxarm64 ;; \
+      *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    url="${FFMPEG_URL:-https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n${FFMPEG_BRANCH}-latest-${ff_arch}-gpl-${FFMPEG_BRANCH}.tar.xz}"; \
+    curl -fsSL -o /tmp/ffmpeg.tar.xz "${url}"; \
+    if [ -n "${FFMPEG_SHA256}" ]; then echo "${FFMPEG_SHA256}  /tmp/ffmpeg.tar.xz" | sha256sum -c -; fi; \
+    mkdir -p /tmp/ffmpeg /out/bin; \
+    tar -xJf /tmp/ffmpeg.tar.xz --strip-components=1 -C /tmp/ffmpeg; \
+    install -m 0755 /tmp/ffmpeg/bin/ffmpeg /tmp/ffmpeg/bin/ffprobe /out/bin/; \
+    /out/bin/ffmpeg -hide_banner -version | head -n 1; \
+    rm -rf /tmp/ffmpeg /tmp/ffmpeg.tar.xz
+
+# par2 (par2cmdline-turbo static release, or the distro package)
+RUN set -eux; \
+    mkdir -p /out/bin; \
+    if [ "${PAR2_SOURCE}" = "distro" ]; then \
+      apt-get update && apt-get install -y --no-install-recommends par2 && rm -rf /var/lib/apt/lists/*; \
+      install -m 0755 "$(command -v par2)" /out/bin/par2; \
+    else \
+      case "${TARGETARCH}" in \
+        amd64) p2_arch=amd64 ;; \
+        arm64) p2_arch=arm64 ;; \
+        *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+      esac; \
+      url="https://github.com/animetosho/par2cmdline-turbo/releases/download/${PAR2_VERSION}/par2cmdline-turbo-${PAR2_VERSION}-linux-${p2_arch}.xz"; \
+      curl -fsSL -o /tmp/par2.xz "${url}"; \
+      if [ -n "${PAR2_SHA256}" ]; then echo "${PAR2_SHA256}  /tmp/par2.xz" | sha256sum -c -; fi; \
+      xz -dc /tmp/par2.xz > /out/bin/par2; \
+      chmod 0755 /out/bin/par2; \
+      rm -f /tmp/par2.xz; \
+    fi; \
+    /out/bin/par2 --version
+
+# ---------------------------------------------------------------------------
+# final: debian bookworm-slim, non-root 1000:1000, /data volume
+# ---------------------------------------------------------------------------
+FROM debian:bookworm-slim
+LABEL org.opencontainers.image.source="https://github.com/mediactl/clustarr" \
+      org.opencontainers.image.licenses="GPL-3.0-only" \
+      org.opencontainers.image.title="clustarr-media"
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates tzdata libstdc++6 \
+ && rm -rf /var/lib/apt/lists/* \
+ && groupadd -g 1000 clustarr \
+ && useradd -u 1000 -g 1000 -M -d /nonexistent -s /usr/sbin/nologin clustarr \
+ && mkdir -p /data /scratch \
+ && chown 1000:1000 /data /scratch
+
+COPY --from=tools /out/bin/ffmpeg /out/bin/ffprobe /out/bin/par2 /usr/local/bin/
+COPY --from=build /out/clustarr /usr/local/bin/clustarr
+
+VOLUME ["/data"]
+USER 1000:1000
+ENTRYPOINT ["/usr/local/bin/clustarr"]

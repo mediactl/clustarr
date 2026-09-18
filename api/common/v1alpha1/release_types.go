@@ -1,0 +1,168 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package v1alpha1
+
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// ReleaseType classifies how many catalog items a release covers.
+//
+// +kubebuilder:validation:Enum=single;multi;seasonPack;album;book;issue
+type ReleaseType string
+
+// Release types.
+const (
+	ReleaseTypeSingle     ReleaseType = "single"
+	ReleaseTypeMulti      ReleaseType = "multi"
+	ReleaseTypeSeasonPack ReleaseType = "seasonPack"
+	ReleaseTypeAlbum      ReleaseType = "album"
+	ReleaseTypeBook       ReleaseType = "book"
+	ReleaseTypeIssue      ReleaseType = "issue"
+)
+
+// Protocol is the transfer protocol of an indexer, download client or release.
+//
+// +kubebuilder:validation:Enum=torrent;usenet
+type Protocol string
+
+// Transfer protocols.
+const (
+	ProtocolTorrent Protocol = "torrent"
+	ProtocolUsenet  Protocol = "usenet"
+)
+
+// Indexer flag values carried in ReleaseInfo.IndexerFlags.
+const (
+	IndexerFlagFreeleech    = "freeleech"
+	IndexerFlagHalfleech    = "halfleech"
+	IndexerFlagNeutralleech = "neutralleech"
+	IndexerFlagDoubleUpload = "doubleupload"
+	IndexerFlagInternal     = "internal"
+	IndexerFlagExclusive    = "exclusive"
+	IndexerFlagScene        = "scene"
+)
+
+// Well-known keys of ReleaseInfo.IDs.
+const (
+	IDKeyTMDB = "tmdb"
+	IDKeyIMDB = "imdb"
+	IDKeyTVDB = "tvdb"
+)
+
+// ReleaseInfo is a snapshot of an indexer release as parsed by the search
+// pipeline. It is stored on Download.spec.release and in Search results.
+type ReleaseInfo struct {
+	// GUID is the indexer-scoped unique identifier of the release.
+	// +optional
+	GUID string `json:"guid,omitempty"`
+
+	// IndexerRef is the name of the Indexer the release came from.
+	// +optional
+	IndexerRef string `json:"indexerRef,omitempty"`
+
+	// IndexerName is the display name of the indexer at search time.
+	// +optional
+	IndexerName string `json:"indexerName,omitempty"`
+
+	// Title is the raw release title as published by the indexer.
+	// +optional
+	Title string `json:"title,omitempty"`
+
+	// Protocol is the transfer protocol of the release.
+	// +optional
+	Protocol Protocol `json:"protocol,omitempty"`
+
+	// SizeBytes is the release size in bytes.
+	// +optional
+	SizeBytes int64 `json:"sizeBytes,omitempty"`
+
+	// PublishedAt is when the indexer published the release.
+	// +optional
+	PublishedAt metav1.Time `json:"publishedAt,omitempty"`
+
+	// DownloadURL is the .torrent / .nzb download link.
+	// +optional
+	DownloadURL string `json:"downloadURL,omitempty"`
+
+	// MagnetURL is the magnet link, for torrent releases that expose one.
+	// +optional
+	MagnetURL string `json:"magnetURL,omitempty"`
+
+	// InfoHash is the torrent info hash, when known.
+	// +optional
+	InfoHash string `json:"infoHash,omitempty"`
+
+	// InfoURL is the release details page on the indexer.
+	// +optional
+	InfoURL string `json:"infoURL,omitempty"`
+
+	// Seeders is the seeder count reported by the indexer. Torrent only.
+	// +optional
+	Seeders *int32 `json:"seeders,omitempty"`
+
+	// Leechers is the leecher count reported by the indexer. Torrent only.
+	// +optional
+	Leechers *int32 `json:"leechers,omitempty"`
+
+	// IndexerFlags lists indexer-specific flags on the release.
+	// +optional
+	// +kubebuilder:validation:items:Enum=freeleech;halfleech;neutralleech;doubleupload;internal;exclusive;scene
+	IndexerFlags []string `json:"indexerFlags,omitempty"`
+
+	// Categories lists the Newznab/Torznab category IDs of the release.
+	// +optional
+	Categories []int32 `json:"categories,omitempty"`
+
+	// Quality is the quality parsed from the release title.
+	// +optional
+	Quality Quality `json:"quality,omitempty"`
+
+	// Revision is the proper/repack revision parsed from the release title.
+	// +optional
+	Revision Revision `json:"revision,omitempty"`
+
+	// ReleaseGroup is the release group parsed from the release title.
+	// +optional
+	ReleaseGroup string `json:"releaseGroup,omitempty"`
+
+	// Edition is the edition parsed from the release title, e.g. Director's Cut.
+	// +optional
+	Edition string `json:"edition,omitempty"`
+
+	// Languages lists the languages parsed from the release title.
+	// +optional
+	Languages []string `json:"languages,omitempty"`
+
+	// ReleaseType classifies how many catalog items the release covers.
+	// +optional
+	ReleaseType ReleaseType `json:"releaseType,omitempty"`
+
+	// FormatScore is the total custom-format score of the release.
+	// +optional
+	FormatScore int32 `json:"formatScore,omitempty"`
+
+	// MatchedFormats lists the names of the custom formats that matched.
+	// +optional
+	MatchedFormats []string `json:"matchedFormats,omitempty"`
+
+	// IDs maps external ID providers (tmdb, imdb, tvdb, ...) to the ID the
+	// indexer reported for the release.
+	// +optional
+	IDs map[string]string `json:"ids,omitempty"`
+}

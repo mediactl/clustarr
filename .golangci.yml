@@ -1,0 +1,29 @@
+version: "2"
+linters:
+  default: standard
+  enable:
+    - forbidigo
+    - errorlint
+    - gocritic
+    - misspell
+    - unconvert
+  settings:
+    forbidigo:
+      forbid:
+        - pattern: '\.Status\(\)\.Update\('
+          msg: "status writes must go through pkg/k8s.PatchStatus (server-side apply)"
+        - pattern: '\.Status\(\)\.Patch\('
+          msg: "status writes must go through pkg/k8s.PatchStatus (server-side apply)"
+      analyze-types: true
+  exclusions:
+    paths:
+      - pkg/k8s
+      - zz_generated
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/mediactl/clustarr

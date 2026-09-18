@@ -1,0 +1,427 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: indexers.index.clustarr.io
+spec:
+  group: index.clustarr.io
+  names:
+    categories:
+    - clustarr
+    kind: Indexer
+    listKind: IndexerList
+    plural: indexers
+    shortNames:
+    - idx
+    singular: indexer
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.protocol
+      name: Protocol
+      type: string
+    - jsonPath: .spec.enabled
+      name: Enabled
+      type: boolean
+    - jsonPath: .spec.priority
+      name: Priority
+      type: integer
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Healthy")].status
+      name: Healthy
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Indexer is a configured torrent or usenet indexer.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: IndexerSpec defines the desired state of Indexer.
+            properties:
+              animeCategories:
+                description: AnimeCategories are the Newznab category ids to search
+                  for anime.
+                items:
+                  format: int32
+                  type: integer
+                type: array
+              animeStandardFormatSearch:
+                description: AnimeStandardFormatSearch also searches anime using standard
+                  SxxEyy numbering.
+                type: boolean
+              baseURL:
+                description: BaseURL is the indexer's base URL.
+                type: string
+              categories:
+                description: Categories are the Newznab category ids to search.
+                items:
+                  format: int32
+                  type: integer
+                type: array
+              definition:
+                description: Definition is the id of a bundled Cardigann definition,
+                  e.g. "1337x".
+                type: string
+              definitionRef:
+                description: DefinitionRef is the name of an IndexerDefinition to
+                  use.
+                type: string
+              downloadClientRef:
+                description: DownloadClientRef names the DownloadClient to send grabs
+                  from this indexer to.
+                type: string
+              enableAutomaticSearch:
+                default: true
+                description: EnableAutomaticSearch allows the indexer to be used by
+                  automatic searches.
+                type: boolean
+              enableInteractiveSearch:
+                default: true
+                description: EnableInteractiveSearch allows the indexer to be used
+                  by interactive searches.
+                type: boolean
+              enableRss:
+                default: true
+                description: EnableRss allows the indexer to be polled for new releases.
+                type: boolean
+              enabled:
+                default: true
+                description: Enabled turns the indexer on or off without deleting
+                  it.
+                type: boolean
+              generic:
+                description: Generic configures a plain Newznab/Torznab upstream.
+                properties:
+                  apiPath:
+                    default: /api
+                    description: APIPath is the path of the Newznab/Torznab API relative
+                      to baseURL.
+                    type: string
+                  protocol:
+                    description: Protocol is the transfer protocol the upstream serves.
+                    enum:
+                    - torrent
+                    - usenet
+                    type: string
+                required:
+                - protocol
+                type: object
+              limits:
+                description: Limits caps queries and grabs per window.
+                properties:
+                  grabLimit:
+                    description: GrabLimit is the maximum number of grabs per unit.
+                    format: int32
+                    type: integer
+                  queryLimit:
+                    description: QueryLimit is the maximum number of search queries
+                      per unit.
+                    format: int32
+                    type: integer
+                  unit:
+                    default: day
+                    description: Unit is the window the limits apply to.
+                    enum:
+                    - day
+                    - hour
+                    type: string
+                type: object
+              minimumSeeders:
+                default: 1
+                description: MinimumSeeders is the fewest seeders a torrent release
+                  may have to be considered.
+                format: int32
+                type: integer
+              priority:
+                default: 25
+                description: Priority orders indexers when the same release is offered
+                  by several; lower wins.
+                format: int32
+                maximum: 50
+                minimum: 1
+                type: integer
+              proxyRef:
+                description: ProxyRef names an IndexerProxy in the same namespace
+                  to route requests through.
+                type: string
+              requestDelay:
+                default: 2s
+                description: |-
+                  RequestDelay is the minimum delay between requests to the indexer. It
+                  is raised to the definition's requestDelay when that is larger.
+                type: string
+              rssInterval:
+                default: 15m
+                description: RssInterval is how often the RSS feed is polled.
+                type: string
+              secretRef:
+                description: |-
+                  SecretRef names a Secret in the same namespace holding secret settings.
+                  Recognised keys: apikey, username, password, cookie, passkey, rss_key.
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+              seedCriteria:
+                description: SeedCriteria overrides the download client's seeding
+                  limits for releases from this indexer.
+                properties:
+                  inactiveTime:
+                    description: InactiveTime is how long a torrent may sit without
+                      activity before it is considered stalled.
+                    type: string
+                  packSeedTime:
+                    description: PackSeedTime is how long a pack (season, discography)
+                      torrent must seed before removal.
+                    type: string
+                  ratio:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: |-
+                      Ratio is the upload/download ratio to reach before the torrent may be removed,
+                      written as a decimal string such as "2.0". Quantity is used instead of a float
+                      so the value round-trips exactly across API clients.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  seedTime:
+                    description: SeedTime is how long a single-item torrent must seed
+                      before removal.
+                    type: string
+                type: object
+              settings:
+                additionalProperties:
+                  type: string
+                description: Settings holds the non-secret Cardigann settings for
+                  the definition.
+                type: object
+              tags:
+                description: Tags are free-form labels used to match the indexer to
+                  catalog items.
+                items:
+                  type: string
+                type: array
+              timeout:
+                default: 30s
+                description: Timeout is the per-request HTTP timeout.
+                type: string
+            required:
+            - baseURL
+            type: object
+            x-kubernetes-validations:
+            - message: exactly one of definition, definitionRef or generic must be
+                set
+              rule: '(has(self.definition) ? 1 : 0) + (has(self.definitionRef) ? 1
+                : 0) + (has(self.generic) ? 1 : 0) == 1'
+          status:
+            description: IndexerStatus defines the observed state of Indexer.
+            properties:
+              caps:
+                description: Caps is the capability set last fetched from the indexer.
+                properties:
+                  categories:
+                    description: Categories is the category tree the indexer exposes.
+                    items:
+                      description: Category is a Newznab category with its sub-categories.
+                      properties:
+                        id:
+                          description: ID is the Newznab category id.
+                          format: int32
+                          type: integer
+                        name:
+                          description: Name is the category's display name.
+                          type: string
+                        sub:
+                          description: Sub lists the sub-categories of this category.
+                          items: {}
+                          maxItems: 200
+                          type: array
+                      type: object
+                    maxItems: 200
+                    type: array
+                  limitsDefault:
+                    description: LimitsDefault is the page size the indexer uses when
+                      none is requested.
+                    format: int32
+                    type: integer
+                  limitsMax:
+                    description: LimitsMax is the maximum page size the indexer accepts.
+                    format: int32
+                    type: integer
+                  modes:
+                    additionalProperties:
+                      items:
+                        type: string
+                      type: array
+                    description: |-
+                      Modes maps a search mode (search, tv-search, movie-search, ...) to the
+                      query parameters it supports.
+                    type: object
+                  supportsRawSearch:
+                    description: SupportsRawSearch is true when the indexer accepts
+                      free-text queries.
+                    type: boolean
+                type: object
+              conditions:
+                description: Conditions represent the latest available observations
+                  of the indexer's state.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              disabledUntil:
+                description: DisabledUntil is when the indexer will be retried after
+                  back-off.
+                format: date-time
+                type: string
+              escalationLevel:
+                description: EscalationLevel is the current back-off step after repeated
+                  failures.
+                format: int32
+                type: integer
+              grabsInWindow:
+                description: GrabsInWindow is the number of grabs issued in the current
+                  limit window.
+                format: int32
+                type: integer
+              indexedReleases:
+                description: IndexedReleases is the total number of releases seen
+                  from this indexer.
+                format: int64
+                type: integer
+              initialFailureAt:
+                description: InitialFailureAt is when the current run of failures
+                  began.
+                format: date-time
+                type: string
+              lastFailure:
+                description: LastFailure describes the most recent failure.
+                type: string
+              lastFailureAt:
+                description: LastFailureAt is when the most recent failure happened.
+                format: date-time
+                type: string
+              lastRssAt:
+                description: LastRssAt is when the RSS feed was last polled.
+                format: date-time
+                type: string
+              lastRssNewCount:
+                description: LastRssNewCount is how many new releases the last RSS
+                  poll returned.
+                format: int32
+                type: integer
+              observedGeneration:
+                description: ObservedGeneration is the most recent generation observed
+                  by the controller.
+                format: int64
+                type: integer
+              privacy:
+                description: Privacy is the privacy class resolved from the definition.
+                type: string
+              protocol:
+                description: Protocol is the transfer protocol resolved from the definition.
+                enum:
+                - torrent
+                - usenet
+                type: string
+              queriesInWindow:
+                description: QueriesInWindow is the number of queries issued in the
+                  current limit window.
+                format: int32
+                type: integer
+              sessionSecretRef:
+                description: SessionSecretRef names the Secret holding the indexer's
+                  login session.
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

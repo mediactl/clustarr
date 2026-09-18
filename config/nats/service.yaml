@@ -1,0 +1,36 @@
+# Client + monitoring endpoint: nats://nats.clustarr-system.svc:4222
+# (NATS_URL in config/manager) and http://nats.clustarr-system.svc:8222 for
+# KEDA / prometheus-nats-exporter.
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: server
+  ports:
+  - name: nats
+    port: 4222
+    targetPort: nats
+  - name: monitor
+    port: 8222
+    targetPort: monitor
+---
+# Headless service backing the StatefulSet's stable pod DNS.
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats-headless
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/component: server
+  ports:
+  - name: nats
+    port: 4222
+    targetPort: nats
+  - name: monitor
+    port: 8222
+    targetPort: monitor

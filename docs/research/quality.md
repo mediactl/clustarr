@@ -27,7 +27,7 @@ enum Resolution    { Unknown=0, R360p=360, R480p=480, R540p=540, R576p=576, R720
 ```
 
 | Weight | Id | Name | Source | Res | Modifier | Group | Default Min/Max/Pref MB/min |
-|---|---|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 0 | Unknown | UNKNOWN | 0 | NONE | | 0 / 100 / 95 |
 | 2 | 24 | WORKPRINT | WORKPRINT | 0 | NONE | | 0 / 100 / 95 |
 | 3 | 25 | CAM | CAM | 0 | NONE | | 0 / 100 / 95 |
@@ -66,7 +66,7 @@ enum QualitySource { Unknown=0, Television=1, TelevisionRaw=2, Web=3, WebRip=4, 
 ```
 
 | Weight | Id | Name | Source | Res | Group | Default Min/Max/Pref |
-|---|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- | --- |
 | 1 | 0 | Unknown | Unknown | 0 | | 1 / 199.9 / 95 |
 | 2 | 1 | SDTV | Television | 480 | | 2 / 100 / 95 |
 | 3 | 12 / 8 | WEBRip-480p / WEBDL-480p | WebRip / Web | 480 | WEB 480p | 2 / 100 / 95 |
@@ -109,7 +109,7 @@ Important divergences for anyone unifying the two: the numeric Ids differ betwee
 Radarr `movie.json` (trash_id aed34b9f60ee115dfa7918b742336277) min / preferred / max (MB/min). "2000" is the UI value for unlimited, 1999 preferred = "biggest":
 
 | Quality | min | pref | max |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | HDTV-720p | 17.1 | 1999 | 2000 |
 | WEBDL-720p, WEBRip-720p | 12.5 | 1999 | 2000 |
 | Bluray-720p | 25.7 | 1999 | 2000 |
@@ -125,7 +125,7 @@ Radarr `movie.json` (trash_id aed34b9f60ee115dfa7918b742336277) min / preferred 
 Sonarr `series.json` (bef99584217af744e404ed44a33af589), max cap is 1000 in Sonarr's UI:
 
 | Quality | min | pref | max |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | HDTV-720p | 10 | 995 | 1000 |
 | HDTV-1080p | 15 | 995 | 1000 |
 | WEBRip-720p, WEBDL-720p | 10 | 995 | 1000 |
@@ -195,7 +195,7 @@ Note `items` in TRaSH JSON are listed **best first** (opposite of *arr DB order)
 Every specification has `Name, Negate bool, Required bool` plus type-specific fields:
 
 | Implementation | Radarr | Sonarr | Fields | Matches against |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | ReleaseTitleSpecification | y | y | `Value` regex | `MovieInfo.SimpleReleaseTitle` OR `Filename` |
 | ReleaseGroupSpecification | y | y | `Value` regex | parsed `ReleaseGroup` |
 | EditionSpecification | y | - | `Value` regex | parsed `Edition` |
@@ -251,14 +251,14 @@ Spec-type usage across the 242 Radarr CFs: ReleaseTitle 177, Source 101, Release
 Unwanted (all `-10000` default; `[Unwanted] Unwanted Formats` group):
 
 | CF | trash_id (Radarr) | Logic |
-|---|---|---|
+| --- | --- | --- |
 | BR-DISK | ed38b889b31be83fda192888e2286d83 | one ReleaseTitle regex (required): full-disc/BDMV/ISO/COMPLETE.BluRay detection with negative lookaheads for encodes/remux |
 | LQ | 90a6f9a284dff5103f6346090e6280c8 | 100 ReleaseGroup specs `^(GROUP)$` (OR) |
-| LQ (Release Title) | e204b80c87be9497a8a6eaff48f72905 | 16 ReleaseTitle specs (groups that can't be parsed as groups, e.g. `EVO (no WEBDL)` = `(?<!\bweb[ ._-]?(dl|rip)?\b.*)-(EVO)\b`) |
-| x265 (HD) | dc98083864ea246d05a42df0d05f81cc | ReleaseTitle `[xh][ ._-]?265|\bHEVC(\b|\d)` (req) AND Resolution != 2160 (neg, req) |
-| 3D | b8cd450cbfa689c0259a01d9e29ba3d6 | ReleaseTitle `(?<=\b[12]\d{3}\b).*\b(3d|sbs|half[ .-]ou|half[ .-]sbs)\b` / `BluRay3D` / `BD3D` |
-| Extras | 0a3f082873eb454bde444150b70253cc | ReleaseTitle `(?<=\b[12]\d{3}\b).*\b(Extras|Bonus|Extended[ ._-]Clip)\b` |
-| Upscaled | bfd8eb01832d646a0a89c4deb46f8564 | 7 ReleaseTitle specs (AI upscales, AIUS, GuyZo, Regrade, RW, TheUpscaler, `Upscaled?|UpRez|AI[ ._-]?Enhanced`) |
+| LQ (Release Title) | e204b80c87be9497a8a6eaff48f72905 | 16 ReleaseTitle specs (groups that can't be parsed as groups, e.g. `EVO (no WEBDL)` = `(?<!\bweb[ ._-]?(dl | rip)?\b.*)-(EVO)\b`) |
+| x265 (HD) | dc98083864ea246d05a42df0d05f81cc | ReleaseTitle `[xh][ ._-]?265 | \bHEVC(\b | \d)` (req) AND Resolution != 2160 (neg, req) |
+| 3D | b8cd450cbfa689c0259a01d9e29ba3d6 | ReleaseTitle `(?<=\b[12]\d{3}\b).*\b(3d | sbs | half[ .-]ou | half[ .-]sbs)\b` / `BluRay3D` / `BD3D` |
+| Extras | 0a3f082873eb454bde444150b70253cc | ReleaseTitle `(?<=\b[12]\d{3}\b).*\b(Extras | Bonus | Extended[ ._-]Clip)\b` |
+| Upscaled | bfd8eb01832d646a0a89c4deb46f8564 | 7 ReleaseTitle specs (AI upscales, AIUS, GuyZo, Regrade, RW, TheUpscaler, `Upscaled? | UpRez | AI[ ._-]?Enhanced`) |
 | AV1 | cae4ca30163749b891686f95532519bd | ReleaseTitle `\bAV1\b` |
 | Generated Dynamic HDR | e6886871085226c3da1830830146846c | 9 ReleaseGroup (BiTOR, DepraveD, Flights, GuyZo, SasukeducK, tarunk9c, VD0N, VECTOR, VisionXpert) AND ReleaseTitle (HDR10+ OR DV) |
 | Sing-Along Versions | 712d74cd88bceb883ee32f773656b1f5 | ReleaseTitle |
@@ -266,11 +266,12 @@ Unwanted (all `-10000` default; `[Unwanted] Unwanted Formats` group):
 | No-RlsGroup (optional) | ae9b7c9ebde1f3bd336a8cbd1ec4c5e5 | ReleaseGroup `.` **negated** (i.e. no parsed group) |
 | Obfuscated (optional) | 7357cf5161efbf8c4d5d0c30b4815ee2 | 17 ReleaseTitle suffixes (`-4P`, `-Obfuscated`, `-xpost`, `-NZBGeek`, `_nzb`, `Scrambled` ...) |
 | Retags (optional) | 5c44f52a8714fdd79bb4d98e2673be1f | ReleaseTitle `\[rartv\]`, `\[rarbg\]`, `\[eztvx?...\]`, `\[TGx\]`, `[.]VAV`, `[.]heb`, `ORARBG` |
-| Scene (optional) | f537cf427b64c38c8e36298f657e4828 | ReleaseTitle `^(?=.*(\b\d{3,4}p\b).*([_. ]WEB[_. ])(?!DL)\b)|\b(-CAKES|-GGEZ|...|-STRiKES)` (req) AND NOT INFLATE/DEFLATE AND NOT GERMAN |
+| Scene (optional) | f537cf427b64c38c8e36298f657e4828 | ReleaseTitle `^(?=.*(\b\d{3,4}p\b).*([*. ]WEB[*. ])(?!DL)\b) | \b(-CAKES | -GGEZ | ... | -STRiKES)` (req) AND NOT INFLATE/DEFLATE AND NOT GERMAN |
 | Black and White Editions (optional) | cc444569854e9de0b084ab2b8b1532b2 | 7 ReleaseTitle |
 | Line/Mic Dubbed | c465ccc73923871b3eb1802042331306 | ReleaseTitle |
 
 UHD-only unwanted (optional, conflict pairs in `conflicts.json`: pick one of SDR / SDR (no WEBDL); one of x265 (HD) / x265 (no HDR/DV)):
+
 - SDR 9c38ebb7384dada637be8899efa68e6f: Resolution 2160 (req) AND NOT(HDR formats regex) AND `\bSDR\b`… (title group OR).
 - SDR (no WEBDL) 25c12f78430a3a23413652cbd1d48d77: same + Source != WEBDL/WEBRIP.
 - x265 (no HDR/DV) 839bea857ed2c0a8e084f3cbdbd65ecb: HEVC (req) AND NOT `\b(dv|dovi|dolby[ .]?v(ision)?|hdr(10(P(lus)?)?)?|pq)\b` (req, neg) AND Resolution != 2160.
@@ -281,6 +282,7 @@ HDR (UHD profiles, "required"): HDR 493b6d1dbec3c3364c59d7607f7e3405 = **+500** 
 Repack/Proper (required everywhere): Repack/Proper e7718d7a3ce595f289bfee26adc178f5 = 5 (`\b(Repack|Proper|Rerip)\b` AND NOT repack2/3); Repack2 ae43b294509409a6a13919dedd4764c4 = 6; Repack3 5caaaa1c08c1742aa4342d8c4cc463f2 = 7 (anime sets: 1/2/3).
 
 Release-group tiers (shape: source/modifier/resolution gates + `^(GROUP)$` list):
+
 - HD Bluray Tier 01/02/03 (ed27ebfef2f323e964fb1f61391bcb35 / c20c8647f2746a1f4c4262b0fbbeeeae / 5608c71bcebba0a5e666223bae8c9227) = 1800/1750/1700: `Source=BLURAY(9) req; Modifier!=REMUX(5) req; Resolution!=2160 req; groups OR` (Tier 01: ATELiER, BBQ, BMF, c0kE, Chotab, CRiSC, CtrlHD, D-Z0N3, Dariush, decibeL, DON, ... 23 groups).
 - UHD Bluray Tier 01/02/03 (4d74ac4c4db0b64bff6ce0cffef99bf0 / a58f517a70193f8e578056642178419d / e71939fae578037e7aed3ee219bbe7c1) = 1800/1750/1700: `Modifier!=REMUX; Source!=WEBDL; Source!=WEBRIP; Resolution==2160 req; groups`.
 - Remux Tier 01/02/03 (3a3ff47579026e76d6504ebea39390de / 9f98181fe5a3fbeb0cc29340da2a468a / 8baaf0b3142bf4d94c42a724f034e27a) = 1950/1900/1850: `Modifier==REMUX req; groups` (3L, ATELiER, BiZKiT, BLURANiUM, BMF, FraMeSToR, ...).
@@ -308,7 +310,7 @@ Common settings for every mainline profile: `upgradeAllowed=true, minFormatScore
 ### Radarr
 
 | Profile (trash_id) | Allowed tiers (best first) | Cutoff | Required CFs (score) | Unwanted (-10000) | Optional |
-|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- |
 | HD Bluray + WEB (d1d67249d3890e49bc12e275d989a7e9), 6–15 GB/1080p | Bluray-1080p; WEB 1080p {WEBRip-1080p, WEBDL-1080p}; Bluray-720p | Bluray-1080p | HD Bluray Tier 01/02/03 1800/1750/1700; WEB Tier 01/02/03 1700/1650/1600; Repack/Proper 5, Repack2 6, Repack3 7 | BR-DISK, Generated Dynamic HDR, LQ, LQ (Release Title), x265 (HD), 3D, Extras, Sing-Along Versions, AV1 | streaming svc (0; BCORE 15, CRiT 20, MA 20), Bad Dual Groups, B&W Editions, No-RlsGroup, Obfuscated, Retags, Scene (-10000), movie versions |
 | UHD Bluray + WEB (uhd-bluray-web.json), 20–60 GB/2160p | Bluray-2160p; WEB 2160p {WEBRip-2160p, WEBDL-2160p} | Bluray-2160p | UHD Bluray Tier 01/02/03 1800/1750/1700; WEB Tier 01/02/03; Repack ×3; **HDR 500, DV Boost 1000, HDR10+ Boost 100, DV (w/o HDR fallback) -10000** | HD list + Upscaled | audio formats; SDR / SDR (no WEBDL); x265 (no HDR/DV); Hybrid 100; movie versions |
 | Remux + WEB 1080p (remux-web-1080p.json), 20–40 GB | Remux-1080p; WEB 1080p | Remux-1080p | Remux Tier 01/02/03 1950/1900/1850; WEB Tier 01/02/03; Repack ×3 | HD list (no Upscaled) | audio; movie versions incl. Hybrid |
@@ -321,7 +323,7 @@ The TRaSH web text: "Quality Trumps All" – quality tier first, then CF score, 
 ### Sonarr
 
 | Profile | Allowed tiers (best first) | Cutoff | Required CFs | Notes |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | WEB-1080p (web-1080p.json) | WEB 1080p {WEBRip-1080p, WEBDL-1080p} (optionally enable WEB-720p, HDTV, Bluray for old shows) | WEB 1080p | Repack ×3 (5/6/7); WEB Tier 01/02/03 1700/1650/1600; WEB Scene 1600; streaming services 75 each + HD Streaming Boost 75 | Unwanted: BR-DISK, LQ, LQ (Release Title), x265 (HD), Extras, AV1; optional Bad Dual Groups, No-RlsGroup, Obfuscated, Retags, Scene |
 | WEB-2160p (web-2160p.json) | WEB 2160p | WEB 2160p | same + HDR 500, DV Boost 1000, HDR10+ Boost 100, DV (w/o HDR fallback) -10000, UHD Streaming Boost 75 | optional SDR / SDR (no WEBDL), x265 (no HDR/DV) |
 | Remux + WEB 1080p (remux-web-1080p.json) | Bluray-1080p Remux; WEB 1080p | Bluray-1080p Remux | Remux Tier 01/02 1900/1850 (Sonarr has only two remux tiers); WEB Tier ×3; WEB Scene; Repack ×3 | |
@@ -446,6 +448,7 @@ Add-time monitoring (`MonitoringOptions { IgnoreEpisodesWithFiles, IgnoreEpisode
 `MovieStatusType { Deleted=-1, TBA=0, Announced=1, InCinemas=2 ("in cinemas < 3 months"), Released=3 ("physical/web release or in cinemas > 3 months") }` — the same enum is used for `Movie.MinimumAvailability` (UI offers Announced / In Cinemas / Released).
 
 `Movie.IsAvailable(delayDays)` (exact):
+
 ```
 if MinimumAvailability in {TBA, Announced}: date = MinValue   (always available)
 elif MinimumAvailability == InCinemas && meta.InCinemas != null: date = meta.InCinemas
@@ -457,6 +460,7 @@ else:  # Released
 if date is MinValue or MaxValue: return now >= date
 return now >= date + delayDays      # delay = config AvailabilityDelay
 ```
+
 `AvailabilitySpecification` skips this check for user-invoked searches. `MovieMetadata` dates: `InCinemas?, PhysicalRelease?, DigitalRelease?`; other fields: `TmdbId, ImdbId, Title, CleanTitle, SortTitle, OriginalTitle, OriginalLanguage, Year, SecondaryYear?, Runtime, Status, Overview, Certification, Genres, Keywords, Ratings, Studio, Website, YouTubeTrailerId, Popularity, CollectionTmdbId, CollectionTitle, AlternativeTitles, Translations, Recommendations, Images`. `Movie`: `MovieMetadataId, Monitored, MinimumAvailability, QualityProfileId, Path, RootFolderPath, Added, Tags, AddOptions{Monitor: MovieOnly|MovieAndCollection|None, SearchForMovie, AddMethod: Manual|List|Collection}, LastSearchTime, MovieFileId`. `MovieCollection { TmdbId, Title, Overview, Monitored, QualityProfileId, RootFolderPath, SearchOnAdd, MinimumAvailability, Tags }` (collection-level defaults applied to new members).
 
 `MovieFile { MovieId, RelativePath, Path, Size, DateAdded, OriginalFilePath, SceneName, ReleaseGroup, Quality QualityModel, IndexerFlags, MediaInfo, Edition, Languages }`.
@@ -513,7 +517,7 @@ ComicInfo.xml (anansi-project, v2.0/v2.1 draft — the de-facto embedded metadat
 
 ## 14. Go-oriented opinionated data model for Clustarr
 
-Design rules derived from the above: (1) key qualities by `(Source, Resolution, Modifier)`, never by *arr ids; (2) profiles are ordered tier lists with groups, cutoff, and CF-score thresholds; (3) custom formats are a **built-in immutable catalogue** with score sets; profiles only reference them; (4) matching uses regexp2 with the exact *arr group semantics; (5) media-specific quality enums for music/books/comics, but the *same* Profile/Format/Upgrade machinery; (6) inventory items carry `Monitored`, profile ref, root folder, and media-specific availability rules.
+Design rules derived from the above: (1) key qualities by `(Source, Resolution, Modifier)`, never by *arr ids; (2) profiles are ordered tier lists with groups, cutoff, and CF-score thresholds; (3) custom formats are a **built-in immutable catalogue** with score sets; profiles only reference them; (4) matching uses regexp2 with the exact*arr group semantics; (5) media-specific quality enums for music/books/comics, but the *same* Profile/Format/Upgrade machinery; (6) inventory items carry `Monitored`, profile ref, root folder, and media-specific availability rules.
 
 ```go
 // pkg/quality/video.go
@@ -522,63 +526,63 @@ package quality
 type Source uint8
 
 const (
-	SourceUnknown Source = iota
-	SourceCam
-	SourceTelesync
-	SourceTelecine
-	SourceWorkprint
-	SourceDVD
-	SourceTV
-	SourceWebDL
-	SourceWebRip
-	SourceBluray
+ SourceUnknown Source = iota
+ SourceCam
+ SourceTelesync
+ SourceTelecine
+ SourceWorkprint
+ SourceDVD
+ SourceTV
+ SourceWebDL
+ SourceWebRip
+ SourceBluray
 )
 
 type Modifier uint8
 
 const (
-	ModNone Modifier = iota
-	ModRegional
-	ModScreener
-	ModRawHD
-	ModBRDisk
-	ModRemux
+ ModNone Modifier = iota
+ ModRegional
+ ModScreener
+ ModRawHD
+ ModBRDisk
+ ModRemux
 )
 
 type Resolution uint16 // 0, 360, 480, 540, 576, 720, 1080, 2160
 
 // Video is the value-type identity of a video quality. Name() renders "Bluray-1080p", "Remux-2160p", "WEBDL-720p" ...
 type Video struct {
-	Source     Source
-	Resolution Resolution
-	Modifier   Modifier
+ Source     Source
+ Resolution Resolution
+ Modifier   Modifier
 }
 
 // Revision mirrors *arr: Version starts at 1; Real counts literal REAL tokens; Repack is informational.
 type Revision struct {
-	Version int
-	Real    int
-	Repack  bool
+ Version int
+ Real    int
+ Repack  bool
 }
 
 func (r Revision) Compare(o Revision) int // Real first, then Version
 
 // Model = quality + revision, exactly *arr QualityModel.
 type Model struct {
-	Video    Video
-	Revision Revision
-	Source   DetectionSource // Name | Extension | MediaInfo — where Video came from
+ Video    Video
+ Revision Revision
+ Source   DetectionSource // Name | Extension | MediaInfo — where Video came from
 }
 
 // Definition is the global table row: canonical ordering weight + size limits (MB per minute of runtime).
 type Definition struct {
-	Video     Video
-	Name      string
-	Weight    int      // Radarr weights 1..26; used only for display/sorting outside a profile
-	Group     string   // "WEB 1080p" etc. (default tie group)
-	MinMBMin  float64
-	MaxMBMin  *float64 // nil = unlimited
-	PrefMBMin *float64
+ Video     Video
+ Name      string
+ Weight    int      // Radarr weights 1..26; used only for display/sorting outside a profile
+ Group     string   // "WEB 1080p" etc. (default tie group)
+ MinMBMin  float64
+ MaxMBMin  *float64 // nil = unlimited
+ PrefMBMin *float64
 }
 
 // SizeTable selects TRaSH sizes: "movie" | "series" | "anime". Applied as bytes = MBmin*1024*1024*runtimeMinutes,
@@ -590,10 +594,10 @@ type SizeTable map[Video]Definition
 // pkg/quality/audio.go — music (Lidarr vocabulary, grouped into tiers)
 type AudioCodec uint8 // MP3, AAC, Vorbis, Opus, WMA, FLAC, ALAC, APE, WavPack, WAV
 type Audio struct {
-	Codec    AudioCodec
-	Bitrate  int    // kbps for CBR (8..320), 0 for VBR/lossless
-	Preset   string // "V0","V2","Q5".."Q10","VBR"
-	BitDepth int    // 16 or 24 for lossless
+ Codec    AudioCodec
+ Bitrate  int    // kbps for CBR (8..320), 0 for VBR/lossless
+ Preset   string // "V0","V2","Q5".."Q10","VBR"
+ BitDepth int    // 16 or 24 for lossless
 }
 type AudioTier uint8 // TierTrash < TierPoor < TierLow < TierMid < TierHigh < TierLossless < TierLossless24 (Lidarr GroupWeight 2..7)
 func (a Audio) Tier() AudioTier
@@ -610,30 +614,30 @@ package profile
 type MediaKind uint8 // Movie, Series, Anime, Music, Book, Audiobook, Comic, Manga
 
 type Tier struct {
-	ID        string          // "web-1080p", "bluray-1080p", "remux-1080p"
-	Name      string          // "WEB 1080p"
-	Qualities []quality.Video // >1 => group; all members compare equal
+ ID        string          // "web-1080p", "bluray-1080p", "remux-1080p"
+ Name      string          // "WEB 1080p"
+ Qualities []quality.Video // >1 => group; all members compare equal
 }
 
 type LanguagePolicy struct {
-	Mode     string // "original" | "any" | "specific"
-	Language Language
+ Mode     string // "original" | "any" | "specific"
+ Language Language
 }
 
 type Profile struct {
-	Name                  string
-	Kind                  MediaKind
-	Tiers                 []Tier            // BEST FIRST (TRaSH order). Persist this order; never *arr's reversed order.
-	Cutoff                string            // Tier.ID; upgrades on quality stop once file is in this tier or better
-	UpgradesAllowed       bool
-	MinFormatScore        int               // reject candidates below (TRaSH: 0, anime: 100)
-	CutoffFormatScore     int               // stop CF upgrades once existing >= (TRaSH: 10000)
-	MinUpgradeFormatScore int               // new >= current + this (TRaSH: 1)
-	Language              LanguagePolicy    // movies: Original; series: n/a (language CFs)
-	ScoreSet              string            // "default" | "anime-radarr" | "anime-sonarr" ...
-	Formats               map[string]int    // FormatID -> score, resolved from catalogue[ScoreSet] + profile overrides
-	SizeTable             string            // "movie" | "series" | "anime" | "music" | "book"
-	Propers               ProperPolicy      // PreferAndUpgrade | DoNotUpgrade | DoNotPrefer
+ Name                  string
+ Kind                  MediaKind
+ Tiers                 []Tier            // BEST FIRST (TRaSH order). Persist this order; never *arr's reversed order.
+ Cutoff                string            // Tier.ID; upgrades on quality stop once file is in this tier or better
+ UpgradesAllowed       bool
+ MinFormatScore        int               // reject candidates below (TRaSH: 0, anime: 100)
+ CutoffFormatScore     int               // stop CF upgrades once existing >= (TRaSH: 10000)
+ MinUpgradeFormatScore int               // new >= current + this (TRaSH: 1)
+ Language              LanguagePolicy    // movies: Original; series: n/a (language CFs)
+ ScoreSet              string            // "default" | "anime-radarr" | "anime-sonarr" ...
+ Formats               map[string]int    // FormatID -> score, resolved from catalogue[ScoreSet] + profile overrides
+ SizeTable             string            // "movie" | "series" | "anime" | "music" | "book"
+ Propers               ProperPolicy      // PreferAndUpgrade | DoNotUpgrade | DoNotPrefer
 }
 
 func (p Profile) Index(v quality.Video) (tier int, ok bool)                 // position in Tiers; ok=false => not allowed
@@ -648,52 +652,52 @@ package format
 type ConditionKind uint8
 
 const (
-	CondReleaseTitle ConditionKind = iota // regex vs release title / filename
-	CondReleaseGroup                      // regex vs parsed group
-	CondEdition                           // regex vs parsed edition (unused by TRaSH, kept for parity)
-	CondSource                            // quality.Source equality
-	CondResolution                        // quality.Resolution equality
-	CondModifier                          // quality.Modifier equality
-	CondLanguage                          // language in parsed languages; Value -2 => item's original language; ExceptLanguage => any language != Value
-	CondIndexerFlag                       // flags & Value != 0
-	CondSize                              // Min < GB <= Max
-	CondYear                              // Min <= year <= Max
-	CondReleaseType                       // Sonarr: SingleEpisode | MultiEpisode | SeasonPack
+ CondReleaseTitle ConditionKind = iota // regex vs release title / filename
+ CondReleaseGroup                      // regex vs parsed group
+ CondEdition                           // regex vs parsed edition (unused by TRaSH, kept for parity)
+ CondSource                            // quality.Source equality
+ CondResolution                        // quality.Resolution equality
+ CondModifier                          // quality.Modifier equality
+ CondLanguage                          // language in parsed languages; Value -2 => item's original language; ExceptLanguage => any language != Value
+ CondIndexerFlag                       // flags & Value != 0
+ CondSize                              // Min < GB <= Max
+ CondYear                              // Min <= year <= Max
+ CondReleaseType                       // Sonarr: SingleEpisode | MultiEpisode | SeasonPack
 )
 
 type Condition struct {
-	Kind     ConditionKind
-	Name     string
-	Negate   bool
-	Required bool
-	Pattern  string  // regexp2, compiled with IgnoreCase (+ match timeout) at catalogue load
-	Value    int     // enums / language id / flags
-	Except   bool    // CondLanguage ExceptLanguage
-	Min, Max float64 // size (GB) / year
+ Kind     ConditionKind
+ Name     string
+ Negate   bool
+ Required bool
+ Pattern  string  // regexp2, compiled with IgnoreCase (+ match timeout) at catalogue load
+ Value    int     // enums / language id / flags
+ Except   bool    // CondLanguage ExceptLanguage
+ Min, Max float64 // size (GB) / year
 }
 
 type Format struct {
-	ID         string         // stable slug: "x265-hd", "hd-bluray-tier-01"
-	Name       string
-	TrashID    string         // provenance, per app: {"radarr": "...", "sonarr": "..."}
-	Scores     map[string]int // score set -> score; missing set => Scores["default"]; missing default => 0
-	Conditions []Condition
-	Renaming   bool           // IncludeCustomFormatWhenRenaming
+ ID         string         // stable slug: "x265-hd", "hd-bluray-tier-01"
+ Name       string
+ TrashID    string         // provenance, per app: {"radarr": "...", "sonarr": "..."}
+ Scores     map[string]int // score set -> score; missing set => Scores["default"]; missing default => 0
+ Conditions []Condition
+ Renaming   bool           // IncludeCustomFormatWhenRenaming
 }
 
 // Facts is everything a condition may inspect (union of Radarr/Sonarr CustomFormatInput).
 type Facts struct {
-	ReleaseTitle     string
-	Filename         string
-	ReleaseGroup     string
-	Edition          string
-	Quality          quality.Model
-	Languages        []Language
-	OriginalLanguage Language
-	IndexerFlags     IndexerFlags
-	SizeBytes        int64
-	Year             int
-	ReleaseType      ReleaseType
+ ReleaseTitle     string
+ Filename         string
+ ReleaseGroup     string
+ Edition          string
+ Quality          quality.Model
+ Languages        []Language
+ OriginalLanguage Language
+ IndexerFlags     IndexerFlags
+ SizeBytes        int64
+ Year             int
+ ReleaseType      ReleaseType
 }
 
 // Match implements *arr semantics exactly:
@@ -709,19 +713,19 @@ func MatchAll(cat []Format, f Facts) []string // sorted ids
 type Verdict uint8
 
 const (
-	Upgrade Verdict = iota
-	ExistingBetterQuality
-	UpgradesNotAllowed
-	ExistingBetterRevision
-	QualityCutoffMet
-	FormatScoreNotHigher
-	FormatCutoffMet
-	FormatIncrementTooSmall
+ Upgrade Verdict = iota
+ ExistingBetterQuality
+ UpgradesNotAllowed
+ ExistingBetterRevision
+ QualityCutoffMet
+ FormatScoreNotHigher
+ FormatCutoffMet
+ FormatIncrementTooSmall
 )
 
 type Candidate struct {
-	Quality quality.Model
-	Formats []string // matched format ids
+ Quality quality.Model
+ Formats []string // matched format ids
 }
 
 // IsUpgrade is the *arr UpgradableSpecification decision table (section 6.1).
@@ -736,31 +740,31 @@ func Rank(p profile.Profile, cands []ScoredRelease) []ScoredRelease
 type ReleaseType uint8 // Unknown, SingleEpisode, MultiEpisode, SeasonPack
 
 type Parsed struct {
-	Kind          MediaKind
-	ReleaseTitle  string
-	Titles        []string // primary first (AKA handling)
-	Year          int
-	Edition       string
-	Quality       quality.Model
-	Languages     []Language
-	ReleaseGroup  string
-	ReleaseHash   string
-	HardcodedSubs string
-	IDs           struct{ IMDb, TMDb, TVDb string }
-	// TV
-	Seasons          []int
-	Episodes         []int
-	AbsoluteEpisodes []int
-	AirDate          string // yyyy-mm-dd for daily series
-	FullSeason       bool
-	PartialSeason    bool
-	Special          bool
-	// Music / books
-	Artist, Album, Author, Book string
-	Audio quality.Audio
-	Book  quality.BookFormat
-	// Hints for format matching only (never part of Quality): codec, HDR, audio, streaming service, from rls
-	Hints struct{ Codec, HDR, AudioCodec []string; Channels, Service string }
+ Kind          MediaKind
+ ReleaseTitle  string
+ Titles        []string // primary first (AKA handling)
+ Year          int
+ Edition       string
+ Quality       quality.Model
+ Languages     []Language
+ ReleaseGroup  string
+ ReleaseHash   string
+ HardcodedSubs string
+ IDs           struct{ IMDb, TMDb, TVDb string }
+ // TV
+ Seasons          []int
+ Episodes         []int
+ AbsoluteEpisodes []int
+ AirDate          string // yyyy-mm-dd for daily series
+ FullSeason       bool
+ PartialSeason    bool
+ Special          bool
+ // Music / books
+ Artist, Album, Author, Book string
+ Audio quality.Audio
+ Book  quality.BookFormat
+ // Hints for format matching only (never part of Quality): codec, HDR, audio, streaming service, from rls
+ Hints struct{ Codec, HDR, AudioCodec []string; Channels, Service string }
 }
 
 func (p Parsed) ReleaseType() ReleaseType // >1 episodes -> Multi; ==1 -> Single; FullSeason -> SeasonPack
@@ -769,59 +773,59 @@ func (p Parsed) ReleaseType() ReleaseType // >1 episodes -> Multi; ==1 -> Single
 ```go
 // pkg/inventory — CRD-shaped specs (spec/status split maps to Kubernetes kinds)
 type Monitoring struct {
-	Monitored       bool
-	MonitorNewItems string // "all" | "none" (Sonarr/Lidarr/Readarr); Lidarr adds "new"
-	SearchOnAdd     bool
+ Monitored       bool
+ MonitorNewItems string // "all" | "none" (Sonarr/Lidarr/Readarr); Lidarr adds "new"
+ SearchOnAdd     bool
 }
 
 type MovieAvailability uint8 // Announced, InCinemas, Released
 type MovieStatus int8        // Deleted=-1, TBA, Announced, InCinemas, Released
 
 type MovieSpec struct {
-	TMDbID, IMDbID      string
-	Title               string
-	Year                int
-	QualityProfile      string
-	RootFolder          string
-	MinimumAvailability MovieAvailability
-	AvailabilityDelay   int // days (global default)
-	Monitoring          Monitoring
-	Tags                []string
+ TMDbID, IMDbID      string
+ Title               string
+ Year                int
+ QualityProfile      string
+ RootFolder          string
+ MinimumAvailability MovieAvailability
+ AvailabilityDelay   int // days (global default)
+ Monitoring          Monitoring
+ Tags                []string
 }
 type MovieStatusBlock struct {
-	Status          MovieStatus
-	InCinemas       *time.Time
-	PhysicalRelease *time.Time
-	DigitalRelease  *time.Time
-	Runtime         int
-	OriginalLanguage Language
-	File            *MediaFile // Quality, Formats, Languages, ReleaseGroup, Edition, MediaInfo, IndexerFlags, Size
+ Status          MovieStatus
+ InCinemas       *time.Time
+ PhysicalRelease *time.Time
+ DigitalRelease  *time.Time
+ Runtime         int
+ OriginalLanguage Language
+ File            *MediaFile // Quality, Formats, Languages, ReleaseGroup, Edition, MediaInfo, IndexerFlags, Size
 }
 func (m MovieStatusBlock) Available(min MovieAvailability, delayDays int, now time.Time) bool // section 9 algorithm
 
 type SeriesType uint8 // Standard, Daily, Anime
 type SeriesSpec struct {
-	TVDbID, IMDbID, TMDbID string
-	MALIDs, AniListIDs     []int
-	Title                  string
-	SeriesType             SeriesType
-	QualityProfile, RootFolder string
-	SeasonFolder           bool
-	UseSceneNumbering      bool
-	Monitoring             Monitoring
-	AddMonitor             string // all|future|missing|existing|firstSeason|lastSeason|pilot|recent|monitorSpecials|unmonitorSpecials|none
-	Seasons                []SeasonSpec // {Number, Monitored}
-	Tags                   []string
+ TVDbID, IMDbID, TMDbID string
+ MALIDs, AniListIDs     []int
+ Title                  string
+ SeriesType             SeriesType
+ QualityProfile, RootFolder string
+ SeasonFolder           bool
+ UseSceneNumbering      bool
+ Monitoring             Monitoring
+ AddMonitor             string // all|future|missing|existing|firstSeason|lastSeason|pilot|recent|monitorSpecials|unmonitorSpecials|none
+ Seasons                []SeasonSpec // {Number, Monitored}
+ Tags                   []string
 }
 type Episode struct {
-	Season, Number     int
-	Absolute           *int
-	SceneSeason, SceneNumber, SceneAbsolute *int
-	AirDateUTC         *time.Time
-	Runtime            int
-	Monitored          bool
-	FinaleType         string
-	File               *MediaFile // includes ReleaseType of the grab it came from
+ Season, Number     int
+ Absolute           *int
+ SceneSeason, SceneNumber, SceneAbsolute *int
+ AirDateUTC         *time.Time
+ Runtime            int
+ Monitored          bool
+ FinaleType         string
+ File               *MediaFile // includes ReleaseType of the grab it came from
 }
 
 type ArtistSpec struct { MBID string; Name string; QualityProfile, MetadataProfile, RootFolder string; Monitoring Monitoring; AddMonitor string /* all|future|missing|existing|latest|first|none */ }
@@ -847,7 +851,7 @@ Kubernetes mapping suggestion: `QualityProfile` (cluster-scoped, built-ins `hd-b
 ## 15. Go libraries (versions verified with `go list -m -versions … | tail -1` on 2026-09-18)
 
 | Module | Version | Purpose | Notes |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | github.com/dlclark/regexp2 | v1.12.0 | .NET-compatible backtracking regex | Compiled 2791/2791 TRaSH regexes; stdlib rejects 157. Use `regexp2.IgnoreCase`, set `MatchTimeout`. |
 | github.com/moistari/rls | v0.6.0 | Release-name tokenizer (movie/series/episode/music/book/comic; codec/HDR/audio/channels/group/edition/cut/language) | Good for CF hints and type detection; weak on anime `[Group]`, audiobooks, `REAL`/`v2` revisions. Used by autobrr. |
 | github.com/razsteinmetz/go-ptn | v1.0.0 | Simpler parse-torrent-name port (`ptn.Parse(name) (*TorrentInfo, error)`) | Not evaluated at runtime; fallback only. |

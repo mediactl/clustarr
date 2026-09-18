@@ -3,3 +3,4 @@ dist/
 *.test
 cover.out
 .env
+.data/

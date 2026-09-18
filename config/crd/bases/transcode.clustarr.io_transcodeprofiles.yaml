@@ -1,0 +1,687 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: transcodeprofiles.transcode.clustarr.io
+spec:
+  group: transcode.clustarr.io
+  names:
+    categories:
+    - clustarr
+    kind: TranscodeProfile
+    listKind: TranscodeProfileList
+    plural: transcodeprofiles
+    singular: transcodeprofile
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.default
+      name: Default
+      type: boolean
+    - jsonPath: .spec.hardware
+      name: Hardware
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.matchingFiles
+      name: Matching
+      type: integer
+    - jsonPath: .status.pendingJobs
+      name: Pending
+      type: integer
+    - jsonPath: .status.runningJobs
+      name: Running
+      type: integer
+    - jsonPath: .status.hash
+      name: Hash
+      priority: 1
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: TranscodeProfile describes how matching MediaFiles are transcoded.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: TranscodeProfileSpec defines the desired state of TranscodeProfile.
+            properties:
+              activeDeadline:
+                default: 48h
+                description: ActiveDeadline is the batch Job activeDeadlineSeconds
+                  for the encode.
+                type: string
+              audio:
+                default: {}
+                description: Audio describes audio handling.
+                properties:
+                  bitratePerChannelKbps:
+                    default: 64
+                    description: BitratePerChannelKbps is the encoded bitrate per
+                      audio channel.
+                    format: int32
+                    type: integer
+                  codec:
+                    default: aac
+                    description: Codec is the target audio codec for re-encoded tracks.
+                    type: string
+                  dropCommentary:
+                    default: true
+                    description: DropCommentary drops tracks flagged as commentary.
+                    type: boolean
+                  keepOriginal:
+                    default: atmos
+                    description: |-
+                      KeepOriginal says when the original track is kept instead of, or in
+                      addition to, the re-encoded one.
+                    enum:
+                    - never
+                    - lossless
+                    - atmos
+                    - always
+                    type: string
+                  languages:
+                    description: Languages restricts which audio languages are kept;
+                      empty keeps all.
+                    items:
+                      type: string
+                    type: array
+                  stereoCompatTrack:
+                    default: false
+                    description: StereoCompatTrack adds a stereo downmix track for
+                      compatibility.
+                    type: boolean
+                type: object
+              chunking:
+                description: |-
+                  Chunking configures chunked encoding. Deferred: accepted but
+                  chunking.enabled must be false in v1alpha1.
+                properties:
+                  enabled:
+                    description: Enabled turns on chunked encoding. Must be false
+                      in v1alpha1.
+                    type: boolean
+                type: object
+                x-kubernetes-validations:
+                - message: 'chunking is not supported in v1alpha1: chunking.enabled
+                    must be false'
+                  rule: '!has(self.enabled) || !self.enabled'
+              container:
+                default: mkv
+                description: Container is the output container.
+                enum:
+                - mkv
+                - mp4
+                type: string
+              default:
+                description: |-
+                  Default marks this profile as the cluster default. Exactly one profile
+                  may be the default; the controller sets Invalid on the newer one.
+                type: boolean
+              gpu:
+                description: GPU schedules the encode pod onto a GPU.
+                properties:
+                  count:
+                    default: 1
+                    description: Count is the number of GPUs requested.
+                    format: int32
+                    type: integer
+                  nodeSelector:
+                    additionalProperties:
+                      type: string
+                    description: NodeSelector is applied to the encode pod.
+                    type: object
+                  runtimeClassName:
+                    default: nvidia
+                    description: RuntimeClassName is the RuntimeClass used for the
+                      encode pod.
+                    type: string
+                  tolerations:
+                    description: Tolerations are applied to the encode pod.
+                    items:
+                      description: |-
+                        The pod this Toleration is attached to tolerates any taint that matches
+                        the triple <key,value,effect> using the matching operator <operator>.
+                      properties:
+                        effect:
+                          description: |-
+                            Effect indicates the taint effect to match. Empty means match all taint effects.
+                            When specified, allowed values are NoSchedule, PreferNoSchedule and NoExecute.
+                          type: string
+                        key:
+                          description: |-
+                            Key is the taint key that the toleration applies to. Empty means match all taint keys.
+                            If the key is empty, operator must be Exists; this combination means to match all values and all keys.
+                          type: string
+                        operator:
+                          description: |-
+                            Operator represents a key's relationship to the value.
+                            Valid operators are Exists, Equal, Lt, and Gt. Defaults to Equal.
+                            Exists is equivalent to wildcard for value, so that a pod can
+                            tolerate all taints of a particular category.
+                            Lt and Gt perform numeric comparisons (requires feature gate TaintTolerationComparisonOperators).
+                          type: string
+                        tolerationSeconds:
+                          description: |-
+                            TolerationSeconds represents the period of time the toleration (which must be
+                            of effect NoExecute, otherwise this field is ignored) tolerates the taint. By default,
+                            it is not set, which means tolerate the taint forever (do not evict). Zero and
+                            negative values will be treated as 0 (evict immediately) by the system.
+                          format: int64
+                          type: integer
+                        value:
+                          description: |-
+                            Value is the taint value the toleration matches to.
+                            If the operator is Exists, the value should be empty, otherwise just a regular string.
+                          type: string
+                      type: object
+                    type: array
+                type: object
+              hardware:
+                default: cpu
+                description: Hardware is the encoder backend.
+                enum:
+                - cpu
+                - nvidia
+                - intel
+                type: string
+              hdr:
+                default: {}
+                description: HDR describes HDR metadata handling.
+                properties:
+                  dolbyVision:
+                    default: passthrough
+                    description: DolbyVision says what happens to Dolby Vision sources.
+                    enum:
+                    - passthrough
+                    - downgradeToHDR10
+                    - reject
+                    type: string
+                  hdr10Plus:
+                    default: drop
+                    description: HDR10Plus says what happens to HDR10+ dynamic metadata.
+                    enum:
+                    - drop
+                    type: string
+                type: object
+              policy:
+                default: {}
+                description: Policy decides which files are transcoded and what happens
+                  afterwards.
+                properties:
+                  maxOutputToSourcePercent:
+                    default: 1
+                    description: |-
+                      MaxOutputToSourceRatio fails a job whose output is larger than this
+                      multiple of the source size.
+                    format: int32
+                    type: integer
+                  minDuration:
+                    default: 1m
+                    description: MinDuration is the shortest source runtime considered
+                      for transcoding.
+                    type: string
+                  neverTranscodeModifiers:
+                    default:
+                    - remux
+                    - brdisk
+                    description: |-
+                      NeverTranscodeModifiers lists quality modifiers (see common Modifier)
+                      whose files are never transcoded.
+                    items:
+                      type: string
+                    type: array
+                  recycleBin:
+                    default: true
+                    description: |-
+                      RecycleBin moves the replaced source to the recycle bin instead of
+                      deleting it.
+                    type: boolean
+                  remuxOnlyWhenVideoCompliant:
+                    default: true
+                    description: |-
+                      RemuxOnlyWhenVideoCompliant only remuxes (no video encode) when the
+                      video stream already satisfies the profile.
+                    type: boolean
+                  replaceSource:
+                    default: true
+                    description: ReplaceSource replaces the source file with the output
+                      on success.
+                    type: boolean
+                  skipIfCompliant:
+                    default: true
+                    description: SkipIfCompliant skips files that already satisfy
+                      the profile.
+                    type: boolean
+                type: object
+              priority:
+                default: 50
+                description: Priority orders jobs created from this profile; higher
+                  runs first.
+                format: int32
+                type: integer
+              resources:
+                default:
+                  limits:
+                    cpu: "8"
+                    memory: 4Gi
+                description: |-
+                  Resources are the encode container's resource requirements. The default
+                  limits (cpu 8, memory 4Gi) suit 1080p; the CPU limit is fed to the x265
+                  thread pools.
+                properties:
+                  claims:
+                    description: |-
+                      Claims lists the names of resources, defined in spec.resourceClaims,
+                      that are used by this container.
+
+                      This field depends on the
+                      DynamicResourceAllocation feature gate.
+
+                      This field is immutable. It can only be set for containers.
+                    items:
+                      description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                      properties:
+                        name:
+                          description: |-
+                            Name must match the name of one entry in pod.spec.resourceClaims of
+                            the Pod where this field is used. It makes that resource available
+                            inside a container.
+                          type: string
+                        request:
+                          description: |-
+                            Request is the name chosen for a request in the referenced claim.
+                            If empty, everything from the claim is made available, otherwise
+                            only the result of this request.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                  limits:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Limits describes the maximum amount of compute resources allowed.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                  requests:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Requests describes the minimum amount of compute resources required.
+                      If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                      otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                type: object
+              scratch:
+                anyOf:
+                - type: integer
+                - type: string
+                default: 20Gi
+                description: Scratch is the emptyDir sizeLimit for the encode pod's
+                  scratch space.
+                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                x-kubernetes-int-or-string: true
+              selector:
+                description: |-
+                  Selector matches MediaFile labels this profile applies to. Only video
+                  kinds (movie, episode) are eligible; enforced by the controller.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+              subtitles:
+                default: {}
+                description: Subtitles describes subtitle and attachment handling.
+                properties:
+                  copyAttachments:
+                    default: true
+                    description: CopyAttachments copies container attachments such
+                      as fonts.
+                    type: boolean
+                  copyBitmap:
+                    default: true
+                    description: CopyBitmap copies bitmap (PGS/VobSub) subtitle tracks.
+                    type: boolean
+                  copyText:
+                    default: true
+                    description: CopyText copies text-based subtitle tracks.
+                    type: boolean
+                type: object
+              ttlSecondsAfterFinished:
+                default: 86400
+                description: TTLSecondsAfterFinished is the batch Job ttlSecondsAfterFinished.
+                format: int32
+                type: integer
+              verify:
+                default: {}
+                description: Verify describes post-encode verification.
+                properties:
+                  fullDecode:
+                    default: false
+                    description: FullDecode fully decodes the output to check for
+                      corruption.
+                    type: boolean
+                  packetCount:
+                    default: true
+                    description: PacketCount compares packet counts between source
+                      and output.
+                    type: boolean
+                  vmafMinCentis:
+                    description: VMAFMin fails the job when the VMAF score falls below
+                      this value.
+                    format: int32
+                    type: integer
+                type: object
+              video:
+                default: {}
+                description: Video describes the video encode.
+                properties:
+                  aqMode:
+                    default: 3
+                    description: AQMode is the adaptive-quantisation mode.
+                    format: int32
+                    type: integer
+                  bFrames:
+                    default: 8
+                    description: BFrames is the number of consecutive B-frames.
+                    format: int32
+                    type: integer
+                  bufSizeKbps:
+                    description: |-
+                      BufSizeKbps is the VBV buffer size. Required for Dolby Vision output;
+                      validated by the planner.
+                    format: int32
+                    type: integer
+                  codec:
+                    default: hevc
+                    description: Codec is the target video codec.
+                    type: string
+                  crf:
+                    default: {}
+                    description: CRF is the constant-rate-factor table by resolution
+                      class.
+                    properties:
+                      hd:
+                        default: 22
+                        description: HD is the CRF used for 720p/1080p sources.
+                        format: int32
+                        type: integer
+                      hdrOffset:
+                        default: -1
+                        description: HDROffset is added to the resolution CRF when
+                          the source is HDR.
+                        format: int32
+                        type: integer
+                      sd:
+                        default: 21
+                        description: SD is the CRF used for standard-definition sources.
+                        format: int32
+                        type: integer
+                      uhd:
+                        default: 23
+                        description: UHD is the CRF used for 2160p sources.
+                        format: int32
+                        type: integer
+                    type: object
+                  extraX265Params:
+                    additionalProperties:
+                      type: string
+                    description: ExtraX265Params are additional key/value pairs appended
+                      to -x265-params.
+                    type: object
+                  keyintFactor:
+                    default: 10
+                    description: KeyintFactor sets the keyframe interval as a multiple
+                      of the frame rate.
+                    format: int32
+                    type: integer
+                  maxRateKbps:
+                    description: |-
+                      MaxRateKbps caps the video bitrate (VBV maxrate). Required for Dolby
+                      Vision output; validated by the planner.
+                    format: int32
+                    type: integer
+                  nvenc:
+                    default: {}
+                    description: NVENC tunes the NVIDIA encoder; used when hardware=nvidia.
+                    properties:
+                      bRefMode:
+                        default: middle
+                        description: BRefMode is the NVENC B-frame reference mode.
+                        type: string
+                      cq:
+                        default: 24
+                        description: CQ is the constant-quality level.
+                        format: int32
+                        type: integer
+                      multipass:
+                        default: fullres
+                        description: Multipass is the NVENC multi-pass mode.
+                        type: string
+                      preset:
+                        default: p6
+                        description: Preset is the NVENC preset (p1 fastest .. p7
+                          slowest).
+                        type: string
+                      tune:
+                        default: hq
+                        description: Tune is the NVENC tuning target.
+                        type: string
+                    type: object
+                  pixelFormat:
+                    default: yuv420p10le
+                    description: PixelFormat is the target pixel format.
+                    type: string
+                  preset:
+                    default: slow
+                    description: Preset is the x265 preset.
+                    type: string
+                  profile:
+                    default: main10
+                    description: Profile is the target codec profile.
+                    type: string
+                  qsv:
+                    default: {}
+                    description: QSV tunes the Intel Quick Sync encoder; used when
+                      hardware=intel.
+                    properties:
+                      globalQuality:
+                        default: 22
+                        description: GlobalQuality is the QSV ICQ/global quality level.
+                        format: int32
+                        type: integer
+                      lookAheadDepth:
+                        default: 40
+                        description: LookAheadDepth is the QSV look-ahead depth in
+                          frames.
+                        format: int32
+                        type: integer
+                      preset:
+                        default: veryslow
+                        description: Preset is the QSV preset.
+                        type: string
+                    type: object
+                  rcLookahead:
+                    default: 40
+                    description: RCLookahead is the rate-control look-ahead in frames.
+                    format: int32
+                    type: integer
+                  refs:
+                    default: 4
+                    description: Refs is the number of reference frames.
+                    format: int32
+                    type: integer
+                  tune:
+                    description: Tune is the optional x265 tune.
+                    type: string
+                type: object
+            type: object
+          status:
+            description: TranscodeProfileStatus defines the observed state of TranscodeProfile.
+            properties:
+              conditions:
+                description: Conditions holds Ready and Invalid.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              hash:
+                description: |-
+                  Hash is the sha256 of the render-relevant spec. Encode pods receive it
+                  as CLUSTARR_PROFILE=<name>@<hash>.
+                type: string
+              matchingFiles:
+                description: MatchingFiles is the number of MediaFiles selected by
+                  this profile.
+                format: int32
+                type: integer
+              observedGeneration:
+                description: ObservedGeneration is the most recent generation observed
+                  by the controller.
+                format: int64
+                type: integer
+              pendingJobs:
+                description: PendingJobs is the number of TranscodeJobs for this profile
+                  not yet running.
+                format: int32
+                type: integer
+              runningJobs:
+                description: RunningJobs is the number of TranscodeJobs for this profile
+                  currently running.
+                format: int32
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

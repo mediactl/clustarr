@@ -1,0 +1,19 @@
+# In-cluster NATS for kind/dev: one server, JetStream on, file store on a PVC.
+# Included by config/default; also applied standalone by hack/kind.sh.
+# Production installs should use the nats Helm chart (charts/clustarr pulls
+# nats 2.14.6 as a dependency) for clustering (R3), reloader and exporter.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: clustarr-system
+
+labels:
+- includeSelectors: true
+  pairs:
+    app.kubernetes.io/name: nats
+    app.kubernetes.io/part-of: clustarr
+
+resources:
+- configmap.yaml
+- service.yaml
+- statefulset.yaml
