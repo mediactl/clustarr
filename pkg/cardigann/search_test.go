@@ -19,6 +19,7 @@ package cardigann_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -176,4 +177,60 @@ func TestEngineSearch0dayfilesJSON(t *testing.T) {
 	require.NotNil(t, show.UploadVolumeFactor)
 	assert.Equal(t, 2.0, *show.UploadVolumeFactor) // double_upload:true
 	assert.Equal(t, "", show.IDs["imdb"])          // key exists in the JSON with an empty value: a real match, not a miss
+}
+
+// TestEngineSearchRespectsContextCancellation asserts that a Search call
+// blocked on a slow/hung indexer returns promptly — via the request's own
+// ctx, not some internal timeout — when the caller cancels ctx. The
+// handler never responds on its own; the only way its handler goroutine
+// (and therefore Search) unblocks is the client tearing down the
+// connection because ctx was canceled.
+func TestEngineSearchRespectsContextCancellation(t *testing.T) {
+	reached := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(reached)
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	def := &cardigann.Definition{
+		Search: cardigann.SearchBlock{
+			Path: "search",
+			Rows: cardigann.RowsBlock{SelectorBlock: cardigann.SelectorBlock{Selector: "tr"}},
+			Fields: cardigann.OrderedFields{
+				{Name: "title", Block: cardigann.SelectorBlock{Text: scalarPtr("t")}},
+				{Name: "size", Block: cardigann.SelectorBlock{Text: scalarPtr("0")}},
+				{Name: "seeders", Block: cardigann.SelectorBlock{Text: scalarPtr("0")}},
+				{Name: "category", Block: cardigann.SelectorBlock{Text: scalarPtr("1")}},
+				{Name: "download", Block: cardigann.SelectorBlock{Text: scalarPtr("magnet:?xt=urn:btih:x")}},
+			},
+		},
+	}
+	cfg, err := cardigann.NewConfig(def, srv.URL+"/", nil)
+	require.NoError(t, err)
+	eng := cardigann.Engine{HTTP: srv.Client()}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, searchErr := eng.Search(ctx, def, cfg, cardigann.Query{Type: "search"})
+		errCh <- searchErr
+	}()
+
+	select {
+	case <-reached:
+	case <-time.After(2 * time.Second):
+		t.Fatal("request never reached the test server")
+	}
+	cancel()
+
+	select {
+	case searchErr := <-errCh:
+		require.Error(t, searchErr)
+		assert.True(t, errors.Is(searchErr, context.Canceled), "want errors.Is(err, context.Canceled), got %v", searchErr)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Search did not return promptly after context cancellation")
+	}
 }
