@@ -155,3 +155,18 @@ func TestRegisterSucceedsAgainstAFreshRegistry(t *testing.T) {
 	reg := prometheus.NewPedanticRegistry()
 	require.NoError(t, Register(reg))
 }
+
+// TestDurationBucketsLongCoverDaysNotHours guards the ceiling
+// durationBucketsLong needs to be useful for DownloadDuration and
+// TranscodeDuration: downloads can sit starved for days and large
+// transcodes can run most of a day, so a top boundary below
+// durationBucketsLongMax would make histogram_quantile silently clamp
+// exactly the slow/stuck tail those metrics exist to catch, instead of
+// reporting it.
+func TestDurationBucketsLongCoverDaysNotHours(t *testing.T) {
+	require.NotEmpty(t, durationBucketsLong)
+	max := durationBucketsLong[len(durationBucketsLong)-1]
+	require.GreaterOrEqual(t, max, float64(durationBucketsLongMax),
+		"durationBucketsLong tops out at %.0fs, need at least %ds (3 days) so a stuck download or transcode isn't clamped into the last bucket",
+		max, durationBucketsLongMax)
+}

@@ -126,10 +126,12 @@ reading one `traceparent` end to end:
    `Download` directly and grabs now.
 4. **Download** — `grabarr`'s torrent or usenet engine consumes the grab and
    drives the transfer; its span covers the client call that starts the
-   download. The multi-minute-to-multi-hour transfer itself is not one long
-   span — it is the `clustarr_download_duration_seconds` histogram above —
-   but the engine's periodic status reconciles remain part of the same trace
-   via the `Download`'s owned events.
+   download. The multi-minute-to-multi-day transfer itself is not one long
+   span — it is the `clustarr_download_duration_seconds` histogram above,
+   bucketed out to 3 days so a starved torrent's tail is still measurable
+   instead of being clamped into the last bucket — but the engine's periodic
+   status reconciles remain part of the same trace via the `Download`'s
+   owned events.
 5. **Import** — `catalogarr`'s (soon `importarr`'s) import worker consumes
    `work.catalogarr.import.normal.<uid>` once the `Download` reaches
    `Completed`/`Seeding`; its span covers probing, naming and the

@@ -17,14 +17,27 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package metrics
 
+// durationBucketsLongMax is the minimum acceptable top boundary for
+// durationBucketsLong, in seconds (3 days). Guarded by
+// TestDurationBucketsLongCoverDaysNotHours in metrics_test.go so the
+// ceiling cannot silently regress back to a few hours.
+const durationBucketsLongMax = 259200
+
 // Bucket sets shared by histograms whose observations land far outside
 // prometheus.DefBuckets' 5ms-10s range. Each is documented at its use site
 // below; they live here so the same boundaries are visible in one place.
 var (
 	// durationBucketsLong covers operations that run from a few seconds to
-	// several hours: downloads and transcodes.
+	// several days: downloads (a starved torrent can sit for days) and
+	// transcodes (a large remux on a loaded CPU tier can run most of a
+	// day). The top boundary must stay at or above durationBucketsLongMax
+	// (3 days) or histogram_quantile silently clamps a slow/stuck tail to
+	// the last finite bucket instead of reporting it — precisely the
+	// failure mode the download_duration_seconds and
+	// transcode_duration_seconds rows in docs/observability.md warn about.
 	durationBucketsLong = []float64{
 		1, 5, 15, 30, 60, 120, 300, 600, 1200, 1800, 3600, 7200, 14400, 28800,
+		43200, 86400, 172800, 259200,
 	}
 
 	// durationBucketsShort covers sub-second to roughly a minute: indexer
