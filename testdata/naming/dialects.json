@@ -1,0 +1,26 @@
+[
+  {
+    "dialect": "jellyfin",
+    "movieFolder": "The Matrix (1999) [tmdbid-603]",
+    "movieFile": "The Matrix (1999) - [Bluray-2160p]-RlsGrp",
+    "seriesFolder": "The Series Title! (2010) [tvdbid-153021]"
+  },
+  {
+    "dialect": "plex",
+    "movieFolder": "The Matrix (1999) {tmdb-603}",
+    "movieFile": "The Matrix (1999) - [Bluray-2160p]-RlsGrp",
+    "seriesFolder": "The Series Title! (2010) {tvdb-153021}"
+  },
+  {
+    "dialect": "emby",
+    "movieFolder": "The Matrix (1999) [tmdb-603]",
+    "movieFile": "The Matrix (1999) - [Bluray-2160p]-RlsGrp",
+    "seriesFolder": "The Series Title! (2010) [tvdb-153021]"
+  },
+  {
+    "dialect": "kodi",
+    "movieFolder": "The Matrix (1999)",
+    "movieFile": "The Matrix (1999) - [Bluray-2160p]-RlsGrp",
+    "seriesFolder": "The Series Title! (2010)"
+  }
+]
