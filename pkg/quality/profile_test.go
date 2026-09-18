@@ -50,7 +50,7 @@ func TestProfileIndexAllowedAndCutoffMet(t *testing.T) {
 	require.False(t, p.Allowed(common.Quality{Source: common.SourceCam, Modifier: common.ModifierNone})) // not in any tier
 
 	require.True(t, p.CutoffMet(bluray1080.Quality)) // at cutoff tier
-	require.False(t, p.CutoffMet(webdl1080.Quality))  // below cutoff (higher index)
+	require.False(t, p.CutoffMet(webdl1080.Quality)) // below cutoff (higher index)
 }
 
 func TestIndexAllowedCutoffMetOnZeroValueProfileDoNotPanic(t *testing.T) {
