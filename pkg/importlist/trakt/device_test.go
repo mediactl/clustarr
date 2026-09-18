@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package trakt_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -99,4 +100,22 @@ func TestDeviceFlowPollTerminalStates(t *testing.T) {
 			assert.Zero(t, tok)
 		})
 	}
+}
+
+func TestDeviceFlowRefresh(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/oauth/token", r.URL.Path)
+		var body map[string]string
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		assert.Equal(t, "refresh_token", body["grant_type"])
+		assert.Equal(t, "old-refresh", body["refresh_token"])
+		_, _ = w.Write(mustReadFile(t, "../../../testdata/importlist/trakt/token_refresh.json"))
+	}))
+	defer srv.Close()
+
+	flow := trakt.NewDeviceFlow(trakt.Credentials{ClientID: "cid", ClientSecret: "secret"}, trakt.WithBaseURL(srv.URL))
+	tok, err := flow.Refresh(t.Context(), "old-refresh")
+	require.NoError(t, err)
+	assert.Equal(t, "e58479e1a76e3b1d2e9b06d7c2e40c0e9c5a4b1d3d9db32d1e97f8e5e2e07c1f", tok.AccessToken)
+	assert.NotEqual(t, "old-refresh", tok.RefreshToken) // Trakt refresh tokens are single-use
 }
