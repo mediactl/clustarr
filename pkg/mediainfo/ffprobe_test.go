@@ -90,3 +90,63 @@ func TestBuildRawWithNoDoviSideDataLeavesDoviNil(t *testing.T) {
 	assert.Nil(t, raw.Dovi)
 	assert.Same(t, pd.Format, raw.Format)
 }
+
+// hdr10FrameJSON is real ffprobe 9.0.1 output (the second command in
+// docs/research/transcode.md §2.1) captured on this box against an
+// x265-encoded clip tagged exactly as docs/research/transcode.md §2.2
+// describes (colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc,
+// master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1),
+// max-cll=1000,400) -- the side-data values are exactly the note's own
+// worked example, independently reproduced.
+const hdr10FrameJSON = `{
+  "frames": [
+    {
+      "pix_fmt": "yuv420p10le",
+      "color_range": "tv",
+      "color_space": "bt2020nc",
+      "color_primaries": "bt2020",
+      "color_transfer": "smpte2084",
+      "side_data_list": [
+        {"side_data_type": "H.26[45] User Data Unregistered SEI message"},
+        {"side_data_type": "Mastering display metadata", "red_x": "34000/50000", "red_y": "16000/50000", "green_x": "13250/50000", "green_y": "34500/50000", "blue_x": "7500/50000", "blue_y": "3000/50000", "white_point_x": "15635/50000", "white_point_y": "16450/50000", "min_luminance": "1/10000", "max_luminance": "10000000/10000"},
+        {"side_data_type": "Content light level metadata", "max_content": 1000, "max_average": 400}
+      ]
+    }
+  ]
+}`
+
+func TestMergeFrameExtractsColourAndStaticHDRMetadata(t *testing.T) {
+	var fd frameProbeData
+	require.NoError(t, json.Unmarshal([]byte(hdr10FrameJSON), &fd))
+
+	raw := &Raw{}
+	mergeFrame(raw, fd)
+
+	assert.Equal(t, "bt2020", raw.ColorPrimaries)
+	assert.Equal(t, "smpte2084", raw.ColorTransfer)
+	assert.Equal(t, "bt2020nc", raw.ColorSpace)
+	assert.Equal(t, "tv", raw.ColorRange)
+	require.NotNil(t, raw.MasteringDisplay)
+	assert.Equal(t, "G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1)", raw.MasteringDisplay.X265())
+	require.NotNil(t, raw.ContentLight)
+	assert.Equal(t, "1000,400", raw.ContentLight.X265())
+	assert.False(t, raw.HasHDR10Plus)
+}
+
+func TestMergeFrameDetectsHDR10Plus(t *testing.T) {
+	const j = `{"frames":[{"color_transfer":"smpte2084","side_data_list":[{"side_data_type":"HDR Dynamic Metadata SMPTE2094-40 (HDR10+)"}]}]}`
+	var fd frameProbeData
+	require.NoError(t, json.Unmarshal([]byte(j), &fd))
+
+	raw := &Raw{}
+	mergeFrame(raw, fd)
+
+	assert.True(t, raw.HasHDR10Plus)
+}
+
+func TestMergeFrameWithNoFramesLeavesRawUnchanged(t *testing.T) {
+	raw := &Raw{}
+	mergeFrame(raw, frameProbeData{})
+	assert.Empty(t, raw.ColorTransfer)
+	assert.Nil(t, raw.MasteringDisplay)
+}
