@@ -145,7 +145,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 // the same self-loop-avoidance shape §10 and Step 8's envtest require.
 //
 // The pendingGrab arm is what makes Phase=Delayed reachable at all. The grab
-// worker writes status.pendingGrab under k8s.ManagerCatalogarrWorker, which
+// worker writes status.pendingGrab under k8s.ManagerCatalogarrGrab, which
 // bumps no generation and touches no metadata, so without this arm the write
 // would not even schedule a reconcile: the movie would sit at Wanted for the
 // whole delay window and only move when a Download appeared. The extracted

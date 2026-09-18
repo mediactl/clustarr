@@ -292,7 +292,12 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	}
 	// When !active and a ref was set, WithActiveDownloadRef is deliberately
 	// not called -- see the identical rationale in the movie package's
-	// reconciler.go.
+	// reconciler.go, including the caveat that this clear-by-omission only
+	// takes effect while ManagerCatalogarr still holds the field: the grab
+	// worker writes it too, under ManagerCatalogarrGrab, and PatchStatus
+	// passes ForceOwnership so ownership migrates to whoever wrote last
+	// rather than raising a conflict. Task C12 adjudicates which side keeps
+	// it.
 
 	// This reconciler owns exactly Phase/Conditions/HasFile/FileRef/
 	// FileQuality/FileFormatScore/CutoffMet/ActiveDownloadRef/
