@@ -51,3 +51,17 @@ func TestDeriveRegionalReleasesFallsBackToUSThenFirstCountry(t *testing.T) {
 
 	require.NotNil(t, inCinemas, "no DE or US entry exists, so the first country present (FR) must be used")
 }
+
+func TestDeriveMovieStatus(t *testing.T) {
+	now := time.Date(2010, 8, 1, 0, 0, 0, 0, time.UTC)
+	inCinemas := time.Date(2010, 7, 16, 0, 0, 0, 0, time.UTC) // 16 days before now
+	oldCinemas := time.Date(2010, 1, 1, 0, 0, 0, 0, time.UTC) // well past 90 days
+	future := time.Date(2010, 12, 25, 0, 0, 0, 0, time.UTC)
+	digital := time.Date(2010, 7, 20, 0, 0, 0, 0, time.UTC)
+
+	require.Equal(t, metadata.MovieStatusTBA, metadata.DeriveMovieStatus(nil, nil, nil, now))
+	require.Equal(t, metadata.MovieStatusAnnounced, metadata.DeriveMovieStatus(&future, nil, nil, now))
+	require.Equal(t, metadata.MovieStatusInCinemas, metadata.DeriveMovieStatus(&inCinemas, nil, nil, now))
+	require.Equal(t, metadata.MovieStatusReleased, metadata.DeriveMovieStatus(&oldCinemas, nil, nil, now))
+	require.Equal(t, metadata.MovieStatusReleased, metadata.DeriveMovieStatus(&inCinemas, &digital, nil, now), "a reached digital date is released even inside the 90-day cinema window")
+}
