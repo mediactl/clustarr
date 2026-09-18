@@ -128,67 +128,140 @@ func FixMojibake(s string) string {
 	return reencoded
 }
 
-// PostProcess is spec §7's exact signature: decode to UTF-8, convert to SRT
-// unless !toSRT (profile.originalFormat), apply mods in order, always
+// PostProcess is spec §7's exact signature: decode to UTF-8, parse into
+// cues, convert to SRT unless !toSRT (profile.originalFormat), apply mods
+// per cue (never over the flattened document — see applyMods), always
 // return valid UTF-8 SRT (or the original format's UTF-8 bytes).
+//
+// Cue-awareness matters because a mod can empty a cue's text entirely (the
+// canonical case: ModRemoveHI on a cue that is nothing but a bracketed
+// sound cue). Operating on the whole rendered document as flat text — the
+// pre-fix-round implementation — drops blank-line cue separators wholesale
+// and leaves a hollowed-out cue as an orphaned index+timestamp with no
+// text, corrupting the SRT structure for every cue after it. Parsing with
+// go-astisub first, applying mods to each Item's own text, dropping items
+// that become empty, and letting go-astisub's writer renumber and
+// re-separate cues on the way out keeps the document well-formed no matter
+// which cues a mod removes.
 func PostProcess(raw []byte, lang string, mods []string, toSRT bool) ([]byte, error) {
 	decoded, err := decodeToUTF8(raw, lang)
 	if err != nil {
 		return nil, err
 	}
 
-	body := decoded
-	if toSRT {
-		body, err = convertToSRT(decoded)
-		if err != nil {
-			return nil, err
-		}
+	subs, isASS, err := parseSubtitles(decoded)
+	if err != nil {
+		return nil, fmt.Errorf("subtitles: parse: %w", err)
 	}
 
-	// Mojibake repair runs on every write, unconditionally — research note
-	// §6 item 2: Bazarr's ftfy.fix_text runs on every write, it is not
-	// gated by a profile mod (ModCommon covers a different, still-deferred
-	// set of whitespace/punctuation fixes — see below).
-	text := FixMojibake(string(body))
-
-	for _, mod := range mods {
-		switch mod {
-		case ModRemoveHI:
-			text, err = RemoveHI(text)
-			if err != nil {
-				return nil, fmt.Errorf("subtitles: removeHI: %w", err)
-			}
-		case ModFixUppercase:
-			text = fixUppercase(text)
-		case ModRemoveTags, ModOCRFixes, ModCommon, ModReverseRTL, ModColor:
-			// Deferred: no fixture-verified behaviour for these yet.
-			// Recognised (not an error) so a profile listing them does not
-			// fail PostProcess; add a real implementation + test the same
-			// way as ModRemoveHI once one is needed by the captionarr
-			// worker.
-		default:
-			return nil, fmt.Errorf("subtitles: unknown mod %q", mod)
-		}
+	if err := applyMods(subs, mods); err != nil {
+		return nil, err
 	}
-	return []byte(text), nil
+
+	var buf bytes.Buffer
+	if isASS && !toSRT {
+		err = subs.WriteToSSA(&buf)
+	} else {
+		err = subs.WriteToSRT(&buf)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("subtitles: write output: %w", err)
+	}
+	// go-astisub's WriteToSRT unconditionally prepends a UTF-8 BOM
+	// (astisub.BytesBOM); WriteToSSA does not, so this is a harmless no-op
+	// on that path. PostProcess's own contract is "always return valid
+	// UTF-8" content, not a BOM-prefixed stream.
+	return bytes.TrimPrefix(buf.Bytes(), astisub.BytesBOM), nil
 }
 
-// convertToSRT sniffs ASS/SSA by content ("[Script Info]" section header,
-// research note §6 item 4) and converts via go-astisub; anything else is
-// assumed to already be SRT and is returned unchanged.
-func convertToSRT(raw []byte) ([]byte, error) {
-	if !bytes.Contains(raw, []byte("[Script Info]")) {
-		return raw, nil
+// parseSubtitles sniffs ASS/SSA by content ("[Script Info]" section header,
+// research note §6 item 4) and parses accordingly; anything else is parsed
+// as SRT.
+func parseSubtitles(raw []byte) (subs *astisub.Subtitles, isASS bool, err error) {
+	if bytes.Contains(raw, []byte("[Script Info]")) {
+		subs, err = astisub.ReadFromSSA(bytes.NewReader(raw))
+		return subs, true, err
 	}
-	subs, err := astisub.ReadFromSSA(bytes.NewReader(raw))
-	if err != nil {
-		return nil, fmt.Errorf("subtitles: parse ASS/SSA: %w", err)
+	subs, err = astisub.ReadFromSRT(bytes.NewReader(raw))
+	return subs, false, err
+}
+
+// applyMods validates mods once up front (so an unknown mod name is
+// rejected even when subs has zero items — validating lazily inside the
+// per-item loop below would silently accept a bogus mod name whenever
+// there happened to be nothing to process), then runs FixMojibake
+// (unconditional, research note §6 item 2) and each requested mod over
+// every item's own text independently. An item whose text becomes empty
+// after mods is dropped outright — never left as a hollow cue — and
+// go-astisub's writers renumber remaining items positionally, so no manual
+// index bookkeeping is needed here.
+func applyMods(subs *astisub.Subtitles, mods []string) error {
+	for _, mod := range mods {
+		switch mod {
+		case ModRemoveHI, ModFixUppercase, ModRemoveTags, ModOCRFixes, ModCommon, ModReverseRTL, ModColor:
+		default:
+			return fmt.Errorf("subtitles: unknown mod %q", mod)
+		}
 	}
-	var buf bytes.Buffer
-	if err := subs.WriteToSRT(&buf); err != nil {
-		return nil, fmt.Errorf("subtitles: write SRT: %w", err)
+
+	kept := subs.Items[:0]
+	for _, item := range subs.Items {
+		text := FixMojibake(itemText(item))
+		for _, mod := range mods {
+			switch mod {
+			case ModRemoveHI:
+				var err error
+				text, err = RemoveHI(text)
+				if err != nil {
+					return fmt.Errorf("subtitles: removeHI: %w", err)
+				}
+			case ModFixUppercase:
+				text = fixUppercase(text)
+			case ModRemoveTags, ModOCRFixes, ModCommon, ModReverseRTL, ModColor:
+				// Deferred: no fixture-verified behaviour for these yet.
+				// Recognised (not an error) so a profile listing them does
+				// not fail PostProcess; add a real implementation + test
+				// the same way as ModRemoveHI once one is needed by the
+				// captionarr worker.
+			}
+		}
+		if strings.TrimSpace(text) == "" {
+			continue // the cue's text vanished entirely — drop the cue itself
+		}
+		setItemText(item, text)
+		kept = append(kept, item)
 	}
-	return buf.Bytes(), nil
+	subs.Items = kept
+	return nil
+}
+
+// itemText joins an item's Lines/LineItems into a single "\n"-separated
+// string. RemoveHI and the other line-based mods operate on this joined
+// form, scoped to one cue instead of (as before this fix round) the whole
+// flattened document.
+func itemText(item *astisub.Item) string {
+	lines := make([]string, len(item.Lines))
+	for i, l := range item.Lines {
+		lines[i] = l.String()
+	}
+	return strings.Join(lines, "\n")
+}
+
+// setItemText replaces item's Lines with one Line per non-empty "\n"
+// segment of text, each holding a single LineItem. This loses any
+// per-segment InlineStyle detail go-astisub's parser attached (bold/colour
+// runs) — an accepted simplification, since every mod this package
+// implements (RemoveHI, FixMojibake, fixUppercase) operates on plain text.
+func setItemText(item *astisub.Item, text string) {
+	segments := strings.Split(text, "\n")
+	lines := make([]astisub.Line, 0, len(segments))
+	for _, seg := range segments {
+		if seg == "" {
+			continue
+		}
+		lines = append(lines, astisub.Line{Items: []astisub.LineItem{{Text: seg}}})
+	}
+	item.Lines = lines
 }
 
 // fixUppercase is a placeholder for Bazarr's fix_uppercase heuristic
