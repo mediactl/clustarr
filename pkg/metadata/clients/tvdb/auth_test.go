@@ -38,16 +38,16 @@ func TestSeriesReAuthenticatesOnceOnA401(t *testing.T) {
 	var seriesCalls int32
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/login":
-			w.Write(login)
-		case r.URL.Path == "/series/121361/extended":
+		switch r.URL.Path {
+		case "/login":
+			_, _ = w.Write(login)
+		case "/series/121361/extended":
 			n := atomic.AddInt32(&seriesCalls, 1)
 			if n == 1 {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
-			w.Write(series)
+			_, _ = w.Write(series)
 		default:
 			t.Fatalf("unexpected request: %s", r.URL.Path)
 		}
@@ -66,10 +66,10 @@ func TestSeriesGivesUpWithErrAuthAfterASecondConsecutive401(t *testing.T) {
 	login, _ := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/login":
-			w.Write(login)
-		case r.URL.Path == "/series/121361/extended":
+		switch r.URL.Path {
+		case "/login":
+			_, _ = w.Write(login)
+		case "/series/121361/extended":
 			w.WriteHeader(http.StatusUnauthorized)
 		default:
 			t.Fatalf("unexpected request: %s", r.URL.Path)

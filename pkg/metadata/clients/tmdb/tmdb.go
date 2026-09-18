@@ -165,8 +165,11 @@ var _ metadata.MovieProvider = (*Client)(nil)
 // external_ids appends requested by Movie) into the normalized model.
 func mapMovie(d *rawtmdb.MovieDetails, region string) *metadata.Movie {
 	ids := metadata.ExternalIDs{metadata.KeyTMDB: strconv.FormatInt(d.ID, 10)}
-	if d.MovieExternalIDsAppend != nil && d.MovieExternalIDsAppend.MovieExternalIDs != nil && d.MovieExternalIDsAppend.MovieExternalIDs.IMDbID != "" {
-		ids[metadata.KeyIMDb] = d.MovieExternalIDsAppend.MovieExternalIDs.IMDbID
+	// The nil check on MovieExternalIDsAppend itself must stay: d.MovieExternalIDs
+	// below is a promoted field reached through that embedded pointer, and
+	// evaluating a promoted field through a nil embedded pointer panics.
+	if d.MovieExternalIDsAppend != nil && d.MovieExternalIDs != nil && d.MovieExternalIDs.IMDbID != "" {
+		ids[metadata.KeyIMDb] = d.MovieExternalIDs.IMDbID
 	} else if d.IMDbID != "" {
 		ids[metadata.KeyIMDb] = d.IMDbID
 	}
@@ -218,10 +221,13 @@ func mapMovie(d *rawtmdb.MovieDetails, region string) *metadata.Movie {
 // mapReleaseDates flattens TMDB's append_to_response release_dates
 // (grouped per-country) into the normalized model's flat []ReleaseDate.
 func mapReleaseDates(d *rawtmdb.MovieDetails) []metadata.ReleaseDate {
-	if d.MovieReleaseDatesAppend == nil || d.MovieReleaseDatesAppend.ReleaseDates == nil {
+	// The nil check on MovieReleaseDatesAppend itself must stay: d.ReleaseDates
+	// below is a promoted field reached through that embedded pointer, and
+	// evaluating a promoted field through a nil embedded pointer panics.
+	if d.MovieReleaseDatesAppend == nil || d.ReleaseDates == nil {
 		return nil
 	}
-	results := d.MovieReleaseDatesAppend.ReleaseDates.MovieReleaseDatesResults
+	results := d.ReleaseDates.MovieReleaseDatesResults
 	if results == nil {
 		return nil
 	}

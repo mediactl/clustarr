@@ -67,7 +67,7 @@ func (c *Client) authenticate(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("tvdb: login: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("tvdb: login status %d: %w", resp.StatusCode, metadata.ErrAuth)
 	}

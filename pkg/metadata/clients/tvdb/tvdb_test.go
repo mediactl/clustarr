@@ -42,10 +42,10 @@ func TestSeriesLogsInOnceAndReusesTheToken(t *testing.T) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/login":
 			atomic.AddInt32(&logins, 1)
-			w.Write(login)
+			_, _ = w.Write(login)
 		case r.URL.Path == "/series/121361/extended":
 			require.Equal(t, "Bearer eyJhbGciOiJIUzI1NiJ9.test-payload.test-signature", r.Header.Get("Authorization"))
-			w.Write(series)
+			_, _ = w.Write(series)
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
@@ -70,11 +70,11 @@ func TestEpisodesUsesTheRequestedSeasonOrder(t *testing.T) {
 	episodes, _ := os.ReadFile("../../../../testdata/metadata/tvdb/episodes_121361_default.json")
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/login":
-			w.Write(login)
-		case r.URL.Path == "/series/121361/episodes/default":
-			w.Write(episodes)
+		switch r.URL.Path {
+		case "/login":
+			_, _ = w.Write(login)
+		case "/series/121361/episodes/default":
+			_, _ = w.Write(episodes)
 		default:
 			t.Fatalf("unexpected request: %s", r.URL.Path)
 		}
@@ -96,12 +96,12 @@ func TestUpdatesReturnsRecordIDsSinceTheGivenTime(t *testing.T) {
 	updates, _ := os.ReadFile("../../../../testdata/metadata/tvdb/updates_since.json")
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/login":
-			w.Write(login)
-		case r.URL.Path == "/updates":
+		switch r.URL.Path {
+		case "/login":
+			_, _ = w.Write(login)
+		case "/updates":
 			require.Equal(t, "1700000000", r.URL.Query().Get("since"))
-			w.Write(updates)
+			_, _ = w.Write(updates)
 		default:
 			t.Fatalf("unexpected request: %s", r.URL.Path)
 		}

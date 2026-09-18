@@ -37,6 +37,7 @@ package musicbrainz
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -274,7 +275,7 @@ func partialDateToTime(d mbtypes.PartialDate) (time.Time, bool) {
 // sentinel errors.
 func mapError(err error) error {
 	var clientErr *mb.ClientError
-	if !isClientError(err, &clientErr) {
+	if !errors.As(err, &clientErr) {
 		return fmt.Errorf("musicbrainz: %w", err)
 	}
 	switch clientErr.StatusCode {
@@ -287,16 +288,4 @@ func mapError(err error) error {
 	default:
 		return fmt.Errorf("musicbrainz: %w", err)
 	}
-}
-
-// isClientError reports whether err is a *musicbrainzws2.ClientError,
-// setting *target when it is. musicbrainzws2.ClientError does not
-// implement Unwrap, so errors.As is not usable here; a direct type
-// assertion is the correct check.
-func isClientError(err error, target **mb.ClientError) bool {
-	ce, ok := err.(*mb.ClientError)
-	if ok {
-		*target = ce
-	}
-	return ok
 }

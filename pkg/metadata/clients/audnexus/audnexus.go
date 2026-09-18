@@ -244,7 +244,7 @@ func (c *Client) doGet(ctx context.Context, path string, out any) error {
 	if err != nil {
 		return fmt.Errorf("audnexus: %s: %w", path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:

@@ -281,7 +281,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, out any) er
 		return err
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if err := c.authenticate(ctx); err != nil {
 			return err
 		}
@@ -290,11 +290,11 @@ func (c *Client) doRequest(ctx context.Context, method, path string, out any) er
 			return err
 		}
 		if resp.StatusCode == http.StatusUnauthorized {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return metadata.ErrAuth
 		}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:
