@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/importlist"
 	"github.com/mediactl/clustarr/pkg/importlist/imdbcsv"
 )
 
@@ -49,19 +50,69 @@ func TestParseMapsConstTitleYearAndSkipsUnknownTitleTypes(t *testing.T) {
 }
 
 func TestParseMalformedInputNeverPanics(t *testing.T) {
-	tests := map[string]string{
-		"empty":           "",
-		"header only":     "Const,Title,Year,Title Type\n",
-		"missing columns": "Const,Title\ntt1,The Matrix\n",
-		"truncated quote": "Const,Title,Year,Title Type\ntt1,\"unterminated,1999,movie\n",
-		"ragged row":      "Const,Title,Year,Title Type\ntt1\n",
-		"garbage":         "\x00\x01\xff not csv at all",
+	tests := map[string]struct {
+		input string
+
+		// wantErrContains, when non-empty, asserts Parse returned an error
+		// whose message contains this substring. When empty, Parse must
+		// return no error at all.
+		wantErrContains string
+
+		// wantItems is the expected item count when wantErrContains is
+		// empty (Parse succeeded).
+		wantItems int
+	}{
+		"empty": {
+			input:           "",
+			wantErrContains: "read header",
+		},
+		"header only": {
+			input:     "Const,Title,Year,Title Type\n",
+			wantItems: 0,
+		},
+		"missing columns": {
+			// the header has no "Year" or "Title Type" column: Parse must
+			// report the specific missing column rather than silently
+			// returning nothing or guessing a layout.
+			input:           "Const,Title\ntt1,The Matrix\n",
+			wantErrContains: `missing column "Year"`,
+		},
+		"truncated quote": {
+			input:           "Const,Title,Year,Title Type\ntt1,\"unterminated,1999,movie\n",
+			wantErrContains: "read row",
+		},
+		"ragged row": {
+			// the data row has fewer fields than the header; encoding/csv
+			// (FieldsPerRecord=-1) lets it through without erroring, and
+			// Parse must skip it -- not panic indexing past the row's
+			// length, and not error either, since a short row is not by
+			// itself invalid CSV.
+			input:     "Const,Title,Year,Title Type\ntt1\n",
+			wantItems: 0,
+		},
+		"garbage": {
+			// binary noise with no comma becomes a single-field "header"
+			// that matches none of the required column names.
+			input:           "\x00\x01\xff not csv at all",
+			wantErrContains: "missing column",
+		},
 	}
-	for name, input := range tests {
+	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			var items []importlist.Item
+			var err error
 			assert.NotPanics(t, func() {
-				_, _ = imdbcsv.Parse(strings.NewReader(input), commonv1.MediaKindMovie)
+				items, err = imdbcsv.Parse(strings.NewReader(tt.input), commonv1.MediaKindMovie)
 			})
+
+			if tt.wantErrContains != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrContains)
+				assert.Nil(t, items)
+				return
+			}
+			require.NoError(t, err)
+			assert.Len(t, items, tt.wantItems)
 		})
 	}
 }
