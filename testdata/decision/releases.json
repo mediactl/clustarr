@@ -1,0 +1,43 @@
+[
+  {
+    "guid": "hd-tracker:12345",
+    "indexerRef": "hd-tracker",
+    "indexerName": "HD Tracker",
+    "title": "Arrival.2016.1080p.BluRay.x264-GROUP",
+    "protocol": "torrent",
+    "sizeBytes": 10200000000,
+    "infoHash": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "seeders": 42,
+    "leechers": 3,
+    "indexerFlags": ["freeleech"]
+  },
+  {
+    "guid": "hd-tracker:12346",
+    "indexerRef": "hd-tracker",
+    "indexerName": "HD Tracker",
+    "title": "Arrival.2016.720p.WEB-DL.x264-GROUP",
+    "protocol": "torrent",
+    "sizeBytes": 3500000000,
+    "infoHash": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "seeders": 10,
+    "leechers": 1
+  },
+  {
+    "guid": "usenet-1:98765",
+    "indexerRef": "usenet-1",
+    "indexerName": "Usenet One",
+    "title": "Arrival.2016.1080p.BluRay.x264-GROUP.sample",
+    "protocol": "usenet",
+    "sizeBytes": 41943040
+  },
+  {
+    "guid": "hd-tracker:12347",
+    "indexerRef": "hd-tracker",
+    "indexerName": "HD Tracker",
+    "title": "Arrival.2016.1080p.WEBRip.x264-BADGRP",
+    "protocol": "torrent",
+    "sizeBytes": 419430400,
+    "infoHash": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+    "seeders": 1
+  }
+]
