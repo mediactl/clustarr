@@ -104,3 +104,11 @@ func TestAudioChannelsString(t *testing.T) {
 	assert.Equal(t, "7.1", AudioChannelsString("7.1(wide)", 8))
 	assert.Equal(t, "3.0", AudioChannelsString("", 3))
 }
+
+func TestResolutionFromDimensions(t *testing.T) {
+	assert.Equal(t, int32(480), ResolutionFromDimensions(320, 240))
+	assert.Equal(t, int32(576), ResolutionFromDimensions(720, 576))
+	assert.Equal(t, int32(720), ResolutionFromDimensions(1280, 720))
+	assert.Equal(t, int32(1080), ResolutionFromDimensions(1920, 1080))
+	assert.Equal(t, int32(2160), ResolutionFromDimensions(3840, 2160))
+}
