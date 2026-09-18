@@ -55,15 +55,18 @@ import (
 
 // SearchRunningTimeout bounds how long a Search may sit in Running before the
 // reconciler declares it failed. It is this controller's own safety margin,
-// not a protocol deadline: the RPC itself answers within
-// SearchDeadline (45s, spec §5) and the worker then parses, scores and
-// evaluates up to schema.MaxSearchReleases releases, so five minutes is
-// several times the worst realistic case while still being short enough that a
-// human watching `kubectl get searches` sees a verdict.
+// not a protocol deadline: the RPC answers within the worker's 45s deadline
+// (spec §5) and the worker then parses, scores and evaluates up to
+// schema.MaxSearchReleases (500) releases before keeping at most spec.limit of
+// them, so five minutes is several times the worst realistic case while still
+// being short enough that a human watching `kubectl get searches` sees a
+// verdict.
 //
-// It is what stops a Search sitting Running forever when the worker's task is
-// dead-lettered: the worker owns status.results and status.finishedAt, not
-// status.phase, so it has no way to report "this will never complete".
+// It is the backstop for a task that never settles at all -- a worker pod
+// killed mid-flight, a redelivery exhausting MaxDeliver. A failure the worker
+// can see coming is reported directly: it writes status.finishedAt with an
+// explanatory status.indexerOutcomes entry, which trips the completion branch
+// below on the next watch event instead of waiting this out.
 const SearchRunningTimeout = 5 * time.Minute
 
 // queueFullRequeue is how long to wait before republishing when the catalogarr
@@ -157,7 +160,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return r.failQueryMode(ctx, s)
 	case s.Status.Phase == "":
 		return r.startSearch(ctx, s)
-	case s.Status.Phase == catalogv1alpha1.SearchPhaseRunning && s.Status.FinishedAt != nil:
+	case s.Status.FinishedAt != nil && s.Status.Phase != catalogv1alpha1.SearchPhaseCompleted:
+		// Deliberately NOT gated on Running. The consumer's BackOff ladder
+		// runs 30s/2m/10m/1h, so a redelivered task routinely lands its
+		// results AFTER SearchRunningTimeout has already flipped this object
+		// to Failed. Requiring Running there stranded the user in the worst
+		// possible state: results visible in status.results, spec.grab
+		// accepted by the apiserver, and nothing whatsoever happening --
+		// because handleGrabs only runs on a Completed search. Late results
+		// are still results.
 		return r.completeSearch(ctx, s)
 	case s.Status.Phase == catalogv1alpha1.SearchPhaseRunning && r.stuck(s):
 		return r.failStuck(ctx, s)
@@ -281,6 +292,14 @@ func (r *Reconciler) startSearch(ctx context.Context, s *catalogv1alpha1.Search)
 // results belong to the worker, so "the worker is done" is observed rather
 // than signalled.
 func (r *Reconciler) completeSearch(ctx context.Context, s *catalogv1alpha1.Search) (ctrl.Result, error) {
+	// A search that returned nothing because the worker could not run it at
+	// all reports why through an indexerOutcomes entry. Surfacing that on the
+	// condition is the difference between "0 results" and "your movie has no
+	// qualityProfileRef".
+	if msg, failed := workerFailure(s); failed {
+		return r.fail(ctx, s, "SearchFailed", msg)
+	}
+
 	u := newStatusUpdate(s)
 	u.phase = catalogv1alpha1.SearchPhaseCompleted
 	k8s.MarkTrue(s, &u.conditions, catalogv1alpha1.SearchConditionCompleted, k8s.ReasonReconciled,
@@ -292,6 +311,26 @@ func (r *Reconciler) completeSearch(ctx context.Context, s *catalogv1alpha1.Sear
 	}
 	r.event(s, "SearchCompleted", "kept %d releases", len(s.Status.Results))
 	return ctrl.Result{RequeueAfter: r.ttlRequeue(s)}, nil
+}
+
+// workerFailure reports the search worker's own explanation when it finished
+// without being able to search at all.
+//
+// The worker writes status.finishedAt, status.indexerOutcomes and
+// status.results and nothing else -- phase and conditions are this
+// reconciler's -- so a failure it can see coming arrives as an outcome entry
+// under its reserved name with no results behind it. Reading it here is what
+// turns that into a phase and a message.
+func workerFailure(s *catalogv1alpha1.Search) (string, bool) {
+	if len(s.Status.Results) > 0 {
+		return "", false
+	}
+	for _, o := range s.Status.IndexerOutcomes {
+		if o.Name == WorkerOutcomeName && o.State == catalogv1alpha1.IndexerOutcomeError {
+			return o.Error, true
+		}
+	}
+	return "", false
 }
 
 // failQueryMode rejects a free-text Search. SearchSpec's CEL rule makes it a
@@ -384,12 +423,21 @@ func (r *Reconciler) handleGrabs(ctx context.Context, s *catalogv1alpha1.Search)
 		}
 
 		name := k8s.ChildName(s.Spec.MediaRef.Name, guid)
+		// Manual is set because a Search-CR grab IS an operator-forced grab:
+		// the user read status.results and picked this release by hand. Its
+		// own doc comment -- "the importer then skips the monitored and
+		// minimum-availability checks it would otherwise apply" -- describes
+		// exactly what has to happen for a hand-picked grab of an unmonitored
+		// or not-yet-released item to survive import. Without it the download
+		// completes in full and is thrown away at the import gate, which is a
+		// silent waste of the user's bandwidth and of a seeding slot.
 		specAC := downloadac.DownloadSpec().
 			WithProtocol(got.Release.Protocol).
 			WithSource(toDownloadSourceAC(BuildDownloadSource(got.Release))).
 			WithRelease(got.Release).
 			WithTarget(*s.Spec.MediaRef).
-			WithGrabbedBy(downloadv1alpha1.GrabSourceInteractive)
+			WithGrabbedBy(downloadv1alpha1.GrabSourceInteractive).
+			WithManual(true)
 		if qualityProfileRef != "" {
 			specAC = specAC.WithQualityProfileRef(qualityProfileRef)
 		}

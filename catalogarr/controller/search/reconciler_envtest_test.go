@@ -317,6 +317,8 @@ func TestReconcileHandlesSpecGrab(t *testing.T) {
 	require.NotNil(t, dl.Spec.Source.IndexerDownload)
 	require.Equal(t, "g1", dl.Spec.Source.IndexerDownload.GUID)
 	require.Equal(t, downloadv1alpha1.GrabSourceInteractive, dl.Spec.GrabbedBy)
+	require.True(t, dl.Spec.Manual,
+		"a hand-picked grab must skip the importer's monitored and availability gates, or it downloads in full and is thrown away")
 	require.Equal(t, "hd-bluray-web", dl.Spec.QualityProfileRef)
 	require.Len(t, dl.OwnerReferences, 1, "a Download is owned by its catalog item, never by the Search")
 	require.Equal(t, "Movie", dl.OwnerReferences[0].Kind)
@@ -383,4 +385,93 @@ func TestReconcileIgnoresAMissingSearch(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Zero(t, res.RequeueAfter)
+}
+
+// workerReportedFailure writes what the search worker writes when it hits a
+// terminal error: finishedAt, one reserved-name error outcome, no results.
+func workerReportedFailure(t *testing.T, c client.Client, ns, name string, finishedAt metav1.Time, message string) {
+	t.Helper()
+	_, err := k8s.PatchStatus(context.Background(), c, k8s.ManagerCatalogarrWorker,
+		search.Search(name, ns).WithStatus(
+			search.SearchStatus().
+				WithFinishedAt(finishedAt).
+				WithIndexerOutcomes(catalogv1alpha1.IndexerOutcome{
+					Name:  search.WorkerOutcomeName,
+					State: catalogv1alpha1.IndexerOutcomeError,
+					Error: message,
+				})))
+	require.NoError(t, err)
+}
+
+// TestReconcileSurfacesAWorkerReportedFailure is the controller half of the
+// fix for the misleading five-minute "Timeout: no results". The worker can
+// only write finishedAt/indexerOutcomes/results, so the reconciler has to read
+// its reserved outcome entry and turn it into a phase and a message.
+func TestReconcileSurfacesAWorkerReportedFailure(t *testing.T) {
+	f := newFixture(t, "search-worker-failure")
+	f.createSearch(t, "srch", catalogv1alpha1.SearchSpec{
+		MediaRef: movieRef("the-matrix"), TTL: metav1.Duration{Duration: time.Hour},
+	})
+	f.reconcile(t, "srch")
+
+	workerReportedFailure(t, f.c, f.ns, "srch", metav1.NewTime(f.clock.Now()),
+		"item has no qualityProfileRef: a search cannot be decided without a profile")
+	f.reconcile(t, "srch")
+
+	got := f.get(t, "srch")
+	require.Equal(t, catalogv1alpha1.SearchPhaseFailed, got.Status.Phase)
+	cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.SearchConditionFailed)
+	require.NotNil(t, cond)
+	require.Equal(t, metav1.ConditionTrue, cond.Status)
+	require.Contains(t, cond.Message, "qualityProfileRef",
+		"the user must see the real cause, not a timeout")
+	require.NotContains(t, cond.Message, "Timeout")
+}
+
+// TestReconcileCompletesLateResultsAfterATimeout is the regression test for a
+// dead end. The consumer BackOff ladder runs 30s/2m/10m/1h, so a redelivered
+// task routinely lands its results AFTER SearchRunningTimeout flipped the
+// object to Failed. Requiring Running in the completion branch left the user
+// looking at populated status.results whose spec.grab did nothing at all --
+// no event, no condition, no error.
+func TestReconcileCompletesLateResultsAfterATimeout(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t, "search-late-results")
+	f.createSearch(t, "srch", catalogv1alpha1.SearchSpec{
+		MediaRef: movieRef("the-matrix"), TTL: metav1.Duration{Duration: 4 * time.Hour},
+	})
+	require.NoError(t, f.c.Create(ctx, &catalogv1alpha1.Movie{
+		ObjectMeta: metav1.ObjectMeta{Name: "the-matrix", Namespace: f.ns},
+		Spec: catalogv1alpha1.MovieSpec{
+			TmdbID: 603, QualityProfileRef: "hd-bluray-web", RootFolderRef: "movies",
+		},
+	}))
+
+	f.reconcile(t, "srch")
+	f.clock.Advance(search.SearchRunningTimeout + time.Minute)
+	f.reconcile(t, "srch")
+	require.Equal(t, catalogv1alpha1.SearchPhaseFailed, f.get(t, "srch").Status.Phase)
+
+	// The redelivery finally lands, ten minutes in.
+	f.clock.Advance(10 * time.Minute)
+	workerWrote(t, f.c, f.ns, "srch", metav1.NewTime(f.clock.Now()), approvedResult("g1"))
+	f.reconcile(t, "srch")
+
+	got := f.get(t, "srch")
+	require.Equal(t, catalogv1alpha1.SearchPhaseCompleted, got.Status.Phase,
+		"late results are still results")
+	require.False(t, k8s.IsConditionTrue(got.Status.Conditions, catalogv1alpha1.SearchConditionFailed),
+		"the stale Failed condition must be cleared")
+	require.Len(t, got.Status.Results, 1)
+
+	// And the whole point: spec.grab now works.
+	patch := client.MergeFrom(got.DeepCopy())
+	got.Spec.Grab = []string{"g1"}
+	require.NoError(t, f.c.Patch(ctx, got, patch))
+	f.reconcile(t, "srch")
+
+	after := f.get(t, "srch")
+	require.Len(t, after.Status.Grabbed, 1)
+	require.Equal(t, k8s.ChildName("the-matrix", "g1"), after.Status.Grabbed[0].DownloadRef)
+	require.Empty(t, after.Status.Grabbed[0].Error)
 }

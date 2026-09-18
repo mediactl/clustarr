@@ -176,9 +176,8 @@ func TestWorkerSnapshotOfAnAnimeEpisodeWithAFile(t *testing.T) {
 	require.Len(t, target.Queue, 1, "a seeding Download still occupies the queue")
 	require.NotNil(t, target.Blocklist)
 	require.False(t, target.Blocklist("deadbeef", "Nothing.Blocklisted"), "nothing is blocklisted here")
-	require.True(t, opts.ProtocolsEnabled[string(commonv1.ProtocolTorrent)],
-		"a namespace with no DownloadClient enables both protocols rather than rejecting everything")
-	require.True(t, opts.ProtocolsEnabled[string(commonv1.ProtocolUsenet)])
+	require.Empty(t, opts.ProtocolsEnabled,
+		"an AUTOMATIC search fails closed when no DownloadClient exists: its ranked list goes straight to a grab")
 	require.False(t, opts.UserInvoked)
 
 	require.Len(t, rels, 1)

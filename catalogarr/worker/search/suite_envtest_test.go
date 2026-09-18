@@ -20,6 +20,7 @@ package search_test
 import (
 	"context"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -33,6 +34,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/mediactl/clustarr/catalogarr/worker/search"
+	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -149,4 +151,30 @@ func newManagerWithoutIndexes(t *testing.T) ctrl.Manager {
 		t.Fatalf("build manager: %v", err)
 	}
 	return mgr
+}
+
+// recordingPublisher records every publish and can be told to fail, so the
+// WantedScan fan-out is observable without a broker.
+type recordingPublisher struct {
+	mu       sync.Mutex
+	subjects []string
+	envs     []*events.Envelope
+	err      error
+}
+
+func (p *recordingPublisher) Publish(_ context.Context, subject string, e *events.Envelope, _ ...events.PublishOption) (events.Receipt, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.err != nil {
+		return events.Receipt{}, p.err
+	}
+	p.subjects = append(p.subjects, subject)
+	p.envs = append(p.envs, e)
+	return events.Receipt{Seq: uint64(len(p.envs))}, nil
+}
+
+func (p *recordingPublisher) snapshot() ([]string, []*events.Envelope) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.subjects...), append([]*events.Envelope(nil), p.envs...)
 }

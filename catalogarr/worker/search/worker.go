@@ -38,8 +38,10 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jonboulle/clockwork"
+	"go.opentelemetry.io/otel/trace"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -86,24 +88,30 @@ type EvaluateFunc func(
 	o decision.Options,
 ) []decision.Decision
 
-// Sink is what the worker hands ranked, non-interactive results to. The
-// delay-profile and grab path supplies the real implementation; this package
-// ships NopSink so the worker compiles, subscribes and is fully testable
-// before that lands.
+// Sink is what the worker hands ranked, non-interactive results to.
+// catalogarr/worker/grab.Sink is the production implementation and this is its
+// method set verbatim.
+//
+// The namespace is a parameter because neither schema.SearchTask nor
+// commonv1.MediaRef carries one, while every object a grab touches is
+// namespaced. This worker has already resolved it from the envelope (see
+// namespaceOf), so passing it costs nothing here and is unguessable on the
+// other side. target carries Keys, so a pack grab reaches every episode it
+// covers.
 type Sink interface {
-	Deliver(ctx context.Context, task schema.SearchTask, ranked []catalogv1alpha1.ReleaseDecision) error
+	Deliver(ctx context.Context, ns string, target commonv1.MediaRef, ranked []catalogv1alpha1.ReleaseDecision) error
 }
 
 // NopSink drops the ranked list with a warning and acks the task. It must not
-// return an error: the automatic grab path being unwired is a documented gap
-// in this phase, not a transient failure, and naking the message would spin
-// the consumer until MaxDeliver dead-letters a task that was fine.
+// return an error: an unwired grab sink is a wiring gap, not a transient
+// failure, and naking would spin the consumer until MaxDeliver dead-letters a
+// task that was fine.
 type NopSink struct{}
 
 // Deliver implements Sink.
-func (NopSink) Deliver(ctx context.Context, task schema.SearchTask, ranked []catalogv1alpha1.ReleaseDecision) error {
+func (NopSink) Deliver(ctx context.Context, ns string, target commonv1.MediaRef, ranked []catalogv1alpha1.ReleaseDecision) error {
 	logging.FromContext(ctx).Warn("search: no grab sink is wired; discarding ranked results",
-		"kind", task.MediaRef.Kind, "reason", task.Reason, "results", len(ranked))
+		"namespace", ns, "kind", target.Kind, "item", target.Name, "results", len(ranked))
 	return nil
 }
 
@@ -118,6 +126,11 @@ type Worker struct {
 	Client    client.Client
 	RPC       SearchRPC
 	Catalogue *catalogue.Catalogue
+	// Publisher fans a WantedScan out into one SearchTask per eligible item.
+	// SetupWithManager defaults it to the bus it is handed; a Worker driven
+	// directly in a test sets it itself. A nil Publisher makes the WantedScan
+	// branch fail loudly rather than sweep nothing in silence.
+	Publisher events.Publisher
 	// Evaluate defaults to decision.Evaluate.
 	Evaluate EvaluateFunc
 	// Sink defaults to NopSink.
@@ -161,12 +174,43 @@ func (w *Worker) sink() Sink {
 	return NopSink{}
 }
 
-// Handle implements events.Handler for catalog.SearchTask.v1.
+// Payload schemas the search consumers can hand this worker. They are computed
+// rather than spelled out so a rename in pkg/events/schema cannot drift from
+// the dispatch below.
+var (
+	schemaSearchTask = schema.SearchTask{}.Schema()
+	schemaWantedScan = schema.WantedScan{}.Schema()
+)
+
+// Handle implements events.Handler for both payloads the search consumers
+// carry.
+//
+// catalogarr-search-normal filters three subjects, not one: search.normal.>,
+// search.low.> AND wantedscan.> (events.FilterCatalogWanted, pinned in
+// pkg/events/topology.go). So this handler receives catalog.WantedScan.v1 as
+// well as catalog.SearchTask.v1 and must dispatch on the schema header rather
+// than assume: decoding everything as a SearchTask dead-lettered every
+// twelve-hourly sweep on first delivery, silently.
 func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	env := m.Envelope()
 	ctx = tracing.Extract(ctx, env)
 	ctx, span := tracing.Start(ctx, "search.Worker.Handle")
 	defer span.End()
+
+	switch env.Schema {
+	case schemaSearchTask:
+		return w.handleSearchTask(ctx, span, m)
+	case schemaWantedScan:
+		return w.handleWantedScan(ctx, span, m)
+	default:
+		return events.Discard("unknown payload schema on a search consumer",
+			fmt.Errorf("schema=%q subject=%q", env.Schema, m.Subject()))
+	}
+}
+
+// handleSearchTask runs spec §8.2's first half for one catalog item.
+func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events.Message) error {
+	env := m.Envelope()
 
 	var task schema.SearchTask
 	if err := schema.Decode(env.Schema, env.Data, &task); err != nil {
@@ -180,17 +224,14 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	ctx = logging.With(ctx, "kind", string(task.MediaRef.Kind), "item", task.MediaRef.Name,
 		"namespace", ns, "reason", string(task.Reason))
 
-	switch task.MediaRef.Kind {
-	case commonv1.MediaKindMovie, commonv1.MediaKindEpisode:
-	default:
-		// §16 scopes catalogarr's non-video kinds to M6. Discarding is right:
-		// no number of redeliveries makes an artist searchable today.
-		return events.Discard("non-video search is M6 scope",
-			fmt.Errorf("kind=%s", task.MediaRef.Kind))
-	}
-
-	// An interactive search takes its limit, indexers and categories from the
-	// Search object rather than from the task, so that editing the Search
+	// The Search is fetched BEFORE anything that can fail terminally, so a
+	// terminal failure has somewhere to report itself. Leaving the object in
+	// Running until the reconciler's five-minute timeout and then telling the
+	// user "Timeout: no results" is actively misleading when the real cause is
+	// a missing qualityProfileRef.
+	//
+	// An interactive search also takes its keep-limit, indexers and categories
+	// from the Search object rather than from the task, so editing the Search
 	// before the worker picks the task up does what a user expects.
 	var srch *catalogv1alpha1.Search
 	if task.SearchRef != nil {
@@ -207,9 +248,21 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		}
 	}
 
+	switch task.MediaRef.Kind {
+	case commonv1.MediaKindMovie, commonv1.MediaKindEpisode:
+	default:
+		// §16 scopes catalogarr's non-video kinds to M6. Discarding is right:
+		// no number of redeliveries makes an artist searchable today.
+		return w.terminal(ctx, srch, "non-video search is M6 scope",
+			fmt.Errorf("kind=%s", task.MediaRef.Kind))
+	}
+
 	snap, err := w.snapshot(ctx, ns, task.MediaRef)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
+			if m.Attempt() > 1 {
+				return w.terminal(ctx, srch, "target no longer exists", err)
+			}
 			return missingObject(m, "target no longer exists", err)
 		}
 		tracing.RecordError(span, err)
@@ -218,6 +271,10 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 
 	profile, err := w.resolveProfile(ctx, snap.QualityProfileRef)
 	if err != nil {
+		var de *events.DiscardError
+		if errors.As(err, &de) {
+			return w.terminal(ctx, srch, de.Reason, err)
+		}
 		return err
 	}
 
@@ -233,19 +290,78 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		return err
 	}
 
-	rels := releaseInfos(resp.Releases, w.now())
+	rels := releaseInfos(resp.Releases)
 	decisions := w.evaluate()(ctx, snap.Target, profile, w.Catalogue, rels, opts)
 	recordDecisionMetrics(task.MediaRef.Kind, decisions)
-	ranked := RankAndCap(decisions, opts, int(req.Limit))
+	ranked := RankAndCap(decisions, opts, keepLimit(srch))
 
 	w.log(ctx).Info("search: decided",
 		"releases", len(rels), "approved", countApproved(decisions), "kept", len(ranked),
 		"truncated", resp.Truncated)
 
 	if srch != nil {
-		return w.writeSearchStatus(ctx, srch, resp, ranked)
+		return w.writeSearchStatus(ctx, srch, resp.Outcomes, ranked)
 	}
-	return w.sink().Deliver(ctx, task, ranked)
+	return w.sink().Deliver(ctx, ns, grabTarget(task), ranked)
+}
+
+// grabTarget folds SearchTask.Keys onto the MediaRef the Sink receives. The
+// two carry the same thing -- which episodes a pack release covers -- and the
+// grab path reads MediaRef.Keys, so a task that set only the payload-level
+// field would lose its pack membership at the boundary.
+func grabTarget(task schema.SearchTask) commonv1.MediaRef {
+	target := task.MediaRef
+	if len(target.Keys) == 0 {
+		target.Keys = task.Keys
+	}
+	return target
+}
+
+// keepLimit is how many ranked results to KEEP, which is a different number
+// from how many releases to FETCH.
+//
+// Search.spec.limit is documented as "caps how many results are kept"
+// (api/catalog/v1alpha1/search_types.go) and the CRD caps it at 200, while
+// spec §5 pins the federated search reply at schema.MaxSearchReleases (500).
+// Sending spec.limit to indexarr as the RPC limit would fetch only that many
+// releases and then rank them, so `spec.limit: 10` would surface the INDEXER's
+// arbitrary top ten rather than the best ten by the decision engine's ranking
+// -- which is the entire point of ranking. The two limits are independent.
+func keepLimit(srch *catalogv1alpha1.Search) int {
+	if srch != nil && srch.Spec.Limit > 0 {
+		return int(srch.Spec.Limit)
+	}
+	return MaxResults
+}
+
+// terminal reports a failure no redelivery can fix. When the task came from a
+// Search CR it first writes the worker-owned half of that object's status --
+// finishedAt plus one explanatory indexerOutcomes entry, and no results -- so
+// the reconciler's completion trigger fires immediately and the user sees the
+// real cause instead of waiting five minutes for "Timeout: no results".
+//
+// Nothing here touches a controller-owned field: finishedAt, indexerOutcomes
+// and results belong to this manager, phase and conditions to the reconciler.
+// That is why the worker can report a terminal failure at all without breaking
+// the single-writer rule.
+func (w *Worker) terminal(ctx context.Context, srch *catalogv1alpha1.Search, reason string, cause error) error {
+	discard := events.Discard(reason, cause)
+	if srch == nil {
+		return discard
+	}
+	outcome := catalogv1alpha1.IndexerOutcome{
+		Name:  searchctl.WorkerOutcomeName,
+		State: catalogv1alpha1.IndexerOutcomeError,
+		Error: truncateOutcomeError(reason + ": " + cause.Error()),
+	}
+	if err := w.writeSearchStatus(ctx, srch, nil, nil, outcome); err != nil {
+		// Saying so failed; let the delivery retry. The underlying condition
+		// is terminal, but reporting it is not, and silently dropping the
+		// report puts the object back in the five-minute-timeout hole this
+		// function exists to close.
+		return err
+	}
+	return discard
 }
 
 // missingObject settles a NotFound on an object this task depends on: retry
@@ -298,28 +414,30 @@ func (w *Worker) resolveProfile(ctx context.Context, ref string) (quality.Profil
 }
 
 // buildRequest renders the RPC request, letting an interactive Search override
-// the per-kind defaults with its own spec.
+// the per-kind indexer and category defaults with its own spec.
+//
+// The RPC limit is always schema.MaxSearchReleases -- spec §5's cap on the
+// federated reply -- and deliberately NOT Search.spec.limit; see keepLimit for
+// why conflating "fetch" with "keep" narrows recall to the indexer's own
+// ordering.
 func (w *Worker) buildRequest(task schema.SearchTask, snap itemSnapshot, srch *catalogv1alpha1.Search) schema.SearchRequest {
-	limit := int32(MaxResults)
 	var indexerRefs []schema.Ref
 	var categories []int32
 	if srch != nil {
-		if srch.Spec.Limit > 0 {
-			limit = srch.Spec.Limit
-		}
 		categories = srch.Spec.Categories
 		for _, name := range srch.Spec.IndexerRefs {
 			indexerRefs = append(indexerRefs, schema.Ref{Namespace: srch.Namespace, Name: name})
 		}
 	}
-	return BuildSearchRequest(task.MediaRef.Kind, snap.IDs, limit, task.UserInvoked, indexerRefs, categories)
+	return BuildSearchRequest(task.MediaRef.Kind, snap.IDs, schema.MaxSearchReleases,
+		task.UserInvoked, indexerRefs, categories)
 }
 
 // decisionOptions assembles pkg/decision's Options. PreferredProtocol is left
 // empty on purpose: pkg/decision falls back to the profile's own preferred
 // protocol, and there is no second source for it in this path.
 func (w *Worker) decisionOptions(ctx context.Context, ns string, task schema.SearchTask) (decision.Options, error) {
-	enabled, err := w.enabledProtocols(ctx, ns)
+	enabled, err := w.enabledProtocols(ctx, ns, task.UserInvoked)
 	if err != nil {
 		return decision.Options{}, err
 	}
@@ -330,21 +448,27 @@ func (w *Worker) decisionOptions(ctx context.Context, ns string, task schema.Sea
 }
 
 // enabledProtocols reads the live DownloadClients to decide which protocols a
-// grab could actually use. decision.Options.ProtocolsEnabled fails closed (a
-// missing key is disabled), which is right once clients exist.
+// grab could actually use. decision.Options.ProtocolsEnabled fails closed: a
+// missing key is disabled.
 //
-// A namespace with NO DownloadClient at all is treated as "both enabled"
-// rather than "nothing enabled". Failing closed there would reject every
-// release with "protocol disabled" purely because the operator has not
-// configured a client yet, which hides the search results that would tell them
-// what they are missing; the grab path refuses loudly at the point it actually
-// needs a client.
-func (w *Worker) enabledProtocols(ctx context.Context, ns string) (map[string]bool, error) {
+// A namespace with NO DownloadClient at all opens both protocols, but only for
+// a user-invoked search. The asymmetry is the point:
+//
+//   - An interactive search's only output is a list a human reads. Rejecting
+//     every release with "protocol disabled" because the operator has not
+//     created a DownloadClient yet hides the very results that would tell them
+//     what is missing, and nothing is grabbed without a second, deliberate
+//     action.
+//   - An automatic search's ranked list goes straight to a Sink that grabs.
+//     Opening up there approves releases for a protocol nothing can download,
+//     and the failure resurfaces much later as a grab with no assignable
+//     client. Fail closed, as the contract says.
+func (w *Worker) enabledProtocols(ctx context.Context, ns string, userInvoked bool) (map[string]bool, error) {
 	var list downloadv1alpha1.DownloadClientList
 	if err := w.Client.List(ctx, &list, client.InNamespace(ns)); err != nil {
 		return nil, fmt.Errorf("list DownloadClients in %s: %w", ns, err)
 	}
-	if len(list.Items) == 0 {
+	if len(list.Items) == 0 && userInvoked {
 		return map[string]bool{
 			string(commonv1.ProtocolTorrent): true,
 			string(commonv1.ProtocolUsenet):  true,
@@ -369,7 +493,7 @@ func (w *Worker) enabledProtocols(ctx context.Context, ns string) (map[string]bo
 // absence round-trips, and backfilling would be a lie with consequences:
 // pkg/decision ranks usenet releases by publish age, so substituting FetchedAt
 // or now makes a dateless release sort as brand new.
-func releaseInfos(rels []schema.Release, _ time.Time) []commonv1.ReleaseInfo {
+func releaseInfos(rels []schema.Release) []commonv1.ReleaseInfo {
 	out := make([]commonv1.ReleaseInfo, 0, len(rels))
 	for _, r := range rels {
 		info := r.Info
@@ -416,10 +540,16 @@ func recordDecisionMetrics(kind commonv1.MediaKind, ds []decision.Decision) {
 // controller owns ever is, which is what stops the two from releasing each
 // other's fields. The controller flips phase to Completed when it sees
 // finishedAt land.
-func (w *Worker) writeSearchStatus(ctx context.Context, srch *catalogv1alpha1.Search, resp schema.SearchResponse, ranked []catalogv1alpha1.ReleaseDecision) error {
+func (w *Worker) writeSearchStatus(
+	ctx context.Context,
+	srch *catalogv1alpha1.Search,
+	outcomes []schema.SearchOutcome,
+	ranked []catalogv1alpha1.ReleaseDecision,
+	extra ...catalogv1alpha1.IndexerOutcome,
+) error {
 	statusAC := searchctl.SearchStatus().
 		WithFinishedAt(metav1.NewTime(w.now())).
-		WithIndexerOutcomes(indexerOutcomes(resp.Outcomes)...).
+		WithIndexerOutcomes(append(indexerOutcomes(outcomes), extra...)...).
 		WithResults(ranked...)
 
 	if _, err := k8s.PatchStatus(ctx, w.Client, k8s.ManagerCatalogarrWorker,
@@ -429,29 +559,74 @@ func (w *Worker) writeSearchStatus(ctx context.Context, srch *catalogv1alpha1.Se
 	return nil
 }
 
-// indexerOutcomes maps the RPC's per-indexer report onto the API type.
+// MaxIndexerOutcomes mirrors status.indexerOutcomes' own
+// +kubebuilder:validation:MaxItems=100 (api/catalog/v1alpha1/search_types.go).
+const MaxIndexerOutcomes = 100
+
+// maxOutcomeErrorBytes bounds one outcome's error message. status is not a log
+// sink, and a hundred multi-kilobyte indexer errors would make the object
+// itself a problem.
+const maxOutcomeErrorBytes = 512
+
+// indexerOutcomes maps the RPC's per-indexer report onto the API type,
+// deduplicated by name and capped at MaxIndexerOutcomes.
+//
+// Both guards protect the same thing: status.indexerOutcomes is
+// listType=map keyed by name with MaxItems=100, so a duplicate name or a
+// 101st entry makes the apiserver reject the WHOLE status apply -- and this
+// function is the only writer of the field, so that rejection would leave an
+// otherwise-successful search stuck in Running until the reconciler's
+// five-minute timeout. A search that really did fan out to more than a hundred
+// indexers is better reported truncated than not at all.
+//
+// First entry wins on a duplicate: the RPC returns outcomes in the order
+// indexarr resolved them, so the first is the one whose releases are actually
+// in the reply.
 func indexerOutcomes(outcomes []schema.SearchOutcome) []catalogv1alpha1.IndexerOutcome {
 	out := make([]catalogv1alpha1.IndexerOutcome, 0, len(outcomes))
+	seen := make(map[string]struct{}, len(outcomes))
 	for _, o := range outcomes {
 		name := o.IndexerRef.Name
 		if name == "" {
 			name = o.IndexerName
 		}
 		if name == "" {
-			// status.indexerOutcomes is a listType=map keyed by name; an
-			// entry with no name would be rejected by the apiserver and
-			// would take the whole status write with it.
+			// A nameless entry would be rejected by the listMapKey and take
+			// the whole status write with it.
 			continue
 		}
+		if _, dup := seen[name]; dup {
+			continue
+		}
+		seen[name] = struct{}{}
 		out = append(out, catalogv1alpha1.IndexerOutcome{
 			Name:       name,
 			State:      outcomeState(o.Status),
 			Count:      o.Releases,
 			DurationMs: int32(o.ElapsedMillis),
-			Error:      o.Error,
+			Error:      truncateOutcomeError(o.Error),
 		})
+		// One short of the cap, so terminal() and any other caller passing an
+		// extra entry still fits.
+		if len(out) == MaxIndexerOutcomes-1 {
+			break
+		}
 	}
 	return out
+}
+
+// truncateOutcomeError bounds one error message to maxOutcomeErrorBytes,
+// cutting on a rune boundary so the result stays valid UTF-8 (the apiserver
+// rejects a string that is not).
+func truncateOutcomeError(msg string) string {
+	if len(msg) <= maxOutcomeErrorBytes {
+		return msg
+	}
+	cut := maxOutcomeErrorBytes
+	for cut > 0 && !utf8.RuneStart(msg[cut]) {
+		cut--
+	}
+	return msg[:cut] + "..."
 }
 
 func outcomeState(s schema.SearchOutcomeStatus) catalogv1alpha1.IndexerOutcomeState {
@@ -484,6 +659,13 @@ func (runnableFunc) NeedLeaderElection() bool { return false }
 func (w *Worker) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
 	if err := RegisterDownloadIndexes(context.Background(), mgr.GetFieldIndexer()); err != nil {
 		return fmt.Errorf("register Download indexes: %w", err)
+	}
+	if w.Publisher == nil {
+		// The WantedScan fan-out publishes back onto the same bus it consumes
+		// from. Defaulting here rather than in NewWorker keeps NewWorker's
+		// signature free of a bus it has no other use for, and still leaves a
+		// caller free to inject a different publisher.
+		w.Publisher = bus
 	}
 	topo := events.Default()
 	for _, name := range []string{events.ConsumerCatalogSearchHigh, events.ConsumerCatalogSearchNorm} {

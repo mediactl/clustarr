@@ -64,21 +64,24 @@ func (m testMessage) Nak(context.Context, time.Duration) error { return nil }
 func (m testMessage) Term(context.Context, string) error       { return nil }
 func (m testMessage) InProgress(context.Context) error         { return nil }
 
-// recordingSink captures what the worker hands to the automatic grab path.
+// recordingSink captures what the worker hands to the automatic grab path. Its
+// method set is search.Sink, which is catalogarr/worker/grab.Sink's verbatim.
 type recordingSink struct {
-	mu       sync.Mutex
-	tasks    []schema.SearchTask
-	batches  [][]catalogv1alpha1.ReleaseDecision
-	delivery chan struct{}
+	mu         sync.Mutex
+	namespaces []string
+	targets    []commonv1.MediaRef
+	batches    [][]catalogv1alpha1.ReleaseDecision
+	delivery   chan struct{}
 }
 
 func newRecordingSink() *recordingSink {
 	return &recordingSink{delivery: make(chan struct{}, 8)}
 }
 
-func (s *recordingSink) Deliver(_ context.Context, task schema.SearchTask, ranked []catalogv1alpha1.ReleaseDecision) error {
+func (s *recordingSink) Deliver(_ context.Context, ns string, target commonv1.MediaRef, ranked []catalogv1alpha1.ReleaseDecision) error {
 	s.mu.Lock()
-	s.tasks = append(s.tasks, task)
+	s.namespaces = append(s.namespaces, ns)
+	s.targets = append(s.targets, target)
 	s.batches = append(s.batches, ranked)
 	s.mu.Unlock()
 	select {
@@ -88,13 +91,14 @@ func (s *recordingSink) Deliver(_ context.Context, task schema.SearchTask, ranke
 	return nil
 }
 
-func (s *recordingSink) last() (schema.SearchTask, []catalogv1alpha1.ReleaseDecision, int) {
+func (s *recordingSink) last() (string, commonv1.MediaRef, []catalogv1alpha1.ReleaseDecision, int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.tasks) == 0 {
-		return schema.SearchTask{}, nil, 0
+	if len(s.targets) == 0 {
+		return "", commonv1.MediaRef{}, nil, 0
 	}
-	return s.tasks[len(s.tasks)-1], s.batches[len(s.batches)-1], len(s.tasks)
+	n := len(s.targets)
+	return s.namespaces[n-1], s.targets[n-1], s.batches[n-1], n
 }
 
 // approveEverything is the EvaluateFunc seam standing in for pkg/decision, so
@@ -244,7 +248,8 @@ func TestWorkerHandleWritesAnInteractiveSearchesResults(t *testing.T) {
 	require.Equal(t, commonv1.MediaKindMovie, reqs[0].Kind)
 	require.Equal(t, "603", reqs[0].IDs[commonv1.IDKeyTMDB])
 	require.True(t, reqs[0].UserInvoked)
-	require.Equal(t, int32(100), reqs[0].Limit, "spec.limit overrides the worker default")
+	require.Equal(t, int32(schema.MaxSearchReleases), reqs[0].Limit,
+		"the RPC always fetches up to spec §5's cap; spec.limit caps what is KEPT, not what is fetched")
 	require.Equal(t, []int32{2040}, reqs[0].Categories, "spec.categories overrides the per-kind default")
 	require.Len(t, reqs[0].IndexerRefs, 1)
 	require.Equal(t, "idx", reqs[0].IndexerRefs[0].Name)
@@ -272,7 +277,7 @@ func TestWorkerHandleWritesAnInteractiveSearchesResults(t *testing.T) {
 		"the worker owns a disjoint field set and must not release the controller's phase")
 	require.NotNil(t, got.Status.StartedAt)
 
-	_, _, deliveries := f.sink.last()
+	_, _, _, deliveries := f.sink.last()
 	require.Zero(t, deliveries, "an interactive search writes status instead of reaching the grab sink")
 }
 
@@ -300,9 +305,11 @@ func TestWorkerHandleDeliversNonInteractiveResultsToTheSink(t *testing.T) {
 	})
 	require.NoError(t, f.worker.Handle(ctx, testMessage{env: env}))
 
-	task, ranked, deliveries := f.sink.last()
+	ns, target, ranked, deliveries := f.sink.last()
 	require.Equal(t, 1, deliveries)
-	require.Equal(t, schema.SearchReasonMissing, task.Reason)
+	require.Equal(t, f.ns, ns, "grab.Sink cannot guess a namespace; the search worker supplies it")
+	require.Equal(t, commonv1.MediaKindMovie, target.Kind)
+	require.Equal(t, "the-matrix", target.Name)
 	require.Len(t, ranked, 2)
 	require.Equal(t, "g-high", ranked[0].GUID)
 	require.False(t, f.rpc.Requests()[0].UserInvoked, "a cron-driven search is not user invoked")
@@ -455,6 +462,64 @@ func TestWorkerSetupWithManagerSubscribesBothSearchConsumers(t *testing.T) {
 		t.Fatal("the normal-priority search consumer never delivered the task")
 	}
 
-	_, _, deliveries := f.sink.last()
+	_, _, _, deliveries := f.sink.last()
 	require.GreaterOrEqual(t, deliveries, 2)
+}
+
+// TestWorkerProtocolFallbackIsGatedOnUserInvoked pins the asymmetry in
+// enabledProtocols. decision.Options.ProtocolsEnabled fails closed, and the
+// only reason to open it up in a namespace with no DownloadClient is that an
+// interactive search's output is a list a human reads. An automatic search's
+// output is a grab, so opening up there would approve releases for a protocol
+// nothing can download.
+func TestWorkerProtocolFallbackIsGatedOnUserInvoked(t *testing.T) {
+	ctx := context.Background()
+	f := newWorkerFixture(t, "worker-protocols")
+
+	srch := &catalogv1alpha1.Search{
+		ObjectMeta: metav1.ObjectMeta{Name: "srch", Namespace: f.ns},
+		Spec: catalogv1alpha1.SearchSpec{
+			MediaRef: &commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
+			TTL:      metav1.Duration{Duration: time.Hour},
+		},
+	}
+	require.NoError(t, f.mgr.Create(ctx, srch))
+	waitCached(t, ctx, f.mgr, client.ObjectKey{Namespace: f.ns, Name: "srch"}, &catalogv1alpha1.Search{})
+
+	tests := []struct {
+		name        string
+		task        schema.SearchTask
+		wantEnabled bool
+	}{
+		{
+			name: "an interactive search still shows the user what exists",
+			task: schema.SearchTask{
+				MediaRef:    commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
+				Reason:      schema.SearchReasonInteractive,
+				SearchRef:   &schema.Ref{Namespace: f.ns, Name: "srch"},
+				UserInvoked: true,
+			},
+			wantEnabled: true,
+		},
+		{
+			name: "an automatic search fails closed, because its list is grabbed",
+			task: schema.SearchTask{
+				MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
+				Reason:   schema.SearchReasonMissing,
+			},
+			wantEnabled: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			capture := &targetCapture{}
+			f.worker.Evaluate = capture.evaluate
+			require.NoError(t, f.worker.Handle(ctx, testMessage{env: f.envelope(t, tc.task)}))
+
+			_, opts, _ := capture.get(t)
+			require.Equal(t, tc.wantEnabled, opts.ProtocolsEnabled[string(commonv1.ProtocolTorrent)])
+			require.Equal(t, tc.wantEnabled, opts.ProtocolsEnabled[string(commonv1.ProtocolUsenet)])
+		})
+	}
 }

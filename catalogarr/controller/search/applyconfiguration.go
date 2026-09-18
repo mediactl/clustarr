@@ -30,6 +30,17 @@ import (
 // hard-coded here.
 var searchAPIVersion = catalogv1alpha1.GroupVersion.String()
 
+// WorkerOutcomeName is the status.indexerOutcomes entry name the search worker
+// reserves for a failure that is not any one indexer's fault -- an invalid
+// QualityProfile, an unsupported media kind, a target that vanished mid-flight.
+//
+// It lives here rather than in the worker because both halves need it and the
+// dependency only points one way: the worker imports this package for the
+// apply configuration, so this package cannot import the worker. The value is
+// deliberately not a valid DNS-1123 subdomain, so it can never collide with a
+// real Indexer object's name in a listType=map keyed by name.
+const WorkerOutcomeName = "catalogarr/search-worker"
+
 // SearchApplyConfiguration is a hand-written stand-in for the generated apply
 // configuration controller-tools cannot produce for Search (see the doc
 // comment on catalogv1alpha1.Search: ReleaseDecision inlines
