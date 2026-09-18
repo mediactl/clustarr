@@ -227,6 +227,7 @@ func TestEvaluateAdversarial(t *testing.T) {
 		ds := Evaluate(context.Background(), tg, p, &catalogue.Catalogue{}, []common.ReleaseInfo{rel}, o)
 		require.Len(t, ds, 1)
 		require.False(t, ds[0].Approved)
+		require.Len(t, ds[0].Rejections, 1, "an unparseable title short-circuits to exactly one Rejection, not the full checklist")
 		require.Nil(t, ds[0].Parsed)
 	})
 
