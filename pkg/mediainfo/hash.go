@@ -19,8 +19,12 @@ package mediainfo
 
 import (
 	"crypto/sha1"
+	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
+	"os"
 	"time"
 )
 
@@ -31,4 +35,44 @@ import (
 func ProbeHash(path string, size int64, mtime time.Time) string {
 	sum := sha1.Sum([]byte(fmt.Sprintf("%s|%d|%d", path, size, mtime.UnixNano())))
 	return hex.EncodeToString(sum[:])
+}
+
+// osChunk is the OpenSubtitles moviehash chunk size: the first and last
+// 64 KiB of the file (docs/research/subtitles.md §4.4).
+const osChunk = 64 * 1024
+
+// ErrTooSmall is returned by MovieHash for files under 2*osChunk (128
+// KiB): docs/research/subtitles.md §4.4 notes the upstream Python
+// reference implementation rejects them outright.
+var ErrTooSmall = errors.New("mediainfo: file smaller than 128 KiB, cannot compute movie hash")
+
+// MovieHash is OpenSubtitles' moviehash: filesize plus the sum of the
+// first and last 64 KiB read as little-endian uint64 words, wrapping mod
+// 2^64, printed as 16 lowercase hex digits (docs/research/subtitles.md §4.4).
+func MovieHash(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("mediainfo: movie hash: %w", err)
+	}
+	defer f.Close()
+
+	st, err := f.Stat()
+	if err != nil {
+		return "", fmt.Errorf("mediainfo: movie hash: %w", err)
+	}
+	if st.Size() < 2*osChunk {
+		return "", ErrTooSmall
+	}
+
+	sum := uint64(st.Size())
+	buf := make([]byte, osChunk)
+	for _, off := range []int64{0, st.Size() - osChunk} {
+		if _, err := f.ReadAt(buf, off); err != nil && !errors.Is(err, io.EOF) {
+			return "", fmt.Errorf("mediainfo: movie hash: %w", err)
+		}
+		for i := 0; i < osChunk; i += 8 {
+			sum += binary.LittleEndian.Uint64(buf[i:])
+		}
+	}
+	return fmt.Sprintf("%016x", sum), nil
 }
