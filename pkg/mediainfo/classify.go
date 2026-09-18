@@ -118,26 +118,13 @@ func ClassifyHDR(raw *Raw) commonv1.HdrFormat {
 	}
 }
 
-// videoDynamicRangeType maps the HDR enum onto the *arr naming-token
-// display strings docs/research/naming.md documents (line 443: "DV
-// HDR10", "HDR10+", "HLG"; the {MediaInfo VideoDynamicRangeType} token).
-var videoDynamicRangeType = map[commonv1.HdrFormat]string{
-	commonv1.HdrFormatNone:                 "",
-	commonv1.HdrFormatPQ10:                 "PQ10",
-	commonv1.HdrFormatHDR10:                "HDR10",
-	commonv1.HdrFormatHDR10Plus:            "HDR10+",
-	commonv1.HdrFormatHLG10:                "HLG",
-	commonv1.HdrFormatDolbyVision:          "DV",
-	commonv1.HdrFormatDolbyVisionHDR10:     "DV HDR10",
-	commonv1.HdrFormatDolbyVisionSDR:       "DV SDR",
-	commonv1.HdrFormatDolbyVisionHLG:       "DV HLG",
-	commonv1.HdrFormatDolbyVisionHDR10Plus: "DV HDR10+",
-}
-
 // VideoDynamicRangeType renders hdr as pkg/naming's
-// {MediaInfo VideoDynamicRangeType} token expects.
+// {MediaInfo VideoDynamicRangeType} token expects. The vocabulary lives
+// on the shared enum (commonv1.HdrFormat.DisplayName) so mediainfo and
+// naming cannot drift apart; this wrapper keeps the package's own
+// spelling of the token for callers that already have a probe.
 func VideoDynamicRangeType(hdr commonv1.HdrFormat) string {
-	return videoDynamicRangeType[hdr]
+	return hdr.DisplayName()
 }
 
 // AudioChannelsString renders a channel layout as the *arr display

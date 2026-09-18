@@ -78,10 +78,15 @@ func TestClassifyHDR(t *testing.T) {
 	}
 }
 
+// TestVideoDynamicRangeType checks that the wrapper still renders every
+// format; the vocabulary itself is pinned by TestHdrFormatDisplayName in
+// api/common/v1alpha1, which this now delegates to (pq10 renders "PQ",
+// Radarr's spelling, not the "PQ10" this package used before the two
+// display maps were merged).
 func TestVideoDynamicRangeType(t *testing.T) {
 	cases := map[commonv1.HdrFormat]string{
 		commonv1.HdrFormatNone:                 "",
-		commonv1.HdrFormatPQ10:                 "PQ10",
+		commonv1.HdrFormatPQ10:                 "PQ",
 		commonv1.HdrFormatHDR10:                "HDR10",
 		commonv1.HdrFormatHDR10Plus:            "HDR10+",
 		commonv1.HdrFormatHLG10:                "HLG",

@@ -165,7 +165,7 @@ var tokenFuncs = map[string]tokenEntry{
 	"absolute":                        {fn: func(c Context, pad, _ int) string { return padInt(firstOr(c.Absolute), pad) }},
 	"episode cleantitle":              {fn: func(c Context, _, trunc int) string { return truncate(cleanTitle(c.EpisodeTitle), trunc) }},
 	"quality full":                    {fn: func(c Context, _, _ int) string { return qualityFull(c.Quality, c.Revision) }},
-	"mediainfo videodynamicrangetype": {fn: func(c Context, _, _ int) string { return hdrDisplay[c.MediaInfo.Hdr] }},
+	"mediainfo videodynamicrangetype": {fn: func(c Context, _, _ int) string { return c.MediaInfo.Hdr.DisplayName() }},
 	"edition tags":                    {fn: func(c Context, _, _ int) string { return c.Edition }},
 	"custom formats":                  {fn: func(c Context, _, _ int) string { return strings.Join(c.CustomFormats, " ") }},
 	"series cleantitlewithoutyear":    {fn: func(c Context, _, _ int) string { return cleanTitle(c.SeriesTitle) }, colonSensitive: true},

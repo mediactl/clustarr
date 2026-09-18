@@ -72,15 +72,3 @@ func qualityFull(q commonv1.Quality, r commonv1.Revision) string {
 	}
 	return name
 }
-
-var hdrDisplay = map[commonv1.HdrFormat]string{
-	commonv1.HdrFormatPQ10:                 "PQ",
-	commonv1.HdrFormatHDR10:                "HDR10",
-	commonv1.HdrFormatHDR10Plus:            "HDR10+",
-	commonv1.HdrFormatHLG10:                "HLG",
-	commonv1.HdrFormatDolbyVision:          "DV",
-	commonv1.HdrFormatDolbyVisionHDR10:     "DV HDR10",
-	commonv1.HdrFormatDolbyVisionSDR:       "DV",
-	commonv1.HdrFormatDolbyVisionHLG:       "DV HLG",
-	commonv1.HdrFormatDolbyVisionHDR10Plus: "DV HDR10+",
-}
