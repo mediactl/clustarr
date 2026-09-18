@@ -80,6 +80,53 @@ func TestParsePathExtractsEmbeddedProviderIDs(t *testing.T) {
 	assert.Equal(t, map[string]string{"tmdb": "949"}, p.IDs)
 }
 
+// TestParseKindExtractsIDsAndTrimsThemForNonMovieKinds verifies the
+// controller ruling that extractIDs is a shared pre-dispatch step in
+// Parse, not something only parseMovie benefits from: a series title
+// carrying an embedded tvdbid token must have it both recorded in IDs and
+// stripped from the parsed Title/Seasons/Episodes, the same as a movie.
+func TestParseKindExtractsIDsAndTrimsThemForNonMovieKinds(t *testing.T) {
+	p, err := release.ParseKind(
+		"Breaking Bad (2008) [tvdbid-81189] - S01E01 - Pilot [1080p]",
+		commonv1.MediaKindEpisode,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"tvdb": "81189"}, p.IDs)
+	assert.Equal(t, "Breaking Bad", p.Title)
+	assert.Equal(t, []int{1}, p.Seasons)
+	assert.Equal(t, []int{1}, p.Episodes)
+}
+
+// TestParseKindSplitsSlashAlternateTitleForAnimeKind verifies the " / "
+// alternate-title split (buildTitles, titles.go) also applies to a kind
+// other than movie, now that it runs in Parse's shared pre-dispatch step.
+func TestParseKindSplitsSlashAlternateTitleForAnimeKind(t *testing.T) {
+	p, err := release.ParseKind(
+		"[SubsPlease] Kimetsu no Yaiba / Demon Slayer - 12 (1080p) [HASH].mkv",
+		commonv1.MediaKindEpisode,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "Kimetsu no Yaiba", p.Title)
+	assert.Equal(t, []string{"Kimetsu no Yaiba", "Demon Slayer"}, p.Titles)
+}
+
+// TestParsePathExtractsProviderIDFromParentFolderForSeries is the exact
+// scenario the controller ruling names: a library scanner reading a
+// Jellyfin/Plex/*arr-style TV layout, where the provider id lives in the
+// show folder (two levels above the episode file), not the episode
+// filename itself.
+func TestParsePathExtractsProviderIDFromParentFolderForSeries(t *testing.T) {
+	p, err := release.ParsePath(
+		"/data/media/tv/Breaking Bad (2008) [tvdbid-81189]/Season 01/Breaking Bad (2008) - S01E01 - Pilot [1080p].mkv",
+		release.Options{Kind: commonv1.MediaKindSeries},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"tvdb": "81189"}, p.IDs)
+	assert.Equal(t, "Breaking Bad", p.Title)
+	assert.Equal(t, []int{1}, p.Seasons)
+	assert.Equal(t, []int{1}, p.Episodes)
+}
+
 // TestParseTitlesAlwaysHasTitleFirstAcrossEveryKind verifies the package-
 // wide invariant that ParsedRelease.Titles always starts with Title, even
 // for kinds (series, album, comic, ...) whose own parser doesn't build a

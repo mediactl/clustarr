@@ -122,6 +122,22 @@ func TestParseSeriesStandardDashRangeRejectsDescendingAndOversized(t *testing.T)
 	}
 }
 
+// TestParseSeriesStripsParentheticalYearAndTrailingDashFromTitle covers the
+// Jellyfin/Plex "Show Name (Year) - S01E01 - Episode Title [Quality]"
+// naming convention: the standard-family title capture runs up to the
+// first "S\d+E\d+" token regardless of what precedes it, so without this,
+// the captured title would be "Breaking Bad (2008) -" instead of a clean
+// "Breaking Bad" (the "(2008)" is embedded in the captured span, and the
+// separator character class only ever consumes the single character
+// directly before "S", leaving the dash before that space in the title).
+func TestParseSeriesStripsParentheticalYearAndTrailingDashFromTitle(t *testing.T) {
+	p, err := parseStandardSeries("Breaking Bad (2008) - S01E01 - Pilot [1080p]")
+	require.NoError(t, err)
+	assert.Equal(t, "Breaking Bad", p.Title)
+	assert.Equal(t, []int{1}, p.Seasons)
+	assert.Equal(t, []int{1}, p.Episodes)
+}
+
 func TestParseSeriesSpecialFlagsSeasonZeroButNotTitleContainingTheWord(t *testing.T) {
 	tests := []struct {
 		name    string

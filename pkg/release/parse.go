@@ -27,14 +27,25 @@ import (
 
 // Parse parses title into a ParsedRelease, dispatching on o.Kind (or
 // ClassifyKind(title) when o.Kind is empty).
+//
+// extractIDs (ids.go) and the alternate-title split (buildTitles,
+// titles.go) are both shared pre/post-dispatch steps here, not something
+// only movies get: a library scanner reads the same Jellyfin/Plex/*arr
+// "[tmdbid-N]"/"{tvdb-N}"/etc. convention and "AKA"/" / " alternate-title
+// convention from series, album and book folder names too, and every
+// kind-specific parser below (parseMovie, parseSeries, ...) works off the
+// id-stripped title so an embedded id token can never leak into a title,
+// season/episode match or release-group pattern for any kind.
 func Parse(title string, o Options) (*ParsedRelease, error) {
 	if strings.TrimSpace(title) == "" {
 		return nil, errors.New("release: empty title")
 	}
 
+	ids, stripped := extractIDs(title)
+
 	kind := o.Kind
 	if kind == "" {
-		kind = ClassifyKind(title)
+		kind = ClassifyKind(stripped)
 	}
 
 	var (
@@ -43,15 +54,15 @@ func Parse(title string, o Options) (*ParsedRelease, error) {
 	)
 	switch kind {
 	case commonv1.MediaKindMovie:
-		p, err = parseMovie(title)
+		p, err = parseMovie(stripped)
 	case commonv1.MediaKindSeries, commonv1.MediaKindEpisode:
-		p, err = parseSeries(title, o)
+		p, err = parseSeries(stripped, o)
 	case commonv1.MediaKindAlbum, commonv1.MediaKindArtist:
-		p, err = parseMusic(title)
+		p, err = parseMusic(stripped)
 	case commonv1.MediaKindBook, commonv1.MediaKindAudiobook, commonv1.MediaKindAuthor:
-		p, err = parseBook(title)
+		p, err = parseBook(stripped)
 	case commonv1.MediaKindComic, commonv1.MediaKindIssue:
-		p, err = parseComic(title)
+		p, err = parseComic(stripped)
 	default:
 		return nil, fmt.Errorf("release: unknown media kind %q", kind)
 	}
@@ -59,13 +70,26 @@ func Parse(title string, o Options) (*ParsedRelease, error) {
 		return nil, err
 	}
 
-	// Titles always contains Title first: movie.go's buildTitles already
-	// populates a multi-entry Titles for a title with an AKA/aka/slash
-	// alternate; every other per-kind parser leaves Titles at its zero
-	// value, so backfill the single-entry invariant here rather than
-	// repeating "Titles: []string{p.Title}" in each of them.
+	if len(ids) > 0 {
+		if p.IDs == nil {
+			p.IDs = ids
+		} else {
+			for k, v := range ids {
+				if _, exists := p.IDs[k]; !exists {
+					p.IDs[k] = v
+				}
+			}
+		}
+	}
+
+	// Titles always contains Title first: buildTitles splits on an
+	// AKA/aka/slash alternate-title marker (or merges in rls's own Alt
+	// detection) if p.Title has one; otherwise it's a single-entry list
+	// equal to Title, which is also the backfill for a per-kind parser
+	// that left Titles empty.
 	if len(p.Titles) == 0 {
-		p.Titles = []string{p.Title}
+		p.Titles = buildTitles(p.Title, stripped)
+		p.Title = p.Titles[0]
 	}
 	return p, nil
 }
@@ -77,13 +101,54 @@ func ParseKind(title string, kind commonv1.MediaKind) (*ParsedRelease, error) {
 
 // ParsePath strips the directory and extension from path and delegates to
 // Parse.
+//
+// A real Jellyfin/Plex/*arr library layout carries its provider id on the
+// *show/movie folder*, not the per-episode file — e.g.
+// ".../Breaking Bad (2008) [tvdbid-81189]/Season 01/Breaking Bad (2008) -
+// S01E01 - Pilot [1080p].mkv" — so ParsePath additionally scans every
+// ancestor directory component (not just the immediate parent) for an
+// extractIDs match and merges any it finds into the result, without those
+// components ever being fed into title/season/episode/quality parsing
+// itself (which still runs on the file's basename alone, exactly as
+// before). Parse's own shared pre-dispatch step (above) still separately
+// extracts and strips any id token embedded directly in the basename.
 func ParsePath(path string, o Options) (*ParsedRelease, error) {
-	base := path
-	if idx := strings.LastIndexAny(base, `/\`); idx >= 0 {
-		base = base[idx+1:]
-	}
+	normalized := strings.NewReplacer(`\`, "/").Replace(path)
+	segments := strings.Split(normalized, "/")
+
+	base := segments[len(segments)-1]
 	if idx := strings.LastIndex(base, "."); idx > 0 {
 		base = base[:idx]
 	}
-	return Parse(base, o)
+
+	var dirIDs map[string]string
+	for _, dir := range segments[:len(segments)-1] {
+		if dir == "" {
+			continue
+		}
+		ids, _ := extractIDs(dir)
+		for k, v := range ids {
+			if dirIDs == nil {
+				dirIDs = make(map[string]string, len(ids))
+			}
+			dirIDs[k] = v
+		}
+	}
+
+	p, err := Parse(base, o)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(dirIDs) > 0 {
+		if p.IDs == nil {
+			p.IDs = make(map[string]string, len(dirIDs))
+		}
+		for k, v := range dirIDs {
+			if _, exists := p.IDs[k]; !exists {
+				p.IDs[k] = v
+			}
+		}
+	}
+	return p, nil
 }

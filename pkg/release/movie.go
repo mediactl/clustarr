@@ -19,6 +19,7 @@ package release
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -33,10 +34,35 @@ import (
 // (year boundaries also accept a leading "(" and trailing ")").
 var movieTitleYearRegex = mustCompile(`(?<title>.+?)[.\s_(](?<year>19\d{2}|20\d{2})[.\s_)]`, regexp2.IgnoreCase)
 
-// cleanTitleSeparators replaces scene-style separators with spaces and
-// collapses the result, for display in ParsedRelease.Title.
+// parentheticalYearRegex and trailingSeparatorRegex are plain stdlib regexp
+// (no lookaround needed), matching normalize.go's/titles.go's helper
+// regexes.
+//
+// parentheticalYearRegex strips an embedded "(Year)" release-year token —
+// the Jellyfin/Plex "Title (Year)" convention — from a title captured by a
+// pattern that, unlike movieTitleYearRegex, doesn't parse the year out on
+// its own (the standard-series regexes in tv.go capture everything up to
+// their own "S\d+E\d+" token regardless of what precedes it, so
+// "Breaking Bad (2008)" arrives here as one span).
+//
+// trailingSeparatorRegex strips a dangling "-"/"_"/"." left at the end of a
+// captured title: the standard-series title/separator boundary
+// "[.\s_]S\d+" only ever consumes the single character directly before
+// "S", so "Breaking Bad (2008) - S01E01 ..." leaves the dash in the
+// captured title ("Breaking Bad (2008) -") even after the year above is
+// stripped.
+var (
+	parentheticalYearRegex = regexp.MustCompile(`\s*\((?:19|20)\d{2}\)\s*`)
+	trailingSeparatorRegex = regexp.MustCompile(`[\s._-]+$`)
+)
+
+// cleanTitleSeparators strips an embedded "(Year)" and replaces scene-style
+// separators with spaces, collapsing the result and trimming any dangling
+// trailing separator, for display in ParsedRelease.Title.
 func cleanTitleSeparators(s string) string {
+	s = parentheticalYearRegex.ReplaceAllString(s, " ")
 	s = strings.NewReplacer(".", " ", "_", " ").Replace(s)
+	s = trailingSeparatorRegex.ReplaceAllString(strings.TrimSpace(s), "")
 	return strings.TrimSpace(strings.Join(strings.Fields(s), " "))
 }
 
@@ -44,16 +70,13 @@ func cleanTitleSeparators(s string) string {
 // release group, hash, edition, hints and languages. Season/episode fields
 // stay at their zero values.
 //
-// extractIDs runs first, against the whole original title, and every
-// subsequent step (title/year, quality, group, hints, languages, alternate
-// titles) works off the id-stripped text — a folder name's
-// "[tmdbid-949]"/"{imdb-tt0113277}"/etc. token is provider metadata, not
-// part of the title, and left in place it could otherwise confuse the
-// trailing-dash release-group pattern.
+// title arrives already id-stripped: Parse's shared pre-dispatch step
+// (parse.go) runs extractIDs before dispatching to any kind-specific
+// parser, and also builds Titles/merges IDs onto the result afterward, so
+// this function (like parseSeries, parseMusic, ...) neither knows nor
+// cares about either concern.
 func parseMovie(title string) (*ParsedRelease, error) {
-	ids, stripped := extractIDs(title)
-
-	m, err := movieTitleYearRegex.FindStringMatch(stripped)
+	m, err := movieTitleYearRegex.FindStringMatch(title)
 	if err != nil {
 		return nil, fmt.Errorf("release: movie: title/year match: %w", err)
 	}
@@ -68,15 +91,11 @@ func parseMovie(title string) (*ParsedRelease, error) {
 		return nil, fmt.Errorf("release: movie: parsing year %q: %w", yearStr, convErr)
 	}
 
-	q, rev, _, _ := parseQualityTags(stripped)
-	group, hash, edition := parseGroup(stripped)
-
-	cleanedTitle := cleanTitleSeparators(rawTitle)
-	titles := buildTitles(cleanedTitle, stripped)
+	q, rev, _, _ := parseQualityTags(title)
+	group, hash, edition := parseGroup(title)
 
 	return &ParsedRelease{
-		Title:       titles[0],
-		Titles:      titles,
+		Title:       cleanTitleSeparators(rawTitle),
 		Year:        year,
 		Quality:     q,
 		Revision:    rev,
@@ -84,8 +103,7 @@ func parseMovie(title string) (*ParsedRelease, error) {
 		Hash:        hash,
 		Edition:     edition,
 		ReleaseType: commonv1.ReleaseTypeSingle,
-		Hints:       parseHints(stripped),
-		Languages:   parseLanguages(stripped),
-		IDs:         ids,
+		Hints:       parseHints(title),
+		Languages:   parseLanguages(title),
 	}, nil
 }
