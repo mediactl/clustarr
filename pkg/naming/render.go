@@ -36,12 +36,15 @@ func (e Engine) Render(tmpl string, c Context) (string, error) {
 		}
 		prefix, name, suffix := splitWrapper(raw[1 : len(raw)-1])
 		base, pad, trunc := splitModifier(name)
-		fn, ok := tokenFuncs[normalizeTokenName(base)]
+		entry, ok := tokenFuncs[normalizeTokenName(base)]
 		if !ok {
 			errOut = fmt.Errorf("%w: %q", ErrUnknownToken, base)
 			return raw
 		}
-		val := fn(c, pad, trunc)
+		val := entry.fn(c, pad, trunc)
+		if entry.colonSensitive {
+			val = replaceColon(val, e.Config.ColonReplacement)
+		}
 		if val == "" {
 			return ""
 		}
@@ -109,19 +112,32 @@ func normalizeTokenName(s string) string {
 	return strings.ToLower(strings.TrimSpace(s))
 }
 
+// tokenEntry is one registered token: the function that renders it, and
+// whether its output should be passed through the engine's configured
+// ColonReplacement mode. Every *arr title-shaped token applies colon
+// replacement, not just CleanTitle -- see the note's "Illegal characters
+// and CleanTitle" section, which discusses colon replacement and
+// CleanTitle together as the same normalisation pass.
+type tokenEntry struct {
+	fn             func(c Context, pad, trunc int) string
+	colonSensitive bool
+}
+
 // tokenFuncs is grown by every later step; this step seeds it with the
 // tokens exercised so far.
-var tokenFuncs = map[string]func(c Context, pad, trunc int) string{
-	"movie title":             func(c Context, _, _ int) string { return c.Title },
-	"release year":            func(c Context, _, _ int) string { return yearString(c.Year) },
-	"release group":           func(c Context, _, _ int) string { return c.ReleaseGroup },
-	"tmdbid":                  func(c Context, _, _ int) string { return c.TmdbID },
-	"mediainfo audiocodec":    func(c Context, _, _ int) string { return firstAudioCodec(c.MediaInfo) },
-	"mediainfo audiochannels": func(c Context, _, _ int) string { return firstAudioChannels(c.MediaInfo) },
-	"season":                  func(c Context, pad, _ int) string { return padInt(c.Season, pad) },
-	"episode":                 func(c Context, pad, _ int) string { return padInt(firstOr(c.Episodes), pad) },
-	"absolute":                func(c Context, pad, _ int) string { return padInt(firstOr(c.Absolute), pad) },
-	"episode cleantitle":      func(c Context, _, trunc int) string { return truncate(cleanTitle(c.EpisodeTitle), trunc) },
+var tokenFuncs = map[string]tokenEntry{
+	"movie title":             {fn: func(c Context, _, _ int) string { return c.Title }, colonSensitive: true},
+	"movie cleantitle":        {fn: func(c Context, _, _ int) string { return cleanTitle(c.Title) }, colonSensitive: true},
+	"movie titlethe":          {fn: func(c Context, _, _ int) string { return titleThe(c.Title) }, colonSensitive: true},
+	"release year":            {fn: func(c Context, _, _ int) string { return yearString(c.Year) }},
+	"release group":           {fn: func(c Context, _, _ int) string { return c.ReleaseGroup }},
+	"tmdbid":                  {fn: func(c Context, _, _ int) string { return c.TmdbID }},
+	"mediainfo audiocodec":    {fn: func(c Context, _, _ int) string { return firstAudioCodec(c.MediaInfo) }},
+	"mediainfo audiochannels": {fn: func(c Context, _, _ int) string { return firstAudioChannels(c.MediaInfo) }},
+	"season":                  {fn: func(c Context, pad, _ int) string { return padInt(c.Season, pad) }},
+	"episode":                 {fn: func(c Context, pad, _ int) string { return padInt(firstOr(c.Episodes), pad) }},
+	"absolute":                {fn: func(c Context, pad, _ int) string { return padInt(firstOr(c.Absolute), pad) }},
+	"episode cleantitle":      {fn: func(c Context, _, trunc int) string { return truncate(cleanTitle(c.EpisodeTitle), trunc) }},
 }
 
 func padInt(n, width int) string {

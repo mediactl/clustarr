@@ -17,6 +17,46 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package naming
 
-// cleanTitle is a Step-3 placeholder, filled in by Step 4 with apostrophe
-// stripping and colon handling.
-func cleanTitle(s string) string { return s }
+import "strings"
+
+var apostropheStripper = strings.NewReplacer("'", "", "\xe2\x80\x99", "")
+
+// cleanTitle strips apostrophes (straight and curly) from title, following
+// the *arr CleanTitle convention: punctuation that is unsafe or noisy in a
+// filename is stripped, but characters like '!' are kept verbatim.
+func cleanTitle(title string) string { return apostropheStripper.Replace(title) }
+
+// titleThe moves a leading "The " to a trailing ", The" -- the *arr
+// TitleThe token, used by media servers that sort by a title's first
+// significant word.
+func titleThe(title string) string {
+	const prefix = "The "
+	if strings.HasPrefix(title, prefix) {
+		return title[len(prefix):] + ", The"
+	}
+	return title
+}
+
+// replaceColon applies one of the five ColonReplacement modes to s. The
+// zero value and ColonSmart both use the "smart" rule: ": " (colon +
+// space) becomes " - ", and any remaining bare colon becomes "-".
+func replaceColon(s string, mode ColonReplacement) string {
+	switch mode {
+	case ColonDelete:
+		return strings.ReplaceAll(s, ":", "")
+	case ColonDash:
+		return strings.ReplaceAll(s, ":", "-")
+	case ColonSpaceDash:
+		return strings.ReplaceAll(s, ":", " -")
+	case ColonSpaceDashSpace:
+		// Consume a colon-plus-space run first, else ": " + the mode's own
+		// trailing space would double up (e.g. "Man:  Into" instead of
+		// "Man - Into"); a bare colon with no following space still gets
+		// " - " from the second pass.
+		s = strings.ReplaceAll(s, ": ", " - ")
+		return strings.ReplaceAll(s, ":", " - ")
+	default: // ColonSmart and the zero value
+		s = strings.ReplaceAll(s, ": ", " - ")
+		return strings.ReplaceAll(s, ":", "-")
+	}
+}
