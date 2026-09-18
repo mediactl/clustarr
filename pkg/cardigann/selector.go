@@ -1,0 +1,294 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package cardigann
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"regexp"
+	"strings"
+
+	"github.com/PuerkitoBio/goquery"
+	"github.com/antchfx/xmlquery"
+	"github.com/tidwall/gjson"
+)
+
+// ResponseType selects which of the three selector backends a Doc uses.
+type ResponseType int
+
+const (
+	ResponseHTML ResponseType = iota
+	ResponseJSON
+	ResponseXML
+)
+
+// jsonBracketIndex rewrites Cardigann's `foo[0].bar` array-index syntax
+// (0dayfiles-api.yml's title_filename: `files[0].name`) into gjson's own
+// `foo.0.bar` dot-index syntax before every JSON selector lookup: verified
+// against gjson v1.19.0, `Get(json, "files[0].name")` does not match at
+// all (bracket indices are not gjson path syntax), only `"files.0.name"`
+// does.
+var jsonBracketIndex = regexp.MustCompile(`\[(\d+)\]`)
+
+func jsonPath(selector string) string {
+	return jsonBracketIndex.ReplaceAllString(selector, ".$1")
+}
+
+// Doc wraps one parsed response body (or a sub-node of one) so
+// SelectorBlock evaluation, row iteration and the filter chain never
+// branch on the underlying parser themselves.
+type Doc struct {
+	rt   ResponseType
+	html *goquery.Selection
+	json gjson.Result
+	xml  *xmlquery.Node
+}
+
+// ParseDoc parses body as rt.
+func ParseDoc(rt ResponseType, body []byte) (Doc, error) {
+	switch rt {
+	case ResponseHTML:
+		d, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
+		if err != nil {
+			return Doc{}, fmt.Errorf("cardigann: parse html: %w", err)
+		}
+		return Doc{rt: rt, html: d.Selection}, nil
+	case ResponseJSON:
+		if !gjson.ValidBytes(body) {
+			return Doc{}, fmt.Errorf("cardigann: invalid json response")
+		}
+		return Doc{rt: rt, json: gjson.ParseBytes(body)}, nil
+	case ResponseXML:
+		n, err := xmlquery.Parse(bytes.NewReader(body))
+		if err != nil {
+			return Doc{}, fmt.Errorf("cardigann: parse xml: %w", err)
+		}
+		return Doc{rt: rt, xml: n}, nil
+	default:
+		return Doc{}, fmt.Errorf("cardigann: unknown response type %d", rt)
+	}
+}
+
+// Select narrows d to the first match of selector (CSS for HTML, a gjson
+// path for JSON, an XPath expression for XML); ok is false on no match.
+func (d Doc) Select(selector string) (Doc, bool) {
+	switch d.rt {
+	case ResponseHTML:
+		if d.html == nil {
+			return Doc{}, false
+		}
+		sel := d.html.Find(selector)
+		if sel.Length() == 0 {
+			return Doc{}, false
+		}
+		return Doc{rt: d.rt, html: sel}, true
+	case ResponseJSON:
+		r := d.json.Get(jsonPath(selector))
+		if !r.Exists() {
+			return Doc{}, false
+		}
+		return Doc{rt: d.rt, json: r}, true
+	case ResponseXML:
+		if d.xml == nil {
+			return Doc{}, false
+		}
+		n := xmlquery.FindOne(d.xml, selector)
+		if n == nil {
+			return Doc{}, false
+		}
+		return Doc{rt: d.rt, xml: n}, true
+	}
+	return Doc{}, false
+}
+
+// Rows returns every match of selector as its own Doc — the HTML/JSON/XML
+// equivalents of goquery's *Selection.Each, gjson's array iteration and
+// xmlquery.Find.
+func (d Doc) Rows(selector string) []Doc {
+	switch d.rt {
+	case ResponseHTML:
+		if d.html == nil {
+			return nil
+		}
+		var out []Doc
+		d.html.Find(selector).Each(func(_ int, s *goquery.Selection) { out = append(out, Doc{rt: d.rt, html: s}) })
+		return out
+	case ResponseJSON:
+		var out []Doc
+		d.json.Get(jsonPath(selector)).ForEach(func(_, v gjson.Result) bool {
+			out = append(out, Doc{rt: d.rt, json: v})
+			return true
+		})
+		return out
+	case ResponseXML:
+		if d.xml == nil {
+			return nil
+		}
+		var out []Doc
+		for _, n := range xmlquery.Find(d.xml, selector) {
+			out = append(out, Doc{rt: d.rt, xml: n})
+		}
+		return out
+	}
+	return nil
+}
+
+// Text reads d's text (attribute == "" for HTML, ignored for JSON) or a
+// named attribute (HTML attribute, or one more gjson/xpath descent step for
+// JSON/XML — matches RowsBlock.Attribute's "descend one more level"
+// semantics from note §3.6); ok is false when attribute doesn't exist.
+//
+// For a JSON array with no further attribute descent, the elements are
+// joined with "," rather than returned as raw JSON text (e.g.
+// `["Action","Sci-Fi"]`): this is what makes a plain re_replace/split
+// filter chain on a genre-like field operate on sane plain text instead of
+// bracket-and-quote-laden JSON source (0dayfiles-api.yml's genre field,
+// `selector: meta.genres`, relies on this).
+func (d Doc) Text(attribute string) (string, bool) {
+	switch d.rt {
+	case ResponseHTML:
+		if d.html == nil || d.html.Length() == 0 {
+			return "", false
+		}
+		if attribute == "" {
+			return strings.TrimSpace(d.html.Text()), true
+		}
+		return d.html.Attr(attribute)
+	case ResponseJSON:
+		if attribute != "" {
+			sub, ok := d.Select(attribute)
+			if !ok {
+				return "", false
+			}
+			return sub.Text("")
+		}
+		if !d.json.Exists() {
+			return "", false
+		}
+		if d.json.IsArray() {
+			var parts []string
+			d.json.ForEach(func(_, v gjson.Result) bool { parts = append(parts, v.String()); return true })
+			return strings.Join(parts, ","), true
+		}
+		return d.json.String(), true
+	case ResponseXML:
+		if d.xml == nil {
+			return "", false
+		}
+		if attribute == "" {
+			return strings.TrimSpace(d.xml.InnerText()), true
+		}
+		for _, a := range d.xml.Attr {
+			if a.Name.Local == attribute {
+				return a.Value, true
+			}
+		}
+		return "", false
+	}
+	return "", false
+}
+
+// Extract evaluates b against d: Text (literal/template) short-circuits
+// Selector; otherwise Selector+Attribute narrows d, Remove strips a nested
+// selector first (HTML only), Case maps the raw value (rendering the
+// matched case's value as a template, falling back to the "*" key), then
+// Filters run in order. ok is false when Selector matched nothing and
+// b.Optional with no Default — callers use this to implement the
+// non-optional-field-drops-the-row rule (note §3.8).
+func (b SelectorBlock) Extract(ctx context.Context, d Doc, tc *TemplateContext) (string, bool, error) {
+	raw, ok, err := b.extractRaw(ctx, d, tc)
+	if err != nil || !ok {
+		return "", false, err
+	}
+
+	// Case: the schema's `case` map keys are compared to the raw value
+	// verbatim (no case-folding), matching both the corpus's
+	// case-sensitive keys (freeleech's "100%"/"0%") and its
+	// True/False-as-bareword-YAML-key idiom, which goccy/go-yaml decodes
+	// to the lower-case string keys "true"/"false" — the same casing
+	// TemplateContext.True/False and gjson's boolean String() already
+	// use, so no folding is ever needed here.
+	if len(b.Case) > 0 {
+		matched, isMatch := b.Case[raw]
+		if !isMatch {
+			matched, isMatch = b.Case["*"]
+		}
+		if isMatch {
+			rendered, err := render(string(matched), tc)
+			if err != nil {
+				return "", false, err
+			}
+			raw = rendered
+		}
+	}
+
+	for _, f := range b.Filters {
+		fn, known := Filters[f.Name]
+		if !known {
+			return "", false, fmt.Errorf("cardigann: unknown filter %q", f.Name)
+		}
+		raw, err = fn(ctx, raw, []string(f.Args), tc)
+		if err != nil {
+			return "", false, fmt.Errorf("cardigann: filter %q: %w", f.Name, err)
+		}
+	}
+	return raw, true, nil
+}
+
+// extractRaw resolves Text/Selector+Attribute+Remove into a raw string,
+// before Case/Filters run. It is Extract's first half, split out only for
+// readability.
+func (b SelectorBlock) extractRaw(ctx context.Context, d Doc, tc *TemplateContext) (string, bool, error) {
+	if b.Text != nil {
+		rendered, err := render(string(*b.Text), tc)
+		if err != nil {
+			return "", false, err
+		}
+		return rendered, true, nil
+	}
+
+	sel := d
+	if b.Selector != "" {
+		found, ok := d.Select(b.Selector)
+		if !ok {
+			return b.optionalFallback()
+		}
+		sel = found
+	}
+	if b.Remove != "" && sel.rt == ResponseHTML && sel.html != nil {
+		sel.html.Find(b.Remove).Remove()
+	}
+	raw, ok := sel.Text(b.Attribute)
+	if !ok {
+		return b.optionalFallback()
+	}
+	return raw, true, nil
+}
+
+// optionalFallback is what Extract returns when a selector matched
+// nothing: b.Default when set (implies b.Optional per the schema's
+// dependentRequired), else (false, nil) — the caller (RowsBlock iteration
+// / field mapping in search.go) is what turns a non-optional miss into
+// "drop this row", not Extract itself.
+func (b SelectorBlock) optionalFallback() (string, bool, error) {
+	if b.Default != nil {
+		return string(*b.Default), true, nil
+	}
+	return "", false, nil
+}
