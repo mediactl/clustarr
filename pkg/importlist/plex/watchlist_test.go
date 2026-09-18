@@ -24,10 +24,11 @@ import (
 	"strconv"
 	"testing"
 
-	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/importlist/plex"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/importlist/plex"
 )
 
 func TestFetchPagesUntilAShortPage(t *testing.T) {

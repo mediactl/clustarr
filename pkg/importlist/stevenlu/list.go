@@ -87,7 +87,7 @@ func (l *List) Fetch(ctx context.Context) ([]importlist.Item, error) {
 		tracing.RecordError(span, err)
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		err := fmt.Errorf("importlist/stevenlu: unexpected status %d", resp.StatusCode)
 		tracing.RecordError(span, err)

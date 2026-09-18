@@ -81,7 +81,7 @@ func doJSON(ctx context.Context, client *http.Client, req *http.Request, out any
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if out != nil && resp.StatusCode == http.StatusOK {
 		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 			return resp, fmt.Errorf("trakt: decode response: %w", err)

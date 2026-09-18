@@ -24,9 +24,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/mediactl/clustarr/pkg/importlist/trakt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mediactl/clustarr/pkg/importlist/trakt"
 )
 
 func mustReadFile(t *testing.T, path string) []byte {

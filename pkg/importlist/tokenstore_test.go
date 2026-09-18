@@ -22,9 +22,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mediactl/clustarr/pkg/importlist"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mediactl/clustarr/pkg/importlist"
 )
 
 func TestTokenExpiredWithinFiveMinuteMargin(t *testing.T) {

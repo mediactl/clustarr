@@ -20,8 +20,9 @@ package importlist_test
 import (
 	"testing"
 
-	"github.com/mediactl/clustarr/pkg/importlist"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/mediactl/clustarr/pkg/importlist"
 )
 
 func TestNotImplementedErrorWrapsTheSentinel(t *testing.T) {

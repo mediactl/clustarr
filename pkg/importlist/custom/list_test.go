@@ -21,10 +21,11 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/importlist"
 	"github.com/mediactl/clustarr/pkg/importlist/custom"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestFetchReturnsNotImplemented(t *testing.T) {

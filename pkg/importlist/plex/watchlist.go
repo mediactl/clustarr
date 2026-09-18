@@ -146,7 +146,7 @@ func (w *Watchlist) fetchPage(ctx context.Context, start int32) ([]importlist.It
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("importlist/plex: unexpected status %d", resp.StatusCode)
 	}
