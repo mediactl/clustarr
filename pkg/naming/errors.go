@@ -36,10 +36,4 @@ var (
 	// container with no single-file path of its own (series, artist), or
 	// an unrecognised kind.
 	ErrNoFile = errors.New("naming: media kind has no single-file path")
-
-	// ErrNotUnderRoot is reserved for callers computing a path relative to
-	// a root folder (for example pkg/fsops's recycle-bin destination
-	// calculation) who want a single sentinel to test against with
-	// errors.Is when an item path does not live under the expected root.
-	ErrNotUnderRoot = errors.New("naming: path is not under the root folder")
 )
