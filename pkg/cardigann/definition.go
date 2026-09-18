@@ -149,16 +149,16 @@ func (f *OrderedFields) UnmarshalYAML(node ast.Node) error {
 
 // Definition is a decoded Cardigann v11 indexer definition.
 type Definition struct {
-	ID              string `yaml:"id"`
-	Name            string `yaml:"name"`
-	Description     string `yaml:"description"`
-	Language        string `yaml:"language"`
+	ID              string         `yaml:"id"`
+	Name            string         `yaml:"name"`
+	Description     string         `yaml:"description"`
+	Language        string         `yaml:"language"`
 	Type            DefinitionType `yaml:"type"`
-	Replaces        []string `yaml:"replaces"`
-	Encoding        string   `yaml:"encoding"`
-	FollowRedirect  bool     `yaml:"followredirect"`
-	TestLinkTorrent *bool    `yaml:"testlinktorrent"`
-	RequestDelay    float64  `yaml:"requestDelay"` // seconds
+	Replaces        []string       `yaml:"replaces"`
+	Encoding        string         `yaml:"encoding"`
+	FollowRedirect  bool           `yaml:"followredirect"`
+	TestLinkTorrent *bool          `yaml:"testlinktorrent"`
+	RequestDelay    float64        `yaml:"requestDelay"` // seconds
 
 	Links        []string `yaml:"links"`
 	LegacyLinks  []string `yaml:"legacylinks"`
@@ -175,12 +175,12 @@ type Definition struct {
 // configuration the definition author exposes (an API key, a sort order, a
 // checkbox toggle, ...).
 type SettingsField struct {
-	Name    string `yaml:"name"`
-	Label   string `yaml:"label"`
-	Type    string `yaml:"type"` // info|text|password|checkbox|select|info_category_8000|info_cookie|info_flaresolverr|info_useragent
-	Default Scalar `yaml:"default"`
-	Options map[string]string `yaml:"options"`
-	Defaults []string `yaml:"defaults"`
+	Name     string            `yaml:"name"`
+	Label    string            `yaml:"label"`
+	Type     string            `yaml:"type"` // info|text|password|checkbox|select|info_category_8000|info_cookie|info_flaresolverr|info_useragent
+	Default  Scalar            `yaml:"default"`
+	Options  map[string]string `yaml:"options"`
+	Defaults []string          `yaml:"defaults"`
 }
 
 // Caps describes what a Definition can search for: its category table and
@@ -192,14 +192,14 @@ type Caps struct {
 	CategoryMappings []CategoryMapping `yaml:"categorymappings"`
 	// Modes maps "search"|"tv-search"|"movie-search"|"music-search"|"book-search"
 	// to the query parameters that mode accepts.
-	Modes              map[string][]string `yaml:"modes"`
-	AllowRawSearch     bool                `yaml:"allowrawsearch"`
-	AllowTVSearchIMDB  bool                `yaml:"allowtvsearchimdb"`
+	Modes             map[string][]string `yaml:"modes"`
+	AllowRawSearch    bool                `yaml:"allowrawsearch"`
+	AllowTVSearchIMDB bool                `yaml:"allowtvsearchimdb"`
 }
 
 // CategoryMapping is one tracker-category-id -> canonical-category entry.
 type CategoryMapping struct {
-	ID      Scalar `yaml:"id"` // tracker's own category id, string or int in the YAML
+	ID      Scalar `yaml:"id"`  // tracker's own category id, string or int in the YAML
 	Cat     string `yaml:"cat"` // one of the 71 canonical IndexerCategories enum names
 	Desc    string `yaml:"desc"`
 	Default bool   `yaml:"default"`
@@ -208,7 +208,7 @@ type CategoryMapping struct {
 // LoginBlock describes how Engine.Login authenticates against this
 // indexer before Search/Download run.
 type LoginBlock struct {
-	Method  string `yaml:"method"` // ""(=form)|form|post|cookie|get|oneurl
+	Method  string   `yaml:"method"` // ""(=form)|form|post|cookie|get|oneurl
 	Cookies []string `yaml:"cookies"`
 
 	Path       string `yaml:"path"`
@@ -223,7 +223,7 @@ type LoginBlock struct {
 	SelectorInputs    map[string]SelectorBlock `yaml:"selectorinputs"`
 	GetSelectorInputs map[string]SelectorBlock `yaml:"getselectorinputs"`
 
-	Error []ErrorBlock `yaml:"error"`
+	Error []ErrorBlock   `yaml:"error"`
 	Test  *PageTestBlock `yaml:"test"`
 
 	Headers map[string][]string `yaml:"headers"`
@@ -240,8 +240,8 @@ type CaptchaBlock struct {
 // ErrorBlock is one condition that, when matched on a login/search response,
 // signals failure.
 type ErrorBlock struct {
-	Path     string `yaml:"path"`
-	Selector string `yaml:"selector"`
+	Path     string         `yaml:"path"`
+	Selector string         `yaml:"selector"`
 	Message  *SelectorBlock `yaml:"message"`
 }
 
@@ -255,30 +255,30 @@ type PageTestBlock struct {
 // SelectorBlock is a single extraction rule: a selector plus the
 // case/remove/default/text/filters pipeline SelectorBlock.Extract applies.
 type SelectorBlock struct {
-	Selector  string `yaml:"selector"`
-	Attribute string `yaml:"attribute"`
-	Optional  bool   `yaml:"optional"`
-	Default   *Scalar `yaml:"default"` // requires Optional per schema dependentRequired
+	Selector  string            `yaml:"selector"`
+	Attribute string            `yaml:"attribute"`
+	Optional  bool              `yaml:"optional"`
+	Default   *Scalar           `yaml:"default"` // requires Optional per schema dependentRequired
 	Case      map[string]Scalar `yaml:"case"`
-	Remove    string  `yaml:"remove"` // a nested selector to strip before reading text
-	Text      *Scalar `yaml:"text"`   // literal or template, replaces Selector entirely
-	Filters   []FilterBlock `yaml:"filters"`
+	Remove    string            `yaml:"remove"` // a nested selector to strip before reading text
+	Text      *Scalar           `yaml:"text"`   // literal or template, replaces Selector entirely
+	Filters   []FilterBlock     `yaml:"filters"`
 }
 
 // SearchBlock describes how Engine.Search builds and fans out requests, and
 // how it extracts rows and fields from each response.
 type SearchBlock struct {
-	Path             string            `yaml:"path"`
-	Paths            []SearchPathBlock `yaml:"paths"` // exactly one of Path/Paths is set (schema oneOf)
-	AllowEmptyInputs bool              `yaml:"allowEmptyInputs"`
-	Inputs           map[string]Scalar `yaml:"inputs"`
+	Path             string              `yaml:"path"`
+	Paths            []SearchPathBlock   `yaml:"paths"` // exactly one of Path/Paths is set (schema oneOf)
+	AllowEmptyInputs bool                `yaml:"allowEmptyInputs"`
+	Inputs           map[string]Scalar   `yaml:"inputs"`
 	Headers          map[string][]string `yaml:"headers"`
 
 	KeywordsFilters      []FilterBlock `yaml:"keywordsfilters"`
 	PreprocessingFilters []FilterBlock `yaml:"preprocessingfilters"`
 
 	Error []ErrorBlock `yaml:"error"`
-	Rows  RowsBlock     `yaml:"rows"`
+	Rows  RowsBlock    `yaml:"rows"`
 
 	Fields OrderedFields `yaml:"fields"`
 }
@@ -326,10 +326,10 @@ type FilterBlock struct {
 // DownloadBlock describes how Engine.Download resolves a search result's
 // link into downloadable content.
 type DownloadBlock struct {
-	Method    string           `yaml:"method"`
-	Before    *BeforeBlock     `yaml:"before"`
-	Selectors []SelectorField  `yaml:"selectors"`
-	InfoHash  *InfoHashBlock   `yaml:"infohash"`
+	Method    string              `yaml:"method"`
+	Before    *BeforeBlock        `yaml:"before"`
+	Selectors []SelectorField     `yaml:"selectors"`
+	InfoHash  *InfoHashBlock      `yaml:"infohash"`
 	Headers   map[string][]string `yaml:"headers"`
 }
 

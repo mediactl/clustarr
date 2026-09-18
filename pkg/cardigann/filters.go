@@ -375,11 +375,10 @@ func TranslateDateFormat(dotnet string) string {
 		length := j - i
 		switch c {
 		case 'y':
-			if length >= 4 {
-				b.WriteString("2006")
-			} else if length == 2 {
+			switch length {
+			case 2:
 				b.WriteString("06")
-			} else {
+			default: // length >= 4, or the rare bare "y"
 				b.WriteString("2006")
 			}
 		case 'M':

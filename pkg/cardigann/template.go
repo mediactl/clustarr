@@ -99,7 +99,7 @@ type Config struct {
 // template behaviour that breaks compatibility with upstream Cardigann
 // files.
 var funcMap = template.FuncMap{
-	"join": func(vs []string, sep string) string { return strings.Join(vs, sep) },
+	"join": strings.Join,
 	"re_replace": func(value, pattern, repl string) (string, error) {
 		re, err := regexp.Compile(pattern)
 		if err != nil {

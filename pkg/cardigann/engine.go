@@ -128,7 +128,7 @@ func (e Engine) do(ctx context.Context, req *http.Request) (*http.Response, []by
 		tracing.RecordError(span, err)
 		return nil, nil, fmt.Errorf("cardigann: request %s: %w", req.URL, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		tracing.RecordError(span, err)

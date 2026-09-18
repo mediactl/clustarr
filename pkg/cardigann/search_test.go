@@ -39,7 +39,7 @@ var testClock = time.Date(2026, 9, 18, 15, 0, 0, 0, time.UTC)
 
 func TestEngineSearch1337xHTML(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write(readTestdataBytes(t, "1337x-search.html"))
+		_, _ = w.Write(readTestdataBytes(t, "1337x-search.html"))
 	}))
 	defer srv.Close()
 
@@ -123,7 +123,7 @@ func TestBuildKeywordsAppendsSeasonEpisodeOnlyWhenBothSet(t *testing.T) {
 			var gotPath string
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				gotPath = r.URL.Path
-				w.Write([]byte(`<table></table>`))
+				_, _ = w.Write([]byte(`<table></table>`))
 			}))
 			defer srv.Close()
 			cfg, err := cardigann.NewConfig(def, srv.URL+"/", nil)
@@ -141,7 +141,7 @@ func TestEngineSearch0dayfilesJSON(t *testing.T) {
 		require.Equal(t, "Bearer test-key", r.Header.Get("Authorization"))
 		require.Empty(t, r.URL.Query().Get("seasonNumber")) // AllowEmptyInputs is unset -> omitted, not "seasonNumber="
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(readTestdataBytes(t, "0dayfiles-search.json"))
+		_, _ = w.Write(readTestdataBytes(t, "0dayfiles-search.json"))
 	}))
 	defer srv.Close()
 

@@ -34,7 +34,7 @@ func TestEngineLoginForm(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/login":
-			w.Write(readTestdataBytes(t, "login-form.html"))
+			_, _ = w.Write(readTestdataBytes(t, "login-form.html"))
 		case r.Method == http.MethodPost && r.URL.Path == "/login":
 			require.NoError(t, r.ParseForm())
 			gotUser, gotPass, gotCSRF = r.Form.Get("username"), r.Form.Get("password"), r.Form.Get("csrf_token")
@@ -90,10 +90,10 @@ func TestEngineLoginCookieMissingSettingErrors(t *testing.T) {
 func TestEngineLoginGetAppliesErrorSelectors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("apikey") != "good-key" {
-			w.Write([]byte(`<html><body><a href="/login">please log in</a></body></html>`))
+			_, _ = w.Write([]byte(`<html><body><a href="/login">please log in</a></body></html>`))
 			return
 		}
-		w.Write([]byte(`<html><body>ok</body></html>`))
+		_, _ = w.Write([]byte(`<html><body>ok</body></html>`))
 	}))
 	defer srv.Close()
 
@@ -120,7 +120,7 @@ func TestEngineLoginGetAppliesErrorSelectors(t *testing.T) {
 
 func TestEngineLoginCaptchaRequiredSignal(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`<html><body><img class="captcha-image" src="/c.png"></body></html>`))
+		_, _ = w.Write([]byte(`<html><body><img class="captcha-image" src="/c.png"></body></html>`))
 	}))
 	defer srv.Close()
 
