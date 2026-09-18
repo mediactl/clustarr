@@ -31,9 +31,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	transcodeac "github.com/mediactl/clustarr/api/applyconfiguration/transcode/transcode/v1alpha1"
@@ -500,4 +502,80 @@ func TestReconcileRealFFprobe(t *testing.T) {
 	assert.Equal(t, "h264", got.Status.MediaInfo.VideoCodec)
 	require.NotEmpty(t, got.Status.MediaInfo.Audio)
 	assert.NotEmpty(t, got.Status.MediaInfo.Audio[0].ChannelLayout)
+}
+
+// TestTranscodeJobWatchTriggersReconcile drives a real ctrl.Manager, proving
+// the Watches(&TranscodeJob{}, ...) wiring in SetupWithManager -- not a
+// direct Reconcile call -- actually enqueues a request when a hand-created
+// TranscodeJob reaches phase Succeeded.
+func TestTranscodeJobWatchTriggersReconcile(t *testing.T) {
+	_, cfg := startEnv(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+		Scheme:                 k8s.MustNewScheme(),
+		Metrics:                metricsserver.Options{BindAddress: "0"},
+		HealthProbeBindAddress: "0",
+	})
+	require.NoError(t, err)
+
+	r := mediafile.NewReconciler(mgr.GetClient(), mgr.GetScheme(), record.NewFakeRecorder(32))
+	r.Probe = fakeProbe
+	require.NoError(t, r.SetupWithManager(mgr))
+
+	go func() { _ = mgr.Start(ctx) }()
+	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))
+	c := mgr.GetClient()
+
+	const ns, name = "tjwatch", "inception-abc1234567"
+	dir := t.TempDir()
+	mustNamespace(t, ctx, c, ns)
+	mustQualityProfile(t, ctx, c, "qp-video")
+	mustMovie(t, ctx, c, ns, "inception", "qp-video")
+
+	path := writeFile(t, dir, "Inception (2010).mkv", []byte("stand-in bytes"))
+	stat, err := os.Stat(path)
+	require.NoError(t, err)
+	importarrCreatesMediaFileFor(t, ctx, c, ns, name,
+		commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "inception"},
+		path, stat.Size(), stat.ModTime(),
+		commonv1.Quality{Name: "WEBDL-1080p", Source: commonv1.SourceWebDL, Resolution: commonv1.Resolution1080p, Modifier: commonv1.ModifierNone})
+
+	var got catalogv1alpha1.MediaFile
+	require.Eventually(t, func() bool {
+		if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got); err != nil {
+			return false
+		}
+		return got.Status.ProbeHash != ""
+	}, 5*time.Second, 100*time.Millisecond, "initial For(MediaFile) reconcile did not land")
+
+	newContents := []byte("re-encoded stand-in bytes, longer")
+	require.NoError(t, os.WriteFile(path, newContents, 0o644))
+	newStat, err := os.Stat(path)
+	require.NoError(t, err)
+	finished := metav1.NewTime(newStat.ModTime().Add(time.Second))
+
+	mustTranscodeProfile(t, ctx, c, "hevc-main10", "profile-hash-def")
+	tj := &transcodev1alpha1.TranscodeJob{
+		ObjectMeta: metav1.ObjectMeta{Name: name + "-abcd1234", Namespace: ns},
+		Spec:       transcodev1alpha1.TranscodeJobSpec{MediaFileRef: name, ProfileRef: "hevc-main10", SourcePath: path, SourceProbeHash: got.Status.ProbeHash},
+	}
+	require.NoError(t, c.Create(ctx, tj))
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerSquasharr,
+		transcodeac.TranscodeJob(tj.Name, tj.Namespace).WithStatus(
+			transcodeac.TranscodeJobStatus().
+				WithPhase(transcodev1alpha1.TranscodeJobPhaseSucceeded).
+				WithFinishedAt(finished).
+				WithResult(transcodeac.Result().WithOutputPath(path).WithOutputSizeBytes(int64(len(newContents)))),
+		))
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got); err != nil {
+			return false
+		}
+		return got.Spec.Original != nil && !*got.Spec.Original &&
+			got.Status.Transcode != nil && got.Status.Transcode.Compliant
+	}, 5*time.Second, 100*time.Millisecond, "the TranscodeJob watch did not trigger the swap")
 }
