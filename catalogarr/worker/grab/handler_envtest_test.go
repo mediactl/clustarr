@@ -27,6 +27,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
@@ -205,4 +207,81 @@ func TestHandler_SubscriptionMatchesTheSpecTable(t *testing.T) {
 	assert.Equal(t, 5, sub.MaxDeliver)
 	assert.Equal(t, []time.Duration{10 * time.Second, time.Minute, 5 * time.Minute}, sub.Backoff)
 	assert.Equal(t, 16, sub.MaxInFlight)
+}
+
+// TestHandler_DuplicateGrabClearsPendingGrab is the item that turned a
+// duplicate ack into a permanent exit from automation.
+//
+// Acknowledging a duplicate used to delete the clustarr-pending entry and
+// nothing else. status.pendingGrab stayed set, the Movie reconciler kept
+// recomputing Phase=Delayed from it, and wantedcron's sweep only wakes Wanted
+// and CutoffUnmet items -- so the movie stopped being searched for, forever,
+// with no error anywhere.
+//
+// The movie is driven to the real delayed steady state first, because a blank
+// object has no pendingGrab to strand.
+func TestHandler_DuplicateGrabClearsPendingGrab(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	ns := newNamespace(t, ctx, c)
+
+	movie := newMovie(t, ctx, c, ns, "the-thing-1982")
+	profile := hdBlurayWeb(t)
+	bus := newTestBus(t, nil)
+	target := commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name}
+	release := torrentRelease("guid-1", "my-indexer", profile.Tiers[0][0].Quality, 0)
+
+	// The steady state a delayed grab leaves behind.
+	seedWorkerStatus(t, ctx, c, movie, "", &catalogv1alpha1.PendingGrab{
+		ReleaseTitle: release.Title,
+		Protocol:     commonv1.ProtocolTorrent,
+		GrabAt:       metav1.NewTime(testNow.Add(45 * time.Minute)),
+	})
+	pendingKey := seedPending(t, ctx, bus, ns, target, nil, release, downloadv1alpha1.GrabSourceSearch)
+
+	// Something else grabbed it while the delay was running.
+	_, err := bus.KV(events.BucketLeases).Create(ctx, events.LeaseKey(grab.MediaKey(ns, target)), []byte("someone-elses-download"))
+	require.NoError(t, err)
+
+	h := grab.NewHandler(grab.Deps{Client: c, Bus: bus, Now: fixedNow(testNow)})
+	require.NoError(t, h.Handle(ctx, grabTaskMessage(t, ns, target, nil)), "a duplicate grab acks")
+
+	var got catalogv1alpha1.Movie
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(movie), &got))
+	assert.Nilf(t, got.Status.PendingGrab,
+		"the duplicate ack left status.pendingGrab set: the movie reports Delayed forever and wantedcron never sweeps it again")
+
+	_, err = bus.KV(events.BucketPending).Get(ctx, pendingKey)
+	assert.ErrorIs(t, err, events.ErrKeyNotFound)
+}
+
+// TestPerformGrab_OptimisticReReadDuplicateClearsPendingGrab is the same
+// guarantee on the OTHER duplicate exit: the lease was free, but a
+// non-lease-mediated path already put a Download on the item.
+func TestPerformGrab_OptimisticReReadDuplicateClearsPendingGrab(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	ns := newNamespace(t, ctx, c)
+
+	movie := newMovie(t, ctx, c, ns, "the-thing-1982")
+	seedWorkerStatus(t, ctx, c, movie, "someone-elses-download", &catalogv1alpha1.PendingGrab{
+		ReleaseTitle: "The.Thing.1982.1080p.BluRay.x264-GROUP",
+		Protocol:     commonv1.ProtocolTorrent,
+		GrabAt:       metav1.NewTime(testNow.Add(45 * time.Minute)),
+	})
+
+	profile := hdBlurayWeb(t)
+	target := commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name}
+	deps := grab.Deps{Client: c, Bus: newTestBus(t, nil), Now: fixedNow(testNow)}
+	err := grab.PerformGrabForTest(ctx, deps, ns, target, nil,
+		torrentRelease("guid-1", "my-indexer", profile.Tiers[0][0].Quality, 0), downloadv1alpha1.GrabSourceSearch)
+	require.ErrorIs(t, err, grab.ErrDuplicateGrab)
+
+	var got catalogv1alpha1.Movie
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(movie), &got))
+	assert.Nil(t, got.Status.PendingGrab, "the duplicate exit must clear pendingGrab")
+	// The rest of the owned set survives: the clear is a full re-declaration,
+	// not a partial apply.
+	require.NotNil(t, got.Status.ActiveDownloadRef)
+	assert.Equal(t, "someone-elses-download", *got.Status.ActiveDownloadRef)
 }

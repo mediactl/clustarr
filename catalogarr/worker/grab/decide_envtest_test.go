@@ -35,6 +35,7 @@ import (
 	"github.com/mediactl/clustarr/catalogarr/worker/grab"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/quality"
 )
 
@@ -317,4 +318,133 @@ func TestResolveConfig_EpisodeReadsItsSeries(t *testing.T) {
 
 	_, err := grab.ResolveConfig(ctx, c, ns, commonv1.MediaRef{Kind: commonv1.MediaKindSeries, Name: series.Name})
 	assert.ErrorIs(t, err, grab.ErrUnsupportedKind, "a series target with no keys governs nothing")
+}
+
+// TestDecide_TwoSeasonPacksKeepSeparatePendingEntries is the pack-collision
+// regression, end to end.
+//
+// Both packs name the same Series, so before MediaKeyFor they shared one
+// clustarr-pending key: the second Decide compared an S02 pack against an S01
+// pack on quality alone, evicted one of them, and reused the first pack's
+// Msg-Id so the evicted pack's scheduled delivery was deduplicated away --
+// while its episodes kept a status.pendingGrab nothing would ever clear.
+func TestDecide_TwoSeasonPacksKeepSeparatePendingEntries(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	ns := newNamespace(t, ctx, c)
+
+	series := &catalogv1alpha1.Series{
+		ObjectMeta: metav1.ObjectMeta{Name: "the-wire", Namespace: ns},
+		Spec: catalogv1alpha1.SeriesSpec{
+			TvdbID: 79126, QualityProfileRef: "hd-bluray-web", RootFolderRef: "tv",
+		},
+	}
+	require.NoError(t, c.Create(ctx, series))
+	s1 := []string{"the-wire-s01e01", "the-wire-s01e02"}
+	s2 := []string{"the-wire-s02e01", "the-wire-s02e02"}
+	for season, names := range map[int32][]string{1: s1, 2: s2} {
+		for i, n := range names {
+			require.NoError(t, c.Create(ctx, &catalogv1alpha1.Episode{
+				ObjectMeta: metav1.ObjectMeta{Name: n, Namespace: ns},
+				Spec: catalogv1alpha1.EpisodeSpec{
+					SeriesRef: series.Name, SeasonNumber: season, EpisodeNumber: int32(i + 1),
+					Monitored: ptr.To(true),
+				},
+			}))
+		}
+	}
+
+	profile := hdBlurayWeb(t)
+	bus := newTestBus(t, nil)
+	deps := grab.Deps{Client: c, Bus: bus, Now: fixedNow(testNow)}
+	delay := catalogv1alpha1.DelayProfileSpec{TorrentDelayMinutes: 45, BypassIfHighestQuality: boolPtr(false)}
+	target := commonv1.MediaRef{Kind: commonv1.MediaKindSeries, Name: series.Name}
+
+	// The S01 pack is the better release. If the two share a key, the S02
+	// pack loses keep-best and is evicted.
+	best := torrentRelease("guid-s01", "my-indexer", profile.Tiers[0][0].Quality, 100)
+	worse := torrentRelease("guid-s02", "my-indexer", profile.Tiers[len(profile.Tiers)-1][0].Quality, 0)
+
+	require.NoError(t, grab.Decide(ctx, deps, profile, delay, grab.Approved{
+		Namespace: ns, Target: target, Keys: s1, Release: best, GrabbedBy: downloadv1alpha1.GrabSourceSearch,
+	}))
+	require.NoError(t, grab.Decide(ctx, deps, profile, delay, grab.Approved{
+		Namespace: ns, Target: target, Keys: s2, Release: worse, GrabbedBy: downloadv1alpha1.GrabSourceSearch,
+	}))
+
+	kv := bus.KV(events.BucketPending)
+	e1, err := kv.Get(ctx, events.PendingKey(grab.MediaKeyFor(ns, target, s1)))
+	require.NoError(t, err, "the S01 pack lost its pending entry")
+	e2, err := kv.Get(ctx, events.PendingKey(grab.MediaKeyFor(ns, target, s2)))
+	require.NoError(t, err, "the S02 pack was evicted by the S01 pack's keep-best")
+	assert.NotEqual(t, string(e1.Value), string(e2.Value))
+	assert.Contains(t, string(e1.Value), "guid-s01")
+	assert.Contains(t, string(e2.Value), "guid-s02")
+
+	// And every episode of BOTH seasons is genuinely waiting, not just the
+	// ones whose entry happened to survive.
+	for _, n := range append(append([]string{}, s1...), s2...) {
+		var ep catalogv1alpha1.Episode
+		require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: ns, Name: n}, &ep))
+		require.NotNilf(t, ep.Status.PendingGrab, "%s has no pendingGrab", n)
+	}
+}
+
+// TestDecide_PropagatesTheTraceToTheScheduledGrab is item 4's regression: a
+// delayed grab is the longest causal gap in the system, so an orphaned span
+// there is exactly the trace an operator wants and cannot get.
+//
+// It asserts the wire header end to end: the producer's trace ID is on the
+// envelope the grab consumer receives, and grab.Handler.Handle's own span
+// joins that trace rather than starting a new one.
+func TestDecide_PropagatesTheTraceToTheScheduledGrab(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c := newTestClient(t)
+	ns := newNamespace(t, ctx, c)
+
+	_, err := tracing.Setup(ctx, tracing.Options{Enabled: false, ServiceName: "grab-test", SampleRatio: 1})
+	require.NoError(t, err)
+
+	movie := newMovie(t, ctx, c, ns, "the-thing-1982")
+	profile := hdBlurayWeb(t)
+	clock := clockwork.NewFakeClockAt(testNow)
+	bus := newTestBus(t, clock)
+	target := commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name}
+
+	received := make(chan string, 4)
+	stop, err := bus.Subscribe(ctx, grab.NewHandler(grab.Deps{Client: c, Bus: bus}).Subscription(),
+		func(hctx context.Context, m events.Message) error {
+			// Exactly what Handle does: Extract, then Start.
+			hctx = tracing.Extract(hctx, m.Envelope())
+			_, span := tracing.Start(hctx, "consumer")
+			defer span.End()
+			received <- span.SpanContext().TraceID().String()
+			return nil
+		})
+	require.NoError(t, err)
+	defer stop()
+
+	produceCtx, produceSpan := tracing.Start(ctx, "producer")
+	wantTrace := produceSpan.SpanContext().TraceID().String()
+	err = grab.Decide(produceCtx,
+		grab.Deps{Client: c, Bus: bus, Now: clock.Now},
+		profile,
+		catalogv1alpha1.DelayProfileSpec{TorrentDelayMinutes: 45, BypassIfHighestQuality: boolPtr(false)},
+		grab.Approved{
+			Namespace: ns, Target: target,
+			Release:   torrentRelease("guid-traced", "my-indexer", profile.Tiers[len(profile.Tiers)-1][0].Quality, 0),
+			GrabbedBy: downloadv1alpha1.GrabSourceSearch,
+		})
+	produceSpan.End()
+	require.NoError(t, err)
+
+	pumpClock(t, clock, 5*time.Minute)
+	select {
+	case got := <-received:
+		assert.Equal(t, wantTrace, got,
+			"the grab consumer's span must join the trace of the decision that scheduled it")
+	case <-time.After(10 * time.Second):
+		t.Fatal("no GrabTask delivered")
+	}
 }

@@ -32,26 +32,27 @@ import (
 // a real, if unusual, case that still reports Imported/CutoffUnmet.
 //
 // pendingGrab reports whether status.pendingGrab is set -- a release the grab
-// worker has chosen and is holding back for a DelayProfile's window. It
-// outranks the file and air-date states for the same reason DownloadOverlay's
-// Downloading does in the reconciler: Delayed and Downloading are one story,
-// the in-flight grab. Without this arm Delayed is reachable only through an
-// already-created Download and the delay-profile feature is invisible. It
-// ranks below the monitored gate, which is the user's own decision.
+// worker has chosen and is holding back for a DelayProfile's window. Without
+// this arm Delayed is reachable only through an already-created Download and
+// the delay-profile feature is invisible.
 //
-// It also outranks Unaired deliberately: a pending grab for an unaired
-// episode means a release leaked early, and reporting Unaired while a grab is
-// scheduled would be a lie.
+// Its rank matches the movie package's, for the same reasons: above
+// CutoffUnmet, Unaired and Wanted, where the pending grab is the story, and
+// below Imported and the monitored gate. A pending grab is an internal timer,
+// not an object the user can see or cancel, so it does not displace a good
+// cutoff-met file the way an actual Download does. Above Unaired is
+// deliberate: a pending grab for an unaired episode means a release leaked
+// early, and reporting Unaired while a grab is scheduled would be a lie.
 func Phase(monitored bool, airDate *metav1.Time, hasFile, cutoffMet, pendingGrab bool, now time.Time) catalogv1alpha1.EpisodePhase {
 	switch {
 	case !monitored:
 		return catalogv1alpha1.EpisodePhaseUnmonitored
-	case pendingGrab:
-		return catalogv1alpha1.EpisodePhaseDelayed
-	case hasFile && !cutoffMet:
-		return catalogv1alpha1.EpisodePhaseCutoffUnmet
 	case hasFile && cutoffMet:
 		return catalogv1alpha1.EpisodePhaseImported
+	case pendingGrab:
+		return catalogv1alpha1.EpisodePhaseDelayed
+	case hasFile:
+		return catalogv1alpha1.EpisodePhaseCutoffUnmet
 	case airDate == nil || now.Before(airDate.Time):
 		return catalogv1alpha1.EpisodePhaseUnaired
 	default:

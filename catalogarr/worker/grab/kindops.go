@@ -19,9 +19,10 @@ package grab
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -32,44 +33,30 @@ import (
 )
 
 // workerStatus is the COMPLETE set of status fields
-// k8s.ManagerCatalogarrWorker owns on a Movie or an Episode: spec §5's
-// field-manager table assigns the worker activeDownloadRef, pendingGrab,
-// lastSearchedAt and searchAttempts, and nothing else on those kinds.
+// k8s.ManagerCatalogarrGrab owns on a Movie or an Episode: spec §2's
+// field-manager table assigns the grab path activeDownloadRef, pendingGrab,
+// lastSearchedAt and searchAttempts, and nothing else on those kinds. It
+// never carries status.phase, which is the Movie/Episode reconciler's under
+// k8s.ManagerCatalogarr, or status.metadata, which is the gateway's under
+// k8s.ManagerCatalogarrMetadata.
 //
 // It is a value type rather than four separate patch methods because
 // server-side apply replaces a field manager's ownership set on every apply
 // instead of merging it. A patch that sent only pendingGrab would RELEASE
 // activeDownloadRef, lastSearchedAt and searchAttempts -- which reads as
-// "reset to zero" on the object -- and the search worker (Task C8), which
-// shares this manager name and writes lastSearchedAt/searchAttempts, would
-// release pendingGrab right back. The only safe shape is: read the live
+// "reset to zero" on the object. The only safe shape is: read the live
 // object, take the whole owned set off it, change the one thing this call
 // means to change, and re-declare all four.
 //
-// Task C8 and anything else writing these fields under
-// k8s.ManagerCatalogarrWorker must go through the same read-modify-declare
-// cycle. Sending a subset is a data-loss bug that no test on a freshly
-// created object can observe, because a blank object has nothing to release.
+// Anything else writing these fields under k8s.ManagerCatalogarrGrab must go
+// through the same read-modify-declare cycle. Sending a subset is a data-loss
+// bug that no test on a freshly created object can observe, because a blank
+// object has nothing to release.
 type workerStatus struct {
 	ActiveDownloadRef *string
 	PendingGrab       *catalogv1alpha1.PendingGrab
 	LastSearchedAt    *metav1.Time
 	SearchAttempts    commonv1.Attempts
-
-	// Movie only. status.metadata is NOT this package's field -- the
-	// metadata gateway (catalogarr/metadata) owns it -- but the gateway
-	// writes it under k8s.ManagerCatalogarrWorker, the same manager name this
-	// package writes with. Under server-side apply that makes it ours to
-	// re-declare or to destroy: an apply that omits it releases it, the Movie
-	// loses its cached metadata, the reconciler recomputes Phase=Pending and
-	// the gateway refetches from the provider. An envtest in
-	// catalogarr/controller/movie caught exactly that.
-	//
-	// The real fix is a field manager per worker consumer (see this field's
-	// note in the task report); until §2's manager table gains one, carrying
-	// the gateway's value through every apply is what keeps a grab from
-	// gutting a movie.
-	Metadata *catalogv1alpha1.MovieMetadata
 }
 
 // grabContext is the configuration governing a grab for one catalog item.
@@ -99,7 +86,7 @@ type kindOps interface {
 	workerStatus(obj client.Object) workerStatus
 
 	// applyWorkerStatus declares the whole worker-owned set under
-	// k8s.ManagerCatalogarrWorker. It never sends status.phase: Phase is
+	// k8s.ManagerCatalogarrGrab. It never sends status.phase: Phase is
 	// k8s.ManagerCatalogarr's, recomputed by the Movie/Episode reconciler
 	// from the fields written here.
 	applyWorkerStatus(ctx context.Context, c client.Client, ns, name string, ws workerStatus) error
@@ -154,19 +141,11 @@ func (movieOps) workerStatus(obj client.Object) workerStatus {
 		PendingGrab:       m.Status.PendingGrab,
 		LastSearchedAt:    m.Status.LastSearchedAt,
 		SearchAttempts:    m.Status.SearchAttempts,
-		Metadata:          m.Status.Metadata,
 	}
 }
 
 func (movieOps) applyWorkerStatus(ctx context.Context, c client.Client, ns, name string, ws workerStatus) error {
 	status := catalogac.MovieStatus()
-	if ws.Metadata != nil {
-		meta, err := movieMetadataAC(ws.Metadata)
-		if err != nil {
-			return err
-		}
-		status = status.WithMetadata(meta)
-	}
 	if ws.ActiveDownloadRef != nil {
 		status = status.WithActiveDownloadRef(*ws.ActiveDownloadRef)
 	}
@@ -179,7 +158,7 @@ func (movieOps) applyWorkerStatus(ctx context.Context, c client.Client, ns, name
 	if !isZeroAttempts(ws.SearchAttempts) {
 		status = status.WithSearchAttempts(ws.SearchAttempts)
 	}
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker,
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab,
 		catalogac.Movie(name, ns).WithStatus(status))
 	return err
 }
@@ -244,36 +223,9 @@ func (episodeOps) applyWorkerStatus(ctx context.Context, c client.Client, ns, na
 	if !isZeroAttempts(ws.SearchAttempts) {
 		status = status.WithSearchAttempts(ws.SearchAttempts)
 	}
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker,
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab,
 		catalogac.Episode(name, ns).WithStatus(status))
 	return err
-}
-
-// movieMetadataAC re-expresses the gateway's live status.metadata as its
-// apply configuration, so this package can carry it through an apply without
-// restating forty fields by hand and without drifting when the API type gains
-// one.
-//
-// The round trip is faithful because an apply configuration is generated from
-// the API type with the same JSON tags: marshalling the value and
-// unmarshalling it into the configuration reproduces it field for field,
-// including the pointer-vs-zero distinction the configuration encodes.
-//
-// It is a read-modify-write, so a gateway refresh landing between this
-// package's read and its apply is lost and refetched on the next refresh
-// cycle. That is the lesser of the two evils available while both writers
-// share one field-manager name; the greater is releasing the field outright
-// on every grab.
-func movieMetadataAC(m *catalogv1alpha1.MovieMetadata) (*catalogac.MovieMetadataApplyConfiguration, error) {
-	data, err := json.Marshal(m)
-	if err != nil {
-		return nil, fmt.Errorf("grab: marshal status.metadata for pass-through: %w", err)
-	}
-	ac := catalogac.MovieMetadata()
-	if err := json.Unmarshal(data, ac); err != nil {
-		return nil, fmt.Errorf("grab: decode status.metadata for pass-through: %w", err)
-	}
-	return ac, nil
 }
 
 func pendingGrabAC(pg *catalogv1alpha1.PendingGrab) *catalogac.PendingGrabApplyConfiguration {
@@ -309,4 +261,59 @@ func getTarget(ctx context.Context, c client.Client, ns string, ref commonv1.Med
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedKind, ref.Kind)
 	}
+}
+
+// RecordSearchAttempt stamps status.lastSearchedAt and advances
+// status.searchAttempts on one catalog item, under k8s.ManagerCatalogarrGrab.
+//
+// It exists so the search worker does not have to reimplement the
+// read-modify-declare cycle workerStatus documents. Server-side apply replaces
+// a manager's whole ownership set on every apply, so a second package sending
+// only these two fields would release status.activeDownloadRef and
+// status.pendingGrab -- stranding an item at Delayed with nothing to clear it,
+// or orphaning a running Download. This helper reads the live object, changes
+// only the search bookkeeping and re-declares all four fields, exactly as the
+// grab path's own writes do.
+//
+// Without a writer for these fields wantedcron.Backoff never grows past its
+// six-hour floor, so every twelve-hourly sweep re-searches every still-wanted
+// item rather than following the documented 6h*2^n ladder.
+//
+// ref is the catalog item searched for -- movie or episode. A Series pack ref
+// is expanded to its Keys, so one interactive pack search stamps every episode
+// it covered. A missing object is not an error: it was deleted between the
+// search and this write, and there is nothing left to record against.
+//
+// at is when the attempt was made. Attempts.Initial is stamped once, on the
+// first recorded attempt, and never moved afterwards.
+func RecordSearchAttempt(ctx context.Context, c client.Client, ns string, ref commonv1.MediaRef, at time.Time) error {
+	statusTargets, err := StatusTargets(ref, ref.Keys)
+	if err != nil {
+		return err
+	}
+	stamp := metav1.NewTime(at)
+	for _, st := range statusTargets {
+		ops, err := kindOpsFor(st.Kind)
+		if err != nil {
+			return err
+		}
+		obj, err := ops.get(ctx, c, ns, st.Name)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return fmt.Errorf("grab: read %s/%s to record a search attempt: %w", st.Kind, st.Name, err)
+		}
+		ws := ops.workerStatus(obj)
+		ws.LastSearchedAt = &stamp
+		if ws.SearchAttempts.Initial == nil {
+			ws.SearchAttempts.Initial = &stamp
+		}
+		ws.SearchAttempts.Latest = &stamp
+		ws.SearchAttempts.Count++
+		if err := ops.applyWorkerStatus(ctx, c, ns, st.Name, ws); err != nil {
+			return fmt.Errorf("grab: record a search attempt on %s/%s: %w", st.Kind, st.Name, err)
+		}
+	}
+	return nil
 }

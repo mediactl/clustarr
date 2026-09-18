@@ -295,7 +295,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		// Drive it to a settled, metadata-ready steady state first: Phase
 		// must be Wanted before the pendingGrab write, or the assertion
 		// below could not tell Delayed apart from "never reconciled".
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker,
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata,
 			catalogac.Movie(m.Name, m.Namespace).WithStatus(
 				catalogac.MovieStatus().WithMetadata(
 					catalogac.MovieMetadata().WithTitle("Inception").WithYear(2010).
@@ -312,25 +312,18 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		}, 10*time.Second, 20*time.Millisecond, "the movie must settle at Wanted before the delay is applied")
 
 		// Exactly what catalogarr/worker/grab writes: pendingGrab, never
-		// Phase, under the worker's own field manager -- and status.metadata
-		// carried through, because the metadata gateway writes THAT under the
-		// same manager name and server-side apply would otherwise release it.
-		// (catalogarr/worker/grab.kindOps does this carrying for real; this
-		// fixture mirrors it, and without the WithMetadata line below the
-		// movie drops back to Phase=Pending instead of reaching Delayed.)
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker,
+		// Phase, under the grab path's own field manager. It carries no
+		// status.metadata, and does not have to: k8s.ManagerCatalogarrGrab
+		// and k8s.ManagerCatalogarrMetadata own disjoint field sets, so
+		// neither apply releases the other's.
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab,
 			catalogac.Movie(m.Name, m.Namespace).WithStatus(
-				catalogac.MovieStatus().
-					WithMetadata(
-						catalogac.MovieMetadata().WithTitle("Inception").WithYear(2010).
-							WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).WithRefreshedAt(metav1.Now()),
-					).
-					WithPendingGrab(
-						catalogac.PendingGrab().
-							WithReleaseTitle("Inception.2010.1080p.BluRay.x264-GROUP").
-							WithProtocol(commonv1.ProtocolTorrent).
-							WithGrabAt(metav1.NewTime(time.Now().Add(45*time.Minute))),
-					),
+				catalogac.MovieStatus().WithPendingGrab(
+					catalogac.PendingGrab().
+						WithReleaseTitle("Inception.2010.1080p.BluRay.x264-GROUP").
+						WithProtocol(commonv1.ProtocolTorrent).
+						WithGrabAt(metav1.NewTime(time.Now().Add(45*time.Minute))),
+				),
 			))
 		require.NoError(t, err)
 

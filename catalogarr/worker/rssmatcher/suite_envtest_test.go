@@ -171,7 +171,7 @@ func createMovie(t *testing.T, ctx context.Context, c client.Client, ns, name st
 		},
 	}
 	require.NoError(t, c.Create(ctx, m))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, catalogac.Movie(name, ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Movie(name, ns).WithStatus(
 		catalogac.MovieStatus().WithAvailable(true).WithMetadata(
 			catalogac.MovieMetadata().WithTitle(title).WithYear(year).WithRuntimeMinutes(109).
 				WithOriginalLanguage("English").
@@ -190,7 +190,7 @@ func createSeries(t *testing.T, ctx context.Context, c client.Client, ns, name s
 		},
 	}
 	require.NoError(t, c.Create(ctx, s))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, catalogac.Series(name, ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Series(name, ns).WithStatus(
 		catalogac.SeriesStatus().WithMetadata(
 			catalogac.SeriesMetadata().WithTitle(title).WithYear(year).WithRuntimeMinutes(60).
 				WithRefreshedAt(metav1.Now()),

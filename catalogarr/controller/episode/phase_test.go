@@ -51,7 +51,7 @@ func TestPhase(t *testing.T) {
 		// Delayed is reachable before a Download exists.
 		{"an aired episode with a pending grab is Delayed", true, &past, false, false, true, catalogv1alpha1.EpisodePhaseDelayed},
 		{"a delayed upgrade outranks CutoffUnmet", true, &past, true, false, true, catalogv1alpha1.EpisodePhaseDelayed},
-		{"a delayed upgrade outranks Imported", true, &past, true, true, true, catalogv1alpha1.EpisodePhaseDelayed},
+		{"but Imported outranks a delayed upgrade: a pending grab is an internal timer", true, &past, true, true, true, catalogv1alpha1.EpisodePhaseImported},
 		{"an early leak for an unaired episode reports Delayed, not Unaired", true, &future, false, false, true, catalogv1alpha1.EpisodePhaseDelayed},
 		{"unmonitored still wins: a leftover pending grab is not the user's intent", false, &past, false, false, true, catalogv1alpha1.EpisodePhaseUnmonitored},
 	}

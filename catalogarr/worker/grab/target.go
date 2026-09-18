@@ -18,7 +18,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package grab
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"errors"
+	"slices"
+	"strings"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -44,6 +48,38 @@ var ErrUnsupportedKind = errors.New("grab: unsupported media kind")
 func MediaKey(namespace string, ref commonv1.MediaRef) string {
 	return events.MediaKey(string(ref.Kind), namespace, ref.Name)
 }
+
+// MediaKeyFor is the <mediaKey> token identifying one GRAB, which for a pack
+// is not the same thing as the token identifying its target.
+//
+// A movie or a single episode is its own grab, so this is MediaKey. A pack is
+// not: events.MediaKey takes only kind, namespace and name, so an S01 pack and
+// an S02 pack of one Series produce the same token -- and therefore the same
+// clustarr-pending key and the same Msg-Id. They would then be compared
+// against each other by casKeepBest on quality alone, the loser silently
+// evicted, its scheduled delivery deduplicated away, and its episodes left
+// holding a status.pendingGrab that nothing would ever clear.
+//
+// Folding a digest of the covered episode names into the name given to
+// events.MediaKey separates them. The keys are sorted first so the same pack
+// described in a different order is the same grab. Lease keys are unaffected
+// and stay per-episode: two packs of different seasons SHOULD contend for
+// nothing, while two packs overlapping one episode SHOULD still contend for
+// that episode's lease.
+func MediaKeyFor(namespace string, target commonv1.MediaRef, keys []string) string {
+	if len(keys) == 0 {
+		return MediaKey(namespace, target)
+	}
+	sorted := slices.Clone(keys)
+	slices.Sort(sorted)
+	sum := sha1.Sum([]byte(strings.Join(sorted, "\x00")))
+	return events.MediaKey(string(target.Kind), namespace,
+		target.Name+"."+hex.EncodeToString(sum[:])[:packKeyHashLen])
+}
+
+// packKeyHashLen matches events.MediaKey's own digest width: ten hex
+// characters, 40 bits.
+const packKeyHashLen = 10
 
 // StatusTargets expands a grab target into the catalog objects whose status
 // this grab touches.

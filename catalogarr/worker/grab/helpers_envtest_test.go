@@ -183,10 +183,10 @@ func torrentRelease(guid, indexerRef string, q commonv1.Quality, score int32) co
 		IndexerRef:  indexerRef,
 		IndexerName: indexerRef,
 		Protocol:    commonv1.ProtocolTorrent,
-		// PublishedAt must be non-zero: ReleaseInfo.PublishedAt is a
-		// metav1.Time value (not a pointer) whose `omitempty` cannot fire on
-		// a struct, so a zero value marshals to `null` and the Download CRD's
-		// schema rejects it. See the task report's finding on this.
+		// A realistic publish date: it is what the decision engine's age
+		// ranking reads. It is optional on the wire (ReleaseInfo.PublishedAt
+		// is a *metav1.Time), so a dateless release persists fine -- this
+		// fixture simply is not one.
 		PublishedAt: ptr.To(metav1.NewTime(testNow.Add(-time.Hour))),
 		MagnetURL:   "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
 		Title:       "The.Thing.1982.1080p.BluRay.x264-GROUP",
@@ -198,7 +198,7 @@ func torrentRelease(guid, indexerRef string, q commonv1.Quality, score int32) co
 func fixedNow(t time.Time) func() time.Time { return func() time.Time { return t } }
 
 // seedWorkerStatus drives a Movie to a realistic steady state under the SAME
-// field manager the code under test writes with. It matters: a test that
+// field manager the code under test writes with (k8s.ManagerCatalogarrGrab). It matters: a test that
 // creates a blank object cannot observe a server-side-apply release, because
 // there is nothing on the object to release.
 func seedWorkerStatus(t *testing.T, ctx context.Context, c client.Client, m *catalogv1alpha1.Movie, activeDownloadRef string, pg *catalogv1alpha1.PendingGrab) {
@@ -210,6 +210,23 @@ func seedWorkerStatus(t *testing.T, ctx context.Context, c client.Client, m *cat
 			WithProtocol(pg.Protocol).
 			WithGrabAt(pg.GrabAt))
 	}
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, catalogac.Movie(m.Name, m.Namespace).WithStatus(status))
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab, catalogac.Movie(m.Name, m.Namespace).WithStatus(status))
+	require.NoError(t, err)
+}
+
+// seedGatewayMetadata writes status.metadata exactly as catalogarr/metadata's
+// handler does: MovieStatus().WithMetadata(...) and nothing else, under
+// k8s.ManagerCatalogarrMetadata.
+func seedGatewayMetadata(t *testing.T, ctx context.Context, c client.Client, m *catalogv1alpha1.Movie) {
+	t.Helper()
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata,
+		catalogac.Movie(m.Name, m.Namespace).WithStatus(catalogac.MovieStatus().WithMetadata(
+			catalogac.MovieMetadata().
+				WithTitle("The Thing").
+				WithYear(1982).
+				WithRuntimeMinutes(109).
+				WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).
+				WithRefreshedAt(metav1.NewTime(testNow)),
+		)))
 	require.NoError(t, err)
 }

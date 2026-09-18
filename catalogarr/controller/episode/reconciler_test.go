@@ -247,7 +247,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 
 		// Exactly what catalogarr/worker/grab writes: pendingGrab only, under
 		// the worker's own field manager, never Phase.
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker,
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab,
 			catalogac.Episode(ep.Name, ep.Namespace).WithStatus(
 				catalogac.EpisodeStatus().WithPendingGrab(
 					catalogac.PendingGrab().

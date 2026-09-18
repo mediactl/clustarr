@@ -37,18 +37,26 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Field-manager split
 //
-// This package writes status under k8s.ManagerCatalogarrWorker and applies
-// exactly three fields: status.activeDownloadRef, status.pendingGrab and
-// (never yet, but reserved by the same manager) the search bookkeeping. It
-// never writes status.phase. Recomputing Phase=Delayed/Downloading from those
-// fields belongs to the Movie and Episode reconcilers under
-// k8s.ManagerCatalogarr; this package's writes are what wake them, via the
-// status.pendingGrab arm of their own-object predicates.
+// This package writes status under k8s.ManagerCatalogarrGrab and applies
+// exactly four fields: status.activeDownloadRef, status.pendingGrab,
+// status.lastSearchedAt and status.searchAttempts. It never writes
+// status.phase. Recomputing Phase=Delayed/Downloading from those fields
+// belongs to the Movie and Episode reconcilers under k8s.ManagerCatalogarr;
+// this package's writes are what wake them, via the status.pendingGrab arm of
+// their own-object predicates.
 //
-// Server-side apply replaces a manager's whole ownership set on every apply,
-// so every PatchStatus here is a complete declaration of what this manager
-// owns on that object. patchStatus is the single place that assembles it, and
-// every caller goes through it precisely so a failure path cannot build a
+// The manager name is its own rather than the shared catalogarr-worker
+// precisely because server-side apply replaces a manager's whole ownership
+// set on every apply. While this path and the metadata gateway shared one
+// name, each one's apply deleted the other's fields: a grab dropped the
+// movie's cached metadata, and a metadata refresh dropped
+// status.activeDownloadRef and status.pendingGrab, taking a delayed item out
+// of Phase=Delayed back to Wanted.
+//
+// Within this package the same rule still applies to its own four fields, so
+// every PatchStatus here is a complete declaration of what this manager owns
+// on that object. applyWorkerStatus is the single place that assembles it,
+// and every caller goes through it precisely so a failure path cannot build a
 // partial status and release the rest.
 //
 // # Registration (Task C12)

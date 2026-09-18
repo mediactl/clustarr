@@ -20,6 +20,7 @@ package rssmatcher
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -187,7 +188,10 @@ func blocklistFor(ctx context.Context, c client.Client, ns string, now time.Time
 		return false
 	}
 	return func(infohash, title string) bool {
-		if hit(search.IndexBlocklistInfoHash, lowerHash(infohash)) {
+		// Lower-cased so a v1 hash written in upper case by one indexer
+		// still matches the same torrent reported in lower case by another,
+		// matching how the search worker builds the index key.
+		if hit(search.IndexBlocklistInfoHash, strings.ToLower(infohash)) {
 			return true
 		}
 		return hit(search.IndexBlocklistTitle, release.CleanTitle(title))
@@ -257,16 +261,6 @@ func resolveQualityProfile(ctx context.Context, c client.Client, name string, ca
 		return quality.Profile{}, fmt.Errorf("rssmatcher: resolve quality profile %q: %w", name, errs[0])
 	}
 	return p, nil
-}
-
-func lowerHash(h string) string {
-	out := []rune(h)
-	for i, r := range out {
-		if r >= 'A' && r <= 'Z' {
-			out[i] = r + ('a' - 'A')
-		}
-	}
-	return string(out)
 }
 
 type indexerSpecView struct{ priority int }

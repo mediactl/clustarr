@@ -238,6 +238,9 @@ func (r *Runnable) publish(ctx context.Context, ns string, epoch int64, at time.
 		Time: at,
 		Data: data,
 	}
+	// runOnce's span is the parent: every search the sweep causes should hang
+	// off the sweep that asked for it.
+	tracing.Inject(ctx, env)
 	if _, err := r.Bus.Publish(ctx, events.WorkWantedScanSubject(ns), env, events.WithMsgID(msgID)); err != nil {
 		return fmt.Errorf("wantedcron: publish WantedScan for %q: %w", ns, err)
 	}

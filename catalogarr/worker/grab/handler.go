@@ -116,10 +116,13 @@ func (h *Handler) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
 // and deleted the entry, or the seven-day bucket TTL expired it. Naking would
 // turn a routine redelivery into MaxDeliver attempts and then a dead letter.
 func (h *Handler) Handle(ctx context.Context, m events.Message) error {
+	env := m.Envelope()
+	// Extract before Start, so this span continues the trace of the search or
+	// RSS match that scheduled the grab rather than beginning a new one.
+	ctx = tracing.Extract(ctx, env)
 	ctx, span := tracing.Start(ctx, "grab.Handler.Handle")
 	defer span.End()
 
-	env := m.Envelope()
 	var task schema.GrabTask
 	if err := schema.Decode(env.Schema, env.Data, &task); err != nil {
 		return events.Discard("grab: malformed GrabTask", err)
@@ -130,7 +133,9 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	}
 
 	log := logging.FromContext(ctx).With("kind", string(task.MediaRef.Kind), "namespace", ns)
-	mediaKey := MediaKey(ns, task.MediaRef)
+	// MediaKeyFor(.., task.Keys), matching exactly what Decide used when it
+	// wrote the entry: a pack's key is scoped to its episodes.
+	mediaKey := MediaKeyFor(ns, task.MediaRef, task.Keys)
 	kv := h.Deps.Bus.KV(events.BucketPending)
 	pendingKey := events.PendingKey(mediaKey)
 
@@ -157,9 +162,12 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 
 	if err := performGrab(ctx, h.Deps, ns, pv.Target, pv.Keys, pv.Release, grabbedBy); err != nil {
 		if errors.Is(err, ErrDuplicateGrab) {
-			// Ack and stop, per §8.2. The entry is deleted below so the
-			// item does not sit at Phase=Delayed behind a grab that will
-			// never happen.
+			// Ack and stop, per §8.2. performGrab has already cleared
+			// status.pendingGrab on every status target (clearPendingGrab);
+			// deleting the KV entry here only stops a later redelivery
+			// re-running the same losing grab -- it does not touch the
+			// object, which is why the object-side clear has to happen
+			// there and not here.
 			log.Info("grab: already grabbed elsewhere; acknowledging", "error", err)
 			if delErr := kv.Delete(ctx, pendingKey); delErr != nil {
 				log.Warn("grab: deleting the consumed pending candidate failed", "error", delErr)

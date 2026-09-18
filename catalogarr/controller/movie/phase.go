@@ -28,29 +28,32 @@ import (
 // !metadataReady is checked before hasFile.
 //
 // pendingGrab reports whether status.pendingGrab is set -- a release the grab
-// worker has chosen and is holding back for a DelayProfile's window. It
-// outranks the file state for the same reason DownloadOverlay's Downloading
-// does in the reconciler: Delayed and Downloading are one story, the in-flight
-// grab, and the phase column should show the action in progress rather than
-// the state it is about to replace. Without this arm Delayed is reachable only
-// through an already-created Download, and the entire delay-profile feature is
-// invisible -- an item sits at Wanted for the whole window.
+// worker has chosen and is holding back for a DelayProfile's window. Without
+// this arm Delayed is reachable only through an already-created Download, and
+// the entire delay-profile feature is invisible: an item sits at Wanted for
+// the whole window.
 //
-// It ranks below the monitored and metadata gates: an unmonitored movie is
-// unmonitored whatever the worker left behind, and a movie whose metadata is
-// still refreshing is still Pending.
+// Its rank is deliberate and narrow. It sits ABOVE CutoffUnmet, Unavailable
+// and Wanted, because in each of those the pending grab IS the story: an
+// upgrade is scheduled, and reporting "still wanted" hides it. It sits BELOW
+// Imported, and below the monitored and metadata gates. Imported is the
+// distinction that matters: a pending grab is an internal timer, not an object
+// the user can see or cancel -- unlike a Download, which is why
+// DownloadOverlay's Downloading is allowed to override Imported. The phase
+// column is the item's state, not the pipeline's, and a user with a good
+// cutoff-met file should read Imported.
 func Phase(monitored, metadataReady, available, hasFile, cutoffMet, pendingGrab bool) catalogv1alpha1.MoviePhase {
 	switch {
 	case !monitored:
 		return catalogv1alpha1.MoviePhaseUnmonitored
 	case !metadataReady:
 		return catalogv1alpha1.MoviePhasePending
-	case pendingGrab:
-		return catalogv1alpha1.MoviePhaseDelayed
-	case hasFile && !cutoffMet:
-		return catalogv1alpha1.MoviePhaseCutoffUnmet
 	case hasFile && cutoffMet:
 		return catalogv1alpha1.MoviePhaseImported
+	case pendingGrab:
+		return catalogv1alpha1.MoviePhaseDelayed
+	case hasFile:
+		return catalogv1alpha1.MoviePhaseCutoffUnmet
 	case !available:
 		return catalogv1alpha1.MoviePhaseUnavailable
 	default:

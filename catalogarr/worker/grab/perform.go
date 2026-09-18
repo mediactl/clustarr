@@ -121,7 +121,9 @@ func chooseSource(release commonv1.ReleaseInfo, indexerRequiresAuth bool) *downl
 // It returns ErrDuplicateGrab -- which callers acknowledge rather than retry
 // -- from both guards: the lease (another worker got here first) and the
 // re-read (a path that does not go through the lease at all, such as a Search
-// CR's manual grab, already claimed the item).
+// CR's manual grab, already claimed the item). Both of those exits clear
+// status.pendingGrab first: see clearPendingGrab for why an ack that leaves it
+// set takes the item out of automation permanently.
 func performGrab(
 	ctx context.Context,
 	d Deps,
@@ -145,6 +147,7 @@ func performGrab(
 	if err != nil {
 		if errors.Is(err, ErrDuplicateGrab) {
 			metrics.SearchDecisionsTotal.WithLabelValues(string(target.Kind), "duplicate", "leaseHeld").Inc()
+			return clearPendingGrab(ctx, d, ns, statusTargets, err)
 		}
 		return err
 	}
@@ -181,7 +184,8 @@ func performGrab(
 			// CR's manual grab) already put a Download on this item.
 			releaseLeases(ctx, kv, acquired)
 			metrics.SearchDecisionsTotal.WithLabelValues(string(target.Kind), "duplicate", "activeDownload").Inc()
-			return fmt.Errorf("%w: %s/%s already has download %q", ErrDuplicateGrab, st.Kind, st.Name, *ws.ActiveDownloadRef)
+			return clearPendingGrab(ctx, d, ns, statusTargets,
+				fmt.Errorf("%w: %s/%s already has download %q", ErrDuplicateGrab, st.Kind, st.Name, *ws.ActiveDownloadRef))
 		}
 		statuses[i] = ws
 	}
@@ -239,7 +243,7 @@ func performGrab(
 	dl := downloadac.Download(downloadName, ns).
 		WithOwnerReferences(ownerRef).
 		WithSpec(spec)
-	if _, err := k8s.Apply(ctx, d.Client, k8s.ManagerCatalogarrWorker, dl); err != nil {
+	if _, err := k8s.Apply(ctx, d.Client, k8s.ManagerCatalogarrGrab, dl); err != nil {
 		releaseLeases(ctx, kv, acquired)
 		return fmt.Errorf("grab: create download %q: %w", downloadName, err)
 	}
@@ -262,6 +266,47 @@ func performGrab(
 
 	metrics.SearchDecisionsTotal.WithLabelValues(string(target.Kind), "grabbed", string(grabbedBy)).Inc()
 	return publishGrabbed(ctx, d, ns, target, owner, downloadName, release)
+}
+
+// clearPendingGrab drops status.pendingGrab from every status target and then
+// returns dup, so the caller still sees ErrDuplicateGrab and acknowledges.
+//
+// Acknowledging a duplicate without this is how an item leaves automation for
+// good. Deleting the clustarr-pending entry -- which the handler does -- says
+// nothing about the object: status.pendingGrab stays set, the reconciler keeps
+// recomputing Phase=Delayed from it, and wantedcron's sweep only picks up
+// Wanted and CutoffUnmet items, so nothing ever searches for it again. There
+// is no error anywhere; the item simply stops moving.
+//
+// A failed clear is NOT wrapped in ErrDuplicateGrab: the caller must retry
+// rather than ack, because acking is precisely what strands the item. The
+// retry re-runs performGrab, hits the same guard and tries the clear again.
+// Every apply carries the whole k8s.ManagerCatalogarrGrab-owned set, read
+// fresh, so a retry cannot release anything either.
+func clearPendingGrab(ctx context.Context, d Deps, ns string, statusTargets []commonv1.MediaRef, dup error) error {
+	for _, st := range statusTargets {
+		ops, err := kindOpsFor(st.Kind)
+		if err != nil {
+			return err
+		}
+		obj, err := ops.get(ctx, d.Client, ns, st.Name)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				// Nothing to strand.
+				continue
+			}
+			return fmt.Errorf("grab: read %s/%s to clear pendingGrab: %w", st.Kind, st.Name, err)
+		}
+		ws := ops.workerStatus(obj)
+		if ws.PendingGrab == nil {
+			continue
+		}
+		ws.PendingGrab = nil
+		if err := ops.applyWorkerStatus(ctx, d.Client, ns, st.Name, ws); err != nil {
+			return fmt.Errorf("grab: clear pendingGrab on %s/%s after a duplicate grab: %w", st.Kind, st.Name, err)
+		}
+	}
+	return dup
 }
 
 func getIndexer(ctx context.Context, c client.Client, ns, name string) (*indexv1alpha1.Indexer, error) {
@@ -316,6 +361,7 @@ func publishGrabbed(
 		Time:   now,
 		Data:   data,
 	}
+	tracing.Inject(ctx, env)
 	if _, err := d.Bus.Publish(ctx, events.CatalogReleaseSubject(events.ActionGrabbed, string(owner.GetUID())), env); err != nil {
 		return fmt.Errorf("grab: publish release.grabbed: %w", err)
 	}

@@ -53,7 +53,7 @@ import (
 //     candidate inside the same window NOT schedule a second delivery: the
 //     anchor is unchanged, so the broker's deduplication window absorbs it.
 //  3. Record status.pendingGrab on every status target, under
-//     k8s.ManagerCatalogarrWorker. It never writes status.phase -- the Movie
+//     k8s.ManagerCatalogarrGrab. It never writes status.phase -- the Movie
 //     and Episode reconcilers recompute Phase=Delayed from pendingGrab under
 //     k8s.ManagerCatalogarr, woken by the status.pendingGrab arm of their own
 //     predicates.
@@ -84,7 +84,10 @@ func Decide(
 		return err
 	}
 
-	mediaKey := MediaKey(a.Namespace, a.Target)
+	// MediaKeyFor, not MediaKey: a pack's pending entry and Msg-Id must be
+	// scoped to the episodes it covers, or two seasons of one series collide
+	// on one entry.
+	mediaKey := MediaKeyFor(a.Namespace, a.Target, a.Keys)
 	kept, err := casKeepBest(ctx, d.Bus.KV(events.BucketPending), events.PendingKey(mediaKey), profile,
 		pendingValue{Target: a.Target, Keys: a.Keys, Release: a.Release, GrabbedBy: a.GrabbedBy}, now)
 	if err != nil {
@@ -106,6 +109,11 @@ func Decide(
 		Time:   now,
 		Data:   data,
 	}
+	// A delayed grab is the longest causal gap in the system -- minutes to
+	// hours between the search that chose the release and the delivery that
+	// grabs it. Without this the grab's span is orphaned from the search that
+	// caused it, which is precisely the trace an operator asks for.
+	tracing.Inject(ctx, env)
 	if _, err := d.Bus.Publish(ctx, events.WorkGrabSubject(mediaKey), env,
 		events.WithScheduleAt(grabAt), events.WithMsgID(msgID)); err != nil {
 		return fmt.Errorf("grab: publish scheduled grab for %s: %w", mediaKey, err)

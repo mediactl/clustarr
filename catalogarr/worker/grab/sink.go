@@ -142,7 +142,8 @@ func (s Sink) Deliver(
 	})
 	if errors.Is(err, ErrDuplicateGrab) {
 		// Another path got there first. Acknowledge: the search is done
-		// either way.
+		// either way, and performGrab has already cleared
+		// status.pendingGrab so the item does not strand at Delayed.
 		log.Debug("grab: already grabbed elsewhere")
 		return nil
 	}

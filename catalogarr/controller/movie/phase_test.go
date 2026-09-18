@@ -46,8 +46,8 @@ func TestPhase(t *testing.T) {
 		// Delayed is reachable before a Download exists.
 		{"a wanted movie with a pending grab is Delayed", true, true, true, false, false, true, catalogv1alpha1.MoviePhaseDelayed},
 		{"an unavailable movie with a pending grab is still Delayed", true, true, false, false, false, true, catalogv1alpha1.MoviePhaseDelayed},
-		{"a delayed upgrade outranks CutoffUnmet: the in-flight action is what the phase should show", true, true, true, true, false, true, catalogv1alpha1.MoviePhaseDelayed},
-		{"a delayed upgrade outranks Imported for the same reason", true, true, true, true, true, true, catalogv1alpha1.MoviePhaseDelayed},
+		{"a delayed upgrade outranks CutoffUnmet: the pending grab IS the upgrade story", true, true, true, true, false, true, catalogv1alpha1.MoviePhaseDelayed},
+		{"but Imported outranks a delayed upgrade: a pending grab is an internal timer, not something the user can cancel", true, true, true, true, true, true, catalogv1alpha1.MoviePhaseImported},
 		{"unmonitored still wins: a leftover pending grab is not the user's intent", false, true, true, false, false, true, catalogv1alpha1.MoviePhaseUnmonitored},
 		{"Pending still wins: metadata readiness gates everything below it", true, false, true, false, false, true, catalogv1alpha1.MoviePhasePending},
 	}

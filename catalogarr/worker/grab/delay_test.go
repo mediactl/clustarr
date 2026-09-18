@@ -157,3 +157,49 @@ func TestProtocolEnabled(t *testing.T) {
 	assert.False(t, ProtocolEnabled(catalogv1alpha1.DelayProfileSpec{EnableTorrent: ptr.To(false)}, commonv1.ProtocolTorrent))
 	assert.False(t, ProtocolEnabled(catalogv1alpha1.DelayProfileSpec{}, commonv1.Protocol("")))
 }
+
+// TestMediaKeyFor_PacksOfOneSeriesDoNotCollide is the pack-key regression:
+// events.MediaKey takes only kind/namespace/name, so without the episode
+// digest an S01 pack and an S02 pack of one series shared one
+// clustarr-pending entry and one Msg-Id -- the loser was evicted on quality
+// alone and its scheduled delivery deduplicated away.
+func TestMediaKeyFor_PacksOfOneSeriesDoNotCollide(t *testing.T) {
+	series := commonv1.MediaRef{Kind: commonv1.MediaKindSeries, Name: "the-wire"}
+	s1 := MediaKeyFor("media", series, []string{"the-wire-s01e01", "the-wire-s01e02"})
+	s2 := MediaKeyFor("media", series, []string{"the-wire-s02e01", "the-wire-s02e02"})
+	assert.NotEqual(t, s1, s2, "two seasons of one series must not share a pending entry")
+	assert.NotEqual(t, events.PendingKey(s1), events.PendingKey(s2))
+	assert.NotEqual(t, events.WorkGrabSubject(s1), events.WorkGrabSubject(s2))
+}
+
+func TestMediaKeyFor_IsOrderInsensitiveAndStable(t *testing.T) {
+	series := commonv1.MediaRef{Kind: commonv1.MediaKindSeries, Name: "the-wire"}
+	forward := MediaKeyFor("media", series, []string{"the-wire-s01e01", "the-wire-s01e02"})
+	reversed := MediaKeyFor("media", series, []string{"the-wire-s01e02", "the-wire-s01e01"})
+	assert.Equal(t, forward, reversed, "the same pack described in a different order is one grab")
+
+	// A partial pack is a different grab from the full one.
+	partial := MediaKeyFor("media", series, []string{"the-wire-s01e01"})
+	assert.NotEqual(t, forward, partial)
+}
+
+// TestMediaKeyFor_SingletonIsUnchanged: a movie or a single episode has no
+// keys, so its token stays exactly events.MediaKey's -- the search worker and
+// anything else deriving it without keys must still agree.
+func TestMediaKeyFor_SingletonIsUnchanged(t *testing.T) {
+	movie := commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-thing-1982"}
+	assert.Equal(t, MediaKey("media", movie), MediaKeyFor("media", movie, nil))
+	assert.Equal(t, MediaKey("media", movie), MediaKeyFor("media", movie, []string{}))
+}
+
+// TestMediaKeyFor_DoesNotCollideWithASingleEpisodesOwnKey guards the one
+// pathological case the digest exists for: a pack whose synthetic name could
+// otherwise be mistaken for a real object's.
+func TestMediaKeyFor_DoesNotCollideWithASingleEpisodesOwnKey(t *testing.T) {
+	series := commonv1.MediaRef{Kind: commonv1.MediaKindSeries, Name: "the-wire"}
+	pack := MediaKeyFor("media", series, []string{"the-wire-s01e01"})
+	single := MediaKey("media", commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "the-wire-s01e01"})
+	assert.NotEqual(t, pack, single)
+	assert.NotEqual(t, events.LeaseKey(pack), events.LeaseKey(single),
+		"a pack's own token must never be mistaken for one of its episodes' lease keys")
+}

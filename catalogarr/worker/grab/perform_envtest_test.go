@@ -29,7 +29,6 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
@@ -42,7 +41,7 @@ var testNow = time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
 
 // TestPerformGrab_CreatesDownloadAndPatchesStatus is §8.2's happy path: one
 // deterministically named Download, owned by the target, and
-// status.activeDownloadRef written under k8s.ManagerCatalogarrWorker only --
+// status.activeDownloadRef written under k8s.ManagerCatalogarrGrab only --
 // never status.phase, which is the Movie reconciler's under
 // k8s.ManagerCatalogarr.
 func TestPerformGrab_CreatesDownloadAndPatchesStatus(t *testing.T) {
@@ -152,13 +151,21 @@ func TestPerformGrab_OptimisticReReadStopsANonLeaseGrab(t *testing.T) {
 	_, err = bus.KV(events.BucketLeases).Get(ctx, events.LeaseKey(grab.MediaKey(ns, target)))
 	assert.ErrorIs(t, err, events.ErrKeyNotFound, "the failed grab must release the lease it took")
 
-	// And the steady state it never meant to touch is intact.
+	// The steady state this exit never meant to touch is intact: the other
+	// path's activeDownloadRef survives.
 	var got catalogv1alpha1.Movie
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(movie), &got))
 	require.NotNil(t, got.Status.ActiveDownloadRef)
 	assert.Equal(t, "someone-elses-download", *got.Status.ActiveDownloadRef)
-	require.NotNil(t, got.Status.PendingGrab, "a failed grab must not release the pendingGrab it did not write")
-	assert.Equal(t, "Other.Release", got.Status.PendingGrab.ReleaseTitle)
+
+	// pendingGrab IS cleared here, deliberately: this grab lost, so the
+	// pending candidate will never be grabbed, and leaving it set would hold
+	// the item at Phase=Delayed where wantedcron's Wanted/CutoffUnmet sweep
+	// never reaches it again. See clearPendingGrab and
+	// TestPerformGrab_OptimisticReReadDuplicateClearsPendingGrab. The clear
+	// is a full re-declaration of the owned set, which is why
+	// activeDownloadRef above is untouched rather than released with it.
+	assert.Nil(t, got.Status.PendingGrab)
 }
 
 // TestPerformGrab_AuthenticatedIndexerRoutesThroughIndexarr covers §8.2's
@@ -284,13 +291,16 @@ func TestPerformGrab_SeasonPackLeasesAndPatchesEveryEpisode(t *testing.T) {
 	}
 }
 
-// TestPerformGrab_PreservesTheGatewaysMetadata is the regression test for the
-// nastiest thing found in this task: the metadata gateway writes
-// status.metadata under the SAME field manager this package writes
-// status.activeDownloadRef with, so an apply that omitted it would RELEASE
-// it. The Movie would lose its cached metadata, its reconciler would drop back
-// to Phase=Pending and the gateway would refetch from the provider -- on every
-// single grab.
+// TestPerformGrab_PreservesTheGatewaysMetadata is one half of the
+// field-manager split's regression cover: a grab must not disturb
+// status.metadata.
+//
+// While the grab path and the metadata gateway shared k8s.ManagerCatalogarrWorker
+// this failed -- server-side apply replaces a manager's whole ownership set,
+// so an apply carrying only activeDownloadRef RELEASED the metadata the
+// gateway had written under the same name. The Movie lost its cached
+// metadata, its reconciler recomputed Phase=Pending and the gateway refetched
+// from the provider, on every grab.
 //
 // It only fails against an object that already HAS metadata, which is why the
 // movie is driven to that steady state first.
@@ -301,18 +311,7 @@ func TestPerformGrab_PreservesTheGatewaysMetadata(t *testing.T) {
 
 	movie := newMovie(t, ctx, c, ns, "the-thing-1982")
 	newIndexer(t, ctx, c, ns, "my-indexer", nil)
-
-	// Exactly what catalogarr/metadata's Handler writes, field manager and all.
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker,
-		catalogac.Movie(movie.Name, ns).WithStatus(catalogac.MovieStatus().WithMetadata(
-			catalogac.MovieMetadata().
-				WithTitle("The Thing").
-				WithYear(1982).
-				WithRuntimeMinutes(109).
-				WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).
-				WithRefreshedAt(metav1.NewTime(testNow)),
-		)))
-	require.NoError(t, err)
+	seedGatewayMetadata(t, ctx, c, movie)
 
 	profile := hdBlurayWeb(t)
 	release := torrentRelease("guid-1", "my-indexer", profile.Tiers[0][0].Quality, 0)
@@ -328,4 +327,166 @@ func TestPerformGrab_PreservesTheGatewaysMetadata(t *testing.T) {
 	assert.EqualValues(t, 109, got.Status.Metadata.RuntimeMinutes)
 	assert.Equal(t, catalogv1alpha1.MovieReleaseStatusReleased, got.Status.Metadata.Status)
 	require.NotNil(t, got.Status.ActiveDownloadRef)
+}
+
+// TestGatewayRefreshPreservesTheGrabsFields is the OTHER half, and the more
+// damaging direction: a metadata refresh must not disturb the grab path's
+// fields.
+//
+// While both wrote as k8s.ManagerCatalogarrWorker, one gateway refresh after a
+// grab deleted status.activeDownloadRef, and a refresh inside a delay window
+// deleted status.pendingGrab -- taking the item out of Phase=Delayed back to
+// Wanted, where the wanted cron re-searched an item that already had a grab
+// scheduled. Nothing errored; the item simply lost its place in the pipeline.
+//
+// The apply below is byte-for-byte what catalogarr/metadata's handler builds:
+// MovieStatus().WithMetadata(...) and nothing else.
+func TestGatewayRefreshPreservesTheGrabsFields(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	ns := newNamespace(t, ctx, c)
+
+	movie := newMovie(t, ctx, c, ns, "the-thing-1982")
+	newIndexer(t, ctx, c, ns, "my-indexer", nil)
+	seedGatewayMetadata(t, ctx, c, movie)
+
+	profile := hdBlurayWeb(t)
+	target := commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name}
+	deps := grab.Deps{Client: c, Bus: newTestBus(t, nil), Now: fixedNow(testNow)}
+	require.NoError(t, grab.PerformGrabForTest(ctx, deps, ns,
+		target, nil, torrentRelease("guid-1", "my-indexer", profile.Tiers[0][0].Quality, 0),
+		downloadv1alpha1.GrabSourceSearch))
+
+	// A pendingGrab as well, so the refresh has both grab-owned fields to
+	// release. Written through the same code path production uses.
+	seedWorkerStatus(t, ctx, c, movie, "the-thing-1982-abcdef0123", &catalogv1alpha1.PendingGrab{
+		ReleaseTitle: "The.Thing.1982.2160p.REMUX-BETTER",
+		Protocol:     commonv1.ProtocolUsenet,
+		GrabAt:       metav1.NewTime(testNow.Add(45 * time.Minute)),
+	})
+
+	// Now the gateway refreshes. This is the write that used to gut the item.
+	seedGatewayMetadata(t, ctx, c, movie)
+
+	var got catalogv1alpha1.Movie
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(movie), &got))
+	require.NotNilf(t, got.Status.ActiveDownloadRef,
+		"the gateway refresh released status.activeDownloadRef: the Download is now orphaned and the item is back in the search rotation")
+	assert.Equal(t, "the-thing-1982-abcdef0123", *got.Status.ActiveDownloadRef)
+	require.NotNilf(t, got.Status.PendingGrab,
+		"the gateway refresh released status.pendingGrab: the item drops out of Phase=Delayed and the wanted cron re-searches it")
+	assert.Equal(t, "The.Thing.1982.2160p.REMUX-BETTER", got.Status.PendingGrab.ReleaseTitle)
+	assert.True(t, got.Status.PendingGrab.GrabAt.Time.Equal(testNow.Add(45*time.Minute)))
+	require.NotNil(t, got.Status.Metadata, "and the refresh itself must have landed")
+
+	// The two managers own disjoint status entries, which is what makes the
+	// guarantee structural rather than a pass-through nobody may forget.
+	var sawGrab, sawMetadata bool
+	for _, e := range got.ManagedFields {
+		if e.Subresource != "status" {
+			continue
+		}
+		sawGrab = sawGrab || e.Manager == string(k8s.ManagerCatalogarrGrab)
+		sawMetadata = sawMetadata || e.Manager == string(k8s.ManagerCatalogarrMetadata)
+	}
+	assert.True(t, sawGrab && sawMetadata,
+		"the grab path and the gateway must own separate status field-manager entries, got %+v", got.ManagedFields)
+}
+
+// TestRecordSearchAttempt_AdvancesTheLadderWithoutReleasingAnything is the
+// helper C8 calls, tested the way every write in this package is: against an
+// object already in its steady state, so a partial apply would be visible.
+//
+// The ladder itself matters -- without a writer for these two fields
+// wantedcron.Backoff never leaves its six-hour floor -- but the release is
+// what the helper exists to prevent: a second package sending only
+// lastSearchedAt and searchAttempts under this manager would delete
+// activeDownloadRef and pendingGrab.
+func TestRecordSearchAttempt_AdvancesTheLadderWithoutReleasingAnything(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	ns := newNamespace(t, ctx, c)
+
+	movie := newMovie(t, ctx, c, ns, "the-thing-1982")
+	seedGatewayMetadata(t, ctx, c, movie)
+	seedWorkerStatus(t, ctx, c, movie, "the-thing-1982-abcdef0123", &catalogv1alpha1.PendingGrab{
+		ReleaseTitle: "The.Thing.1982.2160p.REMUX-BETTER",
+		Protocol:     commonv1.ProtocolUsenet,
+		GrabAt:       metav1.NewTime(testNow.Add(45 * time.Minute)),
+	})
+
+	ref := commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name}
+	require.NoError(t, grab.RecordSearchAttempt(ctx, c, ns, ref, testNow))
+
+	var got catalogv1alpha1.Movie
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(movie), &got))
+	require.NotNil(t, got.Status.LastSearchedAt)
+	assert.True(t, got.Status.LastSearchedAt.Time.Equal(testNow))
+	assert.EqualValues(t, 1, got.Status.SearchAttempts.Count)
+	require.NotNil(t, got.Status.SearchAttempts.Initial)
+	require.NotNil(t, got.Status.SearchAttempts.Latest)
+
+	// Nothing else this manager owns was released, and the gateway's field
+	// (a different manager) is untouched either way.
+	require.NotNilf(t, got.Status.ActiveDownloadRef,
+		"recording a search attempt released status.activeDownloadRef")
+	require.NotNilf(t, got.Status.PendingGrab,
+		"recording a search attempt released status.pendingGrab")
+	require.NotNil(t, got.Status.Metadata)
+	assert.Empty(t, got.Status.Phase, "this helper must never write Phase")
+
+	// A second attempt advances Latest and Count but never moves Initial --
+	// the ladder is measured from the first attempt.
+	later := testNow.Add(7 * time.Hour)
+	require.NoError(t, grab.RecordSearchAttempt(ctx, c, ns, ref, later))
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(movie), &got))
+	assert.EqualValues(t, 2, got.Status.SearchAttempts.Count)
+	assert.True(t, got.Status.SearchAttempts.Initial.Time.Equal(testNow), "Initial must not move")
+	assert.True(t, got.Status.SearchAttempts.Latest.Time.Equal(later))
+	require.NotNil(t, got.Status.PendingGrab, "the second write must not release either")
+}
+
+// TestRecordSearchAttempt_PackStampsEveryEpisode: one interactive pack search
+// records an attempt against every episode it covered, so the backoff ladder
+// applies per item rather than to a Series that has no such status.
+func TestRecordSearchAttempt_PackStampsEveryEpisode(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	ns := newNamespace(t, ctx, c)
+
+	series := &catalogv1alpha1.Series{
+		ObjectMeta: metav1.ObjectMeta{Name: "the-wire", Namespace: ns},
+		Spec:       catalogv1alpha1.SeriesSpec{TvdbID: 79126, QualityProfileRef: "hd-bluray-web", RootFolderRef: "tv"},
+	}
+	require.NoError(t, c.Create(ctx, series))
+	names := []string{"the-wire-s01e01", "the-wire-s01e02"}
+	for i, n := range names {
+		require.NoError(t, c.Create(ctx, &catalogv1alpha1.Episode{
+			ObjectMeta: metav1.ObjectMeta{Name: n, Namespace: ns},
+			Spec: catalogv1alpha1.EpisodeSpec{
+				SeriesRef: series.Name, SeasonNumber: 1, EpisodeNumber: int32(i + 1), Monitored: ptr.To(true),
+			},
+		}))
+	}
+
+	require.NoError(t, grab.RecordSearchAttempt(ctx, c, ns,
+		commonv1.MediaRef{Kind: commonv1.MediaKindSeries, Name: series.Name, Keys: names}, testNow))
+
+	for _, n := range names {
+		var ep catalogv1alpha1.Episode
+		require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: ns, Name: n}, &ep))
+		require.NotNilf(t, ep.Status.LastSearchedAt, "%s was not stamped", n)
+		assert.EqualValues(t, 1, ep.Status.SearchAttempts.Count)
+	}
+}
+
+// TestRecordSearchAttempt_MissingObjectIsNotAnError: an item deleted between
+// the search and this write has nothing to record against, and failing would
+// dead-letter a task that did its job.
+func TestRecordSearchAttempt_MissingObjectIsNotAnError(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	ns := newNamespace(t, ctx, c)
+	require.NoError(t, grab.RecordSearchAttempt(ctx, c, ns,
+		commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "never-existed"}, testNow))
 }

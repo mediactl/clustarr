@@ -146,10 +146,13 @@ func (h *Handler) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
 // Most releases match nothing. That is the expected case on a firehose, and it
 // acknowledges immediately without a single write.
 func (h *Handler) Handle(ctx context.Context, m events.Message) error {
+	env := m.Envelope()
+	// Extract before Start, so this span continues indexarr's RSS poll rather
+	// than beginning a new trace per release.
+	ctx = tracing.Extract(ctx, env)
 	ctx, span := tracing.Start(ctx, "rssmatcher.Handler.Handle")
 	defer span.End()
 
-	env := m.Envelope()
 	var rel schema.Release
 	if err := schema.Decode(env.Schema, env.Data, &rel); err != nil {
 		return events.Discard("rssmatcher: malformed Release", err)
@@ -258,12 +261,17 @@ func (h *Handler) decideOne(
 			Namespace: ns,
 			Target:    commonv1.MediaRef{Kind: ref.Kind, Name: ref.Name},
 			Keys:      ref.Keys,
-			Release:   withScore(approved),
+			// Decision.Release already carries the resolved FormatScore and
+			// MatchedFormats -- pkg/decision.Evaluate writes both onto it
+			// before scoring -- so there is nothing to fold back on.
+			Release:   approved.Release,
 			GrabbedBy: downloadv1alpha1.GrabSourceRSS,
 		}); err != nil {
 		if errors.Is(err, grab.ErrDuplicateGrab) {
 			// Another path got there first. Acknowledge: redelivering would
-			// only lose the same race again.
+			// only lose the same race again, and the grab path has already
+			// cleared status.pendingGrab so the item does not strand at
+			// Delayed.
 			log.Debug("rssmatcher: already grabbed elsewhere")
 			return nil
 		}
@@ -273,19 +281,6 @@ func (h *Handler) decideOne(
 		return events.Retry(grabRetry, err)
 	}
 	return nil
-}
-
-// withScore folds the decision's resolved custom-format score and matched
-// format names back onto the release, so the Download, the pending entry and
-// the release.grabbed event all carry what the decision actually used rather
-// than whatever the indexer happened to report.
-func withScore(d decision.Decision) commonv1.ReleaseInfo {
-	rel := d.Release
-	rel.FormatScore = int32(d.Score)
-	if len(d.Matched) > 0 {
-		rel.MatchedFormats = d.Matched
-	}
-	return rel
 }
 
 // recordRejections reports why a matched release was turned down. The labels
