@@ -23,6 +23,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -171,6 +172,36 @@ func startManager(t *testing.T, ctx context.Context, cfg *rest.Config, bus combi
 	go func() { _ = mgr.Start(ctx) }()
 	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))
 	return mgr.GetClient(), counter
+}
+
+// startCacheOnly starts a real ctrl.Manager's cache (so syncEpisodes'
+// field-indexed List works) WITHOUT wiring a series.Reconciler's watches to
+// it, so nothing auto-reconciles and SetupWithManager (and its
+// process-global "series" controller name) is never touched. Used by tests
+// that call r.Reconcile() directly instead of going through a running
+// controller. The one field index registered here must stay in sync with
+// series.Reconciler.SetupWithManager's own registration.
+func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.Client {
+	t.Helper()
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+		Scheme:                 k8s.MustNewScheme(),
+		Metrics:                metricsserver.Options{BindAddress: "0"},
+		HealthProbeBindAddress: "0",
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &catalogv1alpha1.Episode{}, ".spec.seriesRef",
+		func(o client.Object) []string {
+			ep, ok := o.(*catalogv1alpha1.Episode)
+			if !ok {
+				return nil
+			}
+			return []string{ep.Spec.SeriesRef}
+		}))
+
+	go func() { _ = mgr.Start(ctx) }()
+	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))
+	return mgr.GetClient()
 }
 
 func waitForPhase(t *testing.T, ctx context.Context, c client.Client, ns, name string) catalogv1alpha1.Series {
@@ -483,6 +514,157 @@ func mustGet(t *testing.T, ctx context.Context, c client.Client, ns, name string
 }
 
 func ptrBoolTrue(p *bool) bool { return p != nil && *p }
+
+// TestSeriesEpisodeFieldManagersStayDisjoint is the mandatory two-writer
+// gate the coordinator's ruling calls for, modeled on
+// catalogarr/controller/mediafile's TestMediaFileFieldManagersStayDisjoint:
+// Series's real ensureEpisode applies the provider fields under
+// k8s.ManagerCatalogarrSeries, a simulated Episode-reconciler write applies
+// its own computed fields under k8s.ManagerCatalogarr, and managedFields is
+// decoded directly (not inferred from the object's final values alone) to
+// prove each manager owns exactly its own field set and neither write lost
+// the other's data -- including after a second Series reconcile, proving
+// the split needs no ongoing re-assertion from either side.
+func TestSeriesEpisodeFieldManagersStayDisjoint(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfg := newTestConfig(t)
+	c := startCacheOnly(t, ctx, cfg)
+	require.NoError(t, c.Create(ctx, testNamespace("fieldmanager-ns")))
+	require.NoError(t, c.Create(ctx, testRootFolder("fieldmanager-ns", "tv-root", "/data/media/tv")))
+
+	requester := &fakeEpisodeRPC{episodes: []metadata.Episode{
+		{SeasonNumber: 1, EpisodeNumber: 1, Title: "Pilot"},
+	}}
+	bus := combinedBus{Publisher: fakePublisher{}, requester: requester}
+	r := &series.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: record.NewFakeRecorder(10), Bus: bus}
+
+	s := &catalogv1alpha1.Series{
+		ObjectMeta: metav1.ObjectMeta{Name: "field-manager-series", Namespace: "fieldmanager-ns"},
+		Spec: catalogv1alpha1.SeriesSpec{
+			TvdbID: 55555, QualityProfileRef: "none", RootFolderRef: "tv-root",
+			AddOptions: catalogv1alpha1.SeriesAddOptions{Monitor: catalogv1alpha1.SeriesMonitorAll},
+		},
+	}
+	require.NoError(t, c.Create(ctx, s))
+
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "fieldmanager-ns", Name: "field-manager-series"}}
+	_, err := r.Reconcile(ctx, req)
+	require.NoError(t, err)
+
+	epKey := types.NamespacedName{Namespace: "fieldmanager-ns", Name: "field-manager-series-s01e01"}
+	var ep catalogv1alpha1.Episode
+	require.NoError(t, c.Get(ctx, epKey, &ep))
+	assert.Equal(t, "Pilot", ep.Status.Title)
+
+	// Series' write landed under catalogarr-series, claiming exactly the
+	// provider field it set (title) and nothing Episode-owned.
+	seriesFields := managedStatusFieldPaths(ep.ManagedFields, "catalogarr-series")
+	require.NotNil(t, seriesFields, "no catalogarr-series/status entry in managedFields: %+v", fieldManagerNames(ep.ManagedFields))
+	seriesStatusNames := statusFieldNames(seriesFields)
+	assert.True(t, seriesStatusNames["title"], "catalogarr-series should own status.title")
+	assert.False(t, seriesStatusNames["phase"], "catalogarr-series must not claim status.phase")
+	assert.False(t, seriesStatusNames["hasFile"], "catalogarr-series must not claim status.hasFile")
+
+	// Simulate the Episode reconciler's own write: its computed fields,
+	// under the distinct k8s.ManagerCatalogarr.
+	epAC := catalogac.Episode(ep.Name, ep.Namespace).WithStatus(
+		catalogac.EpisodeStatus().
+			WithPhase(catalogv1alpha1.EpisodePhaseImported).
+			WithHasFile(true).
+			WithFileFormatScore(10).
+			WithCutoffMet(true),
+	)
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, epAC)
+	require.NoError(t, err)
+
+	require.NoError(t, c.Get(ctx, epKey, &ep))
+	// Neither write lost the other's data.
+	assert.Equal(t, "Pilot", ep.Status.Title, "the Episode reconciler's simulated write must not clobber Series' provider field")
+	assert.Equal(t, catalogv1alpha1.EpisodePhaseImported, ep.Status.Phase)
+	assert.True(t, ep.Status.HasFile)
+
+	for _, want := range []string{"catalogarr-series", "catalogarr"} {
+		if !managesField(ep.ManagedFields, want, "status") {
+			t.Errorf("no %q/status entry in managedFields: %+v", want, fieldManagerNames(ep.ManagedFields))
+		}
+	}
+	seriesFields = managedStatusFieldPaths(ep.ManagedFields, "catalogarr-series")
+	require.NotNil(t, seriesFields)
+	seriesStatusNames = statusFieldNames(seriesFields)
+	assert.True(t, seriesStatusNames["title"])
+	assert.False(t, seriesStatusNames["phase"], "catalogarr-series must still not claim status.phase after the Episode write")
+	assert.False(t, seriesStatusNames["hasFile"], "catalogarr-series must still not claim status.hasFile after the Episode write")
+
+	episodeFields := managedStatusFieldPaths(ep.ManagedFields, "catalogarr")
+	require.NotNil(t, episodeFields, "no catalogarr/status entry in managedFields: %+v", fieldManagerNames(ep.ManagedFields))
+	episodeStatusNames := statusFieldNames(episodeFields)
+	assert.True(t, episodeStatusNames["phase"], "catalogarr should own status.phase")
+	assert.True(t, episodeStatusNames["hasFile"], "catalogarr should own status.hasFile")
+	assert.False(t, episodeStatusNames["title"], "catalogarr must not claim status.title")
+
+	// A second Series reconcile (re-fanout with the same provider data)
+	// must not erase the Episode-owned fields the simulated write just
+	// set -- proving the split needs no ongoing re-assertion from either
+	// side, unlike the same-manager arrangement this replaces.
+	_, err = r.Reconcile(ctx, req)
+	require.NoError(t, err)
+
+	require.NoError(t, c.Get(ctx, epKey, &ep))
+	assert.Equal(t, "Pilot", ep.Status.Title)
+	assert.Equal(t, catalogv1alpha1.EpisodePhaseImported, ep.Status.Phase, "Series' second apply must not release Episode's phase")
+	assert.True(t, ep.Status.HasFile, "Series' second apply must not release Episode's hasFile")
+}
+
+// managedStatusFieldPaths decodes the (manager, "status") entry's FieldsV1
+// -- server-side apply's per-field-path ownership record -- into its
+// top-level field-path set. Modeled on the mediafile package's
+// managedFieldPaths helper.
+func managedStatusFieldPaths(entries []metav1.ManagedFieldsEntry, manager string) map[string]any {
+	for _, e := range entries {
+		if e.Manager == manager && e.Subresource == "status" && e.FieldsV1 != nil {
+			var m map[string]any
+			if err := json.Unmarshal(e.FieldsV1.GetRawBytes(), &m); err == nil {
+				return m
+			}
+		}
+	}
+	return nil
+}
+
+// statusFieldNames returns the bare (un-prefixed, non-".") field names a
+// managedStatusFieldPaths result's "f:status" sub-map claims.
+func statusFieldNames(fields map[string]any) map[string]bool {
+	out := map[string]bool{}
+	status, ok := fields["f:status"].(map[string]any)
+	if !ok {
+		return out
+	}
+	for k := range status {
+		if k == "." {
+			continue
+		}
+		out[strings.TrimPrefix(k, "f:")] = true
+	}
+	return out
+}
+
+func managesField(entries []metav1.ManagedFieldsEntry, manager, subresource string) bool {
+	for _, e := range entries {
+		if e.Manager == manager && e.Subresource == subresource {
+			return true
+		}
+	}
+	return false
+}
+
+func fieldManagerNames(entries []metav1.ManagedFieldsEntry) []string {
+	out := make([]string, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, e.Manager+"/"+e.Subresource)
+	}
+	return out
+}
 
 // TestSeriesReconcilerQueueFull proves ErrQueueFull from Publish sets
 // QueueFull=True and requeues after exactly one minute (§Step 6, mirrored

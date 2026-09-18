@@ -177,7 +177,10 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		assert.Equal(t, metav1.ConditionFalse, cond.Status)
 
 		// Simulate the Series reconciler's own write: provider fields set
-		// under the same field manager, including AirDate in the past.
+		// under the distinct k8s.ManagerCatalogarrSeries (never
+		// k8s.ManagerCatalogarr, which this reconciler uses for its own
+		// computed fields -- see the package doc comment), including
+		// AirDate in the past.
 		yesterday := metav1.NewTime(time.Now().Add(-24 * time.Hour))
 		provAC := catalogac.Episode("the-expanse-s01e01", "ep-ns").WithStatus(
 			catalogac.EpisodeStatus().
@@ -185,7 +188,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 				WithTvdbID(123456).WithRuntimeMinutes(44).
 				WithAirDate(yesterday),
 		)
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, provAC)
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrSeries, provAC)
 		require.NoError(t, err)
 
 		require.Eventually(t, func() bool {
