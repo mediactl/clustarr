@@ -1,0 +1,96 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package metadata
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+
+	"github.com/jonboulle/clockwork"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/events"
+	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
+)
+
+// Options configures Setup. Client and Bus are required; everything else
+// defaults.
+type Options struct {
+	Client     client.Client
+	Bus        events.Bus
+	HTTPClient *http.Client
+	L1Size     int
+	Clock      clockwork.Clock
+}
+
+// Setup builds the metadata gateway (the Registry from every enabled
+// MetadataProvider, the two-tier cache, the work-queue Handler and the RPC
+// responders) and starts consuming. It is RoleMetadata's entire job;
+// catalogarr/run.go's setupWorkers is expected to call this once, guarded
+// by o.Role.Has(catalogarr.RoleMetadata) (a different Phase C task's path --
+// see "Interfaces -- Produces").
+func Setup(ctx context.Context, o Options) (stop func(), err error) {
+	if o.Client == nil || o.Bus == nil {
+		return nil, fmt.Errorf("metadata: Client and Bus are required")
+	}
+	httpClient := o.HTTPClient
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+	clock := o.Clock
+	if clock == nil {
+		clock = clockwork.NewRealClock()
+	}
+	l1Size := o.L1Size
+	if l1Size <= 0 {
+		l1Size = 4096 // a homelab-sized working set; tune via Options.L1Size
+	}
+
+	var providers catalogv1alpha1.MetadataProviderList
+	if err := o.Client.List(ctx, &providers); err != nil {
+		return nil, fmt.Errorf("metadata: list MetadataProviders: %w", err)
+	}
+	reg, err := BuildRegistry(ctx, o.Client, providers.Items, httpClient)
+	if err != nil {
+		return nil, err
+	}
+
+	l1, err := pkgmetadata.NewLRUCache(l1Size, clock)
+	if err != nil {
+		return nil, fmt.Errorf("metadata: build L1 cache: %w", err)
+	}
+	cache := newTieredCache(l1, newKVCache(o.Bus.KV(events.BucketMetadataCache), clock))
+
+	spec, ok := events.Default().Consumer(events.ConsumerCatalogMetadata)
+	if !ok {
+		return nil, fmt.Errorf("metadata: consumer %q missing from the default topology", events.ConsumerCatalogMetadata)
+	}
+	h := &Handler{Client: o.Client, Registry: reg, Cache: cache}
+	stopSub, err := o.Bus.Subscribe(ctx, spec.Subscription(), h.Handle)
+	if err != nil {
+		return nil, fmt.Errorf("metadata: subscribe: %w", err)
+	}
+
+	if err := ServeRPC(o.Bus, reg); err != nil {
+		stopSub()
+		return nil, err
+	}
+	return stopSub, nil
+}
