@@ -1,0 +1,24 @@
+id: synthetic-cookie-login
+name: Synthetic Cookie Login
+description: "test fixture — cookie login"
+language: en-US
+type: private
+encoding: UTF-8
+links: ["https://example.invalid/"]
+caps:
+  categorymappings:
+    - {id: 1, cat: Movies, desc: "Movies"}
+  modes:
+    search: [q]
+login:
+  method: cookie
+  cookies: ["session_id"]
+search:
+  path: browse
+  rows: {selector: "tr"}
+  fields:
+    title: {selector: "td.title"}
+    size: {selector: "td.size"}
+    seeders: {selector: "td.seeders"}
+    category: {text: "1"}
+    download: {selector: "td.title a", attribute: href}

@@ -1,0 +1,40 @@
+id: synthetic-form-login
+name: Synthetic Form Login
+description: "test fixture — form login with a scraped CSRF token"
+language: en-US
+type: private
+encoding: UTF-8
+links: ["https://example.invalid/"]
+caps:
+  categorymappings:
+    - {id: 1, cat: Movies, desc: "Movies"}
+  modes:
+    search: [q]
+login:
+  method: form
+  path: login
+  form: "#loginform"
+  inputs:
+    username: "{{ .Config.username }}"
+    password: "{{ .Config.password }}"
+  selectorinputs:
+    csrf_token:
+      selector: "input[name=csrf_token]"
+      attribute: value
+  error:
+    - selector: "div.error"
+  test:
+    path: dashboard
+    selector: "a.logout"
+settings:
+  - {name: username, type: text}
+  - {name: password, type: password}
+search:
+  path: browse
+  rows: {selector: "tr"}
+  fields:
+    title: {selector: "td.title"}
+    size: {selector: "td.size"}
+    seeders: {selector: "td.seeders"}
+    category: {text: "1"}
+    download: {selector: "td.title a", attribute: href}
