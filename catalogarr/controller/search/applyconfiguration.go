@@ -65,18 +65,55 @@ type SearchApplyConfiguration struct {
 }
 
 // SearchStatusApplyConfiguration is the status half of
-// SearchApplyConfiguration. Every field this package's field manager ever
-// owns is declared here; see the server-side-apply note on writeStatus for
-// why a caller must send all of them it owns on every apply.
+// SearchApplyConfiguration.
+//
+// The three list fields are pointers to slices, not slices, and for
+// status.results that is load-bearing. Under server-side apply a field a
+// manager omits is RELEASED, so "this list is now empty" and "I have nothing
+// to say about this list" have to be two different things on the wire. A plain
+// []T with `omitempty` cannot express the first: encoding/json omits on
+// LENGTH, not on nil-ness, so an explicitly-emptied slice marshals away to
+// nothing and silently degrades into the second. A *[]T separates them
+// exactly -- a nil pointer omits the field, a pointer to an empty slice sends
+// `[]`. Dropping `omitempty` instead would be worse: a builder that
+// legitimately never touches results would then send `"results": null` and
+// claim a field it does not own.
+//
+// # The distinction does NOT exist for the other two lists, and that matters
+//
+// status.results is an atomic list. status.indexerOutcomes and status.grabbed
+// are `listType=map`, and server-side apply tracks an associative list per
+// ENTRY, not as a whole: ownership is recorded as k:{"name":"idx"} under the
+// field, and an empty list owns nothing. Applying `[]` and omitting the field
+// therefore produce a byte-identical object and a byte-identical ownership
+// record -- in both cases the entries this manager owned are removed. Verified
+// against a real apiserver in ownership_envtest_test.go.
+//
+// So the pointer shape is kept on all three for uniformity, and because a
+// listType marker could change, but it must not be mistaken for a guarantee on
+// the two associative lists. The only thing that preserves an associative
+// list's contents across a write is re-declaring the contents -- the
+// read-modify-declare cycle Worker.writeFailure and Reconciler's
+// newStatusUpdate both perform.
+//
+// The same caveat applies to the pointer's usefulness on results: declaring
+// `results: []` removes an earlier run's results just as thoroughly as
+// releasing the field did. What it buys is an honest ownership record and a
+// doc comment that is true; what actually saves a user's results is the
+// caller re-declaring them.
+//
+// Conditions keeps the plain-slice shape every generated apply configuration
+// in this repo uses. It is `listType=map` too, so a pointer would buy it
+// nothing, and every write path here sets at least one condition.
 type SearchStatusApplyConfiguration struct {
 	ObservedGeneration *int64                                  `json:"observedGeneration,omitempty"`
 	Conditions         []*metav1ac.ConditionApplyConfiguration `json:"conditions,omitempty"`
 	Phase              *catalogv1alpha1.SearchPhase            `json:"phase,omitempty"`
 	StartedAt          *metav1.Time                            `json:"startedAt,omitempty"`
 	FinishedAt         *metav1.Time                            `json:"finishedAt,omitempty"`
-	IndexerOutcomes    []catalogv1alpha1.IndexerOutcome        `json:"indexerOutcomes,omitempty"`
-	Results            []catalogv1alpha1.ReleaseDecision       `json:"results,omitempty"`
-	Grabbed            []catalogv1alpha1.GrabResult            `json:"grabbed,omitempty"`
+	IndexerOutcomes    *[]catalogv1alpha1.IndexerOutcome       `json:"indexerOutcomes,omitempty"`
+	Results            *[]catalogv1alpha1.ReleaseDecision      `json:"results,omitempty"`
+	Grabbed            *[]catalogv1alpha1.GrabResult           `json:"grabbed,omitempty"`
 }
 
 // Search builds an empty apply configuration for the named Search.
@@ -184,20 +221,37 @@ func (b *SearchStatusApplyConfiguration) WithFinishedAt(v metav1.Time) *SearchSt
 	return b
 }
 
-// WithIndexerOutcomes appends to status.indexerOutcomes.
+// WithIndexerOutcomes declares status.indexerOutcomes and appends to it.
+//
+// Calling it at all is the declaration, so WithIndexerOutcomes() with no
+// arguments -- or with an empty slice spread into it -- sends `[]` and keeps
+// ownership of the field, rather than omitting it and releasing whatever was
+// there. That is the whole reason the field is a pointer; see the struct's
+// doc comment.
 func (b *SearchStatusApplyConfiguration) WithIndexerOutcomes(v ...catalogv1alpha1.IndexerOutcome) *SearchStatusApplyConfiguration {
-	b.IndexerOutcomes = append(b.IndexerOutcomes, v...)
+	if b.IndexerOutcomes == nil {
+		b.IndexerOutcomes = &[]catalogv1alpha1.IndexerOutcome{}
+	}
+	*b.IndexerOutcomes = append(*b.IndexerOutcomes, v...)
 	return b
 }
 
-// WithResults appends to status.results.
+// WithResults declares status.results and appends to it. Calling it with no
+// arguments declares the list empty; see WithIndexerOutcomes.
 func (b *SearchStatusApplyConfiguration) WithResults(v ...catalogv1alpha1.ReleaseDecision) *SearchStatusApplyConfiguration {
-	b.Results = append(b.Results, v...)
+	if b.Results == nil {
+		b.Results = &[]catalogv1alpha1.ReleaseDecision{}
+	}
+	*b.Results = append(*b.Results, v...)
 	return b
 }
 
-// WithGrabbed appends to status.grabbed.
+// WithGrabbed declares status.grabbed and appends to it. Calling it with no
+// arguments declares the list empty; see WithIndexerOutcomes.
 func (b *SearchStatusApplyConfiguration) WithGrabbed(v ...catalogv1alpha1.GrabResult) *SearchStatusApplyConfiguration {
-	b.Grabbed = append(b.Grabbed, v...)
+	if b.Grabbed == nil {
+		b.Grabbed = &[]catalogv1alpha1.GrabResult{}
+	}
+	*b.Grabbed = append(*b.Grabbed, v...)
 	return b
 }

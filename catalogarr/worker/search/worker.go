@@ -52,6 +52,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	searchctl "github.com/mediactl/clustarr/catalogarr/controller/search"
+	"github.com/mediactl/clustarr/catalogarr/worker/grab"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -285,6 +286,23 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 		return err // already an events.RetryError from busSearchRPC, or a plain error -> backoff nak
 	}
 
+	// The attempt is recorded the moment the indexers answered -- before the
+	// decision, and before the sink. Two orderings matter here:
+	//
+	// Before the sink, because grab.RecordSearchAttempt and the grab sink
+	// write the SAME owned set under the same field manager
+	// (k8s.ManagerCatalogarrGrab: activeDownloadRef, pendingGrab,
+	// lastSearchedAt, searchAttempts) through a read-modify-declare cycle
+	// against the informer cache. If this ran after Deliver, it could read a
+	// cache that had not yet caught up with the pendingGrab the sink just
+	// wrote and release it. Running first means the sink's write is the later
+	// one, and the one ordering this function controls is the safe one.
+	//
+	// After the RPC, because a search that never reached an indexer is not an
+	// attempt: stamping it would let the backoff ladder grow while nothing was
+	// actually being searched for.
+	w.recordAttempt(ctx, ns, grabTarget(task))
+
 	opts, err := w.decisionOptions(ctx, ns, task)
 	if err != nil {
 		return err
@@ -300,9 +318,39 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 		"truncated", resp.Truncated)
 
 	if srch != nil {
-		return w.writeSearchStatus(ctx, srch, resp.Outcomes, ranked)
+		return w.writeResults(ctx, srch, resp.Outcomes, ranked)
 	}
 	return w.sink().Deliver(ctx, ns, grabTarget(task), ranked)
+}
+
+// recordAttempt stamps status.lastSearchedAt and status.searchAttempts on the
+// item that was just searched for, which is what gives spec §6.1's
+// "per-item >=6h gap and Attempts backoff 6h*2^n capped 7d" something to
+// count. Without it wantedcron.Backoff stays flat at MinimumGap forever and
+// every twelve-hourly sweep re-searches every still-wanted item.
+//
+// The write goes through catalogarr/worker/grab, which owns that field set
+// under k8s.ManagerCatalogarrGrab and re-declares all four fields on every
+// apply. Reimplementing the cycle here would release the grab path's
+// activeDownloadRef and pendingGrab, which is the failure that split
+// catalogarr-worker into per-consumer managers in the first place.
+//
+// Failing to record is deliberately NOT fatal to the task. The search itself
+// succeeded; results are about to be written or a grab dispatched, and
+// returning an error here would nak the message and re-run the whole RPC --
+// paying for a fresh federated search, and possibly a second grab, to fix a
+// timestamp. A missed stamp costs at most one extra sweep of one item.
+//
+// grab.ErrUnsupportedKind is unreachable from this call site: it is returned
+// for a Series ref carrying no keys, and handleSearchTask discards every kind
+// but movie and episode before the RPC is ever issued. It is handled by the
+// same non-fatal path anyway rather than asserted away, because "unreachable
+// today" is exactly the reasoning this package has had to walk back twice.
+func (w *Worker) recordAttempt(ctx context.Context, ns string, ref commonv1.MediaRef) {
+	if err := grab.RecordSearchAttempt(ctx, w.Client, ns, ref, w.now()); err != nil {
+		w.log(ctx).Warn("search: could not record the search attempt; the per-item backoff will not advance",
+			"kind", ref.Kind, "item", ref.Name, "err", err)
+	}
 }
 
 // grabTarget folds SearchTask.Keys onto the MediaRef the Sink receives. The
@@ -354,7 +402,7 @@ func (w *Worker) terminal(ctx context.Context, srch *catalogv1alpha1.Search, rea
 		State: catalogv1alpha1.IndexerOutcomeError,
 		Error: truncateOutcomeError(reason + ": " + cause.Error()),
 	}
-	if err := w.writeSearchStatus(ctx, srch, nil, nil, outcome); err != nil {
+	if err := w.writeFailure(ctx, srch, outcome); err != nil {
 		// Saying so failed; let the delivery retry. The underlying condition
 		// is terminal, but reporting it is not, and silently dropping the
 		// report puts the object back in the five-minute-timeout hole this
@@ -529,27 +577,65 @@ func recordDecisionMetrics(kind commonv1.MediaKind, ds []decision.Decision) {
 	}
 }
 
-// writeSearchStatus records an interactive search's outcome.
-//
-// It writes under k8s.ManagerCatalogarrWorker and owns a set of fields
-// deliberately disjoint from the Search reconciler's (§2's
-// controller/worker manager split): finishedAt, indexerOutcomes and results
-// here; phase, conditions, observedGeneration, startedAt and grabbed there.
-// Server-side apply replaces a manager's whole ownership set on every apply,
-// so every field this manager owns is sent on every call -- and none that the
-// controller owns ever is, which is what stops the two from releasing each
-// other's fields. The controller flips phase to Completed when it sees
-// finishedAt land.
-func (w *Worker) writeSearchStatus(
+// writeResults records a completed interactive search.
+func (w *Worker) writeResults(
 	ctx context.Context,
 	srch *catalogv1alpha1.Search,
 	outcomes []schema.SearchOutcome,
 	ranked []catalogv1alpha1.ReleaseDecision,
-	extra ...catalogv1alpha1.IndexerOutcome,
+) error {
+	return w.applySearchStatus(ctx, srch, capOutcomes(mapOutcomes(outcomes)), ranked)
+}
+
+// writeFailure records a terminal failure on the Search without destroying
+// what an earlier delivery of the same task may already have written.
+//
+// That preservation is the point. JetStream is at-least-once: a delivery that
+// succeeded and then lost its ack is redelivered, and if the second run fails
+// terminally -- the target was deleted in between, its qualityProfileRef was
+// cleared -- it must not take a good answer down with it. So the existing
+// results are re-declared verbatim and the failure is added as one more
+// outcome entry, which reads as "these are what we found; the latest attempt
+// failed for this reason".
+//
+// srch comes from the informer cache and may be a beat stale, which is
+// tolerable here precisely because every field being re-declared is this
+// manager's own: the worst case is re-asserting a value this manager itself
+// just wrote.
+func (w *Worker) writeFailure(ctx context.Context, srch *catalogv1alpha1.Search, failure catalogv1alpha1.IndexerOutcome) error {
+	// The fresh failure goes first so it wins capOutcomes' first-wins dedupe
+	// against a stale entry from an earlier failed delivery.
+	outcomes := append([]catalogv1alpha1.IndexerOutcome{failure}, srch.Status.IndexerOutcomes...)
+	return w.applySearchStatus(ctx, srch, capOutcomes(outcomes), srch.Status.Results)
+}
+
+// applySearchStatus is the one place the search worker writes a Search.
+//
+// It writes under k8s.ManagerCatalogarrWorker and owns a set of fields
+// deliberately disjoint from the Search reconciler's (§2's controller/worker
+// manager split): finishedAt, indexerOutcomes and results here; phase,
+// conditions, observedGeneration, startedAt and grabbed there.
+//
+// All three owned fields are declared on EVERY call, including when they are
+// empty -- WithResults() with nothing to append still sends `[]`. Server-side
+// apply replaces a manager's whole ownership set rather than merging it, so a
+// field this manager owns and omits is released, which reads as "reset to
+// zero" on the object. An apply configuration whose list fields were plain
+// slices could not express the difference, because `omitempty` drops a
+// zero-length slice: see SearchStatusApplyConfiguration's doc comment.
+//
+// Nothing here ever touches a controller-owned field, which is what lets the
+// worker report a terminal failure at all without breaking the single-writer
+// rule.
+func (w *Worker) applySearchStatus(
+	ctx context.Context,
+	srch *catalogv1alpha1.Search,
+	outcomes []catalogv1alpha1.IndexerOutcome,
+	ranked []catalogv1alpha1.ReleaseDecision,
 ) error {
 	statusAC := searchctl.SearchStatus().
 		WithFinishedAt(metav1.NewTime(w.now())).
-		WithIndexerOutcomes(append(indexerOutcomes(outcomes), extra...)...).
+		WithIndexerOutcomes(outcomes...).
 		WithResults(ranked...)
 
 	if _, err := k8s.PatchStatus(ctx, w.Client, k8s.ManagerCatalogarrWorker,
@@ -568,37 +654,20 @@ const MaxIndexerOutcomes = 100
 // itself a problem.
 const maxOutcomeErrorBytes = 512
 
-// indexerOutcomes maps the RPC's per-indexer report onto the API type,
-// deduplicated by name and capped at MaxIndexerOutcomes.
-//
-// Both guards protect the same thing: status.indexerOutcomes is
-// listType=map keyed by name with MaxItems=100, so a duplicate name or a
-// 101st entry makes the apiserver reject the WHOLE status apply -- and this
-// function is the only writer of the field, so that rejection would leave an
-// otherwise-successful search stuck in Running until the reconciler's
-// five-minute timeout. A search that really did fan out to more than a hundred
-// indexers is better reported truncated than not at all.
-//
-// First entry wins on a duplicate: the RPC returns outcomes in the order
-// indexarr resolved them, so the first is the one whose releases are actually
-// in the reply.
-func indexerOutcomes(outcomes []schema.SearchOutcome) []catalogv1alpha1.IndexerOutcome {
+// mapOutcomes projects the RPC's per-indexer report onto the API type. It
+// drops nameless entries: status.indexerOutcomes is listType=map keyed by
+// name, and an entry with no key makes the apiserver reject the whole status
+// apply.
+func mapOutcomes(outcomes []schema.SearchOutcome) []catalogv1alpha1.IndexerOutcome {
 	out := make([]catalogv1alpha1.IndexerOutcome, 0, len(outcomes))
-	seen := make(map[string]struct{}, len(outcomes))
 	for _, o := range outcomes {
 		name := o.IndexerRef.Name
 		if name == "" {
 			name = o.IndexerName
 		}
 		if name == "" {
-			// A nameless entry would be rejected by the listMapKey and take
-			// the whole status write with it.
 			continue
 		}
-		if _, dup := seen[name]; dup {
-			continue
-		}
-		seen[name] = struct{}{}
 		out = append(out, catalogv1alpha1.IndexerOutcome{
 			Name:       name,
 			State:      outcomeState(o.Status),
@@ -606,9 +675,37 @@ func indexerOutcomes(outcomes []schema.SearchOutcome) []catalogv1alpha1.IndexerO
 			DurationMs: int32(o.ElapsedMillis),
 			Error:      truncateOutcomeError(o.Error),
 		})
-		// One short of the cap, so terminal() and any other caller passing an
-		// extra entry still fits.
-		if len(out) == MaxIndexerOutcomes-1 {
+	}
+	return out
+}
+
+// capOutcomes deduplicates by name and truncates to MaxIndexerOutcomes. It is
+// the single gate every write to status.indexerOutcomes passes through.
+//
+// Both guards protect the same thing: the field is listType=map keyed by name
+// with MaxItems=100, so a repeated name or a 101st entry makes the apiserver
+// reject the WHOLE status apply -- taking status.results with it and leaving
+// the Search in Running until the reconciler's five-minute timeout. A search
+// that really did fan out to more than a hundred indexers is better reported
+// truncated than not at all.
+//
+// First entry wins on a duplicate. For a successful search that is the RPC's
+// own order, so the winner is the indexer whose releases are actually in the
+// reply; for a failure report it is why writeFailure puts the fresh
+// worker-failure entry at the head, ahead of any stale one.
+func capOutcomes(outcomes []catalogv1alpha1.IndexerOutcome) []catalogv1alpha1.IndexerOutcome {
+	out := make([]catalogv1alpha1.IndexerOutcome, 0, min(len(outcomes), MaxIndexerOutcomes))
+	seen := make(map[string]struct{}, len(outcomes))
+	for _, o := range outcomes {
+		if o.Name == "" {
+			continue
+		}
+		if _, dup := seen[o.Name]; dup {
+			continue
+		}
+		seen[o.Name] = struct{}{}
+		out = append(out, o)
+		if len(out) == MaxIndexerOutcomes {
 			break
 		}
 	}

@@ -200,18 +200,30 @@ func newStatusUpdate(s *catalogv1alpha1.Search) *statusUpdate {
 }
 
 // apply writes the update. It always sends every field this manager owns.
+//
+// status.grabbed is declared unconditionally, empty list included, so this
+// function is uniformly "declare everything I own" -- the rule this codebase
+// keeps getting bitten by. It is NOT what protects the recorded grabs:
+// status.grabbed is listType=map, and server-side apply tracks an associative
+// list per entry, so declaring it empty removes this manager's entries exactly
+// as omitting it would (see SearchStatusApplyConfiguration's doc comment).
+// What protects them is newStatusUpdate copying the live status.grabbed into
+// every update, so the contents are re-declared rather than merely re-claimed.
+//
+// phase and startedAt stay conditional because they are scalars whose zero
+// value is genuinely "nothing to say yet": a Search that has not started has
+// no phase to declare, and once either is set newStatusUpdate carries it
+// forward on every subsequent apply.
 func (r *Reconciler) apply(ctx context.Context, s *catalogv1alpha1.Search, u *statusUpdate) error {
 	statusAC := SearchStatus().
 		WithObservedGeneration(s.Generation).
-		WithConditions(k8s.ConditionACs(u.conditions)...)
+		WithConditions(k8s.ConditionACs(u.conditions)...).
+		WithGrabbed(u.grabbed...)
 	if u.phase != "" {
 		statusAC = statusAC.WithPhase(u.phase)
 	}
 	if u.startedAt != nil {
 		statusAC = statusAC.WithStartedAt(*u.startedAt)
-	}
-	if len(u.grabbed) > 0 {
-		statusAC = statusAC.WithGrabbed(u.grabbed...)
 	}
 	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr,
 		Search(s.Name, s.Namespace).WithStatus(statusAC)); err != nil {
