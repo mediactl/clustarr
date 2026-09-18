@@ -1,0 +1,26 @@
+{
+  "total_pages": 1, "total_count": 1, "per_page": 50, "page": 1,
+  "data": [
+    {
+      "id": "1234567", "type": "subtitle",
+      "attributes": {
+        "subtitle_id": "1234567", "language": "en",
+        "download_count": 500000, "new_download_count": 1200,
+        "hearing_impaired": false, "hd": true, "fps": 23.976, "votes": 3, "points": 0, "ratings": 8.5,
+        "from_trusted": true, "foreign_parts_only": false, "ai_translated": false, "machine_translated": false,
+        "upload_date": "2010-09-01T00:00:00Z", "release": "Inception.2010.720p.BluRay.x264-REWARD",
+        "comments": "", "legacy_subtitle_id": 3874251,
+        "uploader": { "uploader_id": 1, "name": "os-user", "rank": "trusted" },
+        "feature_details": {
+          "feature_id": 1, "feature_type": "Movie", "year": 2010, "title": "Inception",
+          "movie_name": "Inception (2010)", "imdb_id": 1375666, "tmdb_id": 27205,
+          "season_number": null, "episode_number": null,
+          "parent_imdb_id": null, "parent_title": null, "parent_tmdb_id": null, "parent_feature_id": null
+        },
+        "url": "https://www.opensubtitles.com/en/subtitles/1234567",
+        "files": [ { "file_id": 998877, "cd_number": 1, "file_name": "Inception.2010.720p.BluRay.x264-REWARD.srt" } ],
+        "moviehash_match": true
+      }
+    }
+  ]
+}

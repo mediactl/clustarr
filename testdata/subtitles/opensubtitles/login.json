@@ -1,0 +1,13 @@
+{
+  "user": {
+    "allowed_downloads": 1000,
+    "allowed_translations": 20,
+    "level": "VIP Member",
+    "user_id": 424242,
+    "ext_installed": false,
+    "vip": true
+  },
+  "base_url": "api.opensubtitles.com",
+  "token": "eyJhbGciOiJIUzI1NiJ9.test-token",
+  "status": 200
+}
