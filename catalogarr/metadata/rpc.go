@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
@@ -36,6 +37,12 @@ func ServeRPC(bus events.Requester, reg *pkgmetadata.Registry) error {
 	handlers := map[string]func(context.Context, schema.MetadataRequest) schema.MetadataResponse{
 		events.RPCMetadataLookup: func(ctx context.Context, req schema.MetadataRequest) schema.MetadataResponse {
 			return lookup(ctx, reg, req)
+		},
+		events.RPCMetadataSearch: func(ctx context.Context, req schema.MetadataRequest) schema.MetadataResponse {
+			return search(ctx, reg, req)
+		},
+		events.RPCMetadataResolve: func(ctx context.Context, req schema.MetadataRequest) schema.MetadataResponse {
+			return resolve(ctx, reg, req)
 		},
 	}
 	for subject, h := range handlers {
@@ -64,6 +71,69 @@ func lookup(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataR
 		return schema.MetadataResponse{Kind: req.Kind, Error: err.Error()}
 	}
 	return schema.MetadataResponse{Kind: req.Kind, IDs: idsOf(v), Result: result}
+}
+
+// search dispatches by kind. Only the kinds whose Provider interface (go doc
+// ./pkg/metadata) has a search method are supported: movie, artist, book,
+// comic. series has none (spec-pinned). album has none either: ArtistProvider
+// exposes SearchArtists (by text) and Albums(mbArtistID) (list, not search,
+// of a known artist's albums) but no SearchAlbums -- the brief's original
+// draft assumed one; there is no provider surface to route an album search
+// to, so it falls through to the unsupported-kind response below exactly
+// like series. audiobook and author have none either (Audnexus/Open Library
+// search is out of scope).
+func search(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataRequest) schema.MetadataResponse {
+	switch req.Kind {
+	case commonv1.MediaKindMovie:
+		for _, p := range reg.Movies {
+			if hits, err := p.SearchMovies(ctx, req.Text, int(req.Year)); err == nil {
+				return schema.MetadataResponse{Kind: req.Kind, Provider: p.Name(), Results: marshalAll(hits)}
+			}
+		}
+	case commonv1.MediaKindArtist:
+		for _, p := range reg.Artists {
+			if hits, err := p.SearchArtists(ctx, req.Text); err == nil {
+				return schema.MetadataResponse{Kind: req.Kind, Provider: p.Name(), Results: marshalAll(hits)}
+			}
+		}
+	case commonv1.MediaKindBook:
+		for _, p := range reg.Books {
+			if hits, err := p.SearchBooks(ctx, req.Text); err == nil {
+				return schema.MetadataResponse{Kind: req.Kind, Provider: p.Name(), Results: marshalAll(hits)}
+			}
+		}
+	case commonv1.MediaKindComic:
+		for _, p := range reg.Comics {
+			if hits, err := p.SearchVolumes(ctx, req.Text); err == nil {
+				return schema.MetadataResponse{Kind: req.Kind, Provider: p.Name(), Results: marshalAll(hits)}
+			}
+		}
+	}
+	return schema.MetadataResponse{Kind: req.Kind, Error: fmt.Sprintf("metadata: search does not support kind %q", req.Kind)}
+}
+
+// resolve merges the ids every registered IDResolver adds for req.Kind on
+// top of the caller-supplied ids. ExternalIDs.Merge keeps the first value
+// for a key present in both, so a resolver can only add ids, never override
+// one the caller already trusted.
+func resolve(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataRequest) schema.MetadataResponse {
+	ids := pkgmetadata.ExternalIDs(req.IDs)
+	for _, r := range reg.Resolvers {
+		if resolved, err := r.Resolve(ctx, req.Kind, ids); err == nil {
+			ids = ids.Merge(resolved)
+		}
+	}
+	return schema.MetadataResponse{Kind: req.Kind, IDs: ids}
+}
+
+func marshalAll[T any](items []T) [][]byte {
+	out := make([][]byte, 0, len(items))
+	for _, it := range items {
+		if b, err := json.Marshal(it); err == nil {
+			out = append(out, b)
+		}
+	}
+	return out
 }
 
 func idsOf(v any) map[string]string {

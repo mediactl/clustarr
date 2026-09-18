@@ -79,3 +79,90 @@ func TestServeRPCLookupReturnsAnErrorStringOnFailure(t *testing.T) {
 	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
 	require.NotEmpty(t, resp.Error)
 }
+
+type stubArtistProvider struct{ hit pkgmetadata.SearchHit }
+
+func (p stubArtistProvider) Name() string { return "musicbrainz" }
+func (p stubArtistProvider) Capabilities() pkgmetadata.Capabilities {
+	return pkgmetadata.Capabilities{}
+}
+func (p stubArtistProvider) SearchArtists(context.Context, string) ([]pkgmetadata.SearchHit, error) {
+	return []pkgmetadata.SearchHit{p.hit}, nil
+}
+func (p stubArtistProvider) Artist(context.Context, string) (*pkgmetadata.Artist, error) {
+	return nil, pkgmetadata.ErrNotFound
+}
+func (p stubArtistProvider) Albums(context.Context, string) ([]pkgmetadata.Album, error) {
+	return nil, nil
+}
+func (p stubArtistProvider) Album(context.Context, string) (*pkgmetadata.Album, error) {
+	return nil, pkgmetadata.ErrNotFound
+}
+
+func TestServeRPCSearchDispatchesByKind(t *testing.T) {
+	reg := &pkgmetadata.Registry{
+		Artists: []pkgmetadata.ArtistProvider{stubArtistProvider{hit: pkgmetadata.SearchHit{Title: "Radiohead"}}},
+	}
+	bus := newTestBus(t)
+	require.NoError(t, ServeRPC(bus, reg))
+
+	var resp schema.MetadataResponse
+	req := schema.MetadataRequest{Kind: commonv1.MediaKindArtist, Text: "Radiohead"}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataSearch, req, &resp))
+	require.Len(t, resp.Results, 1)
+	var hit pkgmetadata.SearchHit
+	require.NoError(t, json.Unmarshal(resp.Results[0], &hit))
+	require.Equal(t, "Radiohead", hit.Title)
+}
+
+func TestServeRPCSearchReportsUnsupportedKinds(t *testing.T) {
+	reg := &pkgmetadata.Registry{}
+	bus := newTestBus(t)
+	require.NoError(t, ServeRPC(bus, reg))
+
+	var resp schema.MetadataResponse
+	req := schema.MetadataRequest{Kind: commonv1.MediaKindSeries, Text: "anything"}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataSearch, req, &resp))
+	require.NotEmpty(t, resp.Error, "SeriesProvider has no search method (spec-pinned; see pkg/metadata go doc)")
+}
+
+// TestServeRPCSearchReportsAlbumAsUnsupported: unlike the brief's original
+// draft, ArtistProvider (go doc ./pkg/metadata) has no SearchAlbums method --
+// only SearchArtists (by text) and Albums(mbArtistID) (list, not search, of
+// a known artist's albums). There is no provider surface a MediaKindAlbum
+// search could call, so it is unsupported exactly like series, not routed
+// to a nonexistent method.
+func TestServeRPCSearchReportsAlbumAsUnsupported(t *testing.T) {
+	reg := &pkgmetadata.Registry{
+		Artists: []pkgmetadata.ArtistProvider{stubArtistProvider{hit: pkgmetadata.SearchHit{Title: "Radiohead"}}},
+	}
+	bus := newTestBus(t)
+	require.NoError(t, ServeRPC(bus, reg))
+
+	var resp schema.MetadataResponse
+	req := schema.MetadataRequest{Kind: commonv1.MediaKindAlbum, Text: "OK Computer"}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataSearch, req, &resp))
+	require.NotEmpty(t, resp.Error)
+}
+
+type stubResolver struct{ add pkgmetadata.ExternalIDs }
+
+func (p stubResolver) Name() string { return "wikidata" }
+func (p stubResolver) Capabilities() pkgmetadata.Capabilities { return pkgmetadata.Capabilities{} }
+func (p stubResolver) Resolve(context.Context, commonv1.MediaKind, pkgmetadata.ExternalIDs) (pkgmetadata.ExternalIDs, error) {
+	return p.add, nil
+}
+
+func TestServeRPCResolveMergesEveryResolver(t *testing.T) {
+	reg := &pkgmetadata.Registry{Resolvers: []pkgmetadata.IDResolver{
+		stubResolver{add: pkgmetadata.ExternalIDs{"imdb": "tt1375666"}},
+	}}
+	bus := newTestBus(t)
+	require.NoError(t, ServeRPC(bus, reg))
+
+	var resp schema.MetadataResponse
+	req := schema.MetadataRequest{Kind: commonv1.MediaKindMovie, IDs: map[string]string{"tmdb": "27205"}}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataResolve, req, &resp))
+	require.Equal(t, "27205", resp.IDs["tmdb"])
+	require.Equal(t, "tt1375666", resp.IDs["imdb"])
+}
