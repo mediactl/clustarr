@@ -252,10 +252,21 @@ func (r Runner) Run(ctx context.Context, plan *PlanResult, progress func(Progres
 		})
 	}()
 
+	// Drain stdout to EOF BEFORE calling Wait. Per the stdlib's own
+	// StdoutPipe doc: "Wait will close the pipe after seeing the command
+	// exit... it is thus incorrect to call Wait before all reads from the
+	// pipe have completed." Concretely (os/exec/exec.go's Wait): it calls
+	// closeDescriptors(c.parentIOPipes) -- which includes StdoutPipe's
+	// reader -- unconditionally, with no synchronization against a reader
+	// goroutine we manage ourselves (c.goroutineErr only covers pipes
+	// exec.Cmd copies internally, i.e. Stdout set to an io.Writer, not
+	// StdoutPipe). Calling Wait first can therefore close the pipe out
+	// from under an in-flight Read, discarding already-buffered-but-
+	// unread bytes -- including the final progress=end block.
+	scanErr := <-scanDone
 	waitErr := cmd.Wait()
-	<-scanDone // scanDone's send happens-after the goroutine's writes to sawEnd/last
 
-	if waitErr != nil || !sawEnd {
+	if waitErr != nil || scanErr != nil || !sawEnd {
 		// Cancellation is not an encode failure: report ctx.Err() (wrapped,
 		// so errors.Is(err, context.DeadlineExceeded/Canceled) holds for
 		// the caller) instead of a *RunError built from the SIGINT/SIGKILL
@@ -272,6 +283,9 @@ func (r Runner) Run(ctx context.Context, plan *PlanResult, progress func(Progres
 			exitCode = cmd.ProcessState.ExitCode()
 		}
 		cause := waitErr
+		if cause == nil && scanErr != nil {
+			cause = fmt.Errorf("transcode: run: reading progress: %w", scanErr)
+		}
 		if cause == nil {
 			cause = fmt.Errorf("transcode: run: ffmpeg exited cleanly without a progress=end block")
 		}

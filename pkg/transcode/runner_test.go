@@ -21,6 +21,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -110,6 +111,61 @@ func TestRunHonoursContextCancellationAndSendsSIGINTFirst(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.Less(t, elapsed, 3*time.Second, "CancelGrace should bound wall time well under the old 5s default")
+}
+
+// writeFakeFFmpegScript writes a POSIX shell script (not real ffmpeg) that
+// ignores its argv and writes `blocks` "progress=continue" cycles followed
+// by one distinctive "progress=end" block, then exits 0. At blocks=3000 the
+// total output comfortably exceeds a 64KiB pipe buffer, forcing genuine
+// concurrent streaming (the script blocks on write() until Run's reader
+// drains) rather than everything fitting in the kernel buffer in one shot --
+// the scenario where a Wait()-before-drain race would actually lose data.
+func writeFakeFFmpegScript(t *testing.T, blocks int) string {
+	t.Helper()
+	script := fmt.Sprintf(`#!/bin/sh
+i=1
+while [ "$i" -le %d ]; do
+  echo "frame=$i"
+  echo "fps=24.00"
+  echo "bitrate=1000.0kbits/s"
+  echo "out_time_us=$((i * 1000))"
+  echo "speed=1.00x"
+  echo "progress=continue"
+  i=$((i + 1))
+done
+echo "frame=424242"
+echo "fps=30.00"
+echo "bitrate=2222.0kbits/s"
+echo "out_time_us=500000000"
+echo "speed=5.00x"
+echo "progress=end"
+exit 0
+`, blocks)
+	path := filepath.Join(t.TempDir(), "fake-ffmpeg.sh")
+	require.NoError(t, os.WriteFile(path, []byte(script), 0o755))
+	return path
+}
+
+func TestRunDrainsStdoutToEOFBeforeWaitSoTheFinalProgressBlockSurvives(t *testing.T) {
+	if _, err := os.Stat("/bin/sh"); err != nil {
+		t.Skip("/bin/sh not present on this box")
+	}
+	script := writeFakeFFmpegScript(t, 3000)
+	r := transcode.NewRunner(script)
+	plan := &transcode.PlanResult{
+		Decision:  transcode.DecisionEncode,
+		Output:    filepath.Join(t.TempDir(), "fake.part.mkv"),
+		Container: transcode.ContainerMKV,
+		VideoArgs: []string{"-c:v", "copy"},
+	}
+
+	var events []transcode.Progress
+	err := r.Run(context.Background(), plan, func(p transcode.Progress) { events = append(events, p) })
+	require.NoError(t, err)
+	require.NotEmpty(t, events, "at least one progress event must be observed")
+	last := events[len(events)-1]
+	require.Equal(t, int64(424242), last.Frame, "the final progress=end block must never be lost to a Wait()-before-drain race")
+	require.Equal(t, int32(100), last.Percent)
 }
 
 func TestRunEndToEndEncodesAGeneratedClipAndEmitsProgress(t *testing.T) {
