@@ -35,6 +35,13 @@ imagePullSecrets: []
 # NATS you already run (and set nats.enabled=false).
 natsUrl: ""
 
+# Collapse the JetStream topology to one replica -- R1 streams and KV buckets
+# instead of §12's R3. Leave it null to derive it from the bundled subchart:
+# R1 when that NATS is not clustered three ways (kind), R3 when it is. Set it
+# explicitly when natsUrl points at a NATS you run yourself, because R3 streams
+# simply cannot be created on a server that has no two peers.
+natsSingleNode: null
+
 nats:
   enabled: true
   config:

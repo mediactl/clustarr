@@ -57,6 +57,15 @@ func NewRootCommand() *cobra.Command {
 	zapOpts.BindFlags(zapFlags)
 	root.PersistentFlags().AddGoFlagSet(zapFlags)
 
+	// Cobra gives --version the shorthand -v, which collides with the klog and
+	// zap convention where -v sets log verbosity. Operators write -v into
+	// manifests expecting verbosity and would silently get a version print, so
+	// drop the shorthand and leave --version spelled out.
+	root.InitDefaultVersionFlag()
+	if f := root.Flags().Lookup("version"); f != nil {
+		f.Shorthand = ""
+	}
+
 	root.AddCommand(
 		newVersionCommand(),
 		newCatalogarrCommand(),

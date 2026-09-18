@@ -70,6 +70,26 @@ service (the nats chart names its client service after the release).
 {{- end -}}
 
 {{/*
+Whether the JetStream topology must be collapsed to one replica (R1 streams
+and KV buckets). An explicit natsSingleNode wins; otherwise it is derived from
+the bundled subchart, because R3 streams cannot be created on a NATS that is
+not clustered three ways and every service would fail to start (§12).
+*/}}
+{{- define "clustarr.natsSingleNode" -}}
+{{- if kindIs "bool" .Values.natsSingleNode -}}
+{{- .Values.natsSingleNode -}}
+{{- else if not .Values.nats.enabled -}}
+false
+{{- else if not (dig "config" "cluster" "enabled" false .Values.nats) -}}
+true
+{{- else if lt (int (dig "config" "cluster" "replicas" 3 .Values.nats)) 3 -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- end -}}
+
+{{/*
 Guard rails. These are correctness invariants from the design spec, not
 preferences, so they fail the render rather than warn.
 */}}
@@ -103,6 +123,7 @@ Call with a dict:
   grace      terminationGracePeriodSeconds
   httpPort   true to expose the Torznab facade port
   extraEnv   list of extra env maps (optional)
+  leaderElect true for a component that runs controllers (§3, §12)
 */}}
 {{- define "clustarr.workload" }}
 {{- $root := .root }}
@@ -185,8 +206,15 @@ spec:
       - name: {{ .component }}
         image: {{ include "clustarr.image" (dict "root" $root "which" .image) }}
         imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+        {{- $args := .args }}
+        {{- if .leaderElect }}
+        {{- $args = append $args "--leader-elect" }}
+        {{- end }}
+        {{- if eq (include "clustarr.natsSingleNode" $root) "true" }}
+        {{- $args = append $args "--nats-single-node" }}
+        {{- end }}
         args:
-          {{- toYaml .args | nindent 8 }}
+          {{- toYaml $args | nindent 8 }}
         env:
         - name: NATS_URL
           value: {{ include "clustarr.natsUrl" $root | quote }}

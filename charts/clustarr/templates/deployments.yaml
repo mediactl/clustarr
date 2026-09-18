@@ -16,6 +16,7 @@ asked for them, so they can never be chart templates.
       "values" .Values.catalogarr
       "image" "media"
       "args" (list "catalogarr" "--role" "controller,worker,history")
+      "leaderElect" true
       "data" true
       "index" false
       "strategy" ""
@@ -58,6 +59,7 @@ asked for them, so they can never be chart templates.
       "values" .Values.grabarr
       "image" "media"
       "args" (list "grabarr" "--role" "controller")
+      "leaderElect" true
       "data" true
       "index" false
       "strategy" ""
@@ -72,6 +74,7 @@ asked for them, so they can never be chart templates.
       "values" .Values.squasharr
       "image" "media"
       "args" (list "squasharr" "--role" "controller" "--slots" .Values.squasharr.slots)
+      "leaderElect" true
       "data" true
       "index" false
       "strategy" ""
@@ -88,6 +91,7 @@ asked for them, so they can never be chart templates.
       "values" .Values.captionarr
       "image" "media"
       "args" (list "captionarr" "--role" "controller")
+      "leaderElect" true
       "data" true
       "index" false
       "strategy" ""

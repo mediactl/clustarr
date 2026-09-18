@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"

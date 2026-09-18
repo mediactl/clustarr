@@ -19,6 +19,7 @@ package natsbus_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -167,15 +168,5 @@ func TestEnsureRefusesRetentionChange(t *testing.T) {
 }
 
 func isRetentionErr(err error) bool {
-	for e := err; e != nil; {
-		if e == events.ErrRetentionImmutable {
-			return true
-		}
-		u, ok := e.(interface{ Unwrap() error })
-		if !ok {
-			return false
-		}
-		e = u.Unwrap()
-	}
-	return false
+	return errors.Is(err, events.ErrRetentionImmutable)
 }

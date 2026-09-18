@@ -39,12 +39,12 @@ generate: ## Generate DeepCopy and apply-configuration code.
 manifests: ## Generate CRDs and RBAC.
 	$(CONTROLLER_GEN) crd paths="$(API_PATHS)" output:crd:artifacts:config=$(CRD_DIR)
 	@paths=""; for d in $(RBAC_DIRS); do \
-		if [ -d "$$d" ]; then paths="$$paths ./$$d/..."; fi; \
+		if [ -d "$$d" ]; then paths="$$paths paths=./$$d/..."; fi; \
 	done; \
 	if [ -n "$$paths" ]; then \
-		echo "$(CONTROLLER_GEN) rbac:roleName=clustarr-manager paths=\"$$paths\" output:rbac:artifacts:config=config/rbac"; \
+		echo "$(CONTROLLER_GEN) rbac:roleName=clustarr-manager-role$$paths output:rbac:artifacts:config=config/rbac"; \
 		mkdir -p config/rbac; \
-		$(CONTROLLER_GEN) rbac:roleName=clustarr-manager paths="$$paths" output:rbac:artifacts:config=config/rbac; \
+		$(CONTROLLER_GEN) rbac:roleName=clustarr-manager-role $$paths output:rbac:artifacts:config=config/rbac; \
 	else \
 		echo "skipping rbac: none of ($(RBAC_DIRS)) exist yet"; \
 	fi

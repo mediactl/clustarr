@@ -65,7 +65,11 @@ spec:
       containers:
       - name: indexarr
         image: ghcr.io/mediactl/clustarr:dev
-        args: ["indexarr", "--role", "all"]
+        # --nats-single-node: config/default ships the single-server dev NATS
+        # in config/nats, which cannot host the R3 streams events.Default()
+        # asks for (§12). charts/clustarr deploys a clustered NATS and derives
+        # this from the subchart instead.
+        args: ["indexarr", "--role", "all", "--nats-single-node"]
         env:
         - name: NATS_URL
           value: nats://nats.clustarr-system.svc:4222

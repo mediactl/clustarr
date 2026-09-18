@@ -57,7 +57,7 @@ func newCatalogarrCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "catalogarr",
-		Short: "Inventory, metadata, import lists, decisions and import",
+		Short: "Inventory, metadata and release decisions",
 		Long: "catalogarr owns catalog.clustarr.io: the media items themselves, their metadata,\n" +
 			"import lists, quality decisions and the importer that turns a finished Download\n" +
 			"into a MediaFile.",
@@ -65,7 +65,11 @@ func newCatalogarrCommand() *cobra.Command {
 		SilenceUsage: true,
 	}
 	common := bindCommonFlags(cmd.Flags())
-	cmd.Flags().StringVar(&role, "role", defaults.Role.String(), roleUsage(catalogarr.Roles()))
+	cmd.Flags().StringVar(&role, "role", defaults.Role.String(),
+		roleUsage(catalogarr.Roles())+
+			" §3 puts the controllers, the queue workers and the history sink in one"+
+			" Deployment and the metadata gateway in its own, so this one accepts a"+
+			" comma-separated combination too.")
 
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		return runCatalogarr(cmd.Context(), catalogarr.Options{
@@ -96,8 +100,8 @@ func newIndexarrCommand() *cobra.Command {
 	}
 	common := bindCommonFlags(cmd.Flags())
 	cmd.Flags().StringVar(&role, "role", defaults.Role.String(), roleUsage(indexarr.Roles()))
-	cmd.Flags().StringVar(&indexPath, "index-path", defaults.IndexPath,
-		"SQLite release index file, on the RWO volume.")
+	cmd.Flags().StringVar(&indexPath, "index-path", envOr(indexPathEnv, defaults.IndexPath),
+		"SQLite release index file, on the RWO volume. Defaults to $"+indexPathEnv+".")
 	cmd.Flags().StringVar(&facade, "facade-bind-address", defaults.FacadeBindAddress,
 		`Address the Torznab facade binds to. "0" disables it.`)
 

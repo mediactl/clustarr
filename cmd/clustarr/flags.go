@@ -28,10 +28,31 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
-// namespaceEnv is the downward-API variable a Clustarr Deployment sets. It is
-// the default for --namespace, and therefore for where the leader-election
-// Lease is created.
-const namespaceEnv = "POD_NAMESPACE"
+// The environment variables a Clustarr Deployment sets, each the default for
+// the flag named beside it. config/manager and charts/clustarr configure the
+// pods this way rather than by argv, so a flag whose default ignored its
+// variable would silently run against the wrong endpoint or path.
+const (
+	// namespaceEnv is the downward-API variable naming the pod's namespace.
+	// It is the default for --namespace, and therefore for where the
+	// leader-election Lease is created.
+	namespaceEnv = "POD_NAMESPACE"
+
+	// natsURLEnv is the JetStream endpoint, the default for --nats-url.
+	natsURLEnv = "NATS_URL"
+
+	// indexPathEnv is indexarr's SQLite release index file on the RWO
+	// volume, the default for --index-path.
+	indexPathEnv = "CLUSTARR_INDEX_PATH"
+)
+
+// envOr returns $name when it is set and non-empty, and fallback otherwise.
+func envOr(name, fallback string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return fallback
+}
 
 // bindCommonFlags registers the flags every `clustarr <service>` accepts and
 // returns the options they write into.
@@ -63,8 +84,9 @@ func bindCommonFlags(fs *pflag.FlagSet) *k8s.Options {
 		"Restrict the cache, and so every controller, to these namespaces. Empty watches the cluster. "+
 			"Repeatable or comma-separated.")
 
+	o.NATSURL = envOr(natsURLEnv, o.NATSURL)
 	fs.StringVar(&o.NATSURL, "nats-url", o.NATSURL,
-		"JetStream endpoint.")
+		"JetStream endpoint. Defaults to $"+natsURLEnv+".")
 	fs.BoolVar(&o.BusSingleNode, "nats-single-node", o.BusSingleNode,
 		"Collapse the JetStream topology to one replica, for kind and single-node NATS.")
 

@@ -23,6 +23,8 @@ package catalogarr
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -44,6 +46,15 @@ const (
 // Role selects what a replica does. §3's topology runs the controllers under a
 // leader lease and the queue workers on every replica, so one Deployment can
 // scale its workers without ever running two active controller sets.
+//
+// A Role is normally one of the values §6.1 lists, but it may also be a
+// comma-separated combination of them. §3's topology table puts the
+// controllers, the queue workers and the history sink in ONE `catalogarr`
+// Deployment while pinning the metadata gateway to its own single-replica
+// `catalogarr-metadata` Deployment, and "all" cannot express that: it would
+// start a second metadata gateway whose in-process rate limiters then double
+// Clustarr's outbound request rate. The manifests therefore run the first
+// Deployment as --role controller,worker,history.
 type Role string
 
 // The roles §6.1 lists for `clustarr catalogarr --role`.
@@ -76,23 +87,44 @@ func Roles() []Role {
 // String returns the flag value.
 func (r Role) String() string { return string(r) }
 
-// Valid reports whether r is one of [Roles].
-func (r Role) Valid() bool {
-	for _, known := range Roles() {
-		if r == known {
-			return true
-		}
+// Split returns the individual roles r names, in the order given, with
+// surrounding spaces trimmed. Empty elements are kept rather than dropped, so
+// a stray comma is a role [Role.Valid] rejects instead of one it silently
+// ignores.
+func (r Role) Split() []Role {
+	parts := strings.Split(string(r), ",")
+	out := make([]Role, 0, len(parts))
+	for _, part := range parts {
+		out = append(out, Role(strings.TrimSpace(part)))
 	}
-	return false
+	return out
 }
+
+// Valid reports whether every role r names is one of [Roles], with no
+// duplicates.
+func (r Role) Valid() bool {
+	parts := r.Split()
+	seen := make(map[Role]bool, len(parts))
+	for _, part := range parts {
+		if seen[part] || !slices.Contains(Roles(), part) {
+			return false
+		}
+		seen[part] = true
+	}
+	return true
+}
+
+// Has reports whether r names want, either on its own or as part of a
+// combination.
+func (r Role) Has(want Role) bool { return slices.Contains(r.Split(), want) }
 
 // RunsControllers reports whether this role reconciles custom resources, and
 // therefore whether it should take the leader lease.
-func (r Role) RunsControllers() bool { return r == RoleController || r == RoleAll }
+func (r Role) RunsControllers() bool { return r.Has(RoleController) || r.Has(RoleAll) }
 
 // RunsWorkers reports whether this role consumes queue work.
 func (r Role) RunsWorkers() bool {
-	return r == RoleWorker || r == RoleMetadata || r == RoleHistory || r == RoleAll
+	return r.Has(RoleWorker) || r.Has(RoleMetadata) || r.Has(RoleHistory) || r.Has(RoleAll)
 }
 
 // Options is everything `clustarr catalogarr` needs.
@@ -111,7 +143,9 @@ func DefaultOptions() Options {
 // Validate checks the options before anything touches the cluster.
 func (o Options) Validate() error {
 	if !o.Role.Valid() {
-		return fmt.Errorf("catalogarr: unknown --role %q, want one of %v", o.Role, Roles())
+		return fmt.Errorf(
+			"catalogarr: unknown --role %q, want one of %v, or a comma-separated combination of them",
+			o.Role, Roles())
 	}
 	if !o.UsesBus() {
 		// Every catalogarr role either publishes or consumes queue work:

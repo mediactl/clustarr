@@ -80,8 +80,6 @@ func kvError(op, bucket, key string, err error) error {
 		return fmt.Errorf("natsbus: %s %s/%s: %w", op, bucket, key, events.ErrKeyNotFound)
 	case errors.Is(err, jetstream.ErrKeyExists):
 		return fmt.Errorf("natsbus: %s %s/%s: %w", op, bucket, key, events.ErrKeyExists)
-	case errors.Is(err, jetstream.ErrKeyRevisionMismatch):
-		return fmt.Errorf("natsbus: %s %s/%s: %w", op, bucket, key, events.ErrRevisionMismatch)
 	case errors.Is(err, jetstream.ErrBucketNotFound):
 		return fmt.Errorf("natsbus: %s %s: %w", op, bucket, events.ErrBucketNotFound)
 	default:

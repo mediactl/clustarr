@@ -9,10 +9,19 @@ linters:
     - unconvert
   settings:
     forbidigo:
+      # With analyze-types the text forbidigo matches is the RESOLVED name of
+      # the method -- `client.SubResourceWriter.Update` -- not the source
+      # `c.Status().Update(`. A source-shaped pattern matches nothing and the
+      # rule silently passes everything, so these are anchored on the resolved
+      # name and cmd/clustarr's guard test keeps them honest (§3, §14).
+      #
+      # Status() and SubResource("status") both return a SubResourceWriter, so
+      # one pair of patterns covers every status write. pkg/k8s is excluded
+      # below: PatchStatus is the one place allowed to make the call.
       forbid:
-        - pattern: '\.Status\(\)\.Update\('
+        - pattern: '^client\.(SubResourceWriter|StatusWriter)\.Update$'
           msg: "status writes must go through pkg/k8s.PatchStatus (server-side apply)"
-        - pattern: '\.Status\(\)\.Patch\('
+        - pattern: '^client\.(SubResourceWriter|StatusWriter)\.Patch$'
           msg: "status writes must go through pkg/k8s.PatchStatus (server-side apply)"
       analyze-types: true
   exclusions:
