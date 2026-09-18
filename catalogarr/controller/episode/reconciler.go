@@ -39,6 +39,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/catalogarr/controller/rollup"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
@@ -228,7 +229,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	if err := r.List(ctx, &mfList, client.InNamespace(ep.Namespace), client.MatchingFields{mediaFileByEpisodeIndexKey: ep.Name}); err != nil {
 		return ctrl.Result{}, err
 	}
-	mf := pickMediaFile(mfList.Items)
+	mf := rollup.PickMediaFile(mfList.Items)
 
 	profile, err := r.resolveProfile(ctx, ep)
 	if err != nil {
@@ -336,25 +337,3 @@ func (r *Reconciler) resolveProfile(ctx context.Context, ep *catalogv1alpha1.Epi
 	return &p, nil
 }
 
-// pickMediaFile chooses the MediaFile an Episode's status should reflect:
-// the one flagged Original, else the most recently created, else nil. Same
-// shape as the movie package's own pickMediaFile -- small enough (and
-// reconciler-specific enough, unlike FileState/DownloadOverlay) that the C6
-// controller amendment does not name it as one to share via rollup.
-func pickMediaFile(items []catalogv1alpha1.MediaFile) *catalogv1alpha1.MediaFile {
-	if len(items) == 0 {
-		return nil
-	}
-	for i := range items {
-		if ptr.Deref(items[i].Spec.Original, false) {
-			return &items[i]
-		}
-	}
-	best := &items[0]
-	for i := 1; i < len(items); i++ {
-		if items[i].CreationTimestamp.After(best.CreationTimestamp.Time) {
-			best = &items[i]
-		}
-	}
-	return best
-}

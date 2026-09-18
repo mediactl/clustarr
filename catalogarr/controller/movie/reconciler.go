@@ -41,6 +41,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/catalogarr/controller/rollup"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -354,7 +355,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 	if err := r.List(ctx, &mfList, client.InNamespace(m.Namespace), client.MatchingFields{mediaFileByMovieIndexKey: m.Name}); err != nil {
 		return ctrl.Result{}, err
 	}
-	mf := pickMediaFile(mfList.Items)
+	mf := rollup.PickMediaFile(mfList.Items)
 
 	var profile *quality.Profile
 	if m.Spec.QualityProfileRef != "" {
@@ -456,24 +457,4 @@ func latestReleaseDate(meta *catalogv1alpha1.MovieMetadata) time.Time {
 		latest = meta.PhysicalRelease.Time
 	}
 	return latest
-}
-
-// pickMediaFile chooses the MediaFile a Movie's status should reflect: the
-// one flagged Original, else the most recently created, else nil.
-func pickMediaFile(items []catalogv1alpha1.MediaFile) *catalogv1alpha1.MediaFile {
-	if len(items) == 0 {
-		return nil
-	}
-	for i := range items {
-		if ptr.Deref(items[i].Spec.Original, false) {
-			return &items[i]
-		}
-	}
-	best := &items[0]
-	for i := 1; i < len(items); i++ {
-		if items[i].CreationTimestamp.After(best.CreationTimestamp.Time) {
-			best = &items[i]
-		}
-	}
-	return best
 }
