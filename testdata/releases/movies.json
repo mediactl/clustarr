@@ -10,7 +10,10 @@
       "edition": "Extended",
       "languages": [
         "English"
-      ]
+      ],
+      "hintsCodec": ["HEVC"],
+      "hintsAudio": ["TrueHD", "Atmos"],
+      "hintsStreaming": ["REMUX"]
     }
   },
   {
@@ -23,7 +26,8 @@
       "group": "FLUX",
       "languages": [
         "English"
-      ]
+      ],
+      "hintsCodec": ["H.264"]
     }
   },
   {
@@ -79,7 +83,10 @@
       "repack": true,
       "languages": [
         "English"
-      ]
+      ],
+      "hintsCodec": ["H.265"],
+      "hintsAudio": ["DDP", "Atmos"],
+      "hintsStreaming": ["REPACK"]
     }
   },
   {

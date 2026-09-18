@@ -10,7 +10,9 @@
     "title": "Project Hail Mary - Andy Weir {Ray Porter} [ASIN B08GB59RY8] [M4B]",
     "kind": "audiobook",
     "want": {
-      "title": "Project Hail Mary"
+      "title": "Project Hail Mary",
+      "bookAuthor": "Andy Weir",
+      "bookNarrator": "Ray Porter"
     }
   },
   {
@@ -24,7 +26,9 @@
     "title": "Dune - Frank Herbert {Scott Brick} [ASIN B002V0QK4C] [M4B]",
     "kind": "audiobook",
     "want": {
-      "title": "Dune"
+      "title": "Dune",
+      "bookAuthor": "Frank Herbert",
+      "bookNarrator": "Scott Brick"
     }
   },
   {
@@ -38,7 +42,9 @@
     "title": "The Hobbit - J.R.R. Tolkien {Rob Inglis} [ASIN B002V1O37S] [M4B]",
     "kind": "audiobook",
     "want": {
-      "title": "The Hobbit"
+      "title": "The Hobbit",
+      "bookAuthor": "J.R.R. Tolkien",
+      "bookNarrator": "Rob Inglis"
     }
   }
 ]

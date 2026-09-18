@@ -4,7 +4,8 @@
     "kind": "comic",
     "want": {
       "title": "Saga",
-      "year": 2012
+      "year": 2012,
+      "comicIssue": "001"
     }
   },
   {
@@ -12,7 +13,9 @@
     "kind": "comic",
     "want": {
       "title": "One Piece",
-      "year": 2023
+      "year": 2023,
+      "comicIssue": "1088",
+      "comicVolume": 107
     }
   },
   {
@@ -20,7 +23,8 @@
     "kind": "comic",
     "want": {
       "title": "Batman",
-      "year": 2016
+      "year": 2016,
+      "comicIssue": "001"
     }
   },
   {
@@ -28,7 +32,9 @@
     "kind": "comic",
     "want": {
       "title": "Naruto",
-      "year": 2014
+      "year": 2014,
+      "comicIssue": "700",
+      "comicVolume": 72
     }
   },
   {
@@ -36,7 +42,8 @@
     "kind": "comic",
     "want": {
       "title": "Watchmen",
-      "year": 1986
+      "year": 1986,
+      "comicIssue": "001"
     }
   },
   {
@@ -44,7 +51,9 @@
     "kind": "comic",
     "want": {
       "title": "Attack on Titan",
-      "year": 2021
+      "year": 2021,
+      "comicIssue": "139",
+      "comicVolume": 34
     }
   }
 ]

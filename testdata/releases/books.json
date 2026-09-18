@@ -4,7 +4,8 @@
     "kind": "book",
     "want": {
       "title": "Project Hail Mary",
-      "year": 2021
+      "year": 2021,
+      "bookAuthor": "Andy Weir"
     }
   },
   {
@@ -12,7 +13,8 @@
     "kind": "book",
     "want": {
       "title": "Dune",
-      "year": 1965
+      "year": 1965,
+      "bookAuthor": "Frank Herbert"
     }
   },
   {
@@ -20,7 +22,8 @@
     "kind": "book",
     "want": {
       "title": "Foundation",
-      "year": 1951
+      "year": 1951,
+      "bookAuthor": "Isaac Asimov"
     }
   },
   {

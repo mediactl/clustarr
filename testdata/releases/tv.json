@@ -444,5 +444,17 @@
       "seasons": [1],
       "episodes": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
     }
+  },
+  {
+    "title": "Doctor.Who.S00E01.The.Feast.of.Steven.720p.HDTV.x264-GROUP",
+    "kind": "episode",
+    "want": {
+      "title": "Doctor Who",
+      "qualityName": "HDTV-720p",
+      "group": "GROUP",
+      "seasons": [0],
+      "episodes": [1],
+      "special": true
+    }
   }
 ]
