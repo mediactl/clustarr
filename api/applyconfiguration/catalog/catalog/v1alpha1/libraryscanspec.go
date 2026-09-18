@@ -21,7 +21,6 @@ package v1alpha1
 
 import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	v1 "k8s.io/api/core/v1"
 )
 
 // LibraryScanSpecApplyConfiguration represents a declarative configuration of the LibraryScanSpec type for use
@@ -30,7 +29,13 @@ import (
 // LibraryScanSpec asks importarr to walk a root folder and reconcile what it finds.
 type LibraryScanSpecApplyConfiguration struct {
 	// RootFolderRef names the RootFolder to scan.
-	RootFolderRef *v1.LocalObjectReference `json:"rootFolderRef,omitempty"`
+	//
+	// A plain string, like every other rootFolderRef in this group
+	// (Movie, Series, Artist, Author, Comic, Audiobook, Book, ImportList):
+	// corev1.LocalObjectReference is reserved here for references to CORE
+	// objects -- Secrets and ConfigMaps -- so a reader can tell at a glance
+	// which side of the boundary a reference points at.
+	RootFolderRef *string `json:"rootFolderRef,omitempty"`
 	// Mode selects how much of the tree is examined. Incremental skips files
 	// whose size and mtime match a known MediaFile fingerprint.
 	Mode *catalogv1alpha1.ScanMode `json:"mode,omitempty"`
@@ -51,7 +56,7 @@ func LibraryScanSpec() *LibraryScanSpecApplyConfiguration {
 // WithRootFolderRef sets the RootFolderRef field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the RootFolderRef field is set to the value of the last call.
-func (b *LibraryScanSpecApplyConfiguration) WithRootFolderRef(value v1.LocalObjectReference) *LibraryScanSpecApplyConfiguration {
+func (b *LibraryScanSpecApplyConfiguration) WithRootFolderRef(value string) *LibraryScanSpecApplyConfiguration {
 	b.RootFolderRef = &value
 	return b
 }

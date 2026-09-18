@@ -18,7 +18,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package v1alpha1
 
 import (
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -75,8 +74,14 @@ type UnmatchedFile struct {
 // LibraryScanSpec asks importarr to walk a root folder and reconcile what it finds.
 type LibraryScanSpec struct {
 	// RootFolderRef names the RootFolder to scan.
+	//
+	// A plain string, like every other rootFolderRef in this group
+	// (Movie, Series, Artist, Author, Comic, Audiobook, Book, ImportList):
+	// corev1.LocalObjectReference is reserved here for references to CORE
+	// objects -- Secrets and ConfigMaps -- so a reader can tell at a glance
+	// which side of the boundary a reference points at.
 	// +required
-	RootFolderRef corev1.LocalObjectReference `json:"rootFolderRef"`
+	RootFolderRef string `json:"rootFolderRef"`
 
 	// Mode selects how much of the tree is examined. Incremental skips files
 	// whose size and mtime match a known MediaFile fingerprint.

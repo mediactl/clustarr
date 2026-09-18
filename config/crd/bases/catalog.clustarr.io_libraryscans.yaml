@@ -75,19 +75,15 @@ spec:
                 - incremental
                 type: string
               rootFolderRef:
-                description: RootFolderRef names the RootFolder to scan.
-                properties:
-                  name:
-                    default: ""
-                    description: |-
-                      Name of the referent.
-                      This field is effectively required, but due to backwards compatibility is
-                      allowed to be empty. Instances of this type with an empty value here are
-                      almost certainly wrong.
-                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                    type: string
-                type: object
-                x-kubernetes-map-type: atomic
+                description: |-
+                  RootFolderRef names the RootFolder to scan.
+
+                  A plain string, like every other rootFolderRef in this group
+                  (Movie, Series, Artist, Author, Comic, Audiobook, Book, ImportList):
+                  corev1.LocalObjectReference is reserved here for references to CORE
+                  objects -- Secrets and ConfigMaps -- so a reader can tell at a glance
+                  which side of the boundary a reference points at.
+                type: string
               subpath:
                 description: Subpath restricts the scan to one directory beneath the
                   root folder.

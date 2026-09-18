@@ -1847,7 +1847,7 @@ var schemaYAML = typed.YAMLObject(`types:
       default: incremental
     - name: rootFolderRef
       type:
-        namedType: io.k8s.api.core.v1.LocalObjectReference
+        scalar: string
     - name: subpath
       type:
         scalar: string
