@@ -733,6 +733,233 @@ func TestSeriesReconcilerQueueFull(t *testing.T) {
 	assert.Nil(t, metaReady, "MetadataReady must be left untouched when the publish never happened")
 }
 
+// TestSeriesReconcilerTransientFailuresPreserveSteadyState is the review's
+// mandatory regression case, the Series analogue of
+// movie.TestMovieReconcilerTransientFailuresPreserveSteadyState:
+// TestSeriesReconcilerQueueFull runs against a freshly-created object with
+// no prior status, so there is nothing for a buggy early return to
+// release, and RootFolderNotFound has no coverage at all. This drives a
+// Series to a genuine steady state (fresh metadata, a resolved Path, a
+// real episode fan-out with one episode carrying a file, and
+// Phase=Ready) FIRST, then triggers each transient failure and asserts
+// Path/Seasons/EpisodeCount/EpisodeFileCount/Phase all survive. Without
+// the reassertKnownStatus fix, both early returns build a status apply
+// containing only ObservedGeneration/AddOptionsApplied/Conditions and
+// PatchStatus releases everything else this manager previously sent -- a
+// healthy Series reset to zero by a blip in a metadata-queue publish or a
+// momentary RootFolder lookup failure, with its conditions left
+// describing the phase it no longer has.
+func TestSeriesReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfg := newTestConfig(t)
+	c := startCacheOnly(t, ctx, cfg)
+	require.NoError(t, c.Create(ctx, testNamespace("series-transient-ns")))
+	require.NoError(t, c.Create(ctx, testRootFolder("series-transient-ns", "tv-root", "/data/media/tv")))
+
+	driveToReady := func(t *testing.T, name string, tvdbID int64) reconcile.Request {
+		t.Helper()
+		s := &catalogv1alpha1.Series{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "series-transient-ns"},
+			Spec: catalogv1alpha1.SeriesSpec{
+				TvdbID: tvdbID, QualityProfileRef: "none", RootFolderRef: "tv-root",
+				AddOptions: catalogv1alpha1.SeriesAddOptions{Monitor: catalogv1alpha1.SeriesMonitorAll},
+			},
+		}
+		require.NoError(t, c.Create(ctx, s))
+
+		metaAC := catalogac.Series(s.Name, s.Namespace).WithStatus(
+			catalogac.SeriesStatus().WithMetadata(
+				catalogac.SeriesMetadata().WithTitle("Steady State").WithYear(2020).
+					WithStatus(catalogv1alpha1.SeriesRunStatusContinuing).WithRefreshedAt(metav1.Now()),
+			),
+		)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, metaAC)
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Series
+			if err := c.Get(ctx, types.NamespacedName{Namespace: "series-transient-ns", Name: name}, &got); err != nil {
+				return false
+			}
+			return got.Status.Metadata != nil
+		}, 5*time.Second, 10*time.Millisecond)
+
+		req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "series-transient-ns", Name: name}}
+		requester := &fakeEpisodeRPC{episodes: []metadata.Episode{
+			{SeasonNumber: 1, EpisodeNumber: 1, Title: "Pilot"},
+			{SeasonNumber: 1, EpisodeNumber: 2, Title: "Episode 2"},
+		}}
+		bus := combinedBus{Publisher: fakePublisher{}, requester: requester}
+		r := &series.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: record.NewFakeRecorder(10), Bus: bus}
+		_, err = r.Reconcile(ctx, req)
+		require.NoError(t, err)
+
+		epKey := types.NamespacedName{Namespace: "series-transient-ns", Name: name + "-s01e01"}
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Episode
+			return c.Get(ctx, epKey, &got) == nil
+		}, 5*time.Second, 10*time.Millisecond, "setup: episode fan-out never created s01e01")
+
+		// Give one episode a file directly (as if the Episode controller's
+		// own MediaFile watch had set it), so EpisodeFileCount rolls up to a
+		// non-zero value -- a released-to-zero bug would otherwise be
+		// indistinguishable from an already-zero count.
+		epAC := catalogac.Episode(name+"-s01e01", "series-transient-ns").WithStatus(
+			catalogac.EpisodeStatus().WithHasFile(true),
+		)
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, epAC)
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Episode
+			if err := c.Get(ctx, epKey, &got); err != nil {
+				return false
+			}
+			return got.Status.HasFile
+		}, 5*time.Second, 10*time.Millisecond)
+
+		// A second reconcile picks up the episode's HasFile in this pass's
+		// Rollup.
+		_, err = r.Reconcile(ctx, req)
+		require.NoError(t, err)
+
+		// Phase was already Ready after the FIRST reconcile (episodesSynced
+		// does not depend on episodeCount), so polling on Phase alone here
+		// could observe a cache read still stale from that first pass, one
+		// whose EpisodeCount/EpisodeFileCount predate this second
+		// reconcile's write landing. Poll on EpisodeFileCount instead -- the
+		// field this second pass's Rollup is the only thing that can ever
+		// set to 1 -- so the eventual read is guaranteed to be at least as
+		// new as this reconcile's own patch.
+		var got catalogv1alpha1.Series
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, req.NamespacedName, &got); err != nil {
+				return false
+			}
+			return got.Status.EpisodeFileCount == 1
+		}, 5*time.Second, 10*time.Millisecond, "setup: series never rolled up the episode's file")
+		require.Equal(t, catalogv1alpha1.SeriesPhaseReady, got.Status.Phase)
+		require.NotEmpty(t, got.Status.Path)
+		require.Equal(t, int32(2), got.Status.EpisodeCount)
+		require.Len(t, got.Status.Seasons, 1)
+		return req
+	}
+
+	t.Run("QueueFull on a stale-metadata publish does not release the steady state", func(t *testing.T) {
+		req := driveToReady(t, "series-queuefull-steady", 9001)
+
+		var before catalogv1alpha1.Series
+		require.NoError(t, c.Get(ctx, req.NamespacedName, &before))
+
+		// Force a fresh staleness decision on the next reconcile by
+		// backdating status.metadata.refreshedAt well past the RefreshTTL,
+		// exactly as a real metadata-gateway write would eventually
+		// require a new fetch.
+		oldRefresh := metav1.NewTime(time.Now().Add(-10 * 24 * time.Hour))
+		staleAC := catalogac.Series(before.Name, before.Namespace).WithStatus(
+			catalogac.SeriesStatus().WithMetadata(
+				catalogac.SeriesMetadata().WithTitle("Steady State").WithYear(2020).
+					WithStatus(catalogv1alpha1.SeriesRunStatusContinuing).
+					WithRefreshedAt(oldRefresh),
+			),
+		)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, staleAC)
+		require.NoError(t, err)
+		// A tolerant "is it old now" check, not exact equality: the
+		// apiserver round-trips metav1.Time through RFC 3339 at
+		// one-second precision, so the in-memory oldRefresh (full Go
+		// time.Time precision) never exactly equals what a subsequent Get
+		// reads back.
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Series
+			if err := c.Get(ctx, req.NamespacedName, &got); err != nil || got.Status.Metadata == nil {
+				return false
+			}
+			return got.Status.Metadata.RefreshedAt.Time.Before(time.Now().Add(-5 * 24 * time.Hour))
+		}, 5*time.Second, 10*time.Millisecond)
+
+		r2 := &series.Reconciler{
+			Client: c, Scheme: k8s.MustNewScheme(), Recorder: record.NewFakeRecorder(10),
+			Bus: combinedBus{Publisher: fakePublisher{err: events.ErrQueueFull}, requester: fakeEpisodeRPC{}},
+		}
+		res, err := r2.Reconcile(ctx, req)
+		require.NoError(t, err)
+		assert.Equal(t, time.Minute, res.RequeueAfter)
+
+		// Same cache-staleness reasoning as elsewhere: poll for the
+		// QueueFull condition before reading the rest of the object,
+		// rather than a single Get immediately after Reconcile's own
+		// PatchStatus.
+		var after catalogv1alpha1.Series
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, req.NamespacedName, &after); err != nil {
+				return false
+			}
+			cond := k8s.FindCondition(after.Status.Conditions, "QueueFull")
+			return cond != nil && cond.Status == metav1.ConditionTrue
+		}, 5*time.Second, 10*time.Millisecond)
+
+		assert.Equal(t, catalogv1alpha1.SeriesPhaseReady, after.Status.Phase, "QueueFull must not release Phase")
+		assert.Equal(t, before.Status.Path, after.Status.Path, "QueueFull must not release Path")
+		assert.Equal(t, before.Status.EpisodeCount, after.Status.EpisodeCount, "QueueFull must not release EpisodeCount")
+		assert.Equal(t, before.Status.EpisodeFileCount, after.Status.EpisodeFileCount, "QueueFull must not release EpisodeFileCount")
+		assert.Equal(t, before.Status.Seasons, after.Status.Seasons, "QueueFull must not release Seasons")
+	})
+
+	t.Run("RootFolderNotFound does not release the steady state", func(t *testing.T) {
+		req := driveToReady(t, "series-rootfolder-steady", 9002)
+
+		var before catalogv1alpha1.Series
+		require.NoError(t, c.Get(ctx, req.NamespacedName, &before))
+
+		// A plain Update, not a merge patch: this main-resource write
+		// never touches the status subresource, and startCacheOnly has no
+		// auto-wired controller racing this write, so there is no
+		// concurrent-writer reason to prefer a patch here -- see the
+		// identical rationale in the movie package's reconciler_test.go.
+		var withMissingRoot catalogv1alpha1.Series
+		require.NoError(t, c.Get(ctx, req.NamespacedName, &withMissingRoot))
+		withMissingRoot.Spec.RootFolderRef = "does-not-exist"
+		require.NoError(t, c.Update(ctx, &withMissingRoot))
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Series
+			if err := c.Get(ctx, req.NamespacedName, &got); err != nil {
+				return false
+			}
+			return got.Spec.RootFolderRef == "does-not-exist"
+		}, 5*time.Second, 10*time.Millisecond)
+
+		r2 := &series.Reconciler{
+			Client: c, Scheme: k8s.MustNewScheme(), Recorder: record.NewFakeRecorder(10),
+			Bus: combinedBus{Publisher: fakePublisher{}, requester: fakeEpisodeRPC{}},
+		}
+		res, err := r2.Reconcile(ctx, req)
+		require.NoError(t, err)
+		assert.Equal(t, time.Minute, res.RequeueAfter)
+
+		// Same cache-staleness reasoning as elsewhere: poll for the
+		// RootFolderNotFound reason before reading the rest of the
+		// object.
+		var after catalogv1alpha1.Series
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, req.NamespacedName, &after); err != nil {
+				return false
+			}
+			cond := k8s.FindCondition(after.Status.Conditions, k8s.ConditionReady)
+			return cond != nil && cond.Reason == "RootFolderNotFound"
+		}, 5*time.Second, 10*time.Millisecond)
+		cond := k8s.FindCondition(after.Status.Conditions, k8s.ConditionReady)
+		require.NotNil(t, cond)
+		assert.Equal(t, metav1.ConditionFalse, cond.Status)
+		assert.Equal(t, "RootFolderNotFound", cond.Reason)
+
+		assert.Equal(t, catalogv1alpha1.SeriesPhaseReady, after.Status.Phase, "RootFolderNotFound must not release Phase")
+		assert.Equal(t, before.Status.Path, after.Status.Path, "RootFolderNotFound must not release Path")
+		assert.Equal(t, before.Status.EpisodeCount, after.Status.EpisodeCount, "RootFolderNotFound must not release EpisodeCount")
+		assert.Equal(t, before.Status.EpisodeFileCount, after.Status.EpisodeFileCount, "RootFolderNotFound must not release EpisodeFileCount")
+		assert.Equal(t, before.Status.Seasons, after.Status.Seasons, "RootFolderNotFound must not release Seasons")
+	})
+}
+
 // fakePublisher is a tiny local Publisher that always returns err, used to
 // prove the QueueFull path without spinning up a DiscardNew membus stream.
 type fakePublisher struct{ err error }

@@ -257,6 +257,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 		if pubErr != nil {
 			if errors.Is(pubErr, events.ErrQueueFull) {
 				k8s.MarkTrue(s, &conditions, conditionQueueFull, "QueueFull", "metadata work queue is full")
+				statusAC = reassertKnownStatus(statusAC, s)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
 				if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Series(s.Name, s.Namespace).WithStatus(statusAC)); err != nil {
 					return ctrl.Result{}, err
@@ -276,6 +277,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 		if err := r.Get(ctx, types.NamespacedName{Namespace: s.Namespace, Name: s.Spec.RootFolderRef}, &rf); err != nil {
 			if apierrors.IsNotFound(err) {
 				k8s.MarkFalse(s, &conditions, k8s.ConditionReady, "RootFolderNotFound", "rootFolder %q not found", s.Spec.RootFolderRef)
+				statusAC = reassertKnownStatus(statusAC, s)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
 				if _, perr := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Series(s.Name, s.Namespace).WithStatus(statusAC)); perr != nil {
 					return ctrl.Result{}, perr
@@ -335,6 +337,38 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 		return ctrl.Result{RequeueAfter: episodeSyncRPCBackoff}, nil
 	}
 	return ctrl.Result{}, nil
+}
+
+// reassertKnownStatus re-adds every field this manager owns besides
+// ObservedGeneration/AddOptionsApplied/Conditions to statusAC, sourced from
+// s's current (pre-reconcile) status. Used on the two early-return paths
+// (QueueFull, RootFolderNotFound): both are transient failures -- a
+// metadata publish hitting a full queue, or a RootFolder lookup that
+// briefly 404s -- and without this, PatchStatus's apply would omit every
+// field it does not mention, releasing (zeroing) a healthy Series'
+// Path/Seasons/EpisodeCount/EpisodeFileCount/Phase the next time either
+// blip happens. This is the same apply-release mechanism as movie's own
+// reassertKnownStatus and the Series/Episode field-manager split, a third
+// form of it in this wave: a healthy object sitting at Ready must not be
+// reset to zero by a transient failure that never reaches the code
+// recomputing those fields (the episode-listing fan-out and Rollup, below
+// where this early return happens).
+func reassertKnownStatus(statusAC *catalogac.SeriesStatusApplyConfiguration, s *catalogv1alpha1.Series) *catalogac.SeriesStatusApplyConfiguration {
+	if s.Status.Phase != "" {
+		statusAC = statusAC.WithPhase(s.Status.Phase)
+	}
+	if s.Status.Path != "" {
+		statusAC = statusAC.WithPath(s.Status.Path)
+	}
+	seasonACs := make([]*catalogac.SeasonStatusApplyConfiguration, 0, len(s.Status.Seasons))
+	for _, ssn := range s.Status.Seasons {
+		seasonACs = append(seasonACs, catalogac.SeasonStatus().
+			WithNumber(ssn.Number).WithEpisodeCount(ssn.EpisodeCount).WithEpisodeFileCount(ssn.EpisodeFileCount))
+	}
+	statusAC = statusAC.WithSeasons(seasonACs...)
+	statusAC = statusAC.WithEpisodeCount(s.Status.EpisodeCount)
+	statusAC = statusAC.WithEpisodeFileCount(s.Status.EpisodeFileCount)
+	return statusAC
 }
 
 // syncEpisodes lists s's currently owned Episodes, requests its episode list
