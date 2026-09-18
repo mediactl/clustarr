@@ -111,6 +111,19 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
     had set. This is the dangerous one, because the early return is usually a
     transient failure — a full queue, a missing RootFolder — so a healthy
     object gets silently gutted by a blip.
+  - **Two different components shared one field manager on one object.** The
+    metadata gateway and the grab worker both write `Movie.status` as
+    `catalogarr-worker`, so the grab released `status.metadata` — the movie
+    dropped to `Phase=Pending` and the gateway refetched, on every grab. Give
+    each writer its own manager (as `catalogarr-series` does) rather than
+    re-asserting the other's fields; then a genuine double-claim is a loud
+    apiserver conflict instead of silent data loss.
+
+  A related trap, same apply, different mechanism: **`WithConditions` appends**
+  rather than replacing, so setting conditions both in a shared `baseStatus`
+  helper and again at the call site is rejected outright with `duplicate
+  entries for key [type="Ready"]`. Set conditions in exactly one place per
+  apply.
 
   Tests miss all three unless they act on an object that **already has status**.
   A test that creates a blank object, triggers the path and asserts cannot
