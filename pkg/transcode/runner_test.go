@@ -20,8 +20,11 @@ package transcode_test
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -95,4 +98,112 @@ func TestRunHonoursContextCancellationAndSendsSIGINTFirst(t *testing.T) {
 	err := r.Run(ctx, plan, func(transcode.Progress) {})
 	require.Error(t, err)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+func TestRunEndToEndEncodesAGeneratedClipAndEmitsProgress(t *testing.T) {
+	if _, err := os.Stat("/usr/bin/ffmpeg"); err != nil {
+		t.Skip("ffmpeg not present on this box")
+	}
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.mkv")
+
+	// Generate a tiny 3s clip from lavfi sources only -- no external file,
+	// no network, "a few seconds" per the task's own budget.
+	gen := exec.Command("/usr/bin/ffmpeg", "-hide_banner", "-y",
+		"-f", "lavfi", "-i", "testsrc2=size=640x360:rate=24:duration=3",
+		"-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=48000:duration=3",
+		"-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k",
+		"-shortest", src)
+	require.NoError(t, gen.Run())
+
+	info, err := probeForTest(t, src)
+	require.NoError(t, err)
+
+	profile := defaultProfile()
+	profile.Video.Preset = "ultrafast" // keep the real encode under a second
+	profile.Policy.MinDuration = 0     // the generated clip is 3s; defaultProfile's
+	// 1-minute floor (Step 3's fixture, matching
+	// the CRD default) would otherwise skip it.
+	caps := transcode.Capabilities{Encoders: map[transcode.Tier]bool{transcode.TierCPUx265: true}}
+	plan, err := transcode.Plan(info, profile, caps, transcode.PlanMeta{ProfileName: "t", ProfileHash: "h", Threads: 2})
+	require.NoError(t, err)
+	require.Equal(t, transcode.DecisionEncode, plan.Decision)
+
+	var events []transcode.Progress
+	r := transcode.NewRunner("/usr/bin/ffmpeg")
+	err = r.Run(context.Background(), plan, func(p transcode.Progress) { events = append(events, p) })
+	require.NoError(t, err)
+	require.NotEmpty(t, events, "at least one progress event must be observed")
+	require.Equal(t, int32(100), events[len(events)-1].Percent)
+
+	report, err := transcode.NewVerifier("/usr/bin/ffprobe").Verify(context.Background(), src, plan.Output, plan.Expect)
+	require.NoError(t, err)
+	require.True(t, report.OK, "problems: %v", report.Problems)
+}
+
+// probeForTest is a test-only helper, not part of the package's Produces
+// API: it shells ffprobe -show_format -show_streams and fills just enough
+// of a transcode.MediaInfo (container, one VideoStream, one AudioStream,
+// Format.Duration) to drive Plan. It exists only because Task B4's real
+// prober (pkg/mediainfo.Probe) predates this package by one wave but this
+// end-to-end test wants a real ffprobe round-trip independent of
+// pkg/mediainfo/FromProbe (already covered by its own integration test in
+// mediainfo_test.go) -- a minimal probe kept deliberately separate so this
+// file's ffmpeg/ffprobe integration tests don't depend on FromProbe too.
+func probeForTest(t *testing.T, path string) (transcode.MediaInfo, error) {
+	t.Helper()
+
+	out, err := exec.Command("/usr/bin/ffprobe", "-v", "error", "-print_format", "json",
+		"-show_format", "-show_streams", path).Output()
+	if err != nil {
+		return transcode.MediaInfo{}, err
+	}
+
+	var data struct {
+		Format struct {
+			Duration string `json:"duration"`
+		} `json:"format"`
+		Streams []struct {
+			CodecType  string `json:"codec_type"`
+			CodecName  string `json:"codec_name"`
+			Width      int32  `json:"width"`
+			Height     int32  `json:"height"`
+			PixFmt     string `json:"pix_fmt"`
+			RFrameRate string `json:"r_frame_rate"`
+			Channels   int32  `json:"channels"`
+		} `json:"streams"`
+	}
+	if err := json.Unmarshal(out, &data); err != nil {
+		return transcode.MediaInfo{}, err
+	}
+
+	durSec, _ := strconv.ParseFloat(data.Format.Duration, 64)
+	info := transcode.MediaInfo{
+		Path:   path,
+		Format: transcode.FormatInfo{Duration: time.Duration(durSec * float64(time.Second))},
+	}
+	for _, s := range data.Streams {
+		switch s.CodecType {
+		case "video":
+			num, den := int64(24), int64(1)
+			if n, d, ok := strings.Cut(s.RFrameRate, "/"); ok {
+				if nn, err := strconv.ParseInt(n, 10, 64); err == nil {
+					num = nn
+				}
+				if dd, err := strconv.ParseInt(d, 10, 64); err == nil && dd != 0 {
+					den = dd
+				}
+			}
+			info.Video = append(info.Video, transcode.VideoStream{
+				Codec: s.CodecName, PixFmt: s.PixFmt, Width: s.Width, Height: s.Height,
+				FrameRate: transcode.Rational{Num: num, Den: den},
+			})
+		case "audio":
+			info.Audio = append(info.Audio, transcode.AudioStream{
+				Codec: s.CodecName, Channels: s.Channels, Language: "eng",
+				Disposition: transcode.Disposition{Default: true},
+			})
+		}
+	}
+	return info, nil
 }
