@@ -58,3 +58,25 @@ func TestRecycleDisambiguatesACollision(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(root, day, "dup-2.mkv"), dest)
 }
+
+func TestSweepRecycleBinRemovesOnlyExpiredDatedDirs(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	old := now.AddDate(0, 0, -10).Format("2006-01-02")
+	fresh := now.AddDate(0, 0, -1).Format("2006-01-02")
+
+	require.NoError(t, os.MkdirAll(filepath.Join(root, old), 0o775))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, fresh), 0o775))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "not-a-date"), 0o775))
+
+	removed, err := fsops.SweepRecycleBin(root, 7*24*time.Hour, now)
+	require.NoError(t, err)
+	require.Equal(t, 1, removed)
+
+	_, err = os.Stat(filepath.Join(root, old))
+	require.True(t, os.IsNotExist(err), "expired dir must be gone")
+	_, err = os.Stat(filepath.Join(root, fresh))
+	require.NoError(t, err, "fresh dir must remain")
+	_, err = os.Stat(filepath.Join(root, "not-a-date"))
+	require.NoError(t, err, "an unrecognised name must be left alone, never guessed at")
+}

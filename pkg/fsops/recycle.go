@@ -52,3 +52,38 @@ func Recycle(root, path string) (string, error) {
 	}
 	return dest, nil
 }
+
+// SweepRecycleBin removes every dated subdirectory of root (the
+// yyyy-mm-dd layout Recycle creates) whose date is before
+// now.Add(-retention), returning how many it removed. now is a parameter,
+// not time.Now(), so the sweeper is deterministically testable. A
+// subdirectory name that does not parse as yyyy-mm-dd is left alone
+// rather than guessed at, per amendment §A1.5's never-guess rule.
+func SweepRecycleBin(root string, retention time.Duration, now time.Time) (int, error) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("fsops: readdir %s: %w", root, err)
+	}
+
+	cutoff := now.Add(-retention)
+	removed := 0
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		day, err := time.Parse("2006-01-02", e.Name())
+		if err != nil {
+			continue // not one of ours; never guess, leave it alone
+		}
+		if day.Before(cutoff) {
+			if err := os.RemoveAll(filepath.Join(root, e.Name())); err != nil {
+				return removed, fmt.Errorf("fsops: remove %s: %w", e.Name(), err)
+			}
+			removed++
+		}
+	}
+	return removed, nil
+}
