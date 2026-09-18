@@ -63,3 +63,25 @@ func TestProfileHashIsDeterministicAndSensitiveToChange(t *testing.T) {
 	changed.Video.CRF.HD = 21
 	require.NotEqual(t, a, transcode.ProfileHash(changed), "a changed field must change the hash")
 }
+
+func TestCRFForSelectsResolutionClassAndHDROffset(t *testing.T) {
+	table := transcode.CRFTable{SD: 21, HD: 22, UHD: 23, HDROffset: -1}
+	cases := []struct {
+		name   string
+		height int32
+		hdr    bool
+		want   int32
+	}{
+		{"sd sdr", 480, false, 21},
+		{"hd 1080p sdr", 1080, false, 22},
+		{"hd 720p sdr", 720, false, 22},
+		{"uhd 2160p sdr", 2160, false, 23},
+		{"uhd 2160p hdr applies offset", 2160, true, 22},
+		{"hd 1080p hdr applies offset", 1080, true, 21},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, transcode.CRFFor(table, tc.height, tc.hdr))
+		})
+	}
+}
