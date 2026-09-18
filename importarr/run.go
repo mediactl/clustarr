@@ -36,22 +36,16 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
-
-// tracingShutdownTimeout bounds how long Run waits for the OpenTelemetry
-// exporter to flush and close on the way out. It is not tied to
-// GracefulShutdownTimeout: that governs the controller-runtime manager's own
-// drain, which has already completed by the time this runs.
-const tracingShutdownTimeout = 5 * time.Second
 
 // Service identity, from §2 and amendment §A1.6.
 const (
@@ -214,21 +208,13 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 
-	logger := logging.New(o.Logging)
-	ctrl.SetLogger(logging.LogrBridge(logger))
-	ctx = logging.NewContext(ctx, logger)
-
-	shutdown, err := tracing.Setup(ctx, o.Tracing)
+	// One call stands up the logger, the controller-runtime bridge and
+	// the TracerProvider; a failure here is a startup failure.
+	ctx, shutdown, err := obs.Bootstrap(ctx, o.Logging, o.Tracing)
 	if err != nil {
-		return fmt.Errorf("importarr: tracing: %w", err)
+		return fmt.Errorf("importarr: %w", err)
 	}
-	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), tracingShutdownTimeout)
-		defer cancel()
-		if err := shutdown(shutdownCtx); err != nil {
-			logging.FromContext(ctx).Warn("tracing shutdown", "err", err)
-		}
-	}()
+	defer shutdown()
 
 	log := ctrl.LoggerFrom(ctx).WithName(ServiceName)
 	k8s.RegisterRESTClientMetrics()

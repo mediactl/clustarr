@@ -25,19 +25,14 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
-	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
 // shutdownGrace is how long Run waits for in-flight requests -- including an
 // open SSE stream -- to finish once ctx is cancelled, before forcing the
 // listener closed.
 const shutdownGrace = 5 * time.Second
-
-// tracingShutdownTimeout bounds how long Run waits for the OpenTelemetry
-// exporter to flush and close on the way out. Distinct from shutdownGrace,
-// which bounds the HTTP server's own drain, not the tracer's.
-const tracingShutdownTimeout = 5 * time.Second
 
 // Run starts the ui HTTP server and blocks until ctx is cancelled or the
 // server fails to serve. It is the same shape as the other services'
@@ -51,23 +46,18 @@ func Run(ctx context.Context, o Options) error {
 		o.BindAddress = DefaultBindAddress
 	}
 
-	logger := logging.New(o.Logging)
-	ctx = logging.NewContext(ctx, logger)
-	if o.Logger == nil {
-		o.Logger = logger
-	}
-
-	shutdown, err := tracing.Setup(ctx, o.Tracing)
+	// One call stands up the logger, the controller-runtime bridge and
+	// the TracerProvider; a failure here is a startup failure. ui runs no
+	// manager, but it shares the bridge so a library that logs through
+	// controller-runtime lands in the same stream.
+	ctx, shutdown, err := obs.Bootstrap(ctx, o.Logging, o.Tracing)
 	if err != nil {
-		return fmt.Errorf("ui: tracing: %w", err)
+		return fmt.Errorf("ui: %w", err)
 	}
-	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), tracingShutdownTimeout)
-		defer cancel()
-		if err := shutdown(shutdownCtx); err != nil {
-			logging.FromContext(ctx).Warn("tracing shutdown", "err", err)
-		}
-	}()
+	defer shutdown()
+	if o.Logger == nil {
+		o.Logger = logging.FromContext(ctx)
+	}
 
 	srv := NewServer(o)
 	httpSrv := &http.Server{

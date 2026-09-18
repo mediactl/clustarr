@@ -18,13 +18,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package main
 
 import (
-	"flag"
 	"fmt"
 	"sync"
 
 	"github.com/spf13/cobra"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
@@ -58,8 +55,6 @@ func registerMetrics() error {
 // It is exported to the package's tests so they can execute commands with a
 // captured output stream instead of shelling out to a built binary.
 func NewRootCommand() *cobra.Command {
-	zapOpts := zap.Options{Development: false}
-
 	root := &cobra.Command{
 		Use:   "clustarr",
 		Short: "Kubernetes-native media automation",
@@ -71,8 +66,22 @@ func NewRootCommand() *cobra.Command {
 		// Errors are printed once, by main, rather than by cobra and again
 		// by the caller.
 		SilenceErrors: true,
+		// Logging is deliberately NOT set up here. controller-runtime's
+		// delegating log sink fulfils its promise exactly once, so the
+		// first ctrl.SetLogger in a process wins and every later one is a
+		// silent no-op -- and PersistentPreRunE runs before every RunE.
+		// A zap logger installed here therefore took ownership of
+		// controller-runtime's output and made each service's own slog
+		// bridge dead code, so one process emitted two JSON schemas. The
+		// single SetLogger call now lives in pkg/obs.Bootstrap, which every
+		// service's Run calls; the --zap-* flags that configured the logger
+		// installed here are retired with it.
+		//
+		// registerMetrics stays: the clustarr_ collectors go into
+		// controller-runtime's process-wide registry, which tolerates
+		// exactly one registration, and `clustarr all` starts seven
+		// services in one process.
 		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
-			ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zapOpts)))
 			if err := registerMetrics(); err != nil {
 				return fmt.Errorf("metrics: %w", err)
 			}
@@ -80,20 +89,13 @@ func NewRootCommand() *cobra.Command {
 		},
 	}
 
-	// zap's options are defined against the standard flag package; bind them
-	// to a private FlagSet and graft that onto cobra so `--zap-log-level` and
-	// friends work on every subcommand.
-	zapFlags := flag.NewFlagSet("zap", flag.ContinueOnError)
-	zapOpts.BindFlags(zapFlags)
-	root.PersistentFlags().AddGoFlagSet(zapFlags)
-
 	// pkg/obs/logging and pkg/obs/tracing flags, bound once here so every
 	// subcommand inherits the same --log-* and --tracing-* flags instead of
 	// each defining its own copy.
 	loggingOpts, tracingOpts := bindObservabilityFlags(root.PersistentFlags())
 
-	// Cobra gives --version the shorthand -v, which collides with the klog and
-	// zap convention where -v sets log verbosity. Operators write -v into
+	// Cobra gives --version the shorthand -v, which collides with the klog
+	// convention where -v sets log verbosity. Operators write -v into
 	// manifests expecting verbosity and would silently get a version print, so
 	// drop the shorthand and leave --version spelled out.
 	root.InitDefaultVersionFlag()
