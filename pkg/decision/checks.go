@@ -19,6 +19,7 @@ package decision
 
 import (
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/quality"
 )
 
 // protocolRejection is ProtocolSpecification: a protocol absent from
@@ -42,4 +43,20 @@ func availabilityRejection(t Target, o Options) *common.Rejection {
 	}
 	r := newRejection(ReasonUnavailable, "item is not yet available")
 	return &r
+}
+
+// qualityRejections is QualityAllowedByProfileSpecification +
+// CustomFormatAllowedByProfileSpecification: both run unconditionally (a
+// release can fail either or both at once, matching the real
+// DownloadDecision's accumulate-every-rejection behavior -- Disagreement 6).
+func qualityRejections(p quality.Profile, rel common.ReleaseInfo, score int) []common.Rejection {
+	var out []common.Rejection
+	if !p.Allowed(rel.Quality) {
+		out = append(out, newRejection(ReasonQualityNotWanted, "%s is not wanted in this profile", rel.Quality.Name))
+	}
+	if score < p.MinFormatScore {
+		out = append(out, newRejection(ReasonCustomFormatMinimumScore,
+			"custom format score %d is below the profile minimum %d", score, p.MinFormatScore))
+	}
+	return out
 }

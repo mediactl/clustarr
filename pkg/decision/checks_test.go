@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/quality"
 )
 
 func TestProtocolRejection(t *testing.T) {
@@ -52,5 +53,29 @@ func TestAvailabilityRejection(t *testing.T) {
 	})
 	t.Run("available passes regardless", func(t *testing.T) {
 		require.Nil(t, availabilityRejection(Target{Available: true}, Options{UserInvoked: false}))
+	})
+}
+
+func TestQualityRejections(t *testing.T) {
+	bluray1080, _ := quality.Lookup("video", "Bluray-1080p")
+	webdl720, _ := quality.Lookup("video", "WEBDL-720p")
+	p := quality.Profile{Tiers: [][]quality.Definition{{bluray1080}}, MinFormatScore: 10}
+
+	t.Run("allowed quality, score above minimum", func(t *testing.T) {
+		require.Empty(t, qualityRejections(p, common.ReleaseInfo{Quality: bluray1080.Quality}, 10))
+	})
+	t.Run("quality not in any tier", func(t *testing.T) {
+		got := qualityRejections(p, common.ReleaseInfo{Quality: webdl720.Quality}, 10)
+		require.Len(t, got, 1)
+		require.Contains(t, got[0].Reason, ReasonQualityNotWanted.Code)
+	})
+	t.Run("score below MinFormatScore", func(t *testing.T) {
+		got := qualityRejections(p, common.ReleaseInfo{Quality: bluray1080.Quality}, 9)
+		require.Len(t, got, 1)
+		require.Contains(t, got[0].Reason, ReasonCustomFormatMinimumScore.Code)
+	})
+	t.Run("both fail at once", func(t *testing.T) {
+		got := qualityRejections(p, common.ReleaseInfo{Quality: webdl720.Quality}, 0)
+		require.Len(t, got, 2)
 	})
 }
