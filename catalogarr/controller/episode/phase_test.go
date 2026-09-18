@@ -37,18 +37,27 @@ func TestPhase(t *testing.T) {
 		monitored          bool
 		airDate            *metav1.Time
 		hasFile, cutoffMet bool
+		pendingGrab        bool
 		want               catalogv1alpha1.EpisodePhase
 	}{
-		{"unmonitored wins", false, &past, false, false, catalogv1alpha1.EpisodePhaseUnmonitored},
-		{"no air date yet is unaired", true, nil, false, false, catalogv1alpha1.EpisodePhaseUnaired},
-		{"future air date is unaired", true, &future, false, false, catalogv1alpha1.EpisodePhaseUnaired},
-		{"past air date is wanted", true, &past, false, false, catalogv1alpha1.EpisodePhaseWanted},
-		{"a file already imported outranks air date entirely", true, &future, true, true, catalogv1alpha1.EpisodePhaseImported},
-		{"an imported file below cutoff", true, &past, true, false, catalogv1alpha1.EpisodePhaseCutoffUnmet},
+		{"unmonitored wins", false, &past, false, false, false, catalogv1alpha1.EpisodePhaseUnmonitored},
+		{"no air date yet is unaired", true, nil, false, false, false, catalogv1alpha1.EpisodePhaseUnaired},
+		{"future air date is unaired", true, &future, false, false, false, catalogv1alpha1.EpisodePhaseUnaired},
+		{"past air date is wanted", true, &past, false, false, false, catalogv1alpha1.EpisodePhaseWanted},
+		{"a file already imported outranks air date entirely", true, &future, true, true, false, catalogv1alpha1.EpisodePhaseImported},
+		{"an imported file below cutoff", true, &past, true, false, false, catalogv1alpha1.EpisodePhaseCutoffUnmet},
+
+		// A pending grab is the delay-profile window. It is the only way
+		// Delayed is reachable before a Download exists.
+		{"an aired episode with a pending grab is Delayed", true, &past, false, false, true, catalogv1alpha1.EpisodePhaseDelayed},
+		{"a delayed upgrade outranks CutoffUnmet", true, &past, true, false, true, catalogv1alpha1.EpisodePhaseDelayed},
+		{"a delayed upgrade outranks Imported", true, &past, true, true, true, catalogv1alpha1.EpisodePhaseDelayed},
+		{"an early leak for an unaired episode reports Delayed, not Unaired", true, &future, false, false, true, catalogv1alpha1.EpisodePhaseDelayed},
+		{"unmonitored still wins: a leftover pending grab is not the user's intent", false, &past, false, false, true, catalogv1alpha1.EpisodePhaseUnmonitored},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			assert.Equal(t, c.want, episode.Phase(c.monitored, c.airDate, c.hasFile, c.cutoffMet, now))
+			assert.Equal(t, c.want, episode.Phase(c.monitored, c.airDate, c.hasFile, c.cutoffMet, c.pendingGrab, now))
 		})
 	}
 }

@@ -29,6 +29,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
@@ -281,4 +282,50 @@ func TestPerformGrab_SeasonPackLeasesAndPatchesEveryEpisode(t *testing.T) {
 		require.NoErrorf(t, err, "%s holds no lease", n)
 		assert.Equal(t, dl.Name, string(entry.Value))
 	}
+}
+
+// TestPerformGrab_PreservesTheGatewaysMetadata is the regression test for the
+// nastiest thing found in this task: the metadata gateway writes
+// status.metadata under the SAME field manager this package writes
+// status.activeDownloadRef with, so an apply that omitted it would RELEASE
+// it. The Movie would lose its cached metadata, its reconciler would drop back
+// to Phase=Pending and the gateway would refetch from the provider -- on every
+// single grab.
+//
+// It only fails against an object that already HAS metadata, which is why the
+// movie is driven to that steady state first.
+func TestPerformGrab_PreservesTheGatewaysMetadata(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	ns := newNamespace(t, ctx, c)
+
+	movie := newMovie(t, ctx, c, ns, "the-thing-1982")
+	newIndexer(t, ctx, c, ns, "my-indexer", nil)
+
+	// Exactly what catalogarr/metadata's Handler writes, field manager and all.
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker,
+		catalogac.Movie(movie.Name, ns).WithStatus(catalogac.MovieStatus().WithMetadata(
+			catalogac.MovieMetadata().
+				WithTitle("The Thing").
+				WithYear(1982).
+				WithRuntimeMinutes(109).
+				WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).
+				WithRefreshedAt(metav1.NewTime(testNow)),
+		)))
+	require.NoError(t, err)
+
+	profile := hdBlurayWeb(t)
+	release := torrentRelease("guid-1", "my-indexer", profile.Tiers[0][0].Quality, 0)
+	target := commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name}
+	deps := grab.Deps{Client: c, Bus: newTestBus(t, nil), Now: fixedNow(testNow)}
+	require.NoError(t, grab.PerformGrabForTest(ctx, deps, ns, target, nil, release, downloadv1alpha1.GrabSourceSearch))
+
+	var got catalogv1alpha1.Movie
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(movie), &got))
+	require.NotNil(t, got.Status.Metadata, "the grab released the gateway's status.metadata")
+	assert.Equal(t, "The Thing", got.Status.Metadata.Title)
+	assert.EqualValues(t, 1982, got.Status.Metadata.Year)
+	assert.EqualValues(t, 109, got.Status.Metadata.RuntimeMinutes)
+	assert.Equal(t, catalogv1alpha1.MovieReleaseStatusReleased, got.Status.Metadata.Status)
+	require.NotNil(t, got.Status.ActiveDownloadRef)
 }

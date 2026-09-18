@@ -268,8 +268,80 @@ func TestMovieReconcilerRealController(t *testing.T) {
 	require.NoError(t, c.Create(ctx, testNamespace("metadata-ns")))
 	require.NoError(t, c.Create(ctx, testNamespace("avail-ns")))
 	require.NoError(t, c.Create(ctx, testNamespace("selfloop-ns")))
+	require.NoError(t, c.Create(ctx, testNamespace("delayed-ns")))
 	require.NoError(t, c.Create(ctx, testRootFolder("avail-ns", "movies-root", "/data/media/movies")))
 	require.NoError(t, c.Create(ctx, testRootFolder("selfloop-ns", "movies-root", "/data/media/movies")))
+	require.NoError(t, c.Create(ctx, testRootFolder("delayed-ns", "movies-root", "/data/media/movies")))
+
+	// The grab worker's status.pendingGrab write must both WAKE this
+	// controller and be folded into Phase. Neither was true before: Phase
+	// took no pendingGrab input and reached Delayed only through an
+	// already-created Download, and moviePredicate fired on generation and
+	// status.metadata.refreshedAt only -- so a worker writing pendingGrab did
+	// not even schedule a reconcile. Without both halves the entire
+	// delay-profile feature is invisible: the movie sits at Wanted for the
+	// whole delay window.
+	t.Run("a worker's pendingGrab write wakes this controller and reaches Delayed", func(t *testing.T) {
+		m := &catalogv1alpha1.Movie{
+			ObjectMeta: metav1.ObjectMeta{Name: "inception", Namespace: "delayed-ns"},
+			Spec: catalogv1alpha1.MovieSpec{
+				TmdbID: 27205, QualityProfileRef: "none", RootFolderRef: "movies-root",
+				MinimumAvailability: catalogv1alpha1.MinimumAvailabilityTBA,
+			},
+		}
+		require.NoError(t, c.Create(ctx, m))
+
+		// Drive it to a settled, metadata-ready steady state first: Phase
+		// must be Wanted before the pendingGrab write, or the assertion
+		// below could not tell Delayed apart from "never reconciled".
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker,
+			catalogac.Movie(m.Name, m.Namespace).WithStatus(
+				catalogac.MovieStatus().WithMetadata(
+					catalogac.MovieMetadata().WithTitle("Inception").WithYear(2010).
+						WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).WithRefreshedAt(metav1.Now()),
+				),
+			))
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Movie
+			if err := c.Get(ctx, types.NamespacedName{Namespace: "delayed-ns", Name: "inception"}, &got); err != nil {
+				return false
+			}
+			return got.Status.Phase == catalogv1alpha1.MoviePhaseWanted
+		}, 10*time.Second, 20*time.Millisecond, "the movie must settle at Wanted before the delay is applied")
+
+		// Exactly what catalogarr/worker/grab writes: pendingGrab, never
+		// Phase, under the worker's own field manager -- and status.metadata
+		// carried through, because the metadata gateway writes THAT under the
+		// same manager name and server-side apply would otherwise release it.
+		// (catalogarr/worker/grab.kindOps does this carrying for real; this
+		// fixture mirrors it, and without the WithMetadata line below the
+		// movie drops back to Phase=Pending instead of reaching Delayed.)
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker,
+			catalogac.Movie(m.Name, m.Namespace).WithStatus(
+				catalogac.MovieStatus().
+					WithMetadata(
+						catalogac.MovieMetadata().WithTitle("Inception").WithYear(2010).
+							WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).WithRefreshedAt(metav1.Now()),
+					).
+					WithPendingGrab(
+						catalogac.PendingGrab().
+							WithReleaseTitle("Inception.2010.1080p.BluRay.x264-GROUP").
+							WithProtocol(commonv1.ProtocolTorrent).
+							WithGrabAt(metav1.NewTime(time.Now().Add(45*time.Minute))),
+					),
+			))
+		require.NoError(t, err)
+
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Movie
+			if err := c.Get(ctx, types.NamespacedName{Namespace: "delayed-ns", Name: "inception"}, &got); err != nil {
+				return false
+			}
+			return got.Status.Phase == catalogv1alpha1.MoviePhaseDelayed
+		}, 10*time.Second, 20*time.Millisecond,
+			"the pendingGrab write must wake this controller and recompute Phase=Delayed")
+	})
 
 	// finalizer add does not early-return (§14): status.phase is already
 	// Pending in the very first reconcile pass that adds the finalizer, not

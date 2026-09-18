@@ -19,6 +19,7 @@ package grab
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -54,6 +55,21 @@ type workerStatus struct {
 	PendingGrab       *catalogv1alpha1.PendingGrab
 	LastSearchedAt    *metav1.Time
 	SearchAttempts    commonv1.Attempts
+
+	// Movie only. status.metadata is NOT this package's field -- the
+	// metadata gateway (catalogarr/metadata) owns it -- but the gateway
+	// writes it under k8s.ManagerCatalogarrWorker, the same manager name this
+	// package writes with. Under server-side apply that makes it ours to
+	// re-declare or to destroy: an apply that omits it releases it, the Movie
+	// loses its cached metadata, the reconciler recomputes Phase=Pending and
+	// the gateway refetches from the provider. An envtest in
+	// catalogarr/controller/movie caught exactly that.
+	//
+	// The real fix is a field manager per worker consumer (see this field's
+	// note in the task report); until §2's manager table gains one, carrying
+	// the gateway's value through every apply is what keeps a grab from
+	// gutting a movie.
+	Metadata *catalogv1alpha1.MovieMetadata
 }
 
 // grabContext is the configuration governing a grab for one catalog item.
@@ -138,11 +154,19 @@ func (movieOps) workerStatus(obj client.Object) workerStatus {
 		PendingGrab:       m.Status.PendingGrab,
 		LastSearchedAt:    m.Status.LastSearchedAt,
 		SearchAttempts:    m.Status.SearchAttempts,
+		Metadata:          m.Status.Metadata,
 	}
 }
 
 func (movieOps) applyWorkerStatus(ctx context.Context, c client.Client, ns, name string, ws workerStatus) error {
 	status := catalogac.MovieStatus()
+	if ws.Metadata != nil {
+		meta, err := movieMetadataAC(ws.Metadata)
+		if err != nil {
+			return err
+		}
+		status = status.WithMetadata(meta)
+	}
 	if ws.ActiveDownloadRef != nil {
 		status = status.WithActiveDownloadRef(*ws.ActiveDownloadRef)
 	}
@@ -223,6 +247,33 @@ func (episodeOps) applyWorkerStatus(ctx context.Context, c client.Client, ns, na
 	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker,
 		catalogac.Episode(name, ns).WithStatus(status))
 	return err
+}
+
+// movieMetadataAC re-expresses the gateway's live status.metadata as its
+// apply configuration, so this package can carry it through an apply without
+// restating forty fields by hand and without drifting when the API type gains
+// one.
+//
+// The round trip is faithful because an apply configuration is generated from
+// the API type with the same JSON tags: marshalling the value and
+// unmarshalling it into the configuration reproduces it field for field,
+// including the pointer-vs-zero distinction the configuration encodes.
+//
+// It is a read-modify-write, so a gateway refresh landing between this
+// package's read and its apply is lost and refetched on the next refresh
+// cycle. That is the lesser of the two evils available while both writers
+// share one field-manager name; the greater is releasing the field outright
+// on every grab.
+func movieMetadataAC(m *catalogv1alpha1.MovieMetadata) (*catalogac.MovieMetadataApplyConfiguration, error) {
+	data, err := json.Marshal(m)
+	if err != nil {
+		return nil, fmt.Errorf("grab: marshal status.metadata for pass-through: %w", err)
+	}
+	ac := catalogac.MovieMetadata()
+	if err := json.Unmarshal(data, ac); err != nil {
+		return nil, fmt.Errorf("grab: decode status.metadata for pass-through: %w", err)
+	}
+	return ac, nil
 }
 
 func pendingGrabAC(pg *catalogv1alpha1.PendingGrab) *catalogac.PendingGrabApplyConfiguration {

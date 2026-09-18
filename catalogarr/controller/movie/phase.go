@@ -26,12 +26,27 @@ import (
 // !available), but never outranks the metadata-readiness gate: a stale
 // reconcile with a leftover hasFile=true must not race ahead of Pending, so
 // !metadataReady is checked before hasFile.
-func Phase(monitored, metadataReady, available, hasFile, cutoffMet bool) catalogv1alpha1.MoviePhase {
+//
+// pendingGrab reports whether status.pendingGrab is set -- a release the grab
+// worker has chosen and is holding back for a DelayProfile's window. It
+// outranks the file state for the same reason DownloadOverlay's Downloading
+// does in the reconciler: Delayed and Downloading are one story, the in-flight
+// grab, and the phase column should show the action in progress rather than
+// the state it is about to replace. Without this arm Delayed is reachable only
+// through an already-created Download, and the entire delay-profile feature is
+// invisible -- an item sits at Wanted for the whole window.
+//
+// It ranks below the monitored and metadata gates: an unmonitored movie is
+// unmonitored whatever the worker left behind, and a movie whose metadata is
+// still refreshing is still Pending.
+func Phase(monitored, metadataReady, available, hasFile, cutoffMet, pendingGrab bool) catalogv1alpha1.MoviePhase {
 	switch {
 	case !monitored:
 		return catalogv1alpha1.MoviePhaseUnmonitored
 	case !metadataReady:
 		return catalogv1alpha1.MoviePhasePending
+	case pendingGrab:
+		return catalogv1alpha1.MoviePhaseDelayed
 	case hasFile && !cutoffMet:
 		return catalogv1alpha1.MoviePhaseCutoffUnmet
 	case hasFile && cutoffMet:

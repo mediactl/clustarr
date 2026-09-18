@@ -136,6 +136,18 @@ func episodePredicate() predicate.Predicate {
 			}
 			return *ep.Status.AirDate
 		}),
+		// The grab worker's status.pendingGrab write bumps no generation and
+		// touches no air date, so without this arm Phase=Delayed would never
+		// be recomputed and the episode would sit at Wanted for the whole
+		// delay window. grabAt is the extracted key because it changes
+		// whenever the pending grab is set, rescheduled or cleared.
+		k8s.StatusFieldChanged(func(o client.Object) metav1.Time {
+			ep, ok := o.(*catalogv1alpha1.Episode)
+			if !ok || ep.Status.PendingGrab == nil {
+				return metav1.Time{}
+			}
+			return ep.Status.PendingGrab.GrabAt
+		}),
 	)
 }
 
@@ -250,7 +262,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	}
 	overlayPhase, active := DownloadOverlay(dl)
 
-	phase := Phase(monitored, ep.Status.AirDate, hasFile, cutoffMet, now)
+	phase := Phase(monitored, ep.Status.AirDate, hasFile, cutoffMet, ep.Status.PendingGrab != nil, now)
 	if overlayPhase != "" {
 		phase = overlayPhase
 	}

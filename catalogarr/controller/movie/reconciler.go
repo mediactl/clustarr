@@ -130,12 +130,21 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// moviePredicate wakes this controller on a spec change (GenerationChanged)
-// or on the metadata gateway's own write (StatusFieldChanged scoped to
-// status.metadata.refreshedAt) -- and nothing else, so this controller's own
-// Phase/Conditions/Available/Path/file-rollup patch, which never touches
-// status.metadata, does not loop it. This is the same self-loop-avoidance
-// shape §10 and Step 8's envtest require.
+// moviePredicate wakes this controller on a spec change (GenerationChanged),
+// on the metadata gateway's own write (StatusFieldChanged scoped to
+// status.metadata.refreshedAt) or on the grab worker's status.pendingGrab --
+// and nothing else, so this controller's own Phase/Conditions/Available/Path/
+// file-rollup patch, which touches none of those, does not loop it. This is
+// the same self-loop-avoidance shape §10 and Step 8's envtest require.
+//
+// The pendingGrab arm is what makes Phase=Delayed reachable at all. The grab
+// worker writes status.pendingGrab under k8s.ManagerCatalogarrWorker, which
+// bumps no generation and touches no metadata, so without this arm the write
+// would not even schedule a reconcile: the movie would sit at Wanted for the
+// whole delay window and only move when a Download appeared. The extracted
+// key is grabAt, which changes whenever the pending grab is set, rescheduled
+// or cleared -- and metav1.Time is comparable, which StatusFieldChanged
+// requires.
 func moviePredicate() predicate.Predicate {
 	return k8s.Or(
 		k8s.GenerationChanged(),
@@ -145,6 +154,13 @@ func moviePredicate() predicate.Predicate {
 				return metav1.Time{}
 			}
 			return mv.Status.Metadata.RefreshedAt
+		}),
+		k8s.StatusFieldChanged(func(o client.Object) metav1.Time {
+			mv, ok := o.(*catalogv1alpha1.Movie)
+			if !ok || mv.Status.PendingGrab == nil {
+				return metav1.Time{}
+			}
+			return mv.Status.PendingGrab.GrabAt
 		}),
 	)
 }
@@ -388,7 +404,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 	}
 	overlayPhase, active := DownloadOverlay(dl)
 
-	phase := Phase(monitored, metaReady, available, hasFile, cutoffMet)
+	phase := Phase(monitored, metaReady, available, hasFile, cutoffMet, m.Status.PendingGrab != nil)
 	if overlayPhase != "" {
 		phase = overlayPhase
 	}

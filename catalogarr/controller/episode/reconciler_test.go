@@ -218,6 +218,61 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		}, 2*time.Second, 20*time.Millisecond, "the episode reconciler's own patches must not clobber the Series-owned provider fields")
 	})
 
+	// The grab worker's status.pendingGrab write must both WAKE this
+	// controller and be folded into Phase. Neither was true before: Phase
+	// took no pendingGrab input, and episodePredicate fired on generation and
+	// status.airDate only -- so a worker writing pendingGrab did not even
+	// schedule a reconcile and the episode sat at Wanted for the whole delay
+	// window.
+	t.Run("a worker's pendingGrab write wakes this controller and reaches Delayed", func(t *testing.T) {
+		ep := &catalogv1alpha1.Episode{
+			ObjectMeta: metav1.ObjectMeta{Name: "delayed-s01e01", Namespace: "ep-ns"},
+			Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: "delayed-series", SeasonNumber: 1, EpisodeNumber: 1},
+		}
+		require.NoError(t, c.Create(ctx, ep))
+
+		// Drive it to a settled Wanted first, or the assertion below could
+		// not tell Delayed apart from "never reconciled".
+		yesterday := metav1.NewTime(time.Now().Add(-24 * time.Hour))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrSeries,
+			catalogac.Episode(ep.Name, ep.Namespace).WithStatus(catalogac.EpisodeStatus().WithAirDate(yesterday)))
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Episode
+			if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: ep.Name}, &got); err != nil {
+				return false
+			}
+			return got.Status.Phase == catalogv1alpha1.EpisodePhaseWanted
+		}, 10*time.Second, 20*time.Millisecond, "the episode must settle at Wanted before the delay is applied")
+
+		// Exactly what catalogarr/worker/grab writes: pendingGrab only, under
+		// the worker's own field manager, never Phase.
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker,
+			catalogac.Episode(ep.Name, ep.Namespace).WithStatus(
+				catalogac.EpisodeStatus().WithPendingGrab(
+					catalogac.PendingGrab().
+						WithReleaseTitle("Delayed.S01E01.1080p.WEB-DL-GROUP").
+						WithProtocol(commonv1.ProtocolTorrent).
+						WithGrabAt(metav1.NewTime(time.Now().Add(45*time.Minute))),
+				),
+			))
+		require.NoError(t, err)
+
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Episode
+			if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: ep.Name}, &got); err != nil {
+				return false
+			}
+			return got.Status.Phase == catalogv1alpha1.EpisodePhaseDelayed
+		}, 10*time.Second, 20*time.Millisecond,
+			"the pendingGrab write must wake this controller and recompute Phase=Delayed")
+
+		// And the Series-owned provider field it never touched survives.
+		var got catalogv1alpha1.Episode
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: ep.Name}, &got))
+		assert.NotNil(t, got.Status.AirDate)
+	})
+
 	t.Run("MediaFile watch rolls up HasFile and reaches Imported or CutoffUnmet", func(t *testing.T) {
 		bluray := commonv1.Quality{Name: "Bluray-1080p", Resolution: 1080, Source: commonv1.SourceBluray, Modifier: commonv1.ModifierNone}
 

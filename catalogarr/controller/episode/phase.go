@@ -30,10 +30,24 @@ import (
 // gate, Episode has no metadata-readiness precondition of its own to race
 // against, so a file for a future-dated episode (a scene leak, a re-air) is
 // a real, if unusual, case that still reports Imported/CutoffUnmet.
-func Phase(monitored bool, airDate *metav1.Time, hasFile, cutoffMet bool, now time.Time) catalogv1alpha1.EpisodePhase {
+//
+// pendingGrab reports whether status.pendingGrab is set -- a release the grab
+// worker has chosen and is holding back for a DelayProfile's window. It
+// outranks the file and air-date states for the same reason DownloadOverlay's
+// Downloading does in the reconciler: Delayed and Downloading are one story,
+// the in-flight grab. Without this arm Delayed is reachable only through an
+// already-created Download and the delay-profile feature is invisible. It
+// ranks below the monitored gate, which is the user's own decision.
+//
+// It also outranks Unaired deliberately: a pending grab for an unaired
+// episode means a release leaked early, and reporting Unaired while a grab is
+// scheduled would be a lie.
+func Phase(monitored bool, airDate *metav1.Time, hasFile, cutoffMet, pendingGrab bool, now time.Time) catalogv1alpha1.EpisodePhase {
 	switch {
 	case !monitored:
 		return catalogv1alpha1.EpisodePhaseUnmonitored
+	case pendingGrab:
+		return catalogv1alpha1.EpisodePhaseDelayed
 	case hasFile && !cutoffMet:
 		return catalogv1alpha1.EpisodePhaseCutoffUnmet
 	case hasFile && cutoffMet:
