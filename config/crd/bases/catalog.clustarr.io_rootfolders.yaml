@@ -244,6 +244,12 @@ spec:
                     description: Path is where deleted files are moved.
                     type: string
                 type: object
+              scanSchedule:
+                description: |-
+                  ScanSchedule is a cron expression; importarr creates a LibraryScan per tick.
+                  Empty means no periodic rescan.
+                maxLength: 120
+                type: string
             required:
             - kind
             - path

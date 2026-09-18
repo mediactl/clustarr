@@ -256,6 +256,12 @@ type RootFolderSpec struct {
 	// Permissions is the ownership and mode applied to imported files.
 	// +optional
 	Permissions Perms `json:"permissions,omitempty"`
+
+	// ScanSchedule is a cron expression; importarr creates a LibraryScan per tick.
+	// Empty means no periodic rescan.
+	// +optional
+	// +kubebuilder:validation:MaxLength=120
+	ScanSchedule string `json:"scanSchedule,omitempty"`
 }
 
 // RootFolderStatus describes the observed state of RootFolder.

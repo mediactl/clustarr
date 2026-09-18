@@ -44,6 +44,9 @@ type RootFolderSpecApplyConfiguration struct {
 	MinFreeBytes *int64 `json:"minFreeBytes,omitempty"`
 	// Permissions is the ownership and mode applied to imported files.
 	Permissions *PermsApplyConfiguration `json:"permissions,omitempty"`
+	// ScanSchedule is a cron expression; importarr creates a LibraryScan per tick.
+	// Empty means no periodic rescan.
+	ScanSchedule *string `json:"scanSchedule,omitempty"`
 }
 
 // RootFolderSpecApplyConfiguration constructs a declarative configuration of the RootFolderSpec type for use with
@@ -105,5 +108,13 @@ func (b *RootFolderSpecApplyConfiguration) WithMinFreeBytes(value int64) *RootFo
 // If called multiple times, the Permissions field is set to the value of the last call.
 func (b *RootFolderSpecApplyConfiguration) WithPermissions(value *PermsApplyConfiguration) *RootFolderSpecApplyConfiguration {
 	b.Permissions = value
+	return b
+}
+
+// WithScanSchedule sets the ScanSchedule field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ScanSchedule field is set to the value of the last call.
+func (b *RootFolderSpecApplyConfiguration) WithScanSchedule(value string) *RootFolderSpecApplyConfiguration {
+	b.ScanSchedule = &value
 	return b
 }

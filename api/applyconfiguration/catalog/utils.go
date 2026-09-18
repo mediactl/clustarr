@@ -145,6 +145,12 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.IssueSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("IssueStatus"):
 		return &catalogv1alpha1.IssueStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("LibraryScan"):
+		return &catalogv1alpha1.LibraryScanApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("LibraryScanSpec"):
+		return &catalogv1alpha1.LibraryScanSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("LibraryScanStatus"):
+		return &catalogv1alpha1.LibraryScanStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ListDefaults"):
 		return &catalogv1alpha1.ListDefaultsApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("MdbList"):
@@ -237,6 +243,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.TraktListApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("TranscodeState"):
 		return &catalogv1alpha1.TranscodeStateApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("UnmatchedFile"):
+		return &catalogv1alpha1.UnmatchedFileApplyConfiguration{}
 
 	}
 	return nil

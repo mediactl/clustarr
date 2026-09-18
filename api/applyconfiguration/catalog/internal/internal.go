@@ -1799,6 +1799,103 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: title
       type:
         scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.LibraryScan
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
+    - name: spec
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.LibraryScanSpec
+    - name: status
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.LibraryScanStatus
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.LibraryScanList
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: items
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.LibraryScan
+          elementRelationship: atomic
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ListMeta
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.LibraryScanSpec
+  map:
+    fields:
+    - name: dryRun
+      type:
+        scalar: boolean
+    - name: mode
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ScanMode
+      default: incremental
+    - name: rootFolderRef
+      type:
+        namedType: io.k8s.api.core.v1.LocalObjectReference
+    - name: subpath
+      type:
+        scalar: string
+    - name: ttlSecondsAfterFinished
+      type:
+        scalar: numeric
+      default: 3600
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.LibraryScanStatus
+  map:
+    fields:
+    - name: conditions
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Condition
+          elementRelationship: associative
+          keys:
+          - type
+    - name: filesMatched
+      type:
+        scalar: numeric
+    - name: filesSeen
+      type:
+        scalar: numeric
+    - name: filesSkipped
+      type:
+        scalar: numeric
+    - name: finishedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: itemsCreated
+      type:
+        scalar: numeric
+    - name: itemsUpdated
+      type:
+        scalar: numeric
+    - name: phase
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ScanPhase
+    - name: startedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: unmatched
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.UnmatchedFile
+          elementRelationship: atomic
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ListDefaults
   map:
     fields:
@@ -2757,6 +2854,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: recycleBin
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.RecycleBin
+    - name: scanSchedule
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.RootFolderStatus
   map:
     fields:
@@ -2792,6 +2892,10 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             scalar: string
           elementRelationship: atomic
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ScanMode
+  scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ScanPhase
+  scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SceneNumbering
   map:
     fields:
@@ -3220,6 +3324,24 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: profileTag
       type:
         scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.UnmatchedFile
+  map:
+    fields:
+    - name: candidates
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: path
+      type:
+        scalar: string
+    - name: reason
+      type:
+        scalar: string
+    - name: seenAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
 - name: com.github.mediactl.clustarr.api.common.v1alpha1.AddSource
   map:
     fields:

@@ -1,0 +1,248 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: libraryscans.catalog.clustarr.io
+spec:
+  group: catalog.clustarr.io
+  names:
+    categories:
+    - clustarr
+    kind: LibraryScan
+    listKind: LibraryScanList
+    plural: libraryscans
+    shortNames:
+    - lscan
+    singular: libraryscan
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.filesSeen
+      name: Files Seen
+      type: integer
+    - jsonPath: .status.itemsCreated
+      name: Items Created
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          LibraryScan is a short-lived resource that asks importarr to walk a
+          RootFolder and reconcile what it finds. Like Search, it is a request that
+          is observable with kubectl and whose progress survives a restart; it is
+          deleted once spec.ttlSecondsAfterFinished has elapsed after it settled.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: LibraryScanSpec asks importarr to walk a root folder and
+              reconcile what it finds.
+            properties:
+              dryRun:
+                description: DryRun reports what would change without creating or
+                  updating anything.
+                type: boolean
+              mode:
+                default: incremental
+                description: |-
+                  Mode selects how much of the tree is examined. Incremental skips files
+                  whose size and mtime match a known MediaFile fingerprint.
+                enum:
+                - full
+                - incremental
+                type: string
+              rootFolderRef:
+                description: RootFolderRef names the RootFolder to scan.
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+              subpath:
+                description: Subpath restricts the scan to one directory beneath the
+                  root folder.
+                type: string
+              ttlSecondsAfterFinished:
+                default: 3600
+                description: TTLSecondsAfterFinished deletes the scan once it has
+                  settled.
+                format: int32
+                type: integer
+            required:
+            - rootFolderRef
+            type: object
+          status:
+            description: LibraryScanStatus reports progress. All lists are capped
+              per the §4 legend.
+            properties:
+              conditions:
+                description: Conditions represent the latest available observations
+                  of the scan's state.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                maxItems: 8
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              filesMatched:
+                description: FilesMatched is how many files were attributed to a catalog
+                  item.
+                format: int64
+                type: integer
+              filesSeen:
+                description: FilesSeen is how many files the scanner walked.
+                format: int64
+                type: integer
+              filesSkipped:
+                description: |-
+                  FilesSkipped is how many files the scan skipped, such as an incremental
+                  scan skipping an unchanged fingerprint.
+                format: int64
+                type: integer
+              finishedAt:
+                description: FinishedAt is when the scan finished.
+                format: date-time
+                type: string
+              itemsCreated:
+                description: ItemsCreated is how many catalog items the scan created.
+                format: int64
+                type: integer
+              itemsUpdated:
+                description: ItemsUpdated is how many catalog items the scan updated.
+                format: int64
+                type: integer
+              phase:
+                description: Phase is the coarse lifecycle state of the scan.
+                enum:
+                - Pending
+                - Running
+                - Completed
+                - Failed
+                type: string
+              startedAt:
+                description: StartedAt is when the scan began.
+                format: date-time
+                type: string
+              unmatched:
+                description: Unmatched lists files the scanner could not attribute,
+                  newest first.
+                items:
+                  description: |-
+                    UnmatchedFile is a file the scanner could not attribute to a catalog item.
+                    The scanner never guesses: an unattributable file is recorded here with the
+                    reason instead of becoming a speculative item.
+                  properties:
+                    candidates:
+                      description: |-
+                        Candidates lists catalog items the scanner considered but could not
+                        confidently match to.
+                      items:
+                        type: string
+                      maxItems: 10
+                      type: array
+                    path:
+                      description: Path is the file path relative to the root folder.
+                      type: string
+                    reason:
+                      description: Reason explains why the file could not be matched.
+                      type: string
+                    seenAt:
+                      description: SeenAt is when the scanner last observed this file.
+                      format: date-time
+                      type: string
+                  required:
+                  - path
+                  - reason
+                  - seenAt
+                  type: object
+                maxItems: 200
+                type: array
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

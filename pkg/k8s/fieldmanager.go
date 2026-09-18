@@ -38,6 +38,15 @@ const (
 	// search, grab, import, importlist and rss-matcher consumers.
 	ManagerCatalogarrWorker FieldManager = "catalogarr-worker"
 
+	// ManagerImportarr is the importarr controller manager. It owns ImportList,
+	// ImportExclusion and LibraryScan status, and Download.status.import.
+	ManagerImportarr FieldManager = "importarr"
+
+	// ManagerImportarrWorker is an importarr scan, list or file-import worker. On
+	// MediaFile it applies status.file and status.probe only: what it observed,
+	// never what catalogarr decided.
+	ManagerImportarrWorker FieldManager = "importarr-worker"
+
 	// ManagerIndexarr is the indexarr manager, the single writer for
 	// index.clustarr.io.
 	ManagerIndexarr FieldManager = "indexarr"
@@ -69,6 +78,8 @@ func FieldManagers() []FieldManager {
 	return []FieldManager{
 		ManagerCatalogarr,
 		ManagerCatalogarrWorker,
+		ManagerImportarr,
+		ManagerImportarrWorker,
 		ManagerIndexarr,
 		ManagerGrabarr,
 		ManagerGrabarrEngine,

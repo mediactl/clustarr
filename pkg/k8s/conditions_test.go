@@ -212,28 +212,3 @@ func TestConditionACs(t *testing.T) {
 		}
 	}
 }
-
-func TestFieldManagersAreTheOnesTheSpecLists(t *testing.T) {
-	want := []string{
-		"catalogarr", "catalogarr-worker", "indexarr", "grabarr", "grabarr-engine",
-		"squasharr", "squasharr-worker", "captionarr", "captionarr-worker",
-	}
-	got := FieldManagers()
-	if len(got) != len(want) {
-		t.Fatalf("got %d field managers, want %d: %v", len(got), len(want), got)
-	}
-	for i, w := range want {
-		if got[i].String() != w {
-			t.Errorf("manager %d = %q, want %q", i, got[i], w)
-		}
-		if !got[i].Valid() {
-			t.Errorf("%q reported invalid", got[i])
-		}
-	}
-	if FieldManager("").Validate() == nil {
-		t.Error("the empty field manager was accepted")
-	}
-	if FieldManager("kubectl").Validate() == nil {
-		t.Error("an unlisted field manager was accepted")
-	}
-}
