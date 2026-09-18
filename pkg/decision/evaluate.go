@@ -19,6 +19,7 @@ package decision
 
 import (
 	"context"
+	"math"
 
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -104,9 +105,68 @@ func allTemporary(rejections []common.Rejection) bool {
 	return true
 }
 
-// buildRankKey is completed in Step 12 (primary keys) and Step 13
-// (secondary keys); this step only needs QualityIndex to exist.
+// buildRankKey computes every field of RankKey that Evaluate alone has
+// enough context to fill in (Profile and Target); Rank's own comparator
+// chain supplies the remaining keys (indexer priority/flags, seeders/age)
+// from Options and the Decision's Release at sort time.
 func buildRankKey(p quality.Profile, o Options, t Target, parsed *release.ParsedRelease, rel common.ReleaseInfo, score int) RankKey {
 	idx, _ := p.Index(rel.Quality)
-	return RankKey{QualityIndex: idx}
+
+	preferredProtocol := o.PreferredProtocol
+	if preferredProtocol == "" {
+		preferredProtocol = p.PreferredProtocol
+	}
+	protocolMatch := preferredProtocol == "any" || string(rel.Protocol) == preferredProtocol
+
+	episodeCount := 1
+	switch {
+	case parsed.FullSeason:
+		episodeCount = math.MaxInt32
+	case len(parsed.Episodes) > 1:
+		episodeCount = len(parsed.Episodes)
+	}
+
+	sl := p.Sizes[rel.Quality.Name]
+	key := RankKey{
+		QualityIndex:           idx,
+		PreferRevision:         p.ProperPolicy != "doNotPrefer",
+		Revision:                rel.Revision,
+		FormatScore:             score,
+		PreferredProtocolMatch: protocolMatch,
+		EpisodeCount:            episodeCount,
+	}
+	if preferLargest(sl) {
+		key.PreferLargestSize = true
+		key.SizeBytes = rel.SizeBytes
+		return key
+	}
+	if minutes, ok := targetRuntimeMinutes(t, parsed); ok {
+		prefBytes := int64(sl.PrefMBPerMin * float64(minutes) * 1024 * 1024)
+		key.SizeDeltaBucket = roundTo200MiB(abs64(rel.SizeBytes - prefBytes))
+	}
+	return key
+}
+
+// preferLargest reports whether q's preferred size is TRaSH's own "biggest"
+// sentinel rather than a real target: the shipped tables set PrefMBPerMin
+// one below MaxMBPerMin (1999/2000 movies, 995/1000 series+anime) to mean
+// exactly that (docs/research/quality.md §2.2: `"2000" is the UI value for
+// unlimited, 1999 preferred = "biggest"`). A profile's SizeLimits override
+// that sets a materially lower preferred value is a real target and takes
+// the closest-to-preferred branch instead.
+func preferLargest(sl quality.SizeLimit) bool {
+	return sl.MaxMBPerMin == 0 || sl.PrefMBPerMin >= sl.MaxMBPerMin-1
+}
+
+func abs64(n int64) int64 {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+const sizeBucket = 200 * 1024 * 1024 // 200 MiB, DownloadDecisionComparer.CompareSize's own bucket
+
+func roundTo200MiB(n int64) int64 {
+	return (n + sizeBucket/2) / sizeBucket * sizeBucket
 }

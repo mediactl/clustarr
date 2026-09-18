@@ -18,9 +18,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package decision
 
 import (
+	"math"
 	"sort"
+	"time"
 
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/release"
 )
 
 // Rank stable-sorts a copy of ds best-first: QualityIndex asc, Revision
@@ -49,7 +52,80 @@ func less(a, b Decision, o Options) bool {
 	if a.Rank.FormatScore != b.Rank.FormatScore {
 		return a.Rank.FormatScore > b.Rank.FormatScore
 	}
-	return false // Step 13 appends the remaining keys here
+	if a.Rank.PreferredProtocolMatch != b.Rank.PreferredProtocolMatch {
+		return a.Rank.PreferredProtocolMatch
+	}
+	if a.Rank.EpisodeCount != b.Rank.EpisodeCount {
+		return a.Rank.EpisodeCount > b.Rank.EpisodeCount
+	}
+	if pa, pb := indexerPriority(o, a.Release.IndexerRef), indexerPriority(o, b.Release.IndexerRef); pa != pb {
+		return pa < pb
+	}
+	if fa, fb := indexerFlagScore(a.Release.IndexerFlags), indexerFlagScore(b.Release.IndexerFlags); fa != fb {
+		return fa > fb
+	}
+	if sa, sb := seedersOrAgeScore(a.Release), seedersOrAgeScore(b.Release); sa != sb {
+		return sa > sb
+	}
+	if a.Rank.PreferLargestSize {
+		return a.Rank.SizeBytes > b.Rank.SizeBytes
+	}
+	return a.Rank.SizeDeltaBucket < b.Rank.SizeDeltaBucket
+}
+
+// defaultIndexerPriority is indexers.md's documented default: "Priority int
+// -- 1 (highest) … 50; used as the dedup tiebreaker ... default 25".
+const defaultIndexerPriority = 25
+
+func indexerPriority(o Options, ref string) int {
+	if p, ok := o.IndexerPriority[ref]; ok {
+		return p
+	}
+	return defaultIndexerPriority
+}
+
+// indexerFlagScore ports DownloadDecisionComparer.ScoreFlags's weights
+// verbatim (verified against the vendored Radarr source, Disagreement 7):
+// freeleech/doubleupload/internal +2, halfleech +1. neutralleech/exclusive/
+// scene have no *arr equivalent and score 0.
+func indexerFlagScore(flags []string) int {
+	score := 0
+	for _, f := range flags {
+		switch f {
+		case common.IndexerFlagFreeleech, common.IndexerFlagDoubleUpload, common.IndexerFlagInternal:
+			score += 2
+		case common.IndexerFlagHalfleech:
+			score++
+		}
+	}
+	return score
+}
+
+// seedersOrAgeScore ports ComparePeersIfTorrent/CompareAgeIfUsenet: torrent
+// releases rank by log10(seeders); usenet releases rank by an age bucket
+// (fresher wins), both verified against the vendored Radarr source.
+func seedersOrAgeScore(rel common.ReleaseInfo) float64 {
+	switch rel.Protocol {
+	case common.ProtocolTorrent:
+		if rel.Seeders == nil || *rel.Seeders <= 0 {
+			return 0
+		}
+		return math.Round(math.Log10(float64(*rel.Seeders)))
+	case common.ProtocolUsenet:
+		days, hours, _ := release.Age(rel.PublishedAt.Time, time.Now())
+		switch {
+		case hours < 1:
+			return 1000
+		case hours <= 24:
+			return 100
+		case days <= 7:
+			return 10
+		default:
+			return math.Round(math.Log10(float64(days))) * -1
+		}
+	default:
+		return 0
+	}
 }
 
 // compareRevision orders by Real, then Version -- Revision.CompareTo,

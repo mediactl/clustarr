@@ -94,4 +94,9 @@ func TestEvaluateFullPipeline(t *testing.T) {
 	require.True(t, found, "expected a Sample rejection among %+v", ds[2].Rejections)
 
 	require.False(t, ds[3].Approved, "WEBRip-1080p, 400 MB is under the 1.44 GB floor at 110 minutes")
+
+	approved := []decision.Decision{ds[0], ds[1]}
+	ranked := decision.Rank(approved, o)
+	require.Equal(t, "hd-tracker:12345", ranked[0].Release.GUID, "Bluray-1080p outranks WEBDL-720p")
+	require.Equal(t, "hd-tracker:12346", ranked[1].Release.GUID)
 }
