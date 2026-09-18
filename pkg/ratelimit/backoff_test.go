@@ -47,3 +47,12 @@ func TestBackoffNextJitterStaysWithinBounds(t *testing.T) {
 		require.LessOrEqualf(t, d, upper, "attempt %d", i)
 	}
 }
+
+func TestBackoffNextHonoursRetryAfterVerbatim(t *testing.T) {
+	b := ratelimit.Backoff{Base: 100 * time.Millisecond, Max: 500 * time.Millisecond, Multiplier: 2, Jitter: 0.5}
+
+	require.Equal(t, 90*time.Second, b.Next(5, 90*time.Second),
+		"a Retry-After above Max is still honoured, never capped down")
+	require.Equal(t, 1*time.Second, b.Next(0, 1*time.Second),
+		"a Retry-After below what attempt 0 would compute is still honoured, never raised")
+}
