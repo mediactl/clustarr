@@ -71,3 +71,28 @@ func TestHardlinkOrCopyFallsBackToCopyOnEXDEV(t *testing.T) {
 	dstInfo, _ := os.Stat(dst)
 	require.False(t, os.SameFile(srcInfo, dstInfo), "fallback copy must not share src's inode")
 }
+
+func TestHardlinkOrCopyRemovesDstWhenLinkCountVerificationFails(t *testing.T) {
+	old := linkFunc
+	t.Cleanup(func() { linkFunc = old })
+	// A misbehaving linker that reports success but actually writes a
+	// plain, unlinked file at dst (Nlink == 1, not >= 2): HardlinkOrCopy
+	// must not leave that bogus dst behind when it detects and reports
+	// the verification failure.
+	linkFunc = func(_, dst string) error {
+		return os.WriteFile(dst, []byte("not actually a hardlink"), 0o664)
+	}
+
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.mkv")
+	dst := filepath.Join(dir, "dst.mkv")
+	require.NoError(t, os.WriteFile(src, []byte("payload"), 0o664))
+
+	linked, err := HardlinkOrCopy(src, dst)
+	require.Error(t, err)
+	require.False(t, linked)
+	require.Contains(t, err.Error(), "link count")
+
+	_, statErr := os.Stat(dst)
+	require.True(t, os.IsNotExist(statErr), "the bogus dst must be removed, not left behind")
+}

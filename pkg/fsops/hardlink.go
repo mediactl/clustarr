@@ -41,6 +41,7 @@ func HardlinkOrCopy(src, dst string) (bool, error) {
 			return true, fmt.Errorf("fsops: stat %s after linking: %w", dst, statErr)
 		}
 		if st, ok := info.Sys().(*syscall.Stat_t); ok && st.Nlink < 2 {
+			_ = os.Remove(dst)
 			return false, fmt.Errorf("fsops: %s reports link count %d after linking %s, want >= 2", dst, st.Nlink, src)
 		}
 		return true, nil
