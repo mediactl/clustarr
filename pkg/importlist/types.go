@@ -19,6 +19,7 @@ package importlist
 
 import (
 	"context"
+	"strconv"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
@@ -67,4 +68,18 @@ type ImportList interface {
 
 	// Fetch retrieves the list's current contents from the remote source.
 	Fetch(ctx context.Context) ([]Item, error)
+}
+
+// NonZeroString renders n as a decimal string, or the empty string when n
+// is zero. Several providers (Trakt, MDBList) decode an external ID field
+// they omit entirely -- rather than send as an explicit null -- to Go's
+// int zero value; this turns that decoded zero back into the "absent"
+// ExternalIDs value ("") instead of the misleading literal "0". It is also
+// handy for any other optional integer a provider renders as a query
+// parameter only when set.
+func NonZeroString(n int) string {
+	if n == 0 {
+		return ""
+	}
+	return strconv.Itoa(n)
 }

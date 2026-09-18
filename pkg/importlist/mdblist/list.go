@@ -25,7 +25,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/importlist"
@@ -139,17 +138,10 @@ func (l *List) Fetch(ctx context.Context) ([]importlist.Item, error) {
 			Year:  row.ReleaseYear,
 			ExternalIDs: importlist.ExternalIDs{
 				IMDb: row.IDs.Imdb,
-				TMDB: nonZero(row.IDs.Tmdb),
-				TVDB: nonZero(row.IDs.Tvdb),
+				TMDB: importlist.NonZeroString(row.IDs.Tmdb),
+				TVDB: importlist.NonZeroString(row.IDs.Tvdb),
 			},
 		})
 	}
 	return items, nil
-}
-
-func nonZero(n int) string {
-	if n == 0 {
-		return ""
-	}
-	return strconv.Itoa(n)
 }
