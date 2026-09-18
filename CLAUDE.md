@@ -119,6 +119,13 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
     re-asserting the other's fields; then a genuine double-claim is a loud
     apiserver conflict instead of silent data loss.
 
+  And the reason this class keeps surviving review: **two managers can
+  *co-own* a field.** SSA only needs force when their values differ, so while
+  a second manager keeps applying the same value, a release by the first
+  leaves the field standing and the bug is invisible. A "manager X released
+  field Y" test that does not deliberately drop the co-owner reports a false
+  pass — which is how the rollup release above survived three reviews.
+
   A related trap, same apply, different mechanism: **`WithConditions` appends**
   rather than replacing, so setting conditions both in a shared `baseStatus`
   helper and again at the call site is rejected outright with `duplicate

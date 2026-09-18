@@ -8154,6 +8154,26 @@ Every envtest (`TestMovieReconciler...`, `TestSeriesReconciler...`, `TestEpisode
 
 ### Task C7: the MediaFile controller and the two-writer split
 
+> **Erratum, 2026-09-18 (task C13).** The status-rollup portion of this task —
+> `applyMovieRollup`, `applyEpisodeRollup` and the two tests covering them —
+> was **removed after review** and must not be reinstated from this text. It
+> wrote `Movie.status`/`Episode.status` under `k8s.ManagerCatalogarr`, the same
+> field manager the Movie and Episode reconcilers use, while sending only the
+> rollup's own fields. Server-side apply replaces a manager's ownership set per
+> apply, so each rollup released `path`, `available`, `availableAt`,
+> `addOptionsApplied`, `observedGeneration` and `activeDownloadRef` —
+> re-applying `addOptions` and orphaning in-flight Downloads.
+>
+> The write was also redundant: the Movie and Episode reconcilers already
+> compute the identical field set from their own MediaFile watch, and do it
+> better — they can clear `hasFile` on a delete (the rollup hard-coded it true)
+> and they feed the file through the full `Phase()` ladder instead of stamping
+> `Imported`/`CutoffUnmet` over `Unmonitored`/`Pending`/`Delayed`/`Downloading`.
+> The one thing the rollup uniquely did — raising the `HasFile` and `CutoffMet`
+> conditions, which the design mandates on both kinds — moved into the two
+> reconcilers beside the fields they describe. See `task-C13-report.md`.
+
+
 > **Controller amendment (binding).** Do NOT make the `api/common/v1alpha1.AudioStream.ChannelLayout` change in this task — Task C0 makes every `api/` change once, serially, so two parallel agents never race on regenerated files. By the time you run, the field exists; populate it where you write MediaFile spec and move on. Your path ownership is `catalogarr/controller/mediafile/` only.
 >
 > Your finding that the documented `status.file`/`status.probe` split does not exist is accepted and is now the plan's position: importarr owns `MediaFileSpec`, catalogarr is sole writer of all `MediaFileStatus` and takes over `sizeBytes`/`modTime`/`original` after a transcode swap. C0 corrects CLAUDE.md, the field-manager doc comments and the amendment. The two-writer envtest stays, testing that real split.
