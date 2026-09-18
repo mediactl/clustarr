@@ -292,6 +292,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 		if pubErr != nil {
 			if errors.Is(pubErr, events.ErrQueueFull) {
 				k8s.MarkTrue(m, &conditions, catalogv1alpha1.MovieConditionQueueFull, "QueueFull", "metadata work queue is full")
+				statusAC = reassertKnownStatus(statusAC, m)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
 				if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Movie(m.Name, m.Namespace).WithStatus(statusAC)); err != nil {
 					return ctrl.Result{}, err
@@ -313,6 +314,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 		if err := r.Get(ctx, types.NamespacedName{Namespace: m.Namespace, Name: m.Spec.RootFolderRef}, &rf); err != nil {
 			if apierrors.IsNotFound(err) {
 				k8s.MarkFalse(m, &conditions, k8s.ConditionReady, "RootFolderNotFound", "rootFolder %q not found", m.Spec.RootFolderRef)
+				statusAC = reassertKnownStatus(statusAC, m)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
 				if _, perr := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Movie(m.Name, m.Namespace).WithStatus(statusAC)); perr != nil {
 					return ctrl.Result{}, perr
@@ -427,6 +429,46 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 		result.RequeueAfter = d
 	}
 	return result, nil
+}
+
+// reassertKnownStatus re-adds every field this manager owns besides
+// ObservedGeneration/AddOptionsApplied/Conditions to statusAC, sourced from
+// m's current (pre-reconcile) status. Used on the two early-return paths
+// (QueueFull, RootFolderNotFound): both are transient failures -- a metadata
+// publish hitting a full queue, or a RootFolder lookup that briefly 404s --
+// and without this, PatchStatus's apply would omit every field it does not
+// mention, releasing (zeroing) a healthy Movie's Phase/Available/
+// AvailableAt/Path/HasFile/FileRef/FileQuality/FileFormatScore/CutoffMet/
+// ActiveDownloadRef the next time either blip happens. This is the same
+// apply-release mechanism as AddOptionsApplied's own fix above and the
+// Series/Episode field-manager split, a third form of it in this
+// reconciler: a healthy object sitting at Imported must not be reset to
+// zero by a transient failure that never reaches the code recomputing those
+// fields.
+func reassertKnownStatus(statusAC *catalogac.MovieStatusApplyConfiguration, m *catalogv1alpha1.Movie) *catalogac.MovieStatusApplyConfiguration {
+	if m.Status.Phase != "" {
+		statusAC = statusAC.WithPhase(m.Status.Phase)
+	}
+	statusAC = statusAC.WithAvailable(m.Status.Available)
+	if m.Status.AvailableAt != nil {
+		statusAC = statusAC.WithAvailableAt(*m.Status.AvailableAt)
+	}
+	if m.Status.Path != "" {
+		statusAC = statusAC.WithPath(m.Status.Path)
+	}
+	statusAC = statusAC.WithHasFile(m.Status.HasFile)
+	if m.Status.FileRef != nil {
+		statusAC = statusAC.WithFileRef(*m.Status.FileRef)
+	}
+	if m.Status.FileQuality != nil {
+		statusAC = statusAC.WithFileQuality(*m.Status.FileQuality)
+	}
+	statusAC = statusAC.WithFileFormatScore(m.Status.FileFormatScore)
+	statusAC = statusAC.WithCutoffMet(m.Status.CutoffMet)
+	if m.Status.ActiveDownloadRef != nil {
+		statusAC = statusAC.WithActiveDownloadRef(*m.Status.ActiveDownloadRef)
+	}
+	return statusAC
 }
 
 // movieRefreshState derives the metadata.RefreshTTL state bucket from a

@@ -671,6 +671,211 @@ func TestMovieReconcilerQueueFull(t *testing.T) {
 	assert.Nil(t, metaReady, "MetadataReady must be left untouched when the publish never happened")
 }
 
+// TestMovieReconcilerTransientFailuresPreserveSteadyState is the review's
+// mandatory regression case: TestMovieReconcilerQueueFull and
+// TestMovieReconcilerAvailabilityAndPath's RootFolder coverage both start
+// from a freshly-created object with no prior status, so there is nothing
+// for a buggy early return to release -- this drives a Movie to a genuine
+// steady state (Imported, with a file, quality, path and availability)
+// FIRST, then triggers each transient failure and asserts every one of
+// those fields survives. Without the reassertKnownStatus fix, both early
+// returns build a status apply containing only
+// ObservedGeneration/AddOptionsApplied/Conditions and PatchStatus releases
+// everything else this manager previously sent -- a healthy Movie reset to
+// zero by a blip in a metadata-queue publish or a momentary RootFolder
+// lookup failure, with its conditions left describing the phase it no
+// longer has.
+func TestMovieReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfg := newTestConfig(t)
+	c := startCacheOnly(t, ctx, cfg)
+	require.NoError(t, c.Create(ctx, testNamespace("transient-ns")))
+	require.NoError(t, c.Create(ctx, testRootFolder("transient-ns", "movies-root", "/data/media/movies")))
+	require.NoError(t, c.Create(ctx, testQualityProfile("transient-ns", "cutoff-met-at-1080p", "Bluray-1080p")))
+
+	driveToImported := func(t *testing.T, name string, tmdbID int64) reconcile.Request {
+		t.Helper()
+		bluray := commonv1.Quality{Name: "Bluray-1080p", Resolution: 1080, Source: commonv1.SourceBluray, Modifier: commonv1.ModifierNone}
+		yesterday := metav1.NewTime(time.Now().Add(-24 * time.Hour))
+
+		m := &catalogv1alpha1.Movie{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "transient-ns"},
+			Spec: catalogv1alpha1.MovieSpec{
+				TmdbID: tmdbID, QualityProfileRef: "cutoff-met-at-1080p", RootFolderRef: "movies-root",
+				MinimumAvailability: catalogv1alpha1.MinimumAvailabilityReleased,
+			},
+		}
+		require.NoError(t, c.Create(ctx, m))
+
+		metaAC := catalogac.Movie(m.Name, m.Namespace).WithStatus(
+			catalogac.MovieStatus().WithMetadata(
+				catalogac.MovieMetadata().WithTitle("Steady State").WithYear(2020).
+					WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).
+					WithDigitalRelease(yesterday).WithRefreshedAt(metav1.Now()),
+			),
+		)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, metaAC)
+		require.NoError(t, err)
+		waitForCachedMetadata(t, ctx, c, "transient-ns", name)
+
+		req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "transient-ns", Name: name}}
+		r := &movie.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: record.NewFakeRecorder(10), Bus: fakePublisher{}}
+		_, err = r.Reconcile(ctx, req)
+		require.NoError(t, err)
+		waitForPhase(t, ctx, c, "transient-ns", name)
+
+		mf := &catalogv1alpha1.MediaFile{
+			ObjectMeta: metav1.ObjectMeta{Name: name + "-abc1234567", Namespace: "transient-ns"},
+			Spec: catalogv1alpha1.MediaFileSpec{
+				MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name},
+				Path:     "/data/media/movies/Steady State (2020)/Steady State.mkv",
+				Quality:  bluray,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mf))
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.MediaFile
+			return c.Get(ctx, types.NamespacedName{Namespace: "transient-ns", Name: mf.Name}, &got) == nil
+		}, 5*time.Second, 10*time.Millisecond)
+
+		_, err = r.Reconcile(ctx, req)
+		require.NoError(t, err)
+
+		var got catalogv1alpha1.Movie
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, req.NamespacedName, &got); err != nil {
+				return false
+			}
+			return got.Status.Phase == catalogv1alpha1.MoviePhaseImported
+		}, 5*time.Second, 10*time.Millisecond, "setup: movie never reached Imported")
+		require.True(t, got.Status.Available)
+		require.NotNil(t, got.Status.FileRef)
+		require.NotNil(t, got.Status.FileQuality)
+		require.NotEmpty(t, got.Status.Path)
+		return req
+	}
+
+	t.Run("QueueFull on a stale-metadata publish does not release the steady state", func(t *testing.T) {
+		req := driveToImported(t, "queuefull-steady", 9001)
+
+		var before catalogv1alpha1.Movie
+		require.NoError(t, c.Get(ctx, req.NamespacedName, &before))
+
+		// Force a fresh staleness decision on the next reconcile by backdating
+		// status.metadata.refreshedAt well past the RefreshTTL, exactly as a
+		// real metadata-gateway write would eventually require a new fetch.
+		oldRefresh := metav1.NewTime(time.Now().Add(-10 * 24 * time.Hour))
+		staleAC := catalogac.Movie(before.Name, before.Namespace).WithStatus(
+			catalogac.MovieStatus().WithMetadata(
+				catalogac.MovieMetadata().WithTitle("Steady State").WithYear(2020).
+					WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).
+					WithDigitalRelease(metav1.NewTime(time.Now().Add(-24*time.Hour))).
+					WithRefreshedAt(oldRefresh),
+			),
+		)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, staleAC)
+		require.NoError(t, err)
+		// A tolerant "is it old now" check, not exact equality: the apiserver
+		// round-trips metav1.Time through RFC 3339 at one-second precision,
+		// so the in-memory oldRefresh (full Go time.Time precision) never
+		// exactly equals what a subsequent Get reads back.
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Movie
+			if err := c.Get(ctx, req.NamespacedName, &got); err != nil || got.Status.Metadata == nil {
+				return false
+			}
+			return got.Status.Metadata.RefreshedAt.Time.Before(time.Now().Add(-5 * 24 * time.Hour))
+		}, 5*time.Second, 10*time.Millisecond)
+
+		r2 := &movie.Reconciler{
+			Client: c, Scheme: k8s.MustNewScheme(), Recorder: record.NewFakeRecorder(10),
+			Bus: fakePublisher{err: events.ErrQueueFull},
+		}
+		res, err := r2.Reconcile(ctx, req)
+		require.NoError(t, err)
+		assert.Equal(t, time.Minute, res.RequeueAfter)
+
+		// Same cache-staleness reasoning as elsewhere: poll for the
+		// QueueFull condition before reading the rest of the object, rather
+		// than a single Get immediately after Reconcile's own PatchStatus.
+		var after catalogv1alpha1.Movie
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, req.NamespacedName, &after); err != nil {
+				return false
+			}
+			cond := k8s.FindCondition(after.Status.Conditions, catalogv1alpha1.MovieConditionQueueFull)
+			return cond != nil && cond.Status == metav1.ConditionTrue
+		}, 5*time.Second, 10*time.Millisecond)
+
+		assert.Equal(t, catalogv1alpha1.MoviePhaseImported, after.Status.Phase, "QueueFull must not release Phase")
+		assert.True(t, after.Status.Available, "QueueFull must not release Available")
+		assert.Equal(t, before.Status.Path, after.Status.Path, "QueueFull must not release Path")
+		assert.True(t, after.Status.HasFile, "QueueFull must not release HasFile")
+		require.NotNil(t, after.Status.FileRef)
+		assert.Equal(t, *before.Status.FileRef, *after.Status.FileRef, "QueueFull must not release FileRef")
+		require.NotNil(t, after.Status.FileQuality)
+		assert.Equal(t, *before.Status.FileQuality, *after.Status.FileQuality, "QueueFull must not release FileQuality")
+		assert.Equal(t, before.Status.FileFormatScore, after.Status.FileFormatScore, "QueueFull must not release FileFormatScore")
+		assert.Equal(t, before.Status.CutoffMet, after.Status.CutoffMet, "QueueFull must not release CutoffMet")
+	})
+
+	t.Run("RootFolderNotFound does not release the steady state", func(t *testing.T) {
+		req := driveToImported(t, "rootfolder-steady", 9002)
+
+		var before catalogv1alpha1.Movie
+		require.NoError(t, c.Get(ctx, req.NamespacedName, &before))
+
+		// A plain Update, not a merge patch: this main-resource write never
+		// touches the status subresource (the CRD has one, so Update cannot
+		// affect it even if it tried), and startCacheOnly has no auto-wired
+		// controller racing this write, so there is no concurrent-writer
+		// reason to prefer a patch here.
+		var withMissingRoot catalogv1alpha1.Movie
+		require.NoError(t, c.Get(ctx, req.NamespacedName, &withMissingRoot))
+		withMissingRoot.Spec.RootFolderRef = "does-not-exist"
+		require.NoError(t, c.Update(ctx, &withMissingRoot))
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Movie
+			if err := c.Get(ctx, req.NamespacedName, &got); err != nil {
+				return false
+			}
+			return got.Spec.RootFolderRef == "does-not-exist"
+		}, 5*time.Second, 10*time.Millisecond)
+
+		r2 := &movie.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: record.NewFakeRecorder(10), Bus: fakePublisher{}}
+		res, err := r2.Reconcile(ctx, req)
+		require.NoError(t, err)
+		assert.Equal(t, time.Minute, res.RequeueAfter)
+
+		// Same cache-staleness reasoning as elsewhere: poll for the
+		// RootFolderNotFound reason before reading the rest of the object.
+		var after catalogv1alpha1.Movie
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, req.NamespacedName, &after); err != nil {
+				return false
+			}
+			cond := k8s.FindCondition(after.Status.Conditions, k8s.ConditionReady)
+			return cond != nil && cond.Reason == "RootFolderNotFound"
+		}, 5*time.Second, 10*time.Millisecond)
+		cond := k8s.FindCondition(after.Status.Conditions, k8s.ConditionReady)
+		require.NotNil(t, cond)
+		assert.Equal(t, metav1.ConditionFalse, cond.Status)
+		assert.Equal(t, "RootFolderNotFound", cond.Reason)
+
+		assert.Equal(t, catalogv1alpha1.MoviePhaseImported, after.Status.Phase, "RootFolderNotFound must not release Phase")
+		assert.True(t, after.Status.Available, "RootFolderNotFound must not release Available")
+		assert.Equal(t, before.Status.Path, after.Status.Path, "RootFolderNotFound must not release Path")
+		assert.True(t, after.Status.HasFile, "RootFolderNotFound must not release HasFile")
+		require.NotNil(t, after.Status.FileRef)
+		assert.Equal(t, *before.Status.FileRef, *after.Status.FileRef, "RootFolderNotFound must not release FileRef")
+		require.NotNil(t, after.Status.FileQuality)
+		assert.Equal(t, *before.Status.FileQuality, *after.Status.FileQuality, "RootFolderNotFound must not release FileQuality")
+		assert.Equal(t, before.Status.FileFormatScore, after.Status.FileFormatScore, "RootFolderNotFound must not release FileFormatScore")
+		assert.Equal(t, before.Status.CutoffMet, after.Status.CutoffMet, "RootFolderNotFound must not release CutoffMet")
+	})
+}
+
 // TestMovieReconcilerAvailabilityAndPath covers: with fresh cached metadata
 // and a resolvable RootFolder, status.available/path/phase are computed end
 // to end and RequeueAfter tracks availableAt (§Step 7). It uses
