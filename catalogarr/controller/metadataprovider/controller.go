@@ -82,7 +82,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	}
 
 	prober, err := NewProber(mp.Spec, secretData, r.HTTPClient)
-	if err == ErrProviderNotImplemented {
+	if errors.Is(err, ErrProviderNotImplemented) {
 		k8s.SetCondition(&mp, &conditions, k8s.NewCondition(catalogv1alpha1.MetadataProviderConditionReady, metav1.ConditionUnknown, ReasonProviderNotImplemented, "no client exists for provider type %s yet", mp.Spec.Type))
 		return r.patch(ctx, &mp, conditions, nil, ctrl.Result{})
 	}

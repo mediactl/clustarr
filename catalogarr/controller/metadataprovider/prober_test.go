@@ -87,7 +87,7 @@ func TestOpenLibraryProberSucceedsWithNoCredentials(t *testing.T) {
 
 func TestUnimplementedProviderTypeIsExplicit(t *testing.T) {
 	_, err := NewProber(catalogv1alpha1.MetadataProviderSpec{Type: catalogv1alpha1.MetadataProviderCoverArt}, nil, http.DefaultClient)
-	if err != ErrProviderNotImplemented {
+	if !errors.Is(err, ErrProviderNotImplemented) {
 		t.Errorf("err = %v, want ErrProviderNotImplemented", err)
 	}
 }

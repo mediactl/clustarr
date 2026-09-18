@@ -19,6 +19,7 @@ package metadataprovider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -88,7 +89,7 @@ func BuildRegistry(ctx context.Context, c client.Client, namespace string, httpC
 			return nil, err
 		}
 		if err := addToRegistry(reg, p.Spec, secretData, httpClient); err != nil {
-			if err == ErrProviderNotImplemented {
+			if errors.Is(err, ErrProviderNotImplemented) {
 				continue
 			}
 			return nil, fmt.Errorf("metadataprovider: build client for %s: %w", p.Name, err)

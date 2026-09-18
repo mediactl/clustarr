@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package delayprofile
 
 import (
+	"errors"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -131,14 +132,14 @@ func TestResolveTiesBreakByName(t *testing.T) {
 }
 
 func TestResolveNoProfilesIsAnError(t *testing.T) {
-	if _, err := Resolve(nil, nil, nil); err != ErrNoProfiles {
+	if _, err := Resolve(nil, nil, nil); !errors.Is(err, ErrNoProfiles) {
 		t.Errorf("err = %v, want ErrNoProfiles", err)
 	}
 }
 
 func TestResolveNoMatchAndNoCatchallIsAnError(t *testing.T) {
 	profiles := []catalogv1alpha1.DelayProfile{profile("anime", 50, "anime")}
-	if _, err := Resolve(nil, []string{"documentary"}, profiles); err != ErrNoMatch {
+	if _, err := Resolve(nil, []string{"documentary"}, profiles); !errors.Is(err, ErrNoMatch) {
 		t.Errorf("err = %v, want ErrNoMatch", err)
 	}
 }
