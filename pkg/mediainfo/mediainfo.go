@@ -25,9 +25,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package mediainfo
 
 import (
+	"context"
 	"fmt"
 
 	ffprobe "gopkg.in/vansante/go-ffprobe.v2"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
 // Raw is the unabridged ffprobe result for one file: every stream, the
@@ -85,6 +90,38 @@ func buildRaw(pd *ffprobe.ProbeData) *Raw {
 		raw.Dovi = parseDoviRecord(v.SideDataList)
 	}
 	return raw
+}
+
+// Probe runs ffprobe twice against path -- once for the container,
+// streams and chapters, once for the first decoded frame's colour tags
+// and HDR side data (docs/research/transcode.md §2.1) -- and returns
+// both the api/common/v1alpha1 MediaInfo the MediaFile status carries
+// and the Raw detail pkg/transcode needs.
+func Probe(ctx context.Context, path string) (*commonv1.MediaInfo, *Raw, error) {
+	ctx, span := tracing.Start(ctx, "mediainfo.Probe")
+	defer span.End()
+
+	pd, err := ffprobe.ProbeURL(ctx, path)
+	if err != nil {
+		tracing.RecordError(span, err)
+		return nil, nil, fmt.Errorf("mediainfo: probe %s: %w", path, err)
+	}
+	raw := buildRaw(pd)
+
+	if pd.FirstVideoStream() != nil {
+		frames, ferr := runFrameProbe(ctx, path)
+		if ferr != nil {
+			// Best-effort: HDR/colour detail degrades rather than failing
+			// the whole probe over a second call some inputs can't satisfy.
+			logging.FromContext(ctx).WarnContext(ctx,
+				"mediainfo: frame probe failed, HDR detail may be incomplete",
+				"path", path, "error", ferr)
+		} else {
+			mergeFrame(raw, frames)
+		}
+	}
+
+	return toMediaInfo(raw), raw, nil
 }
 
 // MasteringDisplay is SMPTE ST 2086 mastering-display metadata.
