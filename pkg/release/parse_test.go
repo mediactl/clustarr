@@ -66,6 +66,20 @@ func TestParseRejectsEmptyTitle(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// TestParsePathExtractsEmbeddedProviderIDs covers what the library scanner
+// actually reads from a Jellyfin/Plex/*arr-style folder name: an embedded
+// [tmdbid-N] token in both the parent folder and the file name.
+func TestParsePathExtractsEmbeddedProviderIDs(t *testing.T) {
+	p, err := release.ParsePath(
+		"/data/media/movies/Heat (1995) [tmdbid-949]/Heat (1995) [tmdbid-949] - 1080p.mkv",
+		release.Options{},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "Heat", p.Title)
+	assert.Equal(t, 1995, p.Year)
+	assert.Equal(t, map[string]string{"tmdb": "949"}, p.IDs)
+}
+
 // TestParseTitlesAlwaysHasTitleFirstAcrossEveryKind verifies the package-
 // wide invariant that ParsedRelease.Titles always starts with Title, even
 // for kinds (series, album, comic, ...) whose own parser doesn't build a

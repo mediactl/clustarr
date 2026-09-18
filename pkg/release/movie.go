@@ -28,9 +28,10 @@ import (
 )
 
 // movieTitleYearRegex captures a movie title up to its release year, across
-// the three separator conventions the fixture corpus exercises: dot,
-// underscore and space.
-var movieTitleYearRegex = mustCompile(`(?<title>.+?)[.\s_](?<year>19\d{2}|20\d{2})[.\s_]`, regexp2.IgnoreCase)
+// the three scene-style separator conventions the fixture corpus exercises
+// (dot, underscore, space) and the Jellyfin/Plex "Title (Year)" convention
+// (year boundaries also accept a leading "(" and trailing ")").
+var movieTitleYearRegex = mustCompile(`(?<title>.+?)[.\s_(](?<year>19\d{2}|20\d{2})[.\s_)]`, regexp2.IgnoreCase)
 
 // cleanTitleSeparators replaces scene-style separators with spaces and
 // collapses the result, for display in ParsedRelease.Title.
@@ -42,8 +43,17 @@ func cleanTitleSeparators(s string) string {
 // parseMovie parses a movie release title: title, year, quality, revision,
 // release group, hash, edition, hints and languages. Season/episode fields
 // stay at their zero values.
+//
+// extractIDs runs first, against the whole original title, and every
+// subsequent step (title/year, quality, group, hints, languages, alternate
+// titles) works off the id-stripped text — a folder name's
+// "[tmdbid-949]"/"{imdb-tt0113277}"/etc. token is provider metadata, not
+// part of the title, and left in place it could otherwise confuse the
+// trailing-dash release-group pattern.
 func parseMovie(title string) (*ParsedRelease, error) {
-	m, err := movieTitleYearRegex.FindStringMatch(title)
+	ids, stripped := extractIDs(title)
+
+	m, err := movieTitleYearRegex.FindStringMatch(stripped)
 	if err != nil {
 		return nil, fmt.Errorf("release: movie: title/year match: %w", err)
 	}
@@ -58,11 +68,11 @@ func parseMovie(title string) (*ParsedRelease, error) {
 		return nil, fmt.Errorf("release: movie: parsing year %q: %w", yearStr, convErr)
 	}
 
-	q, rev, _, _ := parseQualityTags(title)
-	group, hash, edition := parseGroup(title)
+	q, rev, _, _ := parseQualityTags(stripped)
+	group, hash, edition := parseGroup(stripped)
 
 	cleanedTitle := cleanTitleSeparators(rawTitle)
-	titles := buildTitles(cleanedTitle, title)
+	titles := buildTitles(cleanedTitle, stripped)
 
 	return &ParsedRelease{
 		Title:       titles[0],
@@ -74,7 +84,8 @@ func parseMovie(title string) (*ParsedRelease, error) {
 		Hash:        hash,
 		Edition:     edition,
 		ReleaseType: commonv1.ReleaseTypeSingle,
-		Hints:       parseHints(title),
-		Languages:   parseLanguages(title),
+		Hints:       parseHints(stripped),
+		Languages:   parseLanguages(stripped),
+		IDs:         ids,
 	}, nil
 }
