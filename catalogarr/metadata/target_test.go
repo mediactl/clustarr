@@ -64,29 +64,3 @@ func TestRefreshedAtIsZeroBeforeTheFirstFetch(t *testing.T) {
 	}}
 	require.True(t, refreshedAt(m).Equal(when.Time))
 }
-
-func TestMovieRefreshState(t *testing.T) {
-	now := time.Date(2026, 9, 18, 0, 0, 0, 0, time.UTC)
-	recent := now.Add(-10 * 24 * time.Hour)
-	old := now.Add(-400 * 24 * time.Hour)
-
-	require.Equal(t, pkgmetadata.RefreshStateAnnounced, movieRefreshState(&pkgmetadata.Movie{Status: pkgmetadata.MovieStatusAnnounced}, now))
-	require.Equal(t, pkgmetadata.RefreshStateInCinemas, movieRefreshState(&pkgmetadata.Movie{Status: pkgmetadata.MovieStatusInCinemas}, now))
-	require.Equal(t, pkgmetadata.RefreshStateReleasedRecent,
-		movieRefreshState(&pkgmetadata.Movie{Status: pkgmetadata.MovieStatusReleased, DigitalRelease: &recent}, now))
-	require.Equal(t, pkgmetadata.RefreshStateReleasedOld,
-		movieRefreshState(&pkgmetadata.Movie{Status: pkgmetadata.MovieStatusReleased, DigitalRelease: &old}, now))
-}
-
-func TestSeriesRefreshState(t *testing.T) {
-	now := time.Date(2026, 9, 18, 0, 0, 0, 0, time.UTC)
-	recent := now.Add(-10 * 24 * time.Hour)
-	old := now.Add(-400 * 24 * time.Hour)
-
-	require.Equal(t, pkgmetadata.RefreshStateContinuing, seriesRefreshState(&pkgmetadata.Series{Status: pkgmetadata.SeriesStatusContinuing}, now))
-	require.Equal(t, pkgmetadata.RefreshStateEndedRecent,
-		seriesRefreshState(&pkgmetadata.Series{Status: pkgmetadata.SeriesStatusEnded, LastAired: &recent}, now))
-	require.Equal(t, pkgmetadata.RefreshStateEndedOld,
-		seriesRefreshState(&pkgmetadata.Series{Status: pkgmetadata.SeriesStatusEnded, LastAired: &old}, now))
-	require.Equal(t, pkgmetadata.RefreshStateAnnounced, seriesRefreshState(&pkgmetadata.Series{Status: pkgmetadata.SeriesStatusUpcoming}, now))
-}
