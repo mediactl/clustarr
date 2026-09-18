@@ -199,6 +199,43 @@ func TestArgsGoldenMultiAudioAtmosCPU(t *testing.T) {
 	assertGolden(t, "multi_audio_atmos_cpu", transcode.Args(plan))
 }
 
+// TestArgsGoldenMultiAudioAtmosAACCPU: controller ruling -- every source
+// audio track gets its own AudioTrackPlan under buildAudioPlan's documented
+// rules (one encode entry per kept track, plus a KeepOriginal duplicate
+// when that track's policy condition matches). Two source tracks: an
+// Atmos-flagged truehd track (doubled into an AAC encode plus a
+// stream-copy passthrough, same as the single-track case) and a second,
+// plain aac stereo track that is neither Atmos nor lossless, so it gets
+// only its own AAC re-encode with no KeepOriginal duplicate.
+func TestArgsGoldenMultiAudioAtmosAACCPU(t *testing.T) {
+	info := transcode.MediaInfo{
+		Path:   "/media/movies/Example (2019)/Example (2019).mkv",
+		Format: transcode.FormatInfo{Duration: 2 * time.Hour},
+		Video:  []transcode.VideoStream{exampleSDRVideo()},
+		Audio: []transcode.AudioStream{
+			{
+				Index: 0, Codec: "truehd", Profile: "Dolby TrueHD + Dolby Atmos", Channels: 8, ChannelLayout: "7.1",
+				Language: "eng", Lossless: true, Atmos: true,
+				Disposition: transcode.Disposition{Default: true},
+			},
+			{
+				Index: 1, Codec: "aac", Channels: 2, ChannelLayout: "stereo",
+				Language: "eng",
+			},
+		},
+	}
+	plan, err := transcode.Plan(info, defaultProfile(), testCaps, testMeta)
+	require.NoError(t, err)
+	require.Equal(t, transcode.DecisionEncode, plan.Decision)
+	require.Equal(t, []transcode.AudioTrackPlan{
+		{SourceIndex: 0, Action: transcode.AudioActionEncode, Codec: "aac", BitrateKbps: 512, Language: "eng", Default: true},
+		{SourceIndex: 0, Action: transcode.AudioActionCopy, Codec: "copy", Language: "eng"},
+		{SourceIndex: 1, Action: transcode.AudioActionEncode, Codec: "aac", BitrateKbps: 128, Language: "eng"},
+	}, plan.Audio)
+
+	assertGolden(t, "multi_audio_atmos_aac_cpu", transcode.Args(plan))
+}
+
 // TestArgsGoldenForcedSubsCPU: note §6, every kept text subtitle stream is
 // mapped and stream-copied, forced and non-forced alike.
 func TestArgsGoldenForcedSubsCPU(t *testing.T) {
