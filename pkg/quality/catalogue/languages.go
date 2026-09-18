@@ -17,12 +17,41 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package catalogue
 
-// languageByID maps Radarr/Sonarr's internal numeric Language.Id to its
-// English display Name, transcribed from Radarr's
-// src/NzbDrone.Core/Languages/Language.cs at tag v6.4.4.10685
+import "strings"
+
+// Language is one row of the language table: Radarr's internal numeric
+// Language.Id, its English display Name (the vocabulary the embedded
+// custom formats and pkg/release both speak) and its ISO-639-1 Tag (the
+// vocabulary QualityProfileSpec.Language and pkg/subtitles speak).
+type Language struct {
+	// ID is Radarr's Language.Id.
+	ID int32
+	// Name is Radarr's English Language.Name ("English", "Japanese").
+	Name string
+	// Tag is the ISO-639-1 two-letter code ("en", "ja"). It is empty for
+	// "Original", which is Radarr's pseudo-language for "whatever the
+	// item was made in" and therefore has no code.
+	Tag string
+}
+
+// languages maps Radarr/Sonarr's internal numeric Language.Id to its
+// English display Name and ISO-639-1 code. The ids and names are
+// transcribed from Radarr's src/NzbDrone.Core/Languages/Language.cs at tag
+// v6.4.4.10685
 // (https://raw.githubusercontent.com/Radarr/Radarr/v6.4.4.10685/src/NzbDrone.Core/Languages/Language.cs,
 // fetched 2026-09-18; Sonarr's own copy of the same file is identical in
 // content, only the namespace differs).
+//
+// The Tag column is the ISO-639-1 two-letter code for the language each
+// row already identifies -- "en" for English, "fr" for French, "de" for
+// German, "ja" for Japanese, "zh" for Chinese, "ko" for Korean. Language.cs
+// itself carries no code, so these are derived from the language
+// identities in the table rather than transcribed from it; nothing new was
+// fetched to write them. They exist because three vocabularies meet here:
+// pkg/release.ParsedRelease.Languages and every CondLanguage condition use
+// the English Name, QualityProfileSpec.Language is a BCP-47 tag, and
+// pkg/subtitles.LangKey is BCP-47 too. LanguageTag/LanguageName are the
+// only sanctioned conversion between them.
 //
 // This table intentionally covers only the language ids that actually
 // appear in a LanguageSpecification anywhere in the vendored corpus
@@ -41,39 +70,70 @@ package catalogue
 //	            ids.add(s['fields']['value'])
 //	print(sorted(ids))"
 //
-// The map's values are Language.cs's English Name field, deliberately not
-// an ISO-639-1/2 code: neither Language.cs itself nor anywhere else in this
-// codebase's Languages representation carries an ISO code, so inventing one
-// here would be a value that could never be compared against anything real.
-// pkg/release.ParsedRelease.Languages (populated by pkg/release/language.go's
-// parseLanguages) is itself built from this exact English-name vocabulary
-// ("English", "French", "German", "Japanese", "Korean", "Original", ...,
-// see that file's languageGroups and its "no match defaults to English"
-// rule) -- so a CondLanguage Condition's Value must use the same vocabulary
-// to ever actually match a real parsed release. Note pkg/release's own
-// language table is itself partial (its doc comment: "a bounded token table
-// covering the languages the fixture corpus exercises, not the full ~50-
-// entry Radarr language id list") and does not detect Chinese at all yet;
-// languageByID[10] = "Chinese" is still recorded here for corpus fidelity,
-// but a CondLanguage condition comparing against it cannot match today's
+// pkg/release's own language table is itself partial (its doc comment: "a
+// bounded token table covering the languages the fixture corpus exercises,
+// not the full ~50-entry Radarr language id list") and does not detect
+// Chinese at all yet; id 10 is still recorded here for corpus fidelity, but
+// a CondLanguage condition comparing against it cannot match today's
 // pkg/release output until that table is extended -- a pkg/release
 // improvement, not something this package can fix.
-var languageByID = map[int32]string{
-	-2: "Original",
-	1:  "English",
-	2:  "French",
-	4:  "German",
-	8:  "Japanese",
-	10: "Chinese",
-	21: "Korean",
+var languages = []Language{
+	{ID: -2, Name: "Original", Tag: ""},
+	{ID: 1, Name: "English", Tag: "en"},
+	{ID: 2, Name: "French", Tag: "fr"},
+	{ID: 4, Name: "German", Tag: "de"},
+	{ID: 8, Name: "Japanese", Tag: "ja"},
+	{ID: 10, Name: "Chinese", Tag: "zh"},
+	{ID: 21, Name: "Korean", Tag: "ko"},
 }
 
-// LanguageByID looks up languageByID -- exported so parity_test.go (in the
-// external catalogue_test package) can translate the vendored corpus's raw
-// numeric LanguageSpecification values into the same string vocabulary this
-// package's embedded data/formats/*.json conditions use, to check them for
-// completeness against the corpus.
+// Languages returns a copy of the language table, in id order.
+func Languages() []Language {
+	out := make([]Language, len(languages))
+	copy(out, languages)
+	return out
+}
+
+// LanguageByID looks up a Radarr language id's English name -- exported so
+// parity_test.go (in the external catalogue_test package) can translate the
+// vendored corpus's raw numeric LanguageSpecification values into the same
+// string vocabulary this package's embedded data/formats/*.json conditions
+// use, to check them for completeness against the corpus.
 func LanguageByID(id int32) (string, bool) {
-	name, ok := languageByID[id]
-	return name, ok
+	for _, l := range languages {
+		if l.ID == id {
+			return l.Name, true
+		}
+	}
+	return "", false
+}
+
+// LanguageTag converts a Radarr English language name ("Japanese") to its
+// ISO-639-1 code ("ja"), case-insensitively. It reports false for a name
+// the table does not carry and for "Original", which has no code.
+func LanguageTag(name string) (string, bool) {
+	for _, l := range languages {
+		if l.Tag != "" && strings.EqualFold(l.Name, name) {
+			return l.Tag, true
+		}
+	}
+	return "", false
+}
+
+// LanguageName converts a BCP-47 tag to the Radarr English language name
+// the catalogue's conditions and pkg/release.ParsedRelease.Languages use.
+// It matches on the tag's primary subtag, case-insensitively, so "en",
+// "EN", "en-US" and "en-Latn-US" all resolve to "English". It reports
+// false for a tag whose language the table does not carry.
+func LanguageName(tag string) (string, bool) {
+	primary, _, _ := strings.Cut(tag, "-")
+	if primary == "" {
+		return "", false
+	}
+	for _, l := range languages {
+		if l.Tag != "" && strings.EqualFold(l.Tag, primary) {
+			return l.Name, true
+		}
+	}
+	return "", false
 }

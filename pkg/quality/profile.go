@@ -42,9 +42,21 @@ type Profile struct {
 	CutoffFormatScore     int
 	MinUpgradeFormatScore int
 	Scores                map[string]int // catalogue format slug -> resolved score for this profile
-	Language              string
-	ProperPolicy          string
-	Sizes                 map[string]SizeLimit // quality name -> resolved size limits
+	// Language is QualityProfileSpec.Language verbatim: "original", "any"
+	// or a BCP-47 tag. It is what Hash identifies; LanguageName is what a
+	// decision engine compares against.
+	Language string
+	// LanguageName is Language resolved into the vocabulary the rest of
+	// the pipeline speaks: the sentinels "original" and "any" pass through
+	// unchanged, an empty Language stays empty (no constraint), and any
+	// other value is a BCP-47 tag resolved through catalogue.LanguageName
+	// to a Radarr English name ("en" -> "English"), which is what
+	// release.ParsedRelease.Languages and every CondLanguage condition
+	// hold. FromCRD reports an unresolvable tag as an error and leaves
+	// this empty.
+	LanguageName string
+	ProperPolicy string
+	Sizes        map[string]SizeLimit // quality name -> resolved size limits
 	// PreferredProtocol ranks one transfer protocol above the other
 	// (catalogv1alpha1.PreferredProtocol's string value: "usenet",
 	// "torrent" or "any"). Not part of spec's one-line Profile summary,
@@ -185,6 +197,11 @@ func FromCRD(p *catalogv1alpha1.QualityProfile, cat *catalogue.Catalogue) (Profi
 		errs = append(errs, fmt.Errorf("formatScores references unknown format %q", slug))
 	}
 
+	langName, err := normaliseLanguage(p.Spec.Language)
+	if err != nil {
+		errs = append(errs, err)
+	}
+
 	sizes := baseSizeTable(string(p.Spec.SizeTable))
 	for _, sl := range p.Spec.SizeLimits {
 		lim := sizes[sl.Quality]
@@ -204,11 +221,33 @@ func FromCRD(p *catalogv1alpha1.QualityProfile, cat *catalogue.Catalogue) (Profi
 		Tiers: tiers, CutoffIndex: cutoffIdx, UpgradeAllowed: upgradeAllowed,
 		MinFormatScore: int(p.Spec.MinFormatScore), CutoffFormatScore: int(p.Spec.CutoffFormatScore),
 		MinUpgradeFormatScore: int(p.Spec.MinUpgradeFormatScore),
-		Scores:                scores, Language: p.Spec.Language, ProperPolicy: string(p.Spec.ProperPolicy),
-		Sizes: sizes, PreferredProtocol: string(p.Spec.PreferredProtocol),
+		Scores:                scores, Language: p.Spec.Language, LanguageName: langName,
+		ProperPolicy: string(p.Spec.ProperPolicy),
+		Sizes:        sizes, PreferredProtocol: string(p.Spec.PreferredProtocol),
 	}
 	prof.Hash = hashProfile(prof)
 	return prof, errs
+}
+
+// normaliseLanguage resolves QualityProfileSpec.Language ("original",
+// "any" or a BCP-47 tag) into the vocabulary release.ParsedRelease.Languages
+// and the catalogue's CondLanguage conditions use (Radarr's English names).
+// The two sentinels and the empty value pass through unchanged; anything
+// else must resolve, or it is an error the caller surfaces on the profile's
+// Invalid condition rather than silently accepting a language that can
+// never match.
+func normaliseLanguage(lang string) (string, error) {
+	switch {
+	case lang == "":
+		return "", nil
+	case strings.EqualFold(lang, "original"), strings.EqualFold(lang, "any"):
+		return lang, nil
+	}
+	name, ok := catalogue.LanguageName(lang)
+	if !ok {
+		return "", fmt.Errorf("language %q is not a known BCP-47 tag (expected \"original\", \"any\" or a tag such as \"en\")", lang)
+	}
+	return name, nil
 }
 
 // baseSizeTable resolves a QualityProfileSpec.SizeTable selection to its

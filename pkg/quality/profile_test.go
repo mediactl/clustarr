@@ -148,3 +148,53 @@ func TestHashDiffersOnSizeLimitOrPreferredProtocol(t *testing.T) {
 	require.NotEqual(t, p1.Hash, p3.Hash, "a different preferred protocol must change the hash")
 	require.Equal(t, "usenet", p3.PreferredProtocol)
 }
+
+// TestFromCRDNormalisesLanguage covers ruling F3: QualityProfileSpec.Language
+// is "original", "any" or a BCP-47 tag, while the catalogue's CondLanguage
+// conditions and release.ParsedRelease.Languages both speak Radarr's English
+// names. FromCRD resolves the tag once, into Profile.LanguageName, and leaves
+// Profile.Language holding the CRD's literal value.
+func TestFromCRDNormalisesLanguage(t *testing.T) {
+	cat := &catalogue.Catalogue{Formats: map[string]*catalogue.Format{}}
+	build := func(lang string) *catalogv1alpha1.QualityProfile {
+		return &catalogv1alpha1.QualityProfile{Spec: catalogv1alpha1.QualityProfileSpec{
+			MediaKind: catalogv1alpha1.ProfileMediaKindVideo,
+			Tiers:     []catalogv1alpha1.Tier{{Name: "Bluray-1080p", Qualities: []string{"Bluray-1080p"}}},
+			Cutoff:    "Bluray-1080p",
+			Language:  lang,
+		}}
+	}
+	tests := []struct {
+		in       string
+		wantName string
+		wantErr  bool
+	}{
+		{"original", "original", false}, // the sentinel passes through
+		{"any", "any", false},           // ditto
+		{"Original", "Original", false}, // case is not the CRD's business
+		{"en", "English", false},
+		{"en-US", "English", false},
+		{"ja", "Japanese", false},
+		{"", "", false}, // unset: no language constraint, not an error
+		{"tlh", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			prof, errs := quality.FromCRD(build(tt.in), cat)
+			if tt.wantErr {
+				require.Len(t, errs, 1)
+				require.ErrorContains(t, errs[0], tt.in)
+				return
+			}
+			require.Empty(t, errs)
+			require.Equal(t, tt.in, prof.Language, "Language keeps the CRD's literal value")
+			require.Equal(t, tt.wantName, prof.LanguageName)
+		})
+	}
+
+	en, errs := quality.FromCRD(build("en"), cat)
+	require.Empty(t, errs)
+	ja, errs := quality.FromCRD(build("ja"), cat)
+	require.Empty(t, errs)
+	require.NotEqual(t, en.Hash, ja.Hash, "a different language is a different resolved profile")
+}
