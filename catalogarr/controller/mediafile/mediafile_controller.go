@@ -144,6 +144,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 
 		original := mf.Spec.Original == nil || *mf.Spec.Original
+		// mirrorLabels is computed on every probe -- it is what Reconcile
+		// calls, not duplicated logic -- but it is only actually sent to the
+		// apiserver bundled with the swap-triggered spec Apply below. A
+		// standalone k8s.Apply(...WithLabels...) on every probe would give
+		// catalogarr a managedFields entry on the MAIN resource (subresource
+		// "") before any transcode ever happens, which is exactly what this
+		// task's two-writer split forbids: catalogarr's only main-resource
+		// writes are spec.sizeBytes/modTime/original, and only once a
+		// transcode swap is incorporated (see "Resolving the field-manager
+		// split"). Folding the refreshed labels into that same Apply call
+		// also happens to be when they are most likely to be stale (a
+		// transcode can change video codec / HDR).
+		labels := mirrorLabels(mf.Spec.MediaRef.Kind, mf.Spec.Quality, mi, original)
 		if swap != nil {
 			original = false
 			specAC := catalogac.MediaFileSpec().
@@ -151,16 +164,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 				WithModTime(ps.ModTime).
 				WithOriginal(false)
 			if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerCatalogarr,
-				catalogac.MediaFile(mf.Name, mf.Namespace).WithSpec(specAC)); err != nil {
+				catalogac.MediaFile(mf.Name, mf.Namespace).WithSpec(specAC).WithLabels(labels)); err != nil {
 				return ctrl.Result{}, err
 			}
 			log.Info("incorporated transcode swap", "transcodeJob", swap.Name)
-		}
-
-		labels := mirrorLabels(mf.Spec.MediaRef.Kind, mf.Spec.Quality, mi, original)
-		if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerCatalogarr,
-			catalogac.MediaFile(mf.Name, mf.Namespace).WithLabels(labels)); err != nil {
-			return ctrl.Result{}, err
 		}
 
 		k8s.MarkTrue(&mf, &conditions, catalogv1alpha1.MediaFileConditionProbed, "Probed", "probed at %s", now.Time)
@@ -238,14 +245,31 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 // FinishedAt is after mf.Status.ProbedAt, or nil if none. This is what
 // tells Reconcile "a transcode swap happened and I have not folded it in
 // yet" without needing to know which watch woke it up.
+//
+// This filters list.Items in Go rather than sending
+// client.MatchingFields{transcodeJobMediaFileRefIndex: mf.Name}: that option
+// is only served from a manager-cached client's local FieldIndexer (the one
+// SetupWithManager registers). Against a direct, uncached client -- which is
+// exactly what this task's mandatory two-writer envtest uses to call
+// Reconcile without starting a manager -- the same option is instead sent to
+// the apiserver as a fieldSelector, and neither TranscodeJob nor
+// SubtitleRequest declares that path as a CRD selectable field, so the
+// apiserver rejects it ("field label not supported"). Filtering client-side
+// is correct under both a raw and a cached client; the registered index
+// still documents and enables the reverse (MediaFile -> its TranscodeJobs)
+// lookup direction for any future caller that goes through the manager
+// cache.
 func (r *Reconciler) latestUnincorporatedTranscode(ctx context.Context, mf *catalogv1alpha1.MediaFile) (*transcodev1alpha1.TranscodeJob, error) {
 	var list transcodev1alpha1.TranscodeJobList
-	if err := r.List(ctx, &list, client.InNamespace(mf.Namespace), client.MatchingFields{transcodeJobMediaFileRefIndex: mf.Name}); err != nil {
+	if err := r.List(ctx, &list, client.InNamespace(mf.Namespace)); err != nil {
 		return nil, fmt.Errorf("mediafile: list TranscodeJobs: %w", err)
 	}
 	var latest *transcodev1alpha1.TranscodeJob
 	for i := range list.Items {
 		tj := &list.Items[i]
+		if tj.Spec.MediaFileRef != mf.Name {
+			continue
+		}
 		if tj.Status.Phase != transcodev1alpha1.TranscodeJobPhaseSucceeded || tj.Status.FinishedAt == nil {
 			continue
 		}
@@ -273,16 +297,28 @@ func (r *Reconciler) transcodeProfileTag(ctx context.Context, tj *transcodev1alp
 // One SubtitleRequest per video MediaFile by convention (spec §4.6), but
 // this lists rather than Gets-by-name so a missing or renamed request never
 // errors the reconcile.
+//
+// See latestUnincorporatedTranscode's comment for why this filters
+// list.Items in Go instead of sending
+// client.MatchingFields{subtitleRequestMediaFileRefIndex: mf.Name}: the same
+// apiserver-selectable-field gap applies to SubtitleRequest.
 func (r *Reconciler) rescanSidecars(ctx context.Context, mf *catalogv1alpha1.MediaFile) error {
 	var list subtitlev1alpha1.SubtitleRequestList
-	if err := r.List(ctx, &list, client.InNamespace(mf.Namespace), client.MatchingFields{subtitleRequestMediaFileRefIndex: mf.Name}); err != nil {
+	if err := r.List(ctx, &list, client.InNamespace(mf.Namespace)); err != nil {
 		return fmt.Errorf("mediafile: list SubtitleRequests: %w", err)
 	}
-	if len(list.Items) == 0 {
+	var match *subtitlev1alpha1.SubtitleRequest
+	for i := range list.Items {
+		if list.Items[i].Spec.MediaFileRef == mf.Name {
+			match = &list.Items[i]
+			break
+		}
+	}
+	if match == nil {
 		return nil
 	}
 	dir := filepath.Dir(mf.Spec.Path)
-	sidecars, err := sidecarsFromSubtitleRequest(dir, list.Items[0].Status.Items)
+	sidecars, err := sidecarsFromSubtitleRequest(dir, match.Status.Items)
 	if err != nil {
 		return err
 	}
