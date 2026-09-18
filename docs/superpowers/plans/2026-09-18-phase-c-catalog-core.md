@@ -16282,6 +16282,32 @@ Each task's section lists the registration lines it needs. Wire them into `catal
 
 `config/rbac/role.yaml` was hand-written in M0 because no controller existed to carry markers. Now they do: ensure every controller has its `+kubebuilder:rbac` markers, run `make manifests`, and commit the generated role. Then make the Helm chart's copy derive from the same source rather than drifting — either template it from the generated file or add a test that fails when the two disagree, and say which you chose.
 
+- [ ] **Step 2b: Install the bus trace hooks at the real construction site**
+
+Task C1 put publish and receive hooks inside `pkg/events` so no caller can forget them, and
+`pkg/obs` exposes the pair that satisfies them. But the one real bus-construction call site,
+`pkg/k8s.ConnectBus` (called by `catalogarr`, `grabarr`, `indexarr` and `squasharr`), does
+not pass them — so as things stand the propagation exists and never runs in production, and
+amendment §A4's "first end-to-end trace at M1" cannot be true. C1 could not fix this itself:
+`pkg/k8s` and the service `run.go` files are this task's paths, not C1's.
+
+Give `ConnectBus` a variadic option parameter, pass `obs.BusHooks()` from each service's
+`Run`, and prove it end to end: a test asserting a published envelope carries the trace when
+the bus was built the way a service builds it. Decide deliberately whether `pkg/k8s` may
+import `pkg/obs` or whether the hooks should be passed in by each caller, and say which you
+chose and why — the dependency direction is the whole reason C1 used function fields.
+
+- [ ] **Step 2c: Fix the shared tracing shutdown hazard in `clustarr all`**
+
+`pkg/obs/tracing.Setup` hands every caller the same process-wide shutdown, guarded by a
+`sync.Once`. In `clustarr all`, which runs seven services in one process, the first service
+whose `Run` returns early therefore tears down tracing for the other six. Task C1 found this
+while fixing the same pattern in a test (where one subtest's deferred shutdown killed
+tracing for every later test in the binary) and correctly left the production code alone as
+out of scope. Fix it here: reference-count the setup, or make the shutdown a no-op for
+callers that did not perform the setup, and add a test that two callers each deferring their
+shutdown leave tracing alive until the last one returns.
+
 - [ ] **Step 3: Per-service readiness (a carried defect)**
 
 Readiness is a JetStream ping today. Add what each service actually needs before it can serve: `catalogarr`'s informer caches synced, `importarr`'s `/data` mount present and writable. The spec's §13 readiness list is the contract.
