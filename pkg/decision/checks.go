@@ -109,3 +109,25 @@ func sampleRejection(rel common.ReleaseInfo) *common.Rejection {
 	r := newRejection(ReasonSample, "title contains \"sample\" and is under 70 MB")
 	return &r
 }
+
+// blocklistAndHistoryRejections is BlocklistSpecification +
+// AlreadyImportedSpecification, simplified to a direct hash/title compare
+// against Target.Current (Disagreement 3): the real AlreadyImportedSpecification
+// also skips the check when the last grab and the last import were the same
+// quality, which needs a separate "last grabbed" record this task's Target
+// does not carry; omitted, documented here rather than silently dropped.
+func blocklistAndHistoryRejections(t Target, rel common.ReleaseInfo) []common.Rejection {
+	var out []common.Rejection
+	if t.Blocklist != nil && t.Blocklist(rel.InfoHash, rel.Title) {
+		out = append(out, newRejection(ReasonBlocklisted, "release is blocklisted"))
+	}
+	if cur := t.Current; cur != nil {
+		switch {
+		case cur.SourceHash != "" && rel.InfoHash != "" && strings.EqualFold(cur.SourceHash, rel.InfoHash):
+			out = append(out, newRejection(ReasonAlreadyImportedSameHash, "has the same hash as a grabbed and imported release"))
+		case cur.SourceTitle != "" && strings.EqualFold(cur.SourceTitle, rel.Title):
+			out = append(out, newRejection(ReasonAlreadyImportedSameName, "has the same title as a grabbed and imported release"))
+		}
+	}
+	return out
+}

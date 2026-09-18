@@ -124,3 +124,36 @@ func TestSampleRejection(t *testing.T) {
 		require.NotNil(t, sampleRejection(common.ReleaseInfo{Title: "Arrival.2016.SAMPLE.mkv", SizeBytes: 1}))
 	})
 }
+
+func TestBlocklistAndAlreadyImportedRejections(t *testing.T) {
+	t.Run("blocklisted", func(t *testing.T) {
+		tg := Target{Blocklist: func(hash, title string) bool { return hash == "deadbeef" }}
+		got := blocklistAndHistoryRejections(tg, common.ReleaseInfo{InfoHash: "deadbeef", Title: "x"})
+		require.Len(t, got, 1)
+		require.Contains(t, got[0].Reason, ReasonBlocklisted.Code)
+	})
+	t.Run("nil Blocklist func never rejects", func(t *testing.T) {
+		require.Empty(t, blocklistAndHistoryRejections(Target{}, common.ReleaseInfo{InfoHash: "x"}))
+	})
+	t.Run("same hash as the currently-imported file's source", func(t *testing.T) {
+		tg := Target{Current: &Current{SourceHash: "ABCDEF", SourceTitle: "Some.Other.Title"}}
+		got := blocklistAndHistoryRejections(tg, common.ReleaseInfo{InfoHash: "abcdef", Title: "Different.Title"})
+		require.Len(t, got, 1)
+		require.Contains(t, got[0].Reason, ReasonAlreadyImportedSameHash.Code)
+	})
+	t.Run("same title as the currently-imported file's source (usenet, no hash)", func(t *testing.T) {
+		tg := Target{Current: &Current{SourceTitle: "Arrival.2016.1080p.BluRay.x264-GROUP"}}
+		got := blocklistAndHistoryRejections(tg, common.ReleaseInfo{Title: "arrival.2016.1080p.bluray.x264-group"})
+		require.Len(t, got, 1)
+		require.Contains(t, got[0].Reason, ReasonAlreadyImportedSameName.Code)
+	})
+	t.Run("no Current means never already-imported", func(t *testing.T) {
+		require.Empty(t, blocklistAndHistoryRejections(Target{}, common.ReleaseInfo{Title: "anything"}))
+	})
+	t.Run("hash takes priority over a simultaneous name match, one rejection only", func(t *testing.T) {
+		tg := Target{Current: &Current{SourceHash: "AAAA", SourceTitle: "Same.Title"}}
+		got := blocklistAndHistoryRejections(tg, common.ReleaseInfo{InfoHash: "aaaa", Title: "Same.Title"})
+		require.Len(t, got, 1)
+		require.Contains(t, got[0].Reason, ReasonAlreadyImportedSameHash.Code)
+	})
+}
