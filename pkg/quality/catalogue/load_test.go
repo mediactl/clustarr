@@ -160,6 +160,22 @@ func TestEmbeddedTiersFamilyDecodes(t *testing.T) {
 	require.Equal(t, common.SourceWebRip, notWEBRIP.Source)
 }
 
+func TestEmbeddedTiersExtraFamilyDecodes(t *testing.T) {
+	bySlug := decodeEmbeddedFamily(t, "tiers_extra.json")
+	require.Len(t, bySlug, 8)
+	wantDefault := map[string]int{
+		"hd-bluray-tier-02": 1750, "hd-bluray-tier-03": 1700,
+		"uhd-bluray-tier-02": 1750, "uhd-bluray-tier-03": 1700,
+		"remux-tier-02": 1900, "remux-tier-03": 1850,
+		"web-tier-02": 1650, "web-tier-03": 1600,
+	}
+	for slug, want := range wantDefault {
+		require.Equal(t, want, bySlug[slug].Scores["default"], slug)
+	}
+	require.Equal(t, 950, bySlug["remux-tier-02"].Scores["anime-radarr"])
+	require.Equal(t, 925, bySlug["remux-tier-03"].Scores["anime-radarr"])
+}
+
 func TestEmbeddedStreamingFamilyDecodes(t *testing.T) {
 	bySlug := decodeEmbeddedFamily(t, "streaming.json")
 	require.Len(t, bySlug, 1)

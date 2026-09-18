@@ -53,7 +53,7 @@
     "slug": "remux-tier-01",
     "name": "Remux Tier 01",
     "trashIds": {"radarr": "3a3ff47579026e76d6504ebea39390de"},
-    "scores": {"default": 1950, "anime-radarr": 975, "anime-sonarr": 975},
+    "scores": {"default": 1950, "anime-radarr": 975},
     "conditions": [
       {"kind": "Modifier", "name": "Remux", "required": true, "value": "remux"},
       {"kind": "ReleaseGroup", "name": "3L", "pattern": "^(3L)$"},

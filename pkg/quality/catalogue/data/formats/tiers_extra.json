@@ -1,0 +1,147 @@
+[
+  {
+    "slug": "hd-bluray-tier-02",
+    "name": "HD Bluray Tier 02",
+    "trashIds": {"radarr": "c20c8647f2746a1f4c4262b0fbbeeeae"},
+    "scores": {"default": 1750},
+    "conditions": [
+      {"kind": "Source", "name": "BLURAY", "required": true, "value": "bluray"},
+      {"kind": "Modifier", "name": "Not REMUX", "negate": true, "required": true, "value": "remux"},
+      {"kind": "Resolution", "name": "Not 2160p", "negate": true, "required": true, "resolution": 2160},
+      {"kind": "ReleaseGroup", "name": "EA", "pattern": "^(EA)$"},
+      {"kind": "ReleaseGroup", "name": "HiDt", "pattern": "^(HiDt)$"},
+      {"kind": "ReleaseGroup", "name": "HiSD", "pattern": "^(HiSD)$"},
+      {"kind": "ReleaseGroup", "name": "iFT", "pattern": "^(iFT)$"},
+      {"kind": "ReleaseGroup", "name": "NTb", "pattern": "^(NTb)$"},
+      {"kind": "ReleaseGroup", "name": "QOQ", "pattern": "^(QOQ)$"},
+      {"kind": "ReleaseGroup", "name": "SA89", "pattern": "^(SA89)$"},
+      {"kind": "ReleaseGroup", "name": "sbR", "pattern": "^(sbR)$"}
+    ]
+  },
+  {
+    "slug": "hd-bluray-tier-03",
+    "name": "HD Bluray Tier 03",
+    "trashIds": {"radarr": "5608c71bcebba0a5e666223bae8c9227"},
+    "scores": {"default": 1700},
+    "conditions": [
+      {"kind": "Source", "name": "BLURAY", "required": true, "value": "bluray"},
+      {"kind": "Modifier", "name": "Not REMUX", "negate": true, "required": true, "value": "remux"},
+      {"kind": "Resolution", "name": "Not 2160p", "negate": true, "required": true, "resolution": 2160},
+      {"kind": "ReleaseGroup", "name": "BHDStudio", "pattern": "^(BHDStudio)$"},
+      {"kind": "ReleaseGroup", "name": "hallowed", "pattern": "^(hallowed)$"},
+      {"kind": "ReleaseGroup", "name": "HiFi", "pattern": "^(HiFi)$"},
+      {"kind": "ReleaseGroup", "name": "HONE", "pattern": "^(HONE)$"},
+      {"kind": "ReleaseGroup", "name": "LoRD", "pattern": "^(LoRD)$"},
+      {"kind": "ReleaseGroup", "name": "playHD", "pattern": "^(playHD)$"},
+      {"kind": "ReleaseGroup", "name": "SPHD", "pattern": "^(SPHD)$"},
+      {"kind": "ReleaseGroup", "name": "W4NK3R", "pattern": "^(W4NK3R)$"}
+    ]
+  },
+  {
+    "slug": "uhd-bluray-tier-02",
+    "name": "UHD Bluray Tier 02",
+    "trashIds": {"radarr": "a58f517a70193f8e578056642178419d"},
+    "scores": {"default": 1750},
+    "conditions": [
+      {"kind": "Modifier", "name": "Not REMUX", "negate": true, "required": true, "value": "remux"},
+      {"kind": "Source", "name": "Not WEBDL", "negate": true, "required": true, "value": "webdl"},
+      {"kind": "Source", "name": "Not WEBRIP", "negate": true, "required": true, "value": "webrip"},
+      {"kind": "Resolution", "name": "2160p", "required": true, "resolution": 2160},
+      {"kind": "ReleaseGroup", "name": "HiDt", "pattern": "^(HiDt)$"},
+      {"kind": "ReleaseGroup", "name": "HQMUX", "pattern": "^(HQMUX)$"},
+      {"kind": "ReleaseGroup", "name": "RandomBytes", "pattern": "^(RandomBytes)$"}
+    ]
+  },
+  {
+    "slug": "uhd-bluray-tier-03",
+    "name": "UHD Bluray Tier 03",
+    "trashIds": {"radarr": "e71939fae578037e7aed3ee219bbe7c1"},
+    "scores": {"default": 1700},
+    "conditions": [
+      {"kind": "Modifier", "name": "Not REMUX", "negate": true, "required": true, "value": "remux"},
+      {"kind": "Source", "name": "Not WEBDL", "negate": true, "required": true, "value": "webdl"},
+      {"kind": "Source", "name": "Not WEBRIP", "negate": true, "required": true, "value": "webrip"},
+      {"kind": "Resolution", "name": "2160p", "required": true, "resolution": 2160},
+      {"kind": "ReleaseGroup", "name": "BHDStudio", "pattern": "^(BHDStudio)$"},
+      {"kind": "ReleaseGroup", "name": "hallowed", "pattern": "^(hallowed)$"},
+      {"kind": "ReleaseGroup", "name": "HONE", "pattern": "^(HONE)$"},
+      {"kind": "ReleaseGroup", "name": "PTer", "pattern": "^(PTer)$"},
+      {"kind": "ReleaseGroup", "name": "SPHD", "pattern": "^(SPHD)$"},
+      {"kind": "ReleaseGroup", "name": "WEBDV", "pattern": "^(WEBDV)$"}
+    ]
+  },
+  {
+    "slug": "remux-tier-02",
+    "name": "Remux Tier 02",
+    "trashIds": {"radarr": "9f98181fe5a3fbeb0cc29340da2a468a"},
+    "scores": {"default": 1900, "anime-radarr": 950},
+    "conditions": [
+      {"kind": "Modifier", "name": "Remux", "required": true, "value": "remux"},
+      {"kind": "ReleaseGroup", "name": "NCmt", "pattern": "^(NCmt)$"},
+      {"kind": "ReleaseGroup", "name": "playBD", "pattern": "^(playBD)$"},
+      {"kind": "ReleaseGroup", "name": "SiCFoI", "pattern": "^(SiCFoI)$"},
+      {"kind": "ReleaseGroup", "name": "SURFINBIRD", "pattern": "^(SURFINBIRD)$"},
+      {"kind": "ReleaseGroup", "name": "TEPES", "pattern": "^(TEPES)$"}
+    ]
+  },
+  {
+    "slug": "remux-tier-03",
+    "name": "Remux Tier 03",
+    "trashIds": {"radarr": "8baaf0b3142bf4d94c42a724f034e27a"},
+    "scores": {"default": 1850, "anime-radarr": 925},
+    "conditions": [
+      {"kind": "Modifier", "name": "Remux", "required": true, "value": "remux"},
+      {"kind": "ReleaseGroup", "name": "12GaugeShotgun", "pattern": "^(12GaugeShotgun)$"},
+      {"kind": "ReleaseGroup", "name": "decibeL", "pattern": "^(decibeL)$"},
+      {"kind": "ReleaseGroup", "name": "EPSiLON", "pattern": "^(EPSiLON)$"},
+      {"kind": "ReleaseGroup", "name": "HiFi", "pattern": "^(HiFi)$"},
+      {"kind": "ReleaseGroup", "name": "iFT", "pattern": "^(iFT)$"},
+      {"kind": "ReleaseGroup", "name": "KRaLiMaRKo", "pattern": "^(KRaLiMaRKo)$"},
+      {"kind": "ReleaseGroup", "name": "NTb", "pattern": "^(NTb)$"},
+      {"kind": "ReleaseGroup", "name": "PTP", "pattern": "^(PTP)$"},
+      {"kind": "ReleaseGroup", "name": "SumVision", "pattern": "^(SumVision)$"},
+      {"kind": "ReleaseGroup", "name": "TOA", "pattern": "^(TOA)$"},
+      {"kind": "ReleaseGroup", "name": "TRiToN", "pattern": "^(TRiToN)$"}
+    ]
+  },
+  {
+    "slug": "web-tier-02",
+    "name": "WEB Tier 02",
+    "trashIds": {"radarr": "403816d65392c79236dcb6dd591aeda4"},
+    "scores": {"default": 1650},
+    "conditions": [
+      {"kind": "Source", "name": "WEBDL", "value": "webdl"},
+      {"kind": "Source", "name": "WEBRIP", "value": "webrip"},
+      {"kind": "ReleaseGroup", "name": "dB", "pattern": "^(dB)$"},
+      {"kind": "ReleaseGroup", "name": "Flights", "pattern": "^(Flights)$"},
+      {"kind": "ReleaseGroup", "name": "MiU", "pattern": "^(MiU)$"},
+      {"kind": "ReleaseGroup", "name": "monkee", "pattern": "^(monkee)$"},
+      {"kind": "ReleaseGroup", "name": "MZABI", "pattern": "^(MZABI)$"},
+      {"kind": "ReleaseGroup", "name": "PHOENiX", "pattern": "^(PHOENiX)$"},
+      {"kind": "ReleaseGroup", "name": "playWEB", "pattern": "^(playWEB)$"},
+      {"kind": "ReleaseGroup", "name": "SbR", "pattern": "^(SbR)$"},
+      {"kind": "ReleaseGroup", "name": "SMURF", "pattern": "^(SMURF)$"},
+      {"kind": "ReleaseGroup", "name": "TOMMY", "pattern": "^(TOMMY)$"},
+      {"kind": "ReleaseGroup", "name": "XEBEC", "pattern": "^(XEBEC|4KBEC|CEBEX)$"}
+    ]
+  },
+  {
+    "slug": "web-tier-03",
+    "name": "WEB Tier 03",
+    "trashIds": {"radarr": "af94e0fe497124d1f9ce732069ec8c3b"},
+    "scores": {"default": 1600},
+    "conditions": [
+      {"kind": "Source", "name": "WEBDL", "value": "webdl"},
+      {"kind": "Source", "name": "WEBRIP", "value": "webrip"},
+      {"kind": "ReleaseGroup", "name": "BLOOM", "pattern": "^(BLOOM)$"},
+      {"kind": "ReleaseGroup", "name": "Dooky", "pattern": "^(Dooky)$"},
+      {"kind": "ReleaseGroup", "name": "GNOMiSSiON", "pattern": "^(GNOMiSSiON)$"},
+      {"kind": "ReleaseGroup", "name": "NINJACENTRAL", "pattern": "^(NINJACENTRAL)$"},
+      {"kind": "ReleaseGroup", "name": "NPMS", "pattern": "^(NPMS)$"},
+      {"kind": "ReleaseGroup", "name": "ROCCaT", "pattern": "^(ROCCaT)$"},
+      {"kind": "ReleaseGroup", "name": "SiGMA", "pattern": "^(SiGMA)$"},
+      {"kind": "ReleaseGroup", "name": "SLiGNOME", "pattern": "^(SLiGNOME)$"},
+      {"kind": "ReleaseGroup", "name": "SwAgLaNdEr", "pattern": "^(SwAgLaNdEr)$"}
+    ]
+  }
+]
