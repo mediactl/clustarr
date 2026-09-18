@@ -130,10 +130,10 @@ func buildRankKey(p quality.Profile, o Options, t Target, parsed *release.Parsed
 	key := RankKey{
 		QualityIndex:           idx,
 		PreferRevision:         p.ProperPolicy != "doNotPrefer",
-		Revision:                rel.Revision,
-		FormatScore:             score,
+		Revision:               rel.Revision,
+		FormatScore:            score,
 		PreferredProtocolMatch: protocolMatch,
-		EpisodeCount:            episodeCount,
+		EpisodeCount:           episodeCount,
 	}
 	if preferLargest(sl) {
 		key.PreferLargestSize = true

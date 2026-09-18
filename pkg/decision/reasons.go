@@ -36,25 +36,25 @@ import (
 // outside this task's checklist, so no Reason constant below uses
 // common.RejectionTemporary even though Reason.Type can hold it.
 var (
-	ReasonUnableToParse               = Reason{"UnableToParse", common.RejectionPermanent}
-	ReasonProtocolDisabled            = Reason{"ProtocolDisabled", common.RejectionPermanent}
-	ReasonUnavailable                 = Reason{"Availability", common.RejectionPermanent}
-	ReasonBelowMinimumSize            = Reason{"BelowMinimumSize", common.RejectionPermanent}
-	ReasonAboveMaximumSize            = Reason{"AboveMaximumSize", common.RejectionPermanent}
-	ReasonQualityNotWanted            = Reason{"QualityNotWanted", common.RejectionPermanent}
-	ReasonCustomFormatMinimumScore    = Reason{"CustomFormatMinimumScore", common.RejectionPermanent}
-	ReasonWantedLanguage              = Reason{"WantedLanguage", common.RejectionPermanent}
-	ReasonSample                      = Reason{"Sample", common.RejectionPermanent}
-	ReasonBlocklisted                 = Reason{"Blocklisted", common.RejectionPermanent}
-	ReasonAlreadyImportedSameHash     = Reason{"AlreadyImportedSameHash", common.RejectionPermanent}
-	ReasonAlreadyImportedSameName     = Reason{"AlreadyImportedSameName", common.RejectionPermanent}
-	ReasonQueueHigherPreference       = Reason{"QueueHigherPreference", common.RejectionPermanent}
-	ReasonExistingHigherPreference    = Reason{"ExistingHigherPreference", common.RejectionPermanent}
-	ReasonUpgradesNotAllowed          = Reason{"UpgradesNotAllowed", common.RejectionPermanent}
-	ReasonExistingHigherRevision      = Reason{"ExistingHigherRevision", common.RejectionPermanent}
-	ReasonExistingCutoffMet           = Reason{"ExistingCutoffMet", common.RejectionPermanent}
-	ReasonExistingFormatScore         = Reason{"ExistingFormatScore", common.RejectionPermanent}
-	ReasonExistingFormatCutoffMet     = Reason{"ExistingFormatCutoffMet", common.RejectionPermanent}
+	ReasonUnableToParse                = Reason{"UnableToParse", common.RejectionPermanent}
+	ReasonProtocolDisabled             = Reason{"ProtocolDisabled", common.RejectionPermanent}
+	ReasonUnavailable                  = Reason{"Availability", common.RejectionPermanent}
+	ReasonBelowMinimumSize             = Reason{"BelowMinimumSize", common.RejectionPermanent}
+	ReasonAboveMaximumSize             = Reason{"AboveMaximumSize", common.RejectionPermanent}
+	ReasonQualityNotWanted             = Reason{"QualityNotWanted", common.RejectionPermanent}
+	ReasonCustomFormatMinimumScore     = Reason{"CustomFormatMinimumScore", common.RejectionPermanent}
+	ReasonWantedLanguage               = Reason{"WantedLanguage", common.RejectionPermanent}
+	ReasonSample                       = Reason{"Sample", common.RejectionPermanent}
+	ReasonBlocklisted                  = Reason{"Blocklisted", common.RejectionPermanent}
+	ReasonAlreadyImportedSameHash      = Reason{"AlreadyImportedSameHash", common.RejectionPermanent}
+	ReasonAlreadyImportedSameName      = Reason{"AlreadyImportedSameName", common.RejectionPermanent}
+	ReasonQueueHigherPreference        = Reason{"QueueHigherPreference", common.RejectionPermanent}
+	ReasonExistingHigherPreference     = Reason{"ExistingHigherPreference", common.RejectionPermanent}
+	ReasonUpgradesNotAllowed           = Reason{"UpgradesNotAllowed", common.RejectionPermanent}
+	ReasonExistingHigherRevision       = Reason{"ExistingHigherRevision", common.RejectionPermanent}
+	ReasonExistingCutoffMet            = Reason{"ExistingCutoffMet", common.RejectionPermanent}
+	ReasonExistingFormatScore          = Reason{"ExistingFormatScore", common.RejectionPermanent}
+	ReasonExistingFormatCutoffMet      = Reason{"ExistingFormatCutoffMet", common.RejectionPermanent}
 	ReasonExistingFormatScoreIncrement = Reason{"ExistingFormatScoreIncrement", common.RejectionPermanent}
 )
 

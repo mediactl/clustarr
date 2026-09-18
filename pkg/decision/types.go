@@ -84,13 +84,13 @@ type Options struct {
 type RankKey struct {
 	QualityIndex           int
 	PreferRevision         bool // false when Profile.ProperPolicy == "doNotPrefer"
-	Revision                common.Revision
-	FormatScore             int
+	Revision               common.Revision
+	FormatScore            int
 	PreferredProtocolMatch bool
-	EpisodeCount            int   // 1 for a single release; len(Parsed.Episodes) for a partial multi-episode release; a season-pack sentinel for FullSeason
-	PreferLargestSize       bool  // true when the quality's preferred size is TRaSH's "biggest" sentinel (Step 13)
-	SizeDeltaBucket          int64 // |release.SizeBytes - preferredBytes|, rounded to 200 MiB; meaningful only when !PreferLargestSize
-	SizeBytes                int64 // meaningful only when PreferLargestSize
+	EpisodeCount           int   // 1 for a single release; len(Parsed.Episodes) for a partial multi-episode release; a season-pack sentinel for FullSeason
+	PreferLargestSize      bool  // true when the quality's preferred size is TRaSH's "biggest" sentinel (Step 13)
+	SizeDeltaBucket        int64 // |release.SizeBytes - preferredBytes|, rounded to 200 MiB; meaningful only when !PreferLargestSize
+	SizeBytes              int64 // meaningful only when PreferLargestSize
 }
 
 // Decision is one release's verdict against one Target. Its shape matches
