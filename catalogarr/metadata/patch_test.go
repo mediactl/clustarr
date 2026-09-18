@@ -127,3 +127,27 @@ func TestBuildSeriesMetadataACCapsAlternateTitlesAt100(t *testing.T) {
 	ac := buildSeriesMetadataAC(s, time.Now())
 	require.Len(t, ac.AlternateTitles, 100, "SeriesMetadata.AlternateTitles: +kubebuilder:validation:MaxItems=100")
 }
+
+// TestBuildMovieMetadataACOmitsStatusWhenEmpty pins directly, at the
+// builder level, a regression review round 1 flagged as proven only
+// indirectly: MovieReleaseStatus is a CRD enum with no empty member
+// (tba;announced;inCinemas;released), so setting status.metadata.status to
+// "" would fail CEL/enum validation the moment it reaches an apiserver via
+// SSA. Before this test existed, that was caught only by
+// TestHandlerSkipsTheProviderOnACacheHit (worker_envtest_test.go), an
+// envtest fixture that happens to leave Status at its Go zero value --
+// expensive (needs KUBEBUILDER_ASSETS) and indirect (the failure surfaces
+// as an apiserver rejection, not a builder assertion).
+func TestBuildMovieMetadataACOmitsStatusWhenEmpty(t *testing.T) {
+	ac := buildMovieMetadataAC(&pkgmetadata.Movie{Title: "No Status"}, time.Now())
+	require.Nil(t, ac.Status, "MovieReleaseStatus has no empty enum member; \"\" must stay unset, not sent as a zero value")
+}
+
+// TestBuildSeriesMetadataACOmitsStatusWhenEmpty is
+// TestBuildMovieMetadataACOmitsStatusWhenEmpty's counterpart for
+// SeriesRunStatus (continuing;ended;upcoming), which has the same
+// no-empty-member shape.
+func TestBuildSeriesMetadataACOmitsStatusWhenEmpty(t *testing.T) {
+	ac := buildSeriesMetadataAC(&pkgmetadata.Series{Title: "No Status"}, time.Now())
+	require.Nil(t, ac.Status, "SeriesRunStatus has no empty enum member; \"\" must stay unset, not sent as a zero value")
+}
