@@ -122,7 +122,8 @@
       ],
       "episodes": [
         1
-      ]
+      ],
+      "hintsStreaming": ["DSNP"]
     }
   },
   {

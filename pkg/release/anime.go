@@ -43,8 +43,20 @@ var animeGroupPrefixRegex = mustCompile(`^\[(?<group>[^\]]+)\][\s_.]*`, regexp2.
 var animeSeasonEpisodeRegex = mustCompile(`(?<title>.+?)\s*-\s*S(?<season>\d{1,2})E(?<episode>\d{1,4})`, regexp2.IgnoreCase)
 
 // animeAbsoluteRegex matches an anime title with a bare absolute episode
-// number, e.g. "Frieren - 28 (1080p)".
-var animeAbsoluteRegex = mustCompile(`(?<title>.+?)\s*-\s*(?<abs>\d{2,4})(?:\s*\((?<res>\d{3,4}p)\))?`, regexp2.IgnoreCase)
+// number, e.g. "Frieren - 28 (1080p)". The optional "(?:[A-Za-z]+\s+)?"
+// before the number tolerates a single non-numeric "noise" word between the
+// title separator and the episode number — e.g. a title whose tag almost
+// but doesn't quite look like a special-episode marker ("OVAN 01", not the
+// word "OVA") still needs its absolute episode number recognized once
+// animeSpecialRegex has correctly rejected it. Verified against the full
+// anime fixture corpus (testdata/releases/anime.json) that this tolerance
+// doesn't change the captured title or number for any existing case: none
+// of them have a word between the dash and the digits, so the optional
+// group always matches zero times for them.
+var animeAbsoluteRegex = mustCompile(
+	`(?<title>.+?)\s*-\s*(?:[A-Za-z]+\s+)?(?<abs>\d{2,4})(?:\s*\((?<res>\d{3,4}p)\))?`,
+	regexp2.IgnoreCase,
+)
 
 // animeBatchRegex matches an anime batch/pack release naming its absolute
 // episode range: "Title - 01-12", "Title - 01~12", "Title - 01 - 12" and
@@ -64,8 +76,15 @@ var animeBatchRegex = mustCompile(
 // "My Hero Academia - OVA 01 (1080p)". Tried before animeBatchRegex and
 // animeAbsoluteRegex, both of which require digits immediately after the
 // title separator and so can't match this shape at all.
+//
+// The trailing \b (matching specialTokenRegex's own word boundary,
+// classify.go) is load-bearing: without it, "OVA" matches as a bare prefix
+// of an unrelated word like "OVAN", wrongly flagging Special and — since
+// the match then stops right after "OVA", before the "N" — leaving the
+// rest of the tag ("N 01") unconsumed, so the episode number after it
+// never gets captured either.
 var animeSpecialRegex = mustCompile(
-	`(?<title>.+?)\s*-\s*(?<tag>SPECIAL|OVA|OAD|NCOP|NCED)\.?\s*(?<num>\d{1,4})?`,
+	`(?<title>.+?)\s*-\s*(?<tag>SPECIAL|OVA|OAD|NCOP|NCED)\b\.?\s*(?<num>\d{1,4})?`,
 	regexp2.IgnoreCase,
 )
 

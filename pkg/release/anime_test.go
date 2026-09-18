@@ -72,6 +72,18 @@ func TestParseSeriesAnimeOVASpecialToken(t *testing.T) {
 	assert.True(t, p.Special)
 }
 
+// TestParseSeriesAnimeOVAPrefixWithoutWordBoundaryIsNotASpecial is the
+// regression the missing \b in animeSpecialRegex caused: "OVAN" is not the
+// word "OVA", so it must not flip Special to true, and the episode number
+// that follows it must still come through as an absolute episode via the
+// normal fallback.
+func TestParseSeriesAnimeOVAPrefixWithoutWordBoundaryIsNotASpecial(t *testing.T) {
+	p, err := parseSeries("[SubsPlease] Show - OVAN 01 (1080p) [HASH].mkv", Options{SeriesType: "anime"})
+	require.NoError(t, err)
+	assert.False(t, p.Special)
+	assert.Equal(t, []int{1}, p.Absolute)
+}
+
 func TestParseSeriesAnimeBatchRangesExpandInclusive(t *testing.T) {
 	tests := []struct {
 		name     string

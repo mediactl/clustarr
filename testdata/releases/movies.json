@@ -12,8 +12,7 @@
         "English"
       ],
       "hintsCodec": ["HEVC"],
-      "hintsAudio": ["TrueHD", "Atmos"],
-      "hintsStreaming": ["REMUX"]
+      "hintsAudio": ["TrueHD", "Atmos"]
     }
   },
   {
@@ -27,7 +26,8 @@
       "languages": [
         "English"
       ],
-      "hintsCodec": ["H.264"]
+      "hintsCodec": ["H.264"],
+      "hintsStreaming": ["AMZN"]
     }
   },
   {
@@ -85,8 +85,7 @@
         "English"
       ],
       "hintsCodec": ["H.265"],
-      "hintsAudio": ["DDP", "Atmos"],
-      "hintsStreaming": ["REPACK"]
+      "hintsAudio": ["DDP", "Atmos"]
     }
   },
   {
