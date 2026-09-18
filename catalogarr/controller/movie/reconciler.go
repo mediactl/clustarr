@@ -441,6 +441,31 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 	// pkg/k8s/patch_envtest_test.go's TestPatchStatusReleasesItsOwnFieldsOnly),
 	// which is how the ref is cleared on a terminal Download phase.
 
+	// HasFile and CutoffMet are two of the six conditions spec §4.2 lists
+	// for Movie. Until task C13 their only writer anywhere was the MediaFile
+	// controller's rollupToOwner, which applied them (and the file fields
+	// above) under this reconciler's own k8s.ManagerCatalogarr and therefore
+	// released path/available/availableAt/addOptionsApplied/
+	// observedGeneration/activeDownloadRef on every apply. That rollup is
+	// gone; the conditions move here, to the object's sole status writer,
+	// alongside the file fields they describe. They are strictly more
+	// complete here: the rollup only ran when a MediaFile existed, so it
+	// could raise HasFile but never lower it, and it had no way to say
+	// "no file yet" at all.
+	if hasFile {
+		k8s.MarkTrue(m, &conditions, catalogv1alpha1.MovieConditionHasFile, "HasFile", "backed by MediaFile %s", ptr.Deref(fileRef, ""))
+	} else {
+		k8s.MarkFalse(m, &conditions, catalogv1alpha1.MovieConditionHasFile, k8s.ReasonPending, "no MediaFile backs this movie")
+	}
+	switch {
+	case !hasFile:
+		k8s.MarkFalse(m, &conditions, catalogv1alpha1.MovieConditionCutoffMet, k8s.ReasonPending, "no file to rank against the profile cutoff")
+	case cutoffMet:
+		k8s.MarkTrue(m, &conditions, catalogv1alpha1.MovieConditionCutoffMet, "CutoffMet", "file meets the profile cutoff")
+	default:
+		k8s.MarkFalse(m, &conditions, catalogv1alpha1.MovieConditionCutoffMet, "CutoffUnmet", "file does not meet the profile cutoff")
+	}
+
 	k8s.MarkReady(m, &conditions, metaReady && phase != catalogv1alpha1.MoviePhasePending, k8s.ReasonReconciled, "phase=%s", phase)
 	statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
 

@@ -51,7 +51,6 @@ import (
 	"github.com/mediactl/clustarr/catalogarr/controller/mediafile"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
-	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
 
 func startEnv(t *testing.T) (client.Client, *rest.Config) {
@@ -226,7 +225,7 @@ func TestMediaFileFieldManagersStayDisjoint(t *testing.T) {
 	importarrCreatesMediaFile(t, ctx, c, ns, name, path, stat.Size(), stat.ModTime(),
 		commonv1.Quality{Name: "WEBDL-1080p", Source: commonv1.SourceWebDL, Resolution: commonv1.Resolution1080p, Modifier: commonv1.ModifierNone})
 
-	r := &mediafile.Reconciler{Client: c, Probe: fakeProbe, Catalogue: catalogue.LoadedCatalogue(), Clock: time.Now}
+	r := &mediafile.Reconciler{Client: c, Probe: fakeProbe, Clock: time.Now}
 	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: name}}); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
@@ -450,116 +449,17 @@ func specFieldNames(fields map[string]any) map[string]bool {
 	return out
 }
 
-// TestReconcileFixtureDrivenMovieRollup exercises computeRollup/
-// moviePhaseForFile end to end against a real apiserver, entirely through
-// fakeProbe -- no ffprobe binary required. Two movies cover both outcomes:
-// a Bluray-1080p file meets the test profile's cutoff, a WEBDL-1080p file
-// does not.
-func TestReconcileFixtureDrivenMovieRollup(t *testing.T) {
-	c, _ := startEnv(t)
-	ctx := t.Context()
-	const ns = "movierollup"
-	dir := t.TempDir()
-	mustNamespace(t, ctx, c, ns)
-	mustQualityProfile(t, ctx, c, "qp-video")
-	mustMovie(t, ctx, c, ns, "inception", "qp-video")
-	mustMovie(t, ctx, c, ns, "tenet", "qp-video")
-
-	blurayPath := writeFile(t, dir, "Inception (2010).mkv", []byte("bluray stand-in bytes"))
-	blurayStat, err := os.Stat(blurayPath)
-	require.NoError(t, err)
-	importarrCreatesMediaFileFor(t, ctx, c, ns, "inception-abc1234567",
-		commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "inception"},
-		blurayPath, blurayStat.Size(), blurayStat.ModTime(),
-		commonv1.Quality{Name: "Bluray-1080p", Source: commonv1.SourceBluray, Resolution: commonv1.Resolution1080p, Modifier: commonv1.ModifierNone})
-
-	webPath := writeFile(t, dir, "Tenet (2020).mkv", []byte("web stand-in bytes"))
-	webStat, err := os.Stat(webPath)
-	require.NoError(t, err)
-	importarrCreatesMediaFileFor(t, ctx, c, ns, "tenet-def4567890",
-		commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "tenet"},
-		webPath, webStat.Size(), webStat.ModTime(),
-		commonv1.Quality{Name: "WEBDL-1080p", Source: commonv1.SourceWebDL, Resolution: commonv1.Resolution1080p, Modifier: commonv1.ModifierNone})
-
-	r := &mediafile.Reconciler{Client: c, Probe: fakeProbe, Catalogue: catalogue.LoadedCatalogue(), Clock: time.Now}
-	for _, name := range []string{"inception-abc1234567", "tenet-def4567890"} {
-		if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: name}}); err != nil {
-			t.Fatalf("reconcile %s: %v", name, err)
-		}
-	}
-
-	var inception catalogv1alpha1.Movie
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "inception"}, &inception))
-	assert.True(t, inception.Status.HasFile)
-	require.NotNil(t, inception.Status.FileQuality)
-	assert.Equal(t, "Bluray-1080p", inception.Status.FileQuality.Name)
-	assert.True(t, inception.Status.CutoffMet)
-	assert.Equal(t, catalogv1alpha1.MoviePhaseImported, inception.Status.Phase)
-
-	var tenet catalogv1alpha1.Movie
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "tenet"}, &tenet))
-	assert.True(t, tenet.Status.HasFile)
-	require.NotNil(t, tenet.Status.FileQuality)
-	assert.Equal(t, "WEBDL-1080p", tenet.Status.FileQuality.Name)
-	assert.False(t, tenet.Status.CutoffMet)
-	assert.Equal(t, catalogv1alpha1.MoviePhaseCutoffUnmet, tenet.Status.Phase)
-}
-
-// TestReconcileFixtureDrivenEpisodeRollup is
-// TestReconcileFixtureDrivenMovieRollup's Episode counterpart: a Series owns
-// two Episodes, one backed by a Bluray-1080p file (cutoff met) and one by a
-// WEBDL-1080p file (cutoff unmet). ownerQualityProfileRef's Series hop is
-// exercised here since Episode itself carries no QualityProfileRef.
-func TestReconcileFixtureDrivenEpisodeRollup(t *testing.T) {
-	c, _ := startEnv(t)
-	ctx := t.Context()
-	const ns = "episoderollup"
-	dir := t.TempDir()
-	mustNamespace(t, ctx, c, ns)
-	mustQualityProfile(t, ctx, c, "qp-video")
-	mustSeries(t, ctx, c, ns, "westworld", "qp-video")
-	mustEpisode(t, ctx, c, ns, "westworld-s01e01", "westworld", 1, 1)
-	mustEpisode(t, ctx, c, ns, "westworld-s01e02", "westworld", 1, 2)
-
-	blurayPath := writeFile(t, dir, "Westworld S01E01.mkv", []byte("bluray stand-in bytes"))
-	blurayStat, err := os.Stat(blurayPath)
-	require.NoError(t, err)
-	importarrCreatesMediaFileFor(t, ctx, c, ns, "westworld-s01e01-abc1234567",
-		commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "westworld-s01e01"},
-		blurayPath, blurayStat.Size(), blurayStat.ModTime(),
-		commonv1.Quality{Name: "Bluray-1080p", Source: commonv1.SourceBluray, Resolution: commonv1.Resolution1080p, Modifier: commonv1.ModifierNone})
-
-	webPath := writeFile(t, dir, "Westworld S01E02.mkv", []byte("web stand-in bytes"))
-	webStat, err := os.Stat(webPath)
-	require.NoError(t, err)
-	importarrCreatesMediaFileFor(t, ctx, c, ns, "westworld-s01e02-def4567890",
-		commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "westworld-s01e02"},
-		webPath, webStat.Size(), webStat.ModTime(),
-		commonv1.Quality{Name: "WEBDL-1080p", Source: commonv1.SourceWebDL, Resolution: commonv1.Resolution1080p, Modifier: commonv1.ModifierNone})
-
-	r := &mediafile.Reconciler{Client: c, Probe: fakeProbe, Catalogue: catalogue.LoadedCatalogue(), Clock: time.Now}
-	for _, name := range []string{"westworld-s01e01-abc1234567", "westworld-s01e02-def4567890"} {
-		if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: name}}); err != nil {
-			t.Fatalf("reconcile %s: %v", name, err)
-		}
-	}
-
-	var ep1 catalogv1alpha1.Episode
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "westworld-s01e01"}, &ep1))
-	assert.True(t, ep1.Status.HasFile)
-	require.NotNil(t, ep1.Status.FileQuality)
-	assert.Equal(t, "Bluray-1080p", ep1.Status.FileQuality.Name)
-	assert.True(t, ep1.Status.CutoffMet)
-	assert.Equal(t, catalogv1alpha1.EpisodePhaseImported, ep1.Status.Phase)
-
-	var ep2 catalogv1alpha1.Episode
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "westworld-s01e02"}, &ep2))
-	assert.True(t, ep2.Status.HasFile)
-	require.NotNil(t, ep2.Status.FileQuality)
-	assert.Equal(t, "WEBDL-1080p", ep2.Status.FileQuality.Name)
-	assert.False(t, ep2.Status.CutoffMet)
-	assert.Equal(t, catalogv1alpha1.EpisodePhaseCutoffUnmet, ep2.Status.Phase)
-}
+// The owning Movie/Episode rollup this controller used to perform lived
+// here as TestReconcileFixtureDrivenMovieRollup and
+// TestReconcileFixtureDrivenEpisodeRollup. Task C13 deleted the rollup
+// itself (see the Reconciler doc comment), so those two tests went with it:
+// the behaviour they covered is the Movie and Episode reconcilers' own, and
+// is proven there by each package's "MediaFile watch rolls up HasFile and
+// reaches Imported or CutoffUnmet" subtest, driven through a real manager
+// and a real watch rather than a direct MediaFile reconcile. What replaces
+// them here is TestMediaFileReconcileDoesNotReleaseOwnerStatus in
+// ownerstatus_envtest_test.go, which asserts the opposite: that a MediaFile
+// reconcile leaves the owning item's status entirely alone.
 
 // skipIfNoFFprobe mirrors pkg/mediainfo/probe_test.go's own unexported
 // helper of the same name -- that one lives in a different package and is

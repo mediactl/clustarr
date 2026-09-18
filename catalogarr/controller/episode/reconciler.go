@@ -272,6 +272,27 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	if !aired {
 		k8s.MarkFalse(ep, &conditions, catalogv1alpha1.EpisodeConditionAired, "Unaired", "air date has not passed yet")
 	}
+	// HasFile and CutoffMet are the other two conditions spec §4.2 lists for
+	// Episode (alongside Aired). Until task C13 their only writer anywhere
+	// was the MediaFile controller's rollupToOwner, which applied them under
+	// this reconciler's own k8s.ManagerCatalogarr and therefore released
+	// observedGeneration and activeDownloadRef on every apply. That rollup
+	// is gone; the conditions move here, to the object's sole status writer.
+	// See the movie package's identical block for the full rationale.
+	if hasFile {
+		k8s.MarkTrue(ep, &conditions, catalogv1alpha1.EpisodeConditionHasFile, "HasFile", "backed by MediaFile %s", ptr.Deref(fileRef, ""))
+	} else {
+		k8s.MarkFalse(ep, &conditions, catalogv1alpha1.EpisodeConditionHasFile, k8s.ReasonPending, "no MediaFile backs this episode")
+	}
+	switch {
+	case !hasFile:
+		k8s.MarkFalse(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, k8s.ReasonPending, "no file to rank against the profile cutoff")
+	case cutoffMet:
+		k8s.MarkTrue(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, "CutoffMet", "file meets the profile cutoff")
+	default:
+		k8s.MarkFalse(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, "CutoffUnmet", "file does not meet the profile cutoff")
+	}
+
 	k8s.MarkReady(ep, &conditions, phase != catalogv1alpha1.EpisodePhaseUnaired || ep.Status.AirDate == nil, k8s.ReasonReconciled, "phase=%s", phase)
 
 	statusAC := catalogac.EpisodeStatus().

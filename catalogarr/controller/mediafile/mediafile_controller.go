@@ -24,7 +24,6 @@ import (
 	"path/filepath"
 	"time"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -45,21 +44,50 @@ import (
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
-	"github.com/mediactl/clustarr/pkg/quality"
-	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
 
 // Reconciler owns 100% of MediaFile.status (see this section's "Resolving
 // the field-manager split") plus, narrowly, spec.sizeBytes/modTime/original
-// after a transcode swap, plus the HasFile/FileRef/FileQuality/
-// FileFormatScore/CutoffMet/Phase rollup on the owning Movie/Episode.
+// after a transcode swap. It writes nothing at all on any other resource.
+//
+// It deliberately does NOT roll the file up onto the owning Movie or
+// Episode, though an earlier revision of this controller did (task C13
+// removed it). Two reasons, in order of severity:
+//
+//  1. It corrupted the owning item. The rollup applied a seven-field
+//     Movie/Episode status -- hasFile, fileRef, fileQuality,
+//     fileFormatScore, cutoffMet, phase, conditions -- under
+//     k8s.ManagerCatalogarr, which is the very field manager the Movie and
+//     Episode reconcilers use for those same objects. Server-side apply
+//     REPLACES a manager's ownership set on every apply instead of merging
+//     it, so each rollup released every other field that manager held:
+//     path, available/availableAt, addOptionsApplied and observedGeneration
+//     deterministically (nothing else writes them), and activeDownloadRef
+//     whenever catalogarr was its sole owner. A movie whose
+//     addOptionsApplied is reset has its addOptions applied a second time;
+//     one whose activeDownloadRef is cleared orphans the in-flight Download
+//     and re-enters the search rotation.
+//  2. It was redundant. Both owning controllers already watch MediaFile
+//     (Watches + k8s.GenerationChanged, which passes creates, deletes and
+//     every spec change -- and §8.4 freezes quality/revision/formatScore/
+//     matchedFormats/releaseType in MediaFileSpec, so a generation bump
+//     covers every input the rollup read) and recompute the same fields
+//     from rollup.PickMediaFile + rollup.FileState on a List. Their version
+//     is strictly better: it clears hasFile when the file is deleted, which
+//     the rollup could never do, and it feeds the file into the full
+//     Phase() ladder instead of unconditionally stamping Imported/
+//     CutoffUnmet over Unmonitored, Pending, Delayed or Downloading.
+//
+// Giving the rollup a field manager of its own was not an option either:
+// server-side apply only keeps two managers from colliding when their field
+// sets are disjoint, and the rollup's set was a strict subset of what
+// movie/episode/reconciler.go's own doc comments claim sole writership of.
 type Reconciler struct {
 	client.Client
-	Scheme    *runtime.Scheme
-	Recorder  record.EventRecorder
-	Probe     ProbeFunc
-	Catalogue *catalogue.Catalogue
-	Clock     func() time.Time
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
+	Probe    ProbeFunc
+	Clock    func() time.Time
 }
 
 // ProbeFunc matches mediainfo.Probe's signature so tests can substitute a
@@ -67,24 +95,24 @@ type Reconciler struct {
 type ProbeFunc func(ctx context.Context, path string) (*commonv1.MediaInfo, *mediainfo.Raw, error)
 
 // NewReconciler builds a Reconciler with production defaults: the real
-// ffprobe-backed Probe, the embedded catalogue and the wall clock.
+// ffprobe-backed Probe and the wall clock.
 func NewReconciler(c client.Client, scheme *runtime.Scheme, recorder record.EventRecorder) *Reconciler {
 	return &Reconciler{
-		Client:    c,
-		Scheme:    scheme,
-		Recorder:  recorder,
-		Probe:     mediainfo.Probe,
-		Catalogue: catalogue.LoadedCatalogue(),
-		Clock:     time.Now,
+		Client:   c,
+		Scheme:   scheme,
+		Recorder: recorder,
+		Probe:    mediainfo.Probe,
+		Clock:    time.Now,
 	}
 }
 
 // Reconcile probes the file at spec.path when it is new or stale (or when a
 // transcode swap has not yet been incorporated), mirrors the result onto
-// status and the catalog.clustarr.io/* labels, folds in any SubtitleRequest
-// sidecars, and rolls the outcome up onto the owning Movie or Episode. It is
-// the sole writer of MediaFileStatus (see the package doc in
-// "Resolving the field-manager split").
+// status and the catalog.clustarr.io/* labels, and folds in any
+// SubtitleRequest sidecars. It is the sole writer of MediaFileStatus (see
+// the package doc in "Resolving the field-manager split") and touches no
+// other resource -- the owning Movie/Episode rollup is theirs to compute
+// from their own MediaFile watch, per the Reconciler doc comment above.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	ctx, span := tracing.Start(ctx, "mediafile.Reconcile")
 	defer span.End()
@@ -221,9 +249,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err := r.rescanSidecars(ctx, &mf); err != nil {
 		return ctrl.Result{}, err
 	}
-	if err := r.rollupToOwner(ctx, &mf); err != nil {
-		return ctrl.Result{}, err
-	}
 
 	return ctrl.Result{}, nil
 }
@@ -346,142 +371,6 @@ func (r *Reconciler) rescanSidecars(ctx context.Context, mf *catalogv1alpha1.Med
 	_, err = k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr,
 		catalogac.MediaFile(mf.Name, mf.Namespace).WithStatus(
 			catalogac.MediaFileStatus().WithObservedGeneration(mf.Generation).WithSidecars(acs...),
-		))
-	return err
-}
-
-// rollupToOwner mirrors mf onto its owning Movie or Episode's
-// HasFile/FileRef/FileQuality/FileFormatScore/CutoffMet/Phase, scoped to
-// those two kinds for this task (see "Scope decision" above). Both are
-// catalog.clustarr.io kinds catalogarr's controller manager already owns
-// phase/conditions on (pkg/k8s's ManagerCatalogarr doc comment), so this
-// reuses the same field manager rather than inventing a third.
-func (r *Reconciler) rollupToOwner(ctx context.Context, mf *catalogv1alpha1.MediaFile) error {
-	profileRef, err := r.ownerQualityProfileRef(ctx, mf)
-	if err != nil && !apierrors.IsNotFound(err) {
-		return err
-	}
-	var profile quality.Profile
-	hasProfile := false
-	if profileRef != "" {
-		var qp catalogv1alpha1.QualityProfile
-		if gerr := r.Get(ctx, types.NamespacedName{Name: profileRef}, &qp); gerr == nil {
-			p, errs := quality.FromCRD(&qp, r.Catalogue)
-			if len(errs) == 0 {
-				profile, hasProfile = p, true
-			}
-		}
-	}
-
-	res := computeRollup(rollupInput{
-		FileRef:     mf.Name,
-		Quality:     mf.Spec.Quality,
-		FormatScore: mf.Spec.FormatScore,
-		Profile:     profile,
-		HasProfile:  hasProfile,
-	})
-
-	switch mf.Spec.MediaRef.Kind {
-	case commonv1.MediaKindMovie:
-		return r.applyMovieRollup(ctx, mf.Namespace, mf.Spec.MediaRef.Name, res)
-	case commonv1.MediaKindEpisode:
-		return r.applyEpisodeRollup(ctx, mf.Namespace, mf.Spec.MediaRef.Name, res)
-	default:
-		return nil // out of scope for this task -- see "Scope decision"
-	}
-}
-
-// ownerQualityProfileRef resolves the QualityProfile a MediaFile's owning
-// item is ranked against: the Movie's own ref, or an Episode's Series' ref
-// (an Episode carries no QualityProfileRef of its own -- confirmed absent
-// from api/catalog/v1alpha1/episode_types.go). A NotFound Get is returned
-// as-is so rollupToOwner can proceed with HasProfile: false rather than
-// failing the reconcile outright; any other error is a hard failure.
-func (r *Reconciler) ownerQualityProfileRef(ctx context.Context, mf *catalogv1alpha1.MediaFile) (string, error) {
-	switch mf.Spec.MediaRef.Kind {
-	case commonv1.MediaKindMovie:
-		var m catalogv1alpha1.Movie
-		if err := r.Get(ctx, types.NamespacedName{Namespace: mf.Namespace, Name: mf.Spec.MediaRef.Name}, &m); err != nil {
-			return "", err
-		}
-		return m.Spec.QualityProfileRef, nil
-	case commonv1.MediaKindEpisode:
-		var ep catalogv1alpha1.Episode
-		if err := r.Get(ctx, types.NamespacedName{Namespace: mf.Namespace, Name: mf.Spec.MediaRef.Name}, &ep); err != nil {
-			return "", err
-		}
-		var series catalogv1alpha1.Series
-		if err := r.Get(ctx, types.NamespacedName{Namespace: mf.Namespace, Name: ep.Spec.SeriesRef}, &series); err != nil {
-			return "", err
-		}
-		return series.Spec.QualityProfileRef, nil
-	default:
-		return "", nil
-	}
-}
-
-// applyMovieRollup mirrors res onto the named Movie's status: HasFile,
-// FileRef, FileQuality, FileFormatScore, CutoffMet, Phase, and the
-// HasFile/CutoffMet conditions. It first Gets the Movie so the conditions it
-// sends are the full current set with only HasFile/CutoffMet touched --
-// conditions is a listType=map owned in full by k8s.ManagerCatalogarr (the
-// Movie controller's own field manager), so an apply carrying only these two
-// entries would otherwise release every condition the Movie controller
-// itself set (Ready, MetadataReady, Available, ...). A Movie that no longer
-// exists is not an error: there is nothing left to roll up onto.
-func (r *Reconciler) applyMovieRollup(ctx context.Context, namespace, name string, res rollupResult) error {
-	var m catalogv1alpha1.Movie
-	if err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &m); err != nil {
-		return client.IgnoreNotFound(err)
-	}
-
-	conditions := append([]metav1.Condition(nil), m.Status.Conditions...)
-	k8s.MarkTrue(&m, &conditions, catalogv1alpha1.MovieConditionHasFile, "HasFile", "backed by MediaFile %s", res.FileRef)
-	if res.CutoffMet {
-		k8s.MarkTrue(&m, &conditions, catalogv1alpha1.MovieConditionCutoffMet, "CutoffMet", "file meets the profile cutoff")
-	} else {
-		k8s.MarkFalse(&m, &conditions, catalogv1alpha1.MovieConditionCutoffMet, "CutoffUnmet", "file does not meet the profile cutoff")
-	}
-
-	_, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr,
-		catalogac.Movie(name, namespace).WithStatus(
-			catalogac.MovieStatus().
-				WithHasFile(res.HasFile).
-				WithFileRef(res.FileRef).
-				WithFileQuality(res.FileQuality).
-				WithFileFormatScore(res.FileFormatScore).
-				WithCutoffMet(res.CutoffMet).
-				WithPhase(moviePhaseForFile(res.CutoffMet)).
-				WithConditions(k8s.ConditionACs(conditions)...),
-		))
-	return err
-}
-
-// applyEpisodeRollup is applyMovieRollup's Episode counterpart.
-func (r *Reconciler) applyEpisodeRollup(ctx context.Context, namespace, name string, res rollupResult) error {
-	var ep catalogv1alpha1.Episode
-	if err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &ep); err != nil {
-		return client.IgnoreNotFound(err)
-	}
-
-	conditions := append([]metav1.Condition(nil), ep.Status.Conditions...)
-	k8s.MarkTrue(&ep, &conditions, catalogv1alpha1.EpisodeConditionHasFile, "HasFile", "backed by MediaFile %s", res.FileRef)
-	if res.CutoffMet {
-		k8s.MarkTrue(&ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, "CutoffMet", "file meets the profile cutoff")
-	} else {
-		k8s.MarkFalse(&ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, "CutoffUnmet", "file does not meet the profile cutoff")
-	}
-
-	_, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr,
-		catalogac.Episode(name, namespace).WithStatus(
-			catalogac.EpisodeStatus().
-				WithHasFile(res.HasFile).
-				WithFileRef(res.FileRef).
-				WithFileQuality(res.FileQuality).
-				WithFileFormatScore(res.FileFormatScore).
-				WithCutoffMet(res.CutoffMet).
-				WithPhase(episodePhaseForFile(res.CutoffMet)).
-				WithConditions(k8s.ConditionACs(conditions)...),
 		))
 	return err
 }

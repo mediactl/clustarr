@@ -308,6 +308,17 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		assert.Equal(t, "the-wire-s01e01-abc1234567", *got.Status.FileRef)
 		assert.Equal(t, catalogv1alpha1.EpisodePhaseImported, got.Status.Phase)
 
+		// Spec §4.2's two file-derived conditions. Task C13 moved them here
+		// from the MediaFile controller's rollup (which was releasing this
+		// manager's other fields on every apply); asserting them on the
+		// WATCH path is what proves deleting that rollup lost nothing.
+		hasFileCond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.EpisodeConditionHasFile)
+		require.NotNil(t, hasFileCond, "the MediaFile watch must raise the HasFile condition")
+		assert.Equal(t, metav1.ConditionTrue, hasFileCond.Status)
+		cutoffCond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.EpisodeConditionCutoffMet)
+		require.NotNil(t, cutoffCond, "the MediaFile watch must raise the CutoffMet condition")
+		assert.Equal(t, metav1.ConditionTrue, cutoffCond.Status)
+
 		// A stricter profile (cutoff at 4k remux) reaches CutoffUnmet instead.
 		var series catalogv1alpha1.Series
 		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "the-wire"}, &series))
@@ -335,6 +346,14 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 			}
 			return got.Status.Phase == catalogv1alpha1.EpisodePhaseCutoffUnmet
 		}, 5*time.Second, 20*time.Millisecond)
+
+		cutoffCond = k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.EpisodeConditionCutoffMet)
+		require.NotNil(t, cutoffCond)
+		assert.Equal(t, metav1.ConditionFalse, cutoffCond.Status, "a file below the cutoff must lower the CutoffMet condition")
+		assert.Equal(t, "CutoffUnmet", cutoffCond.Reason)
+		hasFileCond = k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.EpisodeConditionHasFile)
+		require.NotNil(t, hasFileCond)
+		assert.Equal(t, metav1.ConditionTrue, hasFileCond.Status, "the file is still there, only the profile changed")
 	})
 
 	t.Run("Download watch rolls up Downloading and clears the ref on a terminal phase", func(t *testing.T) {

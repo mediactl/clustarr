@@ -539,6 +539,17 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		assert.Equal(t, "heat-3-abc1234567", *got.Status.FileRef)
 		assert.Equal(t, catalogv1alpha1.MoviePhaseImported, got.Status.Phase)
 
+		// Spec §4.2's two file-derived conditions. Task C13 moved them here
+		// from the MediaFile controller's rollup (which was releasing this
+		// manager's other fields on every apply); asserting them on the
+		// WATCH path is what proves deleting that rollup lost nothing.
+		hasFileCond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.MovieConditionHasFile)
+		require.NotNil(t, hasFileCond, "the MediaFile watch must raise the HasFile condition")
+		assert.Equal(t, metav1.ConditionTrue, hasFileCond.Status)
+		cutoffCond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.MovieConditionCutoffMet)
+		require.NotNil(t, cutoffCond, "the MediaFile watch must raise the CutoffMet condition")
+		assert.Equal(t, metav1.ConditionTrue, cutoffCond.Status)
+
 		// A stricter profile (cutoff at 4k remux) reaches CutoffUnmet instead.
 		// A merge patch, not a Get-mutate-Update, avoids a spurious 409: the
 		// controller may still be actively patching this object's status
@@ -557,6 +568,14 @@ func TestMovieReconcilerRealController(t *testing.T) {
 			}
 			return got.Status.Phase == catalogv1alpha1.MoviePhaseCutoffUnmet
 		}, 5*time.Second, 20*time.Millisecond)
+
+		cutoffCond = k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.MovieConditionCutoffMet)
+		require.NotNil(t, cutoffCond)
+		assert.Equal(t, metav1.ConditionFalse, cutoffCond.Status, "a file below the cutoff must lower the CutoffMet condition")
+		assert.Equal(t, "CutoffUnmet", cutoffCond.Reason)
+		hasFileCond = k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.MovieConditionHasFile)
+		require.NotNil(t, hasFileCond)
+		assert.Equal(t, metav1.ConditionTrue, hasFileCond.Status, "the file is still there, only the profile changed")
 	})
 
 	// A watched Download rolls up Phase=Downloading and clears
