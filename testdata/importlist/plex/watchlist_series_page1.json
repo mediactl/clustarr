@@ -1,0 +1,9 @@
+{
+  "MediaContainer": {
+    "size": 1,
+    "Metadata": [
+      { "ratingKey": "5d7768926f4521001eaa9d5d", "guid": "plex://show/5d7768926f4521001eaa9d5d", "type": "show", "title": "Breaking Bad", "year": 2008,
+        "Guid": [ { "id": "imdb://tt0903747" }, { "id": "tvdb://81189" } ] }
+    ]
+  }
+}

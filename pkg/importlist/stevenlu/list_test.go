@@ -47,3 +47,17 @@ func TestFetchParsesPopularMovies(t *testing.T) {
 	assert.Equal(t, "Dune", items[0].Title)
 	assert.Equal(t, "tt1160419", items[0].ExternalIDs.IMDb)
 }
+
+func TestFetchUnexpectedStatusReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	l := stevenlu.New("stevenlu-popular", stevenlu.WithBaseURL(srv.URL))
+
+	items, err := l.Fetch(t.Context())
+	require.Error(t, err)
+	assert.Nil(t, items)
+	assert.Contains(t, err.Error(), "500")
+}

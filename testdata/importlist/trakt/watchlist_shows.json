@@ -1,0 +1,14 @@
+[
+  {
+    "rank": 1,
+    "id": 456,
+    "listed_at": "2026-08-01T12:00:00Z",
+    "notes": null,
+    "type": "show",
+    "show": {
+      "title": "Breaking Bad",
+      "year": 2008,
+      "ids": { "trakt": 1388, "slug": "breaking-bad", "tvdb": 81189, "imdb": "tt0903747", "tmdb": 1396 }
+    }
+  }
+]

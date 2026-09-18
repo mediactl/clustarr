@@ -44,3 +44,18 @@ func TestFetchGETsURLThenParses(t *testing.T) {
 	require.Len(t, items, 1)
 	assert.Equal(t, "The Matrix", items[0].Title)
 }
+
+func TestFetchUnexpectedStatusReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	l, err := imdbcsv.New("imdb-watchlist", commonv1.MediaKindMovie, importlist.ImdbCSVConfig{URL: srv.URL})
+	require.NoError(t, err)
+
+	items, err := l.Fetch(t.Context())
+	require.Error(t, err)
+	assert.Nil(t, items)
+	assert.Contains(t, err.Error(), "500")
+}

@@ -103,3 +103,27 @@ func TestFetchRefreshesTokenOnceOn401(t *testing.T) {
 	tok, _, _ := store.Load(t.Context())
 	assert.NotEqual(t, "stale", tok.AccessToken)
 }
+
+func TestFetchWatchlistShows(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/users/nbatkins/watchlist/shows", r.URL.Path)
+		_, _ = w.Write(mustReadFile(t, "../../../testdata/importlist/trakt/watchlist_shows.json"))
+	}))
+	defer srv.Close()
+
+	store := importlist.NewMemoryTokenStore()
+	require.NoError(t, store.Save(t.Context(), importlist.Token{AccessToken: "access-tok", ExpiresAt: farFuture(t)}))
+
+	l, err := trakt.New("trakt-watchlist-shows", commonv1.MediaKindSeries,
+		importlist.TraktConfig{ListType: importlist.TraktListTypeWatchlist, Username: "nbatkins"},
+		trakt.Credentials{ClientID: "cid", ClientSecret: "secret"}, store, nil, trakt.WithBaseURL(srv.URL))
+	require.NoError(t, err)
+
+	items, err := l.Fetch(t.Context())
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, "Breaking Bad", items[0].Title)
+	assert.Equal(t, int32(2008), items[0].Year)
+	assert.Equal(t, "tt0903747", items[0].ExternalIDs.IMDb)
+	assert.Equal(t, "81189", items[0].ExternalIDs.TVDB)
+}

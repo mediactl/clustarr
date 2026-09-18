@@ -51,3 +51,39 @@ func TestFetchFiltersByMediaType(t *testing.T) {
 	assert.Equal(t, "tt0133093", items[0].ExternalIDs.IMDb)
 	assert.Equal(t, "603", items[0].ExternalIDs.TMDB)
 }
+
+func TestFetchFiltersByMediaTypeSeries(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, err := os.ReadFile("../../../testdata/importlist/mdblist/items.json")
+		require.NoError(t, err)
+		_, _ = w.Write(b)
+	}))
+	defer srv.Close()
+
+	l, err := mdblist.New("mdblist-top-shows", commonv1.MediaKindSeries,
+		importlist.MdblistConfig{URL: srv.URL + "/lists/1/items"}, "key123")
+	require.NoError(t, err)
+
+	items, err := l.Fetch(t.Context())
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, "Breaking Bad", items[0].Title)
+	assert.Equal(t, "tt0903747", items[0].ExternalIDs.IMDb)
+	assert.Equal(t, "81189", items[0].ExternalIDs.TVDB)
+}
+
+func TestFetchUnexpectedStatusReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	l, err := mdblist.New("mdblist-top", commonv1.MediaKindMovie,
+		importlist.MdblistConfig{URL: srv.URL + "/lists/1/items"}, "key123")
+	require.NoError(t, err)
+
+	items, err := l.Fetch(t.Context())
+	require.Error(t, err)
+	assert.Nil(t, items)
+	assert.Contains(t, err.Error(), "500")
+}

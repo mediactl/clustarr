@@ -60,3 +60,38 @@ func TestFetchPagesUntilAShortPage(t *testing.T) {
 	assert.Equal(t, "438631", items[0].ExternalIDs.TMDB)
 	assert.Equal(t, 2, requests) // stops once a page comes back shorter than the page size
 }
+
+func TestFetchSeriesUsesTypeFilter2(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "2", r.URL.Query().Get("type"))
+		b, err := os.ReadFile("../../../testdata/importlist/plex/watchlist_series_page1.json")
+		require.NoError(t, err)
+		_, _ = w.Write(b)
+	}))
+	defer srv.Close()
+
+	w, err := plex.New("plex-watchlist-series", commonv1.MediaKindSeries, "tok", "client-1", plex.WithBaseURL(srv.URL))
+	require.NoError(t, err)
+
+	items, err := w.Fetch(t.Context())
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, "Breaking Bad", items[0].Title)
+	assert.Equal(t, "tt0903747", items[0].ExternalIDs.IMDb)
+	assert.Equal(t, "81189", items[0].ExternalIDs.TVDB)
+}
+
+func TestFetchUnexpectedStatusReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	w, err := plex.New("plex-watchlist", commonv1.MediaKindMovie, "tok", "client-1", plex.WithBaseURL(srv.URL))
+	require.NoError(t, err)
+
+	items, err := w.Fetch(t.Context())
+	require.Error(t, err)
+	assert.Nil(t, items)
+	assert.Contains(t, err.Error(), "500")
+}
