@@ -100,6 +100,13 @@ type AudioStream struct {
 	// +optional
 	Channels int32 `json:"channels,omitempty"`
 
+	// ChannelLayout is ffprobe's channel_layout string, e.g. "5.1(side)" or
+	// "6.1". The bare Channels count cannot distinguish 2.1 from 3.0, or 6.1
+	// from 7.0, so a renderer that needs the real layout reads this instead.
+	// +kubebuilder:validation:MaxLength=32
+	// +optional
+	ChannelLayout string `json:"channelLayout,omitempty"`
+
 	// BitrateKbps is the track bitrate in kilobits per second.
 	// +optional
 	BitrateKbps int32 `json:"bitrateKbps,omitempty"`

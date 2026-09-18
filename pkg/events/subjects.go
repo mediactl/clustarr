@@ -93,6 +93,7 @@ const (
 const (
 	BucketLeases           = "clustarr-leases"
 	BucketPending          = "clustarr-pending"
+	BucketImportExclusions = "clustarr-import-exclusions"
 	BucketIndexerSessions  = "clustarr-indexer-sessions"
 	BucketIndexerLimits    = "clustarr-indexer-limits"
 	BucketProviderThrottle = "clustarr-provider-throttle"
@@ -338,6 +339,11 @@ func LeaseKey(mediaKey string) string { return "grab." + kvTok(mediaKey) }
 // PendingKey builds the clustarr-pending key holding the best candidate so
 // far for a media key.
 func PendingKey(mediaKey string) string { return "grab." + kvTok(mediaKey) }
+
+// ExclusionKey is the clustarr-import-exclusions key for one exclusion. The
+// import-list and search paths consult this bucket rather than listing
+// ImportExclusion resources on every candidate, which would not scale.
+func ExclusionKey(source, id string) string { return kvTok(source) + "." + kvTok(id) }
 
 // MsgIDForObject builds the deduplication ID for a task derived from a custom
 // resource: "<uid>:<generation>:<task>". Republishing the same generation of

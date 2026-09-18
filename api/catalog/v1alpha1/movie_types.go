@@ -83,7 +83,7 @@ const (
 
 // MovieAddMethod records how the movie entered the catalog.
 //
-// +kubebuilder:validation:Enum=manual;list;collection
+// +kubebuilder:validation:Enum=manual;list;collection;scan
 type MovieAddMethod string
 
 // Movie add methods.
@@ -91,6 +91,9 @@ const (
 	MovieAddMethodManual     MovieAddMethod = "manual"
 	MovieAddMethodList       MovieAddMethod = "list"
 	MovieAddMethodCollection MovieAddMethod = "collection"
+	// MovieAddMethodScan marks a movie importarr discovered by scanning a root
+	// folder. It is deliberately distinct from manual: nobody added it by hand.
+	MovieAddMethodScan MovieAddMethod = "scan"
 )
 
 // MovieAddOptions are applied exactly once, when the movie is first reconciled;

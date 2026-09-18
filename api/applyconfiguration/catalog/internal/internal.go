@@ -3366,6 +3366,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: bitrateKbps
       type:
         scalar: numeric
+    - name: channelLayout
+      type:
+        scalar: string
     - name: channels
       type:
         scalar: numeric

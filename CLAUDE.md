@@ -43,10 +43,19 @@ Bazarr logic verbatim — keep the header on every file).
 
 ## Invariants — do not break these
 
-- **One controller-writer per resource.** The sole exception is `MediaFile`:
-  `importarr` owns what it observed (`status.file`, `status.probe`), `catalogarr`
-  owns what it decided (`status.quality`, `status.formatScore`, conditions).
-  Split by field manager on disjoint fields.
+- **One controller-writer per resource.** The sole exception is `MediaFile`, and
+  the split is **spec versus status**, not status versus status: `importarr`
+  creates the resource and owns `MediaFileSpec` (the observed path, size and
+  fingerprint, plus the quality, revision, formatScore, matchedFormats and
+  releaseType frozen at import); `catalogarr` is the sole writer of all of
+  `MediaFileStatus`, and additionally takes over `spec.sizeBytes`,
+  `spec.modTime` and `spec.original` once it incorporates a transcode swap.
+  Both write with their own field manager, so the apiserver enforces the split
+  rather than convention. (Until Phase C this file claimed `importarr` owned
+  `status.file`/`status.probe` and `catalogarr` `status.quality`/
+  `status.formatScore`. No such fields exist — `MediaFileStatus` is flat and
+  the decided fields are spec, frozen at import per spec §8.4. Nothing had
+  reconciled yet, so no code ever contradicted the claim.)
 - **All status writes go through `pkg/k8s.PatchStatus`** (server-side apply with a
   named field manager). `.Status().Update()` and `.Status().Patch()` are banned
   outside `pkg/k8s` and golangci-lint's forbidigo rule enforces it.

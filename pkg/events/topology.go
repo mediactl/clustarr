@@ -548,6 +548,7 @@ func defaultBuckets() []BucketSpec {
 	return []BucketSpec{
 		b(BucketLeases, 0, "Double-grab guard; keys are created, never put."),
 		b(BucketPending, 7*24*time.Hour, "Best pending candidate per media key."),
+		b(BucketImportExclusions, 0, "Exclusions the list and search paths consult; durable."),
 		b(BucketIndexerSessions, 30*24*time.Hour, "Cardigann cookies and JWTs."),
 		b(BucketIndexerLimits, 2*24*time.Hour, "Query and grab timestamp rings."),
 		b(BucketProviderThrottle, 24*time.Hour, "Subtitle provider throttle table."),

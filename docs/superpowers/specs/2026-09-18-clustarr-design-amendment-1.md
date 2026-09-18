@@ -76,6 +76,24 @@ within a service and now permits across these two:
 Both write through `pkg/k8s.PatchStatus` with their own field manager, so the
 apiserver enforces the split instead of convention.
 
+> **Erratum (2026-09-18, Phase C).** The two bullets above describe fields that
+> were never shipped. `MediaFileStatus` is flat — `observedGeneration`,
+> `conditions`, `probeHash`, `probedAt`, `mediaInfo`, `sidecars`, `transcode` —
+> with no `file` and no `probe`; and `quality`, `formatScore`, `revision`,
+> `releaseType`, `matchedFormats` and `profileHash` are all **spec** fields,
+> frozen at import, exactly as the base design's §8.4 says. The error survived
+> from Phase A because nothing reconciled yet, so no code ever tried to write
+> the named fields.
+>
+> The intent stands and the discipline is unchanged; only the boundary moves.
+> The real split is **spec versus status**: `importarr` creates the resource and
+> owns `MediaFileSpec`; `catalogarr` is the sole writer of all of
+> `MediaFileStatus`, and takes over `spec.sizeBytes`, `spec.modTime` and
+> `spec.original` once it incorporates a transcode swap (those fields' own doc
+> comments and §8.5). Both still write with their own field manager, and the
+> two-writer envtest this amendment demands still gates it — against the real
+> split.
+
 ### A1.4 New kind: LibraryScan
 
 A short-lived resource, like `Search`, so a scan is observable with `kubectl` and
@@ -252,6 +270,7 @@ Naming follows the Prometheus conventions: `clustarr_` prefix, base units
 | `clustarr_indexer_queries_total` | counter | `indexer`, `outcome` | Failures, rate limits and bans |
 | `clustarr_indexer_releases_returned` | histogram | `indexer` | Whether an indexer is actually useful |
 | `clustarr_search_decisions_total` | counter | `kind`, `decision`, `reason` | Why releases are rejected, the top support question |
+| `clustarr_metadata_cache_hits_total` | counter | `tier`, `outcome` | Whether the gateway is actually sparing the providers (added in Phase C) |
 | `clustarr_transcode_jobs_active` | gauge | `tier` | CPU versus GPU occupancy |
 | `clustarr_transcode_duration_seconds` | histogram | `tier`, `resolution`, `outcome` | Encode cost per class of file |
 | `clustarr_transcode_speed_ratio` | gauge | `tier` | Encode speed against real time |

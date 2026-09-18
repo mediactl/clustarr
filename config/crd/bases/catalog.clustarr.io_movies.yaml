@@ -81,6 +81,7 @@ spec:
                     - manual
                     - list
                     - collection
+                    - scan
                     type: string
                   monitor:
                     default: movieOnly

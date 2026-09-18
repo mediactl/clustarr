@@ -43,8 +43,10 @@ const (
 	ManagerImportarr FieldManager = "importarr"
 
 	// ManagerImportarrWorker is an importarr scan, list or file-import worker. On
-	// MediaFile it applies status.file and status.probe only: what it observed,
-	// never what catalogarr decided.
+	// MediaFile it applies MediaFileSpec only -- what it observed on disk, plus
+	// the values frozen at import -- and never MediaFileStatus, which catalogarr
+	// owns in full. (This comment previously described a status.file/status.probe
+	// split; those fields do not exist. See CLAUDE.md's invariant.)
 	ManagerImportarrWorker FieldManager = "importarr-worker"
 
 	// ManagerIndexarr is the indexarr manager, the single writer for

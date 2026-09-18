@@ -161,6 +161,14 @@ var (
 		"Total release search decisions, by kind, decision and reason.",
 		"kind", "decision", "reason",
 	)
+
+	// MetadataCacheHitsTotal counts metadata gateway cache lookups. The tier
+	// is the whole cardinality budget: never label this by title or id.
+	MetadataCacheHitsTotal = newCounterVec(
+		"clustarr_metadata_cache_hits_total",
+		"Total metadata cache lookups, by tier and outcome.",
+		"tier", "outcome",
+	)
 )
 
 // Transcode telemetry, used by squasharr.

@@ -354,6 +354,13 @@ spec:
                                 per second.
                               format: int32
                               type: integer
+                            channelLayout:
+                              description: |-
+                                ChannelLayout is ffprobe's channel_layout string, e.g. "5.1(side)" or
+                                "6.1". The bare Channels count cannot distinguish 2.1 from 3.0, or 6.1
+                                from 7.0, so a renderer that needs the real layout reads this instead.
+                              maxLength: 32
+                              type: string
                             channels:
                               description: Channels is the channel count (2 = stereo,
                                 6 = 5.1, 8 = 7.1).

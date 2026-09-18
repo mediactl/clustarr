@@ -41,6 +41,7 @@ var wantSeries = []string{
 	"clustarr_indexer_queries_total",
 	"clustarr_indexer_releases_returned",
 	"clustarr_search_decisions_total",
+	"clustarr_metadata_cache_hits_total",
 	"clustarr_transcode_jobs_active",
 	"clustarr_transcode_duration_seconds",
 	"clustarr_transcode_speed_ratio",
@@ -105,8 +106,10 @@ func allDescs(t *testing.T) []*prometheus.Desc {
 	return descs
 }
 
-// TestCatalogueMatchesTheAmendmentTable is the shape test: exactly the 21
-// series the amendment tables, by name, no more and no fewer.
+// TestCatalogueMatchesTheAmendmentTable is the shape test: exactly the
+// series the amendment tables, by name, no more and no fewer. The count is
+// taken from wantSeries rather than hard-coded, so adding a series means
+// updating the amendment table and this list together -- which is the point.
 func TestCatalogueMatchesTheAmendmentTable(t *testing.T) {
 	descs := allDescs(t)
 	require.Len(t, descs, len(wantSeries), "amendment §A2.3 tables %d series", len(wantSeries))

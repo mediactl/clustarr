@@ -23,6 +23,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // a dependency nobody can account for.
 //
 // Remaining after Phase B (2026-09-18): mimetype (Phase C file classification),
+// and cron, pre-added here for Phase C Tasks C9 and C10.
 // sprig (Phase G, if the Cardigann template surface needs it), x/net/proxy
 // (Phase G IndexerProxy SOCKS dialing). Prune each when its importer lands.
 package deps
