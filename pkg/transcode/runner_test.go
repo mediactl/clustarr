@@ -168,6 +168,80 @@ func TestRunDrainsStdoutToEOFBeforeWaitSoTheFinalProgressBlockSurvives(t *testin
 	require.Equal(t, int32(100), last.Percent)
 }
 
+// TestRunRemovesThePartialOutputOnFailureOrCancellationButNotOnSuccess
+// covers the controller ruling that Run owns the .part.<ext> file it
+// writes: it must remove it on any failure or cancellation before
+// returning, but a successful run leaves it in place for the caller's
+// atomic replace (see PlanResult.Output's doc comment).
+func TestRunRemovesThePartialOutputOnFailureOrCancellationButNotOnSuccess(t *testing.T) {
+	if _, err := os.Stat("/usr/bin/ffmpeg"); err != nil {
+		t.Skip("ffmpeg not present on this box")
+	}
+
+	t.Run("cancellation removes the .part file", func(t *testing.T) {
+		r := transcode.NewRunner("/usr/bin/ffmpeg")
+		r.CancelGrace = 200 * time.Millisecond
+		output := filepath.Join(t.TempDir(), "cancel.part.mkv")
+		plan := &transcode.PlanResult{
+			Decision:  transcode.DecisionEncode,
+			Output:    output,
+			Container: transcode.ContainerMKV,
+			HWInit:    []string{"-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=24:duration=10"},
+			VideoArgs: []string{"-c:v", "libx265", "-preset", "veryslow", "-crf", "30"},
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+		defer cancel()
+
+		err := r.Run(ctx, plan, func(transcode.Progress) {})
+		require.Error(t, err)
+		require.NoFileExists(t, output)
+	})
+
+	t.Run("a non-zero exit removes a pre-existing .part file", func(t *testing.T) {
+		r := transcode.NewRunner("/usr/bin/ffmpeg")
+		output := filepath.Join(t.TempDir(), "fail.part.mkv")
+		// Simulate a stale partial file left behind by an earlier attempt,
+		// so removal is actually exercised regardless of whether this
+		// particular ffmpeg invocation manages to create the file itself
+		// (it fails fast, before opening an output, since Input does not
+		// exist).
+		require.NoError(t, os.WriteFile(output, []byte("stale partial data"), 0o644))
+		plan := &transcode.PlanResult{
+			Decision:  transcode.DecisionEncode,
+			Input:     "/nonexistent/does-not-exist.mkv",
+			Output:    output,
+			Container: transcode.ContainerMKV,
+			VideoArgs: []string{"-c:v", "copy"},
+		}
+
+		err := r.Run(context.Background(), plan, func(transcode.Progress) {})
+		require.Error(t, err)
+		require.NoFileExists(t, output)
+	})
+
+	t.Run("success leaves the output in place", func(t *testing.T) {
+		dir := t.TempDir()
+		src := filepath.Join(dir, "src.mkv")
+		gen := exec.Command("/usr/bin/ffmpeg", "-hide_banner", "-y",
+			"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=1",
+			"-c:v", "libx264", "-pix_fmt", "yuv420p", src)
+		require.NoError(t, gen.Run())
+
+		output := filepath.Join(dir, "out.part.mkv")
+		plan := &transcode.PlanResult{
+			Decision:  transcode.DecisionEncode,
+			Input:     src,
+			Output:    output,
+			Container: transcode.ContainerMKV,
+			VideoArgs: []string{"-c:v", "libx265", "-preset", "ultrafast", "-crf", "40"},
+		}
+		r := transcode.NewRunner("/usr/bin/ffmpeg")
+		err := r.Run(context.Background(), plan, func(transcode.Progress) {})
+		require.NoError(t, err)
+		require.FileExists(t, output)
+	})
+}
+
 func TestRunEndToEndEncodesAGeneratedClipAndEmitsProgress(t *testing.T) {
 	if _, err := os.Stat("/usr/bin/ffmpeg"); err != nil {
 		t.Skip("ffmpeg not present on this box")

@@ -20,8 +20,11 @@ package transcode
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"math"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -275,6 +278,7 @@ func (r Runner) Run(ctx context.Context, plan *PlanResult, progress func(Progres
 			cancelErr := fmt.Errorf("transcode: run: %w", ctx.Err())
 			tracing.RecordError(span, cancelErr)
 			logger.Info("transcode: ffmpeg run cancelled", "error", cancelErr, "progress", last)
+			removePartialOutput(logger, plan.Output)
 			return cancelErr
 		}
 
@@ -292,9 +296,26 @@ func (r Runner) Run(ctx context.Context, plan *PlanResult, progress func(Progres
 		runErr := &RunError{ExitCode: exitCode, StderrTail: tail.String(), Err: cause}
 		tracing.RecordError(span, runErr)
 		logger.Error("transcode: ffmpeg run failed", "error", runErr, "exitCode", exitCode, "progress", last)
+		removePartialOutput(logger, plan.Output)
 		return runErr
 	}
 
 	logger.Info("transcode: ffmpeg run complete", "progress", last)
 	return nil
+}
+
+// removePartialOutput deletes the .part.<ext> file Run was writing, on any
+// failure or cancellation -- Run owns that file for its own lifetime; only
+// a successful run's Output is handed to the caller, which atomically
+// replaces the source with it (see PlanResult.Output's doc comment).
+// Best-effort: a missing file is not an error, and a removal failure is
+// logged rather than returned, since it must never shadow the real Run
+// error.
+func removePartialOutput(logger *slog.Logger, output string) {
+	if output == "" {
+		return
+	}
+	if err := os.Remove(output); err != nil && !errors.Is(err, os.ErrNotExist) {
+		logger.Warn("transcode: failed to remove partial output after a failed run", "path", output, "error", err)
+	}
 }

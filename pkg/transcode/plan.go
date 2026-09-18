@@ -100,7 +100,7 @@ type PlanResult struct {
 	Tier        Tier
 	Container   Container
 	Input       string
-	Output      string // "<stem>.part.<ext>"; caller verifies then atomically replaces the source (pkg/fsops, outside this package)
+	Output      string // "<stem>.part.<ext>"; Runner.Run owns this file for its own run and removes it on any failure or cancellation -- only a successful run hands it to the caller, which verifies then atomically replaces the source (pkg/fsops, outside this package)
 	HWInit      []string
 	Maps        []string
 	Filters     []string
