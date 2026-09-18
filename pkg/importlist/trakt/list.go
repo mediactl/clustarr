@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/importlist"
@@ -87,14 +86,14 @@ func (l *List) path() (string, error) {
 	}
 }
 
-func (l *List) doFetch(ctx context.Context, accessToken string) (*http.Response, []traktEntry, error) {
+func (l *List) doFetch(ctx context.Context, accessToken string) (*http.Response, []traktEntry, []byte, error) {
 	p, err := l.path()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, l.opts.baseURL+p+"?extended=full", nil)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("trakt-api-version", "2")
@@ -103,8 +102,8 @@ func (l *List) doFetch(ctx context.Context, accessToken string) (*http.Response,
 		req.Header.Set("Authorization", "Bearer "+accessToken)
 	}
 	var out []traktEntry
-	resp, err := doJSON(ctx, l.opts.client, req, &out)
-	return resp, out, err
+	resp, body, err := doJSON(ctx, l.opts.client, req, &out)
+	return resp, out, body, err
 }
 
 // Fetch implements importlist.ImportList. It refreshes the stored token and
@@ -118,7 +117,7 @@ func (l *List) Fetch(ctx context.Context) ([]importlist.Item, error) {
 		tracing.RecordError(span, err)
 		return nil, err
 	}
-	resp, entries, err := l.doFetch(ctx, tok.AccessToken)
+	resp, entries, body, err := l.doFetch(ctx, tok.AccessToken)
 	if err != nil {
 		tracing.RecordError(span, err)
 		return nil, err
@@ -134,14 +133,14 @@ func (l *List) Fetch(ctx context.Context) ([]importlist.Item, error) {
 			tracing.RecordError(span, err)
 			return nil, err
 		}
-		resp, entries, err = l.doFetch(ctx, refreshed.AccessToken)
+		resp, entries, body, err = l.doFetch(ctx, refreshed.AccessToken)
 		if err != nil {
 			tracing.RecordError(span, err)
 			return nil, err
 		}
 	}
 	if resp.StatusCode != http.StatusOK {
-		err := &APIError{StatusCode: resp.StatusCode}
+		err := &APIError{StatusCode: resp.StatusCode, Body: string(body)}
 		tracing.RecordError(span, err)
 		return nil, err
 	}
@@ -160,22 +159,12 @@ func (l *List) Fetch(ctx context.Context) ([]importlist.Item, error) {
 			Year:  m.Year,
 			ExternalIDs: importlist.ExternalIDs{
 				IMDb: m.IDs.Imdb,
-				TMDB: nonZero(m.IDs.Tmdb),
-				TVDB: nonZero(m.IDs.Tvdb),
+				TMDB: importlist.NonZeroString(m.IDs.Tmdb),
+				TVDB: importlist.NonZeroString(m.IDs.Tvdb),
 			},
 		})
 	}
 	return items, nil
-}
-
-// nonZero renders n as a string, or "" when n is the zero value -- Trakt
-// omits an ID field entirely rather than sending it as null, but the
-// generated struct still decodes a missing field to the Go zero value.
-func nonZero(n int) string {
-	if n == 0 {
-		return ""
-	}
-	return strconv.Itoa(n)
 }
 
 type traktIDs struct {

@@ -110,6 +110,14 @@ func TestDeviceFlowRefresh(t *testing.T) {
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
 		assert.Equal(t, "refresh_token", body["grant_type"])
 		assert.Equal(t, "old-refresh", body["refresh_token"])
+		// docs/research/metadata.md §3.1 documents the refresh body as
+		// {refresh_token, client_id, client_secret, redirect_uri,
+		// grant_type}, but names no literal redirect_uri for the device
+		// flow (only the *arr's browser-redirect value, which Clustarr's
+		// device flow does not use). trakt.DeviceFlow sends the IETF
+		// out-of-band placeholder, the conventional redirect_uri for a
+		// device/PIN flow that has no browser to redirect.
+		assert.Equal(t, "urn:ietf:wg:oauth:2.0:oob", body["redirect_uri"])
 		_, _ = w.Write(mustReadFile(t, "../../../testdata/importlist/trakt/token_refresh.json"))
 	}))
 	defer srv.Close()
@@ -119,4 +127,23 @@ func TestDeviceFlowRefresh(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "e58479e1a76e3b1d2e9b06d7c2e40c0e9c5a4b1d3d9db32d1e97f8e5e2e07c1f", tok.AccessToken)
 	assert.NotEqual(t, "old-refresh", tok.RefreshToken) // Trakt refresh tokens are single-use
+}
+
+func TestDeviceFlowPollUnmappedStatusReturnsAPIErrorWithBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":"internal_server_error"}`))
+	}))
+	defer srv.Close()
+
+	flow := trakt.NewDeviceFlow(trakt.Credentials{}, trakt.WithBaseURL(srv.URL))
+	status, tok, err := flow.Poll(t.Context(), trakt.DeviceCode{DeviceCode: "x"})
+
+	require.Error(t, err)
+	assert.Empty(t, status)
+	assert.Zero(t, tok)
+	var apiErr *trakt.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusInternalServerError, apiErr.StatusCode)
+	assert.Contains(t, apiErr.Body, "internal_server_error")
 }

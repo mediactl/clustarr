@@ -54,6 +54,18 @@ const (
 // constant for 418.
 const deniedStatusCode = 418
 
+// deviceFlowRedirectURI is sent as redirect_uri on the token refresh
+// exchange. docs/research/metadata.md §3.1 (the verified source) documents
+// the refresh body as {refresh_token, client_id, client_secret,
+// redirect_uri, grant_type}, but states no literal value for the device
+// flow -- the only redirect_uri it names is the *arr's browser-redirect
+// value (https://auth.servarr.com/v1/trakt/auth), which does not apply
+// here since the whole point of the device flow, per that same section, is
+// that a cluster service has no browser to redirect. This is the IETF
+// out-of-band placeholder, the standard redirect_uri OAuth device/PIN
+// flows send when there is no redirect target.
+const deviceFlowRedirectURI = "urn:ietf:wg:oauth:2.0:oob"
+
 // DeviceCode is the result of DeviceFlow.Start: the code the user enters at
 // VerificationURL, and the code this flow polls with.
 type DeviceCode struct {
@@ -84,12 +96,12 @@ func (f *DeviceFlow) Start(ctx context.Context) (DeviceCode, error) {
 	ctx, span := tracing.Start(ctx, "importlist.trakt.device.start")
 	defer span.End()
 
-	body, err := json.Marshal(map[string]string{"client_id": f.creds.ClientID})
+	reqBody, err := json.Marshal(map[string]string{"client_id": f.creds.ClientID})
 	if err != nil {
 		tracing.RecordError(span, err)
 		return DeviceCode{}, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, f.opts.baseURL+"/oauth/device/code", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, f.opts.baseURL+"/oauth/device/code", bytes.NewReader(reqBody))
 	if err != nil {
 		tracing.RecordError(span, err)
 		return DeviceCode{}, err
@@ -103,13 +115,13 @@ func (f *DeviceFlow) Start(ctx context.Context) (DeviceCode, error) {
 		ExpiresIn       int64  `json:"expires_in"`
 		Interval        int64  `json:"interval"`
 	}
-	resp, err := doJSON(ctx, f.opts.client, req, &out)
+	resp, respBody, err := doJSON(ctx, f.opts.client, req, &out)
 	if err != nil {
 		tracing.RecordError(span, err)
 		return DeviceCode{}, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		err := &APIError{StatusCode: resp.StatusCode}
+		err := &APIError{StatusCode: resp.StatusCode, Body: string(respBody)}
 		tracing.RecordError(span, err)
 		return DeviceCode{}, err
 	}
@@ -130,14 +142,14 @@ func (f *DeviceFlow) Poll(ctx context.Context, dc DeviceCode) (PollStatus, impor
 	ctx, span := tracing.Start(ctx, "importlist.trakt.device.poll")
 	defer span.End()
 
-	body, err := json.Marshal(map[string]string{
+	reqBody, err := json.Marshal(map[string]string{
 		"code": dc.DeviceCode, "client_id": f.creds.ClientID, "client_secret": f.creds.ClientSecret,
 	})
 	if err != nil {
 		tracing.RecordError(span, err)
 		return "", importlist.Token{}, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, f.opts.baseURL+"/oauth/device/token", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, f.opts.baseURL+"/oauth/device/token", bytes.NewReader(reqBody))
 	if err != nil {
 		tracing.RecordError(span, err)
 		return "", importlist.Token{}, err
@@ -145,7 +157,7 @@ func (f *DeviceFlow) Poll(ctx context.Context, dc DeviceCode) (PollStatus, impor
 	req.Header.Set("Content-Type", "application/json")
 
 	var out traktTokenResponse
-	resp, err := doJSON(ctx, f.opts.client, req, &out)
+	resp, respBody, err := doJSON(ctx, f.opts.client, req, &out)
 	if err != nil {
 		tracing.RecordError(span, err)
 		return "", importlist.Token{}, err
@@ -166,7 +178,7 @@ func (f *DeviceFlow) Poll(ctx context.Context, dc DeviceCode) (PollStatus, impor
 	case http.StatusTooManyRequests:
 		return PollStatusSlowDown, importlist.Token{}, nil
 	default:
-		err := &APIError{StatusCode: resp.StatusCode}
+		err := &APIError{StatusCode: resp.StatusCode, Body: string(respBody)}
 		tracing.RecordError(span, err)
 		return "", importlist.Token{}, err
 	}
@@ -180,15 +192,16 @@ func (f *DeviceFlow) Refresh(ctx context.Context, refreshToken string) (importli
 	ctx, span := tracing.Start(ctx, "importlist.trakt.device.refresh")
 	defer span.End()
 
-	body, err := json.Marshal(map[string]string{
+	reqBody, err := json.Marshal(map[string]string{
 		"refresh_token": refreshToken, "client_id": f.creds.ClientID,
-		"client_secret": f.creds.ClientSecret, "grant_type": "refresh_token",
+		"client_secret": f.creds.ClientSecret, "redirect_uri": deviceFlowRedirectURI,
+		"grant_type": "refresh_token",
 	})
 	if err != nil {
 		tracing.RecordError(span, err)
 		return importlist.Token{}, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, f.opts.baseURL+"/oauth/token", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, f.opts.baseURL+"/oauth/token", bytes.NewReader(reqBody))
 	if err != nil {
 		tracing.RecordError(span, err)
 		return importlist.Token{}, err
@@ -196,13 +209,13 @@ func (f *DeviceFlow) Refresh(ctx context.Context, refreshToken string) (importli
 	req.Header.Set("Content-Type", "application/json")
 
 	var out traktTokenResponse
-	resp, err := doJSON(ctx, f.opts.client, req, &out)
+	resp, respBody, err := doJSON(ctx, f.opts.client, req, &out)
 	if err != nil {
 		tracing.RecordError(span, err)
 		return importlist.Token{}, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		err := &APIError{StatusCode: resp.StatusCode}
+		err := &APIError{StatusCode: resp.StatusCode, Body: string(respBody)}
 		tracing.RecordError(span, err)
 		return importlist.Token{}, err
 	}
