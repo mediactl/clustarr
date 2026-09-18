@@ -141,7 +141,15 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		}
 	}
 
-	if _, err := k8s.PatchStatus(ctx, h.Client, k8s.ManagerCatalogarrWorker, ac); err != nil {
+	// k8s.ManagerCatalogarrMetadata, not ManagerCatalogarrWorker: this apply
+	// carries status.metadata and nothing else, and server-side apply
+	// releases every field its manager owns and this apply omits. While the
+	// gateway and the grab path shared catalogarr-worker, each refresh
+	// deleted the grab path's status.activeDownloadRef and
+	// status.pendingGrab -- taking a delayed item out of Phase=Delayed back
+	// to Wanted, where the wanted cron re-searched an item that already had a
+	// grab scheduled -- and each grab deleted the metadata written here.
+	if _, err := k8s.PatchStatus(ctx, h.Client, k8s.ManagerCatalogarrMetadata, ac); err != nil {
 		tracing.RecordError(span, err)
 		return fmt.Errorf("metadata: patch status.metadata: %w", err)
 	}

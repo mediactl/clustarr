@@ -80,12 +80,12 @@ func TestTwoManagerSSASplitDoesNotClobberEitherSide(t *testing.T) {
 	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, controllerAC)
 	require.NoError(t, err)
 
-	// This task's worker patches status.metadata only.
+	// The gateway patches status.metadata only, under its own field manager.
 	workerAC := catalogac.Movie(name, ns).WithStatus(
 		catalogac.MovieStatus().WithMetadata(
 			catalogac.MovieMetadata().WithTitle("Inception").WithRuntimeMinutes(148)),
 	)
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, workerAC)
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, workerAC)
 	require.NoError(t, err)
 
 	var got catalogv1alpha1.Movie
@@ -121,7 +121,7 @@ func TestTwoManagerSSASplitDoesNotClobberEitherSide(t *testing.T) {
 			continue
 		}
 		sawCatalogarr = sawCatalogarr || e.Manager == string(k8s.ManagerCatalogarr)
-		sawWorker = sawWorker || e.Manager == string(k8s.ManagerCatalogarrWorker)
+		sawWorker = sawWorker || e.Manager == string(k8s.ManagerCatalogarrMetadata)
 	}
 	require.True(t, sawCatalogarr && sawWorker, "both field managers must own a status entry")
 }

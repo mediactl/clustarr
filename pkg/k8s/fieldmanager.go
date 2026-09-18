@@ -45,9 +45,46 @@ const (
 	// conflict instead of losing data quietly.
 	ManagerCatalogarrSeries FieldManager = "catalogarr-series"
 
-	// ManagerCatalogarrWorker is the catalogarr queue worker, covering the
-	// search, grab, import, importlist and rss-matcher consumers.
+	// ManagerCatalogarrWorker is the catalogarr queue worker. It covers the
+	// consumers that write status fields NO other catalogarr writer touches:
+	// the interactive search worker's Search.status.finishedAt/
+	// indexerOutcomes/results, and the import and importlist consumers.
+	//
+	// The two consumers that used to share it and could not -- the metadata
+	// gateway and the grab path -- have their own names below. See
+	// ManagerCatalogarrGrab for what went wrong.
 	ManagerCatalogarrWorker FieldManager = "catalogarr-worker"
+
+	// ManagerCatalogarrMetadata is the catalogarr metadata gateway. On Movie
+	// and Series it applies status.metadata and nothing else.
+	//
+	// It is deliberately distinct from ManagerCatalogarrGrab, which applies
+	// status.activeDownloadRef/pendingGrab/lastSearchedAt/searchAttempts on
+	// the same objects. Server-side apply replaces a manager's whole
+	// ownership set on every apply rather than merging it, so while both
+	// wrote as catalogarr-worker each one's apply RELEASED the other's
+	// fields: a grab deleted the movie's cached metadata (dropping it to
+	// Phase=Pending and forcing a provider refetch), and a metadata refresh
+	// deleted status.activeDownloadRef and status.pendingGrab (dropping a
+	// delayed item out of Phase=Delayed back to Wanted, where the wanted
+	// cron re-searched an item that already had a grab scheduled). Both
+	// directions were reproduced against a real apiserver; see
+	// catalogarr/worker/grab's field-manager tests.
+	ManagerCatalogarrMetadata FieldManager = "catalogarr-metadata"
+
+	// ManagerCatalogarrGrab is the catalogarr grab path -- the grab worker,
+	// the RSS matcher and the search worker's grab sink, which all write
+	// through one code path. On Movie and Episode it applies exactly
+	// status.activeDownloadRef, status.pendingGrab, status.lastSearchedAt and
+	// status.searchAttempts.
+	//
+	// It never applies status.phase: the Movie and Episode reconcilers own
+	// phase and conditions under ManagerCatalogarr, and recompute
+	// Phase=Delayed from the pendingGrab this manager writes.
+	//
+	// See ManagerCatalogarrMetadata for why this is not
+	// ManagerCatalogarrWorker.
+	ManagerCatalogarrGrab FieldManager = "catalogarr-grab"
 
 	// ManagerImportarr is the importarr controller manager. It owns ImportList,
 	// ImportExclusion and LibraryScan status, and Download.status.import.
@@ -92,6 +129,8 @@ func FieldManagers() []FieldManager {
 		ManagerCatalogarr,
 		ManagerCatalogarrSeries,
 		ManagerCatalogarrWorker,
+		ManagerCatalogarrMetadata,
+		ManagerCatalogarrGrab,
 		ManagerImportarr,
 		ManagerImportarrWorker,
 		ManagerIndexarr,
