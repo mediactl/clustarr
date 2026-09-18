@@ -22,7 +22,39 @@ import (
 	"strings"
 )
 
-const episodeFileStandardTemplate = "{Series CleanTitleWithoutYear} ({Series Year}) - S{season:00}E{episode:00} - {Episode CleanTitle:90} {[Quality Full]}{-Release Group}"
+const (
+	episodeFileStandardTemplate = "{Series CleanTitleWithoutYear} ({Series Year}) - S{season:00}E{episode:00} - {Episode CleanTitle:90} {[Quality Full]}{-Release Group}"
+	episodeFileAnimeTemplate    = "{Series CleanTitleWithoutYear} ({Series Year}) - S{season:00}E{episode:00} - {absolute:000} - {Episode CleanTitle:90} {[Quality Full]}{-Release Group}"
+	episodeFileDailyTemplate    = "{Series CleanTitleWithoutYear} ({Series Year}) - {Air-Date} - {Episode CleanTitle:90} {[Quality Full]}{-Release Group}"
+)
+
+// formatAbsoluteRange joins anime absolute episode numbers, following the
+// same multi-episode style as formatEpisodeRange but zero-padded to three
+// digits per the *arr absolute-numbering convention.
+func formatAbsoluteRange(absolute []int, style MultiEpisodeStyle) string {
+	if len(absolute) == 0 {
+		return ""
+	}
+	if len(absolute) == 1 {
+		return fmt.Sprintf("%03d", absolute[0])
+	}
+	switch style {
+	case MultiEpisodeRange, MultiEpisodePrefixedRange:
+		return fmt.Sprintf("%03d-%03d", absolute[0], absolute[len(absolute)-1])
+	case MultiEpisodeDuplicate:
+		parts := make([]string, len(absolute))
+		for i, a := range absolute {
+			parts[i] = fmt.Sprintf("%03d", a)
+		}
+		return strings.Join(parts, ".")
+	default: // extend, repeat, scene: dash-joined list
+		parts := make([]string, len(absolute))
+		for i, a := range absolute {
+			parts[i] = fmt.Sprintf("%03d", a)
+		}
+		return strings.Join(parts, "-")
+	}
+}
 
 // formatEpisodeRange joins season/episode numbers per the six
 // MultiEpisodeStyle values, following the *arr naming-token tables. A
@@ -70,12 +102,18 @@ func formatEpisodeRange(season int, episodes []int, style MultiEpisodeStyle) str
 	}
 }
 
-// EpisodeFile renders the standard-form episode file name. Step 8 extends
-// this method to dispatch to the anime and daily forms too, by inspecting
-// Context: Absolute numbering selects anime, a non-nil AirDate selects
-// daily.
+// EpisodeFile renders the episode file name, picking the standard, anime or
+// daily form: non-empty Absolute numbering selects anime, else a non-nil
+// AirDate selects daily, else standard.
 func (e Engine) EpisodeFile(c Context) (string, error) {
-	return e.Render(e.overrideOr(TokenEpisodeFile, episodeFileStandardTemplate), c)
+	key, tmpl := TokenEpisodeFile, episodeFileStandardTemplate
+	switch {
+	case len(c.Absolute) > 0:
+		key, tmpl = TokenAnimeFile, episodeFileAnimeTemplate
+	case c.AirDate != nil:
+		key, tmpl = TokenDailyFile, episodeFileDailyTemplate
+	}
+	return e.Render(e.overrideOr(key, tmpl), c)
 }
 
 // SeasonFolder renders the season subfolder name. Season 0 is specials:

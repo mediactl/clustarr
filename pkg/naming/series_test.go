@@ -19,6 +19,7 @@ package naming_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -92,4 +93,37 @@ func TestMultiEpisodeDuplicateStyleTwoEpisodes(t *testing.T) {
 	got, err := e.Render("{episodeRange}", naming.Context{Season: 1, Episodes: []int{1, 2}})
 	require.NoError(t, err)
 	require.Equal(t, "S01E01.S01E02", got)
+}
+
+func TestEpisodeFileAnimeAbsoluteNumbering(t *testing.T) {
+	e := naming.NewEngine(naming.Config{})
+	c := naming.Context{
+		SeriesTitle: "The Series Title!", SeriesYear: 2010,
+		Season: 1, Episodes: []int{1}, Absolute: []int{1}, EpisodeTitle: "Episode Title 1",
+		Quality: commonv1.Quality{Source: commonv1.SourceTV, Resolution: 720},
+	}
+	got, err := e.EpisodeFile(c)
+	require.NoError(t, err)
+	require.Equal(t, "The Series Title! (2010) - S01E01 - 001 - Episode Title 1 [HDTV-720p]", got)
+}
+
+func TestEpisodeFileAnimeAbsoluteRange(t *testing.T) {
+	e := naming.NewEngine(naming.Config{MultiEpisodeStyle: naming.MultiEpisodeRange})
+	c := naming.Context{Season: 1, Episodes: []int{13, 14}, Absolute: []int{13, 14}}
+	got, err := e.Render("{absoluteRange}", c)
+	require.NoError(t, err)
+	require.Equal(t, "013-014", got)
+}
+
+func TestEpisodeFileDaily(t *testing.T) {
+	airDate := time.Date(2013, 10, 30, 0, 0, 0, 0, time.UTC)
+	e := naming.NewEngine(naming.Config{})
+	c := naming.Context{
+		SeriesTitle: "The Series Title!", SeriesYear: 2010,
+		AirDate: &airDate, EpisodeTitle: "Episode Title 1",
+		Quality: commonv1.Quality{Source: commonv1.SourceWebDL, Resolution: 1080},
+	}
+	got, err := e.EpisodeFile(c)
+	require.NoError(t, err)
+	require.Equal(t, "The Series Title! (2010) - 2013-10-30 - Episode Title 1 [WEBDL-1080p]", got)
 }
