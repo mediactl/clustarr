@@ -1,0 +1,21 @@
+{
+  "data": {
+    "id": 121361,
+    "name": "Game of Thrones",
+    "slug": "game-of-thrones",
+    "overview": "Seven noble families fight for control of the mythical land of Westeros.",
+    "firstAired": "2011-04-17",
+    "lastAired": "2019-05-19",
+    "status": {"id": 2, "name": "Ended", "recordType": "series", "keepUpdated": false},
+    "originalCountry": "us",
+    "originalLanguage": "eng",
+    "averageRuntime": 60,
+    "remoteIds": [
+      {"id": "tt0944947", "type": 2, "sourceName": "IMDB"},
+      {"id": "1399", "type": 4, "sourceName": "TheMovieDB.com"}
+    ],
+    "genres": [{"id": 1, "name": "Drama"}, {"id": 2, "name": "Fantasy"}],
+    "airsDays": {"sunday": true},
+    "airsTime": "21:00"
+  }
+}

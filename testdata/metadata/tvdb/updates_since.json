@@ -1,0 +1,7 @@
+{
+  "data": [
+    {"recordId": 121361, "recordType": "series", "method": "update"},
+    {"recordId": 3254641, "recordType": "episodes", "method": "update"}
+  ],
+  "links": {"prev": null, "self": "/updates?since=1700000000", "next": null, "total_items": 2, "page_size": 500}
+}
