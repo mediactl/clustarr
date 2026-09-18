@@ -23,6 +23,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -38,6 +39,23 @@ import (
 )
 
 const defaultEndpoint = "https://api.opensubtitles.com/api/v1"
+
+// maxSubtitleBytes bounds how much of a subtitle download Provider will
+// buffer into memory, mirroring the 8 MiB cap pkg/torznab and
+// pkg/cardigann already apply to indexer responses.
+const maxSubtitleBytes = 8 << 20 // 8 MiB
+
+// maxErrorBodyBytes bounds how much of a non-2xx body is read for the
+// error message. It is deliberately far smaller than maxSubtitleBytes and
+// deliberately truncates instead of failing: the body is decoration on a
+// status code that already carries the meaning (and Phase F puts the
+// message in a CRD status condition), so an oversized body must never mask
+// the status it arrived with.
+const maxErrorBodyBytes = 4 << 10 // 4 KiB
+
+// ErrResponseTooLarge is returned by Download when a subtitle body exceeds
+// maxSubtitleBytes.
+var ErrResponseTooLarge = errors.New("subtitles: opensubtitlescom: response body exceeds size limit")
 
 // Config configures a Provider.
 type Config struct {
@@ -176,8 +194,15 @@ type quotaBody struct {
 // statusToProviderError maps an OpenSubtitles HTTP response to
 // subtitles.ProviderError per research note §4.3's status table.
 func statusToProviderError(provider string, resp *http.Response) error {
-	body, _ := io.ReadAll(resp.Body)
-	pe := &subtitles.ProviderError{Provider: provider, Err: fmt.Errorf("http %d: %s", resp.StatusCode, string(body))}
+	// Read one byte past the cap so an over-long body can be reported as
+	// truncated; the extra byte is dropped from the message either way.
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes+1))
+	msg := string(body)
+	if len(body) > maxErrorBodyBytes {
+		body = body[:maxErrorBodyBytes]
+		msg = string(body) + " ... (truncated)"
+	}
+	pe := &subtitles.ProviderError{Provider: provider, Err: fmt.Errorf("http %d: %s", resp.StatusCode, msg)}
 
 	if ra := resp.Header.Get("Retry-After"); ra != "" {
 		if secs, err := strconv.Atoi(ra); err == nil {

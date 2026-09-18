@@ -36,6 +36,7 @@ package gestdown
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -238,6 +239,17 @@ func releaseInfoFromVersion(version string) string {
 	return strings.Join(parts, "\n")
 }
 
+// maxSubtitleBytes bounds how much of a subtitle download Provider will
+// buffer into memory, mirroring the 8 MiB cap pkg/torznab and
+// pkg/cardigann already apply to indexer responses. A real subtitle is a
+// few tens of kilobytes; without a bound, one misbehaving (or malicious)
+// provider response could exhaust the captionarr worker's memory.
+const maxSubtitleBytes = 8 << 20 // 8 MiB
+
+// ErrResponseTooLarge is returned by Download when a subtitle body exceeds
+// maxSubtitleBytes.
+var ErrResponseTooLarge = errors.New("subtitles: gestdown: response body exceeds size limit")
+
 // Download implements subtitles.Provider.Download. c.FetchID is the raw
 // downloadUri Search returned (a path relative to the endpoint) — verified
 // against gestdown.py: page_link = _BASE_URL + data["downloadUri"], fetched
@@ -261,9 +273,17 @@ func (p *Provider) Download(ctx context.Context, c subtitles.Candidate) ([]byte,
 		tracing.RecordError(span, err)
 		return nil, "", err
 	}
-	raw, err := io.ReadAll(resp.Body)
+	// Read one byte past the limit so a body exactly at the limit is
+	// accepted while anything larger is detected without ever buffering
+	// more than maxSubtitleBytes+1 bytes.
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxSubtitleBytes+1))
 	if err != nil {
 		return nil, "", fmt.Errorf("subtitles: gestdown download: read body: %w", err)
+	}
+	if len(raw) > maxSubtitleBytes {
+		sizeErr := fmt.Errorf("%w: at least %d bytes", ErrResponseTooLarge, len(raw))
+		tracing.RecordError(span, sizeErr)
+		return nil, "", sizeErr
 	}
 	return raw, c.ReleaseInfo + ".srt", nil
 }

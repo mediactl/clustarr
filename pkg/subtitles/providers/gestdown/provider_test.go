@@ -248,3 +248,30 @@ func TestSearchSkipsNonEpisodeKinds(t *testing.T) {
 	assert.Empty(t, cands)
 	assert.False(t, called)
 }
+
+// TestDownloadRejectsAnOversizedBody covers ruling F5: a subtitle download
+// is read through an 8 MiB cap, so a misbehaving provider cannot make the
+// captionarr worker buffer an unbounded amount of memory.
+func TestDownloadRejectsAnOversizedBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(make([]byte, 8<<20+1)) // one byte over the limit
+	}))
+	defer srv.Close()
+
+	p := gestdown.New(gestdown.Config{Endpoint: srv.URL})
+	_, _, err := p.Download(context.Background(), subtitles.Candidate{FetchID: "/subtitles/download/abc123"})
+	require.Error(t, err)
+	require.ErrorIs(t, err, gestdown.ErrResponseTooLarge)
+}
+
+func TestDownloadAcceptsABodyExactlyAtTheLimit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(make([]byte, 8<<20))
+	}))
+	defer srv.Close()
+
+	p := gestdown.New(gestdown.Config{Endpoint: srv.URL})
+	raw, _, err := p.Download(context.Background(), subtitles.Candidate{FetchID: "/subtitles/download/abc123"})
+	require.NoError(t, err)
+	assert.Len(t, raw, 8<<20)
+}

@@ -216,9 +216,17 @@ func (p *Provider) Download(ctx context.Context, c subtitles.Candidate) ([]byte,
 		return nil, "", fmt.Errorf("subtitles: opensubtitlescom fetch link: %w", err)
 	}
 	defer func() { _ = fileResp.Body.Close() }()
-	raw, err := io.ReadAll(fileResp.Body)
+	// Read one byte past the limit so a body exactly at the limit is
+	// accepted while anything larger is detected without ever buffering
+	// more than maxSubtitleBytes+1 bytes.
+	raw, err := io.ReadAll(io.LimitReader(fileResp.Body, maxSubtitleBytes+1))
 	if err != nil {
 		return nil, "", fmt.Errorf("subtitles: opensubtitlescom read body: %w", err)
+	}
+	if len(raw) > maxSubtitleBytes {
+		sizeErr := fmt.Errorf("%w: at least %d bytes", ErrResponseTooLarge, len(raw))
+		tracing.RecordError(span, sizeErr)
+		return nil, "", sizeErr
 	}
 	return raw, dr.FileName, nil
 }

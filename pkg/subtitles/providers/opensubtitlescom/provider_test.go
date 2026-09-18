@@ -245,3 +245,51 @@ func TestDownloadReturnsAnErrorOnMalformedResponseBodiesWithoutPanicking(t *test
 		})
 	}
 }
+
+// TestErrorBodyIsTruncatedNotUnbounded covers ruling F5: the error body is
+// interpolated into an error string that Phase F puts in a CRD status
+// condition, so it is read through a 4 KiB cap and truncated -- an
+// oversized error body must never mask the status code it came with.
+func TestErrorBodyIsTruncatedNotUnbounded(t *testing.T) {
+	srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/login":
+			_, _ = w.Write(readFixture(t, "login.json"))
+		case "/download":
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(strings.Repeat("A", 1<<20)))
+		}
+	})
+	p := opensubtitlescom.New(opensubtitlescom.Config{APIKey: "k", Username: "u", Password: "p", Endpoint: srv.URL})
+
+	_, _, err := p.Download(context.Background(), subtitles.Candidate{FetchID: "998877"})
+	require.Error(t, err)
+
+	var pe *subtitles.ProviderError
+	require.ErrorAs(t, err, &pe)
+	assert.Equal(t, subtitles.KindTooManyRequests, pe.Kind, "the status code still maps, oversized body or not")
+	assert.Less(t, len(err.Error()), 8<<10, "the error message must be bounded, got %d bytes", len(err.Error()))
+	assert.Contains(t, err.Error(), "429")
+	assert.Contains(t, err.Error(), "truncated")
+}
+
+// TestDownloadRejectsAnOversizedSubtitleFile is the same 8 MiB cap as
+// gestdown's, on the second (CDN) leg of the two-step download.
+func TestDownloadRejectsAnOversizedSubtitleFile(t *testing.T) {
+	var srv *httptest.Server
+	srv = newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/login":
+			_, _ = w.Write(readFixture(t, "login.json"))
+		case "/download":
+			_, _ = w.Write([]byte(`{"link":"` + srv.URL + `/file.srt","file_name":"x.srt"}`))
+		default:
+			_, _ = w.Write(make([]byte, 8<<20+1))
+		}
+	})
+	p := opensubtitlescom.New(opensubtitlescom.Config{APIKey: "k", Username: "u", Password: "p", Endpoint: srv.URL})
+
+	_, _, err := p.Download(context.Background(), subtitles.Candidate{FetchID: "998877"})
+	require.Error(t, err)
+	require.ErrorIs(t, err, opensubtitlescom.ErrResponseTooLarge)
+}
