@@ -25,6 +25,8 @@ import (
 	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -33,6 +35,7 @@ import (
 	"github.com/mediactl/clustarr/catalogarr/worker/grab"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/quality"
 )
 
 // pumpClock advances a fake clock from another goroutine until the test is
@@ -223,3 +226,95 @@ func TestDecide_SecondBetterCandidateKeepsTheWindow(t *testing.T) {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+// TestSink_DeliversTheBestApprovedRelease is the bridge between §8.2's two
+// halves: the search worker's ranked list in, a Download out, with the
+// not-approved candidates ignored and the ranking respected.
+func TestSink_DeliversTheBestApprovedRelease(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	ns := newNamespace(t, ctx, c)
+
+	movie := newMovie(t, ctx, c, ns, "the-thing-1982")
+	newIndexer(t, ctx, c, ns, "my-indexer", nil)
+	profile := hdBlurayWeb(t)
+
+	rejected := torrentRelease("guid-rejected", "my-indexer", profile.Tiers[0][0].Quality, 0)
+	approved := torrentRelease("guid-approved", "my-indexer", profile.Tiers[0][0].Quality, 0)
+
+	sink := grab.Sink{
+		Deps:           grab.Deps{Client: c, Bus: newTestBus(t, nil), Now: fixedNow(testNow)},
+		ResolveProfile: func(context.Context, string) (quality.Profile, error) { return profile, nil },
+		ResolveDelay: func(context.Context, string, *string, []string) (catalogv1alpha1.DelayProfileSpec, error) {
+			return catalogv1alpha1.DelayProfileSpec{}, nil
+		},
+	}
+	err := sink.Deliver(ctx, ns, commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name},
+		[]catalogv1alpha1.ReleaseDecision{
+			{ReleaseInfo: rejected, Approved: false, Rank: 0},
+			{ReleaseInfo: approved, Approved: true, Rank: 1},
+		})
+	require.NoError(t, err)
+
+	var downloads downloadv1alpha1.DownloadList
+	require.NoError(t, c.List(ctx, &downloads, client.InNamespace(ns)))
+	require.Len(t, downloads.Items, 1)
+	assert.Equal(t, "guid-approved", downloads.Items[0].Spec.Release.GUID,
+		"a rejected decision must never be grabbed, however well it ranked")
+	assert.Equal(t, downloadv1alpha1.GrabSourceSearch, downloads.Items[0].Spec.GrabbedBy)
+}
+
+// TestSink_NoApprovedReleaseIsANoOp: a search that approved nothing is a
+// successful search, not a failure.
+func TestSink_NoApprovedReleaseIsANoOp(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	ns := newNamespace(t, ctx, c)
+	newMovie(t, ctx, c, ns, "the-thing-1982")
+
+	sink := grab.Sink{Deps: grab.Deps{Client: c, Bus: newTestBus(t, nil), Now: fixedNow(testNow)}}
+	require.NoError(t, sink.Deliver(ctx, ns,
+		commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-thing-1982"},
+		[]catalogv1alpha1.ReleaseDecision{{Approved: false}}))
+
+	var downloads downloadv1alpha1.DownloadList
+	require.NoError(t, c.List(ctx, &downloads, client.InNamespace(ns)))
+	assert.Empty(t, downloads.Items)
+}
+
+// TestResolveConfig_EpisodeReadsItsSeries pins the rule that EpisodeSpec has
+// no QualityProfileRef, DelayProfileRef or Tags of its own.
+func TestResolveConfig_EpisodeReadsItsSeries(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	ns := newNamespace(t, ctx, c)
+
+	series := &catalogv1alpha1.Series{
+		ObjectMeta: metav1.ObjectMeta{Name: "the-wire", Namespace: ns},
+		Spec: catalogv1alpha1.SeriesSpec{
+			TvdbID: 79126, QualityProfileRef: "hd-bluray-web", RootFolderRef: "tv",
+			DelayProfileRef: ptr.To("slow"), Tags: []string{"hd"},
+		},
+	}
+	require.NoError(t, c.Create(ctx, series))
+	ep := &catalogv1alpha1.Episode{
+		ObjectMeta: metav1.ObjectMeta{Name: "the-wire-s01e01", Namespace: ns},
+		Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: series.Name, SeasonNumber: 1, EpisodeNumber: 1},
+	}
+	require.NoError(t, c.Create(ctx, ep))
+
+	for _, ref := range []commonv1.MediaRef{
+		{Kind: commonv1.MediaKindEpisode, Name: ep.Name},
+		{Kind: commonv1.MediaKindSeries, Name: series.Name, Keys: []string{ep.Name}},
+	} {
+		cfg, err := grab.ResolveConfig(ctx, c, ns, ref)
+		require.NoErrorf(t, err, "kind %s", ref.Kind)
+		assert.Equal(t, "hd-bluray-web", cfg.QualityProfileRef)
+		require.NotNil(t, cfg.DelayProfileRef)
+		assert.Equal(t, "slow", *cfg.DelayProfileRef)
+		assert.Equal(t, []string{"hd"}, cfg.Tags)
+	}
+
+	_, err := grab.ResolveConfig(ctx, c, ns, commonv1.MediaRef{Kind: commonv1.MediaKindSeries, Name: series.Name})
+	assert.ErrorIs(t, err, grab.ErrUnsupportedKind, "a series target with no keys governs nothing")
+}

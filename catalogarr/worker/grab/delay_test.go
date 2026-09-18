@@ -118,19 +118,22 @@ func TestBypasses(t *testing.T) {
 			"BypassIfAboveFormatScore at the minimum bypasses",
 			catalogv1alpha1.DelayProfileSpec{
 				BypassIfHighestQuality: ptr.To(false), BypassIfAboveFormatScore: ptr.To(true), MinimumFormatScore: 100,
-			}, false, 100, true,
+			},
+			false, 100, true,
 		},
 		{
 			"BypassIfAboveFormatScore below the minimum does not bypass",
 			catalogv1alpha1.DelayProfileSpec{
 				BypassIfHighestQuality: ptr.To(false), BypassIfAboveFormatScore: ptr.To(true), MinimumFormatScore: 100,
-			}, false, 99, false,
+			},
+			false, 99, false,
 		},
 		{
 			"an explicitly-set profile from the apiserver never sees a nil default",
 			catalogv1alpha1.DelayProfileSpec{
 				BypassIfHighestQuality: ptr.To(true), BypassIfAboveFormatScore: ptr.To(false),
-			}, false, 10_000, false,
+			},
+			false, 10_000, false,
 		},
 	}
 	for _, c := range cases {
