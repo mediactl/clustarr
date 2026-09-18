@@ -94,3 +94,18 @@ func containsFold(haystack []string, needle string) bool {
 	}
 	return false
 }
+
+// sampleMaxBytes is NotSampleSpecification's exact threshold: 70 MB (decimal,
+// as .NET's `70.Megabytes()` extension resolves it).
+const sampleMaxBytes = 70 * 1_000_000
+
+func sampleRejection(rel common.ReleaseInfo) *common.Rejection {
+	if !strings.Contains(strings.ToLower(rel.Title), "sample") {
+		return nil
+	}
+	if rel.SizeBytes <= 0 || rel.SizeBytes >= sampleMaxBytes {
+		return nil
+	}
+	r := newRejection(ReasonSample, "title contains \"sample\" and is under 70 MB")
+	return &r
+}

@@ -107,3 +107,20 @@ func TestLanguageRejection(t *testing.T) {
 		require.Nil(t, languageRejection(Target{}, p, &release.ParsedRelease{Languages: nil}))
 	})
 }
+
+func TestSampleRejection(t *testing.T) {
+	t.Run("small file with sample in the title rejects", func(t *testing.T) {
+		got := sampleRejection(common.ReleaseInfo{Title: "Arrival.2016.1080p.BluRay.x264-GROUP.sample", SizeBytes: 41_943_040}) // 40 MiB
+		require.NotNil(t, got)
+		require.Contains(t, got.Reason, ReasonSample.Code)
+	})
+	t.Run("sample in the title but large enough to be a real file", func(t *testing.T) {
+		require.Nil(t, sampleRejection(common.ReleaseInfo{Title: "Arrival.2016.sample.pack.1080p.BluRay-GROUP", SizeBytes: 10_000_000_000}))
+	})
+	t.Run("no sample token", func(t *testing.T) {
+		require.Nil(t, sampleRejection(common.ReleaseInfo{Title: "Arrival.2016.1080p.BluRay.x264-GROUP", SizeBytes: 1000}))
+	})
+	t.Run("case-insensitive", func(t *testing.T) {
+		require.NotNil(t, sampleRejection(common.ReleaseInfo{Title: "Arrival.2016.SAMPLE.mkv", SizeBytes: 1}))
+	})
+}
