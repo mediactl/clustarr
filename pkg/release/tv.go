@@ -124,6 +124,20 @@ func intRange(a, b int) []int {
 	return r
 }
 
+// maxEpisodeRangeSize caps how large a dash-range multi-episode span
+// (dashRangeEpisodeRegex, below) or an anime batch range (animeBatchRegex,
+// anime.go) is allowed to expand to. A real release never spans this many
+// episodes, so anything bigger is a parse collision, not a legitimate
+// multi-episode/batch release.
+const maxEpisodeRangeSize = 500
+
+// validEpisodeRange reports whether [start, end] is a plausible inclusive
+// episode range: ascending (not descending — unlike intRange, this does not
+// silently swap the endpoints) and no larger than maxEpisodeRangeSize.
+func validEpisodeRange(start, end int) bool {
+	return end >= start && end-start+1 <= maxEpisodeRangeSize
+}
+
 func releaseTypeForEpisodes(episodes []int) commonv1.ReleaseType {
 	if len(episodes) > 1 {
 		return commonv1.ReleaseTypeMulti
@@ -176,13 +190,18 @@ func parseStandardSeries(title string) (*ParsedRelease, error) {
 		if err != nil {
 			return nil, err
 		}
-		p := &ParsedRelease{
-			Title:    cleanTitleSeparators(m.GroupByName("title").String()),
-			Seasons:  []int{season},
-			Episodes: intRange(start, end),
+		if validEpisodeRange(start, end) {
+			p := &ParsedRelease{
+				Title:    cleanTitleSeparators(m.GroupByName("title").String()),
+				Seasons:  []int{season},
+				Episodes: intRange(start, end),
+			}
+			p.ReleaseType = releaseTypeForEpisodes(p.Episodes)
+			return finishSeries(title, p), nil
 		}
-		p.ReleaseType = releaseTypeForEpisodes(p.Episodes)
-		return finishSeries(title, p), nil
+		// Descending or implausibly long: not a legitimate range — fall
+		// through to the other standard-family patterns below rather than
+		// silently reordering or truncating it.
 	}
 
 	if m, err := multiEpisodeRegex.FindStringMatch(title); err != nil {

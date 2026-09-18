@@ -22,6 +22,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
 func TestParseSeriesAnimeAbsoluteAndBracketGroup(t *testing.T) {
@@ -58,6 +60,52 @@ func TestParseSeriesAnimeAbsoluteAndBracketGroup(t *testing.T) {
 			assert.Equal(t, tt.seriesTitle, p.Title)
 			assert.Equal(t, tt.absolute, p.Absolute)
 			assert.Equal(t, tt.group, p.Group)
+		})
+	}
+}
+
+func TestParseSeriesAnimeBatchRangesExpandInclusive(t *testing.T) {
+	tests := []struct {
+		name     string
+		title    string
+		absolute []int
+	}{
+		{"dash range", "[SubsPlease] Frieren - 01-12 (1080p) [HASH].mkv", intRange(1, 12)},
+		{"tilde range", "[SubsPlease] Frieren - 01~12 (1080p) [HASH].mkv", intRange(1, 12)},
+		{"paren-wrapped range", "[SubsPlease] Frieren - (01-24) [HASH].mkv", intRange(1, 24)},
+		{"spaced dash range", "[SubsPlease] Frieren - 01 - 12 (1080p) [HASH].mkv", intRange(1, 12)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := parseSeries(tt.title, Options{SeriesType: "anime"})
+			require.NoError(t, err)
+			assert.Equal(t, "Frieren", p.Title)
+			assert.Equal(t, tt.absolute, p.Absolute)
+			assert.True(t, p.Partial)
+			assert.Equal(t, commonv1.ReleaseTypeMulti, p.ReleaseType)
+		})
+	}
+}
+
+func TestParseSeriesAnimeBatchRangeRejectsDescendingAndOversized(t *testing.T) {
+	tests := []struct {
+		name     string
+		title    string
+		absolute []int
+	}{
+		// Descending: treated as not a batch at all, falling back to the
+		// single-absolute interpretation (just the first number).
+		{"descending range", "[SubsPlease] Frieren - 12-01 (1080p) [HASH].mkv", []int{12}},
+		// 900 episodes (001-900) exceeds the 500-episode sanity cap.
+		{"oversized range", "[SubsPlease] Frieren - 001-900 (1080p) [HASH].mkv", []int{1}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := parseSeries(tt.title, Options{SeriesType: "anime"})
+			require.NoError(t, err)
+			assert.Equal(t, tt.absolute, p.Absolute)
+			assert.False(t, p.Partial)
+			assert.Equal(t, commonv1.ReleaseTypeSingle, p.ReleaseType)
 		})
 	}
 }

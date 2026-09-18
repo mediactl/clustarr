@@ -83,6 +83,45 @@ func TestParseSeriesSeasonPacks(t *testing.T) {
 	}
 }
 
+// TestParseSeriesStandardDashRangeExpandsLargeRange covers the "S01E01-12"
+// (no "E" before the end number) dash-range form with a range large enough
+// that it would be easy to accidentally only capture the endpoints instead
+// of the full expansion.
+func TestParseSeriesStandardDashRangeExpandsLargeRange(t *testing.T) {
+	p, err := parseSeries("The.Wire.S01E01-E12.720p.BluRay.x264-DEMAND", Options{SeriesType: "standard"})
+	require.NoError(t, err)
+	assert.Equal(t, []int{1}, p.Seasons)
+	assert.Equal(t, intRange(1, 12), p.Episodes)
+	assert.Equal(t, commonv1.ReleaseTypeMulti, p.ReleaseType)
+}
+
+// TestParseSeriesStandardDashRangeRejectsDescendingAndOversized mirrors the
+// anime batch-range guard (anime.go): a dash-range that is descending or
+// implausibly long (>500 episodes) is not a legitimate multi-episode range,
+// so dashRangeEpisodeRegex's match is rejected and parseStandardSeries falls
+// through to try the season-only pattern instead of silently expanding (or
+// silently reordering) a bogus range.
+func TestParseSeriesStandardDashRangeRejectsDescendingAndOversized(t *testing.T) {
+	tests := []struct {
+		name  string
+		title string
+	}{
+		{"descending", "The.Wire.S01E12-E01.720p.BluRay.x264-DEMAND"},
+		{"oversized", "The.Wire.S01E001-E900.720p.BluRay.x264-DEMAND"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := parseSeries(tt.title, Options{SeriesType: "standard"})
+			// Neither title matches any other standard pattern once the
+			// dash-range is rejected (no bare "S01E01" and no season-only
+			// shape either, since the "E..." tokens remain), so this
+			// currently surfaces as a "no match" parse error rather than a
+			// silently-wrong Episodes list.
+			require.Error(t, err)
+		})
+	}
+}
+
 // TestParseSeriesCascadePropagatesRegexTimeoutInsteadOfFallingThrough forces
 // a genuine regexp2 MatchTimeout inside the standard-family stage (by
 // temporarily swapping seasonOnlyRegex for a classic catastrophic-

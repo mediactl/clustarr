@@ -23,6 +23,8 @@ import (
 	"strings"
 
 	"github.com/dlclark/regexp2"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
 // This file exists because docs/research/quality.md §7.3 verified that
@@ -43,6 +45,19 @@ var animeSeasonEpisodeRegex = mustCompile(`(?<title>.+?)\s*-\s*S(?<season>\d{1,2
 // animeAbsoluteRegex matches an anime title with a bare absolute episode
 // number, e.g. "Frieren - 28 (1080p)".
 var animeAbsoluteRegex = mustCompile(`(?<title>.+?)\s*-\s*(?<abs>\d{2,4})(?:\s*\((?<res>\d{3,4}p)\))?`, regexp2.IgnoreCase)
+
+// animeBatchRegex matches an anime batch/pack release naming its absolute
+// episode range: "Title - 01-12", "Title - 01~12", "Title - 01 - 12" and
+// "Title - (01-24)"/"Title (01-24)" (the range itself optionally
+// parenthesized). The leading "-" and "(" are both optional so a single
+// lazy title-group expansion converges on the right boundary in one
+// attempt, rather than possibly absorbing the dash into the title before
+// backtracking onto the paren (which previously produced "Frieren -"
+// instead of "Frieren" for the parenthesized form).
+var animeBatchRegex = mustCompile(
+	`(?<title>.+?)\s*-?\s*\(?(?<start>\d{2,4})\s*[-~]\s*(?<end>\d{2,4})\)?(?:\s*\((?<res>\d{3,4}p)\))?`,
+	regexp2.IgnoreCase,
+)
 
 // parseAnime consumes the leading bracket group (if any) from title, then
 // matches the remainder against the season+episode pattern before falling
@@ -80,6 +95,22 @@ func parseAnime(title string, p *ParsedRelease) error {
 		return nil
 	}
 
+	if m, err := animeBatchRegex.FindStringMatch(work); err != nil {
+		return fmt.Errorf("release: anime: batch match: %w", err)
+	} else if m != nil {
+		start, startErr := strconv.Atoi(m.GroupByName("start").String())
+		end, endErr := strconv.Atoi(m.GroupByName("end").String())
+		if startErr == nil && endErr == nil && validEpisodeRange(start, end) {
+			p.Title = strings.TrimSpace(m.GroupByName("title").String())
+			p.Absolute = intRange(start, end)
+			p.Partial = true
+			return nil
+		}
+		// Descending or implausibly long: not a batch after all — fall
+		// through to animeAbsoluteRegex, which will pick up the leading
+		// number as a single absolute episode instead.
+	}
+
 	if m, err := animeAbsoluteRegex.FindStringMatch(work); err != nil {
 		return fmt.Errorf("release: anime: absolute match: %w", err)
 	} else if m != nil {
@@ -109,7 +140,16 @@ func parseAnimeSeries(title string) (*ParsedRelease, error) {
 	q, rev, _, _ := parseQualityTags(title)
 	p.Quality = q
 	p.Revision = rev
-	p.ReleaseType = releaseTypeForEpisodes(p.Episodes)
+	switch {
+	case p.Partial:
+		// An expanded absolute-episode batch range (animeBatchRegex above)
+		// is a pack, same as a season pack for standard series.
+		p.ReleaseType = commonv1.ReleaseTypeMulti
+	case len(p.Absolute) > 1:
+		p.ReleaseType = commonv1.ReleaseTypeMulti
+	default:
+		p.ReleaseType = releaseTypeForEpisodes(p.Episodes)
+	}
 	p.Hints = parseHints(title)
 	return p, nil
 }
