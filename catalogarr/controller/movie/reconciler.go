@@ -1,0 +1,479 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package movie
+
+import (
+	"context"
+	"errors"
+	"strconv"
+	"time"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/naming"
+	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/quality/catalogue"
+	"github.com/mediactl/clustarr/pkg/version"
+)
+
+const (
+	// mediaFileByMovieIndexKey indexes MediaFile by the Movie it backs,
+	// filtered to spec.mediaRef.kind=movie so an Episode's own MediaFile
+	// (same name is not possible across kinds today, but this future-proofs
+	// the index against that) never matches a Movie's List.
+	mediaFileByMovieIndexKey = ".spec.mediaRef.movie"
+
+	// movieByActiveDownloadIndexKey indexes Movie by its
+	// status.activeDownloadRef, the reverse direction from a watched
+	// Download back to the Movie holding the reference.
+	movieByActiveDownloadIndexKey = ".status.activeDownloadRef"
+)
+
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies/finalizers,verbs=update
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
+// +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
+
+// Reconciler reconciles a Movie: metadata staleness (publishing a
+// MetadataTask when the cache is missing or past its RefreshTTL),
+// availability and path, and the file/download rollup from a watched
+// MediaFile and Download. It is the sole writer of status.phase,
+// status.hasFile, status.fileRef, status.fileQuality,
+// status.fileFormatScore, status.cutoffMet and status.activeDownloadRef
+// (§3's single-writer rule); status.metadata belongs to the metadata
+// gateway (Task C5, field manager k8s.ManagerCatalogarrWorker) and this
+// reconciler never builds a MovieStatusApplyConfiguration that calls
+// WithMetadata.
+type Reconciler struct {
+	client.Client
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
+	Bus      events.Publisher
+
+	// OnReconcile is a test-only hook, called at the top of every Reconcile.
+	// It is nil-checked so production callers never need to set it.
+	OnReconcile func()
+}
+
+// SetupWithManager registers the Movie controller: the finalizer/
+// metadata-refresh predicate on Movie itself, and the MediaFile/Download
+// watches added in review so an imported file or an active download's
+// phase change reaches this reconciler without waiting for a poll.
+func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &catalogv1alpha1.MediaFile{}, mediaFileByMovieIndexKey,
+		func(o client.Object) []string {
+			mf, ok := o.(*catalogv1alpha1.MediaFile)
+			if !ok || mf.Spec.MediaRef.Kind != commonv1.MediaKindMovie {
+				return nil
+			}
+			return []string{mf.Spec.MediaRef.Name}
+		}); err != nil {
+		return err
+	}
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &catalogv1alpha1.Movie{}, movieByActiveDownloadIndexKey,
+		func(o client.Object) []string {
+			m, ok := o.(*catalogv1alpha1.Movie)
+			if !ok || m.Status.ActiveDownloadRef == nil {
+				return nil
+			}
+			return []string{*m.Status.ActiveDownloadRef}
+		}); err != nil {
+		return err
+	}
+
+	return ctrl.NewControllerManagedBy(mgr).
+		Named("movie").
+		For(&catalogv1alpha1.Movie{}, builder.WithPredicates(moviePredicate())).
+		Watches(&catalogv1alpha1.MediaFile{}, handler.EnqueueRequestsFromMapFunc(r.mapMediaFile), builder.WithPredicates(k8s.GenerationChanged())).
+		Watches(&downloadv1alpha1.Download{}, handler.EnqueueRequestsFromMapFunc(r.mapDownload), builder.WithPredicates(downloadPredicate())).
+		WithOptions(controller.Options{RecoverPanic: ptr.To(true), ReconciliationTimeout: 5 * time.Minute}).
+		Complete(r)
+}
+
+// moviePredicate wakes this controller on a spec change (GenerationChanged)
+// or on the metadata gateway's own write (StatusFieldChanged scoped to
+// status.metadata.refreshedAt) -- and nothing else, so this controller's own
+// Phase/Conditions/Available/Path/file-rollup patch, which never touches
+// status.metadata, does not loop it. This is the same self-loop-avoidance
+// shape §10 and Step 8's envtest require.
+func moviePredicate() predicate.Predicate {
+	return k8s.Or(
+		k8s.GenerationChanged(),
+		k8s.StatusFieldChanged(func(o client.Object) metav1.Time {
+			mv, ok := o.(*catalogv1alpha1.Movie)
+			if !ok || mv.Status.Metadata == nil {
+				return metav1.Time{}
+			}
+			return mv.Status.Metadata.RefreshedAt
+		}),
+	)
+}
+
+// downloadPredicate wakes the Download watch on a spec change (Create
+// always passes regardless) or on a status.phase transition.
+// GenerationChanged alone would be wrong here, unlike the MediaFile watch
+// above: MediaFileSpec's Quality/FormatScore are spec fields, so a create or
+// edit bumps generation, but DownloadStatus.Phase is entirely status-driven
+// -- grabarr (Phase D) sets it through k8s.PatchStatus, which never touches
+// spec/generation -- so a GenerationChanged-only predicate would never fire
+// on the one transition this watch exists to observe.
+func downloadPredicate() predicate.Predicate {
+	return k8s.Or(
+		k8s.GenerationChanged(),
+		k8s.StatusFieldChanged(func(o client.Object) downloadv1alpha1.DownloadPhase {
+			dl, ok := o.(*downloadv1alpha1.Download)
+			if !ok {
+				return ""
+			}
+			return dl.Status.Phase
+		}),
+	)
+}
+
+// mapMediaFile needs no List/index -- a MediaFile already carries its
+// target's identity directly in spec.mediaRef, so this is the cheap
+// direction.
+func (r *Reconciler) mapMediaFile(_ context.Context, o client.Object) []reconcile.Request {
+	mf, ok := o.(*catalogv1alpha1.MediaFile)
+	if !ok || mf.Spec.MediaRef.Kind != commonv1.MediaKindMovie {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: mf.Namespace, Name: mf.Spec.MediaRef.Name}}}
+}
+
+// mapDownload is the reverse direction -- Movie is the side holding the
+// reference, so this needs the movieByActiveDownloadIndexKey index.
+func (r *Reconciler) mapDownload(ctx context.Context, o client.Object) []reconcile.Request {
+	dl, ok := o.(*downloadv1alpha1.Download)
+	if !ok {
+		return nil
+	}
+	var movies catalogv1alpha1.MovieList
+	if err := r.List(ctx, &movies, client.InNamespace(dl.Namespace), client.MatchingFields{movieByActiveDownloadIndexKey: dl.Name}); err != nil {
+		return nil
+	}
+	reqs := make([]reconcile.Request, 0, len(movies.Items))
+	for _, m := range movies.Items {
+		reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: m.Namespace, Name: m.Name}})
+	}
+	return reqs
+}
+
+// Reconcile implements the §8.8 skeleton: get, split on deletion, ensure the
+// finalizer WITHOUT an early return (the rest of this reconcile runs against
+// the same in-memory object in the same pass), then reconcileNormal.
+func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	if r.OnReconcile != nil {
+		r.OnReconcile()
+	}
+	var m catalogv1alpha1.Movie
+	if err := r.Get(ctx, req.NamespacedName, &m); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	if k8s.IsDeleting(&m) {
+		return r.reconcileDelete(ctx, &m)
+	}
+	name, err := k8s.FinalizerFor(&m, r.Scheme)
+	if err != nil {
+		return ctrl.Result{}, reconcile.TerminalError(err)
+	}
+	if _, err := k8s.EnsureFinalizer(ctx, r.Client, &m, name); err != nil {
+		return ctrl.Result{}, err
+	}
+	return r.reconcileNormal(ctx, &m)
+}
+
+// reconcileDelete removes the finalizer. There is nothing else owned outside
+// Kubernetes at this phase: the mediaKey convention this task defines
+// (namespace/name, no KV state of its own) has no clustarr-leases or
+// clustarr-pending entries created by this controller to clean up, and
+// adding speculative KV cleanup here would be untestable against a real bus
+// without over-scoping this task.
+func (r *Reconciler) reconcileDelete(ctx context.Context, m *catalogv1alpha1.Movie) (ctrl.Result, error) {
+	name, err := k8s.FinalizerFor(m, r.Scheme)
+	if err != nil {
+		return ctrl.Result{}, reconcile.TerminalError(err)
+	}
+	if _, err := k8s.RemoveFinalizer(ctx, r.Client, m, name); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, nil
+}
+
+// reconcileNormal implements spec §8.1's Want flow for Movie: addOptions
+// recorded once, metadata staleness decided and a MetadataTask published
+// when needed, availability/path/phase computed from whatever metadata is
+// cached, and the MediaFile/Download rollup folded in.
+func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Movie) (ctrl.Result, error) {
+	now := time.Now().UTC()
+	monitored := ptr.Deref(m.Spec.Monitored, true)
+	conditions := append([]metav1.Condition(nil), m.Status.Conditions...)
+
+	statusAC := catalogac.MovieStatus().WithObservedGeneration(m.Generation)
+	// Collection fan-out (AddOptions.Monitor's only real effect) has no
+	// owning task in this wave; there is nothing to actually apply yet, so
+	// this only records that the decision point was reached. It is sent on
+	// every reconcile, not just the first, deliberately: server-side apply
+	// releases (clears) a field a manager stops sending -- proven by
+	// pkg/k8s/patch_envtest_test.go's TestPatchStatusReleasesItsOwnFieldsOnly
+	// -- so omitting WithAddOptionsApplied once it is already true would
+	// flip it back to false on this manager's very next apply, not leave it
+	// unchanged. Idempotence here means "no new decision is made", which a
+	// constant true already expresses; it does not mean "stop asserting the
+	// field".
+	statusAC = statusAC.WithAddOptionsApplied(true)
+
+	stale := m.Status.Metadata == nil
+	if !stale {
+		state := movieRefreshState(m.Status.Metadata, now)
+		ttl := metadata.RefreshTTL(commonv1.MediaKindMovie, state, m.Status.Metadata.RefreshedAt.Time)
+		stale = now.Sub(m.Status.Metadata.RefreshedAt.Time) >= ttl
+	}
+	metaReady := !stale
+
+	if stale {
+		mediaKey := m.Namespace + "/" + m.Name
+		schemaName, data, err := schema.Encode(schema.MetadataTask{
+			MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: m.Name},
+		})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		env := &events.Envelope{
+			ID:     events.MsgIDForObject(string(m.UID), m.Generation, "metadata"),
+			Type:   "catalog.MetadataTask",
+			Schema: schemaName,
+			Source: "catalogarr@" + version.String(),
+			Key:    mediaKey,
+			Time:   now,
+			Data:   data,
+		}
+		_, pubErr := r.Bus.Publish(ctx, events.WorkMetadataSubject(events.PriorityNormal, mediaKey), env)
+		if pubErr != nil {
+			if errors.Is(pubErr, events.ErrQueueFull) {
+				k8s.MarkTrue(m, &conditions, catalogv1alpha1.MovieConditionQueueFull, "QueueFull", "metadata work queue is full")
+				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
+				if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Movie(m.Name, m.Namespace).WithStatus(statusAC)); err != nil {
+					return ctrl.Result{}, err
+				}
+				return ctrl.Result{RequeueAfter: time.Minute}, nil
+			}
+			return ctrl.Result{}, pubErr
+		}
+		k8s.MarkFalse(m, &conditions, catalogv1alpha1.MovieConditionQueueFull, "Published", "metadata task published")
+		k8s.MarkFalse(m, &conditions, catalogv1alpha1.MovieConditionMetadataReady, "Refreshing", "metadata refresh requested")
+	} else {
+		k8s.MarkTrue(m, &conditions, catalogv1alpha1.MovieConditionMetadataReady, k8s.ReasonReconciled, "metadata is fresh")
+	}
+
+	var available bool
+	var availableAt time.Time
+	if m.Status.Metadata != nil {
+		var rf catalogv1alpha1.RootFolder
+		if err := r.Get(ctx, types.NamespacedName{Namespace: m.Namespace, Name: m.Spec.RootFolderRef}, &rf); err != nil {
+			if apierrors.IsNotFound(err) {
+				k8s.MarkFalse(m, &conditions, k8s.ConditionReady, "RootFolderNotFound", "rootFolder %q not found", m.Spec.RootFolderRef)
+				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
+				if _, perr := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Movie(m.Name, m.Namespace).WithStatus(statusAC)); perr != nil {
+					return ctrl.Result{}, perr
+				}
+				return ctrl.Result{RequeueAfter: time.Minute}, nil
+			}
+			return ctrl.Result{}, err
+		}
+
+		eng := naming.NewEngine(naming.Config{
+			Dialect:           naming.Dialect(rf.Spec.Naming.Dialect),
+			ColonReplacement:  naming.ColonReplacement(rf.Spec.Naming.ColonReplacement),
+			MultiEpisodeStyle: naming.MultiEpisodeStyle(rf.Spec.Naming.MultiEpisodeStyle),
+			Overrides:         rf.Spec.Naming.Overrides,
+		})
+		nctx := naming.Context{
+			Kind:   commonv1.MediaKindMovie,
+			Title:  m.Status.Metadata.Title,
+			Year:   int(m.Status.Metadata.Year),
+			TmdbID: strconv.FormatInt(m.Spec.TmdbID, 10),
+			ImdbID: m.Status.Metadata.ExternalIDs["imdb"],
+		}
+
+		available, availableAt = Availability(m.Spec.MinimumAvailability, m.Status.Metadata, m.Spec.AvailabilityDelayDays, now)
+		pth, err := Path(rf.Spec.Path, m.Spec.Folder, eng, nctx)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		statusAC = statusAC.WithAvailable(available).WithPath(pth)
+		if !availableAt.IsZero() {
+			statusAC = statusAC.WithAvailableAt(metav1.NewTime(availableAt))
+		}
+		k8s.MarkTrue(m, &conditions, catalogv1alpha1.MovieConditionAvailable, k8s.ReasonReconciled, "available=%t", available)
+		if !available {
+			k8s.MarkFalse(m, &conditions, catalogv1alpha1.MovieConditionAvailable, k8s.ReasonPending, "not yet available")
+		}
+	}
+
+	var mfList catalogv1alpha1.MediaFileList
+	if err := r.List(ctx, &mfList, client.InNamespace(m.Namespace), client.MatchingFields{mediaFileByMovieIndexKey: m.Name}); err != nil {
+		return ctrl.Result{}, err
+	}
+	mf := pickMediaFile(mfList.Items)
+
+	var profile *quality.Profile
+	if m.Spec.QualityProfileRef != "" {
+		var qp catalogv1alpha1.QualityProfile
+		if err := r.Get(ctx, types.NamespacedName{Namespace: m.Namespace, Name: m.Spec.QualityProfileRef}, &qp); err != nil {
+			if !apierrors.IsNotFound(err) {
+				return ctrl.Result{}, err
+			}
+		} else {
+			p, errs := quality.FromCRD(&qp, catalogue.LoadedCatalogue())
+			if len(errs) == 0 {
+				profile = &p
+			}
+		}
+	}
+	hasFile, fileRef, fileQuality, fileFormatScore, cutoffMet := FileState(mf, profile)
+
+	var dl *downloadv1alpha1.Download
+	if m.Status.ActiveDownloadRef != nil {
+		var d downloadv1alpha1.Download
+		if err := r.Get(ctx, types.NamespacedName{Namespace: m.Namespace, Name: *m.Status.ActiveDownloadRef}, &d); err != nil {
+			if !apierrors.IsNotFound(err) {
+				return ctrl.Result{}, err
+			}
+		} else {
+			dl = &d
+		}
+	}
+	overlayPhase, active := DownloadOverlay(dl)
+
+	phase := Phase(monitored, metaReady, available, hasFile, cutoffMet)
+	if overlayPhase != "" {
+		phase = overlayPhase
+	}
+
+	statusAC = statusAC.
+		WithPhase(phase).
+		WithHasFile(hasFile).
+		WithFileFormatScore(fileFormatScore).
+		WithCutoffMet(cutoffMet)
+	if fileRef != nil {
+		statusAC = statusAC.WithFileRef(*fileRef)
+	}
+	if fileQuality != nil {
+		statusAC = statusAC.WithFileQuality(*fileQuality)
+	}
+	if active && m.Status.ActiveDownloadRef != nil {
+		statusAC = statusAC.WithActiveDownloadRef(*m.Status.ActiveDownloadRef)
+	}
+	// When !active and a ref was set, WithActiveDownloadRef is deliberately
+	// not called: omitting a field this manager owns releases it under SSA
+	// (pkg/k8s.PatchStatus's doc; proven by
+	// pkg/k8s/patch_envtest_test.go's TestPatchStatusReleasesItsOwnFieldsOnly),
+	// which is how the ref is cleared on a terminal Download phase.
+
+	k8s.MarkReady(m, &conditions, metaReady && phase != catalogv1alpha1.MoviePhasePending, k8s.ReasonReconciled, "phase=%s", phase)
+	statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
+
+	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Movie(m.Name, m.Namespace).WithStatus(statusAC)); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	result := ctrl.Result{}
+	if m.Status.Metadata != nil && !available && !availableAt.IsZero() {
+		d := availableAt.Sub(now)
+		if d < 0 {
+			d = 0
+		}
+		result.RequeueAfter = d
+	}
+	return result, nil
+}
+
+// movieRefreshState derives the metadata.RefreshTTL state bucket from a
+// Movie's own cached metadata, per pkg/metadata/refresh.go's bucket names
+// (not docs/research/quality.md's unrelated 90-day Sonarr "Recent"
+// episode-monitor window).
+func movieRefreshState(meta *catalogv1alpha1.MovieMetadata, now time.Time) string {
+	switch meta.Status {
+	case catalogv1alpha1.MovieReleaseStatusTBA, catalogv1alpha1.MovieReleaseStatusAnnounced:
+		return metadata.RefreshStateAnnounced
+	case catalogv1alpha1.MovieReleaseStatusInCinemas:
+		return metadata.RefreshStateInCinemas
+	default: // released
+		latest := latestReleaseDate(meta)
+		if !latest.IsZero() && now.Sub(latest) < ReleasedRecentWindow {
+			return metadata.RefreshStateReleasedRecent
+		}
+		return metadata.RefreshStateReleasedOld
+	}
+}
+
+func latestReleaseDate(meta *catalogv1alpha1.MovieMetadata) time.Time {
+	var latest time.Time
+	if meta.DigitalRelease != nil && meta.DigitalRelease.After(latest) {
+		latest = meta.DigitalRelease.Time
+	}
+	if meta.PhysicalRelease != nil && meta.PhysicalRelease.After(latest) {
+		latest = meta.PhysicalRelease.Time
+	}
+	return latest
+}
+
+// pickMediaFile chooses the MediaFile a Movie's status should reflect: the
+// one flagged Original, else the most recently created, else nil.
+func pickMediaFile(items []catalogv1alpha1.MediaFile) *catalogv1alpha1.MediaFile {
+	if len(items) == 0 {
+		return nil
+	}
+	for i := range items {
+		if ptr.Deref(items[i].Spec.Original, false) {
+			return &items[i]
+		}
+	}
+	best := &items[0]
+	for i := 1; i < len(items); i++ {
+		if items[i].CreationTimestamp.After(best.CreationTimestamp.Time) {
+			best = &items[i]
+		}
+	}
+	return best
+}
