@@ -245,7 +245,9 @@ func normaliseLanguage(lang string) (string, error) {
 	}
 	name, ok := catalogue.LanguageName(lang)
 	if !ok {
-		return "", fmt.Errorf("language %q is not a known BCP-47 tag (expected \"original\", \"any\" or a tag such as \"en\")", lang)
+		return "", fmt.Errorf(
+			"language %q is not supported: expected \"original\", \"any\", or the BCP-47 tag of a language Radarr knows (its primary subtag must be an ISO-639-1 code in pkg/quality/catalogue's language table, e.g. \"en\", \"es\", \"ja\", \"pt-BR\")",
+			lang)
 	}
 	return name, nil
 }

@@ -175,7 +175,10 @@ func TestFromCRDNormalisesLanguage(t *testing.T) {
 		{"en", "English", false},
 		{"en-US", "English", false},
 		{"ja", "Japanese", false},
-		{"", "", false}, // unset: no language constraint, not an error
+		{"es", "Spanish", false},       // widened table: not in the corpus, still a real language
+		{"pt-BR", "Portuguese", false}, // a BCP-47 region resolves through its primary subtag
+		{"HI", "Hindi", false},         // tags are case-insensitive
+		{"", "", false},                // unset: no language constraint, not an error
 		{"tlh", "", true},
 	}
 	for _, tt := range tests {

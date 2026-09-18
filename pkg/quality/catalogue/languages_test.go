@@ -26,25 +26,38 @@ import (
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
 
+// tagless is every table entry that legitimately carries no ISO-639-1
+// code: the three pseudo-languages, and the three rows whose language has
+// no two-letter code of its own (Flemish is nl-BE, and the two regional
+// variants are pt-BR and es-419 -- BCP-47 region subtags, not languages).
+var tagless = map[string]bool{
+	"Original": true, "Any": true, "Unknown": true,
+	"Flemish": true, "Portuguese (Brazil)": true, "Spanish (Latino)": true,
+}
+
 // TestLanguageTableRoundTrips walks every entry of the language table and
-// checks name -> ISO-639-1 tag -> name is the identity. "Original" is the
-// one entry with no tag: it is Radarr's pseudo-language (id -2), not a
-// language, so it has no ISO code to round-trip through.
+// checks name -> ISO-639-1 tag -> name is the identity.
 func TestLanguageTableRoundTrips(t *testing.T) {
 	langs := catalogue.Languages()
 	require.NotEmpty(t, langs)
 
+	seen := map[string]string{}
 	for _, l := range langs {
 		name, ok := catalogue.LanguageByID(l.ID)
 		require.True(t, ok, "id %d must resolve", l.ID)
 		require.Equal(t, l.Name, name)
 
 		if l.Tag == "" {
-			assert.Equal(t, "Original", l.Name, "only Original may lack an ISO-639-1 code")
+			assert.Truef(t, tagless[l.Name], "%s must carry an ISO-639-1 code", l.Name)
 			_, ok := catalogue.LanguageTag(l.Name)
-			assert.False(t, ok, "Original has no ISO-639-1 code")
+			assert.Falsef(t, ok, "%s has no ISO-639-1 code", l.Name)
 			continue
 		}
+		assert.Falsef(t, tagless[l.Name], "%s is listed as tagless but has tag %q", l.Name, l.Tag)
+
+		prev, dup := seen[l.Tag]
+		assert.Falsef(t, dup, "tag %q is claimed by both %s and %s -- a round trip cannot be unambiguous", l.Tag, prev, l.Name)
+		seen[l.Tag] = l.Name
 
 		tag, ok := catalogue.LanguageTag(l.Name)
 		require.True(t, ok, "%s must have a tag", l.Name)
@@ -56,17 +69,54 @@ func TestLanguageTableRoundTrips(t *testing.T) {
 	}
 }
 
-func TestLanguageTableCoversTheCorpusIDs(t *testing.T) {
-	want := map[int32]string{
+// TestLanguageTableCarriesEveryRadarrLanguage pins the full Language.cs set
+// (ids -2..57 at the tag languages.go cites), not just the ids the vendored
+// custom-format corpus happens to use: QualityProfileSpec.Language is
+// validated only as MaxLength=64, so a narrower table would turn a
+// previously accepted "es" or "hi" into an Invalid profile.
+func TestLanguageTableCarriesEveryRadarrLanguage(t *testing.T) {
+	langs := catalogue.Languages()
+	assert.Len(t, langs, 60, "Language.cs at v6.4.4.10685 declares 60 entries, ids -2..57")
+	for i, l := range langs {
+		assert.Equal(t, int32(i-2), l.ID, "the table is in id order with no gaps")
+	}
+
+	// The seven ids the vendored corpus's LanguageSpecifications use.
+	for id, name := range map[int32]string{
 		-2: "Original", 1: "English", 2: "French", 4: "German",
 		8: "Japanese", 10: "Chinese", 21: "Korean",
-	}
-	assert.Len(t, catalogue.Languages(), len(want))
-	for id, name := range want {
+	} {
 		got, ok := catalogue.LanguageByID(id)
 		require.True(t, ok, "id %d", id)
 		assert.Equal(t, name, got)
 	}
+
+	// A spread of the newly carried ones, by tag.
+	for tag, name := range map[string]string{
+		"es": "Spanish", "it": "Italian", "pt": "Portuguese", "ru": "Russian",
+		"hi": "Hindi", "ka": "Georgian", "af": "Afrikaans", "no": "Norwegian",
+	} {
+		got, ok := catalogue.LanguageName(tag)
+		require.Truef(t, ok, "%s must resolve", tag)
+		assert.Equal(t, name, got)
+	}
+}
+
+// TestRegionalVariantsResolveToTheirBaseLanguage: "pt-BR" and "es-419" are
+// BCP-47 region subtags, so they resolve through the primary subtag to
+// Portuguese and Spanish -- Radarr's own "Portuguese (Brazil)" and
+// "Spanish (Latino)" rows are separate ids with no ISO-639-1 code.
+func TestRegionalVariantsResolveToTheirBaseLanguage(t *testing.T) {
+	got, ok := catalogue.LanguageName("pt-BR")
+	require.True(t, ok)
+	assert.Equal(t, "Portuguese", got)
+
+	got, ok = catalogue.LanguageName("es-419")
+	require.True(t, ok)
+	assert.Equal(t, "Spanish", got)
+
+	_, ok = catalogue.LanguageTag("Portuguese (Brazil)")
+	assert.False(t, ok)
 }
 
 func TestLanguageNameAcceptsBCP47AndIsCaseInsensitive(t *testing.T) {
@@ -75,10 +125,6 @@ func TestLanguageNameAcceptsBCP47AndIsCaseInsensitive(t *testing.T) {
 		require.True(t, ok, tag)
 		assert.Equal(t, "English", got)
 	}
-	got, ok := catalogue.LanguageName("pt-BR")
-	assert.False(t, ok, "Portuguese is not in the table yet")
-	assert.Empty(t, got)
-
 	for _, tag := range []string{"", "-", "zzz", "english"} {
 		_, ok := catalogue.LanguageName(tag)
 		assert.False(t, ok, "%q must not resolve", tag)
