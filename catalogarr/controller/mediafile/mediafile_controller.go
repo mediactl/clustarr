@@ -144,21 +144,23 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 
 		original := mf.Spec.Original == nil || *mf.Spec.Original
-		// mirrorLabels is computed on every probe -- it is what Reconcile
-		// calls, not duplicated logic -- but it is only actually sent to the
-		// apiserver bundled with the swap-triggered spec Apply below. A
-		// standalone k8s.Apply(...WithLabels...) on every probe would give
-		// catalogarr a managedFields entry on the MAIN resource (subresource
-		// "") before any transcode ever happens, which is exactly what this
-		// task's two-writer split forbids: catalogarr's only main-resource
-		// writes are spec.sizeBytes/modTime/original, and only once a
-		// transcode swap is incorporated (see "Resolving the field-manager
-		// split"). Folding the refreshed labels into that same Apply call
-		// also happens to be when they are most likely to be stale (a
-		// transcode can change video codec / HDR).
-		labels := mirrorLabels(mf.Spec.MediaRef.Kind, mf.Spec.Quality, mi, original)
 		if swap != nil {
 			original = false
+		}
+		// mirrorLabels is computed on every probe -- it is what Reconcile
+		// calls, not duplicated logic -- with original already reflecting an
+		// incorporated swap, so LabelOriginal flips to "false" in the same
+		// call that flips spec.original. The result is only actually sent
+		// to the apiserver bundled with the swap-triggered spec Apply below:
+		// a standalone k8s.Apply(...WithLabels...) on every probe would give
+		// catalogarr a managedFields entry on the MAIN resource (subresource
+		// "") before any transcode ever happens, which is exactly what this
+		// task's two-writer split forbids -- catalogarr's only main-resource
+		// writes are spec.sizeBytes/modTime/original, and only once a
+		// transcode swap is incorporated (see "Resolving the field-manager
+		// split").
+		labels := mirrorLabels(mf.Spec.MediaRef.Kind, mf.Spec.Quality, mi, original)
+		if swap != nil {
 			specAC := catalogac.MediaFileSpec().
 				WithSizeBytes(ps.SizeBytes).
 				WithModTime(ps.ModTime).

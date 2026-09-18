@@ -79,7 +79,7 @@ func extractSubtitleItemsSignature(o client.Object) string {
 	}
 	sig := ""
 	for _, it := range sr.Status.Items {
-		sig += string(it.LangKey) + "=" + string(it.State) + ":" + it.Path + ";"
+		sig += it.LangKey + "=" + string(it.State) + ":" + it.Path + ";"
 	}
 	return sig
 }
