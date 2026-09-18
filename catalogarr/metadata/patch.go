@@ -60,10 +60,17 @@ func buildMovieMetadataAC(m *pkgmetadata.Movie, now time.Time) *catalogac.MovieM
 		WithCertification(m.Certification).
 		WithYear(m.Year).
 		WithRuntimeMinutes(m.Runtime).
-		WithStatus(catalogv1alpha1.MovieReleaseStatus(m.Status)).
 		WithExternalIDs(m.IDs).
 		WithRefreshedAt(metav1.NewTime(now))
 
+	if m.Status != "" {
+		// MovieReleaseStatus is a CRD enum with no empty member: setting it
+		// unconditionally would send "" through SSA and fail CEL/enum
+		// validation on a Movie whose provider Status was never populated
+		// (for example a cache hit fixture in a test, or a provider that
+		// omits status). status.metadata.status stays simply absent instead.
+		ac.WithStatus(catalogv1alpha1.MovieReleaseStatus(m.Status))
+	}
 	if len(m.Genres) > 0 {
 		ac.WithGenres(m.Genres...)
 	}
@@ -124,10 +131,14 @@ func buildSeriesMetadataAC(s *pkgmetadata.Series, now time.Time) *catalogac.Seri
 		WithOriginalLanguage(s.OriginalLanguage).
 		WithYear(s.Year).
 		WithRuntimeMinutes(s.Runtime).
-		WithStatus(catalogv1alpha1.SeriesRunStatus(s.Status)).
 		WithExternalIDs(s.IDs).
 		WithRefreshedAt(metav1.NewTime(now))
 
+	if s.Status != "" {
+		// SeriesRunStatus is a CRD enum with no empty member; see the
+		// matching guard in buildMovieMetadataAC above.
+		ac.WithStatus(catalogv1alpha1.SeriesRunStatus(s.Status))
+	}
 	if len(s.Genres) > 0 {
 		ac.WithGenres(s.Genres...)
 	}

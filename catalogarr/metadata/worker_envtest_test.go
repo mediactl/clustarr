@@ -134,3 +134,57 @@ func TestHandlerFetchesFromTheProviderAndPatchesOnlyStatusMetadata(t *testing.T)
 	require.Empty(t, got.Status.Phase, "the worker must never set phase; that is the movie controller's field")
 	require.Empty(t, got.Status.Conditions, "the worker must never set conditions")
 }
+
+type failIfCalledMovieProvider struct{ t *testing.T }
+
+func (p failIfCalledMovieProvider) Name() string { return "fail-if-called" }
+func (p failIfCalledMovieProvider) Capabilities() pkgmetadata.Capabilities {
+	return pkgmetadata.Capabilities{}
+}
+func (p failIfCalledMovieProvider) Movie(context.Context, string, string) (*pkgmetadata.Movie, error) {
+	p.t.Fatal("Movie called despite a cache hit")
+	return nil, nil
+}
+func (p failIfCalledMovieProvider) FindMovie(context.Context, pkgmetadata.ExternalIDs) (*pkgmetadata.Movie, error) {
+	p.t.Fatal("FindMovie called despite a cache hit")
+	return nil, nil
+}
+func (p failIfCalledMovieProvider) SearchMovies(context.Context, string, int) ([]pkgmetadata.MovieHit, error) {
+	return nil, nil
+}
+
+type fakeCache struct{ movie *pkgmetadata.Movie }
+
+func (c *fakeCache) Get(_ context.Context, _ string, out any) (bool, error) {
+	if c.movie == nil {
+		return false, nil
+	}
+	*out.(*pkgmetadata.Movie) = *c.movie
+	return true, nil
+}
+func (c *fakeCache) Set(context.Context, string, any, time.Duration) error { return nil }
+
+func TestHandlerSkipsTheProviderOnACacheHit(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	const ns, name = "hcache", "inception"
+	newMovie(t, ctx, c, ns, name, 27205)
+
+	h := &metadata.Handler{
+		Client: c,
+		Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{failIfCalledMovieProvider{t: t}}},
+		Cache:  &fakeCache{movie: &pkgmetadata.Movie{Title: "Inception (cached)", Runtime: 148}},
+	}
+
+	env := &events.Envelope{Key: ns + "/" + name, Schema: schema.MetadataTask{}.Schema()}
+	task := schema.MetadataTask{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name}}
+	var err error
+	_, env.Data, err = schema.Encode(task)
+	require.NoError(t, err)
+
+	require.NoError(t, h.Handle(ctx, testMessage{env: env}))
+
+	var got catalogv1alpha1.Movie
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	require.Equal(t, "Inception (cached)", got.Status.Metadata.Title)
+}
