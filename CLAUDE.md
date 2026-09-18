@@ -116,33 +116,33 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
 Pre-alpha. **Nothing reconciles yet** — every `setupControllers` and
 `setupWorkers` is still an empty registration point.
 
-M0 (done): all 29 CRDs across five groups (generate cleanly, install into a real
-apiserver); `pkg/events` (NATS + in-memory implementations behind one contract
-suite); `pkg/k8s`; the binary and manager wiring; deployment manifests, Helm chart
-and images; the ADRs.
+M0 (done): the 29 CRDs across five groups, `pkg/events` (NATS and in-memory
+behind one contract suite), `pkg/k8s`, the binary, manifests, chart and images.
 
-Phase A (done): `pkg/obs` — `logging` (slog through context), `tracing`
-(TracerProvider, W3C propagation) and `metrics` (21 `clustarr_` series), plus
-`obs.Bootstrap`, the one call each service's `Run` makes to stand all three up;
-`docs/observability.md`; the `LibraryScan` kind and the `importarr` service
-skeleton (controllers/worker roles, `/data` readiness, the
-`CLUSTARR_WORK_IMPORTARR` stream); `pkg/pipeline` and the `ui` skeleton
-(templ + htmx + SSE, pipeline page and stream); all nine services wired into
-`clustarr <service>` and `clustarr all`. The observability libraries have few
-production callers yet: `tracing.Start`, `Inject` and `Extract` are exercised
-only by their own tests, and `docs/observability.md`'s Status banner says what
-is wired and what is not.
+Phase A (done): `pkg/obs` (`logging`, `tracing`, `metrics`, `obs.Bootstrap`),
+`docs/observability.md`, the `LibraryScan` kind and `importarr` skeleton,
+`pkg/pipeline` and the `ui` skeleton; all services wired into the binary. The
+tracing helpers still have no production call sites (see the doc's banner).
 
-Next: **Phase B**, the library layer — eleven pure-Go packages with no
-Kubernetes types (`release`, `quality`, `naming`, `mediainfo`, `transcode`,
-`torznab`/`newznab`, `cardigann`, `subtitles`, `metadata`, `importlist`,
-`fsops`/`ratelimit`). Then **Phase C** (M1 catalog core and library rescan,
-plus wiring trace propagation into `pkg/events`), and on through M2 indexers →
-M3 downloads, import and the first UI slice → M4 transcode → M5 subtitles →
-M6 Prowlarr parity, import lists and non-video inventory, and finally
-**Phase H: end-to-end proof on kind**. Phase detail is in
-`docs/superpowers/plans/2026-09-18-remaining-work.md`; milestone detail is in
-the spec's §16 and amendment §A4.
+Phase B (done): the library layer, thirteen pure-Go packages (only
+`api/common/v1alpha1` shared types; `pkg/quality` alone reads catalog CRD
+types). `release` (rls-based parser for every kind, batch ranges, id tokens,
+130-title corpus); `quality` (vendored TRaSH corpus, all 2,791 regexes compile
+under regexp2, 66 embedded formats proven byte-identical, 13 built-in profiles,
+Match/Score, FromCRD, upgrade decision); `naming` (four dialects); `mediainfo`
+(two-call ffprobe, HDR/DV, ProbeHash, MovieHash); `transcode` (argv goldens,
+runner, cleanup, verify); `torznab`/`newznab`; `cardigann` (v11, 25 filters,
+five logins, HTML/JSON/XML); `subtitles` (Bazarr scoring, cue-aware
+post-processing, OpenSubtitles, Gestdown, embedded); `metadata` (six clients);
+`importlist` (five lists, Dedupe, ApplySyncLevel); `fsops`/`ratelimit`. Fixtures
+under `testdata/<pkg>/`, no network in tests, ffmpeg tests skip without it.
+
+Next: **Phase C** (M1 catalog core and library rescan, plus wiring trace
+propagation into `pkg/events`), then M2 indexers → M3 downloads, import and
+the first UI slice → M4 transcode → M5 subtitles → M6 Prowlarr parity, import
+lists and non-video inventory, and finally **Phase H: end-to-end proof on
+kind**. Phase detail is in `docs/superpowers/plans/2026-09-18-remaining-work.md`;
+milestone detail is in the spec's §16 and amendment §A4.
 
 **Nothing is finished until it is proven end to end on a kind cluster.**
 Every phase from C onward lands its milestone's scenarios in `test/e2e`

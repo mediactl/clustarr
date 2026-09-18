@@ -1021,6 +1021,17 @@ other phase.
 - [ ] Add `charts/clustarr/README.md` and `values.schema.json` so bad values fail at install rather than at render.
 - [ ] Add `docs/adr/README.md` with the ADR index and supersede lifecycle when ADR-0009 appears.
 
+
+### Carried out of Phase B (2026-09-18)
+
+- [ ] Phase C: `hack/gen-catalogue` generates `pkg/quality/catalogue/data` from `testdata/trash` (the parity test already proves equivalence); `pkg/decision` proper on top of `quality.Profile.UpgradeDecision`; `quality.Condition.ExceptLanguage` evaluation.
+- [ ] Phase D: map Torznab `DownloadVolumeFactor`/`UploadVolumeFactor` to `ReleaseInfo.IndexerFlags` (freeleech, halfleech, doubleupload) so TRaSH `IndexerFlag` conditions fire; `torznab.wireCaps.Limits` stays typed (a malformed caps doc is a typed error).
+- [ ] Phase F: `subtitles.Plan`, `SidecarName`, `ParseSidecar` (deferred from B8); Bazarr `fix_uppercase` port; Gestdown show-id cache single-flight (duplicate lookups on a cold cache are harmless).
+- [ ] Phase G: extend `torznab.Release` with non-video fields (artist, album, author, publisher) now carried in `Attrs`; convert `importlist.ExternalIDs` (struct) ↔ `metadata.ExternalIDs` (map) in the ImportList controller.
+- [ ] Minor debt: `metadata/clients/musicbrainz` maps `ClientError{StatusCode:0}` (transport or decode) to `ErrDecode`; `transcode.Runner.Run` reports only `waitErr` when both wait and scan fail; `golang-tmdb.SetCustomBaseURL` is process-global (one TMDB base URL per process).
+- [ ] Phase C: `pkg/release.parseLanguages` cannot detect Chinese, so the anime dual-audio Language group only fires for Japanese/Korean tags today.
+- [ ] `hack/deps/deps.go` still keeps `mimetype`, `sprig/v3` and `x/net/proxy` alive (no importer yet); prune each when its phase lands.
+
 ## Self-review notes
 
 Checked against both specs on 2026-09-18.
