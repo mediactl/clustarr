@@ -70,3 +70,20 @@ func TestIsQuotaExceededAndIsRateLimited(t *testing.T) {
 	assert.True(t, subtitles.IsRateLimited(&subtitles.ProviderError{Kind: subtitles.KindTooManyRequests}))
 	assert.False(t, subtitles.IsRateLimited(errors.New("not a ProviderError")))
 }
+
+func TestIsNotFound(t *testing.T) {
+	assert.True(t, subtitles.IsNotFound(&subtitles.ProviderError{Kind: subtitles.KindNotFound}))
+	assert.False(t, subtitles.IsNotFound(&subtitles.ProviderError{Kind: subtitles.KindAuth}))
+	assert.False(t, subtitles.IsNotFound(errors.New("not a ProviderError")))
+}
+
+func TestThrottleForKindNotFoundHasADefaultDuration(t *testing.T) {
+	// KindNotFound is additive to spec §7/research note §10's verbatim
+	// 8-kind table — needed for Gestdown's show-lookup 404 (fix round 1,
+	// item 6) — so it has no note-mandated duration; a show that doesn't
+	// exist on the provider isn't going to appear again soon, so it gets
+	// the same long, low-churn backoff as the other persistent-until-
+	// reconfigured kinds (Auth, Config).
+	_, d := subtitles.ThrottleFor("gestdown", &subtitles.ProviderError{Kind: subtitles.KindNotFound})
+	assert.Equal(t, 12*time.Hour, d)
+}

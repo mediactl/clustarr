@@ -51,6 +51,14 @@ const (
 	KindTimeout               = "Timeout"
 	KindAuth                  = "Auth"
 	KindConfig                = "Config"
+
+	// KindNotFound is additive to spec §7's verbatim 8-name Kind list: the
+	// resource a provider was asked about (e.g. Gestdown's TVDB-id show
+	// lookup) plainly does not exist upstream, which is a different
+	// condition from every other Kind above (none of them mean "there is
+	// nothing here and there will not be, not a config/auth/throttle
+	// problem").
+	KindNotFound = "NotFound"
 )
 
 func kindOf(err error) (string, bool) {
@@ -67,11 +75,20 @@ func IsQuotaExceeded(err error) bool {
 }
 func IsRateLimited(err error) bool { k, ok := kindOf(err); return ok && k == KindTooManyRequests }
 
-// defaultDurations is spec §6.5 / research note §10's verbatim table.
+// IsNotFound reports whether err is a ProviderError with Kind ==
+// KindNotFound (see KindNotFound's doc comment).
+func IsNotFound(err error) bool { k, ok := kindOf(err); return ok && k == KindNotFound }
+
+// defaultDurations is spec §6.5 / research note §10's verbatim table, plus
+// KindNotFound (not part of that table — see its own doc comment) at the
+// same duration as Auth/Config: a provider-side "this doesn't exist" is a
+// persistent condition, not a transient one, so it gets the same long,
+// low-churn backoff.
 var defaultDurations = map[string]time.Duration{
 	KindTooManyRequests: time.Hour, KindDownloadLimitExceeded: 3 * time.Hour,
 	KindServiceUnavailable: 20 * time.Minute, KindAPIThrottled: 10 * time.Minute,
 	KindParse: 6 * time.Hour, KindTimeout: time.Hour, KindAuth: 12 * time.Hour, KindConfig: 12 * time.Hour,
+	KindNotFound: 12 * time.Hour,
 }
 
 // providerOverrides is research note §10's per-provider column.
