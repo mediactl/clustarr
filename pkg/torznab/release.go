@@ -41,7 +41,10 @@ type Release struct {
 	Description string
 	Categories  []newznab.CategoryID
 
-	// torrent
+	// torrent. DownloadVolumeFactor/UploadVolumeFactor/MinimumRatio are
+	// *float64, not a CLAUDE.md-banned type here: they are wire-protocol
+	// decimals carried verbatim from the indexer, not a human-typed config
+	// value, and this package never persists a Release to a CRD.
 	Seeders              *int32
 	Leechers             *int32
 	Peers                *int32
