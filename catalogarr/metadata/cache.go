@@ -22,10 +22,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/jonboulle/clockwork"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 )
@@ -86,3 +89,19 @@ func (c *kvCache) Set(ctx context.Context, key string, v any, ttl time.Duration)
 }
 
 var _ pkgmetadata.Cache = (*kvCache)(nil)
+
+// cacheKey builds an item-level cache key: <kind>:<sorted k=v external ids>.
+// See this task's "Judgment calls" for why this deliberately drops the
+// <provider> segment the spec's KV table literally shows.
+func cacheKey(kind commonv1.MediaKind, ids pkgmetadata.ExternalIDs) string {
+	keys := make([]string, 0, len(ids))
+	for k := range ids {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+"="+ids[k])
+	}
+	return string(kind) + ":" + strings.Join(parts, ",")
+}

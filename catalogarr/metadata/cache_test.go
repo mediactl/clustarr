@@ -25,6 +25,7 @@ import (
 	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/require"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
@@ -77,4 +78,12 @@ func TestKVCacheMissThenHitThenExpiry(t *testing.T) {
 	hit, err = c.Get(ctx, "movie:tmdb=27205", &out)
 	require.NoError(t, err)
 	require.False(t, hit, "an entry past its own expiresAt must miss even though the bucket TTL (30d) has not elapsed")
+}
+
+func TestCacheKeyIsDeterministicAndSortedByIDKey(t *testing.T) {
+	ids := pkgmetadata.ExternalIDs{pkgmetadata.KeyIMDb: "tt1375666", pkgmetadata.KeyTMDB: "27205"}
+	require.Equal(t, "movie:imdb=tt1375666,tmdb=27205", cacheKey(commonv1.MediaKindMovie, ids))
+	// Order of the input map must not affect the key.
+	ids2 := pkgmetadata.ExternalIDs{pkgmetadata.KeyTMDB: "27205", pkgmetadata.KeyIMDb: "tt1375666"}
+	require.Equal(t, cacheKey(commonv1.MediaKindMovie, ids), cacheKey(commonv1.MediaKindMovie, ids2))
 }
