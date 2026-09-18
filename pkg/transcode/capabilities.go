@@ -20,3 +20,17 @@ package transcode
 // Capabilities reports which of the four tiers' hardware encoders are
 // present in this node's ffmpeg build.
 type Capabilities struct{ Encoders map[Tier]bool }
+
+// FallbackTier tries the one documented intel fallback (qsv -> vaapi, note
+// §4.2/§4.3: QSV is preferred when the libvpl runtime is present, VAAPI is
+// the vendor-neutral fallback on the same node). Any other unavailable tier
+// has no fallback and FallbackTier returns (want, false).
+func FallbackTier(want Tier, caps Capabilities) (Tier, bool) {
+	if caps.Encoders[want] {
+		return want, true
+	}
+	if want == TierQSV && caps.Encoders[TierVAAPI] {
+		return TierVAAPI, true
+	}
+	return want, false
+}

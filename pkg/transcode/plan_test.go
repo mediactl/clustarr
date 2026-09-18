@@ -152,3 +152,23 @@ func TestPlanDecisionTable(t *testing.T) {
 		})
 	}
 }
+
+func TestFallbackTier(t *testing.T) {
+	qsvOnly := transcode.Capabilities{Encoders: map[transcode.Tier]bool{transcode.TierQSV: true}}
+	vaapiOnly := transcode.Capabilities{Encoders: map[transcode.Tier]bool{transcode.TierVAAPI: true}}
+	neither := transcode.Capabilities{}
+
+	got, ok := transcode.FallbackTier(transcode.TierQSV, qsvOnly)
+	require.True(t, ok)
+	require.Equal(t, transcode.TierQSV, got, "no fallback needed when the wanted tier is available")
+
+	got, ok = transcode.FallbackTier(transcode.TierQSV, vaapiOnly)
+	require.True(t, ok)
+	require.Equal(t, transcode.TierVAAPI, got, "intel qsv falls back to vaapi on the same node")
+
+	_, ok = transcode.FallbackTier(transcode.TierQSV, neither)
+	require.False(t, ok, "no fallback exists when neither intel path is present")
+
+	_, ok = transcode.FallbackTier(transcode.TierNVENC, neither)
+	require.False(t, ok, "nvenc has no documented fallback")
+}

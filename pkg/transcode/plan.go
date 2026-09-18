@@ -241,7 +241,13 @@ func Plan(info MediaInfo, profile ProfileSpec, caps Capabilities, meta PlanMeta)
 	if err != nil {
 		return nil, err
 	}
-	plan.Tier = tier
+	resolved, ok := FallbackTier(tier, caps)
+	if !ok {
+		plan.Decision = DecisionReject
+		plan.Reason = fmt.Sprintf("no available encoder for tier %s and no fallback", tier)
+		return plan, nil
+	}
+	plan.Tier = resolved
 
 	if videoCompliant(v0) {
 		plan.Decision = DecisionRemuxOnly
