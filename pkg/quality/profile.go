@@ -45,7 +45,16 @@ type Profile struct {
 	Language              string
 	ProperPolicy          string
 	Sizes                 map[string]SizeLimit // quality name -> resolved size limits
-	Hash                  string
+	// PreferredProtocol ranks one transfer protocol above the other
+	// (catalogv1alpha1.PreferredProtocol's string value: "usenet",
+	// "torrent" or "any"). Not part of spec's one-line Profile summary,
+	// added because it is part of what FromCRD resolves from
+	// QualityProfileSpec and Hash must identify (spec §4.2) -- a profile
+	// differing only in preferred protocol is a different resolved profile.
+	// This package does not evaluate it; a later phase's release ranking
+	// does.
+	PreferredProtocol string
+	Hash              string
 }
 
 // Score is catalogue.Catalogue.Score against p's resolved Scores map -- see
@@ -196,7 +205,7 @@ func FromCRD(p *catalogv1alpha1.QualityProfile, cat *catalogue.Catalogue) (Profi
 		MinFormatScore: int(p.Spec.MinFormatScore), CutoffFormatScore: int(p.Spec.CutoffFormatScore),
 		MinUpgradeFormatScore: int(p.Spec.MinUpgradeFormatScore),
 		Scores:                scores, Language: p.Spec.Language, ProperPolicy: string(p.Spec.ProperPolicy),
-		Sizes: sizes,
+		Sizes: sizes, PreferredProtocol: string(p.Spec.PreferredProtocol),
 	}
 	prof.Hash = hashProfile(prof)
 	return prof, errs
@@ -227,8 +236,8 @@ func hashProfile(p Profile) string {
 	// hash.Hash.Write (via fmt.Fprintf) never returns an error per its own
 	// doc contract, so every Fprintf return here is deliberately ignored.
 	h := sha256.New()
-	_, _ = fmt.Fprintf(h, "cutoff=%d|upgrade=%t|min=%d|cutoffFmt=%d|minUpgrade=%d|lang=%s|proper=%s\n",
-		p.CutoffIndex, p.UpgradeAllowed, p.MinFormatScore, p.CutoffFormatScore, p.MinUpgradeFormatScore, p.Language, p.ProperPolicy)
+	_, _ = fmt.Fprintf(h, "cutoff=%d|upgrade=%t|min=%d|cutoffFmt=%d|minUpgrade=%d|lang=%s|proper=%s|protocol=%s\n",
+		p.CutoffIndex, p.UpgradeAllowed, p.MinFormatScore, p.CutoffFormatScore, p.MinUpgradeFormatScore, p.Language, p.ProperPolicy, p.PreferredProtocol)
 	for _, tier := range p.Tiers {
 		names := make([]string, len(tier))
 		for i, d := range tier {
@@ -243,6 +252,15 @@ func hashProfile(p Profile) string {
 	sort.Strings(keys)
 	for _, k := range keys {
 		_, _ = fmt.Fprintf(h, "score=%s:%d\n", k, p.Scores[k])
+	}
+	sizeKeys := make([]string, 0, len(p.Sizes))
+	for k := range p.Sizes {
+		sizeKeys = append(sizeKeys, k)
+	}
+	sort.Strings(sizeKeys)
+	for _, k := range sizeKeys {
+		lim := p.Sizes[k]
+		_, _ = fmt.Fprintf(h, "size=%s:%g,%g,%g\n", k, lim.MinMBPerMin, lim.PrefMBPerMin, lim.MaxMBPerMin)
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }

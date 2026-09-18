@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -108,4 +109,42 @@ func TestFromCRDCollectsErrorsInsteadOfFailingFast(t *testing.T) {
 	}}
 	_, errs := quality.FromCRD(p, cat)
 	require.Len(t, errs, 3, "unknown quality name, unresolvable cutoff, and unknown formatScores slug are each reported")
+}
+
+// TestHashDiffersOnSizeLimitOrPreferredProtocol is fix round 1, minor #3:
+// hashProfile previously omitted Sizes and PreferredProtocol, so two
+// profiles differing only in a size override or in which protocol they
+// prefer would resolve to the identical Hash -- spec §4.2 frames Hash as
+// identifying the *resolved* profile, and both fields are part of that
+// resolution (FromCRD reads QualityProfileSpec.SizeLimits and
+// PreferredProtocol same as everything else Hash already covers).
+func TestHashDiffersOnSizeLimitOrPreferredProtocol(t *testing.T) {
+	cat := &catalogue.Catalogue{Formats: map[string]*catalogue.Format{}}
+	base := func() *catalogv1alpha1.QualityProfile {
+		return &catalogv1alpha1.QualityProfile{Spec: catalogv1alpha1.QualityProfileSpec{
+			MediaKind:         catalogv1alpha1.ProfileMediaKindVideo,
+			Tiers:             []catalogv1alpha1.Tier{{Name: "Bluray-1080p", Qualities: []string{"Bluray-1080p"}}},
+			Cutoff:            "Bluray-1080p",
+			SizeTable:         catalogv1alpha1.SizeTableMovie,
+			PreferredProtocol: catalogv1alpha1.PreferredProtocolAny,
+		}}
+	}
+
+	p1, errs := quality.FromCRD(base(), cat)
+	require.Empty(t, errs)
+
+	withSizeOverride := base()
+	min := resource.MustParse("999")
+	withSizeOverride.Spec.SizeLimits = []catalogv1alpha1.SizeLimit{{Quality: "Bluray-1080p", MinMBPerMinute: &min}}
+	p2, errs := quality.FromCRD(withSizeOverride, cat)
+	require.Empty(t, errs)
+	require.NotEqual(t, p1.Hash, p2.Hash, "a size limit override must change the hash")
+	require.Equal(t, p1.PreferredProtocol, p2.PreferredProtocol)
+
+	withDifferentProtocol := base()
+	withDifferentProtocol.Spec.PreferredProtocol = catalogv1alpha1.PreferredProtocolUsenet
+	p3, errs := quality.FromCRD(withDifferentProtocol, cat)
+	require.Empty(t, errs)
+	require.NotEqual(t, p1.Hash, p3.Hash, "a different preferred protocol must change the hash")
+	require.Equal(t, "usenet", p3.PreferredProtocol)
 }

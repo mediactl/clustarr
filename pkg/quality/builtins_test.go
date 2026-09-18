@@ -191,4 +191,5 @@ func TestEveryBuiltinProfileLoadsAndReferencesOnlyFormatsThatExist(t *testing.T)
 	require.Equal(t, 100, profiles["anime-remux-1080p"].MinFormatScore)
 	require.Equal(t, 100, profiles["anime-web-1080p"].MinFormatScore)
 	require.NotEqual(t, profiles["hd-bluray-web"].Hash, profiles["uhd-bluray-web"].Hash)
+	require.Equal(t, "any", profiles["hd-bluray-web"].PreferredProtocol, "FromCRD must propagate preferredProtocol onto the resolved Profile")
 }
