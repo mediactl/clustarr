@@ -353,7 +353,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 	// A Movie with no cached metadata publishes a MetadataTask and reports
 	// MetadataReady=False/Pending (§Step 6 happy path).
 	t.Run("metadata missing publishes a MetadataTask and reports Pending", func(t *testing.T) {
-		mediaKey := "metadata-ns/the-matrix"
+		mediaKey := events.MediaKey(string(commonv1.MediaKindMovie), "metadata-ns", "the-matrix")
 		wantSubject := events.WorkMetadataSubject(events.PriorityNormal, mediaKey)
 
 		received := make(chan *events.Envelope, 4)

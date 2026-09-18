@@ -272,7 +272,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 	metaReady := !stale
 
 	if stale {
-		mediaKey := m.Namespace + "/" + m.Name
+		mediaKey := events.MediaKey(string(commonv1.MediaKindMovie), m.Namespace, m.Name)
 		schemaName, data, err := schema.Encode(schema.MetadataTask{
 			MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: m.Name},
 		})

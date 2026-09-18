@@ -237,7 +237,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 	metaReady := !stale
 
 	if stale {
-		mediaKey := s.Namespace + "/" + s.Name
+		mediaKey := events.MediaKey(string(commonv1.MediaKindSeries), s.Namespace, s.Name)
 		schemaName, data, err := schema.Encode(schema.MetadataTask{
 			MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindSeries, Name: s.Name},
 		})
