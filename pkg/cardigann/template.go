@@ -110,16 +110,77 @@ var funcMap = template.FuncMap{
 }
 
 // render evaluates tmplText as a Go text/template against tc.
+//
+// On a parse failure, it retries once against balanceActionParens(tmplText)
+// — verified against the required corpus, 1337x.yml's own second
+// search.paths entry (the TV page) contains a stray extra ")" —
+// `{{ if and (.Keywords) (eq .Config.disablesort .False)) }}` — a real
+// authoring typo in the seeded, unmodifiable fixture. Go's text/template
+// parser rejects it outright ("unexpected right paren"); Cardigann's own
+// C# expression evaluator evidently tolerates it, since this file is a
+// real, in-use definition. Retrying against the paren-balanced text is
+// this package's only way to still search all four of 1337x's paths
+// without editing testdata/cardigann/1337x.yml, which Task B0 seeded and
+// this task may not modify.
 func render(tmplText string, tc *TemplateContext) (string, error) {
 	t, err := template.New("cardigann").Funcs(funcMap).Parse(tmplText)
 	if err != nil {
-		return "", fmt.Errorf("cardigann: template %q: %w", tmplText, err)
+		if fixed, ok := balanceActionParens(tmplText); ok {
+			if t2, err2 := template.New("cardigann").Funcs(funcMap).Parse(fixed); err2 == nil {
+				t, err = t2, nil
+			}
+		}
+		if err != nil {
+			return "", fmt.Errorf("cardigann: template %q: %w", tmplText, err)
+		}
 	}
 	var buf bytes.Buffer
 	if err := t.Execute(&buf, tc); err != nil {
 		return "", fmt.Errorf("cardigann: template exec %q: %w", tmplText, err)
 	}
 	return buf.String(), nil
+}
+
+// balanceActionParens finds every {{ ... }} action in tmplText and, only
+// where its parenthesis count is unbalanced with strictly more ")" than
+// "(", collapses just enough doubled ")" runs to balance it. A block that
+// already balances, or has more "(" than ")" (a different, real error
+// this package should not try to paper over), is left untouched. ok is
+// true only when at least one action was actually changed.
+func balanceActionParens(tmplText string) (string, bool) {
+	var b strings.Builder
+	changed := false
+	rest := tmplText
+	for {
+		start := strings.Index(rest, "{{")
+		if start < 0 {
+			b.WriteString(rest)
+			break
+		}
+		end := strings.Index(rest[start:], "}}")
+		if end < 0 {
+			b.WriteString(rest)
+			break
+		}
+		end += start + 2
+		b.WriteString(rest[:start])
+		action := rest[start:end]
+
+		opens, closes := strings.Count(action, "("), strings.Count(action, ")")
+		if closes > opens {
+			fixed := action
+			for range closes - opens {
+				fixed = strings.Replace(fixed, "))", ")", 1)
+			}
+			if strings.Count(fixed, "(") == strings.Count(fixed, ")") {
+				action = fixed
+				changed = true
+			}
+		}
+		b.WriteString(action)
+		rest = rest[end:]
+	}
+	return b.String(), changed
 }
 
 // ResolveSettings applies each SettingsField's type semantics to raw

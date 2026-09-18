@@ -1,0 +1,54 @@
+{
+  "data": [
+    {
+      "type": "torrents",
+      "id": 555001,
+      "attributes": {
+        "category_id": 10,
+        "name": "Some.Movie.2024.2160p.UHD.BluRay.x265-GRP",
+        "num_file": 1,
+        "files": [{"name": "Some.Movie.2024.2160p.UHD.BluRay.x265-GRP.mkv"}],
+        "details_link": "https://0dayfiles.net/torrents/555001",
+        "download_link": "https://0dayfiles.net/torrents/download/555001",
+        "meta": {"poster": "https://0dayfiles.net/img/555001.jpg", "genres": ["Action", "Science Fiction"]},
+        "imdb_id": "0133093",
+        "tmdb_id": "603",
+        "tvdb_id": "",
+        "internal": true,
+        "featured": false,
+        "seeders": 40,
+        "leechers": 3,
+        "times_completed": 120,
+        "created_at": "10/18/2021 00:34:50",
+        "size": 21474836480,
+        "freeleech": "100%",
+        "double_upload": false
+      }
+    },
+    {
+      "type": "torrents",
+      "id": 555002,
+      "attributes": {
+        "category_id": 21,
+        "name": "Some.Show.S01E01.480p.WEB.x264-GRP",
+        "num_file": 3,
+        "files": [{"name": "Some.Show.S01E01.480p.WEB.x264-GRP.mkv"}],
+        "details_link": "https://0dayfiles.net/torrents/555002",
+        "download_link": "https://0dayfiles.net/torrents/download/555002",
+        "meta": {"poster": "https://via.placeholder.com/90x135", "genres": ["Drama"]},
+        "imdb_id": "",
+        "tmdb_id": "",
+        "tvdb_id": "121361",
+        "internal": false,
+        "featured": false,
+        "seeders": 8,
+        "leechers": 0,
+        "times_completed": 15,
+        "created_at": "09/01/2026 18:05:00",
+        "size": 734003200,
+        "freeleech": "0%",
+        "double_upload": true
+      }
+    }
+  ]
+}

@@ -265,7 +265,15 @@ func (b SelectorBlock) extractRaw(ctx context.Context, d Doc, tc *TemplateContex
 
 	sel := d
 	if b.Selector != "" {
-		found, ok := d.Select(b.Selector)
+		// Selector is itself a template (e.g. 1337x's rows.selector,
+		// `tr:has(...){{ if .Config.uploader }}...{{ end }}`, and its
+		// download selectors, `a[href*="{{ .Config.primarydownloadlink }}"]`)
+		// — render it before handing it to the CSS/gjson/XPath backend.
+		renderedSelector, err := render(b.Selector, tc)
+		if err != nil {
+			return "", false, err
+		}
+		found, ok := d.Select(renderedSelector)
 		if !ok {
 			return b.optionalFallback()
 		}
