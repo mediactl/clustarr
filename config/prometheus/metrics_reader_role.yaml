@@ -1,0 +1,15 @@
+# Bind this to your Prometheus ServiceAccount so its scrapes pass the
+# manager's authn/authz filter on :8443 (§13). Without it every scrape gets a
+# 401 and the ServiceMonitors look silently broken.
+#
+# The binding is not shipped here because the Prometheus ServiceAccount name
+# and namespace are install-specific; README.md has a one-liner.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: clustarr-metrics-reader
+rules:
+- nonResourceURLs:
+  - /metrics
+  verbs:
+  - get

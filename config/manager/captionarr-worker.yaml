@@ -1,0 +1,117 @@
+# captionarr-worker -- the subtitle fetch consumers. Design spec §3, §6.5, §12.
+#
+# Two fixed replicas is the default operating mode; KEDA is opt-in
+# (config/keda, keda.enabled=false in the chart). Safe at any replica count:
+# every provider client shares a KV token bucket in
+# `clustarr-provider-throttle`, so N workers still respect the provider's
+# 5 req/s ceiling.
+#
+# terminationGracePeriodSeconds is set to the JetStream AckWait so a worker
+# finishes (or cleanly redelivers) its in-flight fetch on SIGTERM -- §12 also
+# requires KEDA's cooldownPeriod >= AckWait.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: captionarr-worker
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: captionarr-worker
+  labels:
+    app.kubernetes.io/component: captionarr-worker
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: captionarr-worker
+  ports:
+  - name: metrics
+    port: 8443
+    targetPort: metrics
+    protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: captionarr-worker
+  labels:
+    app.kubernetes.io/component: captionarr-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: captionarr-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: captionarr-worker
+    spec:
+      serviceAccountName: captionarr-worker
+      terminationGracePeriodSeconds: 120
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: captionarr-worker
+        image: ghcr.io/mediactl/clustarr-media:dev
+        args: ["captionarr", "--role", "worker"]
+        env:
+        - name: NATS_URL
+          value: nats://nats.clustarr-system.svc:4222
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: UMASK
+          value: "002"
+        ports:
+        - name: metrics
+          containerPort: 8443
+          protocol: TCP
+        - name: health
+          containerPort: 8081
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: "1"
+            memory: 1Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: clustarr-data
+      - name: tmp
+        emptyDir: {}

@@ -1,0 +1,17 @@
+# OPTIONAL overlay. Apply on top of config/default, and only on a cluster
+# that has the KEDA CRDs:
+#
+#   kustomize build config/keda | kubectl apply --server-side -f -
+#
+# It is not referenced by config/default on purpose. §12: KEDA is opt-in
+# (`keda.enabled=false`), and the DEFAULT, SUPPORTED operating mode is fixed
+# replicas -- captionarr-worker at 2 and transcodes gated by squasharr's slot
+# budget. Nothing in Clustarr requires KEDA.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: clustarr-system
+
+resources:
+- captionarr-worker-scaledobject.yaml
+- transcode-scaledjob.yaml

@@ -1,0 +1,121 @@
+# squasharr -- TranscodeProfile/TranscodeJob controllers and the slot
+# scheduler. Design spec §3, §6.4.
+#
+# The transcode work itself runs as batch/v1 Jobs that this controller creates
+# suspended and unsuspends once a slot is free (--slots cpu=2,nvidia=1,intel=1);
+# there is no long-lived worker Deployment. config/keda has an optional
+# ScaledJob example for bursting those workers.
+#
+# /data is mounted so the controller can stat sources and sweep the recycle
+# bin; the heavy I/O happens in the Jobs.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: squasharr
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: squasharr
+  labels:
+    app.kubernetes.io/component: squasharr
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: squasharr
+  ports:
+  - name: metrics
+    port: 8443
+    targetPort: metrics
+    protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: squasharr
+  labels:
+    app.kubernetes.io/component: squasharr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: squasharr
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: squasharr
+    spec:
+      serviceAccountName: squasharr
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: squasharr
+        image: ghcr.io/mediactl/clustarr-media:dev
+        args: ["squasharr", "--role", "controller", "--slots", "cpu=2,nvidia=1,intel=1"]
+        env:
+        - name: NATS_URL
+          value: nats://nats.clustarr-system.svc:4222
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: UMASK
+          value: "002"
+        # Images stamped into the TranscodeJob pods this controller creates.
+        - name: CLUSTARR_WORKER_IMAGE
+          value: ghcr.io/mediactl/clustarr-media:dev
+        - name: CLUSTARR_WORKER_IMAGE_CUDA
+          value: ghcr.io/mediactl/clustarr-media-cuda:dev
+        ports:
+        - name: metrics
+          containerPort: 8443
+          protocol: TCP
+        - name: health
+          containerPort: 8081
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 50m
+            memory: 192Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: clustarr-data
+      - name: tmp
+        emptyDir: {}

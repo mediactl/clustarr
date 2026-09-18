@@ -1,0 +1,43 @@
+{{/*
+§11. One RWX volume at /data shared by every media-touching pod, plus
+indexarr's RWO SQLite volume. Skipped when you bring your own claim.
+*/}}
+{{- if not .Values.storage.data.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "clustarr.fullname" . }}-data
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+  annotations:
+    # Keep the library when the release goes away. Deleting a media library
+    # should take more than `helm uninstall`.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+  - {{ .Values.storage.data.accessMode }}
+  {{- with .Values.storage.data.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.storage.data.size }}
+{{- end }}
+{{- if and .Values.indexarr.enabled (not .Values.storage.index.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "clustarr.fullname" . }}-index
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+spec:
+  accessModes:
+  - ReadWriteOnce
+  {{- with .Values.storage.index.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.storage.index.size }}
+{{- end }}

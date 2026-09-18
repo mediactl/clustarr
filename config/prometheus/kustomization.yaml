@@ -1,0 +1,15 @@
+# OPTIONAL overlay. Apply on top of config/default, and only on a cluster
+# that has the Prometheus Operator CRDs (monitoring.coreos.com/v1):
+#
+#   kustomize build config/prometheus | kubectl apply --server-side -f -
+#
+# Not referenced by config/default, because a plain `kubectl apply` on a
+# cluster without the operator would fail on an unknown kind.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: clustarr-system
+
+resources:
+- servicemonitors.yaml
+- metrics_reader_role.yaml

@@ -1,5 +1,11 @@
 # Clustarr — Final Design (v1alpha1)
 
+> **Amended.** `2026-09-18-clustarr-design-amendment-1.md` adds the `importarr`
+> service, the `pkg/obs` observability stack (slog through context, OpenTelemetry
+> spans, a documented Prometheus catalogue) and the `ui` service, and reverses
+> this document's "Web UI" non-goal. Read it alongside this one; where they
+> disagree, the amendment wins.
+
 Synthesis of the three candidate architectures and three judge verdicts. Base: **Clustarr (CRD-first)** (aggregate winner, 119). Grafted from the streaming edition: KV grab lease, delay profiles via scheduled messages + pending KV, `CLUSTARR_RELEASES` firehose with server-side dedup, `rpc.indexarr.download`, `Clustarr-Schema`/`Clustarr-Trace` headers, `QueueFull` backpressure condition, "transcoding never rewrites release quality", RootFolder naming/permissions/recycle-bin block, `Attempts` backoff, `unmonitoredIssues`. Grafted from the pragmatic edition: SQLite-FTS5 release index, milestone-ordered MVP (Torznab/Newznab first, Cardigann second), typed ImportList union, full Sonarr/Lidarr/Readarr/Mylar add-time fields, GPL-3.0 as a deliberate ADR, `status.import` on Download. Every judge `must_fix` is resolved and cross-referenced in §16.
 
 Where judges disagreed, the decision and the one-line reason:
@@ -20,7 +26,7 @@ Where judges disagreed, the decision and the one-line reason:
 
 **Goals.** A Kubernetes-native, event-driven media stack in one Go module that manages a collection end to end: indexers (Prowlarr-compatible Cardigann v11 + Torznab/Newznab), downloads (embedded anacrolix torrent engine + embedded usenet pipeline), inventory for movies, TV, music, books/comics/manga and audiobooks with *arr semantics (releases, quality, monitored, minimum availability, root folders, metadata), import lists, an opinionated TRaSH-only quality model, distributed HEVC 10-bit + AAC transcoding on scheduled workers, and a distributed Bazarr-like subtitle service. Everything a user configures or watches is a CR; `kubectl get movies,downloads,transcodejobs,subtitlerequests -A` is the UI.
 
-**Non-goals (v1).** Web UI; Postgres/Redis/Kafka; external download clients; admission webhooks (CEL only); multi-tenancy across NATS accounts; Radarr/Sonarr v3 REST facade; HDR10+ preservation; Whisper generation; per-service repos.
+**Non-goals (v1).** Postgres/Redis/Kafka; external download clients; admission webhooks (CEL only); multi-tenancy across NATS accounts; Radarr/Sonarr v3 REST facade; HDR10+ preservation; Whisper generation; per-service repos.
 
 ## 2. Naming
 
@@ -29,14 +35,14 @@ Where judges disagreed, the decision and the one-line reason:
 | Project / domain | `clustarr` / `clustarr.io` (register clustarr.io; .com is taken) |
 | Go module | `github.com/mediactl/clustarr` (Go 1.27) |
 | API groups | `catalog.clustarr.io`, `index.clustarr.io`, `download.clustarr.io`, `transcode.clustarr.io`, `subtitle.clustarr.io`, all `v1alpha1`; `api/common/v1alpha1` = shared Go types, no CRDs |
-| Services (dirs = binaries' subcommands) | `catalogarr/` (inventory + metadata + import lists + decisions + importer), `indexarr/`, `grabarr/`, `squasharr/`, `captionarr/` |
+| Services (dirs = binaries' subcommands) | `catalogarr/` (inventory + metadata + release decisions), `importarr/` (library rescan + import lists + completed-download import), `indexarr/`, `grabarr/`, `squasharr/`, `captionarr/`, `ui/` (server-rendered web UI) |
 | Binary | one cobra binary `clustarr`: `clustarr <service> --role <role>`; `clustarr all` for kind/dev |
-| Images | `ghcr.io/mediactl/clustarr` (distroless static; indexarr), `ghcr.io/mediactl/clustarr-media` (debian-slim: ffmpeg 9 + libx265 + nvenc headers, ffprobe, par2cmdline-turbo v1.5.0, CGO build for nntppool; catalogarr, grabarr, squasharr, captionarr), `ghcr.io/mediactl/clustarr-media-cuda` (squasharr GPU workers) |
+| Images | `ghcr.io/mediactl/clustarr` (distroless static; indexarr), `ghcr.io/mediactl/clustarr-media` (debian-slim: ffmpeg 9 + libx265 + nvenc headers, ffprobe, par2cmdline-turbo v1.5.0, CGO build for nntppool; catalogarr, grabarr, squasharr, captionarr), `ghcr.io/mediactl/clustarr-media-cuda` (squasharr GPU workers). `importarr` uses the media image (it hardlinks, probes and moves files); `ui` uses the distroless static image. |
 | LeaderElectionID | `<service>.clustarr.io` |
-| Field managers (SSA) | `catalogarr`, `catalogarr-worker`, `indexarr`, `grabarr`, `grabarr-engine`, `squasharr`, `squasharr-worker`, `captionarr`, `captionarr-worker` |
+| Field managers (SSA) | `catalogarr`, `catalogarr-worker`, `importarr`, `importarr-worker`, `indexarr`, `grabarr`, `grabarr-engine`, `squasharr`, `squasharr-worker`, `captionarr`, `captionarr-worker`. `ui` never writes status and owns no field manager. |
 | Finalizers | `<group>/<kind-lowercase>` e.g. `download.clustarr.io/download` |
 | Helm chart | `charts/clustarr` (umbrella: nats 2.14.6, nack 0.35.0 optional, keda optional) |
-| NATS streams | `CLUSTARR_EVENTS`, `CLUSTARR_RELEASES`, `CLUSTARR_WORK_CATALOGARR`, `CLUSTARR_WORK_INDEXARR`, `CLUSTARR_WORK_CAPTIONARR`, `CLUSTARR_DLQ` |
+| NATS streams | `CLUSTARR_EVENTS`, `CLUSTARR_RELEASES`, `CLUSTARR_WORK_CATALOGARR`, `CLUSTARR_WORK_IMPORTARR`, `CLUSTARR_WORK_INDEXARR`, `CLUSTARR_WORK_CAPTIONARR`, `CLUSTARR_DLQ` |
 
 ## 3. Architecture
 

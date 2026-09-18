@@ -1,0 +1,101 @@
+{{/*
+RBAC mirroring config/rbac.
+
+The ClusterRole below is a PLACEHOLDER, exactly as config/rbac/role.yaml is:
+once the controllers exist, `make manifests` generates the real rules from the
++kubebuilder:rbac markers and the release pipeline copies them here. Until
+then this grants only what is safe without a marker to justify it -- reads on
+the Clustarr CRs and CRDs, and the Event writes every controller-runtime
+manager performs. No create/update/delete on Clustarr kinds.
+*/}}
+{{- $components := list }}
+{{- if .Values.catalogarr.enabled }}{{ $components = append $components "catalogarr" }}{{ end }}
+{{- if .Values.catalogarrMetadata.enabled }}{{ $components = append $components "catalogarr-metadata" }}{{ end }}
+{{- if .Values.indexarr.enabled }}{{ $components = append $components "indexarr" }}{{ end }}
+{{- if .Values.grabarr.enabled }}{{ $components = append $components "grabarr" }}{{ end }}
+{{- if .Values.squasharr.enabled }}{{ $components = append $components "squasharr" }}{{ end }}
+{{- if .Values.captionarr.enabled }}{{ $components = append $components "captionarr" }}{{ end }}
+{{- if .Values.captionarrWorker.enabled }}{{ $components = append $components "captionarr-worker" }}{{ end }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "clustarr.fullname" . }}-manager
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - catalog.clustarr.io
+  - index.clustarr.io
+  - download.clustarr.io
+  - transcode.clustarr.io
+  - subtitle.clustarr.io
+  resources: ["*"]
+  verbs: ["get", "list", "watch"]
+- apiGroups:
+  - catalog.clustarr.io
+  - index.clustarr.io
+  - download.clustarr.io
+  - transcode.clustarr.io
+  - subtitle.clustarr.io
+  resources: ["*/status"]
+  verbs: ["get"]
+- apiGroups: ["apiextensions.k8s.io"]
+  resources: ["customresourcedefinitions"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch"]
+- apiGroups: ["events.k8s.io"]
+  resources: ["events"]
+  verbs: ["create", "patch"]
+---
+{{/* Leader election: LeaderElectionID is <service>.clustarr.io (§2), so one
+     namespaced Role covers every manager. Hand-written; controller-gen does
+     not emit these. */}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "clustarr.fullname" . }}-leader-election
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+rules:
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch"]
+{{- range $components }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "clustarr.fullname" $ }}-{{ . }}-manager
+  labels:
+    {{- include "clustarr.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ . }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "clustarr.fullname" $ }}-manager
+subjects:
+- kind: ServiceAccount
+  name: {{ include "clustarr.fullname" $ }}-{{ . }}
+  namespace: {{ $.Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "clustarr.fullname" $ }}-{{ . }}-leader-election
+  labels:
+    {{- include "clustarr.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ . }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "clustarr.fullname" $ }}-leader-election
+subjects:
+- kind: ServiceAccount
+  name: {{ include "clustarr.fullname" $ }}-{{ . }}
+  namespace: {{ $.Release.Namespace }}
+{{- end }}

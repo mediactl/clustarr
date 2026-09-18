@@ -1,0 +1,56 @@
+# OPTIONAL. Only applied when KEDA is installed and you have opted in
+# (§12: `keda.enabled=false` is the default; two fixed replicas is the
+# supported mode).
+#
+# Trigger choice: KEDA's own `nats-jetstream` scaler cannot yet read the two
+# counters that matter together, so until kedacore/keda#8166 ships we scrape
+# prometheus-nats-exporter through the `prometheus` scaler and add
+# jetstream_consumer_num_pending (not yet delivered) to
+# jetstream_consumer_num_ack_pending (delivered, still un-acked). Pending
+# alone under-counts while workers are mid-fetch and flaps the replica count.
+#
+# cooldownPeriod and the Deployment's terminationGracePeriodSeconds are both
+# >= the consumer's AckWait (120s): a worker that is scaled away must be able
+# to finish its in-flight fetch, and KEDA must not scale down inside one
+# AckWait window or the message is redelivered to a pod that is going away.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: captionarr-worker
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: captionarr-worker
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: captionarr-worker
+  pollingInterval: 30
+  cooldownPeriod: 120
+  # Keep a floor: the adaptive search cadence and the 12h upgrade pass expect
+  # a consumer to be attached, and cold starts cost a JetStream rebalance.
+  minReplicaCount: 1
+  maxReplicaCount: 8
+  # KEDA rewrites .spec.replicas, so config/manager's `replicas: 2` stops
+  # being authoritative once this exists. That is the opt-in.
+  advanced:
+    restoreToOriginalReplicaCount: true
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 300
+  triggers:
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus-operated.monitoring.svc:9090
+      query: |-
+        sum(
+          jetstream_consumer_num_pending{stream_name="CLUSTARR_WORK_CAPTIONARR", consumer_name="captionarr-fetch"}
+          + jetstream_consumer_num_ack_pending{stream_name="CLUSTARR_WORK_CAPTIONARR", consumer_name="captionarr-fetch"}
+        )
+      # One replica per ~20 queued fetches. Providers are rate limited by the
+      # shared KV token bucket, so more workers buy parallelism across
+      # providers, not a higher request rate against any one of them.
+      threshold: "20"
+      activationThreshold: "5"

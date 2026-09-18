@@ -1,0 +1,111 @@
+{{- include "clustarr.validate" . -}}
+{{/*
+One Deployment per row of the process-topology table (design spec §3), each
+with its own ServiceAccount and Service. This mirrors config/manager; the
+kustomize tree is the reference and this is the parameterised form of it.
+
+The engine workloads (<downloadclient>-engine StatefulSets and Deployments)
+and the transcode batch/v1 Jobs are deliberately absent: those are created at
+runtime by the grabarr and squasharr controllers and owned by the CR that
+asked for them, so they can never be chart templates.
+*/}}
+{{- if .Values.catalogarr.enabled }}
+{{- include "clustarr.workload" (dict
+      "root" $
+      "component" "catalogarr"
+      "values" .Values.catalogarr
+      "image" "media"
+      "args" (list "catalogarr" "--role" "controller,worker,history")
+      "data" true
+      "index" false
+      "strategy" ""
+      "grace" 60
+      "httpPort" false) }}
+{{- end }}
+{{- if .Values.catalogarrMetadata.enabled }}
+{{/* Recreate: never two metadata gateways at once, not even mid-rollout. */}}
+{{- include "clustarr.workload" (dict
+      "root" $
+      "component" "catalogarr-metadata"
+      "values" .Values.catalogarrMetadata
+      "image" "media"
+      "args" (list "catalogarr" "--role" "metadata")
+      "data" false
+      "index" false
+      "strategy" "Recreate"
+      "grace" 60
+      "httpPort" false) }}
+{{- end }}
+{{- if .Values.indexarr.enabled }}
+{{/* Recreate + RWO index PVC: one SQLite writer, one PVC holder. */}}
+{{- include "clustarr.workload" (dict
+      "root" $
+      "component" "indexarr"
+      "values" .Values.indexarr
+      "image" "controller"
+      "args" (list "indexarr" "--role" "all")
+      "data" false
+      "index" true
+      "strategy" "Recreate"
+      "grace" 60
+      "httpPort" true
+      "extraEnv" (list (dict "name" "CLUSTARR_INDEX_PATH" "value" "/var/lib/clustarr/index/releases.db"))) }}
+{{- end }}
+{{- if .Values.grabarr.enabled }}
+{{- include "clustarr.workload" (dict
+      "root" $
+      "component" "grabarr"
+      "values" .Values.grabarr
+      "image" "media"
+      "args" (list "grabarr" "--role" "controller")
+      "data" true
+      "index" false
+      "strategy" ""
+      "grace" 60
+      "httpPort" false
+      "extraEnv" (list (dict "name" "CLUSTARR_ENGINE_IMAGE" "value" (include "clustarr.image" (dict "root" $ "which" "media"))))) }}
+{{- end }}
+{{- if .Values.squasharr.enabled }}
+{{- include "clustarr.workload" (dict
+      "root" $
+      "component" "squasharr"
+      "values" .Values.squasharr
+      "image" "media"
+      "args" (list "squasharr" "--role" "controller" "--slots" .Values.squasharr.slots)
+      "data" true
+      "index" false
+      "strategy" ""
+      "grace" 60
+      "httpPort" false
+      "extraEnv" (list
+        (dict "name" "CLUSTARR_WORKER_IMAGE" "value" (include "clustarr.image" (dict "root" $ "which" "media")))
+        (dict "name" "CLUSTARR_WORKER_IMAGE_CUDA" "value" (include "clustarr.image" (dict "root" $ "which" "mediaCuda"))))) }}
+{{- end }}
+{{- if .Values.captionarr.enabled }}
+{{- include "clustarr.workload" (dict
+      "root" $
+      "component" "captionarr"
+      "values" .Values.captionarr
+      "image" "media"
+      "args" (list "captionarr" "--role" "controller")
+      "data" true
+      "index" false
+      "strategy" ""
+      "grace" 60
+      "httpPort" false) }}
+{{- end }}
+{{- if .Values.captionarrWorker.enabled }}
+{{/* grace = the consumer AckWait: workers drain their in-flight fetch on
+     SIGTERM rather than letting it be redelivered to a dying pod (§12). */}}
+{{- include "clustarr.workload" (dict
+      "root" $
+      "component" "captionarr-worker"
+      "values" .Values.captionarrWorker
+      "image" "media"
+      "args" (list "captionarr" "--role" "worker")
+      "data" true
+      "index" false
+      "strategy" ""
+      "grace" .Values.captionarrWorker.ackWaitSeconds
+      "httpPort" false) }}
+{{- end }}

@@ -1,0 +1,69 @@
+Clustarr {{ .Chart.AppVersion }} installed as "{{ .Release.Name }}" in namespace {{ .Release.Namespace }}.
+
+Services in this release:
+{{- if .Values.catalogarr.enabled }}
+  catalogarr           {{ .Values.catalogarr.replicas }}  controllers + queue workers + history
+{{- end }}
+{{- if .Values.catalogarrMetadata.enabled }}
+  catalogarr-metadata  1  metadata gateway (pinned to 1: in-process rate limiters)
+{{- end }}
+{{- if .Values.indexarr.enabled }}
+  indexarr             1  search/RSS/Torznab (pinned to 1: RWO SQLite index)
+{{- end }}
+{{- if .Values.grabarr.enabled }}
+  grabarr              {{ .Values.grabarr.replicas }}  download controllers (engines are created per DownloadClient)
+{{- end }}
+{{- if .Values.squasharr.enabled }}
+  squasharr            {{ .Values.squasharr.replicas }}  transcode controllers, slots {{ .Values.squasharr.slots }}
+{{- end }}
+{{- if .Values.captionarr.enabled }}
+  captionarr           {{ .Values.captionarr.replicas }}  subtitle controllers
+{{- end }}
+{{- if .Values.captionarrWorker.enabled }}
+  captionarr-worker    {{ if .Values.keda.enabled }}{{ .Values.keda.captionarrWorker.minReplicas }}-{{ .Values.keda.captionarrWorker.maxReplicas }} (KEDA){{ else }}{{ .Values.captionarrWorker.replicas }} (fixed){{ end }}  subtitle fetch consumers
+{{- end }}
+
+Watch them come up:
+
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }} -w
+
+NATS:
+{{- if .Values.nats.enabled }}
+  bundled, at {{ include "clustarr.natsUrl" . }}
+{{- if not .Values.nats.config.jetstream.enabled }}
+
+  WARNING: nats.config.jetstream.enabled is false. Clustarr will not start --
+  every work queue, the release firehose, the history log and all KV buckets
+  are JetStream.
+{{- end }}
+{{- else }}
+  external, at {{ include "clustarr.natsUrl" . }}
+  Make sure JetStream is enabled on it; pkg/events creates the streams,
+  consumers and KV buckets it needs on startup.
+{{- end }}
+
+CRDs are NOT upgraded by Helm. Before every `helm upgrade`, apply them first:
+
+  kubectl apply --server-side -f config/crd/bases/
+
+Storage: /data is {{ if .Values.storage.data.existingClaim }}your claim "{{ .Values.storage.data.existingClaim }}"{{ else }}"{{ include "clustarr.fullname" . }}-data" ({{ .Values.storage.data.size }}, {{ .Values.storage.data.accessMode }}){{ end }}.
+{{- if not .Values.storage.data.existingClaim }}
+{{- if not .Values.storage.data.storageClass }}
+
+  NOTE: storage.data.storageClass is unset, so the cluster default class has
+  to provide ReadWriteMany. Most default classes do not. If the PVC stays
+  Pending, that is why -- set storage.data.storageClass to your CephFS, NFS
+  or Longhorn RWX class.
+{{- end }}
+{{- end }}
+
+{{- if not .Values.metrics.serviceMonitor.enabled }}
+
+Metrics are served on :8443 but nothing scrapes them. Set
+metrics.serviceMonitor.enabled=true if you run the Prometheus Operator, then
+bind {{ include "clustarr.fullname" . }}-metrics-reader to Prometheus's
+ServiceAccount or every scrape gets a 401.
+{{- end }}
+
+Next: create a RootFolder and a QualityProfile, then your first Movie or
+Series. See config/samples/README.md.

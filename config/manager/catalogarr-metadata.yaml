@@ -1,0 +1,111 @@
+# catalogarr-metadata -- the metadata gateway. Design spec §3, §6.1.
+#
+# EXACTLY ONE REPLICA. It owns every outbound metadata client and the
+# golang.org/x/time/rate limiters that keep Clustarr inside TMDB/TVDB/
+# MusicBrainz quotas; those limiter windows live in process memory, so a
+# second replica would silently double the outbound request rate. The Helm
+# chart enforces the same invariant (charts/clustarr/templates/_helpers.tpl).
+#
+# It serves rpc.catalogarr.metadata.* over NATS micro and consumes
+# work.catalogarr.metadata.>; it never touches /data, so no media volume.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: catalogarr-metadata
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalogarr-metadata
+  labels:
+    app.kubernetes.io/component: catalogarr-metadata
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: catalogarr-metadata
+  ports:
+  - name: metrics
+    port: 8443
+    targetPort: metrics
+    protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalogarr-metadata
+  labels:
+    app.kubernetes.io/component: catalogarr-metadata
+spec:
+  replicas: 1
+  strategy:
+    # Never run two gateways at once, not even for a rollout second.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: catalogarr-metadata
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: catalogarr-metadata
+    spec:
+      serviceAccountName: catalogarr-metadata
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: catalogarr-metadata
+        image: ghcr.io/mediactl/clustarr-media:dev
+        args: ["catalogarr", "--role", "metadata"]
+        env:
+        - name: NATS_URL
+          value: nats://nats.clustarr-system.svc:4222
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        ports:
+        - name: metrics
+          containerPort: 8443
+          protocol: TCP
+        - name: health
+          containerPort: 8081
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 50m
+            memory: 192Mi
+          limits:
+            # The otter L1 cache is sized against this limit.
+            cpu: 500m
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}

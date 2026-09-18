@@ -1,0 +1,54 @@
+{{- if and .Values.keda.enabled .Values.captionarrWorker.enabled }}
+{{/*
+OPT-IN (§12). keda.enabled=false is the default and the supported mode is
+fixed replicas; nothing in Clustarr requires KEDA.
+
+Trigger: KEDA's native nats-jetstream scaler cannot add
+jetstream_consumer_num_pending (undelivered) to
+jetstream_consumer_num_ack_pending (delivered, still being worked) until
+kedacore/keda#8166 ships, and pending alone reads zero while every worker is
+mid-fetch, which flaps the replica count. So this scrapes
+prometheus-nats-exporter through the prometheus scaler and sums both.
+
+cooldownPeriod tracks the consumer AckWait, same as the Deployment's
+terminationGracePeriodSeconds: scaling a worker away inside one AckWait
+window redelivers its message to a pod that is already shutting down.
+
+Never add a ScaledObject for catalogarr-metadata or indexarr -- both are
+pinned to one replica for correctness, and the chart refuses to render any
+other value.
+*/}}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "clustarr.fullname" . }}-captionarr-worker
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: captionarr-worker
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "clustarr.fullname" . }}-captionarr-worker
+  pollingInterval: 30
+  cooldownPeriod: {{ .Values.captionarrWorker.ackWaitSeconds }}
+  minReplicaCount: {{ .Values.keda.captionarrWorker.minReplicas }}
+  maxReplicaCount: {{ .Values.keda.captionarrWorker.maxReplicas }}
+  advanced:
+    restoreToOriginalReplicaCount: true
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 300
+  triggers:
+  - type: prometheus
+    metadata:
+      serverAddress: {{ .Values.keda.prometheusAddress | quote }}
+      query: |-
+        sum(
+          jetstream_consumer_num_pending{stream_name="CLUSTARR_WORK_CAPTIONARR", consumer_name="captionarr-fetch"}
+          + jetstream_consumer_num_ack_pending{stream_name="CLUSTARR_WORK_CAPTIONARR", consumer_name="captionarr-fetch"}
+        )
+      threshold: {{ .Values.keda.captionarrWorker.threshold | quote }}
+      activationThreshold: "5"
+{{- end }}

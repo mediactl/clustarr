@@ -1,0 +1,51 @@
+{{- if .Values.metrics.serviceMonitor.enabled }}
+{{/*
+§13: metrics are https on :8443 behind controller-runtime's authn/authz
+filter, so scrapes need a bearer token AND Prometheus's ServiceAccount needs
+the clustarr-metrics-reader ClusterRole below bound to it. Without that
+binding every target reports 401 and the ServiceMonitors look broken.
+The manager's certificate is self-signed at startup, hence insecureSkipVerify.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "clustarr.fullname" . }}-metrics-reader
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+rules:
+- nonResourceURLs: ["/metrics"]
+  verbs: ["get"]
+{{- $components := list }}
+{{- if .Values.catalogarr.enabled }}{{ $components = append $components "catalogarr" }}{{ end }}
+{{- if .Values.catalogarrMetadata.enabled }}{{ $components = append $components "catalogarr-metadata" }}{{ end }}
+{{- if .Values.indexarr.enabled }}{{ $components = append $components "indexarr" }}{{ end }}
+{{- if .Values.grabarr.enabled }}{{ $components = append $components "grabarr" }}{{ end }}
+{{- if .Values.squasharr.enabled }}{{ $components = append $components "squasharr" }}{{ end }}
+{{- if .Values.captionarr.enabled }}{{ $components = append $components "captionarr" }}{{ end }}
+{{- if .Values.captionarrWorker.enabled }}{{ $components = append $components "captionarr-worker" }}{{ end }}
+{{- range $components }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "clustarr.fullname" $ }}-{{ . }}
+  labels:
+    {{- include "clustarr.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ . }}
+    {{- with $.Values.metrics.serviceMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "clustarr.selectorLabels" (dict "root" $ "component" .) | nindent 6 }}
+  endpoints:
+  - port: metrics
+    path: /metrics
+    scheme: https
+    interval: {{ $.Values.metrics.serviceMonitor.interval }}
+    bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    tlsConfig:
+      insecureSkipVerify: true
+{{- end }}
+{{- end }}

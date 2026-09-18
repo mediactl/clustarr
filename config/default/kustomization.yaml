@@ -1,0 +1,29 @@
+# The deployable Clustarr install:
+#
+#   kustomize build config/default | kubectl apply --server-side -f -
+#
+# Composes the 28 CRDs, RBAC, the seven service Deployments and the dev NATS
+# StatefulSet into the clustarr-system namespace, and declares the two PVCs
+# from §11.
+#
+# Optional overlays are NOT included here; add them yourself when the cluster
+# has the operators for them:
+#   ../keda        ScaledObject/ScaledJob (needs KEDA; default mode is fixed
+#                  replicas, §12)
+#   ../prometheus  ServiceMonitors (needs the Prometheus Operator CRDs)
+#
+# Production installs should prefer charts/clustarr, which swaps this plain
+# NATS StatefulSet for the upstream nats chart (clustered R3, reloader,
+# prometheus-nats-exporter).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: clustarr-system
+
+resources:
+- namespace.yaml
+- pvc.yaml
+- ../crd
+- ../rbac
+- ../manager
+- ../nats

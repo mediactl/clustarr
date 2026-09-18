@@ -1,0 +1,63 @@
+# GENERATED LATER -- PLACEHOLDER.
+#
+# Once the controllers exist, `make manifests` runs
+#   controller-gen rbac:roleName=clustarr-manager-role paths=./...
+# and OVERWRITES this file from the +kubebuilder:rbac markers on each
+# reconciler. Do not hand-edit it then, and do not add rules here that a
+# marker should own.
+#
+# Until that happens this placeholder keeps `kustomize build config/default`
+# working and grants only what is safe to grant before any marker exists:
+# read access to the Clustarr CRs and their status, read access to the CRDs
+# themselves, and the Event writes every controller-runtime manager performs.
+# No create/update/delete on Clustarr kinds -- those rules arrive with the
+# markers that justify them.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: clustarr-manager-role
+rules:
+- apiGroups:
+  - catalog.clustarr.io
+  - index.clustarr.io
+  - download.clustarr.io
+  - transcode.clustarr.io
+  - subtitle.clustarr.io
+  resources:
+  - "*"
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  - index.clustarr.io
+  - download.clustarr.io
+  - transcode.clustarr.io
+  - subtitle.clustarr.io
+  resources:
+  - "*/status"
+  verbs:
+  - get
+- apiGroups:
+  - apiextensions.k8s.io
+  resources:
+  - customresourcedefinitions
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch

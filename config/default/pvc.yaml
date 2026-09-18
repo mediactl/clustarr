@@ -1,0 +1,48 @@
+# §11 Storage.
+#
+# clustarr-data is the single ReadWriteMany volume mounted at /data in every
+# media-touching pod: catalogarr, grabarr (and its engines), squasharr (and
+# its transcode Jobs), captionarr and captionarr-worker. Import is a hardlink
+# or a rename inside this one filesystem, which is why it must be one volume
+# and not one per service.
+#
+# CephFS is preferred; NFS or Longhorn RWX are acceptable. exFAT and SMB are
+# NOT: they cannot represent hardlinks or the atomic renames the importer,
+# the usenet publisher and the transcode worker all depend on. The Helm chart
+# validates the access mode; plain kustomize cannot, so check it by hand.
+#
+# storageClassName is deliberately unset so a cluster default applies. Set it
+# (or use the chart's storage.data.storageClass) when the default class is not
+# the RWX one.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: clustarr-data
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 100Gi
+  # storageClassName: cephfs
+---
+# The indexarr release index: SQLite (WAL + FTS5), 5Gi, ReadWriteOnce. This
+# is why the indexarr Deployment is pinned to one replica with strategy
+# Recreate -- a second pod could neither bind the PVC nor share the database.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: clustarr-index
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  # storageClassName: local-path

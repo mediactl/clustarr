@@ -1,0 +1,186 @@
+# ServiceMonitors for the seven service Deployments. One per Service in
+# config/manager, all scraping the same `metrics` port.
+#
+# §13: controller-runtime metrics plus metrics.RegisterRESTClientMetrics() are
+# served on :8443 BEHIND THE AUTHN/AUTHZ FILTER, so the endpoint is https and
+# the scrape must present a bearer token. Prometheus's ServiceAccount
+# therefore needs the `clustarr-metrics-reader` ClusterRole in
+# metrics_reader_role.yaml bound to it -- see README.md.
+#
+# The certificate is self-signed by the manager at startup, hence
+# insecureSkipVerify. Swap in cert-manager and a real serverName if your
+# cluster requires verified scrapes.
+# catalogarr: catalog controllers, queue workers, history sink.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: catalogarr
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: catalogarr
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: clustarr
+      app.kubernetes.io/part-of: clustarr
+      app.kubernetes.io/component: catalogarr
+  endpoints:
+  - port: metrics
+    path: /metrics
+    scheme: https
+    interval: 30s
+    scrapeTimeout: 10s
+    bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    tlsConfig:
+      insecureSkipVerify: true
+---
+# catalogarr-metadata: metadata gateway (cache hit/miss, provider limiters).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: catalogarr-metadata
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: catalogarr-metadata
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: clustarr
+      app.kubernetes.io/part-of: clustarr
+      app.kubernetes.io/component: catalogarr-metadata
+  endpoints:
+  - port: metrics
+    path: /metrics
+    scheme: https
+    interval: 30s
+    scrapeTimeout: 10s
+    bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    tlsConfig:
+      insecureSkipVerify: true
+---
+# indexarr: search RPC, indexer escalation, release index.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: indexarr
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: indexarr
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: clustarr
+      app.kubernetes.io/part-of: clustarr
+      app.kubernetes.io/component: indexarr
+  endpoints:
+  - port: metrics
+    path: /metrics
+    scheme: https
+    interval: 30s
+    scrapeTimeout: 10s
+    bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    tlsConfig:
+      insecureSkipVerify: true
+---
+# grabarr: download controllers and engine telemetry.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: grabarr
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: grabarr
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: clustarr
+      app.kubernetes.io/part-of: clustarr
+      app.kubernetes.io/component: grabarr
+  endpoints:
+  - port: metrics
+    path: /metrics
+    scheme: https
+    interval: 30s
+    scrapeTimeout: 10s
+    bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    tlsConfig:
+      insecureSkipVerify: true
+---
+# squasharr: transcode slots and job state.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: squasharr
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: squasharr
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: clustarr
+      app.kubernetes.io/part-of: clustarr
+      app.kubernetes.io/component: squasharr
+  endpoints:
+  - port: metrics
+    path: /metrics
+    scheme: https
+    interval: 30s
+    scrapeTimeout: 10s
+    bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    tlsConfig:
+      insecureSkipVerify: true
+---
+# captionarr: subtitle controllers and republishers.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: captionarr
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: captionarr
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: clustarr
+      app.kubernetes.io/part-of: clustarr
+      app.kubernetes.io/component: captionarr
+  endpoints:
+  - port: metrics
+    path: /metrics
+    scheme: https
+    interval: 30s
+    scrapeTimeout: 10s
+    bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    tlsConfig:
+      insecureSkipVerify: true
+---
+# captionarr-worker: subtitle fetch workers and provider throttles.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: captionarr-worker
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: captionarr-worker
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: clustarr
+      app.kubernetes.io/part-of: clustarr
+      app.kubernetes.io/component: captionarr-worker
+  endpoints:
+  - port: metrics
+    path: /metrics
+    scheme: https
+    interval: 30s
+    scrapeTimeout: 10s
+    bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    tlsConfig:
+      insecureSkipVerify: true

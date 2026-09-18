@@ -1,0 +1,96 @@
+# One ClusterRoleBinding per service ServiceAccount (§3: each service is its
+# own Deployment with its own RBAC). They all point at the single
+# `clustarr-manager-role` ClusterRole that `make manifests` generates from the
+# controller markers; splitting that into a per-service ClusterRole is a
+# follow-up that needs per-service controller-gen roleNames, tracked in
+# config/rbac/README.md.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: clustarr-catalogarr-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: clustarr-manager-role
+subjects:
+- kind: ServiceAccount
+  name: catalogarr
+  namespace: clustarr-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: clustarr-catalogarr-metadata-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: clustarr-manager-role
+subjects:
+- kind: ServiceAccount
+  name: catalogarr-metadata
+  namespace: clustarr-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: clustarr-indexarr-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: clustarr-manager-role
+subjects:
+- kind: ServiceAccount
+  name: indexarr
+  namespace: clustarr-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: clustarr-grabarr-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: clustarr-manager-role
+subjects:
+- kind: ServiceAccount
+  name: grabarr
+  namespace: clustarr-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: clustarr-squasharr-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: clustarr-manager-role
+subjects:
+- kind: ServiceAccount
+  name: squasharr
+  namespace: clustarr-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: clustarr-captionarr-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: clustarr-manager-role
+subjects:
+- kind: ServiceAccount
+  name: captionarr
+  namespace: clustarr-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: clustarr-captionarr-worker-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: clustarr-manager-role
+subjects:
+- kind: ServiceAccount
+  name: captionarr-worker
+  namespace: clustarr-system

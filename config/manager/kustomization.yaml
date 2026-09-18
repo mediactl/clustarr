@@ -1,0 +1,29 @@
+# One Deployment per row of the process-topology table in §3 of the design
+# spec. The engine workloads (`<downloadclient>-engine` StatefulSets/
+# Deployments) and the transcode `batch/v1` Jobs are absent on purpose: those
+# are created at runtime by the grabarr and squasharr controllers, owned by the
+# CR that asked for them.
+#
+# Standalone `kustomize build config/manager` renders without a namespace; the
+# deployable form is `kustomize build config/default`, which adds
+# clustarr-system, the PVCs, the CRDs, RBAC and NATS.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+- includeSelectors: true
+  pairs:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+- includeSelectors: false
+  pairs:
+    app.kubernetes.io/managed-by: kustomize
+
+resources:
+- catalogarr.yaml
+- catalogarr-metadata.yaml
+- indexarr.yaml
+- grabarr.yaml
+- squasharr.yaml
+- captionarr.yaml
+- captionarr-worker.yaml

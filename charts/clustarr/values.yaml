@@ -1,0 +1,270 @@
+# Default values for the clustarr umbrella chart.
+# Every service is one Deployment; see the process-topology table in §3 of
+# docs/superpowers/specs/2026-09-18-clustarr-design.md.
+
+nameOverride: ""
+fullnameOverride: ""
+
+# --------------------------------------------------------------------------
+# Images
+# --------------------------------------------------------------------------
+# Three images (§2):
+#   controller -- distroless static, no media tooling. indexarr only.
+#   media      -- debian-slim + ffmpeg 9/libx265/ffprobe/par2. Everything that
+#                 touches files: catalogarr, grabarr, squasharr, captionarr.
+#   mediaCuda  -- media on an nvidia/cuda base, for NVENC transcode Jobs.
+# An empty tag falls back to .Chart.AppVersion.
+image:
+  registry: ghcr.io
+  pullPolicy: IfNotPresent
+  controller:
+    repository: mediactl/clustarr
+    tag: ""
+  media:
+    repository: mediactl/clustarr-media
+    tag: ""
+  mediaCuda:
+    repository: mediactl/clustarr-media-cuda
+    tag: ""
+imagePullSecrets: []
+
+# --------------------------------------------------------------------------
+# Messaging
+# --------------------------------------------------------------------------
+# Leave natsUrl empty to use the bundled nats subchart. Set it to point at a
+# NATS you already run (and set nats.enabled=false).
+natsUrl: ""
+
+nats:
+  enabled: true
+  config:
+    cluster:
+      enabled: true
+      # R3 in a real cluster; drop to 1 on kind (§12).
+      replicas: 3
+    jetstream:
+      enabled: true
+      fileStore:
+        pvc:
+          size: 20Gi
+  # Feeds the optional KEDA triggers and the NATS dashboards.
+  promExporter:
+    enabled: false
+  container:
+    merge:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: "1"
+          memory: 1Gi
+
+# NATS controller for Kubernetes. Not required: pkg/events provisions its own
+# streams, consumers and KV buckets via events.Topology.Ensure.
+nack:
+  enabled: false
+
+# --------------------------------------------------------------------------
+# Autoscaling (opt-in, §12)
+# --------------------------------------------------------------------------
+# false = the default, supported mode: fixed replicas everywhere and
+# transcodes gated by squasharr's slot budget. true installs the KEDA operator
+# subchart AND the Clustarr ScaledObjects.
+keda:
+  enabled: false
+  # Prometheus to query for JetStream consumer lag. The native nats-jetstream
+  # scaler cannot add num_pending and num_ack_pending together until
+  # kedacore/keda#8166 ships, so the triggers scrape
+  # prometheus-nats-exporter through the prometheus scaler.
+  prometheusAddress: http://prometheus-operated.monitoring.svc:9090
+  captionarrWorker:
+    minReplicas: 1
+    maxReplicas: 8
+    # Queued fetches per replica.
+    threshold: 20
+
+# --------------------------------------------------------------------------
+# Monitoring
+# --------------------------------------------------------------------------
+# Needs the Prometheus Operator CRDs. Metrics are https on :8443 behind the
+# authn/authz filter, so Prometheus's ServiceAccount needs the
+# clustarr-metrics-reader ClusterRole (see config/prometheus/README.md).
+metrics:
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    additionalLabels: {}
+
+# --------------------------------------------------------------------------
+# Storage (§11)
+# --------------------------------------------------------------------------
+storage:
+  # The single RWX volume mounted at /data by every media-touching pod.
+  # Import is a hardlink or rename inside this one filesystem, so it must be
+  # ONE volume shared by all of them, not one per service. CephFS preferred;
+  # NFS or Longhorn RWX acceptable; never exFAT or SMB. The chart refuses any
+  # accessMode other than ReadWriteMany -- see templates/_helpers.tpl.
+  data:
+    existingClaim: ""
+    storageClass: ""
+    accessMode: ReadWriteMany
+    size: 100Gi
+  # indexarr's SQLite release index. RWO on purpose, which is also why
+  # indexarr is pinned to one replica with strategy Recreate.
+  index:
+    existingClaim: ""
+    storageClass: ""
+    size: 5Gi
+
+# fsGroup on every pod that mounts /data; UMASK 002 so services can rewrite
+# each other's files (§11).
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# --------------------------------------------------------------------------
+# Services
+# --------------------------------------------------------------------------
+# Per service: enabled / replicas / resources / scheduling. The parts that are
+# not knobs -- which image, which --role, which volumes, which update strategy
+# -- live in the templates, because getting them wrong is a correctness bug
+# rather than a preference.
+
+# Controllers (leader-elected) + the queue workers that run on every replica
+# + history sink and DLQ projector. Safe to scale out: controllers stay
+# leader-only, workers are JetStream queue consumers.
+catalogarr:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Metadata gateway. MUST be 1: it owns the in-process rate limiters that keep
+# Clustarr inside TMDB/TVDB/MusicBrainz quotas, and a second replica silently
+# doubles the outbound request rate. The chart fails the render on any other
+# value.
+catalogarrMetadata:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Indexer controllers, search RPC, RSS worker, SQLite release index, Torznab
+# facade. MUST be 1: the index is a local SQLite database on an RWO PVC. The
+# chart fails the render on any other value.
+indexarr:
+  enabled: true
+  replicas: 1
+  # Torznab facade: /{indexer}/api, /{indexer}/download, /search/api.
+  facade:
+    service:
+      type: ClusterIP
+      port: 8080
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# DownloadClient/Download controllers. The download engines themselves are
+# StatefulSets and Deployments this controller creates per DownloadClient at
+# runtime, sized by DownloadClient.spec.replicas -- not chart templates.
+grabarr:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# TranscodeProfile/TranscodeJob controllers + slot scheduler. Transcodes run
+# as batch/v1 Jobs this controller creates suspended and admits against the
+# slot budget below.
+squasharr:
+  enabled: true
+  replicas: 1
+  # cpu / nvidia / intel slots (§6.4, §12).
+  slots: cpu=2,nvidia=1,intel=1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Subtitle controllers + cron republishers.
+captionarr:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Subtitle fetch consumers. Two fixed replicas (§12). Safe at any count: all
+# provider clients share a KV token bucket, so N workers still respect each
+# provider's rate limit. terminationGracePeriodSeconds tracks the consumer
+# AckWait so a worker drains its in-flight fetch on SIGTERM.
+captionarrWorker:
+  enabled: true
+  replicas: 2
+  ackWaitSeconds: 120
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}

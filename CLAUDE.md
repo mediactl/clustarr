@@ -34,6 +34,14 @@ stores collections of various media types
 
 Tracks releases, quality, monitored, minimum availability, root folder, metadata
 
+## Importer service (name needed)
+
+This service will reconcile existing media stored in the root folders and upsert custom resources for each found.
+
+This service will also reconcile import lists from multiple supported sources and reconcile custom resources from the import list items.
+
+The import lists can/should be run on a schedule.
+
 ## Indexer service (name needed)
 
 This service will aggregate various remote indexers into a universal search engine for findign media releases.
@@ -77,3 +85,50 @@ We should support *only* an optinionated subset like trash guides.
 ### Indexers
 
 Borrow from prowlarr.
+
+## Observability
+
+Include slog logging (dependency injection pattern with context)
+
+Include open telemetry spans
+
+Include prometheus metrics for downloaded files, download speeds, etc.
+
+Discover useful metrics and include them in our docs and code.
+
+Include health check, readiness, etc endpoints for the K8S workloads.
+
+## UI
+
+Build a UI for the application using:
+
+- github.com/a-h/templ (HTML Templating)
+- github.com/axadrn/shadcn-templ (UI Components)
+
+The UI should include:
+
+- Media pipeline page (Similar to Radarr/Sonarr activity)
+  - Page should contain an element per media item reconciling
+  - Each item should show which stage of the process it's in
+    - Searching for Metadata -> Metadata Found -> Metadata synced
+    - Searching for releases -> Release selected
+    - Downloading release -> Download progress (est time) -> Release downloaded
+    - Searching for subtitles (if non english) -> Subtitles found
+    - Downloading subtitles -> Download progress -> Subtitle downloaded
+    - Transcoding file -> Transcode progress (est time) -> Transcoding complete
+
+- Library page
+  - Should show all collected and monitored media
+    - Status indicator for collection status
+  - Each item should include the cover art
+    - Clicking an item presents a modal with the item info
+  - Toolbar with bulk operation and filtering inputs
+
+- Pages for Downloaders
+  - Presents items in the queue
+  - Shows download speed per item (downloading)
+  - Shows estimated time to completion
+
+- Import lists page
+
+- Settings page

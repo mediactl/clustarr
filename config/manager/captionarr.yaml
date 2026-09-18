@@ -1,0 +1,113 @@
+# captionarr -- SubtitleProfile / SubtitleRequest / SubtitleProvider
+# controllers plus the cron republishers (adaptive search cadence, the 12h
+# upgrade pass). Design spec §3, §6.5.
+#
+# The provider fetches do NOT happen here; they run in captionarr-worker.
+# /data is mounted because replanning parses the sidecars next to each media
+# file and verifies path/size/mtime against status.probeHash.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: captionarr
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: captionarr
+  labels:
+    app.kubernetes.io/component: captionarr
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: captionarr
+  ports:
+  - name: metrics
+    port: 8443
+    targetPort: metrics
+    protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: captionarr
+  labels:
+    app.kubernetes.io/component: captionarr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: captionarr
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: captionarr
+    spec:
+      serviceAccountName: captionarr
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: captionarr
+        image: ghcr.io/mediactl/clustarr-media:dev
+        args: ["captionarr", "--role", "controller"]
+        env:
+        - name: NATS_URL
+          value: nats://nats.clustarr-system.svc:4222
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: UMASK
+          value: "002"
+        ports:
+        - name: metrics
+          containerPort: 8443
+          protocol: TCP
+        - name: health
+          containerPort: 8081
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 50m
+            memory: 192Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: clustarr-data
+      - name: tmp
+        emptyDir: {}
