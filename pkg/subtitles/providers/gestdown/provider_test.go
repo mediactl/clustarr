@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,20 +33,44 @@ import (
 	"github.com/mediactl/clustarr/pkg/subtitles/providers/gestdown"
 )
 
-func TestSearchByTVDBSeasonEpisodeLanguage(t *testing.T) {
-	fixture, err := os.ReadFile("../../../../testdata/subtitles/gestdown/search.json")
-	require.NoError(t, err)
+const resolvedShowID = "31ffb6ce-c000-4079-8912-b3f72057baed" // matches testdata/subtitles/gestdown/shows.json
 
-	var gotPath string
+func readFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	b, err := os.ReadFile("../../../../testdata/subtitles/gestdown/" + name)
+	require.NoError(t, err)
+	return b
+}
+
+// twoStepServer serves the real two-request flow Search now performs: a
+// show-id lookup (GET /shows/external/tvdb/{id}) followed by a subtitle
+// search keyed on the resolved show id (GET /subtitles/get/{showId}/...).
+// gotPaths records every request path in order, for tests that care which
+// endpoint was hit and how many times.
+func twoStepServer(t *testing.T, showsBody, searchBody []byte) (*httptest.Server, *[]string) {
+	t.Helper()
+	var gotPaths []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
-		_, _ = w.Write(fixture)
+		gotPaths = append(gotPaths, r.URL.Path)
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/shows/external/tvdb/"):
+			_, _ = w.Write(showsBody)
+		case strings.HasPrefix(r.URL.Path, "/subtitles/get/"):
+			_, _ = w.Write(searchBody)
+		default:
+			http.NotFound(w, r)
+		}
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
+	return srv, &gotPaths
+}
+
+func TestSearchResolvesTheShowIDThenSearchesSubtitlesByIt(t *testing.T) {
+	srv, gotPaths := twoStepServer(t, readFixture(t, "shows.json"), readFixture(t, "search.json"))
 
 	p := gestdown.New(gestdown.Config{Endpoint: srv.URL})
 	cands, err := p.Search(context.Background(), subtitles.Query{
-		Kind: "episode", IDs: map[string]string{"tvdb": "12345"}, Season: 1, Episode: 1,
+		Kind: "episode", IDs: map[string]string{"tvdb": "81189"}, Season: 1, Episode: 1,
 		Languages: []subtitles.LangKey{"en"},
 	})
 	require.NoError(t, err)
@@ -57,8 +82,116 @@ func TestSearchByTVDBSeasonEpisodeLanguage(t *testing.T) {
 	assert.Equal(t, "/subtitles/download/abc123", c.FetchID, "FetchID carries the raw downloadUri — Download must GET it directly, not reconstruct a path (verified against Bazarr's gestdown.py: page_link = _BASE_URL + data[\"downloadUri\"])")
 	assert.Equal(t, "DIMENSION", c.ReleaseInfo)
 	assert.False(t, c.HI)
-	assert.Contains(t, gotPath, "12345")
-	assert.Contains(t, gotPath, "1/1")
+
+	require.Len(t, *gotPaths, 2, "must resolve the show id (verified live against api.gestdown.info) before searching subtitles by it")
+	assert.Equal(t, "/shows/external/tvdb/81189", (*gotPaths)[0])
+	assert.Equal(t, "/subtitles/get/"+resolvedShowID+"/1/1/en", (*gotPaths)[1])
+}
+
+func TestSearchCachesTheResolvedShowIDAcrossCalls(t *testing.T) {
+	srv, gotPaths := twoStepServer(t, readFixture(t, "shows.json"), readFixture(t, "search.json"))
+
+	p := gestdown.New(gestdown.Config{Endpoint: srv.URL})
+	q := subtitles.Query{Kind: "episode", IDs: map[string]string{"tvdb": "81189"}, Season: 1, Episode: 1, Languages: []subtitles.LangKey{"en"}}
+
+	_, err := p.Search(context.Background(), q)
+	require.NoError(t, err)
+	_, err = p.Search(context.Background(), q)
+	require.NoError(t, err)
+
+	showLookups := 0
+	for _, path := range *gotPaths {
+		if strings.HasPrefix(path, "/shows/external/tvdb/") {
+			showLookups++
+		}
+	}
+	assert.Equal(t, 1, showLookups, "the resolved show id must be cached for the Provider's lifetime, not re-looked-up on every Search")
+}
+
+func TestSearchReturnsNotFoundProviderErrorWhenShowLookupIs404(t *testing.T) {
+	// Verified live against api.gestdown.info on 2026-09-18: a TVDB id it
+	// has never indexed returns HTTP 404 with a bare JSON string body
+	// ("Couldn't find show: 999999999"), not a JSON object.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/shows/external/tvdb/") {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`"Couldn't find show: 999999999"`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	p := gestdown.New(gestdown.Config{Endpoint: srv.URL})
+
+	var cands []subtitles.Candidate
+	var err error
+	require.NotPanics(t, func() {
+		cands, err = p.Search(context.Background(), subtitles.Query{
+			Kind: "episode", IDs: map[string]string{"tvdb": "999999999"}, Season: 1, Episode: 1,
+			Languages: []subtitles.LangKey{"en"},
+		})
+	})
+	require.Error(t, err)
+	assert.Nil(t, cands)
+	assert.True(t, subtitles.IsNotFound(err), "a 404 on the show lookup must map to an ErrNotFound-class ProviderError")
+}
+
+func TestSearchReturnsAnErrorOnMalformedShowLookupResponsesWithoutPanicking(t *testing.T) {
+	tests := []struct {
+		name string
+		body []byte
+	}{
+		{"empty body", []byte{}},
+		{"truncated JSON", []byte(`{"shows":[{"id":"x"`)},
+		{"garbage bytes", []byte{0x00, 0x01, 0xFF, 0xFE, 0x80}},
+		{"empty shows list", []byte(`{"shows":[]}`)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, _ := twoStepServer(t, tt.body, readFixture(t, "search.json"))
+			p := gestdown.New(gestdown.Config{Endpoint: srv.URL})
+
+			var cands []subtitles.Candidate
+			var err error
+			require.NotPanics(t, func() {
+				cands, err = p.Search(context.Background(), subtitles.Query{
+					Kind: "episode", IDs: map[string]string{"tvdb": "81189"}, Season: 1, Episode: 1,
+					Languages: []subtitles.LangKey{"en"},
+				})
+			})
+			assert.Error(t, err)
+			assert.Nil(t, cands)
+		})
+	}
+}
+
+func TestSearchReturnsAnErrorOnMalformedSubtitleSearchResponsesWithoutPanicking(t *testing.T) {
+	tests := []struct {
+		name string
+		body []byte
+	}{
+		{"empty body", []byte{}},
+		{"truncated JSON", []byte(`{"matchingSubtitles":[{"subtitleId":"x"`)},
+		{"garbage bytes", []byte{0x00, 0x01, 0xFF, 0xFE, 0x80}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, _ := twoStepServer(t, readFixture(t, "shows.json"), tt.body)
+			p := gestdown.New(gestdown.Config{Endpoint: srv.URL})
+
+			var cands []subtitles.Candidate
+			var err error
+			require.NotPanics(t, func() {
+				cands, err = p.Search(context.Background(), subtitles.Query{
+					Kind: "episode", IDs: map[string]string{"tvdb": "81189"}, Season: 1, Episode: 1,
+					Languages: []subtitles.LangKey{"en"},
+				})
+			})
+			assert.Error(t, err)
+			assert.Nil(t, cands)
+		})
+	}
 }
 
 func TestDownloadFetchesTheDownloadURI(t *testing.T) {
@@ -80,7 +213,10 @@ func TestDownloadFetchesTheDownloadURI(t *testing.T) {
 }
 
 func TestSearchReturns423AsAThrottledServiceUnavailableError(t *testing.T) {
-	// research note §4.2: "423 = refreshing, retry in 30s".
+	// research note §4.2: "423 = refreshing, retry in 30s". The unconditional
+	// 423 below fires on whichever request Search makes first (the show
+	// lookup, under the new two-step flow), so this still exercises the
+	// same mapping without needing to know the internal call order.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusLocked)
 	}))

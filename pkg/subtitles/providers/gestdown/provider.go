@@ -18,22 +18,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package gestdown implements subtitles.Provider against the Gestdown
 // (api.gestdown.info) TV-subtitle API.
 //
-// Field names and endpoint shapes below were verified directly against
-// Bazarr's own provider source, custom_libs/subliminal_patch/providers/
-// gestdown.py (fetched from morpheus65535/bazarr on 2026-09-18), since
-// docs/research/subtitles.md §4.2/§13.6 does not capture Gestdown's
-// response field names — see the task report's "adapted to real pkg/release"
-// / Gestdown section for the exact source excerpt this was checked against.
-// Two deliberate simplifications versus the real gestdown.py, both called
-// out where they apply below: (1) Query.IDs["tvdb"] is used directly as
-// Gestdown's own internal show id, skipping the real client's
-// /shows/external/tvdb/{id} resolution step (Bazarr does this because a
-// single TVDB id can map to more than one Gestdown "show" entry — e.g.
-// regional variants — this package always searches exactly one); (2) the
-// per-language Addic7ed code conversion (PatchedAddic7edConverter) is
-// skipped — the plain BCP-47 language tag is sent as-is, which matches
-// Addic7ed's own code for English and the languages this package's own
-// tests exercise, but is not verified for the full language table.
+// Field names and endpoint shapes below were verified two ways: directly
+// against Bazarr's own provider source, custom_libs/subliminal_patch/
+// providers/gestdown.py (fetched from morpheus65535/bazarr on 2026-09-18),
+// since docs/research/subtitles.md §4.2/§13.6 does not capture Gestdown's
+// response field names; and, for the show-lookup step (fix round 1, item
+// 6), against a live call to https://api.gestdown.info/shows/external/tvdb/
+// 81189 on 2026-09-18 (Breaking Bad's real TVDB id), whose response shape
+// the testdata/subtitles/gestdown/shows.json fixture reproduces verbatim.
+// One remaining, disclosed simplification: the per-language Addic7ed code
+// conversion (PatchedAddic7edConverter) is skipped — the plain BCP-47
+// language tag is sent as-is, which matches Addic7ed's own code for English
+// and the languages this package's own tests exercise, but is not verified
+// for the full language table.
 package gestdown
 
 import (
@@ -43,6 +40,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -59,7 +57,12 @@ type Config struct {
 }
 
 // Provider implements subtitles.Provider against Gestdown.
-type Provider struct{ cfg Config }
+type Provider struct {
+	cfg Config
+
+	mu      sync.Mutex
+	showIDs map[string]string // TVDB id -> Gestdown's own internal show id, cached for this Provider's lifetime
+}
 
 // New builds a Provider from cfg, applying defaults for any zero field.
 func New(cfg Config) *Provider {
@@ -93,6 +96,9 @@ type searchResponse struct {
 
 // Search implements subtitles.Provider.Search. Gestdown is TV-only: a
 // non-episode Query returns no candidates without touching the network.
+// TVDB ids are resolved to Gestdown's own internal show id first (see
+// resolveShowID) — a real two-step flow, verified live, not the earlier
+// draft's simplification of using the TVDB id directly as a path segment.
 func (p *Provider) Search(ctx context.Context, q subtitles.Query) ([]subtitles.Candidate, error) {
 	if q.Kind != common.MediaKindEpisode {
 		return nil, nil
@@ -100,13 +106,19 @@ func (p *Provider) Search(ctx context.Context, q subtitles.Query) ([]subtitles.C
 	ctx, span := tracing.Start(ctx, "subtitles.gestdown.search")
 	defer span.End()
 
+	showID, err := p.resolveShowID(ctx, q.IDs["tvdb"])
+	if err != nil {
+		tracing.RecordError(span, err)
+		return nil, err
+	}
+
 	lang := "en"
 	if len(q.Languages) > 0 {
 		if l, _, _, err := subtitles.ParseLangKey(q.Languages[0]); err == nil {
 			lang = l
 		}
 	}
-	url := fmt.Sprintf("%s/subtitles/get/%s/%d/%d/%s", p.cfg.Endpoint, q.IDs["tvdb"], q.Season, q.Episode, lang)
+	url := fmt.Sprintf("%s/subtitles/get/%s/%d/%d/%s", p.cfg.Endpoint, showID, q.Season, q.Episode, lang)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -118,13 +130,8 @@ func (p *Provider) Search(ctx context.Context, q subtitles.Query) ([]subtitles.C
 		return nil, fmt.Errorf("subtitles: gestdown search: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode == http.StatusLocked { // 423 "refreshing, retry in 30s" — research note §4.2, gestdown.py's _retry_on_423
-		err := &subtitles.ProviderError{Provider: p.Name(), Kind: subtitles.KindServiceUnavailable, RetryAfter: 30 * time.Second}
-		tracing.RecordError(span, err)
-		return nil, err
-	}
 	if resp.StatusCode != http.StatusOK {
-		err := &subtitles.ProviderError{Provider: p.Name(), Kind: subtitles.KindServiceUnavailable, Err: fmt.Errorf("http %d", resp.StatusCode)}
+		err := classifyNonOKStatus(p.Name(), resp)
 		tracing.RecordError(span, err)
 		return nil, err
 	}
@@ -144,6 +151,80 @@ func (p *Provider) Search(ctx context.Context, q subtitles.Query) ([]subtitles.C
 		})
 	}
 	return out, nil
+}
+
+// showsResponse mirrors /shows/external/tvdb/{id}'s real response shape,
+// verified live against api.gestdown.info (see the package doc comment):
+// {"shows":[{"id": "<uuid>", "tvDbId": <int>, ...}]}. Only the two fields
+// this package needs are decoded.
+type showsResponse struct {
+	Shows []struct {
+		ID     string `json:"id"`
+		TVDbID int    `json:"tvDbId"`
+	} `json:"shows"`
+}
+
+// resolveShowID resolves tvdbID to Gestdown's own internal show id via GET
+// /shows/external/tvdb/{tvdbID}, caching the result for the Provider's
+// lifetime (a TVDB id's mapping to a Gestdown show id is effectively
+// permanent). A 404 — verified live: Gestdown returns one for a TVDB id it
+// has never indexed, with a bare JSON string body, not an object — maps to
+// a subtitles.KindNotFound ProviderError, distinct from "the show exists
+// but has no subtitles for this language/episode".
+func (p *Provider) resolveShowID(ctx context.Context, tvdbID string) (string, error) {
+	p.mu.Lock()
+	if id, ok := p.showIDs[tvdbID]; ok {
+		p.mu.Unlock()
+		return id, nil
+	}
+	p.mu.Unlock()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.cfg.Endpoint+"/shows/external/tvdb/"+tvdbID, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := p.cfg.HTTPClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("subtitles: gestdown show lookup: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return "", &subtitles.ProviderError{Provider: p.Name(), Kind: subtitles.KindNotFound, Err: fmt.Errorf("tvdb id %s: no matching show", tvdbID)}
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", classifyNonOKStatus(p.Name(), resp)
+	}
+
+	var sr showsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&sr); err != nil {
+		return "", fmt.Errorf("subtitles: gestdown show lookup: decode: %w", err)
+	}
+	if len(sr.Shows) == 0 {
+		return "", &subtitles.ProviderError{Provider: p.Name(), Kind: subtitles.KindNotFound, Err: fmt.Errorf("tvdb id %s: no matching show", tvdbID)}
+	}
+
+	id := sr.Shows[0].ID
+	p.mu.Lock()
+	if p.showIDs == nil {
+		p.showIDs = map[string]string{}
+	}
+	p.showIDs[tvdbID] = id
+	p.mu.Unlock()
+	return id, nil
+}
+
+// classifyNonOKStatus maps a non-200 Gestdown response — from either the
+// show lookup or the subtitle search — to a subtitles.ProviderError: 423
+// ("refreshing, retry in 30s", research note §4.2, gestdown.py's
+// _retry_on_423) or a generic ServiceUnavailable otherwise. Callers needing
+// a distinct 404 mapping (resolveShowID) check for it before falling back
+// to this.
+func classifyNonOKStatus(provider string, resp *http.Response) error {
+	if resp.StatusCode == http.StatusLocked {
+		return &subtitles.ProviderError{Provider: provider, Kind: subtitles.KindServiceUnavailable, RetryAfter: 30 * time.Second}
+	}
+	return &subtitles.ProviderError{Provider: provider, Kind: subtitles.KindServiceUnavailable, Err: fmt.Errorf("http %d", resp.StatusCode)}
 }
 
 // releaseInfoFromVersion mirrors gestdown.py's release_info construction:
