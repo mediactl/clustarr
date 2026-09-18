@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package release_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -62,5 +63,25 @@ func TestParsePathStripsDirectoryAndExtension(t *testing.T) {
 
 func TestParseRejectsEmptyTitle(t *testing.T) {
 	_, err := release.Parse("", release.Options{})
+	assert.Error(t, err)
+}
+
+func TestParseNeverPanicsOnMalformedInput(t *testing.T) {
+	inputs := []string{
+		"", " ", ".", "-", "[", "]", "S01E", "1999", strings.Repeat("a", 5000),
+		"€™š™š™š.1999.1080p", "\x00\x01\x02", "S99E99999999999999999999999999",
+	}
+	for _, in := range inputs {
+		in := in
+		t.Run(in, func(t *testing.T) {
+			assert.NotPanics(t, func() {
+				_, _ = release.Parse(in, release.Options{})
+			})
+		})
+	}
+}
+
+func TestParseKindWithUnknownKindReturnsError(t *testing.T) {
+	_, err := release.ParseKind("Some.Title.2020.1080p.BluRay.x264-GROUP", commonv1.MediaKind("bogus"))
 	assert.Error(t, err)
 }
