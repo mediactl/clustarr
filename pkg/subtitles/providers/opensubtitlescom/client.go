@@ -162,6 +162,17 @@ func (p *Provider) setAuthHeaders(req *http.Request) {
 	p.setCommonHeadersLocked(req)
 }
 
+// quotaBody is the OpenSubtitles.com 406 (download limit exceeded) body
+// shape (research note §4.3): {"message", "remaining", "reset_time",
+// "reset_time_utc"}. Best-effort: a body that isn't this shape (a
+// different status's plain {"message"} body, for instance) just leaves
+// Remaining/ResetAt at their zero values rather than failing the whole
+// error-mapping path.
+type quotaBody struct {
+	Remaining    int    `json:"remaining"`
+	ResetTimeUTC string `json:"reset_time_utc"`
+}
+
 // statusToProviderError maps an OpenSubtitles HTTP response to
 // subtitles.ProviderError per research note §4.3's status table.
 func statusToProviderError(provider string, resp *http.Response) error {
@@ -171,6 +182,16 @@ func statusToProviderError(provider string, resp *http.Response) error {
 	if ra := resp.Header.Get("Retry-After"); ra != "" {
 		if secs, err := strconv.Atoi(ra); err == nil {
 			pe.RetryAfter = time.Duration(secs) * time.Second
+		}
+	}
+
+	if resp.StatusCode == http.StatusNotAcceptable { // 406: remaining/reset_time_utc are only documented for this status
+		var qb quotaBody
+		if err := json.Unmarshal(body, &qb); err == nil {
+			pe.Remaining = qb.Remaining
+			if t, err := time.Parse(time.RFC3339, qb.ResetTimeUTC); err == nil {
+				pe.ResetAt = t
+			}
 		}
 	}
 

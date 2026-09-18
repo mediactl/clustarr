@@ -153,6 +153,11 @@ func TestDownloadReturnsATypedQuotaExceededErrorOn406(t *testing.T) {
 	reason, d := subtitles.ThrottleFor("opensubtitlescom", err)
 	assert.Equal(t, subtitles.KindDownloadLimitExceeded, reason)
 	assert.Equal(t, 6*time.Hour, d)
+
+	var pe *subtitles.ProviderError
+	require.ErrorAs(t, err, &pe)
+	assert.Equal(t, 3, pe.Remaining, "remaining must be parsed from the 406 body's \"remaining\" field")
+	assert.True(t, pe.ResetAt.Equal(time.Date(2026, 9, 19, 3, 12, 0, 0, time.UTC)), "ResetAt must be parsed from the 406 body's \"reset_time_utc\" field, got %s", pe.ResetAt)
 }
 
 func TestDownloadReturnsATypedRateLimitedErrorOn429WithRetryAfter(t *testing.T) {
@@ -173,4 +178,70 @@ func TestDownloadReturnsATypedRateLimitedErrorOn429WithRetryAfter(t *testing.T) 
 	assert.True(t, subtitles.IsRateLimited(err))
 	_, d := subtitles.ThrottleFor("opensubtitlescom", err)
 	assert.Equal(t, 5*time.Second, d, "an explicit Retry-After header must win over the 1-minute static override")
+}
+
+func TestSearchReturnsAnErrorOnMalformedResponseBodiesWithoutPanicking(t *testing.T) {
+	tests := []struct {
+		name string
+		body []byte
+	}{
+		{"empty body", []byte{}},
+		{"truncated JSON", []byte(`{"data":[{"attributes":{"language":"en"`)},
+		{"garbage bytes", []byte{0x00, 0x01, 0xFF, 0xFE, 0x80}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/login":
+					_, _ = w.Write(readFixture(t, "login.json"))
+				case "/subtitles":
+					_, _ = w.Write(tt.body)
+				}
+			})
+			p := opensubtitlescom.New(opensubtitlescom.Config{APIKey: "k", Username: "u", Password: "p", Endpoint: srv.URL})
+
+			var cands []subtitles.Candidate
+			var err error
+			require.NotPanics(t, func() {
+				cands, err = p.Search(context.Background(), subtitles.Query{Kind: "movie"})
+			})
+			assert.Error(t, err)
+			assert.Nil(t, cands)
+		})
+	}
+}
+
+func TestDownloadReturnsAnErrorOnMalformedResponseBodiesWithoutPanicking(t *testing.T) {
+	tests := []struct {
+		name string
+		body []byte
+	}{
+		{"empty body", []byte{}},
+		{"truncated JSON", []byte(`{"link":"http`)},
+		{"garbage bytes", []byte{0x00, 0x01, 0xFF, 0xFE, 0x80}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/login":
+					_, _ = w.Write(readFixture(t, "login.json"))
+				case "/download":
+					_, _ = w.Write(tt.body)
+				}
+			})
+			p := opensubtitlescom.New(opensubtitlescom.Config{APIKey: "k", Username: "u", Password: "p", Endpoint: srv.URL})
+
+			var raw []byte
+			var name string
+			var err error
+			require.NotPanics(t, func() {
+				raw, name, err = p.Download(context.Background(), subtitles.Candidate{FetchID: "998877"})
+			})
+			assert.Error(t, err)
+			assert.Nil(t, raw)
+			assert.Empty(t, name)
+		})
+	}
 }
