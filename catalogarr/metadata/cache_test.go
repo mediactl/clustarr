@@ -27,6 +27,7 @@ import (
 
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
+	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 )
 
 type cacheFixture struct {
@@ -47,6 +48,12 @@ func newTestKV(t *testing.T, clock clockwork.Clock) events.KV {
 	ctx := context.Background()
 	require.NoError(t, bus.Ensure(ctx, events.Default().ForSingleNode()))
 	return bus.KV(events.BucketMetadataCache)
+}
+
+// newTestLRU builds a small in-process L1 cache for tiered-cache tests.
+func newTestLRU(t *testing.T, clock clockwork.Clock) (*pkgmetadata.LRUCache, error) {
+	t.Helper()
+	return pkgmetadata.NewLRUCache(64, clock)
 }
 
 func TestKVCacheMissThenHitThenExpiry(t *testing.T) {
