@@ -46,3 +46,28 @@ func TestHardlinkOrCopyLinksWithinOneFilesystem(t *testing.T) {
 	require.True(t, ok)
 	require.GreaterOrEqual(t, st.Nlink, uint64(2))
 }
+
+func TestHardlinkOrCopyFallsBackToCopyOnEXDEV(t *testing.T) {
+	old := linkFunc
+	t.Cleanup(func() { linkFunc = old })
+	linkFunc = func(string, string) error {
+		return &os.LinkError{Op: "link", Err: syscall.EXDEV}
+	}
+
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.mkv")
+	dst := filepath.Join(dir, "sub", "dst.mkv")
+	require.NoError(t, os.WriteFile(src, []byte("payload"), 0o664))
+
+	linked, err := HardlinkOrCopy(src, dst)
+	require.NoError(t, err)
+	require.False(t, linked)
+
+	got, err := os.ReadFile(dst)
+	require.NoError(t, err)
+	require.Equal(t, "payload", string(got))
+
+	srcInfo, _ := os.Stat(src)
+	dstInfo, _ := os.Stat(dst)
+	require.False(t, os.SameFile(srcInfo, dstInfo), "fallback copy must not share src's inode")
+}
