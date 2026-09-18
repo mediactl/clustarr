@@ -23,6 +23,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/transcode"
 )
 
@@ -82,6 +84,71 @@ func TestCRFForSelectsResolutionClassAndHDROffset(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.want, transcode.CRFFor(table, tc.height, tc.hdr))
+		})
+	}
+}
+
+func TestPlanDecisionTable(t *testing.T) {
+	profile := defaultProfile()
+
+	compliantHEVC10 := transcode.MediaInfo{
+		Path:   "/media/Movie (2020)/Movie (2020).mkv",
+		Format: transcode.FormatInfo{Duration: 2 * time.Hour},
+		Video: []transcode.VideoStream{{
+			Codec: "hevc", Profile: "Main 10", PixFmt: "yuv420p10le",
+			Width: 1920, Height: 1080, FrameRate: transcode.Rational{Num: 24, Den: 1},
+		}},
+		Audio: []transcode.AudioStream{{Codec: "aac", Channels: 2, Language: "eng", Disposition: transcode.Disposition{Default: true}}},
+	}
+
+	h264SDR1080p := compliantHEVC10
+	h264SDR1080p.Video = []transcode.VideoStream{{
+		Codec: "h264", PixFmt: "yuv420p", Width: 1920, Height: 1080,
+		FrameRate: transcode.Rational{Num: 24, Den: 1},
+	}}
+
+	remuxAudio := compliantHEVC10
+	remuxAudio.Audio = []transcode.AudioStream{{Codec: "eac3", Channels: 6, Language: "eng", Disposition: transcode.Disposition{Default: true}}}
+
+	shortClip := h264SDR1080p
+	shortClip.Format.Duration = 30 * time.Second
+
+	remuxModifier := h264SDR1080p
+	remuxModifier.Modifier = "remux"
+
+	dv5NoVBV := h264SDR1080p
+	dv5NoVBV.Video = append([]transcode.VideoStream(nil), h264SDR1080p.Video...)
+	dv5NoVBV.Video[0].HDR = transcode.HDRInfo{Format: commonv1.HdrFormatDolbyVision, DolbyVision: &mediainfo.DoviRecord{Profile: 5}}
+
+	dv5profile := defaultProfile() // no MaxRateKbps/BufSizeKbps set
+
+	rejectPolicy := defaultProfile()
+	rejectPolicy.HDR.DolbyVision = transcode.DolbyVisionReject
+
+	caps := transcode.Capabilities{Encoders: map[transcode.Tier]bool{transcode.TierCPUx265: true}}
+	meta := transcode.PlanMeta{ProfileName: "hevc10-aac-space", ProfileHash: "deadbeef", Threads: 8}
+
+	cases := []struct {
+		name    string
+		info    transcode.MediaInfo
+		profile transcode.ProfileSpec
+		wantDec transcode.Decision
+		wantWhy string // substring
+	}{
+		{"already compliant", compliantHEVC10, profile, transcode.DecisionSkip, "already compliant"},
+		{"video not compliant -> encode", h264SDR1080p, profile, transcode.DecisionEncode, "hevc"},
+		{"video compliant, audio not -> remux only", remuxAudio, profile, transcode.DecisionRemuxOnly, "remux"},
+		{"below min duration -> skip", shortClip, profile, transcode.DecisionSkip, "minDuration"},
+		{"never-transcode modifier -> skip", remuxModifier, profile, transcode.DecisionSkip, "neverTranscodeModifiers"},
+		{"dv5 missing vbv -> reject", dv5NoVBV, dv5profile, transcode.DecisionReject, "maxRateKbps"},
+		{"dv reject policy -> reject", dv5NoVBV, rejectPolicy, transcode.DecisionReject, "reject"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := transcode.Plan(tc.info, tc.profile, caps, meta)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantDec, p.Decision)
+			require.Contains(t, p.Reason, tc.wantWhy)
 		})
 	}
 }
