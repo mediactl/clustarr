@@ -355,6 +355,25 @@ func TestReconcileDeletesTheSearchOnceItsTTLHasElapsed(t *testing.T) {
 	require.True(t, apierrors.IsNotFound(err), "err = %v", err)
 }
 
+// TestReconcileDeletesAFailedQueryModeSearchOnceItsTTLHasElapsed is the
+// regression test for an ordering bug: failQueryMode returns before the TTL
+// branch, so checking the query first would have left every rejected
+// free-text Search on the cluster forever.
+func TestReconcileDeletesAFailedQueryModeSearchOnceItsTTLHasElapsed(t *testing.T) {
+	f := newFixture(t, "search-query-ttl")
+	q := "the matrix"
+	f.createSearch(t, "srch", catalogv1alpha1.SearchSpec{Query: &q, TTL: metav1.Duration{Duration: 15 * time.Minute}})
+
+	f.reconcile(t, "srch")
+	require.Equal(t, catalogv1alpha1.SearchPhaseFailed, f.get(t, "srch").Status.Phase)
+
+	f.clock.Advance(16 * time.Minute)
+	f.reconcile(t, "srch")
+
+	err := f.c.Get(context.Background(), client.ObjectKey{Namespace: f.ns, Name: "srch"}, &catalogv1alpha1.Search{})
+	require.True(t, apierrors.IsNotFound(err), "err = %v", err)
+}
+
 func TestReconcileIgnoresAMissingSearch(t *testing.T) {
 	f := newFixture(t, "search-gone")
 	res, err := f.r.Reconcile(context.Background(), reconcile.Request{

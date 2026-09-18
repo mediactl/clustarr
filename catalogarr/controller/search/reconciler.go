@@ -145,18 +145,23 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, nil
 	}
 
+	// The TTL check comes first so that every terminal state expires, including
+	// the query-mode rejection below, which would otherwise return before ever
+	// reaching it and leave the object behind forever. ttlDeadline returns the
+	// zero time for anything that has not finished, so this cannot delete a
+	// search in flight.
 	switch {
+	case r.ttlExpired(s):
+		return r.deleteExpired(ctx, s)
 	case s.Spec.Query != nil:
 		return r.failQueryMode(ctx, s)
 	case s.Status.Phase == "":
 		return r.startSearch(ctx, s)
-	case r.ttlExpired(s):
-		return r.deleteExpired(ctx, s)
 	case s.Status.Phase == catalogv1alpha1.SearchPhaseRunning && s.Status.FinishedAt != nil:
 		return r.completeSearch(ctx, s)
 	case s.Status.Phase == catalogv1alpha1.SearchPhaseRunning && r.stuck(s):
 		return r.failStuck(ctx, s)
-	case r.grabsPending(s):
+	case s.Status.Phase == catalogv1alpha1.SearchPhaseCompleted && r.grabsPending(s):
 		return r.handleGrabs(ctx, s)
 	}
 	return ctrl.Result{RequeueAfter: r.ttlRequeue(s)}, nil
@@ -326,7 +331,10 @@ func (r *Reconciler) fail(ctx context.Context, s *catalogv1alpha1.Search, reason
 }
 
 // grabsPending reports whether spec.grab names a GUID status.grabbed has not
-// successfully handled yet. An entry that previously errored is retried, which
+// successfully handled yet. It is only consulted for a Completed search:
+// spec.grab names GUIDs the user read off status.results, which do not exist
+// before the worker has written them, so acting earlier could only record
+// "guid is not in status.results" for every entry. An entry that previously errored is retried, which
 // is what makes flipping spec.override to true work without editing spec.grab.
 func (r *Reconciler) grabsPending(s *catalogv1alpha1.Search) bool {
 	if len(s.Spec.Grab) == 0 {
