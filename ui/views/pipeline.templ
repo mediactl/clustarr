@@ -27,8 +27,15 @@ import (
 // live-updated over the /events/pipeline SSE stream. It is a full page,
 // wrapped in Layout, so a plain GET renders something useful even before
 // htmx's SSE extension has connected.
+//
+// #pipeline-rows is the sse-swap target: htmx's SSE extension replaces that
+// element's innerHTML with the named event's data, so everything inside it
+// (and only what's inside it) must be exactly what PipelineRows renders --
+// the page heading lives outside the swapped element so it survives a live
+// update instead of being replaced by it.
 templ Pipeline(entries []pipeline.Entry) {
 	@Layout("Pipeline") {
+		<h1 class="mb-4 text-2xl font-bold">Pipeline</h1>
 		<div
 			id="pipeline-rows"
 			hx-ext="sse"
@@ -36,17 +43,25 @@ templ Pipeline(entries []pipeline.Entry) {
 			sse-swap="pipeline"
 			class="space-y-4"
 		>
-			<h1 class="mb-4 text-2xl font-bold">Pipeline</h1>
-			if len(entries) == 0 {
-				<p class="text-slate-400">Nothing in flight.</p>
-			}
-			<div class="grid gap-3">
-				for _, e := range entries {
-					@pipelineRow(e)
-				}
-			</div>
+			@PipelineRows(entries)
 		</div>
 	}
+}
+
+// PipelineRows renders the dynamic part of the Pipeline page: the "nothing
+// in flight" placeholder or the row grid. This is also what
+// /events/pipeline renders into each SSE event's data, so the initial page
+// render and every live update produce byte-for-byte the same markup for
+// #pipeline-rows's contents.
+templ PipelineRows(entries []pipeline.Entry) {
+	if len(entries) == 0 {
+		<p class="text-slate-400">Nothing in flight.</p>
+	}
+	<div class="grid gap-3">
+		for _, e := range entries {
+			@pipelineRow(e)
+		}
+	</div>
 }
 
 // pipelineRow renders one Entry as a card: title, stage badge, progress bar

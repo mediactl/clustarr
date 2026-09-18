@@ -70,6 +70,7 @@ func Project(item client.Object, related Related) Entry {
 	// Every signal Project might act on is looked up once, up front, so the
 	// priority chain below is a flat sequence of nil/bool checks rather than
 	// a mess of repeated slice scans.
+	postProcessed := requiresPostProcessing(desc.kind)
 	failedDL := failedDownload(related)
 	failedTJ := failedJob(related)
 	blockedDL := blockedDownload(related)
@@ -84,16 +85,20 @@ func Project(item client.Object, related Related) Entry {
 	downloadingDL := downloadingDownload(related)
 	imported := related.MediaFile != nil || importedDL != nil
 	satisfied := subtitlesSatisfied(related)
-	// complete requires imported, at least one SubtitleRequest and it is
-	// fully satisfied, and at least one TranscodeJob and none of them still
-	// doing work. Both branches require their resource to actually exist:
+	// complete requires imported, plus -- for a kind that goes through
+	// squasharr and captionarr -- at least one SubtitleRequest fully
+	// satisfied and at least one TranscodeJob with none of them still doing
+	// work. Both branches require their resource to actually exist:
 	// captionarr creates a SubtitleRequest and squasharr a TranscodeJob for
 	// every imported video MediaFile (even a TranscodeJob that ends up
 	// Skipped), so their absence means those controllers have not caught up
 	// yet, not that the work does not apply. Treating "no resource yet" as
 	// "nothing to do" would show Complete before those controllers have even
-	// run. Failure and blocked states are already ruled out above.
-	complete := imported && satisfied && len(related.Jobs) > 0 && runningTJ == nil
+	// run. A non-video kind (Album, Artist, Author, Book, Audiobook, Comic,
+	// Issue) never gets a SubtitleRequest or a TranscodeJob at all, so for
+	// those Complete is reached as soon as the item is imported. Failure and
+	// blocked states are already ruled out above.
+	complete := imported && (!postProcessed || (satisfied && len(related.Jobs) > 0 && runningTJ == nil))
 
 	switch {
 	case failedDL != nil:
@@ -104,7 +109,7 @@ func Project(item client.Object, related Related) Entry {
 		}
 		return entry
 
-	case failedTJ != nil:
+	case postProcessed && failedTJ != nil:
 		entry.Stage = StageFailed
 		entry.Failure = failedTJ.Status.Message
 		return entry
@@ -120,7 +125,7 @@ func Project(item client.Object, related Related) Entry {
 		}
 		return entry
 
-	case blockedSR != nil:
+	case postProcessed && blockedSR != nil:
 		entry.Stage = StageBlocked
 		entry.Failure = "subtitle search blocked"
 		return entry
@@ -130,7 +135,7 @@ func Project(item client.Object, related Related) Entry {
 		entry.Percent = 100
 		return entry
 
-	case runningTJ != nil:
+	case postProcessed && runningTJ != nil:
 		entry.Stage = StageTranscoding
 		if runningTJ.Status.Progress != nil {
 			entry.Percent = runningTJ.Status.Progress.Percent
@@ -143,25 +148,25 @@ func Project(item client.Object, related Related) Entry {
 		}
 		return entry
 
-	case len(related.Jobs) > 0:
+	case postProcessed && len(related.Jobs) > 0:
 		entry.Stage = StageTranscodeDone
 		entry.Percent = 100
 		return entry
 
-	case satisfied:
+	case postProcessed && satisfied:
 		entry.Stage = StageSubtitleDone
 		entry.Percent = 100
 		return entry
 
-	case fetchingSR != nil:
+	case postProcessed && fetchingSR != nil:
 		entry.Stage = StageSubtitleFetching
 		return entry
 
-	case foundSR != nil:
+	case postProcessed && foundSR != nil:
 		entry.Stage = StageSubtitleFound
 		return entry
 
-	case searchingSR != nil:
+	case postProcessed && searchingSR != nil:
 		entry.Stage = StageSubtitleSearching
 		return entry
 
@@ -221,6 +226,22 @@ func Project(item client.Object, related Related) Entry {
 // or waiting to run.
 func releaseSearchActive(phase catalogv1.SearchPhase) bool {
 	return phase == catalogv1.SearchPhasePending || phase == catalogv1.SearchPhaseRunning
+}
+
+// requiresPostProcessing reports whether kind goes through squasharr
+// (transcode) and captionarr (subtitles) after import. Only video kinds do:
+// Movie, Series and Episode. Music, book and comic kinds (Artist, Album,
+// Author, Book, Audiobook, Comic, Issue) have no transcode or subtitle
+// pipeline at all, so the transcode and subtitle stages -- and StageComplete
+// requiring them -- must never be produced for those kinds; for them,
+// StageComplete is reached as soon as the item is imported.
+func requiresPostProcessing(kind commonv1.MediaKind) bool {
+	switch kind {
+	case commonv1.MediaKindMovie, commonv1.MediaKindSeries, commonv1.MediaKindEpisode:
+		return true
+	default:
+		return false
+	}
 }
 
 // --- failure and blocked signals -------------------------------------------------

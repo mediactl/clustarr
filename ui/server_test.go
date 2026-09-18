@@ -98,5 +98,13 @@ func TestPipelineEventsStreamsServerSentEvents(t *testing.T) {
 	}
 	joined := strings.Join(lines, "")
 	require.Contains(t, joined, "event: pipeline")
+	// The payload must be the same rendered HTML fragment views.PipelineRows
+	// produces for the initial page load -- htmx's sse-swap replaces
+	// #pipeline-rows's innerHTML with this verbatim, so raw JSON here would
+	// show up as literal text in the browser instead of a row. Assert on an
+	// attribute pipelineRow's markup writes and rule out a JSON encoding.
+	require.Contains(t, joined, `data-stage="Downloading"`)
 	require.Contains(t, joined, "Shawshank")
+	require.NotContains(t, joined, `"title"`)
+	require.NotContains(t, joined, `"stage"`)
 }

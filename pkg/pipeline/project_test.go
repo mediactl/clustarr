@@ -22,6 +22,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
@@ -283,6 +284,72 @@ func TestProjectDerivesTheStage(t *testing.T) {
 			require.Equal(t, tc.want, entry.Stage)
 		})
 	}
+}
+
+// albumWith builds a minimal, metadata-synced Album -- a non-video kind that
+// never goes through squasharr or captionarr.
+func albumWith(t *testing.T) *catalogv1.Album {
+	t.Helper()
+	a := &catalogv1.Album{
+		ObjectMeta: metav1.ObjectMeta{Name: "boxer", Namespace: "default", Generation: 1},
+		Status:     catalogv1.AlbumStatus{Metadata: &catalogv1.AlbumMetadata{Title: "Boxer"}},
+	}
+	k8s.MarkTrue(a, &a.Status.Conditions, catalogv1.AlbumConditionMetadataReady, "Reconciled", "ready")
+	return a
+}
+
+// bookWith builds a minimal, metadata-synced Book -- another non-video kind.
+func bookWith(t *testing.T) *catalogv1.Book {
+	t.Helper()
+	b := &catalogv1.Book{
+		ObjectMeta: metav1.ObjectMeta{Name: "the-hobbit", Namespace: "default", Generation: 1},
+		Status:     catalogv1.BookStatus{Metadata: &catalogv1.BookMetadata{Title: "The Hobbit"}},
+	}
+	k8s.MarkTrue(b, &b.Status.Conditions, catalogv1.BookConditionMetadataReady, "Reconciled", "ready")
+	return b
+}
+
+// TestProjectNonVideoKindsCompleteOnImport covers the bug the review found:
+// Album, Artist, Author, Book, Audiobook, Comic and Issue never get a
+// SubtitleRequest or a TranscodeJob (squasharr and captionarr only watch
+// video MediaFiles), so requiring either of those to exist and be terminal
+// before StageComplete -- correct for Movie/Series/Episode -- left every
+// other kind stuck at StageImported forever. For these kinds, being imported
+// is the whole job.
+func TestProjectNonVideoKindsCompleteOnImport(t *testing.T) {
+	tests := []struct {
+		name string
+		item client.Object
+	}{
+		{name: "album", item: albumWith(t)},
+		{name: "book", item: bookWith(t)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			entry := pipeline.Project(tc.item, pipeline.Related{
+				MediaFile: &catalogv1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: tc.item.GetName()}},
+			})
+			require.Equal(t, pipeline.StageComplete, entry.Stage)
+			require.EqualValues(t, 100, entry.Percent)
+		})
+	}
+}
+
+// TestProjectMovieWithNoTranscodeJobDoesNotReachComplete is the video-kind
+// counterpart of the fix above: a Movie (which does go through squasharr)
+// must NOT report StageComplete just because it was imported and its
+// subtitles are satisfied -- it still needs a TranscodeJob to exist and be
+// terminal.
+func TestProjectMovieWithNoTranscodeJobDoesNotReachComplete(t *testing.T) {
+	movie := movieWith(t, ready(catalogv1.MovieConditionMetadataReady))
+	entry := pipeline.Project(movie, pipeline.Related{
+		MediaFile: &catalogv1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "shawshank-redemption"}},
+		Subtitles: []subtitlev1.SubtitleRequest{{Status: subtitlev1.SubtitleRequestStatus{
+			Phase: subtitlev1.SubtitleRequestPhaseSatisfied,
+		}}},
+	})
+	require.NotEqual(t, pipeline.StageComplete, entry.Stage)
+	require.Equal(t, pipeline.StageSubtitleDone, entry.Stage)
 }
 
 func TestProjectFillsInTheCommonFields(t *testing.T) {

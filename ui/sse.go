@@ -20,11 +20,11 @@ package ui
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"net/http"
 	"time"
 
 	"github.com/mediactl/clustarr/pkg/pipeline"
+	"github.com/mediactl/clustarr/ui/views"
 )
 
 // pipelinePushInterval is how often /events/pipeline re-sends the projection
@@ -35,11 +35,13 @@ import (
 const pipelinePushInterval = 5 * time.Second
 
 // handlePipelineEvents streams the pipeline projection as Server-Sent
-// Events. Each event's data is the JSON array views.Pipeline would have
-// rendered as rows, so a client-side script can restyle rows without a full
-// page reload; the initial GET /pipeline render is what today's htmx
-// wiring (sse-swap) actually consumes, and this endpoint is the live-update
-// half of the same page.
+// Events. Each event's data is the same HTML fragment views.PipelineRows
+// renders for the initial GET /pipeline -- the Pipeline page wires
+// hx-ext="sse" sse-connect="/events/pipeline" sse-swap="pipeline" onto
+// #pipeline-rows, and htmx's SSE extension swaps that element's innerHTML
+// with the named event's data verbatim, so the payload must already be
+// rendered markup, not JSON a browser would need extra script to turn into
+// DOM.
 func (s *Server) handlePipelineEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -82,18 +84,21 @@ func (s *Server) writePipelineEvent(w http.ResponseWriter, ctx context.Context) 
 	if entries == nil {
 		entries = []pipeline.Entry{}
 	}
-	payload, err := json.Marshal(entries)
-	if err != nil {
-		s.logger.Error("marshal pipeline entries for sse", "error", err)
+
+	var fragment bytes.Buffer
+	if err := views.PipelineRows(entries).Render(ctx, &fragment); err != nil {
+		s.logger.Error("render pipeline rows for sse", "error", err)
 		return false
 	}
-	// SSE data may not contain a bare newline within one field, so a
-	// multi-line payload (there is none here, JSON is emitted on one line,
-	// but this guards against a future pretty-printer) is split into
-	// multiple "data:" lines per the spec.
+
+	// SSE data may not contain a bare newline within one field, and
+	// PipelineRows renders multi-line HTML, so the fragment is split into
+	// one "data:" line per source line per the spec; the client-side
+	// concatenation of those lines with '\n' reassembles the original
+	// markup exactly.
 	var buf bytes.Buffer
 	buf.WriteString("event: pipeline\n")
-	for _, line := range bytes.Split(payload, []byte{'\n'}) {
+	for _, line := range bytes.Split(fragment.Bytes(), []byte{'\n'}) {
 		buf.WriteString("data: ")
 		buf.Write(line)
 		buf.WriteByte('\n')

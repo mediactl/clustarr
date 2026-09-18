@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 )
@@ -47,6 +48,15 @@ func Run(ctx context.Context, o Options) error {
 		Addr:              o.BindAddress,
 		Handler:           srv.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
+		// Every request's context is derived from whatever BaseContext
+		// returns (context.WithCancel(baseCtx), per net/http), so tying it
+		// to Run's own ctx means cancelling ctx cancels every in-flight
+		// request's context too -- including an open /events/pipeline
+		// stream's -- not just new ones. Without this, Shutdown below waits
+		// out the full shutdownGrace on any open SSE connection: Shutdown
+		// only stops accepting new connections and waits for active ones to
+		// go idle, it does not itself cancel a handler's context.
+		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
 
 	errCh := make(chan error, 1)
