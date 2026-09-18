@@ -43,3 +43,44 @@ func TestCircuitBreakerOpensOnFailureThreshold(t *testing.T) {
 	require.Equal(t, ratelimit.BreakerOpen, b.State())
 	require.False(t, b.Allow(), "open must refuse before Cooldown elapses")
 }
+
+func TestCircuitBreakerHalfOpensAfterCooldownThenClosesOnSuccess(t *testing.T) {
+	clock := clockwork.NewFakeClock()
+	b := ratelimit.NewCircuitBreaker(ratelimit.BreakerConfig{
+		FailureThreshold: 1, Cooldown: time.Minute, HalfOpenSuccesses: 2,
+	}, clock)
+
+	b.Failure()
+	require.Equal(t, ratelimit.BreakerOpen, b.State())
+	require.False(t, b.Allow())
+
+	clock.Advance(time.Minute + time.Second)
+	require.True(t, b.Allow(), "one probe is let through once Cooldown elapses")
+	require.Equal(t, ratelimit.BreakerHalfOpen, b.State())
+	require.False(t, b.Allow(), "a second concurrent probe is refused while one is outstanding")
+
+	b.Success()
+	require.Equal(t, ratelimit.BreakerHalfOpen, b.State(), "needs HalfOpenSuccesses=2")
+	require.True(t, b.Allow(), "the outstanding-probe flag clears on Success, allowing the next probe")
+	b.Success()
+	require.Equal(t, ratelimit.BreakerClosed, b.State())
+}
+
+func TestCircuitBreakerHalfOpenFailureReopensImmediately(t *testing.T) {
+	clock := clockwork.NewFakeClock()
+	b := ratelimit.NewCircuitBreaker(ratelimit.BreakerConfig{
+		FailureThreshold: 1, Cooldown: time.Minute, HalfOpenSuccesses: 1,
+	}, clock)
+
+	b.Failure()
+	clock.Advance(time.Minute + time.Second)
+	require.True(t, b.Allow())
+	require.Equal(t, ratelimit.BreakerHalfOpen, b.State())
+
+	b.Failure()
+	require.Equal(t, ratelimit.BreakerOpen, b.State())
+	require.False(t, b.Allow(), "still cooling down from the new openedAt")
+
+	clock.Advance(time.Minute + time.Second)
+	require.True(t, b.Allow(), "a fresh Cooldown from the second open must elapse independently")
+}
