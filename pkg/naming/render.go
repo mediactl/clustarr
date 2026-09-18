@@ -46,6 +46,8 @@ func (e Engine) Render(tmpl string, c Context) (string, error) {
 		// per Engine on every Render call.
 		case "episoderange":
 			val = formatEpisodeRange(c.Season, c.Episodes, e.Config.MultiEpisodeStyle)
+		case "absoluterange":
+			val = formatAbsoluteRange(c.Absolute, e.Config.MultiEpisodeStyle)
 		default:
 			entry, ok := tokenFuncs[key]
 			if !ok {
@@ -157,6 +159,12 @@ var tokenFuncs = map[string]tokenEntry{
 	"series cleantitlewithoutyear":    {fn: func(c Context, _, _ int) string { return cleanTitle(c.SeriesTitle) }, colonSensitive: true},
 	"series year":                     {fn: func(c Context, _, _ int) string { return yearString(c.SeriesYear) }},
 	"tvdbid":                          {fn: func(c Context, _, _ int) string { return c.TvdbID }},
+	"air-date": {fn: func(c Context, _, _ int) string {
+		if c.AirDate == nil {
+			return ""
+		}
+		return c.AirDate.Format("2006-01-02")
+	}},
 }
 
 // overrideOr looks up key in the engine's Config.Overrides, returning
