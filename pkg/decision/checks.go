@@ -131,3 +131,18 @@ func blocklistAndHistoryRejections(t Target, rel common.ReleaseInfo) []common.Re
 	}
 	return out
 }
+
+// queueRejection is QueueSpecification, simplified per the task brief to a
+// single check (Disagreement 2 / the task brief's own "queue preference (a
+// higher-or-equal release already downloading)", not Radarr's seven-way
+// QueueCutoffMet/QueueHigherPreference/... split): reject as soon as any
+// queued entry is not upgraded-over by the candidate.
+func queueRejection(p quality.Profile, t Target, candidate quality.Candidate) *common.Rejection {
+	for _, q := range t.Queue {
+		if p.UpgradeDecision(q, candidate) != quality.Upgrade {
+			r := newRejection(ReasonQueueHigherPreference, "a release of equal or higher preference is already downloading")
+			return &r
+		}
+	}
+	return nil
+}

@@ -157,3 +157,28 @@ func TestBlocklistAndAlreadyImportedRejections(t *testing.T) {
 		require.Contains(t, got[0].Reason, ReasonAlreadyImportedSameHash.Code)
 	})
 }
+
+func TestQueueRejection(t *testing.T) {
+	bluray1080, _ := quality.Lookup("video", "Bluray-1080p")
+	webdl720, _ := quality.Lookup("video", "WEBDL-720p")
+	p := quality.Profile{
+		Tiers: [][]quality.Definition{{bluray1080}, {webdl720}}, CutoffIndex: 0,
+		UpgradeAllowed: true, CutoffFormatScore: 10000, MinUpgradeFormatScore: 1, ProperPolicy: "preferAndUpgrade",
+	}
+
+	t.Run("nothing queued", func(t *testing.T) {
+		require.Nil(t, queueRejection(p, Target{}, quality.Candidate{Quality: bluray1080.Quality}))
+	})
+	t.Run("queued release is equal-or-better, candidate rejected", func(t *testing.T) {
+		tg := Target{Queue: []Queued{{Quality: bluray1080.Quality, Revision: common.Revision{Version: 1}}}}
+		candidate := quality.Candidate{Quality: bluray1080.Quality, Revision: common.Revision{Version: 1}}
+		got := queueRejection(p, tg, candidate)
+		require.NotNil(t, got)
+		require.Contains(t, got.Reason, ReasonQueueHigherPreference.Code)
+	})
+	t.Run("candidate is strictly better than what's queued, not rejected", func(t *testing.T) {
+		tg := Target{Queue: []Queued{{Quality: webdl720.Quality}}}
+		candidate := quality.Candidate{Quality: bluray1080.Quality}
+		require.Nil(t, queueRejection(p, tg, candidate))
+	})
+}
