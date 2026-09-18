@@ -27,6 +27,7 @@ package tracing
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
@@ -80,11 +81,45 @@ type Options struct {
 // signature and existed by the time this package was implemented.
 var enrich = logging.With
 
+// setupOnce guards the process-wide install: otel.SetTracerProvider is a
+// package-level global with no synchronization of its own, and Setup is
+// called by every service's Run. `clustarr all` starts several services
+// concurrently in one process (cmd/clustarr/all.go), so without this two
+// goroutines' calls would race on that global -- whichever finished last
+// would silently become the provider every OTHER service's spans are then
+// recorded against (wrong resource.service.name on most of them), and every
+// TracerProvider but the last would leak with its own exporter connection
+// never shut down.
+//
+// The first caller's Options therefore win for the life of the process;
+// every later caller -- concurrent or not -- gets back the exact same
+// shutdown func and a nil error unless the first call itself failed. Callers
+// that need a specific, honest resource.service.name when several services
+// might share a process (as `clustarr all` does) must agree on one Options
+// value up front rather than relying on being first.
+var (
+	setupOnce     sync.Once
+	setupShutdown func(context.Context) error
+	setupErr      error
+)
+
 // Setup installs the process-wide TracerProvider that Start, Inject and
 // Extract read through the otel global, and the W3C tracecontext
 // propagator. It returns a shutdown func that flushes buffered spans and
 // releases the exporter; call it once at startup and defer the shutdown.
+//
+// Setup itself is safe to call more than once per process -- see
+// [setupOnce] -- and the returned shutdown is safe to call more than once
+// too, in case two callers each defer the same shutdown they were handed.
 func Setup(ctx context.Context, opts Options) (shutdown func(context.Context) error, err error) {
+	setupOnce.Do(func() {
+		setupShutdown, setupErr = install(ctx, opts)
+	})
+	return setupShutdown, setupErr
+}
+
+// install does the one-time work Setup performs exactly once per process.
+func install(ctx context.Context, opts Options) (func(context.Context) error, error) {
 	name := opts.ServiceName
 	if name == "" {
 		name = defaultServiceName
@@ -112,7 +147,15 @@ func Setup(ctx context.Context, opts Options) (shutdown func(context.Context) er
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 
-	return tp.Shutdown, nil
+	var (
+		shutdownOnce sync.Once
+		shutdownErr  error
+	)
+	shutdown := func(ctx context.Context) error {
+		shutdownOnce.Do(func() { shutdownErr = tp.Shutdown(ctx) })
+		return shutdownErr
+	}
+	return shutdown, nil
 }
 
 // Start begins a span named name under the "clustarr" instrumentation

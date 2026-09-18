@@ -31,11 +31,15 @@ import (
 // valuable test in this package: it proves a trace survives the hop between
 // two services over NATS, via events.Envelope.Trace / events.HeaderTrace.
 func TestInjectExtractCarriesTheTraceAcrossAnEnvelope(t *testing.T) {
-	shutdown, err := tracing.Setup(context.Background(), tracing.Options{
+	// Setup is once-per-process (pkg/obs/tracing's own once-guard, see
+	// tracing.go and tracing_test.go's TestSetupIsOncePerProcess): every
+	// test in this package shares the one TracerProvider it installs, so no
+	// individual test shuts it down -- TestMain retires it, once, after
+	// every test that needs a live provider has already run.
+	_, err := tracing.Setup(context.Background(), tracing.Options{
 		Enabled: false, ServiceName: "test", SampleRatio: 1,
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = shutdown(context.Background()) })
 
 	ctx, span := tracing.Start(context.Background(), "producer")
 	want := span.SpanContext().TraceID()
@@ -62,11 +66,12 @@ func TestInjectWithNoActiveSpanLeavesTraceEmpty(t *testing.T) {
 // envelope even when ctx carries an active span — the common case right
 // after tracing.Start — mirroring Extract's own nil guard.
 func TestInjectWithNilEnvelope(t *testing.T) {
-	shutdown, err := tracing.Setup(context.Background(), tracing.Options{
+	// See the note in TestInjectExtractCarriesTheTraceAcrossAnEnvelope: no
+	// per-test shutdown, the provider is process-wide.
+	_, err := tracing.Setup(context.Background(), tracing.Options{
 		Enabled: false, ServiceName: "test", SampleRatio: 1,
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = shutdown(context.Background()) })
 
 	ctx, span := tracing.Start(context.Background(), "producer")
 	defer span.End()
