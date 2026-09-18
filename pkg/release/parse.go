@@ -45,7 +45,7 @@ func Parse(title string, o Options) (*ParsedRelease, error) {
 	case commonv1.MediaKindAlbum, commonv1.MediaKindArtist:
 		return parseMusic(title)
 	case commonv1.MediaKindBook, commonv1.MediaKindAudiobook, commonv1.MediaKindAuthor:
-		return parseBook(title, kind)
+		return parseBook(title)
 	case commonv1.MediaKindComic, commonv1.MediaKindIssue:
 		return parseComic(title)
 	default:

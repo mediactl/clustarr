@@ -51,12 +51,16 @@ func canonicalBookFormat(raw string) string {
 	return strings.ToUpper(raw)
 }
 
-// parseBook parses a book or audiobook release title. kind, when non-empty,
-// pins MediaKindBook vs. MediaKindAudiobook explicitly; when the caller
-// leaves it to ClassifyKind's guess it still simply threads through here —
-// none of the formats in bookFormats are ambiguous in practice, but kind is
-// still the deciding input so a caller-pinned Options.Kind always wins.
-func parseBook(title string, kind commonv1.MediaKind) (*ParsedRelease, error) {
+// parseBook parses a book or audiobook release title. It takes no MediaKind:
+// Options.Kind's job — pinning the kind and skipping ClassifyKind — is
+// already done by the time Parse's dispatch (parse.go) routes here, and
+// common.ReleaseType has no separate audiobook value to select between
+// (both shapes report commonv1.ReleaseTypeBook). Which of BookInfo's two
+// shapes applies is determined entirely by which regex the title's own text
+// matches (the "{Narrator} [ASIN ...]" shape vs. the plain
+// "(Year|Unabridged) [Format]" shape) — matching parseMusic and parseComic,
+// neither of which takes a kind parameter either.
+func parseBook(title string) (*ParsedRelease, error) {
 	if m, err := audiobookNarratorRegex.FindStringMatch(title); err != nil {
 		return nil, fmt.Errorf("release: book: narrator match: %w", err)
 	} else if m != nil {
@@ -102,10 +106,6 @@ func parseBook(title string, kind commonv1.MediaKind) (*ParsedRelease, error) {
 	if len(fmtTokens) > 0 {
 		info.Format = canonicalBookFormat(fmtTokens[0])
 	}
-	// kind (caller-pinned via Options.Kind, or ClassifyKind's guess) is
-	// threaded through the signature so a caller always wins over
-	// format-table inference, even though none of bookFormats is
-	// ambiguous in practice today.
 
 	return &ParsedRelease{
 		Title:       info.Title,

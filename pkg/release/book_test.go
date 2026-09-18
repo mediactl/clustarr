@@ -22,15 +22,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
 func TestParseBookAndAudiobook(t *testing.T) {
 	tests := []struct {
 		name       string
 		title      string
-		kind       commonv1.MediaKind
 		author     string
 		bookTitle  string
 		format     string
@@ -40,22 +37,22 @@ func TestParseBookAndAudiobook(t *testing.T) {
 	}{
 		{
 			"ebook", "Andy Weir - Project Hail Mary (2021) [EPUB]",
-			commonv1.MediaKindBook, "Andy Weir", "Project Hail Mary", "EPUB", "", "", false,
+			"Andy Weir", "Project Hail Mary", "EPUB", "", "", false,
 		},
 		// quality.md §7.3: rls returns type unknown, title unparsed, for this one.
 		{
 			"audiobook unabridged", "Andy Weir - Project Hail Mary (Unabridged) [M4B 64kbps]",
-			commonv1.MediaKindAudiobook, "Andy Weir", "Project Hail Mary", "M4B", "", "", true,
+			"Andy Weir", "Project Hail Mary", "M4B", "", "", true,
 		},
 		{
 			"audiobook with narrator and asin",
 			"Project Hail Mary - Andy Weir {Ray Porter} [ASIN B08GB59RY8] [M4B]",
-			commonv1.MediaKindAudiobook, "Andy Weir", "Project Hail Mary", "M4B", "Ray Porter", "B08GB59RY8", false,
+			"Andy Weir", "Project Hail Mary", "M4B", "Ray Porter", "B08GB59RY8", false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, err := parseBook(tt.title, tt.kind)
+			p, err := parseBook(tt.title)
 			require.NoError(t, err)
 			require.NotNil(t, p.Book)
 			assert.Equal(t, tt.author, p.Book.Author)
