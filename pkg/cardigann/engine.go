@@ -19,6 +19,7 @@ package cardigann
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -116,9 +117,25 @@ func looksLikeCloudflare(h http.Header) bool {
 	return h.Get("cf-mitigated") != "" || strings.Contains(server, "cloudflare") || strings.Contains(server, "ddos-guard")
 }
 
+// maxResponseBodyBytes bounds how much of an indexer's response Engine
+// will buffer into memory, mirroring pkg/torznab.Client's own cap
+// (confirmed via `go doc ./pkg/torznab`: "Client reads bodies with an
+// 8 MiB cap"). Without a bound, one misbehaving (or malicious) indexer's
+// oversized response — on any of login, search or download, all of which
+// go through do() — could exhaust memory in a fan-out search across many
+// indexers.
+const maxResponseBodyBytes = 8 << 20 // 8 MiB
+
+// ErrResponseTooLarge is returned by do() — and therefore by every Engine
+// outbound call (login page fetch/submit, search request, download
+// fetch, and any redirect Go's http.Client follows along the way) — when
+// a response body exceeds maxResponseBodyBytes.
+var ErrResponseTooLarge = errors.New("cardigann: response body exceeds size limit")
+
 // do is the one shared low-level request function every outbound call
 // (login page fetch, submit, search request, download fetch) goes
-// through, so Cloudflare detection and tracing apply everywhere for free.
+// through, so Cloudflare detection, the size cap and tracing all apply
+// everywhere for free.
 func (e Engine) do(ctx context.Context, req *http.Request) (*http.Response, []byte, error) {
 	ctx, span := tracing.Start(ctx, "cardigann."+strings.ToLower(req.Method))
 	defer span.End()
@@ -129,11 +146,21 @@ func (e Engine) do(ctx context.Context, req *http.Request) (*http.Response, []by
 		return nil, nil, fmt.Errorf("cardigann: request %s: %w", req.URL, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(resp.Body)
+
+	// Read one byte past the limit so a body that is exactly at the limit
+	// is accepted while anything larger is detected without ever
+	// buffering more than maxResponseBodyBytes+1 bytes.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes+1))
 	if err != nil {
 		tracing.RecordError(span, err)
 		return nil, nil, fmt.Errorf("cardigann: read response %s: %w", req.URL, err)
 	}
+	if len(body) > maxResponseBodyBytes {
+		sizeErr := fmt.Errorf("%w: at least %d bytes: %s", ErrResponseTooLarge, len(body), req.URL)
+		tracing.RecordError(span, sizeErr)
+		return resp, nil, sizeErr
+	}
+
 	if (resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusServiceUnavailable) &&
 		looksLikeCloudflare(resp.Header) {
 		cfErr := &CloudflareChallengeError{StatusCode: resp.StatusCode}
