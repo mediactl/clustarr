@@ -21,7 +21,7 @@ import "testing"
 
 func TestFieldManagersAreTheOnesTheSpecLists(t *testing.T) {
 	want := []string{
-		"catalogarr", "catalogarr-worker", "importarr", "importarr-worker",
+		"catalogarr", "catalogarr-series", "catalogarr-worker", "importarr", "importarr-worker",
 		"indexarr", "grabarr", "grabarr-engine",
 		"squasharr", "squasharr-worker", "captionarr", "captionarr-worker",
 	}

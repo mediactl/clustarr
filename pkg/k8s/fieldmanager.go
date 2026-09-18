@@ -90,6 +90,7 @@ const (
 func FieldManagers() []FieldManager {
 	return []FieldManager{
 		ManagerCatalogarr,
+		ManagerCatalogarrSeries,
 		ManagerCatalogarrWorker,
 		ManagerImportarr,
 		ManagerImportarrWorker,
