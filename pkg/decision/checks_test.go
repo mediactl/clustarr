@@ -182,3 +182,35 @@ func TestQueueRejection(t *testing.T) {
 		require.Nil(t, queueRejection(p, tg, candidate))
 	})
 }
+
+func TestUpgradeRejection(t *testing.T) {
+	bluray1080, _ := quality.Lookup("video", "Bluray-1080p")
+	webdl720, _ := quality.Lookup("video", "WEBDL-720p")
+	p := quality.Profile{
+		Tiers: [][]quality.Definition{{bluray1080}, {webdl720}}, CutoffIndex: 0,
+		UpgradeAllowed: true, CutoffFormatScore: 10000, MinUpgradeFormatScore: 1, ProperPolicy: "preferAndUpgrade",
+	}
+
+	t.Run("no current file, nothing to upgrade over", func(t *testing.T) {
+		require.Nil(t, upgradeRejection(p, Target{}, quality.Candidate{Quality: webdl720.Quality}))
+	})
+	t.Run("candidate is a real upgrade, not rejected", func(t *testing.T) {
+		tg := Target{Current: &Current{Quality: webdl720.Quality, Revision: common.Revision{Version: 1}}}
+		got := upgradeRejection(p, tg, quality.Candidate{Quality: bluray1080.Quality, Revision: common.Revision{Version: 1}})
+		require.Nil(t, got)
+	})
+	t.Run("candidate is worse quality than current, rejected as ExistingHigherPreference", func(t *testing.T) {
+		tg := Target{Current: &Current{Quality: bluray1080.Quality}}
+		got := upgradeRejection(p, tg, quality.Candidate{Quality: webdl720.Quality})
+		require.NotNil(t, got)
+		require.Contains(t, got.Reason, ReasonExistingHigherPreference.Code)
+	})
+	t.Run("upgrades not allowed on the profile", func(t *testing.T) {
+		np := p
+		np.UpgradeAllowed = false
+		tg := Target{Current: &Current{Quality: bluray1080.Quality, Revision: common.Revision{Version: 1}}}
+		got := upgradeRejection(np, tg, quality.Candidate{Quality: bluray1080.Quality, Revision: common.Revision{Version: 1}})
+		require.NotNil(t, got)
+		require.Contains(t, got.Reason, ReasonUpgradesNotAllowed.Code)
+	})
+}

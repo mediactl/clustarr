@@ -146,3 +146,26 @@ func queueRejection(p quality.Profile, t Target, candidate quality.Candidate) *c
 	}
 	return nil
 }
+
+// upgradeRejection is the UpgradableSpecification table (Disagreement 2):
+// called against Target.Current via quality.Profile.UpgradeDecision, never
+// reimplemented here. Returns nil (no rejection) both when there is no
+// current file and when the candidate is a genuine Upgrade.
+func upgradeRejection(p quality.Profile, t Target, candidate quality.Candidate) *common.Rejection {
+	if t.Current == nil {
+		return nil
+	}
+	current := quality.Candidate{Quality: t.Current.Quality, Revision: t.Current.Revision, FormatScore: t.Current.FormatScore}
+	v := p.UpgradeDecision(current, candidate)
+	if v == quality.Upgrade {
+		return nil
+	}
+	reason, ok := VerdictReason(v)
+	if !ok {
+		// Defensive only: TestVerdictReasonTableIsExhaustive (Step 1) proves
+		// every non-Upgrade Verdict has an entry, so this never runs in practice.
+		reason = ReasonUpgradesNotAllowed
+	}
+	r := newRejection(reason, "current file or queue entry is preferred over %s", candidate.Quality.Name)
+	return &r
+}
