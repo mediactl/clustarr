@@ -42,6 +42,14 @@ var (
 	// client until a later task needs it) -- distinct from ErrNotFound,
 	// which means the operation ran but found nothing.
 	ErrUnsupported = errors.New("metadata: unsupported operation")
+	// ErrDecode means the provider's HTTP response could not be parsed: an
+	// empty body, truncated JSON, or bytes that are not valid JSON at all,
+	// on a response whose HTTP status otherwise looked like success. Every
+	// client wraps its decode failures in this -- including a third-party
+	// library's own internal decode error (golang-tmdb, musicbrainzws2) --
+	// so a caller can tell "the provider sent something this client could
+	// not read" apart from a specific mapped status like ErrNotFound.
+	ErrDecode = errors.New("metadata: could not decode provider response")
 )
 
 // RateLimitedError is returned in place of a bare ErrRateLimited whenever

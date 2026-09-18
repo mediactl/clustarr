@@ -128,6 +128,7 @@ func (c *Client) Movie(ctx context.Context, tmdbID string, region string) (*meta
 	}
 
 	d, err := c.raw.GetMovieDetails(id, map[string]string{
+		"language":           languageFor(region),
 		"append_to_response": "release_dates,external_ids",
 	})
 	if err != nil {
@@ -142,15 +143,54 @@ func (c *Client) Movie(ctx context.Context, tmdbID string, region string) (*meta
 	return m, nil
 }
 
-// FindMovie looks a movie up by an external id already known to be a TMDB
-// id (TMDB's own find-by-external-id endpoint is not wired here since
-// Movie already accepts a TMDB id directly); any other key is
-// metadata.ErrUnsupported until a later task adds TMDB's /find endpoint.
+// FindMovie looks a movie up by external id. A TMDB id delegates to Movie
+// directly; an IMDb or TVDB id goes through TMDB's /find/{external_id}
+// endpoint (external_source=imdb_id or tvdb_id), taking the first
+// movie_results entry and delegating to Movie for the full record. An
+// ExternalIDs carrying none of tmdb/imdb/tvdb is metadata.ErrUnsupported --
+// this client has no other crosswalk to try.
 func (c *Client) FindMovie(ctx context.Context, ids metadata.ExternalIDs) (*metadata.Movie, error) {
 	if tmdbID, ok := ids[metadata.KeyTMDB]; ok {
 		return c.Movie(ctx, tmdbID, "")
 	}
-	return nil, metadata.ErrUnsupported
+
+	var externalID, source string
+	switch {
+	case ids[metadata.KeyIMDb] != "":
+		externalID, source = ids[metadata.KeyIMDb], "imdb_id"
+	case ids[metadata.KeyTVDB] != "":
+		externalID, source = ids[metadata.KeyTVDB], "tvdb_id"
+	default:
+		return nil, metadata.ErrUnsupported
+	}
+
+	ctx, span := tracing.Start(ctx, "metadata.tmdb.FindMovie")
+	defer span.End()
+	logger := logging.FromContext(ctx)
+
+	if err := ctx.Err(); err != nil {
+		tracing.RecordError(span, err)
+		return nil, err
+	}
+	if err := c.limiter.Wait(ctx); err != nil {
+		tracing.RecordError(span, err)
+		return nil, err
+	}
+
+	found, err := c.raw.GetFindByID(externalID, map[string]string{"external_source": source})
+	if err != nil {
+		mapped := c.mapError(err)
+		tracing.RecordError(span, mapped)
+		logger.ErrorContext(ctx, "tmdb: find failed", "external_id", externalID, "source", source, "error", mapped)
+		return nil, mapped
+	}
+	if len(found.MovieResults) == 0 {
+		tracing.RecordError(span, metadata.ErrNotFound)
+		return nil, metadata.ErrNotFound
+	}
+
+	tmdbID := strconv.FormatInt(found.MovieResults[0].ID, 10)
+	return c.Movie(ctx, tmdbID, "")
 }
 
 // SearchMovies is not implemented by this task; it returns
@@ -250,6 +290,23 @@ func mapReleaseDates(d *rawtmdb.MovieDetails) []metadata.ReleaseDate {
 	return out
 }
 
+// defaultLanguage is TMDB's own default locale, used whenever no region is
+// given.
+const defaultLanguage = "en-US"
+
+// languageFor derives a TMDB "language" query value (the
+// ISO-639-1-ISO-3166-1 form TMDB expects, e.g. "en-GB") from a region code.
+// This client only ever requests English localisations -- there is no
+// per-language configuration yet, only per-region -- so region "" or "US"
+// both produce the same defaultLanguage, and any other two-letter region
+// becomes "en-<REGION>".
+func languageFor(region string) string {
+	if region == "" {
+		return defaultLanguage
+	}
+	return "en-" + region
+}
+
 // parseYear extracts the year from a TMDB "YYYY-MM-DD" release_date.
 func parseYear(s string) (int32, bool) {
 	t, err := time.Parse("2006-01-02", s)
@@ -305,9 +362,15 @@ func (t *statusCaptureTransport) RoundTrip(req *http.Request) (*http.Response, e
 }
 
 // mapError maps the HTTP status statusCapture observed on the most recent
-// request to metadata's sentinel errors, falling back to wrapping err
-// verbatim when no status was captured (a transport-level failure that
-// never reached decodeError).
+// request to metadata's sentinel errors. A captured 200 with a non-nil err
+// means the HTTP round trip succeeded but golang-tmdb's own JSON decode of
+// the body failed (verified by reading golang-tmdb's Client.get: it only
+// calls decodeError on a non-200 status, and returns a bare
+// fmt.Errorf("could not decode the data: %s", err) straight from
+// json.Decode otherwise) -- that is wrapped as metadata.ErrDecode rather
+// than leaking golang-tmdb's raw error text as this package's only signal.
+// No status at all (0) means a transport-level failure that never reached
+// either path; it falls back to wrapping err verbatim.
 func (c *Client) mapError(err error) error {
 	status, retryAfter := c.capture.snapshot()
 	switch status {
@@ -317,6 +380,8 @@ func (c *Client) mapError(err error) error {
 		return metadata.ErrAuth
 	case http.StatusTooManyRequests:
 		return &metadata.RateLimitedError{Provider: "tmdb", RetryAfter: parseRetryAfter(retryAfter)}
+	case http.StatusOK:
+		return fmt.Errorf("tmdb: %w: %w", metadata.ErrDecode, err)
 	default:
 		return fmt.Errorf("tmdb: %w", err)
 	}

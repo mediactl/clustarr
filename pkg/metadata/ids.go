@@ -54,6 +54,7 @@ const (
 	KeyAniList            = "anilist"
 	KeyOpenLibraryWork    = "olwork"
 	KeyOpenLibraryEdition = "oledition"
+	KeyOpenLibraryAuthor  = "olauthor"
 )
 
 // Merge returns a copy of e with every key from o that e does not already
