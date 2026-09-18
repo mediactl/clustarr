@@ -22,6 +22,7 @@ import (
 	"context"
 	"log/slog"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -401,46 +402,53 @@ func TestAllGivesEachServiceItsOwnPorts(t *testing.T) {
 	// runAll starts every service concurrently, so the recorder has to be
 	// safe for concurrent use.
 	var (
-		mu          sync.Mutex
-		seenMetrics = map[string]string{}
-		seenProbes  = map[string]string{}
-		seenLogging = map[string]logging.Options{}
-		seenTracing = map[string]tracing.Options{}
+		mu           sync.Mutex
+		seenMetrics  = map[string]string{}
+		seenProbes   = map[string]string{}
+		seenLogging  = map[string]logging.Options{}
+		seenTracing  = map[string]tracing.Options{}
+		seenValidate = map[string]func() error{}
 	)
-	record := func(name string, o k8s.Options, lo logging.Options, to tracing.Options) {
+	// validate is recorded as a closure over the service's OWN Options type,
+	// not the embedded k8s.Options: the stub below replaces Run, and Run is
+	// the only thing that would otherwise have called Validate, so a service
+	// whose per-service defaults `all` failed to apply (importarr's DataPath)
+	// would sail through this test. See TestAllPassesEveryServiceValidation.
+	record := func(name string, o k8s.Options, lo logging.Options, to tracing.Options, validate func() error) {
 		mu.Lock()
 		defer mu.Unlock()
 		seenMetrics[name] = o.MetricsBindAddress
 		seenProbes[name] = o.HealthProbeBindAddress
 		seenLogging[name] = lo
 		seenTracing[name] = to
+		seenValidate[name] = validate
 	}
 	restore := []func(){}
 
 	origCatalog, origImport, origIndex := runCatalogarr, runImportarr, runIndexarr
 	origGrab, origSquash, origCaption, origUI := runGrabarr, runSquasharr, runCaptionarr, runUI
 	runCatalogarr = func(_ context.Context, o catalogarr.Options) error {
-		record("catalogarr", o.Options, o.Logging, o.Tracing)
+		record("catalogarr", o.Options, o.Logging, o.Tracing, o.Validate)
 		return nil
 	}
 	runImportarr = func(_ context.Context, o importarr.Options) error {
-		record("importarr", o.Options, o.Logging, o.Tracing)
+		record("importarr", o.Options, o.Logging, o.Tracing, o.Validate)
 		return nil
 	}
 	runIndexarr = func(_ context.Context, o indexarr.Options) error {
-		record("indexarr", o.Options, o.Logging, o.Tracing)
+		record("indexarr", o.Options, o.Logging, o.Tracing, o.Validate)
 		return nil
 	}
 	runGrabarr = func(_ context.Context, o grabarr.Options) error {
-		record("grabarr", o.Options, o.Logging, o.Tracing)
+		record("grabarr", o.Options, o.Logging, o.Tracing, o.Validate)
 		return nil
 	}
 	runSquasharr = func(_ context.Context, o squasharr.Options) error {
-		record("squasharr", o.Options, o.Logging, o.Tracing)
+		record("squasharr", o.Options, o.Logging, o.Tracing, o.Validate)
 		return nil
 	}
 	runCaptionarr = func(_ context.Context, o captionarr.Options) error {
-		record("captionarr", o.Options, o.Logging, o.Tracing)
+		record("captionarr", o.Options, o.Logging, o.Tracing, o.Validate)
 		return nil
 	}
 	var uiOpts ui.Options
@@ -448,6 +456,7 @@ func TestAllGivesEachServiceItsOwnPorts(t *testing.T) {
 		mu.Lock()
 		uiOpts = o
 		mu.Unlock()
+		record("ui", k8s.Options{}, o.Logging, o.Tracing, o.Validate)
 		return nil
 	}
 	restore = append(restore, func() {
@@ -469,11 +478,30 @@ func TestAllGivesEachServiceItsOwnPorts(t *testing.T) {
 		t.Fatalf("clustarr all: %v", err)
 	}
 
+	// ui is recorded too (for Validate below) but owns no metrics or probe
+	// port to offset, so it is not part of the distinct-address check.
+	delete(seenMetrics, "ui")
+	delete(seenProbes, "ui")
 	if len(seenMetrics) != 6 {
 		t.Fatalf("started %d services with their own ports, want 6: %v", len(seenMetrics), seenMetrics)
 	}
 	assertDistinct(t, "metrics", seenMetrics)
 	assertDistinct(t, "health probe", seenProbes)
+
+	// The regression this case exists for: `clustarr all` built importarr's
+	// Options as a bare struct literal, leaving DataPath at "" -- which
+	// Validate rejects, and which runAll turns into "every other service is
+	// cancelled". Run is stubbed above, so nothing else in this test would
+	// ever call Validate.
+	if len(seenValidate) != 7 {
+		t.Fatalf("recorded Validate for %d services, want 7: %v", len(seenValidate), keysOf(seenValidate))
+	}
+	for name, validate := range seenValidate {
+		if err := validate(); err != nil {
+			t.Errorf("%s: Options.Validate() = %v, want nil: `clustarr all` must give every "+
+				"service options it would itself accept", name, err)
+		}
+	}
 
 	for name, lo := range seenLogging {
 		if lo.Level != slog.LevelWarn {
@@ -509,4 +537,14 @@ func assertDistinct(t *testing.T, what string, addrs map[string]string) {
 		}
 		byAddr[addr] = service
 	}
+}
+
+// keysOf returns m's keys sorted, for a deterministic failure message.
+func keysOf[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

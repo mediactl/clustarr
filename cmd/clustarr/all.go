@@ -71,15 +71,30 @@ func allServices(lo *logging.Options, to *tracing.Options) []struct {
 		name string
 		run  func(ctx context.Context, o k8s.Options) error
 	}{
+		// Every service starts from its own DefaultOptions() and only then
+		// overrides what `all` owns. A bare struct literal looks equivalent
+		// but silently drops every default the service defines for itself:
+		// importarr's DataPath is the one that bit us, because
+		// importarr.Options.Validate rejects an empty --data-path and
+		// runAll cancels the whole stack on the first failure, so `clustarr
+		// all` exited immediately with "importarr: --data-path is
+		// required". Keep the DefaultOptions() pattern even where a service
+		// has no extra defaults today.
 		{"catalogarr", func(ctx context.Context, o k8s.Options) error {
-			return runCatalogarr(ctx, catalogarr.Options{
-				Options: o, Role: catalogarr.RoleAll, Logging: *lo, Tracing: tr,
-			})
+			d := catalogarr.DefaultOptions()
+			d.Options = o
+			d.Role = catalogarr.RoleAll
+			d.Logging = *lo
+			d.Tracing = tr
+			return runCatalogarr(ctx, d)
 		}},
 		{"importarr", func(ctx context.Context, o k8s.Options) error {
-			return runImportarr(ctx, importarr.Options{
-				Options: o, Role: importarr.RoleAll, Logging: *lo, Tracing: tr,
-			})
+			d := importarr.DefaultOptions()
+			d.Options = o
+			d.Role = importarr.RoleAll
+			d.Logging = *lo
+			d.Tracing = tr
+			return runImportarr(ctx, d)
 		}},
 		{"indexarr", func(ctx context.Context, o k8s.Options) error {
 			d := indexarr.DefaultOptions()
