@@ -88,15 +88,19 @@ func (p stubArtistProvider) Name() string { return "musicbrainz" }
 func (p stubArtistProvider) Capabilities() pkgmetadata.Capabilities {
 	return pkgmetadata.Capabilities{}
 }
+
 func (p stubArtistProvider) SearchArtists(context.Context, string) ([]pkgmetadata.SearchHit, error) {
 	return []pkgmetadata.SearchHit{p.hit}, nil
 }
+
 func (p stubArtistProvider) Artist(context.Context, string) (*pkgmetadata.Artist, error) {
 	return nil, pkgmetadata.ErrNotFound
 }
+
 func (p stubArtistProvider) Albums(context.Context, string) ([]pkgmetadata.Album, error) {
 	return nil, nil
 }
+
 func (p stubArtistProvider) Album(context.Context, string) (*pkgmetadata.Album, error) {
 	return nil, pkgmetadata.ErrNotFound
 }
@@ -149,7 +153,7 @@ func TestServeRPCSearchReportsAlbumAsUnsupported(t *testing.T) {
 
 type stubResolver struct{ add pkgmetadata.ExternalIDs }
 
-func (p stubResolver) Name() string { return "wikidata" }
+func (p stubResolver) Name() string                           { return "wikidata" }
 func (p stubResolver) Capabilities() pkgmetadata.Capabilities { return pkgmetadata.Capabilities{} }
 func (p stubResolver) Resolve(context.Context, commonv1.MediaKind, pkgmetadata.ExternalIDs) (pkgmetadata.ExternalIDs, error) {
 	return p.add, nil
@@ -179,15 +183,18 @@ func (p stubSeriesProvider) Name() string { return "tvdb" }
 func (p stubSeriesProvider) Capabilities() pkgmetadata.Capabilities {
 	return pkgmetadata.Capabilities{}
 }
+
 func (p stubSeriesProvider) Series(context.Context, string) (*pkgmetadata.Series, error) {
 	return nil, pkgmetadata.ErrNotFound
 }
+
 func (p stubSeriesProvider) Episodes(_ context.Context, tvdbID, order string) ([]pkgmetadata.Episode, error) {
 	if p.wantOrder != "" && order != p.wantOrder {
 		return nil, fmt.Errorf("unexpected order %q", order)
 	}
 	return p.episodes, p.err
 }
+
 func (p stubSeriesProvider) Updates(context.Context, time.Time) ([]string, error) { return nil, nil }
 
 func TestServeRPCLookupListsEpisodesForTaskC6(t *testing.T) {

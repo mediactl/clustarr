@@ -61,7 +61,7 @@ func TestBuildRegistryWiresOnlyTheImplementedTypesInPriorityOrder(t *testing.T) 
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "no-client-yet", Namespace: "clustarr"},
-			Spec: catalogv1alpha1.MetadataProviderSpec{Type: catalogv1alpha1.MetadataProviderFanart, Enabled: enabled()},
+			Spec:       catalogv1alpha1.MetadataProviderSpec{Type: catalogv1alpha1.MetadataProviderFanart, Enabled: enabled()},
 		},
 	}
 

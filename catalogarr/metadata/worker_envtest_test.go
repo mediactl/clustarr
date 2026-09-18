@@ -75,7 +75,7 @@ func newMovie(t *testing.T, ctx context.Context, c client.Client, ns, name strin
 
 type noopCache struct{}
 
-func (noopCache) Get(context.Context, string, any) (bool, error)      { return false, nil }
+func (noopCache) Get(context.Context, string, any) (bool, error)        { return false, nil }
 func (noopCache) Set(context.Context, string, any, time.Duration) error { return nil }
 
 // testMessage is the minimal events.Message this test needs: Handle only
@@ -84,10 +84,10 @@ func (noopCache) Set(context.Context, string, any, time.Duration) error { return
 // patch behaviour from the bus.
 type testMessage struct{ env *events.Envelope }
 
-func (m testMessage) Envelope() *events.Envelope             { return m.env }
-func (m testMessage) Subject() string                        { return "" }
-func (m testMessage) Attempt() uint64                         { return 1 }
-func (m testMessage) Ack(context.Context) error               { return nil }
+func (m testMessage) Envelope() *events.Envelope               { return m.env }
+func (m testMessage) Subject() string                          { return "" }
+func (m testMessage) Attempt() uint64                          { return 1 }
+func (m testMessage) Ack(context.Context) error                { return nil }
 func (m testMessage) Nak(context.Context, time.Duration) error { return nil }
 func (m testMessage) Term(context.Context, string) error       { return nil }
 func (m testMessage) InProgress(context.Context) error         { return nil }
@@ -141,14 +141,17 @@ func (p failIfCalledMovieProvider) Name() string { return "fail-if-called" }
 func (p failIfCalledMovieProvider) Capabilities() pkgmetadata.Capabilities {
 	return pkgmetadata.Capabilities{}
 }
+
 func (p failIfCalledMovieProvider) Movie(context.Context, string, string) (*pkgmetadata.Movie, error) {
 	p.t.Fatal("Movie called despite a cache hit")
 	return nil, nil
 }
+
 func (p failIfCalledMovieProvider) FindMovie(context.Context, pkgmetadata.ExternalIDs) (*pkgmetadata.Movie, error) {
 	p.t.Fatal("FindMovie called despite a cache hit")
 	return nil, nil
 }
+
 func (p failIfCalledMovieProvider) SearchMovies(context.Context, string, int) ([]pkgmetadata.MovieHit, error) {
 	return nil, nil
 }
@@ -171,9 +174,9 @@ func TestHandlerSkipsTheProviderOnACacheHit(t *testing.T) {
 	newMovie(t, ctx, c, ns, name, 27205)
 
 	h := &metadata.Handler{
-		Client: c,
+		Client:   c,
 		Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{failIfCalledMovieProvider{t: t}}},
-		Cache:  &fakeCache{movie: &pkgmetadata.Movie{Title: "Inception (cached)", Runtime: 148}},
+		Cache:    &fakeCache{movie: &pkgmetadata.Movie{Title: "Inception (cached)", Runtime: 148}},
 	}
 
 	env := &events.Envelope{Key: ns + "/" + name, Schema: schema.MetadataTask{}.Schema()}
@@ -195,12 +198,15 @@ func (p erroringMovieProvider) Name() string { return "erroring" }
 func (p erroringMovieProvider) Capabilities() pkgmetadata.Capabilities {
 	return pkgmetadata.Capabilities{}
 }
+
 func (p erroringMovieProvider) Movie(context.Context, string, string) (*pkgmetadata.Movie, error) {
 	return nil, p.err
 }
+
 func (p erroringMovieProvider) FindMovie(context.Context, pkgmetadata.ExternalIDs) (*pkgmetadata.Movie, error) {
 	return nil, p.err
 }
+
 func (p erroringMovieProvider) SearchMovies(context.Context, string, int) ([]pkgmetadata.MovieHit, error) {
 	return nil, p.err
 }
