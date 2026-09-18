@@ -23,9 +23,10 @@ import (
 	"strings"
 	"time"
 
+	ffprobe "gopkg.in/vansante/go-ffprobe.v2"
+
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
-	ffprobe "gopkg.in/vansante/go-ffprobe.v2"
 )
 
 // This file defines pkg/transcode's own encoding-input model: MediaInfo and

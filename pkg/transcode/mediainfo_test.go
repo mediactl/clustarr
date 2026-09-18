@@ -23,10 +23,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	ffprobe "gopkg.in/vansante/go-ffprobe.v2"
+
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/transcode"
-	ffprobe "gopkg.in/vansante/go-ffprobe.v2"
 )
 
 func rawFixture() *mediainfo.Raw {
