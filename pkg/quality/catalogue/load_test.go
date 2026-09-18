@@ -221,10 +221,22 @@ func TestEmbeddedAnimeExtraFamilyDecodes(t *testing.T) {
 	require.NotEqual(t, bySlug["anime-amzn"].TrashIDs["sonarr"], "b3b3a6ac74ecbd56bcdbefa4799fb9df")
 }
 
+// TestEmbeddedStreamingFamilyDecodes also covers the score-set unification
+// scope decision: QualityProfileSpec.ScoreSet has only three values (default,
+// anime-radarr, anime-sonarr) -- there is no separate "sonarr-default" --
+// but upstream Radarr's own amzn.json carries no trash_scores block at all
+// (absent = 0 under every set) while upstream Sonarr's WEB-1080p/WEB-2160p
+// profiles require "streaming services 75 each". This catalogue uses
+// Sonarr's non-zero 75 as the single "default" score (serving both movie-
+// and series-sourced profiles) because the web-1080p/web-2160p built-ins
+// (sourced from Sonarr, see those profiles' _source field) list the
+// streaming boost as required, while Radarr's profiles list it only as
+// optional -- so the non-zero number has to win for streamingBoost to do
+// anything at all.
 func TestEmbeddedStreamingFamilyDecodes(t *testing.T) {
 	bySlug := decodeEmbeddedFamily(t, "streaming.json")
 	require.Len(t, bySlug, 1)
-	require.Equal(t, 75, bySlug["amzn"].Scores["default"])
+	require.Equal(t, 75, bySlug["amzn"].Scores["default"], "Sonarr's non-zero score wins over Radarr's absent one; see this test's doc comment")
 	require.Equal(t, 3, bySlug["amzn"].Scores["anime-sonarr"])
 	require.Equal(t, "streamingBoost", bySlug["amzn"].Group)
 }

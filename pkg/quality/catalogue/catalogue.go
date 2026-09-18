@@ -185,6 +185,14 @@ func evalCondition(ctx context.Context, c Condition, r *release.ParsedRelease, i
 // a Format matches iff every Kind-group present on it is ok. A Format with
 // no Conditions of a given Kind simply has no group for that Kind (it is not
 // evaluated, and cannot fail).
+//
+// ctx is the one place this package's signatures are not a literal
+// transcription of spec §7's one-line summary (`Match(r, ic) []string`,
+// no context): CLAUDE.md's logging invariant ("no package-level logger, no
+// logger struct fields") leaves context as the only place a regexp2 timeout
+// can be logged (spec §9: "timeout = no match + log"), so ctx is threaded
+// through as Match/Score's first parameter. This is additive (one
+// parameter), not a shape change.
 func (c *Catalogue) Match(ctx context.Context, r *release.ParsedRelease, ic ItemContext) []string {
 	var slugs []string
 	for slug, f := range c.Formats {
