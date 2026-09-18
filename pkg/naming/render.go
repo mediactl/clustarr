@@ -174,6 +174,11 @@ var tokenFuncs = map[string]tokenEntry{
 	"book series":         {fn: func(c Context, _, _ int) string { return c.BookSeries }},
 	"book seriesposition": {fn: func(c Context, _, _ int) string { return c.BookSeriesPosition }},
 	"narrator":            {fn: func(c Context, _, _ int) string { return c.Narrator }},
+	// "issue" reads the pre-formatted string field directly, not through
+	// padInt: Kavita issue numbers are strings like "001" or the decimal
+	// chapter form "025.5", already formatted upstream.
+	"comic series title": {fn: func(c Context, _, _ int) string { return c.ComicSeriesTitle }},
+	"issue":              {fn: func(c Context, _, _ int) string { return c.IssueNumber }},
 }
 
 // overrideOr looks up key in the engine's Config.Overrides, returning
