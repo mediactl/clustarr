@@ -1,0 +1,190 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package cardigann
+
+import (
+	"bytes"
+	"fmt"
+	"net/url"
+	"regexp"
+	"strings"
+	"text/template"
+	"time"
+)
+
+// QueryVars is the subset of a Query exposed to templates as .Query.*.
+type QueryVars struct {
+	Type, Q, Keywords string
+
+	IMDBID, IMDBIDShort, TVDBID, TMDBID, TVMazeID string
+	TraktID, DoubanID                             string
+
+	Season, Ep, Episode, Year, Genre string
+	Album, Artist, Label, Track      string
+	Author, Title, Publisher         string
+}
+
+// TemplateContext is the "." a Definition's templates (paths, inputs,
+// selectors, field text) render against.
+type TemplateContext struct {
+	// Config holds resolved settings, always including "sitelink" =
+	// Config.BaseURL.
+	Config map[string]any
+
+	Keywords string
+	Query    QueryVars
+
+	// Categories are the tracker category ids the current request
+	// targets, as strings — for {{ range .Categories }}.
+	Categories []string
+
+	Result map[string]string
+
+	// DownloadURI is only set while evaluating the download block.
+	DownloadURI *url.URL
+
+	// True/False are sentinel strings for checkbox comparisons:
+	// True="true", False="".
+	True, False string
+
+	Today struct{ Year int }
+
+	// Now is the clock every date-relative filter and .Today.Year reads;
+	// Engine.templateContext sets it from Engine.Now (defaulting to
+	// time.Now when unset) so tests are deterministic.
+	Now time.Time
+}
+
+// effectiveNow returns tc.Now, falling back to time.Now() for a
+// TemplateContext built without going through Engine (matching this
+// field's own doc: "defaults to time.Now()").
+func (tc *TemplateContext) effectiveNow() time.Time {
+	if tc == nil || tc.Now.IsZero() {
+		return time.Now()
+	}
+	return tc.Now
+}
+
+// Config is the caller-supplied indexer configuration: base URL and
+// resolved setting values. The indexer controller builds it from
+// Indexer.spec.settings merged with the decoded SecretRef Secret;
+// pkg/cardigann never reads a Kubernetes object.
+type Config struct {
+	BaseURL string
+	Values  map[string]any // from Definition.ResolveSettings
+	Session *Session       // nil until Engine.Login; required by Search/Download when Definition.Login != nil
+}
+
+// funcMap is Cardigann's own small, closed template dialect: text/template
+// already provides if/else/range/and/or/eq/ne, so only two additions are
+// needed. sprig/v3's FuncMap is deliberately not merged in — Cardigann's
+// dialect is small and closed, and exposing sprig's ~100 extra functions to
+// a definition would silently accept syntax no real Prowlarr definition
+// uses and let a future custom IndexerDefinition depend on Clustarr-only
+// template behaviour that breaks compatibility with upstream Cardigann
+// files.
+var funcMap = template.FuncMap{
+	"join": func(vs []string, sep string) string { return strings.Join(vs, sep) },
+	"re_replace": func(value, pattern, repl string) (string, error) {
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return "", fmt.Errorf("cardigann: re_replace: %w", err)
+		}
+		return re.ReplaceAllString(value, repl), nil
+	},
+}
+
+// render evaluates tmplText as a Go text/template against tc.
+func render(tmplText string, tc *TemplateContext) (string, error) {
+	t, err := template.New("cardigann").Funcs(funcMap).Parse(tmplText)
+	if err != nil {
+		return "", fmt.Errorf("cardigann: template %q: %w", tmplText, err)
+	}
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, tc); err != nil {
+		return "", fmt.Errorf("cardigann: template exec %q: %w", tmplText, err)
+	}
+	return buf.String(), nil
+}
+
+// ResolveSettings applies each SettingsField's type semantics to raw
+// (spec.settings merged with the secret): checkbox -> "true"/"" (matching
+// TemplateContext.True/False so `eq .Config.x .False` type-checks),
+// select -> the chosen option key verbatim, text/password -> verbatim,
+// info* -> never present in Config. Always injects "sitelink" = baseURL.
+//
+// Any raw key that is not a declared setting name passes through
+// unchanged: login.cookies names arbitrary cookie names, not settings, and
+// loginCookie reads those straight out of Config.Values.
+func (d *Definition) ResolveSettings(baseURL string, raw map[string]string) (map[string]any, error) {
+	declared := make(map[string]bool, len(d.Settings))
+	values := make(map[string]any, len(d.Settings)+len(raw)+1)
+
+	for _, s := range d.Settings {
+		declared[s.Name] = true
+		switch s.Type {
+		case "checkbox":
+			v, ok := raw[s.Name]
+			if !ok {
+				v = string(s.Default)
+			}
+			if v == "true" {
+				values[s.Name] = "true"
+			} else {
+				values[s.Name] = ""
+			}
+		case "select":
+			if v, ok := raw[s.Name]; ok {
+				if _, known := s.Options[v]; known {
+					values[s.Name] = v
+					continue
+				}
+			}
+			values[s.Name] = string(s.Default)
+		case "text", "password":
+			if v, ok := raw[s.Name]; ok {
+				values[s.Name] = v
+			} else {
+				values[s.Name] = string(s.Default)
+			}
+		default:
+			// info, info_category_8000, info_cookie, info_flaresolverr,
+			// info_useragent, or anything unrecognised: never appears in
+			// Config.
+		}
+	}
+
+	for k, v := range raw {
+		if declared[k] {
+			continue
+		}
+		values[k] = v
+	}
+
+	values["sitelink"] = baseURL
+	return values, nil
+}
+
+// NewConfig is ResolveSettings plus wrapping into a Config.
+func NewConfig(def *Definition, baseURL string, raw map[string]string) (Config, error) {
+	values, err := def.ResolveSettings(baseURL, raw)
+	if err != nil {
+		return Config{}, err
+	}
+	return Config{BaseURL: baseURL, Values: values}, nil
+}
