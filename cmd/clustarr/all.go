@@ -28,62 +28,114 @@ import (
 	"github.com/mediactl/clustarr/captionarr"
 	"github.com/mediactl/clustarr/catalogarr"
 	"github.com/mediactl/clustarr/grabarr"
+	"github.com/mediactl/clustarr/importarr"
 	"github.com/mediactl/clustarr/indexarr"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/squasharr"
+	"github.com/mediactl/clustarr/ui"
 )
+
+// allProcessServiceName is every service's Tracing.ServiceName under `clustarr
+// all`. pkg/obs/tracing.Setup installs the process-wide TracerProvider once
+// (sync.Once, guarding against otel's global, unsynchronized
+// SetTracerProvider); whichever of the seven goroutines below calls it first
+// wins for the life of the process, so naming the resource after any one
+// service's own name would be an arbitrary, misleading pick. "clustarr" is
+// the one name that is true regardless of which goroutine wins the race.
+const allProcessServiceName = "clustarr"
 
 // allServices is what `clustarr all` starts, in the order it starts them.
 //
-// Each entry gets its own port offset because five managers in one process
-// would otherwise race for one metrics port and one probe port. grabarr,
-// squasharr and captionarr run their controller role only: the engines and the
-// transcode worker are separate pods in a real deployment, and running them
-// here would need volumes this mode does not have.
-func allServices() []struct {
+// Each entry gets its own port offset because seven managers in one process
+// would otherwise race for one metrics port and one probe port -- ui is the
+// exception: it has no controller-runtime manager and so no metrics or
+// health port to offset, and keeps its default :8080. grabarr, squasharr and
+// captionarr run their controller role only: the engines and the transcode
+// worker are separate pods in a real deployment, and running them here would
+// need volumes this mode does not have.
+//
+// lo and to are the root command's shared --log-*/--tracing-* options
+// (see bindObservabilityFlags): every service gets the same lo, and the same
+// to except for ServiceName, which is forced to allProcessServiceName for
+// the reason given on that constant.
+func allServices(lo *logging.Options, to *tracing.Options) []struct {
 	name string
 	run  func(ctx context.Context, o k8s.Options) error
 } {
+	tr := *to
+	tr.ServiceName = allProcessServiceName
+
 	return []struct {
 		name string
 		run  func(ctx context.Context, o k8s.Options) error
 	}{
 		{"catalogarr", func(ctx context.Context, o k8s.Options) error {
-			return runCatalogarr(ctx, catalogarr.Options{Options: o, Role: catalogarr.RoleAll})
+			return runCatalogarr(ctx, catalogarr.Options{
+				Options: o, Role: catalogarr.RoleAll, Logging: *lo, Tracing: tr,
+			})
+		}},
+		{"importarr", func(ctx context.Context, o k8s.Options) error {
+			return runImportarr(ctx, importarr.Options{
+				Options: o, Role: importarr.RoleAll, Logging: *lo, Tracing: tr,
+			})
 		}},
 		{"indexarr", func(ctx context.Context, o k8s.Options) error {
 			d := indexarr.DefaultOptions()
 			d.Options = o
+			d.Logging = *lo
+			d.Tracing = tr
 			return runIndexarr(ctx, d)
 		}},
 		{"grabarr", func(ctx context.Context, o k8s.Options) error {
 			d := grabarr.DefaultOptions()
 			d.Options = o
+			d.Logging = *lo
+			d.Tracing = tr
 			return runGrabarr(ctx, d)
 		}},
 		{"squasharr", func(ctx context.Context, o k8s.Options) error {
 			d := squasharr.DefaultOptions()
 			d.Options = o
+			d.Logging = *lo
+			d.Tracing = tr
 			return runSquasharr(ctx, d)
 		}},
 		{"captionarr", func(ctx context.Context, o k8s.Options) error {
 			d := captionarr.DefaultOptions()
 			d.Options = o
+			d.Logging = *lo
+			d.Tracing = tr
 			return runCaptionarr(ctx, d)
+		}},
+		{"ui", func(ctx context.Context, _ k8s.Options) error {
+			// ui has no k8s.Options of its own -- no manager, no CRD, no
+			// ports to offset -- so it runs with its default BindAddress
+			// (design spec §2: `clustarr all` runs every service). It still
+			// takes the real ctx: runAll cancels ctx on any other service's
+			// failure, and ui.Run's own shutdown depends on that
+			// cancellation to stop its HTTP server.
+			return runUI(ctx, ui.Options{Logging: *lo, Tracing: tr})
 		}},
 	}
 }
 
-func newAllCommand() *cobra.Command {
+func newAllCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "all",
 		Short: "Run every service in one process, for kind and development",
-		Long: "all starts catalogarr, indexarr, grabarr, squasharr and captionarr in a single\n" +
-			"process. It is meant for kind and local development, not for a cluster: §3 gives\n" +
-			"each service its own Deployment, RBAC and leader election, and the engines and\n" +
-			"transcode workers that run as separate pods are not started here.\n\n" +
+		Long: "all starts catalogarr, importarr, indexarr, grabarr, squasharr, captionarr and ui\n" +
+			"in a single process. It is meant for kind and local development, not for a\n" +
+			"cluster: §3 gives each service its own Deployment, RBAC and leader election, and\n" +
+			"the engines and transcode workers that run as separate pods are not started here.\n\n" +
 			"Each service's metrics and probe listeners are offset by one port from the\n" +
-			"addresses given, in the order above.",
+			"addresses given, in the order above; ui has none of its own to offset and always\n" +
+			"binds its default address. Every service shares the root command's --log-* and\n" +
+			"--tracing-* flags, and every span is recorded under the single service name\n" +
+			"\"clustarr\": one process has one OpenTelemetry TracerProvider, so a per-service\n" +
+			"name here would just be whichever service happened to start first. Run services\n" +
+			"separately for per-service trace attribution.",
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 	}
@@ -100,7 +152,7 @@ func newAllCommand() *cobra.Command {
 		base.LeaderElect = false
 		base.BusSingleNode = true
 
-		services := allServices()
+		services := allServices(lo, to)
 		optionsFor := make([]k8s.Options, len(services))
 		for i, svc := range services {
 			o := base

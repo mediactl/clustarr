@@ -110,7 +110,7 @@ func NewRootCommand() *cobra.Command {
 		newSquasharrCommand(loggingOpts, tracingOpts),
 		newCaptionarrCommand(loggingOpts, tracingOpts),
 		newUICommand(loggingOpts, tracingOpts),
-		newAllCommand(),
+		newAllCommand(loggingOpts, tracingOpts),
 	)
 	return root
 }

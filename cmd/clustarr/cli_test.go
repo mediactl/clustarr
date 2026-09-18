@@ -20,6 +20,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"log/slog"
 	"runtime"
 	"strings"
 	"sync"
@@ -33,8 +34,11 @@ import (
 	"github.com/mediactl/clustarr/importarr"
 	"github.com/mediactl/clustarr/indexarr"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/version"
 	"github.com/mediactl/clustarr/squasharr"
+	"github.com/mediactl/clustarr/ui"
 )
 
 // execute runs the command tree with args and returns its stdout.
@@ -380,49 +384,75 @@ func TestOffsetAddress(t *testing.T) {
 	}
 }
 
+// TestAllGivesEachServiceItsOwnPorts also covers review round 1's finding 1b:
+// `clustarr all` must thread the root's --log-*/--tracing-* flags into every
+// service it starts (previously they were silently accepted and had no
+// effect, since each service's Options.Logging/Tracing were left zero-value)
+// and must stamp every one of them with the single, honest
+// Tracing.ServiceName "clustarr" -- pkg/obs/tracing.Setup now installs at
+// most one TracerProvider per process, so a per-service name would just be
+// whichever service's Run happened to call Setup first.
 func TestAllGivesEachServiceItsOwnPorts(t *testing.T) {
-	// Five managers in one process; without distinct ports four of them
-	// would fail to bind.
-	// runAll starts the five services concurrently, so the recorder has to
-	// be safe for concurrent use.
+	// Six managers with their own metrics/health ports in one process;
+	// without distinct ports most of them would fail to bind. ui is stubbed
+	// too -- it has no ports of its own to offset, and only stubbing it
+	// keeps `all` from starting a real HTTP server that would otherwise
+	// block runAll's WaitGroup until the test's context is torn down.
+	// runAll starts every service concurrently, so the recorder has to be
+	// safe for concurrent use.
 	var (
 		mu          sync.Mutex
 		seenMetrics = map[string]string{}
 		seenProbes  = map[string]string{}
+		seenLogging = map[string]logging.Options{}
+		seenTracing = map[string]tracing.Options{}
 	)
-	record := func(name string, o k8s.Options) {
+	record := func(name string, o k8s.Options, lo logging.Options, to tracing.Options) {
 		mu.Lock()
 		defer mu.Unlock()
 		seenMetrics[name] = o.MetricsBindAddress
 		seenProbes[name] = o.HealthProbeBindAddress
+		seenLogging[name] = lo
+		seenTracing[name] = to
 	}
 	restore := []func(){}
 
-	origCatalog, origIndex := runCatalogarr, runIndexarr
-	origGrab, origSquash, origCaption := runGrabarr, runSquasharr, runCaptionarr
+	origCatalog, origImport, origIndex := runCatalogarr, runImportarr, runIndexarr
+	origGrab, origSquash, origCaption, origUI := runGrabarr, runSquasharr, runCaptionarr, runUI
 	runCatalogarr = func(_ context.Context, o catalogarr.Options) error {
-		record("catalogarr", o.Options)
+		record("catalogarr", o.Options, o.Logging, o.Tracing)
+		return nil
+	}
+	runImportarr = func(_ context.Context, o importarr.Options) error {
+		record("importarr", o.Options, o.Logging, o.Tracing)
 		return nil
 	}
 	runIndexarr = func(_ context.Context, o indexarr.Options) error {
-		record("indexarr", o.Options)
+		record("indexarr", o.Options, o.Logging, o.Tracing)
 		return nil
 	}
 	runGrabarr = func(_ context.Context, o grabarr.Options) error {
-		record("grabarr", o.Options)
+		record("grabarr", o.Options, o.Logging, o.Tracing)
 		return nil
 	}
 	runSquasharr = func(_ context.Context, o squasharr.Options) error {
-		record("squasharr", o.Options)
+		record("squasharr", o.Options, o.Logging, o.Tracing)
 		return nil
 	}
 	runCaptionarr = func(_ context.Context, o captionarr.Options) error {
-		record("captionarr", o.Options)
+		record("captionarr", o.Options, o.Logging, o.Tracing)
+		return nil
+	}
+	var uiOpts ui.Options
+	runUI = func(_ context.Context, o ui.Options) error {
+		mu.Lock()
+		uiOpts = o
+		mu.Unlock()
 		return nil
 	}
 	restore = append(restore, func() {
-		runCatalogarr, runIndexarr = origCatalog, origIndex
-		runGrabarr, runSquasharr, runCaptionarr = origGrab, origSquash, origCaption
+		runCatalogarr, runImportarr, runIndexarr = origCatalog, origImport, origIndex
+		runGrabarr, runSquasharr, runCaptionarr, runUI = origGrab, origSquash, origCaption, origUI
 	})
 	t.Cleanup(func() {
 		for _, f := range restore {
@@ -430,15 +460,44 @@ func TestAllGivesEachServiceItsOwnPorts(t *testing.T) {
 		}
 	})
 
-	if _, err := execute(t, "all", "--namespace", "clustarr"); err != nil {
+	if _, err := execute(t, "all",
+		"--namespace", "clustarr",
+		"--log-level", "warn",
+		"--tracing-enabled",
+		"--tracing-sample-ratio", "0.5",
+	); err != nil {
 		t.Fatalf("clustarr all: %v", err)
 	}
 
-	if len(seenMetrics) != 5 {
-		t.Fatalf("started %d services, want 5: %v", len(seenMetrics), seenMetrics)
+	if len(seenMetrics) != 6 {
+		t.Fatalf("started %d services with their own ports, want 6: %v", len(seenMetrics), seenMetrics)
 	}
 	assertDistinct(t, "metrics", seenMetrics)
 	assertDistinct(t, "health probe", seenProbes)
+
+	for name, lo := range seenLogging {
+		if lo.Level != slog.LevelWarn {
+			t.Errorf("%s: Logging.Level = %v, want the --log-level warn given on the command line", name, lo.Level)
+		}
+	}
+	for name, to := range seenTracing {
+		if !to.Enabled {
+			t.Errorf("%s: Tracing.Enabled = false, want true (--tracing-enabled)", name)
+		}
+		if to.SampleRatio != 0.5 {
+			t.Errorf("%s: Tracing.SampleRatio = %v, want 0.5 (--tracing-sample-ratio)", name, to.SampleRatio)
+		}
+		if to.ServiceName != "clustarr" {
+			t.Errorf("%s: Tracing.ServiceName = %q, want \"clustarr\": one process, one TracerProvider",
+				name, to.ServiceName)
+		}
+	}
+	if uiOpts.Logging.Level != slog.LevelWarn {
+		t.Errorf("ui: Logging.Level = %v, want warn", uiOpts.Logging.Level)
+	}
+	if !uiOpts.Tracing.Enabled || uiOpts.Tracing.SampleRatio != 0.5 || uiOpts.Tracing.ServiceName != "clustarr" {
+		t.Errorf("ui: Tracing = %+v, want Enabled=true SampleRatio=0.5 ServiceName=\"clustarr\"", uiOpts.Tracing)
+	}
 }
 
 func assertDistinct(t *testing.T, what string, addrs map[string]string) {
