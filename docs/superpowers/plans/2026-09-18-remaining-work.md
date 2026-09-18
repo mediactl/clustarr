@@ -860,6 +860,8 @@ Amendment §A4 assigns the first end-to-end exercise of one trace to M1, which
 is this phase, and docs/observability.md currently marks the whole leg "not
 wired yet".
 
+**E2E (Phase H rule):** stands up `test/e2e`, `hack/e2e.sh`, `config/e2e` and the fixture image, and lands scenarios 5, 7 and 8 against kind.
+
 ### Phase D: M2 indexers, M3 downloads and import
 
 `indexarr` with the generic Torznab and Newznab path, caps, health, backoff, the SQLite FTS5 release index and the RSS worker. Then `grabarr` download clients and engines, and `importarr`'s file-import worker.
@@ -868,19 +870,143 @@ wired yet".
 
 **Watch:** `grabarr` engine roles must not report ready until torrent re-attach completes, or the controller hands them work they would double-download.
 
+**E2E (Phase H rule):** lands scenarios 1 (through import), 2, 3, 4 and 6, and the pipeline and downloaders pages of 14; adds the Torznab/Newznab fixture indexer, the seeder and the NNTP stub to the fixture image.
+
 ### Phase E: M4 transcode
 
 `squasharr` profiles, jobs, the slot scheduler and the worker; libx265 CPU and NVENC GPU tiers; HDR10 parameters; Dolby Vision passthrough, downgrade or reject; verification, replace and recycle.
 
 **Gate:** a real transcode of a small generated clip inside a Job, verified for duration and stream layout, with the transcode metrics populated and the pipeline page showing the stage.
 
+**E2E (Phase H rule):** lands scenario 12 and extends scenario 1 through the TranscodeJob; adds the HDR10 and Dolby Vision clips to the fixture image.
+
 ### Phase F: M5 subtitles
 
 `captionarr` profiles, providers and requests; the planner; fetch workers; OpenSubtitles, embedded and Gestdown providers; Bazarr scoring and post-processing; throttles and the upgrade cron.
 
+**E2E (Phase H rule):** lands scenario 13 and extends scenario 1 through the SubtitleRequest; adds the mock OpenSubtitles and Gestdown fixtures.
+
 ### Phase G: M6 parity, lists and non-video inventory
 
 `pkg/cardigann` wired into `IndexerDefinition` and `IndexerProxy`; the Torznab facade; ImportList Trakt and Plex moved into `importarr`; the history sink and dead-letter projector; Artist, Album, Author, Book, Audiobook, Comic and Issue controllers with their metadata providers and manual import. The remaining UI pages: library, import lists, settings and unmatched. A real Tailwind asset pipeline.
+
+**E2E (Phase H rule):** lands scenarios 9, 10 and 11 and the remaining pages of 14; adds the Cardigann tracker page, the import-list stubs and the non-video metadata stubs.
+
+### Phase H: end-to-end proof on a kind cluster (after G — the project is not done until this is green)
+
+**Requirement (user, 2026-09-18):** after the implementation is complete, every
+piece of functionality is proven by end-to-end tests running against a kind
+cluster with the shipped images and manifests. Unit, envtest and build-tagged
+integration suites do not satisfy this; a scenario counts only when it drives
+real CRs through real controllers, real NATS and real files on the cluster's
+`/data` mount. `make e2e` (the existing Makefile target; the spec §14 calls it
+`make test-e2e`) is the gate.
+
+**Harness.**
+
+- `test/e2e/` — Go tests behind the `e2e` build tag, using a controller-runtime
+  client on the current kubeconfig context (`kind-clustarr`). `TestMain`
+  refuses to run unless the 29 CRDs are installed, NATS is ready and every
+  Clustarr Deployment is Available; a scenario never installs anything.
+- `hack/e2e.sh` — the one command: `make kind-up` → build the controller and
+  media images → `hack/kind.sh load` → `make install` → apply the
+  `config/e2e` overlay → wait for readiness → `make e2e`, then on any failure
+  dump every service's logs, `kubectl get events -A`, all Clustarr CRs as
+  YAML and the NATS stream/consumer info into `test/e2e/artifacts/`.
+- `config/e2e/` — kustomize overlay over `config/default`: the fixture
+  services below, small resource requests, `--slots cpu=1`, short requeue
+  intervals and AckWait so the suite fits the 30-minute Makefile timeout, and
+  scenario 1 alone finishes in the spec's ≤10 minutes.
+- `test/fixtures/` + `images/Dockerfile.e2e-fixtures` — one binary,
+  `clustarr-e2e-fixtures <name>`, one Deployment per fixture, all in-cluster,
+  no Internet: a Torznab/Newznab indexer whose results point at the seeder and
+  the NNTP stub; a Cardigann-style HTML tracker page for the bundled
+  definition path; a torrent seeder serving a lavfi-generated 30 s H.264 clip
+  with an embedded English subtitle track (plus HDR10 and Dolby Vision
+  variants generated at image build); an NNTP stub with yEnc articles, a
+  multi-volume RAR and par2 set; stub TMDB, TVDB, MusicBrainz, Open Library,
+  Audnexus and ComicVine serving the recorded JSON from the unit fixtures; a
+  mock OpenSubtitles (406/429 paths included) and Gestdown; Trakt (device
+  flow), Plex Discover and MDBList stubs.
+- CI: `.github/workflows/e2e.yml` runs `hack/e2e.sh` on kind, CPU only. GPU
+  tiers are proven by argv goldens in unit tests and marked skipped on kind.
+
+**Scenarios** — each is one `Test*` function that creates its own uniquely
+prefixed resources and deletes them at the end. Together they cover every
+milestone in spec §16 and every amendment section:
+
+1. **Movie happy path (M1–M5, A2).** Providers, Indexer, torrent
+   DownloadClient, RootFolder, QualityProfile, Movie → Search → grab →
+   Download `Imported` → MediaFile at the Jellyfin-dialect path with labels
+   and probe → TranscodeJob `Succeeded` with hevc/main10 → SubtitleRequest
+   `Satisfied` with `<stem>.en.sdh.srt`; DLQ empty; the expected
+   `CLUSTARR_EVENTS` subjects observed; one `trace_id` appears in the logs of
+   catalogarr, indexarr, grabarr and importarr for the same grab.
+2. **RSS upgrade.** A better release appears in RSS → upgrade grabbed and
+   imported → the old file is in `.recycle`.
+3. **Failed download → Blocklist → redownload.**
+4. **Idempotency.** `kubectl rollout restart` of every controller mid-flight,
+   then a rerun of scenario 1's inputs: no duplicate Download, TranscodeJob or
+   SubtitleRequest; no duplicate files.
+5. **Series and Episodes (M1).** A Series with two Episodes; a season pack is
+   grabbed once and both Episodes gain MediaFiles; one daily-numbered and one
+   anime absolute-numbered case.
+6. **Usenet (M3).** Usenet DownloadClient against the NNTP stub; NZB from the
+   fixture Newznab; par2 repair and RAR unpack; `Imported`.
+7. **Library rescan (A1).** Files planted in a RootFolder — matchable,
+   unmatchable, a sample and an extra — then a LibraryScan: MediaFiles for the
+   matchable ones, everything else in `status.unmatched` with a reason, no
+   speculative item; the RootFolder schedule fires a second scan.
+8. **Two-writer MediaFile (A5).** After a probe refresh, `managedFields` shows
+   `importarr` on `status.file`/`status.probe` and `catalogarr` on
+   `status.quality`/`status.formatScore`/conditions, and neither clobbered the
+   other.
+9. **Import lists (M6, A1).** Trakt via the device flow, Plex Discover and
+   MDBList → Movies created with the list's monitor/search sync level;
+   ImportExclusion respected; a rerun adds nothing twice.
+10. **Cardigann (M6).** An IndexerDefinition from the bundled corpus against
+    the fixture HTML tracker → results → grab through the Torznab facade; an
+    IndexerProxy on the HTTP path.
+11. **Non-video inventory (M6).** Artist/Album, Author/Book, Audiobook and
+    Comic/Issue through manual import (Download with `Manual=true` and the
+    `import-target` annotation) → files stored under the naming presets with
+    metadata from the stubs.
+12. **Transcode variants (M4).** HDR10 preserves MDCV/CLL; Dolby Vision
+    passthrough, downgrade and reject each per profile; with `--slots cpu=1`
+    two TranscodeJobs → one runs, one is suspended, then both `Succeeded`; a
+    Job failure → TranscodeJob `Failed` with the reason; verify, replace and
+    recycle.
+13. **Subtitle variants (M5).** Embedded extraction; provider 429 → throttle
+    metric and retry; the upgrade cron replaces a lower-scored subtitle; HI and
+    forced flags land in the sidecar name.
+14. **UI (A3).** Every page (pipeline, library, downloaders, import lists,
+    settings, unmatched) returns 200 with rows for the resources above; the
+    SSE stream emits a fragment when a Download progresses; a UI action
+    results in a spec patch and `managedFields` shows no UI manager on any
+    status.
+15. **Observability (A2).** After scenario 1, `/metrics` on each service
+    exposes the documented `clustarr_` series with non-zero values (download
+    rate, transcode fps, queue pending, indexer duration); readiness flips
+    when NATS is scaled to zero and back; a poisoned work message reaches
+    `CLUSTARR_DLQ` and the DLQ projector surfaces it.
+16. **Deployment parity.** The Helm chart with e2e values passes scenario 1
+    as the kustomize overlay does; `clustarr all` in one pod passes
+    scenario 1; the KEDA opt-in renders.
+
+**Rule for Phases C–G, effective now:** each phase lands the scenarios its
+milestone enables (C: 5, 7, 8 and the envtest-only parts of 1; D: 1 through
+the import, 2, 3, 4, 6 and the pipeline/downloaders pages of 14; E: 12 and the
+transcode leg of 1; F: 13 and the subtitle leg of 1; G: 9, 10, 11 and the
+rest of 14) and keeps `hack/e2e.sh` green for everything landed so far.
+Phase H is then the audit that fills the gaps — 15 and 16 in full, the
+trace assertion in 1, CI — and the final proof, not the first time the
+system is deployed.
+
+**Gate:** `hack/e2e.sh` exits 0 from a clean machine with only docker and
+kind installed; every scenario above is present and not skipped; the CI job
+is green; `README.md` documents the one command. Phase H gets its own
+step-by-step plan (writing-plans) immediately before it runs, like every
+other phase.
 
 ---
 

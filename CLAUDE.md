@@ -73,6 +73,7 @@ make build         # binary into bin/  (never bare `go build` — it drops a bin
 make test          # unit + envtest, sets KUBEBUILDER_ASSETS
 make lint          # golangci-lint v2
 make kind-up       # local cluster with NATS, then: make install deploy
+make e2e           # end-to-end suite against that kind cluster (test/e2e, tag e2e)
 ```
 
 Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
@@ -138,6 +139,14 @@ Kubernetes types (`release`, `quality`, `naming`, `mediainfo`, `transcode`,
 `fsops`/`ratelimit`). Then **Phase C** (M1 catalog core and library rescan,
 plus wiring trace propagation into `pkg/events`), and on through M2 indexers →
 M3 downloads, import and the first UI slice → M4 transcode → M5 subtitles →
-M6 Prowlarr parity, import lists and non-video inventory. Phase detail is in
+M6 Prowlarr parity, import lists and non-video inventory, and finally
+**Phase H: end-to-end proof on kind**. Phase detail is in
 `docs/superpowers/plans/2026-09-18-remaining-work.md`; milestone detail is in
 the spec's §16 and amendment §A4.
+
+**Nothing is finished until it is proven end to end on a kind cluster.**
+Every phase from C onward lands its milestone's scenarios in `test/e2e`
+(real CRs, real controllers, real NATS, real files under `/data`, in-cluster
+fixture services, no Internet) and keeps `hack/e2e.sh` green; Phase H audits
+that every scenario in the plan exists and passes. Unit, envtest and
+build-tagged integration suites do not substitute for it.
