@@ -18,6 +18,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package transcode_test
 
 import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -64,4 +68,28 @@ func TestCompareProbesFlagsEachViolationIndependently(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestVerifyEndToEndAgainstRealFfprobe(t *testing.T) {
+	if _, err := os.Stat("/usr/bin/ffprobe"); err != nil {
+		t.Skip("ffprobe not present on this box")
+	}
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.mkv")
+	gen := exec.Command("/usr/bin/ffmpeg", "-hide_banner", "-y",
+		"-f", "lavfi", "-i", "testsrc2=size=640x360:rate=24:duration=2",
+		"-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=48000:duration=2",
+		"-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-shortest", src)
+	require.NoError(t, gen.Run())
+
+	// dst == src here: this step only proves Verifier's ffprobe plumbing and
+	// JSON parsing are correct, independent of Runner (Step 14 already
+	// covers the real Runner -> Verify pipeline together).
+	exp := transcode.Expectation{
+		DurationTolMillis: 200, Streams: 2, VideoCodec: "h264", PixelFormat: "yuv420p", MinOutputBytes: 512,
+	}
+	report, err := transcode.NewVerifier("/usr/bin/ffprobe").Verify(context.Background(), src, src, exp)
+	require.NoError(t, err)
+	require.True(t, report.OK, "problems: %v", report.Problems)
+	require.InDelta(t, 2000, report.DurationMillis, 100)
 }
