@@ -165,6 +165,10 @@ var tokenFuncs = map[string]tokenEntry{
 		}
 		return c.AirDate.Format("2006-01-02")
 	}},
+	"artist name": {fn: func(c Context, _, _ int) string { return c.ArtistName }},
+	"album title": {fn: func(c Context, _, _ int) string { return c.AlbumTitle }},
+	"track title": {fn: func(c Context, _, _ int) string { return c.TrackTitle }},
+	"track":       {fn: func(c Context, pad, _ int) string { return padInt(c.Track, pad) }},
 }
 
 // overrideOr looks up key in the engine's Config.Overrides, returning
