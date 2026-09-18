@@ -34,6 +34,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // cross-checked against docs/research/quality.md. When the generator lands,
 // data/ is deleted and this file's embed directives point at
 // catalogue_gen.go's output instead.
+//
+// Every tier the 13 built-in profiles' real upstream formatItems reference
+// is embedded, not just Tier 01 of each release-group family: the original
+// plan for this task truncated HD/UHD Bluray, Remux and WEB to Tier 01 and
+// called Tier 02/03 a stated gap, since the note the plan was drafted from
+// gave full group lists only for Tier 01. With the corpus vendored, that
+// truncation was voided -- data/formats/tiers_extra.json (Tier 02/03) and
+// data/formats/anime_extra.json (Anime BD Tier 02-08, Anime Web Tier 02-06,
+// and the remaining anime-only formats) are a mechanical read of the real
+// corpus files, not a guess, and parity_test.go proves it.
 package catalogue
 
 import (
