@@ -67,6 +67,18 @@ func (e Engine) Render(tmpl string, c Context) (string, error) {
 	if errOut != nil {
 		return "", errOut
 	}
+	// Lidarr/Readarr-style global post-processing: replaceSpaces/separator,
+	// then an overall case transform, both applied to the fully rendered
+	// path, not per-token.
+	if e.Config.ReplaceSpaces && e.Config.Separator != "" {
+		out = strings.ReplaceAll(out, " ", e.Config.Separator)
+	}
+	switch e.Config.Case {
+	case "upper":
+		out = strings.ToUpper(out)
+	case "lower":
+		out = strings.ToLower(out)
+	}
 	return out, nil
 }
 

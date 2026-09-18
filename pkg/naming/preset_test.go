@@ -87,3 +87,10 @@ func TestBuildFolderAndBuildFileDispatchByKind(t *testing.T) {
 	_, err = e.BuildFile(commonv1.MediaKindSeries, naming.Context{})
 	require.ErrorIs(t, err, naming.ErrNoFile)
 }
+
+func TestRenderAppliesSeparatorAndCase(t *testing.T) {
+	e := naming.NewEngine(naming.Config{ReplaceSpaces: true, Separator: "_", Case: "lower"})
+	got, err := e.Render("{Movie Title} ({Release Year})", naming.Context{Title: "The Matrix", Year: 1999})
+	require.NoError(t, err)
+	require.Equal(t, "the_matrix_(1999)", got)
+}
