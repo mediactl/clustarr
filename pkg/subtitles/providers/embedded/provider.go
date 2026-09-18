@@ -41,10 +41,11 @@ var textCodecs = map[string]bool{"subrip": true, "ass": true, "ssa": true, "webv
 
 // Config configures a Provider.
 type Config struct {
-	FFmpeg                                             string           // default "ffmpeg"
-	Path                                               string           // media file path ffmpeg reads from
-	Info                                               common.MediaInfo // already-probed; this package never calls ffprobe
-	IgnorePGS, IgnoreVobSub, IgnoreASS, SkipCommentary bool             // mirrors SubtitleProfileSpec.Embedded
+	FFmpeg         string           // default "ffmpeg"
+	Path           string           // media file path ffmpeg reads from
+	Info           common.MediaInfo // already-probed; this package never calls ffprobe
+	IgnoreASS      bool             // mirrors SubtitleProfileSpec.Embedded.IgnoreASS
+	SkipCommentary bool             // mirrors SubtitleProfileSpec.Embedded.SkipCommentary
 }
 
 // Provider implements subtitles.Provider over a file's own embedded
@@ -67,8 +68,13 @@ func (p *Provider) Capabilities() subtitles.Capabilities {
 
 // Search returns one Candidate per eligible text subtitle stream in
 // p.cfg.Info. Bitmap codecs (PGS, VobSub) are never text-extractable and are
-// always excluded, regardless of the Ignore* flags — those flags only widen
-// exclusion beyond that baseline (research note §4.6).
+// always excluded unconditionally — there is deliberately no
+// IgnorePGS/IgnoreVobSub knob here, since a "don't ignore bitmap subtitles"
+// setting would be meaningless for a provider that can never serve them
+// (self-review fix round 1, item 5: those two fields existed in an earlier
+// draft, mirroring SubtitleProfileSpec.Embedded verbatim, but were dead —
+// nothing in Search ever branched on them). IgnoreASS is the one real,
+// consulted flag below (research note §4.6).
 func (p *Provider) Search(_ context.Context, _ subtitles.Query) ([]subtitles.Candidate, error) {
 	var out []subtitles.Candidate
 	for _, s := range p.cfg.Info.Subtitles {

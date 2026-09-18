@@ -56,10 +56,10 @@ func TestSearchReturnsOneCandidatePerEligibleTextStream(t *testing.T) {
 
 func TestSearchExcludesBitmapSubtitleCodecsRegardlessOfIgnoreFlags(t *testing.T) {
 	info := common.MediaInfo{Subtitles: []common.SubtitleStream{{Index: 1, Codec: "dvd_subtitle", Bitmap: true}}}
-	p := embedded.New(embedded.Config{Info: info}) // IgnoreVobSub defaults false, so it's still excluded — bitmap is always excluded
+	p := embedded.New(embedded.Config{Info: info})
 	cands, err := p.Search(context.Background(), subtitles.Query{Kind: "movie", Languages: []subtitles.LangKey{"en"}})
 	require.NoError(t, err)
-	assert.Empty(t, cands, "bitmap subtitle codecs are never text-extractable, regardless of Ignore* flags")
+	assert.Empty(t, cands, "bitmap subtitle codecs are never text-extractable — there is no Ignore* knob for them")
 }
 
 func TestSearchHonoursIgnoreASSFlag(t *testing.T) {
@@ -103,4 +103,21 @@ func TestDownloadRejectsANonIntegerFetchID(t *testing.T) {
 	p := embedded.New(embedded.Config{Path: "/data/movie.mkv"})
 	_, _, err := p.Download(context.Background(), subtitles.Candidate{FetchID: "not-a-number"})
 	assert.Error(t, err)
+}
+
+func TestDownloadReturnsAnErrorWithoutPanickingWhenTheMediaFileDoesNotExist(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not on PATH")
+	}
+	p := embedded.New(embedded.Config{Path: filepath.Join(t.TempDir(), "no-such-file.mkv")})
+
+	var raw []byte
+	var name string
+	var err error
+	require.NotPanics(t, func() {
+		raw, name, err = p.Download(context.Background(), subtitles.Candidate{FetchID: "0"})
+	})
+	assert.Error(t, err)
+	assert.Nil(t, raw)
+	assert.Empty(t, name)
 }
