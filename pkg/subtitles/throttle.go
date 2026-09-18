@@ -40,7 +40,46 @@ func (e *ProviderError) Error() string {
 	}
 	return fmt.Sprintf("subtitles: %s: %s", e.Provider, e.Kind)
 }
-func (e *ProviderError) Unwrap() error { return e.Err }
+
+// Sentinels for the ProviderError Kinds that have a pkg/metadata
+// counterpart, so a caller can errors.Is across both halves of the same
+// provider vocabulary instead of learning two error models. They are
+// additive: ProviderError's Kind field and the Is* predicates below are
+// spec §7's shape and stay exactly as they were.
+//
+// Only the four kinds with a metadata counterpart are mapped. The others
+// (quota, service-unavailable, throttled, timeout, config) are
+// subtitle-specific conditions with their own predicates and their own
+// backoff row; they unwrap to their cause alone.
+var (
+	// ErrNotFound is KindNotFound: the provider has no such show, movie or
+	// subtitle (metadata.ErrNotFound's counterpart).
+	ErrNotFound = errors.New("subtitles: not found")
+	// ErrRateLimited is KindTooManyRequests: the provider is throttling
+	// this client (metadata.ErrRateLimited's counterpart).
+	ErrRateLimited = errors.New("subtitles: rate limited")
+	// ErrAuth is KindAuth: the provider rejected the credentials
+	// (metadata.ErrAuth's counterpart).
+	ErrAuth = errors.New("subtitles: authentication failed")
+	// ErrDecode is KindParse: the provider's response could not be parsed
+	// (metadata.ErrDecode's counterpart).
+	ErrDecode = errors.New("subtitles: could not decode provider response")
+)
+
+// sentinelByKind maps a Kind to the sentinel Unwrap exposes for it. A Kind
+// that is absent here simply has no sentinel.
+var sentinelByKind = map[string]error{
+	KindNotFound:        ErrNotFound,
+	KindTooManyRequests: ErrRateLimited,
+	KindAuth:            ErrAuth,
+	KindParse:           ErrDecode,
+}
+
+// Unwrap exposes both the sentinel for e.Kind and e's own wrapped cause, so
+// errors.Is finds either. errors.Join is what carries both: it reports nil
+// when both are nil, which is what a Kind with no mapped sentinel and no
+// cause unwraps to.
+func (e *ProviderError) Unwrap() error { return errors.Join(sentinelByKind[e.Kind], e.Err) }
 
 const (
 	KindTooManyRequests       = "TooManyRequests"

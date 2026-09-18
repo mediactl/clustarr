@@ -19,10 +19,12 @@ package subtitles_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/mediactl/clustarr/pkg/subtitles"
 )
@@ -86,4 +88,72 @@ func TestThrottleForKindNotFoundHasADefaultDuration(t *testing.T) {
 	// reconfigured kinds (Auth, Config).
 	_, d := subtitles.ThrottleFor("gestdown", &subtitles.ProviderError{Kind: subtitles.KindNotFound})
 	assert.Equal(t, 12*time.Hour, d)
+}
+
+// TestProviderErrorUnwrapsToSentinels covers ruling F7: pkg/metadata
+// exposes sentinels that errors.Is finds through Unwrap, and pkg/subtitles
+// exposed only hand-written predicates, so the two halves of the same
+// provider vocabulary could not be handled the same way. ProviderError's
+// shape is spec-mandated and unchanged; it now unwraps to a sentinel too.
+func TestProviderErrorUnwrapsToSentinels(t *testing.T) {
+	tests := []struct {
+		kind     string
+		sentinel error
+	}{
+		{subtitles.KindNotFound, subtitles.ErrNotFound},
+		{subtitles.KindTooManyRequests, subtitles.ErrRateLimited},
+		{subtitles.KindAuth, subtitles.ErrAuth},
+		{subtitles.KindParse, subtitles.ErrDecode},
+	}
+	for _, tt := range tests {
+		t.Run(tt.kind, func(t *testing.T) {
+			err := error(&subtitles.ProviderError{Provider: "p", Kind: tt.kind})
+			require.ErrorIs(t, err, tt.sentinel)
+			require.ErrorIs(t, fmt.Errorf("wrapped: %w", err), tt.sentinel)
+
+			for _, other := range tests {
+				if other.kind != tt.kind {
+					assert.NotErrorIs(t, err, other.sentinel)
+				}
+			}
+		})
+	}
+}
+
+// TestProviderErrorUnwrapKeepsTheUnderlyingCause proves the sentinel is
+// additive: a wrapped cause is still reachable through errors.Is.
+func TestProviderErrorUnwrapKeepsTheUnderlyingCause(t *testing.T) {
+	cause := errors.New("boom")
+	err := error(&subtitles.ProviderError{Provider: "p", Kind: subtitles.KindAuth, Err: cause})
+	assert.ErrorIs(t, err, cause)
+	assert.ErrorIs(t, err, subtitles.ErrAuth)
+}
+
+// TestProviderErrorWithNoSentinelUnwrapsToNil is the "a kind with no
+// mapped sentinel must not panic" case.
+func TestProviderErrorWithNoSentinelUnwrapsToNil(t *testing.T) {
+	err := &subtitles.ProviderError{Provider: "p", Kind: subtitles.KindTimeout}
+	assert.NoError(t, errors.Unwrap(err))
+	assert.NotErrorIs(t, error(err), subtitles.ErrNotFound)
+	assert.Equal(t, "subtitles: p: Timeout", err.Error())
+
+	empty := &subtitles.ProviderError{}
+	assert.NoError(t, errors.Unwrap(empty))
+}
+
+// TestTheExistingPredicatesStillHold pins the hand-written predicates the
+// rest of the package already relies on.
+func TestTheExistingPredicatesStillHold(t *testing.T) {
+	quota := error(&subtitles.ProviderError{Provider: "p", Kind: subtitles.KindDownloadLimitExceeded})
+	assert.True(t, subtitles.IsQuotaExceeded(quota))
+	assert.False(t, subtitles.IsRateLimited(quota))
+
+	rate := error(&subtitles.ProviderError{Provider: "p", Kind: subtitles.KindTooManyRequests})
+	assert.True(t, subtitles.IsRateLimited(rate))
+	assert.False(t, subtitles.IsNotFound(rate))
+
+	nf := fmt.Errorf("wrapped: %w", &subtitles.ProviderError{Provider: "p", Kind: subtitles.KindNotFound})
+	assert.True(t, subtitles.IsNotFound(nf))
+	assert.False(t, subtitles.IsQuotaExceeded(nf))
+	assert.False(t, subtitles.IsNotFound(errors.New("unrelated")))
 }
