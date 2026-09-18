@@ -1,0 +1,184 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package grab
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/tracing"
+)
+
+// pendingReadRetry is how long Handle waits before re-reading a pending entry
+// the bucket failed to serve. It is shorter than the consumer's own first
+// backoff step because the failure is a broker hiccup, not a busy downstream.
+const pendingReadRetry = 10 * time.Second
+
+// grabRetry is how long Handle waits after a failed grab. It is long enough
+// for a transient apiserver or indexer blip to clear and short enough that the
+// consumer's MaxDeliver of 5 still spans a useful window.
+const grabRetry = 30 * time.Second
+
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;episodes;series,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies/status;episodes/status,verbs=get;patch
+// +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch;create;patch
+// +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch
+
+// Handler is the catalogarr-grab consumer: the scheduled half of §8.2. A
+// GrabTask published by Decide with WithScheduleAt arrives here once the
+// delay has elapsed, and this is where the pending candidate -- which may have
+// been replaced several times since -- is finally turned into a Download.
+type Handler struct {
+	Deps Deps
+}
+
+// NewHandler returns a Handler over d.
+func NewHandler(d Deps) *Handler { return &Handler{Deps: d} }
+
+// Subscription is the catalogarr-grab durable consumer from §5's table:
+// AckWait 60s, MaxDeliver 5, BackOff 10s/1m/5m, MaxAckPending 16. It is read
+// from events.Default() rather than restated so the tuning lives in exactly
+// one place.
+func (h *Handler) Subscription() events.Subscription {
+	spec, ok := events.Default().Consumer(events.ConsumerCatalogGrab)
+	if !ok {
+		// Unreachable: ConsumerCatalogGrab is in defaultConsumers() and
+		// pkg/events' own tests assert it. A zero Subscription fails
+		// Subscription.Validate loudly at Subscribe time rather than
+		// silently consuming nothing.
+		return events.Subscription{}
+	}
+	return spec.Subscription()
+}
+
+// SetupWithManager registers the subscription as a manager.Runnable so its
+// lifetime is the manager's: it subscribes when the manager starts and drains
+// when the manager stops, rather than leaking a context.Background()
+// subscription that outlives a graceful shutdown.
+//
+// This is the ONLY call catalogarr/run.go's setupWorkers needs to make for the
+// grab worker:
+//
+//	if err := grab.NewHandler(grab.Deps{Client: mgr.GetClient(), Bus: bus}).SetupWithManager(mgr, bus); err != nil {
+//		return fmt.Errorf("catalogarr: subscribe grab: %w", err)
+//	}
+//
+// It does NOT need leader election: every replica runs the queue workers and
+// competes for the same durable consumer (§3's topology).
+func (h *Handler) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
+	return mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		stop, err := bus.Subscribe(ctx, h.Subscription(), h.Handle)
+		if err != nil {
+			return fmt.Errorf("catalogarr: subscribe grab: %w", err)
+		}
+		defer stop()
+		<-ctx.Done()
+		return nil
+	}))
+}
+
+// Handle turns one delivered GrabTask into a Download.
+//
+// The pending entry, not the task, is the source of truth for WHAT to grab.
+// The task carries only the media key, because between scheduling and delivery
+// the candidate may have been replaced by a better release; re-reading the
+// bucket is what makes "pending CAS keep-best updates a delayed grab" (§8.7)
+// work.
+//
+// A missing pending entry is an acknowledgement, not an error. It is the
+// normal shape of at-least-once delivery: an earlier delivery already grabbed
+// and deleted the entry, or the seven-day bucket TTL expired it. Naking would
+// turn a routine redelivery into MaxDeliver attempts and then a dead letter.
+func (h *Handler) Handle(ctx context.Context, m events.Message) error {
+	ctx, span := tracing.Start(ctx, "grab.Handler.Handle")
+	defer span.End()
+
+	env := m.Envelope()
+	var task schema.GrabTask
+	if err := schema.Decode(env.Schema, env.Data, &task); err != nil {
+		return events.Discard("grab: malformed GrabTask", err)
+	}
+	ns, _, ok := strings.Cut(env.Key, "/")
+	if !ok || ns == "" {
+		return events.Discard("grab: envelope key is not <namespace>/<name>", fmt.Errorf("key=%q", env.Key))
+	}
+
+	log := logging.FromContext(ctx).With("kind", string(task.MediaRef.Kind), "namespace", ns)
+	mediaKey := MediaKey(ns, task.MediaRef)
+	kv := h.Deps.Bus.KV(events.BucketPending)
+	pendingKey := events.PendingKey(mediaKey)
+
+	entry, err := kv.Get(ctx, pendingKey)
+	switch {
+	case errors.Is(err, events.ErrKeyNotFound):
+		log.Debug("grab: no pending candidate; an earlier delivery already grabbed it")
+		return nil
+	case err != nil:
+		return events.Retry(pendingReadRetry, fmt.Errorf("grab: read pending candidate: %w", err))
+	}
+
+	var pv pendingValue
+	if err := json.Unmarshal(entry.Value, &pv); err != nil {
+		return events.Discard("grab: corrupt pending candidate", err)
+	}
+	grabbedBy := pv.GrabbedBy
+	if grabbedBy == "" {
+		// Entries written before pendingValue carried GrabbedBy, and any
+		// caller that left it unset. Search is the overwhelmingly common
+		// origin of a delayed grab, and the field is provenance only.
+		grabbedBy = downloadv1alpha1.GrabSourceSearch
+	}
+
+	if err := performGrab(ctx, h.Deps, ns, pv.Target, pv.Keys, pv.Release, grabbedBy); err != nil {
+		if errors.Is(err, ErrDuplicateGrab) {
+			// Ack and stop, per §8.2. The entry is deleted below so the
+			// item does not sit at Phase=Delayed behind a grab that will
+			// never happen.
+			log.Info("grab: already grabbed elsewhere; acknowledging", "error", err)
+			if delErr := kv.Delete(ctx, pendingKey); delErr != nil {
+				log.Warn("grab: deleting the consumed pending candidate failed", "error", delErr)
+			}
+			return nil
+		}
+		var discard *events.DiscardError
+		if errors.As(err, &discard) {
+			return err
+		}
+		return events.Retry(grabRetry, err)
+	}
+
+	// Deleted only after a successful grab: if the delete fails the next
+	// redelivery re-runs performGrab, which is idempotent (the lease is held
+	// by this Download's own name, so the re-read guard passes, and the
+	// Download apply converges on the same deterministic name).
+	if err := kv.Delete(ctx, pendingKey); err != nil {
+		log.Warn("grab: deleting the consumed pending candidate failed", "error", err)
+	}
+	return nil
+}
