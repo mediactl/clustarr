@@ -1,0 +1,11 @@
+{
+  "MediaContainer": {
+    "size": 2,
+    "Metadata": [
+      { "ratingKey": "5d7768926f4521001eaa9d5a", "guid": "plex://movie/5d7768926f4521001eaa9d5a", "type": "movie", "title": "Dune", "year": 2021,
+        "Guid": [ { "id": "imdb://tt1160419" }, { "id": "tmdb://438631" } ] },
+      { "ratingKey": "5d7768926f4521001eaa9d5b", "guid": "plex://movie/5d7768926f4521001eaa9d5b", "type": "movie", "title": "Arrival", "year": 2016,
+        "Guid": [ { "id": "imdb://tt2543164" } ] }
+    ]
+  }
+}
