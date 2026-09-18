@@ -142,6 +142,18 @@ var tokenFuncs = map[string]tokenEntry{
 	"mediainfo videodynamicrangetype": {fn: func(c Context, _, _ int) string { return hdrDisplay[c.MediaInfo.Hdr] }},
 	"edition tags":                    {fn: func(c Context, _, _ int) string { return c.Edition }},
 	"custom formats":                  {fn: func(c Context, _, _ int) string { return strings.Join(c.CustomFormats, " ") }},
+	"series cleantitlewithoutyear":    {fn: func(c Context, _, _ int) string { return cleanTitle(c.SeriesTitle) }, colonSensitive: true},
+	"series year":                     {fn: func(c Context, _, _ int) string { return yearString(c.SeriesYear) }},
+	"tvdbid":                          {fn: func(c Context, _, _ int) string { return c.TvdbID }},
+}
+
+// overrideOr looks up key in the engine's Config.Overrides, returning
+// fallback when the key is absent or maps to an empty string.
+func (e Engine) overrideOr(key, fallback string) string {
+	if v, ok := e.Config.Overrides[key]; ok && v != "" {
+		return v
+	}
+	return fallback
 }
 
 func padInt(n, width int) string {
