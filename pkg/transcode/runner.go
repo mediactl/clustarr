@@ -187,9 +187,19 @@ func (e *RunError) Error() string {
 func (e *RunError) Unwrap() error { return e.Err }
 
 // Runner runs ffmpeg for a rendered Plan.
-type Runner struct{ FFmpegPath string }
+type Runner struct {
+	FFmpegPath string
 
-// NewRunner returns a Runner that shells out to ffmpegPath.
+	// CancelGrace is how long Run waits after sending SIGINT (on ctx
+	// cancellation) before exec.Cmd.WaitDelay escalates to SIGKILL. Zero
+	// (the default returned by NewRunner) means runCancelGrace (5s).
+	// Tests that exercise cancellation against a slow real encoder should
+	// set this to something short.
+	CancelGrace time.Duration
+}
+
+// NewRunner returns a Runner that shells out to ffmpegPath, with
+// CancelGrace defaulted to runCancelGrace.
 func NewRunner(ffmpegPath string) Runner { return Runner{FFmpegPath: ffmpegPath} }
 
 // Run executes plan's rendered argv (via Args(plan)), streaming Progress to
@@ -210,7 +220,11 @@ func (r Runner) Run(ctx context.Context, plan *PlanResult, progress func(Progres
 	// trailer. Send SIGINT first and only escalate to SIGKILL after
 	// runCancelGrace (exec.Cmd.Cancel/WaitDelay, stdlib since Go 1.20).
 	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGINT) }
-	cmd.WaitDelay = runCancelGrace
+	grace := r.CancelGrace
+	if grace <= 0 {
+		grace = runCancelGrace
+	}
+	cmd.WaitDelay = grace
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

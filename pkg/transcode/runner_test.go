@@ -81,6 +81,15 @@ func TestRunHonoursContextCancellationAndSendsSIGINTFirst(t *testing.T) {
 		t.Skip("ffmpeg not present on this box")
 	}
 	r := transcode.NewRunner("/usr/bin/ffmpeg")
+	// A real ffmpeg -preset veryslow libx265 encode measurably does not
+	// exit within milliseconds of SIGINT (x265's internal frame buffering
+	// has to drain first -- verified on this box: 27s for an unassisted,
+	// manually-signalled exit). A short CancelGrace keeps this test's wall
+	// time bounded without weakening what it proves: SIGINT is sent first
+	// (Args never even gets a chance to matter here -- what's asserted is
+	// that Run returns promptly, wrapping ctx's error, rather than blocking
+	// for anywhere near the source's full 10s duration).
+	r.CancelGrace = 200 * time.Millisecond
 	plan := &transcode.PlanResult{
 		Decision:  transcode.DecisionEncode,
 		Input:     "", // overridden below via a lavfi source; see Args note
@@ -95,9 +104,12 @@ func TestRunHonoursContextCancellationAndSendsSIGINTFirst(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
+	start := time.Now()
 	err := r.Run(ctx, plan, func(transcode.Progress) {})
+	elapsed := time.Since(start)
 	require.Error(t, err)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Less(t, elapsed, 3*time.Second, "CancelGrace should bound wall time well under the old 5s default")
 }
 
 func TestRunEndToEndEncodesAGeneratedClipAndEmitsProgress(t *testing.T) {
