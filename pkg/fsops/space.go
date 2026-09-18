@@ -28,16 +28,17 @@ type Usage struct{ Total, Free, Available int64 }
 
 // DiskUsage statfs(2)s the filesystem backing path.
 //
-// syscall.Statfs_t's field widths vary slightly by GOARCH (Bsize is int64
-// on linux/amd64 and linux/arm64, which are the only targets
-// images/Dockerfile.media* build); the explicit int64(...) casts keep the
-// arithmetic portable across both without a build-tag split.
+// syscall.Statfs_t.Bsize is already int64 on both linux/amd64 and
+// linux/arm64 (the only targets images/Dockerfile.media* build), but
+// Blocks/Bfree/Bavail are uint64 on both, so those three still need the
+// explicit int64(...) cast to keep the arithmetic portable across both
+// without a build-tag split.
 func DiskUsage(path string) (Usage, error) {
 	var st syscall.Statfs_t
 	if err := syscall.Statfs(path, &st); err != nil {
 		return Usage{}, fmt.Errorf("fsops: statfs %s: %w", path, err)
 	}
-	bsize := int64(st.Bsize)
+	bsize := st.Bsize
 	return Usage{
 		Total:     int64(st.Blocks) * bsize,
 		Free:      int64(st.Bfree) * bsize,

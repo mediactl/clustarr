@@ -35,21 +35,21 @@ func AtomicWrite(path string, r io.Reader, mode os.FileMode) error {
 		return fmt.Errorf("fsops: create %s: %w", tmp, err)
 	}
 	if _, err := io.Copy(f, r); err != nil {
-		f.Close()
-		os.Remove(tmp)
+		_ = f.Close()
+		_ = os.Remove(tmp)
 		return fmt.Errorf("fsops: write %s: %w", tmp, err)
 	}
 	if err := f.Sync(); err != nil {
-		f.Close()
-		os.Remove(tmp)
+		_ = f.Close()
+		_ = os.Remove(tmp)
 		return fmt.Errorf("fsops: fsync %s: %w", tmp, err)
 	}
 	if err := f.Close(); err != nil {
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		return fmt.Errorf("fsops: close %s: %w", tmp, err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		return fmt.Errorf("fsops: rename %s to %s: %w", tmp, path, err)
 	}
 	return fsyncDir(filepath.Dir(path))
@@ -62,7 +62,7 @@ func fsyncDir(dir string) error {
 	if err != nil {
 		return fmt.Errorf("fsops: open %s for fsync: %w", dir, err)
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 	if err := d.Sync(); err != nil {
 		return fmt.Errorf("fsops: fsync %s: %w", dir, err)
 	}

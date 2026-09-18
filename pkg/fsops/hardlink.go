@@ -65,7 +65,7 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("fsops: open %s: %w", src, err)
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	info, err := in.Stat()
 	if err != nil {
 		return fmt.Errorf("fsops: stat %s: %w", src, err)

@@ -39,11 +39,11 @@ func MoveAtomic(src, dst string) error {
 
 	tmp := dst + ".partial"
 	if err := copyFile(src, tmp); err != nil {
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		return fmt.Errorf("fsops: copy %s to %s: %w", src, tmp, err)
 	}
 	if err := os.Rename(tmp, dst); err != nil {
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		return fmt.Errorf("fsops: rename %s to %s: %w", tmp, dst, err)
 	}
 	if err := fsyncDir(filepath.Dir(dst)); err != nil {
