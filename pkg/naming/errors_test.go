@@ -39,7 +39,13 @@ func TestBuildFolderReturnsErrNoFolderForUnknownKind(t *testing.T) {
 	require.ErrorIs(t, err, naming.ErrNoFolder)
 }
 
-func TestFormatEpisodeRangeHandlesEmptyEpisodesWithoutPanicking(t *testing.T) {
+// TestEpisodeFileWithNoEpisodesDoesNotPanic exercises EpisodeFile end to
+// end with a nil Episodes slice. It does not exercise formatEpisodeRange's
+// own empty guard directly, since the standard episode-file template never
+// emits the internal {episodeRange} token -- see
+// TestEpisodeAndAbsoluteRangeTokensAreEmptyForEveryStyleWhenNoEpisodes in
+// series_test.go for that.
+func TestEpisodeFileWithNoEpisodesDoesNotPanic(t *testing.T) {
 	e := naming.NewEngine(naming.Config{})
 	got, err := e.EpisodeFile(naming.Context{SeriesTitle: "X", Episodes: nil})
 	require.NoError(t, err, "no episodes must render an empty episode-range token, not panic")

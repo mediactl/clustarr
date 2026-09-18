@@ -127,3 +127,40 @@ func TestEpisodeFileDaily(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "The Series Title! (2010) - 2013-10-30 - Episode Title 1 [WEBDL-1080p]", got)
 }
+
+// TestEpisodeAndAbsoluteRangeTokensAreEmptyForEveryStyleWhenNoEpisodes is a
+// direct test of formatEpisodeRange's and formatAbsoluteRange's own empty
+// guard (through the internal-only {episodeRange}/{absoluteRange} tokens,
+// since EpisodeFile's real templates never emit them -- see
+// TestEpisodeFileWithNoEpisodesDoesNotPanic in errors_test.go for the
+// end-to-end case). Every MultiEpisodeStyle must produce "" for a nil
+// Episodes/Absolute slice, not just the zero value, and must not panic.
+func TestEpisodeAndAbsoluteRangeTokensAreEmptyForEveryStyleWhenNoEpisodes(t *testing.T) {
+	styles := []naming.MultiEpisodeStyle{
+		naming.MultiEpisodeExtend,
+		naming.MultiEpisodeDuplicate,
+		naming.MultiEpisodeRepeat,
+		naming.MultiEpisodeScene,
+		naming.MultiEpisodeRange,
+		naming.MultiEpisodePrefixedRange,
+	}
+	for _, style := range styles {
+		t.Run(string(style), func(t *testing.T) {
+			e := naming.NewEngine(naming.Config{MultiEpisodeStyle: style})
+
+			var got string
+			var err error
+			require.NotPanics(t, func() {
+				got, err = e.Render("{episodeRange}", naming.Context{Season: 1, Episodes: nil})
+			})
+			require.NoError(t, err)
+			require.Empty(t, got)
+
+			require.NotPanics(t, func() {
+				got, err = e.Render("{absoluteRange}", naming.Context{Absolute: nil})
+			})
+			require.NoError(t, err)
+			require.Empty(t, got)
+		})
+	}
+}
