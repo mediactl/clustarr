@@ -1,0 +1,81 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"fmt"
+
+	"github.com/mediactl/clustarr/pkg/pipeline"
+)
+
+// Pipeline renders the Pipeline page (§A3.4): one row per in-flight item,
+// live-updated over the /events/pipeline SSE stream. It is a full page,
+// wrapped in Layout, so a plain GET renders something useful even before
+// htmx's SSE extension has connected.
+templ Pipeline(entries []pipeline.Entry) {
+	@Layout("Pipeline") {
+		<div
+			id="pipeline-rows"
+			hx-ext="sse"
+			sse-connect="/events/pipeline"
+			sse-swap="pipeline"
+			class="space-y-4"
+		>
+			<h1 class="mb-4 text-2xl font-bold">Pipeline</h1>
+			if len(entries) == 0 {
+				<p class="text-slate-400">Nothing in flight.</p>
+			}
+			<div class="grid gap-3">
+				for _, e := range entries {
+					@pipelineRow(e)
+				}
+			</div>
+		</div>
+	}
+}
+
+// pipelineRow renders one Entry as a card: title, stage badge, progress bar
+// when the stage has a meaningful percentage, and the failure detail when
+// the item is Failed or Blocked.
+templ pipelineRow(e pipeline.Entry) {
+	<div
+		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
+		data-kind={ string(e.Kind) }
+		data-stage={ string(e.Stage) }
+	>
+		<div class="flex items-center justify-between gap-4">
+			<span class="font-medium">{ e.Title }</span>
+			<span class={ stageBadgeClass(e.Stage) }>{ string(e.Stage) }</span>
+		</div>
+		if e.Percent >= 0 {
+			<div class="mt-2 w-full overflow-hidden rounded-full bg-slate-800">
+				<div
+					class="h-2 rounded-full bg-sky-500"
+					style={ fmt.Sprintf("width: %d%%", clampPercent(e.Percent)) }
+				></div>
+			</div>
+			<div class="mt-1 text-xs text-slate-400">{ fmt.Sprintf("%d%%", e.Percent) }</div>
+		}
+		if e.Detail != "" {
+			<div class="mt-1 text-xs text-slate-400">{ e.Detail }</div>
+		}
+		if e.Stage == pipeline.StageFailed || e.Stage == pipeline.StageBlocked {
+			<div class="mt-2 text-sm text-red-400">{ e.Failure }</div>
+		}
+	</div>
+}

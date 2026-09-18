@@ -32,6 +32,15 @@ generate: ## Generate DeepCopy and apply-configuration code.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="$(API_PATHS)"
 	$(CONTROLLER_GEN) applyconfiguration:headerFile="hack/boilerplate.go.txt" paths="$(API_PATHS)"
 
+# No templ binary is installed; `go run` against the version go.mod already
+# pins (v0.3.1020) generates the same *_templ.go it would, without adding a
+# tool dependency. The generated files are committed, so a generator change
+# can never break a build unattended -- this target is for regenerating them
+# after editing a .templ file, not a build-time step.
+.PHONY: templ
+templ: ## Regenerate ui/views/*_templ.go from their .templ sources.
+	go run github.com/a-h/templ/cmd/templ@v0.3.1020 generate
+
 # The service packages the RBAC role is derived from are scaffolded incrementally,
 # so the recipe only feeds controller-gen the RBAC_DIRS that exist; with none of
 # them present the rbac generator is skipped rather than failing the target.

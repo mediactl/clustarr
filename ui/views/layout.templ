@@ -1,0 +1,48 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+// Package views holds the ui service's templ templates. Styling is Tailwind
+// utility classes loaded from the CDN for now; a bundled asset pipeline is
+// Phase G's job, not this skeleton's.
+package views
+
+// Layout is the page chrome every ui page renders inside: the Tailwind and
+// htmx script tags, a minimal header, and a <main> slot for the page's own
+// content. htmx and its SSE extension are loaded so a page can opt into live
+// updates (e.g. the Pipeline page's /events/pipeline stream) with plain
+// attributes and no page-specific JavaScript.
+templ Layout(title string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>{ title } · Clustarr</title>
+			<script src="https://cdn.tailwindcss.com"></script>
+			<script src="https://unpkg.com/htmx.org@2.0.4"></script>
+			<script src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js"></script>
+		</head>
+		<body class="min-h-screen bg-slate-950 text-slate-100">
+			<header class="border-b border-slate-800 px-6 py-4">
+				<a href="/pipeline" class="text-lg font-semibold">Clustarr</a>
+			</header>
+			<main class="p-6">
+				{ children... }
+			</main>
+		</body>
+	</html>
+}

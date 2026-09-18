@@ -1,0 +1,302 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package pipeline_test
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	subtitlev1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
+	transcodev1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/pipeline"
+)
+
+// movieWith builds a minimal Movie at generation 1 with cached metadata
+// already populated, and applies opts on top -- mirroring the shape the task
+// brief's own table test uses.
+func movieWith(t *testing.T, opts ...func(*catalogv1.Movie)) *catalogv1.Movie {
+	t.Helper()
+	m := &catalogv1.Movie{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "shawshank-redemption",
+			Namespace:  "default",
+			Generation: 1,
+		},
+		Status: catalogv1.MovieStatus{
+			Metadata: &catalogv1.MovieMetadata{Title: "The Shawshank Redemption"},
+		},
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// ready marks condType True, observed at the movie's current generation.
+func ready(condType string) func(*catalogv1.Movie) {
+	return func(m *catalogv1.Movie) {
+		k8s.MarkTrue(m, &m.Status.Conditions, condType, "Reconciled", "ready")
+	}
+}
+
+// notReady marks condType False.
+func notReady(condType string) func(*catalogv1.Movie) {
+	return func(m *catalogv1.Movie) {
+		k8s.MarkFalse(m, &m.Status.Conditions, condType, "Pending", "not ready yet")
+	}
+}
+
+// staleReady marks condType True and then advances the movie's generation,
+// so the condition is True but no longer reflects the current spec -- the
+// "found, not yet synced" state.
+func staleReady(condType string) func(*catalogv1.Movie) {
+	return func(m *catalogv1.Movie) {
+		k8s.MarkTrue(m, &m.Status.Conditions, condType, "Reconciled", "ready")
+		m.Generation++
+	}
+}
+
+func TestProjectDerivesTheStage(t *testing.T) {
+	tests := []struct {
+		name    string
+		movie   *catalogv1.Movie
+		related pipeline.Related
+		want    pipeline.Stage
+	}{
+		// --- metadata -----------------------------------------------------
+		{
+			name:  "no metadata yet",
+			movie: movieWith(t, notReady("MetadataReady")),
+			want:  pipeline.StageMetadataSearching,
+		},
+		{
+			name:  "metadata ready but stale relative to the current generation",
+			movie: movieWith(t, staleReady(catalogv1.MovieConditionMetadataReady)),
+			want:  pipeline.StageMetadataFound,
+		},
+		{
+			name:  "metadata ready and synced",
+			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
+			want:  pipeline.StageMetadataSynced,
+		},
+
+		// --- release --------------------------------------------------------
+		{
+			name:  "metadata ready, search running",
+			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
+			related: pipeline.Related{
+				Search: &catalogv1.Search{Status: catalogv1.SearchStatus{Phase: catalogv1.SearchPhaseRunning}},
+			},
+			want: pipeline.StageReleaseSearching,
+		},
+		{
+			name:  "search completed, nothing grabbed yet",
+			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
+			related: pipeline.Related{
+				Search: &catalogv1.Search{Status: catalogv1.SearchStatus{Phase: catalogv1.SearchPhaseCompleted}},
+			},
+			want: pipeline.StageReleaseSelected,
+		},
+
+		// --- download and import ---------------------------------------------
+		{
+			name:  "download in flight",
+			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
+			related: pipeline.Related{
+				Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{Phase: downloadv1.DownloadPhaseDownloading}}},
+			},
+			want: pipeline.StageDownloading,
+		},
+		{
+			name:  "download completed, import not started",
+			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
+			related: pipeline.Related{
+				Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{Phase: downloadv1.DownloadPhaseCompleted}}},
+			},
+			want: pipeline.StageDownloaded,
+		},
+		{
+			name:  "import in progress",
+			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
+			related: pipeline.Related{
+				Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{
+					Phase:  downloadv1.DownloadPhaseCompleted,
+					Import: &downloadv1.ImportState{State: downloadv1.ImportPhaseImporting},
+				}}},
+			},
+			want: pipeline.StageImporting,
+		},
+		{
+			name:  "imported, nothing downstream started yet",
+			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
+			related: pipeline.Related{
+				MediaFile: &catalogv1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "shawshank-redemption"}},
+			},
+			want: pipeline.StageImported,
+		},
+
+		// --- subtitles --------------------------------------------------------
+		{
+			name:  "subtitle wanted, no search underway",
+			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
+			related: pipeline.Related{
+				MediaFile: &catalogv1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "shawshank-redemption"}},
+				Subtitles: []subtitlev1.SubtitleRequest{{Status: subtitlev1.SubtitleRequestStatus{
+					Phase: subtitlev1.SubtitleRequestPhaseWanted,
+				}}},
+			},
+			want: pipeline.StageSubtitleSearching,
+		},
+		{
+			name:  "subtitle found on disk but request not yet satisfied",
+			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
+			related: pipeline.Related{
+				MediaFile: &catalogv1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "shawshank-redemption"}},
+				Subtitles: []subtitlev1.SubtitleRequest{{Status: subtitlev1.SubtitleRequestStatus{
+					Phase: subtitlev1.SubtitleRequestPhaseSearching,
+					Items: []subtitlev1.SubtitleItem{{LangKey: "eng", State: subtitlev1.SubtitleItemUpgradable}},
+				}}},
+			},
+			want: pipeline.StageSubtitleFound,
+		},
+		{
+			name:  "subtitle candidate chosen and downloading",
+			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
+			related: pipeline.Related{
+				MediaFile: &catalogv1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "shawshank-redemption"}},
+				Subtitles: []subtitlev1.SubtitleRequest{{Status: subtitlev1.SubtitleRequestStatus{
+					Phase: subtitlev1.SubtitleRequestPhaseSearching,
+					Items: []subtitlev1.SubtitleItem{{
+						LangKey:  "eng",
+						State:    subtitlev1.SubtitleItemSearching,
+						Provider: "opensubtitles",
+					}},
+				}}},
+			},
+			want: pipeline.StageSubtitleFetching,
+		},
+		{
+			name:  "subtitle satisfied, no transcode job",
+			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
+			related: pipeline.Related{
+				MediaFile: &catalogv1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "shawshank-redemption"}},
+				Subtitles: []subtitlev1.SubtitleRequest{{Status: subtitlev1.SubtitleRequestStatus{
+					Phase: subtitlev1.SubtitleRequestPhaseSatisfied,
+				}}},
+			},
+			want: pipeline.StageSubtitleDone,
+		},
+
+		// --- transcode --------------------------------------------------------
+		{
+			name:  "transcode outranks a finished download",
+			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
+			related: pipeline.Related{
+				Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{Phase: downloadv1.DownloadPhaseCompleted}}},
+				Jobs:      []transcodev1.TranscodeJob{{Status: transcodev1.TranscodeJobStatus{Phase: transcodev1.TranscodeJobPhaseRunning}}},
+			},
+			want: pipeline.StageTranscoding,
+		},
+		{
+			name:  "transcode succeeded, no subtitle request",
+			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
+			related: pipeline.Related{
+				MediaFile: &catalogv1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "shawshank-redemption"}},
+				Jobs:      []transcodev1.TranscodeJob{{Status: transcodev1.TranscodeJobStatus{Phase: transcodev1.TranscodeJobPhaseSucceeded}}},
+			},
+			want: pipeline.StageTranscodeDone,
+		},
+
+		// --- complete, failed, blocked ------------------------------------------
+		{
+			name:  "imported, subtitled and transcoded",
+			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
+			related: pipeline.Related{
+				MediaFile: &catalogv1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "shawshank-redemption"}},
+				Subtitles: []subtitlev1.SubtitleRequest{{Status: subtitlev1.SubtitleRequestStatus{
+					Phase: subtitlev1.SubtitleRequestPhaseSatisfied,
+				}}},
+				Jobs: []transcodev1.TranscodeJob{{Status: transcodev1.TranscodeJobStatus{Phase: transcodev1.TranscodeJobPhaseSucceeded}}},
+			},
+			want: pipeline.StageComplete,
+		},
+		{
+			name:  "failure wins over everything",
+			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
+			related: pipeline.Related{
+				Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{Phase: downloadv1.DownloadPhaseFailed}}},
+			},
+			want: pipeline.StageFailed,
+		},
+		{
+			name:  "blocklisted release blocks the item",
+			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
+			related: pipeline.Related{
+				Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{Phase: downloadv1.DownloadPhaseBlocklisted}}},
+			},
+			want: pipeline.StageBlocked,
+		},
+	}
+
+	// Every Stage constant must be exercised by exactly one case above, so a
+	// stage that silently stops being reachable fails this test rather than
+	// the page.
+	seen := make(map[pipeline.Stage]bool, len(tests))
+	for _, tc := range tests {
+		seen[tc.want] = true
+	}
+	for _, s := range []pipeline.Stage{
+		pipeline.StageMetadataSearching, pipeline.StageMetadataFound, pipeline.StageMetadataSynced,
+		pipeline.StageReleaseSearching, pipeline.StageReleaseSelected,
+		pipeline.StageDownloading, pipeline.StageDownloaded,
+		pipeline.StageImporting, pipeline.StageImported,
+		pipeline.StageSubtitleSearching, pipeline.StageSubtitleFound, pipeline.StageSubtitleFetching, pipeline.StageSubtitleDone,
+		pipeline.StageTranscoding, pipeline.StageTranscodeDone,
+		pipeline.StageComplete, pipeline.StageFailed, pipeline.StageBlocked,
+	} {
+		require.True(t, seen[s], "stage %s has no test case", s)
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			entry := pipeline.Project(tc.movie, tc.related)
+			require.Equal(t, tc.want, entry.Stage)
+		})
+	}
+}
+
+func TestProjectFillsInTheCommonFields(t *testing.T) {
+	movie := movieWith(t, ready(catalogv1.MovieConditionMetadataReady))
+	entry := pipeline.Project(movie, pipeline.Related{
+		Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{
+			Phase:           downloadv1.DownloadPhaseDownloading,
+			ProgressPercent: 42,
+		}}},
+	})
+
+	require.Equal(t, "shawshank-redemption", entry.Ref.Name)
+	require.Equal(t, "default", entry.Ref.Namespace)
+	require.Equal(t, "The Shawshank Redemption", entry.Title)
+	require.Equal(t, pipeline.StageDownloading, entry.Stage)
+	require.EqualValues(t, 42, entry.Percent)
+}
