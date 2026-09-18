@@ -19,9 +19,11 @@ package mediafile_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -244,6 +246,18 @@ func TestMediaFileFieldManagersStayDisjoint(t *testing.T) {
 	require.NotEmpty(t, got.Status.ProbeHash)
 	require.NotNil(t, got.Status.MediaInfo)
 
+	// A plain, untranscoded MediaFile still gets the full mirrored label
+	// set: spec §8.4 says the MediaFile reconciler "probes, sets labels,
+	// probeHash, Probed" unconditionally, and metadata.labels is neither
+	// spec nor status -- disjoint from everything importarr owns, so there
+	// is no two-writer reason to withhold it pre-transcode.
+	assert.Equal(t, "movie", got.Labels[catalogv1alpha1.LabelKind])
+	assert.Equal(t, "1080", got.Labels[catalogv1alpha1.LabelResolution])
+	assert.Equal(t, "webdl", got.Labels[catalogv1alpha1.LabelSource])
+	assert.Equal(t, "none", got.Labels[catalogv1alpha1.LabelModifier])
+	assert.Equal(t, "h264", got.Labels[catalogv1alpha1.LabelVideoCodec])
+	assert.Equal(t, "true", got.Labels[catalogv1alpha1.LabelOriginal])
+
 	for _, want := range []struct{ manager, subresource string }{
 		{"importarr-worker", ""},
 		{"catalogarr", "status"},
@@ -252,9 +266,19 @@ func TestMediaFileFieldManagersStayDisjoint(t *testing.T) {
 			t.Errorf("no %q/%q entry in managedFields: %+v", want.manager, want.subresource, fieldManagerNames(got.ManagedFields))
 		}
 	}
-	if managesField(got.ManagedFields, "catalogarr", "") {
-		t.Errorf("catalogarr claimed a main-resource field before any transcode: %+v", fieldManagerNames(got.ManagedFields))
-	}
+
+	// The precise check the invariant calls for: catalogarr claims
+	// metadata.labels on the main resource, but none of importarr's
+	// spec.* fields, before any transcode has happened.
+	catalogarrMain := managedFieldPaths(got.ManagedFields, "catalogarr", "")
+	require.NotNil(t, catalogarrMain, "catalogarr should own metadata.labels on the main resource: %+v", fieldManagerNames(got.ManagedFields))
+	assert.True(t, claimsLabels(catalogarrMain), "catalogarr should claim metadata.labels")
+	assert.False(t, claimsSpecField(catalogarrMain), "catalogarr must not claim any spec field before a transcode: %+v", specFieldNames(catalogarrMain))
+
+	importarrMain := managedFieldPaths(got.ManagedFields, "importarr-worker", "")
+	require.NotNil(t, importarrMain)
+	assert.True(t, specFieldNames(importarrMain)["quality"], "importarr-worker should still own spec.quality")
+	assert.True(t, specFieldNames(importarrMain)["path"], "importarr-worker should still own spec.path")
 
 	// Now simulate squasharr: a Succeeded TranscodeJob at the same path.
 	newContents := []byte("re-encoded stand-in bytes, longer")
@@ -303,13 +327,33 @@ func TestMediaFileFieldManagersStayDisjoint(t *testing.T) {
 
 	for _, want := range []struct{ manager, subresource string }{
 		{"importarr-worker", ""}, // still owns path/quality/... (untouched fields)
-		{"catalogarr", ""},       // now owns sizeBytes/modTime/original
+		{"catalogarr", ""},       // now owns sizeBytes/modTime/original (and still labels)
 		{"catalogarr", "status"},
 	} {
 		if !managesField(got.ManagedFields, want.manager, want.subresource) {
 			t.Errorf("no %q/%q entry in managedFields after transcode: %+v", want.manager, want.subresource, fieldManagerNames(got.ManagedFields))
 		}
 	}
+
+	// catalogarr's spec claim is now EXACTLY sizeBytes/modTime/original --
+	// never path, never any of the frozen release-time fields -- and it
+	// still claims labels. importarr-worker's spec claim no longer includes
+	// the three fields it just transferred, but still includes quality/path
+	// untouched: a clean ownership transfer, not a conflict.
+	catalogarrMain = managedFieldPaths(got.ManagedFields, "catalogarr", "")
+	require.NotNil(t, catalogarrMain)
+	assert.True(t, claimsLabels(catalogarrMain), "catalogarr should still claim metadata.labels after a transcode")
+	assert.Equal(t, map[string]bool{"sizeBytes": true, "modTime": true, "original": true}, specFieldNames(catalogarrMain))
+
+	importarrMain = managedFieldPaths(got.ManagedFields, "importarr-worker", "")
+	require.NotNil(t, importarrMain)
+	importarrSpec := specFieldNames(importarrMain)
+	assert.True(t, importarrSpec["quality"], "importarr-worker should still own spec.quality")
+	assert.True(t, importarrSpec["path"], "importarr-worker should still own spec.path")
+	assert.False(t, importarrSpec["sizeBytes"], "importarr-worker should have released sizeBytes to catalogarr")
+	assert.False(t, importarrSpec["modTime"], "importarr-worker should have released modTime to catalogarr")
+	assert.False(t, importarrSpec["original"], "importarr-worker should have released original to catalogarr")
+
 	require.NotNil(t, got.Status.Transcode)
 	assert.True(t, got.Status.Transcode.Compliant)
 }
@@ -341,6 +385,67 @@ func fieldManagerNames(entries []metav1.ManagedFieldsEntry) []string {
 	out := make([]string, 0, len(entries))
 	for _, e := range entries {
 		out = append(out, e.Manager+"/"+e.Subresource)
+	}
+	return out
+}
+
+// managedFieldPaths decodes the (manager, subresource) entry's FieldsV1 --
+// server-side apply's per-field-path ownership record -- into its top-level
+// field-path set (e.g. "f:metadata", "f:spec"). It returns nil when no such
+// entry exists, so the coordinator's ruling can be checked precisely:
+// "claims nothing on the main resource" is too broad a thing to assert
+// (metadata.labels is neither spec nor status, and is disjoint from
+// everything importarr owns), but "claims none of importarr's spec.*
+// fields" is exactly what FieldsV1's "f:spec" sub-map answers.
+func managedFieldPaths(entries []metav1.ManagedFieldsEntry, manager, subresource string) map[string]any {
+	for _, e := range entries {
+		if e.Manager == manager && e.Subresource == subresource && e.FieldsV1 != nil {
+			var m map[string]any
+			if err := json.Unmarshal(e.FieldsV1.GetRawBytes(), &m); err == nil {
+				return m
+			}
+		}
+	}
+	return nil
+}
+
+// claimsSpecField reports whether a managedFieldPaths result includes any
+// spec.* field at all.
+func claimsSpecField(fields map[string]any) bool {
+	v, ok := fields["f:spec"]
+	if !ok {
+		return false
+	}
+	m, ok := v.(map[string]any)
+	return ok && len(m) > 0
+}
+
+// claimsLabels reports whether a managedFieldPaths result includes
+// metadata.labels.
+func claimsLabels(fields map[string]any) bool {
+	meta, ok := fields["f:metadata"].(map[string]any)
+	if !ok {
+		return false
+	}
+	_, ok = meta["f:labels"]
+	return ok
+}
+
+// specFieldNames returns the bare (un-prefixed, non-".") field names a
+// managedFieldPaths result's "f:spec" sub-map claims, e.g. {"sizeBytes",
+// "modTime", "original"} -- the exact set this task's central finding says
+// catalogarr may ever claim on MediaFileSpec, and no more.
+func specFieldNames(fields map[string]any) map[string]bool {
+	out := map[string]bool{}
+	spec, ok := fields["f:spec"].(map[string]any)
+	if !ok {
+		return out
+	}
+	for k := range spec {
+		if k == "." {
+			continue
+		}
+		out[strings.TrimPrefix(k, "f:")] = true
 	}
 	return out
 }
