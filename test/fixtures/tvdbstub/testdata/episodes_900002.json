@@ -1,0 +1,30 @@
+{
+  "data": {
+    "series": {"id": 900002, "name": "Fixture Anime"},
+    "episodes": [
+      {
+        "id": 9000024,
+        "seriesId": 900002,
+        "name": "Fixture Episode Four",
+        "aired": "2023-04-29",
+        "runtime": 24,
+        "overview": "Fixture anime episode, absolute-numbered.",
+        "seasonNumber": 1,
+        "number": 4,
+        "absoluteNumber": 4
+      },
+      {
+        "id": 9000025,
+        "seriesId": 900002,
+        "name": "Fixture Episode Five",
+        "aired": "2023-05-06",
+        "runtime": 24,
+        "overview": "Fixture anime episode, absolute-numbered.",
+        "seasonNumber": 1,
+        "number": 5,
+        "absoluteNumber": 5
+      }
+    ]
+  },
+  "links": {"prev": null, "self": "/series/900002/episodes/absolute?page=0", "next": null, "total_items": 2, "page_size": 500}
+}

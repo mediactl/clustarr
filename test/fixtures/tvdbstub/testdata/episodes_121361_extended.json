@@ -1,0 +1,30 @@
+{
+  "data": {
+    "series": {"id": 121361, "name": "Game of Thrones"},
+    "episodes": [
+      {
+        "id": 3254641,
+        "seriesId": 121361,
+        "name": "Winter Is Coming",
+        "aired": "2011-04-17",
+        "runtime": 62,
+        "overview": "Lord Eddard Stark is torn between his family and an old friend when asked to serve at the side of King Robert Baratheon.",
+        "seasonNumber": 1,
+        "number": 1,
+        "absoluteNumber": 1
+      },
+      {
+        "id": 3436411,
+        "seriesId": 121361,
+        "name": "The Kingsroad",
+        "aired": "2011-04-24",
+        "runtime": 56,
+        "overview": "While Bran recovers from his fall, Ned takes only his daughters to Kings Landing.",
+        "seasonNumber": 1,
+        "number": 2,
+        "absoluteNumber": 2
+      }
+    ]
+  },
+  "links": {"prev": null, "self": "/series/121361/episodes/default?page=0", "next": null, "total_items": 2, "page_size": 500}
+}

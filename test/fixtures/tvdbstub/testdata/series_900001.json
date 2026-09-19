@@ -1,0 +1,18 @@
+{
+  "data": {
+    "id": 900001,
+    "name": "The Fixture Nightly Wire",
+    "slug": "the-fixture-nightly-wire",
+    "overview": "A nightly news-desk fixture used only by the Clustarr e2e suite.",
+    "firstAired": "2024-01-01",
+    "lastAired": "",
+    "status": {"id": 1, "name": "Continuing", "recordType": "series", "keepUpdated": false},
+    "originalCountry": "us",
+    "originalLanguage": "eng",
+    "averageRuntime": 30,
+    "remoteIds": [],
+    "genres": [{"id": 1, "name": "Talk Show"}],
+    "airsTime": "23:00"
+  },
+  "status": "success"
+}

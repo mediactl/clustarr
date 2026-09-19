@@ -1,0 +1,30 @@
+{
+  "data": {
+    "series": {"id": 900001, "name": "The Fixture Nightly Wire"},
+    "episodes": [
+      {
+        "id": 9000011,
+        "seriesId": 900001,
+        "name": "Episode for 2024-01-15",
+        "aired": "2024-01-15",
+        "runtime": 30,
+        "overview": "Fixture daily episode.",
+        "seasonNumber": 1,
+        "number": 1,
+        "absoluteNumber": 1
+      },
+      {
+        "id": 9000012,
+        "seriesId": 900001,
+        "name": "Episode for 2024-01-16",
+        "aired": "2024-01-16",
+        "runtime": 30,
+        "overview": "Second fixture daily episode.",
+        "seasonNumber": 1,
+        "number": 2,
+        "absoluteNumber": 2
+      }
+    ]
+  },
+  "links": {"prev": null, "self": "/series/900001/episodes/default?page=0", "next": null, "total_items": 2, "page_size": 500}
+}
