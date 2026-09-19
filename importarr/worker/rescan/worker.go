@@ -90,6 +90,16 @@ type Worker struct {
 	MetadataTimeout time.Duration
 }
 
+// The rescan worker's RBAC. It is the sole writer of MediaFileSpec (spec §8.4)
+// and creates the Movie a scanned file is attributed to; it never writes
+// MediaFileStatus or LibraryScan.status, both of which have their own single
+// writer, so neither /status subresource appears here.
+//
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=libraryscans,verbs=get;list;watch
+
 // NewWorker builds a Worker with the production clock and timeout.
 func NewWorker(c client.Client, bus events.Bus) *Worker {
 	return &Worker{Client: c, Bus: bus, Clock: time.Now, MetadataTimeout: defaultMetadataTimeout}

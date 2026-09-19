@@ -750,13 +750,19 @@ func (f runnableFunc) Start(ctx context.Context) error { return f(ctx) }
 // NeedLeaderElection implements manager.LeaderElectionRunnable.
 func (runnableFunc) NeedLeaderElection() bool { return false }
 
-// SetupWithManager registers the Download field indexes the worker reads and
-// subscribes both search consumers. Nothing here registers itself: catalogarr's
-// run.go calls this once, from setupWorkers.
+// SetupWithManager subscribes both search consumers. Nothing here registers
+// itself: catalogarr's run.go calls this once, from setupWorkers.
+//
+// It does NOT call [RegisterDownloadIndexes]. It used to, and that made the
+// three Download indexes a side effect of this worker being enabled -- while
+// catalogarr/worker/rssmatcher reads the same three and degrades to "not
+// blocklisted, empty queue" with a warning when they are missing. A role that
+// ran the RSS matcher without the search worker would therefore grab
+// blocklisted releases, silently. Task C12a moved the registration to
+// catalogarr's registerWorkerIndexes, which runs once for every worker role,
+// and added a startup assertion that the indexes really reached the cache.
+// The caller must have made that call before this one.
 func (w *Worker) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
-	if err := RegisterDownloadIndexes(context.Background(), mgr.GetFieldIndexer()); err != nil {
-		return fmt.Errorf("register Download indexes: %w", err)
-	}
 	if w.Publisher == nil {
 		// The WantedScan fan-out publishes back onto the same bus it consumes
 		// from. Defaulting here rather than in NewWorker keeps NewWorker's

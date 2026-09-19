@@ -81,41 +81,107 @@ type Options struct {
 // signature and existed by the time this package was implemented.
 var enrich = logging.With
 
-// setupOnce guards the process-wide install: otel.SetTracerProvider is a
-// package-level global with no synchronization of its own, and Setup is
-// called by every service's Run. `clustarr all` starts several services
-// concurrently in one process (cmd/clustarr/all.go), so without this two
-// goroutines' calls would race on that global -- whichever finished last
-// would silently become the provider every OTHER service's spans are then
-// recorded against (wrong resource.service.name on most of them), and every
-// TracerProvider but the last would leak with its own exporter connection
-// never shut down.
+// The process-wide install is reference counted rather than guarded by a
+// bare sync.Once.
 //
-// The first caller's Options therefore win for the life of the process;
-// every later caller -- concurrent or not -- gets back the exact same
-// shutdown func and a nil error unless the first call itself failed. Callers
-// that need a specific, honest resource.service.name when several services
-// might share a process (as `clustarr all` does) must agree on one Options
+// otel.SetTracerProvider is a package-level global with no synchronization of
+// its own, and Setup is called by every service's Run. `clustarr all` starts
+// seven services concurrently in one process (cmd/clustarr/all.go), so
+// without a guard two goroutines' calls would race on that global -- whichever
+// finished last would silently become the provider every OTHER service's
+// spans are then recorded against (wrong resource.service.name on most of
+// them), and every TracerProvider but the last would leak with its own
+// exporter connection never shut down.
+//
+// A sync.Once alone fixed the install but not the teardown: it handed every
+// caller the SAME shutdown func, so under `clustarr all` the first service
+// whose Run returned -- a --data-path validation failure, a manager that
+// could not build, any early return at all -- ran that shutdown and retired
+// tracing for the six services still running. The failure was silent: spans
+// carried on being created and simply stopped being exported.
+//
+// So: the first caller installs, each caller gets a shutdown of its own, and
+// the provider is retired only when the last of them has returned. A caller's
+// own shutdown is idempotent (its own sync.Once), so a double defer releases
+// one reference, not two. Once the count reaches zero the state is cleared,
+// and a later Setup installs a fresh provider rather than handing back a dead
+// one.
+//
+// The first caller's Options still win for as long as any reference is held;
+// callers that need a specific, honest resource.service.name when several
+// services share a process (as `clustarr all` does) must agree on one Options
 // value up front rather than relying on being first.
 var (
-	setupOnce     sync.Once
+	setupMu   sync.Mutex
+	setupRefs int
+	// setupShutdown is the real, single teardown returned by installFn. It
+	// is nil exactly when setupRefs is 0.
 	setupShutdown func(context.Context) error
-	setupErr      error
 )
+
+// installFn is install, indirected so a test can substitute a fake that
+// records how many times the real teardown ran. Production never reassigns
+// it.
+var installFn = install
+
+// noopShutdown is returned alongside an error, so a caller that defers the
+// shutdown it was handed without checking the error does not panic.
+func noopShutdown(context.Context) error { return nil }
 
 // Setup installs the process-wide TracerProvider that Start, Inject and
 // Extract read through the otel global, and the W3C tracecontext
-// propagator. It returns a shutdown func that flushes buffered spans and
-// releases the exporter; call it once at startup and defer the shutdown.
+// propagator. It returns a shutdown func that releases this caller's
+// reference and, when it is the last one, flushes buffered spans and closes
+// the exporter; call it once at startup and defer the shutdown.
 //
-// Setup itself is safe to call more than once per process -- see
-// [setupOnce] -- and the returned shutdown is safe to call more than once
-// too, in case two callers each defer the same shutdown they were handed.
+// Setup is safe to call from several goroutines and from several services in
+// one process -- see the comment above [setupMu] -- and each returned
+// shutdown is safe to call more than once.
 func Setup(ctx context.Context, opts Options) (shutdown func(context.Context) error, err error) {
-	setupOnce.Do(func() {
-		setupShutdown, setupErr = install(ctx, opts)
-	})
-	return setupShutdown, setupErr
+	setupMu.Lock()
+	defer setupMu.Unlock()
+
+	if setupRefs == 0 {
+		sd, installErr := installFn(ctx, opts)
+		if installErr != nil {
+			return noopShutdown, installErr
+		}
+		setupShutdown = sd
+	}
+	setupRefs++
+
+	var once sync.Once
+	return func(ctx context.Context) error {
+		var err error
+		once.Do(func() { err = release(ctx) })
+		return err
+	}, nil
+}
+
+// release drops one reference and performs the real teardown when it was the
+// last. It is the only path that clears the package state, so a Setup after a
+// full teardown installs a fresh provider instead of returning a shut-down
+// one.
+func release(ctx context.Context) error {
+	setupMu.Lock()
+	defer setupMu.Unlock()
+
+	if setupRefs == 0 {
+		// Unreachable through Setup's per-caller Once; defensive so an
+		// extra release can never drive the count negative and retire a
+		// provider another caller still holds.
+		return nil
+	}
+	setupRefs--
+	if setupRefs > 0 {
+		return nil
+	}
+	sd := setupShutdown
+	setupShutdown = nil
+	if sd == nil {
+		return nil
+	}
+	return sd(ctx)
 }
 
 // install does the one-time work Setup performs exactly once per process.

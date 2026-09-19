@@ -109,7 +109,22 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles/status,verbs=get;update;patch
+// The Recorder here is a k8s.io/client-go/tools/events.EventRecorder, so
+// events.k8s.io is the correct group -- unlike the Movie, Series, Episode,
+// MediaFile and Search reconcilers, which take a record.EventRecorder and
+// write core/v1. mgr.GetEventRecorder supplies it.
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
+
+// SetupWithManager registers the QualityProfile controller.
+//
+// The marker block above is deliberately separated from this declaration by a
+// blank line. controller-gen only collects +kubebuilder:rbac markers from
+// PACKAGE-level comments, and a comment group touching a declaration is that
+// declaration's doc comment instead -- so until Task C12a every marker in this
+// file was silently discarded and none of these permissions reached
+// config/rbac/role.yaml. Nothing reports it: controller-gen exits 0 and
+// envtest does not enforce RBAC. cmd/clustarr's TestRBACMarkersArePackageLevel
+// is the guard.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("qualityprofile").

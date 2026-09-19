@@ -18,10 +18,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package k8s
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -29,6 +31,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	crmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
@@ -268,4 +271,46 @@ func AddProbes(mgr ctrl.Manager, ready map[string]healthz.Checker) error {
 		}
 	}
 	return nil
+}
+
+// CacheSyncChecker returns a readiness check that fails until every informer
+// the manager's cache backs has completed its initial List, and adds the
+// Runnable that flips it.
+//
+// §13 names only the JetStream ping, which is the bus half of "can this pod
+// serve". The Kubernetes half is this one, and it matters more: controllers
+// read exclusively through the manager's cache, so a pod whose informers have
+// not synced does not fail loudly -- it sees an EMPTY cluster. Every List
+// returns nothing, which reads as "no work to do" rather than "not ready",
+// and the pod happily reports Ready while reconciling an imaginary, empty
+// catalog. Endpoints would route to it and a rolling update would march on.
+//
+// It must be called before [AddProbes] and before mgr.Start: both the readyz
+// registration and mgr.Add are rejected once the manager is running.
+//
+// The Runnable is a non-leader-election one, so controller-runtime starts it
+// only after the caches have started and synced -- WaitForCacheSync therefore
+// returns immediately in the normal case and the check is a memory read, not
+// a poll.
+func CacheSyncChecker(mgr ctrl.Manager) (healthz.Checker, error) {
+	var synced atomic.Bool
+	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		if !mgr.GetCache().WaitForCacheSync(ctx) {
+			// Only reachable when ctx is already done, i.e. the manager is
+			// shutting down. Returning an error would take the whole
+			// manager down with it during a graceful stop.
+			return nil
+		}
+		synced.Store(true)
+		<-ctx.Done()
+		return nil
+	})); err != nil {
+		return nil, fmt.Errorf("k8s: add cache-sync runnable: %w", err)
+	}
+	return func(*http.Request) error {
+		if !synced.Load() {
+			return fmt.Errorf("informer caches have not synced")
+		}
+		return nil
+	}, nil
 }

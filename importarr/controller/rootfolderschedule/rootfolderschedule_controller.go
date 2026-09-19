@@ -248,13 +248,28 @@ func requeueFor(d time.Duration) time.Duration {
 	}
 }
 
+// update and patch on rootfolders is granted DELIBERATELY, and it is the one
+// place importarr writes to a resource catalogarr owns.
+//
+// What this controller actually writes is a single annotation,
+// catalog.clustarr.io/last-scan-tick, under its own field manager. Server-side
+// apply scopes ownership per annotation KEY, so the practical blast radius is
+// that one key: neither RootFolder.spec nor RootFolder.status is touched, and
+// catalogarr's RootFolder reconciler remains the sole writer of the status
+// subresource. RBAC has no sub-object granularity, though, so the grant it
+// needs is "patch any field of any RootFolder". That asymmetry is the reason
+// this comment exists rather than an unexplained extra verb in a generated
+// file -- see the package doc for why the tick has to be a durable annotation
+// and cannot be derived from the scans themselves.
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=libraryscans,verbs=get;list;watch;create;update;patch
-// record.EventRecorder (the recorder Movie and Series use, and the one
-// mgr.GetEventRecorderFor returns) writes core/v1 Events, so the core group is
-// what this needs. Wave 1's controllers declare events.k8s.io for the same
-// recorder; that looks like a mismatch worth a follow-up, and is not corrected
-// here because pkg/k8s and catalogarr are not this task's paths.
+// record.EventRecorder (the recorder Movie, Series, Episode, MediaFile and
+// Search use, and the one mgr.GetEventRecorderFor returns) writes core/v1
+// Events, so the core group is what this needs. Wave 1's controllers declared
+// events.k8s.io for that same recorder, which meant the generated Role
+// granted a group nobody wrote and omitted the one they did; Task C12a
+// corrected the four that were wrong and left events.k8s.io on the four that
+// take a tools/events recorder and really do write it.
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // SetupWithManager registers the schedule controller.

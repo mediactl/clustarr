@@ -30,6 +30,16 @@ import (
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 )
 
+// The gateway's own RBAC. It runs as RoleMetadata, in its own single-replica
+// Deployment (§3), so it cannot rely on the MetadataProvider controller's
+// markers being in force in the same pod -- even though controller-gen folds
+// every marker into one ClusterRole today.
+//
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=metadataproviders,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies/status;series/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+
 // Options configures Setup. Client and Bus are required; everything else
 // defaults.
 type Options struct {

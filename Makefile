@@ -14,7 +14,14 @@ CRD_DIR := config/crd/bases
 
 # Service packages the RBAC role is generated from. They are scaffolded over
 # time, so the manifests target only passes the ones that exist on disk.
-RBAC_DIRS := catalogarr indexarr grabarr squasharr captionarr
+#
+# importarr was missing until Task C12a: its controllers carried markers that
+# never reached config/rbac/role.yaml, so the generated Role granted none of
+# the LibraryScan, ImportExclusion or RootFolder-schedule permissions and the
+# service would have been denied on every write on a real cluster. Keep this
+# list in step with the service directories that carry +kubebuilder:rbac
+# markers.
+RBAC_DIRS := catalogarr importarr indexarr grabarr squasharr captionarr
 
 .PHONY: all
 all: generate manifests build

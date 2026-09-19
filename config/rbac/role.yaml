@@ -5,12 +5,26 @@ metadata:
   name: clustarr-manager-role
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
   - catalog.clustarr.io
   resources:
   - delayprofiles
-  - mediafiles
-  - qualityprofiles
-  - rootfolders
+  - metadataproviders
   verbs:
   - get
   - list
@@ -18,7 +32,26 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
+  - delayprofiles/status
+  - episodes/status
+  - importexclusions/status
+  - libraryscans/status
+  - mediafiles/status
+  - metadataproviders/status
+  - movies/status
+  - qualityprofiles/status
+  - rootfolders/status
+  - searches/status
+  - series/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
   - episodes
+  - mediafiles
   verbs:
   - create
   - get
@@ -30,6 +63,7 @@ rules:
   - catalog.clustarr.io
   resources:
   - episodes/finalizers
+  - importexclusions/finalizers
   - movies/finalizers
   - series/finalizers
   verbs:
@@ -37,17 +71,18 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
-  - episodes/status
-  - movies/status
-  - searches/status
-  - series/status
+  - importexclusions
+  - rootfolders
   verbs:
   - get
+  - list
   - patch
   - update
+  - watch
 - apiGroups:
   - catalog.clustarr.io
   resources:
+  - libraryscans
   - movies
   - searches
   - series
@@ -58,6 +93,16 @@ rules:
   - list
   - patch
   - update
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - qualityprofiles
+  verbs:
+  - create
+  - delete
+  - get
+  - list
   - watch
 - apiGroups:
   - download.clustarr.io
@@ -79,16 +124,25 @@ rules:
   - update
   - watch
 - apiGroups:
-  - events.k8s.io
-  resources:
-  - events
-  verbs:
-  - create
-  - patch
-- apiGroups:
   - index.clustarr.io
   resources:
   - indexers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - subtitle.clustarr.io
+  resources:
+  - subtitlerequests
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - transcode.clustarr.io
+  resources:
+  - transcodejobs
   verbs:
   - get
   - list

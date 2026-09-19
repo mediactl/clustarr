@@ -168,7 +168,7 @@ func Run(ctx context.Context, o Options) error {
 		return fmt.Errorf("indexarr: build manager: %w", err)
 	}
 
-	bus, nc, err := k8s.ConnectBus(o.NATSURL, ServiceName)
+	bus, nc, err := k8s.ConnectBus(o.NATSURL, ServiceName, k8s.WithBusHooks(obs.BusHooks()))
 	if err != nil {
 		return err
 	}

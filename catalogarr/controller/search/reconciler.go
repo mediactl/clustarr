@@ -79,7 +79,15 @@ const queueFullRequeue = time.Minute
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=series,verbs=get;list;watch
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
+// The Events group is "" and not events.k8s.io: this reconciler takes a
+// k8s.io/client-go/tools/record.EventRecorder, which is what
+// mgr.GetEventRecorderFor returns, and that writes CORE/v1 Events. The
+// generated Role granting events.k8s.io instead would have had every event
+// emission denied on a real cluster -- envtest does not enforce RBAC, so no
+// suite could see it. See catalogarr's setupControllers for the split in this
+// tree: the controllers taking a tools/events recorder (rootfolder,
+// qualityprofile, delayprofile, metadataprovider) keep events.k8s.io.
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconciler reconciles Search. It is the sole writer of Search's
 // status.phase, status.conditions, status.observedGeneration,

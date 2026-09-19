@@ -33,12 +33,30 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/catalogarr/controller/delayprofile"
+	"github.com/mediactl/clustarr/catalogarr/controller/episode"
+	"github.com/mediactl/clustarr/catalogarr/controller/mediafile"
+	"github.com/mediactl/clustarr/catalogarr/controller/metadataprovider"
+	"github.com/mediactl/clustarr/catalogarr/controller/movie"
+	"github.com/mediactl/clustarr/catalogarr/controller/qualityprofile"
+	"github.com/mediactl/clustarr/catalogarr/controller/rootfolder"
+	searchctl "github.com/mediactl/clustarr/catalogarr/controller/search"
+	"github.com/mediactl/clustarr/catalogarr/controller/series"
+	"github.com/mediactl/clustarr/catalogarr/controller/wantedcron"
+	catalogmetadata "github.com/mediactl/clustarr/catalogarr/metadata"
+	"github.com/mediactl/clustarr/catalogarr/worker/grab"
+	"github.com/mediactl/clustarr/catalogarr/worker/rssmatcher"
+	"github.com/mediactl/clustarr/catalogarr/worker/search"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
 
 // Service identity, from §2 and §6.1.
@@ -210,7 +228,7 @@ func Run(ctx context.Context, o Options) error {
 		return fmt.Errorf("catalogarr: build manager: %w", err)
 	}
 
-	bus, nc, err := k8s.ConnectBus(o.NATSURL, ServiceName)
+	bus, nc, err := k8s.ConnectBus(o.NATSURL, ServiceName, k8s.WithBusHooks(obs.BusHooks()))
 	if err != nil {
 		return err
 	}
@@ -224,14 +242,24 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 
+	cacheReady, err := k8s.CacheSyncChecker(mgr)
+	if err != nil {
+		return err
+	}
 	if err := k8s.AddProbes(mgr, map[string]healthz.Checker{
 		"jetstream": k8s.BusReadyChecker(nc, bus),
+		// §13 names only the JetStream ping. The Kubernetes half matters
+		// more here: every catalogarr controller and worker reads through
+		// the manager's cache, and an unsynced cache does not fail -- it
+		// reports an EMPTY cluster, which reads as "nothing to reconcile"
+		// rather than "not ready yet".
+		"cache": cacheReady,
 	}); err != nil {
 		return err
 	}
 
 	if o.Role.RunsControllers() {
-		if err := setupControllers(mgr, o); err != nil {
+		if err := setupControllers(mgr, bus, o); err != nil {
 			return err
 		}
 	}
@@ -248,40 +276,218 @@ func Run(ctx context.Context, o Options) error {
 	return nil
 }
 
-// setupControllers is the registration point for every catalog reconciler.
-// It registers nothing yet: M0 ships the CRDs, this binary and pkg/k8s, and
-// the reconcilers land in the milestones below.
+// setupControllers registers every catalog reconciler (§6.1, §16 M1), plus
+// the wantedcron sweep, which is a manager.Runnable rather than a reconciler
+// because it reconciles nothing -- only a clock.
 //
-// TODO(M1): movie, series, episode, mediafile, rootfolder, qualityprofile,
-// delayprofile, metadataprovider, search. (§6.1, §16 M1)
 // TODO(M6): artist, album, author, book, audiobook, comic, issue.
 // (§6.1, §16 M6)
 //
 // The importer, importlist and importexclusion controllers are NOT here:
-// amendment §A1.2/§A1.3 moved them to importarr, whose run.go carries the
-// TODOs. Building them here would break the MediaFile single-writer split
-// (importarr owns what it observed, catalogarr owns what it decided).
+// amendment §A1.2/§A1.3 moved them to importarr, whose run.go registers them.
+// Building them here would break the MediaFile single-writer split (importarr
+// owns what it observed, catalogarr owns what it decided).
 //
-// wantedcron (the 12h missing/cutoff-unmet scan) lands with M1 as a manager
-// Runnable rather than a reconciler.
-func setupControllers(mgr ctrl.Manager, o Options) error {
-	_, _ = mgr, o
+// Two recorder conventions coexist in this tree and both are wired here.
+//
+// The reconcilers written in wave 1 (movie, series, episode, mediafile,
+// search, and importarr's rootfolderschedule) take a
+// k8s.io/client-go/tools/record.EventRecorder, which is what the DEPRECATED
+// mgr.GetEventRecorderFor returns and which writes CORE/v1 Events. The
+// profile and provider reconcilers take a k8s.io/client-go/tools/events
+// EventRecorder, which mgr.GetEventRecorder returns and which writes
+// events.k8s.io/v1 -- the API §13 actually asks for. Their RBAC markers
+// differ to match, and the generated Role grants both groups.
+//
+// Until Task C12a the wave 1 controllers declared events.k8s.io while
+// writing core/v1, so the generated Role granted a group nobody wrote and
+// omitted the one they did: on a real cluster every one of their events would
+// have been denied, and no envtest could see it because envtest does not
+// enforce RBAC. The markers are now honest. Migrating those six onto
+// mgr.GetEventRecorder -- which would retire the deprecated call below and
+// leave one convention -- is follow-up work: three of the six are in packages
+// other tasks held open while this one ran.
+func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
+	c := mgr.GetClient()
+	scheme := mgr.GetScheme()
+
+	if err := (&movie.Reconciler{
+		Client:   c,
+		Scheme:   scheme,
+		Recorder: mgr.GetEventRecorderFor("movie"), //nolint:staticcheck // record.EventRecorder; see the note above
+		Bus:      bus,
+	}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("catalogarr: movie: %w", err)
+	}
+
+	if err := (&series.Reconciler{
+		Client:   c,
+		Scheme:   scheme,
+		Recorder: mgr.GetEventRecorderFor("series"), //nolint:staticcheck // record.EventRecorder; see the note above
+		Bus:      bus,
+	}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("catalogarr: series: %w", err)
+	}
+
+	if err := (&episode.Reconciler{
+		Client:   c,
+		Scheme:   scheme,
+		Recorder: mgr.GetEventRecorderFor("episode"), //nolint:staticcheck // record.EventRecorder; see the note above
+	}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("catalogarr: episode: %w", err)
+	}
+
+	if err := mediafile.NewReconciler(c, scheme,
+		mgr.GetEventRecorderFor("mediafile"), //nolint:staticcheck // record.EventRecorder; see the note above
+	).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("catalogarr: mediafile: %w", err)
+	}
+
+	if err := rootfolder.NewReconciler(c, mgr.GetEventRecorder("rootfolder")).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("catalogarr: rootfolder: %w", err)
+	}
+
+	if err := qualityprofile.NewReconciler(c, catalogue.LoadedCatalogue(),
+		mgr.GetEventRecorder("qualityprofile")).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("catalogarr: qualityprofile: %w", err)
+	}
+
+	if err := delayprofile.NewReconciler(c, mgr.GetEventRecorder("delayprofile")).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("catalogarr: delayprofile: %w", err)
+	}
+
+	if err := metadataprovider.NewReconciler(c, mgr.GetEventRecorder("metadataprovider"),
+		defaultHTTPClient).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("catalogarr: metadataprovider: %w", err)
+	}
+
+	if err := searchctl.NewReconciler(c, bus,
+		mgr.GetEventRecorderFor("search"), //nolint:staticcheck // record.EventRecorder; see the note above
+	).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("catalogarr: search: %w", err)
+	}
+
+	// §6.1's twelve-hourly missing/cutoff-unmet sweep. It is leader-elected
+	// (see Runnable.NeedLeaderElection), so a sweep fires once per cluster
+	// rather than once per replica.
+	if err := (&wantedcron.Runnable{
+		Client:     c,
+		Bus:        bus,
+		Schedule:   wantedcron.TwelveHourly(),
+		Namespaces: o.WatchNamespaces,
+	}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("catalogarr: wantedcron: %w", err)
+	}
+
 	return nil
 }
 
-// setupWorkers is the registration point for the queue consumers, the metadata
-// gateway and the history sink.
+// setupWorkers registers the queue consumers and the metadata gateway.
 //
-// TODO(M1): search, grab and rss-matcher consumers with the KV grab lease and
-// delay profiles; the metadata gateway (RoleMetadata) serving
-// rpc.catalogarr.metadata.* with per-provider rate limiters and the otter/KV
-// cache tiers. (§6.1, §16 M1)
 // TODO(M6): the history sink plus DLQ projector (RoleHistory) writing
 // events.k8s.io Events on the owning CR. (§13, §16 M6)
 //
 // The import and importlist consumers are importarr's
 // (work.importarr.fileimport, work.importarr.list -- amendment §A1.6).
 func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
-	_, _, _ = mgr, bus, o
+	if o.Role.Has(RoleWorker) || o.Role.Has(RoleAll) {
+		if err := setupQueueWorkers(mgr, bus); err != nil {
+			return err
+		}
+	}
+	if o.Role.Has(RoleMetadata) || o.Role.Has(RoleAll) {
+		if err := setupMetadataGateway(mgr, bus); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// setupQueueWorkers registers the search, grab and rss-matcher consumers.
+//
+// Order is load-bearing and is the reason the indexes are registered here
+// rather than by whichever worker happens to want them first: the RSS matcher
+// reads the blocklist and the queue through catalogarr/worker/search's three
+// Download indexes, and when they are missing its lookups degrade to "not
+// blocklisted, empty queue" with a warning rather than an error. See
+// registerWorkerIndexes and assertWorkerIndexes, which turn that silent
+// degradation into a startup failure.
+func setupQueueWorkers(mgr ctrl.Manager, bus events.Bus) error {
+	c := mgr.GetClient()
+	cat := catalogue.LoadedCatalogue()
+
+	if err := registerWorkerIndexes(context.Background(), mgr); err != nil {
+		return err
+	}
+	if err := assertWorkerIndexes(mgr); err != nil {
+		return fmt.Errorf("catalogarr: assert worker indexes: %w", err)
+	}
+
+	grabDeps := grab.Deps{Client: c, Bus: bus}
+
+	// The bridge from the search worker's ranked results to a grab (§8.2's
+	// two halves). Both resolvers must be set: grab.Sink logs a warning and
+	// DROPS an approved release when either is nil, which would make the
+	// whole automatic-search path a silent no-op.
+	sink := grab.Sink{
+		Deps: grabDeps,
+		ResolveProfile: func(ctx context.Context, name string) (quality.Profile, error) {
+			return resolveQualityProfile(ctx, c, name, cat)
+		},
+		ResolveDelay: func(ctx context.Context, ns string, ref *string, tags []string) (catalogv1alpha1.DelayProfileSpec, error) {
+			return resolveDelayProfile(ctx, c, ns, ref, tags)
+		},
+	}
+
+	searchWorker := search.NewWorker(c, search.NewBusSearchRPC(bus), cat)
+	searchWorker.Sink = sink
+	if err := searchWorker.SetupWithManager(mgr, bus); err != nil {
+		return fmt.Errorf("catalogarr: subscribe search: %w", err)
+	}
+
+	if err := grab.NewHandler(grabDeps).SetupWithManager(mgr, bus); err != nil {
+		return fmt.Errorf("catalogarr: subscribe grab: %w", err)
+	}
+
+	if err := rssmatcher.NewHandler(rssmatcher.Deps{
+		Client:    c,
+		Bus:       bus,
+		Catalogue: cat,
+	}).SetupWithManager(mgr, bus); err != nil {
+		return fmt.Errorf("catalogarr: subscribe rss-matcher: %w", err)
+	}
+
+	return nil
+}
+
+// setupMetadataGateway registers RoleMetadata's gateway: every outbound
+// metadata client, their rate limiters and the two cache tiers, serving
+// rpc.catalogarr.metadata.* and the work.catalogarr.metadata.<tier> consumer.
+//
+// It is a Runnable rather than a direct call because catalogmetadata.Setup
+// Lists MetadataProviders through the manager's client: called before
+// mgr.Start it would read an unsynced cache and build a registry with no
+// providers in it. Runnables added this way start only after the caches have
+// synced, and the subscription's lifetime is then the manager's.
+//
+// §3 pins this role to exactly one replica -- its in-process rate limiters
+// are what keep Clustarr inside every provider's quota -- which is why
+// `--role all` is not what the manifests run for the main Deployment.
+func setupMetadataGateway(mgr ctrl.Manager, bus events.Bus) error {
+	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		stop, err := catalogmetadata.Setup(ctx, catalogmetadata.Options{
+			Client:     mgr.GetClient(),
+			Bus:        bus,
+			HTTPClient: defaultHTTPClient,
+		})
+		if err != nil {
+			return fmt.Errorf("catalogarr: metadata gateway: %w", err)
+		}
+		defer stop()
+		<-ctx.Done()
+		return nil
+	})); err != nil {
+		return fmt.Errorf("catalogarr: add the metadata gateway: %w", err)
+	}
 	return nil
 }

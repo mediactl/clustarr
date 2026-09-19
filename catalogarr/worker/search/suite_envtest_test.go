@@ -137,8 +137,8 @@ func eventually(t *testing.T, timeout time.Duration, msg string, cond func() boo
 func strPtr(s string) *string { return &s }
 
 // newManagerWithoutIndexes builds a manager with no field indexes registered,
-// for the test that proves Worker.SetupWithManager registers them itself. It
-// is not started; the caller does that.
+// so a test can register exactly the ones it wants to exercise. It is not
+// started; the caller does that.
 func newManagerWithoutIndexes(t *testing.T) ctrl.Manager {
 	t.Helper()
 	requireEnvtest(t)

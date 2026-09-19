@@ -32,14 +32,24 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	"github.com/mediactl/clustarr/catalogarr"
+	"github.com/mediactl/clustarr/importarr"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
 // TestServiceStartsServesProbesAndStopsOnSignal is the M0 acceptance check for
-// the binary: a service comes up against a real apiserver and a real JetStream
-// server, answers /healthz and /readyz, and returns cleanly when its context is
-// cancelled -- which is exactly what SIGTERM does through
-// ctrl.SetupSignalHandler.
+// the binary, extended by Task C12a into the role-flag check: a service comes
+// up against a real apiserver and a real JetStream server WITH every
+// controller and worker its --role selects actually registered, answers
+// /healthz and /readyz, and returns cleanly when its context is cancelled --
+// which is exactly what SIGTERM does through ctrl.SetupSignalHandler.
+//
+// The roles matter because registration is where wiring fails: a duplicate
+// controller name, a field index registered twice, a Runnable added after the
+// manager started. All of those are hard errors from Run, and none of them is
+// reachable from a unit test. Readiness is the second half: since C12a it
+// covers the informer caches as well as the JetStream ping for catalogarr,
+// and /data for importarr's worker roles, so a 200 from /readyz is a
+// statement about the caches too.
 //
 // It needs the envtest control-plane binaries and skips without them, like
 // pkg/crdcheck; `make test` sets KUBEBUILDER_ASSETS.
@@ -69,44 +79,114 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 	t.Setenv("KUBECONFIG", kubeconfig)
 
 	natsURL := startEmbeddedNATS(t)
-	probeAddr := freeAddress(t)
 
-	o := catalogarr.DefaultOptions()
-	o.Role = catalogarr.RoleController
-	o.Namespace = "default"
-	o.LeaderElect = false
-	o.MetricsBindAddress = k8s.DisabledBindAddress
-	o.HealthProbeBindAddress = probeAddr
-	o.NATSURL = natsURL
-	o.BusSingleNode = true
-	o.GracefulShutdownTimeout = 10 * time.Second
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- catalogarr.Run(ctx, o) }()
-
-	// /healthz is a ping and comes up with the probe listener.
-	waitForProbe(t, "http://"+probeAddr+"/healthz")
-
-	// /readyz additionally pings JetStream (§13), which is why the embedded
-	// server has to be running for this to ever pass.
-	waitForProbe(t, "http://"+probeAddr+"/readyz")
-
-	// SIGTERM cancels the signal-handler context; cancelling here is the
-	// same path.
-	cancel()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("Run returned %v on a clean shutdown", err)
-		}
-	case <-time.After(30 * time.Second):
-		t.Fatal("Run did not return within 30s of its context being cancelled")
+	// One case per role that is worth standing up, in an order that respects
+	// a constraint controller-runtime imposes on the whole PROCESS:
+	// controller names are unique per binary, not per manager
+	// ("controller with name movie already exists"), because they label
+	// per-controller metrics in one process-wide registry. So a single test
+	// binary can register the catalog controllers exactly once. Production is
+	// unaffected -- each service has one manager -- and `clustarr all` works
+	// precisely because catalogarr's names (movie, series, episode,
+	// mediafile, rootfolder, qualityprofile, delayprofile, metadataprovider,
+	// search) and importarr's (libraryscan, rootfolderschedule,
+	// importexclusion) are disjoint. Running catalogarr/all and importarr/all
+	// in this one binary is what proves that.
+	//
+	// The roles that register no named controller -- worker and metadata,
+	// whose consumers are manager Runnables -- can therefore run alongside
+	// the "all" cases, and do.
+	cases := []struct {
+		name string
+		run  func(ctx context.Context, o k8s.Options) error
+	}{
+		{"catalogarr/worker", func(ctx context.Context, o k8s.Options) error {
+			d := catalogarr.DefaultOptions()
+			d.Options, d.Role = o, catalogarr.RoleWorker
+			return catalogarr.Run(ctx, d)
+		}},
+		{"catalogarr/metadata", func(ctx context.Context, o k8s.Options) error {
+			d := catalogarr.DefaultOptions()
+			d.Options, d.Role = o, catalogarr.RoleMetadata
+			return catalogarr.Run(ctx, d)
+		}},
+		{"importarr/worker", func(ctx context.Context, o k8s.Options) error {
+			d := importarr.DefaultOptions()
+			d.Options, d.Role = o, importarr.RoleWorker
+			// The worker roles gate readiness on a writable /data
+			// (amendment §A1.6); a dev box has no such mount.
+			d.DataPath = t.TempDir()
+			return importarr.Run(ctx, d)
+		}},
+		// The two "all" cases come last and are each the superset of their
+		// service's roles: controllers, workers and (for catalogarr) the
+		// metadata gateway, in one manager. Together they are `clustarr all`
+		// minus the services that still register nothing.
+		{"catalogarr/all", func(ctx context.Context, o k8s.Options) error {
+			d := catalogarr.DefaultOptions()
+			d.Options, d.Role = o, catalogarr.RoleAll
+			return catalogarr.Run(ctx, d)
+		}},
+		{"importarr/all", func(ctx context.Context, o k8s.Options) error {
+			d := importarr.DefaultOptions()
+			d.Options, d.Role = o, importarr.RoleAll
+			d.DataPath = t.TempDir()
+			return importarr.Run(ctx, d)
+		}},
 	}
 
-	// The probe listener is gone once the manager has stopped.
-	if _, err := http.Get("http://" + probeAddr + "/healthz"); err == nil { //nolint:noctx // liveness of a closed listener
-		t.Error("the health probe endpoint is still listening after shutdown")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			probeAddr := freeAddress(t)
+
+			o := k8s.DefaultOptions()
+			o.Namespace = "default"
+			o.LeaderElect = false
+			o.MetricsBindAddress = k8s.DisabledBindAddress
+			o.HealthProbeBindAddress = probeAddr
+			o.NATSURL = natsURL
+			o.BusSingleNode = true
+			o.GracefulShutdownTimeout = 10 * time.Second
+
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan error, 1)
+			go func() { done <- tc.run(ctx, o) }()
+
+			// A registration failure returns from Run immediately, long
+			// before any probe answers, so surface it rather than waiting
+			// out the probe deadline.
+			select {
+			case err := <-done:
+				cancel()
+				t.Fatalf("Run returned before serving probes: %v", err)
+			case <-time.After(100 * time.Millisecond):
+			}
+
+			// /healthz is a ping and comes up with the probe listener.
+			waitForProbe(t, "http://"+probeAddr+"/healthz")
+
+			// /readyz additionally pings JetStream (§13) and, since Task
+			// C12a, waits on the informer caches -- and on a writable /data
+			// for importarr's worker roles.
+			waitForProbe(t, "http://"+probeAddr+"/readyz")
+
+			// SIGTERM cancels the signal-handler context; cancelling here is
+			// the same path.
+			cancel()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatalf("Run returned %v on a clean shutdown", err)
+				}
+			case <-time.After(30 * time.Second):
+				t.Fatal("Run did not return within 30s of its context being cancelled")
+			}
+
+			// The probe listener is gone once the manager has stopped.
+			if _, err := http.Get("http://" + probeAddr + "/healthz"); err == nil { //nolint:noctx // liveness of a closed listener
+				t.Error("the health probe endpoint is still listening after shutdown")
+			}
+		})
 	}
 }
 

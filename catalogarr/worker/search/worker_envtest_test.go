@@ -419,8 +419,11 @@ func TestWorkerSetupWithManagerSubscribesBothSearchConsumers(t *testing.T) {
 	require.NoError(t, bus.Ensure(ctx, events.Default()))
 
 	// A second manager: newTestManager already registered the indexes on the
-	// first, and SetupWithManager registers them itself.
+	// first. Since Task C12a, SetupWithManager no longer registers them
+	// itself -- catalogarr's registerWorkerIndexes owns that, once, for every
+	// worker role -- so this test makes the same call the wiring does.
 	mgr := newManagerWithoutIndexes(t)
+	require.NoError(t, search.RegisterDownloadIndexes(ctx, mgr.GetFieldIndexer()))
 	require.NoError(t, f.worker.SetupWithManager(mgr, bus))
 
 	runCtx, cancel := context.WithCancel(ctx)

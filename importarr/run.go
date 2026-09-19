@@ -36,10 +36,16 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
+	"github.com/mediactl/clustarr/importarr/controller/importexclusion"
+	"github.com/mediactl/clustarr/importarr/controller/libraryscan"
+	"github.com/mediactl/clustarr/importarr/controller/rootfolderschedule"
+	"github.com/mediactl/clustarr/importarr/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs"
@@ -228,7 +234,7 @@ func Run(ctx context.Context, o Options) error {
 		return fmt.Errorf("importarr: build manager: %w", err)
 	}
 
-	bus, nc, err := k8s.ConnectBus(o.NATSURL, ServiceName)
+	bus, nc, err := k8s.ConnectBus(o.NATSURL, ServiceName, k8s.WithBusHooks(obs.BusHooks()))
 	if err != nil {
 		return err
 	}
@@ -242,8 +248,17 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 
+	cacheReady, err := k8s.CacheSyncChecker(mgr)
+	if err != nil {
+		return err
+	}
 	ready := map[string]healthz.Checker{
 		"jetstream": k8s.BusReadyChecker(nc, bus),
+		// §13 lists only the JetStream ping, but a manager whose informers
+		// have not synced serves a cold cache: the scan schedule would see no
+		// RootFolders and the exclusion controller no exclusions, both of
+		// which read as "nothing to do" rather than as "not ready yet".
+		"cache": cacheReady,
 	}
 	if o.Role.RunsWorkers() {
 		// A scan or import worker that cannot write the library must not
@@ -255,7 +270,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 
 	if o.Role.RunsControllers() {
-		if err := setupControllers(mgr, o); err != nil {
+		if err := setupControllers(mgr, bus, o); err != nil {
 			return err
 		}
 	}
@@ -302,40 +317,82 @@ func DataReadyChecker(path string) healthz.Checker {
 	}
 }
 
-// setupControllers is the registration point for the import-list,
-// import-exclusion, library-scan and root-folder reconcilers. It registers
-// nothing yet: M0 ships the CRDs, this binary and pkg/k8s, and the
-// reconcilers land in the milestones below.
+// setupControllers registers importarr's leader-elected reconcilers
+// (amendment §A1.2, §A1.3, §A1.6; §16 M1). Each call is the one its package's
+// doc.go prescribes.
 //
-// TODO(M1): ImportList, ImportExclusion, LibraryScan, RootFolder schedule
-// controllers. (amendment §A1.2, §A1.3; §6.1, §16 M1)
-// TODO(M3): the importer -- Watches Downloads, Completed/Seeding/Failed via
+// The importer -- Watches Downloads, Completed/Seeding/Failed via
 // k8s.StatusFieldIn, and the only cross-group status write in the project
-// (Download.status.import). Moved here from catalogarr by amendment §A1.2;
-// it is the reason MediaFile has a split writer, with importarr owning
-// status.file and status.probe (what it observed) and catalogarr owning
-// status.quality and status.formatScore (what it decided).
+// (Download.status.import) -- is M3's and is not registered here yet.
 // (§6.1, §10, §16 M3)
-func setupControllers(mgr ctrl.Manager, o Options) error {
-	_, _ = mgr, o
+func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
+	_ = o
+
+	if err := (&libraryscan.Reconciler{
+		Client: mgr.GetClient(),
+		Bus:    bus,
+		Clock:  time.Now,
+	}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("importarr: libraryscan: %w", err)
+	}
+
+	// GetEventRecorderFor is deprecated, and used deliberately: this
+	// reconciler's Recorder field is a
+	// k8s.io/client-go/tools/record.EventRecorder, which is the only thing
+	// that call returns. mgr.GetEventRecorder yields the events.k8s.io/v1
+	// recorder instead, and moving to it means changing the reconciler's
+	// field type -- see catalogarr's setupControllers for the tree-wide
+	// split and the follow-up that would retire this call.
+	if err := (&rootfolderschedule.Reconciler{
+		Client:   mgr.GetClient(),
+		Recorder: mgr.GetEventRecorderFor("rootfolderschedule"), //nolint:staticcheck // see above
+		Clock:    time.Now,
+	}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("importarr: rootfolderschedule: %w", err)
+	}
+
+	if err := (&importexclusion.Reconciler{
+		Client: mgr.GetClient(),
+		Bus:    bus,
+	}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("importarr: importexclusion: %w", err)
+	}
+
 	return nil
 }
 
-// setupWorkers is the registration point for the work.importarr.scan,
-// work.importarr.list and work.importarr.fileimport consumers (amendment
-// §A1.6). It registers nothing yet.
+// setupWorkers registers the work.importarr.* consumers (amendment §A1.6).
 //
-// TODO(M1): the scan and list consumers (work.importarr.scan,
-// work.importarr.list), chunked by directory so a large library scan is not
-// one multi-hour unit of work. The scanner never guesses: an unattributable
-// file goes to LibraryScan.status.unmatched with the reason, never a
-// speculative item. (amendment §A1.3, §A1.6; §16 M1)
 // TODO(M3): the fileimport consumer (work.importarr.fileimport), the
 // CompletedDownloadService port, and the Download.status.import write it
 // performs. Moved here from catalogarr by amendment §A1.2. (§16 M3)
-// TODO(M6): the import-list consumer's non-video sources, alongside the
-// non-video inventory kinds. (§16 M6)
+// TODO(M6): the import-list consumer (work.importarr.list) and its non-video
+// sources, alongside the non-video inventory kinds. (§16 M6)
 func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
-	_, _, _ = mgr, bus, o
+	// The spec.path field index the incremental fingerprint check reads. It
+	// must be registered before the manager starts, which is why it is here
+	// and not inside the worker's own Handle.
+	if err := rescan.IndexMediaFileByPath(context.Background(), mgr); err != nil {
+		return fmt.Errorf("importarr: index mediafile path: %w", err)
+	}
+
+	spec, ok := o.BusTopology().Consumer(events.ConsumerImportScan)
+	if !ok {
+		return fmt.Errorf("importarr: consumer %s missing from topology", events.ConsumerImportScan)
+	}
+	worker := rescan.NewWorker(mgr.GetClient(), bus)
+	sub := spec.Subscription()
+	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		stop, err := bus.Subscribe(ctx, sub, worker.Handle)
+		if err != nil {
+			return fmt.Errorf("importarr: subscribe %s: %w", events.ConsumerImportScan, err)
+		}
+		defer stop()
+		<-ctx.Done()
+		return nil
+	})); err != nil {
+		return fmt.Errorf("importarr: add %s consumer: %w", events.ConsumerImportScan, err)
+	}
+
 	return nil
 }
