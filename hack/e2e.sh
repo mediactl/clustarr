@@ -102,6 +102,13 @@ for workload in "${WORKLOADS[@]}"; do
     || die "${workload} never became ready"
 done
 
+# `make e2e` is a plain `go test` with no -count=1, and Go will happily replay
+# a cached PASS for an unchanged test binary -- reporting green without ever
+# touching the cluster. The Makefile target's contract is fixed, so drop the
+# cached results here instead. It costs the next `make test` a recompile.
+log "clearing the go test cache so make e2e cannot replay a cached PASS"
+go clean -testcache || die "go clean -testcache failed"
+
 log "running make e2e"
 if [[ -n "${E2E_ARGS:-}" ]]; then
   # shellcheck disable=SC2086 # E2E_ARGS is a deliberate word-split escape hatch
