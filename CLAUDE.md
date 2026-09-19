@@ -126,6 +126,18 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   field Y" test that does not deliberately drop the co-owner reports a false
   pass — which is how the rollup release above survived three reviews.
 
+  - **A sibling controller never got the fix its siblings did.** Movie and
+    Series gained `reassertKnownStatus`; `mediafile`, built in the same wave,
+    kept both partial early returns *and* a second unconditional status apply
+    at the end of every reconcile. Once a rule goes in here, sweep every
+    controller for it — the rule existing is not the same as the code obeying
+    it.
+
+  **`reassertKnownStatus` has an exception.** `MediaFileStatus`' `Conditions`
+  and `Sidecars` are lists whose generated `With*` methods **append**, so a
+  reassert-then-overwrite helper doubles their entries. Seed a struct and
+  render it once instead of copying the sibling pattern verbatim.
+
   A related trap, same apply, different mechanism: **`WithConditions` appends**
   rather than replacing, so setting conditions both in a shared `baseStatus`
   helper and again at the call site is rejected outright with `duplicate
@@ -139,6 +151,18 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
 - **Never run `go get` or `go mod tidy` from parallel agents.** They corrupt
   `go.mod`. Add every dependency serially up front, then tell workers not to touch
   it.
+- **A NATS KV key must match `^[-/_=\.a-zA-Z0-9]+$`, and nothing in the Go
+  types enforces it.** Build every key through `events.KVKeyToken`; its
+  escaping is injective on purpose, because a sanitiser that maps every
+  illegal byte to one replacement collapses distinct ids onto one key and
+  serves one item's state for another. This escaped twice: an illegal cache
+  key made **every** metadata refresh fail forever, and an illegal exclusion
+  key left the object **undeletable**, because the finalizer's `Delete`
+  validates the key exactly as the `Put` did. Both times every suite that
+  could have caught it ran against the in-memory bus, which has no key
+  grammar — so the guard is a contract test against a real embedded server
+  (`pkg/events/natsbus/kvkey_contract_test.go`), not a regex restated in a
+  test file.
 - **Use `github.com/dlclark/regexp2`, not stdlib `regexp`, for TRaSH patterns.**
   Go's RE2 rejects 157 of the 2791 custom-format regexes (backtracking,
   lookaround). Set `IgnoreCase` and a `MatchTimeout`.
