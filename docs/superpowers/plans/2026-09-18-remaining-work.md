@@ -864,6 +864,29 @@ wired yet".
 
 ### Phase D: M2 indexers, M3 downloads and import
 
+> **Split into three plans on 2026-09-19 (user's call).** As written this phase
+> carried two milestones, a UI slice and five e2e scenarios — roughly twice
+> Phase C, which ran to 14 tasks and 176 commits on one branch. The three
+> pieces are separable subsystems with distinct CRD groups, distinct binaries
+> and a contract between them that is already fixed and already called, so
+> each can produce working, testable software on its own and merge on its own
+> green gate. Phase numbering for E–H is unchanged.
+>
+> - **D1 — `indexarr` (M2).** Generic Torznab/Newznab, caps, health, backoff,
+>   the SQLite FTS5 release index, the RSS worker, and the three RPC verbs
+>   `rpc.indexarr.search|download|query`. Lands e2e scenarios 2, 3 and 4.
+>   This is what makes Phase C's search path live: `catalogarr/worker/search`
+>   already calls `rpc.indexarr.search` and today reaches no server.
+> - **D2 — `grabarr` + `importarr`'s file-import worker (M3).** DownloadClient,
+>   the torrent and usenet engines, the Download controller and its re-attach
+>   semantics, and the completed-download import. Lands scenarios 1 (through
+>   import) and 6.
+> - **D3 — the first UI slice.** The pipeline and downloads pages over real
+>   resources. Lands the corresponding parts of scenario 14.
+>
+> The fixture image grows in the phase that needs it: the Torznab/Newznab
+> fixture indexer in D1, the seeder and NNTP stub in D2.
+
 `indexarr` with the generic Torznab and Newznab path, caps, health, backoff, the SQLite FTS5 release index and the RSS worker. Then `grabarr` download clients and engines, and `importarr`'s file-import worker.
 
 **Gate:** the first end-to-end test. A wanted movie is searched, a release is grabbed, a download completes against a local fixture, and the file is imported into a root folder with a MediaFile created. Also the first UI slice: the pipeline and downloads pages against real resources.
