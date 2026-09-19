@@ -12,20 +12,20 @@ truth and this file is stale — file an issue.
 
 ## Status: what is wired today
 
-Clustarr is pre-alpha and nothing reconciles yet. This guide describes the
-observability stack as designed, and most of it is a working library waiting
-for its first caller. Read this table before you spend a day debugging a
-collector that is receiving exactly what it should: nothing.
+Clustarr is pre-alpha, but as of Phase C the catalog and import services do
+reconcile, so parts of this stack now have real callers. The rest is still a
+working library waiting for its first one. Read this table before you spend a
+day debugging a collector that is receiving exactly what it should: nothing.
 
 | Piece | Today | Lands in |
 |---|---|---|
 | Structured logging, `--log-*` flags, logger in context | **Wired.** Every service builds its logger in `pkg/obs.Bootstrap` and controller-runtime's own output is bridged onto the same stream. | — |
-| `/metrics` endpoint and the 21 registered series | **Wired.** `pkg/obs/metrics.Register` runs once per process, so every series is exposed and scrapeable. Nothing increments the domain series yet, so most read `0`. | M1–M5, as each controller lands |
+| `/metrics` endpoint and the 22 registered series | **Wired.** `pkg/obs/metrics.Register` runs once per process, so every series is exposed and scrapeable. Phase C increments three of the domain series — `clustarr_import_unmatched_total`, `clustarr_metadata_cache_hits_total` and `clustarr_search_decisions_total`; the rest still read `0`. | M1–M5, as each controller lands |
 | `TracerProvider`, OTLP exporter, `--tracing-*` flags | **Wired.** `pkg/obs/tracing.Setup` installs the provider and the W3C propagator. | — |
-| Spans around `Reconcile`, work handlers, provider calls, `ffmpeg` | **Not yet.** `tracing.Start` has no production call sites; there is nothing to sample, so an enabled exporter sends nothing. | M1–M5, with the code each span wraps |
-| Trace propagation across the bus (`Clustarr-Trace`) | **Wired inside `pkg/events`.** Both `natsbus.Bus` and `membus.Bus` take an `events.Hooks{BeforePublish, AfterReceive}` through a `WithHooks` constructor option and call it around every publish and every receive, before the handler runs; a nil hook (the default) is a no-op, so a bus built with none behaves exactly as before. `pkg/obs.BusHooks()` returns `events.Hooks{BeforePublish: tracing.Inject, AfterReceive: tracing.Extract}` unchanged — `pkg/obs/bootstrap_test.go`'s `TestBusHooksCarryOneTraceAcrossPublishAndConsume` proves a span started before a publish is the parent of the span the consumer starts after receiving, across an in-memory bus. **Not yet true in production**, though: the one call site that builds the real bus, `pkg/k8s.ConnectBus`, still calls `natsbus.New(nc)` with no hooks, so no service passes `BusHooks()` yet. | Phase C lands the mechanism inside `pkg/events`, so no future publisher or consumer can forget it. Wiring `pkg/k8s.ConnectBus` to pass `natsbus.WithHooks(obs.BusHooks())`, and so exercising the first real end-to-end trace, is M1 per amendment §A4. |
+| Spans around `Reconcile`, work handlers, provider calls, `ffmpeg` | **Partly.** 72 production `tracing.Start` call sites: 42 in the `pkg/` provider clients (metadata, subtitles, torznab, importlist) and 30 across `catalogarr`/`importarr` — every worker handler, the metadata RPC and gateway, and six of the nine catalog controllers. **The Movie, Series and Episode reconcilers have none**, so the three busiest reconcile loops are still invisible to a trace. `ffmpeg` runs are unspanned. | M1–M5, with the code each span wraps |
+| Trace propagation across the bus (`Clustarr-Trace`) | **Wired inside `pkg/events`.** Both `natsbus.Bus` and `membus.Bus` take an `events.Hooks{BeforePublish, AfterReceive}` through a `WithHooks` constructor option and call it around every publish and every receive, before the handler runs; a nil hook (the default) is a no-op, so a bus built with none behaves exactly as before. `pkg/obs.BusHooks()` returns `events.Hooks{BeforePublish: tracing.Inject, AfterReceive: tracing.Extract}` unchanged — `pkg/obs/bootstrap_test.go`'s `TestBusHooksCarryOneTraceAcrossPublishAndConsume` proves a span started before a publish is the parent of the span the consumer starts after receiving, across an in-memory bus. **True in production as of Phase C:** `pkg/k8s.ConnectBus` takes `k8s.WithBusHooks(obs.BusHooks())` from every service's `Run`, and an AST guard over each `run.go` fails the build if a service stops passing them. `pkg/k8s` deliberately does **not** import `pkg/obs` — `Inject`/`Extract` read the otel globals `obs.Bootstrap` installs, so a default inside `ConnectBus` would be a silent no-op whenever bootstrap order slipped. The hooks cover publish, receive and both RPC legs. | Done (M1, amendment §A4). |
 | `/healthz`, `/readyz` and the `ping` check | **Wired** on every service. | — |
-| Per-role readiness checks | **Partly.** Only the JetStream check (every service) and `importarr`'s `/data` check exist; the rest of the table below is design. | M2–M5 |
+| Per-role readiness checks | **Partly.** The JetStream ping (every service), `catalogarr`'s informer-cache sync and `importarr`'s `/data` present-and-writable check exist; the rest of the table below is design. Every readiness runnable is non-leader-elected, so a non-leader replica can reach Ready — otherwise every rollout deadlocks. Still missing: `indexarr`'s release index and `grabarr`'s torrent re-attach. | M2–M5 |
 
 Everything below is written in the present tense where it is built and marked
 where it is not.
@@ -46,7 +46,7 @@ workload; there is nothing per-service to configure.
 
 ## Metric catalogue
 
-All 21 series below are registered by `pkg/obs/metrics.Register`, called once
+All 22 series below are registered by `pkg/obs/metrics.Register`, called once
 per process against controller-runtime's registry — one `/metrics` endpoint,
 one place the catalogue is defined, one place a cardinality regression would be
 caught (`pkg/obs/metrics/metrics_test.go` fails the build if a label named

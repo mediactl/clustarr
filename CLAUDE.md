@@ -173,16 +173,16 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
 
 ## Status
 
-Pre-alpha. **Nothing reconciles yet** — every `setupControllers` and
-`setupWorkers` is still an empty registration point.
+Pre-alpha, and it reconciles: `catalogarr` and `importarr` register every
+controller and worker behind their role flags, and `clustarr all` still stands
+every service up in one process.
 
 M0 (done): the 29 CRDs across five groups, `pkg/events` (NATS and in-memory
 behind one contract suite), `pkg/k8s`, the binary, manifests, chart and images.
 
 Phase A (done): `pkg/obs` (`logging`, `tracing`, `metrics`, `obs.Bootstrap`),
 `docs/observability.md`, the `LibraryScan` kind and `importarr` skeleton,
-`pkg/pipeline` and the `ui` skeleton; all services wired into the binary. The
-tracing helpers still have no production call sites (see the doc's banner).
+`pkg/pipeline` and the `ui` skeleton; all services wired into the binary.
 
 Phase B (done): the library layer, thirteen pure-Go packages (only
 `api/common/v1alpha1` shared types; `pkg/quality` alone reads catalog CRD
@@ -194,19 +194,36 @@ Match/Score, FromCRD, upgrade decision); `naming` (four dialects); `mediainfo`
 runner, cleanup, verify); `torznab`/`newznab`; `cardigann` (v11, 25 filters,
 five logins, HTML/JSON/XML); `subtitles` (Bazarr scoring, cue-aware
 post-processing, OpenSubtitles, Gestdown, embedded); `metadata` (six clients);
-`importlist` (five lists, Dedupe, ApplySyncLevel); `fsops`/`ratelimit`. Fixtures
-under `testdata/<pkg>/`, no network in tests, ffmpeg tests skip without it.
+`importlist` (five lists, Dedupe, ApplySyncLevel); `fsops`/`ratelimit`.
+Fixtures under `testdata/<pkg>/`, no network in tests, ffmpeg tests skip
+without it.
 
-Next: **Phase C** (M1 catalog core and library rescan, plus wiring trace
-propagation into `pkg/events`), then M2 indexers → M3 downloads, import and
-the first UI slice → M4 transcode → M5 subtitles → M6 Prowlarr parity, import
-lists and non-video inventory, and finally **Phase H: end-to-end proof on
-kind**. Phase detail is in `docs/superpowers/plans/2026-09-18-remaining-work.md`;
-milestone detail is in the spec's §16 and amendment §A4.
+Phase C (done): M1 catalog core and library rescan — the first phase that
+reconciles. `catalogarr` controllers for Movie, Series, Episode, MediaFile,
+RootFolder, QualityProfile (a `Bootstrap` runnable seeds the 13 TRaSH
+built-ins), DelayProfile, MetadataProvider and Search; the metadata gateway
+(registry over Phase B's clients, RPC plus work queue, L1 memory + L2 NATS KV);
+`pkg/decision` (`Evaluate`/`Rank`) over `quality.Profile`; the search, grab (KV
+lease, delay profiles) and RSS-matcher workers and the wanted cron. `importarr`
+controllers for LibraryScan, the RootFolder schedule and ImportExclusion, plus
+the rescan worker under the never-guess rule. Traces now cross the bus in
+production (`pkg/events` hooks; every `run.go` passes
+`k8s.WithBusHooks(obs.BusHooks())` to `k8s.ConnectBus`, AST-guarded); RBAC
+generates from controller markers, with a byte-for-byte test holding the
+chart's copy to it; readiness is per-service and runs on every replica, not
+only the leader; `test/e2e`, `config/e2e`, the fixture image and `hack/e2e.sh`
+land scenarios 5, 7 and 8 on kind.
 
-**Nothing is finished until it is proven end to end on a kind cluster.**
-Every phase from C onward lands its milestone's scenarios in `test/e2e`
-(real CRs, real controllers, real NATS, real files under `/data`, in-cluster
-fixture services, no Internet) and keeps `hack/e2e.sh` green; Phase H audits
-that every scenario in the plan exists and passes. Unit, envtest and
-build-tagged integration suites do not substitute for it.
+Next: **Phase D** (M2 indexers, then M3 downloads, import and the first UI
+slice) → M4 transcode → M5 subtitles → M6 parity, import lists and non-video
+inventory, then **Phase H: end-to-end proof on kind**. Phase detail, and the
+list Phase C carried forward, are in
+`docs/superpowers/plans/2026-09-18-remaining-work.md`; milestone detail is in
+the spec's §16 and amendment §A4.
+
+**Nothing is finished until it is proven end to end on a kind cluster.** Every
+phase from C onward lands its milestone's scenarios in `test/e2e` (real CRs,
+real controllers, real NATS, real files under `/data`, in-cluster fixture
+services, no Internet) and keeps `hack/e2e.sh` green; Phase H audits that every
+scenario in the plan exists and passes. Unit, envtest and build-tagged
+integration suites do not substitute for it.

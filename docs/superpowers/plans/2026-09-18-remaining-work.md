@@ -1028,12 +1028,12 @@ other phase.
 
 ## Carried defects to fix along the way
 
-- [ ] `go mod tidy` to fix the `mousetrap` `go.sum` entry (Windows builds only).
+- [ ] `go mod tidy` to fix the `mousetrap` `go.sum` entry (Windows builds only) **and the three direct/indirect misclassifications Phase C's new tests introduced** — see "Build and test hygiene" under *Carried out of Phase C*. One serial run fixes both; never from a parallel agent.
 - [ ] Pick a real `clustarr-data` PVC size and require a storage class when no existing claim is set.
 - [ ] Set `GOMEMLIMIT` to 80% of the memory limit for torrent engines (§12); the Downward API only gives 100%, so compute it in the chart.
 - [ ] Confirm or change the KEDA version, which an agent picked rather than chose.
-- [ ] Replace `config/rbac/role.yaml` from `make manifests` once controllers exist, and stop the chart's copy from drifting.
-- [ ] Add per-service readiness beyond the JetStream ping: the release index for `indexarr`, torrent re-attach for `grabarr`.
+- [x] Replace `config/rbac/role.yaml` from `make manifests` once controllers exist, and stop the chart's copy from drifting. **Done in Phase C:** the role generates from `+kubebuilder:rbac` markers, and `TestChartRBACMatchesTheGeneratedRole` compares the chart's copy byte-for-byte between sentinel comments, so drift in either direction fails the build.
+- [ ] Add per-service readiness beyond the JetStream ping. **Phase C did `catalogarr` (informer caches synced) and `importarr` (`/data` present and writable)**, and made every readiness runnable non-leader-elected so a non-leader replica can reach Ready. Still outstanding: the release index for `indexarr` (Phase D) and torrent re-attach for `grabarr` (Phase D) — **reporting ready early lets the controller hand an engine work it would double-download.**
 - [ ] Add `charts/clustarr/README.md` and `values.schema.json` so bad values fail at install rather than at render.
 - [ ] Add `docs/adr/README.md` with the ADR index and supersede lifecycle when ADR-0009 appears.
 
@@ -1047,6 +1047,67 @@ other phase.
 - [ ] Minor debt: `metadata/clients/musicbrainz` maps `ClientError{StatusCode:0}` (transport or decode) to `ErrDecode`; `transcode.Runner.Run` reports only `waitErr` when both wait and scan fail; `golang-tmdb.SetCustomBaseURL` is process-global (one TMDB base URL per process).
 - [ ] Phase C: `pkg/release.parseLanguages` cannot detect Chinese, so the anime dual-audio Language group only fires for Japanese/Korean tags today.
 - [ ] `hack/deps/deps.go` still keeps `mimetype`, `sprig/v3` and `x/net/proxy` alive (no importer yet); prune each when its phase lands.
+
+### Carried out of Phase C (2026-09-18)
+
+Phase C's own ledger is `.superpowers/sdd/2026-09-18-phase-c-catalog-core/progress.md`;
+every item below is harvested from it, with the phase that owns it. Nothing
+here is a regression introduced by Phase C unless it says so.
+
+**Phase D — blocks or distorts M2/M3's own work, so fix these first.**
+
+- [ ] `tmdb.SearchMovies` and `musicbrainz.SearchArtists` are one-line `ErrUnsupported` stubs that Phase B's task review *and* its whole-branch review both missed. Import lists resolve by title when they carry no id, so **the import-list path cannot work until these exist.** Grep every `pkg/metadata` client for other one-line `ErrUnsupported` returns while fixing them — "implemented" in a report meant the file existed, not that every method did something.
+- [ ] `pkg/release` mis-parses the release group for both common *arr filename layouts (`- Bluray-1080p` yields group `"1080p"`), so `spec.releaseGroup` would carry garbage. `importarr/worker/rescan/releasegroup.go` holds a temporary guard — **delete the guard when the parser is fixed**, do not leave two behaviours.
+- [ ] The rescan scanner leaves `FormatScore` zero, because scoring a scanned file needs `pkg/quality/catalogue` integration that Phase C bounded out. `Quality` *is* set from the parsed release so tier comparisons stay correct, but **every scanned file reads as score 0** and within-tier tie-breaks are wrong.
+- [ ] `status.activeDownloadRef` has **two field managers**: the Movie/Episode reconcilers write it under `catalogarr`, the grab worker under `catalogarr-worker`. `k8s.PatchStatus` passes `client.ForceOwnership`, so ownership **migrates rather than conflicting**, and the reconciler's "omit to clear on a terminal Download" mechanism only works while it happens to hold the field. `movie/reconciler.go`'s "sole writer of status.activeDownloadRef" comment is false today. Pick one writer, or make the handover explicit.
+- [ ] `grab.Sink`'s two resolvers duplicate near-verbatim logic that `rssmatcher` keeps unexported, and **spec §8.7 requires both paths to agree** — which two copies cannot guarantee. Export one implementation and call it from both.
+- [ ] `rpc.go`'s `search()` falls through to "search does not support kind %q" when the kind *is* supported but every registered provider for it failed. An operator debugging a provider outage is told the kind is unsupported. Distinguish "no provider for this kind" from "every provider failed", and surface the underlying errors.
+- [ ] `mediaKey` has no cross-kind collision guard; `PendingGrab`/`Delayed` has no owner until the grab task lands; `DownloadOverlay`'s phase mapping is a documented judgment call worth re-reading once real Downloads exist.
+- [ ] Neither the Movie nor the Episode reconciler watches `QualityProfile`, so **a cutoff change does not re-evaluate `cutoffMet`** until some other event wakes the item. The episode watch test works around it by bumping the MediaFile's `spec.path` — a workaround that masks the gap, so remove it with the fix.
+- [ ] The per-release N+1 in `blocklistPredicate`: up to 400 cache round-trips per search.
+- [ ] `Search` carries `ac:generate=false` and a **hand-written apply configuration**, because controller-tools v0.22.0 panics on the embedded `commonv1.ReleaseInfo`. Restructure the embedding so the generator works, then delete the hand-written file; a test already fails if controller-gen ever starts generating one, so the two cannot silently coexist.
+- [ ] `series/reconciler.go` computes the episode rollup from the **pre-fan-out** episode list. Harmless on the normal path; wrong if the episode RPC retries while the metadata refresh lands first.
+- [ ] The blocklist path is **warn-and-degrade**: a missing field index yields "nothing is blocklisted, empty queue" plus a warning. C12a guaranteed `RegisterDownloadIndexes` runs once on the right manager (`catalogarr/wiring.go`, asserted in `wiring_envtest_test.go`), but nothing yet proves in a real cluster that the path is **live rather than degraded**. Add that e2e assertion with M3's download scenarios.
+- [ ] Neither `MoviePhase` nor `EpisodePhase` has a value meaning **"cutoff not evaluated"**, so `kubectl get`'s phase column shows the misleading `CutoffUnmet` for an item whose quality profile could not be resolved. Only the condition carries the distinction. Adding a phase value is an API change — take it with the next API break.
+- [ ] `importarr` needs `update;patch` on `rootfolders` for its last-tick annotation, and **the single shared Role grants that to every service.** SSA scopes ownership per annotation key, so the practical blast radius is one key, but RBAC has no sub-object granularity. Split the Role per service, or keep it and document the grant where it is granted.
+- [ ] `mgr.GetEventRecorderFor` is deprecated and **six controllers pin it with `//nolint:staticcheck`**. Migrating to `mgr.GetEventRecorder` retires all six and leaves one Events group (`events.k8s.io/v1`) instead of today's mix with core/v1 — Phase C settled which controllers are on which, so the migration is now mechanical.
+- [ ] Rescan-worker minors from C10's review: no concurrency guard on the RootFolder schedule (an `@hourly` schedule over a 3-hour walk overlaps); `FilesSkipped` conflates four causes; `fsops.IsSample` flags any media file under 50 MiB (the e2e fixture clip is 56.7 MiB *because* of this); `noProgressTimeout` is measured from `startedAt` rather than the last checkpoint; redelivery drives counters backwards; `fsops.Walk` aborts the whole walk on one unreadable file.
+
+- [ ] **The Movie, Series and Episode reconcilers have no spans.** Phase C landed 72 production `tracing.Start` call sites — 42 in the `pkg/` provider clients and 30 across `catalogarr`/`importarr` — but the three busiest reconcile loops in the project are not among them, so the catalog's hottest path is invisible to a trace even though the bus now propagates one end to end. Add them with M2's work, and span `ffmpeg` runs when Phase E lands.
+
+**Phase D — registration and guard debt, before `grabarr` adds runnables.**
+
+- [ ] The registration guard's `runnableServices` list is **hand-maintained** — the very anti-pattern the RBAC guard in the same commit was rewritten to avoid. A forgotten runnable in Phase D's `grabarr` would be invisible.
+- [ ] That guard only catches types with **both** `Start` and `NeedLeaderElection`, so a bare-`Start` `manager.RunnableFunc` — precisely the shape that deadlocked every catalogarr and importarr rollout (C12a critical C2) — is **not** caught.
+- [ ] `catalogarr/worker/search/worker.go`'s private `runnableFunc` duplicates `k8s.EveryReplica` exactly and, being unexported, is skipped by the guard. Delete it and use `k8s.EveryReplica`.
+- [ ] controller-runtime's controller-name registry is **process-global**, so `clustarr all` works only because catalogarr's and importarr's controller names are disjoint (now proven by running both in one test binary). Phase D's new controllers must keep them disjoint or `clustarr all` stops starting.
+- [ ] `mediafile`'s `+kubebuilder:rbac` markers live in `catalogarr/wiring.go` because that directory was closed to C12a mid-wave. The generated role is byte-identical either way; move them back into the `mediafile` package.
+- [ ] The otel provider is left dead after a full tracing teardown (the refcount reaching zero clears the state), so a later `Setup` in the same process gets a no-op tracer. Harmless in production, a trap in a long-lived test binary.
+
+**Phase E — transcode.**
+
+- [ ] Define what a rescan should do when a **transcoded file's bytes legitimately changed on disk.** `k8s.Apply` always forces ownership, so a rescan re-applying `MediaFileSpec` would silently reclaim `sizeBytes`/`modTime`/`original` from catalogarr after the post-transcode handover. The rescan worker checks `Spec.Original` first and skips such files, which is right for Phase C but is not the final answer.
+
+**Phase G — parity, lists and non-video inventory.**
+
+- [ ] 8 of `MetadataProvider`'s 14 enum values have no client; they return `ErrProviderNotImplemented` → `Ready=Unknown` today, which is honest but not useful.
+- [ ] The CRD's `ImageType` enum allows `poster;fanart;logo` while `pkg/metadata.ImageType` has nine values. Widen the enum if the other six are actually wanted.
+- [ ] `preferLargest`'s 0.99 ratio separates a profile's sentinel size limit from an ordinary one. It is a chosen threshold with room to spare against all three real tables (movies 0.9995, series 0.9950, anime 0.9995); revisit if a real profile ever lands between.
+- [ ] The generated `WithSeasons(vals ...)` is a **no-op when called with zero elements**, so a Series whose seasons all disappear cannot have the list cleared through the apply configuration. Same shape as the `omitempty`/`append` SSA release already fixed for `status.results`; whoever owns Series deletion owns this.
+
+**Docs and spec passes (no code).**
+
+- [ ] Spec §5's stream table has no `CLUSTARR_WORK_IMPORTARR` entry — the implemented topology wins; bring the table up to date.
+- [ ] Decide whether spec §7's `k8sbridge` is still wanted or strike it; Phase C publishes directly through `events.Bus.Publish` with the real helpers. Strike `decision.Upgradable` (it is `quality.Profile.UpgradeDecision`) and `Target.FreeBytes` (deliberately dropped) from the same section.
+- [ ] `docs/research/naming.md` §A6 flags its own summary as "unverified order" and omits two real comparator steps (episode count, indexer flags). `pkg/decision.Rank` was re-verified against `DownloadDecisionComparer.cs`/`ScoreFlags`; fix the note to match.
+- [ ] `MetadataResponse.Results`' doc comment says "hits of a search request", which the episode listing slightly repurposes.
+- [ ] `QualityProfile` is cluster-scoped yet movie/episode `Get` it with a namespace set. controller-runtime drops the namespace for root-scoped resources so it works, but it misleads the reader.
+
+**Build and test hygiene.**
+
+- [ ] **`go mod tidy -diff` is non-empty on the Phase C branch.** Phase C's new tests import `github.com/prometheus/client_model`, `k8s.io/apiextensions-apiserver` and `sigs.k8s.io/yaml` directly (`catalogarr/metadata/tieredcache_test.go`, `test/e2e/main_test.go`, `cmd/clustarr/rbac_markers_test.go`), but `go.mod` still lists all three as `// indirect`. No version changes and nothing added or removed — a direct/indirect reclassification only — so builds and tests are unaffected, but the gate fails. Fold it into the same `go mod tidy` that fixes the `mousetrap` `go.sum` entry above, serially, and never from a parallel agent.
+- [ ] `deploymentsAvailable` in `test/e2e/main_test.go` **cannot see a Deployment scaled to zero** — Kubernetes reports `Available=True` for `replicas: 0`, so an overlay that mis-scales a service sails through the readiness gate (verified live: `tmdb-stub` at `replicas: 0` reported `Available=True Progressing=True`). The condition catches what matters — pods that cannot start, pull or pass probes — but anyone adding a "the right services are deployed" check must compare against a **roster**, not this condition. Owned by Phase H, or by whoever first needs that check.
+
 
 ## Self-review notes
 
