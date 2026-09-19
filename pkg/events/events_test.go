@@ -385,10 +385,12 @@ func TestSubjectTokensAreSanitised(t *testing.T) {
 	if got != want {
 		t.Errorf("WorkSearchSubject = %q, want %q", got, want)
 	}
-	// Key/value keys keep dots, which NATS allows, but lose the characters
-	// it does not.
-	if got := events.LeaseKey("movie.the thing"); got != "grab.movie.the-thing" {
-		t.Errorf("LeaseKey = %q, want %q", got, "grab.movie.the-thing")
+	// A KV key's "." separator is the builder's own; everything the CALLER
+	// supplies is escaped into [0-9A-Za-z-] by events.KVKeyToken, so a dot
+	// or a space in a media key can neither reach NATS illegally nor forge
+	// a segment boundary.
+	if got := events.LeaseKey("movie.the thing"); got != "grab.movie-2ethe-20thing" {
+		t.Errorf("LeaseKey = %q, want %q", got, "grab.movie-2ethe-20thing")
 	}
 }
 

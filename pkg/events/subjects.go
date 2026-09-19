@@ -334,16 +334,33 @@ func DLQSubject(service, task, id string) string {
 
 // LeaseKey builds the clustarr-leases key guarding a single media key against
 // a double grab.
-func LeaseKey(mediaKey string) string { return "grab." + kvTok(mediaKey) }
+//
+// The media key goes through [KVKeyToken] rather than being interpolated
+// raw. It is tok()-stable already, so today every byte it carries is legal
+// in a KV key -- but only by accident of [MediaKey] flattening a
+// DNS-1123 namespace and name for the WIRE, which is a different grammar
+// with different forbidden characters that happens to be stricter. Escaping
+// here makes the key legal by construction instead of by coincidence.
+func LeaseKey(mediaKey string) string { return "grab." + KVKeyToken(mediaKey) }
 
 // PendingKey builds the clustarr-pending key holding the best candidate so
-// far for a media key.
-func PendingKey(mediaKey string) string { return "grab." + kvTok(mediaKey) }
+// far for a media key. See [LeaseKey] for why the media key is escaped.
+func PendingKey(mediaKey string) string { return "grab." + KVKeyToken(mediaKey) }
 
 // ExclusionKey is the clustarr-import-exclusions key for one exclusion. The
 // import-list and search paths consult this bucket rather than listing
 // ImportExclusion resources on every candidate, which would not scale.
-func ExclusionKey(source, id string) string { return kvTok(source) + "." + kvTok(id) }
+//
+// Both segments go through [KVKeyToken], and unlike [LeaseKey] that is not a
+// precaution: id comes straight out of ImportExclusion.spec.externalIDs, an
+// unconstrained map[string]string. "tt0113277:2", "Amélie" and "50%" are all
+// ids a user can type, all three are rejected by nats.go's key grammar, and
+// the resulting object is not merely un-published but UNDELETABLE -- the
+// finalizer's kv.Delete validates the same key and fails the same way
+// forever. See [KVKeyToken].
+func ExclusionKey(source, id string) string {
+	return KVKeyToken(source) + "." + KVKeyToken(id)
+}
 
 // MsgIDForObject builds the deduplication ID for a task derived from a custom
 // resource: "<uid>:<generation>:<task>". Republishing the same generation of
@@ -408,20 +425,8 @@ func tok(s string) string {
 	}, s)
 }
 
-// kvTok sanitises a key/value key segment. KV keys allow dots but not
-// wildcards or whitespace.
-func kvTok(s string) string {
-	if s == "" {
-		return "_"
-	}
-	return strings.Map(func(r rune) rune {
-		switch r {
-		case ' ', '\t', '*', '>', '/', '\\':
-			return '-'
-		}
-		if r < 0x20 || r == 0x7f {
-			return '-'
-		}
-		return r
-	}, s)
-}
+// The KV key builders above used to share a kvTok() here that mapped only
+// space, tab, "*", ">", "/", "\" and the control characters and passed
+// everything else through, which implemented no grammar at all -- ":", "%",
+// "," and every non-ASCII byte reached NATS untouched and were rejected. It
+// is gone; [KVKeyToken] in kvkey.go is the single implementation.
