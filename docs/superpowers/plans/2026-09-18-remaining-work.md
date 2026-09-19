@@ -874,13 +874,27 @@ wired yet".
 >
 > - **D1 — `indexarr` (M2).** Generic Torznab/Newznab, caps, health, backoff,
 >   the SQLite FTS5 release index, the RSS worker, and the three RPC verbs
->   `rpc.indexarr.search|download|query`. Lands e2e scenarios 2, 3 and 4.
->   This is what makes Phase C's search path live: `catalogarr/worker/search`
->   already calls `rpc.indexarr.search` and today reaches no server.
+>   `rpc.indexarr.search|download|query`. This is what makes Phase C's search
+>   path live: `catalogarr/worker/search` already calls `rpc.indexarr.search`
+>   and today reaches no server.
+>
+>   **E2E correction (2026-09-19).** This note first assigned scenarios 2, 3
+>   and 4 to D1. That was wrong, and research caught it before any code was
+>   written: scenario 2 ends "upgrade **grabbed and imported**", 3 is a
+>   **failed download** → blocklist → redownload, and 4 asserts "no duplicate
+>   **Download**, TranscodeJob or SubtitleRequest". All three need grabarr and
+>   the file-import worker, so none can pass with indexarr alone. They move to
+>   **D2**. D1 instead lands a **new** scenario the sixteen do not cover,
+>   because the original phase bundled the subsystems: an Indexer reconciling
+>   to healthy against the fixture indexer, a `Search` CR returning ranked
+>   results end to end through `rpc.indexarr.search`, and the release firehose
+>   reaching `catalogarr`'s RSS matcher with a legal envelope key. Number it
+>   when the D1 plan is written and add it to the roster below, so Phase H's
+>   audit sees seventeen.
 > - **D2 — `grabarr` + `importarr`'s file-import worker (M3).** DownloadClient,
 >   the torrent and usenet engines, the Download controller and its re-attach
 >   semantics, and the completed-download import. Lands scenarios 1 (through
->   import) and 6.
+>   import), 2, 3, 4 and 6.
 > - **D3 — the first UI slice.** The pipeline and downloads pages over real
 >   resources. Lands the corresponding parts of scenario 14.
 >
