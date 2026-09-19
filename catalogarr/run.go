@@ -485,8 +485,10 @@ func setupQueueWorkers(mgr ctrl.Manager, bus events.Bus) error {
 // `--role all` is not what the manifests run for the main Deployment. It is
 // pinned by the Deployment's replica count, NOT by the leader lease, so the
 // runnable is a k8s.EveryReplica: a plain manager.RunnableFunc would go behind
-// the lease (see EveryReplica), and the metadata Deployment does not hold
-// catalogarr's lease, so the gateway would never start at all.
+// the lease (see EveryReplica). The metadata Deployment runs --role metadata,
+// which does not elect, and controller-runtime treats a non-electing process
+// as elected -- so the gateway did start there. The exposure is a role that
+// elects and also serves metadata: one replica would serve, the rest idle.
 func setupMetadataGateway(mgr ctrl.Manager, bus events.Bus) error {
 	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		stop, err := catalogmetadata.Setup(ctx, catalogmetadata.Options{

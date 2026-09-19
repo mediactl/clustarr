@@ -150,9 +150,11 @@ func registerWorkerIndexes(ctx context.Context, mgr manager.Manager) error {
 func assertWorkerIndexes(mgr manager.Manager) error {
 	// k8s.EveryReplica, not manager.RunnableFunc: the latter has no
 	// NeedLeaderElection method and controller-runtime therefore puts it
-	// behind the leader lease, so on a non-leader worker replica -- the only
-	// kind that exists for --role worker -- the assertion would never run and
-	// the degraded blocklist path it exists to catch would be back.
+	// behind the leader lease. --role worker does not elect, and a
+	// non-electing process is treated as elected, so the assertion did run
+	// there; the gap was catalogarr's combined controller,worker,history
+	// Deployment, which elects, where every non-leader replica skipped the
+	// check and the degraded blocklist path it exists to catch was back.
 	return mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		if !mgr.GetCache().WaitForCacheSync(ctx) {
 			// The manager is shutting down; nothing to assert.

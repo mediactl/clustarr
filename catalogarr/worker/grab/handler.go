@@ -97,10 +97,13 @@ func (h *Handler) Subscription() events.Subscription {
 // NeedLeaderElection method, so controller-runtime's runnables.Add falls
 // through its type switch to `default: r.LeaderElection.Add(...)` and puts it
 // behind the lease anyway. With --leader-elect on, exactly one replica ran the
-// grab consumer: latent at replicas 1, a silent throughput ceiling at any
-// scale-out, and dead on a worker-only Deployment that runs no leader election
-// at all. k8s.EveryReplica is a type WITH the method, which is what makes the
-// claim true.
+// grab consumer: latent at replicas 1 and a silent throughput ceiling at any
+// scale-out. A worker-only Deployment was unaffected -- with leader election
+// disabled controller-runtime treats the process as elected and starts the
+// runnable regardless -- so the damage was confined to the combined-role
+// Deployment that does elect. k8s.EveryReplica is a type WITH the method,
+// which is what makes the claim above true everywhere rather than by
+// accident.
 func (h *Handler) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
 	return mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		stop, err := bus.Subscribe(ctx, h.Subscription(), h.Handle)

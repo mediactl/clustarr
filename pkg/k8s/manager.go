@@ -278,10 +278,13 @@ func AddProbes(mgr ctrl.Manager, ready map[string]healthz.Checker) error {
 // It exists because manager.RunnableFunc does not: it is a bare func type with
 // no NeedLeaderElection method, so controller-runtime's runnables.Add falls
 // through its type switch to `default: r.LeaderElection.Add(fn, nil)`
-// (pkg/manager/runnable_group.go) and silently puts it behind the lease. Every
-// Clustarr service runs with --leader-elect, so a plain RunnableFunc never
-// starts on a non-leader replica -- and nothing says so: the runnable simply
-// never runs.
+// (pkg/manager/runnable_group.go) and silently puts it behind the lease. On a
+// service that elects -- catalogarr's controller,worker,history Deployment and
+// importarr's controller Deployment -- a plain RunnableFunc therefore never
+// starts on a non-leader replica, and nothing says so: it simply never runs.
+// (A service that does NOT elect is unaffected: controller-runtime treats a
+// non-electing process as elected and starts those runnables anyway. That is
+// why this stayed invisible.)
 //
 // That is a readiness deadlock when the runnable gates a probe and a
 // correctness hole when it consumes queue work (§3 runs the queue workers on
