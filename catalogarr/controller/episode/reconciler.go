@@ -44,6 +44,7 @@ import (
 	"github.com/mediactl/clustarr/catalogarr/controller/rollup"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
@@ -264,6 +265,8 @@ func (r *Reconciler) mapQualityProfile(ctx context.Context, o client.Object) []r
 // Reconcile implements the §8.8 skeleton: get, split on deletion, ensure the
 // finalizer WITHOUT an early return, then reconcileNormal.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	ctx, span := tracing.Start(ctx, "episode.Reconcile")
+	defer span.End()
 	if r.OnReconcile != nil {
 		r.OnReconcile()
 	}

@@ -49,6 +49,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/naming"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 	"github.com/mediactl/clustarr/pkg/version"
@@ -278,6 +279,8 @@ func (r *Reconciler) mapQualityProfile(ctx context.Context, o client.Object) []r
 // finalizer WITHOUT an early return (the rest of this reconcile runs against
 // the same in-memory object in the same pass), then reconcileNormal.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	ctx, span := tracing.Start(ctx, "movie.Reconcile")
+	defer span.End()
 	if r.OnReconcile != nil {
 		r.OnReconcile()
 	}
