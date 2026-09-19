@@ -114,9 +114,15 @@ test-unit: ## Run unit tests only (no envtest).
 envtest: ## Download envtest binaries.
 	$(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path >/dev/null
 
+# Extra arguments appended to the e2e `go test` invocation, e.g.
+#   make e2e E2E_ARGS="-run TestLibraryRescan -v"
+# hack/e2e.sh forwards its own E2E_ARGS through here rather than restating the
+# go test line, so the script and this target cannot drift apart.
+E2E_ARGS ?=
+
 .PHONY: e2e
-e2e: ## Run kind-based end-to-end tests.
-	go test ./test/e2e/... -tags e2e -timeout 30m
+e2e: ## Run kind-based end-to-end tests. E2E_ARGS="-run ..." appends go test flags.
+	go test ./test/e2e/... -tags e2e -timeout 30m $(E2E_ARGS)
 
 ##@ Deploy
 

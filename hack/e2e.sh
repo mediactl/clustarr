@@ -109,13 +109,11 @@ done
 log "clearing the go test cache so make e2e cannot replay a cached PASS"
 go clean -testcache || die "go clean -testcache failed"
 
+# Always go through the Makefile target: it is the one definition of the e2e
+# `go test` line, and E2E_ARGS is forwarded as a make command-line variable so
+# this script never has to restate (and eventually drift from) that command.
 log "running make e2e"
-if [[ -n "${E2E_ARGS:-}" ]]; then
-  # shellcheck disable=SC2086 # E2E_ARGS is a deliberate word-split escape hatch
-  go test ./test/e2e/... -tags e2e -timeout 30m ${E2E_ARGS}
-else
-  make e2e
-fi
+make e2e E2E_ARGS="${E2E_ARGS:-}"
 status=$?
 
 if [[ "${status}" -ne 0 ]]; then
