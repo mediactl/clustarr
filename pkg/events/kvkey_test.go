@@ -35,13 +35,30 @@ var natsKVKeyGrammar = regexp.MustCompile(`^[-/_=\.a-zA-Z0-9]+$`)
 // TestValidKVKeyAgreesWithNATS pins this package's own predicate against the
 // upstream grammar, byte by byte, so the rest of the file can assert with
 // events.ValidKVKey and mean the NATS rule.
+//
+// The byte sweep alone is not the whole rule, and believing it was is how
+// this predicate shipped permissive: nats.go's keyValid is the character
+// regex PLUS no leading ".", no trailing "." and no ".." anywhere, so
+// ValidKVKey said yes to ".foo", "foo." and "a..b" while a real server
+// rejects all three. The contract test in pkg/events/natsbus asserts the
+// same predicate against an actual server, which is the check that does not
+// depend on restating the rule correctly here.
 func TestValidKVKeyAgreesWithNATS(t *testing.T) {
 	for b := 0; b < 256; b++ {
 		s := string([]byte{byte(b)})
-		assert.Equal(t, natsKVKeyGrammar.MatchString(s), events.ValidKVKey(s),
+		want := natsKVKeyGrammar.MatchString(s) && s != "."
+		assert.Equal(t, want, events.ValidKVKey(s),
 			"disagreement on byte %#x (%q)", b, s)
 	}
 	assert.False(t, events.ValidKVKey(""), "the empty string is not a key")
+
+	for _, s := range []string{".foo", "foo.", "a..b", ".", "..", "a..", "..a"} {
+		assert.False(t, events.ValidKVKey(s),
+			"%q matches the character set but nats.go's keyValid rejects it", s)
+	}
+	for _, s := range []string{"a.b", "a.b.c", "grab.Movie-default-x"} {
+		assert.True(t, events.ValidKVKey(s), "%q is a legal key", s)
+	}
 }
 
 // TestExclusionKeyIsAlwaysALegalNATSKey is the regression case for the

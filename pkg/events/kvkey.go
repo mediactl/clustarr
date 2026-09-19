@@ -17,7 +17,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package events
 
-import "encoding/hex"
+import (
+	"encoding/hex"
+	"strings"
+)
 
 // KVKeyToken escapes s into the alphabet [0-9A-Za-z-], a strict subset of
 // the key grammar nats.go enforces (see [ValidKVKey]). It is the one
@@ -46,7 +49,15 @@ func KVKeyToken(s string) string {
 		// Not "", which would make an empty segment vanish into its
 		// separators: ExclusionKey("", "x") and ExclusionKey(".x", "")
 		// must not collide.
-		return "-00"
+		//
+		// One hex digit, not two: the byte loop below always emits "-" plus
+		// TWO hex digits, so "-0" is a shape it cannot produce. "-00" would
+		// have been the escape of byte 0x00, and KVKeyToken("") would have
+		// collided with KVKeyToken("\x00") -- which is precisely the
+		// injectivity this function claims. An empty id is reachable today:
+		// ImportExclusion.spec.externalIDs caps the map size but constrains
+		// no value.
+		return "-0"
 	}
 	var b []byte
 	for i := 0; i < len(s); i++ {
@@ -64,16 +75,27 @@ func KVKeyToken(s string) string {
 	return string(b)
 }
 
-// ValidKVKey reports whether s is a key a NATS key/value bucket will accept:
-// nats.go v1.53.1 validates every key, on Put and on Delete alike, against
+// ValidKVKey reports whether s is a key a NATS key/value bucket will accept.
+// nats.go v1.53.1 validates every key on Put and on Delete alike, and its
+// gate (keyValid, kv.go:602 and jetstream/kv.go:911) is FOUR conditions, not
+// one:
 //
-//	^[-/_=\.a-zA-Z0-9]+$
+//	^[-/_=\.a-zA-Z0-9]+$   and   no leading "."   and   no trailing "."
+//	                        and   no ".." anywhere
 //
-// It is the grammar [KVKeyToken] and the key builders in this package are
-// written against, and the thing their tests assert rather than restating
-// the character set a third time.
+// Implementing only the regex made this predicate say yes to ".foo", "foo."
+// and "a..b", all of which a real server rejects. No builder here can emit
+// those shapes -- [KVKeyToken] never returns "" so no segment can be empty --
+// but a predicate that is wrong in the permissive direction is worse than no
+// predicate, and this one is exported.
 func ValidKVKey(s string) bool {
 	if s == "" {
+		return false
+	}
+	if s[0] == '.' || s[len(s)-1] == '.' {
+		return false
+	}
+	if strings.Contains(s, "..") {
 		return false
 	}
 	for i := 0; i < len(s); i++ {

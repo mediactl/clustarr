@@ -162,7 +162,9 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   could have caught it ran against the in-memory bus, which has no key
   grammar — so the guard is a contract test against a real embedded server
   (`pkg/events/natsbus/kvkey_contract_test.go`), not a regex restated in a
-  test file.
+  test file. Restating it is also how `ValidKVKey` shipped permissive:
+  nats.go's gate is the character set **plus** no leading `.`, no trailing
+  `.` and no `..`, and the first version implemented only the regex.
 - **Use `github.com/dlclark/regexp2`, not stdlib `regexp`, for TRaSH patterns.**
   Go's RE2 rejects 157 of the 2791 custom-format regexes (backtracking,
   lookaround). Set `IgnoreCase` and a `MatchTimeout`.

@@ -69,6 +69,12 @@ func TestKVKeyBuildersProduceKeysARealServerAccepts(t *testing.T) {
 		"Wall·E (2008)",  // parentheses and a middle dot
 		"a\tb",           // a control character
 		`quote"and'apos`, // quotes
+		"\x00",           // a NUL byte: its escape collided with the empty-string
+		//                  sentinel until KVKeyToken used a one-hex-digit sentinel
+		//                  the byte loop cannot emit
+		".leading",  // the three conditions nats.go applies BEYOND the
+		"trailing.", // character regex -- no builder can emit them, but
+		"a..b",      // ValidKVKey claimed they were fine until now
 	}
 
 	for _, id := range hostile {
@@ -78,6 +84,13 @@ func TestKVKeyBuildersProduceKeysARealServerAccepts(t *testing.T) {
 			"PendingKey":   events.PendingKey(events.MediaKey("Series", "ns", id)),
 		} {
 			t.Run(name+"/"+id, func(t *testing.T) {
+				// ValidKVKey is exported and callers will trust it, so pin
+				// the predicate against the SERVER rather than against a
+				// character set restated in a test file -- restating it is
+				// how it came to be missing three of nats.go's four rules.
+				require.True(t, events.ValidKVKey(key),
+					"ValidKVKey rejected %q, which the server is about to accept", key)
+
 				// Put, Get and Delete all validate the key independently.
 				// Only exercising Put would have missed the undeletable
 				// ImportExclusion, whose finalizer fails on Delete.
@@ -124,4 +137,25 @@ func TestKVKeyBuildersDoNotCollideOnRealServer(t *testing.T) {
 	got, err := kv.Get(ctx, a)
 	require.NoError(t, err)
 	require.Equal(t, []byte("first"), got.Value(), "the second id overwrote the first")
+}
+
+// The single collision pair above does not reach every shape the escaping
+// must separate. This sweeps the whole corpus against itself: a lossy escape
+// shows up as two distinct ids sharing one key, which is the failure that
+// serves one item's state for another.
+func TestKVKeyTokenIsInjectiveAcrossTheHostileCorpus(t *testing.T) {
+	inputs := []string{
+		"", "\x00", "-", "--", "-0", "-00", "a:b", "a,b", "a.b", "a_b", "a=b",
+		"a/b", "a b", "a\tb", "Am\u00e9lie", "50%", "tt0113277:2",
+		".leading", "trailing.", "a..b", "A", "a", "0",
+	}
+	seen := make(map[string]string, len(inputs))
+	for _, in := range inputs {
+		key := events.KVKeyToken(in)
+		require.True(t, events.ValidKVKey(key), "KVKeyToken(%q) = %q is not a legal key", in, key)
+		if prev, dup := seen[key]; dup {
+			t.Errorf("KVKeyToken(%q) and KVKeyToken(%q) both produce %q", prev, in, key)
+		}
+		seen[key] = in
+	}
 }
