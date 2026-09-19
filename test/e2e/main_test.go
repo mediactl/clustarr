@@ -213,6 +213,18 @@ func natsReady(ctx context.Context) (bool, error) {
 	return sts.Status.ReadyReplicas >= 1, nil
 }
 
+// deploymentsAvailable reports whether every Clustarr Deployment carries
+// Available=True.
+//
+// It deliberately does NOT catch a Deployment scaled to zero: Kubernetes
+// reports Available=True for replicas: 0 (verified against a real cluster --
+// `kubectl scale deployment/ui --replicas=0` leaves Available=True,
+// Progressing=True), because zero of zero replicas are indeed available. The
+// gate catches the case that matters -- a Deployment whose pods cannot start,
+// cannot be pulled or cannot pass their probes -- but an overlay that
+// mis-scales a service to zero sails through it. Anyone adding a "the right
+// services are deployed" check needs to compare against a roster, not against
+// this condition.
 func deploymentsAvailable(ctx context.Context) (bool, error) {
 	var list appsv1.DeploymentList
 	if err := k8sClient.List(ctx, &list, client.InNamespace(Namespace), client.MatchingLabels{PartOfLabel: PartOfValue}); err != nil {

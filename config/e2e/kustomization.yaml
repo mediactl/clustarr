@@ -21,4 +21,3 @@ patches:
 - target:
     kind: Deployment
   path: resources-patch.yaml
-- path: nats-memory-patch.yaml

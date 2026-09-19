@@ -126,12 +126,29 @@ if [[ "${status}" -ne 0 ]]; then
     name="${workload##*/}"
     kubectl --context "${CONTEXT}" -n "${NAMESPACE}" logs "${workload}" \
       --all-containers --tail=-1 --prefix >"${ARTIFACTS_DIR}/${name}.log" 2>&1
+    # A CrashLoopBackOff is the failure mode that has actually bitten this
+    # harness -- both the single-node JetStream sizing defect and the missing
+    # RBAC rules presented that way -- and the current container of a crash
+    # loop holds nothing: the output that names the cause belongs to the
+    # container that already died. --previous is best effort (it errors when
+    # there is no prior container, which is the healthy case), so its file is
+    # removed again when it holds only that error.
+    if ! kubectl --context "${CONTEXT}" -n "${NAMESPACE}" logs "${workload}" \
+      --all-containers --tail=-1 --prefix --previous \
+      >"${ARTIFACTS_DIR}/${name}.previous.log" 2>&1; then
+      rm -f "${ARTIFACTS_DIR}/${name}.previous.log"
+    fi
   done
 
   kubectl --context "${CONTEXT}" -n "${NAMESPACE}" get events --sort-by=.lastTimestamp \
     >"${ARTIFACTS_DIR}/events.txt" 2>&1
   kubectl --context "${CONTEXT}" -n "${NAMESPACE}" get pods -o wide \
     >"${ARTIFACTS_DIR}/pods.txt" 2>&1
+  # `get pods -o wide` shows restart counts but not WHY: OOMKilled, a failed
+  # probe or an unpullable image are only in describe's per-container Last
+  # State and Events.
+  kubectl --context "${CONTEXT}" -n "${NAMESPACE}" describe pods \
+    >"${ARTIFACTS_DIR}/pods-describe.txt" 2>&1
 
   : >"${ARTIFACTS_DIR}/resources.yaml"
   for group in catalog.clustarr.io index.clustarr.io download.clustarr.io \

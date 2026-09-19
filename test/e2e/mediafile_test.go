@@ -56,7 +56,7 @@ import (
 // so the probe refresh below runs against a MediaFile both managers have
 // already written, not a fresh one.
 func TestMediaFileTwoWriter(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
 	defer cancel()
 
 	rf := newRootFolder(ctx, t, "e2e-mf-rf", catalogv1alpha1.RootFolderKindMovie, "movies")
@@ -89,6 +89,15 @@ func TestMediaFileTwoWriter(t *testing.T) {
 
 	runScan(ctx, t, rf, catalogv1alpha1.ScanModeFull)
 
+	// status.probedAt is a metav1.Time, which serialises at RFC 3339 SECOND
+	// granularity, so this is an ordering assumption on a truncated clock: two
+	// probes inside the same wall-clock second are indistinguishable here and
+	// would read as "not re-probed yet". It is safe because a scan cycle --
+	// create the LibraryScan, dispatch through JetStream, walk, checkpoint,
+	// roll up, re-probe -- comfortably exceeds a second, and the wait simply
+	// polls until the next second ticks over if it ever did not. Anything that
+	// makes the round trip sub-second must switch to comparing status.probeHash
+	// instead, which changes with the mtime rather than with the clock.
 	waitFor(t, ctx, 5*time.Minute, "MediaFile "+key.Name+" re-probed after the mtime change", func(ctx context.Context) (bool, error) {
 		var live catalogv1alpha1.MediaFile
 		if err := k8sClient.Get(ctx, key, &live); err != nil {

@@ -50,8 +50,15 @@ import (
 // covered by TestSeriesRootFolderScanIsNotSupportedYet below, which asserts
 // what importarr actually does with a series root folder today. See that
 // test's comment.
+// fixtureEpisodesPerSeries is how many episodes each of the three fixture
+// series carries in test/fixtures/tvdbstub/testdata. Both the recorded GoT
+// list and the two fixture-owned lists hold two, which is deliberate: a
+// single-episode list could not tell a completed fan-out apart from a
+// half-finished one.
+const fixtureEpisodesPerSeries = 2
+
 func TestSeriesAndEpisodes(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
 	defer cancel()
 
 	rf := newRootFolder(ctx, t, "e2e-series-rf", catalogv1alpha1.RootFolderKindSeries, "tv")
@@ -60,9 +67,9 @@ func TestSeriesAndEpisodes(t *testing.T) {
 	daily := createSeries(ctx, t, rf.Name, 900001, catalogv1alpha1.SeriesTypeDaily)
 	anime := createSeries(ctx, t, rf.Name, 900002, catalogv1alpha1.SeriesTypeAnime)
 
-	standardLive := waitForSeriesReady(ctx, t, standard)
-	dailyLive := waitForSeriesReady(ctx, t, daily)
-	animeLive := waitForSeriesReady(ctx, t, anime)
+	standardLive := waitForSeriesReady(ctx, t, standard, fixtureEpisodesPerSeries)
+	dailyLive := waitForSeriesReady(ctx, t, daily, fixtureEpisodesPerSeries)
+	animeLive := waitForSeriesReady(ctx, t, anime, fixtureEpisodesPerSeries)
 
 	// The naming dialect is pkg/naming's business, not this suite's, so the
 	// assertion is structural: the resolved folder sits under the root
@@ -101,10 +108,9 @@ func TestSeriesAndEpisodes(t *testing.T) {
 	require.NotNil(t, got.Status.AbsoluteNumber, "an anime Episode must carry status.absoluteNumber")
 	require.Equal(t, int32(5), *got.Status.AbsoluteNumber)
 
-	for _, s := range []catalogv1alpha1.Series{standardLive, dailyLive, animeLive} {
-		require.EqualValues(t, 2, s.Status.EpisodeCount,
-			"Series %s should have fanned out both fixture episodes", s.Name)
-	}
+	// status.episodeCount is asserted inside waitForSeriesReady's predicate,
+	// not here: see that function's comment for why a snapshot assertion on
+	// it races the Series reconciler's pre-fan-out rollup.
 }
 
 // TestSeriesRootFolderScanIsNotSupportedYet pins what importarr's library
@@ -126,12 +132,12 @@ func TestSeriesAndEpisodes(t *testing.T) {
 // invented (CLAUDE.md) -- and makes the flip to the eventual behaviour a
 // one-test edit when series rescan lands.
 func TestSeriesRootFolderScanIsNotSupportedYet(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
 	defer cancel()
 
 	rf := newRootFolder(ctx, t, "e2e-serscan-rf", catalogv1alpha1.RootFolderKindSeries, "tv")
 	series := createSeries(ctx, t, rf.Name, 121361, catalogv1alpha1.SeriesTypeStandard)
-	live := waitForSeriesReady(ctx, t, series)
+	live := waitForSeriesReady(ctx, t, series, fixtureEpisodesPerSeries)
 
 	// A real season pack unpacks into one file per episode; MediaFile is
 	// "one file on disk", so a pack is two files, not one.
@@ -182,18 +188,32 @@ func createSeries(ctx context.Context, t *testing.T, rootFolder string, tvdbID i
 }
 
 // waitForSeriesReady polls until the Series has its metadata, has fanned its
-// episodes out and has resolved a path, then returns the live object. All
-// three are separate conditions the reconciler sets independently, so
-// waiting on Phase alone would race the path.
-func waitForSeriesReady(ctx context.Context, t *testing.T, s *catalogv1alpha1.Series) catalogv1alpha1.Series {
+// episodes out, has resolved a path AND has rolled wantEpisodes up into
+// status.episodeCount, then returns that live object. Every one of those is a
+// separate field the reconciler settles independently, so anything asserted
+// on the returned snapshot must first be IN this predicate.
+//
+// episodeCount in particular is not free-riding on Ready.
+// catalogarr/controller/series/reconciler.go computes the rollup from the
+// episode list it read BEFORE fanning out -- its own comment says the count
+// is "completed by the very next reconcile" -- so the reconcile that flips
+// Ready can legitimately carry episodeCount 0. It usually does not, because
+// the path block is gated on status.metadata and the metadata refresh
+// normally lands after the first fan-out; but if the episode-listing RPC
+// fails once and retries on episodeSyncRPCBackoff while the metadata refresh
+// lands first, the Ready reconcile carries a stale zero. Asserting it on the
+// snapshot instead of waiting for it is a real race, not a theoretical one.
+func waitForSeriesReady(ctx context.Context, t *testing.T, s *catalogv1alpha1.Series, wantEpisodes int32) catalogv1alpha1.Series {
 	t.Helper()
 	var live catalogv1alpha1.Series
-	waitFor(t, ctx, 5*time.Minute, "Series "+s.Name+" Ready with a resolved path", func(ctx context.Context) (bool, error) {
+	desc := fmt.Sprintf("Series %s Ready with a resolved path and episodeCount=%d", s.Name, wantEpisodes)
+	waitFor(t, ctx, 5*time.Minute, desc, func(ctx context.Context) (bool, error) {
 		if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(s), &live); err != nil {
 			//nolint:nilerr // keep polling
 			return false, nil
 		}
 		return live.Status.Path != "" &&
+			live.Status.EpisodeCount == wantEpisodes &&
 			isConditionTrue(live.Status.Conditions, catalogv1alpha1.SeriesConditionMetadataReady) &&
 			isConditionTrue(live.Status.Conditions, catalogv1alpha1.SeriesConditionEpisodesSynced) &&
 			live.Status.Phase == catalogv1alpha1.SeriesPhaseReady, nil

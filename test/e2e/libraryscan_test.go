@@ -21,6 +21,7 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"path"
 	"testing"
 	"time"
@@ -55,7 +56,7 @@ const (
 // library the catalog has never seen (amendment §A1.1's "upsert ... for each
 // file found"), so nothing is created up front but the RootFolder itself.
 func TestLibraryRescan(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
 	defer cancel()
 
 	rf := newRootFolder(ctx, t, "e2e-scan-rf", catalogv1alpha1.RootFolderKindMovie, "movies")
@@ -105,6 +106,55 @@ func TestLibraryRescan(t *testing.T) {
 		}
 		return live.Status.HasFile && live.Status.FileRef != nil, nil
 	})
+
+	// The metadata leg, and the only assertion in the whole suite that
+	// depends on the TMDB stub at all.
+	//
+	// Everything above is reachable without the metadata gateway ever
+	// succeeding: spec.tmdbID is parsed out of the folder name by importarr,
+	// and status.hasFile is rolled up from the MediaFile. That blind spot is
+	// not hypothetical -- during Task C11's first real run every metadata
+	// refresh was failing permanently on an illegal NATS KV cache key, and
+	// these scenarios stayed green throughout; only the Series path noticed,
+	// because it needs status.metadata before it can resolve status.path.
+	// A title that can only have come from the stub's recorded JSON closes
+	// it: "Inception" is what testdata/metadata/tmdb/movie_27205.json holds
+	// (27205 is Inception's TMDB id, not Fight Club's), and nothing on disk
+	// or in the CR carries that string.
+	var withMetadata catalogv1alpha1.Movie
+	waitFor(t, ctx, 3*time.Minute, "Movie "+movie.Name+" MetadataReady", func(ctx context.Context) (bool, error) {
+		if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(&movie), &withMetadata); err != nil {
+			//nolint:nilerr // keep polling
+			return false, nil
+		}
+		return isConditionTrue(withMetadata.Status.Conditions, catalogv1alpha1.MovieConditionMetadataReady) &&
+			withMetadata.Status.Metadata != nil, nil
+	}, describeMovie(client.ObjectKeyFromObject(&movie)))
+	require.Equal(t, "Inception", withMetadata.Status.Metadata.Title,
+		"status.metadata.title must come from the TMDB stub's recorded JSON, not from the filename")
+	require.EqualValues(t, 2010, withMetadata.Status.Metadata.Year)
+}
+
+// describeMovie renders one Movie's phase, metadata and conditions for a
+// failure message. A Movie stuck without metadata has almost always stalled
+// in the gateway, which logs on its own side but says nothing here.
+func describeMovie(key client.ObjectKey) func() string {
+	return func() string {
+		var live catalogv1alpha1.Movie
+		if err := k8sClient.Get(context.Background(), key, &live); err != nil {
+			return fmt.Sprintf("Movie %s could not be read back: %v", key.Name, err)
+		}
+		title := "<no status.metadata>"
+		if live.Status.Metadata != nil {
+			title = live.Status.Metadata.Title
+		}
+		out := fmt.Sprintf("Movie %s phase=%q tmdbID=%d metadata.title=%q hasFile=%t",
+			key.Name, live.Status.Phase, live.Spec.TmdbID, title, live.Status.HasFile)
+		for _, c := range live.Status.Conditions {
+			out += fmt.Sprintf("\n    condition %s=%s reason=%s message=%q", c.Type, c.Status, c.Reason, c.Message)
+		}
+		return out
+	}
 }
 
 // TestLibraryRescanUnmatchedAndSchedule is scenario 7's other half: what
@@ -112,7 +162,7 @@ func TestLibraryRescan(t *testing.T) {
 // firing a scan on its own. It is a separate Test so a failure in one half
 // does not hide the other's planted-file state in the same cleanup stack.
 func TestLibraryRescanUnmatchedAndSchedule(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
 	defer cancel()
 
 	rf := newRootFolder(ctx, t, "e2e-scan2-rf", catalogv1alpha1.RootFolderKindMovie, "movies")

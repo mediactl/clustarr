@@ -50,6 +50,46 @@ const fixtureDirName = ".e2e-fixtures"
 // convergence, not latency.
 const pollInterval = 2 * time.Second
 
+// scanCompletedTimeout is DERIVED, not chosen. Do not round it down.
+//
+// A LibraryScan completes when importarr's rescan worker acks the scan task,
+// so the wait has to cover ConsumerImportScan's redelivery ladder
+// (pkg/events/topology.go: AckWait 60s, MaxDeliver 4, BackOff 30s/2m/10m),
+// not just the walk. A missed ack is ordinary on a single kind node running
+// thirteen pods at 25m CPU requests -- an evicted or restarted worker loses
+// its in-flight message and the task only comes back when AckWait expires:
+//
+//	attempt 1 delivered at   0s, AckWait expires at   60s, backoff 30s
+//	attempt 2 delivered at  90s, AckWait expires at  150s, backoff  2m
+//	attempt 3 delivered at 270s, AckWait expires at  330s, backoff 10m
+//	attempt 4 delivered at 930s  (MaxDeliver, last chance)
+//
+// A round 5 minutes -- which is what this was, and which produced exactly one
+// unexplained timeout at ~308s during Task C11's verification -- sits between
+// the third delivery and its completion, so two missed acks read as a hang.
+// Seven minutes clears the third attempt's delivery at 270s with margin for
+// the walk itself, the controller's 3s progress poll and this suite's own 2s
+// poll. Covering the FOURTH attempt would mean waiting past 930s, which
+// exceeds every per-scenario context here and most of `make e2e`'s 30-minute
+// budget; a scan that has missed three acks is a broken cluster, and the
+// failure message now says so.
+//
+// Secondary, and not covered by any timeout: in single-node mode the
+// clustarr-progress KV bucket is memory storage, so a NATS restart loses the
+// worker's checkpoint entirely. The scan then sits Running until the
+// LibraryScan controller's own noProgressTimeout (30 minutes) fails it --
+// far beyond anything this suite waits for, and correctly so.
+const scanCompletedTimeout = 7 * time.Minute
+
+// scenarioTimeout bounds one whole scenario. It is larger than
+// scanCompletedTimeout so that an individual wait, not the context, is what
+// expires first in the common case -- a wait's timeout prints the object's
+// state, and naming the stalled predicate is the whole point. It is sized for
+// ONE pathological scan plus everything else nominal, not for several: a run
+// where two scans each burn the full ladder is a broken cluster, and one
+// clear diagnosis beats five truncated ones inside `make e2e`'s 30 minutes.
+const scenarioTimeout = 15 * time.Minute
+
 // dataDirOrEmpty returns $CLUSTARR_DATA_DIR without failing the test binary,
 // so TestMain can print a clear message instead of a panic when it is unset.
 func dataDirOrEmpty() string { return os.Getenv("CLUSTARR_DATA_DIR") }
@@ -310,7 +350,7 @@ func runScan(ctx context.Context, t *testing.T, rf *catalogv1alpha1.RootFolder, 
 func waitForScanCompleted(ctx context.Context, t *testing.T, key client.ObjectKey) catalogv1alpha1.LibraryScan {
 	t.Helper()
 	var done catalogv1alpha1.LibraryScan
-	waitFor(t, ctx, 5*time.Minute, "LibraryScan "+key.Name+" Completed", func(ctx context.Context) (bool, error) {
+	waitFor(t, ctx, scanCompletedTimeout, "LibraryScan "+key.Name+" Completed", func(ctx context.Context) (bool, error) {
 		var live catalogv1alpha1.LibraryScan
 		if err := k8sClient.Get(ctx, key, &live); err != nil {
 			//nolint:nilerr // keep polling
