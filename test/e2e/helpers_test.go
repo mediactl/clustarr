@@ -222,7 +222,7 @@ func managedFieldsTouch(entry metav1.ManagedFieldsEntry, dottedPaths ...string) 
 		return false, nil
 	}
 	var raw map[string]any
-	if err := json.Unmarshal(entry.FieldsV1.Raw, &raw); err != nil {
+	if err := json.Unmarshal(entry.FieldsV1.GetRawBytes(), &raw); err != nil {
 		return false, fmt.Errorf("managedFieldsTouch: decode FieldsV1: %w", err)
 	}
 	for _, dotted := range dottedPaths {

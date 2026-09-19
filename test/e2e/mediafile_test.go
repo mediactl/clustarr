@@ -195,7 +195,7 @@ func describeMediaFile(key client.ObjectKey) func() string {
 		for _, e := range live.GetManagedFields() {
 			fields := ""
 			if e.FieldsV1 != nil {
-				fields = string(e.FieldsV1.Raw)
+				fields = string(e.FieldsV1.GetRawBytes())
 			}
 			out += fmt.Sprintf("\n    manager=%s subresource=%q fields=%s", e.Manager, e.Subresource, fields)
 		}

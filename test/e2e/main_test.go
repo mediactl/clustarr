@@ -95,6 +95,18 @@ const (
 var k8sClient client.Client
 
 func TestMain(m *testing.M) {
+	// gate() owns every deferred cleanup, because os.Exit skips defers:
+	// TestMain itself does nothing but translate its verdict into an exit
+	// code and, when the cluster is ready, hand off to m.Run.
+	if code := gate(); code != 0 {
+		os.Exit(code)
+	}
+	os.Exit(m.Run())
+}
+
+// gate builds the client and refuses to let any scenario run against an
+// incomplete cluster. It returns 0 when the suite may proceed.
+func gate() int {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*gateTimeout)
 	defer cancel()
 
@@ -102,7 +114,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "e2e: kubeconfig context %q not reachable: %v\n", KubeContext, err)
 		fmt.Fprintln(os.Stderr, "e2e: run hack/e2e.sh, not `go test` directly, unless a kind cluster named clustarr is already up")
-		os.Exit(1)
+		return 1
 	}
 
 	scheme := k8s.MustNewScheme()
@@ -111,29 +123,29 @@ func TestMain(m *testing.M) {
 	// here rather than widening the production scheme.
 	if err := apiextensionsv1.AddToScheme(scheme); err != nil {
 		fmt.Fprintf(os.Stderr, "e2e: register apiextensions scheme: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 
 	c, err := client.New(cfg, client.Options{Scheme: scheme})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "e2e: build client: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 	k8sClient = c
 
 	if err := checkDataDir(); err != nil {
 		fmt.Fprintf(os.Stderr, "e2e: %v\n", err)
 		fmt.Fprintln(os.Stderr, "e2e: hack/e2e.sh must export CLUSTARR_DATA_DIR and seed the fixture clip before `make e2e` runs")
-		os.Exit(1)
+		return 1
 	}
 
 	if err := waitReady(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "e2e: cluster not ready: %v\n", err)
 		fmt.Fprintln(os.Stderr, "e2e: a scenario never installs anything itself -- hack/e2e.sh must finish CRDs, NATS and every Deployment before `make e2e` runs")
-		os.Exit(1)
+		return 1
 	}
 
-	os.Exit(m.Run())
+	return 0
 }
 
 // checkDataDir proves the host side of the hostPath mount is usable before
