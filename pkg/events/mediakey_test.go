@@ -78,3 +78,41 @@ func TestMediaKeyIsASingleSubjectToken(t *testing.T) {
 		assert.Equal(t, k, tok(k), "media key %q must already be tok()-stable", k)
 	}
 }
+
+// ForSingleNode switches every stream to memory storage, and the production
+// MaxBytes reservations (~8 GiB in total) cannot survive that switch
+// unchanged: config/nats sets max_memory_store to 256Mi on a pod with a 1Gi
+// limit, so NATS rejects the stream and every controller CrashLoopBackOffs on
+// the first one it tries to create. Found on the first real kind run -- no
+// unit or envtest suite could see it, because neither applies a memory
+// ceiling.
+func TestForSingleNodeFitsTheMemoryCeiling(t *testing.T) {
+	single := Default().ForSingleNode()
+
+	var total int64
+	for _, s := range single.Streams {
+		assert.Equal(t, StorageMemory, s.Storage, "stream %s must be memory-backed", s.Name)
+		assert.Positive(t, s.MaxBytes, "stream %s reserves nothing and would reject its first publish", s.Name)
+		total += s.MaxBytes
+	}
+
+	assert.LessOrEqual(t, total, int64(singleNodeMemoryBudget),
+		"single-node streams reserve %d bytes, over the %d-byte budget that fits config/nats' max_memory_store",
+		total, int64(singleNodeMemoryBudget))
+}
+
+// Scaling must keep the relative sizing the production topology chose rather
+// than flattening every stream to one cap.
+func TestForSingleNodeKeepsRelativeStreamSizing(t *testing.T) {
+	byName := func(ts Topology) map[string]int64 {
+		m := make(map[string]int64, len(ts.Streams))
+		for _, s := range ts.Streams {
+			m[s.Name] = s.MaxBytes
+		}
+		return m
+	}
+	p, s := byName(Default()), byName(Default().ForSingleNode())
+
+	require.Greater(t, p[StreamReleases], p[StreamWorkIndexarr], "premise changed: re-pick the streams")
+	assert.Greater(t, s[StreamReleases], s[StreamWorkIndexarr], "scaling flattened production's ordering")
+}

@@ -168,16 +168,45 @@ func (t Topology) StreamForSubject(subject string) (StreamSpec, bool) {
 	return StreamSpec{}, false
 }
 
+// singleNodeMemoryBudget is the total MaxBytes ForSingleNode will reserve
+// across every stream once it has switched them to memory storage.
+//
+// It exists because switching storage without resizing is not a safe
+// translation. The production topology reserves roughly 8 GiB across its
+// streams, which is unremarkable on disk and impossible in memory: the
+// single-node NATS in config/nats sets max_memory_store to 256Mi on a pod
+// with a 1Gi limit, so the reservations are rejected and every controller
+// CrashLoopBackOffs on the first stream it tries to create. 64 MiB leaves
+// room for the buckets and for NATS' own overhead inside that ceiling.
+const singleNodeMemoryBudget = 64 * MiB
+
 // ForSingleNode returns a copy of t with one replica per stream and bucket
 // and memory storage throughout. It is what tests and single-node dev
 // clusters apply; production applies Default unchanged.
+//
+// Stream MaxBytes is scaled to fit singleNodeMemoryBudget, keeping the
+// relative sizing the production topology chose rather than flattening every
+// stream to the same cap.
 func (t Topology) ForSingleNode() Topology {
 	out := t.clone()
+
+	var total int64
+	for i := range out.Streams {
+		total += out.Streams[i].MaxBytes
+	}
+
 	for i := range out.Streams {
 		out.Streams[i].Replicas = 1
 		out.Streams[i].Storage = StorageMemory
 		out.Streams[i].Compression = false
 		out.Streams[i].DenyDelete = false
+		if total > singleNodeMemoryBudget && out.Streams[i].MaxBytes > 0 {
+			scaled := out.Streams[i].MaxBytes * singleNodeMemoryBudget / total
+			if scaled < singleNodeMinStreamBytes {
+				scaled = singleNodeMinStreamBytes
+			}
+			out.Streams[i].MaxBytes = scaled
+		}
 	}
 	for i := range out.Buckets {
 		out.Buckets[i].Replicas = 1
@@ -185,6 +214,11 @@ func (t Topology) ForSingleNode() Topology {
 	}
 	return out
 }
+
+// singleNodeMinStreamBytes keeps a proportionally tiny stream usable. A
+// stream whose MaxBytes rounds to near zero rejects its first publish, which
+// reads as a broken bus rather than a full one.
+const singleNodeMinStreamBytes = 1 * MiB
 
 func (t Topology) clone() Topology {
 	out := Topology{
