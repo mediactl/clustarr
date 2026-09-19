@@ -63,6 +63,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // k8s.EveryReplica, not manager.RunnableFunc: the latter has no
 // NeedLeaderElection method, so controller-runtime puts it behind the leader
 // lease on any service that elects.
+//
 //	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 //	        stop, err := bus.Subscribe(ctx, spec.Subscription(), worker.Handle)
 //	        if err != nil {
