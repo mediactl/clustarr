@@ -26,6 +26,9 @@
 # * par2: par2cmdline-turbo v1.5.0 static release binary. It is not packaged in
 #   Debian (the `par2` package is classic par2cmdline 0.8, ~10x slower). Set
 #   PAR2_SOURCE=distro to use the apt package instead, PAR2_SHA256 to verify.
+#   Note the asset name drops the tag's leading "v" (tag v1.5.0 ->
+#   par2cmdline-turbo-1.5.0-linux-amd64.zip) and ships as a zip, not an xz.
+#   Getting either wrong 404s and fails the whole image build.
 #
 # Runtime contract: non-root uid/gid 1000 (matches the fsGroup in
 # config/manager), /data is the RWX media volume (§11), /scratch is node-local
@@ -70,7 +73,7 @@ ARG PAR2_SOURCE=turbo
 ARG PAR2_SHA256=""
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl xz-utils \
+ && apt-get install -y --no-install-recommends ca-certificates curl xz-utils unzip \
  && rm -rf /var/lib/apt/lists/*
 
 # ffmpeg + ffprobe
@@ -101,12 +104,13 @@ RUN set -eux; \
         arm64) p2_arch=arm64 ;; \
         *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
       esac; \
-      url="https://github.com/animetosho/par2cmdline-turbo/releases/download/${PAR2_VERSION}/par2cmdline-turbo-${PAR2_VERSION}-linux-${p2_arch}.xz"; \
-      curl -fsSL -o /tmp/par2.xz "${url}"; \
-      if [ -n "${PAR2_SHA256}" ]; then echo "${PAR2_SHA256}  /tmp/par2.xz" | sha256sum -c -; fi; \
-      xz -dc /tmp/par2.xz > /out/bin/par2; \
+      p2_ver="${PAR2_VERSION#v}"; \
+      url="https://github.com/animetosho/par2cmdline-turbo/releases/download/${PAR2_VERSION}/par2cmdline-turbo-${p2_ver}-linux-${p2_arch}.zip"; \
+      curl -fsSL -o /tmp/par2.zip "${url}"; \
+      if [ -n "${PAR2_SHA256}" ]; then echo "${PAR2_SHA256}  /tmp/par2.zip" | sha256sum -c -; fi; \
+      unzip -p /tmp/par2.zip par2 > /out/bin/par2; \
       chmod 0755 /out/bin/par2; \
-      rm -f /tmp/par2.xz; \
+      rm -f /tmp/par2.zip; \
     fi; \
     /out/bin/par2 --version
 
