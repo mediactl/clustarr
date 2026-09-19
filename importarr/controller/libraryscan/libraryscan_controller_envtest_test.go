@@ -478,7 +478,8 @@ func TestScanEndToEndCreatesMediaFileAndRecordsUnmatched(t *testing.T) {
 	mf := files.Items[0]
 	assert.Equal(t, good, mf.Spec.Path)
 	assert.Equal(t, movies.Items[0].Name, mf.Spec.MediaRef.Name)
-	assert.Equal(t, string(k8s.ManagerImportarr), managerFor(t, mf.ManagedFields, "", "spec.path"))
+	assert.Equal(t, string(rescan.FieldManager), managerFor(t, mf.ManagedFields, "", "spec.path"),
+		"the rescan worker writes MediaFileSpec under its own manager, not importarr's controller one")
 	assert.Empty(t, managerFor(t, mf.ManagedFields, "status", "status"),
 		"catalogarr owns MediaFileStatus; importarr must not have written it")
 }

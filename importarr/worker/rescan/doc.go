@@ -36,8 +36,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // (spec §8.5), and it never re-applies a MediaFile whose spec.original is
 // already false -- catalogarr has taken spec.sizeBytes, spec.modTime and
 // spec.original over after a transcode swap, and k8s.Apply's force-ownership
-// would silently reclaim them. Every write is made under
-// k8s.ManagerImportarr.
+// would silently reclaim them. Every write is made under [FieldManager],
+// which is k8s.ManagerImportarrWorker -- see that constant's doc comment for
+// why this worker does not share importarr's controller manager name even
+// though it runs in the same process.
 //
 // The worker also never writes LibraryScan.status: the LibraryScan
 // controller is its single writer. Progress instead flows through a

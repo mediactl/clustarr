@@ -407,14 +407,21 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	// FileQuality/FileFormatScore/CutoffMet/ActiveDownloadRef/
 	// ObservedGeneration under k8s.ManagerCatalogarr. The Series reconciler
 	// writes this Episode's provider-sourced fields
-	// (Title/Overview/AirDate/TvdbID/RuntimeMinutes/AbsoluteNumber/
-	// FinaleType) under the distinct k8s.ManagerCatalogarrSeries, so no
-	// pass-through of those fields is needed here: server-side apply tracks
+	// (Title/Overview/AirDate/TvdbID/RuntimeMinutes/AbsoluteNumber) under
+	// the distinct k8s.ManagerCatalogarrSeries, so no pass-through of those
+	// fields is needed here: server-side apply tracks
 	// ownership per (manager name, field), and two different manager names
 	// on the same object never collide or release each other's fields --
 	// only two writers sharing ONE manager name do that (see this
 	// package's doc comment and k8s.ManagerCatalogarrSeries's own comment
 	// for the empirical finding that drove this split).
+	//
+	// status.finaleType and status.sceneNumbering are NOT in that list.
+	// Nothing writes either one yet: ensureEpisode does not send finaleType
+	// (metadata.Episode carries it, DesiredEpisode does not), and scene
+	// numbering is M6 work. This comment used to claim finaleType among the
+	// Series reconciler's fields, which would have made the next reader
+	// believe a field was owned when it was merely declared.
 	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Episode(ep.Name, ep.Namespace).WithStatus(statusAC)); err != nil {
 		return ctrl.Result{}, err
 	}

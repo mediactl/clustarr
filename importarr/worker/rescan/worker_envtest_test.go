@@ -161,7 +161,7 @@ func TestHandleCreatesMovieAndMediaFileSpecForAConfidentMatch(t *testing.T) {
 	assert.Equal(t, catalogv1alpha1.MovieAddMethodScan, movie.Spec.AddOptions.AddMethod)
 	require.NotNil(t, movie.Spec.AddOptions.SearchForMovie)
 	assert.False(t, *movie.Spec.AddOptions.SearchForMovie, "a file already on disk must not trigger a grab for itself")
-	assert.Equal(t, string(k8s.ManagerImportarr), managerFor(t, movie.ManagedFields, "", "spec.tmdbID"))
+	assert.Equal(t, string(rescan.FieldManager), managerFor(t, movie.ManagedFields, "", "spec.tmdbID"))
 
 	var files catalogv1alpha1.MediaFileList
 	waitFor(t, 10*time.Second, func() bool {
@@ -184,8 +184,8 @@ func TestHandleCreatesMovieAndMediaFileSpecForAConfidentMatch(t *testing.T) {
 
 	// The two-writer split: importarr owns MediaFileSpec, catalogarr owns
 	// all of MediaFileStatus. Nothing here may have touched status.
-	assert.Equal(t, string(k8s.ManagerImportarr), managerFor(t, mf.ManagedFields, "", "spec.path"))
-	assert.Equal(t, string(k8s.ManagerImportarr), managerFor(t, mf.ManagedFields, "", "spec.sizeBytes"))
+	assert.Equal(t, string(rescan.FieldManager), managerFor(t, mf.ManagedFields, "", "spec.path"))
+	assert.Equal(t, string(rescan.FieldManager), managerFor(t, mf.ManagedFields, "", "spec.sizeBytes"))
 	assert.Empty(t, managerFor(t, mf.ManagedFields, "status", "status"),
 		"importarr must never write any MediaFile status field")
 	assert.Empty(t, mf.Status.ProbeHash)
@@ -239,9 +239,9 @@ func TestHandleDoesNotReclaimFieldsCatalogarrOwnsPostTranscode(t *testing.T) {
 	var after catalogv1alpha1.MediaFile
 	require.NoError(t, f.c.Get(ctx, types.NamespacedName{Namespace: f.ns, Name: mf.Name}, &after))
 	assert.Equal(t, int64(999), after.Spec.SizeBytes, "catalogarr owns sizeBytes post-transcode")
-	assert.NotEqual(t, string(k8s.ManagerImportarr), managerFor(t, after.ManagedFields, "", "spec.sizeBytes"),
+	assert.NotEqual(t, string(rescan.FieldManager), managerFor(t, after.ManagedFields, "", "spec.sizeBytes"),
 		"importarr must not have claimed sizeBytes on a file catalogarr took over")
-	assert.NotEqual(t, string(k8s.ManagerImportarr), managerFor(t, after.ManagedFields, "", "spec.original"))
+	assert.NotEqual(t, string(rescan.FieldManager), managerFor(t, after.ManagedFields, "", "spec.original"))
 
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	assert.Equal(t, int64(1), got.FilesSkipped)

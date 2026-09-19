@@ -34,9 +34,16 @@ const (
 	// cross-group status writer (Download.status.import).
 	ManagerCatalogarr FieldManager = "catalogarr"
 
-	// ManagerCatalogarrSeries is the catalogarr Series reconciler when it writes
-	// to an Episode it owns -- the provider-derived per-episode fields and the
-	// monitor mode it applies on fanout. It is deliberately distinct from
+	// ManagerCatalogarrSeries is the catalogarr Series reconciler when it
+	// writes to an Episode it owns. Its field set is exactly
+	// EpisodeStatus' Title, Overview, AirDate, TvdbID, RuntimeMinutes and
+	// AbsoluteNumber -- and nothing else. Not FinaleType, which this
+	// comment used to list and which no writer sends (DesiredEpisode does
+	// not even carry it); not SceneNumbering, which is M6 work; and not
+	// spec.monitored, which ensureEpisode sets once, inside the Create,
+	// under the client's own manager rather than this one.
+	//
+	// It is deliberately distinct from
 	// ManagerCatalogarr, which the Episode reconciler uses for that Episode's own
 	// status: server-side apply replaces a manager's whole ownership set on every
 	// apply, so two writers sharing one manager name on one object silently
@@ -90,11 +97,22 @@ const (
 	// ImportExclusion and LibraryScan status, and Download.status.import.
 	ManagerImportarr FieldManager = "importarr"
 
-	// ManagerImportarrWorker is an importarr scan, list or file-import worker. On
-	// MediaFile it applies MediaFileSpec only -- what it observed on disk, plus
-	// the values frozen at import -- and never MediaFileStatus, which catalogarr
-	// owns in full. (This comment previously described a status.file/status.probe
-	// split; those fields do not exist. See CLAUDE.md's invariant.)
+	// ManagerImportarrWorker is an importarr scan, list or file-import worker.
+	// On MediaFile it applies MediaFileSpec only -- what it observed on disk,
+	// plus the values frozen at import -- and never MediaFileStatus, which
+	// catalogarr owns in full. The library-rescan worker also applies
+	// MovieSpec under this name when it creates the Movie a scanned file is
+	// attributed to. (This comment previously described a
+	// status.file/status.probe split; those fields do not exist. See
+	// CLAUDE.md's invariant.)
+	//
+	// It is deliberately distinct from ManagerImportarr even though the
+	// workers run inside the same manager process as importarr's
+	// controllers -- see rescan.FieldManager, which is the constant
+	// production writes with and where the reasoning lives. Until task C14
+	// the rescan worker actually wrote as ManagerImportarr while this
+	// comment, catalogarr's two-writer gate and the e2e suite each said
+	// something different.
 	ManagerImportarrWorker FieldManager = "importarr-worker"
 
 	// ManagerIndexarr is the indexarr manager, the single writer for

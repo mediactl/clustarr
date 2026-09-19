@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/importarr/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -137,7 +138,7 @@ func waitForBothWriters(ctx context.Context, t *testing.T, key client.ObjectKey)
 		importarrOK, catalogarrOK := false, false
 		for _, e := range mf.GetManagedFields() {
 			switch e.Manager {
-			case k8s.ManagerImportarr.String():
+			case rescan.FieldManager.String():
 				if ok, err := managedFieldsTouch(e, "spec.path", "spec.sizeBytes", "spec.mediaRef"); err == nil && ok {
 					importarrOK = true
 				}
@@ -156,7 +157,7 @@ func waitForBothWriters(ctx context.Context, t *testing.T, key client.ObjectKey)
 	)
 	for _, e := range mf.GetManagedFields() {
 		switch e.Manager {
-		case k8s.ManagerImportarr.String():
+		case rescan.FieldManager.String():
 			ok, err := managedFieldsTouch(e, "spec.path")
 			require.NoError(t, err)
 			importarrSpec = importarrSpec || ok

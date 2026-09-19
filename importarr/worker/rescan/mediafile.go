@@ -37,6 +37,33 @@ import (
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
+// FieldManager is the server-side-apply field manager every write in this
+// package uses, on the Movie it attributes a file to and on the MediaFile
+// itself. It is k8s.ManagerImportarrWorker, NOT k8s.ManagerImportarr, and
+// the difference is not cosmetic.
+//
+// This worker runs on the same replicas as importarr's controllers --
+// run.go adds it with mgr.Add(k8s.EveryReplica(...)), inside the same
+// manager process -- and those controllers write under ManagerImportarr.
+// Server-side apply replaces a manager's whole ownership set on every apply
+// rather than merging it, so two writers sharing ONE manager name on one
+// object silently release each other's fields. Today they never meet on one
+// object, so the name was inert; M3's fileimport consumer writes
+// Download.status.import AND MediaFileSpec from these same replicas, which
+// is exactly the shape that forced catalogarr-worker to split into
+// catalogarr-metadata and catalogarr-grab after both directions of that
+// release were reproduced against a real apiserver. Splitting before the
+// collision costs one word; splitting after it costs a debugging session.
+//
+// It is exported so the tests that assert the split -- catalogarr's
+// mandatory two-writer gate above all, which has to stand in for this
+// worker rather than run it -- name the manager production actually uses
+// instead of restating a constant that can drift away from it. It had
+// drifted: production wrote as ManagerImportarr while the gate, and
+// k8s.ManagerImportarrWorker's own doc comment, described ManagerImportarr-
+// Worker.
+const FieldManager = k8s.ManagerImportarrWorker
+
 // handleMediaFile attributes one walked media file and records the result.
 //
 // The write it performs is deliberately narrow. importarr creates the
@@ -166,7 +193,7 @@ func sameFingerprint(mf *catalogv1alpha1.MediaFile, info os.FileInfo) bool {
 }
 
 // applyMovie creates (or re-asserts) the Movie a scanned file was attributed
-// to, under k8s.ManagerImportarr. addMethod is "scan", which the CRD's own
+// to, under [FieldManager]. addMethod is "scan", which the CRD's own
 // enum carries precisely so a scanned discovery is distinguishable from
 // something a user added by hand, and searchForMovie is false: a file that is
 // already on disk must not immediately trigger a grab for itself.
@@ -180,7 +207,7 @@ func (w *Worker) applyMovie(ctx context.Context, st *scanState, name string, tmd
 				WithSearchForMovie(false).
 				WithAddMethod(catalogv1alpha1.MovieAddMethodScan)),
 	)
-	if _, err := k8s.Apply(ctx, w.Client, k8s.ManagerImportarr, ac); err != nil {
+	if _, err := k8s.Apply(ctx, w.Client, FieldManager, ac); err != nil {
 		return fmt.Errorf("rescan: apply movie %s: %w", name, err)
 	}
 	return nil
@@ -221,7 +248,7 @@ func (w *Worker) applyMediaFile(
 		spec = spec.WithLanguages(parsed.Languages...)
 	}
 
-	if _, err := k8s.Apply(ctx, w.Client, k8s.ManagerImportarr,
+	if _, err := k8s.Apply(ctx, w.Client, FieldManager,
 		catalogac.MediaFile(name, st.scan.Namespace).WithSpec(spec)); err != nil {
 		return fmt.Errorf("rescan: apply media file %s: %w", name, err)
 	}
