@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+#
+# hack/e2e.sh -- the one command Phase H's gate asks for: bring up kind, build
+# and load every image (including the fixtures), install the CRDs, apply
+# config/e2e, wait for readiness, seed the probe clip onto /data, run
+# `make e2e`, and on any failure dump diagnostics into test/e2e/artifacts/.
+#
+# A scenario never installs anything itself (test/e2e/main_test.go's TestMain
+# refuses to run otherwise) -- every step below is what makes that true.
+#
+# Requires: kind, kubectl, docker, go, kustomize. The machine needs Internet
+# for the one-time image builds (apt, Go modules); nothing that runs INSIDE
+# the cluster ever reaches the network.
+#
+# Environment:
+#   KIND_CLUSTER_NAME   cluster name                    (default: clustarr)
+#   CLUSTARR_DATA_DIR   host dir mounted at /data       (default: <repo>/.data)
+#   FIXTURES_IMG        the fixture image tag           (default: ghcr.io/mediactl/clustarr-e2e-fixtures:dev)
+#   E2E_SKIP_BUILD      set to 1 to reuse existing images and a running cluster
+#   E2E_ARGS            extra args appended to `go test` (e.g. -run TestLibraryRescan)
+
+set -uo pipefail # deliberately not -e: the test step's exit code is captured, not fatal
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${REPO_ROOT}" || exit 1
+
+CLUSTER_NAME="${KIND_CLUSTER_NAME:-clustarr}"
+NAMESPACE="clustarr-system"
+CONTEXT="kind-${CLUSTER_NAME}"
+# Exported, and never left to hack/kind.sh's $PWD-relative default: test/e2e
+# reads this to translate a cluster path under /data into a host path, and it
+# must mean the same directory in both processes.
+export CLUSTARR_DATA_DIR="${CLUSTARR_DATA_DIR:-${REPO_ROOT}/.data}"
+FIXTURES_IMG="${FIXTURES_IMG:-ghcr.io/mediactl/clustarr-e2e-fixtures:dev}"
+ARTIFACTS_DIR="${REPO_ROOT}/test/e2e/artifacts"
+KUSTOMIZE="$(go env GOPATH)/bin/kustomize"
+
+# Every workload readiness waits on, in the order it is most useful to see
+# fail: the stubs first (a broken fixture image is the cheapest failure), then
+# the services.
+WORKLOADS=(
+  deployment/tmdb-stub
+  deployment/tvdb-stub
+  deployment/catalogarr
+  deployment/catalogarr-metadata
+  deployment/importarr
+  deployment/importarr-worker
+  deployment/indexarr
+  deployment/grabarr
+  deployment/squasharr
+  deployment/captionarr
+  deployment/captionarr-worker
+  deployment/ui
+  statefulset/nats
+)
+
+log() { printf '==> %s\n' "$*" >&2; }
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+need() { command -v "$1" >/dev/null 2>&1 || die "missing required tool: $1"; }
+
+need kind
+need kubectl
+need docker
+need go
+[[ -x "${KUSTOMIZE}" ]] || need kustomize
+[[ -x "${KUSTOMIZE}" ]] || KUSTOMIZE="$(command -v kustomize)"
+
+if [[ "${E2E_SKIP_BUILD:-0}" != "1" ]]; then
+  log "cluster up (hack/kind.sh)"
+  make kind-up || die "hack/kind.sh up failed"
+
+  log "building the controller, media and fixture images"
+  make docker-build || die "make docker-build failed"
+  docker build -f images/Dockerfile.e2e-fixtures -t "${FIXTURES_IMG}" . \
+    || die "fixtures image build failed"
+
+  log "loading images into kind"
+  hack/kind.sh load || die "hack/kind.sh load failed"
+  kind load docker-image --name "${CLUSTER_NAME}" "${FIXTURES_IMG}" \
+    || die "loading the fixtures image failed"
+
+  log "installing CRDs"
+  make install || die "make install failed"
+fi
+
+log "applying config/e2e"
+"${KUSTOMIZE}" build config/e2e | kubectl --context "${CONTEXT}" apply --server-side --force-conflicts -f - \
+  || die "config/e2e apply failed"
+
+log "seeding the probe clip into ${CLUSTARR_DATA_DIR}/.e2e-fixtures"
+mkdir -p "${CLUSTARR_DATA_DIR}"
+# --user: the fixture image runs as uid 65532, but the hostPath directory
+# belongs to whoever ran hack/kind.sh, and a hostPath mount ignores fsGroup.
+docker run --rm --user "$(id -u):$(id -g)" \
+  -v "${CLUSTARR_DATA_DIR}:/data" \
+  "${FIXTURES_IMG}" seed --dir=/data/.e2e-fixtures \
+  || die "seeding the fixture clip failed"
+
+log "waiting for every workload in ${NAMESPACE}"
+for workload in "${WORKLOADS[@]}"; do
+  kubectl --context "${CONTEXT}" -n "${NAMESPACE}" rollout status "${workload}" --timeout=300s \
+    || die "${workload} never became ready"
+done
+
+log "running make e2e"
+if [[ -n "${E2E_ARGS:-}" ]]; then
+  # shellcheck disable=SC2086 # E2E_ARGS is a deliberate word-split escape hatch
+  go test ./test/e2e/... -tags e2e -timeout 30m ${E2E_ARGS}
+else
+  make e2e
+fi
+status=$?
+
+if [[ "${status}" -ne 0 ]]; then
+  log "the e2e suite failed (exit ${status}); dumping diagnostics into ${ARTIFACTS_DIR}"
+  mkdir -p "${ARTIFACTS_DIR}"
+
+  for workload in "${WORKLOADS[@]}"; do
+    name="${workload##*/}"
+    kubectl --context "${CONTEXT}" -n "${NAMESPACE}" logs "${workload}" \
+      --all-containers --tail=-1 --prefix >"${ARTIFACTS_DIR}/${name}.log" 2>&1
+  done
+
+  kubectl --context "${CONTEXT}" -n "${NAMESPACE}" get events --sort-by=.lastTimestamp \
+    >"${ARTIFACTS_DIR}/events.txt" 2>&1
+  kubectl --context "${CONTEXT}" -n "${NAMESPACE}" get pods -o wide \
+    >"${ARTIFACTS_DIR}/pods.txt" 2>&1
+
+  : >"${ARTIFACTS_DIR}/resources.yaml"
+  for group in catalog.clustarr.io index.clustarr.io download.clustarr.io \
+      transcode.clustarr.io subtitle.clustarr.io; do
+    kinds="$(kubectl --context "${CONTEXT}" api-resources --api-group="${group}" -o name | paste -sd, -)"
+    if [[ -n "${kinds}" ]]; then
+      kubectl --context "${CONTEXT}" -n "${NAMESPACE}" get "${kinds}" -o yaml \
+        >>"${ARTIFACTS_DIR}/resources.yaml" 2>&1
+    fi
+  done
+
+  # NATS's monitor port is not published by kind, so reach /jsz through a
+  # port-forward rather than assuming the host can route to the ClusterIP.
+  kubectl --context "${CONTEXT}" -n "${NAMESPACE}" port-forward svc/nats 18222:8222 >/dev/null 2>&1 &
+  pf_pid=$!
+  sleep 2
+  curl -s "http://127.0.0.1:18222/jsz?streams=true&consumers=true" \
+    >"${ARTIFACTS_DIR}/nats-jsz.json" 2>&1 || true
+  kill "${pf_pid}" 2>/dev/null || true
+  wait "${pf_pid}" 2>/dev/null
+
+  log "diagnostics written to ${ARTIFACTS_DIR}"
+fi
+
+exit "${status}"
