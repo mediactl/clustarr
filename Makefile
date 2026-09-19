@@ -95,9 +95,16 @@ docker-build: ## Build controller and media images.
 ##@ Test
 
 .PHONY: test
+# TEST_PARALLEL caps how many packages run at once. Around fifteen packages
+# each stand up their own envtest control plane, and running them all together
+# starves the apiservers: suites fail in a DIFFERENT package on each run, pass
+# 3/3 in isolation, and read as a mystery flake rather than as contention.
+# Raise it on a bigger machine; lower it if the flake reappears.
+TEST_PARALLEL ?= 4
+
 test: envtest ## Run unit and envtest suites.
 	@mkdir -p "$${CLUSTARR_TEST_MEDIA_ROOT:-/data/media}" 2>/dev/null || echo "warning: could not create $${CLUSTARR_TEST_MEDIA_ROOT:-/data/media}; importarr's scan suites will skip"
-	KUBEBUILDER_ASSETS="$(shell $(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test ./... -coverprofile cover.out
+	KUBEBUILDER_ASSETS="$(shell $(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test ./... -p $(TEST_PARALLEL) -coverprofile cover.out
 
 .PHONY: test-unit
 test-unit: ## Run unit tests only (no envtest).
