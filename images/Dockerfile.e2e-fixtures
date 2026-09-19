@@ -1,0 +1,75 @@
+# syntax=docker/dockerfile:1.7
+#
+# ghcr.io/mediactl/clustarr-e2e-fixtures -- in-cluster stub services for the
+# kind-based e2e suite (docs/superpowers/plans/2026-09-18-remaining-work.md,
+# Phase H). No fixture ever calls out to the real Internet;
+# images/Dockerfile.controller is the shape this mirrors.
+#
+#   docker build -f images/Dockerfile.e2e-fixtures -t ghcr.io/mediactl/clustarr-e2e-fixtures:dev .
+
+ARG GO_VERSION=1.27
+
+# ---------------------------------------------------------------------------
+# clipgen: one lavfi-generated H.264/AAC clip, baked in at build time so no
+# machine running `go test` (or this image, at runtime) needs ffmpeg itself.
+# A plain apt ffmpeg is enough -- this is a structural probe target for
+# pkg/mediainfo, not a codec/HDR fixture (those come with Phase E's clips).
+#
+# The bitrate is not an accident. pkg/fsops.IsSample classifies ANY file with
+# a MediaExtensions extension under 50 MiB as a promotional sample, and the
+# rescan worker only attributes files fsops calls ClassMedia -- so a genuinely
+# tiny clip would be skipped by every scenario and no MediaFile would ever be
+# created. Forcing x264 into CBR at 48 Mbit for ten seconds lands the file at
+# roughly 57 MiB, comfortably over that threshold and still a few seconds to
+# encode. test/fixtures/seed.MinMediaBytes asserts the result at seed time.
+# ---------------------------------------------------------------------------
+FROM debian:bookworm-slim AS clipgen
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /out && \
+    ffmpeg -v error -f lavfi -i "testsrc=duration=10:size=640x480:rate=25" \
+           -f lavfi -i "sine=frequency=1000:duration=10" \
+           -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
+           -x264-params "nal-hrd=cbr:force-cfr=1" \
+           -b:v 48M -minrate 48M -maxrate 48M -bufsize 48M \
+           -c:a aac -shortest \
+           /out/tiny.mkv && \
+    test "$(stat -c %s /out/tiny.mkv)" -ge 52428800
+
+# ---------------------------------------------------------------------------
+# build: compile ./test/fixtures
+# ---------------------------------------------------------------------------
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION} AS build
+ARG TARGETOS
+ARG TARGETARCH
+
+WORKDIR /src
+ENV CGO_ENABLED=0 \
+    GOFLAGS=-trimpath
+
+# Warm the module cache separately so source edits do not re-download.
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -ldflags "-s -w" -o /out/clustarr-e2e-fixtures ./test/fixtures
+
+# ---------------------------------------------------------------------------
+# final: distroless static, non-root (uid 65532); recorded JSON + baked clip
+# ---------------------------------------------------------------------------
+FROM gcr.io/distroless/static:nonroot
+LABEL org.opencontainers.image.source="https://github.com/mediactl/clustarr" \
+      org.opencontainers.image.licenses="GPL-3.0-only" \
+      org.opencontainers.image.title="clustarr-e2e-fixtures" \
+      org.opencontainers.image.description="In-cluster stub services for the Clustarr e2e suite"
+
+COPY --from=build /out/clustarr-e2e-fixtures /clustarr-e2e-fixtures
+COPY --from=clipgen /out/tiny.mkv /fixtures/media/tiny.mkv
+COPY testdata/metadata /fixtures/testdata/metadata
+
+USER 65532:65532
+ENTRYPOINT ["/clustarr-e2e-fixtures"]
