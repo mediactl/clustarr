@@ -364,3 +364,197 @@ func markerGroupsAndResources(marker string) (string, []string) {
 	}
 	return group, resources
 }
+
+// TestEveryCRDKindAControllerTouchesHasAnRBACMarker closes the last hole the
+// two guards above cannot see.
+//
+// TestGeneratedRoleCoversEveryStatusWriter checks that every marker in the
+// source reached the generated Role, and TestRBACMarkersArePackageLevel
+// checks that markers are placed where controller-gen will collect them.
+// Neither can see a marker that was never written at all: a controller that
+// Gets a kind nobody granted has no marker to compare against anything.
+// envtest does not enforce RBAC, so no suite in this repo can catch it
+// either -- the reconcile passes locally and fails with Forbidden on the
+// first real cluster.
+//
+// That is not hypothetical. mediafile's reconciler read TranscodeProfile
+// (to render §4.5's "<name>@<hash>" profile tag) with markers granting
+// transcodejobs and nothing else, and TestTranscodeJobWatchTriggersReconcile
+// exercised the path and passed. On a real cluster the first successful
+// TranscodeJob would have started a lazy informer, been denied, and failed
+// the reconcile on every retry, so the transcode swap could never be
+// incorporated.
+//
+// The rule is "touches a Clustarr CRD kind implies a marker names its
+// resource, in the same service directory". Resolution is exact rather than
+// by string-matching: the kind comes from the selector expression, its API
+// group from the import path the selector's alias resolves to, and its
+// plural from the generated CRD itself.
+func TestEveryCRDKindAControllerTouchesHasAnRBACMarker(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	require.NoError(t, err)
+
+	plurals := crdPlurals(t, root)
+	require.NotEmpty(t, plurals, "no CRDs were read; run `make manifests`")
+
+	for _, dir := range rbacServiceDirs(t, root) {
+		base := filepath.Join(root, dir)
+		if _, err := os.Stat(base); os.IsNotExist(err) {
+			continue
+		}
+		granted := markerResources(t, base)
+		err := filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			fset := token.NewFileSet()
+			file, perr := parser.ParseFile(fset, path, nil, parser.ParseComments|parser.SkipObjectResolution)
+			if perr != nil {
+				return perr
+			}
+			groups := apiGroupAliases(file)
+			if len(groups) == 0 {
+				return nil
+			}
+			rel, _ := filepath.Rel(root, path)
+			ast.Inspect(file, func(n ast.Node) bool {
+				sel, ok := n.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+				ident, ok := sel.X.(*ast.Ident)
+				if !ok {
+					return true
+				}
+				group, ok := groups[ident.Name]
+				if !ok {
+					return true
+				}
+				kind := strings.TrimSuffix(sel.Sel.Name, "List")
+				plural, ok := plurals[group+"/"+kind]
+				if !ok {
+					return true // a spec/enum/helper type, not a root kind
+				}
+				if !granted[group+"/"+plural] {
+					t.Errorf("%s:%d: %s touches %s.%s, but no +kubebuilder:rbac marker under %s/ "+
+						"grants %s in group %s. envtest does not enforce RBAC, so this only fails on a "+
+						"real cluster, as a Forbidden on the first lazy informer or Get.",
+						rel, fset.Position(sel.Pos()).Line, dir, ident.Name, sel.Sel.Name, dir, plural, group)
+					granted[group+"/"+plural] = true // report each gap once
+				}
+				return true
+			})
+			return nil
+		})
+		require.NoError(t, err)
+	}
+}
+
+// crdPlurals maps "<group>/<Kind>" to the resource plural, read from the
+// generated CRDs so the guard cannot disagree with what is installed. It is
+// deliberately not a lowercase-and-append-s rule: "series" is its own plural.
+func crdPlurals(t *testing.T, root string) map[string]string {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(root, "config", "crd", "bases"))
+	require.NoError(t, err)
+
+	out := map[string]string{}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(root, "config", "crd", "bases", entry.Name()))
+		require.NoError(t, err)
+		var crd struct {
+			Spec struct {
+				Group string `json:"group"`
+				Names struct {
+					Kind   string `json:"kind"`
+					Plural string `json:"plural"`
+				} `json:"names"`
+			} `json:"spec"`
+		}
+		require.NoError(t, yaml.Unmarshal(raw, &crd))
+		if crd.Spec.Group == "" || crd.Spec.Names.Kind == "" {
+			continue
+		}
+		out[crd.Spec.Group+"/"+crd.Spec.Names.Kind] = crd.Spec.Names.Plural
+	}
+	return out
+}
+
+// apiGroupAliases maps each import alias for an api/<group>/v1alpha1 package
+// in file to its API group, so a selector expression can be resolved to a
+// group without guessing from the alias's spelling.
+func apiGroupAliases(file *ast.File) map[string]string {
+	out := map[string]string{}
+	for _, imp := range file.Imports {
+		path := strings.Trim(imp.Path.Value, `"`)
+		rest, ok := strings.CutPrefix(path, "github.com/mediactl/clustarr/api/")
+		if !ok {
+			continue
+		}
+		group, _, ok := strings.Cut(rest, "/")
+		if !ok || group == "common" || group == "applyconfiguration" {
+			continue
+		}
+		name := group + "v1alpha1"
+		if imp.Name != nil {
+			name = imp.Name.Name
+		}
+		out[name] = group + ".clustarr.io"
+	}
+	return out
+}
+
+// markerResources returns every "<group>/<resource>" the RBAC markers under
+// dir grant, expanding the "resources=a;b;c" form and dropping the
+// "/status" and "/finalizers" subresource suffixes -- a Get on the main
+// resource is what this guard is about.
+func markerResources(t *testing.T, dir string) map[string]bool {
+	t.Helper()
+	out := map[string]bool{}
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for _, line := range strings.Split(string(raw), "\n") {
+			_, marker, found := strings.Cut(line, "+kubebuilder:rbac:")
+			if !found {
+				continue
+			}
+			var groups, resources []string
+			for _, field := range strings.Split(strings.TrimSpace(marker), ",") {
+				key, value, ok := strings.Cut(field, "=")
+				if !ok {
+					continue
+				}
+				value = strings.Trim(value, `"`)
+				switch key {
+				case "groups":
+					groups = strings.Split(value, ";")
+				case "resources":
+					resources = strings.Split(value, ";")
+				}
+			}
+			for _, g := range groups {
+				for _, r := range resources {
+					out[strings.Trim(g, `"`)+"/"+strings.Split(r, "/")[0]] = true
+				}
+			}
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	return out
+}

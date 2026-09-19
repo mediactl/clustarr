@@ -20,6 +20,7 @@ package mediafile_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,6 +50,7 @@ import (
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/catalogarr/controller/mediafile"
+	"github.com/mediactl/clustarr/importarr/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 )
@@ -78,11 +80,20 @@ func mustNamespace(t *testing.T, ctx context.Context, c client.Client, ns string
 	}
 }
 
-// importarrCreatesMediaFile simulates the file-import worker task this task
-// does not own: it Applies the full MediaFileSpec under
-// k8s.ManagerImportarrWorker, exactly the fields "Resolving the
-// field-manager split" assigns importarr, none of the three catalogarr may
-// later take over.
+// importarrCreatesMediaFile stands in for importarr's rescan worker, which
+// this package cannot run (it needs a bus, a LibraryScan, a RootFolder and a
+// real tree on disk): it Applies the full MediaFileSpec, exactly the fields
+// "Resolving the field-manager split" assigns importarr, none of the three
+// catalogarr may later take over.
+//
+// It applies under rescan.FieldManager, the constant importarr's worker
+// itself writes with, rather than restating a k8s.Manager* name here. Task
+// C14 found this gate proving the split for a manager name production never
+// used -- production wrote as k8s.ManagerImportarr while this file, and
+// k8s.ManagerImportarrWorker's own doc comment, said importarr-worker -- so
+// the one thing the gate exists to prove was being proved about a fiction.
+// Naming production's own constant makes that drift impossible rather than
+// merely fixed.
 func importarrCreatesMediaFile(t *testing.T, ctx context.Context, c client.Client, ns, name, path string, size int64, modTime time.Time, q commonv1.Quality) {
 	t.Helper()
 	importarrCreatesMediaFileFor(t, ctx, c, ns, name,
@@ -107,7 +118,7 @@ func importarrCreatesMediaFileFor(t *testing.T, ctx context.Context, c client.Cl
 			WithProfileHash("profile-hash-abc").
 			WithOriginal(true),
 	)
-	if _, err := k8s.Apply(ctx, c, k8s.ManagerImportarrWorker, ac); err != nil {
+	if _, err := k8s.Apply(ctx, c, rescan.FieldManager, ac); err != nil {
 		t.Fatalf("simulate importarr create: %v", err)
 	}
 }
@@ -258,7 +269,7 @@ func TestMediaFileFieldManagersStayDisjoint(t *testing.T) {
 	assert.Equal(t, "true", got.Labels[catalogv1alpha1.LabelOriginal])
 
 	for _, want := range []struct{ manager, subresource string }{
-		{"importarr-worker", ""},
+		{rescan.FieldManager.String(), ""},
 		{"catalogarr", "status"},
 	} {
 		if !managesField(got.ManagedFields, want.manager, want.subresource) {
@@ -274,10 +285,10 @@ func TestMediaFileFieldManagersStayDisjoint(t *testing.T) {
 	assert.True(t, claimsLabels(catalogarrMain), "catalogarr should claim metadata.labels")
 	assert.False(t, claimsSpecField(catalogarrMain), "catalogarr must not claim any spec field before a transcode: %+v", specFieldNames(catalogarrMain))
 
-	importarrMain := managedFieldPaths(got.ManagedFields, "importarr-worker", "")
+	importarrMain := managedFieldPaths(got.ManagedFields, rescan.FieldManager.String(), "")
 	require.NotNil(t, importarrMain)
-	assert.True(t, specFieldNames(importarrMain)["quality"], "importarr-worker should still own spec.quality")
-	assert.True(t, specFieldNames(importarrMain)["path"], "importarr-worker should still own spec.path")
+	assert.True(t, specFieldNames(importarrMain)["quality"], "the rescan worker should still own spec.quality")
+	assert.True(t, specFieldNames(importarrMain)["path"], "the rescan worker should still own spec.path")
 
 	// Now simulate squasharr: a Succeeded TranscodeJob at the same path.
 	newContents := []byte("re-encoded stand-in bytes, longer")
@@ -325,8 +336,8 @@ func TestMediaFileFieldManagersStayDisjoint(t *testing.T) {
 	assert.Equal(t, int32(40), got.Spec.FormatScore)
 
 	for _, want := range []struct{ manager, subresource string }{
-		{"importarr-worker", ""}, // still owns path/quality/... (untouched fields)
-		{"catalogarr", ""},       // now owns sizeBytes/modTime/original (and still labels)
+		{rescan.FieldManager.String(), ""}, // still owns path/quality/... (untouched fields)
+		{"catalogarr", ""},                 // now owns sizeBytes/modTime/original (and still labels)
 		{"catalogarr", "status"},
 	} {
 		if !managesField(got.ManagedFields, want.manager, want.subresource) {
@@ -336,7 +347,7 @@ func TestMediaFileFieldManagersStayDisjoint(t *testing.T) {
 
 	// catalogarr's spec claim is now EXACTLY sizeBytes/modTime/original --
 	// never path, never any of the frozen release-time fields -- and it
-	// still claims labels. importarr-worker's spec claim no longer includes
+	// still claims labels. The rescan worker's spec claim no longer includes
 	// the three fields it just transferred, but still includes quality/path
 	// untouched: a clean ownership transfer, not a conflict.
 	catalogarrMain = managedFieldPaths(got.ManagedFields, "catalogarr", "")
@@ -344,14 +355,14 @@ func TestMediaFileFieldManagersStayDisjoint(t *testing.T) {
 	assert.True(t, claimsLabels(catalogarrMain), "catalogarr should still claim metadata.labels after a transcode")
 	assert.Equal(t, map[string]bool{"sizeBytes": true, "modTime": true, "original": true}, specFieldNames(catalogarrMain))
 
-	importarrMain = managedFieldPaths(got.ManagedFields, "importarr-worker", "")
+	importarrMain = managedFieldPaths(got.ManagedFields, rescan.FieldManager.String(), "")
 	require.NotNil(t, importarrMain)
 	importarrSpec := specFieldNames(importarrMain)
-	assert.True(t, importarrSpec["quality"], "importarr-worker should still own spec.quality")
-	assert.True(t, importarrSpec["path"], "importarr-worker should still own spec.path")
-	assert.False(t, importarrSpec["sizeBytes"], "importarr-worker should have released sizeBytes to catalogarr")
-	assert.False(t, importarrSpec["modTime"], "importarr-worker should have released modTime to catalogarr")
-	assert.False(t, importarrSpec["original"], "importarr-worker should have released original to catalogarr")
+	assert.True(t, importarrSpec["quality"], "the rescan worker should still own spec.quality")
+	assert.True(t, importarrSpec["path"], "the rescan worker should still own spec.path")
+	assert.False(t, importarrSpec["sizeBytes"], "the rescan worker should have released sizeBytes to catalogarr")
+	assert.False(t, importarrSpec["modTime"], "the rescan worker should have released modTime to catalogarr")
+	assert.False(t, importarrSpec["original"], "the rescan worker should have released original to catalogarr")
 
 	require.NotNil(t, got.Status.Transcode)
 	assert.True(t, got.Status.Transcode.Compliant)
@@ -603,6 +614,15 @@ func TestTranscodeJobWatchTriggersReconcile(t *testing.T) {
 // extractSubtitleItemsSignature) and mediaFileForSubtitleRequest driving a
 // real manager, not a direct Reconcile call -- this is §8.6's sidecar
 // feedback path end to end.
+//
+// It also carries the lesson from task C14. This test drove a correct
+// steady state and then asserted only that ITS field had arrived, and so it
+// passed, for the whole of Phase C, while watching status.probeHash,
+// status.probedAt, status.mediaInfo and status.transcode be released by a
+// second status apply made under the same field manager in the same
+// reconcile. The three lines below the Eventually are the fix, and the rule
+// they stand for is: assert that the REST of the object survived, not just
+// that your field arrived.
 func TestSubtitleRequestWatchTriggersReconcile(t *testing.T) {
 	_, cfg := startEnv(t)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -672,4 +692,163 @@ func TestSubtitleRequestWatchTriggersReconcile(t *testing.T) {
 		}
 		return len(got.Status.Sidecars) == 1 && got.Status.Sidecars[0].Language == "en"
 	}, 5*time.Second, 100*time.Millisecond, "the SubtitleRequest watch did not trigger the sidecar refresh")
+
+	require.NotEmpty(t, got.Status.ProbeHash,
+		"folding in a sidecar released the probe result: status.sidecars must be part of the SAME apply as the probe, not a second one under the same manager")
+	require.NotNil(t, got.Status.MediaInfo, "folding in a sidecar released status.mediaInfo")
+	require.NotEmpty(t, got.Status.Conditions, "folding in a sidecar released the conditions")
+}
+
+// TestTransientFileFailuresPreserveProbedStatus is the case this file did
+// not have: neither the FileMissing branch nor the ProbeFailed branch had
+// any test at all, and both of them applied a MediaFileStatus containing
+// only observedGeneration and conditions under k8s.ManagerCatalogarr -- the
+// sole owner of ALL of MediaFileStatus. Server-side apply replaces a
+// manager's ownership set on every apply rather than merging it, so each of
+// those applies released status.probeHash, status.probedAt,
+// status.mediaInfo, status.sidecars and status.transcode. Measured before
+// the fix, over one os.Remove and one reconcile:
+//
+//	BEFORE: probeHash="3580b9bd..." mediaInfo=true  probedAt=true
+//	AFTER : probeHash=""            mediaInfo=false probedAt=false
+//
+// Both triggers are transient and routine -- an RWX /data blip, a user
+// moving a file and moving it back, an ffprobe that times out under load --
+// and the requeue is 60s, so a healthy file spends the whole outage gutted.
+// status.transcode.compliant reading false in particular makes squasharr
+// re-transcode an already-compliant file once Phase E lands.
+//
+// The shape matters as much as the assertions: this drives the MediaFile to
+// a REAL steady state first -- probed, with sidecars and an incorporated
+// transcode -- and only then breaks the file. A test that creates a blank
+// object and triggers the failure path cannot observe a release, because
+// there was nothing to release; that is exactly why the branches looked
+// covered enough to ship.
+func TestTransientFileFailuresPreserveProbedStatus(t *testing.T) {
+	c, _ := startEnv(t)
+	ctx := t.Context()
+	const ns, name = "transient", "inception-abc1234567"
+	key := types.NamespacedName{Namespace: ns, Name: name}
+	dir := t.TempDir()
+	mustNamespace(t, ctx, c, ns)
+	mustQualityProfile(t, ctx, c, "qp-video")
+	mustMovie(t, ctx, c, ns, "inception", "qp-video")
+
+	path := writeFile(t, dir, "Inception (2010).mkv", []byte("stand-in bytes"))
+	stat, err := os.Stat(path)
+	require.NoError(t, err)
+	importarrCreatesMediaFile(t, ctx, c, ns, name, path, stat.Size(), stat.ModTime(),
+		commonv1.Quality{Name: "WEBDL-1080p", Source: commonv1.SourceWebDL, Resolution: commonv1.Resolution1080p, Modifier: commonv1.ModifierNone})
+
+	r := &mediafile.Reconciler{Client: c, Probe: fakeProbe, Clock: time.Now}
+	_, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: key})
+	require.NoError(t, err)
+
+	// A SubtitleRequest, so status.sidecars is populated too. After
+	// captionarr lands every video MediaFile has one, which is what makes
+	// a released status.sidecars the common case rather than the exotic one.
+	sr := &subtitlev1alpha1.SubtitleRequest{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		Spec:       subtitlev1alpha1.SubtitleRequestSpec{MediaFileRef: name},
+	}
+	require.NoError(t, c.Create(ctx, sr))
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCaptionarrWorker,
+		subtitleac.SubtitleRequest(sr.Name, sr.Namespace).WithStatus(
+			subtitleac.SubtitleRequestStatus().WithItems(
+				subtitleac.SubtitleItem().WithLangKey("en").WithState(subtitlev1alpha1.SubtitleItemDownloaded).WithPath("Inception (2010).en.srt"),
+			),
+		))
+	require.NoError(t, err)
+
+	// ... and an incorporated transcode swap, so status.transcode is set.
+	newContents := []byte("re-encoded stand-in bytes, longer")
+	require.NoError(t, os.WriteFile(path, newContents, 0o644))
+	newStat, err := os.Stat(path)
+	require.NoError(t, err)
+	mustTranscodeProfile(t, ctx, c, "hevc-main10", "profile-hash-def")
+	tj := &transcodev1alpha1.TranscodeJob{
+		ObjectMeta: metav1.ObjectMeta{Name: name + "-abcd1234", Namespace: ns},
+		Spec:       transcodev1alpha1.TranscodeJobSpec{MediaFileRef: name, ProfileRef: "hevc-main10", SourcePath: path},
+	}
+	require.NoError(t, c.Create(ctx, tj))
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerSquasharr,
+		transcodeac.TranscodeJob(tj.Name, tj.Namespace).WithStatus(
+			transcodeac.TranscodeJobStatus().
+				WithPhase(transcodev1alpha1.TranscodeJobPhaseSucceeded).
+				WithFinishedAt(metav1.NewTime(newStat.ModTime().Add(time.Second))).
+				WithResult(transcodeac.Result().WithOutputPath(path).WithOutputSizeBytes(int64(len(newContents)))),
+		))
+	require.NoError(t, err)
+
+	_, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: key})
+	require.NoError(t, err)
+
+	var steady catalogv1alpha1.MediaFile
+	require.NoError(t, c.Get(ctx, key, &steady))
+	require.NotEmpty(t, steady.Status.ProbeHash, "setup: never reached a probed steady state")
+	require.NotNil(t, steady.Status.ProbedAt)
+	require.NotNil(t, steady.Status.MediaInfo)
+	require.Len(t, steady.Status.Sidecars, 1, "setup: the sidecar never landed")
+	require.NotNil(t, steady.Status.Transcode, "setup: the transcode swap was never incorporated")
+	require.True(t, steady.Status.Transcode.Compliant)
+
+	// assertSteadyStateSurvived is the whole point: every field
+	// ManagerCatalogarr owns and this pass did not recompute must still be
+	// exactly what it was.
+	assertSteadyStateSurvived := func(t *testing.T) {
+		t.Helper()
+		var got catalogv1alpha1.MediaFile
+		require.NoError(t, c.Get(ctx, key, &got))
+		assert.Equal(t, steady.Status.ProbeHash, got.Status.ProbeHash, "status.probeHash was released")
+		assert.Equal(t, steady.Status.ProbedAt, got.Status.ProbedAt, "status.probedAt was released")
+		assert.Equal(t, steady.Status.MediaInfo, got.Status.MediaInfo, "status.mediaInfo was released")
+		assert.Equal(t, steady.Status.Sidecars, got.Status.Sidecars, "status.sidecars was released")
+		require.NotNil(t, got.Status.Transcode, "status.transcode was released; squasharr would re-transcode a compliant file")
+		assert.True(t, got.Status.Transcode.Compliant, "status.transcode.compliant was reset to false")
+		assert.Equal(t, steady.Status.Transcode.ProfileTag, got.Status.Transcode.ProfileTag)
+	}
+
+	t.Run("a missing file does not release the probe result", func(t *testing.T) {
+		require.NoError(t, os.Remove(path))
+		t.Cleanup(func() { require.NoError(t, os.WriteFile(path, newContents, 0o644)) })
+
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key})
+		require.NoError(t, err)
+		assert.Equal(t, time.Minute, res.RequeueAfter, "the FileMissing branch should requeue, not give up")
+
+		assertSteadyStateSurvived(t)
+
+		var got catalogv1alpha1.MediaFile
+		require.NoError(t, c.Get(ctx, key, &got))
+		ready := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.MediaFileConditionReady)
+		require.NotNil(t, ready)
+		assert.Equal(t, metav1.ConditionFalse, ready.Status)
+		assert.Equal(t, "FileMissing", ready.Reason)
+	})
+
+	t.Run("a failing probe does not release the previous probe result", func(t *testing.T) {
+		// Different bytes, so the probe hash is stale and the reconcile
+		// really does re-probe rather than short-circuiting.
+		require.NoError(t, os.WriteFile(path, []byte("truncated, unreadable by ffprobe"), 0o644))
+		failing := &mediafile.Reconciler{
+			Client: c,
+			Clock:  time.Now,
+			Probe: func(context.Context, string) (*commonv1.MediaInfo, *mediainfo.Raw, error) {
+				return nil, nil, errors.New("ffprobe: Invalid data found when processing input")
+			},
+		}
+
+		res, err := failing.Reconcile(ctx, ctrl.Request{NamespacedName: key})
+		require.NoError(t, err)
+		assert.Equal(t, 30*time.Second, res.RequeueAfter, "the ProbeFailed branch should requeue, not give up")
+
+		assertSteadyStateSurvived(t)
+
+		var got catalogv1alpha1.MediaFile
+		require.NoError(t, c.Get(ctx, key, &got))
+		probedCond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.MediaFileConditionProbed)
+		require.NotNil(t, probedCond)
+		assert.Equal(t, metav1.ConditionFalse, probedCond.Status)
+		assert.Equal(t, "ProbeFailed", probedCond.Reason)
+	})
 }

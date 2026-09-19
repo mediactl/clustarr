@@ -62,6 +62,7 @@ import (
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch
+// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodeprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitlerequests,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
@@ -132,6 +133,38 @@ func NewReconciler(c client.Client, scheme *runtime.Scheme, recorder record.Even
 // the package doc in "Resolving the field-manager split") and touches no
 // other resource -- the owning Movie/Episode rollup is theirs to compute
 // from their own MediaFile watch, per the Reconciler doc comment above.
+//
+// Every path that reports anything at all leaves through exactly ONE
+// k8s.PatchStatus, built by knownStatus.statusAC from a baseline seeded with
+// the status already on the object. Both halves of that sentence are
+// load-bearing, and each one was a shipped defect that a real apiserver
+// reproduced:
+//
+//   - ONE apply. status.sidecars used to be patched by a second, separate
+//     PatchStatus running unconditionally at the end of every reconcile,
+//     under this same field manager. Server-side apply REPLACES a manager's
+//     ownership set on every apply instead of merging it, so that second,
+//     narrower apply released probeHash, probedAt, mediaInfo and transcode
+//     -- everything the probe had written ten lines earlier. It needed only
+//     a matching SubtitleRequest to fire, which after captionarr lands is
+//     every video file; and because the For predicate is GenerationChanged,
+//     the status-only wipe did not re-trigger, so the object sat gutted
+//     until resync, re-probed (running ffprobe again) and was wiped again.
+//   - SEEDED FROM THE LIVE STATUS. The FileMissing and ProbeFailed early
+//     returns used to apply observedGeneration + conditions only, which
+//     released the same fields. Both are transient -- an RWX /data blip, a
+//     user moving a file and moving it back -- so a healthy, probed file was
+//     gutted by a blip and stayed gutted for the whole 60s requeue. Zeroing
+//     status.transcode.compliant in particular makes squasharr re-transcode
+//     an already-compliant file once Phase E lands.
+//
+// The sibling shape is movie/series' reassertKnownStatus, which re-adds the
+// fields its manager owns on each early return. This package seeds instead
+// of re-asserting, for one reason: MediaFileStatus' Conditions and Sidecars
+// are LISTS, and the generated With* for a list appends rather than
+// replaces, so a "reassert, then overwrite" helper would double every
+// sidecar on the happy path. Seeding a plain struct and rendering the apply
+// configuration once, at the end, cannot express that bug.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	ctx, span := tracing.Start(ctx, "mediafile.Reconcile")
 	defer span.End()
@@ -149,15 +182,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	conditions := append([]metav1.Condition(nil), mf.Status.Conditions...)
 	now := metav1.NewTime(r.Clock())
 
+	// The complete declaration of everything ManagerCatalogarr owns on
+	// MediaFileStatus, seeded from what is already on the object. Each
+	// branch below overwrites only what it actually recomputes; whatever it
+	// does not touch is re-asserted rather than released.
+	known := statusOf(&mf)
+
 	info, statErr := os.Stat(mf.Spec.Path)
 	if statErr != nil {
 		k8s.MarkFalse(&mf, &conditions, catalogv1alpha1.MediaFileConditionReady, "FileMissing", "stat %s: %s", mf.Spec.Path, statErr)
-		if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr,
-			catalogac.MediaFile(mf.Name, mf.Namespace).WithStatus(
-				catalogac.MediaFileStatus().
-					WithObservedGeneration(mf.Generation).
-					WithConditions(k8s.ConditionACs(conditions)...),
-			)); err != nil {
+		if err := r.applyStatus(ctx, &mf, conditions, known); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
@@ -174,17 +208,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, err
 	}
 
+	probed := false
 	if swap != nil || ps.Stale || mf.Status.ProbeHash == "" {
 		mi, _, probeErr := r.Probe(ctx, mf.Spec.Path)
 		if probeErr != nil {
 			k8s.MarkFalse(&mf, &conditions, catalogv1alpha1.MediaFileConditionProbed, "ProbeFailed", "%s", probeErr)
 			k8s.MarkFalse(&mf, &conditions, catalogv1alpha1.MediaFileConditionReady, "ProbeFailed", "probe failed: %s", probeErr)
-			if _, serr := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr,
-				catalogac.MediaFile(mf.Name, mf.Namespace).WithStatus(
-					catalogac.MediaFileStatus().
-						WithObservedGeneration(mf.Generation).
-						WithConditions(k8s.ConditionACs(conditions)...),
-				)); serr != nil {
+			if serr := r.applyStatus(ctx, &mf, conditions, known); serr != nil {
 				return ctrl.Result{}, serr
 			}
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
@@ -237,39 +267,120 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		k8s.MarkTrue(&mf, &conditions, catalogv1alpha1.MediaFileConditionProbed, "Probed", "probed at %s", now.Time)
 		k8s.MarkTrue(&mf, &conditions, catalogv1alpha1.MediaFileConditionReady, "Ready", "file present and probed")
 
-		statusAC := catalogac.MediaFileStatus().
-			WithObservedGeneration(mf.Generation).
-			WithProbeHash(ps.Hash).
-			WithProbedAt(now).
-			WithMediaInfo(*mi).
-			WithConditions(k8s.ConditionACs(conditions)...)
+		known.ProbeHash = ps.Hash
+		known.ProbedAt = &now
+		known.MediaInfo = mi
+		probed = true
 
 		if swap != nil {
 			profileTag, terr := r.transcodeProfileTag(ctx, swap)
 			if terr != nil {
 				return ctrl.Result{}, terr
 			}
-			statusAC = statusAC.WithTranscode(catalogac.TranscodeState().
-				WithCompliant(true).
-				WithProfileTag(profileTag).
-				WithLastResult(catalogv1alpha1.TranscodeResultSucceeded))
-		}
-
-		if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr,
-			catalogac.MediaFile(mf.Name, mf.Namespace).WithStatus(statusAC)); err != nil {
-			return ctrl.Result{}, err
-		}
-
-		if r.Recorder != nil {
-			r.Recorder.Eventf(&mf, "Normal", "Probed", "probed %s", mf.Spec.Path)
+			// A whole new TranscodeState, not an edit of the one already
+			// there: the previous state described the previous encode, and
+			// its jobRef names a TranscodeJob that is no longer the latest.
+			known.Transcode = &catalogv1alpha1.TranscodeState{
+				Compliant:  true,
+				ProfileTag: profileTag,
+				LastResult: catalogv1alpha1.TranscodeResultSucceeded,
+			}
 		}
 	}
 
-	if err := r.rescanSidecars(ctx, &mf); err != nil {
+	// Sidecars are folded into the SAME apply, not patched separately after
+	// it -- see this function's doc comment. A reconcile with no matching
+	// SubtitleRequest leaves whatever status already holds: catalogarr owns
+	// the field either way, and "no request exists" is not evidence the
+	// sidecars are gone.
+	if sidecars, matched, serr := r.scanSidecars(ctx, &mf); serr != nil {
+		return ctrl.Result{}, serr
+	} else if matched {
+		known.Sidecars = sidecars
+	}
+
+	if err := r.applyStatus(ctx, &mf, conditions, known); err != nil {
 		return ctrl.Result{}, err
 	}
 
+	if probed && r.Recorder != nil {
+		r.Recorder.Eventf(&mf, "Normal", "Probed", "probed %s", mf.Spec.Path)
+	}
+
 	return ctrl.Result{}, nil
+}
+
+// knownStatus is the whole of MediaFileStatus, minus the two fields every
+// path recomputes from scratch (observedGeneration and conditions), as one
+// reconcile decides it. ManagerCatalogarr is the sole owner of all of it, so
+// an apply that omits a field RELEASES it; carrying the lot in one struct
+// makes "declare everything this manager owns" the only thing the code can
+// express.
+type knownStatus struct {
+	ProbeHash string
+	ProbedAt  *metav1.Time
+	MediaInfo *commonv1.MediaInfo
+	Sidecars  []catalogv1alpha1.Sidecar
+	Transcode *catalogv1alpha1.TranscodeState
+}
+
+// statusOf seeds a knownStatus from the live object, so a reconcile that
+// recomputes nothing re-asserts everything.
+func statusOf(mf *catalogv1alpha1.MediaFile) *knownStatus {
+	return &knownStatus{
+		ProbeHash: mf.Status.ProbeHash,
+		ProbedAt:  mf.Status.ProbedAt,
+		MediaInfo: mf.Status.MediaInfo,
+		Sidecars:  mf.Status.Sidecars,
+		Transcode: mf.Status.Transcode,
+	}
+}
+
+// statusAC renders the apply configuration. Every field is sent whenever it
+// has a value, including the Compliant boolean once it is true -- a boolean
+// that stops being sent flips back to false, which is one of the forms of
+// the apply-release hazard CLAUDE.md enumerates.
+func (k *knownStatus) statusAC(mf *catalogv1alpha1.MediaFile, conditions []metav1.Condition) *catalogac.MediaFileStatusApplyConfiguration {
+	ac := catalogac.MediaFileStatus().
+		WithObservedGeneration(mf.Generation).
+		WithConditions(k8s.ConditionACs(conditions)...)
+	if k.ProbeHash != "" {
+		ac = ac.WithProbeHash(k.ProbeHash)
+	}
+	if k.ProbedAt != nil {
+		ac = ac.WithProbedAt(*k.ProbedAt)
+	}
+	if k.MediaInfo != nil {
+		ac = ac.WithMediaInfo(*k.MediaInfo)
+	}
+	for _, s := range k.Sidecars {
+		ac = ac.WithSidecars(catalogac.Sidecar().
+			WithPath(s.Path).WithLanguage(s.Language).WithForced(s.Forced).WithHI(s.HI))
+	}
+	if t := k.Transcode; t != nil {
+		tac := catalogac.TranscodeState().WithCompliant(t.Compliant)
+		if t.ProfileTag != "" {
+			tac = tac.WithProfileTag(t.ProfileTag)
+		}
+		if t.JobRef != nil {
+			tac = tac.WithJobRef(*t.JobRef)
+		}
+		// Guarded because TranscodeResult is a CRD enum: a non-nil pointer
+		// to "" serialises as lastResult:"" and the apiserver rejects it,
+		// where omitting the field lets the schema default apply.
+		if t.LastResult != "" {
+			tac = tac.WithLastResult(t.LastResult)
+		}
+		ac = ac.WithTranscode(tac)
+	}
+	return ac
+}
+
+// applyStatus is the one status write in this package.
+func (r *Reconciler) applyStatus(ctx context.Context, mf *catalogv1alpha1.MediaFile, conditions []metav1.Condition, known *knownStatus) error {
+	_, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr,
+		catalogac.MediaFile(mf.Name, mf.Namespace).WithStatus(known.statusAC(mf, conditions)))
+	return err
 }
 
 // SetupWithManager registers the field indexes this controller's watches
@@ -354,19 +465,26 @@ func (r *Reconciler) transcodeProfileTag(ctx context.Context, tj *transcodev1alp
 	return fmt.Sprintf("%s@%s", tj.Spec.ProfileRef, tp.Status.Hash), nil
 }
 
-// rescanSidecars folds every SubtitleRequest for mf into status.sidecars.
-// One SubtitleRequest per video MediaFile by convention (spec §4.6), but
-// this lists rather than Gets-by-name so a missing or renamed request never
-// errors the reconcile.
+// scanSidecars derives status.sidecars from the SubtitleRequest for mf,
+// reporting whether one was found at all. One SubtitleRequest per video
+// MediaFile by convention (spec §4.6), but this lists rather than
+// Gets-by-name so a missing or renamed request never errors the reconcile.
+//
+// It COMPUTES and returns rather than patching. It used to patch, under
+// ManagerCatalogarr, from a status apply configuration holding only
+// observedGeneration and sidecars -- and because it ran unconditionally at
+// the end of every reconcile, after the probe block's own apply under the
+// same manager, it released probeHash, probedAt, mediaInfo and transcode
+// every time a SubtitleRequest existed. See Reconcile's doc comment.
 //
 // See latestUnincorporatedTranscode's comment for why this filters
 // list.Items in Go instead of sending
 // client.MatchingFields{subtitleRequestMediaFileRefIndex: mf.Name}: the same
 // apiserver-selectable-field gap applies to SubtitleRequest.
-func (r *Reconciler) rescanSidecars(ctx context.Context, mf *catalogv1alpha1.MediaFile) error {
+func (r *Reconciler) scanSidecars(ctx context.Context, mf *catalogv1alpha1.MediaFile) ([]catalogv1alpha1.Sidecar, bool, error) {
 	var list subtitlev1alpha1.SubtitleRequestList
 	if err := r.List(ctx, &list, client.InNamespace(mf.Namespace)); err != nil {
-		return fmt.Errorf("mediafile: list SubtitleRequests: %w", err)
+		return nil, false, fmt.Errorf("mediafile: list SubtitleRequests: %w", err)
 	}
 	var match *subtitlev1alpha1.SubtitleRequest
 	for i := range list.Items {
@@ -376,20 +494,11 @@ func (r *Reconciler) rescanSidecars(ctx context.Context, mf *catalogv1alpha1.Med
 		}
 	}
 	if match == nil {
-		return nil
+		return nil, false, nil
 	}
-	dir := filepath.Dir(mf.Spec.Path)
-	sidecars, err := sidecarsFromSubtitleRequest(dir, match.Status.Items)
+	sidecars, err := sidecarsFromSubtitleRequest(filepath.Dir(mf.Spec.Path), match.Status.Items)
 	if err != nil {
-		return err
+		return nil, false, err
 	}
-	acs := make([]*catalogac.SidecarApplyConfiguration, 0, len(sidecars))
-	for _, s := range sidecars {
-		acs = append(acs, catalogac.Sidecar().WithPath(s.Path).WithLanguage(s.Language).WithForced(s.Forced).WithHI(s.HI))
-	}
-	_, err = k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr,
-		catalogac.MediaFile(mf.Name, mf.Namespace).WithStatus(
-			catalogac.MediaFileStatus().WithObservedGeneration(mf.Generation).WithSidecars(acs...),
-		))
-	return err
+	return sidecars, true, nil
 }

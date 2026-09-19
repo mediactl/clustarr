@@ -172,6 +172,7 @@ rules:
   - transcode.clustarr.io
   resources:
   - transcodejobs
+  - transcodeprofiles
   verbs:
   - get
   - list
