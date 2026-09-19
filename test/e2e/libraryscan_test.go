@@ -121,6 +121,17 @@ func TestLibraryRescan(t *testing.T) {
 	// it: "Inception" is what testdata/metadata/tmdb/movie_27205.json holds
 	// (27205 is Inception's TMDB id, not Fight Club's), and nothing on disk
 	// or in the CR carries that string.
+	//
+	// Scope, stated so nobody over-reads this: it proves the gateway reached
+	// a verdict and wrote it, not that the stub was contacted on THIS run.
+	// The gateway caches in-process and in the clustarr-metadata-cache KV, so
+	// a rerun against a still-warm cluster is served from cache. Verified by
+	// removing the stub: with replicas 0 AND cold caches (NATS restarted, so
+	// the single-node memory bucket is empty, and the gateway restarted) this
+	// wait fails with MetadataReady=False/Refreshing while hasFile stays
+	// true -- which is precisely the shape of the blind spot it exists to
+	// close. With a warm cache it still passes, which is correct: the cached
+	// value could only have come from the stub in a closed network.
 	var withMetadata catalogv1alpha1.Movie
 	waitFor(t, ctx, 3*time.Minute, "Movie "+movie.Name+" MetadataReady", func(ctx context.Context) (bool, error) {
 		if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(&movie), &withMetadata); err != nil {
