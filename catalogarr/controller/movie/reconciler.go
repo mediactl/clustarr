@@ -20,6 +20,7 @@ package movie
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -47,6 +48,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/naming"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 	"github.com/mediactl/clustarr/pkg/version"
@@ -63,6 +65,11 @@ const (
 	// status.activeDownloadRef, the reverse direction from a watched
 	// Download back to the Movie holding the reference.
 	movieByActiveDownloadIndexKey = ".status.activeDownloadRef"
+
+	// movieByQualityProfileIndexKey indexes Movie by the QualityProfile it
+	// is ranked against, so a watched QualityProfile can be mapped back to
+	// every Movie whose cutoffMet depends on it.
+	movieByQualityProfileIndexKey = ".spec.qualityProfileRef"
 )
 
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch;create;update;patch;delete
@@ -72,7 +79,15 @@ const (
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
-// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
+// The Events group is "" and not events.k8s.io: this reconciler takes a
+// k8s.io/client-go/tools/record.EventRecorder, which is what
+// mgr.GetEventRecorderFor returns, and that writes CORE/v1 Events. The
+// generated Role granting events.k8s.io instead would have had every event
+// emission denied on a real cluster -- envtest does not enforce RBAC, so no
+// suite could see it. See catalogarr's setupControllers for the split in this
+// tree: the controllers taking a tools/events recorder (rootfolder,
+// qualityprofile, delayprofile, metadataprovider) keep events.k8s.io.
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconciler reconciles a Movie: metadata staleness (publishing a
 // MetadataTask when the cache is missing or past its RefreshTTL),
@@ -127,12 +142,23 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		}); err != nil {
 		return err
 	}
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &catalogv1alpha1.Movie{}, movieByQualityProfileIndexKey,
+		func(o client.Object) []string {
+			m, ok := o.(*catalogv1alpha1.Movie)
+			if !ok || m.Spec.QualityProfileRef == "" {
+				return nil
+			}
+			return []string{m.Spec.QualityProfileRef}
+		}); err != nil {
+		return err
+	}
 
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("movie").
 		For(&catalogv1alpha1.Movie{}, builder.WithPredicates(moviePredicate())).
 		Watches(&catalogv1alpha1.MediaFile{}, handler.EnqueueRequestsFromMapFunc(r.mapMediaFile), builder.WithPredicates(k8s.GenerationChanged())).
 		Watches(&downloadv1alpha1.Download{}, handler.EnqueueRequestsFromMapFunc(r.mapDownload), builder.WithPredicates(downloadPredicate())).
+		Watches(&catalogv1alpha1.QualityProfile{}, handler.EnqueueRequestsFromMapFunc(r.mapQualityProfile), builder.WithPredicates(k8s.GenerationChanged())).
 		WithOptions(controller.Options{RecoverPanic: ptr.To(true), ReconciliationTimeout: 5 * time.Minute}).
 		Complete(r)
 }
@@ -213,6 +239,32 @@ func (r *Reconciler) mapDownload(ctx context.Context, o client.Object) []reconci
 	}
 	var movies catalogv1alpha1.MovieList
 	if err := r.List(ctx, &movies, client.InNamespace(dl.Namespace), client.MatchingFields{movieByActiveDownloadIndexKey: dl.Name}); err != nil {
+		return nil
+	}
+	reqs := make([]reconcile.Request, 0, len(movies.Items))
+	for _, m := range movies.Items {
+		reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: m.Namespace, Name: m.Name}})
+	}
+	return reqs
+}
+
+// mapQualityProfile is the reverse direction from an edited QualityProfile
+// to every Movie ranked against it. Without this watch an operator raising
+// or lowering a profile's cutoff changed nothing observable: cutoffMet (and
+// with it the spec-mandated CutoffMet condition, the Imported/CutoffUnmet
+// phase and the item's place in the search rotation) was only recomputed
+// when some unrelated event happened to wake the Movie.
+//
+// QualityProfile is CLUSTER-scoped while Movie is namespaced, so the List
+// deliberately carries no client.InNamespace: one profile is shared by
+// every namespace, and enqueueing only one of them would be arbitrary.
+func (r *Reconciler) mapQualityProfile(ctx context.Context, o client.Object) []reconcile.Request {
+	qp, ok := o.(*catalogv1alpha1.QualityProfile)
+	if !ok {
+		return nil
+	}
+	var movies catalogv1alpha1.MovieList
+	if err := r.List(ctx, &movies, client.MatchingFields{movieByQualityProfileIndexKey: qp.Name}); err != nil {
 		return nil
 	}
 	reqs := make([]reconcile.Request, 0, len(movies.Items))
@@ -387,19 +439,14 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 	}
 	mf := rollup.PickMediaFile(mfList.Items)
 
-	var profile *quality.Profile
-	if m.Spec.QualityProfileRef != "" {
-		var qp catalogv1alpha1.QualityProfile
-		if err := r.Get(ctx, types.NamespacedName{Namespace: m.Namespace, Name: m.Spec.QualityProfileRef}, &qp); err != nil {
-			if !apierrors.IsNotFound(err) {
-				return ctrl.Result{}, err
-			}
-		} else {
-			p, errs := quality.FromCRD(&qp, catalogue.LoadedCatalogue())
-			if len(errs) == 0 {
-				profile = &p
-			}
-		}
+	profile, profileProblem, err := r.resolveProfile(ctx, m)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if profileProblem != "" {
+		logging.FromContext(ctx).Warn("quality profile unresolved; cutoff not evaluated",
+			"movie", m.Name, "namespace", m.Namespace,
+			"qualityProfileRef", m.Spec.QualityProfileRef, "problem", profileProblem)
 	}
 	hasFile, fileRef, fileQuality, fileFormatScore, cutoffMet := FileState(mf, profile)
 
@@ -460,6 +507,20 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 	switch {
 	case !hasFile:
 		k8s.MarkFalse(m, &conditions, catalogv1alpha1.MovieConditionCutoffMet, k8s.ReasonPending, "no file to rank against the profile cutoff")
+	case profile == nil:
+		// The cutoff was NOT evaluated. Reporting the ordinary CutoffUnmet
+		// here would be a lie with consequences: it reads as "this file is
+		// below your cutoff, an upgrade is wanted", so a malformed or
+		// missing profile silently parks the item in the search rotation
+		// looking like a legitimate upgrade candidate. A distinct reason is
+		// the right carrier rather than an Event, because this is a steady
+		// state that persists on every reconcile until an operator fixes
+		// the profile -- an Event would re-fire per item per reconcile --
+		// and because the parse errors themselves are already reported
+		// authoritatively on the QualityProfile object by the
+		// qualityprofile controller. The item's job is only to stop
+		// claiming a verdict it never reached.
+		k8s.MarkFalse(m, &conditions, catalogv1alpha1.MovieConditionCutoffMet, "ProfileUnresolved", "cutoff not evaluated: %s", profileProblem)
 	case cutoffMet:
 		k8s.MarkTrue(m, &conditions, catalogv1alpha1.MovieConditionCutoffMet, "CutoffMet", "file meets the profile cutoff")
 	default:
@@ -482,6 +543,34 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 		result.RequeueAfter = d
 	}
 	return result, nil
+}
+
+// resolveProfile fetches the QualityProfile this Movie is ranked against
+// and reports, as a non-empty problem string, any reason it could not be
+// resolved: no reference set, the reference does not resolve, or the
+// profile exists but does not parse against the catalogue. Before task C13
+// all three collapsed into a bare nil profile and a cutoffMet=false that
+// was indistinguishable from a genuine "this file is below the cutoff" --
+// see the CutoffMet condition's own comment for why that matters now.
+//
+// Only a non-NotFound API error is fatal; every other outcome degrades to
+// (nil, problem, nil) so one bad profile cannot wedge the reconcile.
+func (r *Reconciler) resolveProfile(ctx context.Context, m *catalogv1alpha1.Movie) (*quality.Profile, string, error) {
+	if m.Spec.QualityProfileRef == "" {
+		return nil, "spec.qualityProfileRef is empty", nil
+	}
+	var qp catalogv1alpha1.QualityProfile
+	if err := r.Get(ctx, types.NamespacedName{Name: m.Spec.QualityProfileRef}, &qp); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, fmt.Sprintf("qualityProfile %q not found", m.Spec.QualityProfileRef), nil
+		}
+		return nil, "", err
+	}
+	p, errs := quality.FromCRD(&qp, catalogue.LoadedCatalogue())
+	if len(errs) > 0 {
+		return nil, fmt.Sprintf("qualityProfile %q does not parse: %s", qp.Name, errors.Join(errs...)), nil
+	}
+	return &p, "", nil
 }
 
 // reassertKnownStatus re-adds every field this manager owns besides

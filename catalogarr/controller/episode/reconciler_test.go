@@ -278,7 +278,6 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 
 		require.NoError(t, c.Create(ctx, testSeries("ep-ns", "the-wire", "cutoff-met-at-1080p")))
 		require.NoError(t, c.Create(ctx, testQualityProfile("ep-ns", "cutoff-met-at-1080p", "Bluray-1080p")))
-		require.NoError(t, c.Create(ctx, testQualityProfile("ep-ns", "cutoff-is-4k-remux", "Remux-2160p")))
 
 		ep := &catalogv1alpha1.Episode{
 			ObjectMeta: metav1.ObjectMeta{Name: "the-wire-s01e01", Namespace: "ep-ns"},
@@ -319,33 +318,41 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		require.NotNil(t, cutoffCond, "the MediaFile watch must raise the CutoffMet condition")
 		assert.Equal(t, metav1.ConditionTrue, cutoffCond.Status)
 
-		// A stricter profile (cutoff at 4k remux) reaches CutoffUnmet instead.
-		var series catalogv1alpha1.Series
-		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "the-wire"}, &series))
-		patch := client.MergeFrom(series.DeepCopy())
-		series.Spec.QualityProfileRef = "cutoff-is-4k-remux"
-		require.NoError(t, c.Patch(ctx, &series, patch))
-
-		// The Series' own profile change does not itself re-trigger this
-		// Episode's reconcile (Episode only watches MediaFile/Download and
-		// its own spec/airDate) -- bump the MediaFile's own generation
-		// (Path is a mutable spec field, unlike the immutable MediaRef) to
-		// fire mapMediaFile and force a re-evaluation. EpisodeSpec has no
-		// harmless field to bump instead: SeriesRef/SeasonNumber/
-		// EpisodeNumber are all immutable, and Monitored feeds Phase
-		// directly, so flipping it would change the very phase under test.
-		var gotMF catalogv1alpha1.MediaFile
-		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "the-wire-s01e01-abc1234567"}, &gotMF))
-		mfPatch := client.MergeFrom(gotMF.DeepCopy())
-		gotMF.Spec.Path = "/data/media/tv/The Wire/Season 01/The Wire - S01E01 (renamed).mkv"
-		require.NoError(t, c.Patch(ctx, &gotMF, mfPatch))
+		// An operator raising the profile's cutoff is the realistic path to
+		// CutoffUnmet, and it must reach this Episode on its own: the
+		// QualityProfile is edited in place, nothing else is touched, and
+		// in particular no MediaFile is nudged. This replaces a workaround
+		// that used to bump the MediaFile's spec.path to force a
+		// re-evaluation, because the Episode had no way to hear about a
+		// profile edit at all -- which meant the "operator edits a cutoff"
+		// path had no coverage whatsoever. The C13 follow-up added the
+		// QualityProfile watch that makes this work.
+		//
+		// The Episode -> Series -> QualityProfile hop is still exercised,
+		// twice: resolveProfile takes it to reach the profile at all (the
+		// Imported assertion above depends on it), and mapQualityProfile
+		// takes it in reverse, profile -> Series -> Episodes, to deliver
+		// this very event.
+		//
+		// Tiers are ordered best-first and CutoffMet is idx <= cutoffIndex,
+		// so putting Remux-2160p above Bluray-1080p and moving the cutoff
+		// there leaves the existing Bluray file one tier short.
+		var qp catalogv1alpha1.QualityProfile
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "cutoff-met-at-1080p"}, &qp))
+		qpPatch := client.MergeFrom(qp.DeepCopy())
+		qp.Spec.Tiers = []catalogv1alpha1.Tier{
+			{Name: "uhd", Qualities: []string{"Remux-2160p"}},
+			{Name: "hd", Qualities: []string{"Bluray-1080p"}},
+		}
+		qp.Spec.Cutoff = "uhd"
+		require.NoError(t, c.Patch(ctx, &qp, qpPatch))
 
 		require.Eventually(t, func() bool {
 			if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "the-wire-s01e01"}, &got); err != nil {
 				return false
 			}
 			return got.Status.Phase == catalogv1alpha1.EpisodePhaseCutoffUnmet
-		}, 5*time.Second, 20*time.Millisecond)
+		}, 5*time.Second, 20*time.Millisecond, "a QualityProfile edit alone must re-rank the episode")
 
 		cutoffCond = k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.EpisodeConditionCutoffMet)
 		require.NotNil(t, cutoffCond)
@@ -354,6 +361,77 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		hasFileCond = k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.EpisodeConditionHasFile)
 		require.NotNil(t, hasFileCond)
 		assert.Equal(t, metav1.ConditionTrue, hasFileCond.Status, "the file is still there, only the profile changed")
+
+		// Deleting the MediaFile must clear the rollup. This is the case
+		// the deleted mediafile rollup structurally could not handle -- it
+		// only ever ran while a file existed and hard-coded HasFile=true --
+		// and it is the argument that made option 1 strictly better rather
+		// than merely equivalent, so it is pinned here.
+		var doomed catalogv1alpha1.MediaFile
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "the-wire-s01e01-abc1234567"}, &doomed))
+		require.NoError(t, c.Delete(ctx, &doomed))
+
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "the-wire-s01e01"}, &got); err != nil {
+				return false
+			}
+			return !got.Status.HasFile
+		}, 5*time.Second, 20*time.Millisecond, "deleting the MediaFile must clear HasFile")
+		assert.Nil(t, got.Status.FileRef, "a deleted MediaFile must release FileRef")
+		assert.False(t, got.Status.CutoffMet)
+		assert.NotEqual(t, catalogv1alpha1.EpisodePhaseImported, got.Status.Phase)
+		assert.NotEqual(t, catalogv1alpha1.EpisodePhaseCutoffUnmet, got.Status.Phase)
+
+		// The negative branches of both relocated conditions, which run on
+		// every file-less reconcile and were previously unasserted.
+		hasFileCond = k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.EpisodeConditionHasFile)
+		require.NotNil(t, hasFileCond)
+		assert.Equal(t, metav1.ConditionFalse, hasFileCond.Status)
+		assert.Equal(t, k8s.ReasonPending, hasFileCond.Reason)
+		cutoffCond = k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.EpisodeConditionCutoffMet)
+		require.NotNil(t, cutoffCond)
+		assert.Equal(t, metav1.ConditionFalse, cutoffCond.Status)
+		assert.Equal(t, k8s.ReasonPending, cutoffCond.Reason, "with no file the cutoff was not evaluated either")
+	})
+
+	// A profile that cannot be resolved -- here a Series whose
+	// qualityProfileRef dangles -- must not read as a genuine "your file is
+	// below the cutoff". See the movie package's identical subtest.
+	t.Run("an unresolvable QualityProfile reports ProfileUnresolved, not CutoffUnmet", func(t *testing.T) {
+		bluray := commonv1.Quality{Name: "Bluray-1080p", Resolution: 1080, Source: commonv1.SourceBluray, Modifier: commonv1.ModifierNone}
+		require.NoError(t, c.Create(ctx, testSeries("ep-ns", "deadwood", "no-such-profile")))
+
+		ep := &catalogv1alpha1.Episode{
+			ObjectMeta: metav1.ObjectMeta{Name: "deadwood-s01e01", Namespace: "ep-ns"},
+			Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: "deadwood", SeasonNumber: 1, EpisodeNumber: 1},
+		}
+		require.NoError(t, c.Create(ctx, ep))
+		waitForPhase(t, ctx, c, "ep-ns", "deadwood-s01e01")
+
+		mf := &catalogv1alpha1.MediaFile{
+			ObjectMeta: metav1.ObjectMeta{Name: "deadwood-s01e01-abc1234567", Namespace: "ep-ns"},
+			Spec: catalogv1alpha1.MediaFileSpec{
+				MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "deadwood-s01e01"},
+				Path:     "/data/media/tv/Deadwood/Season 01/Deadwood - S01E01.mkv",
+				Quality:  bluray,
+			},
+		}
+		require.NoError(t, c.Create(ctx, mf))
+
+		var got catalogv1alpha1.Episode
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "deadwood-s01e01"}, &got); err != nil {
+				return false
+			}
+			return got.Status.HasFile
+		}, 5*time.Second, 20*time.Millisecond)
+
+		cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.EpisodeConditionCutoffMet)
+		require.NotNil(t, cond)
+		assert.Equal(t, metav1.ConditionFalse, cond.Status)
+		assert.Equal(t, "ProfileUnresolved", cond.Reason,
+			"a dangling qualityProfileRef must not masquerade as a file below the cutoff")
+		assert.Contains(t, cond.Message, "no-such-profile")
 	})
 
 	t.Run("Download watch rolls up Downloading and clears the ref on a terminal phase", func(t *testing.T) {
