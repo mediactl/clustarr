@@ -1,0 +1,57 @@
+# Raise the dev NATS server's JetStream memory ceiling so the single-node
+# topology can actually be created.
+#
+# Why this exists
+# ---------------
+# config/manager runs every service with --nats-single-node, which applies
+# pkg/events' Topology.ForSingleNode: one replica per stream, and MEMORY
+# storage throughout. What it does NOT do is scale the streams' MaxBytes
+# down, so the six work/event streams still declare their production sizes
+# (2 GiB + 4 GiB + 1 GiB + 512 MiB + 256 MiB + 256 MiB = 8 GiB) -- now as
+# memory reservations, against config/nats/configmap.yaml's
+# `max_memory_store: 256Mi`. The very first stream is refused:
+#
+#   k8s: ensure JetStream topology: events: ensure stream CLUSTARR_EVENTS:
+#   nats: API error: code=500 err_code=10028
+#   description=insufficient memory resources available
+#
+# ...and every controller CrashLoopBackOffs before it reaches its manager.
+# The real fix belongs in pkg/events (ForSingleNode should size MaxBytes for
+# a single node, or keep file storage) or in config/nats; neither is this
+# overlay's to change, so the overlay raises the ceiling instead and the
+# defect is reported rather than hidden.
+#
+# max_memory_store is a LOGICAL reservation -- JetStream checks the declared
+# max_bytes sum at stream-creation time, it does not allocate. The e2e suite
+# moves kilobytes, so the NATS pod's own 1 GiB memory limit is never
+# approached; remove this patch the moment ForSingleNode sizes itself.
+#
+# Everything else below is config/nats/configmap.yaml verbatim: a ConfigMap's
+# data value is an opaque string, so a patch cannot change one line of it
+# without restating the whole file.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nats-config
+  namespace: clustarr-system
+data:
+  nats.conf: |
+    # Dev/kind configuration: single server, no cluster block (R1 streams).
+    server_name: $SERVER_NAME
+    listen: 0.0.0.0:4222
+    http: 0.0.0.0:8222
+
+    jetstream {
+      store_dir: /data/jetstream
+      # config/e2e override: 256Mi upstream, which cannot hold
+      # ForSingleNode's 8 GiB of memory streams. See this file's header.
+      max_memory_store: 16Gi
+      # Keep below the PVC size in statefulset.yaml.
+      max_file_store: 20Gi
+    }
+
+    # Homelab-friendly limits (§12 of the design spec).
+    max_payload: 8Mi
+    write_deadline: "10s"
+    lame_duck_grace_period: "10s"
+    lame_duck_duration: "30s"
