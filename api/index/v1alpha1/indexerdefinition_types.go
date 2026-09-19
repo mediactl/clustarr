@@ -58,8 +58,15 @@ type IndexerDefinitionSpec struct {
 
 // CapsSummary is the capabilities parsed from a Cardigann definition.
 type CapsSummary struct {
-	// Modes maps a search mode (search, tv-search, movie-search, ...) to the
-	// query parameters it supports.
+	// Modes maps a search mode to the query parameters it supports.
+	//
+	// The keys are Torznab's own wire values, which pkg/torznab implements
+	// and torznab.Caps.Supports compares against: "search", "tvsearch",
+	// "movie", "music", "audio", "book" (pkg/torznab/caps.go). They are NOT
+	// "tv-search"/"movie-search" -- this comment said so until Phase D1, and
+	// because there is no enum marker on the map key nothing would have
+	// caught it: the caps gate would simply never match, and no indexer
+	// would ever be queried.
 	// +optional
 	Modes map[string][]string `json:"modes,omitempty"`
 

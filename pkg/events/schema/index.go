@@ -178,6 +178,20 @@ type SearchOutcome struct {
 // SearchRequest is the request half of the federated search RPC.
 // Subject: clustarr.rpc.indexarr.search.
 type SearchRequest struct {
+	// Namespace scopes the search to one namespace's Indexers.
+	//
+	// It is optional so an older producer can omit it, but indexarr has no
+	// other way to learn it: IndexerRefs carries a namespace and catalogarr
+	// populates that only for interactive searches, so an automatic search
+	// would otherwise arrive with no namespace at all and indexarr would
+	// have to list Indexers cluster-wide -- serving one namespace's media
+	// from another's indexer, with that indexer's credentials, counted
+	// against its grab limit. When empty, indexarr falls back to
+	// cluster-wide AND logs a warning naming the request, so the old
+	// behaviour is observable rather than silent.
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+
 	// Kind is the media kind being searched for.
 	Kind commonv1.MediaKind `json:"kind"`
 

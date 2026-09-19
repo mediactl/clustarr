@@ -48,12 +48,22 @@ const (
 	LeaderElectionID = ServiceName + ".clustarr.io"
 
 	// DefaultIndexPath is the SQLite release index on the RWO PVC §6.2
-	// mounts.
-	DefaultIndexPath = "/index/releases.db"
+	// mounts. It must equal the PVC's mountPath in
+	// config/manager/indexarr.yaml: the pod runs with
+	// readOnlyRootFilesystem, so anything outside that mount is unwritable.
+	// This was "/index/releases.db", which no manifest ever used and which
+	// the read-only root would have refused on the first write.
+	DefaultIndexPath = "/var/lib/clustarr/index/releases.db"
 
 	// DefaultFacadeBindAddress serves the Torznab facade §6.2 describes:
 	// /{indexer}/api, /{indexer}/download and the aggregate /search/api.
-	DefaultFacadeBindAddress = ":9696"
+	// It must equal the container port the Service routes to. This was
+	// ":9696" -- Prowlarr's port -- while the manifest, the Service's named
+	// port and the chart all use 8080, and no flag exists to override it,
+	// so the facade would have bound a port nothing routes. The facade
+	// itself is M6; the constant is corrected here because it is a landmine
+	// in a file this phase edits.
+	DefaultFacadeBindAddress = ":8080"
 )
 
 // Role selects what a replica does. §6.2 gives indexarr one role: the

@@ -62,8 +62,14 @@ type TargetIDs struct {
 // leaves Season nil, which is how *arr indexers key anime releases (absolute
 // numbering, no season token). The generated payload type wins over the spec's
 // literal wording; the design doc's own §5 table already shows this shape.
-func BuildSearchRequest(kind commonv1.MediaKind, ids TargetIDs, limit int32, userInvoked bool, indexerRefs []schema.Ref, categories []int32) schema.SearchRequest {
+// ns scopes the search to one namespace's Indexers. It is always set here --
+// the worker already recovered it from the envelope key -- because indexarr
+// has no other source for it on an automatic search, where IndexerRefs is
+// empty. Without it indexarr must list Indexers cluster-wide and can serve
+// one namespace's media from another's indexer.
+func BuildSearchRequest(ns string, kind commonv1.MediaKind, ids TargetIDs, limit int32, userInvoked bool, indexerRefs []schema.Ref, categories []int32) schema.SearchRequest {
 	req := schema.SearchRequest{
+		Namespace:      ns,
 		Kind:           kind,
 		Limit:          limit,
 		DeadlineMillis: SearchDeadline.Milliseconds(),

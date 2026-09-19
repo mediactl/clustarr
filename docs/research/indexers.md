@@ -387,6 +387,21 @@ Not found as Go modules: `hbollon/go-torznab`, `Skarlso/torznab`, `jamesmoriarty
 
 ## 10. "Elasticsearch-like": what it should mean and how to build it
 
+> **SUPERSEDED for Clustarr, 2026-09-19.** This section marks Postgres FTS the
+> "best fit for a distributed K8s service" and sketches its schema, TTL policy
+> and `release_cache` DDL. That comparison predates the decision.
+> `docs/adr/0003-release-index-sqlite-fts5.md` chose **SQLite FTS5 via
+> `modernc.org/sqlite`** on indexarr's RWO PVC, and spec §6.2, §12 and §16 all
+> pin it; Postgres is recorded there as the rejected alternative. indexarr runs
+> as exactly one replica with `strategy: Recreate`, which removes the
+> multi-writer problem this section was weighing, and the pure-Go driver
+> matters because the image is distroless-static and a cgo driver will not
+> link.
+>
+> The table below is still worth reading for *why* each option was weighed —
+> just do not implement from it. Phase D1 Task D1-2 implements ADR-0003.
+
+
 Meaning for Clustarr: Prowlarr is stateless per query; every app search hits every tracker. An Elastic-like indexer instead **ingests** (RSS polling of every indexer every ~15 min = `t=search` with empty `q`, plus every interactive result) into a **shared, TTL'd, deduplicated release index** with structured fields, and serves most inventory searches from it (fast, no tracker load, respects query limits), falling back to live fan-out when the index has no hit or the caller asks for `fresh=true`.
 
 | Option | Pros | Cons | Fit |

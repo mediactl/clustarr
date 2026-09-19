@@ -279,7 +279,7 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 		return err
 	}
 
-	req := w.buildRequest(task, snap, srch)
+	req := w.buildRequest(ns, task, snap, srch)
 	resp, err := w.RPC.Search(ctx, req)
 	if err != nil {
 		tracing.RecordError(span, err)
@@ -468,7 +468,7 @@ func (w *Worker) resolveProfile(ctx context.Context, ref string) (quality.Profil
 // federated reply -- and deliberately NOT Search.spec.limit; see keepLimit for
 // why conflating "fetch" with "keep" narrows recall to the indexer's own
 // ordering.
-func (w *Worker) buildRequest(task schema.SearchTask, snap itemSnapshot, srch *catalogv1alpha1.Search) schema.SearchRequest {
+func (w *Worker) buildRequest(ns string, task schema.SearchTask, snap itemSnapshot, srch *catalogv1alpha1.Search) schema.SearchRequest {
 	var indexerRefs []schema.Ref
 	var categories []int32
 	if srch != nil {
@@ -477,7 +477,7 @@ func (w *Worker) buildRequest(task schema.SearchTask, snap itemSnapshot, srch *c
 			indexerRefs = append(indexerRefs, schema.Ref{Namespace: srch.Namespace, Name: name})
 		}
 	}
-	return BuildSearchRequest(task.MediaRef.Kind, snap.IDs, schema.MaxSearchReleases,
+	return BuildSearchRequest(ns, task.MediaRef.Kind, snap.IDs, schema.MaxSearchReleases,
 		task.UserInvoked, indexerRefs, categories)
 }
 

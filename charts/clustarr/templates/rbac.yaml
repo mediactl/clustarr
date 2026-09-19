@@ -161,6 +161,14 @@ rules:
   - list
   - watch
 - apiGroups:
+  - index.clustarr.io
+  resources:
+  - indexers/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - subtitle.clustarr.io
   resources:
   - subtitlerequests

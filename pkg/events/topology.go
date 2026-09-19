@@ -530,11 +530,22 @@ func defaultConsumers() []ConsumerSpec {
 			MaxAckPending: 4, Heartbeat: 30 * s,
 		},
 		{
+			// AckWait is 60s, the floor set by indexarr's
+			// terminationGracePeriodSeconds: 60 (config/manager/indexarr.yaml).
+			// It was 120s, which broke the rule the importarr block above
+			// states: a worker that is SIGTERMed must be able to finish or
+			// give up an in-flight message inside the grace period, or the
+			// pod is killed mid-task and the message is only redelivered
+			// after AckWait expires. An RSS poll of a slow indexer can
+			// outlast 60s, so the worker sends in-progress acks on this
+			// heartbeat rather than having AckWait raised past the grace
+			// period. Spec 5's consumer table carries the same 60s.
 			Name: ConsumerIndexRSS, Stream: StreamWorkIndexarr,
 			Filters: []string{FilterIndexRSS},
-			AckWait: 120 * s, MaxDeliver: 4,
+			AckWait: 60 * s, MaxDeliver: 4,
 			BackOff:       []time.Duration{1 * m, 5 * m, 15 * m},
 			MaxAckPending: 4,
+			Heartbeat:     30 * s,
 		},
 		{
 			Name: ConsumerIndexDefinitions, Stream: StreamWorkIndexarr,

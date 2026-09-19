@@ -108,7 +108,11 @@ func TestBuildSearchRequest(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := BuildSearchRequest(tc.kind, tc.ids, tc.limit, tc.userInvoked, tc.indexerRefs, tc.categories)
+			got := BuildSearchRequest("search-ns", tc.kind, tc.ids, tc.limit, tc.userInvoked, tc.indexerRefs, tc.categories)
+			// indexarr has no other source for the namespace on an automatic
+			// search, where IndexerRefs is empty; without it, it must list
+			// Indexers cluster-wide.
+			require.Equal(t, "search-ns", got.Namespace, "the namespace was dropped from the request")
 			tc.assert(t, got)
 		})
 	}

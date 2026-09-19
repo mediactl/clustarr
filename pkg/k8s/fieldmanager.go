@@ -115,9 +115,28 @@ const (
 	// something different.
 	ManagerImportarrWorker FieldManager = "importarr-worker"
 
-	// ManagerIndexarr is the indexarr manager, the single writer for
-	// index.clustarr.io.
+	// ManagerIndexarr is the indexarr controller manager. On Indexer it owns
+	// the configuration half of status: conditions, protocol, privacy, caps,
+	// observedGeneration and sessionSecretRef. IndexerDefinition and
+	// IndexerProxy have one writer each, so it owns those outright.
 	ManagerIndexarr FieldManager = "indexarr"
+
+	// ManagerIndexarrWorker is indexarr's RSS poll and search fan-out. On
+	// Indexer it owns the observed half of status: lastRssAt, lastRssNewCount,
+	// indexedReleases, queriesInWindow, grabsInWindow, and the escalation
+	// fields (failureLevel, initialFailureAt, disabledUntil, lastFailureAt,
+	// lastFailureMsg).
+	//
+	// It is deliberately distinct from ManagerIndexarr because Indexer.status
+	// has three writer paths -- the reconciler, the RSS poll and the search
+	// fan-out -- which is one more than the design spec anticipated. Server-
+	// side apply replaces a manager's whole ownership set on every apply, so
+	// two paths sharing one manager name silently release each other's
+	// fields; that hazard took eight distinct forms in Phase C and the
+	// remedy that worked, twice, was distinct managers. The two worker paths
+	// DO share this name, so both declare the identical set through
+	// indexarr/status.WorkerFields -- one definition, not two.
+	ManagerIndexarrWorker FieldManager = "indexarr-worker"
 
 	// ManagerGrabarr is the grabarr controller manager, the single writer for
 	// download.clustarr.io phase and conditions.
@@ -152,6 +171,7 @@ func FieldManagers() []FieldManager {
 		ManagerImportarr,
 		ManagerImportarrWorker,
 		ManagerIndexarr,
+		ManagerIndexarrWorker,
 		ManagerGrabarr,
 		ManagerGrabarrEngine,
 		ManagerSquasharr,
