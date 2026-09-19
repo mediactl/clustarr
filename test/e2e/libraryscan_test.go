@@ -92,7 +92,7 @@ func TestLibraryRescan(t *testing.T) {
 	require.EqualValues(t, fixtureTmdbID, movie.Spec.TmdbID)
 	require.Equal(t, QualityProfileName, movie.Spec.QualityProfileRef,
 		"a scanned Movie takes the root folder's default profile")
-	t.Cleanup(func() { _ = k8sClient.Delete(context.Background(), &movie) })
+	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), &movie) })
 
 	// catalogarr's half: the MediaFile controller probed the real bytes with
 	// real ffprobe, and the Movie reconciler rolled the file up.
@@ -160,7 +160,7 @@ func TestLibraryRescanUnmatchedAndSchedule(t *testing.T) {
 		}
 		return false, nil
 	})
-	t.Cleanup(func() { _ = k8sClient.Delete(context.Background(), &second) })
+	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), &second) })
 
 	// Stop the cron before waiting, so a slow scan does not race a third
 	// tick into the same assertion.
@@ -198,7 +198,7 @@ func waitForMediaFileCount(ctx context.Context, t *testing.T, clusterPath string
 		return len(got) == want, nil
 	})
 	for _, mf := range got {
-		t.Cleanup(func() { _ = k8sClient.Delete(context.Background(), mf.DeepCopy()) })
+		cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), mf.DeepCopy()) })
 	}
 	return got
 }
@@ -214,7 +214,7 @@ func waitForMediaFileProbed(ctx context.Context, t *testing.T, key client.Object
 			return false, nil
 		}
 		return live.Status.MediaInfo != nil && live.Status.ProbeHash != "", nil
-	})
+	}, describeMediaFile(key))
 	require.Equal(t, "h264", live.Status.MediaInfo.VideoCodec, "ffprobe read the seeded clip's real video stream")
 	require.EqualValues(t, 640, live.Status.MediaInfo.Width)
 	require.True(t, isConditionTrue(live.Status.Conditions, catalogv1alpha1.MediaFileConditionProbed),

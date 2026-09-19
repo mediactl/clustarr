@@ -21,6 +21,7 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"path"
 	"strings"
 	"testing"
@@ -176,7 +177,7 @@ func createSeries(ctx context.Context, t *testing.T, rootFolder string, tvdbID i
 		},
 	}
 	require.NoError(t, k8sClient.Create(ctx, s))
-	t.Cleanup(func() { _ = k8sClient.Delete(context.Background(), s) })
+	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), s) })
 	return s
 }
 
@@ -196,7 +197,7 @@ func waitForSeriesReady(ctx context.Context, t *testing.T, s *catalogv1alpha1.Se
 			isConditionTrue(live.Status.Conditions, catalogv1alpha1.SeriesConditionMetadataReady) &&
 			isConditionTrue(live.Status.Conditions, catalogv1alpha1.SeriesConditionEpisodesSynced) &&
 			live.Status.Phase == catalogv1alpha1.SeriesPhaseReady, nil
-	})
+	}, describeSeries(client.ObjectKeyFromObject(s)))
 	return live
 }
 
@@ -217,4 +218,27 @@ func requireEpisode(ctx context.Context, t *testing.T, name string) catalogv1alp
 		return ep.Status.Title != "", nil
 	})
 	return ep
+}
+
+// describeSeries renders one Series' phase, path and conditions for a
+// failure message. A Series that never becomes Ready has usually stalled on
+// one specific condition, and naming it is the difference between a
+// diagnosis and a shrug.
+func describeSeries(key client.ObjectKey) func() string {
+	return func() string {
+		var live catalogv1alpha1.Series
+		if err := k8sClient.Get(context.Background(), key, &live); err != nil {
+			return fmt.Sprintf("Series %s could not be read back: %v", key.Name, err)
+		}
+		title := "<no status.metadata>"
+		if live.Status.Metadata != nil {
+			title = live.Status.Metadata.Title
+		}
+		out := fmt.Sprintf("Series %s phase=%q path=%q metadata.title=%q episodeCount=%d",
+			key.Name, live.Status.Phase, live.Status.Path, title, live.Status.EpisodeCount)
+		for _, c := range live.Status.Conditions {
+			out += fmt.Sprintf("\n    condition %s=%s reason=%s message=%q", c.Type, c.Status, c.Reason, c.Message)
+		}
+		return out
+	}
 }

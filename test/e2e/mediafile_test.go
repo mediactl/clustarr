@@ -21,6 +21,7 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path"
 	"testing"
@@ -67,7 +68,7 @@ func TestMediaFileTwoWriter(t *testing.T) {
 	files := waitForMediaFileCount(ctx, t, rf.Spec.Path, 1)
 	key := client.ObjectKeyFromObject(&files[0])
 	movieName := files[0].Spec.MediaRef.Name
-	t.Cleanup(func() {
+	cleanupUnlessFailed(t, func() {
 		_ = k8sClient.Delete(context.Background(), &catalogv1alpha1.Movie{
 			ObjectMeta: metav1.ObjectMeta{Name: movieName, Namespace: Namespace},
 		})
@@ -95,7 +96,7 @@ func TestMediaFileTwoWriter(t *testing.T) {
 			return false, nil
 		}
 		return live.Status.ProbedAt != nil && live.Status.ProbedAt.After(firstProbedAt.Time), nil
-	})
+	}, describeMediaFile(key))
 
 	second := waitForBothWriters(ctx, t, key)
 	require.Equal(t, first.UID, second.UID,
@@ -138,7 +139,7 @@ func waitForBothWriters(ctx context.Context, t *testing.T, key client.ObjectKey)
 			}
 		}
 		return importarrOK && catalogarrOK, nil
-	})
+	}, describeMediaFile(key))
 
 	var (
 		importarrSpec  bool
@@ -178,4 +179,29 @@ func waitForBothWriters(ctx context.Context, t *testing.T, key client.ObjectKey)
 	require.True(t, importarrSpec, "no importarr managedFields entry claims spec.path")
 	require.True(t, catalogarrStat, "no catalogarr managedFields entry on the status subresource claims the probe result")
 	return mf
+}
+
+// describeMediaFile renders one MediaFile's spec, probe state and, above
+// all, its managedFields owners -- the thing scenario 8 is about, and the
+// thing a bare "context deadline exceeded" hides completely.
+func describeMediaFile(key client.ObjectKey) func() string {
+	return func() string {
+		var live catalogv1alpha1.MediaFile
+		if err := k8sClient.Get(context.Background(), key, &live); err != nil {
+			return fmt.Sprintf("MediaFile %s could not be read back: %v", key.Name, err)
+		}
+		out := fmt.Sprintf("MediaFile %s path=%q sizeBytes=%d probeHash=%q mediaInfo=%t",
+			key.Name, live.Spec.Path, live.Spec.SizeBytes, live.Status.ProbeHash, live.Status.MediaInfo != nil)
+		for _, e := range live.GetManagedFields() {
+			fields := ""
+			if e.FieldsV1 != nil {
+				fields = string(e.FieldsV1.Raw)
+			}
+			out += fmt.Sprintf("\n    manager=%s subresource=%q fields=%s", e.Manager, e.Subresource, fields)
+		}
+		for _, c := range live.Status.Conditions {
+			out += fmt.Sprintf("\n    condition %s=%s reason=%s message=%q", c.Type, c.Status, c.Reason, c.Message)
+		}
+		return out
+	}
 }

@@ -129,7 +129,7 @@ func plantFiller(t *testing.T, hostAbsPath string) {
 		"plantFiller: mkdir %s", filepath.Dir(hostAbsPath))
 	f, err := os.OpenFile(hostAbsPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o664)
 	require.NoError(t, err, "plantFiller: create %s", hostAbsPath)
-	t.Cleanup(func() { _ = os.Remove(hostAbsPath) })
+	cleanupUnlessFailed(t, func() { _ = os.Remove(hostAbsPath) })
 	// A Matroska EBML magic prefix, then a hole: fsops classifies on
 	// extension and size only, so this is enough to be ClassMedia, and the
 	// magic makes a stray file recognisable in a diagnostic dump.
@@ -151,16 +151,64 @@ func plantBytes(t *testing.T, hostAbsPath string, content []byte) {
 		"plantBytes: mkdir %s", filepath.Dir(hostAbsPath))
 	require.NoError(t, os.WriteFile(hostAbsPath, content, 0o664),
 		"plantBytes: write %s", hostAbsPath)
-	t.Cleanup(func() { _ = os.Remove(hostAbsPath) })
+	cleanupUnlessFailed(t, func() { _ = os.Remove(hostAbsPath) })
 }
 
 // waitFor polls check every pollInterval until it returns true, or fails the
 // test with desc after timeout. Controllers here use RequeueAfter, never
 // sleep (CLAUDE.md); this is the test-side mirror of that patience.
-func waitFor(t *testing.T, ctx context.Context, timeout time.Duration, desc string, check func(context.Context) (bool, error)) {
+//
+// details, when given, is called only on failure and appended to the
+// message. "context deadline exceeded" on its own says nothing about WHY
+// convergence stalled, and by the time hack/e2e.sh dumps the cluster the
+// objects may already be gone, so the last observed state has to be captured
+// here or not at all.
+func waitFor(t *testing.T, ctx context.Context, timeout time.Duration, desc string, check func(context.Context) (bool, error), details ...func() string) {
 	t.Helper()
-	if err := wait.PollUntilContextTimeout(ctx, pollInterval, timeout, true, check); err != nil {
-		t.Fatalf("timed out waiting for %s: %v", desc, err)
+	err := wait.PollUntilContextTimeout(ctx, pollInterval, timeout, true, check)
+	if err == nil {
+		return
+	}
+	msg := fmt.Sprintf("timed out waiting for %s: %v", desc, err)
+	for _, d := range details {
+		msg += "\n  last observed: " + d()
+	}
+	t.Fatal(msg)
+}
+
+// cleanupUnlessFailed registers fn to run at the end of a PASSING test only.
+// A failing scenario deliberately leaves its objects and planted files
+// behind: hack/e2e.sh dumps the cluster after `go test` returns, which is
+// after every t.Cleanup has already run, so tearing down on failure destroys
+// the evidence the dump exists to collect. Everything this suite creates is
+// uniquely named and rooted at a unique path, so leftovers from a failed run
+// cannot collide with the next one.
+func cleanupUnlessFailed(t *testing.T, fn func()) {
+	t.Helper()
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("test failed: leaving resources in place for hack/e2e.sh's diagnostics dump")
+			return
+		}
+		fn()
+	})
+}
+
+// describeScan renders one LibraryScan's phase, counters and conditions for a
+// failure message.
+func describeScan(key client.ObjectKey) func() string {
+	return func() string {
+		var live catalogv1alpha1.LibraryScan
+		if err := k8sClient.Get(context.Background(), key, &live); err != nil {
+			return fmt.Sprintf("LibraryScan %s could not be read back: %v", key.Name, err)
+		}
+		out := fmt.Sprintf("LibraryScan %s mode=%s phase=%q filesSeen=%d filesMatched=%d filesSkipped=%d itemsCreated=%d unmatched=%d",
+			key.Name, live.Spec.Mode, live.Status.Phase, live.Status.FilesSeen, live.Status.FilesMatched,
+			live.Status.FilesSkipped, live.Status.ItemsCreated, len(live.Status.Unmatched))
+		for _, c := range live.Status.Conditions {
+			out += fmt.Sprintf("\n    condition %s=%s reason=%s message=%q", c.Type, c.Status, c.Reason, c.Message)
+		}
+		return out
 	}
 }
 
@@ -226,7 +274,7 @@ func newRootFolder(ctx context.Context, t *testing.T, prefix string, kind catalo
 		},
 	}
 	require.NoError(t, k8sClient.Create(ctx, rf))
-	t.Cleanup(func() {
+	cleanupUnlessFailed(t, func() {
 		_ = k8sClient.Delete(context.Background(), rf)
 		_ = os.RemoveAll(hostPath(clusterPath))
 	})
@@ -253,7 +301,7 @@ func runScan(ctx context.Context, t *testing.T, rf *catalogv1alpha1.RootFolder, 
 		Spec:       catalogv1alpha1.LibraryScanSpec{RootFolderRef: rf.Name, Mode: mode},
 	}
 	require.NoError(t, k8sClient.Create(ctx, scan))
-	t.Cleanup(func() { _ = k8sClient.Delete(context.Background(), scan) })
+	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), scan) })
 	return waitForScanCompleted(ctx, t, client.ObjectKeyFromObject(scan))
 }
 
@@ -274,7 +322,7 @@ func waitForScanCompleted(ctx context.Context, t *testing.T, key client.ObjectKe
 		}
 		done = live
 		return live.Status.Phase == catalogv1alpha1.ScanPhaseCompleted, nil
-	})
+	}, describeScan(key))
 	return done
 }
 
