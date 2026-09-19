@@ -110,8 +110,16 @@ type TranscodeState struct {
 	LastResult TranscodeResult `json:"lastResult,omitempty"`
 }
 
-// MediaFileSpec defines the desired state of MediaFile. Only catalogarr writes
-// it: other services read it and report back through status.
+// MediaFileSpec defines the desired state of MediaFile.
+//
+// MediaFile is the one exception to the single-writer rule, and the split is
+// spec versus status: importarr creates the resource and owns this spec --
+// the observed path, size and fingerprint, plus the quality, revision,
+// formatScore, matchedFormats and releaseType frozen at import -- while
+// catalogarr owns all of MediaFileStatus, plus metadata.labels, and takes
+// over sizeBytes, modTime and original once it incorporates a transcode
+// swap. Both write under their own field manager, so the apiserver enforces
+// the split rather than convention.
 type MediaFileSpec struct {
 	// MediaRef points at the catalog item this file backs.
 	// +required

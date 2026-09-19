@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mediactl/clustarr/importarr/worker/rescan"
+	"github.com/mediactl/clustarr/pkg/events"
 )
 
 func TestProgressEncodeDecodeRoundTrip(t *testing.T) {
@@ -78,5 +79,20 @@ func TestDecodeProgressRejectsGarbage(t *testing.T) {
 }
 
 func TestProgressKeyIsNamespacedUnderScan(t *testing.T) {
-	assert.Equal(t, "scan.abc-123", rescan.ProgressKey("abc-123"))
+	// "-" escapes to "--". A Kubernetes UID is already a legal NATS KV key,
+	// so the doubling buys nothing on the normal path -- but routing every
+	// key through the one escaper is the point. LeaseKey and PendingKey were
+	// safe only by accident of what their caller happened to pass, and that
+	// is the shape that produced two separate illegal-key defects this
+	// phase. Keys are opaque; consistency is worth more than readability.
+	assert.Equal(t, "scan.abc--123", rescan.ProgressKey("abc-123"))
+	assert.True(t, events.ValidKVKey(rescan.ProgressKey("abc-123")))
+
+	// The reason this matters at all: the worker falls back to an empty UID,
+	// and "scan." is a trailing dot, which nats.go rejects on Put and on
+	// Delete alike -- so the checkpoint would fail and, for anything with a
+	// finalizer, could not be cleaned up either.
+	assert.True(t, events.ValidKVKey(rescan.ProgressKey("")),
+		"an empty UID must still produce a legal key, not a trailing dot")
+	assert.NotEqual(t, rescan.ProgressKey(""), rescan.ProgressKey("\x00"))
 }

@@ -21,6 +21,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/mediactl/clustarr/pkg/events"
 )
 
 // UnmatchedFile is one file the walk could not attribute to a catalog item.
@@ -108,4 +110,10 @@ func DecodeProgress(data []byte) (Progress, error) {
 // "<kind>.<uid>" convention (spec §5's clustarr-progress row). The UID, not
 // the name, keys it: a scan deleted and recreated under the same name is a
 // different scan and must not read the old one's tally.
-func ProgressKey(scanUID string) string { return "scan." + scanUID }
+//
+// The UID goes through events.KVKeyToken like every other KV key in the
+// repo. A Kubernetes UID is alphanumeric, so this is defensive on the normal
+// path -- but the worker has a fallback for an empty UID, and "scan." with
+// nothing after it is a trailing dot, which nats.go rejects on Put and on
+// Delete alike.
+func ProgressKey(scanUID string) string { return "scan." + events.KVKeyToken(scanUID) }
