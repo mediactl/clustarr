@@ -953,6 +953,20 @@ milestone in spec §16 and every amendment section:
    files arrive through the rescan importarr owns, since nothing grabs yet;
    Phase D extends this scenario so a season pack is grabbed once and both
    Episodes gain MediaFiles from that download.
+
+   > **OUTSTANDING as of Phase C — the file leg is not delivered.** The
+   > catalog leg is done and exceeds this text (the e2e asserts episode
+   > titles, air dates and `absoluteNumber` from the stub, not just a
+   > non-empty `status.path`). The file leg cannot work as written:
+   > `importarr/worker/rescan` refuses any non-`movie` root folder with
+   > `unsupported_root_kind`, and its own comment defers series to M6 — so
+   > "the files arrive through the rescan" is not implementable in Phase C.
+   > `test/e2e/series_test.go`'s `TestSeriesRootFolderScanIsNotSupportedYet`
+   > pins today's behaviour plus the never-guess invariant and will fail
+   > loudly when series rescan lands, which is the intended signal.
+   > **Still uncovered anywhere: `ReleaseType=seasonPack`, episode-file
+   > matching, and daily/anime file matching.** Phase H's audit must treat
+   > this scenario as partially satisfied, not green.
 6. **Usenet (M3).** Usenet DownloadClient against the NNTP stub; NZB from the
    fixture Newznab; par2 repair and RAR unpack; `Imported`.
 7. **Library rescan (A1).** Files planted in a RootFolder — matchable,
