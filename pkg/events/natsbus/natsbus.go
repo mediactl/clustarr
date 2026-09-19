@@ -36,6 +36,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
 // DefaultRequestTimeout bounds a Request that arrives with no context
@@ -313,6 +314,22 @@ func (b *Bus) handle(ctx context.Context, sub events.Subscription,
 		return
 	}
 	s := events.Settle(err, msg.Attempt(), sub)
+	if err != nil {
+		// A handler that fails on every delivery is otherwise completely
+		// silent: the message is naked and redelivered forever with nothing
+		// written anywhere. That is how an illegal NATS KV key in the
+		// metadata cache went undiagnosed until someone rebuilt the image
+		// with a temporary print in this function. The error belongs in the
+		// log at the moment it is settled, with what was decided about it.
+		logging.FromContext(hctx).Error("bus: handler failed",
+			"durable", sub.Durable,
+			"schema", msg.Envelope().Schema,
+			"msg_id", msg.Envelope().ID,
+			"attempt", msg.Attempt(),
+			"action", string(s.Action),
+			"reason", s.Reason,
+			"error", err)
+	}
 	switch s.Action {
 	case events.SettleAck:
 		_ = msg.Ack(ctx)

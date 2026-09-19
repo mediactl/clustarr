@@ -19,6 +19,7 @@ package metadata
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -90,9 +91,20 @@ func (c *kvCache) Set(ctx context.Context, key string, v any, ttl time.Duration)
 
 var _ pkgmetadata.Cache = (*kvCache)(nil)
 
-// cacheKey builds an item-level cache key: <kind>:<sorted k=v external ids>.
+// cacheKey builds an item-level cache key: <kind>.<sorted k=v external ids>.
 // See this task's "Judgment calls" for why this deliberately drops the
 // <provider> segment the spec's KV table literally shows.
+//
+// The separators are "." and "_" rather than the ":" and "," this originally
+// used, because a NATS KV key must match ^[-/_=\.a-zA-Z0-9]+$ and both of
+// those are illegal. Every L2 write and read failed with "nats: invalid key",
+// so every metadata refresh -- Movie and Series alike -- naked and redelivered
+// forever, status.metadata never landed, and no item ever became Ready. No
+// unit or envtest suite could see it: they run against the in-memory bus,
+// which has no key grammar. It took the first run on a real cluster.
+//
+// kvKeyTok defends the same invariant for the values, which are provider ids
+// from outside this process and are not guaranteed to be alphanumeric.
 func cacheKey(kind commonv1.MediaKind, ids pkgmetadata.ExternalIDs) string {
 	keys := make([]string, 0, len(ids))
 	for k := range ids {
@@ -101,7 +113,37 @@ func cacheKey(kind commonv1.MediaKind, ids pkgmetadata.ExternalIDs) string {
 	sort.Strings(keys)
 	parts := make([]string, 0, len(keys))
 	for _, k := range keys {
-		parts = append(parts, k+"="+ids[k])
+		parts = append(parts, kvKeyTok(k)+"="+kvKeyTok(ids[k]))
 	}
-	return string(kind) + ":" + strings.Join(parts, ",")
+	return kvKeyTok(string(kind)) + "." + strings.Join(parts, "_")
+}
+
+// kvKeyTok escapes s into the alphabet [0-9A-Za-z-], which is a strict subset
+// of what a NATS KV key allows (^[-/_=\.a-zA-Z0-9]+$).
+//
+// The encoding is injective, and that is the point rather than a nicety: a
+// lossy sanitiser that mapped every illegal character to the same replacement
+// would collapse the ids "a:b" and "a,b" onto one cache key and serve one
+// item's metadata for another. "-" escapes itself as "--" and every other
+// non-alphanumeric byte becomes "-XX" in hex, so distinct inputs stay
+// distinct. Restricting the output to this alphabet also keeps it disjoint
+// from cacheKey's "." and "_" separators, so no value can forge one.
+func kvKeyTok(s string) string {
+	if s == "" {
+		return "-00"
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+			b.WriteByte(c)
+		case c == '-':
+			b.WriteString("--")
+		default:
+			b.WriteString("-" + hex.EncodeToString([]byte{c}))
+		}
+	}
+	return b.String()
 }
