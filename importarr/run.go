@@ -40,7 +40,6 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/mediactl/clustarr/importarr/controller/importexclusion"
 	"github.com/mediactl/clustarr/importarr/controller/libraryscan"
@@ -382,7 +381,12 @@ func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	}
 	worker := rescan.NewWorker(mgr.GetClient(), bus)
 	sub := spec.Subscription()
-	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+	// k8s.EveryReplica, not manager.RunnableFunc: amendment §A1.6 runs the
+	// scan consumer on EVERY replica of importarr-worker, and a bare
+	// RunnableFunc has no NeedLeaderElection method, so controller-runtime
+	// puts it behind the leader lease. importarr-worker does not run leader
+	// election at all, so the subscription would simply never open.
+	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		stop, err := bus.Subscribe(ctx, sub, worker.Handle)
 		if err != nil {
 			return fmt.Errorf("importarr: subscribe %s: %w", events.ConsumerImportScan, err)

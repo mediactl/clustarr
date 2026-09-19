@@ -46,6 +46,25 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
+// The MediaFile controller's RBAC. The Events group is "" and not
+// events.k8s.io because this reconciler takes a
+// k8s.io/client-go/tools/record.EventRecorder, which is what the deprecated
+// mgr.GetEventRecorderFor returns and which writes CORE/v1 Events. The
+// controllers taking a k8s.io/client-go/tools/events recorder (rootfolder,
+// qualityprofile, delayprofile, metadataprovider) keep events.k8s.io, and the
+// generated Role grants both groups -- see catalogarr's setupControllers.
+//
+// The blank line below is load-bearing: controller-gen only collects
+// +kubebuilder:rbac from PACKAGE-level comments, and a marker block touching a
+// declaration becomes that declaration's doc comment and is silently dropped.
+// cmd/clustarr's TestRBACMarkersArePackageLevel is the guard.
+//
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch
+// +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitlerequests,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+
 // Reconciler owns 100% of MediaFile.status (see this section's "Resolving
 // the field-manager split") plus, narrowly, spec.sizeBytes/modTime/original
 // after a transcode swap. It writes nothing at all on any other resource.

@@ -33,7 +33,6 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/catalogarr/controller/delayprofile"
@@ -347,9 +346,20 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		return fmt.Errorf("catalogarr: rootfolder: %w", err)
 	}
 
-	if err := qualityprofile.NewReconciler(c, catalogue.LoadedCatalogue(),
+	cat := catalogue.LoadedCatalogue()
+	if err := qualityprofile.NewReconciler(c, cat,
 		mgr.GetEventRecorder("qualityprofile")).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("catalogarr: qualityprofile: %w", err)
+	}
+
+	// The 13 built-in TRaSH profiles. Without this the reconciler has nothing
+	// to reconcile on a fresh cluster: every Movie's and Series'
+	// spec.qualityProfileRef resolves to "not found", so the grab Sink and the
+	// RSS matcher both refuse every release and the whole decision path is
+	// inert while looking healthy. Leader-elected by its own
+	// NeedLeaderElection -- seeding is a cluster singleton, not per replica.
+	if err := mgr.Add(&qualityprofile.Bootstrap{Client: c, Catalogue: cat}); err != nil {
+		return fmt.Errorf("catalogarr: qualityprofile bootstrap: %w", err)
 	}
 
 	if err := delayprofile.NewReconciler(c, mgr.GetEventRecorder("delayprofile")).SetupWithManager(mgr); err != nil {
@@ -472,9 +482,13 @@ func setupQueueWorkers(mgr ctrl.Manager, bus events.Bus) error {
 //
 // §3 pins this role to exactly one replica -- its in-process rate limiters
 // are what keep Clustarr inside every provider's quota -- which is why
-// `--role all` is not what the manifests run for the main Deployment.
+// `--role all` is not what the manifests run for the main Deployment. It is
+// pinned by the Deployment's replica count, NOT by the leader lease, so the
+// runnable is a k8s.EveryReplica: a plain manager.RunnableFunc would go behind
+// the lease (see EveryReplica), and the metadata Deployment does not hold
+// catalogarr's lease, so the gateway would never start at all.
 func setupMetadataGateway(mgr ctrl.Manager, bus events.Bus) error {
-	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		stop, err := catalogmetadata.Setup(ctx, catalogmetadata.Options{
 			Client:     mgr.GetClient(),
 			Bus:        bus,

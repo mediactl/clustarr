@@ -41,14 +41,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // an open delay window lands in the same clustarr-pending entry and replaces
 // the candidate if it is better, without restarting the window.
 //
-// # Registration (Task C12)
+// # Registration
 //
-// Nothing registers itself. catalogarr/run.go's setupWorkers makes exactly
-// these two calls, in this order:
+// Nothing registers itself. catalogarr's setupQueueWorkers registers this
+// package's five indexes and catalogarr/worker/search's three Download indexes
+// together, from one call (registerWorkerIndexes), and then:
 //
-//	if err := rssmatcher.IndexFields(ctx, mgr.GetFieldIndexer()); err != nil {
-//		return err
-//	}
 //	h := rssmatcher.NewHandler(rssmatcher.Deps{
 //		Client: mgr.GetClient(), Bus: bus, Catalogue: catalogue.LoadedCatalogue(),
 //	})
@@ -56,11 +54,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //		return fmt.Errorf("catalogarr: subscribe rss-matcher: %w", err)
 //	}
 //
-// It also needs catalogarr/worker/search.RegisterDownloadIndexes to have been
-// called on the same manager -- exactly once, by the search worker's own
-// registration -- because this package reads the blocklist and queue through
-// those indexes rather than registering a second, conflicting set. If they are
-// absent the lookups degrade to "not blocklisted, empty queue" with a warning
-// rather than failing, which is the same posture the search worker takes on a
-// failed blocklist read.
+// The three Download indexes are NOT registered by the search worker. They
+// used to be -- search.Worker.SetupWithManager called RegisterDownloadIndexes
+// itself -- which made them a side effect of whichever worker happened to be
+// enabled, while this package reads the blocklist and the live queue through
+// them and, when they are absent, degrades to "not blocklisted, empty queue"
+// with a WARNING rather than an error. A wiring mistake therefore did not
+// break anything visibly; it just started grabbing releases an operator had
+// blocklisted. Task C12a moved the registration into one deterministic call
+// and added a startup assertion (assertWorkerIndexes) that fails the manager
+// when any of the eight is missing, so the degraded path is now unreachable
+// rather than merely unlikely.
 package rssmatcher

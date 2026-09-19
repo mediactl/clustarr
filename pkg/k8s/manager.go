@@ -31,7 +31,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 	crmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
@@ -273,6 +272,31 @@ func AddProbes(mgr ctrl.Manager, ready map[string]healthz.Checker) error {
 	return nil
 }
 
+// EveryReplica adapts fn into a [manager.Runnable] that controller-runtime
+// starts on EVERY replica, leader or not.
+//
+// It exists because manager.RunnableFunc does not: it is a bare func type with
+// no NeedLeaderElection method, so controller-runtime's runnables.Add falls
+// through its type switch to `default: r.LeaderElection.Add(fn, nil)`
+// (pkg/manager/runnable_group.go) and silently puts it behind the lease. Every
+// Clustarr service runs with --leader-elect, so a plain RunnableFunc never
+// starts on a non-leader replica -- and nothing says so: the runnable simply
+// never runs.
+//
+// That is a readiness deadlock when the runnable gates a probe and a
+// correctness hole when it consumes queue work (§3 runs the queue workers on
+// every replica, not only the leader). Use this for anything that must run per
+// replica, and a type with NeedLeaderElection() == true for anything that must
+// be a cluster singleton.
+type EveryReplica func(ctx context.Context) error
+
+// Start implements manager.Runnable.
+func (f EveryReplica) Start(ctx context.Context) error { return f(ctx) }
+
+// NeedLeaderElection implements manager.LeaderElectionRunnable. Returning
+// false is this type's entire reason to exist.
+func (EveryReplica) NeedLeaderElection() bool { return false }
+
 // CacheSyncChecker returns a readiness check that fails until every informer
 // the manager's cache backs has completed its initial List, and adds the
 // Runnable that flips it.
@@ -288,13 +312,19 @@ func AddProbes(mgr ctrl.Manager, ready map[string]healthz.Checker) error {
 // It must be called before [AddProbes] and before mgr.Start: both the readyz
 // registration and mgr.Add are rejected once the manager is running.
 //
-// The Runnable is a non-leader-election one, so controller-runtime starts it
-// only after the caches have started and synced -- WaitForCacheSync therefore
-// returns immediately in the normal case and the check is a memory read, not
-// a poll.
+// The Runnable is an [EveryReplica] and not a manager.RunnableFunc, and that
+// is load-bearing rather than stylistic. A RunnableFunc goes behind the leader
+// lease (see EveryReplica), so on a non-leader replica `synced` would never be
+// set and /readyz would fail forever. With the chart's default RollingUpdate
+// at replicas 1 (maxSurge 1, maxUnavailable 0) the surge pod can never go
+// Ready while the outgoing pod still holds the lease, and the outgoing pod is
+// never terminated: every rollout deadlocks. Being a non-leader runnable also
+// puts it in the "Others" group, which controller-runtime starts only after
+// the caches have started and synced -- so WaitForCacheSync returns
+// immediately in the normal case and the check is a memory read, not a poll.
 func CacheSyncChecker(mgr ctrl.Manager) (healthz.Checker, error) {
 	var synced atomic.Bool
-	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+	if err := mgr.Add(EveryReplica(func(ctx context.Context) error {
 		if !mgr.GetCache().WaitForCacheSync(ctx) {
 			// Only reachable when ctx is already done, i.e. the manager is
 			// shutting down. Returning an error would take the whole

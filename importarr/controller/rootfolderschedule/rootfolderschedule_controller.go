@@ -261,6 +261,15 @@ func requeueFor(d time.Duration) time.Duration {
 // this comment exists rather than an unexplained extra verb in a generated
 // file -- see the package doc for why the tick has to be a durable annotation
 // and cannot be derived from the scans themselves.
+//
+// There is a second, wider asymmetry, and it is worth stating plainly:
+// controller-gen emits ONE clustarr-manager-role and both installers bind
+// every service's ServiceAccount to it, so this grant reaches catalogarr,
+// indexarr, grabarr, squasharr and captionarr as well -- none of which has any
+// business patching a RootFolder. Nothing here can narrow that: per-service
+// roles need per-service generator invocations and per-service bindings, which
+// is a manifest-layout change rather than a marker change. Until then the real
+// boundary is the field manager, not RBAC.
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=libraryscans,verbs=get;list;watch;create;update;patch
 // record.EventRecorder (the recorder Movie, Series, Episode, MediaFile and

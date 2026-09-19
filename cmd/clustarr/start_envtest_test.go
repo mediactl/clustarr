@@ -31,6 +31,12 @@ import (
 	natsserver "github.com/nats-io/nats-server/v2/server"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
+	coordinationv1 "k8s.io/api/coordination/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"github.com/mediactl/clustarr/catalogarr"
 	"github.com/mediactl/clustarr/importarr"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -122,18 +128,35 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		// service's roles: controllers, workers and (for catalogarr) the
 		// metadata gateway, in one manager. Together they are `clustarr all`
 		// minus the services that still register nothing.
+		//
+		// catalogarr/all runs WITHOUT leader election, so its controllers
+		// actually start and the case proves registration end to end.
+		// importarr/all runs WITH it, and loses: the lease is pre-held by
+		// another identity (see leaderElect below), which is the rollout
+		// scenario -- a surge pod coming up beside an incumbent that still
+		// owns the lease. Its /readyz must go green anyway. Before Task
+		// C12a's review it could not: k8s.CacheSyncChecker added a bare
+		// manager.RunnableFunc, which controller-runtime puts behind the
+		// lease, so a non-leader replica never became Ready and every
+		// rollout deadlocked. Every other case here sets LeaderElect false
+		// and passes vacuously, which is why that shipped.
 		{"catalogarr/all", func(ctx context.Context, o k8s.Options) error {
 			d := catalogarr.DefaultOptions()
 			d.Options, d.Role = o, catalogarr.RoleAll
 			return catalogarr.Run(ctx, d)
 		}},
-		{"importarr/all", func(ctx context.Context, o k8s.Options) error {
+		{"importarr/all (non-leader)", func(ctx context.Context, o k8s.Options) error {
 			d := importarr.DefaultOptions()
 			d.Options, d.Role = o, importarr.RoleAll
 			d.DataPath = t.TempDir()
+			d.LeaderElect = true
 			return importarr.Run(ctx, d)
 		}},
 	}
+
+	// The lease importarr/all must fail to acquire, held by another identity
+	// for a day so the takeover can never happen inside the test.
+	holdLease(t, env.Config, "default", importarr.LeaderElectionID)
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -141,6 +164,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 
 			o := k8s.DefaultOptions()
 			o.Namespace = "default"
+			// Each case's own closure re-enables it where it wants it.
 			o.LeaderElect = false
 			o.MetricsBindAddress = k8s.DisabledBindAddress
 			o.HealthProbeBindAddress = probeAddr
@@ -274,4 +298,31 @@ func waitForProbe(t *testing.T, url string) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	t.Fatalf("%s never returned 200: %v", url, errors.Join(last))
+}
+
+// holdLease pre-creates a coordination.k8s.io Lease owned by someone else, so
+// a manager configured for leader election with that ID can never acquire it.
+//
+// It is how this suite reproduces the half of a rolling update that actually
+// deadlocked: the new pod is up, the old pod still holds the lease, and the
+// new pod's readiness has to pass on its own merits.
+func holdLease(t *testing.T, cfg *rest.Config, namespace, id string) {
+	t.Helper()
+	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	if err != nil {
+		t.Fatalf("build client: %v", err)
+	}
+	renew := metav1.NewMicroTime(time.Now().Add(24 * time.Hour))
+	lease := &coordinationv1.Lease{
+		ObjectMeta: metav1.ObjectMeta{Name: id, Namespace: namespace},
+		Spec: coordinationv1.LeaseSpec{
+			HolderIdentity:       ptr.To("incumbent-pod"),
+			LeaseDurationSeconds: ptr.To(int32(86400)),
+			AcquireTime:          &renew,
+			RenewTime:            &renew,
+		},
+	}
+	if err := c.Create(context.Background(), lease); err != nil {
+		t.Fatalf("hold the %s lease: %v", id, err)
+	}
 }

@@ -26,11 +26,11 @@ import (
 	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
@@ -91,8 +91,18 @@ func (h *Handler) Subscription() events.Subscription {
 //
 // It does NOT need leader election: every replica runs the queue workers and
 // competes for the same durable consumer (§3's topology).
+//
+// That sentence was FALSE as written until Task C12a's review. The runnable
+// was a manager.RunnableFunc, which is a bare func type with no
+// NeedLeaderElection method, so controller-runtime's runnables.Add falls
+// through its type switch to `default: r.LeaderElection.Add(...)` and puts it
+// behind the lease anyway. With --leader-elect on, exactly one replica ran the
+// grab consumer: latent at replicas 1, a silent throughput ceiling at any
+// scale-out, and dead on a worker-only Deployment that runs no leader election
+// at all. k8s.EveryReplica is a type WITH the method, which is what makes the
+// claim true.
 func (h *Handler) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
-	return mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+	return mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		stop, err := bus.Subscribe(ctx, h.Subscription(), h.Handle)
 		if err != nil {
 			return fmt.Errorf("catalogarr: subscribe grab: %w", err)

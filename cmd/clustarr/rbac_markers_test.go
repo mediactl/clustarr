@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package main
 
 import (
+	"bytes"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -31,10 +32,91 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// rbacServiceDirs must match the Makefile's RBAC_DIRS: the directories
-// controller-gen is pointed at when it generates config/rbac/role.yaml.
-var rbacServiceDirs = []string{
-	"catalogarr", "importarr", "indexarr", "grabarr", "squasharr", "captionarr",
+// rbacServiceDirs reads RBAC_DIRS out of the Makefile -- the list controller-gen
+// is actually pointed at -- rather than restating it. A second copy here could
+// drift from the generator's real input, which is precisely the class of bug
+// these guards exist to catch.
+func rbacServiceDirs(t *testing.T, root string) []string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(root, "Makefile"))
+	require.NoError(t, err)
+
+	for _, line := range strings.Split(string(raw), "\n") {
+		_, value, found := strings.Cut(line, "RBAC_DIRS :=")
+		if !found {
+			continue
+		}
+		dirs := strings.Fields(value)
+		require.NotEmpty(t, dirs, "the Makefile's RBAC_DIRS is empty")
+		return dirs
+	}
+	t.Fatal("no RBAC_DIRS assignment in the Makefile; this guard no longer knows what controller-gen is given")
+	return nil
+}
+
+// TestEveryDirectoryWithRBACMarkersIsGenerated closes the hole that hid the
+// importarr defect: importarr's controllers carried correct markers, and
+// RBAC_DIRS simply did not list importarr, so controller-gen was never pointed
+// at them and not one of its rules reached config/rbac/role.yaml.
+//
+// A guard that restated RBAC_DIRS would not have caught it -- the two lists
+// would have been wrong together. So this one DISCOVERS: any top-level
+// directory containing a +kubebuilder:rbac marker anywhere beneath it must
+// appear in RBAC_DIRS. A new service is then covered the moment it grows its
+// first marker, with no list to remember to update.
+func TestEveryDirectoryWithRBACMarkersIsGenerated(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	require.NoError(t, err)
+
+	generated := map[string]bool{}
+	for _, dir := range rbacServiceDirs(t, root) {
+		generated[dir] = true
+	}
+
+	entries, err := os.ReadDir(root)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.IsDir() || strings.HasPrefix(name, ".") {
+			continue
+		}
+		// No directory allowlist on purpose. The rule is simply "carries a
+		// marker implies generated", so api/, pkg/, cmd/, test/ and hack/ are
+		// skipped by having no markers rather than by being named here -- and
+		// the day one of them grows one, it is flagged instead of excused.
+		if !markerDirExists(t, filepath.Join(root, name)) {
+			continue
+		}
+		require.True(t, generated[name],
+			"%s/ carries +kubebuilder:rbac markers but is not in the Makefile's RBAC_DIRS, "+
+				"so controller-gen never sees them and every rule in it is silently absent "+
+				"from config/rbac/role.yaml -- exactly the defect importarr shipped with", name)
+	}
+}
+
+// markerDirExists reports whether any non-test Go file under dir carries an
+// RBAC marker.
+func markerDirExists(t *testing.T, dir string) bool {
+	t.Helper()
+	var found bool
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || found {
+			return nil //nolint:nilerr // an unreadable subtree is not this guard's business
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		raw, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil
+		}
+		if bytes.Contains(raw, []byte("+kubebuilder:rbac:")) {
+			found = true
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	return found
 }
 
 // TestRBACMarkersArePackageLevel catches the silent failure that let four
@@ -58,7 +140,7 @@ func TestRBACMarkersArePackageLevel(t *testing.T) {
 	require.NoError(t, err)
 
 	var checked int
-	for _, dir := range rbacServiceDirs {
+	for _, dir := range rbacServiceDirs(t, root) {
 		base := filepath.Join(root, dir)
 		if _, err := os.Stat(base); os.IsNotExist(err) {
 			continue
@@ -171,7 +253,23 @@ func TestGeneratedRoleCoversEveryStatusWriter(t *testing.T) {
 		}
 	}
 
-	// Every kind a Phase C controller or worker is the single writer of.
+	// Derived: every `<resource>/status` any marker in the tree grants must
+	// be in the generated Role. This is the check that actually self-
+	// maintains, and it is NOT circular with the generator: it reads the
+	// marker TEXT from source, while controller-gen reads only the markers it
+	// manages to collect. A marker that exists but is never collected -- the
+	// package-level placement defect, or a directory missing from RBAC_DIRS --
+	// fails here even though `make manifests` exits 0.
+	for want := range statusGrantsInSource(t, root) {
+		require.True(t, granted[want],
+			"config/rbac/role.yaml does not grant %s, although a +kubebuilder:rbac marker in the tree "+
+				"asks for it. controller-gen did not collect that marker: check it is package level "+
+				"(a blank line above the declaration) and that its directory is in RBAC_DIRS.", want)
+	}
+
+	// A hardcoded floor, because the derived check above cannot see a marker
+	// that was never written. Every kind a Phase C controller or worker is the
+	// single writer of:
 	for _, want := range []string{
 		"catalog.clustarr.io/movies/status",
 		"catalog.clustarr.io/series/status",
@@ -195,4 +293,74 @@ func TestGeneratedRoleCoversEveryStatusWriter(t *testing.T) {
 	// some controllers and tools/events (events.k8s.io/v1) in others.
 	require.True(t, granted["/events"], "the core Events group is not granted")
 	require.True(t, granted["events.k8s.io/events"], "the events.k8s.io Events group is not granted")
+}
+
+// statusGrantsInSource returns every "<group>/<resource>/status" an RBAC
+// marker anywhere in the generated directories asks for, as the same
+// "<group>/<resource>" keys TestGeneratedRoleCoversEveryStatusWriter builds
+// from the role.
+//
+// It parses the marker text rather than using controller-gen's own parser
+// precisely so it can disagree with it: a marker controller-gen silently
+// declines to collect is still visible here.
+func statusGrantsInSource(t *testing.T, root string) map[string]bool {
+	t.Helper()
+	out := map[string]bool{}
+	for _, dir := range rbacServiceDirs(t, root) {
+		base := filepath.Join(root, dir)
+		if _, err := os.Stat(base); os.IsNotExist(err) {
+			continue
+		}
+		err := filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			raw, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return readErr
+			}
+			for _, line := range strings.Split(string(raw), "\n") {
+				_, marker, found := strings.Cut(line, "+kubebuilder:rbac:")
+				if !found {
+					continue
+				}
+				group, resources := markerGroupsAndResources(marker)
+				for _, resource := range resources {
+					if !strings.HasSuffix(resource, "/status") {
+						continue
+					}
+					out[group+"/"+resource] = true
+				}
+			}
+			return nil
+		})
+		require.NoError(t, err)
+	}
+	require.NotEmpty(t, out, "no /status grants were found in any marker; this guard is looking in the wrong place")
+	return out
+}
+
+// markerGroupsAndResources pulls the first groups= value and the resources=
+// list out of one marker body. Only single-group markers are read: every
+// /status marker in this tree names exactly one group, and a multi-group one
+// would need the cross product, which is more machinery than the check earns.
+func markerGroupsAndResources(marker string) (string, []string) {
+	var group string
+	var resources []string
+	for _, field := range strings.Split(strings.TrimSpace(marker), ",") {
+		key, value, found := strings.Cut(field, "=")
+		if !found {
+			continue
+		}
+		switch strings.TrimSpace(key) {
+		case "groups":
+			group = strings.Trim(strings.TrimSpace(value), `"`)
+		case "resources":
+			resources = strings.Split(strings.TrimSpace(value), ";")
+		}
+	}
+	return group, resources
 }

@@ -31,11 +31,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/catalogarr/worker/search"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
 
 // testCfg is the shared envtest control plane. It is nil when
@@ -218,10 +221,28 @@ func TestSetupWorkersSkipsTheQueueWorkersForRoleMetadata(t *testing.T) {
 }
 
 // TestSetupControllersRegistersEveryCatalogController starts the controllers
-// the way Run does and asserts the manager comes up. Registration is where
-// the failures live -- a duplicate controller name, a clashing field index,
-// an Add after start -- and every one of them is a hard error from
-// SetupWithManager rather than something a later test could observe.
+// the way Run does and asserts the manager comes up, then that the built-in
+// QualityProfiles were seeded.
+//
+// Registration is where the failures live -- a duplicate controller name, a
+// clashing field index, an Add after start -- and every one of them is a hard
+// error from SetupWithManager rather than something a later test could
+// observe.
+//
+// The seeding half is Task C12a's review finding. setupControllers omitted
+// mgr.Add(&qualityprofile.Bootstrap{...}), which is prescribed verbatim by
+// that type's own doc comment, and NOTHING failed: the manager came up clean,
+// every controller reconciled, and on a fresh cluster the 13 built-in TRaSH
+// profiles simply did not exist. Every Movie's and Series' qualityProfileRef
+// then resolved to "not found", so the grab Sink and the RSS matcher refused
+// every release and the entire decision path was inert while looking healthy.
+// A test that only asserts the manager starts cannot see that, which is why
+// this one reads the cluster afterwards.
+//
+// This is also the one test in this binary that may call setupControllers:
+// controller-runtime's controller names are process-global (see
+// cmd/clustarr's start-up envtest), so a second call would fail on "controller
+// with name movie already exists" regardless of the manager it was given.
 func TestSetupControllersRegistersEveryCatalogController(t *testing.T) {
 	requireEnvtest(t)
 
@@ -243,5 +264,41 @@ func TestSetupControllersRegistersEveryCatalogController(t *testing.T) {
 	case err := <-done:
 		t.Fatalf("the manager stopped on its own: %v", err)
 	case <-time.After(time.Second):
+	}
+
+	// The built-ins, read back from the apiserver rather than from the
+	// manager's cache, so a stale informer cannot make this pass.
+	direct, err := client.New(testCfg, client.Options{Scheme: k8s.MustNewScheme()})
+	require.NoError(t, err)
+
+	wantBuiltins, errs := quality.BuiltinProfiles(catalogue.LoadedCatalogue())
+	require.Empty(t, errs)
+	require.NotEmpty(t, wantBuiltins, "the embedded profile corpus is empty; this assertion would be vacuous")
+
+	require.Eventually(t, func() bool {
+		var list catalogv1alpha1.QualityProfileList
+		if err := direct.List(ctx, &list); err != nil {
+			return false
+		}
+		seen := map[string]bool{}
+		for i := range list.Items {
+			seen[list.Items[i].Name] = true
+		}
+		for name := range wantBuiltins {
+			if !seen[name] {
+				return false
+			}
+		}
+		return true
+	}, 60*time.Second, 200*time.Millisecond,
+		"setupControllers did not seed the %d built-in QualityProfiles: qualityprofile.Bootstrap "+
+			"is not registered, so every qualityProfileRef resolves to \"not found\" and the grab "+
+			"and RSS paths refuse every release", len(wantBuiltins))
+
+	var list catalogv1alpha1.QualityProfileList
+	require.NoError(t, direct.List(ctx, &list))
+	for i := range list.Items {
+		require.True(t, list.Items[i].Spec.BuiltIn,
+			"%s was seeded without spec.builtIn", list.Items[i].Name)
 	}
 }

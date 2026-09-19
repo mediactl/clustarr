@@ -27,7 +27,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
@@ -35,6 +34,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -127,9 +127,15 @@ func (h *Handler) Subscription() events.Subscription {
 
 // SetupWithManager registers the subscription as a manager.Runnable so it
 // starts with the manager and drains on shutdown. See the package doc for the
-// full registration C12 performs, including IndexFields.
+// full registration the wiring task performs, including IndexFields.
+//
+// It is a k8s.EveryReplica rather than a manager.RunnableFunc: §3 runs the
+// queue workers on every replica, and a bare RunnableFunc has no
+// NeedLeaderElection method, so controller-runtime puts it behind the leader
+// lease (see k8s.EveryReplica). Before Task C12a's review that meant exactly
+// one replica consumed the release firehose, however many were scaled up.
 func (h *Handler) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
-	return mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+	return mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		stop, err := bus.Subscribe(ctx, h.Subscription(), h.Handle)
 		if err != nil {
 			return fmt.Errorf("catalogarr: subscribe rss-matcher: %w", err)

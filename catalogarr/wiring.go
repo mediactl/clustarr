@@ -32,29 +32,11 @@ import (
 	"github.com/mediactl/clustarr/catalogarr/controller/delayprofile"
 	"github.com/mediactl/clustarr/catalogarr/worker/rssmatcher"
 	"github.com/mediactl/clustarr/catalogarr/worker/search"
+	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
-
-// The MediaFile controller's RBAC lives here rather than in
-// catalogarr/controller/mediafile, which was being rewritten by a concurrent
-// task while Task C12a ran and was therefore closed to edits. controller-gen
-// folds every marker in RBAC_DIRS into the one clustarr-manager-role
-// regardless of which package carries it, so the generated Role is identical
-// either way -- but the markers belong next to the controller that needs
-// them, and moving them there is a one-line follow-up.
-//
-// The Events group is "" and not events.k8s.io on purpose: the MediaFile
-// reconciler takes a k8s.io/client-go/tools/record.EventRecorder, which is
-// what the deprecated mgr.GetEventRecorderFor returns, and that writes CORE/v1
-// Events. See setupControllers for the split across this tree.
-//
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch
-// +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitlerequests,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // resolveQualityProfile turns a QualityProfile name into a resolved
 // quality.Profile. It is the production ResolveProfile for
@@ -166,7 +148,12 @@ func registerWorkerIndexes(ctx context.Context, mgr manager.Manager) error {
 //
 // It costs eight empty, cache-served Lists once per process.
 func assertWorkerIndexes(mgr manager.Manager) error {
-	return mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+	// k8s.EveryReplica, not manager.RunnableFunc: the latter has no
+	// NeedLeaderElection method and controller-runtime therefore puts it
+	// behind the leader lease, so on a non-leader worker replica -- the only
+	// kind that exists for --role worker -- the assertion would never run and
+	// the degraded blocklist path it exists to catch would be back.
+	return mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		if !mgr.GetCache().WaitForCacheSync(ctx) {
 			// The manager is shutting down; nothing to assert.
 			return nil
