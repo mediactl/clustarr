@@ -1,0 +1,14 @@
+# Applied to every Deployment the overlay renders (the ten Clustarr services
+# and the two fixture stubs) so they all fit one small kind node inside the
+# 30-minute `make e2e` timeout. Every Deployment in config/manager has exactly
+# one container at index 0 and already declares resources.requests, so a
+# `replace` is safe on all of them.
+- op: replace
+  path: /spec/replicas
+  value: 1
+- op: replace
+  path: /spec/template/spec/containers/0/resources/requests/cpu
+  value: "25m"
+- op: replace
+  path: /spec/template/spec/containers/0/resources/requests/memory
+  value: "64Mi"

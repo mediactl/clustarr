@@ -1,0 +1,31 @@
+# One deliberately permissive video profile every e2e scenario's Movie and
+# Series references. It is builtIn:false so it is an ordinary, mutable object
+# (the CEL rule on QualityProfileSpec makes a builtIn:true profile immutable),
+# and its single tier accepts every 720p/1080p quality pkg/release parses out
+# of the release names the scenarios plant, so a scenario never fails because
+# a planted file scored below the profile's floor.
+#
+# QualityProfile is cluster-scoped (api/catalog/v1alpha1/qualityprofile_types.go
+# "+kubebuilder:resource:scope=Cluster"), so this object carries no namespace.
+apiVersion: catalog.clustarr.io/v1alpha1
+kind: QualityProfile
+metadata:
+  name: e2e-any
+  labels:
+    app.kubernetes.io/part-of: clustarr
+spec:
+  mediaKind: video
+  builtIn: false
+  tiers:
+  - name: HD
+    qualities:
+    - HDTV-720p
+    - WEBDL-720p
+    - WEBRip-720p
+    - Bluray-720p
+    - HDTV-1080p
+    - WEBDL-1080p
+    - WEBRip-1080p
+    - Bluray-1080p
+  cutoff: HD
+  upgradeAllowed: true

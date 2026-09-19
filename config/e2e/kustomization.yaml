@@ -1,0 +1,23 @@
+# config/e2e -- the kustomize overlay hack/e2e.sh deploys instead of `make
+# deploy`'s plain config/default: everything config/default has, plus the
+# fixture services, the sample QualityProfile and MetadataProviders every
+# scenario references, and smaller resource requests so the suite fits kind's
+# node and the 30-minute `make e2e` timeout.
+#
+# The one-fixture-per-file layout is deliberate: Phase D adds
+# config/e2e/torznab-stub.yaml and one line below without editing anything
+# else here.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- ../default
+- tmdb-stub.yaml
+- tvdb-stub.yaml
+- quality-profile.yaml
+- metadata-providers.yaml
+
+patches:
+- target:
+    kind: Deployment
+  path: resources-patch.yaml

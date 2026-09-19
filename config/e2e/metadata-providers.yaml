@@ -1,0 +1,45 @@
+# The two metadata providers the Phase C scenarios need, pointed at the
+# in-cluster stubs this overlay deploys. The credentials are placeholders:
+# neither stub checks them, but pkg/metadata/clients/tmdb's golang-tmdb Init
+# rejects an empty api key and the TVDB client posts apiKey+pin to /login, so
+# both keys must be present and non-empty.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tmdb-fixture-credentials
+  namespace: clustarr-system
+stringData:
+  apiKey: e2e-fixture-key
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tvdb-fixture-credentials
+  namespace: clustarr-system
+stringData:
+  apiKey: e2e-fixture-key
+  pin: e2e-fixture-pin
+---
+apiVersion: catalog.clustarr.io/v1alpha1
+kind: MetadataProvider
+metadata:
+  name: tmdb
+  namespace: clustarr-system
+spec:
+  type: tmdb
+  enabled: true
+  secretRef:
+    name: tmdb-fixture-credentials
+  baseURL: http://tmdb-stub.clustarr-system.svc
+---
+apiVersion: catalog.clustarr.io/v1alpha1
+kind: MetadataProvider
+metadata:
+  name: tvdb
+  namespace: clustarr-system
+spec:
+  type: tvdb
+  enabled: true
+  secretRef:
+    name: tvdb-fixture-credentials
+  baseURL: http://tvdb-stub.clustarr-system.svc
