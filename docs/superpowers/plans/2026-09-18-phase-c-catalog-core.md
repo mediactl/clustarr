@@ -14710,6 +14710,32 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "chore(impor
 
 ### Task C11: the end-to-end harness on kind, and Phase C's three scenarios
 
+> **Erratum, 2026-09-18 (from the first real kind run).** Four corrections to
+> the text below; the harness as built is right and the plan is wrong.
+>
+> 1. **TMDB 27205 is *Inception*, not Fight Club** — verified against
+>    `testdata/metadata/tmdb/movie_27205.json` (`"title": "Inception"`,
+>    released 2010-07-16). Any fixture or assertion naming Fight Club for that
+>    id is wrong.
+> 2. **`{tmdbid-N}` is not a pattern `pkg/release` recognises.** `ids.go:33-34`
+>    pins the two real forms: `[tmdbid-N]` with square brackets, `{tmdb-N}`
+>    with braces. Mixing them — brace plus `tmdbid` — matches nothing, so the
+>    file parses with no provider id and the scanner correctly refuses to
+>    guess.
+> 3. **The fixture clip cannot be small.** `fsops.IsSample` flags any media
+>    file under 50 MiB as a sample, so a lightweight clip would be skipped and
+>    every scenario would pass its way to an empty catalog. The baked clip is
+>    56.7 MiB and its size is asserted at image-build and at seed time.
+> 4. **Scenario 5's file leg is not implementable as described.**
+>    `importarr/worker/rescan` refuses any non-`movie` root folder
+>    (`unsupported_root_kind`) and its own comment defers series to M6, which
+>    contradicts "in Phase C the files arrive through the rescan". The
+>    scenario is split: the catalog leg asserts the real standard/daily/anime
+>    fanout, the file leg asserts today's behaviour plus the never-guess
+>    invariant, with the conflict named in the test's comment. Closing the gap
+>    belongs to whichever phase implements series rescan.
+
+
 **Files:**
 - Create: `test/e2e/main_test.go`
 - Create: `test/e2e/helpers_test.go`
