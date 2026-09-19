@@ -155,12 +155,29 @@ func TestMatch_SeriesShapes(t *testing.T) {
 		}
 	}
 
-	eventually(t, 10*time.Second, "the episode-season index to populate", func() bool {
-		rel := base()
-		rel.Seasons = []int32{1}
-		rel.Episodes = []int32{1}
-		refs, err := rssmatcher.Match(ctx, c, ns, rel)
-		return err == nil && len(refs) == 1
+	// Wait for ALL FOUR episodes to reach the informer's season index, not
+	// just s01e01. Gating on one episode was enough for the single-episode
+	// subtests but not for the full-season pack below, which asserts the exact
+	// set {s01e01, s01e02, s01e03}: under load the cache could still be one
+	// episode behind and the pack would legitimately cover only two of them.
+	// That is a flake in the gate, not in Match, and it showed up in Task
+	// C12a's `go test -race ./...` run.
+	eventually(t, 10*time.Second, "every episode to reach the episode-season index", func() bool {
+		pack := base()
+		pack.Seasons = []int32{1}
+		pack.FullSeason = true
+		pack.Kind = commonv1.MediaKindSeries
+		refs, err := rssmatcher.Match(ctx, c, ns, pack)
+		if err != nil || len(refs) != 1 || len(refs[0].Keys) != 3 {
+			return false
+		}
+		// Season 2's single episode has to be visible too, or "season 2 is
+		// not swept in" would pass for the wrong reason.
+		s2 := base()
+		s2.Seasons = []int32{2}
+		s2.Episodes = []int32{1}
+		got, err := rssmatcher.Match(ctx, c, ns, s2)
+		return err == nil && len(got) == 1
 	})
 
 	t.Run("a single episode targets itself", func(t *testing.T) {
