@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -239,6 +240,45 @@ func TestWithRateLimitUsesTheCallersLimiter(t *testing.T) {
 	require.ErrorIs(t, err, context.DeadlineExceeded,
 		"the second call did not wait on the caller's limiter")
 	require.Equal(t, 1, calls, "the second request reached the server despite an exhausted limiter")
+}
+
+// The test above uses ONE client, which is not quite the scenario this option
+// exists for: an implementation that accepted the caller's limiter and then
+// rebuilt a private bucket with the same settings would pass it. indexarr's
+// actual shape is several clients against one host -- the caps probe, the
+// search fan-out and the RSS poll -- and the guarantee is that they share one
+// budget rather than getting one each.
+func TestOneLimiterIsSharedAcrossSeveralClients(t *testing.T) {
+	var calls int32
+	lim := ratelimit.New(ratelimit.Config{RPS: 0.001, Burst: 1}) // one token for the host
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.Header().Set("Content-Type", "application/xml")
+		_, _ = io.Copy(w, mustOpen(t, "../../testdata/torznab/caps.xml"))
+	}))
+	defer srv.Close()
+
+	// Three separate clients, one shared limiter -- indexarr's real shape.
+	var clients []*torznab.Client
+	for range 3 {
+		c, err := torznab.NewClient(srv.URL, "apikey", torznab.WithRateLimit(lim))
+		require.NoError(t, err)
+		clients = append(clients, c)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	_, err := clients[0].Caps(ctx)
+	require.NoError(t, err, "the first client should spend the single token")
+
+	for i, c := range clients[1:] {
+		_, err := c.Caps(ctx)
+		require.ErrorIs(t, err, context.DeadlineExceeded,
+			"client %d did not wait on the shared limiter; it has its own allowance", i+1)
+	}
+	require.EqualValues(t, 1, atomic.LoadInt32(&calls),
+		"more than one request reached the host, so the three clients did not share a budget")
 }
 
 func mustOpen(t *testing.T, path string) *os.File {
