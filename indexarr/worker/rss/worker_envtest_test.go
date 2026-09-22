@@ -721,7 +721,7 @@ func TestAnUnstorableTitleWithIDsStillReachesTheMatcher(t *testing.T) {
 
 	// ... and all three refusals are visible to an operator.
 	require.Equal(t, float64(3), counterValue(t, metrics.IndexerReleasesDropped.WithLabelValues("idx"))-before,
-		"a feed that is 75%% garbage must not look identical to a quiet one")
+		"a feed that is three-quarters garbage must not look identical to a quiet one")
 
 	st := getStatus(t, ctx, c, ns, "idx")
 	require.Equal(t, int32(1), st.LastRssNewCount, "new means new to the INDEX")
