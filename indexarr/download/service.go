@@ -317,11 +317,23 @@ func (s *Service) countGrab(
 	if err := idxstatus.Patch(ctx, s.Client, k8s.ManagerIndexarrWorker, idx,
 		func(ac *indexac.IndexerStatusApplyConfiguration) {
 			// COMPLETE declaration, every time. Server-side apply REPLACES a
-			// manager's ownership set rather than merging it, so a field this
-			// manager owned and now omits is released and reads as zero.
-			// WorkerFields is the single definition of that set (Ruling R14);
-			// this assignment makes the completeness visible at the call site
-			// and is correct whether or not Patch pre-seeds ac.
+			// manager's ownership set rather than merging it, so a field
+			// this manager owned and now omits is released and reads as
+			// zero. WorkerFields is the single definition of that set
+			// (Ruling R14).
+			//
+			// This assignment is a deliberate BACKSTOP, not the primary
+			// guard: Patch already seeds ac from WorkerFields, so the two
+			// are redundant and either alone is sufficient. Measured, not
+			// assumed -- dropping either one on its own leaves
+			// TestGrabCountDoesNotReleaseTheOtherWorkerFields green, and
+			// only dropping both turns queriesInWindow to 0. It is kept
+			// because it makes the completeness visible where the mutate
+			// is written, and because a caller that hand-built its own
+			// apply configuration is exactly the defect R14 exists to
+			// prevent. WorkerFields sets no list field, so re-seeding
+			// cannot double entries the way a Conditions or Sidecars
+			// reassert would.
 			*ac = *idxstatus.WorkerFields(idx.Status)
 			ac.WithGrabsInWindow(n)
 		}); err != nil {
