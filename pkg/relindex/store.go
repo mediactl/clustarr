@@ -295,11 +295,6 @@ func (s *sqliteStore) Close() error {
 	return errors.Join(errs...)
 }
 
-// TODO(D1-2 step 27): temporary stub so *sqliteStore satisfies Store.
-func (s *sqliteStore) Prune(ctx context.Context, olderThan time.Time) (int, error) {
-	return 0, errors.New("relindex: Prune not implemented")
-}
-
 // ExportedForTestDB exposes the underlying handle to this package's tests.
 // It is deliberately not part of Store: ADR-0003 fixes that at four methods.
 // Nothing outside pkg/relindex may call it.

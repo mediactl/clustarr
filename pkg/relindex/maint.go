@@ -65,3 +65,43 @@ func (s *sqliteStore) onDiskBytes() int64 {
 	}
 	return total
 }
+
+// Prune deletes every release fetched before olderThan and returns how many
+// rows went.
+//
+// It is a pure function of its argument: it reads no clock, holds no timer and
+// starts no goroutine. Spec §6.2's "sweep every 10 min (72h)" is a SCHEDULE,
+// and the schedule belongs to indexarr's run loop, not to the store. A store
+// that spawned its own sweeper would give every test and every e2e a
+// background writer it did not ask for, and would keep writing after the
+// caller had stopped using it.
+//
+// The releases_ad trigger removes each deleted row's terms from the FTS5
+// index. Nothing here touches releases_fts directly.
+//
+// The file does NOT shrink: SQLite frees the pages for reuse rather than
+// returning them to the filesystem. That is intended. With a 72h window the
+// corpus reaches a high-water mark and stays there, and the freed pages absorb
+// the next three days of inserts. Do not "fix" this with VACUUM -- it rewrites
+// the whole database while holding an exclusive lock, which would stall every
+// search for the duration, every ten minutes.
+func (s *sqliteStore) Prune(ctx context.Context, olderThan time.Time) (int, error) {
+	if olderThan.IsZero() {
+		// The zero time's UnixNano overflows int64 into a large negative
+		// number, so this would delete nothing while reporting success.
+		return 0, fmt.Errorf("%w: olderThan is the zero time", ErrInvalidArg)
+	}
+
+	s.wmu.Lock()
+	defer s.wmu.Unlock()
+
+	res, err := s.db.ExecContext(ctx, `DELETE FROM releases WHERE fetched_at < ?`, olderThan.UTC().UnixNano())
+	if err != nil {
+		return 0, fmt.Errorf("relindex: prune: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("relindex: prune rows: %w", err)
+	}
+	return int(n), nil
+}

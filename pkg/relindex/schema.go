@@ -138,7 +138,10 @@ func checkFTS5(ctx context.Context, db *sql.DB) error {
 	defer func() { _ = conn.Close() }()
 
 	if _, err := conn.ExecContext(ctx, `CREATE VIRTUAL TABLE temp.relindex_fts5_probe USING fts5(x)`); err != nil {
-		return fmt.Errorf("%w: %v", ErrNoFTS5, err)
+		// Two %w verbs, not "%w: %v": errorlint rejects a non-wrapping
+		// verb on an error, and wrapping both keeps errors.Is working
+		// for ErrNoFTS5 AND for whatever the driver actually returned.
+		return fmt.Errorf("%w: %w", ErrNoFTS5, err)
 	}
 	if _, err := conn.ExecContext(ctx, `DROP TABLE temp.relindex_fts5_probe`); err != nil {
 		return fmt.Errorf("relindex: drop fts5 probe: %w", err)
