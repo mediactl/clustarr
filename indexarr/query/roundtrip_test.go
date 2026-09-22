@@ -44,6 +44,17 @@ import (
 // release.Normalize with a commented-out old line left above it, and it
 // failed when the identical call was extracted to a local. A round trip
 // through the store cannot do either.
+//
+// Deleting the grep was safe because the WORKER side has its own guard, not
+// because these tests took over its role -- they do not, and an earlier
+// version of this comment implied they did. The helper below hardcodes
+// TitleNorm: release.CleanTitle(title) in this package and references nothing
+// in indexarr/worker/rss, so if the worker started writing TitleNorm some
+// other way, every test in this file would still pass. What catches that is
+// indexarr/worker/rss's TestIndexRowsCarryTheFieldsTheIndexSearchesOn
+// (worker_test.go), which asserts the row the worker actually builds. The two
+// sides are pinned separately, each in its own package, and the pair is what
+// the grep used to be.
 
 // indexed opens a store, writes one row per title with TitleNorm set exactly
 // as indexarr/worker/rss sets it, and returns the store.

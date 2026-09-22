@@ -143,11 +143,22 @@ func buildQuery(req schema.QueryRequest) (relindex.Query, error) {
 	// all: pkg/relindex's own matchExpr keeps any rune unicode.IsLetter
 	// accepts, so under a raw-text design those queries reached FTS5 and
 	// matched nothing. They cannot match anything HERE either, because the
-	// indexed column went through the same CleanTitle -- a Cyrillic title
-	// indexes as "" and relindex.Upsert rejects the row outright. So the
-	// honest answer is an empty result set, and a non-Latin corpus needs a
-	// normaliser that keeps non-ASCII letters, in pkg/release, for both
-	// sides at once. Carried item.
+	// indexed column went through the same CleanTitle -- so whatever a
+	// wholly non-Latin query was looking for is not in the index under that
+	// spelling, and an empty result set is the honest answer.
+	//
+	// Note the limitation is about THIS QUERY, not about the corpus. An
+	// earlier version of this comment claimed "a Cyrillic title indexes as
+	// "" and relindex.Upsert rejects the row outright", which is true only
+	// of a release name carrying no ASCII alphanumeric ANYWHERE. Measured
+	// against a real store, "Матрица.1999.1080p.BluRay" indexes perfectly
+	// well -- as "1999 1080p bluray". What it loses is its own title, so it
+	// is findable only by its metadata. The full shape, including the
+	// partly-non-Latin query that degrades into matching every release of
+	// its year, is filed in
+	// docs/superpowers/plans/2026-09-18-remaining-work.md. The fix is a
+	// normaliser that keeps non-ASCII letters, in pkg/release, applied to
+	// both sides in one change. Carried item.
 	if req.Text != "" && q.Text == "" {
 		return relindex.Query{}, errUnmatchable
 	}
