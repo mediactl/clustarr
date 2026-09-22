@@ -182,33 +182,41 @@ func TestClassify(t *testing.T) {
 		}, resultOK, func(t *testing.T, r schema.DownloadResponse) {
 			require.Equal(t, "application/x-nzb", r.ContentType)
 		}},
-		{"magnet", &FetchResult{MagnetURL: "magnet:?xt=urn:btih:abc"}, resultMagnet,
+		{
+			"magnet", &FetchResult{MagnetURL: "magnet:?xt=urn:btih:abc"}, resultMagnet,
 			func(t *testing.T, r schema.DownloadResponse) {
 				require.Equal(t, "magnet:?xt=urn:btih:abc", r.MagnetURL)
 				require.Nil(t, r.Bytes)
-			}},
-		{"off-host", &FetchResult{OffHostURL: "https://cdn.elsewhere.invalid/x?passkey=s3cret"},
+			},
+		},
+		{
+			"off-host", &FetchResult{OffHostURL: "https://cdn.elsewhere.invalid/x?passkey=s3cret"},
 			resultRedirect, func(t *testing.T, r schema.DownloadResponse) {
 				require.Equal(t, "https://cdn.elsewhere.invalid/x?passkey=s3cret", r.RedirectURL,
 					"grabarr needs the URL intact; only the LOG is redacted")
-			}},
+			},
+		},
 		{"login page", &FetchResult{
 			Status: 200, Header: hdr("text/html"), Body: body("<!DOCTYPE html><html>login"),
 			ContentLen: 26, FinalURL: final,
 		}, resultInvalidPayload, func(t *testing.T, r schema.DownloadResponse) {
 			require.Contains(t, r.Error, "HTML page")
 		}},
-		{"403", &FetchResult{Status: 403, Header: hdr(""), Body: body("nope"), FinalURL: final},
+		{
+			"403", &FetchResult{Status: 403, Header: hdr(""), Body: body("nope"), FinalURL: final},
 			resultUnauthorized, func(t *testing.T, r schema.DownloadResponse) {
 				require.Contains(t, r.Error, "403")
 				require.NotContains(t, r.Error, "nope",
 					"an error page's body never reaches the reply")
-			}},
-		{"500", &FetchResult{Status: 500, Header: hdr(""), Body: body("stack trace"), FinalURL: final},
+			},
+		},
+		{
+			"500", &FetchResult{Status: 500, Header: hdr(""), Body: body("stack trace"), FinalURL: final},
 			resultHTTPError, func(t *testing.T, r schema.DownloadResponse) {
 				require.Contains(t, r.Error, "500")
 				require.NotContains(t, r.Error, "stack trace")
-			}},
+			},
+		},
 		{"oversize by Content-Length", &FetchResult{
 			Status: 200, Header: hdr(""), Body: body("ignored"),
 			ContentLen: MaxPayloadBytes + 1, FinalURL: final,
@@ -228,10 +236,12 @@ func TestClassify(t *testing.T) {
 		}, resultInvalidPayload, func(t *testing.T, r schema.DownloadResponse) {
 			require.Contains(t, r.Error, "empty body")
 		}},
-		{"no body at all", &FetchResult{Status: 204, Header: hdr(""), FinalURL: final},
+		{
+			"no body at all", &FetchResult{Status: 204, Header: hdr(""), FinalURL: final},
 			resultInvalidPayload, func(t *testing.T, r schema.DownloadResponse) {
 				require.Contains(t, r.Error, "no body")
-			}},
+			},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, result := (&Service{}).classify(identityFetcher{}, tc.res, slog.Default())
@@ -314,6 +324,7 @@ func (f scrubbingErrFetcher) Fetch(context.Context, string) (*FetchResult, error
 		Err: errors.New("dial tcp: connection refused for " + f.secret),
 	}
 }
+
 func (f scrubbingErrFetcher) Scrub(s string) string { return strings.ReplaceAll(s, f.secret, "***") }
 
 // Every outcome this package reports must be in the closed vocabulary. A
