@@ -155,6 +155,8 @@ rules:
 - apiGroups:
   - index.clustarr.io
   resources:
+  - indexerdefinitions
+  - indexerproxies
   - indexers
   verbs:
   - get
@@ -163,6 +165,8 @@ rules:
 - apiGroups:
   - index.clustarr.io
   resources:
+  - indexerdefinitions/status
+  - indexerproxies/status
   - indexers/status
   verbs:
   - get
