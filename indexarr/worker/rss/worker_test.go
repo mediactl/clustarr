@@ -49,6 +49,18 @@ import (
 
 var t0 = time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC)
 
+// tNow is a real "now", nudged past indexer.StartupGrace and rounded to the
+// second (metav1.Time's resolution).
+//
+// The escalation ladder deliberately refuses to escalate within 15 minutes of
+// PROCESS start, so that one restart does not disable every indexer at once,
+// and it measures that against a real time.Now() captured at package init. A
+// fake clock set in the past is therefore always "inside the grace window"
+// and never escalates -- so every failure-path test that asserts on
+// escalationLevel must drive the worker with a clock past that window, or it
+// asserts nothing at all.
+var tNow = time.Now().UTC().Truncate(time.Second).Add(time.Hour)
+
 // ---------------------------------------------------------------- fakes ---
 
 type fakeClock struct {
@@ -294,7 +306,10 @@ func TestPollStopsPagingOnAShortPage(t *testing.T) {
 }
 
 func TestPollAtSigtermRetriesWithoutEscalatingTheIndexer(t *testing.T) {
-	clock := newFakeClock(t0)
+	// tNow, not t0: inside the ladder's startup grace a failure cannot
+	// escalate anyway, so the assertion below would hold whether or not the
+	// shutdown path recorded one.
+	clock := newFakeClock(tNow)
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 
@@ -333,7 +348,7 @@ func TestLastRssNewCountComesFromTheIndexNotTheFeed(t *testing.T) {
 	require.Equal(t, int32(1), got.Status.LastRssNewCount, "new means new to the index, not fetched")
 	require.Equal(t, int64(1), got.Status.IndexedReleases, "the running total advances by the insert count")
 	require.NotNil(t, got.Status.LastRssAt)
-	require.Equal(t, t0, got.Status.LastRssAt.Time.UTC())
+	require.Equal(t, t0, got.Status.LastRssAt.UTC())
 	require.Len(t, store.rows(), 5, "every fetched row is offered to the index; the store decides")
 }
 
@@ -434,15 +449,18 @@ func TestHandleDoesNotQueryAnIndexerInsideItsBackoffWindow(t *testing.T) {
 func TestFailedPollRecordsTheFailureAndAsksForARedelivery(t *testing.T) {
 	idx := testIndexer("media", "idx")
 	c := newFakeClient(idx)
-	w := newTestWorkerWithClient(t, newFakeClock(t0),
+	w := newTestWorkerWithClient(t, newFakeClock(tNow),
 		&fakeSearcher{err: errors.New("indexer returned 503")}, c, &fakeStore{})
 
 	err := w.Handle(t.Context(), rssTaskMessage(t, "media", "idx"))
 	var r *events.RetryError
 	require.ErrorAs(t, err, &r, "a failed poll is retried")
+	require.GreaterOrEqual(t, r.After, time.Minute,
+		"the redelivery must land no sooner than the ladder permits another query")
 
 	var got indexv1alpha1.Indexer
 	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: "media", Name: "idx"}, &got))
+	require.Equal(t, int32(1), got.Status.EscalationLevel)
 	require.Equal(t, "indexer returned 503", got.Status.LastFailure)
 	require.NotNil(t, got.Status.InitialFailureAt,
 		"Escalation.InitialFailure defines the 0->1 transition and it must reach the object")

@@ -327,7 +327,7 @@ func applyEscalation(
 func retryAfterFailure(esc indexer.Escalation, now time.Time) time.Duration {
 	d := minFailureRetry
 	if esc.DisabledUntil != nil {
-		d = esc.DisabledUntil.Time.Sub(now)
+		d = esc.DisabledUntil.Sub(now)
 	}
 	return min(max(d, minFailureRetry), maxFailureRetry)
 }

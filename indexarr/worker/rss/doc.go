@@ -66,4 +66,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // package never constructs a limiter and never lists Indexers: one message
 // is one indexer, which is what keeps a broken indexer from starving the
 // rest.
+//
+// The markers below are package-level on purpose: controller-gen collects
+// RBAC only from package-level comments and silently ignores one attached to
+// a function. The worker reads Indexer and writes only its /status
+// subresource; the status write itself goes through indexarr/status, which
+// declares the same pair.
+//
+// +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch
+// +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers/status,verbs=get;update;patch
 package rss
