@@ -325,7 +325,7 @@ func (r *Reconciler) requeueAfter(st indexv1alpha1.IndexerStatus, outcome probeO
 		return outcome.RetryAfter
 	}
 	if st.DisabledUntil != nil && now.Before(st.DisabledUntil.Time) {
-		return st.DisabledUntil.Time.Sub(now) + time.Second
+		return st.DisabledUntil.Sub(now) + time.Second
 	}
 	return reprobeInterval
 }

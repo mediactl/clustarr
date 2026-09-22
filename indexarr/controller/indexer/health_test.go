@@ -30,9 +30,11 @@ import (
 )
 
 func TestEscalationTableIsProwlarrsTenEntryLadder(t *testing.T) {
-	want := []time.Duration{0, time.Minute, 5 * time.Minute, 15 * time.Minute,
+	want := []time.Duration{
+		0, time.Minute, 5 * time.Minute, 15 * time.Minute,
 		30 * time.Minute, time.Hour, 3 * time.Hour, 6 * time.Hour,
-		12 * time.Hour, 24 * time.Hour}
+		12 * time.Hour, 24 * time.Hour,
+	}
 	require.Equal(t, want, EscalationTable())
 	require.Len(t, EscalationTable(), 10, "level is capped at len-1 = 9")
 

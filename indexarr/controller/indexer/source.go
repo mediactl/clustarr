@@ -155,7 +155,7 @@ func rpsFor(delay metav1.Duration) float64 {
 	if delay.Duration <= 0 {
 		return 0
 	}
-	return 1 / delay.Duration.Seconds()
+	return 1 / delay.Seconds()
 }
 
 // limiterKeyFor is the indexer HOST, not the object name: two Indexers

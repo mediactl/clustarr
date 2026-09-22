@@ -34,9 +34,11 @@ import (
 // t= wire values. Nothing enforces the map's keys (no enum marker is possible
 // on map keys), so this test is the enforcement.
 func TestModeVocabularyIsTorznabsWireValues(t *testing.T) {
-	all := []torznab.SearchMode{torznab.ModeSearch, torznab.ModeTVSearch,
+	all := []torznab.SearchMode{
+		torznab.ModeSearch, torznab.ModeTVSearch,
 		torznab.ModeMovieSearch, torznab.ModeMusicSearch,
-		torznab.ModeAudioSearch, torznab.ModeBookSearch}
+		torznab.ModeAudioSearch, torznab.ModeBookSearch,
+	}
 	require.Equal(t, []string{"search", "tvsearch", "movie", "music", "audio", "book"},
 		func() (out []string) {
 			for _, m := range all {
