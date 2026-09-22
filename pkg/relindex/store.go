@@ -295,11 +295,7 @@ func (s *sqliteStore) Close() error {
 	return errors.Join(errs...)
 }
 
-// TODO(D1-2 step 22/27): temporary stubs so *sqliteStore satisfies Store.
-func (s *sqliteStore) Search(ctx context.Context, q Query) ([]Release, error) {
-	return nil, errors.New("relindex: Search not implemented")
-}
-
+// TODO(D1-2 step 27): temporary stub so *sqliteStore satisfies Store.
 func (s *sqliteStore) Prune(ctx context.Context, olderThan time.Time) (int, error) {
 	return 0, errors.New("relindex: Prune not implemented")
 }
