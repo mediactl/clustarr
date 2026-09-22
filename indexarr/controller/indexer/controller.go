@@ -207,13 +207,23 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		// CONVERTED from spec.generic to spec.definition keeps the
 		// status.protocol and status.privacy resolved under its previous
 		// shape, because this return happens before they are recomputed
-		// and ControllerFields re-sends what is on the object. Clearing
-		// protocol is not available: the CRD marks it enum [torrent,
-		// usenet], so ControllerFields must OMIT it when empty, and
-		// omitting it releases it -- which on a freshly-converted object
-		// is right and on one that has been converted for a while is
-		// indistinguishable from the release bug. What does tell an
-		// operator the fields are not being maintained is
+		// and ControllerFields re-sends what is on the object.
+		//
+		// The two are not stuck for the same reason, and only one of
+		// them is actually stuck. status.privacy is a plain string and
+		// ControllerFields sends WithPrivacy unconditionally, so setting
+		// idx.Status.Privacy = "" here would clear it explicitly and
+		// cleanly. status.protocol is the one with no good move: the CRD
+		// marks it enum [torrent, usenet], so ControllerFields must OMIT
+		// it when empty, and the only way to clear it is to stop sending
+		// it -- i.e. to RELEASE it. A release is indistinguishable, on
+		// the object and in the managedFields, from the very bug this
+		// package is built to prevent, so doing it deliberately on one
+		// branch would make every future audit of that field ambiguous.
+		//
+		// Both are therefore left alone together, so the pair stays
+		// consistent rather than half-cleared. What tells an operator
+		// they are not being maintained is
 		// Ready=Unknown/DefinitionNotImplemented plus the stale
 		// observedGeneration on the carried-forward conditions. M6 owns
 		// the real fix: it resolves both fields FROM the definition, at

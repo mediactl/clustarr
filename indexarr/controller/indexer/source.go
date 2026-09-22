@@ -149,11 +149,11 @@ func readSecret(ctx context.Context, c client.Client, ns string, ref *corev1.Loc
 	return s.Data, nil
 }
 
-// CRD defaults, restated here because a Go-built IndexerSpec never passes
-// through the apiserver's defaulting and the zero value of each is a hazard
-// rather than a choice. TestSpecDefaultsMatchTheGeneratedCRD reads the
-// generated schema and fails if either drifts, so this is a mirror rather
-// than a second source of truth.
+// CRD defaults, restated here because a kubebuilder default reaches far
+// fewer objects than it looks like it does -- see timeoutFor.
+// TestSpecDefaultsMatchTheGeneratedCRD reads the generated schema and fails
+// if either drifts, so this is a mirror rather than a second source of
+// truth.
 const (
 	// defaultTimeout mirrors spec.timeout's +kubebuilder:default="30s".
 	defaultTimeout = 30 * time.Second
@@ -166,12 +166,23 @@ const (
 
 // timeoutFor floors spec.timeout.
 //
-// torznab.NewClient seeds its own 30s default and then applies the options,
+// torznab.NewClient seeds its own 30s default and THEN applies the options,
 // so WithTimeout(0) OVERWRITES that default with "no timeout" -- an indexer
 // that accepts the connection and never answers would hold the reconcile
 // until the controller's own 5-minute ReconciliationTimeout fired, once per
-// tick, per indexer. The CRD's default covers every object the apiserver
-// created; this covers the rest.
+// tick, per indexer.
+//
+// The CRD's +kubebuilder:default does NOT cover this, and it is worth being
+// precise about why, because the obvious reading is wrong. An apiserver
+// default fills a field that is ABSENT FROM THE SUBMITTED JSON. metav1.Duration
+// is a struct, and `omitempty` does nothing to a struct field, so a typed Go
+// client ALWAYS marshals it: an Indexer created through client-go sends
+// `"timeout":"0s"` explicitly and is never defaulted. Only YAML and
+// unstructured creates -- kubectl apply, the chart -- omit the key and get
+// 30s. Verified against a real apiserver: an unstructured create yields
+// timeout=30s, requestDelay=2s, rssInterval=15m, and a typed create yields
+// 0s/0s/0s. Every envtest in this package is a typed create, and so is any
+// future in-cluster creator.
 func timeoutFor(timeout metav1.Duration) time.Duration {
 	if timeout.Duration <= 0 {
 		return defaultTimeout
@@ -183,13 +194,37 @@ func timeoutFor(timeout metav1.Duration) time.Duration {
 // ratelimit.Config treats RPS <= 0 as unlimited and Burst <= 0 as 1.
 //
 // Unlike timeoutFor, this deliberately does NOT floor at the CRD default.
-// A kubebuilder default fills an ABSENT field, so an explicit
-// `requestDelay: 0s` survives it, and ratelimit.Config documents RPS <= 0 as
-// unlimited on purpose -- that pair is a supported "do not pace this
-// indexer", and nothing downstream can tell it apart from a field that
-// skipped defaulting. Flooring here would silently overrule the operator.
-// The zero timeout has no such reading: nobody wants a probe that never
-// returns.
+// An explicit `requestDelay: 0s` survives defaulting, and
+// ratelimit.Config documents RPS <= 0 as unlimited on purpose -- that pair
+// is a supported "do not pace this indexer", and flooring here would
+// silently overrule the operator. The zero timeout has no such reading:
+// nobody wants a probe that never returns.
+//
+// # Known limitation: "0s" is ambiguous on the wire, and it is not fixable here
+//
+// Exactly the same `"requestDelay":"0s"` arrives from two producers that
+// mean incompatible things, and nothing downstream can tell them apart:
+//
+//	an operator writing requestDelay: 0s   -> "do not pace this indexer"
+//	a Go client leaving the field at zero  -> "I did not specify one"
+//
+// The second is the more common producer inside this codebase, because
+// metav1.Duration is a struct and `omitempty` does nothing to a struct
+// field, so client-go always marshals the key (see timeoutFor). The live
+// consequence is that an Indexer created IN-CLUSTER by a typed client is
+// silently UNPACED, against §6.2's 2s-per-host intent -- while the same
+// Indexer applied as YAML gets its 2s.
+//
+// This is latent today: nothing creates Indexers in-cluster yet. M6's
+// definition ingestion and any UI create path will hit it.
+//
+// It cannot be fixed in this package. Distinguishing absent from
+// explicit-zero needs *metav1.Duration in IndexerSpec or a defaulting
+// webhook, both of which live in api/index/**, which Phase D1 task D1-3
+// does not own. Filed as a carry-forward. Do NOT "fix" it here by
+// flooring: that trades a latent unpaced indexer for an operator whose
+// explicit choice is ignored, which is worse because it is unfixable from
+// the outside.
 func rpsFor(delay metav1.Duration) float64 {
 	if delay.Duration <= 0 {
 		return 0
