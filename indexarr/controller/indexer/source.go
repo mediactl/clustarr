@@ -162,11 +162,12 @@ func rpsFor(delay metav1.Duration) float64 {
 // pointing at one tracker must share one bucket, which is the whole reason
 // the limiter is injected rather than built per client. It is also the key
 // pkg/torznab's client uses internally (its own baseURL host), so the two
-// cannot disagree.
+// cannot disagree -- and buildClient below calls this rather than reaching
+// for u.Host itself, so there is one definition of what the key is.
 //
-// It returns "" rather than an error for a malformed URL, because its other
-// caller is the deletion path, where the spec is whatever was last accepted
-// and a panic would wedge the finalizer-free delete.
+// It returns "" rather than an error for a malformed URL: every caller
+// already has, or is about to produce, a better error about the URL itself,
+// and a key helper that can fail is a key helper callers skip.
 func limiterKeyFor(baseURL string) string {
 	u, err := url.Parse(baseURL)
 	if err != nil {
@@ -207,7 +208,7 @@ func buildClient(spec indexv1alpha1.IndexerSpec, secret map[string][]byte, lim *
 	}
 	endpoint := base.JoinPath(apiPath)
 
-	lim.SetConfig(u.Host, ratelimit.Config{RPS: rpsFor(spec.RequestDelay), Burst: 1})
+	lim.SetConfig(limiterKeyFor(spec.BaseURL), ratelimit.Config{RPS: rpsFor(spec.RequestDelay), Burst: 1})
 
 	c, err := torznab.NewClient(endpoint.String(), string(secret["apikey"]),
 		torznab.WithTimeout(spec.Timeout.Duration),

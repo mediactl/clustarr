@@ -75,10 +75,19 @@ type Reconciler struct {
 	// Limiters paces every outbound indexer request in this process, keyed
 	// by indexer host. D1-8 constructs exactly one and hands the same
 	// instance to this reconciler, to the search fan-out and to the RSS
-	// worker, so all three share one bucket per host. Remove() is called
-	// only on the deletion path, where the spec is still readable: the key
-	// is a host, not an object, so the map is bounded by the number of
-	// distinct indexer hosts either way.
+	// worker, so all three share one bucket per host.
+	//
+	// Remove() is deliberately never called, not even when an Indexer is
+	// deleted. The key is a HOST, not an object, and several Indexers
+	// pointing at one host is the expected topology rather than the
+	// exception -- a Prowlarr or Jackett instance in front of many
+	// trackers, or a torrent and a usenet Indexer on one server. Dropping
+	// the bucket when any one of them goes away would leave the survivors
+	// drawing on the Limiter's *default* config, which is unlimited,
+	// until each happened to reconcile again: up to a full reprobeInterval
+	// of hammering a host that asked for one request every two seconds.
+	// The cost of not pruning is one map entry per distinct host, which is
+	// a handful of bytes bounded by the size of the cluster's indexer set.
 	Limiters *ratelimit.Limiter
 
 	mu       sync.Mutex
@@ -141,8 +150,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return ctrl.Result{}, err
 	}
 	if !idx.DeletionTimestamp.IsZero() {
+		// The caps memo is keyed by UID and is safe to prune. The
+		// limiter bucket is keyed by HOST and is not -- see the Limiters
+		// field's comment.
 		r.forget(idx.UID)
-		r.Limiters.Remove(limiterKeyFor(idx.Spec.BaseURL))
 		return ctrl.Result{}, nil
 	}
 
