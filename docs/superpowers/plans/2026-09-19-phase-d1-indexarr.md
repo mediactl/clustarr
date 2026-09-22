@@ -3350,7 +3350,7 @@ tasks' paths):
 **Interfaces — Consumes:** `pkg/k8s.PatchStatus`, `k8s.ManagerIndexarr` (these two objects have **one** writer each, so the D1-0 split does not apply to them), `pkg/obs/logging`, `pkg/obs/tracing`.
 **Interfaces — Produces:** `indexerdefinition.NewReconciler(...).SetupWithManager(mgr)` and `indexerproxy.NewReconciler(...).SetupWithManager(mgr)`, documented in each package's `doc.go` as the exact call Task D1-8 must make.
 
-**Scope boundary, stated because it is easy to over-build.** `pkg/cardigann` is **not** wired up in this phase. `IndexerDefinition` here validates and reports; it does not load a Cardigann definition, log into a tracker or run a search. Wiring Cardigann into `IndexerDefinition`/`IndexerProxy` is M6 (Phase G), and Phase G inherits a recorded list of eleven unimplemented Cardigann features — three documented, eight found during D1's research and not documented anywhere before. Building against those now would build against sand.
+**Scope boundary, narrowed 2026-09-22 after D1-4 read it literally and had to argue back.** `pkg/cardigann` is not *wired up* in this phase, which means **no `Engine`, no login, no search, no indexer registration**. It does NOT mean "no import": `Validate`, `Load` and `Capabilities` are pure functions, and `Capabilities`' own doc comment says it is the shape `IndexerDefinitionStatus.Caps` is populated from. Taken literally the old wording left `status.id`/`name`/`caps` permanently empty, contradicted this task's own Steps 2 and 6, and would have made the release-regression test near-vacuous by leaving only two owned fields. `IndexerDefinition` here validates and reports; it does not load a Cardigann definition, log into a tracker or run a search. Wiring Cardigann into `IndexerDefinition`/`IndexerProxy` is M6 (Phase G), and Phase G inherits a recorded list of eleven unimplemented Cardigann features — three documented, eight found during D1's research and not documented anywhere before. Building against those now would build against sand.
 
 - [ ] **Step 1: Read the two CRDs and write down the owned field set**
 
@@ -3358,7 +3358,7 @@ Read `api/index/v1alpha1/indexerdefinition_types.go` and `indexerproxy_types.go`
 
 - [ ] **Step 2: Write the failing envtest for `IndexerDefinition`**
 
-Assert the reconcile sets `observedGeneration`, a `Ready` condition carrying that generation, and the `capsSummary` derived from the spec. Use `newTestClient(t)` from the established pattern — the suite skips cleanly when `KUBEBUILDER_ASSETS` is unset, and **a suite that finishes in milliseconds skipped rather than passed**.
+Assert the reconcile sets `observedGeneration`, a `Ready` condition carrying that generation, and the `status.caps` summary derived from the spec (the field is `Caps`; `CapsSummary` is its *type*). Use `newTestClient(t)` from the established pattern — the suite skips cleanly when `KUBEBUILDER_ASSETS` is unset, and **a suite that finishes in milliseconds skipped rather than passed**.
 
 ```go
 func TestIndexerDefinitionReportsReadyAndSummary(t *testing.T) {
@@ -3371,7 +3371,7 @@ func TestIndexerDefinitionReportsReadyAndSummary(t *testing.T) {
 			return false
 		}
 		return got.Status.ObservedGeneration == got.Generation &&
-			k8s.FindCondition(got.Status.Conditions, indexv1alpha1.IndexerDefinitionConditionReady) != nil
+			k8s.FindCondition(got.Status.Conditions, indexv1alpha1.IndexerDefinitionConditionValid) != nil
 	}, 10*time.Second, 50*time.Millisecond)
 }
 ```
@@ -3412,8 +3412,8 @@ require.Eventually(t, /* status fully populated */)
 // ... now make the spec invalid, or the dependency unavailable ...
 var after indexv1alpha1.IndexerDefinition
 require.NoError(t, c.Get(ctx, key, &after))
-assert.NotEmpty(t, after.Status.CapsSummary,
-	"a transient failure released capsSummary")
+assert.NotEmpty(t, after.Status.Caps.Modes,
+	"a transient failure released status.caps")
 ```
 
 Confirm it fails if you make the early return build a conditions-only apply.
@@ -3425,7 +3425,8 @@ Same shape, its own owned set (`observedGeneration`, conditions, and the reachab
 - [ ] **Step 8: Regenerate RBAC and commit**
 
 ```bash
-make manifests && git status --short   # the two new rule blocks appear
+make manifests && git status --short   # controller-gen UNIONS into existing rules;
+                                       # expect a few merged lines, not new blocks
 go test -count=1 -race ./indexarr/controller/...
 git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(indexarr): IndexerDefinition and IndexerProxy controllers" -- indexarr/controller/indexerdefinition indexarr/controller/indexerproxy config/rbac charts
 ```
