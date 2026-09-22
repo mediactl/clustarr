@@ -46,6 +46,34 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // than an error -- which is why filters_test.go reads the worker's source and
 // fails here when it changes.
 //
+// # Unmatchable is not unfiltered
+//
+// Every restriction here degrades to "no restriction" when it parses to
+// nothing, and relindex reads each of those as the whole corpus: Search omits
+// the MATCH clause for an empty Query.Text, and emits no IN clause for an
+// empty Indexers or Categories. So a non-empty Text that normalises away
+// ("матрица", "\x00", "!!!") and a known filter whose value is explicitly
+// empty ({"indexer": ""}) both answer with an EMPTY RESULT SET rather than
+// the whole index. That is a success, not an Error -- the caller asked a
+// question with no possible answer.
+//
+// An empty Text is deliberately NOT in that class: it is a filters-only
+// browse, which really does mean "no text filter".
+//
+// Two known limitations of normalising, both symmetric -- the indexed column
+// went through the same function, so search stays self-consistent and the
+// only casualty is a release nobody can currently find:
+//
+//   - CleanTitle keeps only [a-z0-9 ], so a non-Latin title indexes as "" and
+//     relindex.Upsert rejects the row outright. A non-Latin corpus needs a
+//     normaliser that keeps non-ASCII letters, in pkg/release, for both sides
+//     at once.
+//   - CleanTitle strips control runes rather than mapping them to spaces, so
+//     "dune\x00matrix" becomes the single term "dunematrix". pkg/relindex's
+//     splitControls maps them to spaces deliberately, and it never sees them
+//     now. Both sides weld identically, so this costs a title containing a
+//     control character and nothing else.
+//
 // # The filter vocabulary is closed
 //
 // category, indexer, protocol, since. An unknown key is an ERROR rather than

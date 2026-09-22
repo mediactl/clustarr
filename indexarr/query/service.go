@@ -40,6 +40,7 @@ const localIndexLabel = "_local-index"
 // The closed set of metric outcome values for this verb.
 const (
 	outcomeOK            = "ok"
+	outcomeNoMatch       = "no_match"
 	outcomeInvalidFilter = "invalid_filter"
 	outcomeStoreError    = "store_error"
 	outcomeNotConfigured = "not_configured"
@@ -100,7 +101,17 @@ func (s *Service) handle(
 		}, outcomeNotConfigured
 	}
 	q, err := buildQuery(req)
-	if err != nil {
+	switch {
+	case errors.Is(err, errUnmatchable):
+		// Well-formed, but it cannot match anything: text that normalises
+		// away, or a known filter whose value is explicitly empty. Each of
+		// those degrades to "no restriction" inside relindex, so the store
+		// is never asked -- answering with the whole corpus would return
+		// more data than the caller requested, with no way for them to
+		// tell. An empty result set is the truthful answer and, like any
+		// empty result set, it is a success.
+		return schema.QueryResponse{}, outcomeNoMatch
+	case err != nil:
 		return schema.QueryResponse{
 			Error: truncate(err.Error(), maxErrorChars),
 		}, outcomeInvalidFilter

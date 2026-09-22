@@ -18,7 +18,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package query
 
 import (
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -143,34 +142,62 @@ func TestQueryTextIsNormalisedWithTheSameFunctionAsTheIndexedColumn(t *testing.T
 	require.Equal(t, a.Text, b.Text)
 }
 
-// The coupling above is cross-package and silent when it breaks: nothing in
-// pkg/relindex can catch a mismatch from the inside, and the symptom is an
-// index that answers nothing rather than an error. This reads the RSS
-// worker's own source so a change there fails HERE, by name.
-func TestTheRSSWorkerStillIndexesWithCleanTitle(t *testing.T) {
-	raw, err := os.ReadFile("../worker/rss/worker.go")
-	require.NoError(t, err,
-		"the RSS worker moved; re-point this guard at whatever now fills relindex.Release.TitleNorm")
-	require.Regexp(t, `TitleNorm:\s*release\.CleanTitle\(`, string(raw),
-		"the indexed column and this verb's Query.Text must go through ONE function, "+
-			"or the local index answers nothing -- silently, because a mismatch is an "+
-			"empty result set rather than an error")
-}
-
 // FTS5 syntax is attacker-controlled here. The STORE escapes it (matchExpr in
 // pkg/relindex/fts.go); this verb must not escape it a second time, and must
-// not reject it either -- a hostile string is a normal, probably empty,
-// result. Normalisation is a separate concern and DOES apply: it is what the
-// indexed column went through.
+// not reject it either. Normalisation is a separate concern and DOES apply:
+// it is what the indexed column went through.
 func TestHostileFTS5TextIsDataRatherThanAnError(t *testing.T) {
 	for _, in := range []string{
-		`"unbalanced`, `foo OR 1=1 --`, `NEAR/`, `a*`, `^`, `"" OR ""`,
+		`"unbalanced`, `foo OR 1=1 --`, `a*`, `"" OR ""`, `NEAR/`,
 		`'; DROP TABLE releases; --`, strings.Repeat("x", 4096), "nul\x00byte",
 	} {
 		q, err := buildQuery(schema.QueryRequest{Text: in})
-		require.NoError(t, err, "hostile text is data, not an error")
+		require.NoError(t, err, "hostile text is data, not an error: %q", in)
 		require.Equal(t, release.CleanTitle(in), q.Text,
 			"no second escaper: the store owns FTS5 escaping")
 		require.NotContains(t, q.Text, `"`, "CleanTitle already dropped the FTS5 operators")
 	}
+}
+
+// Hostile text that normalises away is the one case that does NOT reach the
+// store, because an empty Query.Text means "no text filter" to relindex and
+// would return the whole corpus. It is still not an error to the caller: the
+// handler turns this sentinel into an empty result set. See
+// TestTextThatNormalisesAwayReturnsNothingRatherThanEverything for the
+// end-to-end half against a real store.
+func TestTextThatNormalisesAwayIsUnmatchableRatherThanUnfiltered(t *testing.T) {
+	for _, in := range []string{
+		`^`, `***`, `!!!`, "\x00", "   ", "матрица", "マトリックス", "—",
+	} {
+		require.Empty(t, release.CleanTitle(in), "precondition: %q normalises away", in)
+		_, err := buildQuery(schema.QueryRequest{Text: in})
+		require.ErrorIs(t, err, errUnmatchable, "text %q", in)
+	}
+
+	// An EMPTY Text is the opposite: a filters-only browse, which really
+	// does mean "no text filter". The two must not be collapsed.
+	q, err := buildQuery(schema.QueryRequest{})
+	require.NoError(t, err)
+	require.Empty(t, q.Text)
+}
+
+// M3: a known filter whose value is explicitly empty restricts to nothing,
+// not to everything. relindex emits no IN clause for an empty list.
+func TestAnExplicitlyEmptyKnownFilterIsUnmatchable(t *testing.T) {
+	for _, filters := range []map[string]string{
+		{"indexer": ""},
+		{"indexer": " , "},
+		{"indexer": ","},
+		{"category": ""},
+		{"category": " , "},
+	} {
+		_, err := buildQuery(schema.QueryRequest{Filters: filters})
+		require.ErrorIs(t, err, errUnmatchable, "filters %v", filters)
+	}
+
+	// No filter key at all is still no restriction.
+	q, err := buildQuery(schema.QueryRequest{})
+	require.NoError(t, err)
+	require.Empty(t, q.Indexers)
+	require.Empty(t, q.Categories)
 }

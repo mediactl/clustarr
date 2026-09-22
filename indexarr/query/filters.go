@@ -60,6 +60,27 @@ const (
 	maxErrorChars = 512
 )
 
+// errUnmatchable says the request is well-formed but cannot match anything,
+// as distinct from malformed. The handler turns it into an EMPTY RESULT SET,
+// not an Error: the caller asked a question with no possible answer, which is
+// a successful "nothing", the same as a text query that matches no row.
+//
+// It exists because every restriction in this file degrades to "no
+// restriction" when it parses to nothing, and relindex reads each of those as
+// the whole corpus:
+//
+//   - relindex.Search omits the MATCH clause entirely for an empty
+//     Query.Text, so an unmatchable TEXT would return every release in the
+//     index;
+//   - an empty Query.Indexers or Query.Categories emits no IN clause, so an
+//     explicitly-empty indexer or category filter would do the same.
+//
+// Returning more data than the caller asked for, with no way for them to
+// tell, is the failure this package rejects an unknown filter to avoid --
+// and it is worse here, because this verb is cluster-wide and its results
+// carry passkey-bearing download URLs.
+var errUnmatchable = errors.New("query: request cannot match any release")
+
 // filterKeys is the CLOSED set this verb understands. An unknown key is an
 // ERROR, not a silent no-op: dropping a filter silently returns MORE data than
 // the caller asked for, and the caller cannot tell.
@@ -105,6 +126,32 @@ func buildQuery(req schema.QueryRequest) (relindex.Query, error) {
 		Limit: scan,
 	}
 
+	// Text that normalises to nothing is UNMATCHABLE, not unfiltered.
+	//
+	// CleanTitle keeps only [a-z0-9 ], so every string without an ASCII
+	// alphanumeric -- "матрица", "マトリックス", "\x00", "!!!" -- maps to "".
+	// relindex.Search reads an empty Query.Text as "no text filter" and
+	// returns the whole corpus, so without this a Cyrillic or CJK query
+	// would answer with every release indexarr has ever seen.
+	//
+	// An EMPTY req.Text is the opposite and must keep meaning "no text
+	// filter": that is a filters-only browse, and it asked for no text
+	// restriction in the first place. The two are deliberately not
+	// collapsed.
+	//
+	// This is narrower than it looks, and it is the price of normalising at
+	// all: pkg/relindex's own matchExpr keeps any rune unicode.IsLetter
+	// accepts, so under a raw-text design those queries reached FTS5 and
+	// matched nothing. They cannot match anything HERE either, because the
+	// indexed column went through the same CleanTitle -- a Cyrillic title
+	// indexes as "" and relindex.Upsert rejects the row outright. So the
+	// honest answer is an empty result set, and a non-Latin corpus needs a
+	// normaliser that keeps non-ASCII letters, in pkg/release, for both
+	// sides at once. Carried item.
+	if req.Text != "" && q.Text == "" {
+		return relindex.Query{}, errUnmatchable
+	}
+
 	// Sorted, so two bad filters give a deterministic message rather than
 	// one that changes with Go's map iteration order.
 	for _, k := range slices.Sorted(maps.Keys(req.Filters)) {
@@ -126,6 +173,12 @@ func buildQuery(req schema.QueryRequest) (relindex.Query, error) {
 					q.Indexers = append(q.Indexers, name)
 				}
 			}
+			if len(q.Indexers) == 0 {
+				// `{"indexer": ""}` or `{"indexer": " , "}`. relindex emits
+				// no IN clause for an empty list, so leaving it nil would
+				// turn "restrict to these indexers" into "every indexer".
+				return relindex.Query{}, errUnmatchable
+			}
 			if len(q.Indexers) > maxIndexerFilters {
 				return relindex.Query{}, fmt.Errorf(
 					"query: filter indexer lists more than %d indexers", maxIndexerFilters)
@@ -142,6 +195,11 @@ func buildQuery(req schema.QueryRequest) (relindex.Query, error) {
 						"query: filter category must be comma-separated newznab ids")
 				}
 				q.Categories = append(q.Categories, n)
+			}
+			if len(q.Categories) == 0 {
+				// `{"category": ""}` or `{"category": " , "}`, for the same
+				// reason as the indexer list above.
+				return relindex.Query{}, errUnmatchable
 			}
 		case "since":
 			ts, err := time.Parse(time.RFC3339, v)
