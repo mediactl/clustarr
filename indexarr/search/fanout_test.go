@@ -573,3 +573,21 @@ func TestRequestNamespace(t *testing.T) {
 		IndexerRefs: []schema.Ref{{Namespace: "other", Name: "a"}},
 	}, log))
 }
+
+// Search is exported so D1-9's e2e and the contract tests can drive the
+// fan-out without a bus, which means it can be reached on a Service that
+// Serve never validated. A nil dependency must fail one search, not panic
+// inside a worker goroutine and take the process with it.
+func TestSearchOnAnIncompleteServiceFailsRatherThanPanics(t *testing.T) {
+	resp := (&Service{}).Search(context.Background(), movieRequest())
+	require.Len(t, resp.Outcomes, 1)
+	require.Equal(t, ListOutcomeName, resp.Outcomes[0].IndexerName)
+	require.Equal(t, schema.SearchOutcomeError, resp.Outcomes[0].Status)
+
+	idx := healthyIndexer("a")
+	resp = (&Service{Client: newFakeClient(&idx), Now: func() time.Time { return selectNow }}).
+		Search(context.Background(), movieRequest())
+	require.Len(t, resp.Outcomes, 1)
+	require.Equal(t, schema.SearchOutcomeError, resp.Outcomes[0].Status)
+	require.Contains(t, resp.Outcomes[0].Error, "client factory")
+}

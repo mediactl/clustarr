@@ -305,6 +305,14 @@ func (s *Service) queryOne(
 	defer cancel()
 
 	started := s.now()
+	if s.ClientFor == nil {
+		// Serve refuses a Service without one, but Search is exported so
+		// D1-9's e2e and the contract tests can drive the fan-out without a
+		// bus. A nil factory there would panic inside a worker goroutine and
+		// take the whole process down rather than failing one search.
+		return s.failOutcome(ctx, out, started, nil,
+			errors.New("indexarr/search: no indexer client factory is configured")), nil
+	}
 	cli, err := s.ClientFor(qctx, idx)
 	if err != nil {
 		// No request reached the indexer, so no query is counted -- but the
@@ -543,6 +551,9 @@ func (s *Service) recordOutcome(
 	queries *int32,
 	newlyIndexed int64,
 ) error {
+	if s.Client == nil {
+		return errors.New("indexarr/search: no client is configured")
+	}
 	var live indexv1alpha1.Indexer
 	key := client.ObjectKey{Namespace: ref.Namespace, Name: ref.Name}
 	if err := s.Client.Get(ctx, key, &live); err != nil {

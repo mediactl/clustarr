@@ -133,6 +133,15 @@ func (s *Service) Search(ctx context.Context, req schema.SearchRequest) schema.S
 	budget := fanoutBudget(req)
 	log := logging.FromContext(ctx)
 
+	if s.Client == nil {
+		return schema.SearchResponse{Outcomes: []schema.SearchOutcome{{
+			IndexerRef:  schema.Ref{Name: ListOutcomeName},
+			IndexerName: ListOutcomeName,
+			Status:      schema.SearchOutcomeError,
+			Error:       "indexarr/search: no client is configured",
+		}}}
+	}
+
 	var list indexv1alpha1.IndexerList
 	var opts []client.ListOption
 	if ns := requestNamespace(req, log); ns != "" {
