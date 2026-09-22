@@ -29,10 +29,9 @@ import (
 	"strconv"
 	"time"
 
-	"golang.org/x/time/rate"
-
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/ratelimit"
 )
 
 // defaultTimeout matches Indexer.spec.timeout's default in
@@ -47,13 +46,20 @@ func WithTimeout(d time.Duration) ClientOption {
 	return func(c *Client) { c.hc.Timeout = d }
 }
 
-// WithRateLimit paces every request this client issues. There is no
-// default: a Client built without this option does not rate-limit at all,
-// because the caller owns pacing (see the package doc). Prowlarr's own
-// default, for a caller that wants it, is one request every two seconds
-// (docs/research/indexers.md §6): WithRateLimit(rate.Every(2*time.Second), 1).
-func WithRateLimit(r rate.Limit, burst int) ClientOption {
-	return func(c *Client) { c.limiter = rate.NewLimiter(r, burst) }
+// WithRateLimit makes the client wait on lim before every outbound request.
+// The caller owns the limiter: indexarr holds one per indexer host and
+// shares it across the caps probe, the search fan-out and the RSS poll, so
+// that all three respect one budget. lim is keyed internally by the
+// client's own baseURL host, so the same *ratelimit.Limiter can safely be
+// handed to several Clients for several different hosts as well -- each
+// draws from its own bucket.
+//
+// There is no default: a Client built without this option does not
+// rate-limit at all, because the caller owns pacing (see the package doc).
+// A library-side default would stack a second limiter in series underneath
+// the caller's own and silently change the effective rate.
+func WithRateLimit(lim *ratelimit.Limiter) ClientOption {
+	return func(c *Client) { c.limiter = lim }
 }
 
 // WithProxy routes every request through dial. It is a no-op -- fails
@@ -87,7 +93,7 @@ type Client struct {
 	baseURL *url.URL
 	apikey  string
 	hc      *http.Client
-	limiter *rate.Limiter
+	limiter *ratelimit.Limiter
 }
 
 // NewClient builds a Client for baseURL, authenticated with apikey.
@@ -125,10 +131,14 @@ func (c *Client) do(ctx context.Context, values url.Values) (*http.Response, err
 
 	// An already-cancelled or expired context never issues a request; this
 	// is what makes cancellation propagate out of Search/Caps unwrapped.
-	// rate.Limiter.Wait has the same property, so the check is the limiter's
-	// when the caller supplied one.
+	// ratelimit.Limiter.Wait has the same property, so the check is the
+	// limiter's when the caller supplied one. The key is this client's own
+	// host, so a *ratelimit.Limiter shared across several Clients (one per
+	// indexer host, as indexarr does) still isolates unrelated hosts from
+	// each other while letting several Clients for the *same* host --
+	// caps probe, search fan-out, RSS poll -- draw on one bucket.
 	if c.limiter != nil {
-		if err := c.limiter.Wait(ctx); err != nil {
+		if err := c.limiter.Wait(ctx, c.baseURL.Host); err != nil {
 			tracing.RecordError(span, err)
 			return nil, err
 		}

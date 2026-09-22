@@ -85,7 +85,7 @@ func filterQuerystring(_ context.Context, value string, args []string, _ *Templa
 		// url.Error.Error() embeds its whole input, so the error is
 		// reduced to its cause (ruling F6). The link itself is never
 		// interpolated here.
-		return "", fmt.Errorf("cardigann: querystring: %w", redactErr(err))
+		return "", fmt.Errorf("cardigann: querystring: %w", RedactErr(err))
 	}
 	return u.Query().Get(arg(args, 0)), nil
 }

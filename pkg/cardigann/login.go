@@ -224,7 +224,7 @@ func (e Engine) loginGet(ctx context.Context, def *Definition, cfg Config, lb *L
 	}
 	parsed, err := url.Parse(u)
 	if err != nil {
-		return nil, fmt.Errorf("cardigann: login get url %q: %w", redactRawURL(u), redactErr(err))
+		return nil, fmt.Errorf("cardigann: login get url %q: %w", redactRawURL(u), RedactErr(err))
 	}
 	q := parsed.Query()
 	for k, v := range lb.Inputs {
@@ -238,7 +238,7 @@ func (e Engine) loginGet(ctx context.Context, def *Definition, cfg Config, lb *L
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("cardigann: build request: %w", redactErr(err))
+		return nil, fmt.Errorf("cardigann: build request: %w", RedactErr(err))
 	}
 	if err := renderHeaders(req, lb.Headers, tc); err != nil {
 		return nil, err

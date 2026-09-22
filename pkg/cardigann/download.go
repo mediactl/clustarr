@@ -116,7 +116,7 @@ func (e Engine) fetch(ctx context.Context, cfg Config, link string) (io.ReadClos
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, fmt.Errorf("cardigann: build request: %w", redactErr(err))
+		return nil, fmt.Errorf("cardigann: build request: %w", RedactErr(err))
 	}
 	attachSession(req, cfg.Session)
 	_, body, err := e.do(ctx, req)
@@ -157,19 +157,19 @@ func (e Engine) runBefore(ctx context.Context, cfg Config, tc *TemplateContext, 
 	if method == http.MethodGet {
 		parsed, err := url.Parse(u)
 		if err != nil {
-			return Doc{}, fmt.Errorf("cardigann: before url %q: %w", redactRawURL(u), redactErr(err))
+			return Doc{}, fmt.Errorf("cardigann: before url %q: %w", redactRawURL(u), RedactErr(err))
 		}
 		if q := values.Encode(); q != "" {
 			parsed.RawQuery = q
 		}
 		req, err = http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 		if err != nil {
-			return Doc{}, fmt.Errorf("cardigann: build request: %w", redactErr(err))
+			return Doc{}, fmt.Errorf("cardigann: build request: %w", RedactErr(err))
 		}
 	} else {
 		req, err = http.NewRequestWithContext(ctx, method, u, strings.NewReader(values.Encode()))
 		if err != nil {
-			return Doc{}, fmt.Errorf("cardigann: build request: %w", redactErr(err))
+			return Doc{}, fmt.Errorf("cardigann: build request: %w", RedactErr(err))
 		}
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}

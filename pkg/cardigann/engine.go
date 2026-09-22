@@ -132,7 +132,7 @@ const maxResponseBodyBytes = 8 << 20 // 8 MiB
 // a response body exceeds maxResponseBodyBytes.
 var ErrResponseTooLarge = errors.New("cardigann: response body exceeds size limit")
 
-// redactURL renders u for a diagnostic message -- an error or a log line
+// RedactURL renders u for a diagnostic message -- an error or a log line
 // -- with everything secret stripped: the query string, the fragment and
 // any userinfo. Scheme, host and path survive, which is what makes the
 // message diagnosable.
@@ -142,7 +142,15 @@ var ErrResponseTooLarge = errors.New("cardigann: response body exceeds size limi
 // passkey and rsskey in the query string; those errors reach
 // Indexer.status and the logs. pkg/torznab.Client makes the same choice
 // deliberately, logging only its base URL and the `t` parameter.
-func redactURL(u *url.URL) string {
+//
+// Exported because it is the one place an indexer passkey gets stripped
+// before it reaches a log, an error string or a status condition; a
+// second, independent implementation elsewhere is how that secret
+// eventually leaks -- the two copies drift and nobody notices until a
+// passkey is on someone's screen. Other packages needing the same
+// redaction (captionarr/indexarr diagnostics, per Ruling R26) must call
+// this one rather than writing their own.
+func RedactURL(u *url.URL) string {
 	if u == nil {
 		return ""
 	}
@@ -155,12 +163,12 @@ func redactURL(u *url.URL) string {
 	return safe.String()
 }
 
-// redactRawURL is redactURL for a URL still in string form, including one
+// redactRawURL is RedactURL for a URL still in string form, including one
 // url.Parse rejects: everything from the first "?" on is dropped, so an
 // unparseable URL cannot leak its query either.
 func redactRawURL(raw string) string {
 	if u, err := url.Parse(raw); err == nil {
-		return redactURL(u)
+		return RedactURL(u)
 	}
 	if i := strings.IndexByte(raw, '?'); i >= 0 {
 		return raw[:i]
@@ -168,12 +176,16 @@ func redactRawURL(raw string) string {
 	return raw
 }
 
-// redactErr strips the URL net/url puts in *url.Error's own message
+// RedactErr strips the URL net/url puts in *url.Error's own message
 // (http.Client.Do and url.Parse both return one, carrying the full URL,
 // query string included) while keeping the underlying cause -- so
 // errors.Is still finds context.Canceled, syscall errors and the rest
 // through it.
-func redactErr(err error) error {
+//
+// Exported alongside RedactURL for the same reason (Ruling R26): a
+// second, independent copy of secret redaction is the worst kind of
+// technical debt, because the copies drift silently.
+func RedactErr(err error) error {
 	var ue *url.Error
 	if errors.As(err, &ue) && ue.Err != nil {
 		return ue.Err
@@ -192,7 +204,7 @@ func (e Engine) do(ctx context.Context, req *http.Request) (*http.Response, []by
 	resp, err := client.Do(req.WithContext(ctx))
 	if err != nil {
 		tracing.RecordError(span, err)
-		return nil, nil, fmt.Errorf("cardigann: request %s: %w", redactURL(req.URL), redactErr(err))
+		return nil, nil, fmt.Errorf("cardigann: request %s: %w", RedactURL(req.URL), RedactErr(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -202,10 +214,10 @@ func (e Engine) do(ctx context.Context, req *http.Request) (*http.Response, []by
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes+1))
 	if err != nil {
 		tracing.RecordError(span, err)
-		return nil, nil, fmt.Errorf("cardigann: read response %s: %w", redactURL(req.URL), redactErr(err))
+		return nil, nil, fmt.Errorf("cardigann: read response %s: %w", RedactURL(req.URL), RedactErr(err))
 	}
 	if len(body) > maxResponseBodyBytes {
-		sizeErr := fmt.Errorf("%w: at least %d bytes: %s", ErrResponseTooLarge, len(body), redactURL(req.URL))
+		sizeErr := fmt.Errorf("%w: at least %d bytes: %s", ErrResponseTooLarge, len(body), RedactURL(req.URL))
 		tracing.RecordError(span, sizeErr)
 		return resp, nil, sizeErr
 	}
@@ -233,11 +245,11 @@ func resolveURL(baseURL, path string) (string, error) {
 	}
 	base, err := url.Parse(baseURL)
 	if err != nil {
-		return "", fmt.Errorf("cardigann: base url %q: %w", redactRawURL(baseURL), redactErr(err))
+		return "", fmt.Errorf("cardigann: base url %q: %w", redactRawURL(baseURL), RedactErr(err))
 	}
 	ref, err := url.Parse(path)
 	if err != nil {
-		return "", fmt.Errorf("cardigann: path %q: %w", redactRawURL(path), redactErr(err))
+		return "", fmt.Errorf("cardigann: path %q: %w", redactRawURL(path), RedactErr(err))
 	}
 	return base.ResolveReference(ref).String(), nil
 }
@@ -280,7 +292,7 @@ func (e Engine) get(ctx context.Context, cfg Config, path string) ([]byte, error
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, fmt.Errorf("cardigann: build request: %w", redactErr(err))
+		return nil, fmt.Errorf("cardigann: build request: %w", RedactErr(err))
 	}
 	attachSession(req, cfg.Session)
 	_, body, err := e.do(ctx, req)
@@ -296,7 +308,7 @@ func (e Engine) postForm(ctx context.Context, cfg Config, path string, form url.
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, strings.NewReader(form.Encode()))
 	if err != nil {
-		return nil, nil, fmt.Errorf("cardigann: build request: %w", redactErr(err))
+		return nil, nil, fmt.Errorf("cardigann: build request: %w", RedactErr(err))
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	attachSession(req, cfg.Session)

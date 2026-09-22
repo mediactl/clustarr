@@ -20,9 +20,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // exact inverses of the parsers.
 //
 // The caller owns pacing. Client does not rate-limit unless built with
-// WithRateLimit: the controller that drives it holds one limiter per
-// indexer host (Indexer.spec.rateLimit), and a library-side default would
-// sit in series underneath it and silently halve the configured rate.
+// WithRateLimit: the controller that drives it holds one *ratelimit.Limiter
+// per indexer host, derived from Indexer.spec.requestDelay and
+// Indexer.spec.limits (api/index/v1alpha1), and a library-side default
+// would sit in series underneath it and silently halve the configured
+// rate.
 package torznab
 
 import (

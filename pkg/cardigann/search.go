@@ -324,18 +324,18 @@ func (e Engine) buildSearchRequest(ctx context.Context, cfg Config, tc *Template
 	if method == http.MethodGet {
 		parsed, err := url.Parse(u)
 		if err != nil {
-			return nil, fmt.Errorf("cardigann: search url %q: %w", redactRawURL(u), redactErr(err))
+			return nil, fmt.Errorf("cardigann: search url %q: %w", redactRawURL(u), RedactErr(err))
 		}
 		parsed.RawQuery = appendRaw(values.Encode(), rawSuffix)
 		req, err = http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 		if err != nil {
-			return nil, fmt.Errorf("cardigann: build request: %w", redactErr(err))
+			return nil, fmt.Errorf("cardigann: build request: %w", RedactErr(err))
 		}
 	} else {
 		body := appendRaw(values.Encode(), rawSuffix)
 		req, err = http.NewRequestWithContext(ctx, method, u, strings.NewReader(body))
 		if err != nil {
-			return nil, fmt.Errorf("cardigann: build request: %w", redactErr(err))
+			return nil, fmt.Errorf("cardigann: build request: %w", RedactErr(err))
 		}
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}

@@ -28,8 +28,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/time/rate"
 
+	"github.com/mediactl/clustarr/pkg/ratelimit"
 	"github.com/mediactl/clustarr/pkg/torznab"
 )
 
@@ -63,7 +63,8 @@ func TestClientRateLimitsPerHost(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c, err := torznab.NewClient(srv.URL, "", torznab.WithRateLimit(rate.Every(50*time.Millisecond), 1))
+	lim := ratelimit.New(ratelimit.Config{RPS: 20, Burst: 1}) // one token every 50ms
+	c, err := torznab.NewClient(srv.URL, "", torznab.WithRateLimit(lim))
 	require.NoError(t, err)
 
 	_, err = c.Search(context.Background(), torznab.Query{Type: torznab.ModeSearch})
@@ -208,6 +209,36 @@ func TestClientRejectsAnOversizedResponseBody(t *testing.T) {
 	_, err = c.Search(context.Background(), torznab.Query{Type: torznab.ModeSearch})
 	require.Error(t, err)
 	require.ErrorIs(t, err, torznab.ErrResponseTooLarge)
+}
+
+// The caller owns rate limiting: indexarr shares one limiter per host across
+// the caps probe, the search fan-out and the RSS poll, so all three draw on
+// a single budget. An option that constructs its own limiter internally
+// makes that impossible -- each client would get its own allowance and the
+// host would see three times the intended rate.
+func TestWithRateLimitUsesTheCallersLimiter(t *testing.T) {
+	var calls int
+	lim := ratelimit.New(ratelimit.Config{RPS: 0.001, Burst: 1}) // one token, then effectively never refills again
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/xml")
+		_, _ = io.Copy(w, mustOpen(t, "../../testdata/torznab/caps.xml"))
+	}))
+	defer srv.Close()
+
+	c, err := torznab.NewClient(srv.URL, "apikey", torznab.WithRateLimit(lim))
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	_, err = c.Caps(ctx) // consumes the single token
+	require.NoError(t, err)
+
+	_, err = c.Caps(ctx) // must block on the CALLER's limiter, then time out
+	require.ErrorIs(t, err, context.DeadlineExceeded,
+		"the second call did not wait on the caller's limiter")
+	require.Equal(t, 1, calls, "the second request reached the server despite an exhausted limiter")
 }
 
 func mustOpen(t *testing.T, path string) *os.File {
