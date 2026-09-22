@@ -385,13 +385,15 @@ func (w *Worker) pollOnce(
 		if err != nil {
 			return all, err
 		}
+		// One page is one query, which is the unit this histogram documents.
+		metrics.IndexerReleasesReturned.WithLabelValues(idx.Name).Observe(float64(len(batch)))
+
 		all = append(all, batch...)
 		if len(batch) < pageSize || reachedSince(batch, since) {
 			// RssTask.Since exists so the worker can stop paging early.
 			break
 		}
 	}
-	metrics.IndexerReleasesReturned.WithLabelValues(idx.Name).Observe(float64(len(all)))
 	return all, nil
 }
 
@@ -560,19 +562,27 @@ func categoryIDsFor(idx *indexv1alpha1.Indexer, task schema.RssTask) []newznab.C
 
 // pollSince is the publish time past which paging may stop.
 //
-// The task carries it when the scheduler knew one. Otherwise it falls back to
-// when this indexer was last polled successfully: an RSS feed is ordered
-// newest-first, so a page whose rows predate the last poll holds nothing that
-// poll did not already see. It is a paging bound only -- page 0 is always
-// read in full -- so a feed that is not strictly ordered loses nothing.
+// It is the LATER of the task's own bound and when this indexer was last
+// polled, and the "later" matters: the task was encoded at the end of the
+// previous poll, from that poll's pre-apply status, so its bound can be one
+// poll stale, and a stale bound that simply overrode the live one would page
+// further back on every single poll forever.
+//
+// An RSS feed is ordered newest-first, so a page whose rows predate the bound
+// holds nothing the previous poll did not already see. It is a paging bound
+// only -- page 0 is always read in full -- so a feed that is not strictly
+// ordered loses nothing.
 func pollSince(idx *indexv1alpha1.Indexer, task schema.RssTask) *time.Time {
+	var out *time.Time
 	if task.Since != nil && !task.Since.IsZero() {
-		return task.Since
+		out = task.Since
 	}
 	if at := idx.Status.LastRssAt; at != nil && !at.Time.IsZero() {
-		return ptr.To(at.Time)
+		if out == nil || at.After(*out) {
+			out = ptr.To(at.Time)
+		}
 	}
-	return nil
+	return out
 }
 
 // reachedSince reports whether batch has run back past since.
