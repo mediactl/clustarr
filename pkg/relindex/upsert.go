@@ -102,11 +102,36 @@ func validate(r Release) error {
 	return nil
 }
 
-// Upsert writes rels in one transaction.
+// Upsert writes rels in one transaction, keyed UNIQUE(indexer, guid).
+//
+// The count is exact, and getting it exact is why this is two statements:
+//
+//   - `INSERT OR REPLACE` deletes the conflicting row and inserts a new one
+//     with a NEW rowid. That breaks the external-content FTS5 pairing, churns
+//     the index, and -- since every statement "succeeds" -- gives no way to
+//     tell an insert from a replace.
+//   - `INSERT ... ON CONFLICT DO UPDATE` keeps the rowid, but RowsAffected
+//     counts the update too, so it also cannot distinguish them.
+//   - `INSERT ... ON CONFLICT DO NOTHING` affects exactly 1 row on a genuine
+//     insert and exactly 0 on a conflict. The UPDATE runs only in the 0 case.
+//
+// `inserted` feeds Indexer.status.lastRssNewCount and decides which releases
+// the RSS worker publishes to CLUSTARR_RELEASES, so an inflated count fans
+// stale releases at catalogarr on every poll, forever.
+//
+// Every release is validated before the transaction opens, so a bad batch
+// costs no writes at all. On any error the transaction rolls back and the
+// returned count is 0: nothing was written, so nothing may be claimed.
 func (s *sqliteStore) Upsert(ctx context.Context, rels []Release) (int, error) {
 	if len(rels) == 0 {
 		return 0, nil
 	}
+	for i := range rels {
+		if err := validate(rels[i]); err != nil {
+			return 0, fmt.Errorf("relindex: release %d: %w", i, err)
+		}
+	}
+
 	s.wmu.Lock()
 	defer s.wmu.Unlock()
 
@@ -116,23 +141,61 @@ func (s *sqliteStore) Upsert(ctx context.Context, rels []Release) (int, error) {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	const stmt = `INSERT OR REPLACE INTO releases
+	const insertSQL = `INSERT INTO releases
 		(indexer, guid, title, title_norm, grp, protocol, categories, size_bytes, published_at, fetched_at, info_json)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+		VALUES (?,?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(indexer, guid) DO NOTHING`
+	const updateSQL = `UPDATE releases SET
+		title = ?, title_norm = ?, grp = ?, protocol = ?, categories = ?,
+		size_bytes = ?, published_at = ?, fetched_at = ?, info_json = ?
+		WHERE indexer = ? AND guid = ?`
+
+	ins, err := tx.PrepareContext(ctx, insertSQL)
+	if err != nil {
+		return 0, fmt.Errorf("relindex: prepare insert: %w", err)
+	}
+	defer func() { _ = ins.Close() }()
+
+	upd, err := tx.PrepareContext(ctx, updateSQL)
+	if err != nil {
+		return 0, fmt.Errorf("relindex: prepare update: %w", err)
+	}
+	defer func() { _ = upd.Close() }()
+
+	inserted := 0
 	for _, r := range rels {
 		cats, err := marshalCategories(r.Categories)
 		if err != nil {
 			return 0, err
 		}
-		if _, err := tx.ExecContext(ctx, stmt,
+		pub := nullNanos(r.PublishedAt)
+		fetched := r.FetchedAt.UTC().UnixNano()
+
+		res, err := ins.ExecContext(ctx,
 			r.Indexer, r.GUID, r.Title, r.TitleNorm, r.Group, r.Protocol,
-			cats, r.SizeBytes, nullNanos(r.PublishedAt), r.FetchedAt.UTC().UnixNano(), r.InfoJSON,
+			cats, r.SizeBytes, pub, fetched, r.InfoJSON,
+		)
+		if err != nil {
+			return 0, fmt.Errorf("relindex: insert %s/%s: %w", r.Indexer, r.GUID, err)
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return 0, fmt.Errorf("relindex: insert %s/%s rows: %w", r.Indexer, r.GUID, err)
+		}
+		if n == 1 {
+			inserted++
+			continue
+		}
+		if _, err := upd.ExecContext(ctx,
+			r.Title, r.TitleNorm, r.Group, r.Protocol, cats,
+			r.SizeBytes, pub, fetched, r.InfoJSON,
+			r.Indexer, r.GUID,
 		); err != nil {
-			return 0, fmt.Errorf("relindex: upsert %s/%s: %w", r.Indexer, r.GUID, err)
+			return 0, fmt.Errorf("relindex: update %s/%s: %w", r.Indexer, r.GUID, err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("relindex: commit upsert: %w", err)
 	}
-	return len(rels), nil
+	return inserted, nil
 }
