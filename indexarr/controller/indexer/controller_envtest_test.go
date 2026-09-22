@@ -45,6 +45,8 @@ import (
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/indexarr/controller/indexer"
+	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/ratelimit"
 )
@@ -113,9 +115,24 @@ func capsServer(t *testing.T, body string, status int) *httptest.Server {
 	return srv
 }
 
-func newReconciler(c client.Client) (*indexer.Reconciler, *record.FakeRecorder) {
+// newReconciler wires a bus as well as a client, because the reconciler seeds
+// the RSS poll chain (ruling R36) and a nil bus would make every test in this
+// file exercise the one path that does not publish. membus is enough for the
+// tests that only need the seed not to explode; the ones that assert on a
+// PENDING schedule use newJetStreamReconciler, because membus has no
+// deduplication window and no rollup.
+func newReconciler(t *testing.T, c client.Client) (*indexer.Reconciler, *record.FakeRecorder) {
+	t.Helper()
 	rec := record.NewFakeRecorder(10)
-	return indexer.NewReconciler(c, rec, ratelimit.New(ratelimit.Config{})), rec
+	return indexer.NewReconciler(c, rec, ratelimit.New(ratelimit.Config{}), newMemBus(t)), rec
+}
+
+func newMemBus(t *testing.T) events.Bus {
+	t.Helper()
+	bus := membus.New(nil)
+	require.NoError(t, bus.Ensure(t.Context(), events.Default().ForSingleNode()))
+	t.Cleanup(func() { _ = bus.Close() })
+	return bus
 }
 
 func reconcileOnce(t *testing.T, r *indexer.Reconciler, name types.NamespacedName) (ctrl.Result, error) {
@@ -152,7 +169,7 @@ func TestReconcileProbesCapsAndBecomesReady(t *testing.T) {
 	}))
 
 	name := types.NamespacedName{Namespace: ns, Name: "nzbgeek"}
-	r, _ := newReconciler(c)
+	r, _ := newReconciler(t, c)
 	res, err := reconcileOnce(t, r, name)
 	require.NoError(t, err)
 	require.Equal(t, 15*time.Minute, res.RequeueAfter)
@@ -219,7 +236,7 @@ func TestTransientProbeFailureDoesNotReleaseCaps(t *testing.T) {
 		},
 	}))
 
-	r, _ := newReconciler(c)
+	r, _ := newReconciler(t, c)
 
 	// 1. Steady state.
 	_, err := reconcileOnce(t, r, name)
@@ -297,7 +314,7 @@ func TestDisablingAnIndexerReleasesNothing(t *testing.T) {
 		},
 	}))
 
-	r, _ := newReconciler(c)
+	r, _ := newReconciler(t, c)
 	_, err := reconcileOnce(t, r, name)
 	require.NoError(t, err)
 	steady := mustGet(t, c, name)
@@ -352,7 +369,7 @@ func TestDefinitionBackedIndexerIsDeferredWithoutAProtocol(t *testing.T) {
 		},
 	}))
 
-	r, _ := newReconciler(c)
+	r, _ := newReconciler(t, c)
 	res, err := reconcileOnce(t, r, name)
 	require.NoError(t, err, "an empty status.protocol would be rejected by the enum")
 	require.Zero(t, res.RequeueAfter)
@@ -398,7 +415,7 @@ func TestAnUnusableBaseURLIsTerminal(t *testing.T) {
 			Generic: &indexv1alpha1.GenericNewznab{Protocol: commonv1alpha1.ProtocolTorrent},
 		},
 	}))
-	r, _ := newReconciler(c)
+	r, _ := newReconciler(t, c)
 	_, err := reconcileOnce(t, r, name)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, reconcile.TerminalError(nil)), "a bad baseURL must not requeue forever")
@@ -424,7 +441,7 @@ func TestMissingSecretIsADependencyNotAFailure(t *testing.T) {
 		},
 	}))
 
-	r, _ := newReconciler(c)
+	r, _ := newReconciler(t, c)
 	res, err := reconcileOnce(t, r, name)
 	require.NoError(t, err, "a Secret the operator has not created yet is not a reconcile error")
 	require.Equal(t, 15*time.Minute, res.RequeueAfter)
@@ -458,7 +475,7 @@ func TestAnAPIKeyMakesTheIndexerPrivate(t *testing.T) {
 		},
 	}))
 
-	r, _ := newReconciler(c)
+	r, _ := newReconciler(t, c)
 	_, err := reconcileOnce(t, r, name)
 	require.NoError(t, err)
 	require.Equal(t, indexer.PrivacyPrivate, mustGet(t, c, name).Status.Privacy)
@@ -490,7 +507,7 @@ func TestRetryAfterDrivesTheRequeueAndCapsSurvive(t *testing.T) {
 		},
 	}))
 
-	r, _ := newReconciler(c)
+	r, _ := newReconciler(t, c)
 	_, err := reconcileOnce(t, r, name)
 	require.NoError(t, err)
 	wantCaps := mustGet(t, c, name).Status.Caps.DeepCopy()
@@ -526,7 +543,7 @@ func TestNewznabErrorCodeRejectsTheCredentials(t *testing.T) {
 		},
 	}))
 
-	r, rec := newReconciler(c)
+	r, rec := newReconciler(t, c)
 	_, err := reconcileOnce(t, r, name)
 	require.NoError(t, err)
 
@@ -560,7 +577,7 @@ func TestAFutureDisabledUntilBacksOff(t *testing.T) {
 		},
 	}))
 
-	r, _ := newReconciler(c)
+	r, _ := newReconciler(t, c)
 	_, err := reconcileOnce(t, r, name)
 	require.NoError(t, err)
 
@@ -600,7 +617,7 @@ func TestLimitsExhaustedSetsRateLimitedWithoutClearingReady(t *testing.T) {
 		},
 	}))
 
-	r, _ := newReconciler(c)
+	r, _ := newReconciler(t, c)
 	_, err := reconcileOnce(t, r, name)
 	require.NoError(t, err)
 
@@ -643,7 +660,7 @@ func TestCapsAreMemoisedUntilTheGenerationChanges(t *testing.T) {
 		},
 	}))
 
-	r, _ := newReconciler(c)
+	r, _ := newReconciler(t, c)
 	_, err := reconcileOnce(t, r, name)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, hits.Load())
@@ -675,7 +692,7 @@ func TestAMissingIndexerReconcilesCleanly(t *testing.T) {
 	c := newTestClient(t)
 	ns := newNamespace(t, ctx, c, "idx-delete")
 
-	r, _ := newReconciler(c)
+	r, _ := newReconciler(t, c)
 	res, err := reconcileOnce(t, r, types.NamespacedName{Namespace: ns, Name: "never-existed"})
 	require.NoError(t, err, "a NotFound is not an error")
 	require.Zero(t, res.RequeueAfter)

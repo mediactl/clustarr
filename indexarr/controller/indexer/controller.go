@@ -38,6 +38,8 @@ import (
 	indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/index/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	idxstatus "github.com/mediactl/clustarr/indexarr/status"
+	"github.com/mediactl/clustarr/indexarr/worker/rss"
+	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
@@ -94,6 +96,16 @@ type Reconciler struct {
 	// a handful of bytes bounded by the size of the cluster's indexer set.
 	Limiters *ratelimit.Limiter
 
+	// Bus seeds the RSS poll chain (ruling R36). Nothing else in this
+	// reconciler publishes.
+	//
+	// Like Recorder and Limiters it is optional, so a unit test can build a
+	// Reconciler with nothing but a client -- but unlike them, a nil Bus
+	// disables something an operator would notice: the indexer would never
+	// be polled at all. It therefore logs a warning every time it would have
+	// seeded, rather than skipping in silence.
+	Bus events.Bus
+
 	mu       sync.Mutex
 	capsSeen map[types.UID]capsMemo
 }
@@ -111,9 +123,21 @@ type capsMemo struct {
 // NewReconciler builds a Reconciler. recorder comes from
 // mgr.GetEventRecorderFor and writes core/v1 Events; limiters is the one
 // process-wide *ratelimit.Limiter indexarr shares across the caps probe, the
-// search fan-out and the RSS poll.
-func NewReconciler(c client.Client, recorder record.EventRecorder, limiters *ratelimit.Limiter) *Reconciler {
-	return &Reconciler{Client: c, Recorder: recorder, Limiters: limiters, capsSeen: map[types.UID]capsMemo{}}
+// search fan-out and the RSS poll; bus is the one the RSS worker consumes
+// from, and is what lets this reconciler seed the first poll.
+func NewReconciler(
+	c client.Client,
+	recorder record.EventRecorder,
+	limiters *ratelimit.Limiter,
+	bus events.Bus,
+) *Reconciler {
+	return &Reconciler{
+		Client:   c,
+		Recorder: recorder,
+		Limiters: limiters,
+		Bus:      bus,
+		capsSeen: map[types.UID]capsMemo{},
+	}
 }
 
 func (r *Reconciler) shouldProbe(uid types.UID, generation int64, hasCaps bool, now time.Time) bool {
@@ -335,7 +359,75 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 			"%s", firstNonEmpty(outcome.Message, "backing off"))
 	}
 
-	return r.patch(ctx, &idx, conditions, ctrl.Result{RequeueAfter: r.requeueAfter(idx.Status, outcome, now)})
+	// Seed BEFORE the patch, but do not return on its error: the status
+	// write is unconditional on every path through Reconcile, and an early
+	// return here would be exactly the partial-status bug this package is
+	// built to avoid. The bus failure is surfaced after the write instead.
+	seedErr := r.seedRSSSchedule(ctx, &idx, healthy, now)
+
+	res, err := r.patch(ctx, &idx, conditions, ctrl.Result{RequeueAfter: r.requeueAfter(idx.Status, outcome, now)})
+	if err != nil {
+		return res, err
+	}
+	if seedErr != nil {
+		// Returned as an error rather than folded into RequeueAfter: a bus
+		// that refused the publish should be retried with the controller's
+		// backoff, not in fifteen minutes, because until it succeeds this
+		// indexer is not being polled at all.
+		return ctrl.Result{}, seedErr
+	}
+	return res, nil
+}
+
+// seedRSSSchedule starts this Indexer's RSS poll chain.
+//
+// Nothing else does. The worker schedules the NEXT poll at the end of every
+// poll it performs, which keeps an already-running chain alive but cannot
+// begin one -- so before ruling R36 the release firehose never started in a
+// real cluster, and the worker's disabled path, which acknowledges without
+// rescheduling precisely because "re-enabling bumps the generation and the
+// reconciler seeds a fresh schedule", silenced an indexer permanently the
+// first time an operator toggled spec.enabled.
+//
+// The gate is the worker's own gate, spelled the same way, so the seed and
+// the poll agree on what "this indexer polls" means. The spec.enabled half is
+// also checked by Reconcile, which returns before reaching here; it is
+// repeated rather than assumed because the two conditions are one rule.
+//
+// Publishing on EVERY reconcile is safe, and deliberately so rather than
+// guarded by a "have I seeded this one?" memo, which would be a second
+// in-memory truth about a cluster-wide fact and would be wrong after every
+// restart. rss.NextPollAt returns the slot the worker's own reschedule
+// already chose, rss.TaskMsgID quantises it to the second, and
+// CLUSTARR_WORK_INDEXARR deduplicates for an hour (pkg/events/topology.go's
+// work() helper, Duplicates: time.Hour), so the duplicate seed stores
+// nothing. Where it does store something -- a slot past the dedup window, or
+// a genuinely new slot -- the scheduled publish carries Nats-Rollup: sub, so
+// it REPLACES the pending poll rather than adding a second one.
+func (r *Reconciler) seedRSSSchedule(
+	ctx context.Context,
+	idx *indexv1alpha1.Indexer,
+	healthy bool,
+	now time.Time,
+) error {
+	if !ptr.Deref(idx.Spec.Enabled, true) || !ptr.Deref(idx.Spec.EnableRss, true) {
+		return nil
+	}
+	if !healthy {
+		// Backing off, or the caps probe just failed. The ladder's window
+		// exists to stop queries, and the worker's own backoff path already
+		// holds the chain open by scheduling the poll that lands when the
+		// window expires. requeueAfter brings this reconciler back a second
+		// after disabledUntil, which is when seeding becomes useful again.
+		return nil
+	}
+	if r.Bus == nil {
+		logging.FromContext(ctx).Warn(
+			"no bus is wired; this Indexer's RSS poll chain cannot be seeded and it will never be polled",
+			"indexer", client.ObjectKeyFromObject(idx))
+		return nil
+	}
+	return rss.ScheduleNext(ctx, r.Bus, idx, rss.NextPollAt(idx, now))
 }
 
 // rateLimited derives the RateLimited condition from spec.limits and the

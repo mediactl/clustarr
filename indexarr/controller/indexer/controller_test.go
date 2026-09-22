@@ -70,7 +70,7 @@ func TestDeletionPrunesTheCapsMemoButNotTheSharedBucket(t *testing.T) {
 	// would have configured it.
 	lim.SetConfig(host, ratelimit.Config{RPS: 1.0 / 3600, Burst: 1})
 
-	r := NewReconciler(c, nil, lim)
+	r := NewReconciler(c, nil, lim, nil)
 	r.markProbed(uid, 4, now)
 	require.False(t, r.shouldProbe(uid, 4, true, now), "setup: the memo is warm")
 
@@ -164,7 +164,7 @@ func TestASourcelessSpecIsTerminalAndStillWritesStatus(t *testing.T) {
 		WithStatusSubresource(idx).
 		Build()
 
-	r := NewReconciler(c, nil, ratelimit.New(ratelimit.Config{}))
+	r := NewReconciler(c, nil, ratelimit.New(ratelimit.Config{}), nil)
 	_, err := r.Reconcile(context.Background(),
 		reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "media", Name: "nosource"}})
 	require.Error(t, err)

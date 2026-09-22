@@ -761,13 +761,49 @@ func TaskMsgID(uid string, generation int64, slot time.Time) string {
 		"rss:"+slot.UTC().Truncate(time.Second).Format(time.RFC3339))
 }
 
+// NextPollAt is the slot a poll of idx should be scheduled for, read off the
+// status the last poll left behind. It exists so the Indexer reconciler can
+// seed the chain (ruling R36) without inventing a cadence of its own.
+//
+// The arithmetic is chosen so a reconciler seed and the worker's own
+// reschedule CONVERGE ON ONE SLOT rather than fighting. The worker stamps
+// status.lastRssAt with the same instant it schedules from, so
+// lastRssAt + rssInterval is byte-for-byte the slot the worker already asked
+// for; [TaskMsgID] quantises to the second and the work stream deduplicates
+// for an hour, so the reconciler's publish stores nothing at all. Seeding at
+// `now` on every pass instead would look equally correct and would quietly
+// override spec.rssInterval with reprobeInterval -- polling a tracker that
+// asked for hourly every fifteen minutes.
+//
+// A never-polled Indexer, or one whose slot has already passed because the
+// chain died, gets `now`: that is the seed, and it is also the repair.
+//
+// The one case the convergence does not cover is an rssInterval with a
+// sub-second component, where the two slots can truncate to different
+// seconds. The consequence is a stored duplicate rather than a lost poll --
+// a scheduled publish carries Nats-Rollup: sub, so the newer slot REPLACES
+// the pending one instead of queuing beside it, and there is still exactly
+// one pending poll per indexer.
+func NextPollAt(idx *indexv1alpha1.Indexer, now time.Time) time.Time {
+	if at := idx.Status.LastRssAt; at != nil && !at.Time.IsZero() {
+		if next := at.Add(rssInterval(idx)); next.After(now) {
+			return next
+		}
+	}
+	return now
+}
+
 // ScheduleNext publishes the next RssTask for idx, held on the schedule
 // subject until at.
 //
-// The reconciler seeds the first one with this same function so the two
-// cannot build the subject or the msg-id two ways. The worker schedules the
-// next one at the end of EVERY poll, success or failure: if only the
-// reconciler scheduled, polling would stop until the next reconcile.
+// Two callers, one function, so the subject and the msg-id cannot be built
+// two ways. The Indexer reconciler seeds the chain for an enabled, healthy
+// Indexer at [NextPollAt]; the worker schedules the next one at the end of
+// EVERY poll, success or failure. Both are needed. Without the worker's,
+// polling would stop until the next reconcile; without the reconciler's,
+// nothing would ever start it -- which is exactly what shipped before ruling
+// R36, so the release firehose never began in a real cluster, and an indexer
+// disabled and re-enabled never polled again.
 func ScheduleNext(ctx context.Context, bus events.Bus, idx *indexv1alpha1.Indexer, at time.Time) error {
 	if idx.UID == "" {
 		// The work subject is keyed by uid. An empty token would publish to
