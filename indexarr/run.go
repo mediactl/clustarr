@@ -26,16 +26,34 @@ package indexarr
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
+	"time"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
+	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/indexarr/controller/indexer"
+	"github.com/mediactl/clustarr/indexarr/controller/indexerdefinition"
+	"github.com/mediactl/clustarr/indexarr/controller/indexerproxy"
+	"github.com/mediactl/clustarr/indexarr/download"
+	"github.com/mediactl/clustarr/indexarr/query"
+	"github.com/mediactl/clustarr/indexarr/search"
+	"github.com/mediactl/clustarr/indexarr/worker/rss"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/ratelimit"
+	"github.com/mediactl/clustarr/pkg/relindex"
+	"github.com/mediactl/clustarr/pkg/torznab"
 )
 
 // Service identity, from §2 and §6.2.
@@ -64,6 +82,41 @@ const (
 	// itself is M6; the constant is corrected here because it is a landmine
 	// in a file this phase edits.
 	DefaultFacadeBindAddress = ":8080"
+)
+
+// Release-index retention, from §6.2's "`expires_at` sweep every 10 min
+// (72h)". [relindex.Store.Prune] is a pure function of its argument and
+// schedules nothing on purpose, so the schedule lives here.
+const (
+	// IndexRetention is how long a release stays in the local index after it
+	// was fetched.
+	IndexRetention = 72 * time.Hour
+
+	// IndexSweepInterval is how often [relindex.Store.Prune] runs.
+	IndexSweepInterval = 10 * time.Minute
+
+	// indexProbeTimeout bounds the readiness probe's Stats call so a wedged
+	// SQLite handle fails readiness rather than hanging the probe handler.
+	indexProbeTimeout = 5 * time.Second
+)
+
+// CRD defaults for Indexer.spec, restated here because an apiserver default
+// fills a field that is ABSENT FROM THE SUBMITTED JSON, and metav1.Duration is
+// a struct that `omitempty` does not elide -- so a typed Go client always
+// sends "0s" and is never defaulted. TestIndexerSpecDefaultsMatchTheCRD reads
+// the generated schema and fails if either drifts, so these are mirrors rather
+// than a second source of truth. indexarr/controller/indexer/source.go carries
+// the same pair, pinned by the same shape of test, for the caps probe.
+const (
+	// DefaultIndexerTimeout mirrors Indexer spec.timeout's
+	// +kubebuilder:default="30s".
+	DefaultIndexerTimeout = 30 * time.Second
+
+	// DefaultIndexerRequestDelay mirrors Indexer spec.requestDelay's
+	// +kubebuilder:default="2s". It is what [defaultLimiterConfig] paces an
+	// UNKNOWN host at; see that function for why the fallback must not be
+	// unlimited.
+	DefaultIndexerRequestDelay = 2 * time.Second
 )
 
 // Role selects what a replica does. §6.2 gives indexarr one role: the
@@ -148,8 +201,49 @@ func (o Options) Validate() error {
 
 // ManagerOptions renders the controller-runtime options for this role without
 // contacting the cluster, so a test can assert them.
+//
+// # Secrets are read live and never cached, and that is a decision
+//
+// Four call sites reach a Secret through the manager's client -- the Indexer
+// reconciler's spec.secretRef, the IndexerProxy reconciler's existence check,
+// and the download verb's credential and session reads. Wiring them as-is
+// starts a CLUSTER-WIDE Secret informer on first use: one watch over every
+// Secret in the cluster, every one of them held in this process's memory.
+// docs/research/k8s.md:336 offers two ways out, a `ByObject` label selector
+// and `client.CacheOptions.DisableFor`. This takes the second, for three
+// reasons.
+//
+//  1. A label selector fails CLOSED and SILENTLY. A cache restricted by
+//     selector answers Get for an object that does not match with NotFound --
+//     indistinguishable from a Secret that is genuinely absent. Nothing in
+//     this repo labels indexer Secrets: not the chart, not the CRD's
+//     documentation of spec.secretRef ("Recognised keys: apikey, username,
+//     ..."), not the e2e fixtures. Shipping a selector therefore means every
+//     existing Indexer reports `secret <ns>/<name> not found` against a
+//     Secret the operator can see with kubectl, which is exactly the silent
+//     degradation this codebase keeps getting bitten by.
+//
+//  2. DisableFor removes the exposure rather than narrowing it. There is no
+//     watch and no other namespace's Secret is ever resident here; a selector
+//     still watches cluster-wide and merely filters what it keeps.
+//
+//  3. The informer buys nothing measurable. indexarr reads a Secret on the
+//     15-minute reprobe tick per Indexer, on the 5-minute IndexerProxy
+//     recheck, and once per grab. Nothing WATCHES Secrets -- no controller
+//     re-reconciles when one changes -- so the cache is pure overhead, and a
+//     live Get is strictly fresher, which is what a rotated passkey wants.
+//
+// The cost is one apiserver GET per read on a service that makes a handful an
+// hour. The consequence for RBAC is that `secrets list;watch` are now granted
+// and unused; the markers live in the three component packages that declare
+// them and narrowing those to `get` is follow-up work, not a change this file
+// can make.
 func (o Options) ManagerOptions() ctrl.Options {
-	return o.Options.ManagerOptions(LeaderElectionID, false)
+	opts := o.Options.ManagerOptions(LeaderElectionID, false)
+	opts.Client.Cache = &client.CacheOptions{
+		DisableFor: []client.Object{&corev1.Secret{}},
+	}
+	return opts
 }
 
 // Run starts the manager and blocks until ctx is cancelled.
@@ -192,20 +286,42 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 
-	// TODO(M2): add a "releaseindex" readiness check tied to the SQLite
-	// handle being open, per §13. Until the store exists the JetStream ping
-	// is the whole readiness gate.
-	if err := k8s.AddProbes(mgr, map[string]healthz.Checker{
-		"jetstream": k8s.BusReadyChecker(nc, bus),
-	}); err != nil {
+	// The release index is opened BEFORE the manager starts, because the RSS
+	// worker, the search fan-out and the query verb are all constructed with
+	// it and a Store that appeared later would have to be reached through a
+	// nil check on every use. Open also creates and migrates the schema, so a
+	// success here is the process's proof that the PVC is writable -- §13's
+	// "open and writable" half that no cheap periodic probe can restate
+	// without writing to the volume every few seconds.
+	store, closer, err := relindex.Open(ctx, o.IndexPath)
+	if err != nil {
+		return fmt.Errorf("indexarr: open the release index at %s: %w", o.IndexPath, err)
+	}
+	defer func() {
+		if err := closer.Close(); err != nil {
+			log.Error(err, "closing the release index")
+		}
+	}()
+
+	limiters := ratelimit.New(defaultLimiterConfig())
+
+	ready, err := readinessChecks(mgr, store, k8s.BusReadyChecker(nc, bus))
+	if err != nil {
+		return err
+	}
+	if err := k8s.AddProbes(mgr, ready); err != nil {
 		return err
 	}
 
-	if err := setupControllers(mgr, o); err != nil {
-		return err
+	if o.Role.RunsControllers() {
+		if err := setupControllers(mgr, bus, limiters); err != nil {
+			return err
+		}
 	}
-	if err := setupWorkers(mgr, bus, o); err != nil {
-		return err
+	if o.Role.RunsWorkers() {
+		if err := setupWorkers(mgr, bus, store, limiters); err != nil {
+			return err
+		}
 	}
 
 	log.Info("starting", "role", o.Role, "indexPath", o.IndexPath)
@@ -215,29 +331,378 @@ func Run(ctx context.Context, o Options) error {
 	return nil
 }
 
-// setupControllers is the registration point for the index reconcilers. It
-// registers nothing yet.
+// readinessChecks is §13's readiness gate for indexarr: the informer caches
+// synced, the SQLite index open and usable, and the bus connected. jetstream
+// is passed in rather than built here so this stays callable without a live
+// NATS connection.
 //
-// TODO(M2): indexer -- validate the definition, probe caps, test login, own
-// the session Secret, schedule RSS with WithScheduleAt, and mirror KV health
-// into status with Prowlarr's escalation table. (§6.2, §16 M2)
-// TODO(M6): indexerdefinition (schema validation and sha256) and indexerproxy
-// (http/socks and the FlareSolverr client). (§6.2, §16 M6)
-func setupControllers(mgr ctrl.Manager, o Options) error {
-	_, _ = mgr, o
+// It is a function rather than a block inside [Run] so that a test can drive
+// the real thing. The check it registers through k8s.CacheSyncChecker is a
+// [k8s.EveryReplica], not a manager.RunnableFunc, and that is the whole
+// reason this is worth testing: a bare RunnableFunc has no
+// NeedLeaderElection method, so controller-runtime's runnables.Add falls
+// through to the leader-election group and the runnable never starts on a
+// non-leader replica -- /readyz then fails forever and, with maxSurge 1 /
+// maxUnavailable 0, every rollout deadlocks. indexarr forbids leader
+// election today, which makes that latent here rather than fatal; it is a
+// deployment detail, not a property of this code, so
+// TestReadinessPassesOnANonLeaderReplica turns leader election ON and locks
+// this manager out of the lease.
+func readinessChecks(
+	mgr ctrl.Manager, store relindex.Store, jetstream healthz.Checker,
+) (map[string]healthz.Checker, error) {
+	cacheReady, err := k8s.CacheSyncChecker(mgr)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]healthz.Checker{
+		"jetstream": jetstream,
+		// §13's "informer caches synced". Every controller and the search
+		// fan-out read through the manager's cache, and an unsynced cache
+		// does not fail -- it reports an EMPTY cluster, so a search would
+		// answer "no indexers" rather than "not ready yet".
+		"cache": cacheReady,
+		// §13's SQLite half. Stats is relindex's designated readiness call:
+		// it is a real query against the handle, so it fails once the handle
+		// stops working.
+		"releaseindex": IndexReadyChecker(store),
+	}, nil
+}
+
+// defaultLimiterConfig is the bucket [ratelimit.Limiter] hands to a host it
+// has never been given a Config for, and getting it wrong is silent.
+//
+// The obvious construction is ratelimit.New(ratelimit.Config{}) -- every real
+// per-host config arrives later, from the Indexer reconciler's SetConfig, so
+// the default looks like it is never consulted. It is: pkg/ratelimit falls
+// back to the Limiter's `defaults` for any key without its own Config, and
+// Config.RPS <= 0 is rate.Inf. Every window in which a host has no Config yet
+// is therefore a window with NO pacing at all -- the whole interval between
+// process start and that Indexer's first reconcile, a fresh host added by an
+// edit, and any key spelled differently from the reconciler's. Against a
+// private tracker that is a ban, not a slowdown.
+//
+// The rate is derived from the CRD's own default for spec.requestDelay rather
+// than from a fresh literal, so an operator who changes the default in
+// api/index/v1alpha1 moves this too (and TestIndexerSpecDefaultsMatchTheCRD
+// fails if the mirror ever stops matching).
+//
+// This does NOT overrule an explicit `requestDelay: 0s`, which the CRD
+// permits and the Indexer reconciler maps to RPS 0 on purpose -- "do not pace
+// me". SetConfig installs a config FOR THAT KEY, and a key with its own
+// config never reads `defaults`. The fallback only ever applies to a host
+// nobody has decided about yet, where "pace it like the CRD's default" is the
+// only safe guess.
+func defaultLimiterConfig() ratelimit.Config {
+	return ratelimit.Config{RPS: 1 / DefaultIndexerRequestDelay.Seconds(), Burst: 1}
+}
+
+// IndexReadyChecker reports whether the release index is still usable, and is
+// §13's "the SQLite index open and writable" readiness gate.
+//
+// It is a READ. The writable half is proved once, by [relindex.Open], which
+// creates and migrates the schema before this checker is ever registered -- a
+// process whose volume is read-only never reaches mgr.Start. Re-proving it on
+// every probe would mean a write to the PVC every few seconds for the life of
+// the pod, which buys a failure mode (the volume going read-only under a
+// running pod) that no Clustarr deployment produces.
+//
+// Stats is relindex's own nominated probe: its doc says so, it runs a real
+// query against the handle, and it deliberately tolerates a missing file when
+// sizing the volume so a stat() race cannot flap readiness.
+func IndexReadyChecker(store relindex.Store) healthz.Checker {
+	return func(req *http.Request) error {
+		if store == nil {
+			return errors.New("release index: no store was opened")
+		}
+		ctx, cancel := context.WithTimeout(req.Context(), indexProbeTimeout)
+		defer cancel()
+		if _, err := store.Stats(ctx); err != nil {
+			return fmt.Errorf("release index: %w", err)
+		}
+		return nil
+	}
+}
+
+// setupControllers registers indexarr's three reconcilers (§6.2, §16 M2 and
+// M6). Each package's doc.go documents the exact call; these are those calls.
+//
+// All three take a k8s.io/client-go/tools/record.EventRecorder -- the
+// DEPRECATED mgr.GetEventRecorderFor, which writes CORE/v1 Events -- and
+// their +kubebuilder:rbac markers declare `groups=""` to match. catalogarr's
+// setupControllers carries the long note on why two recorder conventions
+// coexist in this tree.
+//
+// limiters is the ONE process-wide *ratelimit.Limiter. The Indexer reconciler
+// is its only writer (it is the only reader of spec.requestDelay); the search
+// fan-out, the RSS poll and the download verb share the instance and only
+// Wait on it, so all four pace against one bucket per host.
+//
+// bus is not optional in production, even though indexer.NewReconciler
+// tolerates nil by logging a warning. The reconciler SEEDS the first RssTask
+// (ruling R36) and the RSS worker schedules every one after it, so a nil bus
+// means no chain ever starts and the release firehose publishes nothing --
+// which is the entire point of the worker. TestTheIndexerReconcilerGetsARealBus
+// turns "someone notices a warning" into a failing test.
+//
+// TODO(M6): the Cardigann login test and the owned session Secret for
+// indexer, and proxy routing for indexerproxy. (§6.2, §16 M6)
+func setupControllers(mgr ctrl.Manager, bus events.Bus, limiters *ratelimit.Limiter) error {
+	c := mgr.GetClient()
+
+	if err := indexer.NewReconciler(
+		c,
+		mgr.GetEventRecorderFor("indexer"), //nolint:staticcheck // record.EventRecorder; see the note above
+		limiters,
+		bus,
+	).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("indexarr: indexer: %w", err)
+	}
+
+	if err := indexerdefinition.NewReconciler(
+		c,
+		mgr.GetEventRecorderFor("indexerdefinition"), //nolint:staticcheck // record.EventRecorder; see the note above
+	).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("indexarr: indexerdefinition: %w", err)
+	}
+
+	// The nil *http.Client is indexerproxy.NewReconciler's documented
+	// "http.DefaultClient". It is deliberate rather than an omission: the
+	// prober bounds every probe with a context derived from
+	// spec.requestTimeout, and an http.Client.Timeout here would be a hard
+	// cap UNDER that, silently ignoring an operator who asked for longer.
+	if err := indexerproxy.NewReconciler(
+		c,
+		mgr.GetEventRecorderFor("indexerproxy"), //nolint:staticcheck // record.EventRecorder; see the note above
+		nil,
+	).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("indexarr: indexerproxy: %w", err)
+	}
+
 	return nil
 }
 
-// setupWorkers is the registration point for the search RPC responder, the RSS
-// worker, the release index and the Torznab facade, all of which run as
-// manager Runnables so they stop with the manager.
+// setupWorkers registers the three RPC verbs, the RSS poll consumer and the
+// release index's retention sweep, all as manager Runnables so they stop with
+// the manager.
 //
-// TODO(M2): serve rpc.indexarr.search and rpc.indexarr.download; run the RSS
-// worker publishing new rows to CLUSTARR_RELEASES; open the SQLite FTS5 store
-// at o.IndexPath and run its 10-minute expiry sweep. (§6.2, §16 M2)
+// Every one of them is a [k8s.EveryReplica], directly or through
+// rss.Worker.SetupWithManager. indexarr forbids leader election (see
+// Options.Validate), so a bare manager.RunnableFunc would in fact start here
+// -- controller-runtime treats a non-electing process as elected. That is a
+// deployment detail a future change can invalidate silently, and it is why
+// Phase C's readiness deadlock survived review, so nothing here relies on it.
+//
 // TODO(M6): the Cardigann engine and the Torznab facade on
 // o.FacadeBindAddress. (§6.2, §16 M6)
-func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
-	_, _, _ = mgr, bus, o
+func setupWorkers(mgr ctrl.Manager, bus events.Bus, store relindex.Store, limiters *ratelimit.Limiter) error {
+	c := mgr.GetClient()
+	build := indexerClientFor(c, limiters)
+
+	// indexarr/download's doc.go documents this construction verbatim.
+	dl := &download.Service{
+		Client: c,
+		Bus:    bus,
+		Fetch:  download.NewFetcherFor(c, limiters),
+	}
+	q := &query.Service{Store: store}
+	svc := &search.Service{
+		Client: c,
+		ClientFor: func(ctx context.Context, idx *indexv1alpha1.Indexer) (search.IndexerClient, error) {
+			cli, err := build(ctx, idx)
+			if err != nil {
+				// Returning `build(...)` directly would hand back a
+				// non-nil interface wrapping a nil *torznab.Client on the
+				// error path, which is a nil dereference one call later.
+				return nil, err
+			}
+			return cli, nil
+		},
+		Store:    store,
+		Bus:      bus,
+		Download: dl.Handle,
+		Query:    q.Handle,
+	}
+
+	// search.Serve is indexarr's single registration point for the RPC queue
+	// group: it registers clustarr.rpc.indexarr.search, .download and .query
+	// in one call. It has no unsubscribe, so its stop drains in-flight
+	// fan-outs rather than deregistering the responders.
+	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
+		stop, err := search.Serve(ctx, bus, svc)
+		if err != nil {
+			return fmt.Errorf("indexarr: serve the index RPC verbs: %w", err)
+		}
+		defer stop()
+		<-ctx.Done()
+		return nil
+	})); err != nil {
+		return fmt.Errorf("indexarr: add the RPC responder: %w", err)
+	}
+
+	if err := rss.NewWorker(rss.Deps{
+		Client: c,
+		Bus:    bus,
+		Index:  store,
+		SearcherFor: func(ctx context.Context, idx *indexv1alpha1.Indexer) (rss.Searcher, error) {
+			cli, err := build(ctx, idx)
+			if err != nil {
+				return nil, err
+			}
+			return cli, nil
+		},
+	}).SetupWithManager(mgr, bus); err != nil {
+		return fmt.Errorf("indexarr: subscribe rss: %w", err)
+	}
+
+	if err := mgr.Add(k8s.EveryReplica(sweepReleaseIndex(store))); err != nil {
+		return fmt.Errorf("indexarr: add the release-index sweep: %w", err)
+	}
+
 	return nil
+}
+
+// sweepReleaseIndex is §6.2's "`expires_at` sweep every 10 min (72h)".
+// relindex.Open starts no goroutines and Prune reads no clock, both
+// deliberately, so the schedule is here.
+//
+// It sweeps once on startup before it starts ticking: indexarr is pinned to a
+// Recreate rollout, so a restart is the moment the index is most likely to be
+// holding a backlog older than the window, and a first sweep ten minutes in
+// leaves that backlog answering searches until then.
+//
+// A failed sweep is logged and the ticker continues. Returning the error would
+// take the whole manager down over a transient SQLITE_BUSY, and the index is a
+// cache (ADR-0003): the cost of a missed sweep is disk, not correctness.
+//
+// The return type is a plain func rather than a k8s.EveryReplica so the
+// conversion stays visible at the mgr.Add call site, where all three of
+// indexarr's runnables read the same way and the leader-election property is
+// the thing a reader is checking.
+func sweepReleaseIndex(store relindex.Store) func(context.Context) error {
+	return func(ctx context.Context) error {
+		pruneOnce(ctx, store)
+		ticker := time.NewTicker(IndexSweepInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-ticker.C:
+				pruneOnce(ctx, store)
+			}
+		}
+	}
+}
+
+// pruneOnce drops every release fetched more than [IndexRetention] ago.
+func pruneOnce(ctx context.Context, store relindex.Store) {
+	ctx, span := tracing.Start(ctx, "indexarr.relindex.prune")
+	defer span.End()
+
+	log := logging.FromContext(ctx)
+	deleted, err := store.Prune(ctx, time.Now().Add(-IndexRetention))
+	if err != nil {
+		tracing.RecordError(span, err)
+		log.Error("indexarr: pruning the release index", "error", err)
+		return
+	}
+	if deleted > 0 {
+		log.Info("indexarr: pruned the release index",
+			"deleted", deleted, "retention", IndexRetention.String())
+	}
+}
+
+// indexerClientFor builds the Torznab/Newznab client for one Indexer: the
+// search fan-out's [search.ClientFor] and the RSS poll's SearcherFor are both
+// this function, so the two cannot disagree about an indexer's endpoint,
+// timeout or bucket.
+//
+// # This duplicates indexarr/controller/indexer's buildClient, and that is a
+// carried item
+//
+// Both indexarr/search/doc.go ("The Indexer reconciler owns the limiter cache
+// ... and supplies this function") and indexarr/worker/rss/doc.go ("a
+// SearcherFor that hands back the per-indexer *torznab.Client the Indexer
+// reconciler built") describe a factory the reconciler exports. It exports
+// none: indexarr/controller/indexer's entire exported surface is Reconciler
+// and NewReconciler, and buildClient is unexported. Something has to build the
+// client, so this does, and the endpoint and timeout rules are mirrored from
+// source.go rather than reinvented. Exporting buildClient and deleting this is
+// the right fix and belongs to a task that owns that package.
+//
+// The limiter is injected and never configured here. The Indexer reconciler is
+// the only reader of spec.requestDelay and therefore the only writer of a
+// key's Config; torznab.WithRateLimit keys on the client's own baseURL host,
+// which is the string ratelimit.HostKey returns for the same URL, so the
+// reconciler's bucket and this client's bucket are one bucket (ruling R38).
+func indexerClientFor(
+	c client.Client, limiters *ratelimit.Limiter,
+) func(context.Context, *indexv1alpha1.Indexer) (*torznab.Client, error) {
+	return func(ctx context.Context, idx *indexv1alpha1.Indexer) (*torznab.Client, error) {
+		if idx == nil {
+			return nil, errors.New("indexarr: no Indexer to build a client for")
+		}
+		secret, err := indexerSecret(ctx, c, idx)
+		if err != nil {
+			return nil, err
+		}
+
+		base, err := url.Parse(idx.Spec.BaseURL)
+		if err != nil {
+			return nil, fmt.Errorf("indexarr: parse spec.baseURL %q: %w", idx.Spec.BaseURL, err)
+		}
+		if base.Scheme == "" || base.Host == "" {
+			return nil, fmt.Errorf("indexarr: spec.baseURL %q must be absolute", idx.Spec.BaseURL)
+		}
+		// JoinPath on a URL with an EMPTY path yields "api" rather than
+		// "/api"; normalising first keeps the endpoint and the *url.URL
+		// consistent, as source.go's buildClient does.
+		if base.Path == "" {
+			base.Path = "/"
+		}
+		apiPath := "/api"
+		if idx.Spec.Generic != nil && idx.Spec.Generic.APIPath != "" {
+			apiPath = idx.Spec.Generic.APIPath
+		}
+
+		// torznab.NewClient seeds its own 30s default and THEN applies the
+		// options, so WithTimeout(0) would OVERWRITE that with "no timeout".
+		// A typed client always marshals metav1.Duration, so "0s" reaches
+		// here routinely and the CRD's default never did.
+		timeout := idx.Spec.Timeout.Duration
+		if timeout <= 0 {
+			timeout = DefaultIndexerTimeout
+		}
+
+		return torznab.NewClient(
+			base.JoinPath(apiPath).String(),
+			string(secret["apikey"]),
+			torznab.WithTimeout(timeout),
+			torznab.WithRateLimit(limiters),
+		)
+	}
+}
+
+// indexerSecret reads spec.secretRef. The recognised keys are apikey,
+// username, password, cookie, passkey and rss_key (indexer_types.go); only
+// apikey is used on the Torznab wire, the rest are the download verb's and
+// M6's.
+//
+// A missing reference is not an error: a public indexer has no Secret. A
+// reference that names a Secret which is not there IS one, and it names the
+// Secret rather than anything inside it.
+func indexerSecret(
+	ctx context.Context, c client.Client, idx *indexv1alpha1.Indexer,
+) (map[string][]byte, error) {
+	ref := idx.Spec.SecretRef
+	if ref == nil || ref.Name == "" {
+		return nil, nil
+	}
+	var s corev1.Secret
+	key := types.NamespacedName{Namespace: idx.Namespace, Name: ref.Name}
+	if err := c.Get(ctx, key, &s); err != nil {
+		return nil, fmt.Errorf("indexarr: read secret %s: %w", key, err)
+	}
+	return s.Data, nil
 }
