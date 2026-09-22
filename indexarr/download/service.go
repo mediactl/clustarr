@@ -33,6 +33,7 @@ import (
 	indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/index/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	idxstatus "github.com/mediactl/clustarr/indexarr/status"
+	"github.com/mediactl/clustarr/pkg/cardigann"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -191,7 +192,7 @@ func (s *Service) fetchAndCount(
 
 	f, err := s.Fetch(ctx, &idx)
 	if err != nil {
-		return fail(nil, "indexarr: build client for %s: %v", key, redactErr(err)),
+		return fail(nil, "indexarr: build client for %s: %v", key, cardigann.RedactErr(err)),
 			resultTransport, label
 	}
 	log := logging.FromContext(ctx).With(
@@ -200,7 +201,7 @@ func (s *Service) fetchAndCount(
 
 	res, err := f.Fetch(ctx, req.URL)
 	if err != nil {
-		return fail(f.Scrub, "indexarr: fetch from %s: %v", key, redactErr(err)),
+		return fail(f.Scrub, "indexarr: fetch from %s: %v", key, cardigann.RedactErr(err)),
 			resultTransport, label
 	}
 
@@ -217,6 +218,14 @@ func (s *Service) fetchAndCount(
 func (s *Service) classify(
 	f Fetcher, res *FetchResult, log *slog.Logger,
 ) (schema.DownloadResponse, string) {
+	// A link result never carries a body from this package's own fetcher --
+	// Fetch closes the 3xx body itself and leaves Body nil -- but a Fetcher
+	// is an interface, and a future one that sets both must not leak a
+	// connection because this function returned early.
+	if res.Body != nil && (res.MagnetURL != "" || res.OffHostURL != "") {
+		_ = res.Body.Close()
+	}
+
 	switch {
 	case res.MagnetURL != "":
 		log.Debug("indexarr/download: magnet link")
@@ -267,7 +276,7 @@ func (s *Service) classify(
 			// not a RedirectURL.
 			return fail(f.Scrub, "indexarr: %v", err), resultTooLarge
 		}
-		return fail(f.Scrub, "indexarr: read payload: %v", redactErr(err)), resultInvalidPayload
+		return fail(f.Scrub, "indexarr: read payload: %v", cardigann.RedactErr(err)), resultInvalidPayload
 	}
 
 	kind := sniffKind(body)

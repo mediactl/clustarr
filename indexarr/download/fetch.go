@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/cardigann"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/ratelimit"
@@ -180,7 +181,7 @@ func (f *fetcher) Fetch(ctx context.Context, rawURL string) (*FetchResult, error
 
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, fmt.Errorf("indexarr/download: parse download URL: %w", redactErr(err))
+		return nil, fmt.Errorf("indexarr/download: parse download URL: %w", cardigann.RedactErr(err))
 	}
 	// A magnet link is already the payload. Never fetch it.
 	if u.Scheme == "magnet" {
@@ -195,19 +196,19 @@ func (f *fetcher) Fetch(ctx context.Context, rawURL string) (*FetchResult, error
 	// share one bucket.
 	if f.limiter != nil {
 		if err := f.limiter.Wait(ctx, f.key); err != nil {
-			return nil, redactErr(err)
+			return nil, cardigann.RedactErr(err)
 		}
 	}
 
-	logging.FromContext(ctx).Debug("indexarr/download: fetching", "url", redactURL(u))
+	logging.FromContext(ctx).Debug("indexarr/download: fetching", "url", cardigann.RedactURL(u))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return nil, redactErr(err)
+		return nil, cardigann.RedactErr(err)
 	}
 	resp, err := f.hc.Do(req)
 	if err != nil {
 		tracing.RecordError(span, err)
-		return nil, fmt.Errorf("indexarr/download: get %s: %w", redactURL(u), redactErr(err))
+		return nil, fmt.Errorf("indexarr/download: get %s: %w", cardigann.RedactURL(u), cardigann.RedactErr(err))
 	}
 
 	res := &FetchResult{
@@ -221,7 +222,7 @@ func (f *fetcher) Fetch(ctx context.Context, rawURL string) (*FetchResult, error
 		loc, lerr := resp.Location()
 		if lerr != nil {
 			return nil, fmt.Errorf("indexarr/download: %d with no usable Location: %w",
-				resp.StatusCode, redactErr(lerr))
+				resp.StatusCode, cardigann.RedactErr(lerr))
 		}
 		if loc.Scheme == "magnet" {
 			res.MagnetURL = loc.String()

@@ -69,6 +69,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // acceptable for M2 -- those grabs use no indexer credentials -- but
 // grab-limit ENFORCEMENT cannot be built on this counter alone.
 //
+// # Redaction
+//
+// Nothing that reaches a log line, an error string or
+// DownloadResponse.Error may carry a passkey. The stripping itself is
+// pkg/cardigann's -- RedactURL and RedactErr are exported precisely so
+// indexarr calls them (Ruling R26) rather than growing a second
+// implementation that drifts. On top of that this package adds two bounds of
+// its own: Fetcher.Scrub replaces the indexer's known secret VALUES, for the
+// case where a third party echoed one back at us, and every message is
+// truncated to maxErrorChars. A GUID is redacted like a URL before it reaches
+// a log line, because a GUID is very often the release's details URL, and it
+// never reaches a metric label at all.
+//
 // # The download URL is never rewritten
 //
 // The link came out of the indexer's own feed and already embeds whatever

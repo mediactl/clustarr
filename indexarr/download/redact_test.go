@@ -25,6 +25,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/mediactl/clustarr/pkg/cardigann"
 )
 
 func TestRedactRawURLDropsEverythingSecret(t *testing.T) {
@@ -47,13 +49,13 @@ func TestRedactRawURLDropsEverythingSecret(t *testing.T) {
 
 func TestRedactErrKeepsTheCauseAndDropsTheURL(t *testing.T) {
 	ue := &url.Error{Op: "Get", URL: "https://tr.example/dl?passkey=s3cret", Err: context.Canceled}
-	got := redactErr(ue)
+	got := cardigann.RedactErr(ue)
 	require.NotContains(t, got.Error(), "s3cret")
 	require.ErrorIs(t, got, context.Canceled, "errors.Is must still see through it")
 
 	plain := errors.New("boom")
-	require.Equal(t, plain, redactErr(plain))
-	require.NoError(t, redactErr(nil))
+	require.Equal(t, plain, cardigann.RedactErr(plain))
+	require.NoError(t, cardigann.RedactErr(nil))
 }
 
 func TestScrubReplacesSecretValuesButNotShortOnes(t *testing.T) {

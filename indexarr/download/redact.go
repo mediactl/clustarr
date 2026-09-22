@@ -18,9 +18,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package download
 
 import (
-	"errors"
 	"net/url"
 	"strings"
+
+	"github.com/mediactl/clustarr/pkg/cardigann"
 )
 
 const (
@@ -35,53 +36,27 @@ const (
 	minScrubLen = 8
 )
 
-// redactURL renders u for a diagnostic -- a log line, an error, a span
-// attribute -- with everything secret stripped: query string, fragment and
-// userinfo. Scheme, host and path survive, which is what keeps the message
-// diagnosable.
+// redactRawURL is cardigann.RedactURL for a URL still in string form,
+// including one url.Parse rejects: everything from the first "?" on is
+// dropped, so an unparseable URL cannot leak its query either.
 //
-// Indexer download links put passkey, apikey and rsskey in the query string.
-// These messages reach DownloadResponse.Error, which grabarr writes onto a
-// Download's status condition, which a human then reads off a terminal.
-// pkg/cardigann makes the same choice for the same reason (engine.go:145);
-// its helpers are unexported, so this is a deliberate copy, not an oversight.
-// A shared pkg/redact would collapse the three copies and is a carried item.
-func redactURL(u *url.URL) string {
-	if u == nil {
-		return ""
-	}
-	safe := *u
-	safe.RawQuery, safe.ForceQuery = "", false
-	safe.Fragment, safe.RawFragment = "", ""
-	safe.User = nil
-	return safe.String()
-}
-
-// redactRawURL is redactURL for a URL still in string form, including one
-// url.Parse rejects: everything from the first "?" on is dropped, so an
-// unparseable URL cannot leak its query either.
+// The stripping itself is cardigann's, not this package's. RedactURL and
+// RedactErr are exported precisely so indexarr calls them (Ruling R26, named
+// in pkg/cardigann/engine.go:151): a second, independent implementation of
+// "take the passkey out" is how the two drift and a secret eventually reaches
+// a screen. cardigann's own redactRawURL is unexported, so only this
+// string-form wrapper lives here -- and it is a wrapper, not a copy.
 func redactRawURL(raw string) string {
 	if raw == "" {
 		return ""
 	}
 	if u, err := url.Parse(raw); err == nil {
-		return redactURL(u)
+		return cardigann.RedactURL(u)
 	}
 	if i := strings.IndexByte(raw, '?'); i >= 0 {
 		return raw[:i]
 	}
 	return raw
-}
-
-// redactErr strips the URL net/url puts in *url.Error's own message while
-// keeping the underlying cause, so errors.Is still finds context.Canceled,
-// syscall errors and the rest through it.
-func redactErr(err error) error {
-	var ue *url.Error
-	if errors.As(err, &ue) && ue.Err != nil {
-		return ue.Err
-	}
-	return err
 }
 
 // scrubber returns a function that replaces each secret value in a diagnostic
