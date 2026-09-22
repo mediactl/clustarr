@@ -148,6 +148,30 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   A test that creates a blank object, triggers the path and asserts cannot
   observe a release, because there was nothing to release. Exercise the failure
   path against an object already in its steady state.
+- **A lost update is not an SSA release, and no release test can see one.**
+  Phase D1 hit this three times in one wave. A handler reads the object, does
+  slow work (an HTTP fetch, a four-page RSS poll), then applies a status seeded
+  from that stale snapshot — silently rolling back whatever another writer
+  under the same manager did meanwhile. The complete-declaration rule does not
+  help: every field *is* declared, just with values from a minute ago. Worse
+  than a rollback, a field that was nil when read and non-nil now is
+  **cleared**, because a seed that emits a pointer field only when non-nil omits
+  it — so a download verb re-enabled an indexer the search fan-out had just
+  disabled, undoing the backoff protecting a failing tracker. Every
+  release-regression test in the tree is blind to this by construction: the
+  object it seeds from is the one it wrote, so there is no window. The
+  distinguishing test interleaves a *real* second writer mid-operation; the
+  rule is that any path which reads, works slowly, then applies must re-`Get`
+  immediately before the apply. `indexarr/worker/rss/worker.go` does this with
+  the comment "the poll closes the window".
+- **Server-side apply tracks ownership per leaf inside a struct**, not for the
+  sub-object as a whole. A renderer that sent only `caps.modes` released
+  `caps.limitsMax`, `caps.limitsDefault`, `caps.supportsRawSearch` and
+  `caps.categories` on every apply that did not re-probe — and the reconciler
+  re-applies every 15 minutes while re-probing every 12 hours, so four of five
+  fields zeroed within one tick of the probe that set them. The envtest that
+  should have caught it asserted only that `status.caps` was non-nil, which a
+  modes-only renderer satisfies. Assert every leaf, not the parent.
 - **Never run `go get` or `go mod tidy` from parallel agents.** They corrupt
   `go.mod`. Add every dependency serially up front, then tell workers not to touch
   it.
