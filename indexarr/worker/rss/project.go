@@ -96,9 +96,18 @@ func ProjectRelease(r torznab.Release, indexerName, protocol string) schema.Rele
 	// kind matches nothing, silently -- so the classification that steers the
 	// parse and the one on the wire are the same value by construction.
 	//
-	// (The tidy fix is a Kind field on release.ParsedRelease, which is a
-	// pkg/release change no Phase D1 task owns; it is filed as a
-	// carry-forward.)
+	// KNOWN LIMITATION, and the reason the carry-forward exists: ClassifyKind
+	// sees the id token, Parse does not. Every id shape that actually appears
+	// in a Torznab feed is a TRAILING bracket -- "...x264-GRP[tmdbid-603]",
+	// "[imdbid-tt0133093]" -- and those classify identically either way
+	// (TestProjectReleaseClassifiesRealisticIDShapes pins it). Two shapes do
+	// not: a LEADING "[tmdbid-603] " reads as an anime group prefix, and a
+	// brace form "{tvdbid-121361}" matches ClassifyKind's audiobook narrator
+	// token, so "Some Show S01E01 {tvdbid-121361}" classifies as an
+	// audiobook, Parse then refuses it, and the release ships with no parsed
+	// fields at all. It fails closed rather than shipping a confident wrong
+	// kind, and the fix is a Kind field on release.ParsedRelease -- a
+	// pkg/release change no Phase D1 task owns, filed as a carry-forward.
 	kind := release.ClassifyKind(r.Title)
 	parsed, err := release.Parse(r.Title, release.Options{Kind: kind})
 	if err != nil {

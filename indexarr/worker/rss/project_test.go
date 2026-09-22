@@ -152,12 +152,16 @@ func TestProjectReleaseSeriesFields(t *testing.T) {
 	require.False(t, got.MultiSeason)
 }
 
-// TestProjectReleaseKindMatchesTheParseThatActuallyRan is the reason
-// ProjectRelease classifies exactly once and feeds the result into
-// release.Options. Parse classifies the ID-STRIPPED title, ClassifyKind
-// classifies whatever it is handed, and rel.Kind is the matcher's first
-// dispatch -- so a Kind taken from a second, separate ClassifyKind call can
-// disagree with the parse that ran and match nothing at all, silently.
+// TestProjectReleaseKindMatchesTheParseThatActuallyRan states the invariant
+// ProjectRelease's single classification exists to hold: the Kind on the wire
+// is the one that steered the parse whose fields we shipped.
+//
+// It is NOT a regression test for the classify-once change, and saying so is
+// the point: reverting to a second, separate ClassifyKind call leaves every
+// assertion here green, because the two classifications agree for every title
+// shape that actually reaches a feed. The shapes where they diverge are
+// covered by TestProjectReleaseClassifiesRealisticIDShapes and by the KNOWN
+// LIMITATION note on ProjectRelease.
 func TestProjectReleaseKindMatchesTheParseThatActuallyRan(t *testing.T) {
 	const title = "Some.Show.S02E05.1080p.WEB-DL.x265-GRP[tvdbid-121361]"
 	got := rss.ProjectRelease(torznab.Release{Title: title, GUID: "g"}, "idx", "torrent")
@@ -253,4 +257,33 @@ func TestProjectReleaseKeepsAnUnparsableTitle(t *testing.T) {
 	require.Equal(t, int64(42), got.Info.SizeBytes)
 	require.Equal(t, "603", got.Info.IDs[commonv1.IDKeyTMDB])
 	require.Empty(t, got.ParsedTitle)
+}
+
+// TestProjectReleaseClassifiesRealisticIDShapes pins the shapes that actually
+// reach a Torznab feed.
+//
+// rel.Kind is the matcher's FIRST dispatch and anything that is not the right
+// kind matches nothing at all, silently -- and the classification runs on the
+// raw title, id token included, while Parse runs on the id-stripped one. A
+// trailing "[tmdbid-603]" or "[imdbid-tt0133093]" must not be able to turn a
+// movie into something else on its way past the classifier.
+func TestProjectReleaseClassifiesRealisticIDShapes(t *testing.T) {
+	tests := []struct {
+		title string
+		kind  commonv1.MediaKind
+	}{
+		{"The.Matrix.1999.1080p.BluRay.x264-GRP[tmdbid-603]", commonv1.MediaKindMovie},
+		{"The.Matrix.1999.1080p.BluRay.x264-GRP [imdbid-tt0133093]", commonv1.MediaKindMovie},
+		{"The.Matrix.1999.1080p.BluRay.x264-GRP", commonv1.MediaKindMovie},
+		{"Some.Show.S02E05.1080p.WEB-DL.x265-GRP[tvdbid-121361]", commonv1.MediaKindEpisode},
+		{"Some.Show.S02E05.1080p-GRP", commonv1.MediaKindEpisode},
+		{"[SubsPlease] Show - 12 (1080p) [ABCD1234].mkv", commonv1.MediaKindEpisode},
+	}
+	for _, tt := range tests {
+		t.Run(tt.title, func(t *testing.T) {
+			got := rss.ProjectRelease(torznab.Release{Title: tt.title, GUID: "g"}, "idx", "torrent")
+			require.Equal(t, tt.kind, got.Kind)
+			require.NotEmpty(t, got.ParsedTitle, "a kind the parser refuses ships no parsed fields at all")
+		})
+	}
 }
