@@ -389,15 +389,20 @@ func TestIndexRowsCarryTheFieldsTheIndexSearchesOn(t *testing.T) {
 }
 
 func TestHandleNeverListsIndexers(t *testing.T) {
-	// A Get of exactly one object, by the name in the task. If this ever
-	// becomes a List, the failure of one indexer can abort the loop and
+	// Gets of ONE object, by the name in the task, and never a List. If this
+	// ever becomes a List, the failure of one indexer can abort the loop and
 	// starve every indexer after it in the slice.
 	rec := &countingClient{Client: newFakeClient(testIndexer("media", "idx"))}
 	w := newTestWorkerWithClient(t, newFakeClock(t0), &fakeSearcher{releases: pageOf(2)}, rec, &fakeStore{})
 
 	require.NoError(t, w.Handle(t.Context(), rssTaskMessage(t, "media", "idx")))
-	require.Equal(t, int32(1), rec.gets.Load())
-	require.Zero(t, rec.lists.Load())
+	require.Zero(t, rec.lists.Load(), "one message is one indexer")
+	// Exactly two: once before the poll, and once again immediately before
+	// the status apply so a minutes-long poll does not seed that apply from
+	// a stale snapshot. Pinned rather than left open, because a Get PER
+	// RELEASE would also satisfy "never lists" while being a very different
+	// thing.
+	require.Equal(t, int32(2), rec.gets.Load())
 }
 
 func TestHandleSkipsIndexersTheOperatorTurnedOff(t *testing.T) {
