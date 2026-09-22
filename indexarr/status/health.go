@@ -194,3 +194,23 @@ func RecordSuccess(cur indexv1alpha1.IndexerStatus, now time.Time) Escalation {
 func Healthy(st indexv1alpha1.IndexerStatus, now time.Time) bool {
 	return st.DisabledUntil == nil || !now.Before(st.DisabledUntil.Time)
 }
+
+// SupportsMode gates the caps check. mode MUST be a torznab.SearchMode value
+// ("search", "tvsearch", "movie", "music", "audio", "book") -- ruling R5. A
+// zero Caps (an Indexer whose caps have not been probed) supports nothing,
+// so a caller must treat status.caps == nil as "not yet probed", not as
+// "supports everything".
+//
+// It lives here, beside [Healthy], rather than in the reconciler that writes
+// status.caps (ruling R39). Both are read-only predicates over
+// IndexerStatus that every consumer needs -- the search fan-out gates its
+// candidates on both -- and a service package importing a CONTROLLER to ask
+// "may I query this indexer?" is the shape the escalation ladder was moved
+// out of that package to remove.
+func SupportsMode(caps indexv1alpha1.Caps, mode string) bool {
+	if len(caps.Modes) == 0 || mode == "" {
+		return false
+	}
+	_, ok := caps.Modes[mode]
+	return ok
+}

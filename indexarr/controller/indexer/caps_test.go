@@ -23,7 +23,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	idxstatus "github.com/mediactl/clustarr/indexarr/status"
 	"github.com/mediactl/clustarr/pkg/newznab"
 	"github.com/mediactl/clustarr/pkg/torznab"
 )
@@ -51,7 +51,7 @@ func TestModeVocabularyIsTorznabsWireValues(t *testing.T) {
 		got := projectCaps(torznab.Caps{Modes: map[torznab.SearchMode]torznab.Searching{
 			m: {Available: true, SupportedParams: []string{"q"}},
 		}})
-		require.True(t, SupportsMode(got, string(m)), "mode %q must project to a key SupportsMode matches", m)
+		require.True(t, idxstatus.SupportsMode(got, string(m)), "mode %q must project to a key SupportsMode matches", m)
 	}
 
 	wide := projectCaps(torznab.Caps{Modes: map[torznab.SearchMode]torznab.Searching{
@@ -59,7 +59,7 @@ func TestModeVocabularyIsTorznabsWireValues(t *testing.T) {
 		torznab.ModeMovieSearch: {Available: true, SupportedParams: []string{"q", "imdbid"}},
 	}})
 	for _, wrong := range []string{"tv-search", "movie-search", "music-search", "book-search", "tvSearch", ""} {
-		require.False(t, SupportsMode(wide, wrong), "the caps-XML element vocabulary must NOT match: %q", wrong)
+		require.False(t, idxstatus.SupportsMode(wide, wrong), "the caps-XML element vocabulary must NOT match: %q", wrong)
 	}
 }
 
@@ -68,8 +68,8 @@ func TestProjectCapsDropsUnavailableModes(t *testing.T) {
 		torznab.ModeSearch:     {Available: true, SupportedParams: []string{"q"}},
 		torznab.ModeBookSearch: {Available: false, SupportedParams: []string{"q", "author"}},
 	}})
-	require.True(t, SupportsMode(got, "search"))
-	require.False(t, SupportsMode(got, "book"), "an unavailable mode must not be advertised")
+	require.True(t, idxstatus.SupportsMode(got, "search"))
+	require.False(t, idxstatus.SupportsMode(got, "book"), "an unavailable mode must not be advertised")
 }
 
 func TestProjectCapsTruncatesToTheCRDsMaxItems(t *testing.T) {
@@ -135,12 +135,4 @@ func TestProjectCapsRawSearch(t *testing.T) {
 		torznab.ModeSearch: {Available: true, SearchEngine: "raw"},
 	}}).SupportsRawSearch)
 	require.False(t, projectCaps(torznab.Caps{}).SupportsRawSearch)
-}
-
-// A never-probed Indexer carries status.caps == nil. SupportsMode's contract
-// is that a zero Caps supports NOTHING; a caller reading it as "supports
-// everything" would query an indexer that has never answered.
-func TestSupportsModeOnAnUnprobedIndexer(t *testing.T) {
-	require.False(t, SupportsMode(indexv1alpha1.Caps{}, "search"))
-	require.False(t, SupportsMode(indexv1alpha1.Caps{Modes: map[string][]string{}}, "search"))
 }

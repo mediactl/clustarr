@@ -24,7 +24,6 @@ import (
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
-	"github.com/mediactl/clustarr/indexarr/controller/indexer"
 	idxstatus "github.com/mediactl/clustarr/indexarr/status"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/torznab"
@@ -110,7 +109,7 @@ func selectCandidates(
 			c.Skip = skipQueryLimit
 		case idx.Status.Caps == nil:
 			c.Skip = skipNoCaps
-		case !indexer.SupportsMode(*idx.Status.Caps, string(mode)):
+		case !idxstatus.SupportsMode(*idx.Status.Caps, string(mode)):
 			c.Skip = skipNoMode(mode)
 		case len(req.Categories) > 0 && len(queryCategories(req.Categories, idx.Status.Caps)) == 0:
 			c.Skip = skipNoCategory

@@ -38,7 +38,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // health.go holds Prowlarr's backoff ladder -- StartupGrace,
 // EscalationTable, [Escalation], [RecordFailure], [RecordSuccess],
 // [Healthy] -- and [ApplyEscalation] maps an Escalation onto a
-// WorkerFields-seeded apply. It started in indexarr/controller/indexer, which
+// WorkerFields-seeded apply. [SupportsMode] sits beside [Healthy] for the
+// same reason (ruling R39): both are read-only predicates over IndexerStatus
+// that decide whether an indexer may be queried, and the search fan-out
+// gates on both. It started in indexarr/controller/indexer, which
 // left it with no shared home: that package imports this one, so the mapping
 // could not live beside the field declarations it writes, and every consumer
 // (the RSS poll, the search fan-out, the download verb) had to import a

@@ -26,19 +26,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/torznab"
 )
 
-// SupportsMode gates the caps check. mode MUST be a torznab.SearchMode value
-// ("search", "tvsearch", "movie", "music", "audio", "book") -- ruling R5. A
-// zero Caps (an Indexer whose caps have not been probed) supports nothing,
-// so a caller must treat status.caps == nil as "not yet probed", not as
-// "supports everything".
-func SupportsMode(caps indexv1alpha1.Caps, mode string) bool {
-	if len(caps.Modes) == 0 || mode == "" {
-		return false
-	}
-	_, ok := caps.Modes[mode]
-	return ok
-}
-
 // maxCapsItems mirrors the CRD's +kubebuilder:validation:MaxItems=200 on
 // status.caps.categories and on each Category.Sub. Exceeding it is an
 // apiserver rejection of the whole apply, so the projection truncates rather
@@ -47,7 +34,7 @@ const maxCapsItems = 200
 
 // projectCaps maps the wire caps onto the CRD's Caps.
 //
-// Only AVAILABLE modes are projected: SupportsMode treats key presence as
+// Only AVAILABLE modes are projected: status.SupportsMode treats key presence as
 // availability, so projecting an unavailable mode would advertise a search
 // the indexer answers with error 203. This matters more than it looks --
 // torznab.ParseCaps populates all six modes on every document, with

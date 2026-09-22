@@ -45,6 +45,7 @@ import (
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/indexarr/controller/indexer"
+	idxstatus "github.com/mediactl/clustarr/indexarr/status"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -185,10 +186,10 @@ func TestReconcileProbesCapsAndBecomesReady(t *testing.T) {
 	require.Equal(t, got.Generation, got.Status.ObservedGeneration)
 
 	require.NotNil(t, got.Status.Caps)
-	require.True(t, indexer.SupportsMode(*got.Status.Caps, "tvsearch"))
-	require.True(t, indexer.SupportsMode(*got.Status.Caps, "movie"))
-	require.False(t, indexer.SupportsMode(*got.Status.Caps, "book"), "an unavailable mode must not be advertised")
-	require.False(t, indexer.SupportsMode(*got.Status.Caps, "tv-search"), "R5: the CRD stores the t= vocabulary")
+	require.True(t, idxstatus.SupportsMode(*got.Status.Caps, "tvsearch"))
+	require.True(t, idxstatus.SupportsMode(*got.Status.Caps, "movie"))
+	require.False(t, idxstatus.SupportsMode(*got.Status.Caps, "book"), "an unavailable mode must not be advertised")
+	require.False(t, idxstatus.SupportsMode(*got.Status.Caps, "tv-search"), "R5: the CRD stores the t= vocabulary")
 	require.True(t, got.Status.Caps.SupportsRawSearch)
 	require.EqualValues(t, 100, got.Status.Caps.LimitsMax)
 	require.EqualValues(t, 50, got.Status.Caps.LimitsDefault)

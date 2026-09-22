@@ -200,3 +200,11 @@ func TestHealthy(t *testing.T) {
 	require.False(t, Healthy(indexv1alpha1.IndexerStatus{DisabledUntil: &future}, now))
 	require.True(t, Healthy(indexv1alpha1.IndexerStatus{DisabledUntil: &metav1.Time{Time: now}}, now), "the boundary re-enables")
 }
+
+// A never-probed Indexer carries status.caps == nil. SupportsMode's contract
+// is that a zero Caps supports NOTHING; a caller reading it as "supports
+// everything" would query an indexer that has never answered.
+func TestSupportsModeOnAnUnprobedIndexer(t *testing.T) {
+	require.False(t, SupportsMode(indexv1alpha1.Caps{}, "search"))
+	require.False(t, SupportsMode(indexv1alpha1.Caps{Modes: map[string][]string{}}, "search"))
+}

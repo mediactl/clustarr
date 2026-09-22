@@ -29,6 +29,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // from an Escalation onto an apply. This package only READS the result, to
 // derive the Healthy condition and the requeue delay.
 //
+// [status.SupportsMode] followed it there for the same reason (ruling R39):
+// this package WRITES status.caps, but asking "does this indexer advertise
+// this mode?" is a read-only predicate every consumer needs, and the search
+// fan-out was importing a CONTROLLER to gate its candidates on it. projectCaps
+// and the predicate are still held together by
+// TestModeVocabularyIsTorznabsWireValues, which projects real caps here and
+// asserts through the predicate there.
+//
 // # Field-manager split (design spec §2, Phase D1 rulings R6 and R31)
 //
 // Two writers reach IndexerStatus and each owns a disjoint set, because
