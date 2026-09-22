@@ -49,6 +49,16 @@ import (
 // from the live status so that an apply which changes one field still
 // declares the other five.
 //
+// "Complete" reaches inside status.caps as well: server-side apply tracks
+// ownership per leaf, so capsAC below declares all five of caps' fields
+// rather than just the modes map. It deliberately does NOT seed Conditions.
+// The Indexer reconciler is their only writer and derives all four on every
+// pass, so there is nothing to carry forward -- and the generated
+// WithConditions APPENDS rather than replaces, so a seeded set plus a
+// caller's set is rejected outright with `duplicate entries for key
+// [type="Ready"]`. Conditions are set in exactly one place per apply: the
+// caller's mutate.
+//
 // Protocol is deliberately omitted when empty rather than sent as "": the
 // generated CRD marks it enum [torrent, usenet], so an empty string is
 // rejected outright, and a definition-backed Indexer (M6) cannot resolve a
@@ -135,10 +145,39 @@ func Patch(
 	return err
 }
 
+// capsAC renders status.caps as an apply configuration, and renders EVERY
+// field of it, zero values included.
+//
+// Server-side apply tracks ownership per leaf inside a struct, not for the
+// sub-object as a whole, so this is the same complete-declaration rule one
+// level down: a renderer that sent only caps.modes would release
+// caps.limitsMax, caps.limitsDefault, caps.supportsRawSearch and
+// caps.categories on the next apply that did not re-probe -- and the Indexer
+// reconciler re-applies status every 15 minutes while re-probing caps only
+// every 12 hours, so four of the five fields would have been zeroed within
+// one tick of the probe that set them. That is why limitsMax is sent even
+// when it is 0: an indexer reporting 0 is a different thing from the field
+// being released, and only one of the two is a bug.
+//
+// Modes and Categories are the exception, and it is a shape exception rather
+// than an outcome one: the generated WithModes merges entries and
+// WithCategories APPENDS, so calling either with an empty collection is a
+// no-op that cannot express "empty" anyway. An unprobed or mode-less indexer
+// omits them; there is nothing on the object to release.
 func capsAC(c *indexv1alpha1.Caps) *indexac.CapsApplyConfiguration {
-	ac := indexac.Caps()
+	ac := indexac.Caps().
+		WithLimitsMax(c.LimitsMax).
+		WithLimitsDefault(c.LimitsDefault).
+		WithSupportsRawSearch(c.SupportsRawSearch)
 	if len(c.Modes) > 0 {
 		ac = ac.WithModes(c.Modes)
+	}
+	for _, cat := range c.Categories {
+		catAC := indexac.Category().WithID(cat.ID).WithName(cat.Name)
+		for _, sub := range cat.Sub {
+			catAC = catAC.WithSub(indexac.SubCategory().WithID(sub.ID).WithName(sub.Name))
+		}
+		ac = ac.WithCategories(catAC)
 	}
 	return ac
 }

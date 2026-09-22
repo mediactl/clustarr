@@ -91,7 +91,13 @@ func TestTheTwoManagersDoNotReleaseEachOthersFields(t *testing.T) {
 				WithPrivacy("private").
 				WithProtocol(commonv1.ProtocolTorrent).
 				WithSessionSecretRef("split-session").
-				WithCaps(indexac.Caps().WithModes(map[string][]string{"search": {"q"}}))
+				WithCaps(indexac.Caps().
+					WithModes(map[string][]string{"search": {"q"}}).
+					WithLimitsMax(100).
+					WithLimitsDefault(50).
+					WithSupportsRawSearch(true).
+					WithCategories(indexac.Category().WithID(2000).WithName("Movies").
+						WithSub(indexac.SubCategory().WithID(2040).WithName("Movies/HD"))))
 		}))
 
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), idx))
@@ -157,6 +163,30 @@ func TestTheTwoManagersDoNotReleaseEachOthersFields(t *testing.T) {
 	assert.Equal(t, "private", afterController.Status.Privacy, "the controller apply released its own privacy")
 	assert.Equal(t, "split-session", afterController.Status.SessionSecretRef, "the controller apply released its own sessionSecretRef")
 	assert.NotNil(t, afterController.Status.Caps, "the controller apply released its own caps")
+
+	// status.caps is a struct, and server-side apply tracks ownership per
+	// leaf INSIDE it, not for the sub-object as a whole. A capsAC that
+	// rendered only one of its five fields would therefore pass the NotNil
+	// above while silently releasing the other four on every re-apply --
+	// which is the release bug scoped down one level, and exactly what
+	// this package exists to make impossible. Task D1-3's reconciler
+	// re-probes caps only every 12 hours but re-applies status every 15
+	// minutes, so four of five caps fields would have been zeroed within
+	// the first tick.
+	if caps := afterController.Status.Caps; assert.NotNil(t, caps) {
+		assert.Equal(t, map[string][]string{"search": {"q"}}, caps.Modes, "the controller apply released caps.modes")
+		assert.EqualValues(t, 100, caps.LimitsMax, "the controller apply released caps.limitsMax")
+		assert.EqualValues(t, 50, caps.LimitsDefault, "the controller apply released caps.limitsDefault")
+		assert.True(t, caps.SupportsRawSearch, "the controller apply released caps.supportsRawSearch")
+		if assert.Len(t, caps.Categories, 1, "the controller apply released caps.categories") {
+			assert.EqualValues(t, 2000, caps.Categories[0].ID)
+			assert.Equal(t, "Movies", caps.Categories[0].Name)
+			if assert.Len(t, caps.Categories[0].Sub, 1, "the controller apply released caps.categories[].sub") {
+				assert.EqualValues(t, 2040, caps.Categories[0].Sub[0].ID)
+				assert.Equal(t, "Movies/HD", caps.Categories[0].Sub[0].Name)
+			}
+		}
+	}
 }
 
 // A manager outside the split must be refused rather than allowed to claim
