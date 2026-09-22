@@ -53,10 +53,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // nothing, which is the one safe shortcut under a shared field manager.
 //
 // status.grabsInWindow is a PROJECTION of the KV ring; the ring is the source
-// of truth. The search fan-out and the RSS worker also apply under this
-// manager from their own possibly-stale cached read, so a lost update is
-// possible. It self-heals at the next grab, and a CAS loop for a status field
-// would be the wrong fix.
+// of truth, so a projection this verb loses self-heals at the next grab and a
+// CAS loop for a status field would be the wrong fix.
+//
+// That reasoning covers grabsInWindow and NOTHING ELSE, which is why the
+// apply re-reads the Indexer immediately before it rather than using the
+// object the download started from. Patch re-sends every field the manager
+// owns from whatever status it is handed, so a pre-fetch snapshot rolls back
+// the search fan-out's queriesInWindow -- and CLEARS disabledUntil, because
+// WorkerFields emits it only when non-nil. Silently re-enabling an indexer
+// another writer just put into backoff is not a counter blip that heals, it
+// is the backoff undone until the tracker is hammered into failing again.
+// One Get per download closes the window, as indexarr/worker/rss does for
+// its poll.
 //
 // # Grab accounting, and what it misses
 //

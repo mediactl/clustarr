@@ -298,13 +298,12 @@ func (s *Service) classify(
 	}, resultOK
 }
 
-// countGrab records the grab and projects the ring into status.grabsInWindow.
+// countGrab records the grab and projects the ring into
+// status.grabsInWindow.
 //
 // Both halves are NON-FATAL: the bytes are already in the reply, and an
 // accounting outage must not strand a grab. The ring is the source of truth;
-// status.grabsInWindow is a projection of it, which matters because the search
-// fan-out and the RSS worker also apply under this manager from their own
-// cached read. A lost update there self-heals at the next grab.
+// status.grabsInWindow is a projection of it.
 func (s *Service) countGrab(
 	ctx context.Context, idx *indexv1alpha1.Indexer, guid string, log *slog.Logger,
 ) {
@@ -328,10 +327,42 @@ func (s *Service) countGrab(
 		return
 	}
 	metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, resultGrabCounted).Inc()
-	if n == idx.Status.GrabsInWindow {
+
+	// RE-READ before the apply. idx was fetched before the download, and a
+	// download is one request of up to spec.timeout plus up to
+	// MaxPayloadBytes of body -- seconds, not milliseconds. indexarr/status
+	// seeds the apply from the status it is handed and re-sends EVERY field
+	// this manager owns, so applying a pre-fetch snapshot rolls back whatever
+	// else wrote under k8s.ManagerIndexarrWorker in the meantime: the search
+	// fan-out and the RSS poll share this manager, and a search landing
+	// mid-download would silently lose its queriesInWindow.
+	//
+	// disabledUntil is the one that turns a lost update into a correctness
+	// bug rather than a counter blip. WorkerFields emits it only when
+	// non-nil, so a stale nil snapshot does not roll it back -- it CLEARS
+	// it, silently re-enabling an indexer another writer had just put into
+	// backoff, and undoing the thing that exists to stop us hammering a
+	// failing tracker. It self-heals only when the indexer fails AGAIN,
+	// which is exactly what the backoff was avoiding.
+	//
+	// That is a lost update rather than a server-side-apply release, which
+	// is why no "manager X released field Y" test can see it: both applies
+	// declare the field, the second just declares a stale value. One Get per
+	// download closes the window, as indexarr/worker/rss does for its poll.
+	var fresh indexv1alpha1.Indexer
+	if err := s.Client.Get(ctx, client.ObjectKeyFromObject(idx), &fresh); err != nil {
+		// Non-fatal, like the rest of accounting: the ring holds the grab
+		// and the projection catches up at the next one. Applying the stale
+		// object instead would be the bug this Get exists to prevent.
+		log.Warn("indexarr/download: re-reading the indexer before the grab apply failed",
+			"err", err)
+		tracing.RecordError(span, err)
 		return
 	}
-	if err := idxstatus.Patch(ctx, s.Client, k8s.ManagerIndexarrWorker, idx,
+	if n == fresh.Status.GrabsInWindow {
+		return
+	}
+	if err := idxstatus.Patch(ctx, s.Client, k8s.ManagerIndexarrWorker, &fresh,
 		func(ac *indexac.IndexerStatusApplyConfiguration) {
 			// COMPLETE declaration, every time. Server-side apply REPLACES a
 			// manager's ownership set rather than merging it, so a field
@@ -345,13 +376,15 @@ func (s *Service) countGrab(
 			// assumed -- dropping either one on its own leaves
 			// TestGrabCountDoesNotReleaseTheOtherWorkerFields green, and
 			// only dropping both turns queriesInWindow to 0. It is kept
-			// because it makes the completeness visible where the mutate
-			// is written, and because a caller that hand-built its own
-			// apply configuration is exactly the defect R14 exists to
-			// prevent. WorkerFields sets no list field, so re-seeding
-			// cannot double entries the way a Conditions or Sidecars
-			// reassert would.
-			*ac = *idxstatus.WorkerFields(idx.Status)
+			// because it makes the completeness visible where the mutate is
+			// written, and because a caller that hand-built its own apply
+			// configuration is exactly the defect R14 exists to prevent.
+			// WorkerFields sets no list field, so re-seeding cannot double
+			// entries the way a Conditions or Sidecars reassert would.
+			//
+			// It seeds from FRESH, never from idx: seeding from the
+			// pre-fetch snapshot is the lost update above.
+			*ac = *idxstatus.WorkerFields(fresh.Status)
 			ac.WithGrabsInWindow(n)
 		}); err != nil {
 		log.Warn("indexarr/download: grabsInWindow apply failed", "err", err)

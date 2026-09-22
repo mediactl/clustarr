@@ -128,3 +128,92 @@ func TestASecondGrabAdvancesTheProjection(t *testing.T) {
 	require.Equal(t, int64(4211), after.Status.IndexedReleases)
 	require.NotNil(t, after.Status.LastRssAt)
 }
+
+// TestAGrabDoesNotRollBackAWriteThatLandedDuringTheFetch is the interleaving
+// TestGrabCountDoesNotReleaseTheOtherWorkerFields cannot see. That test counts
+// the grab from the object it just read, so there is no window; here the
+// search fan-out writes DURING the download, exactly as it does in production
+// when a fetch takes seconds.
+//
+// The failure is a lost update, not a server-side-apply release: both applies
+// declare every field the manager owns, the stale one just declares older
+// values. disabledUntil is the reason it is a correctness bug rather than a
+// counter blip -- WorkerFields emits it only when non-nil, so a snapshot
+// taken before the backoff was set does not roll it back, it CLEARS it, and
+// an indexer that was just disabled is silently serving again.
+func TestAGrabDoesNotRollBackAWriteThatLandedDuringTheFetch(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	idx, s := steadyState(t, ctx, c, "dl-interleave", "tr")
+
+	// `idx` is now the pre-fetch snapshot the download verb carries through
+	// f.Fetch: queriesInWindow=11, escalationLevel=2, disabledUntil=nil.
+	require.Nil(t, idx.Status.DisabledUntil)
+
+	// ... and while those bytes are on the wire, the search fan-out records
+	// its own queries and puts the indexer into backoff. Same manager, its
+	// own complete declaration, from its own fresh read.
+	var live indexv1alpha1.Indexer
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &live))
+	until := metav1.NewTime(time.Now().Add(30 * time.Minute).Truncate(time.Second))
+	failedAt := metav1.NewTime(time.Now().Truncate(time.Second))
+	require.NoError(t, idxstatus.Patch(ctx, c, k8s.ManagerIndexarrWorker, &live,
+		func(ac *indexac.IndexerStatusApplyConfiguration) {
+			st := live.Status
+			st.QueriesInWindow = 99
+			st.EscalationLevel = 3
+			st.DisabledUntil = &until
+			st.LastFailureAt = &failedAt
+			st.LastFailure = "indexer returned HTTP 429"
+			*ac = *idxstatus.WorkerFields(st)
+		}))
+
+	// The download finishes and counts its grab, still holding the stale idx.
+	s.CountGrabForTest(ctx, idx, "guid-a")
+
+	var after indexv1alpha1.Indexer
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &after))
+	require.Equal(t, int32(1), after.Status.GrabsInWindow, "the grab was still counted")
+
+	require.NotNil(t, after.Status.DisabledUntil,
+		"the stale snapshot CLEARED the backoff another writer had just set")
+	require.Equal(t, until.Unix(), after.Status.DisabledUntil.Unix())
+	require.Equal(t, int32(99), after.Status.QueriesInWindow,
+		"the stale snapshot rolled back the fan-out's query count")
+	require.Equal(t, int32(3), after.Status.EscalationLevel, "rolled back by a stale snapshot")
+	require.Equal(t, "indexer returned HTTP 429", after.Status.LastFailure,
+		"rolled back by a stale snapshot")
+	require.NotNil(t, after.Status.LastFailureAt, "cleared by a stale snapshot")
+
+	// And the fields nothing touched during the window are still standing.
+	require.Equal(t, int64(4211), after.Status.IndexedReleases)
+	require.NotNil(t, after.Status.LastRssAt)
+}
+
+// A redelivery that arrives after another writer moved the status on must not
+// apply at all: the count did not change, and an apply that does not happen
+// can neither release nor roll back.
+func TestARedeliveredGrabDoesNotRollBackEither(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	idx, s := steadyState(t, ctx, c, "dl-redeliver-stale", "tr")
+
+	s.CountGrabForTest(ctx, idx, "guid-a")
+
+	var live indexv1alpha1.Indexer
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &live))
+	require.NoError(t, idxstatus.Patch(ctx, c, k8s.ManagerIndexarrWorker, &live,
+		func(ac *indexac.IndexerStatusApplyConfiguration) {
+			st := live.Status
+			st.QueriesInWindow = 77
+			*ac = *idxstatus.WorkerFields(st)
+		}))
+
+	// The RPC is retried, still carrying the snapshot from before any of it.
+	s.CountGrabForTest(ctx, idx, "guid-a")
+
+	var after indexv1alpha1.Indexer
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &after))
+	require.Equal(t, int32(1), after.Status.GrabsInWindow)
+	require.Equal(t, int32(77), after.Status.QueriesInWindow, "rolled back by a stale redelivery")
+}
