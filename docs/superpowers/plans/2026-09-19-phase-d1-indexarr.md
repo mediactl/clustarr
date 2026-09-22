@@ -176,6 +176,17 @@ Strip it: `query` answers "what releases have we seen", and a caller that wants 
 
 ---
 
+**R29 — no task writes its own FTS5 MATCH escaping, and the reason is a live DoS found in D1-2.**
+
+The brief for `pkg/relindex` built its MATCH expression with `strings.Fields`, which does **not** split on NUL. A `Query.Text` of `"dune\x00matrix"` therefore bound as one token, the driver handed SQLite a C string truncated at the NUL, and the query failed with `SQL logic error: unterminated string`. `Query.Text` is attacker-controlled — it originates in release titles from third-party indexers — so that is a **one-byte denial of service on every search**, and it was in the plan, not in the implementation. D1-2 found it with the brief's own hostile-input corpus and fixed it by treating control runes as term separators, which is what SQLite's `unicode61` tokenizer does anyway.
+
+The rule this establishes: **`pkg/relindex` owns MATCH escaping, and no caller performs its own.** D1-5 and D1-6 pass raw text into `relindex.Query` and rely on the store, exactly as the interface contract already says. If either is tempted to pre-sanitise, normalise or tokenise the text before handing it over, it must not — a second escaper is a second place for this bug to live, and the two will drift. Any task that believes it needs its own must raise it rather than write one.
+
+**R30 — the same-normaliser contract needs a test outside `pkg/relindex`.**
+D1-2 reports, correctly, that nothing inside the package can catch a mismatch between how `TitleNorm` is produced on the write side and how `Query.Text` is normalised on the read side: the store sees both as opaque strings and would happily index one form and search for another, returning nothing and looking like "no results". The test belongs where both sides are visible — D1-7 writes `TitleNorm`, D1-5 and D1-6 read it — so **D1-5 owns a test that indexes a release through the real write path and finds it through the real query path**, with a title that actually exercises normalisation (mixed case, dots, a release group). Without it the two halves can disagree silently and forever.
+
+---
+
 ## Cross-task interface contract
 
 Phase C's most expensive defects were not inside tasks; they were **between** them — two tasks building the same subject token two ways, a producer and a consumer disagreeing about an envelope key, an interface exported for a neighbour that the neighbour then reimplemented. Every symbol two D1 tasks share is fixed here, verbatim. A task that needs a shape not listed here must ask the controller rather than invent one.
