@@ -1,0 +1,256 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package rss_test
+
+import (
+	"strconv"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/indexarr/worker/rss"
+	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/newznab"
+	"github.com/mediactl/clustarr/pkg/release"
+	"github.com/mediactl/clustarr/pkg/torznab"
+)
+
+func TestProjectReleaseFillsTheIndexerSourcedFields(t *testing.T) {
+	seeders, leechers := int32(42), int32(7)
+	in := torznab.Release{
+		Title:      "The Matrix 1999 1080p BluRay x264-GROUP",
+		GUID:       "https://idx.example/details/9001",
+		Link:       "https://idx.example/download/9001.torrent",
+		CommentURL: "https://idx.example/details/9001",
+		PubDate:    time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC),
+		Size:       8_589_934_592,
+		Categories: []newznab.CategoryID{2040, 2000},
+		Seeders:    &seeders,
+		Leechers:   &leechers,
+		InfoHash:   "0123456789abcdef0123456789abcdef01234567",
+		MagnetURL:  "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
+		IDs:        map[string]string{"imdb": "tt0133093"},
+	}
+
+	got := rss.ProjectRelease(in, "my-indexer", string(commonv1.ProtocolTorrent))
+
+	require.Equal(t, "https://idx.example/details/9001", got.Info.GUID)
+	require.Equal(t, "my-indexer", got.Info.IndexerRef)
+	require.Equal(t, "The Matrix 1999 1080p BluRay x264-GROUP", got.Info.Title,
+		"Info.Title is the RAW title as published, never a cleaned one")
+	require.Equal(t, commonv1.ProtocolTorrent, got.Info.Protocol)
+	require.Equal(t, int64(8_589_934_592), got.Info.SizeBytes)
+	require.Equal(t, "https://idx.example/download/9001.torrent", got.Info.DownloadURL)
+	require.Equal(t, "https://idx.example/details/9001", got.Info.InfoURL)
+	require.Equal(t, []int32{2040, 2000}, got.Info.Categories)
+	require.Equal(t, &seeders, got.Info.Seeders)
+	require.Equal(t, &leechers, got.Info.Leechers)
+	require.Equal(t, "tt0133093", got.Info.IDs["imdb"], "the tt prefix is canonical on the way in")
+	require.Equal(t, "GROUP", got.Info.ReleaseGroup, "filled by ApplyTo, not by hand")
+}
+
+// TestProjectReleaseDoesNotAliasTheWireIDs proves the projection copies the
+// indexer's IDs map rather than borrowing it. ApplyTo WRITES parsed ids into
+// Info.IDs, so an aliased map would have the parser mutating the caller's
+// torznab.Release -- and the caller is the poll loop, which keeps every
+// fetched row alive for the index write that follows.
+func TestProjectReleaseDoesNotAliasTheWireIDs(t *testing.T) {
+	in := torznab.Release{
+		Title: "The.Matrix.1999.1080p.BluRay.x264-GROUP[tmdbid-603]",
+		GUID:  "g",
+		IDs:   map[string]string{"imdb": "tt0133093"},
+	}
+	got := rss.ProjectRelease(in, "idx", "torrent")
+
+	require.Equal(t, map[string]string{"imdb": "tt0133093"}, in.IDs,
+		"ProjectRelease must not write parsed ids back into its argument")
+	require.Equal(t, "603", got.Info.IDs["tmdb"], "the parsed id lands on the projection")
+}
+
+func TestProjectReleasePublishedAtIsNeverBackfilled(t *testing.T) {
+	pub := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	usenet := time.Date(2026, 8, 30, 3, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name string
+		in   torznab.Release
+		want *metav1.Time
+	}{
+		{"pubdate wins", torznab.Release{PubDate: pub}, ptr.To(metav1.NewTime(pub))},
+		{"usenetdate when pubdate is absent", torznab.Release{UsenetDate: &usenet}, ptr.To(metav1.NewTime(usenet))},
+		{"neither reported stays nil", torznab.Release{}, nil},
+		{"an explicitly zero usenetdate stays nil", torznab.Release{UsenetDate: &time.Time{}}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := rss.ProjectRelease(tt.in, "idx", "usenet")
+			require.Equal(t, tt.want, got.Info.PublishedAt)
+		})
+	}
+}
+
+func TestProjectReleaseNilPublishedAtSurvivesJSONRoundTrip(t *testing.T) {
+	// A nil that becomes a zero metav1.Time somewhere in encode/decode is the
+	// same corruption by another route, so assert on the far side of the wire.
+	in := rss.ProjectRelease(torznab.Release{Title: "Some.Release.2026", GUID: "g"}, "idx", "usenet")
+	require.Nil(t, in.Info.PublishedAt)
+
+	name, data, err := schema.Encode(in)
+	require.NoError(t, err)
+	var out schema.Release
+	require.NoError(t, schema.Decode(name, data, &out))
+	require.Nil(t, out.Info.PublishedAt, "nil publishedAt must round-trip as nil, not as the zero time")
+	require.NotContains(t, string(data), "publishedAt", "omitempty must drop the key entirely")
+}
+
+func TestProjectReleaseParsedTitleIsRawAndKindAgrees(t *testing.T) {
+	got := rss.ProjectRelease(torznab.Release{
+		Title: "The.Matrix.1999.1080p.BluRay.x264-GROUP",
+		GUID:  "g",
+	}, "idx", "torrent")
+
+	parsed, err := release.Parse("The.Matrix.1999.1080p.BluRay.x264-GROUP", release.Options{})
+	require.NoError(t, err)
+	require.Equal(t, parsed.Title, got.ParsedTitle,
+		"ParsedTitle is the parser's raw Title; the matcher applies CleanTitle itself")
+	require.Equal(t, int32(1999), got.Year)
+	require.Equal(t, commonv1.MediaKindMovie, got.Kind)
+
+	// The matcher's own key must be derivable from what we sent.
+	require.Equal(t,
+		release.CleanTitle(parsed.Title)+"|1999",
+		release.CleanTitle(got.ParsedTitle)+"|"+strconv.Itoa(int(got.Year)))
+}
+
+func TestProjectReleaseSeriesFields(t *testing.T) {
+	got := rss.ProjectRelease(torznab.Release{
+		Title: "Some.Show.S02E05.1080p.WEB-DL.x265-GRP", GUID: "g",
+	}, "idx", "torrent")
+	require.Equal(t, commonv1.MediaKindEpisode, got.Kind)
+	require.Equal(t, []int32{2}, got.Seasons)
+	require.Equal(t, []int32{5}, got.Episodes)
+	require.False(t, got.FullSeason)
+	require.False(t, got.MultiSeason)
+}
+
+// TestProjectReleaseKindMatchesTheParseThatActuallyRan is the reason
+// ProjectRelease classifies exactly once and feeds the result into
+// release.Options. Parse classifies the ID-STRIPPED title, ClassifyKind
+// classifies whatever it is handed, and rel.Kind is the matcher's first
+// dispatch -- so a Kind taken from a second, separate ClassifyKind call can
+// disagree with the parse that ran and match nothing at all, silently.
+func TestProjectReleaseKindMatchesTheParseThatActuallyRan(t *testing.T) {
+	const title = "Some.Show.S02E05.1080p.WEB-DL.x265-GRP[tvdbid-121361]"
+	got := rss.ProjectRelease(torznab.Release{Title: title, GUID: "g"}, "idx", "torrent")
+
+	parsed, err := release.Parse(title, release.Options{Kind: got.Kind})
+	require.NoError(t, err)
+	require.Equal(t, parsed.Title, got.ParsedTitle,
+		"the wire Kind must be the one that steered the parse we shipped")
+	require.Equal(t, widen32(parsed.Seasons), got.Seasons)
+	require.Equal(t, widen32(parsed.Episodes), got.Episodes)
+}
+
+func widen32(in []int) []int32 {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]int32, len(in))
+	for i, v := range in {
+		out[i] = int32(v)
+	}
+	return out
+}
+
+func TestProjectReleaseIndexerFlagsStayInsideTheEnum(t *testing.T) {
+	zero, half := 0.0, 0.5
+	tests := []struct {
+		name string
+		in   torznab.Release
+		want []string
+	}{
+		{"dvf 0 is freeleech", torznab.Release{DownloadVolumeFactor: &zero}, []string{"freeleech"}},
+		{"dvf 0.5 is halfleech", torznab.Release{DownloadVolumeFactor: &half}, []string{"halfleech"}},
+		{"dvf 1 is neither", torznab.Release{DownloadVolumeFactor: ptr.To(1.0)}, nil},
+		{"tag attrs pass through when known", torznab.Release{
+			Attrs: map[string][]string{"tag": {"internal", "scene"}},
+		}, []string{"internal", "scene"}},
+		{"unknown tags are dropped, not forwarded", torznab.Release{
+			Attrs: map[string][]string{"tag": {"internal", "PersonalRelease", "trumpable"}},
+		}, []string{"internal"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := rss.ProjectRelease(tt.in, "idx", "torrent")
+			require.Equal(t, tt.want, got.Info.IndexerFlags)
+		})
+	}
+}
+
+// TestProjectReleaseIndexerFlagsAreAllEnumMembers holds the allow-list to the
+// CRD's closed enum from the other direction: every value the mapping can
+// emit must be one the apiserver accepts. Otherwise the rejection surfaces at
+// grab time, in grabarr, when Download.spec.release is persisted -- far from
+// here and long after the release looked fine.
+func TestProjectReleaseIndexerFlagsAreAllEnumMembers(t *testing.T) {
+	allowed := map[string]bool{
+		commonv1.IndexerFlagFreeleech: true, commonv1.IndexerFlagHalfleech: true,
+		commonv1.IndexerFlagNeutralleech: true, commonv1.IndexerFlagDoubleUpload: true,
+		commonv1.IndexerFlagInternal: true, commonv1.IndexerFlagExclusive: true,
+		commonv1.IndexerFlagScene: true,
+	}
+	got := rss.ProjectRelease(torznab.Release{
+		DownloadVolumeFactor: ptr.To(0.0),
+		Attrs: map[string][]string{"tag": {
+			"FreeLeech", "halfleech", "NEUTRALLEECH", "doubleupload",
+			"internal", "exclusive", "scene", "nuked", "",
+		}},
+	}, "idx", "torrent")
+
+	require.NotEmpty(t, got.Info.IndexerFlags)
+	for _, f := range got.Info.IndexerFlags {
+		require.True(t, allowed[f], "flag %q is outside ReleaseInfo.IndexerFlags' enum", f)
+	}
+	require.Len(t, got.Info.IndexerFlags, len(allowed), "every enum member is reachable")
+}
+
+func TestProjectReleaseLeavesScoringToTheConsumer(t *testing.T) {
+	got := rss.ProjectRelease(torznab.Release{Title: "X.2026.1080p-G", GUID: "g"}, "idx", "torrent")
+	require.Zero(t, got.Info.FormatScore, "pkg/decision.Evaluate writes this on the consumer side")
+	require.Empty(t, got.Info.MatchedFormats)
+	require.Zero(t, got.FetchedAt, "the publisher stamps FetchedAt, so exactly one place owns it")
+}
+
+// TestProjectReleaseKeepsAnUnparsableTitle proves a title the parser refuses
+// is still published. It can match on tmdb/tvdb ids alone, and dropping it
+// here would hide it from the matcher entirely.
+func TestProjectReleaseKeepsAnUnparsableTitle(t *testing.T) {
+	got := rss.ProjectRelease(torznab.Release{
+		Title: "   ", GUID: "g", Size: 42,
+		IDs: map[string]string{commonv1.IDKeyTMDB: "603"},
+	}, "idx", "torrent")
+
+	require.Equal(t, "g", got.Info.GUID)
+	require.Equal(t, int64(42), got.Info.SizeBytes)
+	require.Equal(t, "603", got.Info.IDs[commonv1.IDKeyTMDB])
+	require.Empty(t, got.ParsedTitle)
+}
