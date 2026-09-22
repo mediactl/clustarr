@@ -32,6 +32,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // manager owns, WorkerFields, which both call. Two callers hand-building
 // their own apply configurations for one manager is precisely how each
 // deletes the other's fields.
+//
+// # The escalation ladder lives here too (ruling R35)
+//
+// health.go holds Prowlarr's backoff ladder -- StartupGrace,
+// EscalationTable, [Escalation], [RecordFailure], [RecordSuccess],
+// [Healthy] -- and [ApplyEscalation] maps an Escalation onto a
+// WorkerFields-seeded apply. It started in indexarr/controller/indexer, which
+// left it with no shared home: that package imports this one, so the mapping
+// could not live beside the field declarations it writes, and every consumer
+// (the RSS poll, the search fan-out, the download verb) had to import a
+// CONTROLLER to compute a backoff. Co-locating the transition with the
+// declaration of the fields the transition writes is the same argument that
+// put WorkerFields in one place.
 package status
 
 import (
@@ -111,6 +124,40 @@ func WorkerFields(st indexv1alpha1.IndexerStatus) *indexac.IndexerStatusApplyCon
 		ac = ac.WithLastRssAt(*st.LastRssAt)
 	}
 	return ac
+}
+
+// ApplyEscalation writes esc's fields onto a [WorkerFields]-seeded apply.
+//
+// It is the one mapping from the escalation ladder to the apply, and it lives
+// beside WorkerFields because it is the only thing that can UNDO that seed.
+// The RSS poll, the search fan-out and the download verb all reach it here
+// rather than each keeping a copy, which is the same argument that put
+// WorkerFields in one place: two hand-rolled versions of one manager's write
+// is exactly how each releases the other's fields.
+//
+// The pointer fields are ASSIGNED rather than set through the generated With*
+// helpers, because a With* helper cannot express "clear this": WorkerFields
+// seeds DisabledUntil, InitialFailureAt and LastFailureAt from the LIVE
+// status, so a recovered indexer whose disabledUntil is now nil must have
+// that seed REMOVED, not carried forward. LastFailure is the same hazard in
+// its non-pointer form -- WorkerFields sends it unconditionally, so a clear
+// has to send "" explicitly, which WithLastFailure(esc.LastFailureMsg) does
+// because RecordSuccess leaves the message empty.
+//
+// Get this wrong and a recovered indexer keeps a stale disable: nothing
+// clears it, nothing logs it, and the indexer never polls again.
+//
+// InitialFailureAt comes from [Escalation.InitialFailure], which defines the
+// 0 -> 1 transition beside the ladder that defines every other transition.
+func ApplyEscalation(
+	ac *indexac.IndexerStatusApplyConfiguration,
+	esc Escalation,
+	cur indexv1alpha1.IndexerStatus,
+) {
+	ac.WithEscalationLevel(esc.FailureLevel).WithLastFailure(esc.LastFailureMsg)
+	ac.DisabledUntil = esc.DisabledUntil
+	ac.LastFailureAt = esc.LastFailureAt
+	ac.InitialFailureAt = esc.InitialFailure(cur)
 }
 
 // Patch applies a complete status declaration under mgr.

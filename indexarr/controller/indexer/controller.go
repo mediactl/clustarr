@@ -307,9 +307,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		k8s.MarkFalse(&idx, &conditions, indexv1alpha1.IndexerConditionRateLimited, k8s.ReasonReconciled, "under the configured limits")
 	}
 
-	healthy := Healthy(idx.Status, now) && outcome.Reason == ""
+	healthy := idxstatus.Healthy(idx.Status, now) && outcome.Reason == ""
 	switch {
-	case !Healthy(idx.Status, now):
+	case !idxstatus.Healthy(idx.Status, now):
 		k8s.MarkFalse(&idx, &conditions, indexv1alpha1.IndexerConditionHealthy, ReasonBackingOff,
 			"backing off until %s (escalation level %d)",
 			idx.Status.DisabledUntil.Time.UTC().Format(time.RFC3339), idx.Status.EscalationLevel)

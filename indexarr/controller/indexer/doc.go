@@ -18,11 +18,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package indexer reconciles index.clustarr.io Indexer objects: it validates
 // the spec, probes Torznab caps, resolves the protocol, the privacy class and
 // the session-Secret reference, and derives the Ready, Authenticated, Healthy
-// and RateLimited conditions. It also exports the health and backoff
-// functions -- RecordFailure, RecordSuccess, Healthy -- that indexarr's RSS
-// worker and search fan-out call. Those are PURE: they compute the next
-// status from the current one and never touch the apiserver, so the caller
-// decides which field manager applies the result.
+// and RateLimited conditions.
+//
+// The health and backoff ladder -- RecordFailure, RecordSuccess, Healthy,
+// StartupGrace, EscalationTable -- is NOT here. It lives in indexarr/status,
+// beside the declaration of the very fields it computes (ruling R35). It
+// moved because indexarr's RSS poll, search fan-out and download verb all
+// need it while this package imports indexarr/status, so a ladder here could
+// never share a home with indexarr/status.ApplyEscalation, the one mapping
+// from an Escalation onto an apply. This package only READS the result, to
+// derive the Healthy condition and the requeue delay.
 //
 // # Field-manager split (design spec §2, Phase D1 rulings R6 and R31)
 //
@@ -84,7 +89,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // lastFailure, queriesInWindow, grabsInWindow, lastRssAt, lastRssNewCount and
 // indexedReleases belong to indexarr-worker. This package READS them (to
 // derive the Healthy and RateLimited conditions and to choose a requeue
-// delay) and EXPORTS RecordFailure/RecordSuccess for the workers to apply. A
+// delay); the workers compute the next set with indexarr/status's
+// RecordFailure/RecordSuccess and apply it themselves. A
 // caps-probe failure therefore moves conditions and the requeue delay and
 // does not move escalationLevel: writing the escalation set here under
 // indexarr-worker would release the counters this reconciler does not know.

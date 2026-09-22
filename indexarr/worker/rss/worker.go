@@ -33,7 +33,6 @@ import (
 
 	indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/index/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
-	"github.com/mediactl/clustarr/indexarr/controller/indexer"
 	idxstatus "github.com/mediactl/clustarr/indexarr/status"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -232,7 +231,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	// Inside the escalation ladder's backoff window. Do not query -- that is
 	// the whole point of the window -- but keep the cadence by scheduling
 	// the poll that lands when the window expires.
-	if !indexer.Healthy(idx.Status, now) {
+	if !idxstatus.Healthy(idx.Status, now) {
 		at := idx.Status.DisabledUntil.Time
 		log.Debug("rss: indexer is backing off; not querying", "until", at)
 		if err := ScheduleNext(ctx, w.Deps.Bus, &idx, at); err != nil {
@@ -278,12 +277,12 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 
 	var (
 		mutate func(*indexac.IndexerStatusApplyConfiguration)
-		esc    indexer.Escalation
+		esc    idxstatus.Escalation
 	)
 	if pollErr != nil {
-		esc = indexer.RecordFailure(idx.Status, now, pollErr.Error())
+		esc = idxstatus.RecordFailure(idx.Status, now, pollErr.Error())
 		mutate = func(ac *indexac.IndexerStatusApplyConfiguration) {
-			applyEscalation(ac, esc, idx.Status)
+			idxstatus.ApplyEscalation(ac, esc, idx.Status)
 		}
 	} else {
 		inserted, published, dropped, err := w.indexAndPublish(ctx, &idx, fetched, now)
@@ -296,7 +295,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		log.Info("rss: poll complete", "fetched", len(fetched),
 			"inserted", inserted, "published", published, "dropped", dropped)
 
-		esc = indexer.RecordSuccess(idx.Status, now)
+		esc = idxstatus.RecordSuccess(idx.Status, now)
 		mutate = func(ac *indexac.IndexerStatusApplyConfiguration) {
 			ac.WithLastRssAt(metav1.NewTime(now)).
 				WithLastRssNewCount(int32(inserted)).
@@ -309,7 +308,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 				// poll's inserted count and it self-corrects at the next
 				// poll.
 				WithIndexedReleases(idx.Status.IndexedReleases + int64(inserted))
-			applyEscalation(ac, esc, idx.Status)
+			idxstatus.ApplyEscalation(ac, esc, idx.Status)
 		}
 	}
 
@@ -334,31 +333,10 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	return nil
 }
 
-// applyEscalation declares the five escalation fields on ac.
-//
-// The pointer fields are ASSIGNED rather than set through the generated
-// With* helpers, because a With* helper cannot express "clear this": the
-// apply configuration comes pre-seeded from the live status by
-// indexarr/status.WorkerFields, so a recovered indexer whose disabledUntil is
-// now nil must have that seed removed, not carried forward.
-//
-// InitialFailureAt comes from Escalation.InitialFailure, which defines the
-// 0 -> 1 transition beside the ladder that defines every other transition.
-func applyEscalation(
-	ac *indexac.IndexerStatusApplyConfiguration,
-	esc indexer.Escalation,
-	cur indexv1alpha1.IndexerStatus,
-) {
-	ac.WithEscalationLevel(esc.FailureLevel).WithLastFailure(esc.LastFailureMsg)
-	ac.DisabledUntil = esc.DisabledUntil
-	ac.LastFailureAt = esc.LastFailureAt
-	ac.InitialFailureAt = esc.InitialFailure(cur)
-}
-
 // retryAfterFailure derives the redelivery delay from the escalation the
 // failure produced, so the redelivery lands when the ladder next permits a
 // query rather than on a schedule that knows nothing about it.
-func retryAfterFailure(esc indexer.Escalation, now time.Time) time.Duration {
+func retryAfterFailure(esc idxstatus.Escalation, now time.Time) time.Duration {
 	d := minFailureRetry
 	if esc.DisabledUntil != nil {
 		d = esc.DisabledUntil.Sub(now)
