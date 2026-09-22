@@ -291,12 +291,13 @@ func NewFetcherFor(c client.Client, lim *ratelimit.Limiter) FetcherFor {
 		f := &fetcher{
 			base:    base.Host,
 			limiter: lim,
-			// The same string indexarr/controller/indexer's limiterKeyFor
-			// produces for this Indexer -- url.Parse(spec.baseURL).Host --
-			// so the reconciler's SetConfig and this Wait address one
-			// bucket. That helper is unexported in a package this task
-			// does not own; a shared key helper is a carried item.
-			key: base.Host,
+			// ONE spelling of the key, shared with the reconciler that
+			// writes this bucket's Config (ruling R38). pkg/ratelimit owns
+			// the convention because it owns the limiter; a divergence here
+			// would not pace this verb twice as fast, it would leave it
+			// entirely unpaced, because a key with no Config falls back to
+			// the Limiter's defaults and those are rate.Inf.
+			key: ratelimit.HostKey(idx.Spec.BaseURL),
 			scrub: scrubber([]string{
 				string(secret["apikey"]), string(secret["passkey"]),
 				string(secret["rss_key"]), string(secret["password"]),

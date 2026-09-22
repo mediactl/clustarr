@@ -122,10 +122,39 @@ func TestRpsFor(t *testing.T) {
 	require.Equal(t, 0.0, rpsFor(metav1.Duration{Duration: -time.Second}))
 }
 
-func TestLimiterKeyFor(t *testing.T) {
-	require.Equal(t, "nzbgeek.info:8080", limiterKeyFor("https://nzbgeek.info:8080/api"))
-	require.Equal(t, "", limiterKeyFor("::not a url"), "a malformed spec must not panic the delete path")
-	require.Equal(t, "", limiterKeyFor(""))
+// TestTheLimiterKeyIsRatelimitHostKey pins the RECONCILER half of a
+// convention that has two halves. The other half is indexarr/download's
+// TestTheFetcherKeysItsLimiterWithRatelimitHostKey, and both anchor on
+// ratelimit.HostKey so neither can drift on its own (ruling R38).
+//
+// This reconciler is the only writer of a key's Config and the download verb
+// only Waits on it. If the two spelled the key differently the Wait would
+// land on a key with NO Config, ratelimit would fall back to the Limiter's
+// defaults, and D1-8 builds the Limiter as ratelimit.New(ratelimit.Config{})
+// -- whose RPS of 0 is rate.Inf. The download verb would be completely
+// unpaced against a private tracker, which is a ban, not a slowdown.
+//
+// The helper's own table (host[:port] only, "" on a malformed URL) moved to
+// pkg/ratelimit's TestHostKey with the function.
+func TestTheLimiterKeyIsRatelimitHostKey(t *testing.T) {
+	// An unlimited default, exactly as D1-8 builds it: a divergent key is
+	// then unpaced rather than merely differently paced, so this test fails
+	// loudly instead of subtly.
+	lim := ratelimit.New(ratelimit.Config{})
+	spec := indexv1alpha1.IndexerSpec{
+		// A port and a path, because both are places a hand-rolled key
+		// drifts: u.Hostname() drops the port, u.String() keeps the path.
+		BaseURL:      "https://tracker.invalid:8443/prowlarr/1",
+		Generic:      &indexv1alpha1.GenericNewznab{},
+		RequestDelay: metav1.Duration{Duration: time.Hour},
+	}
+	_, _, err := buildClient(spec, nil, lim)
+	require.NoError(t, err)
+
+	key := ratelimit.HostKey(spec.BaseURL)
+	require.True(t, lim.Allow(key))
+	require.False(t, lim.Allow(key),
+		"buildClient configured some OTHER key, so ratelimit.HostKey names an unconfigured -- and therefore unlimited -- bucket")
 }
 
 func TestBuildClient(t *testing.T) {
@@ -160,7 +189,7 @@ func TestBuildClient(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, c)
 			require.Equal(t, tc.wantPath, endpoint.Path, "no doubled slash, no dropped base path")
-			require.Equal(t, limiterKeyFor(tc.baseURL), endpoint.Host,
+			require.Equal(t, ratelimit.HostKey(tc.baseURL), endpoint.Host,
 				"the limiter key and the client's host must be the same string")
 		})
 	}

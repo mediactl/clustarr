@@ -37,6 +37,7 @@ import (
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/ratelimit"
 )
 
 func TestSameOrigin(t *testing.T) {
@@ -313,4 +314,39 @@ func TestNewFetcherForRefusesAnUnusableBaseURL(t *testing.T) {
 		_, err := NewFetcherFor(c, nil)(context.Background(), idx)
 		require.ErrorContains(t, err, "spec.baseURL", "baseURL %q", base)
 	}
+}
+
+// TestTheFetcherKeysItsLimiterWithRatelimitHostKey pins the DOWNLOAD half of
+// a convention that has two halves. The other half is
+// indexarr/controller/indexer's TestTheLimiterKeyIsRatelimitHostKey, and both
+// anchor on ratelimit.HostKey so neither can drift on its own (ruling R38).
+//
+// The reconciler is the only writer of a key's Config and this package only
+// Waits on it. Spell the key differently here and the Wait lands on a key
+// with NO Config, ratelimit falls back to the Limiter's defaults, and D1-8
+// builds the Limiter as ratelimit.New(ratelimit.Config{}) -- whose RPS of 0
+// is rate.Inf. This verb would be completely unpaced against a private
+// tracker: a ban, not a slowdown, and nothing would log it.
+func TestTheFetcherKeysItsLimiterWithRatelimitHostKey(t *testing.T) {
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).Build()
+	idx := &indexv1alpha1.Indexer{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "tr"},
+		// A port and a path, because both are places a hand-rolled key
+		// drifts: u.Hostname() drops the port, u.String() keeps the path.
+		Spec: indexv1alpha1.IndexerSpec{BaseURL: "https://tracker.invalid:8443/prowlarr/1"},
+	}
+
+	f, err := NewFetcherFor(c, ratelimit.New(ratelimit.Config{}))(context.Background(), idx)
+	require.NoError(t, err)
+	require.Equal(t, ratelimit.HostKey(idx.Spec.BaseURL), f.(*fetcher).key,
+		"the reconciler's SetConfig and this Wait must address one bucket")
+	require.Equal(t, "tracker.invalid:8443", f.(*fetcher).key,
+		"the port is part of the budget; two services on one machine are two budgets")
+
+	// The error behaviour this call site had before the shared helper is
+	// unchanged: NewFetcherFor refuses an unusable spec.baseURL rather than
+	// quietly pacing everything through HostKey's "" bucket.
+	idx.Spec.BaseURL = "::not a url"
+	_, err = NewFetcherFor(c, nil)(context.Background(), idx)
+	require.ErrorContains(t, err, "unusable spec.baseURL")
 }

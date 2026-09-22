@@ -232,24 +232,6 @@ func rpsFor(delay metav1.Duration) float64 {
 	return 1 / delay.Seconds()
 }
 
-// limiterKeyFor is the indexer HOST, not the object name: two Indexers
-// pointing at one tracker must share one bucket, which is the whole reason
-// the limiter is injected rather than built per client. It is also the key
-// pkg/torznab's client uses internally (its own baseURL host), so the two
-// cannot disagree -- and buildClient below calls this rather than reaching
-// for u.Host itself, so there is one definition of what the key is.
-//
-// It returns "" rather than an error for a malformed URL: every caller
-// already has, or is about to produce, a better error about the URL itself,
-// and a key helper that can fail is a key helper callers skip.
-func limiterKeyFor(baseURL string) string {
-	u, err := url.Parse(baseURL)
-	if err != nil {
-		return ""
-	}
-	return u.Host
-}
-
 // buildClient assembles the Torznab client for one Indexer and returns the
 // resolved API endpoint alongside it.
 //
@@ -285,15 +267,24 @@ func buildClient(spec indexv1alpha1.IndexerSpec, secret map[string][]byte, lim *
 	// A nil limiter disables pacing rather than panicking, the same way a
 	// nil Recorder disables events: it is what lets a unit test build a
 	// Reconciler with nothing but a client. D1-8 always supplies one.
+	//
+	// The key is the indexer HOST, not the object name, and it is spelled by
+	// ratelimit.HostKey rather than reaching for u.Host here (ruling R38).
+	// This reconciler is the only writer of a key's Config; indexarr's search,
+	// RSS and download paths only Wait on it, and the download verb spells its
+	// key with the same function. A second spelling would not pace that verb
+	// twice as fast -- it would leave it entirely unpaced, because an unknown
+	// key falls back to the Limiter's defaults and D1-8 builds it with
+	// ratelimit.New(ratelimit.Config{}).
 	if lim != nil {
-		lim.SetConfig(limiterKeyFor(spec.BaseURL), ratelimit.Config{RPS: rpsFor(spec.RequestDelay), Burst: 1})
+		lim.SetConfig(ratelimit.HostKey(spec.BaseURL), ratelimit.Config{RPS: rpsFor(spec.RequestDelay), Burst: 1})
 	}
 
 	opts := []torznab.ClientOption{torznab.WithTimeout(timeoutFor(spec.Timeout))}
 	if lim != nil {
 		// D1-1 reshaped this option: the limiter carries no key argument,
 		// because the client keys it on its own baseURL host -- the same
-		// string limiterKeyFor returns.
+		// string ratelimit.HostKey returns.
 		opts = append(opts, torznab.WithRateLimit(lim))
 	}
 
