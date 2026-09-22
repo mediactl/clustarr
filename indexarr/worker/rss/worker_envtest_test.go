@@ -326,3 +326,45 @@ var (
 	_ relindex.Store = (*fakeStore)(nil)
 	_ rss.Searcher   = (*fakeSearcher)(nil)
 )
+
+// TestATypedClientIndexerIsNotPolledInAHotLoop is the end-to-end form of the
+// rssInterval floor, and it is here rather than beside the unit test because
+// the hazard is a property of the WIRE, not of the Go value.
+//
+// The Indexer below is created through the typed client with no
+// spec.rssInterval, exactly as every envtest and every future in-cluster
+// creator does. metav1.Duration is a struct and `omitempty` cannot drop it,
+// so client-go sends "rssInterval":"0s" and the apiserver never applies the
+// CRD's 15m default. The object the worker then reads back says zero.
+//
+// Unfloored, the next poll is scheduled at `now`, which the broker can
+// redeliver immediately -- one indexer polled as fast as JetStream will hand
+// the task back. A test that only asserted "a next task was scheduled" would
+// pass on exactly that.
+func TestATypedClientIndexerIsNotPolledInAHotLoop(t *testing.T) {
+	ctx, c, ns := setup(t)
+	newIndexer(t, ctx, c, ns, "idx")
+
+	// The premise, stated rather than assumed: the apiserver did NOT default
+	// it. If this ever starts failing, the floor may no longer be needed --
+	// but find out why before removing it.
+	require.Zero(t, getIndexer(t, ctx, c, ns, "idx").Spec.RssInterval.Duration,
+		"premise changed: a typed create now gets the CRD default")
+
+	bus, nc := newJetStreamBusAndConn(t)
+	w := rss.NewWorker(rss.Deps{
+		Client: c,
+		Bus:    bus,
+		Index:  &fakeStore{inserted: 1},
+		SearcherFor: func(context.Context, *indexv1alpha1.Indexer) (rss.Searcher, error) {
+			return &fakeSearcher{releases: pageOf(1)}, nil
+		},
+		Clock: func() time.Time { return tNow },
+	})
+	require.NoError(t, w.Handle(ctx, rssTaskMessage(t, ns, "idx")))
+
+	uid := string(getIndexer(t, ctx, c, ns, "idx").UID)
+	require.Equal(t, "@at "+tNow.Add(15*time.Minute).Format(time.RFC3339),
+		pendingSchedule(t, nc, uid).schedule,
+		"an unfloored zero interval schedules the next poll at now, and the broker redelivers it immediately")
+}

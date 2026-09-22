@@ -90,8 +90,13 @@ const (
 	// attempts.
 	maxFailureRetry = 15 * time.Minute
 
-	// defaultRssInterval is the poll cadence for an Indexer whose spec
-	// carries none. It matches the CRD's own +kubebuilder:default.
+	// defaultRssInterval mirrors spec.rssInterval's
+	// +kubebuilder:default="15m". It is restated here, rather than relied on
+	// from the apiserver, because that default reaches far fewer objects than
+	// it looks like it does -- see rssInterval.
+	// TestRssIntervalDefaultMatchesTheGeneratedCRD reads the generated schema
+	// and fails if the two drift, so this is a mirror and not a second source
+	// of truth.
 	defaultRssInterval = 15 * time.Minute
 )
 
@@ -598,7 +603,27 @@ func reachedSince(batch []torznab.Release, since *time.Time) bool {
 	return false
 }
 
-// rssInterval is how long until the next poll of idx.
+// rssInterval is how long until the next poll of idx, floored at the CRD's
+// own default.
+//
+// The floor is load-bearing, and the obvious reading of why it is not needed
+// is wrong. An apiserver default fills a field that is ABSENT FROM THE
+// SUBMITTED JSON. metav1.Duration is a struct and `omitempty` does nothing to
+// a struct field, so a typed Go client ALWAYS marshals it: an Indexer created
+// through client-go sends `"rssInterval":"0s"` explicitly and is never
+// defaulted. Only YAML and unstructured creates -- kubectl apply, the chart
+// -- omit the key and get 15m.
+//
+// Unfloored, that zero schedules the next poll at `now`, which is
+// immediately redeliverable: one indexer would be polled as fast as the
+// broker could hand the task back.
+//
+// This is the opposite call from spec.requestDelay, which the Indexer
+// reconciler deliberately does NOT floor, because ratelimit.Config documents
+// RPS <= 0 as unlimited and an explicit `requestDelay: 0s` is therefore a
+// supported "do not pace me". A zero poll interval has no such reading --
+// nobody is asking to poll an indexer infinitely often -- so the two must not
+// be generalised into one rule.
 func rssInterval(idx *indexv1alpha1.Indexer) time.Duration {
 	if d := idx.Spec.RssInterval.Duration; d > 0 {
 		return d
