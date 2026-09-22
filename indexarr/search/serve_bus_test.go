@@ -20,6 +20,7 @@ package search_test
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -389,4 +390,49 @@ func TestStopCancelsAStragglerRatherThanWaitingForIt(t *testing.T) {
 	case <-time.After(4 * time.Second):
 		t.Fatal("stop did not cancel the straggler; it waited out its own side-effect timeout")
 	}
+}
+
+// The gate on Service.inflight has a deterministic observable contract, even
+// though the panic it prevents does not.
+//
+// The panic needs stop() blocked in inflight.Wait() at the instant a new
+// search's Add lifts the counter off zero, and those two cannot be aligned
+// from a test. The INVARIANT can: once stop() has returned, stopping is true
+// under mu, so a search arriving afterwards must launch no worker at all.
+// Serve's own doc is why searches still arrive then -- it cannot deregister
+// the responders, so the subject stays served until the bus closes.
+//
+// Reverting the gate to a bare inflight.Add(1) fails this test by name.
+func TestASearchArrivingAfterStopLaunchesNoWorker(t *testing.T) {
+	ctx := t.Context()
+	bus := newBus(t)
+	idx := usenetIndexer()
+
+	var called atomic.Bool
+	svc := &search.Service{
+		Client: fakeClientWith(idx),
+		ClientFor: func(context.Context, *indexv1alpha1.Indexer) (search.IndexerClient, error) {
+			called.Store(true)
+			return stub{releases: twoReleases()}, nil
+		},
+	}
+	stop, err := search.Serve(ctx, bus, svc)
+	require.NoError(t, err)
+	stop()
+
+	req := searchworker.BuildSearchRequest("media", commonv1.MediaKindMovie,
+		searchworker.TargetIDs{TmdbID: 27205}, 10, false, nil, nil)
+	resp := svc.Search(ctx, req)
+
+	require.False(t, called.Load(),
+		"a worker was launched after stop: inflight.Add can race Wait and panic the process")
+
+	// The candidate is still reported, and still NAMED: "was not asked"
+	// during a shutdown is the same thing to the caller as "was still
+	// running when the reply went out", and a nameless outcome is dropped.
+	require.Len(t, resp.Outcomes, 1)
+	require.Equal(t, schema.SearchOutcomeTimeout, resp.Outcomes[0].Status)
+	require.Equal(t, "nzbgeek", resp.Outcomes[0].IndexerRef.Name)
+	require.Equal(t, "nzbgeek", resp.Outcomes[0].IndexerName)
+	require.Empty(t, resp.Releases)
 }
