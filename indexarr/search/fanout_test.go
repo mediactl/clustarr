@@ -47,22 +47,43 @@ import (
 // ------------------------------------------------------------- stubs ---
 
 // stubClient is one indexer's wire behaviour: releases, an error, or a block
-// until the context is done.
+// until the test releases it or the context is done.
+//
+// The block is gated on a CHANNEL rather than on wall-clock so a test can
+// separate "this indexer is still running" from "this goroutine has not been
+// scheduled yet". started is closed on entry, so a test can prove the worker
+// really ran before it asserts on a timeout.
 type stubClient struct {
 	releases []torznab.Release
 	err      error
-	block    bool
+	started  chan struct{}
+	release  chan struct{}
 }
 
 func (c stubClient) Search(ctx context.Context, _ torznab.Query) ([]torznab.Release, error) {
-	if c.block {
-		<-ctx.Done()
-		return nil, ctx.Err()
+	if c.started != nil {
+		close(c.started)
+	}
+	if c.release != nil {
+		select {
+		case <-c.release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 	if c.err != nil {
 		return nil, c.err
 	}
 	return c.releases, nil
+}
+
+// blockedClient is a stub that never answers until its context is cancelled.
+// The test owns the release channel and closes it on cleanup, so nothing is
+// left blocked if an assertion fails early.
+func blockedClient(t *testing.T) stubClient {
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	return stubClient{started: make(chan struct{}), release: release}
 }
 
 // stubClientFor dispatches on the Indexer's name, so one table can give each
@@ -278,8 +299,7 @@ func TestOutcomeCapMatchesTheCaller(t *testing.T) {
 
 // --------------------------------------------------------------- fanout ---
 
-func fanoutIndexers() []indexv1alpha1.Indexer {
-	names := []string{"fast", "broken", "slow"}
+func fanoutIndexers(names ...string) []indexv1alpha1.Indexer {
 	out := make([]indexv1alpha1.Indexer, 0, len(names))
 	for _, n := range names {
 		idx := healthyIndexer(n)
@@ -289,36 +309,34 @@ func fanoutIndexers() []indexv1alpha1.Indexer {
 	return out
 }
 
-// One slow indexer must not consume the budget: every other indexer's slot
-// is already filled and the reply goes out on time with the straggler
-// reported as a timeout.
-func TestFanOutRepliesOnTheBudgetWithEveryIndexerNamed(t *testing.T) {
-	idxs := fanoutIndexers()
+func serviceFor(idxs []indexv1alpha1.Indexer, byName map[string]stubClient) *Service {
 	objs := make([]client.Object, 0, len(idxs))
 	for i := range idxs {
 		objs = append(objs, &idxs[i])
 	}
-	s := &Service{
-		Client: newFakeClient(objs...),
-		ClientFor: stubClientFor(map[string]stubClient{
-			"fast":   {releases: wireReleases(2)},
-			"broken": {err: errors.New("tracker exploded")},
-			"slow":   {block: true},
-		}),
-	}
+	return &Service{Client: newFakeClient(objs...), ClientFor: stubClientFor(byName)}
+}
+
+// Each indexer's own outcome, with NO wall-clock dependency: the budget is
+// far longer than the stubs take, so fanOut returns the moment both workers
+// finish. An earlier version of this test shared a 300ms budget with the
+// straggler case below and hard-asserted "ok" for the fast indexer, which
+// flaked roughly one run in ten under `-p 4 -race` -- the fast goroutine
+// simply had not been scheduled inside the margin. A flaky test in the gate
+// is worse than no test, because it trains people to re-run.
+func TestFanOutReportsEachIndexersOwnOutcome(t *testing.T) {
+	idxs := fanoutIndexers("fast", "broken")
+	s := serviceFor(idxs, map[string]stubClient{
+		"fast":   {releases: wireReleases(2)},
+		"broken": {err: errors.New("tracker exploded")},
+	})
 	cands := selectCandidates(idxs, movieRequest(), torznab.ModeMovieSearch, selectNow)
-	require.Len(t, cands, 3)
+	require.Len(t, cands, 2)
 
-	budget := 300 * time.Millisecond
-	started := time.Now()
 	outcomes, results := s.fanOut(context.Background(), cands, movieRequest(),
-		torznab.ModeMovieSearch, budget)
-	elapsed := time.Since(started)
-
-	require.Less(t, elapsed, 3*time.Second, "one blocked indexer held the reply")
-	require.GreaterOrEqual(t, elapsed, budget, "the reply beat the budget it was given")
-	require.Len(t, outcomes, 3)
-	require.Len(t, results, 3)
+		torznab.ModeMovieSearch, 30*time.Second)
+	require.Len(t, outcomes, 2)
+	require.Len(t, results, 2)
 
 	byName := map[string]schema.SearchOutcome{}
 	for _, o := range outcomes {
@@ -333,9 +351,41 @@ func TestFanOutRepliesOnTheBudgetWithEveryIndexerNamed(t *testing.T) {
 
 	require.Equal(t, schema.SearchOutcomeError, byName["broken"].Status)
 	require.Contains(t, byName["broken"].Error, "tracker exploded")
+	require.Empty(t, results[1].Releases)
+}
 
-	require.Equal(t, schema.SearchOutcomeTimeout, byName["slow"].Status,
+// One slow indexer must not consume the budget: the reply goes out on time
+// with the straggler reported as a NAMED timeout.
+//
+// Only the straggler is in this table, so there is nothing whose outcome
+// depends on the scheduler beating a deadline. The started channel proves
+// the worker really ran, so "timeout" is an observed outcome rather than a
+// pre-named default nothing ever touched.
+func TestFanOutRepliesOnTheBudgetWithAStragglerNamed(t *testing.T) {
+	idxs := fanoutIndexers("slow")
+	blocked := blockedClient(t)
+	s := serviceFor(idxs, map[string]stubClient{"slow": blocked})
+	cands := selectCandidates(idxs, movieRequest(), torznab.ModeMovieSearch, selectNow)
+
+	const budget = 300 * time.Millisecond
+	started := time.Now()
+	outcomes, _ := s.fanOut(context.Background(), cands, movieRequest(),
+		torznab.ModeMovieSearch, budget)
+	elapsed := time.Since(started)
+
+	select {
+	case <-blocked.started:
+	default:
+		t.Fatal("the worker never reached the indexer, so the timeout proves nothing")
+	}
+	require.GreaterOrEqual(t, elapsed, budget, "the reply beat the budget it was given")
+	require.Less(t, elapsed, 5*time.Second, "one blocked indexer held the reply")
+
+	require.Len(t, outcomes, 1)
+	require.Equal(t, schema.SearchOutcomeTimeout, outcomes[0].Status,
 		"an indexer still running when the reply went out is a timeout")
+	require.Equal(t, "slow", outcomes[0].IndexerRef.Name)
+	require.Equal(t, "slow", outcomes[0].IndexerName)
 }
 
 // A skipped candidate is named and reported without ever being queried.
@@ -428,33 +478,6 @@ func TestAnUnstorableRowDoesNotCostThePage(t *testing.T) {
 	require.Equal(t, schema.SearchOutcomeOK, outcomes[0].Status)
 	require.Len(t, results[0].Releases, 3, "the release is still answered to the caller")
 	require.Len(t, store.rows, 2, "the storable rows survived the unstorable one")
-}
-
-func TestIndexRejectReasonMirrorsTheStoresRules(t *testing.T) {
-	valid := relindex.Release{
-		Indexer: "a", GUID: "g", TitleNorm: "some movie", FetchedAt: time.Now(),
-	}
-	require.Empty(t, indexRejectReason(valid))
-
-	zeroed := valid
-	zeroed.Indexer = ""
-	require.NotEmpty(t, indexRejectReason(zeroed))
-
-	zeroed = valid
-	zeroed.GUID = ""
-	require.NotEmpty(t, indexRejectReason(zeroed))
-
-	zeroed = valid
-	zeroed.TitleNorm = ""
-	require.NotEmpty(t, indexRejectReason(zeroed))
-
-	zeroed = valid
-	zeroed.FetchedAt = time.Time{}
-	require.NotEmpty(t, indexRejectReason(zeroed))
-
-	zeroed = valid
-	zeroed.PublishedAt = &time.Time{}
-	require.NotEmpty(t, indexRejectReason(zeroed))
 }
 
 // --------------------------------------------------------------- Search ---

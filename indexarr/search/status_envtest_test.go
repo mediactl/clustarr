@@ -398,3 +398,57 @@ func TestASkippedIndexerIsNotWrittenAtAll(t *testing.T) {
 	require.Equal(t, int64(1234), got.Status.IndexedReleases)
 	require.NotNil(t, got.Status.LastRssAt)
 }
+
+// hangingClient never answers, so the per-indexer deadline is what ends the
+// query -- the case the escalation ladder exists for.
+type hangingClient struct{}
+
+func (hangingClient) Search(ctx context.Context, _ torznab.Query) ([]torznab.Release, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// An indexer that TIMED OUT must still have its failure recorded.
+//
+// This is the regression test for the per-indexer timeout bounding only the
+// outbound call. If the status apply ran on that same context it would be
+// ALREADY EXPIRED on exactly this path: the Get would fail instantly,
+// recordOutcome would log a warning and return, and an indexer that hangs on
+// every request would never escalate, never be disabled and never stop being
+// queried -- while the reply still, misleadingly, said "timeout".
+//
+// The clock is past idxstatus.StartupGrace so the ladder actually steps; the
+// non-escalating in-grace branch would pass whether or not the apply landed.
+func TestATimedOutIndexerStillRecordsItsEscalation(t *testing.T) {
+	ctx := t.Context()
+	c := requireEnvtest(t)
+	idx := steadyState(t, ctx, c, "search-timeout", "nzbgeek")
+
+	idx.Spec.Timeout = metav1.Duration{Duration: 100 * time.Millisecond}
+	require.NoError(t, c.Update(ctx, idx))
+
+	svc := &search.Service{
+		Client: c,
+		Now:    pastTheStartupGrace(),
+		ClientFor: func(context.Context, *indexv1alpha1.Indexer) (search.IndexerClient, error) {
+			return hangingClient{}, nil
+		},
+	}
+	resp := svc.Search(ctx, searchRequest(idx.Namespace))
+	require.Len(t, resp.Outcomes, 1)
+	require.Equal(t, schema.SearchOutcomeTimeout, resp.Outcomes[0].Status)
+
+	var got indexv1alpha1.Indexer
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &got))
+	require.Equal(t, int32(1), got.Status.EscalationLevel,
+		"a timed-out indexer never escalated: the status apply ran on the expired query context")
+	require.NotNil(t, got.Status.DisabledUntil,
+		"a timed-out indexer was never backed off, so it will be hammered on every search")
+	require.NotEmpty(t, got.Status.LastFailure, "the timeout was not recorded at all")
+	require.NotNil(t, got.Status.InitialFailureAt)
+
+	// ... and the shared manager's other fields survived it.
+	require.NotNil(t, got.Status.LastRssAt)
+	require.Equal(t, int32(7), got.Status.LastRssNewCount)
+	require.Equal(t, int32(3), got.Status.GrabsInWindow)
+}

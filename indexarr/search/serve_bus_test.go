@@ -19,6 +19,7 @@ package search_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -321,5 +322,71 @@ func TestStopIsIdempotentAndDrains(t *testing.T) {
 	case <-done:
 	case <-time.After(10 * time.Second):
 		t.Fatal("stop did not drain the straggler")
+	}
+}
+
+// hangingGetClient blocks every Get on its context. That is exactly where a
+// straggler sits after the reply has gone out: its status apply re-reads the
+// Indexer before applying.
+type hangingGetClient struct {
+	client.Client
+	reached chan struct{}
+	once    sync.Once
+}
+
+func (h *hangingGetClient) Get(
+	ctx context.Context, _ client.ObjectKey, _ client.Object, _ ...client.GetOption,
+) error {
+	h.once.Do(func() { close(h.reached) })
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+// stop must CANCEL the stragglers, not merely wait for them.
+//
+// This is the regression test for rooting the straggler bound in
+// context.AfterFunc(s.srvCtx, cancelWork) rather than in
+// `defer context.AfterFunc(...)()`. The deferred form deregisters the hook
+// the instant fanOut returns -- which is precisely when the stragglers it
+// exists to bound are still running -- so cancelling the service would reach
+// nothing and every straggler would hold the drain open for its full
+// sideEffectTimeout against an apiserver that may already be gone.
+//
+// TestStopIsIdempotentAndDrains cannot see this: there the straggler is
+// bounded by its own per-indexer deadline, which expires long before the
+// drain allowance either way. Here the straggler is blocked in its status
+// apply, which only the service context can end.
+func TestStopCancelsAStragglerRatherThanWaitingForIt(t *testing.T) {
+	ctx := t.Context()
+	bus := newBus(t)
+	idx := usenetIndexer()
+
+	hang := &hangingGetClient{Client: fakeClientWith(idx), reached: make(chan struct{})}
+	svc := &search.Service{
+		Client:    hang,
+		ClientFor: stubClientFor(stub{releases: twoReleases()}),
+	}
+	stop, err := search.Serve(ctx, bus, svc)
+	require.NoError(t, err)
+
+	req := searchworker.BuildSearchRequest("media", commonv1.MediaKindMovie,
+		searchworker.TargetIDs{TmdbID: 27205}, 10, false, nil, nil)
+	req.DeadlineMillis = 1200
+	resp, err := searchworker.NewBusSearchRPC(bus).Search(ctx, req)
+	require.NoError(t, err)
+	require.Len(t, resp.Outcomes, 1)
+
+	select {
+	case <-hang.reached:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the straggler never reached its status apply, so the drain proves nothing")
+	}
+
+	done := make(chan struct{})
+	go func() { stop(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(4 * time.Second):
+		t.Fatal("stop did not cancel the straggler; it waited out its own side-effect timeout")
 	}
 }

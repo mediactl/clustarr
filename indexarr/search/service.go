@@ -98,7 +98,33 @@ type Service struct {
 	// not leave them holding the process open.
 	srvCtx   context.Context
 	stopOnce sync.Once
+
+	// inflight counts stragglers, and mu/stopping gate every Add to it.
+	//
+	// The gate is not optional. Serve's own doc says it CANNOT deregister
+	// the responders -- events.Requester.Serve has no unsubscribe -- so a
+	// search can arrive while stop is already blocked in inflight.Wait().
+	// sync.WaitGroup.Add PANICS when it takes the counter up from zero
+	// concurrently with a Wait, and that panic is process-fatal, so the
+	// window has to be closed rather than narrowed: a plain
+	// `if s.srvCtx.Err() != nil` check before the Add still leaves the
+	// cancel-between-check-and-Add interleaving open. Once stopping is set
+	// under mu, no further Add can happen, and Wait runs only after that.
+	mu       sync.Mutex
+	stopping bool
 	inflight sync.WaitGroup
+}
+
+// addInflight registers one straggler, or reports false when the service is
+// stopping and the worker must not be launched at all. See Service.inflight.
+func (s *Service) addInflight() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stopping {
+		return false
+	}
+	s.inflight.Add(1)
+	return true
 }
 
 func (s *Service) now() time.Time {
@@ -315,6 +341,9 @@ func Serve(ctx context.Context, bus events.Bus, s *Service) (func(), error) {
 	return func() {
 		s.stopOnce.Do(func() {
 			cancel()
+			s.mu.Lock()
+			s.stopping = true
+			s.mu.Unlock()
 			s.inflight.Wait()
 		})
 	}, nil

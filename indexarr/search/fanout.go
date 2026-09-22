@@ -240,8 +240,14 @@ func (s *Service) fanOut(
 			metrics.IndexerQueriesTotal.WithLabelValues(c.Indexer.Name, metricSkipped).Inc()
 			continue
 		}
+		if !s.addInflight() {
+			// The service is stopping. The slot keeps its pre-named
+			// "timeout" default, which is the honest thing to say about an
+			// indexer that was never asked, and the reply goes out at once
+			// instead of adding work to a drain that is already running.
+			continue
+		}
 		wg.Add(1)
-		s.inflight.Add(1)
 		go func(i int, idx *indexv1alpha1.Indexer, q torznab.Query) {
 			defer wg.Done()
 			defer s.inflight.Done()
@@ -422,34 +428,11 @@ func (s *Service) index(ctx context.Context, idx *indexv1alpha1.Indexer, rels []
 	log := logging.FromContext(ctx)
 	rows := make([]relindex.Release, 0, len(rels))
 	for _, r := range rels {
-		info, err := json.Marshal(r)
+		row, err := indexRow(r, idx.Name)
 		if err != nil {
 			log.Warn("indexarr/search: skipping a release that will not encode",
 				"indexer", idx.Name, "err", err)
 			continue
-		}
-		row := relindex.Release{
-			Indexer: idx.Name,
-			GUID:    r.Info.GUID,
-			Title:   r.Info.Title,
-			// TitleNorm is release.CleanTitle, NOT release.Normalize:
-			// relindex stores what it is given and escapes Query.Text
-			// without normalising it, so the indexed column and the query
-			// must go through ONE function or the index answers nothing --
-			// silently, with an empty result set rather than an error.
-			// indexarr/worker/rss writes the same function and
-			// indexarr/query reads with it.
-			TitleNorm:  release.CleanTitle(r.Info.Title),
-			Group:      r.Info.ReleaseGroup,
-			Protocol:   string(r.Info.Protocol),
-			Categories: intsOf(r.Info.Categories),
-			SizeBytes:  r.Info.SizeBytes,
-			// nil stays nil. relindex.Upsert rejects a pointer to the zero
-			// time outright: absence must stay absence rather than become a
-			// date that sorts as ancient.
-			PublishedAt: timePtr(r.Info.PublishedAt),
-			FetchedAt:   r.FetchedAt,
-			InfoJSON:    info,
 		}
 		if reason := indexRejectReason(row); reason != "" {
 			// ONE hostile row must not take the page down with it:
@@ -475,14 +458,49 @@ func (s *Service) index(ctx context.Context, idx *indexv1alpha1.Indexer, rels []
 	return int64(n)
 }
 
+// indexRow renders one projected release as an index row. InfoJSON is the
+// whole schema.Release, so a replay needs no re-query.
+func indexRow(r schema.Release, indexerName string) (relindex.Release, error) {
+	info, err := json.Marshal(r)
+	if err != nil {
+		return relindex.Release{}, fmt.Errorf("indexarr/search: encode index row for %s/%s: %w",
+			indexerName, r.Info.GUID, err)
+	}
+	return relindex.Release{
+		Indexer: indexerName,
+		GUID:    r.Info.GUID,
+		Title:   r.Info.Title,
+		// TitleNorm is release.CleanTitle, NOT release.Normalize: relindex
+		// stores what it is given and escapes Query.Text without normalising
+		// it, so the indexed column and the query must go through ONE
+		// function or the index answers nothing -- silently, with an empty
+		// result set rather than an error. indexarr/worker/rss writes the
+		// same function and indexarr/query reads with it.
+		TitleNorm:  release.CleanTitle(r.Info.Title),
+		Group:      r.Info.ReleaseGroup,
+		Protocol:   string(r.Info.Protocol),
+		Categories: intsOf(r.Info.Categories),
+		SizeBytes:  r.Info.SizeBytes,
+		// nil stays nil. relindex.Upsert rejects a pointer to the zero time
+		// outright: absence must stay absence rather than become a date that
+		// sorts as ancient.
+		PublishedAt: timePtr(r.Info.PublishedAt),
+		FetchedAt:   r.FetchedAt,
+		InfoJSON:    info,
+	}, nil
+}
+
 // indexRejectReason names why relindex.Upsert would refuse row, or "" when
 // it would accept it.
 //
 // It mirrors relindex's own validate (pkg/relindex/upsert.go), as
-// indexarr/worker/rss's rejectReason does for the poll path. The mirror is
-// held to the real store by TestIndexRejectReasonAgreesWithTheRealStore,
-// which zeroes every field of a valid row in turn, rather than by this
-// comment.
+// indexarr/worker/rss's rejectReason does for the poll path, and a guard that
+// restates another package's rules in prose drifts the moment that package
+// gains a rule. So the mirror is held to a REAL sqlite store, in both
+// directions, by TestIndexRejectReasonAgreesWithTheRealStore, with the cases
+// driven by REFLECTION over relindex.Release rather than by a hand-written
+// list -- a hand-written table only varies the dimensions someone thought to
+// vary, so a new rule on a field it never zeroes passes unnoticed.
 func indexRejectReason(row relindex.Release) string {
 	switch {
 	case row.Indexer == "":
