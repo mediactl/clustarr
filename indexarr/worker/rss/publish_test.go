@@ -72,6 +72,14 @@ func startServer(t *testing.T) *natsserver.Server {
 // consumer definition.
 func newJetStreamBus(t *testing.T) events.Bus {
 	t.Helper()
+	bus, _ := newJetStreamBusAndConn(t)
+	return bus
+}
+
+// newJetStreamBusAndConn also hands back the connection, for the few
+// assertions that read the stream's own state rather than consuming it.
+func newJetStreamBusAndConn(t *testing.T) (events.Bus, *nats.Conn) {
+	t.Helper()
 	srv := startServer(t)
 	nc, err := nats.Connect(srv.ClientURL())
 	require.NoError(t, err)
@@ -82,7 +90,7 @@ func newJetStreamBus(t *testing.T) events.Bus {
 	t.Cleanup(func() { _ = bus.Close() })
 
 	require.NoError(t, bus.Ensure(t.Context(), events.Default().ForSingleNode()))
-	return bus
+	return bus, nc
 }
 
 func TestPublishReleasesEnvelopeKeyIsNamespaceSlashIndexerName(t *testing.T) {
