@@ -149,6 +149,21 @@ var (
 		countBuckets,
 		"indexer",
 	)
+
+	// IndexerReleasesDropped counts releases the local index refused, by
+	// indexer. An RSS poll drops them rather than failing the whole page --
+	// relindex validates a batch before it opens its transaction, so one
+	// malformed row would otherwise lose every good release beside it -- and
+	// this is the only signal that it happened.
+	//
+	// There is deliberately no reason label: the reasons are few but the
+	// operator question is "is this indexer sending me garbage", which the
+	// rate alone answers, and the log line carries the reason per row.
+	IndexerReleasesDropped = newCounterVec(
+		"clustarr_indexer_releases_dropped_total",
+		"Total releases dropped because the local index would refuse them, by indexer.",
+		"indexer",
+	)
 )
 
 // Search telemetry, used by catalogarr's release decision pipeline.

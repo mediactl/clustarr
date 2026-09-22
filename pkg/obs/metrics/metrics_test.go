@@ -40,6 +40,7 @@ var wantSeries = []string{
 	"clustarr_indexer_query_duration_seconds",
 	"clustarr_indexer_queries_total",
 	"clustarr_indexer_releases_returned",
+	"clustarr_indexer_releases_dropped_total",
 	"clustarr_search_decisions_total",
 	"clustarr_metadata_cache_hits_total",
 	"clustarr_transcode_jobs_active",

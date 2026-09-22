@@ -269,6 +269,7 @@ Naming follows the Prometheus conventions: `clustarr_` prefix, base units
 | `clustarr_indexer_query_duration_seconds` | histogram | `indexer`, `function` | Which indexers are slow |
 | `clustarr_indexer_queries_total` | counter | `indexer`, `outcome` | Failures, rate limits and bans |
 | `clustarr_indexer_releases_returned` | histogram | `indexer` | Whether an indexer is actually useful |
+| `clustarr_indexer_releases_dropped_total` | counter | `indexer` | Releases the local index refused, so a garbage feed is visible rather than silently thinned (added in Phase D1) |
 | `clustarr_search_decisions_total` | counter | `kind`, `decision`, `reason` | Why releases are rejected, the top support question |
 | `clustarr_metadata_cache_hits_total` | counter | `tier`, `outcome` | Whether the gateway is actually sparing the providers (added in Phase C) |
 | `clustarr_transcode_jobs_active` | gauge | `tier` | CPU versus GPU occupancy |
