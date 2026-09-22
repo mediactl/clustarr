@@ -19,6 +19,7 @@ package indexer
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -144,4 +145,30 @@ func TestFirstNonEmpty(t *testing.T) {
 	require.Equal(t, "a", firstNonEmpty("a", "b"))
 	require.Equal(t, "b", firstNonEmpty("", "b"))
 	require.Equal(t, "", firstNonEmpty("", ""))
+}
+
+// The CEL rule on IndexerSpec is the real guard against a spec with no
+// source, so the apiserver cannot produce the object this exercises. A fake
+// client can, which is the point: a reconciler that trusts a CEL rule it did
+// not write is one apiserver upgrade, or one object created before the rule
+// existed, from a nil dereference -- and the recovery must be terminal, not
+// a hot loop.
+func TestASourcelessSpecIsTerminalAndStillWritesStatus(t *testing.T) {
+	idx := &indexv1alpha1.Indexer{
+		ObjectMeta: metav1.ObjectMeta{Name: "nosource", Namespace: "media", Generation: 1},
+		Spec:       indexv1alpha1.IndexerSpec{BaseURL: "https://x.invalid"},
+	}
+	c := fake.NewClientBuilder().
+		WithScheme(k8s.MustNewScheme()).
+		WithObjects(idx).
+		WithStatusSubresource(idx).
+		Build()
+
+	r := NewReconciler(c, nil, ratelimit.New(ratelimit.Config{}))
+	_, err := r.Reconcile(context.Background(),
+		reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "media", Name: "nosource"}})
+	require.Error(t, err)
+	require.True(t, errors.Is(err, reconcile.TerminalError(nil)),
+		"a spec no edit-free retry can fix must not requeue forever")
+	require.ErrorContains(t, err, "exactly one of spec.definition, spec.definitionRef or spec.generic")
 }

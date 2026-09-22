@@ -140,11 +140,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	var idx indexv1alpha1.Indexer
 	if err := r.Client.Get(ctx, req.NamespacedName, &idx); err != nil {
 		if apierrors.IsNotFound(err) {
-			// The object is already gone, so neither its UID nor its host
-			// is recoverable and nothing can be pruned here. The
-			// DeletionTimestamp branch below is where pruning actually
-			// happens; this path leaves at most one stale map key, bounded
-			// by the number of Indexers that ever existed in this process.
+			// The object is already gone, so its UID -- the caps memo's
+			// key -- is not recoverable and nothing can be pruned here.
+			// Indexer carries no finalizer, so this is in fact the usual
+			// delete path and the DeletionTimestamp branch below only
+			// fires while something else holds the object open. The memo
+			// therefore leaks one 24-byte entry per Indexer this process
+			// ever saw deleted, which is operator-driven and small. Keying
+			// it by name instead would prune here and would be worse: an
+			// Indexer deleted and recreated under the same name is a
+			// different object, and it would inherit a warm memo and skip
+			// the caps probe it needs.
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err

@@ -366,10 +366,11 @@ func TestDefinitionBackedIndexerIsDeferredWithoutAProtocol(t *testing.T) {
 }
 
 // A spec with neither generic nor definition cannot be created through the
-// apiserver -- the CEL rule fires -- so the terminal path is asserted at the
-// unit level instead. The CEL rule is the real guard; this proves the
-// reconciler does not hot-loop if it is ever bypassed.
-func TestReconcileOfAnUncreatableSpecIsTerminal(t *testing.T) {
+// apiserver at all: the type-level CEL rule is the real guard. resolveSource
+// re-checks it in Go for the case where it is bypassed, and that path is
+// asserted at the unit level in controller_test.go, where a fake client can
+// produce an object the apiserver would refuse.
+func TestASpecWithNoSourceIsRejectedByCEL(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
 	ns := newNamespace(t, ctx, c, "idx-cel")
@@ -378,10 +379,17 @@ func TestReconcileOfAnUncreatableSpecIsTerminal(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "nosource", Namespace: ns},
 		Spec:       indexv1alpha1.IndexerSpec{BaseURL: "https://x.invalid"},
 	})
-	require.Error(t, err, "the CRD's CEL rule is the real guard")
+	require.Error(t, err)
 	require.Contains(t, err.Error(), "exactly one of definition, definitionRef or generic must be set")
+}
 
-	// And the Go re-check agrees, terminally.
+// An unusable spec.baseURL is terminal too: no amount of retrying fixes it,
+// and a hot loop on a typo burns an apiserver.
+func TestAnUnusableBaseURLIsTerminal(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	ns := newNamespace(t, ctx, c, "idx-badurl")
+
 	name := types.NamespacedName{Namespace: ns, Name: "bad"}
 	require.NoError(t, c.Create(ctx, &indexv1alpha1.Indexer{
 		ObjectMeta: metav1.ObjectMeta{Name: name.Name, Namespace: ns},
@@ -391,7 +399,7 @@ func TestReconcileOfAnUncreatableSpecIsTerminal(t *testing.T) {
 		},
 	}))
 	r, _ := newReconciler(c)
-	_, err = reconcileOnce(t, r, name)
+	_, err := reconcileOnce(t, r, name)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, reconcile.TerminalError(nil)), "a bad baseURL must not requeue forever")
 
