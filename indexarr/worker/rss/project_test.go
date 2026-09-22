@@ -158,10 +158,10 @@ func TestProjectReleaseSeriesFields(t *testing.T) {
 //
 // It is NOT a regression test for the classify-once change, and saying so is
 // the point: reverting to a second, separate ClassifyKind call leaves every
-// assertion here green, because the two classifications agree for every title
-// shape that actually reaches a feed. The shapes where they diverge are
-// covered by TestProjectReleaseClassifiesRealisticIDShapes and by the KNOWN
-// LIMITATION note on ProjectRelease.
+// assertion here green, because Parse strips ids before classifying and the
+// two answers agree for every title shape that reaches a feed. Where they do
+// differ, pinning is the better of the two --
+// TestProjectReleasePinningTheKindIsNeverWorseThanAutoDetecting measures it.
 func TestProjectReleaseKindMatchesTheParseThatActuallyRan(t *testing.T) {
 	const title = "Some.Show.S02E05.1080p.WEB-DL.x265-GRP[tvdbid-121361]"
 	got := rss.ProjectRelease(torznab.Release{Title: title, GUID: "g"}, "idx", "torrent")
@@ -286,4 +286,44 @@ func TestProjectReleaseClassifiesRealisticIDShapes(t *testing.T) {
 			require.NotEmpty(t, got.ParsedTitle, "a kind the parser refuses ships no parsed fields at all")
 		})
 	}
+}
+
+// TestProjectReleasePinningTheKindIsNeverWorseThanAutoDetecting measures the
+// claim the implementation rests on, rather than asserting it.
+//
+// Parse strips ids and then classifies, while ClassifyKind sees the raw
+// title, so the two can disagree -- and when they do, the question is which
+// is better, not merely which is consistent. For a leading id token, pinning
+// is the only one that parses at all; for the brace form, both fail
+// identically, which is a pkg/release defect (see the KNOWN LIMITATION on
+// ProjectRelease) and not something pinning caused.
+func TestProjectReleasePinningTheKindIsNeverWorseThanAutoDetecting(t *testing.T) {
+	titles := []string{
+		"The.Matrix.1999.1080p.BluRay.x264-GROUP",
+		"The.Matrix.1999.1080p.BluRay.x264-GROUP[tmdbid-603]",
+		"Some.Show.S02E05.1080p.WEB-DL.x265-GRP[tvdbid-121361]",
+		"[tmdbid-603] Show - 12 [1080p].mkv",
+		"[SubsPlease] Show - 12 (1080p) [ABCD1234].mkv",
+		"Some Show S01E01 {tvdbid-121361}",
+	}
+	for _, title := range titles {
+		t.Run(title, func(t *testing.T) {
+			_, autoErr := release.Parse(title, release.Options{})
+			got := rss.ProjectRelease(torznab.Release{Title: title, GUID: "g"}, "idx", "torrent")
+
+			if autoErr == nil {
+				require.NotEmpty(t, got.ParsedTitle,
+					"auto-detection parses this and pinning does not: pinning is worse here")
+				require.NotEmpty(t, got.Kind)
+			}
+		})
+	}
+
+	// The specific shape where pinning is strictly better. If this ever
+	// starts parsing under auto-detection too, the claim above has become
+	// merely "not worse" and the comment should say so.
+	const leading = "[tmdbid-603] Show - 12 [1080p].mkv"
+	_, autoErr := release.Parse(leading, release.Options{})
+	require.Error(t, autoErr, "premise changed: auto-detection now handles a leading id token")
+	require.NotEmpty(t, rss.ProjectRelease(torznab.Release{Title: leading, GUID: "g"}, "idx", "torrent").ParsedTitle)
 }

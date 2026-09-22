@@ -20,6 +20,9 @@ package rss_test
 import (
 	"context"
 	"errors"
+	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,10 +33,15 @@ import (
 	indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/index/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/catalogarr/worker/rssmatcher"
 	idxstatus "github.com/mediactl/clustarr/indexarr/status"
 	"github.com/mediactl/clustarr/indexarr/worker/rss"
+	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/release"
 	"github.com/mediactl/clustarr/pkg/relindex"
+	"github.com/mediactl/clustarr/pkg/torznab"
 )
 
 // driveToSteadyState populates the object the way a live system would: half
@@ -367,4 +375,240 @@ func TestATypedClientIndexerIsNotPolledInAHotLoop(t *testing.T) {
 	require.Equal(t, "@at "+tNow.Add(15*time.Minute).Format(time.RFC3339),
 		pendingSchedule(t, nc, uid).schedule,
 		"an unfloored zero interval schedules the next poll at now, and the broker redelivers it immediately")
+}
+
+// TestHandlePublishesEveryPolledReleaseToTheFirehose closes the gap this whole
+// task exists to close: a producer that does not produce.
+//
+// PublishReleases is well covered on its own, but nothing connected the poll
+// to it -- deleting the call from indexAndPublish left the entire suite green.
+// This drives Handle end to end and consumes through the SHIPPED matcher
+// subscription, which also pins the envelope key to the Indexer object's own
+// metadata.namespace/metadata.name rather than to PublishReleases' arguments.
+func TestHandlePublishesEveryPolledReleaseToTheFirehose(t *testing.T) {
+	ctx, c, ns := setup(t)
+	newIndexer(t, ctx, c, ns, "idx")
+	driveToSteadyState(t, ctx, c, ns, "idx")
+
+	bus, _ := newJetStreamBusAndConn(t)
+
+	var mu sync.Mutex
+	seen := map[string]*events.Envelope{}
+	stop, err := bus.Subscribe(ctx, (&rssmatcher.Handler{}).Subscription(),
+		func(_ context.Context, m events.Message) error {
+			var rel schema.Release
+			if decErr := schema.Decode(m.Envelope().Schema, m.Envelope().Data, &rel); decErr != nil {
+				return decErr
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			seen[rel.Info.GUID] = m.Envelope().Clone()
+			return nil
+		})
+	require.NoError(t, err)
+	t.Cleanup(stop)
+
+	w := rss.NewWorker(rss.Deps{
+		Client: c,
+		Bus:    bus,
+		Index:  &fakeStore{inserted: 3},
+		SearcherFor: func(context.Context, *indexv1alpha1.Indexer) (rss.Searcher, error) {
+			return &fakeSearcher{releases: pageOf(3)}, nil
+		},
+		Clock: func() time.Time { return tNow },
+	})
+	require.NoError(t, w.Handle(ctx, rssTaskMessage(t, ns, "idx")))
+
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(seen) == 3
+	}, 20*time.Second, 20*time.Millisecond,
+		"a poll that fetches releases and publishes none is the one failure this task exists to prevent")
+
+	mu.Lock()
+	defer mu.Unlock()
+	for guid, env := range seen {
+		gotNS, gotIdx, ok := strings.Cut(env.Key, "/")
+		require.True(t, ok, "key %q has no slash: the matcher dead-letters it without a retry", env.Key)
+		require.Equal(t, ns, gotNS, "the namespace on the wire is the Indexer object's own")
+		require.Equal(t, "idx", gotIdx)
+		require.Equal(t, events.MsgIDForRelease("idx", guid), env.ID)
+		require.Equal(t, tNow, env.Time.UTC(), "the publisher stamps FetchedAt and the envelope from one clock")
+	}
+}
+
+// TestOneUnindexableRowDoesNotLoseThePage is the regression for the batch
+// kill.
+//
+// relindex.Upsert validates EVERY row before it opens its transaction and
+// fails the whole batch, so one junk row used to lose every good release
+// beside it -- and because indexAndPublish returns before both the status
+// write and ScheduleNext, the indexer kept reading healthy while its RSS
+// chain ended for good: nothing published, no escalation recorded, and after
+// MaxDeliver the delivery dead-lettered with no pending schedule left to
+// re-seed it.
+//
+// The store here is a REAL sqlite index, not the fake: the fake accepts
+// anything, so it could not have caught this.
+func TestOneUnindexableRowDoesNotLoseThePage(t *testing.T) {
+	ctx, c, ns := setup(t)
+	newIndexer(t, ctx, c, ns, "idx")
+	driveToSteadyState(t, ctx, c, ns, "idx")
+
+	store, closer, err := relindex.Open(ctx, filepath.Join(t.TempDir(), "releases.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, closer.Close()) })
+
+	bus, _ := newJetStreamBusAndConn(t)
+	var mu sync.Mutex
+	var published []string
+	stop, err := bus.Subscribe(ctx, (&rssmatcher.Handler{}).Subscription(),
+		func(_ context.Context, m events.Message) error {
+			var rel schema.Release
+			if decErr := schema.Decode(m.Envelope().Schema, m.Envelope().Data, &rel); decErr != nil {
+				return decErr
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			published = append(published, rel.Info.GUID)
+			return nil
+		})
+	require.NoError(t, err)
+	t.Cleanup(stop)
+
+	// Two good rows and three an indexer can genuinely emit: a symbol-only
+	// title, a CJK title, and an item with no guid at all.
+	//
+	// The CJK title carries NO digits on purpose. release.CleanTitle keeps
+	// [a-z0-9 ], so "日本語のタイトル 2026" normalises to "2026" -- a perfectly
+	// storable row, and a fixture that used it would have proved nothing
+	// while looking like it proved everything.
+	feed := append(pageOf(2),
+		torznab.Release{Title: "★★★", GUID: "junk-symbols"},
+		torznab.Release{Title: "日本語のタイトル", GUID: "junk-cjk"},
+		torznab.Release{Title: "Another.Movie.2011.1080p-GRP", GUID: ""},
+	)
+	// State the premise rather than trusting it: each junk fixture must
+	// genuinely be one the index refuses, or the test proves nothing while
+	// looking like it proves everything.
+	for _, junk := range feed[2:] {
+		require.True(t, release.CleanTitle(junk.Title) == "" || junk.GUID == "",
+			"fixture %q is perfectly storable, so it exercises nothing", junk.Title)
+	}
+
+	w := rss.NewWorker(rss.Deps{
+		Client: c,
+		Bus:    bus,
+		Index:  store,
+		SearcherFor: func(context.Context, *indexv1alpha1.Indexer) (rss.Searcher, error) {
+			return &fakeSearcher{releases: feed}, nil
+		},
+		Clock: func() time.Time { return tNow },
+	})
+	require.NoError(t, w.Handle(ctx, rssTaskMessage(t, ns, "idx")),
+		"one malformed feed row must not fail the delivery")
+
+	// The two good rows reached the index.
+	stored, err := store.Search(ctx, relindex.Query{})
+	require.NoError(t, err)
+	require.Len(t, stored, 2, "the good rows were lost with the junk one")
+
+	// ... and the firehose.
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(published) == 2
+	}, 20*time.Second, 20*time.Millisecond, "the good rows were never published")
+	mu.Lock()
+	require.ElementsMatch(t, []string{"guid-0", "guid-1"}, published)
+	mu.Unlock()
+
+	// The status was written and the chain continues: this is the half that
+	// made the original defect permanent rather than merely lossy.
+	st := getStatus(t, ctx, c, ns, "idx")
+	require.Equal(t, int32(2), st.LastRssNewCount, "new means new to the INDEX, and the junk rows never got there")
+	require.Equal(t, int64(4242+2), st.IndexedReleases)
+	require.Equal(t, tNow, st.LastRssAt.UTC())
+	require.Zero(t, st.EscalationLevel, "a junk row is not the indexer failing")
+}
+
+// TestAPageOfNothingButJunkStillKeepsTheChainAlive is the degenerate case:
+// every row is unindexable, so there is nothing to insert and nothing to
+// publish. The poll must still record itself and schedule the next one.
+func TestAPageOfNothingButJunkStillKeepsTheChainAlive(t *testing.T) {
+	ctx, c, ns := setup(t)
+	newIndexer(t, ctx, c, ns, "idx")
+	driveToSteadyState(t, ctx, c, ns, "idx")
+
+	store, closer, err := relindex.Open(ctx, filepath.Join(t.TempDir(), "releases.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, closer.Close()) })
+
+	bus, nc := newJetStreamBusAndConn(t)
+	w := rss.NewWorker(rss.Deps{
+		Client: c,
+		Bus:    bus,
+		Index:  store,
+		SearcherFor: func(context.Context, *indexv1alpha1.Indexer) (rss.Searcher, error) {
+			return &fakeSearcher{releases: []torznab.Release{
+				{Title: "★★★", GUID: "a"}, {Title: "???", GUID: "b"},
+			}}, nil
+		},
+		Clock: func() time.Time { return tNow },
+	})
+	require.NoError(t, w.Handle(ctx, rssTaskMessage(t, ns, "idx")))
+
+	st := getStatus(t, ctx, c, ns, "idx")
+	require.Zero(t, st.LastRssNewCount)
+	require.Equal(t, int64(4242), st.IndexedReleases)
+	require.Equal(t, tNow, st.LastRssAt.UTC(), "the poll happened, even though it yielded nothing")
+
+	uid := string(getIndexer(t, ctx, c, ns, "idx").UID)
+	require.Equal(t, "@at "+tNow.Add(15*time.Minute).Format(time.RFC3339),
+		pendingSchedule(t, nc, uid).schedule, "the chain must not end on a page of junk")
+}
+
+// TestAConcurrentWorkerWriteSurvivesALongPoll is I3: the status apply seeds
+// from the object it was handed, so a snapshot taken before a minutes-long
+// poll would roll back whatever else wrote under the SAME field manager
+// meanwhile. The search fan-out shares k8s.ManagerIndexarrWorker and owns
+// queriesInWindow and grabsInWindow.
+//
+// This is a lost update, not a server-side-apply release: both applies
+// declare the field, the second just declares a stale value. No "manager X
+// released field Y" test can observe it, which is why it needs its own.
+func TestAConcurrentWorkerWriteSurvivesALongPoll(t *testing.T) {
+	ctx, c, ns := setup(t)
+	newIndexer(t, ctx, c, ns, "idx")
+	driveToSteadyState(t, ctx, c, ns, "idx") // queriesInWindow = 11
+
+	// The search fan-out lands mid-poll, under the same manager.
+	searched := false
+	w := rss.NewWorker(rss.Deps{
+		Client: c,
+		Bus:    newTestBus(t),
+		Index:  &fakeStore{inserted: 1},
+		SearcherFor: func(context.Context, *indexv1alpha1.Indexer) (rss.Searcher, error) {
+			return &fakeSearcher{onSearch: func(torznab.Query) ([]torznab.Release, error) {
+				if !searched {
+					searched = true
+					live := getIndexer(t, ctx, c, ns, "idx")
+					require.NoError(t, idxstatus.Patch(ctx, c, k8s.ManagerIndexarrWorker, live,
+						func(ac *indexac.IndexerStatusApplyConfiguration) {
+							ac.WithQueriesInWindow(12).WithGrabsInWindow(4)
+						}))
+				}
+				return pageOf(1), nil
+			}}, nil
+		},
+		Clock: func() time.Time { return tNow },
+	})
+	require.NoError(t, w.Handle(ctx, rssTaskMessage(t, ns, "idx")))
+
+	st := getStatus(t, ctx, c, ns, "idx")
+	require.Equal(t, int32(12), st.QueriesInWindow,
+		"the poll seeded its apply from a pre-poll snapshot and rolled the search's count back")
+	require.Equal(t, int32(4), st.GrabsInWindow)
+	require.Equal(t, int32(1), st.LastRssNewCount, "and the poll still recorded its own result")
 }

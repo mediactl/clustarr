@@ -96,18 +96,30 @@ func ProjectRelease(r torznab.Release, indexerName, protocol string) schema.Rele
 	// kind matches nothing, silently -- so the classification that steers the
 	// parse and the one on the wire are the same value by construction.
 	//
-	// KNOWN LIMITATION, and the reason the carry-forward exists: ClassifyKind
-	// sees the id token, Parse does not. Every id shape that actually appears
-	// in a Torznab feed is a TRAILING bracket -- "...x264-GRP[tmdbid-603]",
-	// "[imdbid-tt0133093]" -- and those classify identically either way
-	// (TestProjectReleaseClassifiesRealisticIDShapes pins it). Two shapes do
-	// not: a LEADING "[tmdbid-603] " reads as an anime group prefix, and a
-	// brace form "{tvdbid-121361}" matches ClassifyKind's audiobook narrator
-	// token, so "Some Show S01E01 {tvdbid-121361}" classifies as an
-	// audiobook, Parse then refuses it, and the release ships with no parsed
-	// fields at all. It fails closed rather than shipping a confident wrong
-	// kind, and the fix is a Kind field on release.ParsedRelease -- a
-	// pkg/release change no Phase D1 task owns, filed as a carry-forward.
+	// Pinning the kind is never WORSE than letting Parse classify, and is
+	// sometimes better. Measured, not assumed:
+	//
+	//	"[tmdbid-603] Show - 12 [1080p].mkv"  pinned: parses as an episode
+	//	                                      auto:   fails outright
+	//	"Some Show S01E01 {tvdbid-121361}"    pinned and auto: identical
+	//
+	// because Parse strips ids and then classifies, and this pins the kind
+	// its own ClassifyKind would have chosen on the raw title.
+	//
+	// KNOWN LIMITATION, and it lives in pkg/release, not here. A
+	// brace-delimited id is mishandled twice over: ClassifyKind's audiobook
+	// marker is `\{[^}]+\}`, so "{tvdbid-121361}" reads as a narrator token
+	// and the title classifies as an audiobook; and extractIDs does not
+	// recognise the brace form, so even when it strips the value it leaves
+	// "{imdbid-}" behind and the audiobook classification sticks. Parse then
+	// refuses the title against the book patterns and the release ships with
+	// no parsed fields at all -- failing closed rather than shipping a
+	// confident wrong kind.
+	//
+	// A Kind field on release.ParsedRelease -- the carry-forward the brief
+	// names -- would NOT fix this: both classifications already agree, and
+	// they agree on the wrong answer. The fix is in ClassifyKind's marker and
+	// extractIDs' id patterns. Neither is a Phase D1 path.
 	kind := release.ClassifyKind(r.Title)
 	parsed, err := release.Parse(r.Title, release.Options{Kind: kind})
 	if err != nil {

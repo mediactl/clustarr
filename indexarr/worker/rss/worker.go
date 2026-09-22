@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -252,6 +253,29 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		return events.Retry(retryAfterShutdown, pollErr)
 	}
 
+	// Re-read before anything reads status again.
+	//
+	// idx was fetched before the poll, and a poll is up to maxPages requests
+	// of spec.timeout each -- minutes, not milliseconds. indexarr/status
+	// seeds the apply from the status it is handed and re-sends EVERY field
+	// this manager owns, so applying a minutes-old snapshot would roll back
+	// whatever else wrote under k8s.ManagerIndexarrWorker in the meantime:
+	// the search fan-out shares this manager and owns queriesInWindow and
+	// grabsInWindow, so a search landing mid-poll would silently lose its
+	// count.
+	//
+	// That is a lost update rather than a server-side-apply release, which is
+	// why no "manager X released field Y" test can see it: both applies
+	// declare the field, the second just declares a stale value. One Get per
+	// poll closes the window.
+	if err := w.Deps.Client.Get(ctx, key, &idx); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Debug("rss: indexer was deleted during the poll")
+			return nil
+		}
+		return events.Retry(readRetry, err)
+	}
+
 	var (
 		mutate func(*indexac.IndexerStatusApplyConfiguration)
 		esc    indexer.Escalation
@@ -262,23 +286,25 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 			applyEscalation(ac, esc, idx.Status)
 		}
 	} else {
-		inserted, published, err := w.indexAndPublish(ctx, &idx, fetched, now)
+		inserted, published, dropped, err := w.indexAndPublish(ctx, &idx, fetched, now)
 		if err != nil {
 			return events.Retry(statusRetry, err)
 		}
-		log.Info("rss: poll complete", "fetched", len(fetched), "inserted", inserted, "published", published)
+		log.Info("rss: poll complete", "fetched", len(fetched),
+			"inserted", inserted, "published", published, "dropped", dropped)
 
 		esc = indexer.RecordSuccess(idx.Status, now)
 		mutate = func(ac *indexac.IndexerStatusApplyConfiguration) {
 			ac.WithLastRssAt(metav1.NewTime(now)).
 				WithLastRssNewCount(int32(inserted)).
-				// A read-modify-write, deliberately without a CAS loop.
-				// relindex.Store is fixed at four methods and Stats has no
-				// per-indexer breakdown, so a running total is the only
-				// source. MaxAckPending is 4, so two concurrent polls of the
-				// SAME indexer need a duplicate schedule to fire; the lost
-				// update is then at most one poll's inserted count and it
-				// self-corrects at the next poll.
+				// A read-modify-write on the JUST-re-read object. It is
+				// deliberately without a CAS loop: relindex.Store is fixed at
+				// four methods and Stats has no per-indexer breakdown, so a
+				// running total is the only source. MaxAckPending is 4, so
+				// two concurrent polls of the SAME indexer need a duplicate
+				// schedule to fire; the lost update is then at most one
+				// poll's inserted count and it self-corrects at the next
+				// poll.
 				WithIndexedReleases(idx.Status.IndexedReleases + int64(inserted))
 			applyEscalation(ac, esc, idx.Status)
 		}
@@ -443,7 +469,8 @@ func (w *Worker) indexAndPublish(
 	idx *indexv1alpha1.Indexer,
 	fetched []torznab.Release,
 	now time.Time,
-) (inserted, published int, err error) {
+) (inserted, published, dropped int, err error) {
+	log := logging.FromContext(ctx)
 	protocol := idx.Status.Protocol
 	if protocol == "" && idx.Spec.Generic != nil {
 		// A generic upstream declares its protocol in the spec, so a poll
@@ -457,12 +484,29 @@ func (w *Worker) indexAndPublish(
 	for _, r := range fetched {
 		rel := ProjectRelease(r, idx.Name, string(protocol))
 		rel.FetchedAt = now
-		projected = append(projected, rel)
 
 		row, rowErr := indexRow(rel, idx.Name, now)
 		if rowErr != nil {
-			return 0, 0, rowErr
+			return 0, 0, 0, rowErr
 		}
+		// ONE hostile row must not take the page down with it. Upsert
+		// validates the whole batch before it opens its transaction and
+		// fails all of it, and this poll would then return before both the
+		// status write and ScheduleNext -- so nothing publishes, no failure
+		// is recorded (the Indexer reads perfectly healthy), and after
+		// MaxDeliver the delivery is dead-lettered with no pending schedule
+		// left. The junk row is still in the feed next time and nothing
+		// re-seeds the chain. That is permanent, silent, and reachable from
+		// upstream XML: CleanTitle("???") and CleanTitle of any title with
+		// no ASCII alphanumerics -- CJK, Cyrillic, Hangul -- are all "", and
+		// pkg/torznab does not backfill an absent GUID.
+		if reason := rejectReason(row); reason != "" {
+			dropped++
+			log.Warn("rss: dropping a release the index cannot store",
+				"reason", reason, "guid", rel.Info.GUID, "title", clip(rel.Info.Title))
+			continue
+		}
+		projected = append(projected, rel)
 		rows = append(rows, row)
 	}
 
@@ -473,7 +517,14 @@ func (w *Worker) indexAndPublish(
 	if w.Deps.Index != nil && len(rows) > 0 {
 		inserted, err = w.Deps.Index.Upsert(ctx, rows)
 		if err != nil {
-			return 0, 0, fmt.Errorf("rss: index %d releases: %w", len(rows), err)
+			// Deliberately still fatal for this delivery. rejectReason
+			// filters everything the store rejects today, so reaching here
+			// means either a real storage failure -- a locked file, a full
+			// disk, worth a retry -- or a validation rule that rejectReason
+			// has drifted away from, which must be loud rather than
+			// swallowed. TestRejectReasonAgreesWithTheRealStore is what
+			// keeps the second case from being reachable.
+			return 0, 0, dropped, fmt.Errorf("rss: index %d releases: %w", len(rows), err)
 		}
 	}
 
@@ -493,10 +544,60 @@ func (w *Worker) indexAndPublish(
 	if len(projected) > 0 {
 		published, err = PublishReleases(ctx, w.Deps.Bus, idx.Namespace, idx.Name, projected)
 		if err != nil {
-			return inserted, published, err
+			return inserted, published, dropped, err
 		}
 	}
-	return inserted, published, nil
+	return inserted, published, dropped, nil
+}
+
+// maxLoggedTitle caps a release title in a log line. The title is untrusted
+// upstream XML and nothing else bounds it.
+const maxLoggedTitle = 200
+
+// clip shortens s for a log line, backing up to a rune boundary so a
+// multi-byte sequence is never cut in half.
+func clip(s string) string {
+	if len(s) <= maxLoggedTitle {
+		return s
+	}
+	n := maxLoggedTitle
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
+
+// rejectReason names why relindex.Upsert would refuse row, or "" when it
+// would accept it.
+//
+// It mirrors relindex's own validate (pkg/relindex/upsert.go) rather than
+// re-deriving the rules, and mirroring is normally how a guard drifts --
+// so the mirror is held to the real thing by a contract test against a real
+// sqlite store (TestRejectReasonAgreesWithTheRealStore), not by a comment.
+//
+// Only the first two are reachable from a feed. indexRow always sets Indexer
+// to the object name and FetchedAt to the poll clock, and only ever sets
+// PublishedAt from a non-nil, non-zero value -- but they are mirrored anyway,
+// because "structurally impossible today" is a property of indexRow, and the
+// batch-kill this guards is too expensive to leave resting on that.
+func rejectReason(row relindex.Release) string {
+	switch {
+	case row.Indexer == "":
+		return "the indexer name is empty"
+	case row.GUID == "":
+		return "the indexer reported no guid"
+	case row.TitleNorm == "":
+		// release.CleanTitle strips everything outside [a-z0-9 ], so a title
+		// made only of punctuation, symbols or non-Latin script normalises
+		// to nothing. The row would be invisible to every text search while
+		// still counting in Stats, which is why the store refuses it.
+		return "the title normalises to nothing, so the row would be unsearchable"
+	case row.FetchedAt.IsZero():
+		return "fetchedAt is the zero time"
+	case row.PublishedAt != nil && row.PublishedAt.IsZero():
+		return "publishedAt points at the zero time; absence must be nil"
+	}
+	return ""
 }
 
 // indexRow renders one projected release as an index row. InfoJSON is the
