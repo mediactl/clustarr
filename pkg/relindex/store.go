@@ -286,8 +286,16 @@ func (s *sqliteStore) Close() error {
 	defer s.wmu.Unlock()
 
 	var errs []error
-	if _, err := s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
-		errs = append(errs, fmt.Errorf("relindex: checkpoint wal: %w", err))
+	// Search and Stats deliberately take no lock (WAL allows many readers),
+	// so wmu does not exclude them here and a reader holding a snapshot can
+	// make TRUNCATE return SQLITE_BUSY. That is benign -- SQLite replays the
+	// WAL on the next open -- but reporting it as a Close error would make
+	// every caller's `defer Close()` a latent flake. Try a plain checkpoint
+	// first and only report a failure that is not busy.
+	if _, err := s.db.ExecContext(context.Background(), `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		if !isBusy(err) {
+			errs = append(errs, fmt.Errorf("relindex: checkpoint wal: %w", err))
+		}
 	}
 	if err := s.db.Close(); err != nil {
 		errs = append(errs, fmt.Errorf("relindex: close %s: %w", s.path, err))
@@ -304,4 +312,11 @@ func ExportedForTestDB(s Store) (*sql.DB, bool) {
 		return nil, false
 	}
 	return impl.db, true
+}
+
+// isBusy reports whether err is SQLite's "database is busy" or "locked",
+// which a WAL checkpoint returns while any reader still holds a snapshot.
+func isBusy(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "busy") || strings.Contains(msg, "locked")
 }

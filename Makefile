@@ -100,7 +100,17 @@ docker-build: ## Build controller and media images.
 # starves the apiservers: suites fail in a DIFFERENT package on each run, pass
 # 3/3 in isolation, and read as a mystery flake rather than as contention.
 # Raise it on a bigger machine; lower it if the flake reappears.
+# Lower this if envtest suites start failing with "timeout waiting for process
+# kube-apiserver to start". Each suite runs its own control plane, so the limit
+# is the machine's, not the code's -- and the failure lands in a DIFFERENT
+# package on each run, which reads as a mystery flake rather than as contention.
+# 4 is comfortable on an idle machine; a box already running other clusters
+# wants 2.
 TEST_PARALLEL ?= 4
+
+test-race: envtest ## Run the suites under the race detector.
+	@mkdir -p "$${CLUSTARR_TEST_MEDIA_ROOT:-/data/media}" 2>/dev/null || true
+	KUBEBUILDER_ASSETS="$(shell $(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test ./... -race -p $(TEST_PARALLEL)
 
 test: envtest ## Run unit and envtest suites.
 	@mkdir -p "$${CLUSTARR_TEST_MEDIA_ROOT:-/data/media}" 2>/dev/null || echo "warning: could not create $${CLUSTARR_TEST_MEDIA_ROOT:-/data/media}; importarr's scan suites will skip"

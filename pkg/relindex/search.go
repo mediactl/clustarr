@@ -34,6 +34,9 @@ import (
 // stable order -- without it, a paged caller can see the same row twice.
 //
 // It takes no write lock: under WAL a reader never blocks and is never blocked.
+// maxCapHint bounds the slice pre-allocation a caller's Limit can request.
+const maxCapHint = 1024
+
 func (s *sqliteStore) Search(ctx context.Context, q Query) ([]Release, error) {
 	var (
 		sb   strings.Builder
@@ -103,9 +106,14 @@ func (s *sqliteStore) Search(ctx context.Context, q Query) ([]Release, error) {
 	}
 	defer func() { _ = rows.Close() }()
 
-	capHint := 0
-	if q.Limit > 0 {
-		capHint = q.Limit
+	// Cap the allocation hint. q.Limit is caller-supplied and reaches here
+	// from an RPC, so honouring it literally lets a request with
+	// Limit: 10_000_000 pre-allocate that many Release structs before a
+	// single row is read. The cap costs one re-grow on a genuinely large
+	// result set and removes the amplification.
+	capHint := min(q.Limit, maxCapHint)
+	if capHint < 0 {
+		capHint = 0
 	}
 	out := make([]Release, 0, capHint)
 	for rows.Next() {
