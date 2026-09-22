@@ -153,6 +153,11 @@ func (s *Service) Search(ctx context.Context, req schema.SearchRequest) schema.S
 
 	cands := selectCandidates(list.Items, req, mode, s.now())
 	outcomes, results := s.fanOut(ctx, cands, req, mode, budget)
+
+	fetched := 0
+	for _, r := range results {
+		fetched += len(r.Releases)
+	}
 	rels, truncated := mergeReleases(results, limitOf(req))
 
 	span.SetAttributes(
@@ -160,8 +165,13 @@ func (s *Service) Search(ctx context.Context, req schema.SearchRequest) schema.S
 		attribute.Int("search.releases", len(rels)),
 		attribute.Bool("search.truncated", truncated),
 	)
+	// fetched alongside releases is the only visibility into the merge:
+	// spec §6.2's "alsoOn" provenance -- which OTHER indexers offered a
+	// release that was collapsed -- has no field on schema.Release or
+	// commonv1.ReleaseInfo, and the payload is frozen. Carried item.
 	log.Info("indexarr/search: replied",
-		"kind", req.Kind, "candidates", len(cands), "releases", len(rels), "truncated", truncated)
+		"kind", req.Kind, "candidates", len(cands), "fetched", fetched,
+		"releases", len(rels), "truncated", truncated)
 	return schema.SearchResponse{
 		Releases:  rels,
 		Outcomes:  capOutcomes(outcomes),
