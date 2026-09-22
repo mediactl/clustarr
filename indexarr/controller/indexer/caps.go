@@ -23,7 +23,6 @@ import (
 	"sort"
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/newznab"
 	"github.com/mediactl/clustarr/pkg/torznab"
 )
 
@@ -107,5 +106,3 @@ func clampInt32(n int) int32 {
 		return int32(n)
 	}
 }
-
-var _ = newznab.Category{}

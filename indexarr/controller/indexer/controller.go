@@ -77,6 +77,10 @@ type Reconciler struct {
 	// instance to this reconciler, to the search fan-out and to the RSS
 	// worker, so all three share one bucket per host.
 	//
+	// Like Recorder, it is optional: a nil Limiters disables pacing rather
+	// than panicking, which is what lets a unit test construct a
+	// Reconciler with nothing but a client.
+	//
 	// Remove() is deliberately never called, not even when an Indexer is
 	// deleted. The key is a HOST, not an object, and several Indexers
 	// pointing at one host is the expected topology rather than the
@@ -198,6 +202,22 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		// The Cardigann engine, IndexerDefinition ingestion and the login
 		// flow are M6 (§16). Unknown, not False: nothing is wrong with
 		// this Indexer, there is simply no code to drive it yet.
+		//
+		// KNOWN LIMITATION, recorded rather than fixed. An Indexer
+		// CONVERTED from spec.generic to spec.definition keeps the
+		// status.protocol and status.privacy resolved under its previous
+		// shape, because this return happens before they are recomputed
+		// and ControllerFields re-sends what is on the object. Clearing
+		// protocol is not available: the CRD marks it enum [torrent,
+		// usenet], so ControllerFields must OMIT it when empty, and
+		// omitting it releases it -- which on a freshly-converted object
+		// is right and on one that has been converted for a while is
+		// indistinguishable from the release bug. What does tell an
+		// operator the fields are not being maintained is
+		// Ready=Unknown/DefinitionNotImplemented plus the stale
+		// observedGeneration on the carried-forward conditions. M6 owns
+		// the real fix: it resolves both fields FROM the definition, at
+		// which point this branch stops existing.
 		k8s.SetCondition(&idx, &conditions, k8s.NewCondition(
 			indexv1alpha1.IndexerConditionReady, metav1.ConditionUnknown,
 			ReasonDefinitionNotImplemented,

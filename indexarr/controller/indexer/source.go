@@ -149,8 +149,47 @@ func readSecret(ctx context.Context, c client.Client, ns string, ref *corev1.Loc
 	return s.Data, nil
 }
 
+// CRD defaults, restated here because a Go-built IndexerSpec never passes
+// through the apiserver's defaulting and the zero value of each is a hazard
+// rather than a choice. TestSpecDefaultsMatchTheGeneratedCRD reads the
+// generated schema and fails if either drifts, so this is a mirror rather
+// than a second source of truth.
+const (
+	// defaultTimeout mirrors spec.timeout's +kubebuilder:default="30s".
+	defaultTimeout = 30 * time.Second
+
+	// defaultRequestDelay mirrors spec.requestDelay's
+	// +kubebuilder:default="2s". It is documentation and a test anchor
+	// only: see rpsFor for why requestDelay is NOT floored.
+	defaultRequestDelay = 2 * time.Second
+)
+
+// timeoutFor floors spec.timeout.
+//
+// torznab.NewClient seeds its own 30s default and then applies the options,
+// so WithTimeout(0) OVERWRITES that default with "no timeout" -- an indexer
+// that accepts the connection and never answers would hold the reconcile
+// until the controller's own 5-minute ReconciliationTimeout fired, once per
+// tick, per indexer. The CRD's default covers every object the apiserver
+// created; this covers the rest.
+func timeoutFor(timeout metav1.Duration) time.Duration {
+	if timeout.Duration <= 0 {
+		return defaultTimeout
+	}
+	return timeout.Duration
+}
+
 // rpsFor converts spec.requestDelay (default 2s) into a token-bucket rate.
 // ratelimit.Config treats RPS <= 0 as unlimited and Burst <= 0 as 1.
+//
+// Unlike timeoutFor, this deliberately does NOT floor at the CRD default.
+// A kubebuilder default fills an ABSENT field, so an explicit
+// `requestDelay: 0s` survives it, and ratelimit.Config documents RPS <= 0 as
+// unlimited on purpose -- that pair is a supported "do not pace this
+// indexer", and nothing downstream can tell it apart from a field that
+// skipped defaulting. Flooring here would silently overrule the operator.
+// The zero timeout has no such reading: nobody wants a probe that never
+// returns.
 func rpsFor(delay metav1.Duration) float64 {
 	if delay.Duration <= 0 {
 		return 0
@@ -208,15 +247,22 @@ func buildClient(spec indexv1alpha1.IndexerSpec, secret map[string][]byte, lim *
 	}
 	endpoint := base.JoinPath(apiPath)
 
-	lim.SetConfig(limiterKeyFor(spec.BaseURL), ratelimit.Config{RPS: rpsFor(spec.RequestDelay), Burst: 1})
+	// A nil limiter disables pacing rather than panicking, the same way a
+	// nil Recorder disables events: it is what lets a unit test build a
+	// Reconciler with nothing but a client. D1-8 always supplies one.
+	if lim != nil {
+		lim.SetConfig(limiterKeyFor(spec.BaseURL), ratelimit.Config{RPS: rpsFor(spec.RequestDelay), Burst: 1})
+	}
 
-	c, err := torznab.NewClient(endpoint.String(), string(secret["apikey"]),
-		torznab.WithTimeout(spec.Timeout.Duration),
+	opts := []torznab.ClientOption{torznab.WithTimeout(timeoutFor(spec.Timeout))}
+	if lim != nil {
 		// D1-1 reshaped this option: the limiter carries no key argument,
 		// because the client keys it on its own baseURL host -- the same
 		// string limiterKeyFor returns.
-		torznab.WithRateLimit(lim),
-	)
+		opts = append(opts, torznab.WithRateLimit(lim))
+	}
+
+	c, err := torznab.NewClient(endpoint.String(), string(secret["apikey"]), opts...)
 	if err != nil {
 		return nil, nil, err
 	}

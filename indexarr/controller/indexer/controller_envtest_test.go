@@ -660,9 +660,17 @@ func TestCapsAreMemoisedUntilTheGenerationChanges(t *testing.T) {
 	require.EqualValues(t, 2, hits.Load(), "a spec change must re-probe")
 }
 
-// A deleted Indexer frees its memo and its limiter bucket, and reconciles
-// cleanly when the object is already gone.
-func TestDeletionPrunesTheMemoAndTheLimiter(t *testing.T) {
+// A request for an Indexer that is not there -- deleted between the watch
+// event and the Get, or never created -- reconciles cleanly and does not
+// requeue. Indexer carries no finalizer, so this is in fact the ordinary
+// delete path.
+//
+// What happens to the two caches on a delete is NOT covered here: the caps
+// memo is pruned and the per-host limiter bucket deliberately is not, and
+// both are asserted in TestDeletionPrunesTheCapsMemoButNotTheSharedBucket
+// (controller_test.go), which needs a fake client to hold the object open
+// long enough for the DeletionTimestamp branch to run.
+func TestAMissingIndexerReconcilesCleanly(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
 	ns := newNamespace(t, ctx, c, "idx-delete")

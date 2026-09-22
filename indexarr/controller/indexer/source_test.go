@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +31,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/yaml"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
@@ -230,4 +232,74 @@ func TestOutcomeLabelIsABoundedSet(t *testing.T) {
 	require.Equal(t, "rate_limited", outcomeLabel(probeOutcome{Reason: ReasonLimitReached, Limited: true}))
 	require.Equal(t, "banned", outcomeLabel(probeOutcome{Reason: ReasonIndexerDisabled}))
 	require.Equal(t, "error", outcomeLabel(probeOutcome{Reason: ReasonProbeFailed, Message: "\x00 whatever the indexer said"}))
+}
+
+// The two CRD defaults restated in source.go must equal what controller-gen
+// actually generated, or the floor drifts away from the value every
+// apiserver-created Indexer gets. Read from the generated schema rather than
+// from the marker, because the schema is what is installed.
+func TestSpecDefaultsMatchTheGeneratedCRD(t *testing.T) {
+	raw, err := os.ReadFile("../../../config/crd/bases/index.clustarr.io_indexers.yaml")
+	require.NoError(t, err)
+
+	var crd struct {
+		Spec struct {
+			Versions []struct {
+				Name   string `json:"name"`
+				Schema struct {
+					OpenAPIV3Schema struct {
+						Properties struct {
+							Spec struct {
+								Properties map[string]struct {
+									Default string `json:"default"`
+								} `json:"properties"`
+							} `json:"spec"`
+						} `json:"properties"`
+					} `json:"openAPIV3Schema"`
+				} `json:"schema"`
+			} `json:"versions"`
+		} `json:"spec"`
+	}
+	require.NoError(t, yaml.Unmarshal(raw, &crd))
+	require.NotEmpty(t, crd.Spec.Versions, "the CRD was not parsed; run `make manifests`")
+
+	props := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties.Spec.Properties
+	require.Equal(t, defaultTimeout.String(), props["timeout"].Default,
+		"source.go's defaultTimeout no longer mirrors spec.timeout's +kubebuilder:default")
+	require.Equal(t, defaultRequestDelay.String(), props["requestDelay"].Default,
+		"source.go's defaultRequestDelay no longer mirrors spec.requestDelay's +kubebuilder:default")
+}
+
+// A kubebuilder default fills an ABSENT field, so it never reaches a spec
+// built in Go. torznab.NewClient seeds its own 30s default and THEN applies
+// the options, so WithTimeout(0) would overwrite it with "no timeout".
+func TestTimeoutForFloorsAtTheCRDDefault(t *testing.T) {
+	require.Equal(t, defaultTimeout, timeoutFor(metav1.Duration{}))
+	require.Equal(t, defaultTimeout, timeoutFor(metav1.Duration{Duration: -time.Second}))
+	require.Equal(t, 5*time.Second, timeoutFor(metav1.Duration{Duration: 5 * time.Second}))
+}
+
+// requestDelay is deliberately NOT floored: an explicit `requestDelay: 0s`
+// survives defaulting, and ratelimit.Config documents RPS <= 0 as unlimited
+// on purpose, so the pair is a supported "do not pace this indexer".
+func TestRpsForDoesNotFloorAtTheCRDDefault(t *testing.T) {
+	require.Equal(t, 0.0, rpsFor(metav1.Duration{}),
+		"an explicit requestDelay of 0s is the operator asking for no pacing")
+	require.InDelta(t, 1/defaultRequestDelay.Seconds(), rpsFor(metav1.Duration{Duration: defaultRequestDelay}), 1e-9)
+}
+
+// A nil limiter disables pacing rather than panicking, the same way a nil
+// Recorder disables events. D1-8 always supplies one; a unit test need not.
+func TestBuildClientToleratesANilLimiter(t *testing.T) {
+	spec := indexv1alpha1.IndexerSpec{
+		BaseURL:      "https://tracker.invalid",
+		Generic:      &indexv1alpha1.GenericNewznab{},
+		RequestDelay: metav1.Duration{Duration: 2 * time.Second},
+	}
+	require.NotPanics(t, func() {
+		c, endpoint, err := buildClient(spec, nil, nil)
+		require.NoError(t, err)
+		require.NotNil(t, c)
+		require.Equal(t, "/api", endpoint.Path)
+	})
 }
