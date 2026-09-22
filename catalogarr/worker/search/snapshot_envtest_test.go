@@ -134,7 +134,7 @@ func TestWorkerSnapshotOfAnAnimeEpisodeWithAFile(t *testing.T) {
 	w := search.NewWorker(c, rpc, catalogue.LoadedCatalogue())
 	w.Evaluate = capture.evaluate
 	w.Sink = newRecordingSink()
-	w.Clock = clockwork.NewFakeClockAt(time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC))
+	w.Clock = clockwork.NewFakeClockAt(testNow)
 
 	waitCached(t, ctx, c, client.ObjectKey{Namespace: ns, Name: "one-piece-s01e37-file"}, &catalogv1alpha1.MediaFile{})
 	eventually(t, 10*time.Second, "the episode status to reach the cache", func() bool {
@@ -224,8 +224,11 @@ func TestWorkerBlocklistPredicateHonoursTheExpiryDeadline(t *testing.T) {
 	ctx := context.Background()
 	f := newWorkerFixture(t, "snapshot-blocklist")
 
-	live := metav1.NewTime(time.Now().Add(24 * time.Hour))
-	expired := metav1.NewTime(time.Now().Add(-24 * time.Hour))
+	// Derived from testNow, the instant the worker's clock is frozen at --
+	// not from time.Now(), which is a different clock and drifts away from it
+	// by one day per day.
+	live := metav1.NewTime(testNow.Add(24 * time.Hour))
+	expired := metav1.NewTime(testNow.Add(-24 * time.Hour))
 	newDownload(t, ctx, f.mgr, f.ns, downloadFixture{
 		name: "blocked-live", hash: "1111111111111111111111111111111111111111",
 		title: "The.Matrix.1999.1080p.BluRay.x264-BANNED", target: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},

@@ -163,6 +163,18 @@ func waitCached(t *testing.T, ctx context.Context, c client.Client, key client.O
 	})
 }
 
+// testNow is the instant every fake clock in this package is frozen at, and
+// the only instant fixture deadlines may be derived from.
+//
+// Mixing it with time.Now() is a time bomb rather than a flake: a fixture
+// written as "now minus a day" is measured against the real date while the
+// worker measures against this frozen one, so the test passes for exactly as
+// long as the two stay within a day of each other and then fails every run
+// after. TestWorkerBlocklistPredicateHonoursTheExpiryDeadline did precisely
+// that and began failing on 2026-09-19 -- long after the gate that certified
+// it green, which is why nothing caught it at the time.
+var testNow = time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+
 func newWorkerFixture(t *testing.T, ns string) *workerFixture {
 	t.Helper()
 	ctx := context.Background()
@@ -198,7 +210,7 @@ func newWorkerFixture(t *testing.T, ns string) *workerFixture {
 	w := search.NewWorker(c, rpc, catalogue.LoadedCatalogue())
 	w.Evaluate = approveEverything
 	w.Sink = sink
-	w.Clock = clockwork.NewFakeClockAt(time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC))
+	w.Clock = clockwork.NewFakeClockAt(testNow)
 
 	return &workerFixture{mgr: c, api: mgr.GetAPIReader(), worker: w, rpc: rpc, sink: sink, ns: ns}
 }
