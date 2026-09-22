@@ -133,7 +133,7 @@ func TestTextThatNormalisesAwayReturnsNothingRatherThanEverything(t *testing.T) 
 			require.Empty(t, release.CleanTitle(text), "precondition: it normalises away")
 			got := s.Handle(t.Context(), schema.QueryRequest{Text: text})
 			require.Empty(t, got.Error, "unmatchable is a successful nothing, not a failure")
-			require.Empty(t, got.Releases, "an unmatchable query returned the whole corpus")
+			require.Empty(t, titlesOf(got.Releases), "an unmatchable query returned the whole corpus")
 			require.Zero(t, got.Total, "an unmatchable query returned the whole corpus")
 		})
 	}
@@ -161,7 +161,7 @@ func TestAnExplicitlyEmptyFilterReturnsNothingRatherThanEverything(t *testing.T)
 		t.Run(name, func(t *testing.T) {
 			got := s.Handle(t.Context(), schema.QueryRequest{Filters: filters})
 			require.Empty(t, got.Error)
-			require.Empty(t, got.Releases, "an empty filter returned the whole corpus")
+			require.Empty(t, titlesOf(got.Releases), "an empty filter returned the whole corpus")
 			require.Zero(t, got.Total)
 		})
 	}
@@ -187,7 +187,7 @@ func TestHostileTextAgainstARealStoreNeitherErrorsNorMatchesEverything(t *testin
 			got := s.Handle(t.Context(), schema.QueryRequest{Text: text})
 			require.Empty(t, got.Error, "hostile text is data, not an error")
 			require.Less(t, len(got.Releases), 3,
-				"hostile text must not degrade into the whole corpus")
+				"hostile text must not degrade into the whole corpus: %v", titlesOf(got.Releases))
 		})
 	}
 
