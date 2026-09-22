@@ -92,6 +92,23 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // `limiters` is the ONE *ratelimit.Limiter D1-3 constructs and shares with the
 // fan-out and the RSS worker, so all three pace against the same per-host
 // buckets. This package never constructs one.
+//
+// # RBAC
+//
+// The markers below are package-level on purpose: controller-gen collects
+// RBAC only from package-level comments and silently ignores one attached to
+// a function -- and envtest does not enforce RBAC, so a misplaced marker
+// passes every test and fails only on a real cluster.
+//
+// This verb reads Indexer, reads the Secrets that hold the indexer's
+// credentials and its login session, and writes only the /status subresource.
+// Each pair is already declared by indexarr/status and by the Indexer
+// reconciler; they are restated here so the package's own needs survive
+// either of those moving, and controller-gen deduplicates them.
+//
+// +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch
+// +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 package download
 
 import (
