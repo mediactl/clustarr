@@ -156,6 +156,19 @@ func TestHandleResolvesTheIndexerAndRefusesADisabledOne(t *testing.T) {
 	})
 }
 
+// Fetch is an injected interface, so a nil result with a nil error is
+// reachable from a broken implementation. It must fail one grab, not panic
+// the RPC responder.
+func TestHandleSurvivesAFetcherThatReturnsNothing(t *testing.T) {
+	idx := testIndexer("media", "tr", "uid-11", indexv1alpha1.LimitUnitDay)
+	s := &Service{Client: fakeClient(t, idx), Fetch: stubFetcherFor(nil)}
+	got := s.Handle(context.Background(), schema.DownloadRequest{
+		IndexerRef: schema.Ref{Namespace: "media", Name: "tr"}, GUID: "g",
+		URL: "https://tr.example/dl",
+	})
+	require.Contains(t, got.Error, "no result")
+}
+
 func TestClassify(t *testing.T) {
 	body := func(s string) io.ReadCloser { return io.NopCloser(strings.NewReader(s)) }
 	hdr := func(ct string) http.Header { return http.Header{"Content-Type": []string{ct}} }

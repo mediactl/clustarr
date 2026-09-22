@@ -204,6 +204,14 @@ func (s *Service) fetchAndCount(
 		return fail(f.Scrub, "indexarr: fetch from %s: %v", key, cardigann.RedactErr(err)),
 			resultTransport, label
 	}
+	if res == nil {
+		// Fetch is an injected interface: D1-8 supplies NewFetcherFor, a
+		// test supplies a stub. A nil result with a nil error is a broken
+		// implementation, and a nil dereference here would take down the
+		// RPC responder rather than failing one grab.
+		return fail(nil, "indexarr: fetcher for %s returned no result", key),
+			resultTransport, label
+	}
 
 	resp, result := s.classify(f, res, log)
 	if resp.Error == "" {
