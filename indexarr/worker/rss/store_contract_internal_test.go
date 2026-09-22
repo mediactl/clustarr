@@ -19,6 +19,7 @@ package rss
 
 import (
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -34,8 +35,8 @@ func torznabTitled(title, guid string) torznab.Release {
 	return torznab.Release{Title: title, GUID: guid}
 }
 
-// TestRejectReasonAgreesWithTheRealStore is the reason rejectReason is allowed
-// to mirror relindex's validate at all.
+// TestRejectReasonAgreesWithTheRealStore is the reason rejectReason is
+// allowed to mirror relindex's validate at all.
 //
 // A guard that restates another package's rules in prose drifts the moment
 // that package gains a rule, and the failure mode here is expensive: Upsert
@@ -44,53 +45,78 @@ func torznabTitled(title, guid string) torznab.Release {
 // before both the status write and ScheduleNext, ends that indexer's RSS
 // chain for good with the Indexer still reading healthy.
 //
-// So the mirror is not checked against a comment or a copy of the regex --
-// it is checked against a REAL sqlite store, row by row, in both directions.
-// If pkg/relindex adds a validation rule, this fails here rather than in
-// production.
+// So the mirror is checked against a REAL sqlite store, in both directions,
+// and the cases are driven by REFLECTION over relindex.Release rather than
+// by a hand-written list. That distinction is the whole value of the test: a
+// hand-written table only varies the dimensions someone thought to vary, so
+// a new rule on a field the table never zeroes passes unnoticed. Zeroing
+// every field in turn catches any rule that rejects a zero value -- which is
+// how all five of today's rules work -- including on fields this package
+// does not currently vary, such as Protocol, which an Indexer genuinely can
+// leave empty before its first reconcile.
+//
+// What it still cannot catch is a rule that rejects some NON-zero value, for
+// example a size ceiling. Nothing here claims otherwise.
 func TestRejectReasonAgreesWithTheRealStore(t *testing.T) {
 	store, closer, err := relindex.Open(t.Context(), filepath.Join(t.TempDir(), "releases.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, closer.Close()) })
 
 	at := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
-	good := func() relindex.Release {
-		return relindex.Release{
-			Indexer: "idx", GUID: "g", Title: "The Matrix 1999",
-			TitleNorm: "matrix 1999", Protocol: "torrent", FetchedAt: at,
+	base := relindex.Release{
+		Indexer: "idx", GUID: "g-base", Title: "The Matrix 1999",
+		TitleNorm: "matrix 1999", Group: "GRP", Protocol: "torrent",
+		Categories: []int{2040}, SizeBytes: 1024,
+		PublishedAt: ptr.To(at.Add(-time.Hour)), FetchedAt: at,
+		InfoJSON: []byte(`{}`),
+	}
+
+	// Every field is populated, or zeroing one of them would prove nothing.
+	typ := reflect.TypeOf(base)
+	baseVal := reflect.ValueOf(base)
+	require.NotZero(t, typ.NumField())
+	for i := range typ.NumField() {
+		require.False(t, baseVal.Field(i).IsZero(),
+			"the baseline leaves %s at its zero value, so zeroing it tests nothing", typ.Field(i).Name)
+	}
+	assertAgrees(t, store, base)
+
+	for i := range typ.NumField() {
+		f := typ.Field(i)
+		if !f.IsExported() {
+			continue
 		}
-	}
-
-	tests := []struct {
-		name   string
-		mangle func(*relindex.Release)
-	}{
-		{"a valid row", func(*relindex.Release) {}},
-		{"no indexer", func(r *relindex.Release) { r.Indexer = "" }},
-		{"no guid", func(r *relindex.Release) { r.GUID = "" }},
-		{"a title that normalises to nothing", func(r *relindex.Release) { r.TitleNorm = "" }},
-		{"no fetchedAt", func(r *relindex.Release) { r.FetchedAt = time.Time{} }},
-		{"a zero publishedAt pointer", func(r *relindex.Release) { r.PublishedAt = ptr.To(time.Time{}) }},
-		{"a real publishedAt", func(r *relindex.Release) { r.PublishedAt = ptr.To(at.Add(-time.Hour)) }},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			row := good()
-			row.GUID = row.GUID + "-" + tt.name // distinct, so a good row is never a duplicate
-			tt.mangle(&row)
-
-			reason := rejectReason(row)
-			_, upsertErr := store.Upsert(t.Context(), []relindex.Release{row})
-
-			if reason == "" {
-				require.NoError(t, upsertErr,
-					"rejectReason passed a row the store refuses: ONE of these in a page loses the whole page")
-				return
-			}
-			require.ErrorIs(t, upsertErr, relindex.ErrInvalidRelease,
-				"rejectReason drops a row the store would have accepted: %s", reason)
+		t.Run("zero "+f.Name, func(t *testing.T) {
+			row := base
+			row.GUID = "g-zero-" + f.Name // distinct, unless GUID is the field being zeroed
+			reflect.ValueOf(&row).Elem().Field(i).SetZero()
+			assertAgrees(t, store, row)
 		})
 	}
+
+	// The one shape zeroing cannot express: a non-nil pointer AT the zero
+	// time, which is the Phase C PublishedAt defect in a new costume.
+	t.Run("a pointer to the zero time", func(t *testing.T) {
+		row := base
+		row.GUID = "g-zero-ptr"
+		row.PublishedAt = ptr.To(time.Time{})
+		assertAgrees(t, store, row)
+	})
+}
+
+// assertAgrees holds rejectReason and the real store to the same verdict,
+// in both directions.
+func assertAgrees(t *testing.T, store relindex.Store, row relindex.Release) {
+	t.Helper()
+	reason := rejectReason(row)
+	_, err := store.Upsert(t.Context(), []relindex.Release{row})
+	if reason == "" {
+		require.NoError(t, err,
+			"rejectReason passed a row the store refuses: ONE of these in a page loses the whole page")
+		return
+	}
+	require.ErrorIs(t, err, relindex.ErrInvalidRelease,
+		"rejectReason drops a row the store would have accepted: %s", reason)
 }
 
 // The two shapes an indexer can actually put on the wire. Neither is exotic:

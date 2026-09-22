@@ -26,6 +26,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -39,6 +41,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/release"
 	"github.com/mediactl/clustarr/pkg/relindex"
 	"github.com/mediactl/clustarr/pkg/torznab"
@@ -611,4 +614,125 @@ func TestAConcurrentWorkerWriteSurvivesALongPoll(t *testing.T) {
 		"the poll seeded its apply from a pre-poll snapshot and rolled the search's count back")
 	require.Equal(t, int32(4), st.GrabsInWindow)
 	require.Equal(t, int32(1), st.LastRssNewCount, "and the poll still recorded its own result")
+}
+
+// counterValue reads a single-series counter without pulling in
+// prometheus/client_golang/prometheus/testutil, which needs a module that is
+// in go.sum but not declared in go.mod -- and go.mod is not this task's to
+// touch. Same approach as catalogarr/metadata's own metric assertions.
+func counterValue(t *testing.T, c prometheus.Counter) float64 {
+	t.Helper()
+	var m dto.Metric
+	require.NoError(t, c.Write(&m))
+	return m.GetCounter().GetValue()
+}
+
+// TestAnUnstorableTitleWithIDsStillReachesTheMatcher is the one case where
+// "the index refuses it" and "the matcher cannot use it" come apart.
+//
+// rssmatcher dispatches movies and series on Info.IDs["tmdb"]/["tvdb"]
+// BEFORE it looks at a title, and ProjectRelease carries the indexer's own
+// id attrs onto Info.IDs even when the parse fails. So a release whose title
+// normalises to nothing -- Cyrillic, CJK, punctuation -- but which carries an
+// id is a perfectly matchable release that merely cannot be stored. Dropping
+// it from the firehose as a side effect of a filter written for the index
+// costs a real match.
+//
+// The empty-GUID case is the opposite and stays dropped from both: every
+// such row hashes to the same Nats-Msg-Id, so the 2h dedup window would
+// collapse them all into one message.
+func TestAnUnstorableTitleWithIDsStillReachesTheMatcher(t *testing.T) {
+	ctx, c, ns := setup(t)
+	newIndexer(t, ctx, c, ns, "idx")
+	driveToSteadyState(t, ctx, c, ns, "idx")
+
+	store, closer, err := relindex.Open(ctx, filepath.Join(t.TempDir(), "releases.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, closer.Close()) })
+
+	bus, _ := newJetStreamBusAndConn(t)
+	var mu sync.Mutex
+	published := map[string]schema.Release{}
+	stop, err := bus.Subscribe(ctx, (&rssmatcher.Handler{}).Subscription(),
+		func(_ context.Context, m events.Message) error {
+			var rel schema.Release
+			if decErr := schema.Decode(m.Envelope().Schema, m.Envelope().Data, &rel); decErr != nil {
+				return decErr
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			published[rel.Info.GUID] = rel
+			return nil
+		})
+	require.NoError(t, err)
+	t.Cleanup(stop)
+
+	before := counterValue(t, metrics.IndexerReleasesDropped.WithLabelValues("idx"))
+
+	feed := []torznab.Release{
+		// Storable and matchable: the control.
+		{Title: "Some.Movie.2000.1080p.BluRay.x264-GRP", GUID: "good"},
+		// Unstorable title, but it carries an id the matcher keys on.
+		{Title: "日本語のタイトル", GUID: "cjk-with-id", IDs: map[string]string{commonv1.IDKeyTMDB: "603"}},
+		// Unstorable title and nothing to match on: genuinely useless.
+		{Title: "★★★", GUID: "symbols-no-id"},
+		// No GUID: every one of these would hash to the same msg-id.
+		{Title: "★★★", GUID: "", IDs: map[string]string{commonv1.IDKeyTMDB: "604"}},
+	}
+	for _, junk := range feed[1:] {
+		require.Empty(t, release.CleanTitle(junk.Title),
+			"fixture %q is storable, so it exercises nothing", junk.Title)
+	}
+
+	w := rss.NewWorker(rss.Deps{
+		Client: c, Bus: bus, Index: store,
+		SearcherFor: func(context.Context, *indexv1alpha1.Indexer) (rss.Searcher, error) {
+			return &fakeSearcher{releases: feed}, nil
+		},
+		Clock: func() time.Time { return tNow },
+	})
+	require.NoError(t, w.Handle(ctx, rssTaskMessage(t, ns, "idx")))
+
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(published) == 2
+	}, 20*time.Second, 20*time.Millisecond,
+		"want the good release and the id-bearing one; got %v", publishedKeys(&mu, published))
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Contains(t, published, "good")
+
+	idOnly, ok := published["cjk-with-id"]
+	require.True(t, ok, "a release the index cannot store can still match on its ids")
+	require.Equal(t, "603", idOnly.Info.IDs[commonv1.IDKeyTMDB])
+	require.Empty(t, idOnly.ParsedTitle, "it is published on its ids alone, not on a title")
+
+	require.NotContains(t, published, "symbols-no-id", "nothing to store AND nothing to match on")
+	require.NotContains(t, published, "",
+		"an empty guid makes every such row share one Nats-Msg-Id; the dedup window would eat all but the first")
+
+	// It is still refused by the index: publishing it does not store it.
+	stored, err := store.Search(ctx, relindex.Query{})
+	require.NoError(t, err)
+	require.Len(t, stored, 1)
+	require.Equal(t, "good", stored[0].GUID)
+
+	// ... and all three refusals are visible to an operator.
+	require.Equal(t, float64(3), counterValue(t, metrics.IndexerReleasesDropped.WithLabelValues("idx"))-before,
+		"a feed that is 75%% garbage must not look identical to a quiet one")
+
+	st := getStatus(t, ctx, c, ns, "idx")
+	require.Equal(t, int32(1), st.LastRssNewCount, "new means new to the INDEX")
+}
+
+func publishedKeys(mu *sync.Mutex, m map[string]schema.Release) []string {
+	mu.Lock()
+	defer mu.Unlock()
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }

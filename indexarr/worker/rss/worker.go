@@ -290,6 +290,9 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		if err != nil {
 			return events.Retry(statusRetry, err)
 		}
+		// dropped counts rows the INDEX refused. Some of them are still
+		// published -- see indexAndPublish -- so dropped and published are
+		// not complements.
 		log.Info("rss: poll complete", "fetched", len(fetched),
 			"inserted", inserted, "published", published, "dropped", dropped)
 
@@ -502,6 +505,29 @@ func (w *Worker) indexAndPublish(
 		// pkg/torznab does not backfill an absent GUID.
 		if reason := rejectReason(row); reason != "" {
 			dropped++
+			metrics.IndexerReleasesDropped.WithLabelValues(idx.Name).Inc()
+
+			// An unsearchable title is a reason the INDEX refuses the row,
+			// not a reason the matcher cannot use it. ProjectRelease copies
+			// the indexer's own attrs into Info.IDs before it parses and
+			// keeps them even when the parse fails, and rssmatcher matches
+			// movies and series on tmdb/tvdb ids BEFORE it ever looks at a
+			// title -- so a Cyrillic- or CJK-titled release carrying an
+			// imdbid attr is a perfectly matchable release that merely
+			// cannot be stored.
+			//
+			// Publishing it is safe precisely because the GUID is valid
+			// here: Nats-Msg-Id is sha1(indexer:guid), so it is distinct and
+			// the 2h dedup window behaves normally. That is exactly what is
+			// NOT true of the empty-GUID case, where every such row would
+			// hash identically and the window would collapse them all into
+			// one message -- so those stay dropped from both.
+			if reason == reasonUnsearchableTitle && len(rel.Info.IDs) > 0 {
+				log.Warn("rss: the index cannot store this release; publishing it on its ids alone",
+					"reason", reason, "guid", rel.Info.GUID, "title", clip(rel.Info.Title))
+				projected = append(projected, rel)
+				continue
+			}
 			log.Warn("rss: dropping a release the index cannot store",
 				"reason", reason, "guid", rel.Info.GUID, "title", clip(rel.Info.Title))
 			continue
@@ -522,8 +548,11 @@ func (w *Worker) indexAndPublish(
 			// means either a real storage failure -- a locked file, a full
 			// disk, worth a retry -- or a validation rule that rejectReason
 			// has drifted away from, which must be loud rather than
-			// swallowed. TestRejectReasonAgreesWithTheRealStore is what
-			// keeps the second case from being reachable.
+			// swallowed. TestRejectReasonAgreesWithTheRealStore zeroes
+			// every field of relindex.Release in turn against a real
+			// store, so it catches any new rule that rejects a
+			// zero-valued field -- which is how all five of today's
+			// rules work.
 			return 0, 0, dropped, fmt.Errorf("rss: index %d releases: %w", len(rows), err)
 		}
 	}
@@ -567,6 +596,12 @@ func clip(s string) string {
 	return s[:n]
 }
 
+// reasonUnsearchableTitle is the one rejection a release can still be
+// published in spite of. It is a named constant rather than a literal
+// because indexAndPublish compares against it, and a reworded string would
+// otherwise silently stop that comparison matching.
+const reasonUnsearchableTitle = "the title normalises to nothing, so the row would be unsearchable"
+
 // rejectReason names why relindex.Upsert would refuse row, or "" when it
 // would accept it.
 //
@@ -591,7 +626,10 @@ func rejectReason(row relindex.Release) string {
 		// made only of punctuation, symbols or non-Latin script normalises
 		// to nothing. The row would be invisible to every text search while
 		// still counting in Stats, which is why the store refuses it.
-		return "the title normalises to nothing, so the row would be unsearchable"
+		//
+		// It is the one reason indexAndPublish treats as index-only: the
+		// release can still match on its ids.
+		return reasonUnsearchableTitle
 	case row.FetchedAt.IsZero():
 		return "fetchedAt is the zero time"
 	case row.PublishedAt != nil && row.PublishedAt.IsZero():
