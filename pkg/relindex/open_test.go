@@ -68,8 +68,6 @@ func TestOpenRejectsAPathThatWouldCorruptTheDSN(t *testing.T) {
 }
 
 func TestOpenReopensAnExistingDatabaseWithItsRows(t *testing.T) {
-	t.Skip("Upsert lands in Step 12") // TODO(D1-2): delete in Step 12.
-
 	path := filepath.Join(t.TempDir(), "releases.db")
 
 	first, closer, err := relindex.Open(t.Context(), path)

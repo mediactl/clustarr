@@ -295,11 +295,7 @@ func (s *sqliteStore) Close() error {
 	return errors.Join(errs...)
 }
 
-// TODO(D1-2 step 12/22/27): temporary stubs so *sqliteStore satisfies Store.
-func (s *sqliteStore) Upsert(ctx context.Context, rels []Release) (int, error) {
-	return 0, errors.New("relindex: Upsert not implemented")
-}
-
+// TODO(D1-2 step 22/27): temporary stubs so *sqliteStore satisfies Store.
 func (s *sqliteStore) Search(ctx context.Context, q Query) ([]Release, error) {
 	return nil, errors.New("relindex: Search not implemented")
 }
