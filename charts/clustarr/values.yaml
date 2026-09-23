@@ -54,6 +54,9 @@ nats:
       fileStore:
         pvc:
           size: 20Gi
+      memoryStore:
+        enabled: true
+        maxSize: 256Mi
   # Feeds the optional KEDA triggers and the NATS dashboards.
   promExporter:
     enabled: false
