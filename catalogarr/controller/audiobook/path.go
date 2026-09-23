@@ -48,10 +48,12 @@ func Path(rootPath string, folderOverride *string, engine naming.Engine, ctx nam
 
 // namingContext builds the naming.Context the audiobook folder template
 // (pkg/naming/preset.go's audiobookFolderTemplate: "{Author Name}/{Book
-// Series}/{Book SeriesPosition} - {Release Year} - {Book Title}{ Narrator}")
-// renders against, from spec and the gateway-cached metadata. meta is
-// expected non-nil -- callers only reach this once status.metadata != nil,
-// the same gate movie's reconciler applies before computing Path.
+// Series}/{Book SeriesPosition - }{Release Year - }{Book Title}{ Narrator}",
+// where an empty series drops its whole segment and an empty position or
+// year drops its own " - " separator) renders against, from spec and the
+// gateway-cached metadata. meta is expected non-nil -- callers only reach
+// this once status.metadata != nil, the same gate movie's reconciler
+// applies before computing Path.
 //
 // AuthorName and Narrator each collapse a list onto pkg/naming's single-
 // string token: Context has one AuthorName/Narrator field per render call

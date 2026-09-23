@@ -31,7 +31,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // pkg/events/schema/index.go. This is not a contract being designed here:
 // catalogarr/worker/search has been building the request and asking for it
 // since Phase C, getting events.ErrNoResponders and retrying every 15s. No
-// field may be added, renamed or re-tagged from this side.
+// field may be renamed, re-tagged or removed from this side, and an addition
+// must be optional -- as G1-6's SearchOutcome.QueryMode was -- so a peer built
+// against the older shape still decodes it. The request has carried a
+// free-text Text and a Year since M0; an id-only request is catalogarr's
+// choice when it has no resolved title, not a limit of the payload.
 //
 // # Search never returns an error
 //

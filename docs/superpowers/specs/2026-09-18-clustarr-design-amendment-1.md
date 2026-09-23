@@ -111,7 +111,11 @@ type LibraryScanSpec struct {
     // +kubebuilder:default=incremental
     Mode ScanMode `json:"mode,omitempty"`
 
-    // Subpath restricts the scan to one directory beneath the root folder.
+    // Subpath restricts the scan to one path beneath the root folder: a
+    // directory, whose tree is walked, or a single file, which is the only
+    // file visited. A file subpath together with the
+    // catalog.clustarr.io/import-target annotation is how a file an earlier
+    // scan left unmatched is assigned to an item by hand.
     // +optional
     Subpath string `json:"subpath,omitempty"`
 

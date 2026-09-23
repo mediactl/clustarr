@@ -102,8 +102,9 @@ const fixtureNonVideoStubService = "nonvideo-stub"
 // manualAssignScan creates the exact LibraryScan ui/actions.ManualAssign
 // builds (G3-4) -- GenerateName "assign-", the import-target annotation,
 // spec.mode Full -- directly against k8sClient, so this file proves the
-// WORKER half of manual assignment without depending on Options.Actions
-// being wired (G3-5, not yet landed as of this writing).
+// WORKER half of manual assignment on its own. The ui half (Options.Actions,
+// wired into both ui commands by G3-5) is scenario 14's POST to
+// /unmatched/assign in ui_test.go.
 func manualAssignScan(ctx context.Context, t *testing.T, rootFolder, subpath string, target fileimport.ImportTarget) *catalogv1alpha1.LibraryScan {
 	t.Helper()
 	scan := &catalogv1alpha1.LibraryScan{

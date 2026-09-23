@@ -29,11 +29,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //   - "GET /{indexer}/api?t=search|tvsearch|movie|music|audio|book&q=..."
 //     -> a LIVE federated search scoped to that one indexer, via Config.Search
 //     (clustarr.rpc.indexarr.search's own body, called in-process -- see
-//     below). This is what finally exercises the "fallback t=search&q="
-//     path the carried note at indexarr/search/query.go:116-121 describes:
-//     every other caller (catalogarr's automatic/interactive search) sends
-//     ids only and never Text, so this facade is the first caller that
-//     always has a free-text q to set SearchRequest.Text from.
+//     below). q becomes SearchRequest.Text, the field
+//     catalogarr/worker/search's BuildSearchRequest also fills, from the
+//     item's resolved title (G1-6); indexarr/search's buildQuery uses it
+//     only for an indexer that supports none of the request's id
+//     parameters.
 //   - "GET /{indexer}/download?guid=...&url=..."      -> Config.Download
 //     (clustarr.rpc.indexarr.download's own body), resolving the payload
 //     with the indexer's own session.

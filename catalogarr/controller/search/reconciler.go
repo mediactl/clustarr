@@ -644,13 +644,14 @@ func (r *Reconciler) handleGrabs(ctx context.Context, s *catalogv1alpha1.Search)
 
 			name := k8s.ChildName(s.Spec.MediaRef.Name, guid)
 			// Manual is set because a Search-CR grab IS an operator-forced grab:
-			// the user read status.results and picked this release by hand. Its
-			// own doc comment -- "the importer then skips the monitored and
-			// minimum-availability checks it would otherwise apply" -- describes
-			// exactly what has to happen for a hand-picked grab of an unmonitored
-			// or not-yet-released item to survive import. Without it the download
-			// completes in full and is thrown away at the import gate, which is a
-			// silent waste of the user's bandwidth and of a seeding slot.
+			// the user read status.results and picked this release by hand, so
+			// the importer treats the import as that person's decision (see
+			// DownloadSpec.Manual): no upgrade comparison against the item's
+			// existing file, an undeterminable non-video quality accepted, a
+			// video file only the sample size floor suspects imported anyway.
+			// Without it a hand-picked release that is not an upgrade completes
+			// in full and is thrown away at the import gate -- a silent waste
+			// of the user's bandwidth and of a seeding slot.
 			specAC := downloadac.DownloadSpec().
 				WithProtocol(got.Release.Protocol).
 				WithSource(toDownloadSourceAC(BuildDownloadSource(got.Release))).

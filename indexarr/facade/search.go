@@ -66,10 +66,10 @@ func (s *Server) handleIndexerAPI(w http.ResponseWriter, r *http.Request) {
 
 // handleIndexerSearch runs a LIVE federated search scoped to exactly one
 // Indexer via Config.Search -- clustarr.rpc.indexarr.search's own body,
-// called in-process (see doc.go). SearchRequest.Text is set from q, which is
-// the one thing every other caller of that RPC never has to offer (see
-// doc.go's note on indexarr/search/query.go's carried "fallback
-// t=search&q=" comment).
+// called in-process (see doc.go). SearchRequest.Text is set from q, the
+// same field catalogarr/worker/search's BuildSearchRequest fills from the
+// item's resolved title (G1-6); buildQuery still prefers ids wherever the
+// indexer supports one.
 func (s *Server) handleIndexerSearch(w http.ResponseWriter, r *http.Request, idx *indexv1alpha1.Indexer, mode torznab.SearchMode) {
 	ctx, cancel := context.WithTimeout(r.Context(), s.cfg.SearchTimeout)
 	defer cancel()

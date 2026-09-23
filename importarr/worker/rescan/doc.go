@@ -85,11 +85,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // subpath names the FILE, not its directory. The walk of a file path visits
 // exactly that file, so a comic series folder holding many issues, or an
 // unsorted folder holding many albums, never has its neighbours swept into
-// one item. (LibraryScanSpec.Subpath's doc comment says "one directory";
-// the field accepts a file and this worker relies on it -- widening that
-// sentence is the api owner's to do.) A directory subpath assigns every
-// unattributed media file beneath it, which is right for a movie, album or
-// audiobook folder.
+// one item. (LibraryScanSpec.Subpath's doc comment names both shapes: a
+// directory, whose tree is walked, or a single file, the only one visited.)
+// A directory subpath assigns every unattributed media file beneath it,
+// which is right for a movie, album or audiobook folder.
 //
 // The walk then records every file it visits against the target without
 // matching -- a person made the attribution, which is the one way the

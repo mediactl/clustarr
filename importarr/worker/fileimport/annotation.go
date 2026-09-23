@@ -154,11 +154,10 @@ func knownKind(k commonv1.MediaKind) bool {
 // and no more: the upgrade decision against an existing file is skipped, an
 // undeterminable non-video quality is accepted, a video file only the size
 // floor suspects is a sample (Worker.SampleMaxBytes) is imported, and the
-// MediaFile records importedFrom.manual. DownloadSpec.Manual's doc comment says the importer
-// "skips the monitored and minimum-availability checks it would otherwise
-// apply" -- this worker has never applied either check, so there is nothing
-// of that kind to skip. A quality the profile does not allow is still
-// rejected under either.
+// MediaFile records importedFrom.manual -- the list DownloadSpec.Manual's own
+// doc comment gives. This worker checks neither monitoring nor availability,
+// so neither has anything to skip, and a quality the profile does not allow
+// is still rejected under either.
 func ParseImportOverride(value string) (bool, error) {
 	switch value {
 	case "true":

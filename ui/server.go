@@ -71,13 +71,17 @@ type Options struct {
 	//
 	// Reader is nil whenever `clustarr ui` could not reach a cluster (no
 	// kubeconfig, no in-cluster config) or when a test builds Options
-	// directly. That is legal and stays legal: nothing in this package
-	// requires it, and a nil Reader behaves exactly as ui does today --
-	// pages render with no rows.
+	// directly. That is legal and stays legal: every read of it checks for
+	// nil first, so pages render with no rows and the library-scan detail
+	// page answers 404.
 	//
-	// Nothing in Task D3-0 reads Reader directly; it exists so cmd/clustarr
-	// can hand it to a later projection (Task D3-1) without changing this
-	// struct again.
+	// Server reads it directly for data that does not ride the shared
+	// projection: GET /downloads' Downloads and DownloadClients, the
+	// RootFolders behind the Library page's rescan toolbar, the Settings
+	// page's lists and the library-scan detail page -- and, when
+	// SubscribeDownloads is nil, NewServer's per-connection poll.
+	// cmd/clustarr hands the same reader to ui/projection, which backs
+	// Entries, Library, Unmatched and ImportLists and their streams.
 	Reader client.Reader
 
 	// Actions is ui's one write seam, and deliberately a separate field from
