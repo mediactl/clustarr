@@ -127,6 +127,12 @@ type ExistingSub struct {
 // The controller owns nextSearchAt and attempts; captionarr-worker owns the
 // remaining fields and applies them server-side, so the two writers stay
 // disjoint within an item.
+//
+// An item is live exactly while the controller owns its nextSearchAt. The
+// controller creates an item by applying langKey, nextSearchAt and attempts
+// alone, and removes one by no longer sending it; the worker re-sends its
+// leaves only for items that still carry nextSearchAt, so once both have
+// stopped, nothing owns the entry and it is deleted.
 type SubtitleItem struct {
 	// LangKey is the profile language key this item covers.
 	// +required
@@ -134,9 +140,12 @@ type SubtitleItem struct {
 	// +kubebuilder:validation:MaxLength=64
 	LangKey string `json:"langKey"`
 
-	// State is the current per-language state.
-	// +required
-	State SubtitleItemState `json:"state"`
+	// State is the current per-language state, written by captionarr-worker.
+	// Absent means planned, never searched: the controller has created the
+	// item and no worker has reported on it yet. It has no default on
+	// purpose -- a defaulted value would be owned by no field manager.
+	// +optional
+	State SubtitleItemState `json:"state,omitempty"`
 
 	// Score is the score of the chosen candidate.
 	// +optional

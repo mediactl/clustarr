@@ -250,19 +250,29 @@ func TestTheItemDeclarationsAreDisjointOutsideTheSharedKey(t *testing.T) {
 	}
 }
 
-// An item that carries none of a manager's owned leaves still renders,
-// because ruling R4 requires every item to be re-declared on every apply --
-// a manager that skipped an untouched item would release whatever it
-// previously owned on it. A bare item (langKey only, no attempts and no
-// nextSearchAt) proves RequestControllerFields does not accidentally drop it
-// from Items.
-func TestRequestControllerFieldsRendersAnUntouchedItem(t *testing.T) {
+// The item-liveness protocol ([status.IsLive]) on the controller's side. This
+// test used to assert the opposite -- that an item with neither attempts nor
+// nextSearchAt still rendered as a bare langKey, so that R4's "re-declare
+// every item" could not accidentally drop it. That bare langKey was exactly
+// the bug: it is still an ownership claim on the list entry, so an item the
+// controller withdrew (by no longer scheduling it) stayed on the object
+// forever, and with items[].state once required, an entry left holding only
+// langKey after the worker released its leaves failed validation outright.
+// Now a non-live item is not rendered at all, and a live one with only its
+// schedule renders exactly langKey and nextSearchAt.
+func TestRequestControllerFieldsRendersOnlyLiveItems(t *testing.T) {
+	at := metav1.NewTime(time.Now().UTC().Truncate(time.Second))
 	st := subtitlev1alpha1.SubtitleRequestStatus{
-		Items: []subtitlev1alpha1.SubtitleItem{{LangKey: "es", State: subtitlev1alpha1.SubtitleItemPending}},
+		Items: []subtitlev1alpha1.SubtitleItem{
+			{LangKey: "es", State: subtitlev1alpha1.SubtitleItemPending},
+			{LangKey: "fr", NextSearchAt: &metav1.Time{}},
+			{LangKey: "de", NextSearchAt: &at},
+		},
 	}
 	got := status.RequestControllerFields(st)
-	require.Len(t, got.Items, 1)
-	assert.Equal(t, []string{"LangKey"}, setFields(&got.Items[0]))
+	require.Len(t, got.Items, 1, "only the live item renders; es has no nextSearchAt and fr a zero one")
+	assert.Equal(t, "de", *got.Items[0].LangKey)
+	assert.Equal(t, []string{"LangKey", "NextSearchAt"}, setFields(&got.Items[0]))
 }
 
 // ---------------------------------------------------------------------

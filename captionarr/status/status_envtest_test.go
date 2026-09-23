@@ -121,7 +121,17 @@ func TestTheRequestManagersDoNotReleaseEachOthersItemLeaves(t *testing.T) {
 	// controller owns only its key and its schedule. Both items must be
 	// scheduled here: an item without the controller's nextSearchAt is not
 	// live (IsLive), and the worker's next apply would rightly delete it.
+	//
+	// The schedule is set on the SOURCE status, not through the returned
+	// configuration: RequestControllerFields renders only live items, and
+	// both are not live until this very apply makes them so.
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(req), req))
+	for i := range req.Status.Items {
+		req.Status.Items[i].NextSearchAt = &now
+		if req.Status.Items[i].LangKey == "en" {
+			req.Status.Items[i].Attempts = commonv1alpha1.Attempts{Initial: &now, Latest: &now, Count: 1}
+		}
+	}
 	require.NoError(t, status.PatchRequest(ctx, c, k8s.ManagerCaptionarr, req,
 		func(ac *subtitleac.SubtitleRequestStatusApplyConfiguration) {
 			ac.WithObservedGeneration(1).WithPhase(subtitlev1alpha1.SubtitleRequestPhaseSearching).
@@ -129,13 +139,6 @@ func TestTheRequestManagersDoNotReleaseEachOthersItemLeaves(t *testing.T) {
 					Type: subtitlev1alpha1.SubtitleRequestConditionPlanned, Status: metav1.ConditionTrue,
 					Reason: "Planned", LastTransitionTime: now, ObservedGeneration: 1,
 				}))
-			for i := range ac.Items {
-				ac.Items[i].NextSearchAt = &now
-				if ac.Items[i].LangKey != nil && *ac.Items[i].LangKey == "en" {
-					attempts := commonv1alpha1.Attempts{Initial: &now, Latest: &now, Count: 1}
-					ac.Items[i].Attempts = &attempts
-				}
-			}
 		}))
 
 	var seeded subtitlev1alpha1.SubtitleRequest
@@ -466,12 +469,10 @@ func TestAWithdrawnItemIsDeletedByTheWorkersNextApply(t *testing.T) {
 			}
 		}))
 	require.NoError(t, c.Get(ctx, key, req))
-	require.NoError(t, status.PatchRequest(ctx, c, k8s.ManagerCaptionarr, req,
-		func(ac *subtitleac.SubtitleRequestStatusApplyConfiguration) {
-			for i := range ac.Items {
-				ac.Items[i].NextSearchAt = &now
-			}
-		}))
+	for i := range req.Status.Items {
+		req.Status.Items[i].NextSearchAt = &now
+	}
+	require.NoError(t, status.PatchRequest(ctx, c, k8s.ManagerCaptionarr, req, nil))
 
 	// The controller withdraws "es": its next apply simply omits it.
 	require.NoError(t, c.Get(ctx, key, req))

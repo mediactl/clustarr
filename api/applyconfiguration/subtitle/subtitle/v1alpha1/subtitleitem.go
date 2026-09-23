@@ -34,10 +34,19 @@ import (
 // The controller owns nextSearchAt and attempts; captionarr-worker owns the
 // remaining fields and applies them server-side, so the two writers stay
 // disjoint within an item.
+//
+// An item is live exactly while the controller owns its nextSearchAt. The
+// controller creates an item by applying langKey, nextSearchAt and attempts
+// alone, and removes one by no longer sending it; the worker re-sends its
+// leaves only for items that still carry nextSearchAt, so once both have
+// stopped, nothing owns the entry and it is deleted.
 type SubtitleItemApplyConfiguration struct {
 	// LangKey is the profile language key this item covers.
 	LangKey *string `json:"langKey,omitempty"`
-	// State is the current per-language state.
+	// State is the current per-language state, written by captionarr-worker.
+	// Absent means planned, never searched: the controller has created the
+	// item and no worker has reported on it yet. It has no default on
+	// purpose -- a defaulted value would be owned by no field manager.
 	State *subtitlev1alpha1.SubtitleItemState `json:"state,omitempty"`
 	// Score is the score of the chosen candidate.
 	Score *int32 `json:"score,omitempty"`

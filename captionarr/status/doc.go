@@ -62,12 +62,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // each entry. That is what makes the split legal: two managers can co-own one
 // list entry as long as they touch disjoint leaves within it. It is also what
 // makes it fragile, per ruling R4: each manager must re-send every leaf it
-// owns, for EVERY item currently on the object, on every apply -- not just the
-// item it is changing this reconcile -- or it silently releases the others.
-// [RequestControllerFields] and [RequestWorkerFields] both iterate the WHOLE
-// st.Items slice for exactly this reason; the caller's job is to pass a
-// freshly-read status, the same "seed and target must be fresh" rule
-// grabarr/status documents for Download.
+// owns, for EVERY live item currently on the object, on every apply -- not
+// just the item it is changing this reconcile -- or it silently releases the
+// others. [RequestControllerFields] and [RequestWorkerFields] both iterate
+// the whole st.Items slice for exactly this reason, and both skip a non-live
+// item ([IsLive]): that skip is the item-liveness protocol, and it is the
+// only way an entry two managers share can ever be removed. The caller's job
+// is to pass a freshly-read status, the same "seed and target must be fresh"
+// rule grabarr/status documents for Download.
 //
 // langKey itself is the map key, so both managers send it on every item they
 // touch, for identification. That is a deliberate CO-OWNERSHIP, not a bug:

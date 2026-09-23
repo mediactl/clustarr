@@ -63,12 +63,15 @@ import (
 // declaration. The read must be fresh for the same reason every seed must
 // be (see [PatchRequest]).
 //
-// The controller's half of rule 1 has a trap of its own:
-// [RequestControllerFields] renders every entry of the status it is given,
-// and renders one without nextSearchAt as a bare langKey. That is still a
-// claim on the entry, so a controller that seeds from a status still
-// holding a withdrawn item keeps it alive. Build the controller's source
-// items from what it wants, each with its nextSearchAt, and nothing else.
+// The controller's half of rule 1 had a trap of its own: rendering an entry
+// without nextSearchAt as a bare langKey is still a claim on the entry, so a
+// controller that seeded from a status still holding a withdrawn item kept
+// it alive forever. [RequestControllerFields] therefore renders only live
+// items too. That makes withdrawing an item a matter of leaving it out, or of
+// clearing its nextSearchAt in the source -- either way nothing is sent --
+// and it means a caller that wants an item MUST give it a non-empty
+// nextSearchAt in the source status, not set one through the returned
+// configuration after the fact.
 func IsLive(it subtitlev1alpha1.SubtitleItem) bool {
 	return it.NextSearchAt != nil && !it.NextSearchAt.IsZero()
 }
@@ -107,14 +110,16 @@ func LiveItemKeys(st subtitlev1alpha1.SubtitleRequestStatus) sets.Set[string] {
 // specifically because ac is freshly constructed inside this function and
 // never seeded a second time.
 //
-// Items is the fragile half (ruling R4). Every entry currently in
-// st.Items is rendered, and for each entry only langKey (the shared map key)
-// and this manager's two owned leaves -- attempts and nextSearchAt -- are
-// set. A caller that needs to change one item's controller-owned leaves must
-// mutate the SOURCE SubtitleRequestStatus (or assign directly into the
-// returned configuration's Items slice) rather than call ac.WithItems again,
-// which would append and double every entry -- the exact hazard
-// [MediaFileStatus.Sidecars] hit in Phase C.
+// Items is the fragile half (ruling R4). Every LIVE entry in st.Items
+// ([IsLive]) is rendered, and for each only langKey (the shared map key) and
+// this manager's two owned leaves -- attempts and nextSearchAt -- are set. A
+// non-live entry is not rendered at all, not even as a bare langKey, which
+// would still claim the entry and keep a withdrawn item alive (see
+// [IsLive]). A caller that needs to change one item's controller-owned
+// leaves must mutate the SOURCE SubtitleRequestStatus (or assign directly
+// into the returned configuration's Items slice) rather than call
+// ac.WithItems again, which would append and double every entry -- the exact
+// hazard [MediaFileStatus.Sidecars] hit in Phase C.
 func RequestControllerFields(st subtitlev1alpha1.SubtitleRequestStatus) *subtitleac.SubtitleRequestStatusApplyConfiguration {
 	ac := subtitleac.SubtitleRequestStatus().
 		WithObservedGeneration(st.ObservedGeneration).
@@ -136,6 +141,9 @@ func RequestControllerFields(st subtitlev1alpha1.SubtitleRequestStatus) *subtitl
 
 	items := make([]*subtitleac.SubtitleItemApplyConfiguration, 0, len(st.Items))
 	for _, it := range st.Items {
+		if !IsLive(it) {
+			continue
+		}
 		items = append(items, requestControllerItemAC(it))
 	}
 	ac.Items = itemSlice(items)

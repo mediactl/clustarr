@@ -241,6 +241,12 @@ spec:
                     The controller owns nextSearchAt and attempts; captionarr-worker owns the
                     remaining fields and applies them server-side, so the two writers stay
                     disjoint within an item.
+
+                    An item is live exactly while the controller owns its nextSearchAt. The
+                    controller creates an item by applying langKey, nextSearchAt and attempts
+                    alone, and removes one by no longer sending it; the worker re-sends its
+                    leaves only for items that still carry nextSearchAt, so once both have
+                    stopped, nothing owns the entry and it is deleted.
                   properties:
                     attempts:
                       description: Attempts tracks how often this language has been
@@ -305,7 +311,11 @@ spec:
                       minimum: 0
                       type: integer
                     state:
-                      description: State is the current per-language state.
+                      description: |-
+                        State is the current per-language state, written by captionarr-worker.
+                        Absent means planned, never searched: the controller has created the
+                        item and no worker has reported on it yet. It has no default on
+                        purpose -- a defaulted value would be owned by no field manager.
                       enum:
                       - pending
                       - searching
@@ -322,7 +332,6 @@ spec:
                       type: string
                   required:
                   - langKey
-                  - state
                   type: object
                 maxItems: 20
                 type: array
