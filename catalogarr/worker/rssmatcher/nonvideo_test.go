@@ -39,18 +39,6 @@ func TestNameAndCreditKeys(t *testing.T) {
 	assert.Contains(t, creditKeys("Artist feat. Guest"), "artist")
 }
 
-// TestIssueNumberKey pins the matcher's copy of pkg/decision's issue number
-// comparison: the two must agree, or the identity check refuses what the
-// matcher found.
-func TestIssueNumberKey(t *testing.T) {
-	for in, want := range map[string]string{
-		"050": "50", "50": "50", "50.0": "50", "12.50": "12.5", "0": "0", "000": "0",
-		"Annual 1": "annual1", " 7 ": "7", "": "",
-	} {
-		assert.Equalf(t, want, issueNumberKey(in), "%q", in)
-	}
-}
-
 func TestNonVideoIndexKeys(t *testing.T) {
 	assert.Equal(t, []string{"radiohead"}, artistNameKeys(&catalogv1alpha1.Artist{Status: catalogv1alpha1.ArtistStatus{
 		Metadata: &catalogv1alpha1.ArtistMetadata{Name: "Radiohead", SortName: "Radiohead"},

@@ -19,9 +19,7 @@ package rssmatcher
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
-	"unicode"
 
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -29,6 +27,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/catalogarr/worker/search"
+	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/release"
@@ -71,59 +70,18 @@ func nameKeys(name string) []string {
 	return dedupeNonEmpty(keys...)
 }
 
-// coCredit splits a release's credit into the people it names: "Stephen King
-// & Peter Straub", "Artist feat. Guest". It is pkg/decision's own splitter
-// (identity_nonvideo.go), restated because that one is unexported: the
-// matcher must find every item the identity check would accept a release
-// for, or the check never sees it.
-var coCredit = regexp.MustCompile(`(?i)\s+(?:&|and|feat\.?|ft\.?|featuring)\s+|\s*[;,]\s*`)
-
 // creditKeys keys a release's credit whole and each co-credited name in it,
 // so a co-written book or a featured-artist album is found through any one
 // of its creators. Only the release side is split; an item's creators are
-// already separate names.
+// already separate names. The split is pkg/decision's own (CoCredits), so
+// the matcher finds every item the identity check would accept a release
+// for -- the two cannot drift.
 func creditKeys(credit string) []string {
 	keys := nameKeys(credit)
-	for _, part := range coCredit.Split(credit, -1) {
+	for _, part := range decision.CoCredits(credit) {
 		keys = append(keys, nameKeys(part)...)
 	}
 	return dedupeNonEmpty(keys...)
-}
-
-// issueNumberKey is an issue number's comparison form: a plain number loses
-// its padding and trailing fractional zeros ("050", "50" and "50.0" are one
-// issue), anything else ("Annual 1") keeps only its lower-cased letters and
-// digits. It is pkg/decision's issueNumberKey (identity_nonvideo.go, Mylar's
-// helpers.issuedigits), restated because that one is unexported; the two
-// must agree or the check refuses what the matcher found.
-func issueNumberKey(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	whole, frac, dotted := strings.Cut(s, ".")
-	if allDigits(whole) && (!dotted || allDigits(frac)) && (whole != "" || frac != "") {
-		whole = strings.TrimLeft(whole, "0")
-		if whole == "" {
-			whole = "0"
-		}
-		if frac = strings.TrimRight(frac, "0"); frac != "" {
-			return whole + "." + frac
-		}
-		return whole
-	}
-	return strings.Map(func(r rune) rune {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			return r
-		}
-		return -1
-	}, s)
-}
-
-func allDigits(s string) bool {
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
 }
 
 // pairKey is "<left>|<right>", or "" when either half is empty.
@@ -222,7 +180,7 @@ func issueKeys(o client.Object) []string {
 	if !ok || iss.Spec.ComicRef == "" {
 		return nil
 	}
-	if k := issueNumberKey(iss.Spec.Number); k != "" {
+	if k := decision.IssueNumberKey(iss.Spec.Number); k != "" {
 		return []string{iss.Spec.ComicRef + "#" + k}
 	}
 	return nil
@@ -370,7 +328,7 @@ func matchAudiobook(ctx context.Context, c client.Client, namespace string, rel 
 }
 
 func matchIssue(ctx context.Context, c client.Client, namespace string, rel schema.Release) ([]commonv1.MediaRef, error) {
-	number := issueNumberKey(rel.Issue)
+	number := decision.IssueNumberKey(rel.Issue)
 	if number == "" {
 		return nil, nil
 	}

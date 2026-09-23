@@ -33,9 +33,9 @@ import (
 // The non-video kinds are each their own grab target and status target: an
 // Album, a Book, an Audiobook or a comic Issue is one release, never a pack
 // narrowed by keys. Their grab configuration follows the same inheritance
-// the search worker ranks them under (catalogarr/worker/search's
-// snapshotNonVideo), so the profile a release was approved against is the
-// profile its Download records:
+// the search worker and the RSS matcher rank them under
+// (catalogarr/worker/search.ReadNonVideo), so the profile a release was
+// approved against is the profile its Download records:
 //
 //   - Album: its own qualityProfileRef override, else the Artist's; the
 //     Artist's delay profile and tags.
