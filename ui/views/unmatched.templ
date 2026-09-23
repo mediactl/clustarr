@@ -18,17 +18,22 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package views
 
 import (
+	"fmt"
 	"strings"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/ui/actions"
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // Unmatched renders the Unmatched page (amendment §A3.4, Task G3-3):
 // LibraryScan.status.unmatched -- files the scanner could not attribute to a
 // catalog item (A1.5's never-guess rule) -- flattened across every current
-// scan, with the reason and any candidates the scanner considered. It is
-// read-only in this task: the manual-assign action's mechanism is being
-// defined by G2-4 in importarr, and G3-4 adds the action once it lands.
+// scan, with the reason and any candidates the scanner considered, plus
+// (Task G3-4, G2-4's mechanism: importarr/worker/rescan/doc.go, "Manual
+// assignment") a per-row manual-assign form.
 //
 // #unmatched-rows is the sse-swap target, mirroring every other live page:
 // htmx's SSE extension replaces that element's innerHTML with the named
@@ -66,11 +71,11 @@ templ UnmatchedRows(entries []projection.UnmatchedEntry) {
 }
 
 // unmatchedRow renders one UnmatchedEntry: its path, the scanner's reason,
-// and any candidates it considered but would not guess between. Every row
-// carries data-scan, data-root-folder, data-path, data-reason and
-// data-candidates (ruling R8): the UI tests assert on these attributes, not
-// on visible copy, so a wording change does not break a test and a markup
-// change does not pass one.
+// any candidates it considered but would not guess between, and the
+// manual-assign form. Every row carries data-scan, data-root-folder,
+// data-path, data-reason and data-candidates (ruling R8): the UI tests
+// assert on these attributes, not on visible copy, so a wording change does
+// not break a test and a markup change does not pass one.
 templ unmatchedRow(e projection.UnmatchedEntry) {
 	<div
 		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
@@ -90,5 +95,176 @@ templ unmatchedRow(e projection.UnmatchedEntry) {
 				Candidates: { strings.Join(e.Candidates, ", ") }
 			</div>
 		}
+		@manualAssignForm(e)
 	</div>
+}
+
+// manualAssignForm renders one unmatched entry's "assign" form
+// (importarr/worker/rescan/doc.go, "Manual assignment"): a name field with
+// the row's own candidates offered through a <datalist> -- a native,
+// no-JavaScript picker-plus-free-form-text hybrid, since ui ships no
+// client-side framework -- a kind select restricted to
+// actions.MediaKinds(), and an optional key for a comic or series target.
+// Submitting posts to POST /unmatched/assign (ui/routes.go's
+// handleManualAssign), which calls Options.Actions.ManualAssign and, on
+// success, redirects to the created LibraryScan's own detail page
+// ([LibraryScanDetail]) so the user can see whether the worker accepted it;
+// on failure it renders through routes.go's finishAction exactly like the
+// Library page's own actions, so actions.ErrNoWriter and actions.ErrInvalid
+// are visible rather than silently doing nothing.
+templ manualAssignForm(e projection.UnmatchedEntry) {
+	<form
+		method="post"
+		action="/unmatched/assign"
+		class="mt-3 flex flex-wrap items-end gap-2 border-t border-slate-800 pt-3"
+		data-manual-assign-form={ e.Path }
+	>
+		<input type="hidden" name="namespace" value={ e.ScanRef.Namespace }/>
+		<input type="hidden" name="rootFolder" value={ e.RootFolder }/>
+		<input type="hidden" name="subpath" value={ e.Path }/>
+		<input type="hidden" name="return" value="/unmatched"/>
+		<div>
+			<label class="block text-xs text-slate-400" for={ "kind-" + manualAssignRowID(e) }>Kind</label>
+			<select
+				id={ "kind-" + manualAssignRowID(e) }
+				name="kind"
+				class="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm"
+			>
+				for _, kind := range actions.MediaKinds() {
+					<option value={ string(kind) }>{ string(kind) }</option>
+				}
+			</select>
+		</div>
+		<div>
+			<label class="block text-xs text-slate-400" for={ "name-" + manualAssignRowID(e) }>Name</label>
+			<input
+				type="text"
+				id={ "name-" + manualAssignRowID(e) }
+				name="name"
+				list={ "candidates-" + manualAssignRowID(e) }
+				placeholder="item name"
+				class="w-48 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm"
+			/>
+			if len(e.Candidates) > 0 {
+				<datalist id={ "candidates-" + manualAssignRowID(e) }>
+					for _, c := range e.Candidates {
+						<option value={ c }></option>
+					}
+				</datalist>
+			}
+		</div>
+		<div>
+			<label class="block text-xs text-slate-400" for={ "key-" + manualAssignRowID(e) }>Key (comic/series only)</label>
+			<input
+				type="text"
+				id={ "key-" + manualAssignRowID(e) }
+				name="key"
+				placeholder="issue or episode name"
+				class="w-40 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm"
+			/>
+		</div>
+		<button
+			type="submit"
+			data-action="manual-assign"
+			class="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-500"
+		>
+			Assign
+		</button>
+	</form>
+}
+
+// manualAssignRowID builds a stable, HTML-id-safe identifier for one row's
+// form elements from its scan name and path, replacing characters a file
+// path may contain but an id attribute should not (spaces, slashes, dots).
+func manualAssignRowID(e projection.UnmatchedEntry) string {
+	r := strings.NewReplacer(" ", "-", "/", "-", ".", "-", "(", "", ")", "")
+	return r.Replace(e.ScanRef.Name + "-" + e.Path)
+}
+
+// LibraryScanDetail renders one LibraryScan's status (Task G3-4): phase,
+// file/item counts, and -- once the worker has ruled on a manual assignment
+// -- the Ready condition's reason and message, which is where a refusal
+// (bad target, subpath outside the root, a path already recorded elsewhere)
+// shows up (importarr/worker/rescan/doc.go: "a malformed or unusable
+// annotation ... end the scan Done with the reason (the LibraryScan
+// controller reports it as Failed)"). This is a plain GET of one resource
+// the UI already had create access to -- the UI never writes status, and
+// this page reads it, exactly like every other page's own status reads.
+templ LibraryScanDetail(scan catalogv1.LibraryScan) {
+	@Layout(scan.Name) {
+		<a href="/unmatched" class="text-sm text-slate-400 hover:text-slate-100">&larr; Unmatched</a>
+		<div
+			class="mt-4 rounded-lg border border-slate-800 bg-slate-900 p-6"
+			data-scan={ scan.Namespace + "/" + scan.Name }
+			data-phase={ string(scan.Status.Phase) }
+		>
+			<div class="flex items-center justify-between gap-4">
+				<h1 class="text-2xl font-bold">{ scan.Name }</h1>
+				<span class={ scanPhaseBadgeClass(scan.Status.Phase) }>{ scanPhaseLabel(scan.Status.Phase) }</span>
+			</div>
+			<p class="mt-1 text-xs text-slate-400">root folder { scan.Spec.RootFolderRef }
+				if scan.Spec.Subpath != "" {
+					· { scan.Spec.Subpath }
+				}
+			</p>
+			<div class="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-sm text-slate-300 sm:grid-cols-3">
+				<span>{ fmt.Sprintf("files seen %d", scan.Status.FilesSeen) }</span>
+				<span>{ fmt.Sprintf("files matched %d", scan.Status.FilesMatched) }</span>
+				<span>{ fmt.Sprintf("files skipped %d", scan.Status.FilesSkipped) }</span>
+				<span>{ fmt.Sprintf("items created %d", scan.Status.ItemsCreated) }</span>
+				<span>{ fmt.Sprintf("items updated %d", scan.Status.ItemsUpdated) }</span>
+			</div>
+			if reason, message, ok := scanReadyFailure(scan); ok {
+				<div class="mt-4 rounded-md border border-red-900 bg-red-950/50 p-4 text-sm text-red-300">
+					<p class="font-medium">{ reason }</p>
+					<p class="mt-1">{ message }</p>
+				</div>
+			}
+		</div>
+	}
+}
+
+// scanPhaseLabel and scanPhaseBadgeClass render a LibraryScan's coarse
+// phase, mirroring library.templ's stagePhaseBadgeClass for the same
+// unset-phase-still-renders-sensibly reasoning.
+func scanPhaseLabel(phase catalogv1.ScanPhase) string {
+	if phase == "" {
+		return "unset"
+	}
+	return string(phase)
+}
+
+func scanPhaseBadgeClass(phase catalogv1.ScanPhase) string {
+	const base = "rounded-full px-2 py-0.5 text-xs font-medium "
+	switch phase {
+	case catalogv1.ScanPhaseFailed:
+		return base + "bg-red-500/20 text-red-300"
+	case catalogv1.ScanPhaseCompleted:
+		return base + "bg-emerald-500/20 text-emerald-300"
+	case "":
+		return base + "bg-slate-500/20 text-slate-300"
+	default:
+		return base + "bg-sky-500/20 text-sky-300"
+	}
+}
+
+// scanReadyFailure reads the scan's "Ready" condition (the one condition
+// type every Clustarr kind reports -- restated as a literal here, the way
+// ui/actions restates pkg/k8s.ManagerUI's value, because ui/ may not import
+// pkg/k8s) and reports its Reason and Message when the condition is present
+// and not True: this is where the worker's refusal of a manual assignment
+// (a bad target, a subpath outside the root, a path already recorded
+// elsewhere) surfaces.
+func scanReadyFailure(scan catalogv1.LibraryScan) (reason, message string, ok bool) {
+	const conditionReady = "Ready"
+	for _, c := range scan.Status.Conditions {
+		if c.Type != conditionReady {
+			continue
+		}
+		if c.Status == metav1.ConditionTrue {
+			return "", "", false
+		}
+		return c.Reason, c.Message, true
+	}
+	return "", "", false
 }

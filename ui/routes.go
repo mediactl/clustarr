@@ -20,8 +20,12 @@ package ui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"sort"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -52,6 +56,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /library/rescan", s.handleRescan)
 	mux.HandleFunc("GET /unmatched", s.handleUnmatched)
 	mux.HandleFunc("GET /events/unmatched", s.handleUnmatchedEvents)
+	mux.HandleFunc("POST /unmatched/assign", s.handleManualAssign)
+	mux.HandleFunc("GET /library-scans/{namespace}/{name}", s.handleLibraryScanDetail)
 	mux.HandleFunc("GET /import-lists", s.handleImportLists)
 	mux.HandleFunc("GET /events/import-lists", s.handleImportListsEvents)
 	mux.HandleFunc("GET /settings", s.handleSettings)
@@ -325,5 +331,88 @@ func (s *Server) handleUnmatched(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.Unmatched(entries).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render unmatched page", "error", err)
+	}
+}
+
+// handleManualAssign is the Unmatched page's "assign" action (Task G3-4,
+// mechanism from G2-4: importarr/worker/rescan/doc.go, "Manual
+// assignment"): POST /unmatched/assign with "namespace", "rootFolder",
+// "subpath", "kind", "name" and "key" fields, one submitted by each row's
+// own form (views.manualAssignForm). It calls Options.Actions.ManualAssign
+// -- and nowhere else in ui/ calls actions.Writer's Create or Patch, per
+// ui/guard_test.go.
+//
+// On failure -- actions.ErrNoWriter (Options.Actions unset, exactly like
+// every other action until Task G3-5 wires it), actions.ErrInvalid (a
+// malformed target), or the apiserver's own error -- it renders through
+// finishAction exactly like the Library page's own actions, so the failure
+// is visible rather than silent. On success it does NOT use finishAction's
+// generic "return" redirect: it sends the user to the newly created
+// LibraryScan's own detail page (handleLibraryScanDetail) instead, per this
+// task's own instruction ("point the user at the resulting LibraryScan so
+// they can see whether the worker accepted it") -- the worker's verdict
+// lands on that scan's own status, which this handler never touches; it
+// only reads back the name and namespace the apiserver returned from the
+// create.
+func (s *Server) handleManualAssign(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+
+	target := actions.ManualAssignTarget{
+		Kind: commonv1.MediaKind(r.FormValue("kind")),
+		Name: r.FormValue("name"),
+		Key:  r.FormValue("key"),
+	}
+	scan, err := s.opts.Actions.ManualAssign(r.Context(),
+		r.FormValue("namespace"), r.FormValue("rootFolder"), r.FormValue("subpath"), target)
+	if err != nil {
+		s.finishAction(w, r, err)
+		return
+	}
+	http.Redirect(w, r, libraryScanDetailPath(scan.Namespace, scan.Name), http.StatusSeeOther)
+}
+
+// libraryScanDetailPath builds a LibraryScan's detail page path, matching
+// "GET /library-scans/{namespace}/{name}" below.
+func libraryScanDetailPath(namespace, name string) string {
+	return fmt.Sprintf("/library-scans/%s/%s", namespace, name)
+}
+
+// handleLibraryScanDetail renders one LibraryScan's status (Task G3-4): a
+// single Get through Options.Reader, exactly the same read-only seam every
+// other page uses -- this is where a manual assignment's outcome (accepted,
+// or refused with a reason) becomes visible, per this task's own
+// instruction, and it is a read: the UI never writes status, and reading
+// one object's status here is no different from the Library and Downloads
+// pages already rendering status fields they never write.
+//
+// A nil Reader answers 404 as if the scan does not exist, mirroring
+// handleLibraryItem's own "nothing to show without a cluster" behaviour --
+// there being no cluster and the scan being genuinely absent look the same
+// to a caller with no other way to tell them apart.
+func (s *Server) handleLibraryScanDetail(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if s.opts.Reader == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	var scan catalogv1.LibraryScan
+	key := client.ObjectKey{Namespace: r.PathValue("namespace"), Name: r.PathValue("name")}
+	if err := s.opts.Reader.Get(ctx, key, &scan); err != nil {
+		if apierrors.IsNotFound(err) {
+			http.NotFound(w, r)
+			return
+		}
+		logging.FromContext(ctx).Error("get library scan", "error", err)
+		http.Error(w, "failed to load library scan", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := views.LibraryScanDetail(scan).Render(ctx, w); err != nil {
+		logging.FromContext(ctx).Error("render library scan detail page", "error", err)
 	}
 }

@@ -17,7 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package actions is the only package under ui/ that writes to the cluster,
 // and it writes exactly what design amendment §A3.2 (the Library page) and
-// Task G3-4 (the Settings page) let the UI write:
+// Task G3-4 (the Settings and Unmatched pages) let the UI write:
 //
 //   - "search now" creates a Search ([SearchNow]);
 //   - "rescan" creates a LibraryScan ([Rescan]);
@@ -26,7 +26,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     modest field set (settings.go): RootFolder.spec.scanSchedule,
 //     QualityProfile.spec.upgradeAllowed, Indexer/DownloadClient/
 //     MetadataProvider/SubtitleProvider's spec.enabled and spec.priority,
-//     SubtitleProfile.spec.default and TranscodeProfile.spec.priority.
+//     SubtitleProfile.spec.default and TranscodeProfile.spec.priority;
+//   - the Unmatched page's "assign" action creates an annotated LibraryScan
+//     ([ManualAssign], manualassign.go) -- G2-4's mechanism
+//     (importarr/worker/rescan/doc.go, "Manual assignment"), needing no new
+//     grant: it is the same create on libraryscans [Rescan] already has.
 //
 // Nothing else. The UI never writes status, holds no status field manager and
 // owns no CRD (§A3.2, CLAUDE.md), so every action either creates a
@@ -37,12 +41,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # How narrow, and what enforces it
 //
 // Each action is a plain function over the narrowest interface that can
-// perform it: [Creator] (Create only) for the two creates, [Patcher] (Patch
-// only) for the spec patch. [Writer] is the two together, and [Actions]
-// holds one unexported so the rest of ui/ can reach the three actions and
-// never the Create/Patch methods behind them. ui/server.go's Options.Reader
-// stays a client.Reader; the writer arrives through Options.Actions, a
-// separate field, so the read path is read-only by type.
+// perform it: [Creator] (Create only) for every create (SearchNow, Rescan,
+// ManualAssign), [Patcher] (Patch only) for every spec patch (SetMonitored,
+// the Settings actions). [Writer] is the two together, and [Actions] holds
+// one unexported so the rest of ui/ can reach every action and never the
+// Create/Patch methods behind them. ui/server.go's Options.Reader stays a
+// client.Reader; the writer arrives through Options.Actions, a separate
+// field, so the read path is read-only by type.
 //
 // Three guards hold that shape (ruling R2,
 // docs/superpowers/plans/2026-09-23-phase-g-parity.md):

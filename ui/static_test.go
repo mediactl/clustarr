@@ -124,3 +124,22 @@ func TestGeneratedCSSCoversImportListsPageClasses(t *testing.T) {
 			"importListRow component uses for the pending device-code authorization box; this means the "+
 			"committed app.css was not rebuilt with `make css` after importlists.templ was added")
 }
+
+// TestGeneratedCSSCoversManualAssignFormClasses is Task G3-4's follow-up
+// addition to the same guard: w-40 is a class ui/views/unmatched.templ's
+// manualAssignForm uses for its "key" input (the manual-assign action's
+// mechanism, from G2-4's importarr/worker/rescan/doc.go, "Manual
+// assignment"), added new when that form was added to unmatched.templ, so
+// its presence in the committed app.css specifically proves that change was
+// included in the `make css` build that produced it.
+func TestGeneratedCSSCoversManualAssignFormClasses(t *testing.T) {
+	srv := ui.NewServer(t.Context(), ui.Options{})
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/app.css", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	require.True(t, strings.Contains(rec.Body.String(), "w-40"),
+		"ui/static/app.css is missing .w-40, a class ui/views/unmatched.templ's manualAssignForm uses for "+
+			"its key input; this means the committed app.css was not rebuilt with `make css` after the "+
+			"manual-assign form was added")
+}
