@@ -145,6 +145,8 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 func artistPredicate() predicate.Predicate {
 	return k8s.Or(
 		k8s.GenerationChanged(),
+		// An annotation-only change bumps no generation.
+		k8s.DeadLetteredAnnotationChanged(),
 		k8s.StatusFieldChanged(func(o client.Object) metav1.Time {
 			a, ok := o.(*catalogv1alpha1.Artist)
 			if !ok || a.Status.Metadata == nil {
@@ -204,6 +206,10 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, a *catalogv1alpha1.Art
 func (r *Reconciler) reconcileNormal(ctx context.Context, a *catalogv1alpha1.Artist) (ctrl.Result, error) {
 	now := time.Now().UTC()
 	conditions := append([]metav1.Condition(nil), a.Status.Conditions...)
+	// The DLQ projector's clustarr.io/dead-lettered annotation becomes the
+	// DeadLettered condition here, on the one slice every status apply below
+	// declares -- early returns included -- so no apply releases it.
+	k8s.MarkDeadLettered(a, &conditions)
 
 	statusAC := catalogac.ArtistStatus().WithObservedGeneration(a.Generation)
 	// Sent on every reconcile once the decision point is reached, not just

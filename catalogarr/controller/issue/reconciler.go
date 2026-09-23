@@ -146,6 +146,8 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 func issuePredicate() predicate.Predicate {
 	return k8s.Or(
 		k8s.GenerationChanged(),
+		// An annotation-only change bumps no generation.
+		k8s.DeadLetteredAnnotationChanged(),
 		k8s.StatusFieldChanged(func(o client.Object) metav1.Time {
 			iss, ok := o.(*catalogv1alpha1.Issue)
 			if !ok || iss.Status.Date == nil {
@@ -302,6 +304,10 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, iss *catalogv1alpha1.I
 	now := time.Now().UTC()
 	monitored := ptr.Deref(iss.Spec.Monitored, true)
 	conditions := append([]metav1.Condition(nil), iss.Status.Conditions...)
+	// The DLQ projector's clustarr.io/dead-lettered annotation becomes the
+	// DeadLettered condition here, on the one slice every status apply below
+	// declares -- early returns included -- so no apply releases it.
+	k8s.MarkDeadLettered(iss, &conditions)
 
 	var mfList catalogv1alpha1.MediaFileList
 	if err := r.List(ctx, &mfList, client.InNamespace(iss.Namespace), client.MatchingFields{mediaFileByIssueIndexKey: iss.Name}); err != nil {

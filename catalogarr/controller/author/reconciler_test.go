@@ -478,4 +478,41 @@ func TestAuthorReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		assert.Equal(t, before.Status.BookCount, after.Status.BookCount, "RootFolderNotFound must not release BookCount")
 		assert.Equal(t, before.Status.BookFileCount, after.Status.BookFileCount, "RootFolderNotFound must not release BookFileCount")
 	})
+
+	t.Run("the dead-lettered annotation folds into DeadLettered without releasing the steady state", func(t *testing.T) {
+		var steady catalogv1alpha1.Author
+		require.NoError(t, c.Get(ctx, req.NamespacedName, &steady))
+		annotated := steady.DeepCopy()
+		if annotated.Annotations == nil {
+			annotated.Annotations = map[string]string{}
+		}
+		annotated.Annotations[k8s.AnnotationDeadLettered] = "clustarr.work.metadata.normal.x@2026-09-23T10:00:00Z"
+		require.NoError(t, c.Patch(ctx, annotated, client.MergeFrom(&steady)))
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Author
+			return c.Get(ctx, req.NamespacedName, &got) == nil && got.Annotations[k8s.AnnotationDeadLettered] != ""
+		}, 5*time.Second, 10*time.Millisecond)
+
+		_, err := r.Reconcile(ctx, req)
+		require.NoError(t, err)
+		var got catalogv1alpha1.Author
+		require.Eventually(t, func() bool {
+			return c.Get(ctx, req.NamespacedName, &got) == nil && k8s.IsConditionTrue(got.Status.Conditions, k8s.ConditionDeadLettered)
+		}, 5*time.Second, 10*time.Millisecond, "the annotation never became the DeadLettered condition")
+		assert.Equal(t, steady.Status.Path, got.Status.Path)
+		assert.Equal(t, steady.Status.BookCount, got.Status.BookCount)
+
+		cleared := got.DeepCopy()
+		delete(cleared.Annotations, k8s.AnnotationDeadLettered)
+		require.NoError(t, c.Patch(ctx, cleared, client.MergeFrom(&got)))
+		require.Eventually(t, func() bool {
+			var g catalogv1alpha1.Author
+			return c.Get(ctx, req.NamespacedName, &g) == nil && g.Annotations[k8s.AnnotationDeadLettered] == ""
+		}, 5*time.Second, 10*time.Millisecond)
+		_, err = r.Reconcile(ctx, req)
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			return c.Get(ctx, req.NamespacedName, &got) == nil && k8s.FindCondition(got.Status.Conditions, k8s.ConditionDeadLettered) == nil
+		}, 5*time.Second, 10*time.Millisecond, "removing the annotation never cleared the condition")
+	})
 }

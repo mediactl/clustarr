@@ -22,10 +22,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
@@ -129,4 +131,31 @@ func TestAlbumControllerWakesOnInheritedProfileEdits(t *testing.T) {
 	require.NoError(t, c.Update(ctx, &a))
 	require.Eventually(t, cutoffMet(false), 10*time.Second, 20*time.Millisecond,
 		"the Artist pointing at another profile never reached the Album")
+
+	// DeadLettered: the DLQ projector's annotation on this object, already
+	// in steady state, becomes the condition through the For() predicate's
+	// annotation arm alone -- and folding it releases nothing else.
+	var before catalogv1alpha1.Album
+	require.NoError(t, c.Get(ctx, key, &before))
+	annotated := before.DeepCopy()
+	if annotated.Annotations == nil {
+		annotated.Annotations = map[string]string{}
+	}
+	annotated.Annotations[k8s.AnnotationDeadLettered] = "clustarr.work.metadata.normal.x@2026-09-23T10:00:00Z"
+	require.NoError(t, c.Patch(ctx, annotated, client.MergeFrom(&before)))
+	var got catalogv1alpha1.Album
+	require.Eventually(t, func() bool {
+		return c.Get(ctx, key, &got) == nil && k8s.IsConditionTrue(got.Status.Conditions, k8s.ConditionDeadLettered)
+	}, 10*time.Second, 20*time.Millisecond, "the dead-lettered annotation never became the DeadLettered condition")
+	assert.Equal(t, before.Status.CutoffMet, got.Status.CutoffMet)
+	assert.Equal(t, before.Status.Quality, got.Status.Quality)
+	assert.Equal(t, before.Status.Phase, got.Status.Phase)
+	assert.NotNil(t, k8s.FindCondition(got.Status.Conditions, k8s.ConditionReady), "folding DeadLettered released Ready")
+
+	cleared := got.DeepCopy()
+	delete(cleared.Annotations, k8s.AnnotationDeadLettered)
+	require.NoError(t, c.Patch(ctx, cleared, client.MergeFrom(&got)))
+	require.Eventually(t, func() bool {
+		return c.Get(ctx, key, &got) == nil && k8s.FindCondition(got.Status.Conditions, k8s.ConditionDeadLettered) == nil
+	}, 10*time.Second, 20*time.Millisecond, "removing the annotation never cleared the condition")
 }

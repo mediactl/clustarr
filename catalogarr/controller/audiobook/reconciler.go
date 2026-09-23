@@ -192,6 +192,8 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 func audiobookPredicate() predicate.Predicate {
 	return k8s.Or(
 		k8s.GenerationChanged(),
+		// An annotation-only change bumps no generation.
+		k8s.DeadLetteredAnnotationChanged(),
 		k8s.StatusFieldChanged(func(o client.Object) metav1.Time {
 			a, ok := o.(*catalogv1alpha1.Audiobook)
 			if !ok || a.Status.Metadata == nil {
@@ -329,6 +331,10 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Aud
 	now := time.Now().UTC()
 	monitored := ptr.Deref(m.Spec.Monitored, true)
 	conditions := append([]metav1.Condition(nil), m.Status.Conditions...)
+	// The DLQ projector's clustarr.io/dead-lettered annotation becomes the
+	// DeadLettered condition here, on the one slice every status apply below
+	// declares -- early returns included -- so no apply releases it.
+	k8s.MarkDeadLettered(m, &conditions)
 
 	statusAC := catalogac.AudiobookStatus().WithObservedGeneration(m.Generation)
 
