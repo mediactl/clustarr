@@ -21,7 +21,10 @@ package download
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -34,11 +37,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/download/v1alpha1"
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/grabarr/engine"
 	grabarrstatus "github.com/mediactl/clustarr/grabarr/status"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -112,8 +117,11 @@ type Reconciler struct {
 
 	// Now is the clock. Nil means time.Now; the same seam
 	// downloadclient.BlocklistSweeper.Now provides, here for
-	// status.startedAt/status.completedAt.
+	// status.startedAt/status.completedAt and the engine teardown timeout.
 	Now func() time.Time
+
+	// EngineTeardownTimeout overrides [DefaultEngineTeardownTimeout].
+	EngineTeardownTimeout time.Duration
 }
 
 // NewReconciler builds a Reconciler with no Bus configured; set the field
@@ -248,6 +256,9 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, dl *downloadv1alpha1.D
 		return ctrl.Result{}, fmt.Errorf("download: label engine assignment: %w", err)
 	}
 
+	// §6.3: "Phase=Assigned; evt.download.queued". Published before the
+	// apply that records it -- see publishDownloadEvent.
+	r.publishDownloadEvent(ctx, dl, events.ActionQueued, "")
 	if err := r.applyStatus(ctx, dl, downloadv1alpha1.DownloadPhaseAssigned, engine, true,
 		k8s.ReasonReconciled, "clientRef=%s engine=%s", clientName, engine); err != nil {
 		return ctrl.Result{}, err
@@ -284,6 +295,10 @@ func (r *Reconciler) applyStatus(
 		} else {
 			k8s.MarkFalse(dl, &conditions, downloadv1alpha1.DownloadConditionAssigned, reason, format, args...)
 		}
+		// Every status apply this manager makes folds the DLQ projector's
+		// annotation (pkg/k8s.MarkDeadLettered), the pre-assignment waits
+		// included, so no apply releases the condition another one set.
+		k8s.MarkDeadLettered(dl, &conditions)
 		ac.WithConditions(k8s.ConditionACs(conditions)...)
 	})
 }
@@ -317,6 +332,19 @@ func (r *Reconciler) advancePhase(ctx context.Context, dl *downloadv1alpha1.Down
 			return ctrl.Result{}, fmt.Errorf("download: publish import task for %s/%s: %w", dl.Namespace, dl.Name, err)
 		}
 		log.Info("content complete on disk; published import task", "phase", res.phase)
+	}
+
+	// History events for the edges this reconcile observes, each on the
+	// same condition the status apply below uses to record it -- see
+	// publishDownloadEvent for why before, and why best effort.
+	if dl.Status.StartedAt == nil && dl.Status.Stage != "" {
+		r.publishDownloadEvent(ctx, dl, events.ActionStarted, "")
+	}
+	if nowComplete && !wasComplete {
+		r.publishDownloadEvent(ctx, dl, events.ActionCompleted, "")
+	}
+	if action, ok := phaseActions[res.phase]; ok && res.phase != dl.Status.Phase {
+		r.publishDownloadEvent(ctx, dl, action, string(res.failureReason))
 	}
 
 	if err := r.applyAdvancedStatus(ctx, dl, res, wasComplete || nowComplete); err != nil {
@@ -386,6 +414,7 @@ func (r *Reconciler) applyAdvancedStatus(
 		} else {
 			k8s.MarkFalse(dl, &conditions, downloadv1alpha1.DownloadConditionImported, k8s.ReasonReconciling, "not yet imported")
 		}
+		k8s.MarkDeadLettered(dl, &conditions)
 		ac.WithConditions(k8s.ConditionACs(conditions)...)
 	})
 }
@@ -435,8 +464,24 @@ func (r *Reconciler) publishImportTask(ctx context.Context, dl *downloadv1alpha1
 }
 
 // reconcileDelete runs the spec.removeDataOnDelete finalizer and, once done,
-// drops the finalizer. See doc.go's "The finalizer needs no live engine" for
-// why this reaches directly for fsops rather than a download.Client.
+// drops the finalizer. It is the controller's half of the teardown protocol
+// (ruling R-6; grabarr/engine's package doc): it removes status.outputPath
+// only once the engine has dropped grabarr/engine's finalizer -- i.e. once
+// the engine has removed the transfer and released its files -- so it no
+// longer unlinks files an engine is still writing or seeding.
+//
+// A live engine is waited for without a bound: it acts on the deletion the
+// moment its watch delivers it, and its finalizer coming off wakes this
+// reconcile (the Deleting predicate passes any update to a deleting
+// object). An engine that is GONE ([Reconciler.engineGone]) is waited for
+// [DefaultEngineTeardownTimeout] from the deletionTimestamp, in case it is
+// only restarting; after that this controller drops the engine finalizer
+// on its behalf, with a Warning Event, and the engine's orphan reaper
+// clears the transfer if the engine ever comes back.
+//
+// The data volume is shared (see doc.go's "The finalizer needs no live
+// engine"), so the removal itself still needs no engine. An outputPath the
+// engine already removed (it honours removeDataOnDelete too) is skipped.
 func (r *Reconciler) reconcileDelete(ctx context.Context, dl *downloadv1alpha1.Download) (ctrl.Result, error) {
 	ctx, span := tracing.Start(ctx, "download.Reconciler.reconcileDelete")
 	defer span.End()
@@ -450,13 +495,50 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, dl *downloadv1alpha1.D
 		return ctrl.Result{}, nil
 	}
 
-	if ptr.Deref(dl.Spec.RemoveDataOnDelete, true) && dl.Status.OutputPath != "" {
-		if err := fsops.SafeRemove(ctx, r.DataDir, dl.Status.OutputPath); err != nil {
-			log.Error("remove downloaded data", "error", err, "outputPath", dl.Status.OutputPath)
-			return ctrl.Result{}, fmt.Errorf("download: remove data for %s: %w", dl.Name, err)
+	if k8s.HasFinalizer(dl, engine.Finalizer) {
+		gone, why, err := r.engineGone(ctx, dl)
+		if err != nil {
+			return ctrl.Result{}, err
 		}
-		log.Info("removed downloaded data", "outputPath", dl.Status.OutputPath)
+		if !gone {
+			log.Info("waiting for the engine to release the transfer", "engine", dl.Status.Engine)
+			return ctrl.Result{RequeueAfter: requeueWaiting}, nil
+		}
+		timeout := r.engineTeardownTimeout()
+		if waited := r.now().Sub(dl.DeletionTimestamp.Time); waited < timeout {
+			log.Info("engine is gone; waiting out the teardown timeout before releasing it",
+				"engine", dl.Status.Engine, "why", why, "remaining", timeout-waited)
+			return ctrl.Result{RequeueAfter: min(timeout-waited, requeueWaiting)}, nil
+		}
+		if r.Recorder != nil {
+			r.Recorder.Eventf(dl, nil, "Warning", ReasonEngineGone, "Finalize",
+				"engine %s did not release the transfer within %s (%s); releasing it on the engine's behalf",
+				dl.Status.Engine, timeout, why)
+		}
+		log.Warn("releasing the engine finalizer on a gone engine's behalf", "engine", dl.Status.Engine, "why", why)
+		if _, err := k8s.RemoveFinalizer(ctx, r.Client, dl, engine.Finalizer); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
+
+	removeData := ptr.Deref(dl.Spec.RemoveDataOnDelete, true)
+	if removeData && dl.Status.OutputPath != "" {
+		if _, statErr := os.Lstat(dl.Status.OutputPath); errors.Is(statErr, fs.ErrNotExist) {
+			log.Info("downloaded data already gone", "outputPath", dl.Status.OutputPath)
+		} else {
+			if err := fsops.SafeRemove(ctx, r.DataDir, dl.Status.OutputPath); err != nil {
+				log.Error("remove downloaded data", "error", err, "outputPath", dl.Status.OutputPath)
+				return ctrl.Result{}, fmt.Errorf("download: remove data for %s: %w", dl.Name, err)
+			}
+			log.Info("removed downloaded data", "outputPath", dl.Status.OutputPath)
+		}
+	}
+
+	reason := "removeDataOnDelete=false"
+	if removeData {
+		reason = "removeDataOnDelete=true"
+	}
+	r.publishDownloadEvent(ctx, dl, events.ActionRemoved, reason)
 
 	if _, err := k8s.RemoveFinalizer(ctx, r.Client, dl, name); err != nil {
 		return ctrl.Result{}, err
@@ -560,6 +642,21 @@ func phaseSignal(o client.Object) downloadPhaseSignal {
 	}
 }
 
+// downloadPredicate is the controller's own watch filter on Download.
+// GenerationChanged alone would miss the update that only sets
+// deletionTimestamp (a metadata change, not a spec change) -- k8s.Deleting()
+// covers that, and also wakes the finalizer when an engine drops
+// grabarr/engine's finalizer. k8s.StatusFieldChanged(phaseSignal) is D2-8a's:
+// see phaseSignal for why phase advancement is unreachable without it.
+// k8s.DeadLetteredAnnotationChanged() is the DLQ fold's: the projector's
+// annotation, and an operator removing it, touch neither generation nor any
+// status field.
+func downloadPredicate() predicate.Predicate {
+	return k8s.Or(
+		k8s.GenerationChanged(), k8s.Deleting(), k8s.StatusFieldChanged(phaseSignal),
+		k8s.DeadLetteredAnnotationChanged())
+}
+
 // SetupWithManager registers the Download controller.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &downloadv1alpha1.Download{}, clientRefIndexKey,
@@ -575,15 +672,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("download").
-		// GenerationChanged alone would miss the update that only sets
-		// deletionTimestamp (that is a metadata change, not a spec change),
-		// which would leave a deleted-with-finalizer Download stuck until an
-		// unrelated event nudged it; k8s.Deleting() covers exactly that case.
-		// k8s.StatusFieldChanged(phaseSignal) is D2-8a's own addition -- see
-		// that function's doc comment for why phase advancement is
-		// unreachable without it.
-		For(&downloadv1alpha1.Download{}, builder.WithPredicates(k8s.Or(
-			k8s.GenerationChanged(), k8s.Deleting(), k8s.StatusFieldChanged(phaseSignal)))).
+		For(&downloadv1alpha1.Download{}, builder.WithPredicates(downloadPredicate())).
 		Watches(&downloadv1alpha1.DownloadClient{}, handler.EnqueueRequestsFromMapFunc(r.mapDownloadClient),
 			builder.WithPredicates(k8s.StatusFieldChanged(engineReadyStatus))).
 		WithOptions(controller.Options{ReconciliationTimeout: 5 * time.Minute}).

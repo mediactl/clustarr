@@ -109,26 +109,46 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // publishImportTask and advancePhase doc comments for the exactly-once
 // discipline (a Downloaded-condition gate, backed by a deterministic
 // Envelope.ID for the broker's own dedup window as a second, independent
-// layer). schema.DownloadEvent and schema.DownloadProgress remain
-// unpublished by this package -- "delete the grab lease" is
-// catalogarr/worker/grab's KV state and out of this directory regardless --
-// so §6.3's evt.download.queued notification and the 1Hz progress stream
-// are still a real gap for whichever task takes them next.
+// layer).
 //
-// # The finalizer needs no live engine
+// # History events
+//
+// Gap-fix task X9 made this controller the producer of
+// clustarr.evt.download.download.<action>.<uid> (schema.DownloadEvent),
+// which the history sink turns into Events on the Download: queued on the
+// engine pin (§6.3's "evt.download.queued"), started, completed, imported,
+// failed, blocklisted, and removed from the finalizer. Each is published by
+// the reconcile that observes the edge, before the apply that records it,
+// with a per-action Envelope id; see events.go. seedGoalMet is not
+// produced, for the same reason the SeedGoalMet condition is not derived
+// (above). schema.DownloadProgress, the 1 Hz core-NATS stream, is still
+// unpublished -- it belongs to the engines, which own the telemetry -- and
+// "delete the grab lease" is catalogarr/worker/grab's KV state, out of this
+// directory regardless.
+//
+// # The finalizer needs no live engine -- but waits for one that is there
 //
 // grabarr's controller Deployment mounts the same RWX DataDir every engine
 // pod does (config/manager/grabarr.yaml; grabarr/controller/downloadclient's
 // Reconciler.DataDir does the identical statfs for DiskSpaceOK). That means
 // spec.removeDataOnDelete can be honoured with a direct
 // fsops.SafeRemove(DataDir, status.outputPath) from this controller, with no
-// need to coordinate with a live download.Client the controller process does
-// not hold -- engine roles hold those, per grabarr/run.go's role split.
-// status.outputPath is engine-owned telemetry (k8s.ManagerGrabarrEngine) and
-// is empty on every Download this task's own tests can produce, since no
-// engine exists yet to set it; the removal branch is exercised by a test that
-// plants the field directly, standing in for the engine that will really set
-// it once D2-5/D2-6 land.
+// need to hold a download.Client the controller process does not have --
+// engine roles hold those, per grabarr/run.go's role split. status.outputPath
+// is engine-owned telemetry (k8s.ManagerGrabarrEngine): a torrent's per-
+// transfer directory from the moment it is added, a usenet transfer's
+// published directory once it is renamed into place.
+//
+// Needing no engine is not the same as ignoring one. Before gap-fix ruling
+// R-6 this finalizer removed the files and let the object go at once, so an
+// engine could still hold them open -- writing into, or seeding from, unlinked
+// inodes. Now each engine puts grabarr/engine's finalizer on the Downloads it
+// runs and drops it only after removing the transfer, and reconcileDelete
+// removes nothing until that finalizer is gone. An engine that is itself gone
+// (its DownloadClient deleted, its engine not ready, its ordinal scaled away)
+// is waited for DefaultEngineTeardownTimeout and then released on its behalf;
+// teardown.go has the rules and grabarr/engine's package doc the whole
+// protocol.
 //
 // The finalizer does not set status.phase=Removing (unchanged by D2-8a,
 // which owns advancePhase, not reconcileDelete). Removing itself falls on
