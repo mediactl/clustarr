@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package cardigann
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -50,20 +51,13 @@ type Query struct {
 	Author, Title, Publisher    string
 }
 
-// ErrUnsupportedRowFeature is returned when a Definition's search.rows uses
-// After, DateHeaders or the FieldsBlock `|append`/`|noappend` key form —
-// decoded (Load/Validate succeed) but not implemented in the row-extraction
-// engine. Neither bundled definition (1337x, 0dayfiles-api) uses them;
-// implementing them correctly needs a fixture this task doesn't have. A
-// later task adds real coverage before lifting the gap.
-var ErrUnsupportedRowFeature = errors.New("cardigann: rows.after/dateheaders or a field's |append modifier is not yet supported")
-
 // canonicalFieldNames is FieldsBlock's own alternation (schema-v11.json),
 // quoted verbatim. A field whose name is not in this set — including any
 // name with an "_" suffix (title_optional, downloadvolumefactor_freeleech)
-// or a "|append"/"|noappend" form — is an intermediate helper: it lands in
-// TemplateContext.Result for later fields to read, but is never itself
-// mapped onto a torznab.Release field.
+// — is an intermediate helper: it lands in TemplateContext.Result for later
+// fields to read, but is never itself mapped onto a torznab.Release field.
+// A "|append"/"|noappend" key is its base name plus a modifier; see
+// splitFieldKey.
 var canonicalFieldNames = map[string]bool{
 	"download": true, "magnet": true, "infohash": true, "details": true, "comments": true,
 	"title": true, "description": true, "category": true, "categorydesc": true, "size": true,
@@ -72,6 +66,14 @@ var canonicalFieldNames = map[string]bool{
 	"imdb": true, "imdbid": true, "tmdbid": true, "rageid": true, "tvdbid": true, "tvmazeid": true,
 	"traktid": true, "doubanid": true, "poster": true, "genre": true, "year": true, "author": true,
 	"booktitle": true, "publisher": true, "album": true, "artist": true, "label": true, "track": true,
+}
+
+// implicitlyOptional are the fields Prowlarr treats as optional whether or
+// not the definition says so (CardigannBase.OptionalFields): an id, a poster
+// or a description a row lacks never costs the row.
+var implicitlyOptional = map[string]bool{
+	"imdb": true, "imdbid": true, "tmdbid": true, "rageid": true, "tvdbid": true, "tvmazeid": true,
+	"traktid": true, "doubanid": true, "poster": true, "banner": true, "description": true, "genre": true,
 }
 
 // seasonEpisodeInQuery matches a query string that already looks like it
@@ -176,13 +178,20 @@ func pathMatches(p SearchPathBlock, catStrings []string) bool {
 // query.Categories (via the CategoryMapper; a path with no Categories
 // always matches; "!id" excludes), or the single SearchBlock.Path when Paths
 // is empty, builds .Keywords from Query, applies KeywordsFilters, sends
-// each request (GET query string or POST form, per path.Method), parses the
-// response per path.Response.Type (default HTML), iterates Rows (After == 0
-// and DateHeaders == nil, else ErrUnsupportedRowFeature), evaluates Fields
-// in file order into a per-row Result, and maps the canonical field names
-// (note §3.8) onto a torznab.Release. A non-optional field with no match
-// drops that row (logged at Debug via logging.FromContext, not returned as
-// an error) rather than failing the whole search.
+// each request (GET query string or POST form, per path.Method, in the
+// definition's encoding), parses the response per path.Response.Type
+// (default HTML) after PreprocessingFilters, iterates Rows (After merges,
+// Multiple expands), evaluates Fields in file order into a per-row Result,
+// and maps the canonical field names (note §3.8) onto a torznab.Release,
+// falling back to rows.dateheaders for a row with no date. A non-optional
+// field with no match drops that row (logged at Debug via
+// logging.FromContext, not returned as an error) rather than failing the
+// whole search.
+//
+// A response that is not a result page is an error, never zero results: a
+// redirect the path did not ask to follow (*RedirectError; to the login
+// page it matches ErrSessionExpired), a non-2xx status (*StatusError), or a
+// matched search.error block (*SearchError).
 func (e Engine) Search(ctx context.Context, def *Definition, cfg Config, query Query) ([]torznab.Release, error) {
 	if loginRequiresSession(def.Login) && cfg.Session == nil {
 		return nil, ErrSessionRequired
@@ -230,19 +239,23 @@ func (e Engine) searchOnePath(ctx context.Context, def *Definition, cfg Config, 
 	if err != nil {
 		return nil, err
 	}
-	_, body, err := e.do(ctx, req)
+	resp, body, err := e.do(ctx, req, exchange{def: def, site: cfg.BaseURL, follow: p.FollowRedirect})
 	if err != nil {
 		return nil, err
 	}
+	if err := checkSearchResponse(def, cfg, req, resp); err != nil {
+		return nil, err
+	}
 
-	rt := ResponseHTML
-	if p.Response != nil {
-		switch p.Response.Type {
-		case "json":
-			rt = ResponseJSON
-		case "xml":
-			rt = ResponseXML
-		}
+	rt := responseType(p)
+	if body, err = decodeBody(tc.enc, body); err != nil {
+		return nil, err
+	}
+	if noResults(p, rt, body) {
+		return nil, nil
+	}
+	if body, err = preprocess(ctx, body, rt, def.Search.PreprocessingFilters, tc); err != nil {
+		return nil, err
 	}
 	doc, err := ParseDoc(rt, body)
 	if err != nil {
@@ -265,17 +278,262 @@ func (e Engine) searchOnePath(ctx context.Context, def *Definition, cfg Config, 
 
 	var out []torznab.Release
 	for _, row := range rows {
-		result, ok, err := evaluateRow(ctx, def.Search.Fields, tc, row)
+		rr, ok, err := evaluateRow(ctx, def.Search.Fields, tc, row, mapper)
 		if err != nil {
 			return nil, err
 		}
 		if !ok {
 			continue
 		}
-		rel := mapResultToRelease(def, cfg, result, mapper)
+		rel := mapResultToRelease(def, cfg, rr, tc)
+		if rel.PubDate.IsZero() && def.Search.Rows.DateHeaders != nil {
+			if !applyDateHeader(ctx, &rel, row.doc, *def.Search.Rows.DateHeaders, tc) {
+				continue
+			}
+		}
 		out = append(out, rel)
 	}
 	return out, nil
+}
+
+// responseType maps a path's response.type onto the selector backend.
+func responseType(p SearchPathBlock) ResponseType {
+	if p.Response != nil {
+		switch p.Response.Type {
+		case "json":
+			return ResponseJSON
+		case "xml":
+			return ResponseXML
+		}
+	}
+	return ResponseHTML
+}
+
+// ErrRedirected is what every *RedirectError matches.
+var ErrRedirected = errors.New("cardigann: the indexer redirected the search")
+
+// ErrSessionExpired is what a *RedirectError to the tracker's login page
+// also matches: the session was killed or expired, and the caller should log
+// in again rather than count the indexer as failing.
+var ErrSessionExpired = errors.New("cardigann: the indexer redirected to its login page")
+
+// RedirectError is a search response that redirected when its path did not
+// set followredirect. Prowlarr's CardigannParser throws on exactly this
+// (HasHttpRedirect), and for the same reason: the page at the other end is
+// a login form or a landing page, and parsing it as a result page reads a
+// dead session as a search that found nothing.
+type RedirectError struct {
+	// Location is the redirect target with its query string, fragment
+	// and userinfo removed (RedactURL); a tracker's redirect can carry a
+	// passkey.
+	Location string
+	// LoginPage reports that the target is the login page.
+	LoginPage bool
+}
+
+func (e *RedirectError) Error() string {
+	if e.LoginPage {
+		return "cardigann: redirected to the login page (" + e.Location + "); the session has expired"
+	}
+	return "cardigann: redirected to " + e.Location
+}
+
+// Unwrap makes errors.Is(err, ErrRedirected) hold, and
+// errors.Is(err, ErrSessionExpired) for a redirect to the login page.
+func (e *RedirectError) Unwrap() []error {
+	if e.LoginPage {
+		return []error{ErrRedirected, ErrSessionExpired}
+	}
+	return []error{ErrRedirected}
+}
+
+// ErrUnexpectedStatus is what every *StatusError matches.
+var ErrUnexpectedStatus = errors.New("cardigann: unexpected HTTP status")
+
+// StatusError is a search response with a non-2xx status. Prowlarr's parser
+// refuses anything but 200 ("Unexpected response status"); a 500 page parsed
+// as HTML has no rows, which is the failing-tracker-as-empty-tracker
+// confusion search.error exists to prevent.
+type StatusError struct{ StatusCode int }
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("cardigann: unexpected response status %d", e.StatusCode)
+}
+
+// Unwrap makes errors.Is(err, ErrUnexpectedStatus) hold.
+func (e *StatusError) Unwrap() error { return ErrUnexpectedStatus }
+
+// checkSearchResponse turns a redirect or a non-2xx status into an error.
+func checkSearchResponse(def *Definition, cfg Config, req *http.Request, resp *http.Response) error {
+	if resp == nil {
+		return nil
+	}
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		if loc := resp.Header.Get("Location"); loc != "" {
+			target, err := req.URL.Parse(loc)
+			if err != nil {
+				return &RedirectError{Location: redactRawURL(loc)}
+			}
+			return &RedirectError{Location: RedactURL(target), LoginPage: isLoginPage(def, cfg, target)}
+		}
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return &StatusError{StatusCode: resp.StatusCode}
+	}
+	return nil
+}
+
+// isLoginPage reports whether target is the tracker's login page: Prowlarr's
+// test (the target contains "/login.php", case-insensitively), or the
+// definition's own login.path, when that is a plain path rather than a
+// template.
+func isLoginPage(def *Definition, cfg Config, target *url.URL) bool {
+	if strings.Contains(strings.ToLower(target.Path), "/login.php") {
+		return true
+	}
+	if def.Login == nil || def.Login.Path == "" || strings.Contains(def.Login.Path, "{{") {
+		return false
+	}
+	login, err := resolveURL(cfg.BaseURL, def.Login.Path)
+	if err != nil {
+		return false
+	}
+	lu, err := url.Parse(login)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(lu.Host, target.Host) && strings.TrimSuffix(lu.Path, "/") == strings.TrimSuffix(target.Path, "/")
+}
+
+// noResults reports whether a JSON response is a tracker's "nothing found"
+// text instead of JSON: it contains the path's response.noResultsMessage,
+// or -- when that message is declared empty -- the body is blank. Such a
+// body is not JSON at all, so without this the search fails to parse rather
+// than returning zero results. Prowlarr's CardigannParser checks it before
+// parsing JSON, and only for JSON.
+func noResults(p SearchPathBlock, rt ResponseType, body []byte) bool {
+	if rt != ResponseJSON || p.Response == nil || p.Response.NoResultsMessage == nil {
+		return false
+	}
+	msg := *p.Response.NoResultsMessage
+	if strings.TrimSpace(msg) == "" {
+		return len(bytes.TrimSpace(body)) == 0
+	}
+	return bytes.Contains(body, []byte(msg))
+}
+
+// preprocess runs search.preprocessingfilters over the raw response text
+// before it is parsed -- a tracker whose markup a selector cannot reach
+// until a re_replace has fixed it. Prowlarr applies them to HTML and XML
+// responses and not to JSON, and so does this.
+func preprocess(ctx context.Context, body []byte, rt ResponseType, filters []FilterBlock, tc *TemplateContext) ([]byte, error) {
+	if rt == ResponseJSON || len(filters) == 0 {
+		return body, nil
+	}
+	text := string(body)
+	for _, f := range filters {
+		fn, ok := Filters[f.Name]
+		if !ok {
+			return nil, fmt.Errorf("cardigann: unknown preprocessing filter %q", f.Name)
+		}
+		var err error
+		text, err = fn(ctx, text, []string(f.Args), tc)
+		if err != nil {
+			return nil, fmt.Errorf("cardigann: preprocessing filter %q: %w", f.Name, err)
+		}
+	}
+	return []byte(text), nil
+}
+
+// applyDateHeader is rows.dateheaders: for a row whose fields yielded no
+// date, walk back through the preceding rows -- each previous element
+// sibling, then the parent's previous sibling when a row is first in its
+// parent -- and take the first on which the dateheaders selector matches
+// (the row itself or a descendant, as Prowlarr's HandleSelector matches).
+// It reports whether the row survives: a non-optional dateheaders that finds
+// no header, or finds one that does not parse as a date, drops the row, as
+// Prowlarr's per-row exception does.
+func applyDateHeader(ctx context.Context, rel *torznab.Release, row Doc, b SelectorBlock, tc *TemplateContext) bool {
+	log := logging.FromContext(ctx)
+	val, found := findDateHeader(ctx, row, b, tc)
+	if !found {
+		if !b.Optional {
+			log.Debug("cardigann: dropping row: no date header found")
+			return false
+		}
+		return true
+	}
+	t, err := parseUnknownDate(val, tc.effectiveNow())
+	if err != nil {
+		log.Debug("cardigann: dropping row: date header does not parse", "error", err)
+		return false
+	}
+	rel.PubDate = t
+	return true
+}
+
+// findDateHeader walks back from row looking for the dateheaders selector.
+// Every failure on a candidate row -- no match, a filter that rejects the
+// text -- moves on to the one before it, as Prowlarr's loop swallows the
+// exception and continues. Default/optional do not apply per candidate;
+// they decide only what happens when no row matches.
+func findDateHeader(ctx context.Context, row Doc, b SelectorBlock, tc *TemplateContext) (string, bool) {
+	b.Default, b.Optional = nil, false
+	for prev, ok := row.prevRow(); ok; prev, ok = prev.prevRow() {
+		cand := b
+		if cand.Text == nil && cand.Selector != "" {
+			sel, err := render(cand.Selector, tc)
+			if err != nil {
+				return "", false
+			}
+			if prev.matches(sel) {
+				cand.Selector = ""
+			}
+		}
+		val, found, err := cand.Extract(ctx, prev, tc)
+		if err == nil && found {
+			return val, true
+		}
+	}
+	return "", false
+}
+
+// unknownDateLayouts are what parseUnknownDate tries after RFC 3339 (the
+// shape every date filter in this package emits) and a Unix timestamp.
+var unknownDateLayouts = []string{
+	time.RFC1123Z, time.RFC1123, time.RFC822Z, time.RFC822,
+	"2006-01-02 15:04:05", "2006-01-02T15:04:05", "2006-01-02 15:04", "2006-01-02",
+}
+
+// parseUnknownDate is a subset of Prowlarr's DateTimeUtil.FromUnknown: RFC
+// 3339, a Unix timestamp in seconds (or milliseconds, at 13 digits), the
+// RFC 1123/822 forms and bare ISO date-times (read as UTC), plus the
+// relative forms the fuzzytime and timeago filters accept. A definition
+// with a stranger date runs a dateparse filter first, which emits RFC 3339.
+func parseUnknownDate(v string, now time.Time) (time.Time, error) {
+	v = strings.TrimSpace(v)
+	if t, err := time.Parse(time.RFC3339, v); err == nil {
+		return t, nil
+	}
+	if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+		if len(v) >= 13 {
+			return time.UnixMilli(n).UTC(), nil
+		}
+		return time.Unix(n, 0).UTC(), nil
+	}
+	for _, layout := range unknownDateLayouts {
+		if t, err := time.Parse(layout, v); err == nil {
+			return t, nil
+		}
+	}
+	if d, err := parseRelativeDuration(v); err == nil {
+		return now.Add(-d), nil
+	}
+	tc := &TemplateContext{Now: now}
+	if s, err := filterFuzzytime(context.Background(), v, nil, tc); err == nil {
+		return time.Parse(time.RFC3339, s)
+	}
+	return time.Time{}, fmt.Errorf("cardigann: unrecognised date %q", v)
 }
 
 // ErrSearchFailed is the sentinel every *SearchError unwraps to, so a caller
@@ -367,16 +625,14 @@ func (e Engine) buildSearchRequest(ctx context.Context, cfg Config, tc *Template
 	}
 
 	inputs := make(map[string]Scalar, len(sb.Inputs)+len(p.Inputs))
-	for k, v := range sb.Inputs {
+	if p.InheritInputs == nil || *p.InheritInputs {
+		for k, v := range sb.Inputs {
+			inputs[k] = v
+		}
+	}
+	for k, v := range p.Inputs { // path wins
 		inputs[k] = v
 	}
-	for k, v := range p.Inputs { // path wins; see the TODO(inheritinputs) note below
-		inputs[k] = v
-	}
-	// TODO(inheritinputs): SearchPathBlock.InheritInputs is decoded but
-	// given no behaviour distinct from this always-merge default; neither
-	// bundled definition disambiguates the two, and the note's own
-	// description of it is underspecified.
 
 	values := url.Values{}
 	var rawSuffix string
@@ -411,13 +667,13 @@ func (e Engine) buildSearchRequest(ctx context.Context, cfg Config, tc *Template
 		if err != nil {
 			return nil, fmt.Errorf("cardigann: search url %q: %w", redactRawURL(u), RedactErr(err))
 		}
-		parsed.RawQuery = appendRaw(values.Encode(), rawSuffix)
+		parsed.RawQuery = appendRaw(encodeValues(values, tc.enc, p.QuerySeparator), rawSuffix)
 		req, err = http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 		if err != nil {
 			return nil, fmt.Errorf("cardigann: build request: %w", RedactErr(err))
 		}
 	} else {
-		body := appendRaw(values.Encode(), rawSuffix)
+		body := appendRaw(encodeValues(values, tc.enc, ""), rawSuffix)
 		req, err = http.NewRequestWithContext(ctx, method, u, strings.NewReader(body))
 		if err != nil {
 			return nil, fmt.Errorf("cardigann: build request: %w", RedactErr(err))
@@ -447,14 +703,24 @@ func appendRaw(encoded, raw string) string {
 	return encoded + raw
 }
 
+// searchRow is one result row: the Doc its fields evaluate against, and --
+// for JSON -- the row as rows.selector found it, before rows.attribute
+// descended into it. A JSON field selector starting ".." reads from parent
+// (Prowlarr's HandleJsonSelector trims the dots; CardigannParser switches
+// the parent object in), which is how a rows.multiple definition reads the
+// movie a torrent belongs to.
+type searchRow struct {
+	doc    Doc
+	parent Doc
+}
+
 // extractRows locates each result row within doc per rows.Selector (and,
 // for JSON bodies, one further Attribute descent — e.g. 0dayfiles-api.yml's
 // `attribute: attributes`). rows.Count, when set, short-circuits to zero
-// rows when it resolves to "0" or empty.
-func extractRows(ctx context.Context, doc Doc, rows RowsBlock, tc *TemplateContext) ([]Doc, error) {
-	if rows.After != 0 || rows.DateHeaders != nil {
-		return nil, ErrUnsupportedRowFeature
-	}
+// rows when it resolves to "0" or empty. rows.after merges each row's
+// following rows into it (HTML/XML); rows.multiple makes each element of a
+// JSON row's attribute value its own row.
+func extractRows(ctx context.Context, doc Doc, rows RowsBlock, tc *TemplateContext) ([]searchRow, error) {
 	if rows.Count != nil {
 		val, ok, err := rows.Count.Extract(ctx, doc, tc)
 		if err != nil {
@@ -473,46 +739,152 @@ func extractRows(ctx context.Context, doc Doc, rows RowsBlock, tc *TemplateConte
 		return nil, err
 	}
 	base := doc.Rows(renderedSelector)
-	if rows.Attribute == "" {
-		return base, nil
+	if doc.rt != ResponseJSON {
+		base = mergeFollowingRows(base, rows.After)
 	}
-	var out []Doc
+	out := make([]searchRow, 0, len(base))
 	for _, r := range base {
-		sub, ok := r.Select(rows.Attribute)
-		if !ok {
-			if rows.MissingAttributeEqualsNoResults {
-				continue
+		sub := r
+		if rows.Attribute != "" {
+			var ok bool
+			sub, ok = r.Select(rows.Attribute)
+			if !ok {
+				if rows.MissingAttributeEqualsNoResults {
+					continue
+				}
+				return nil, fmt.Errorf("cardigann: row missing attribute %q", rows.Attribute)
 			}
-			return nil, fmt.Errorf("cardigann: row missing attribute %q", rows.Attribute)
 		}
-		out = append(out, sub)
+		if rows.Multiple && sub.rt == ResponseJSON && sub.json.IsArray() {
+			for _, el := range sub.elements() {
+				out = append(out, searchRow{doc: el, parent: r})
+			}
+			continue
+		}
+		out = append(out, searchRow{doc: sub, parent: r})
 	}
 	return out, nil
 }
 
-// evaluateRow walks fields in file order, extracting each into result;
-// tc.Result is set to the same map so later fields can read earlier ones
-// via .Result.<name> (1337x's title_optional/title_default/title chain).
-// A canonical field name (note §3.8) whose Extract misses (ok == false)
-// drops the row; a non-canonical/intermediate name is simply left unset.
-func evaluateRow(ctx context.Context, fields OrderedFields, tc *TemplateContext, row Doc) (map[string]string, bool, error) {
-	result := make(map[string]string, len(fields))
-	tc.Result = result
-	for _, entry := range fields {
-		val, ok, err := entry.Block.Extract(ctx, row, tc)
-		if err != nil {
-			return nil, false, fmt.Errorf("cardigann: field %q: %w", entry.Name, err)
+// mergeFollowingRows is rows.after, Prowlarr's merge verbatim except at the
+// end of the table: each row absorbs the child nodes of the after rows that
+// follow it, and those rows leave the list. Prowlarr indexes past the end
+// when the last row has fewer than after followers, failing the whole
+// search; this merges what is there.
+func mergeFollowingRows(rows []Doc, after int) []Doc {
+	if after <= 0 {
+		return rows
+	}
+	out := make([]Doc, 0, len(rows)/(after+1)+1)
+	for i := 0; i < len(rows); i += after + 1 {
+		cur := rows[i]
+		for j := 1; j <= after && i+j < len(rows); j++ {
+			cur.absorb(rows[i+j])
 		}
-		if ok {
-			result[entry.Name] = val
-			continue
-		}
-		if canonicalFieldNames[entry.Name] {
-			logging.FromContext(ctx).Debug("cardigann: dropping row: required field missing", "field", entry.Name)
-			return nil, false, nil
+		out = append(out, cur)
+	}
+	return out
+}
+
+// rowResult is one evaluated row: the .Result values by field name, and the
+// categories the category/categorydesc fields mapped to, in the order the
+// fields ran (the |append/|noappend modifiers make that order matter).
+type rowResult struct {
+	values map[string]string
+	cats   []newznab.CategoryID
+}
+
+// splitFieldKey separates a search.fields key into its base name and its
+// modifiers: "title|append" is ("title", ["append"]). The schema admits
+// |append on title and description and |append/|noappend on category and
+// categorydesc (FieldsBlock's patternProperties).
+func splitFieldKey(key string) (string, []string) {
+	parts := strings.Split(key, "|")
+	return parts[0], parts[1:]
+}
+
+func hasModifier(mods []string, m string) bool {
+	for _, x := range mods {
+		if x == m {
+			return true
 		}
 	}
-	return result, true, nil
+	return false
+}
+
+// evaluateRow walks fields in file order, extracting each into the row's
+// result; tc.Result is set to the same map so later fields can read earlier
+// ones via .Result.<name> (1337x's title_optional/title_default/title
+// chain). A required canonical field name (note §3.8) whose Extract misses
+// (ok == false) drops the row. An optional one does not -- declared
+// `optional: true`, or one of Prowlarr's implicitlyOptional names -- and
+// until Task X8a it did, so a definition's optional date or imdbid dropped
+// every row that lacked one. A non-canonical/intermediate name is simply
+// left unset, and so is a modified key -- "title|append" with nothing to
+// append leaves the title the plain field set.
+//
+// Modifiers follow Prowlarr's CardigannParser.ParseFields: title|append and
+// description|append concatenate onto the value so far (and .Result.title
+// is the concatenation); a category or categorydesc field unions its mapped
+// categories into the row's, unless it is |noappend, which replaces them.
+func evaluateRow(ctx context.Context, fields OrderedFields, tc *TemplateContext, row searchRow, mapper CategoryMapper) (rowResult, bool, error) {
+	rr := rowResult{values: make(map[string]string, len(fields))}
+	tc.Result = rr.values
+	catsSet := false
+	for _, entry := range fields {
+		name, mods := splitFieldKey(entry.Name)
+		src, block := row.doc, entry.Block
+		if src.rt == ResponseJSON && strings.HasPrefix(block.Selector, "..") {
+			src = row.parent
+		}
+		val, ok, err := block.Extract(ctx, src, tc)
+		if err != nil {
+			return rowResult{}, false, fmt.Errorf("cardigann: field %q: %w", entry.Name, err)
+		}
+		if !ok {
+			if len(mods) == 0 && canonicalFieldNames[name] && !block.Optional && !implicitlyOptional[name] {
+				logging.FromContext(ctx).Debug("cardigann: dropping row: required field missing", "field", entry.Name)
+				return rowResult{}, false, nil
+			}
+			continue
+		}
+		switch name {
+		case "title", "description":
+			if hasModifier(mods, "append") {
+				val = rr.values[name] + val
+			}
+		case "category", "categorydesc":
+			var ids []newznab.CategoryID
+			if name == "category" {
+				ids = mapper.FromTracker(val)
+			} else {
+				ids = mapper.FromTrackerDesc(val)
+			}
+			if len(ids) > 0 {
+				if !catsSet || hasModifier(mods, "noappend") {
+					rr.cats = ids
+				} else {
+					rr.cats = unionCategories(rr.cats, ids)
+				}
+				catsSet = true
+			}
+		}
+		rr.values[name] = val
+	}
+	return rr, true, nil
+}
+
+// unionCategories appends the ids in add that have not already appeared.
+func unionCategories(have, add []newznab.CategoryID) []newznab.CategoryID {
+	seen := make(map[newznab.CategoryID]bool, len(have)+len(add))
+	out := make([]newznab.CategoryID, 0, len(have)+len(add))
+	for _, id := range append(append([]newznab.CategoryID(nil), have...), add...) {
+		if !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // firstNonEmpty returns the first non-empty string among vs.
@@ -579,7 +951,8 @@ func declaredField(fields OrderedFields, name string) bool {
 // the research note's older §11 sketch — confirmed against B6's actual
 // struct): year/author/booktitle/publisher/artist/album/label/track all
 // land in Attrs instead; a later phase may extend torznab.Release itself.
-func mapResultToRelease(def *Definition, cfg Config, result map[string]string, mapper CategoryMapper) torznab.Release {
+func mapResultToRelease(def *Definition, cfg Config, rr rowResult, tc *TemplateContext) torznab.Release {
+	result := rr.values
 	rel := torznab.Release{
 		Attrs: map[string][]string{},
 		IDs:   map[string]string{},
@@ -648,17 +1021,12 @@ func mapResultToRelease(def *Definition, cfg Config, result map[string]string, m
 	}
 
 	if v := result["date"]; v != "" {
-		if t, err := time.Parse(time.RFC3339, v); err == nil {
+		if t, err := parseUnknownDate(v, tc.effectiveNow()); err == nil {
 			rel.PubDate = t
 		}
 	}
 
-	if v := result["category"]; v != "" {
-		rel.Categories = append(rel.Categories, mapper.FromTracker(v)...)
-	}
-	if v := result["categorydesc"]; v != "" {
-		rel.Categories = append(rel.Categories, mapper.FromTrackerDesc(v)...)
-	}
+	rel.Categories = rr.cats
 
 	rel.DownloadVolumeFactor = ratioField(result, def.Search.Fields, "downloadvolumefactor")
 	rel.UploadVolumeFactor = ratioField(result, def.Search.Fields, "uploadvolumefactor")

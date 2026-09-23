@@ -19,9 +19,14 @@ package cardigann
 
 import (
 	"context"
+	"crypto/sha1" //nolint:gosec // Certificates are SHA-1 fingerprints, the definition format's own choice (Jackett's GetCertHashString).
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -100,20 +105,142 @@ func (e *CloudflareChallengeError) Error() string {
 	return fmt.Sprintf("cardigann: cloudflare/ddos-guard challenge (HTTP %d)", e.StatusCode)
 }
 
-// httpClient returns e.HTTP (or http.DefaultClient when unset), with its
-// Transport swapped for e.Proxy when one is configured. It never mutates a
-// caller-owned *http.Client.
-func (e Engine) httpClient() *http.Client {
+// exchange is how one request is sent: the definition it runs for (whose
+// Certificates may relax TLS verification for the site host), the site it
+// belongs to, whether redirects are followed, and the cookie jar a login
+// flow collects every Set-Cookie into.
+//
+// Redirects follow Prowlarr's per-request choices, not Go's default of
+// always following: a search request follows only when its path sets
+// followredirect, a login landing page only when the definition does, and
+// the login submit and the download fetch always do. A redirect that is not
+// followed comes back as the 3xx response itself, which is what lets
+// searchOnePath report "redirected to the login page" instead of parsing
+// that page as a search with no results.
+type exchange struct {
+	def    *Definition
+	site   string
+	follow bool
+	jar    http.CookieJar
+}
+
+// httpClient returns the client for one exchange: e.HTTP (or
+// http.DefaultClient when unset) with e.Proxy as its transport when one is
+// configured, redirects followed only when x.follow, x.jar as its cookie jar
+// when set, and x.def's Certificates trusted for the site host. It never
+// mutates a caller-owned *http.Client or transport; every change is on a
+// copy.
+func (e Engine) httpClient(x exchange) *http.Client {
 	base := e.HTTP
 	if base == nil {
 		base = http.DefaultClient
 	}
-	if e.Proxy == nil {
-		return base
-	}
 	clone := *base
-	clone.Transport = e.Proxy
+	if e.Proxy != nil {
+		clone.Transport = e.Proxy
+	}
+	if !x.follow {
+		clone.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	}
+	if x.jar != nil {
+		clone.Jar = x.jar
+	}
+	if t := trustingTransport(clone.Transport, x.def, x.site); t != nil {
+		clone.Transport = t
+	}
 	return &clone
+}
+
+// trustingTransport honours Definition.Certificates, Jackett's semantics
+// (CardigannIndexer adds each to WebClient.AddTrustedCertificate for the
+// site host; HttpWebClient2.ValidateCertificate accepts a leaf whose SHA-1
+// thumbprint is listed for the request's host even when chain validation
+// fails). The corpus uses it for trackers with an expired or self-signed
+// certificate. Prowlarr decodes the field and ignores it, so such a tracker
+// simply fails there.
+//
+// It returns nil -- keep rt -- when def lists no certificates, and when rt is
+// not an *http.Transport: a FlareSolverr round tripper does its own TLS, and
+// a transport this package cannot see into keeps its own policy. The clone
+// disables keep-alives because it lives for one request; a pooled idle
+// connection on a transport nothing will reuse would outlive it.
+func trustingTransport(rt http.RoundTripper, def *Definition, site string) http.RoundTripper {
+	if def == nil || len(def.Certificates) == 0 {
+		return nil
+	}
+	if rt == nil {
+		rt = http.DefaultTransport
+	}
+	t, ok := rt.(*http.Transport)
+	if !ok {
+		return nil
+	}
+	u, err := url.Parse(site)
+	if err != nil || u.Hostname() == "" {
+		return nil
+	}
+	clone := t.Clone()
+	clone.DisableKeepAlives = true
+	clone.TLSClientConfig = trustConfig(clone.TLSClientConfig, u.Hostname(), def.Certificates)
+	return clone
+}
+
+// trustConfig returns base with verification replaced by one that first
+// verifies normally and, only when that fails, accepts a leaf certificate
+// whose SHA-1 fingerprint is in fingerprints and whose server name is host.
+// A base that already skips verification is returned as it was.
+func trustConfig(base *tls.Config, host string, fingerprints []string) *tls.Config {
+	var cfg *tls.Config
+	if base == nil {
+		cfg = &tls.Config{MinVersion: tls.VersionTLS12}
+	} else {
+		cfg = base.Clone()
+	}
+	if cfg.InsecureSkipVerify {
+		return cfg
+	}
+	trusted := make(map[string]bool, len(fingerprints))
+	for _, f := range fingerprints {
+		trusted[strings.ToLower(f)] = true
+	}
+	roots := cfg.RootCAs
+	// Verification moves into VerifyConnection, which still runs on every
+	// handshake; InsecureSkipVerify only turns off the built-in check that
+	// would reject the pinned certificate before VerifyConnection sees it.
+	cfg.InsecureSkipVerify = true
+	cfg.VerifyConnection = func(cs tls.ConnectionState) error {
+		if len(cs.PeerCertificates) == 0 {
+			return errors.New("cardigann: tls: server presented no certificate")
+		}
+		leaf := cs.PeerCertificates[0]
+		opts := x509.VerifyOptions{Roots: roots, DNSName: cs.ServerName, Intermediates: x509.NewCertPool()}
+		for _, c := range cs.PeerCertificates[1:] {
+			opts.Intermediates.AddCert(c)
+		}
+		_, verr := leaf.Verify(opts)
+		if verr == nil {
+			return nil
+		}
+		sum := sha1.Sum(leaf.Raw) //nolint:gosec // fingerprint comparison, see the import.
+		if isSiteConnection(cs.ServerName, host) && trusted[hex.EncodeToString(sum[:])] {
+			return nil
+		}
+		return verr
+	}
+	return cfg
+}
+
+// isSiteConnection reports whether a handshake whose SNI name is serverName
+// is a connection to host. Go sends no SNI for an IP literal, so
+// ConnectionState.ServerName is empty exactly when the dialled host was an
+// IP; that is the site only when the site itself is one. (The pin is on one
+// exact certificate, whose private key the handshake has just proved the
+// server holds; the host check is Jackett's defence in depth on top.)
+func isSiteConnection(serverName, host string) bool {
+	if serverName == "" {
+		return net.ParseIP(strings.Trim(host, "[]")) != nil
+	}
+	return strings.EqualFold(serverName, host)
 }
 
 // now returns e.Now(), defaulting to time.Now when unset.
@@ -131,7 +258,7 @@ func (e Engine) now() time.Time {
 // templates use is deterministic under test whenever the caller sets
 // Engine.Now. Query/Keywords/Categories/Result are populated by Search
 // itself per-request, not here.
-func (e Engine) templateContext(_ *Definition, cfg Config) *TemplateContext {
+func (e Engine) templateContext(def *Definition, cfg Config) *TemplateContext {
 	now := e.now()
 	tc := &TemplateContext{
 		Config: cfg.Values,
@@ -141,6 +268,11 @@ func (e Engine) templateContext(_ *Definition, cfg Config) *TemplateContext {
 		Now:    now,
 	}
 	tc.Today.Year = now.Year()
+	if def != nil {
+		// Load has already refused an encoding it cannot resolve; a
+		// hand-built Definition with a bad one falls back to UTF-8.
+		tc.enc, _ = def.textEncoding()
+	}
 	return tc
 }
 
@@ -232,14 +364,14 @@ func RedactErr(err error) error {
 // (login page fetch, submit, search request, download fetch) goes
 // through, so Cloudflare detection, the size cap and tracing all apply
 // everywhere for free.
-func (e Engine) do(ctx context.Context, req *http.Request) (*http.Response, []byte, error) {
+func (e Engine) do(ctx context.Context, req *http.Request, x exchange) (*http.Response, []byte, error) {
 	ctx, span := tracing.Start(ctx, "cardigann."+strings.ToLower(req.Method))
 	defer span.End()
 	if err := e.wait(ctx, req); err != nil {
 		tracing.RecordError(span, err)
 		return nil, nil, err
 	}
-	client := e.httpClient()
+	client := e.httpClient(x)
 	resp, err := client.Do(req.WithContext(ctx))
 	if err != nil {
 		tracing.RecordError(span, err)
@@ -323,35 +455,34 @@ func (cfg Config) stringValue(name string) (string, bool) {
 }
 
 // get issues a GET to path (resolved against cfg.BaseURL) and returns the
-// response body.
-func (e Engine) get(ctx context.Context, cfg Config, path string) ([]byte, error) {
-	u, err := resolveURL(cfg.BaseURL, path)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, fmt.Errorf("cardigann: build request: %w", RedactErr(err))
-	}
-	attachSession(req, cfg.Session)
-	_, body, err := e.do(ctx, req)
-	return body, err
-}
-
-// postForm issues a POST with an application/x-www-form-urlencoded body to
-// path (resolved against cfg.BaseURL).
-func (e Engine) postForm(ctx context.Context, cfg Config, path string, form url.Values) (*http.Response, []byte, error) {
+// response and its body.
+func (e Engine) get(ctx context.Context, cfg Config, path string, x exchange) (*http.Response, []byte, error) {
 	u, err := resolveURL(cfg.BaseURL, path)
 	if err != nil {
 		return nil, nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cardigann: build request: %w", RedactErr(err))
+	}
+	attachSession(req, cfg.Session)
+	return e.do(ctx, req, x)
+}
+
+// postForm issues a POST with an application/x-www-form-urlencoded body,
+// encoded in tc's charset, to path (resolved against cfg.BaseURL).
+func (e Engine) postForm(ctx context.Context, cfg Config, tc *TemplateContext, path string, form url.Values, x exchange) (*http.Response, []byte, error) {
+	u, err := resolveURL(cfg.BaseURL, path)
+	if err != nil {
+		return nil, nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, strings.NewReader(encodeValues(form, tc.enc, "")))
 	if err != nil {
 		return nil, nil, fmt.Errorf("cardigann: build request: %w", RedactErr(err))
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	attachSession(req, cfg.Session)
-	return e.do(ctx, req)
+	return e.do(ctx, req, x)
 }
 
 // renderHeaders renders every value of headers (search.headers,

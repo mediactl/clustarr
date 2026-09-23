@@ -25,6 +25,8 @@ import (
 	"strings"
 	"text/template"
 	"time"
+
+	"golang.org/x/text/encoding"
 )
 
 // QueryVars is the subset of a Query exposed to templates as .Query.*.
@@ -68,6 +70,12 @@ type TemplateContext struct {
 	// Engine.templateContext sets it from Engine.Now (defaulting to
 	// time.Now when unset) so tests are deterministic.
 	Now time.Time
+
+	// enc is the definition's character set (nil for UTF-8). It travels
+	// with the context because every consumer of it already has one: the
+	// request encoders, the response decoder and the urlencode/urldecode
+	// filters (see encoding.go).
+	enc encoding.Encoding
 }
 
 // effectiveNow returns tc.Now, falling back to time.Now() for a
@@ -241,8 +249,12 @@ func (d *Definition) ResolveSettings(baseURL string, raw map[string]string) (map
 	return values, nil
 }
 
-// NewConfig is ResolveSettings plus wrapping into a Config.
+// NewConfig is ResolveSettings plus wrapping into a Config. baseURL passes
+// through Definition.SiteLink first, so an indexer configured with one of
+// the definition's legacylinks talks to its current address instead -- and
+// .Config.sitelink, which templates build absolute URLs from, says so too.
 func NewConfig(def *Definition, baseURL string, raw map[string]string) (Config, error) {
+	baseURL = def.SiteLink(baseURL)
 	values, err := def.ResolveSettings(baseURL, raw)
 	if err != nil {
 		return Config{}, err

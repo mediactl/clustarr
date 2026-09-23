@@ -50,6 +50,10 @@ func TestEngineDownloadPrefersMagnetByDefault(t *testing.T) {
 	assert.Contains(t, string(body), "magnet:?xt=urn:btih:ABCDEF0123456789ABCDEF0123456789ABCDEF01")
 }
 
+// fakeTorrent is the smallest body that passes testlinktorrent's check: a
+// bencoded dictionary starts with 'd'.
+const fakeTorrent = "d4:infod4:name4:fakeee"
+
 func TestEngineDownloadFallbackFetchesTheTorrentURL(t *testing.T) {
 	var fetchedTorrent bool
 	mux := http.NewServeMux()
@@ -58,7 +62,9 @@ func TestEngineDownloadFallbackFetchesTheTorrentURL(t *testing.T) {
 	})
 	mux.HandleFunc("/torrent/ABCDEF0123456789ABCDEF0123456789ABCDEF01.torrent", func(w http.ResponseWriter, r *http.Request) {
 		fetchedTorrent = true
-		_, _ = w.Write([]byte("FAKETORRENTBYTES"))
+		// A bencoded dictionary: testlinktorrent (default true) checks
+		// the fetched file is a torrent before returning it.
+		_, _ = w.Write([]byte(fakeTorrent))
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -91,7 +97,7 @@ func TestEngineDownloadFallbackFetchesTheTorrentURL(t *testing.T) {
 	defer func() { _ = rc.Close() }()
 	body, err := io.ReadAll(rc)
 	require.NoError(t, err)
-	assert.Equal(t, "FAKETORRENTBYTES", string(body))
+	assert.Equal(t, fakeTorrent, string(body))
 	assert.True(t, fetchedTorrent)
 }
 

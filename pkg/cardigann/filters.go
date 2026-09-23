@@ -169,16 +169,29 @@ func filterToupper(_ context.Context, value string, _ []string, _ *TemplateConte
 	return strings.ToUpper(value), nil
 }
 
-func filterURLDecode(_ context.Context, value string, _ []string, _ *TemplateContext) (string, error) {
+// filterURLDecode and filterURLEncode work in the definition's charset, as
+// Prowlarr's do (data.UrlDecode(_encoding) / data.UrlEncode(_encoding)): a
+// windows-1251 tracker's %E0 is "а", not an invalid UTF-8 byte.
+func filterURLDecode(_ context.Context, value string, _ []string, tc *TemplateContext) (string, error) {
 	v, err := url.QueryUnescape(value)
 	if err != nil {
 		return "", fmt.Errorf("cardigann: urldecode: %w", err)
 	}
-	return v, nil
+	if tc == nil {
+		return v, nil
+	}
+	out, err := fromCharset(v, tc.enc)
+	if err != nil {
+		return "", fmt.Errorf("cardigann: urldecode: %w", err)
+	}
+	return out, nil
 }
 
-func filterURLEncode(_ context.Context, value string, _ []string, _ *TemplateContext) (string, error) {
-	return url.QueryEscape(value), nil
+func filterURLEncode(_ context.Context, value string, _ []string, tc *TemplateContext) (string, error) {
+	if tc == nil {
+		return url.QueryEscape(value), nil
+	}
+	return queryEscape(value, tc.enc), nil
 }
 
 func filterHTMLDecode(_ context.Context, value string, _ []string, _ *TemplateContext) (string, error) {

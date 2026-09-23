@@ -46,8 +46,14 @@ const (
 // does.
 var jsonBracketIndex = regexp.MustCompile(`\[(\d+)\]`)
 
+// jsonPath rewrites a Cardigann JSON selector into a gjson path (see
+// jsonBracketIndex). Leading dots are dropped, as Prowlarr's HandleJsonSelector drops them
+// (Selector.TrimStart('.')): ".title" is "title", and the ".." prefix that
+// means "the parent row" (see searchRow) has already chosen which Doc the
+// path runs against by the time it gets here. Left in, a leading ".." is
+// gjson's JSON Lines syntax and matches nothing a Cardigann author meant.
 func jsonPath(selector string) string {
-	return jsonBracketIndex.ReplaceAllString(selector, ".$1")
+	return jsonBracketIndex.ReplaceAllString(strings.TrimLeft(selector, "."), ".$1")
 }
 
 // Doc wraps one parsed response body (or a sub-node of one) so
@@ -147,6 +153,96 @@ func (d Doc) Rows(selector string) []Doc {
 		return out
 	}
 	return nil
+}
+
+// elements returns each element of a JSON array as its own Doc (nil for
+// anything else) -- rows.multiple's expansion.
+func (d Doc) elements() []Doc {
+	if d.rt != ResponseJSON || !d.json.IsArray() {
+		return nil
+	}
+	var out []Doc
+	d.json.ForEach(func(_, v gjson.Result) bool {
+		out = append(out, Doc{rt: d.rt, json: v})
+		return true
+	})
+	return out
+}
+
+// absorb moves every child node of other (text included, as Prowlarr moves
+// ChildNodes) to the end of d: rows.after's merge. HTML and XML only; the
+// emptied row stays in the document, where it can still be walked past by
+// prevRow.
+func (d Doc) absorb(other Doc) {
+	switch d.rt {
+	case ResponseHTML:
+		if d.html != nil && other.html != nil {
+			d.html.AppendSelection(other.html.Contents())
+		}
+	case ResponseXML:
+		if d.xml == nil || other.xml == nil {
+			return
+		}
+		for c := other.xml.FirstChild; c != nil; {
+			next := c.NextSibling
+			xmlquery.RemoveFromTree(c)
+			xmlquery.AddChild(d.xml, c)
+			c = next
+		}
+	}
+}
+
+// prevRow is the row before d for rows.dateheaders: its previous element
+// sibling, or -- when d is first in its parent -- the parent's previous
+// element sibling (CardigannParser's PreviousElementSibling/ParentElement
+// walk). ok is false when there is none. JSON rows have no siblings.
+func (d Doc) prevRow() (Doc, bool) {
+	switch d.rt {
+	case ResponseHTML:
+		if d.html == nil || d.html.Length() == 0 {
+			return Doc{}, false
+		}
+		cur := d.html.First()
+		prev := cur.Prev()
+		if prev.Length() == 0 {
+			prev = cur.Parent().Prev()
+		}
+		if prev.Length() == 0 {
+			return Doc{}, false
+		}
+		return Doc{rt: d.rt, html: prev}, true
+	case ResponseXML:
+		if d.xml == nil {
+			return Doc{}, false
+		}
+		if prev := prevElement(d.xml); prev != nil {
+			return Doc{rt: d.rt, xml: prev}, true
+		}
+		if d.xml.Parent != nil {
+			if prev := prevElement(d.xml.Parent); prev != nil {
+				return Doc{rt: d.rt, xml: prev}, true
+			}
+		}
+	}
+	return Doc{}, false
+}
+
+// prevElement is n's nearest preceding sibling that is an element.
+func prevElement(n *xmlquery.Node) *xmlquery.Node {
+	for p := n.PrevSibling; p != nil; p = p.PrevSibling {
+		if p.Type == xmlquery.ElementNode {
+			return p
+		}
+	}
+	return nil
+}
+
+// matches reports whether d itself (not a descendant) matches selector:
+// Prowlarr's HandleSelector tries dom.Matches(selector) before
+// QuerySelector, so a dateheaders selector naming the header row's own
+// class matches the header row. HTML only; XPath has no self-match to try.
+func (d Doc) matches(selector string) bool {
+	return d.rt == ResponseHTML && d.html != nil && d.html.Is(selector)
 }
 
 // Text reads d's text (attribute == "" for HTML, ignored for JSON) or a

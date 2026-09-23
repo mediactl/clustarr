@@ -18,13 +18,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package cardigann
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
+
+	"github.com/PuerkitoBio/goquery"
 )
 
 // Session is what Engine.Login produces and every later Search/Download
@@ -93,133 +100,342 @@ func loginRequiresSession(lb *LoginBlock) bool {
 
 // Login dispatches on def.Login.Method (default "form"): form, post, cookie,
 // get, oneurl. Returns nil, nil when def.Login is nil (public tracker).
+//
+// Every HTTP login collects cookies in a cookie jar that lives for this one
+// call, so the Session carries every cookie the tracker set along the way:
+// the landing page's (a form login's CSRF token is bound to it, and the
+// submit must send it back), and a redirect's. The classic login answers the
+// POST with a 302 that sets the session cookie and redirects to the index;
+// Go's client follows that redirect and, without a jar, the only cookies
+// left are the index page's. Prowlarr's HttpClient keeps a cookie container
+// across its redirect loop for the same reason.
 func (e Engine) Login(ctx context.Context, def *Definition, cfg Config) (*Session, error) {
 	lb := def.Login
 	if lb == nil {
 		return nil, nil
 	}
-
-	if lb.Captcha != nil {
-		found, err := e.captchaPresent(ctx, cfg, lb)
-		if err != nil {
-			return nil, err
-		}
-		if found {
-			return nil, &CaptchaRequiredError{Type: lb.Captcha.Type}
-		}
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return nil, fmt.Errorf("cardigann: cookie jar: %w", err)
 	}
+	lf := loginFlow{e: e, def: def, cfg: cfg, lb: lb, tc: e.templateContext(def, cfg), jar: jar}
 
 	switch lb.Method {
 	case "", "form":
-		return e.loginForm(ctx, def, cfg, lb)
+		return lf.form(ctx)
+	}
+	if lb.Captcha != nil {
+		page, _, err := lf.landing(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := page.Select(lb.Captcha.Selector); ok {
+			return nil, &CaptchaRequiredError{Type: lb.Captcha.Type}
+		}
+	}
+	switch lb.Method {
 	case "cookie":
-		return e.loginCookie(ctx, cfg, lb)
+		return e.loginCookie(ctx, def, cfg, lb)
 	case "post":
-		return e.loginPost(ctx, def, cfg, lb)
-	case "get":
-		return e.loginGet(ctx, def, cfg, lb)
-	case "oneurl":
-		return e.loginOneURL(ctx, def, cfg, lb)
+		return lf.post(ctx)
+	case "get", "oneurl":
+		return lf.get(ctx)
 	default:
 		return nil, fmt.Errorf("cardigann: unknown login method %q", lb.Method)
 	}
 }
 
-// captchaPresent GETs lb.Path (the login page) and reports whether
-// lb.Captcha.Selector matches — i.e. whether the site actually served a
-// captcha challenge this time, as opposed to merely declaring that it
-// might.
-func (e Engine) captchaPresent(ctx context.Context, cfg Config, lb *LoginBlock) (bool, error) {
-	body, err := e.get(ctx, cfg, lb.Path)
-	if err != nil {
-		return false, err
-	}
-	doc, err := ParseDoc(ResponseHTML, body)
-	if err != nil {
-		return false, fmt.Errorf("cardigann: parse login page: %w", err)
-	}
-	_, ok := doc.Select(lb.Captcha.Selector)
-	return ok, nil
+// loginFlow is one Login call's state: what every step renders against and
+// the jar every step's cookies land in.
+type loginFlow struct {
+	e   Engine
+	def *Definition
+	cfg Config
+	lb  *LoginBlock
+	tc  *TemplateContext
+	jar http.CookieJar
 }
 
-// loginForm GETs lb.Path, scrapes lb.SelectorInputs (e.g. a CSRF token)
-// out of that page alongside lb.Inputs (rendered), and POSTs the combined
-// form to lb.SubmitPath (or lb.Path when unset).
-func (e Engine) loginForm(ctx context.Context, def *Definition, cfg Config, lb *LoginBlock) (*Session, error) {
-	tc := e.templateContext(def, cfg)
-	page, err := e.get(ctx, cfg, lb.Path)
+// exchange is how a login request is sent. The landing page follows
+// redirects only when the definition sets followredirect (Prowlarr's
+// GetConfigurationForSetup); the form and post submits always follow
+// (AllowAutoRedirect = true); a get/oneurl login does not, and checks its
+// error selectors against the response it got.
+func (lf loginFlow) exchange(follow bool) exchange {
+	return exchange{def: lf.def, site: lf.cfg.BaseURL, follow: follow, jar: lf.jar}
+}
+
+// headers is login.headers, else search.headers (Prowlarr's
+// `Login?.Headers ?? Search?.Headers`).
+func (lf loginFlow) headers() map[string][]string {
+	if lf.lb.Headers != nil {
+		return lf.lb.Headers
+	}
+	return lf.def.Search.Headers
+}
+
+// loginURL renders and resolves login.path.
+func (lf loginFlow) loginURL() (string, error) {
+	path, err := render(lf.lb.Path, lf.tc)
+	if err != nil {
+		return "", err
+	}
+	return resolveURL(lf.cfg.BaseURL, path)
+}
+
+// landing GETs login.path and parses it as HTML.
+func (lf loginFlow) landing(ctx context.Context) (Doc, string, error) {
+	u, err := lf.loginURL()
+	if err != nil {
+		return Doc{}, "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return Doc{}, "", fmt.Errorf("cardigann: build request: %w", RedactErr(err))
+	}
+	if err := renderHeaders(req, lf.headers(), lf.tc); err != nil {
+		return Doc{}, "", err
+	}
+	req.Header.Set("Referer", lf.cfg.BaseURL)
+	_, body, err := lf.e.do(ctx, req, lf.exchange(lf.def.FollowRedirect))
+	if err != nil {
+		return Doc{}, "", err
+	}
+	doc, err := lf.parse(body)
+	if err != nil {
+		return Doc{}, "", fmt.Errorf("cardigann: parse login page: %w", err)
+	}
+	return doc, u, nil
+}
+
+// parse decodes body from the definition's charset and parses it as HTML.
+func (lf loginFlow) parse(body []byte) (Doc, error) {
+	body, err := decodeBody(lf.tc.enc, body)
+	if err != nil {
+		return Doc{}, err
+	}
+	return ParseDoc(ResponseHTML, body)
+}
+
+// session builds the Session from every cookie the jar holds for the site,
+// the login page and the submit target (a cookie scoped to a login
+// sub-path is still the session's).
+func (lf loginFlow) session(urls ...string) *Session {
+	seen := map[string]int{}
+	var cookies []*http.Cookie
+	for _, raw := range append([]string{lf.cfg.BaseURL}, urls...) {
+		u, err := url.Parse(raw)
+		if err != nil || u.Host == "" {
+			continue
+		}
+		for _, c := range lf.jar.Cookies(u) {
+			if i, ok := seen[c.Name]; ok {
+				cookies[i] = c
+				continue
+			}
+			seen[c.Name] = len(cookies)
+			cookies = append(cookies, c)
+		}
+	}
+	return &Session{Cookies: cookies, ExpiresAt: lf.e.now().Add(sessionTTL)}
+}
+
+// form is Prowlarr's form login (CardigannRequestGenerator.DoLogin, method
+// "form"): GET login.path; refuse if the page serves the declared captcha;
+// find login.form (default "form") and seed the submission with every
+// enabled, named <input> in it -- hidden fields included, and a checkbox or
+// radio only when checked; overlay login.inputs (whose keys are CSS
+// selectors naming the input when login.selectors is set); add
+// login.selectorinputs, scraped from the page, to the form and
+// login.getselectorinputs to the submit URL's query string; POST to
+// login.submitpath, else the form's action, resolved against the login
+// page; check login.error. The submit is multipart when the form says so.
+func (lf loginFlow) form(ctx context.Context) (*Session, error) {
+	lb := lf.lb
+	page, loginURL, err := lf.landing(ctx)
 	if err != nil {
 		return nil, err
 	}
-	doc, err := ParseDoc(ResponseHTML, page)
-	if err != nil {
-		return nil, fmt.Errorf("cardigann: parse login page: %w", err)
+	if lb.Captcha != nil {
+		if _, ok := page.Select(lb.Captcha.Selector); ok {
+			return nil, &CaptchaRequiredError{Type: lb.Captcha.Type}
+		}
 	}
 
+	formSel := lb.Form
+	if formSel == "" {
+		formSel = "form"
+	}
+	form, ok := page.Select(formSel)
+	if !ok {
+		return nil, fmt.Errorf("cardigann: login: no form matches %q on %s", formSel, redactRawURL(loginURL))
+	}
+	form = Doc{rt: form.rt, html: form.html.First()}
+
+	pairs := url.Values{}
+	form.html.Find("input").Each(func(_ int, in *goquery.Selection) {
+		name, ok := in.Attr("name")
+		if !ok || name == "" {
+			return
+		}
+		if _, disabled := in.Attr("disabled"); disabled {
+			return
+		}
+		switch strings.ToLower(in.AttrOr("type", "")) {
+		case "checkbox", "radio":
+			if _, checked := in.Attr("checked"); !checked {
+				return
+			}
+		}
+		pairs.Set(name, in.AttrOr("value", ""))
+	})
+
+	for k, v := range lb.Inputs {
+		rendered, err := render(string(v), lf.tc)
+		if err != nil {
+			return nil, err
+		}
+		key := k
+		if lb.Selectors {
+			el, ok := page.Select(k)
+			if !ok {
+				return nil, fmt.Errorf("cardigann: login: no input matches selector %q", k)
+			}
+			key, _ = el.Text("name")
+		}
+		pairs.Set(key, rendered)
+	}
+	if err := lf.scrapeInputs(ctx, page, lb.SelectorInputs, pairs, "selector input"); err != nil {
+		return nil, err
+	}
+	query := url.Values{}
+	if err := lf.scrapeInputs(ctx, page, lb.GetSelectorInputs, query, "get selector input"); err != nil {
+		return nil, err
+	}
+
+	action := lb.SubmitPath
+	if action == "" {
+		action = form.html.AttrOr("action", "")
+	}
+	submitURL, err := resolveURL(loginURL, action)
+	if err != nil {
+		return nil, err
+	}
+	if len(query) > 0 {
+		sep := "?"
+		if strings.Contains(submitURL, "?") {
+			sep = "&"
+		}
+		submitURL += sep + encodeValues(query, lf.tc.enc, "")
+	}
+
+	contentType, body, err := formBody(pairs, lf.tc, strings.EqualFold(form.html.AttrOr("enctype", ""), "multipart/form-data"))
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, submitURL, body)
+	if err != nil {
+		return nil, fmt.Errorf("cardigann: build request: %w", RedactErr(err))
+	}
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Referer", loginURL)
+	if err := renderHeaders(req, lf.headers(), lf.tc); err != nil {
+		return nil, err
+	}
+	resp, respBody, err := lf.e.do(ctx, req, lf.exchange(true))
+	if err != nil {
+		return nil, err
+	}
+	if err := lf.checkErrors(resp, respBody); err != nil {
+		return nil, err
+	}
+	return lf.session(loginURL, submitURL), nil
+}
+
+// scrapeInputs evaluates each selector input against the login page into
+// dst. A required one that matches nothing fails the login; an optional one
+// is left out (Prowlarr skips it rather than sending an empty value).
+func (lf loginFlow) scrapeInputs(ctx context.Context, page Doc, inputs map[string]SelectorBlock, dst url.Values, what string) error {
+	for name, sel := range inputs {
+		val, ok, err := sel.Extract(ctx, page, lf.tc)
+		if err != nil {
+			return fmt.Errorf("cardigann: login %s %q: %w", what, name, err)
+		}
+		if !ok {
+			if sel.Optional {
+				continue
+			}
+			return fmt.Errorf("cardigann: login %s %q not found", what, name)
+		}
+		dst.Set(name, val)
+	}
+	return nil
+}
+
+// formBody encodes pairs as the login form's body: urlencoded in the
+// definition's charset, or multipart/form-data when the form declares that
+// enctype (Prowlarr builds the multipart body by hand for the same case).
+func formBody(pairs url.Values, tc *TemplateContext, multi bool) (string, io.Reader, error) {
+	if !multi {
+		return "application/x-www-form-urlencoded", strings.NewReader(encodeValues(pairs, tc.enc, "")), nil
+	}
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	keys := make([]string, 0, len(pairs))
+	for k := range pairs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		for _, v := range pairs[k] {
+			if err := w.WriteField(k, toCharset(v, tc.enc)); err != nil {
+				return "", nil, fmt.Errorf("cardigann: multipart login form: %w", err)
+			}
+		}
+	}
+	if err := w.Close(); err != nil {
+		return "", nil, fmt.Errorf("cardigann: multipart login form: %w", err)
+	}
+	return w.FormDataContentType(), &buf, nil
+}
+
+// post is the form login minus the landing page: login.inputs (rendered)
+// POST straight to login.submitpath, else login.path.
+func (lf loginFlow) post(ctx context.Context) (*Session, error) {
+	lb := lf.lb
 	form := url.Values{}
 	for k, v := range lb.Inputs {
-		rendered, err := render(string(v), tc)
+		rendered, err := render(string(v), lf.tc)
 		if err != nil {
 			return nil, err
 		}
 		form.Set(k, rendered)
 	}
-	for name, sel := range lb.SelectorInputs {
-		val, ok, err := sel.Extract(ctx, doc, tc)
-		if err != nil {
-			return nil, err
-		}
-		if !ok && !sel.Optional {
-			return nil, fmt.Errorf("cardigann: login selector input %q not found", name)
-		}
-		form.Set(name, val)
-	}
-
 	submitPath := lb.SubmitPath
 	if submitPath == "" {
 		submitPath = lb.Path
 	}
-	resp, respBody, err := e.postForm(ctx, cfg, submitPath, form)
+	submitPath, err := render(submitPath, lf.tc)
 	if err != nil {
 		return nil, err
 	}
-	if err := checkLoginErrors(respBody, lb.Error, tc); err != nil {
-		return nil, err
-	}
-	return &Session{Cookies: resp.Cookies(), ExpiresAt: e.now().Add(sessionTTL)}, nil
-}
-
-// loginPost is loginForm minus the initial page GET and SelectorInputs
-// scrape: lb.Inputs (rendered) POST directly to lb.Path/lb.SubmitPath.
-func (e Engine) loginPost(ctx context.Context, def *Definition, cfg Config, lb *LoginBlock) (*Session, error) {
-	tc := e.templateContext(def, cfg)
-	form := url.Values{}
-	for k, v := range lb.Inputs {
-		rendered, err := render(string(v), tc)
-		if err != nil {
-			return nil, err
-		}
-		form.Set(k, rendered)
-	}
-	submitPath := lb.SubmitPath
-	if submitPath == "" {
-		submitPath = lb.Path
-	}
-	resp, respBody, err := e.postForm(ctx, cfg, submitPath, form)
+	resp, respBody, err := lf.e.postForm(ctx, lf.cfg, lf.tc, submitPath, form, lf.exchange(true))
 	if err != nil {
 		return nil, err
 	}
-	if err := checkLoginErrors(respBody, lb.Error, tc); err != nil {
+	if err := lf.checkErrors(resp, respBody); err != nil {
 		return nil, err
 	}
-	return &Session{Cookies: resp.Cookies(), ExpiresAt: e.now().Add(sessionTTL)}, nil
+	submitURL, _ := resolveURL(lf.cfg.BaseURL, submitPath)
+	return lf.session(submitURL), nil
 }
 
-// loginGet is a GET to lb.Path with lb.Inputs as query parameters plus
-// lb.Headers, checked against lb.Error.
-func (e Engine) loginGet(ctx context.Context, def *Definition, cfg Config, lb *LoginBlock) (*Session, error) {
-	tc := e.templateContext(def, cfg)
-	u, err := resolveURL(cfg.BaseURL, lb.Path)
+// get is a GET to login.path with login.inputs as query parameters plus
+// login.headers, checked against login.error. oneurl has the same shape: the
+// single URL carrying the API key is both the login and its own test.
+func (lf loginFlow) get(ctx context.Context) (*Session, error) {
+	lb := lf.lb
+	u, err := lf.loginURL()
 	if err != nil {
 		return nil, err
 	}
@@ -229,39 +445,45 @@ func (e Engine) loginGet(ctx context.Context, def *Definition, cfg Config, lb *L
 	}
 	q := parsed.Query()
 	for k, v := range lb.Inputs {
-		rendered, err := render(string(v), tc)
+		rendered, err := render(string(v), lf.tc)
 		if err != nil {
 			return nil, err
 		}
 		q.Set(k, rendered)
 	}
-	parsed.RawQuery = q.Encode()
+	parsed.RawQuery = encodeValues(q, lf.tc.enc, "")
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("cardigann: build request: %w", RedactErr(err))
 	}
-	if err := renderHeaders(req, lb.Headers, tc); err != nil {
+	if err := renderHeaders(req, lf.headers(), lf.tc); err != nil {
 		return nil, err
 	}
-	attachSession(req, cfg.Session)
+	attachSession(req, lf.cfg.Session)
 
-	resp, respBody, err := e.do(ctx, req)
+	resp, respBody, err := lf.e.do(ctx, req, lf.exchange(false))
 	if err != nil {
 		return nil, err
 	}
-	if err := checkLoginErrors(respBody, lb.Error, tc); err != nil {
+	if err := lf.checkErrors(resp, respBody); err != nil {
 		return nil, err
 	}
-	return &Session{Cookies: resp.Cookies(), ExpiresAt: e.now().Add(sessionTTL)}, nil
+	return lf.session(u), nil
 }
 
-// loginOneURL is loginGet's request shape but treats the single fetched
-// page as both the login action and its own test (no separate Test block
-// is meaningful for a tracker whose "login" is one URL carrying the API
-// key).
-func (e Engine) loginOneURL(ctx context.Context, def *Definition, cfg Config, lb *LoginBlock) (*Session, error) {
-	return e.loginGet(ctx, def, cfg, lb)
+// checkErrors is Prowlarr's CheckForError: a 401 is a failed login whatever
+// the body says, and otherwise the first login.error block that matches
+// the (decoded) response is.
+func (lf loginFlow) checkErrors(resp *http.Response, body []byte) error {
+	if resp != nil && resp.StatusCode == http.StatusUnauthorized {
+		return &LoginError{Message: "HTTP 401 Unauthorized"}
+	}
+	body, err := decodeBody(lf.tc.enc, body)
+	if err != nil {
+		return err
+	}
+	return checkLoginErrors(body, lf.lb.Error, lf.tc)
 }
 
 // loginCookie reads each name in lb.Cookies out of cfg.Values (a plain
@@ -270,7 +492,7 @@ func (e Engine) loginOneURL(ctx context.Context, def *Definition, cfg Config, lb
 // unchanged) and builds Session.Cookies directly, erroring when a listed
 // name has no value. There is no HTTP round trip for the login step
 // itself: the user supplies the cookie value directly (note §3.5).
-func (e Engine) loginCookie(ctx context.Context, cfg Config, lb *LoginBlock) (*Session, error) {
+func (e Engine) loginCookie(ctx context.Context, def *Definition, cfg Config, lb *LoginBlock) (*Session, error) {
 	var cookies []*http.Cookie
 	for _, name := range lb.Cookies {
 		val, ok := cfg.stringValue(name)
@@ -281,7 +503,7 @@ func (e Engine) loginCookie(ctx context.Context, cfg Config, lb *LoginBlock) (*S
 	}
 	sess := &Session{Cookies: cookies, ExpiresAt: e.now().Add(sessionTTL)}
 	if lb.Test != nil {
-		if err := e.runLoginTest(ctx, cfg, sess, lb.Test); err != nil {
+		if err := e.runLoginTest(ctx, def, cfg, sess, lb.Test); err != nil {
 			return nil, err
 		}
 	}
@@ -289,16 +511,29 @@ func (e Engine) loginCookie(ctx context.Context, cfg Config, lb *LoginBlock) (*S
 }
 
 // runLoginTest GETs test.Path (with sess attached) and asserts
-// test.Selector matches, confirming a Session actually authenticates.
-func (e Engine) runLoginTest(ctx context.Context, cfg Config, sess *Session, test *PageTestBlock) error {
+// test.Selector matches, confirming a Session actually authenticates. A
+// redirect is not followed: a dead session is redirected to the login page,
+// which is exactly what the test exists to notice (Prowlarr's
+// CheckIfLoginIsNeeded treats any redirect as "login needed").
+func (e Engine) runLoginTest(ctx context.Context, def *Definition, cfg Config, sess *Session, test *PageTestBlock) error {
 	cfg.Session = sess
-	body, err := e.get(ctx, cfg, test.Path)
+	resp, body, err := e.get(ctx, cfg, test.Path, exchange{def: def, site: cfg.BaseURL})
 	if err != nil {
+		return err
+	}
+	if resp != nil && resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		return &LoginError{Message: "login test page redirected"}
+	}
+	enc, _ := def.textEncoding()
+	if body, err = decodeBody(enc, body); err != nil {
 		return err
 	}
 	doc, err := ParseDoc(ResponseHTML, body)
 	if err != nil {
 		return fmt.Errorf("cardigann: parse login test page: %w", err)
+	}
+	if test.Selector == "" {
+		return nil
 	}
 	if _, ok := doc.Select(test.Selector); !ok {
 		return &LoginError{Message: "login test selector did not match"}

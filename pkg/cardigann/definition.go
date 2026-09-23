@@ -106,6 +106,8 @@ func (l *ScalarList) UnmarshalYAML(node ast.Node) error {
 type DefinitionType string
 
 // FieldEntry is one declared search.fields entry, name plus its selector.
+// Name is the key as written, modifiers included ("title|append"); see
+// splitFieldKey.
 type FieldEntry struct {
 	Name  string
 	Block SelectorBlock
@@ -291,17 +293,26 @@ type SearchPathBlock struct {
 	FollowRedirect bool   `yaml:"followredirect"`
 	// Categories are tracker category ids; a leading "!" excludes.
 	// Empty/absent = path always matches.
-	Categories     []Scalar          `yaml:"categories"`
-	Inputs         map[string]Scalar `yaml:"inputs"`
-	InheritInputs  bool              `yaml:"inheritinputs"`
-	QuerySeparator string            `yaml:"queryseparator"`
-	Response       *ResponseBlock    `yaml:"response"` // nil = HTML
+	Categories []Scalar          `yaml:"categories"`
+	Inputs     map[string]Scalar `yaml:"inputs"`
+	// InheritInputs merges search.inputs under this path's own inputs. Nil
+	// is true: Prowlarr's SearchPathBlock defaults Inheritinputs to true,
+	// so only an explicit `inheritinputs: false` drops search.inputs.
+	InheritInputs *bool `yaml:"inheritinputs"`
+	// QuerySeparator joins a GET query string's pairs (default "&").
+	QuerySeparator string         `yaml:"queryseparator"`
+	Response       *ResponseBlock `yaml:"response"` // nil = HTML
 }
 
 // ResponseBlock declares a non-HTML response body shape.
 type ResponseBlock struct {
-	Type             string `yaml:"type"` // "json"|"xml"
-	NoResultsMessage string `yaml:"noResultsMessage"`
+	Type string `yaml:"type"` // "json"|"xml"
+	// NoResultsMessage, on a JSON response, is the text a tracker answers
+	// with instead of JSON when nothing matched: a body containing it is
+	// zero results, not a parse failure. The empty string is meaningful
+	// (an empty body is zero results), so absent and "" must differ -- a
+	// pointer. Prowlarr's CardigannParser checks it for JSON only.
+	NoResultsMessage *string `yaml:"noResultsMessage"`
 }
 
 // RowsBlock locates each result row within a response and how many rows to
@@ -309,11 +320,17 @@ type ResponseBlock struct {
 type RowsBlock struct {
 	SelectorBlock `yaml:",inline"`
 
-	After                           int            `yaml:"after"` // KNOWN GAP: decoded, not implemented — see search.go
-	Multiple                        bool           `yaml:"multiple"`
-	MissingAttributeEqualsNoResults bool           `yaml:"missingAttributeEqualsNoResults"`
-	DateHeaders                     *SelectorBlock `yaml:"dateheaders"` // KNOWN GAP: decoded, not implemented
-	Count                           *SelectorBlock `yaml:"count"`
+	// After merges the After following rows into each row (HTML/XML): a
+	// tracker that spreads one torrent over several <tr>s.
+	After int `yaml:"after"`
+	// Multiple (JSON) makes each rows.attribute value a list whose every
+	// element is its own row -- one movie, several torrents.
+	Multiple                        bool `yaml:"multiple"`
+	MissingAttributeEqualsNoResults bool `yaml:"missingAttributeEqualsNoResults"`
+	// DateHeaders (HTML/XML) finds a row's date in the nearest preceding
+	// header row when its own fields yield none.
+	DateHeaders *SelectorBlock `yaml:"dateheaders"`
+	Count       *SelectorBlock `yaml:"count"`
 }
 
 // FilterBlock is one named transform applied by SelectorBlock.Extract or a
@@ -371,6 +388,9 @@ func Load(data []byte) (*Definition, error) {
 	var def Definition
 	if err := yaml.UnmarshalWithOptions(data, &def, yaml.Strict()); err != nil {
 		return nil, fmt.Errorf("cardigann: decode: %w", err)
+	}
+	if err := def.checkEngineConstraints(); err != nil {
+		return nil, err
 	}
 	return &def, nil
 }
