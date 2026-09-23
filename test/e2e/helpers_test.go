@@ -722,28 +722,20 @@ type tier struct {
 // equal and a ranking assertion would pass on size or seeders instead of on
 // quality.
 //
-// Two fields are deliberately not left at their CRD defaults, and both are
-// working around the SAME Phase C defect rather than expressing a preference.
-// catalogarr stores Movie.status.metadata.originalLanguage as a BCP-47 tag
-// ("en", from TMDB) and hands it straight to pkg/decision as
-// Target.OriginalLanguage and to the custom-format catalogue as
-// ItemContext.OriginalLanguage -- but both of those consume Radarr's English
-// DISPLAY names ("English"), which is what release.ParsedRelease.Languages
-// carries and what catalogue.ItemContext's own doc comment demands. The
-// mismatch means, for an English release of an English movie:
+// This profile used to pin Language: "any" and MinFormatScore: -10000 to work
+// around the BCP-47-versus-display-name mismatch that made a CRD-default
+// profile approve nothing. That defect is fixed (6ae2c8b converts at the
+// pkg/decision boundary), so the profile is back on the CRD defaults and
+// scenario 17 exercises the real language path rather than opting out of it.
 //
-//   - language "original" (the CRD DEFAULT) rejects every release with
-//     ReasonWantedLanguage ("original language en is wanted, but found
-//     [English]"); and
-//   - the language-not-original custom format matches, scoring -10000, which
-//     the default MinFormatScore of 0 then rejects as well.
-//
-// So a profile left at its defaults approves NOTHING, on any real movie, in
-// either the search path or the RSS path. That is not this task's to fix --
-// it is in catalogarr/worker/search/snapshot.go and
-// catalogarr/worker/rssmatcher/resolve.go -- and scenario 17 is about the
-// indexer path, so the profile opts out of both checks and says why. Remove
-// these two lines once the vocabulary mismatch is fixed.
+// Not yet confirmed on a cluster: e2e runs are deferred until D1-D3
+// implementation completes, so the first execution of this suite is the first
+// time these defaults face the fixture releases. They carry no language token
+// at all (Fixture.Search.Film.2019.1080p.BluRay.x264-CLUSTARR and siblings),
+// and an unknown language fails OPEN on both sides after the fix, so neither
+// ReasonWantedLanguage nor language-not-original should fire. If this suite
+// fails on a language reason the first time it runs, that assumption is what
+// broke -- not the indexer path it is actually testing.
 func newRankedQualityProfile(ctx context.Context, t *testing.T, prefix string, tiers []tier) *catalogv1alpha1.QualityProfile {
 	t.Helper()
 	spec := catalogv1alpha1.QualityProfileSpec{
@@ -751,8 +743,6 @@ func newRankedQualityProfile(ctx context.Context, t *testing.T, prefix string, t
 		BuiltIn:        false,
 		Cutoff:         tiers[len(tiers)-1].name,
 		UpgradeAllowed: ptr.To(true),
-		Language:       "any",
-		MinFormatScore: -10000,
 	}
 	for _, tr := range tiers {
 		spec.Tiers = append(spec.Tiers, catalogv1alpha1.Tier{Name: tr.name, Qualities: tr.qualities})
