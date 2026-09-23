@@ -83,6 +83,14 @@ type Worker struct {
 	// RootFolders and QualityProfiles through, and applies MediaFiles with.
 	Client client.Client
 
+	// APIReader reads straight from the apiserver. A movie's existing
+	// MediaFiles are listed through it (existingMovieFiles), because the
+	// import decides on them -- the transcoded gate above all -- and a
+	// transcode swap catalogarr recorded a moment ago must not be missed
+	// by a cache one event behind. Nil falls back to Client's field index;
+	// NewWorker leaves it nil and importarr's run.go sets the manager's.
+	APIReader client.Reader
+
 	// Bus carries the dedup fingerprint KV bucket.
 	Bus events.Bus
 
@@ -270,7 +278,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		return fmt.Errorf("fileimport: stat content root %s: %w", dl.Status.ContentRoot, err)
 	}
 
-	existing, err := w.existingMediaFile(ctx, ns, ref)
+	existing, err := w.existingMovieFiles(ctx, ns, ref.Name)
 	if err != nil {
 		return err
 	}
@@ -354,19 +362,41 @@ func (w *Worker) resolveProfile(ctx context.Context, downloadRef, movieRef strin
 	return profile, nil
 }
 
-// existingMediaFile looks the Download's target up through the field index.
-func (w *Worker) existingMediaFile(ctx context.Context, namespace string, target commonv1.MediaRef) (*catalogv1alpha1.MediaFile, error) {
+// mediaRefNameField is MediaFile's selectable field
+// (+kubebuilder:selectablefield on .spec.mediaRef.name), the one field
+// selector the apiserver itself can filter a MediaFile List by.
+const mediaRefNameField = "spec.mediaRef.name"
+
+// existingMovieFiles is every MediaFile backing the movie name -- all of
+// them, not whichever a List returns first: the transcoded gate, the upgrade
+// comparison and the replacement each act on every one (processFile), as the
+// episode path does for an episode's files. Sonarr's UpgradeMediaFileService
+// likewise deletes every existing file of what an import covers, not one.
+//
+// It lists through [Worker.APIReader], filtered by the apiserver on
+// spec.mediaRef.name, so a transcode swap or probe catalogarr recorded a
+// moment ago is seen: read from the cache, a swap landing as the import runs
+// could be missed and an automatic grab would replace the file the swap just
+// made final. A same-named item of another kind shares the selector's value,
+// so the kind is checked here. Without an APIReader it falls back to the
+// cache's target index.
+func (w *Worker) existingMovieFiles(ctx context.Context, namespace, name string) ([]catalogv1alpha1.MediaFile, error) {
+	if w.APIReader == nil {
+		return w.existingMediaFiles(ctx, namespace, commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name})
+	}
 	var list catalogv1alpha1.MediaFileList
-	if err := w.Client.List(ctx, &list,
-		client.InNamespace(namespace),
-		client.MatchingFields{MediaFileByTargetIndexKey: targetKey(string(target.Kind), target.Name)},
+	if err := w.APIReader.List(ctx, &list,
+		client.InNamespace(namespace), client.MatchingFields{mediaRefNameField: name},
 	); err != nil {
-		return nil, fmt.Errorf("fileimport: look up existing media file for %s/%s: %w", target.Kind, target.Name, err)
+		return nil, fmt.Errorf("fileimport: look up existing media files for movie %s: %w", name, err)
 	}
-	if len(list.Items) == 0 {
-		return nil, nil
+	out := list.Items[:0]
+	for _, mf := range list.Items {
+		if mf.Spec.MediaRef.Kind == commonv1.MediaKindMovie && mf.Spec.MediaRef.Name == name {
+			out = append(out, mf)
+		}
 	}
-	return &list.Items[0], nil
+	return out, nil
 }
 
 // applyMediaFile creates or re-asserts the MediaFile for one imported file,

@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/mediactl/clustarr/pkg/fsops"
 )
@@ -50,10 +51,18 @@ func TestWorkersGetTheSampleSizeFloor(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.want, newScanWorker(nil, nil, tc.o).SampleMaxBytes,
 				"the rescan worker (work.importarr.scan) did not get Options.SampleMaxBytes")
-			require.Equal(t, tc.want, newImportWorker(nil, nil, tc.o).SampleMaxBytes,
+			require.Equal(t, tc.want, newImportWorker(nil, nil, nil, tc.o).SampleMaxBytes,
 				"the file-import worker (work.importarr.fileimport) did not get Options.SampleMaxBytes")
 		})
 	}
+}
+
+// The movie import gate reads a movie's existing files through the API
+// reader (fileimport.Worker.APIReader); a worker built without it would
+// quietly fall back to the cache.
+func TestImportWorkerGetsTheAPIReader(t *testing.T) {
+	api := fake.NewClientBuilder().Build()
+	require.Same(t, api, newImportWorker(nil, api, nil, DefaultOptions()).APIReader)
 }
 
 func TestDefaultOptionsTurnTheSampleSizeFloorOn(t *testing.T) {

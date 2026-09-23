@@ -102,7 +102,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // reports is replaced only by a person's choice -- an interactive grab
 // (spec.grabbedBy interactive) or a manual import. A file of any other,
 // automatic grab that would replace it is a rejection saying so
-// (transcoded.go), checked before the upgrade comparison.
+// (transcoded.go), checked before the upgrade comparison. The gate, the
+// upgrade comparison and the replacement act on every MediaFile the item
+// has, and a movie's are listed through the API reader
+// (Worker.APIReader), so a swap recorded a moment ago is not missed.
 //
 // An item that holds one file -- a movie, a book, an issue, an episode --
 // gets one file from a download however many the download carries for it
@@ -163,7 +166,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // must not wait for leadership.
 //
 // IndexMediaFileByTarget must run before the manager starts: it registers
-// the field index this worker uses to find a target's existing MediaFile.
+// the field index this worker uses to find a target's existing MediaFiles
+// (a movie's too, when the Worker has no APIReader).
 //
 // [Retrigger] is a separate controller, registered the same way as any
 // other (its doc comment has the call). It is not a work consumer and runs

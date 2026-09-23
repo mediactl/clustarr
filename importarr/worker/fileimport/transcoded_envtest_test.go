@@ -257,3 +257,83 @@ func TestHandleNeverLetsAnAutomaticGrabReplaceATranscodedEpisode(t *testing.T) {
 	err = s.api.Get(ctx, client.ObjectKey{Namespace: s.ns, Name: existing}, &gone)
 	assert.True(t, apierrors.IsNotFound(err), "the transcoded file's MediaFile is replaced: %v", err)
 }
+
+// A movie with two MediaFiles is gated on both, not on whichever a List
+// returns first: the transcoded one here sorts second, so a gate reading
+// Items[0] would let the automatic grab through and recycle it. The second
+// file turns transcoded immediately before the import, with no wait for the
+// cache, because the gate lists through the API reader
+// (fileimport.Worker.APIReader) and a swap recorded a moment ago must count.
+// A person's grab then replaces the movie's every file, the one the list
+// returns second included.
+func TestHandleGatesAMovieOnEveryMediaFileItHas(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t, "fi-transcoded-movie-every-file")
+	bin := f.withRecycleBin(t)
+	movie := commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: f.movieName}
+
+	first := dataDir(t, "scratch")
+	mustWriteSparseFile(t, filepath.Join(first, "The.Matrix.1999.1080p.BluRay.x264-SPARKS.mkv"), sampleFloor)
+	got := f.importGrab(t, "first-dl", first, movie, nil, grabbedAs(downloadv1alpha1.GrabSourceSearch, false))
+	require.Equal(t, downloadv1alpha1.ImportPhaseImported, got.State, "message %q, rejections %v", got.Message, got.Rejections)
+	require.Len(t, got.Imported, 1)
+	firstName, firstPath := got.Imported[0].MediaFileRef, got.Imported[0].DestPath
+
+	// A second file for the same movie, as a rescan records one it found
+	// beside the first: same quality and revision, so the PROPER is an
+	// upgrade over it and only the gate can refuse.
+	var a catalogv1alpha1.MediaFile
+	require.NoError(t, f.api.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: firstName}, &a))
+	secondPath := filepath.Join(filepath.Dir(firstPath), "The Matrix (1999) - second.mkv")
+	mustWriteSparseFile(t, secondPath, sampleFloor)
+	const secondName = "zz-the-matrix-second-file"
+	require.Less(t, firstName, secondName, "the transcoded file must be the one a List returns second")
+	b := &catalogv1alpha1.MediaFile{}
+	b.Name, b.Namespace = secondName, f.ns
+	b.Spec = *a.Spec.DeepCopy()
+	b.Spec.Path = secondPath
+	require.NoError(t, f.c.Create(ctx, b))
+	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarr,
+		catalogac.MediaFile(secondName, f.ns).WithStatus(catalogac.MediaFileStatus().
+			WithProbeHash("probe-2").
+			WithMediaInfo(commonv1.MediaInfo{
+				Container: "matroska", VideoCodec: "hevc",
+				TranscodeProfile: "hevc-main10@0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			})))
+	require.NoError(t, err)
+
+	proper := dataDir(t, "scratch")
+	mustWriteSparseFile(t, filepath.Join(proper, "The.Matrix.1999.PROPER.1080p.BluRay.x264-SPARKS.mkv"), sampleFloor)
+	got = f.importGrab(t, "proper-dl", proper, movie, nil, grabbedAs(downloadv1alpha1.GrabSourceSearch, false))
+	require.Equal(t, downloadv1alpha1.ImportPhaseBlocked, got.State, "message %q, rejections %v", got.Message, got.Rejections)
+	require.Len(t, got.Rejections, 1)
+	assert.Contains(t, got.Rejections[0], "movie the-matrix's existing file (MediaFile "+secondName+") is transcoded")
+	for _, p := range []string{firstPath, secondPath} {
+		_, statErr := os.Stat(p)
+		require.NoError(t, statErr, "%s stays in the library", p)
+	}
+	binned, err := os.ReadDir(bin)
+	require.NoError(t, err)
+	assert.Empty(t, binned, "nothing was recycled")
+
+	// A person's choice replaces every file the movie has.
+	chosen := dataDir(t, "scratch")
+	mustWriteSparseFile(t, filepath.Join(chosen, "The.Matrix.1999.PROPER.1080p.BluRay.x264-SPARKS.mkv"), sampleFloor)
+	got = f.importGrab(t, "chosen-dl", chosen, movie, nil, grabbedAs(downloadv1alpha1.GrabSourceInteractive, false))
+	require.Equal(t, downloadv1alpha1.ImportPhaseImported, got.State, "message %q, rejections %v", got.Message, got.Rejections)
+	require.Len(t, got.Imported, 1)
+	for _, name := range []string{firstName, secondName} {
+		err := f.api.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: name}, &catalogv1alpha1.MediaFile{})
+		assert.True(t, apierrors.IsNotFound(err), "MediaFile %s is replaced: %v", name, err)
+	}
+	for _, p := range []string{firstPath, secondPath} {
+		if p == got.Imported[0].DestPath {
+			continue
+		}
+		_, statErr := os.Stat(p)
+		assert.ErrorIs(t, statErr, os.ErrNotExist, "%s left the library", p)
+	}
+	binned, err = os.ReadDir(bin)
+	require.NoError(t, err)
+	assert.NotEmpty(t, binned, "the replaced files went to the recycle bin")
+}

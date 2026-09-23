@@ -271,6 +271,7 @@ func newFixture(t *testing.T, ns string) *fixture {
 
 	bus := newBus(t, ctx)
 	worker := fileimport.NewWorker(c, bus)
+	worker.APIReader = testAPI
 
 	return &fixture{
 		c: c, api: testAPI, bus: bus, worker: worker, ns: ns, mediaRoot: mediaRoot,

@@ -469,7 +469,7 @@ func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if !ok {
 		return fmt.Errorf("importarr: consumer %s missing from topology", events.ConsumerImportFile)
 	}
-	importWorker := newImportWorker(mgr.GetClient(), bus, o)
+	importWorker := newImportWorker(mgr.GetClient(), mgr.GetAPIReader(), bus, o)
 	importSub := importSpec.Subscription()
 	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		stop, err := bus.Subscribe(ctx, importSub, importWorker.Handle)
@@ -549,9 +549,12 @@ func newImportListReconciler(c client.Client, bus events.Bus, o Options) *import
 }
 
 // newImportWorker builds the work.importarr.fileimport handler with o's
-// sample size floor, for the reason [newScanWorker] gives.
-func newImportWorker(c client.Client, bus events.Bus, o Options) *fileimport.Worker {
+// sample size floor, for the reason [newScanWorker] gives, and the
+// manager's API reader, which a movie's existing files are read through
+// (fileimport.Worker.APIReader).
+func newImportWorker(c client.Client, api client.Reader, bus events.Bus, o Options) *fileimport.Worker {
 	w := fileimport.NewWorker(c, bus)
+	w.APIReader = api
 	w.SampleMaxBytes = o.SampleMaxBytes
 	return w
 }

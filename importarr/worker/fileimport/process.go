@@ -27,6 +27,7 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/download/v1alpha1"
@@ -62,9 +63,9 @@ type processConfig struct {
 	movie      *catalogv1alpha1.Movie
 	rootFolder *catalogv1alpha1.RootFolder
 	profile    quality.Profile
-	// existing is the target's current MediaFile, or nil when this is the
-	// first file imported for it.
-	existing             *catalogv1alpha1.MediaFile
+	// existing is every MediaFile the movie has now (existingMovieFiles),
+	// empty when this is the first file imported for it.
+	existing             []catalogv1alpha1.MediaFile
 	engine               naming.Engine
 	baseContext          naming.Context
 	originalLanguageName string
@@ -249,22 +250,29 @@ func (pc *processConfig) processFile(
 	score, matched := pc.profile.Score(ctx, pc.worker.Catalogue, parsed, ic)
 
 	// A transcoded file is final: only a person's choice replaces it
-	// (transcoded.go). Checked before the upgrade comparison, so the
-	// rejection says why rather than reporting a quality verdict.
-	if pc.existing != nil {
-		if r := transcodedRejection(rel, pc.existing, pc.download, pc.manual); r != "" {
+	// (transcoded.go), whichever of the movie's files it is. Checked before
+	// the upgrade comparison, so the rejection says why rather than
+	// reporting a quality verdict.
+	for i := range pc.existing {
+		if r := transcodedRejection(rel, &pc.existing[i], pc.download, pc.manual); r != "" {
 			return nil, r, nil
 		}
 	}
-	if pc.existing != nil && !pc.manual {
-		current := quality.Candidate{
-			Quality:     pc.existing.Spec.Quality,
-			Revision:    pc.existing.Spec.Revision,
-			FormatScore: int(pc.existing.Spec.FormatScore),
-		}
+	// The file replaces every one the movie has, so it must be an upgrade
+	// over each, as an episode file must over each file it replaces.
+	if !pc.manual {
 		candidate := quality.Candidate{Quality: parsed.Quality, Revision: parsed.Revision, FormatScore: score}
-		if verdict := pc.profile.UpgradeDecision(current, candidate); verdict != quality.Upgrade {
-			return nil, fmt.Sprintf("%s: %s", rel, verdictMessage(verdict)), nil
+		for i := range pc.existing {
+			mf := &pc.existing[i]
+			current := quality.Candidate{
+				Quality: mf.Spec.Quality, Revision: mf.Spec.Revision, FormatScore: int(mf.Spec.FormatScore),
+			}
+			if verdict := pc.profile.UpgradeDecision(current, candidate); verdict != quality.Upgrade {
+				if len(pc.existing) > 1 {
+					return nil, fmt.Sprintf("%s: %s (MediaFile %s)", rel, verdictMessage(verdict), mf.Name), nil
+				}
+				return nil, fmt.Sprintf("%s: %s", rel, verdictMessage(verdict)), nil
+			}
 		}
 	}
 
@@ -333,13 +341,25 @@ func (pc *processConfig) processFile(
 		return nil, "", err
 	}
 
-	if pc.existing != nil && !*recycledOld && pc.existing.Spec.Path != dest {
-		if _, err := fsops.Recycle(fsops.RecycleBinPath(pc.rootFolder.Spec.RecycleBin.Path), pc.existing.Spec.Path); err != nil {
-			log.Warn("fileimport: could not recycle the replaced file; leaving it in place",
-				"path", pc.existing.Spec.Path, "error", err)
-		} else if err := pc.worker.Client.Delete(ctx, pc.existing); err != nil {
-			log.Warn("fileimport: could not delete the replaced media file object",
-				"mediaFile", pc.existing.Name, "error", err)
+	// Every file the movie had is replaced (a movie holds one file), as the
+	// episode path replaces each file of the episodes it covers. A file
+	// already gone from disk still has its MediaFile removed.
+	if !*recycledOld {
+		bin := fsops.RecycleBinPath(pc.rootFolder.Spec.RecycleBin.Path)
+		for i := range pc.existing {
+			old := &pc.existing[i]
+			if old.Spec.Path == dest || old.Name == mfName {
+				continue
+			}
+			if _, err := fsops.Recycle(bin, old.Spec.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				log.Warn("fileimport: could not recycle the replaced file; leaving it in place",
+					"path", old.Spec.Path, "error", err)
+				continue
+			}
+			if err := pc.worker.Client.Delete(ctx, old); client.IgnoreNotFound(err) != nil {
+				log.Warn("fileimport: could not delete the replaced media file object",
+					"mediaFile", old.Name, "error", err)
+			}
 		}
 		*recycledOld = true
 	}
