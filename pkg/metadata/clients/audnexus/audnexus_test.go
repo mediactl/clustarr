@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package audnexus_test
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -128,4 +129,20 @@ func TestAudiobookRejectsMalformedResponseBodies(t *testing.T) {
 			require.ErrorIs(t, err, metadata.ErrDecode)
 		})
 	}
+}
+
+func TestAudiobookRejectsAnOversizedBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"asin":"B0036I54I6","title":"`))
+		_, _ = w.Write(bytes.Repeat([]byte("x"), int(metadata.MaxResponseBytes)))
+		_, _ = w.Write([]byte(`"}`))
+	}))
+	defer srv.Close()
+	c := audnexus.New(srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+
+	_, err := c.Audiobook(context.Background(), "B0036I54I6", "us")
+
+	require.ErrorIs(t, err, metadata.ErrResponseTooLarge)
+	require.NotErrorIs(t, err, metadata.ErrDecode)
 }

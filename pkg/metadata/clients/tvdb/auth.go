@@ -73,8 +73,8 @@ func (c *Client) authenticate(ctx context.Context) error {
 	}
 
 	var out loginResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return fmt.Errorf("tvdb: decode login response: %w", err)
+	if err := metadata.DecodeJSON(resp.Body, metadata.MaxResponseBytes, &out); err != nil {
+		return fmt.Errorf("tvdb: login response: %w", err)
 	}
 
 	c.mu.Lock()

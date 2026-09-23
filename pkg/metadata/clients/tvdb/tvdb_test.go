@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package tvdb_test
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -181,4 +182,42 @@ func TestSeriesOriginalLanguageIsBCP47(t *testing.T) {
 	s, err := c.Series(context.Background(), "121361")
 	require.NoError(t, err)
 	require.Equal(t, "en", s.OriginalLanguage)
+}
+
+func oversized(w http.ResponseWriter, prefix string) {
+	_, _ = w.Write([]byte(prefix))
+	_, _ = w.Write(bytes.Repeat([]byte("x"), int(metadata.MaxResponseBytes)))
+	_, _ = w.Write([]byte(`"}}`))
+}
+
+func TestSeriesRejectsAnOversizedBody(t *testing.T) {
+	login, err := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
+	require.NoError(t, err)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/login" {
+			_, _ = w.Write(login)
+			return
+		}
+		oversized(w, `{"data":{"name":"`)
+	}))
+	defer srv.Close()
+	c := tvdb.New("test-key", "", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+
+	_, err = c.Series(context.Background(), "121361")
+
+	require.ErrorIs(t, err, metadata.ErrResponseTooLarge)
+	require.NotErrorIs(t, err, metadata.ErrDecode)
+}
+
+func TestLoginRejectsAnOversizedBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/login", r.URL.Path, "no request may follow a failed login")
+		oversized(w, `{"data":{"token":"`)
+	}))
+	defer srv.Close()
+	c := tvdb.New("test-key", "", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+
+	_, err := c.Series(context.Background(), "121361")
+
+	require.ErrorIs(t, err, metadata.ErrResponseTooLarge)
 }

@@ -23,7 +23,6 @@ package audnexus
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
@@ -231,7 +230,8 @@ func mapAudiobook(raw *audiobookResponse, region string) *metadata.Audiobook {
 
 // doGet issues a GET request against path (relative to c.baseURL), waiting
 // on the rate limiter, and maps the HTTP status onto metadata's sentinel
-// errors.
+// errors. A 200 body is read through metadata.DecodeJSON's cap; every other
+// status is answered from the status alone, its body never read.
 func (c *Client) doGet(ctx context.Context, path string, out any) error {
 	if err := c.limiter.Wait(ctx); err != nil {
 		return err
@@ -248,8 +248,8 @@ func (c *Client) doGet(ctx context.Context, path string, out any) error {
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-			return fmt.Errorf("audnexus: decode %s: %w: %w", path, metadata.ErrDecode, err)
+		if err := metadata.DecodeJSON(resp.Body, metadata.MaxResponseBytes, out); err != nil {
+			return fmt.Errorf("audnexus: %s: %w", path, err)
 		}
 		return nil
 	case http.StatusNotFound:

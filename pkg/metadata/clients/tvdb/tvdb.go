@@ -24,7 +24,6 @@ package tvdb
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -275,7 +274,7 @@ func parseDate(s string) (time.Time, bool) {
 // doRequest waits on the rate limiter, authenticates lazily on the first
 // call, sets the bearer token, and on a 401 response authenticates exactly
 // once more and retries the request once before giving up with
-// metadata.ErrAuth.
+// metadata.ErrAuth. A 200 body is read through metadata.DecodeJSON's cap.
 func (c *Client) doRequest(ctx context.Context, method, path string, out any) error {
 	if err := waitOnLimiter(ctx, c.limiter); err != nil {
 		return err
@@ -314,8 +313,8 @@ func (c *Client) doRequest(ctx context.Context, method, path string, out any) er
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-			return fmt.Errorf("tvdb: decode %s: %w: %w", path, metadata.ErrDecode, err)
+		if err := metadata.DecodeJSON(resp.Body, metadata.MaxResponseBytes, out); err != nil {
+			return fmt.Errorf("tvdb: %s: %w", path, err)
 		}
 		return nil
 	case http.StatusNotFound:
