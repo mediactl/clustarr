@@ -1,0 +1,51 @@
+{
+ "data": [
+  {
+   "id": "18931",
+   "type": "mappings",
+   "links": {
+    "self": "https://kitsu.io/api/edge/mappings/18931"
+   },
+   "attributes": {
+    "createdAt": null,
+    "updatedAt": null,
+    "externalSite": "myanimelist/manga",
+    "externalId": "2"
+   },
+   "relationships": {
+    "item": {
+     "links": {
+      "self": "https://kitsu.io/api/edge/mappings/18931/relationships/item",
+      "related": "https://kitsu.io/api/edge/mappings/18931/item"
+     },
+     "data": {
+      "type": "manga",
+      "id": "8"
+     }
+    }
+   }
+  }
+ ],
+ "included": [
+  {
+   "id": "8",
+   "type": "manga",
+   "links": {
+    "self": "https://kitsu.io/api/edge/manga/8"
+   },
+   "attributes": {
+    "slug": "berserk",
+    "canonicalTitle": "Berserk",
+    "subtype": "manga",
+    "startDate": "1989-08-25"
+   }
+  }
+ ],
+ "meta": {
+  "count": 1
+ },
+ "links": {
+  "first": "https://kitsu.io/api/edge/mappings?filter%5BexternalId%5D=2&filter%5BexternalSite%5D=myanimelist%2Fmanga&include=item&page%5Blimit%5D=10&page%5Boffset%5D=0",
+  "last": "https://kitsu.io/api/edge/mappings?filter%5BexternalId%5D=2&filter%5BexternalSite%5D=myanimelist%2Fmanga&include=item&page%5Blimit%5D=10&page%5Boffset%5D=0"
+ }
+}

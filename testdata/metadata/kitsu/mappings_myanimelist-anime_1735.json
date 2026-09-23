@@ -1,0 +1,51 @@
+{
+ "data": [
+  {
+   "id": "2342",
+   "type": "mappings",
+   "links": {
+    "self": "https://kitsu.io/api/edge/mappings/2342"
+   },
+   "attributes": {
+    "createdAt": null,
+    "updatedAt": null,
+    "externalSite": "myanimelist/anime",
+    "externalId": "1735"
+   },
+   "relationships": {
+    "item": {
+     "links": {
+      "self": "https://kitsu.io/api/edge/mappings/2342/relationships/item",
+      "related": "https://kitsu.io/api/edge/mappings/2342/item"
+     },
+     "data": {
+      "type": "anime",
+      "id": "1555"
+     }
+    }
+   }
+  }
+ ],
+ "included": [
+  {
+   "id": "1555",
+   "type": "anime",
+   "links": {
+    "self": "https://kitsu.io/api/edge/anime/1555"
+   },
+   "attributes": {
+    "slug": "naruto-shippuden",
+    "canonicalTitle": "Naruto: Shippuuden",
+    "subtype": "TV",
+    "startDate": "2007-02-15"
+   }
+  }
+ ],
+ "meta": {
+  "count": 1
+ },
+ "links": {
+  "first": "https://kitsu.io/api/edge/mappings?filter%5BexternalId%5D=1735&filter%5BexternalSite%5D=myanimelist%2Fanime&include=item&page%5Blimit%5D=10&page%5Boffset%5D=0",
+  "last": "https://kitsu.io/api/edge/mappings?filter%5BexternalId%5D=1735&filter%5BexternalSite%5D=myanimelist%2Fanime&include=item&page%5Blimit%5D=10&page%5Boffset%5D=0"
+ }
+}

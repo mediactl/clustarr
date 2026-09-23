@@ -1,0 +1,53 @@
+{
+ "data": [
+  {
+   "id": "18931",
+   "type": "mappings",
+   "links": {
+    "self": "https://kitsu.io/api/edge/mappings/18931"
+   },
+   "attributes": {
+    "createdAt": null,
+    "updatedAt": null,
+    "externalSite": "myanimelist/manga",
+    "externalId": "2"
+   },
+   "relationships": {
+    "item": {
+     "links": {
+      "self": "https://kitsu.io/api/edge/mappings/18931/relationships/item",
+      "related": "https://kitsu.io/api/edge/mappings/18931/item"
+     }
+    }
+   }
+  },
+  {
+   "id": "255712",
+   "type": "mappings",
+   "links": {
+    "self": "https://kitsu.io/api/edge/mappings/255712"
+   },
+   "attributes": {
+    "createdAt": "2020-05-02T15:48:33.166Z",
+    "updatedAt": "2020-05-02T15:48:33.166Z",
+    "externalSite": "anilist/manga",
+    "externalId": "30002"
+   },
+   "relationships": {
+    "item": {
+     "links": {
+      "self": "https://kitsu.io/api/edge/mappings/255712/relationships/item",
+      "related": "https://kitsu.io/api/edge/mappings/255712/item"
+     }
+    }
+   }
+  }
+ ],
+ "meta": {
+  "count": 2
+ },
+ "links": {
+  "first": "https://kitsu.io/api/edge/manga/8/mappings?page%5Blimit%5D=20&page%5Boffset%5D=0",
+  "last": "https://kitsu.io/api/edge/manga/8/mappings?page%5Blimit%5D=20&page%5Boffset%5D=0"
+ }
+}

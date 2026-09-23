@@ -1,0 +1,76 @@
+{
+ "data": [
+  {
+   "id": "14153",
+   "type": "mappings",
+   "links": {
+    "self": "https://kitsu.io/api/edge/mappings/14153"
+   },
+   "attributes": {
+    "createdAt": null,
+    "updatedAt": null,
+    "externalSite": "thetvdb/series",
+    "externalId": "267440"
+   },
+   "relationships": {
+    "item": {
+     "links": {
+      "self": "https://kitsu.io/api/edge/mappings/14153/relationships/item",
+      "related": "https://kitsu.io/api/edge/mappings/14153/item"
+     },
+     "data": {
+      "type": "anime",
+      "id": "7442"
+     }
+    }
+   }
+  },
+  {
+   "id": "99999",
+   "type": "mappings",
+   "links": {
+    "self": "https://kitsu.io/api/edge/mappings/14153"
+   },
+   "attributes": {
+    "createdAt": null,
+    "updatedAt": null,
+    "externalSite": "thetvdb/series",
+    "externalId": "267440"
+   },
+   "relationships": {
+    "item": {
+     "links": {
+      "self": "https://kitsu.io/api/edge/mappings/14153/relationships/item",
+      "related": "https://kitsu.io/api/edge/mappings/14153/item"
+     },
+     "data": {
+      "type": "anime",
+      "id": "8671"
+     }
+    }
+   }
+  }
+ ],
+ "included": [
+  {
+   "id": "7442",
+   "type": "anime",
+   "links": {
+    "self": "https://kitsu.io/api/edge/anime/7442"
+   },
+   "attributes": {
+    "slug": "attack-on-titan",
+    "canonicalTitle": "Attack on Titan",
+    "subtype": "TV",
+    "startDate": "2013-04-07"
+   }
+  }
+ ],
+ "meta": {
+  "count": 2
+ },
+ "links": {
+  "first": "https://kitsu.io/api/edge/mappings?filter%5BexternalId%5D=267440&filter%5BexternalSite%5D=thetvdb%2Fseries&include=item&page%5Blimit%5D=10&page%5Boffset%5D=0",
+  "last": "https://kitsu.io/api/edge/mappings?filter%5BexternalId%5D=267440&filter%5BexternalSite%5D=thetvdb%2Fseries&include=item&page%5Blimit%5D=10&page%5Boffset%5D=0"
+ }
+}
