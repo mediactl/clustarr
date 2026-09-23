@@ -37,6 +37,18 @@ const (
 	DownloadClientConditionDiskSpaceOK = "DiskSpaceOK"
 )
 
+// LabelWatch, set to LabelWatchValue on a Secret a DownloadClient references,
+// has grabarr watch that Secret, so a rotation restarts the engine that
+// reads it at once rather than at the controller's next periodic reconcile
+// (within five minutes). It is the same opt-in Flux's
+// reconcile.fluxcd.io/watch=Enabled is: a watch over every Secret would take
+// list and watch on all of them, and grabarr reads the Secrets it needs by
+// name.
+const (
+	LabelWatch      = "download.clustarr.io/watch"
+	LabelWatchValue = "enabled"
+)
+
 // HealthAction is what a usenet client does with a download whose article
 // health falls below the abort threshold.
 //
@@ -184,7 +196,10 @@ type NNTPProvider struct {
 	Connections int32 `json:"connections,omitempty"`
 
 	// SecretRef names a Secret in the same namespace holding the provider
-	// credentials. Recognised keys: username, password.
+	// credentials. Recognised keys: username, password. The engine reads it
+	// at start, so a change to its data restarts the engine: at once when
+	// the Secret is labelled download.clustarr.io/watch=enabled, otherwise
+	// at the controller's next periodic reconcile.
 	// +required
 	SecretRef corev1.LocalObjectReference `json:"secretRef"`
 

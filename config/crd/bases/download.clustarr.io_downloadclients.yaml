@@ -470,7 +470,10 @@ spec:
                         secretRef:
                           description: |-
                             SecretRef names a Secret in the same namespace holding the provider
-                            credentials. Recognised keys: username, password.
+                            credentials. Recognised keys: username, password. The engine reads it
+                            at start, so a change to its data restarts the engine: at once when
+                            the Secret is labelled download.clustarr.io/watch=enabled, otherwise
+                            at the controller's next periodic reconcile.
                           properties:
                             name:
                               default: ""

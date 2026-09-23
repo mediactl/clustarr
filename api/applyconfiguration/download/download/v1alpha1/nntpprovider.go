@@ -41,7 +41,10 @@ type NNTPProviderApplyConfiguration struct {
 	// the provider's plan.
 	Connections *int32 `json:"connections,omitempty"`
 	// SecretRef names a Secret in the same namespace holding the provider
-	// credentials. Recognised keys: username, password.
+	// credentials. Recognised keys: username, password. The engine reads it
+	// at start, so a change to its data restarts the engine: at once when
+	// the Secret is labelled download.clustarr.io/watch=enabled, otherwise
+	// at the controller's next periodic reconcile.
 	SecretRef *v1.LocalObjectReference `json:"secretRef,omitempty"`
 	// Backup marks the provider as fill-only: it is used to fetch articles the
 	// primary providers could not supply, never for the bulk of a download.
