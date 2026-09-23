@@ -269,6 +269,35 @@ func TestGrabarrDataClaimComesFromTheEnvironment(t *testing.T) {
 	}
 }
 
+// TestGrabarrEngineServiceAccountComesFromTheEnvironment is the
+// --engine-service-account twin of the data-claim test above (X14): config/
+// relies on the flag's default, grabarr-engine, and the chart sets
+// $CLUSTARR_ENGINE_SERVICE_ACCOUNT to its fullname-prefixed account. See
+// TestGrabarrEnginesRunAsAnAccountTheInstallerBinds for the same fact read
+// from what each installer renders.
+func TestGrabarrEngineServiceAccountComesFromTheEnvironment(t *testing.T) {
+	got := stub(t, &runGrabarr)
+	t.Setenv(engineImageEnv, "ghcr.io/mediactl/clustarr/media:dev")
+	if _, err := execute(t, "grabarr", "--namespace", "clustarr"); err != nil {
+		t.Fatalf("clustarr grabarr: %v", err)
+	}
+	if got.EngineServiceAccount != "grabarr-engine" {
+		t.Errorf("EngineServiceAccount = %q, want config/'s grabarr-engine", got.EngineServiceAccount)
+	}
+
+	t.Setenv(engineServiceAccountEnv, "media-clustarr-grabarr-engine")
+	if _, err := execute(t, "grabarr", "--namespace", "clustarr"); err != nil {
+		t.Fatalf("clustarr grabarr: %v", err)
+	}
+	if got.EngineServiceAccount != "media-clustarr-grabarr-engine" {
+		t.Errorf("EngineServiceAccount = %q, want $%s's media-clustarr-grabarr-engine",
+			got.EngineServiceAccount, engineServiceAccountEnv)
+	}
+	if err := got.Validate(); err != nil {
+		t.Fatalf("the parsed options are invalid: %v", err)
+	}
+}
+
 func TestIndexarrRejectsLeaderElection(t *testing.T) {
 	got := stub(t, &runIndexarr)
 	if _, err := execute(t, "indexarr", "--namespace", "clustarr", "--leader-elect"); err != nil {

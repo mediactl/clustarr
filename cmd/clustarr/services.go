@@ -161,6 +161,7 @@ func newGrabarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command 
 		scratch     string
 		engineImage string
 		dataClaim   string
+		engineSA    string
 	)
 
 	cmd := &cobra.Command{
@@ -187,18 +188,24 @@ func newGrabarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command 
 	cmd.Flags().StringVar(&dataClaim, "data-claim", envOr(dataClaimEnv, defaults.DataClaimName),
 		"RWX PersistentVolumeClaim the engine workloads the controller creates mount at --data-dir. "+
 			"Defaults to $"+dataClaimEnv+".")
+	cmd.Flags().StringVar(&engineSA, "engine-service-account",
+		envOr(engineServiceAccountEnv, defaults.EngineServiceAccount),
+		"ServiceAccount the engine pods the controller creates run as; it must hold the engine's RBAC "+
+			"(config/rbac/grabarr_engine_role.yaml). Defaults to $"+engineServiceAccountEnv+", then "+
+			defaults.EngineServiceAccount+".")
 
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		return runGrabarr(cmd.Context(), grabarr.Options{
-			Options:       *common,
-			Role:          grabarr.Role(role),
-			Engine:        engine,
-			DataDir:       dataDir,
-			ScratchDir:    scratch,
-			EngineImage:   engineImage,
-			DataClaimName: dataClaim,
-			Logging:       *lo,
-			Tracing:       tracingFor(to, grabarr.ServiceName),
+			Options:              *common,
+			Role:                 grabarr.Role(role),
+			Engine:               engine,
+			DataDir:              dataDir,
+			ScratchDir:           scratch,
+			EngineImage:          engineImage,
+			DataClaimName:        dataClaim,
+			EngineServiceAccount: engineSA,
+			Logging:              *lo,
+			Tracing:              tracingFor(to, grabarr.ServiceName),
 		})
 	}
 	return cmd

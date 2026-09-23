@@ -19,6 +19,7 @@ package downloadclient
 
 import (
 	"fmt"
+	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -66,6 +67,70 @@ const (
 	// for the same reason.
 	defaultListenPort = 42069
 )
+
+// EngineRuntime is what every engine pod needs from the controller's own
+// process, beyond what its DownloadClient says, to run at all on a real
+// cluster. Every field was missing until X14, and none of the gaps was
+// visible to a test: envtest schedules no pods.
+//
+//   - ServiceAccountName: the engine reads its DownloadClient and watches,
+//     updates and finalizes its Downloads. With no serviceAccountName the pod
+//     ran as the namespace's "default" account, which nothing binds, and was
+//     denied every one of those calls. Both installers create this account
+//     and bind it to the engine's own generated ClusterRole
+//     (config/rbac/grabarr_engine_role.yaml, from grabarr/engine's markers).
+//   - NATSURL: the engine publishes download events and progress on the bus,
+//     and its --nats-url default names a Service the installers do not
+//     create; the controller hands on its own $NATS_URL.
+//   - BusSingleNode: the engine ensures the same JetStream topology every
+//     other service does, and on single-node NATS it must collapse replicas
+//     as they do (--nats-single-node).
+//   - Umask: design §11's UMASK 002, for what a torrent engine writes under
+//     /data -- the same pass-through squasharr gives its transcode Jobs.
+//
+// POD_NAMESPACE needs no field: it is the downward API, set on every engine
+// container, and it is how an engine finds its DownloadClient at all.
+type EngineRuntime struct {
+	ServiceAccountName string
+	NATSURL            string
+	BusSingleNode      bool
+	Umask              string
+}
+
+// DefaultEngineServiceAccount is the ServiceAccount config/ creates for the
+// engine pods (config/manager/grabarr.yaml) and binds to the engine role.
+// The chart's is "<release fullname>-grabarr-engine", which grabarr's
+// --engine-service-account ($CLUSTARR_ENGINE_SERVICE_ACCOUNT) carries.
+const DefaultEngineServiceAccount = "grabarr-engine"
+
+// gomemlimitFraction is design §12's "GOMEMLIMIT = 80 % of limit" for the
+// torrent engines: the Downward API can only give the whole limit, so the
+// controller computes the soft limit itself, as the chart's
+// clustarr.gomemlimit helper does for the Deployments it renders.
+const gomemlimitFraction = 0.8
+
+// engineEnv is every engine container's environment: POD_NAMESPACE always,
+// then whatever of rt the controller has, then GOMEMLIMIT when the
+// DownloadClient sets a memory limit. GOMEMLIMIT is rendered exactly as the
+// chart's helper renders it -- 80% of the limit in bytes, "%.0f" -- so a
+// Deployment's and an engine's soft limit read as one convention.
+func engineEnv(dc *downloadv1alpha1.DownloadClient, rt EngineRuntime) []*corev1ac.EnvVarApplyConfiguration {
+	env := []*corev1ac.EnvVarApplyConfiguration{
+		corev1ac.EnvVar().WithName("POD_NAMESPACE").WithValueFrom(corev1ac.EnvVarSource().
+			WithFieldRef(corev1ac.ObjectFieldSelector().WithFieldPath("metadata.namespace"))),
+	}
+	if rt.NATSURL != "" {
+		env = append(env, corev1ac.EnvVar().WithName("NATS_URL").WithValue(rt.NATSURL))
+	}
+	if rt.Umask != "" {
+		env = append(env, corev1ac.EnvVar().WithName("UMASK").WithValue(rt.Umask))
+	}
+	if limit, ok := dc.Spec.Resources.Limits[corev1.ResourceMemory]; ok && !limit.IsZero() {
+		soft := strconv.FormatFloat(float64(limit.Value())*gomemlimitFraction, 'f', 0, 64)
+		env = append(env, corev1ac.EnvVar().WithName("GOMEMLIMIT").WithValue(soft))
+	}
+	return env
+}
 
 // engineWorkloadName is spec §6.3's `<downloadclient>-engine` naming: the
 // StatefulSet (torrent) or Deployment (usenet) a DownloadClient owns.
@@ -164,7 +229,7 @@ func tolerationsAC(ts []corev1.Toleration) []*corev1ac.TolerationApplyConfigurat
 // config/manager/grabarr.yaml mounts the same "clustarr-data" claim on the
 // controller Deployment), plus whatever extra volumes the caller needs
 // (usenet's scratch volume), spec.nodeSelector and spec.tolerations.
-func podSpecAC(dc *downloadv1alpha1.DownloadClient, container *corev1ac.ContainerApplyConfiguration, dataClaimName string, extraVolumes ...*corev1ac.VolumeApplyConfiguration) *corev1ac.PodSpecApplyConfiguration {
+func podSpecAC(dc *downloadv1alpha1.DownloadClient, container *corev1ac.ContainerApplyConfiguration, dataClaimName string, rt EngineRuntime, extraVolumes ...*corev1ac.VolumeApplyConfiguration) *corev1ac.PodSpecApplyConfiguration {
 	volumes := append([]*corev1ac.VolumeApplyConfiguration{
 		corev1ac.Volume().WithName(dataVolumeName).WithPersistentVolumeClaim(
 			corev1ac.PersistentVolumeClaimVolumeSource().WithClaimName(dataClaimName)),
@@ -174,6 +239,9 @@ func podSpecAC(dc *downloadv1alpha1.DownloadClient, container *corev1ac.Containe
 		WithContainers(container).
 		WithVolumes(volumes...).
 		WithRestartPolicy(corev1.RestartPolicyAlways)
+	if rt.ServiceAccountName != "" {
+		spec = spec.WithServiceAccountName(rt.ServiceAccountName)
+	}
 	if len(dc.Spec.NodeSelector) > 0 {
 		spec = spec.WithNodeSelector(dc.Spec.NodeSelector)
 	}
@@ -211,7 +279,7 @@ func podTemplateAC(labels map[string]string, spec *corev1ac.PodSpecApplyConfigur
 // and should feel free to change this rather than treat it as load-bearing.
 // What IS load-bearing is the shape grabarr.Options.Engine documents:
 // "<client>-<ordinal>".
-func torrentContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir string) *corev1ac.ContainerApplyConfiguration {
+func torrentContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir string, rt EngineRuntime) *corev1ac.ContainerApplyConfiguration {
 	// DownloadClientSpec's CEL rule guarantees spec.torrent is set whenever
 	// protocol==torrent for any object that reached the apiserver, but this
 	// still guards the nil case rather than dereferencing it directly: a unit
@@ -223,6 +291,9 @@ func torrentContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir string
 	script := fmt.Sprintf(
 		`ordinal=${HOSTNAME##*-}; exec %s grabarr --role torrent-engine --data-dir %s --engine %s-${ordinal}`,
 		clustarrBinary, dataDir, dc.Name)
+	if rt.BusSingleNode {
+		script += " --nats-single-node"
+	}
 
 	return corev1ac.Container().
 		WithName(engineContainerName).
@@ -233,6 +304,7 @@ func torrentContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir string
 			WithName("peer").
 			WithContainerPort(listenPort).
 			WithProtocol(corev1.ProtocolTCP)).
+		WithEnv(engineEnv(dc, rt)...).
 		WithResources(resourceRequirementsAC(dc.Spec.Resources)).
 		WithVolumeMounts(corev1ac.VolumeMount().WithName(dataVolumeName).WithMountPath(dataDir))
 }
@@ -242,17 +314,22 @@ func torrentContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir string
 // engine identity is always ordinal 0 -- no shell, no hostname parsing, just
 // the same "grabarr --role ..." argv config/manager/grabarr.yaml already uses
 // for the controller.
-func usenetContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scratchDir string) *corev1ac.ContainerApplyConfiguration {
+func usenetContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scratchDir string, rt EngineRuntime) *corev1ac.ContainerApplyConfiguration {
+	args := []string{
+		"grabarr",
+		"--role", "usenet-engine",
+		"--data-dir", dataDir,
+		"--scratch-dir", scratchDir,
+		"--engine", dc.Name + "-0",
+	}
+	if rt.BusSingleNode {
+		args = append(args, "--nats-single-node")
+	}
 	return corev1ac.Container().
 		WithName(engineContainerName).
 		WithImage(image).
-		WithArgs(
-			"grabarr",
-			"--role", "usenet-engine",
-			"--data-dir", dataDir,
-			"--scratch-dir", scratchDir,
-			"--engine", dc.Name+"-0",
-		).
+		WithArgs(args...).
+		WithEnv(engineEnv(dc, rt)...).
 		WithResources(resourceRequirementsAC(dc.Spec.Resources)).
 		WithVolumeMounts(
 			corev1ac.VolumeMount().WithName(dataVolumeName).WithMountPath(dataDir),
@@ -313,13 +390,13 @@ func buildScratchPVC(dc *downloadv1alpha1.DownloadClient, owner *metav1ac.OwnerR
 // shared volume, not on a per-ordinal PVC, so the StatefulSet's only reason to
 // exist is the stable "<workload>-<ordinal>" pod identity re-attach depends
 // on, not per-pod storage.
-func buildStatefulSet(dc *downloadv1alpha1.DownloadClient, name, image, dataDir, dataClaimName string, owner *metav1ac.OwnerReferenceApplyConfiguration) *appsv1ac.StatefulSetApplyConfiguration {
+func buildStatefulSet(dc *downloadv1alpha1.DownloadClient, name, image, dataDir, dataClaimName string, rt EngineRuntime, owner *metav1ac.OwnerReferenceApplyConfiguration) *appsv1ac.StatefulSetApplyConfiguration {
 	labels := selectorLabels(dc)
-	container := torrentContainer(dc, image, dataDir)
+	container := torrentContainer(dc, image, dataDir, rt)
 	spec := appsv1ac.StatefulSetSpec().
 		WithReplicas(torrentReplicas(dc)).
 		WithSelector(metav1ac.LabelSelector().WithMatchLabels(labels)).
-		WithTemplate(podTemplateAC(labels, podSpecAC(dc, container, dataClaimName)))
+		WithTemplate(podTemplateAC(labels, podSpecAC(dc, container, dataClaimName, rt)))
 
 	return appsv1ac.StatefulSet(name, dc.Namespace).
 		WithLabels(labels).
@@ -330,13 +407,13 @@ func buildStatefulSet(dc *downloadv1alpha1.DownloadClient, name, image, dataDir,
 // buildDeployment renders the usenet engine's Deployment: always one replica
 // (DownloadClientSpec's CEL rule enforces spec.replicas==1 for usenet), mounting
 // /data and a scratch volume, running [usenetContainer].
-func buildDeployment(dc *downloadv1alpha1.DownloadClient, name, image, dataDir, scratchDir, dataClaimName string, owner *metav1ac.OwnerReferenceApplyConfiguration) *appsv1ac.DeploymentApplyConfiguration {
+func buildDeployment(dc *downloadv1alpha1.DownloadClient, name, image, dataDir, scratchDir, dataClaimName string, rt EngineRuntime, owner *metav1ac.OwnerReferenceApplyConfiguration) *appsv1ac.DeploymentApplyConfiguration {
 	labels := selectorLabels(dc)
-	container := usenetContainer(dc, image, dataDir, scratchDir)
+	container := usenetContainer(dc, image, dataDir, scratchDir, rt)
 	spec := appsv1ac.DeploymentSpec().
 		WithReplicas(1).
 		WithSelector(metav1ac.LabelSelector().WithMatchLabels(labels)).
-		WithTemplate(podTemplateAC(labels, podSpecAC(dc, container, dataClaimName, scratchVolume(dc))))
+		WithTemplate(podTemplateAC(labels, podSpecAC(dc, container, dataClaimName, rt, scratchVolume(dc))))
 
 	return appsv1ac.Deployment(name, dc.Namespace).
 		WithLabels(labels).

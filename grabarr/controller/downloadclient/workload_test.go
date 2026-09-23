@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package downloadclient
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -79,7 +81,7 @@ func TestBuildStatefulSetShape(t *testing.T) {
 	dc.Spec.Torrent.ListenPort = 51413
 	owner := fakeOwnerRef()
 
-	sts := buildStatefulSet(dc, "sab-engine", "ghcr.io/x/engine:dev", "/data", "clustarr-data", owner)
+	sts := buildStatefulSet(dc, "sab-engine", "ghcr.io/x/engine:dev", "/data", "clustarr-data", EngineRuntime{}, owner)
 
 	require.NotNil(t, sts.Name)
 	assert.Equal(t, "sab-engine", *sts.Name)
@@ -124,7 +126,7 @@ func TestBuildStatefulSetShape(t *testing.T) {
 
 func TestBuildStatefulSetDefaultsListenPort(t *testing.T) {
 	dc := torrentClient("sab", 1)
-	sts := buildStatefulSet(dc, "sab-engine", "img", "/data", "clustarr-data", fakeOwnerRef())
+	sts := buildStatefulSet(dc, "sab-engine", "img", "/data", "clustarr-data", EngineRuntime{}, fakeOwnerRef())
 	c := sts.Spec.Template.Spec.Containers[0]
 	require.Len(t, c.Ports, 1)
 	assert.Equal(t, int32(defaultListenPort), *c.Ports[0].ContainerPort)
@@ -132,7 +134,7 @@ func TestBuildStatefulSetDefaultsListenPort(t *testing.T) {
 
 func TestBuildDeploymentShape(t *testing.T) {
 	dc := usenetClient("nzb")
-	dep := buildDeployment(dc, "nzb-engine", "img", "/data", "/scratch", "clustarr-data", fakeOwnerRef())
+	dep := buildDeployment(dc, "nzb-engine", "img", "/data", "/scratch", "clustarr-data", EngineRuntime{}, fakeOwnerRef())
 
 	require.NotNil(t, dep.Spec.Replicas)
 	assert.Equal(t, int32(1), *dep.Spec.Replicas)
@@ -216,4 +218,80 @@ func TestTolerationsAC(t *testing.T) {
 	assert.Equal(t, corev1.TaintEffectNoSchedule, *out[0].Effect)
 	require.NotNil(t, out[0].TolerationSeconds)
 	assert.Equal(t, int64(30), *out[0].TolerationSeconds)
+}
+
+// envOf flattens a container's env into name -> value, with a downward-API
+// entry as "fieldRef:<path>".
+func envOf(env []corev1ac.EnvVarApplyConfiguration) map[string]string {
+	out := map[string]string{}
+	for _, e := range env {
+		switch {
+		case e.ValueFrom != nil && e.ValueFrom.FieldRef != nil:
+			out[*e.Name] = "fieldRef:" + *e.ValueFrom.FieldRef.FieldPath
+		case e.Value != nil:
+			out[*e.Name] = *e.Value
+		}
+	}
+	return out
+}
+
+// TestEnginePodsGetTheRuntimeTheyNeed is X14's fix for engine pods that
+// could not run on a real cluster (x9-report): no serviceAccountName, so
+// they ran as the namespace's unbound "default" account and were denied
+// their own DownloadClient; no POD_NAMESPACE, so they could not even name
+// it; no NATS_URL, so they dialled a Service no installer creates; and no
+// GOMEMLIMIT, design §12's 80% of the memory limit. envtest schedules no
+// pods, so only the rendered pod spec can show any of it.
+func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
+	rt := EngineRuntime{
+		ServiceAccountName: "media-clustarr-grabarr-engine",
+		NATSURL:            "nats://nats.clustarr-system.svc:4222",
+		BusSingleNode:      true,
+		Umask:              "002",
+	}
+	torrent := torrentClient("sab", 1)
+	torrent.Spec.Resources.Limits = corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")}
+	usenet := usenetClient("nzb")
+	usenet.Spec.Resources.Limits = corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("512Mi")}
+
+	sts := buildStatefulSet(torrent, "sab-engine", "img", "/data", "clustarr-data", rt, fakeOwnerRef())
+	dep := buildDeployment(usenet, "nzb-engine", "img", "/data", "/scratch", "clustarr-data", rt, fakeOwnerRef())
+
+	for name, tc := range map[string]struct {
+		spec     *corev1ac.PodSpecApplyConfiguration
+		memLimit string
+		args     string
+	}{
+		// The chart's clustarr.gomemlimit renders these same two byte counts
+		// for a 1Gi and a 512Mi Deployment (charts/clustarr/README.md).
+		"torrent": {spec: sts.Spec.Template.Spec, memLimit: "858993459"},
+		"usenet":  {spec: dep.Spec.Template.Spec, memLimit: "429496730"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.NotNil(t, tc.spec.ServiceAccountName, "the engine pod names no ServiceAccount")
+			assert.Equal(t, rt.ServiceAccountName, *tc.spec.ServiceAccountName)
+			c := tc.spec.Containers[0]
+			assert.Equal(t, map[string]string{
+				"POD_NAMESPACE": "fieldRef:metadata.namespace",
+				"NATS_URL":      rt.NATSURL,
+				"UMASK":         "002",
+				"GOMEMLIMIT":    tc.memLimit,
+			}, envOf(c.Env))
+			assert.Contains(t, strings.Join(append(c.Command, c.Args...), " "), "--nats-single-node")
+		})
+	}
+
+	t.Run("no memory limit, no bus settings", func(t *testing.T) {
+		bare := buildStatefulSet(torrentClient("sab", 1), "sab-engine", "img", "/data", "clustarr-data",
+			EngineRuntime{ServiceAccountName: DefaultEngineServiceAccount}, fakeOwnerRef())
+		c := bare.Spec.Template.Spec.Containers[0]
+		assert.Equal(t, map[string]string{"POD_NAMESPACE": "fieldRef:metadata.namespace"}, envOf(c.Env),
+			"GOMEMLIMIT, NATS_URL and UMASK are set only when there is something to set them to")
+		assert.NotContains(t, c.Args[0], "--nats-single-node")
+	})
+
+	t.Run("NewReconciler defaults the engine ServiceAccount", func(t *testing.T) {
+		r := NewReconciler(nil, nil, "/data", "/scratch", "img")
+		assert.Equal(t, DefaultEngineServiceAccount, r.Engine.ServiceAccountName)
+	})
 }

@@ -102,6 +102,13 @@ type Reconciler struct {
 	// engine mounted a claim that did not exist.
 	DataClaimName string
 
+	// Engine is what every engine pod needs from this controller's own
+	// process: its ServiceAccount, the bus, the umask (see EngineRuntime).
+	// NewReconciler sets Engine.ServiceAccountName to
+	// [DefaultEngineServiceAccount]; grabarr/run.go overwrites every field
+	// from its options and environment.
+	Engine EngineRuntime
+
 	// MinFreeBytes is the floor DiskSpaceOK enforces on DataDir. Zero uses
 	// [DefaultMinFreeBytes].
 	MinFreeBytes int64
@@ -125,6 +132,7 @@ func NewReconciler(c client.Client, recorder events.EventRecorder, dataDir, scra
 		ScratchDir:    scratchDir,
 		EngineImage:   engineImage,
 		DataClaimName: DefaultDataClaimName,
+		Engine:        EngineRuntime{ServiceAccountName: DefaultEngineServiceAccount},
 		MinFreeBytes:  DefaultMinFreeBytes,
 		DiskUsage:     fsops.DiskUsage,
 	}
@@ -221,7 +229,7 @@ func (r *Reconciler) reconcileWorkload(
 ) (desired, replicas, readyReplicas int32, err error) {
 	switch dc.Spec.Protocol {
 	case commonv1alpha1.ProtocolTorrent:
-		sts := buildStatefulSet(dc, workloadName, r.EngineImage, r.DataDir, r.DataClaimName, ownerRef)
+		sts := buildStatefulSet(dc, workloadName, r.EngineImage, r.DataDir, r.DataClaimName, r.Engine, ownerRef)
 		if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerGrabarr, sts); err != nil {
 			return 0, 0, 0, fmt.Errorf("downloadclient: apply StatefulSet %s: %w", workloadName, err)
 		}
@@ -241,7 +249,7 @@ func (r *Reconciler) reconcileWorkload(
 				return 0, 0, 0, fmt.Errorf("downloadclient: apply scratch PVC for %s: %w", dc.Name, err)
 			}
 		}
-		dep := buildDeployment(dc, workloadName, r.EngineImage, r.DataDir, r.ScratchDir, r.DataClaimName, ownerRef)
+		dep := buildDeployment(dc, workloadName, r.EngineImage, r.DataDir, r.ScratchDir, r.DataClaimName, r.Engine, ownerRef)
 		if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerGrabarr, dep); err != nil {
 			return 0, 0, 0, fmt.Errorf("downloadclient: apply Deployment %s: %w", workloadName, err)
 		}

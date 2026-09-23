@@ -88,6 +88,13 @@ const (
 	// while config/'s is both flags' own default, "clustarr-data".
 	dataClaimEnv = "CLUSTARR_DATA_CLAIM"
 
+	// engineServiceAccountEnv is the ServiceAccount grabarr's engine pods
+	// run as, the default for --engine-service-account. Only the chart sets
+	// it, for the reason dataClaimEnv gives: its ServiceAccounts carry the
+	// release fullname, while config/'s is the flag's own default,
+	// "grabarr-engine".
+	engineServiceAccountEnv = "CLUSTARR_ENGINE_SERVICE_ACCOUNT"
+
 	// traktBaseURLEnv and plexBaseURLEnv point importarr's Trakt and Plex
 	// import-list providers at another host, the defaults for
 	// --trakt-base-url and --plex-base-url. No shipped manifest sets them --

@@ -28,6 +28,7 @@ package grabarr
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -155,6 +156,17 @@ type Options struct {
 	// $CLUSTARR_DATA_CLAIM.
 	DataClaimName string
 
+	// EngineServiceAccount is the ServiceAccount every engine pod the
+	// DownloadClient controller creates runs as (--engine-service-account).
+	// Only meaningful for [RoleController]. Like DataClaimName it is a flag
+	// because the installers name it differently: config/ creates
+	// [downloadclient.DefaultEngineServiceAccount], the chart
+	// "<release fullname>-grabarr-engine" ($CLUSTARR_ENGINE_SERVICE_ACCOUNT).
+	// Both bind it to the engine's generated ClusterRole
+	// (config/rbac/grabarr_engine_role.yaml). Until X14 the pod named none
+	// and ran as the namespace's unbound "default" account.
+	EngineServiceAccount string
+
 	// Logging configures this process's root logger. The zero value is a
 	// reasonable default: JSON to stderr at info level.
 	Logging logging.Options
@@ -172,7 +184,8 @@ func DefaultOptions() Options {
 		Role:          RoleController,
 		DataDir:       DefaultDataDir,
 		ScratchDir:    DefaultScratchDir,
-		DataClaimName: downloadclient.DefaultDataClaimName,
+		DataClaimName:        downloadclient.DefaultDataClaimName,
+		EngineServiceAccount: downloadclient.DefaultEngineServiceAccount,
 	}
 }
 
@@ -202,6 +215,10 @@ func (o Options) Validate() error {
 	if o.Role.RunsControllers() && o.DataClaimName == "" {
 		return fmt.Errorf("grabarr: --data-claim is required for --role %s; "+
 			"it is the PersistentVolumeClaim every engine workload mounts at --data-dir", o.Role)
+	}
+	if o.Role.RunsControllers() && o.EngineServiceAccount == "" {
+		return fmt.Errorf("grabarr: --engine-service-account is required for --role %s; "+
+			"it is the ServiceAccount every engine pod runs as", o.Role)
 	}
 	if !o.UsesBus() {
 		return fmt.Errorf("grabarr: --nats-url is required; download events and progress both use the bus")
@@ -324,6 +341,7 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	// chart's is "<release fullname>-data", so the flag must win or every
 	// engine under any other release name mounts a claim that does not exist.
 	dcReconciler.DataClaimName = o.DataClaimName
+	dcReconciler.Engine = engineRuntime(o)
 	if err := dcReconciler.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("grabarr: downloadclient: %w", err)
 	}
@@ -343,6 +361,20 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		return fmt.Errorf("grabarr: download: %w", err)
 	}
 	return nil
+}
+
+// engineRuntime is what the DownloadClient controller stamps onto every
+// engine pod from this process (downloadclient.EngineRuntime): the engine
+// ServiceAccount, this controller's own bus address and single-node
+// setting -- the engine joins the same JetStream the controller does -- and
+// its $UMASK (design §11), the same pass-through squasharr gives its Jobs.
+func engineRuntime(o Options) downloadclient.EngineRuntime {
+	return downloadclient.EngineRuntime{
+		ServiceAccountName: o.EngineServiceAccount,
+		NATSURL:            o.NATSURL,
+		BusSingleNode:      o.BusSingleNode,
+		Umask:              os.Getenv("UMASK"),
+	}
 }
 
 // setupEngine is the registration point for the transfer engines: it builds

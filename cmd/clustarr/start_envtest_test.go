@@ -224,6 +224,10 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 				// reach the engine workload, and only a non-default value
 				// can show that it does.
 				d.DataClaimName = "media-clustarr-data"
+				// Likewise the chart's engine ServiceAccount (X14): only a
+				// non-default value shows --engine-service-account reaching
+				// the pod spec.
+				d.EngineServiceAccount = "media-clustarr-grabarr-engine"
 				return grabarr.Run(ctx, d)
 			},
 			verify: func(t *testing.T) {
@@ -243,8 +247,8 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 					t.Fatalf("create DownloadClient: %v", err)
 				}
 				var claim string
+				var sts appsv1.StatefulSet
 				waitFor(t, "the DownloadClient controller to create claim-probe-engine", func() bool {
-					var sts appsv1.StatefulSet
 					if c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "claim-probe-engine"}, &sts) != nil {
 						return false
 					}
@@ -258,6 +262,25 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 				if claim != "media-clustarr-data" {
 					t.Errorf("the engine StatefulSet mounts claim %q, want --data-claim's media-clustarr-data: "+
 						"grabarr/run.go did not pass Options.DataClaimName to the DownloadClient reconciler", claim)
+				}
+				// X14: the engine pod runs as the account the installers
+				// bind, and gets the namespace and bus it needs to start.
+				pod := sts.Spec.Template.Spec
+				if pod.ServiceAccountName != "media-clustarr-grabarr-engine" {
+					t.Errorf("the engine pod runs as ServiceAccount %q, want --engine-service-account's "+
+						"media-clustarr-grabarr-engine: grabarr/run.go did not pass Options.EngineServiceAccount",
+						pod.ServiceAccountName)
+				}
+				env := map[string]corev1.EnvVar{}
+				for _, e := range pod.Containers[0].Env {
+					env[e.Name] = e
+				}
+				if e, ok := env["POD_NAMESPACE"]; !ok || e.ValueFrom == nil || e.ValueFrom.FieldRef == nil {
+					t.Errorf("the engine container has no downward-API POD_NAMESPACE: %+v", env["POD_NAMESPACE"])
+				}
+				if env["NATS_URL"].Value != natsURL {
+					t.Errorf("the engine container's NATS_URL = %q, want the controller's own %q",
+						env["NATS_URL"].Value, natsURL)
 				}
 				if err := c.Delete(ctx, dc); err != nil {
 					t.Errorf("delete DownloadClient: %v", err)
