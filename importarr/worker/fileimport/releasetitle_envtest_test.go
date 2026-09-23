@@ -143,4 +143,15 @@ func TestEpisodeImportScoresReleaseTitleFormats(t *testing.T) {
 	files := s.importedFiles(t, got)
 	assertScored(t, files["Breaking.Bad.S01E01.1080p.BluRay.x264-GRP.mkv"], false, "a pack's name is not a file's scene name")
 	assertScored(t, files["Breaking.Bad.S01E02.REPACK.1080p.BluRay.HDR.x264-GRP.mkv"], true, "the file's own name")
+
+	// A full season's name is not a scene name even when the download
+	// holds only one of its episodes (a fresh series: episode 3 above is
+	// already at cutoff).
+	s2 := newSeriesFixture(t, "fi-rt-lone")
+	lone := dataDir(t, "scratch")
+	mustWriteSparseFile(t, filepath.Join(lone, "Breaking.Bad.S01E03.1080p.BluRay.x264-GRP.mkv"), sampleFloor)
+	got = s2.importTitled(t, "rt-lone", "Breaking.Bad.S01.REPACK.1080p.BluRay.HDR.x264-GRP", lone,
+		commonv1.MediaRef{Kind: commonv1.MediaKindSeries, Name: s2.series, Keys: []string{"breaking-bad-s01e03"}})
+	assertScored(t, s2.importedFiles(t, got)["Breaking.Bad.S01E03.1080p.BluRay.x264-GRP.mkv"], false,
+		"a full season's name, one file or not")
 }
