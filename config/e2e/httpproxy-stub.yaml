@@ -1,0 +1,83 @@
+# A minimal plain-HTTP forward proxy (test/fixtures/httpproxystub), so
+# scenario 10 can create a real IndexerProxy (type: http) and prove an
+# Indexer's login/search traffic actually routes through it -- ruling-free,
+# in-cluster, no egress. See indexarr/controller/indexer/proxy.go's
+# resolveProxy for exactly how an Indexer's spec.proxyRef becomes an
+# http.Transport.Proxy pointed at this Service.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: httpproxy-stub
+  namespace: clustarr-system
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: httpproxy-stub
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: httpproxy-stub
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: clustarr
+        app.kubernetes.io/part-of: clustarr
+        app.kubernetes.io/component: httpproxy-stub
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: httpproxy-stub
+          image: ghcr.io/mediactl/clustarr/e2e-fixtures:dev
+          imagePullPolicy: IfNotPresent
+          args: ["http-proxy-stub", "--addr=:8080"]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /_proxied
+              port: http
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /_proxied
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: httpproxy-stub
+  namespace: clustarr-system
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: httpproxy-stub
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: httpproxy-stub
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

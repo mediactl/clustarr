@@ -17,6 +17,10 @@ resources:
 - torznab-stub.yaml
 - opensubtitles-stub.yaml
 - gestdown-stub.yaml
+- cardigann-stub.yaml
+- httpproxy-stub.yaml
+- importlist-stub.yaml
+- nonvideo-stub.yaml
 - quality-profile.yaml
 - metadata-providers.yaml
 

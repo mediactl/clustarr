@@ -121,6 +121,8 @@ COPY --from=build /out/clustarr-e2e-fixtures /clustarr-e2e-fixtures
 COPY --from=clipgen /out/tiny.mkv /fixtures/media/tiny.mkv
 COPY --from=clipgen-hdr10 /out/hdr10.mkv /fixtures/media/hdr10.mkv
 COPY testdata/metadata /fixtures/testdata/metadata
+COPY testdata/cardigann /fixtures/testdata/cardigann
+COPY testdata/importlist /fixtures/testdata/importlist
 
 USER 65532:65532
 ENTRYPOINT ["/clustarr-e2e-fixtures"]

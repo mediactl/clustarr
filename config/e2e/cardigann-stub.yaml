@@ -1,0 +1,96 @@
+# The in-cluster fixture Cardigann tracker: a form login (scraped CSRF
+# token) and a session-gated search/download page, serving
+# testdata/cardigann/login-form.yml's own shape. See
+# test/fixtures/cardigannstub's package doc comment for exactly which
+# routes exist and why. Credentials live in a Secret because that is how a
+# real Indexer's spec.secretRef works (recognised keys: apikey, username,
+# password, cookie, passkey, rss_key -- api/index/v1alpha1/indexer_types.go).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cardigann-fixture-credentials
+  namespace: clustarr-system
+stringData:
+  # Must equal cardigannstub.Username/Password. A mismatch surfaces as an
+  # Indexer stuck Authenticated=False -- the correct diagnosis, the same
+  # way torznab-fixture-credentials' apikey does for the Torznab stub.
+  username: e2e-cardigann-user
+  password: e2e-cardigann-pass
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cardigann-stub
+  namespace: clustarr-system
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: cardigann-stub
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: cardigann-stub
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: clustarr
+        app.kubernetes.io/part-of: clustarr
+        app.kubernetes.io/component: cardigann-stub
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: cardigann-stub
+          image: ghcr.io/mediactl/clustarr/e2e-fixtures:dev
+          imagePullPolicy: IfNotPresent
+          args: ["cardigann-stub", "--addr=:8080"]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /login
+              port: http
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /login
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cardigann-stub
+  namespace: clustarr-system
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: cardigann-stub
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: cardigann-stub
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

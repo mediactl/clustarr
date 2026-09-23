@@ -1,8 +1,15 @@
-# The two metadata providers the Phase C scenarios need, pointed at the
-# in-cluster stubs this overlay deploys. The credentials are placeholders:
-# neither stub checks them, but pkg/metadata/clients/tmdb's golang-tmdb Init
-# rejects an empty api key and the TVDB client posts apiKey+pin to /login, so
-# both keys must be present and non-empty.
+# The six metadata providers the e2e scenarios need, pointed at the
+# in-cluster stubs this overlay deploys. tmdb and tvdb's credentials are
+# placeholders: neither stub checks them, but pkg/metadata/clients/tmdb's
+# golang-tmdb Init rejects an empty api key and the TVDB client posts
+# apiKey+pin to /login, so both keys must be present and non-empty.
+#
+# musicbrainz, openlibrary, audnexus and comicvine (Phase G, G4-1) all point
+# at the ONE nonvideo-stub Service (nonvideo-stub.yaml), differing only in
+# spec.baseURL's path prefix -- see that Service's own doc comment for why
+# one process can serve all four real upstream shapes. Only comicvine needs
+# a secretRef; the other three need none (catalogarr/metadata/registry.go's
+# BuildRegistry).
 apiVersion: v1
 kind: Secret
 metadata:
@@ -43,3 +50,47 @@ spec:
   secretRef:
     name: tvdb-fixture-credentials
   baseURL: http://tvdb-stub.clustarr-system.svc
+---
+apiVersion: catalog.clustarr.io/v1alpha1
+kind: MetadataProvider
+metadata:
+  name: musicbrainz
+  namespace: clustarr-system
+spec:
+  type: musicbrainz
+  enabled: true
+  contactUserAgent: "Clustarr-e2e/0.1 (https://github.com/mediactl/clustarr)"
+  baseURL: http://nonvideo-stub.clustarr-system.svc/musicbrainz
+---
+apiVersion: catalog.clustarr.io/v1alpha1
+kind: MetadataProvider
+metadata:
+  name: openlibrary
+  namespace: clustarr-system
+spec:
+  type: openlibrary
+  enabled: true
+  contactUserAgent: "Clustarr-e2e/0.1 (https://github.com/mediactl/clustarr)"
+  baseURL: http://nonvideo-stub.clustarr-system.svc/openlibrary
+---
+apiVersion: catalog.clustarr.io/v1alpha1
+kind: MetadataProvider
+metadata:
+  name: audnexus
+  namespace: clustarr-system
+spec:
+  type: audnexus
+  enabled: true
+  baseURL: http://nonvideo-stub.clustarr-system.svc/audnexus
+---
+apiVersion: catalog.clustarr.io/v1alpha1
+kind: MetadataProvider
+metadata:
+  name: comicvine
+  namespace: clustarr-system
+spec:
+  type: comicvine
+  enabled: true
+  secretRef:
+    name: comicvine-fixture-credentials
+  baseURL: http://nonvideo-stub.clustarr-system.svc/comicvine

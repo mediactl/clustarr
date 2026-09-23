@@ -1,0 +1,94 @@
+# The in-cluster fixture for the four non-video metadata providers
+# pkg/metadata/clients has real clients for (test/fixtures/nonvideostub):
+# MusicBrainz, Open Library, Audnexus and ComicVine, one path prefix each
+# on a single Service. The four MetadataProvider CRs pointing at it (one
+# per provider, differing only in spec.baseURL's path) live in
+# metadata-providers.yaml alongside tmdb and tvdb's.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: comicvine-fixture-credentials
+  namespace: clustarr-system
+stringData:
+  # Must equal nonvideostub.ComicVineAPIKey. MusicBrainz, Open Library and
+  # Audnexus need no secretRef at all (catalogarr/metadata/registry.go's
+  # BuildRegistry only reads one for tmdb, tvdb and comicvine).
+  apiKey: e2e-fixture-key
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nonvideo-stub
+  namespace: clustarr-system
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: nonvideo-stub
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: nonvideo-stub
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: clustarr
+        app.kubernetes.io/part-of: clustarr
+        app.kubernetes.io/component: nonvideo-stub
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nonvideo-stub
+          image: ghcr.io/mediactl/clustarr/e2e-fixtures:dev
+          imagePullPolicy: IfNotPresent
+          args: ["nonvideo-metadata-stub", "--addr=:8080"]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /musicbrainz/artist/a74b1b7f-71a5-4011-9441-d0b5e4122711
+              port: http
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /musicbrainz/artist/a74b1b7f-71a5-4011-9441-d0b5e4122711
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nonvideo-stub
+  namespace: clustarr-system
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: nonvideo-stub
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: nonvideo-stub
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
