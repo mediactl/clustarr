@@ -135,7 +135,8 @@ func TestRolesAndValidate(t *testing.T) {
 		t.Errorf("a worker with --job was rejected: %v", err)
 	}
 
-	// Ruling R6: the worker never uses the bus, so it must not demand one.
+	// Ruling R6: the worker needs no bus (it writes telemetry only when
+	// given one), so it must not demand one.
 	o.NATSURL = ""
 	if err := o.Validate(); err != nil {
 		t.Errorf("a worker without --nats-url was rejected: %v", err)

@@ -1182,6 +1182,15 @@ other phase.
 > W1a commit, so the task reports' SHAs for those are stale -- find a commit
 > by subject with `git log --grep`. **What is still open is exactly the
 > block that follows.**
+>
+> **Z-wave, 2026-09-23** (Z1-Z6 and the final pass F; briefs and reports in
+> `.superpowers/sdd/2026-09-23-gap-fixes/`). Every fixable item in the block
+> that follows was taken; each is ticked below with its commits or its
+> ruling, and the items still unchecked are exactly what remains open.
+> Excluded from the wave by the controller: the Phase H e2e items, the items
+> that need external verification (live provider responses, a KEDA release
+> tested against 1.37), the pre-deploy-harmless R-5 co-owner note, and the
+> owner's `importRejected` decision.
 
 ### Still open after the gap fixes (2026-09-23)
 
@@ -1189,15 +1198,17 @@ Harvested from every gap-fix task report ("Carried", concerns, needs nobody
 took) and from the spec pass, which checked §5 and §8 against the code.
 Gap fixes Y1-Y3 (2026-09-23, the four failure-handling behaviours the spec
 named and nothing built) ticked their four items under *Spec paths that were
-never built* and added *Downloads and events* from their reports.
+never built* and added *Downloads and events* from their reports. The
+Z-wave ticked what it fixed or closed and added the items its reports left
+open, each marked with the task that found it.
 
 **End to end (Phase H).**
 
 - [ ] Every scenario written since Phase C -- 1-4, 6, 9-17 -- is written and has never run on kind.
 - [ ] Scenario 16's Helm-chart and `clustarr all` legs skip: both need a second deploy path in `hack/e2e.sh`, and under per-service roles an all-in-one pod needs one binding per role (X12c, X14).
 - [ ] Scenario 1's trace check covers grabarr and importarr only; the four-service proof needs a real Search-driven grab whose release points at the seeder (X12c).
-- [ ] `TestRealLoopCompletesSeedsAndRemovesOnPolicy` stalled once under heavy parallel load (X9).
-- [ ] The `cmd/clustarr` start envtest answers Kid A's release browse with The Bends' releases (no Kid A fixture), which would mislead any future track assertion (W1a gate).
+- [x] **Fixed `c049c26` (Z1), `29e6781` (Z6).** The test serves its torrent through a test-local tracker with a 1 s re-announce interval and fails only after 30 s with no byte, and the fixture seeder's tracker now answers with a 2 s interval, so every e2e consumer recovers too. Root cause from the anacrolix v1.61.0 source: a dropped peer is not re-dialled until the next announce, and a tracker with no interval gets the 300 s default. Was: `TestRealLoopCompletesSeedsAndRemovesOnPolicy` stalled once under heavy parallel load (X9).
+- [x] **Fixed `d5620a0` (Z6).** The start envtest and `nonvideostub` serve a real, trimmed Kid A release browse (`testdata/metadata/musicbrainz/browse_releases_kid_a.json`), and the envtest waits for a selected Kid A release and checks its tracks. Was: the `cmd/clustarr` start envtest answered Kid A's release browse with The Bends' releases (W1a gate).
 - [ ] No e2e scenario drives a real download failure. Scenario 3 still hand-sets the blocklist label (read as `manual`); a torrent with no seeder under a short `stallTimeout`, or the nntp stub denying every article, would prove Y2's blocklisting and Y3's redownload search end to end (Y2).
 
 **Spec paths that were never built** (spec §5 and §8.3 say so inline).
@@ -1205,73 +1216,80 @@ never built* and added *Downloads and events* from their reports.
 - [x] **Fixed `813145b`, `0b607c0` (Y2).** A release fault (`missingArticles`, `encrypted`, `stalled`, `timeout`, `importRejected`, `manual`) is labelled blocklisted with `blocklistedUntil`, the label going on before `failed` is published; a local fault (`diskFull`, `writeError`) fails unlabelled (spec §4.4). Was: a Failed Download is never blocklisted automatically -- nothing sets `download.clustarr.io/blocklisted`, grabarr only honours it.
 - [x] **Fixed `dd1ea96` (Y3; the lease delete made revision-checked by `1ab8ce2`, Y1).** The `catalogarr-redownload` worker frees the lease and publishes one `redownload` search per monitored target, none for a local fault (spec §8.3). Was: no `redownload` search is published (`SearchReasonRedownload` has no producer); the wanted sweep re-searches instead.
 - [x] **Fixed `813145b`, `56c10c1` (Y2).** The engines report every reason they can observe through the new engine-owned `status.engineFailureReason`, and `status.seedGoalReached` becomes `seedGoalMetAt`, `SeedGoalMet` and the `seedGoalMet` event. Was: `derivePhase` reaches only the `encrypted` failure reason; `stalled`, `diskFull`, `writeError`, `timeout`, `missingArticles` and `manual` are never derived, and neither is `SeedGoalMet`, so `download.seedGoalMet` has no producer (`grabarr/controller/download/doc.go`, X9).
-- [ ] Nothing writes 1 Hz download or transcode telemetry into `clustarr-progress` (`DownloadProgress` is unpublished, X9); the bucket holds only importarr's checkpoints.
+- [x] **Fixed `c4998de` (Z1), `feaa4f1` (Z5).** The grabarr engines write `DownloadProgress` under `download.<uid>` (on change, at most 1 Hz, deleted when the transfer leaves) and the squasharr worker `TranscodeProgress` under `transcode.<uid>` (at most 1 Hz, one Put in flight, only when given `NATS_URL`), both bounded and unable to fail the transfer (spec §5). The core-NATS `clustarr.progress.*` subjects stay unpublished: the `Bus` has no core publish. Was: nothing wrote 1 Hz telemetry into `clustarr-progress` (X9).
 - [x] **Fixed `bd6227e` (Y1).** natsbus watches the advisory per subscription, queue-grouped per durable, and copies the message under the in-process path's Msg-Id; membus sweeps a lapsed final delivery (spec §5). Was: the `$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES` watcher was never built: a message whose final delivery expires on AckWait (a hung handler, not a failing one) is dropped without a DLQ copy.
-- [ ] Declared, never used: the `catalogarr-import` consumer and `clustarr.work.catalogarr.import` subject (pre-amendment), the `indexarr-definitions` consumer and `index.DefinitionsSync` (no worker), and the `clustarr-search-cache` bucket. Build or prune.
-- [ ] A `spec.priority` change after the Add reaches neither download client (`download.Client` has no method for it, X9).
+- [x] **Pruned `08ac269`, `4e04c44` (Z2).** `git grep` found no producer, subscriber or reader of any of them; the topology is now eight streams, fourteen consumers and ten buckets. Was: declared, never used: the `catalogarr-import` consumer and `clustarr.work.catalogarr.import` subject (pre-amendment), the `indexarr-definitions` consumer and `index.DefinitionsSync` (no worker), and the `clustarr-search-cache` bucket.
+- [x] **Fixed `3104bf7` (Z1).** `download.Client.SetPriority`, called level-driven by both engines: torrent moves the connection budget, usenet changes the job's class at the next batch boundary and persists it. Was: a `spec.priority` change after the Add reached neither download client (X9).
 
 **Downloads and events** (carried from gap fixes Y1-Y3).
 
 - [ ] Policy, for the owner: `importRejected` blocklists at once, which leaves no manual force-import (import annotations plus `Retrigger`) for a rejected download; Sonarr holds import-blocked downloads for the user instead (Y2).
-- [ ] `UsenetSpec.healthAction` is never read: a health breach always fails, and now blocklists -- `delete`'s behaviour, not the default `pause`'s. `TorrentSpec.removeCompleted` is never read either (Y2; both predate it).
-- [ ] Torrent seed counters and the met seed goal are in memory; spec §6.3's "persisted cumulative counters" were never built, so a restarted engine seeds again until the goal is re-met (`seedGoalMetAt` stays recorded) (Y2).
-- [ ] `stallTimeout` and `downloadTimeout` are read at engine start, like `listenPort`; the engine workload has no spec-hash rollout, so a change needs an engine restart (Y2).
-- [ ] `download.ErrPayloadMismatch` (an infohash mismatch) has no `DownloadFailureReason`, so it stays a retried error (Y2).
-- [ ] natsbus runs one handler at a time per subscription (`MaxInFlight` only sizes the pull), so a handler hung forever on a non-final delivery stalls that replica's consumer until a restart or another replica takes the message; membus dead-letters where natsbus would stall, and the saturated case is tested on membus only (Y1; predates it).
-- [ ] The MAX_DELIVERIES advisory is core NATS: fired while no replica of that consumer is subscribed, it is lost and the message gets no DLQ copy. A durable capture needs a stream over `$JS.EVENT.ADVISORY...` in `pkg/events/topology.go` (Y1).
+- [x] **Fixed `d8768bb`, `3104bf7` (Z1).** `pause` (the default) holds the job paused for the operator with `status.healthPaused` and phase `Paused`, acknowledged by toggling `spec.paused` (NZBGet's `HealthCheck=pause`); `delete` fails it as `missingArticles` and blocklists. The torrent engine removes an imported torrent past its goal only when `removeCompleted` and `removeOnImport` both hold (Sonarr's Remove Completed). Was: `UsenetSpec.healthAction` and `TorrentSpec.removeCompleted` were never read (Y2).
+- [x] **Fixed `3104bf7` (Z1).** The re-attach descriptor carries `seed{uploadedBytes, seedTimeSeconds, goalMet, savedAt}`, never going backwards, and re-attach hands it back as `AddRequest.SeedHistory`; a restored met goal disallows upload at once. Was: torrent seed counters and the met goal were in memory (Y2).
+- [x] **Fixed `2f93164`, `cdde136`, `93f1f5e` (Z1).** The engine pod template's `download.clustarr.io/engine-config-hash` covers every setting read at start and, for usenet, a digest of each provider Secret's data read by name with `get` alone (no Secret list or watch, by ruling: RBAC cannot narrow those to a label), so a change rolls the engine and a rotated credential rolls it at the next reconcile, within 5 minutes. The usenet Deployment moved to `Recreate`, with a one-off merge-patch migration. RBAC regenerated in `0ba2c01` (F). Was: `stallTimeout` and `downloadTimeout` were read at engine start with no rollout (Y2).
+- [x] **Fixed `d8768bb`, `3104bf7` (Z1).** New reason `payloadMismatch`, a release fault, reported by the torrent engine as `engineFailureReason`; the redownload worker treats it as not local. Was: `download.ErrPayloadMismatch` had no `DownloadFailureReason` and was retried (Y2).
+- [x] **Fixed `92c1065` (Z2).** natsbus runs up to `MaxInFlight` handlers per subscription and its JetStream callback never blocks (a busy delivery is parked, a redelivery replaces it); an unset `MaxInFlight` is 1; the hung and saturated cases are contract tests on both buses. Was: natsbus ran one handler at a time per subscription (Y1).
+- [x] **Fixed `0a082b4` (Z2).** `CLUSTARR_ADVISORIES` (WorkQueue, 30d, 64 MiB) captures `$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.>`, and each watcher is a durable consumer on it, `clustarr-dlq-watch-<stream>-<durable>`, shared by the replicas; a failed copy is retried, never dropped. Was: the advisory was core NATS and lost when no replica listened (Y1).
 - [ ] A hung handler that returns an error more than 10 minutes after the advisory (`CLUSTARR_DLQ`'s duplicate window) adds a second DLQ copy; the projector's annotation is idempotent (Y1).
-- [ ] membus times a redelivery on `AckWait`, where JetStream uses `BackOff[n-1]` when BackOff is set; the contract test sets them equal (Y1; predates it).
+- [x] **Fixed `7edfc2d` (Z2).** membus times delivery n on `BackOff[n-1]` (the last entry past the end) when BackOff is set, with a contract test using unequal values. Was: membus timed a redelivery on `AckWait` (Y1).
+- [x] **Found and fixed `ba00b53` (Z2).** A delayed nak on a natsbus consumer with BackOff waited `d + BackOff[n-1] - BackOff[0]`, because nats-server stamps the entry `now - AckWait + d` and redelivers on `BackOff[n-1]` with AckWait overridden by `BackOff[0]`: every step past the first came out nearly doubled (`catalogarr-search-normal` waited about 2h, not 1h, after attempt 4). natsbus now naks for `d - (BackOff[n-1] - BackOff[0])`, floored at the smallest delayed nak; the contract test measures the real gaps.
+- [ ] `natsbus.Ensure` never deletes, so a broker created before Z2 keeps the pruned `catalogarr-import` and `indexarr-definitions` consumers and the `clustarr-search-cache` bucket, idle, until an operator removes them; and a durable nobody consumes any more keeps its `clustarr-dlq-watch-*` consumer, with its advisories held in `CLUSTARR_ADVISORIES` until 30 days or 64 MiB (Z2).
 
 **Dead code and stale strings.**
 
-- [ ] Prune candidates with no reader: `pkg/subtitles.Registry` (no production caller since pooling, X11b), `decision.Target.FreeBytes` (struck from spec §7), and `search.IndexBlocklistInfoHash`/`IndexBlocklistTitle` (still registered, never read, X4b/X14).
+- [x] **Pruned `3c214e5` (Z6), `0b49659` (F).** Each was verified with `git grep` to have no reader outside its own tests; the blocklist envtests read `search.LoadBlocklist` against the real cache instead. Was: prune candidates with no reader: `pkg/subtitles.Registry` (X11b), `decision.Target.FreeBytes` (struck from spec §7), and `search.IndexBlocklistInfoHash`/`IndexBlocklistTitle` (X4b/X14).
 - [x] **Fixed `335f71f`.** Was: two user-facing strings still said Clustarr ships no Cardigann corpus, which `7b6fc4a` made false: `hack/sync-cardigann/sync.go`'s `licenceNotice` and the `ErrDefinitionNotFound` message in `indexarr/controller/indexer/cardigann.go`'s `definitionByID` (X13 fixed only the comments).
 
 **Chart and deploy.**
 
 - [x] **Fixed `8dc52c8`** (the `keda` object admits the subchart's own keys; the three Clustarr keys stay typed). Was: `--set keda.enabled=true` failed `values.schema.json`: the enabled KEDA subchart's values merge into `.Values.keda`, whose schema is `additionalProperties: false`, so the KEDA path cannot render at all (X16).
-- [ ] No Go test pins the render of `indexarr.cardigann.*`; it was verified with `helm template` only (X16).
+- [x] **Fixed `4fdae18` (Z6).** `cmd/clustarr/chart_cardigann_test.go` pins the rendered env, volume and mount and runs the rendered container's env and args through the real command tree; a render with both a configMap and a claim must fail. Was: no Go test pinned the render of `indexarr.cardigann.*` (X16).
 - [ ] No KEDA release has been tested against Kubernetes 1.37 yet (2.20.2 is the newest); the `nats`/`nack` dependency versions were not re-checked (X12a). The transcode ScaledJob stays a placeholder template (ruling R7 of Phase E).
 - [ ] Engine pods work only in the release namespace, where their ServiceAccount, data claim and NATS are (X14); a `listenPort` below 1024 binds only where the runtime allows unprivileged low ports (X16).
 - [ ] The RBAC-enforced start envtest proves each role only for the paths it exercises; importarr's Trakt token Secret writes, for one, are held only by marker-equals-role (X14).
 
 **Indexers and Cardigann.**
 
-- [ ] Cardigann gaps against Prowlarr (X8a): captchas are detected, never solved (45 definitions); `login.test` runs only for cookie logins; a download block with both `infohash` and `selectors` tries the selectors first; `download.before` follows redirects; search-path template variables are not URL-encoded; `$raw` is appended verbatim. Three of the 752 bundled definitions do not load (`7b6fc4a`).
+- [x] **Fixed `416a868`, `5dc8f2e`, `9861a3b`, `aeb83b3`, `ddcd119`, `6cbb8e6`; captchas closed by ruling in `53d6834` (Z6).** `login.test` runs after every login method; the infohash is tried before the selectors (and `infohash.usebeforeresponse` is honoured) and `download.before` follows no redirect, as Prowlarr's DownloadRequest; search-path substitutions are URL-encoded and `$raw` split into encoded pairs, as Prowlarr and Jackett do (double encoding included) -- which also fixed a GET that replaced the path's own query, so 47 bundled definitions had searched with no query; 750 of 752 bundled definitions load, the other two reported as stale duplicates. Captchas are never solved, by ruling: the `CaptchaRequired` condition names the captcha and the manual-cookie workaround (a browser session's Cookie header in the Indexer Secret's `cookie` key), which the engine honours; documented in `indexarr/controller/indexer/doc.go`, spec §6.2 and the chart README. Was: the Cardigann gaps against Prowlarr (X8a).
+- [ ] Prowlarr's `BuildPublicMagnetLink` adds public trackers to an infohash-only magnet; ours adds none (predates Z6, noted there).
 - [ ] FlareSolverr is tested against a fake `/v1` only (X8b).
 - [ ] Optional (X8b): Cardigann releases leave `torznab.Release`'s typed artist/album/author/publisher empty (they are in `Attrs`); `indexerdefinition` keeps its own 800-byte truncation instead of `cardigann.SchemaError`.
 - [ ] The query and grab timestamp rings saturate at 4096 entries per window (Phase D1 note).
 
 **Catalog, search and decision.**
 
-- [ ] Album identity carries no edition year (`ReleaseSummary` has no date), so a remaster dated more than 5 years after the original is `WrongItem` where Lidarr might accept it (X3).
-- [ ] The search request sends TVDB numbering; Sonarr sends scene numbering for a scene-mapped series, so an indexer keyed by scene numbers can answer nothing (X4b).
-- [ ] Series title matching indexes the primary title only; a series whose releases use an alias matches only by tvdb id (X4b).
-- [ ] The RSS matcher cannot match non-video releases (`schema.Release` carries no artist, author or issue); they are found by search only (X4b).
-- [ ] The RSS path reads the current file from the item's status rollup, not the MediaFile, so it has no revision or source hash (X4b).
-- [ ] An album's quality, phase and cutoff come from one whole-album MediaFile, not the minimum over its tracks as `AlbumStatus.quality`'s doc says (X5b).
-- [ ] `SkipMissingDate` stays a documented no-op although Open Library now fills `FirstPublished`; decide (X5b).
-- [ ] Non-video kinds publish no MediaFileEvent (X5b).
-- [ ] TheXEM is cached per catalogarr process (LRU), not shared through KV (X14).
+- [x] **Fixed `57874db` (Z4), `7f017ce`, `3d0af5d` (Z6).** `ReleaseSummary.releaseDate` is written by the gateway from MusicBrainz, and `Identity.EditionYears` accepts a release within 1 year of any edition's year (every release while `anyReleaseOk`, else the selected or pinned one) before the 5-year reject, as Lidarr's AlbumYearMatcher. Was: album identity carried no edition year (X3).
+- [x] **Fixed `68720c1` (Z3).** A scene-mapped episode is searched by its scene season, episode and absolute number from the TheXEM row, each falling back to TVDB's (Sonarr's ReleaseSearchService); the identity keeps TVDB numbering. Was: the search request sent TVDB numbering (X4b).
+- [x] **Fixed `9ef5b1f`, `f48eb3a` (Z3), `c1e7cc9` (Z4); the search identity already had it (`0ff8f1c`).** The RSS index keys every alternate title of a series (with and without its first-aired year) and of a movie (with its year), and TVDB `aliases` and TMDB `alternative_titles` now fill them. Was: series title matching indexed the primary title only (X4b).
+- [x] **Fixed `bb87926`, `d8c0616`, `bd38a43` (Z3), `8d47d8b`, `4fee0b2` (Z6), `0b49659`, `30b133d` (F).** `schema.Release` gains optional `artist`, `album`, `author` and `issue`, filled by indexarr's projection, and the matcher finds albums, books, audiobooks and issues as Lidarr, Readarr and Mylar do; scene-style music names now parse; the seven new indexes are asserted at startup and keyed through `pkg/decision`'s own `IssueNumberKey` and `CoCredits`. Was: the RSS matcher could not match non-video releases (X4b).
+- [ ] Releases replayed from the release index (`rpc.indexarr.query`) do not carry the four non-video names, because `pkg/relindex` does not store them; the RSS matcher does not read that path (Z3).
+- [x] **Fixed `bd38a43` (Z3).** The RSS path reads the current file through `search.CurrentFile` from the MediaFile (quality, revision, format score, matched formats, source title and hash, transcoded), as the search worker does. Was: it read the status rollup (X4b).
+- [x] **Fixed `fc139c3` (Z4).** `album.FileState` reads every MediaFile of the album: the cutoff is met only when every file meets it and the quality and score are the lowest-ranked file's (Lidarr's CutoffSpecification). Was: one whole-album MediaFile decided (X5b).
+- [ ] An album's files are attributed to tracks only for a one-track album, and `AlbumStatus` records no other file list, so an album's MediaFileEvents fire only for track-attributed files and Lidarr's "a track with no file leaves the cutoff unmet" clause is left out (documented in `album.FileState`). Covering either needs the importer to attribute tracks or an `AlbumStatus` file list like Audiobook's `fileRefs`, an API ruling (Z4).
+- [x] **Fixed `1d1ec07` (Z4).** `SkipMissingDate` excludes a work with no `FirstPublished`, as Readarr's FilterBooks does; `SkipMissingISBN` stays a documented no-op (the works listing fetches no editions). Was: `SkipMissingDate` was a documented no-op (X5b).
+- [x] **Fixed `a047c78` (Z4).** Book and Issue publish on `fileRef`, Audiobook on `fileRefs` (imported and deleted, as Readarr), Album on `tracks[].fileRef` (see the album attribution item above). Was: non-video kinds published no MediaFileEvent (X5b).
+- [x] **Closed by ruling (Z-wave).** TheXEM stays a per-process cache: low value, and sharing it would need a topology bucket. Was: TheXEM is cached per catalogarr process (LRU), not shared through KV (X14).
 - [ ] Objects written before R-5 may keep `catalogarr-grab` as a co-owner of `activeDownloadRef` until that manager's next apply releases it (X5a; pre-deploy, harmless).
 
 **Metadata.**
 
-- [ ] The fanart.tv, Hardcover and Metron fixtures follow the providers' docs, not live responses (no credentials, X6b).
+- [ ] The fanart.tv, Hardcover and Metron fixtures follow the providers' docs, not live responses (no credentials, X6b); so do the alias values Z4 added to the TMDB movie and TVDB series fixtures (`alternative_titles`, `aliases`).
 - [ ] Artwork is best effort: a fanart failure during the fetch that fills the cache leaves those images missing until the next refresh (X6b).
-- [ ] ComicVine answers `/volume/{guid}` without a trailing slash with a 301, an extra round trip per volume (X6a).
+- [x] **Fixed `f25499e` (Z4), stub route `d5620a0` (Z6).** The client requests `/volume/{guid}/`. Was: ComicVine answered `/volume/{guid}` with a 301, an extra round trip per volume (X6a).
 
 **Import and lists.**
 
-- [ ] A `replaceSource=false` output is protected from the rescan only while its Succeeded TranscodeJob exists (X7a).
-- [ ] A season-pack import attributes every file in the pack, not only the episodes in `spec.target.keys`; each still passes the per-episode upgrade check (X7a).
+- [x] **Fixed `2c1c9cc` (Z5).** The rescan recognises a kept output with no job by squasharr's `<stem> - <profile>` naming beside a recorded source and the profile confirmed by the source's `profileTag` or the file's own `CLUSTARR_PROFILE` (an unreadable tag goes to unmatched), spec §8.4. Was: a `replaceSource=false` output was protected only while its Succeeded TranscodeJob existed (X7a).
+- [ ] An output written to an explicit `spec.outputPath` follows no naming convention, so it is still protected from the rescan only while its TranscodeJob exists (Z5).
+- [x] **Closed by ruling (Z-wave).** Attributing every wanted episode in a season pack matches Sonarr. Was: a season-pack import attributes every file in the pack, not only the episodes in `spec.target.keys`; each still passes the per-episode upgrade check (X7a).
 - [ ] Non-video import lists work only through the arr and custom providers, which spec §17 defers as stubs, and no album, book, audiobook or comic catalog writer exists for a list item (X7b).
 
 **Transcode, subtitles, parser.**
 
-- [ ] Plan/worker parity gaps the worker logs at run time: a profile with no CPU limit (the Downward API reports the node's CPUs) and more than 64 audio or subtitle streams (X10). The arm64 media image is built by CI only (X10).
-- [ ] SubSource's year filter compares each season entry's year, as Bazarr does, and can find nothing for a later season (X11a); OpenSubtitles.com's VIP `base_url` is unused (X11a).
-- [ ] `pkg/release`: `detectRevision` gives REPACK2 version 2 where Radarr and Lidarr give 3; `ParsePath` strips the extension before `Parse`, so comic format detection never fires through it; `parseLanguages` returns only the first language (X2).
+- [x] **Fixed `26d3d17` (Z5).** A profile with no CPU limit plans against a literal `CLUSTARR_CPU_LIMIT` (the request rounded up, else 8) that the Job carries, and `transcode.Plan` rejects 64 or more audio or subtitle streams as its first check, identically in plan and worker. Was: plan/worker parity gaps the worker logged at run time (X10).
+- [ ] The arm64 media image is built by CI only (X10).
+- [x] **Fixed `558f54d`, `61bd672` (Z6).** A later season matches through its own year when the IMDb search pinned the show; OpenSubtitles.com follows the login's `base_url` (a bare `*.opensubtitles.com` host only) and shares it with the token, as Bazarr's `server_url()`. Was: SubSource's year filter could find nothing for a later season, and the VIP `base_url` was unused (X11a).
+- [x] **Fixed `0daf3df`, `d55c8d2`, `ac39f2c` (Z6).** `ParseQualityModifiers` ported whole (REPACK2 is version 3), `ParsePath` keeps a comic's extension, and `parseLanguages` returns every language. Was: the three `pkg/release` gaps (X2).
 
 - [x] **Already fixed before the gap fixes:** `go mod tidy -diff` was empty at `31cf996` (gap-fix ledger X0). `go mod tidy` to fix the `mousetrap` `go.sum` entry (Windows builds only) **and the three direct/indirect misclassifications Phase C's new tests introduced** — see "Build and test hygiene" under *Carried out of Phase C*. One serial run fixes both; never from a parallel agent.
 - [x] **Gap fix X12a (`fe94e90`):** the size was already real (100Gi since `61449f8`); **no render-time failure on an empty storage class, by ruling** -- the chart's own defaults are that state and CI renders them, so NOTES.txt warns, `values.schema.json` validates sizes and access modes, and the README explains. Pick a real `clustarr-data` PVC size and require a storage class when no existing claim is set.

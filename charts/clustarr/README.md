@@ -188,6 +188,24 @@ corpus, create an `IndexerDefinition` instead of mounting anything.
 mounted. indexarr reads the directory once at startup, so restart it after
 changing the files.
 
+**Trackers with a login captcha.** Clustarr never solves a captcha (45 bundled
+definitions declare one). When the tracker's login page shows it, the
+`Indexer` reports `Authenticated=False` with reason `CaptchaRequired`, and the
+condition's message names the captcha. The workaround is a browser session:
+sign in to the tracker in a browser, copy the Cookie header of a request it
+makes, and store it under the `cookie` key of the Secret the Indexer's
+`spec.secretRef` names:
+
+```sh
+kubectl -n <namespace> patch secret <indexer-secret> --type merge \
+  -p '{"stringData":{"cookie":"uid=...; pass=..."}}'
+```
+
+indexarr then uses that cookie as the session whenever the captcha appears,
+and checks it with the definition's `login.test` on every renewal. When the
+tracker expires it, the condition turns to `CredentialsRejected`; sign in
+again and replace the cookie.
+
 ## Values
 
 The full reference is `values.yaml` itself -- every value has a comment
