@@ -61,7 +61,18 @@ func RunBusContract(t *testing.T, newBus func() events.Bus) {
 	t.Run("WorkQueueRetryThenAck", func(t *testing.T) { testRetryThenAck(t, newBus) })
 	t.Run("WorkQueueDiscardToDLQ", func(t *testing.T) { testDiscardToDLQ(t, newBus) })
 	t.Run("WorkQueueMaxDeliverToDLQ", func(t *testing.T) { testMaxDeliverToDLQ(t, newBus) })
-	t.Run("WorkQueueHungHandlerToDLQ", func(t *testing.T) { testHungHandlerToDLQ(t, newBus) })
+	t.Run("WorkQueueHungHandlerToDLQ", func(t *testing.T) {
+		testHungHandlerToDLQ(t, newBus, hungMaxDeliver)
+	})
+	t.Run("WorkQueueHungHandlerSaturatedToDLQ", func(t *testing.T) {
+		testHungHandlerToDLQ(t, newBus, 1)
+	})
+	t.Run("MaxInFlightHandlersRunConcurrently", func(t *testing.T) {
+		testMaxInFlightConcurrency(t, newBus)
+	})
+	t.Run("HungHandlerDoesNotStallSubscription", func(t *testing.T) {
+		testHungHandlerDoesNotStall(t, newBus)
+	})
 	t.Run("WorkQueueAckRemoves", func(t *testing.T) { testAckRemoves(t, newBus) })
 	t.Run("ScheduledPublish", func(t *testing.T) { testScheduledPublish(t, newBus) })
 	t.Run("KeyValueCreateAndCAS", func(t *testing.T) { testKVCreateAndCAS(t, newBus) })
@@ -483,6 +494,9 @@ func testMaxDeliverToDLQ(t *testing.T, newBus func() events.Bus) {
 	}
 }
 
+// hungMaxDeliver is the delivery budget of the hung-handler cases.
+const hungMaxDeliver = 2
+
 // testHungHandlerToDLQ holds the one dead-letter case events.Settle cannot
 // see: a handler that blocks past its acknowledgement deadline on every
 // delivery never returns, so nothing in process settles the final delivery.
@@ -490,11 +504,17 @@ func testMaxDeliverToDLQ(t *testing.T, newBus func() events.Bus) {
 // -- natsbus from JetStream's MAX_DELIVERIES advisory, membus from its own
 // ack-deadline sweep -- exactly once, and a hung handler that finally returns
 // an error must not add a second copy.
-func testHungHandlerToDLQ(t *testing.T, newBus func() events.Bus) {
+//
+// It runs with inFlight handler slots. With one per delivery, every delivery
+// hangs in its own handler. With one slot (the saturated case) the first
+// delivery's hung handler holds it, so the final delivery is made but can
+// never start: the copy must come from the lapse all the same, and not wait
+// for a slot to free, which a hung handler never does.
+func testHungHandlerToDLQ(t *testing.T, newBus func() events.Bus, inFlight int) {
 	ctx, bus := setup(t, newBus)
 	dlq := subscribeDLQ(ctx, t, bus)
 
-	const maxDeliver = 2
+	const maxDeliver = hungMaxDeliver
 	const ackWait = 300 * time.Millisecond
 	release := make(chan struct{})
 	var releaseOnce sync.Once
@@ -510,17 +530,13 @@ func testHungHandlerToDLQ(t *testing.T, newBus func() events.Bus) {
 		Stream:  events.StreamWorkIndexarr,
 		Durable: "ct-hung",
 		Filters: []string{events.FilterIndexRSS},
-		// With BackOff set, JetStream times out delivery n on BackOff[n-1],
-		// not AckWait; keeping them equal gives both buses one schedule.
-		AckWait:    ackWait,
-		MaxDeliver: maxDeliver,
-		Backoff:    []time.Duration{ackWait},
-		// A hung handler stops natsbus pulling again, so every delivery must
-		// fit its first pull, which MaxInFlight sizes; against nats-server
-		// 2.15 a pull of exactly MaxDeliver never carries the final
-		// redelivery, so allow one more. membus's saturated case -- every
-		// slot held by a hung handler -- is membus_test's.
-		MaxInFlight: maxDeliver + 1,
+		// With Backoff set, delivery n times out on Backoff[n-1], not
+		// AckWait (testHungRedeliveryFollowsBackoff); equal values keep this
+		// case about the lapse, not the schedule.
+		AckWait:     ackWait,
+		MaxDeliver:  maxDeliver,
+		Backoff:     []time.Duration{ackWait},
+		MaxInFlight: inFlight,
 	}, func(ctx context.Context, m events.Message) error {
 		mu.Lock()
 		attempts = append(attempts, m.Attempt())
@@ -602,6 +618,146 @@ func testHungHandlerToDLQ(t *testing.T, newBus func() events.Bus) {
 	for i, a := range attempts {
 		if a != uint64(i+1) {
 			t.Errorf("delivery %d reported Attempt() = %d", i, a)
+		}
+	}
+}
+
+// testMaxInFlightConcurrency pins that a subscription runs up to MaxInFlight
+// handlers at once and never more. natsbus once ran one at a time whatever
+// MaxInFlight said -- JetStream's Consume calls back serially -- so a worker
+// sized for eight concurrent searches did one.
+func testMaxInFlightConcurrency(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+
+	const inFlight = 3
+	const published = 2*inFlight + 1
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+
+	var mu sync.Mutex
+	running, most, started, finished := 0, 0, 0, 0
+	stop, err := bus.Subscribe(ctx, events.Subscription{
+		Stream:      events.StreamWorkCaptionarr,
+		Durable:     "ct-concurrent",
+		Filters:     []string{events.FilterCaptionFetch},
+		AckWait:     10 * time.Second,
+		MaxDeliver:  3,
+		Backoff:     []time.Duration{10 * time.Second},
+		MaxInFlight: inFlight,
+	}, func(ctx context.Context, _ events.Message) error {
+		mu.Lock()
+		running++
+		started++
+		most = max(most, running)
+		mu.Unlock()
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		mu.Lock()
+		running--
+		finished++
+		mu.Unlock()
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	defer stop()
+
+	for i := range published {
+		if _, err := bus.Publish(ctx, events.WorkFetchSubject(events.PriorityNormal,
+			fmt.Sprintf("req-%d", i), "en"),
+			envelope(fmt.Sprintf("conc-%d", i), "subtitle.FetchTask.v1", i)); err != nil {
+			t.Fatalf("Publish %d: %v", i, err)
+		}
+	}
+
+	waitUntil(t, fmt.Sprintf("%d handlers running at once", inFlight), func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return running == inFlight
+	})
+	time.Sleep(300 * time.Millisecond)
+	mu.Lock()
+	if started != inFlight {
+		t.Errorf("%d handlers started while %d held every slot, want %d", started, inFlight, inFlight)
+	}
+	mu.Unlock()
+
+	unblock()
+	waitUntil(t, "every message to be handled", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return finished == published
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	if most != inFlight {
+		t.Errorf("at most %d handlers ran at once, want exactly MaxInFlight=%d", most, inFlight)
+	}
+	if started != published {
+		t.Errorf("%d handlers started for %d messages; an acknowledged message was redelivered", started, published)
+	}
+}
+
+// testHungHandlerDoesNotStall is the failure the concurrency is for: a
+// handler hung on a delivery that is not its last -- long before any
+// acknowledgement deadline, so no redelivery or dead letter is near -- must
+// not stop the subscription's other handler slots from working through
+// everything else.
+func testHungHandlerDoesNotStall(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+
+	const hungID = "stall-hung"
+	const others = 5
+	got := newCollector()
+	stop, err := bus.Subscribe(ctx, events.Subscription{
+		Stream:      events.StreamWorkIndexarr,
+		Durable:     "ct-stall",
+		Filters:     []string{events.FilterIndexRSS},
+		AckWait:     20 * time.Second,
+		MaxDeliver:  5,
+		Backoff:     []time.Duration{20 * time.Second},
+		MaxInFlight: 2,
+	}, func(ctx context.Context, m events.Message) error {
+		if m.Envelope().ID == hungID {
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+			return nil
+		}
+		got.add(m)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	defer stop()
+
+	// The hung task is published first, so it is the first delivery.
+	if _, err := bus.Publish(ctx, events.WorkRSSSubject("idx-hung"),
+		envelope(hungID, "index.RssTask.v1", 0)); err != nil {
+		t.Fatalf("Publish hung: %v", err)
+	}
+	for i := range others {
+		if _, err := bus.Publish(ctx, events.WorkRSSSubject(fmt.Sprintf("idx-%d", i)),
+			envelope(fmt.Sprintf("stall-%d", i), "index.RssTask.v1", i)); err != nil {
+			t.Fatalf("Publish %d: %v", i, err)
+		}
+	}
+	got.waitFor(t, others, "deliveries past the hung handler")
+	for i := range others {
+		if e, _ := got.at(i); e.ID == hungID {
+			t.Errorf("the hung task was delivered twice")
 		}
 	}
 }

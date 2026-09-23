@@ -20,9 +20,7 @@ package membus_test
 import (
 	"context"
 	"errors"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/contracttest"
@@ -114,79 +112,5 @@ func TestExpectStreamMismatch(t *testing.T) {
 		&events.Envelope{ID: "x"}, events.WithExpectStream(events.StreamReleases))
 	if err == nil {
 		t.Fatal("Publish with a mismatched WithExpectStream succeeded")
-	}
-}
-
-// TestHungHandlerHoldingEverySlotIsDeadLettered is the saturated case the
-// contract suite leaves out: the only handler slot is held by a handler hung
-// on the message's first delivery, so the final delivery is claimed but can
-// never run. JetStream expires it on the server whatever the client is doing;
-// membus must too, rather than dead-letter only once a slot frees, which a
-// hung handler never does.
-func TestHungHandlerHoldingEverySlotIsDeadLettered(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), contracttest.Timeout)
-	defer cancel()
-	bus := membus.New(nil)
-	defer func() { _ = bus.Close() }()
-	release := make(chan struct{})
-	defer close(release) // before Close, which waits for handlers
-	if err := bus.Ensure(ctx, contracttest.Topology()); err != nil {
-		t.Fatalf("Ensure: %v", err)
-	}
-
-	var mu sync.Mutex
-	var dlq []*events.Envelope
-	if _, err := bus.Subscribe(ctx, events.Subscription{
-		Stream: events.StreamDLQ, Durable: "dlq", Filters: []string{events.FilterAllDLQ},
-		AckWait: time.Second, MaxInFlight: 4,
-	}, func(_ context.Context, m events.Message) error {
-		mu.Lock()
-		dlq = append(dlq, m.Envelope())
-		mu.Unlock()
-		return nil
-	}); err != nil {
-		t.Fatalf("Subscribe DLQ: %v", err)
-	}
-	if _, err := bus.Subscribe(ctx, events.Subscription{
-		Stream: events.StreamWorkIndexarr, Durable: "hung", Filters: []string{events.FilterIndexRSS},
-		AckWait: 50 * time.Millisecond, MaxDeliver: 2, MaxInFlight: 1,
-	}, func(ctx context.Context, _ events.Message) error {
-		select {
-		case <-release:
-		case <-ctx.Done():
-		}
-		return errors.New("hung")
-	}); err != nil {
-		t.Fatalf("Subscribe: %v", err)
-	}
-	if _, err := bus.Publish(ctx, events.WorkRSSSubject("idx-1"),
-		&events.Envelope{ID: "task-1", Data: []byte(`{}`)}); err != nil {
-		t.Fatalf("Publish: %v", err)
-	}
-
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		mu.Lock()
-		n := len(dlq)
-		mu.Unlock()
-		if n > 0 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("a final delivery that lapsed behind a hung handler was never dead-lettered")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	time.Sleep(300 * time.Millisecond)
-	mu.Lock()
-	defer mu.Unlock()
-	if len(dlq) != 1 {
-		t.Fatalf("dead-lettered %d copies, want exactly 1", len(dlq))
-	}
-	if got, want := dlq[0].Headers[events.HeaderDLQReason], events.AckWaitExhaustedReason(2); got != want {
-		t.Errorf("%s = %q, want %q", events.HeaderDLQReason, got, want)
-	}
-	if got := dlq[0].Headers[events.HeaderDLQAttempts]; got != "2" {
-		t.Errorf("%s = %q, want \"2\"", events.HeaderDLQAttempts, got)
 	}
 }

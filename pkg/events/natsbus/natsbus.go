@@ -21,10 +21,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // buckets are created from an events.Topology by Ensure; handler errors are
 // translated into explicit acknowledgements, delayed negative
 // acknowledgements and dead-letter copies by the shared events.Settle policy,
-// and a final delivery whose handler hangs past its acknowledgement deadline
-// is dead-lettered from JetStream's MAX_DELIVERIES advisory, which every
-// subscription watches for its own consumer, so its observable behaviour
-// matches membus.
+// a final delivery whose handler hangs past its acknowledgement deadline is
+// dead-lettered from JetStream's MAX_DELIVERIES advisory, which every
+// subscription watches for its own consumer, and up to MaxInFlight handlers
+// run at once per subscription, so its observable behaviour matches membus.
 package natsbus
 
 import (
@@ -49,6 +49,11 @@ const DefaultRequestTimeout = 45 * time.Second
 // jsStoreFailed is the JetStream API error code the server returns when a
 // DiscardNew stream refuses a publish because it is at its limit.
 const jsStoreFailed jetstream.ErrorCode = 10077
+
+// settleTimeout bounds settling one delivery -- the acknowledgement, the
+// negative acknowledgement or the dead-letter copy and termination -- once
+// its handler has returned.
+const settleTimeout = 10 * time.Second
 
 type options struct {
 	domain         string
@@ -93,8 +98,7 @@ type Bus struct {
 	topology   events.Topology
 	buckets    map[string]jetstream.KeyValue
 	responders []*nats.Subscription
-	watchers   []*nats.Subscription
-	consumers  []jetstream.ConsumeContext
+	subs       []*subscription
 }
 
 var _ events.Bus = (*Bus)(nil)
@@ -157,22 +161,29 @@ func (b *Bus) Close() error {
 		return nil
 	}
 	b.closed = true
-	responders, watchers, consumers := b.responders, b.watchers, b.consumers
-	b.responders, b.watchers, b.consumers = nil, nil, nil
+	responders, subs := b.responders, b.subs
+	b.responders, b.subs = nil, nil
 	b.mu.Unlock()
 
-	for _, c := range consumers {
-		c.Stop()
-	}
 	var errs []error
-	for _, s := range append(responders, watchers...) {
-		if err := s.Unsubscribe(); err != nil &&
-			!errors.Is(err, nats.ErrConnectionClosed) &&
-			!errors.Is(err, nats.ErrBadSubscription) {
-			errs = append(errs, err)
-		}
+	for _, s := range subs {
+		errs = append(errs, s.halt())
+	}
+	for _, s := range responders {
+		errs = append(errs, unsubscribe(s))
 	}
 	return errors.Join(errs...)
+}
+
+// unsubscribe removes a core-NATS subscription, treating one the connection
+// has already dropped as removed.
+func unsubscribe(s *nats.Subscription) error {
+	if err := s.Unsubscribe(); err != nil &&
+		!errors.Is(err, nats.ErrConnectionClosed) &&
+		!errors.Is(err, nats.ErrBadSubscription) {
+		return err
+	}
+	return nil
 }
 
 // Publish stores e on subject and waits for the server acknowledgement.
@@ -247,6 +258,17 @@ func publishError(top events.Topology, subject string, err error) error {
 
 // Subscribe creates or updates the durable pull consumer described by sub and
 // starts consuming.
+//
+// Up to sub.MaxInFlight handlers run at once (one when it is unset), as on
+// membus, each on its own goroutine; see subscription for why the Consume
+// callback hands them out rather than running them. Before, the callback ran
+// the handler itself, so a handler hung on an early delivery stalled the
+// whole subscription on this replica until a restart, however large
+// MaxInFlight was.
+//
+// The stop function cancels the handlers' context, stops the pull and the
+// advisory watcher, and waits for handlers still running, as membus's does.
+// Close does the same without the wait.
 func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 	h events.Handler,
 ) (func(), error) {
@@ -260,6 +282,9 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 		return nil, events.ErrClosed
 	}
 
+	// An unset MaxInFlight is one, as on membus, not JetStream's default of
+	// a thousand unacknowledged messages for one handler slot.
+	inFlight := max(sub.MaxInFlight, 1)
 	cfg := events.ConsumerConfig(events.ConsumerSpec{
 		Name:          sub.Durable,
 		Stream:        sub.Stream,
@@ -267,7 +292,7 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 		AckWait:       sub.AckWait,
 		MaxDeliver:    sub.MaxDeliver,
 		BackOff:       sub.Backoff,
-		MaxAckPending: sub.MaxInFlight,
+		MaxAckPending: inFlight,
 		Heartbeat:     sub.Heartbeat,
 	})
 	cons, err := b.js.CreateOrUpdateConsumer(ctx, sub.Stream, cfg)
@@ -287,29 +312,30 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 		return nil, err
 	}
 
-	var copts []jetstream.PullConsumeOpt
-	if sub.MaxInFlight > 0 {
-		copts = append(copts, jetstream.PullMaxMessages(sub.MaxInFlight))
-	}
-	cctx, err := cons.Consume(func(m jetstream.Msg) {
-		b.handle(ctx, sub, h, m)
-	}, copts...)
+	hctx, cancel := context.WithCancel(ctx)
+	s := newSubscription(inFlight, cancel, watch, func(m jetstream.Msg) {
+		b.handle(hctx, sub, h, m)
+	})
+	cctx, err := cons.Consume(s.dispatch, jetstream.PullMaxMessages(inFlight))
 	if err != nil {
-		_ = watch.Unsubscribe()
+		cancel()
+		_ = unsubscribe(watch)
 		return nil, fmt.Errorf("natsbus: consume %s: %w", sub.Durable, err)
 	}
+	s.setConsume(cctx)
 
 	b.mu.Lock()
-	b.consumers = append(b.consumers, cctx)
-	b.watchers = append(b.watchers, watch)
+	if b.closed {
+		b.mu.Unlock()
+		_ = s.halt()
+		return nil, events.ErrClosed
+	}
+	b.subs = append(b.subs, s)
 	b.mu.Unlock()
 
-	var once sync.Once
 	return func() {
-		once.Do(func() {
-			cctx.Stop()
-			_ = watch.Unsubscribe()
-		})
+		_ = s.halt()
+		s.wait()
 	}, nil
 }
 
@@ -330,6 +356,12 @@ func (b *Bus) handle(ctx context.Context, sub events.Subscription,
 	if msg.settledByHandler() {
 		return
 	}
+	// Settle on a context of its own: the handler's may be cancelled by now
+	// (a stop, or the service shutting down), and a handler that finished
+	// its work must still get its acknowledgement to the server, or the
+	// message is redelivered and the work done twice.
+	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), settleTimeout)
+	defer cancel()
 	s := events.Settle(err, msg.Attempt(), sub)
 	if err != nil {
 		// A handler that fails on every delivery is otherwise completely
@@ -349,12 +381,12 @@ func (b *Bus) handle(ctx context.Context, sub events.Subscription,
 	}
 	switch s.Action {
 	case events.SettleAck:
-		_ = msg.Ack(ctx)
+		_ = msg.Ack(sctx)
 	case events.SettleNak:
-		_ = msg.Nak(ctx, s.Delay)
+		_ = msg.Nak(sctx, s.Delay)
 	case events.SettleTerm:
-		b.deadLetter(ctx, msg, sub.Durable, s.Reason)
-		_ = msg.Term(ctx, s.Reason)
+		b.deadLetter(sctx, msg, sub.Durable, s.Reason)
+		_ = msg.Term(sctx, s.Reason)
 	}
 }
 
