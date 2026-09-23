@@ -34,14 +34,27 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // records the most recent response's status code and Retry-After header for
 // the method that issued the request to read immediately after the call
 // returns.
+//
+// golang-tmdb also keeps its base URL in a package-level variable
+// (`var baseURL` in its tmdb.go, which SetCustomBaseURL mutates), so two
+// Clients built with different base URLs in one process used to share
+// whichever was set last. This client never calls SetCustomBaseURL: a
+// custom base URL is applied per Client by baseURLTransport, which rewrites
+// each request golang-tmdb builds against its own default base onto this
+// Client's. And golang-tmdb decodes straight off the socket, so the
+// response-size cap (metadata.MaxResponseBytes) is enforced beneath it, by
+// metadata.CappedTransport.
 package tmdb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -60,10 +73,25 @@ type Client struct {
 	limiter *rate.Limiter
 }
 
+// libraryBaseURL is golang-tmdb v1.9.4's own defaultBaseURL: every request
+// the library builds starts with it, because this package never mutates the
+// library's global (see the package doc). baseURLTransport rewrites from it;
+// TestLibraryBaseURLMatchesGolangTMDB holds it to the library's value so an
+// upgrade that changes the default fails a test instead of silently
+// bypassing every custom base URL.
+const libraryBaseURL = "https://api.themoviedb.org/3"
+
+// posterBaseURL is TMDB's image CDN at the w500 size
+// (docs/research/metadata.md §2.1: images at
+// https://image.tmdb.org/t/p/{size}{file_path}); a search hit's poster is a
+// thumbnail, so the largest standard poster size short of "original".
+const posterBaseURL = "https://image.tmdb.org/t/p/w500"
+
 // New builds a Client. httpClient may be nil, in which case
 // http.DefaultTransport is used underneath the status-capturing wrapper.
-// baseURL overrides golang-tmdb's default API host -- tests pass an
-// httptest.Server URL; production callers pass "".
+// baseURL overrides TMDB's default API host for this Client only -- tests
+// pass an httptest.Server URL, a MetadataProvider may name a mirror or
+// stub; production callers against TMDB itself pass "".
 func New(apiKey string, httpClient *http.Client, baseURL string, limiter *rate.Limiter) (*Client, error) {
 	raw, err := rawtmdb.Init(apiKey)
 	if err != nil {
@@ -81,14 +109,49 @@ func New(apiKey string, httpClient *http.Client, baseURL string, limiter *rate.L
 		wrapped.Jar = httpClient.Jar
 		wrapped.CheckRedirect = httpClient.CheckRedirect
 	}
-	wrapped.Transport = &statusCaptureTransport{base: base, capture: capture}
+	rt := metadata.CappedTransport(base, metadata.MaxResponseBytes)
+	if baseURL != "" {
+		target, err := url.Parse(baseURL)
+		if err != nil || target.Scheme == "" || target.Host == "" {
+			return nil, fmt.Errorf("tmdb: base URL %q must be an absolute URL", baseURL)
+		}
+		rt = &baseURLTransport{base: rt, target: target}
+	}
+	wrapped.Transport = &statusCaptureTransport{base: rt, capture: capture}
 	raw.SetClientConfig(wrapped)
 
-	if baseURL != "" {
-		raw.SetCustomBaseURL(baseURL)
-	}
-
 	return &Client{raw: raw, capture: capture, limiter: limiter}, nil
+}
+
+// baseURLTransport points one Client at a custom base URL without touching
+// golang-tmdb's process-global one. golang-tmdb builds every request as
+// libraryBaseURL + "/<resource>..."; this rewrites the scheme and host to
+// target's and replaces libraryBaseURL's path prefix ("/3") with target's
+// path, which is exactly the URL SetCustomBaseURL(target) would have made
+// the library build -- so a stub serving "/movie/603" behind
+// "http://tmdb-stub:8080" keeps working unchanged. A request that is not
+// under libraryBaseURL (a redirect the base URL itself issued, say) passes
+// through untouched.
+type baseURLTransport struct {
+	base   http.RoundTripper
+	target *url.URL
+}
+
+func (t *baseURLTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	lib, _ := url.Parse(libraryBaseURL) // a constant; covered by TestLibraryBaseURLMatchesGolangTMDB
+	if req.URL.Scheme != lib.Scheme || req.URL.Host != lib.Host || !strings.HasPrefix(req.URL.Path, lib.Path+"/") {
+		return t.base.RoundTrip(req)
+	}
+	u := *t.target
+	u.Path = strings.TrimSuffix(t.target.Path, "/") + strings.TrimPrefix(req.URL.Path, lib.Path)
+	u.RawPath = ""
+	u.RawQuery = req.URL.RawQuery
+	u.Fragment = ""
+
+	rewritten := req.Clone(req.Context())
+	rewritten.URL = &u
+	rewritten.Host = "" // let the Host header follow the rewritten URL
+	return t.base.RoundTrip(rewritten)
 }
 
 // Name identifies this provider for logging and metrics.
@@ -193,10 +256,59 @@ func (c *Client) FindMovie(ctx context.Context, ids metadata.ExternalIDs) (*meta
 	return c.Movie(ctx, tmdbID, "")
 }
 
-// SearchMovies is not implemented by this task; it returns
-// metadata.ErrUnsupported until a later task needs it.
-func (c *Client) SearchMovies(context.Context, string, int) ([]metadata.MovieHit, error) {
-	return nil, metadata.ErrUnsupported
+// SearchMovies searches TMDB's movie index by title (GET /search/movie,
+// docs/research/metadata.md §2.1), returning the first page of hits in
+// TMDB's own relevance order. year, when positive, is sent as TMDB's "year"
+// filter rather than "primary_release_year": "year" matches any of the
+// film's release dates, so a title an import list dates by its festival
+// premiere still finds the film TMDB dates by its general release (the same
+// tolerance MovieMetadata.SecondaryYear gives release identity). Adult
+// titles are excluded, as TMDB's own default does.
+func (c *Client) SearchMovies(ctx context.Context, q string, year int) ([]metadata.MovieHit, error) {
+	ctx, span := tracing.Start(ctx, "metadata.tmdb.SearchMovies")
+	defer span.End()
+	logger := logging.FromContext(ctx)
+
+	if err := ctx.Err(); err != nil {
+		tracing.RecordError(span, err)
+		return nil, err
+	}
+	if err := c.limiter.Wait(ctx); err != nil {
+		tracing.RecordError(span, err)
+		return nil, err
+	}
+
+	opts := map[string]string{"language": defaultLanguage, "include_adult": "false"}
+	if year > 0 {
+		opts["year"] = strconv.Itoa(year)
+	}
+	res, err := c.raw.GetSearchMovies(q, opts)
+	if err != nil {
+		mapped := c.mapError(err)
+		tracing.RecordError(span, mapped)
+		logger.ErrorContext(ctx, "tmdb: movie search failed", "query", q, "year", year, "error", mapped)
+		return nil, mapped
+	}
+
+	var hits []metadata.MovieHit
+	if res.SearchMoviesResults != nil {
+		hits = make([]metadata.MovieHit, 0, len(res.Results))
+		for _, r := range res.Results {
+			hit := metadata.MovieHit{
+				IDs:   metadata.ExternalIDs{metadata.KeyTMDB: strconv.FormatInt(r.ID, 10)},
+				Title: r.Title,
+			}
+			if y, ok := parseYear(r.ReleaseDate); ok {
+				hit.Year = y
+			}
+			if r.PosterPath != "" {
+				hit.Poster = posterBaseURL + r.PosterPath
+			}
+			hits = append(hits, hit)
+		}
+	}
+	logger.DebugContext(ctx, "tmdb: movie search", "query", q, "year", year, "hits", len(hits))
+	return hits, nil
 }
 
 var _ metadata.MovieProvider = (*Client)(nil)
@@ -248,6 +360,7 @@ func mapMovie(d *rawtmdb.MovieDetails, region string) *metadata.Movie {
 	if year, ok := parseYear(d.ReleaseDate); ok {
 		m.Year = year
 	}
+	m.SecondaryYear = metadata.DeriveSecondaryYear(releaseDates, m.Year)
 	if d.BelongsToCollection.ID != 0 {
 		m.Collection = &metadata.Collection{
 			IDs:   metadata.ExternalIDs{metadata.KeyTMDB: strconv.FormatInt(d.BelongsToCollection.ID, 10)},
@@ -337,6 +450,13 @@ func (s *statusCapture) record(resp *http.Response) {
 	s.retryAfter = resp.Header.Get("Retry-After")
 }
 
+func (s *statusCapture) recordNone() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.statusCode = 0
+	s.retryAfter = ""
+}
+
 func (s *statusCapture) snapshot() (int, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -355,6 +475,10 @@ type statusCaptureTransport struct {
 func (t *statusCaptureTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	resp, err := t.base.RoundTrip(req)
 	if err != nil {
+		// Record "no status" rather than leaving the previous request's
+		// status in place: mapError would otherwise read a stale 200 and
+		// report a transport failure as a decode failure.
+		t.capture.recordNone()
 		return resp, err
 	}
 	t.capture.record(resp)
@@ -370,8 +494,24 @@ func (t *statusCaptureTransport) RoundTrip(req *http.Request) (*http.Response, e
 // json.Decode otherwise) -- that is wrapped as metadata.ErrDecode rather
 // than leaking golang-tmdb's raw error text as this package's only signal.
 // No status at all (0) means a transport-level failure that never reached
-// either path; it falls back to wrapping err verbatim.
+// either path; it falls back to wrapping err.
+//
+// A body over metadata.MaxResponseBytes fails the round trip inside
+// metadata.CappedTransport, and golang-tmdb returns http.Client.Do's error
+// unchanged, so it arrives here as a *url.Error still wrapping
+// metadata.ErrResponseTooLarge. Every *url.Error is unwrapped to its Op and
+// cause first because its message carries the full request URL, and
+// golang-tmdb puts the API key in the query string -- an error string ends
+// up in logs, span events and a MetadataResponse, none of which may carry a
+// credential.
 func (c *Client) mapError(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		err = fmt.Errorf("%s: %w", urlErr.Op, urlErr.Err)
+	}
+	if errors.Is(err, metadata.ErrResponseTooLarge) {
+		return fmt.Errorf("tmdb: %w", err)
+	}
 	status, retryAfter := c.capture.snapshot()
 	switch status {
 	case http.StatusNotFound:

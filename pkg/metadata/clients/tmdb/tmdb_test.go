@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package tmdb_test
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -217,4 +218,192 @@ func TestMovieRejectsMalformedResponseBodies(t *testing.T) {
 			require.ErrorIs(t, err, metadata.ErrDecode)
 		})
 	}
+}
+
+func TestMovieDerivesSecondaryYearFromAPriorYearPremiere(t *testing.T) {
+	body, err := os.ReadFile("../../../../testdata/metadata/tmdb/movie_premiere_prior_year.json")
+	require.NoError(t, err)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+	c, err := tmdb.New("test-key", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+	require.NoError(t, err)
+
+	m, err := c.Movie(context.Background(), "900001", "US")
+	require.NoError(t, err)
+
+	require.EqualValues(t, 2021, m.Year)
+	require.EqualValues(t, 2020, m.SecondaryYear, "the Sundance premiere year differs from the release_date year")
+}
+
+func TestMovieHasNoSecondaryYearWhenThePremiereIsInTheSameYear(t *testing.T) {
+	body, err := os.ReadFile("../../../../testdata/metadata/tmdb/movie_27205.json")
+	require.NoError(t, err)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+	c, err := tmdb.New("test-key", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+	require.NoError(t, err)
+
+	m, err := c.Movie(context.Background(), "27205", "US")
+	require.NoError(t, err)
+	require.Zero(t, m.SecondaryYear)
+}
+
+func TestSearchMoviesMapsHitsAndSendsTheYearFilter(t *testing.T) {
+	body, err := os.ReadFile("../../../../testdata/metadata/tmdb/search_movie_inception.json")
+	require.NoError(t, err)
+	var gotQuery, gotYear, gotAdult string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/search/movie", r.URL.Path)
+		gotQuery = r.URL.Query().Get("query")
+		gotYear = r.URL.Query().Get("year")
+		gotAdult = r.URL.Query().Get("include_adult")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+	c, err := tmdb.New("test-key", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+	require.NoError(t, err)
+
+	hits, err := c.SearchMovies(context.Background(), "Inception", 2010)
+	require.NoError(t, err)
+
+	require.Equal(t, "Inception", gotQuery)
+	require.Equal(t, "2010", gotYear)
+	require.Equal(t, "false", gotAdult)
+	require.Equal(t, []metadata.MovieHit{
+		{
+			IDs:    metadata.ExternalIDs{metadata.KeyTMDB: "27205"},
+			Title:  "Inception",
+			Year:   2010,
+			Poster: "https://image.tmdb.org/t/p/w500/oYuLEt3zVCKq57qu2F8dT7NIa6f.jpg",
+		},
+		{IDs: metadata.ExternalIDs{metadata.KeyTMDB: "613092"}, Title: "Inception: The Cobol Job"},
+	}, hits)
+}
+
+func TestSearchMoviesOmitsTheYearFilterWhenYearIsZero(t *testing.T) {
+	var sawYear bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, sawYear = r.URL.Query()["year"]
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"page":1,"results":[],"total_pages":0,"total_results":0}`))
+	}))
+	defer srv.Close()
+	c, err := tmdb.New("test-key", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+	require.NoError(t, err)
+
+	hits, err := c.SearchMovies(context.Background(), "Nothing Matches", 0)
+	require.NoError(t, err)
+	require.Empty(t, hits)
+	require.False(t, sawYear)
+}
+
+func TestSearchMoviesMapsProviderErrors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"status_code":7,"status_message":"Invalid API key: You must be granted a valid key."}`))
+	}))
+	defer srv.Close()
+	c, err := tmdb.New("test-key", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+	require.NoError(t, err)
+
+	_, err = c.SearchMovies(context.Background(), "Inception", 0)
+	require.ErrorIs(t, err, metadata.ErrAuth)
+}
+
+// TestTwoClientsKeepTheirOwnBaseURLs is the regression for golang-tmdb's
+// process-global base URL: SetCustomBaseURL writes a package variable, so
+// the second New used to redirect the first Client to the second server.
+func TestTwoClientsKeepTheirOwnBaseURLs(t *testing.T) {
+	serve := func(title string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			require.Equal(t, "/movie/1", r.URL.Path)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":1,"title":"` + title + `","release_date":"2000-01-01"}`))
+		}))
+	}
+	first, second := serve("from-first"), serve("from-second")
+	defer first.Close()
+	defer second.Close()
+
+	c1, err := tmdb.New("k1", first.Client(), first.URL, metadata.NewLimiter(rate.Inf, 1))
+	require.NoError(t, err)
+	c2, err := tmdb.New("k2", second.Client(), second.URL, metadata.NewLimiter(rate.Inf, 1))
+	require.NoError(t, err)
+
+	m1, err := c1.Movie(context.Background(), "1", "")
+	require.NoError(t, err)
+	m2, err := c2.Movie(context.Background(), "1", "")
+	require.NoError(t, err)
+
+	require.Equal(t, "from-first", m1.Title, "the first Client must not follow the second Client's base URL")
+	require.Equal(t, "from-second", m2.Title)
+}
+
+func TestBaseURLWithAPathPrefixIsKept(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":1,"title":"x"}`))
+	}))
+	defer srv.Close()
+	c, err := tmdb.New("test-key", srv.Client(), srv.URL+"/mirror/3/", metadata.NewLimiter(rate.Inf, 1))
+	require.NoError(t, err)
+
+	_, err = c.Movie(context.Background(), "1", "")
+	require.NoError(t, err)
+	require.Equal(t, "/mirror/3/movie/1", gotPath)
+}
+
+func TestNewRejectsARelativeBaseURL(t *testing.T) {
+	_, err := tmdb.New("test-key", nil, "tmdb-stub:8080", metadata.NewLimiter(rate.Inf, 1))
+	require.Error(t, err)
+}
+
+func TestMovieRejectsAnOversizedBodyWithoutLeakingTheAPIKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":1,"title":"`))
+		_, _ = w.Write(bytes.Repeat([]byte("x"), int(metadata.MaxResponseBytes)))
+		_, _ = w.Write([]byte(`"}`))
+	}))
+	defer srv.Close()
+	c, err := tmdb.New("secret-key-123", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+	require.NoError(t, err)
+
+	_, err = c.Movie(context.Background(), "1", "")
+
+	require.ErrorIs(t, err, metadata.ErrResponseTooLarge)
+	require.NotErrorIs(t, err, metadata.ErrDecode)
+	require.NotContains(t, err.Error(), "secret-key-123", "golang-tmdb puts the key in the query string; the *url.Error text must not surface")
+}
+
+// TestATransportFailureAfterASuccessIsNotADecodeError: statusCapture used to
+// keep the previous response's 200 across a failed round trip, so mapError
+// read it and called a refused connection a decode failure.
+func TestATransportFailureAfterASuccessIsNotADecodeError(t *testing.T) {
+	body, err := os.ReadFile("../../../../testdata/metadata/tmdb/movie_27205.json")
+	require.NoError(t, err)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	c, err := tmdb.New("secret-key-123", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+	require.NoError(t, err)
+	_, err = c.Movie(context.Background(), "27205", "")
+	require.NoError(t, err)
+
+	srv.Close() // every later round trip is refused
+
+	_, err = c.Movie(context.Background(), "27205", "")
+	require.Error(t, err)
+	require.NotErrorIs(t, err, metadata.ErrDecode)
+	require.NotContains(t, err.Error(), "secret-key-123")
 }

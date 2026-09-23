@@ -1,0 +1,26 @@
+{
+  "id": 900001,
+  "title": "Festival Premiere Fixture",
+  "original_title": "Festival Premiere Fixture",
+  "original_language": "en",
+  "overview": "Synthetic fixture in TMDB's /movie/{id}?append_to_response=release_dates,external_ids shape: a film that premiered at a festival (release type 1) the year before its general release, the case Radarr's MovieMetadata.SecondaryYear exists for.",
+  "release_date": "2021-02-12",
+  "runtime": 115,
+  "status": "Released",
+  "vote_average": 7.3,
+  "vote_count": 2100,
+  "genres": [{"id": 18, "name": "Drama"}],
+  "belongs_to_collection": null,
+  "release_dates": {
+    "results": [
+      {
+        "iso_3166_1": "US",
+        "release_dates": [
+          {"type": 1, "release_date": "2020-01-26T00:00:00.000Z", "certification": "", "note": "Sundance Film Festival", "iso_639_1": ""},
+          {"type": 3, "release_date": "2021-02-12T00:00:00.000Z", "certification": "PG-13", "note": "", "iso_639_1": ""}
+        ]
+      }
+    ]
+  },
+  "external_ids": {"imdb_id": "tt0000001"}
+}
