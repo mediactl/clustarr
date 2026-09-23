@@ -101,6 +101,30 @@ func ServeRPC(bus events.Requester, reg *pkgmetadata.Registry) error {
 // lookupIssues respectively before falling through to Registry.Lookup for
 // every other kind, which now also covers album and book (task G2-1;
 // Registry.Lookup's switch).
+//
+// MediaKindAlbum is dispatched a third way: Registry.Lookup(kind=album)
+// already covers the single-release-group fetch the gateway's Handler uses
+// for status.metadata (keyed by pkgmetadata.KeyMBReleaseGroup), so unlike
+// Episode/Issue it is NOT unconditionally redirected. Task G2-2's Artist
+// reconciler needs a second, list-shaped call this switch did not have --
+// ArtistProvider.Albums(mbArtistID), an artist's whole release-group list,
+// the same "list scoped by the parent's id" shape as Episodes/Issues -- so
+// it is dispatched to lookupAlbums, but only when the caller's ids carry
+// pkgmetadata.KeyMBArtist (a release-group lookup never sets it; an artist's
+// album-list lookup never sets KeyMBReleaseGroup), rather than by adding a
+// MediaKindAlbums-shaped kind the CRD's MediaKind enum has no member for.
+//
+// MediaKindBook is dispatched the same third way, for the identical reason:
+// Registry.Lookup(kind=book) already covers the single-work fetch Book's own
+// reconciler uses for its status.metadata (keyed by
+// pkgmetadata.KeyOpenLibraryWork), so it is not unconditionally redirected
+// either. Task G2-2's Author reconciler needs the list-shaped call this
+// switch did not have -- BookProvider.Books(authorID), an author's whole
+// works list -- dispatched to lookupBooks only when the caller's ids carry
+// pkgmetadata.KeyOpenLibraryAuthor (a single-work fetch never sets it; an
+// author's book-list lookup never sets KeyOpenLibraryWork), the same
+// disjoint-key trick lookupAlbums uses to share req.Kind=Album with
+// Registry.Lookup's own album case without colliding.
 func lookup(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataRequest) schema.MetadataResponse {
 	ctx, span := tracing.Start(ctx, "metadata.rpc.lookup")
 	defer span.End()
@@ -110,6 +134,14 @@ func lookup(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataR
 		return lookupEpisodes(ctx, reg, req)
 	case commonv1.MediaKindIssue:
 		return lookupIssues(ctx, reg, req)
+	case commonv1.MediaKindAlbum:
+		if _, ok := req.IDs[pkgmetadata.KeyMBArtist]; ok {
+			return lookupAlbums(ctx, reg, req)
+		}
+	case commonv1.MediaKindBook:
+		if _, ok := req.IDs[pkgmetadata.KeyOpenLibraryAuthor]; ok {
+			return lookupBooks(ctx, reg, req)
+		}
 	}
 
 	fetchCtx, fetchSpan := tracing.Start(ctx, "metadata.Registry.Lookup")
@@ -201,6 +233,84 @@ func lookupIssues(ctx context.Context, reg *pkgmetadata.Registry, req schema.Met
 		}
 		isSpan.End()
 		return schema.MetadataResponse{Kind: req.Kind, Provider: p.Name(), Results: marshalAll(issues)}
+	}
+	if lastErr == nil {
+		lastErr = pkgmetadata.ErrNotFound
+	}
+	tracing.RecordError(span, lastErr)
+	return schema.MetadataResponse{Kind: req.Kind, Error: lastErr.Error()}
+}
+
+// lookupAlbums is Artist->Album's counterpart to lookupEpisodes/lookupIssues:
+// Kind=MediaKindAlbum, IDs={"mb-artist": mbArtistID} (pkgmetadata.KeyMBArtist
+// -- the same key Registry.Lookup(kind=artist) already keys by) rather than
+// pkgmetadata.KeyMBReleaseGroup, which is what a single-album fetch
+// (Registry.Lookup(kind=album), used by the gateway's Handler for
+// status.metadata) keys by -- see lookup()'s own doc comment for why the two
+// share req.Kind but dispatch on which id key is present. Answers with
+// Results, one JSON-encoded pkg/metadata.Album per release group, first
+// ArtistProvider-that-succeeds over reg.Artists. This is the RPC path task
+// G2-2's Artist reconciler calls to fan albums out onto Album objects --
+// ArtistProvider.Artist(mbArtistID) (what this gateway's Handler fetches for
+// status.metadata) never carries its album list; Artist() and Albums() are
+// separate MusicBrainz calls, exactly as Series() and Episodes() are
+// separate TVDB calls.
+func lookupAlbums(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataRequest) schema.MetadataResponse {
+	ctx, span := tracing.Start(ctx, "metadata.rpc.lookupAlbums")
+	defer span.End()
+
+	mbArtistID := req.IDs[pkgmetadata.KeyMBArtist]
+	var lastErr error
+	for _, p := range reg.Artists {
+		aCtx, aSpan := tracing.Start(ctx, "metadata.ArtistProvider.Albums")
+		albums, err := p.Albums(aCtx, mbArtistID)
+		if err != nil {
+			tracing.RecordError(aSpan, err)
+			aSpan.End()
+			lastErr = err
+			continue
+		}
+		aSpan.End()
+		return schema.MetadataResponse{Kind: req.Kind, Provider: p.Name(), Results: marshalAll(albums)}
+	}
+	if lastErr == nil {
+		lastErr = pkgmetadata.ErrNotFound
+	}
+	tracing.RecordError(span, lastErr)
+	return schema.MetadataResponse{Kind: req.Kind, Error: lastErr.Error()}
+}
+
+// lookupBooks is Author->Book's counterpart to lookupAlbums: Kind=
+// MediaKindBook, IDs={"olauthor": authorID} (pkgmetadata.KeyOpenLibraryAuthor
+// -- the same key Registry.Lookup(kind=author) already keys by) rather than
+// pkgmetadata.KeyOpenLibraryWork, which is what a single-book fetch
+// (Registry.Lookup(kind=book), used by Book's own reconciler for its
+// status.metadata) keys by -- see lookup()'s own doc comment for why the two
+// share req.Kind but dispatch on which id key is present. Answers with
+// Results, one JSON-encoded pkg/metadata.Book per work, first
+// BookProvider-that-succeeds over reg.Books. This is the RPC path task
+// G2-2's Author reconciler calls to fan books out onto Book objects --
+// BookProvider.Author(ids) (what this gateway's Handler fetches for
+// status.metadata) never carries its work list; Author() and Books() are
+// separate Open Library calls, exactly as Series()/Episodes() and
+// Artist()/Albums() are each two separate provider calls.
+func lookupBooks(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataRequest) schema.MetadataResponse {
+	ctx, span := tracing.Start(ctx, "metadata.rpc.lookupBooks")
+	defer span.End()
+
+	authorID := req.IDs[pkgmetadata.KeyOpenLibraryAuthor]
+	var lastErr error
+	for _, p := range reg.Books {
+		bCtx, bSpan := tracing.Start(ctx, "metadata.BookProvider.Books")
+		books, err := p.Books(bCtx, authorID)
+		if err != nil {
+			tracing.RecordError(bSpan, err)
+			bSpan.End()
+			lastErr = err
+			continue
+		}
+		bSpan.End()
+		return schema.MetadataResponse{Kind: req.Kind, Provider: p.Name(), Results: marshalAll(books)}
 	}
 	if lastErr == nil {
 		lastErr = pkgmetadata.ErrNotFound

@@ -303,6 +303,203 @@ func TestServeRPCLookupIssuesRequiresAComicVineVolumeID(t *testing.T) {
 	require.NotEmpty(t, resp.Error)
 }
 
+type stubAlbumListProvider struct {
+	albums       []pkgmetadata.Album
+	err          error
+	wantArtistID string
+}
+
+func (p stubAlbumListProvider) Name() string { return "musicbrainz" }
+func (p stubAlbumListProvider) Capabilities() pkgmetadata.Capabilities {
+	return pkgmetadata.Capabilities{}
+}
+
+func (p stubAlbumListProvider) SearchArtists(context.Context, string) ([]pkgmetadata.SearchHit, error) {
+	return nil, nil
+}
+
+func (p stubAlbumListProvider) Artist(context.Context, string) (*pkgmetadata.Artist, error) {
+	return nil, pkgmetadata.ErrNotFound
+}
+
+func (p stubAlbumListProvider) Albums(_ context.Context, mbArtistID string) ([]pkgmetadata.Album, error) {
+	if p.wantArtistID != "" && mbArtistID != p.wantArtistID {
+		return nil, fmt.Errorf("unexpected artist id %q", mbArtistID)
+	}
+	return p.albums, p.err
+}
+
+func (p stubAlbumListProvider) Album(context.Context, string) (*pkgmetadata.Album, error) {
+	return nil, pkgmetadata.ErrNotFound
+}
+
+// TestServeRPCLookupListsAlbumsForArtistFanout is lookupEpisodes' own test
+// (TestServeRPCLookupListsEpisodesForTaskC6) mirrored for Artist->Album (task
+// G2-2): Registry.Lookup(kind=album) only covers the single-release-group
+// fetch (keyed by KeyMBReleaseGroup, the gateway's own status.metadata
+// path), so rpc.go's lookupAlbums serves the artist's whole release-group
+// list instead, when the caller's ids carry KeyMBArtist.
+func TestServeRPCLookupListsAlbumsForArtistFanout(t *testing.T) {
+	reg := &pkgmetadata.Registry{Artists: []pkgmetadata.ArtistProvider{stubAlbumListProvider{
+		wantArtistID: "5b11f4ce-a62d-471e-81fc-a69a8278c7da",
+		albums: []pkgmetadata.Album{
+			{IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBReleaseGroup: "rg-1"}, Title: "OK Computer", PrimaryType: "Album"},
+			{IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBReleaseGroup: "rg-2"}, Title: "Kid A", PrimaryType: "Album"},
+		},
+	}}}
+	bus := newTestBus(t)
+	require.NoError(t, ServeRPC(bus, reg))
+
+	var resp schema.MetadataResponse
+	req := schema.MetadataRequest{
+		Kind: commonv1.MediaKindAlbum,
+		IDs:  map[string]string{pkgmetadata.KeyMBArtist: "5b11f4ce-a62d-471e-81fc-a69a8278c7da"},
+	}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
+
+	require.Empty(t, resp.Error)
+	require.Equal(t, "musicbrainz", resp.Provider)
+	require.Len(t, resp.Results, 2)
+	var alb pkgmetadata.Album
+	require.NoError(t, json.Unmarshal(resp.Results[0], &alb))
+	require.Equal(t, "OK Computer", alb.Title)
+}
+
+// TestServeRPCLookupAlbumStillUsesRegistryLookupForAReleaseGroupID proves the
+// new dispatch in lookup() does not swallow the pre-existing single-album
+// fetch: a request keyed by KeyMBReleaseGroup (no KeyMBArtist) still reaches
+// Registry.Lookup(kind=album) -> ArtistProvider.Album, never lookupAlbums.
+// stubArtistProvider.Album always returns ErrNotFound (unlike .Albums, which
+// returns an empty, non-error slice) -- a distinguishable failure mode that
+// pins which path actually ran.
+func TestServeRPCLookupAlbumStillUsesRegistryLookupForAReleaseGroupID(t *testing.T) {
+	reg := &pkgmetadata.Registry{Artists: []pkgmetadata.ArtistProvider{stubArtistProvider{}}}
+	bus := newTestBus(t)
+	require.NoError(t, ServeRPC(bus, reg))
+
+	var resp schema.MetadataResponse
+	req := schema.MetadataRequest{Kind: commonv1.MediaKindAlbum, IDs: map[string]string{pkgmetadata.KeyMBReleaseGroup: "rg-1"}}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
+	require.NotEmpty(t, resp.Error)
+}
+
+// TestServeRPCLookupAlbumWithNoIDsFallsThroughToRegistryLookup: neither key
+// present falls through to Registry.Lookup, which reports its own "requires
+// mb-release-group" error rather than lookupAlbums silently accepting an
+// empty artist id.
+func TestServeRPCLookupAlbumWithNoIDsFallsThroughToRegistryLookup(t *testing.T) {
+	reg := &pkgmetadata.Registry{}
+	bus := newTestBus(t)
+	require.NoError(t, ServeRPC(bus, reg))
+
+	var resp schema.MetadataResponse
+	req := schema.MetadataRequest{Kind: commonv1.MediaKindAlbum, IDs: map[string]string{}}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
+	require.NotEmpty(t, resp.Error)
+}
+
+type stubBookListProvider struct {
+	books        []pkgmetadata.Book
+	err          error
+	wantAuthorID string
+}
+
+func (p stubBookListProvider) Name() string { return "openlibrary" }
+func (p stubBookListProvider) Capabilities() pkgmetadata.Capabilities {
+	return pkgmetadata.Capabilities{}
+}
+
+func (p stubBookListProvider) SearchBooks(context.Context, string) ([]pkgmetadata.SearchHit, error) {
+	return nil, nil
+}
+
+func (p stubBookListProvider) Author(context.Context, pkgmetadata.ExternalIDs) (*pkgmetadata.Author, error) {
+	return nil, pkgmetadata.ErrNotFound
+}
+
+func (p stubBookListProvider) Books(_ context.Context, authorID string) ([]pkgmetadata.Book, error) {
+	if p.wantAuthorID != "" && authorID != p.wantAuthorID {
+		return nil, fmt.Errorf("unexpected author id %q", authorID)
+	}
+	return p.books, p.err
+}
+
+func (p stubBookListProvider) Book(context.Context, pkgmetadata.ExternalIDs) (*pkgmetadata.Book, error) {
+	return nil, pkgmetadata.ErrNotFound
+}
+
+func (p stubBookListProvider) Edition(context.Context, pkgmetadata.ExternalIDs) (*pkgmetadata.Edition, error) {
+	return nil, pkgmetadata.ErrNotFound
+}
+
+// TestServeRPCLookupListsBooksForAuthorFanout is
+// TestServeRPCLookupListsAlbumsForArtistFanout mirrored for Author->Book
+// (task G2-2): Registry.Lookup(kind=book) only covers the single-work fetch
+// (keyed by KeyOpenLibraryWork, Book's own status.metadata path), so
+// rpc.go's lookupBooks serves the author's whole works list instead, when
+// the caller's ids carry KeyOpenLibraryAuthor.
+func TestServeRPCLookupListsBooksForAuthorFanout(t *testing.T) {
+	reg := &pkgmetadata.Registry{Books: []pkgmetadata.BookProvider{stubBookListProvider{
+		wantAuthorID: "OL23919A",
+		books: []pkgmetadata.Book{
+			{IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyOpenLibraryWork: "OL45883W"}, Title: "The Hobbit"},
+			{IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyOpenLibraryWork: "OL27482W"}, Title: "The Fellowship of the Ring"},
+		},
+	}}}
+	bus := newTestBus(t)
+	require.NoError(t, ServeRPC(bus, reg))
+
+	var resp schema.MetadataResponse
+	req := schema.MetadataRequest{
+		Kind: commonv1.MediaKindBook,
+		IDs:  map[string]string{pkgmetadata.KeyOpenLibraryAuthor: "OL23919A"},
+	}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
+
+	require.Empty(t, resp.Error)
+	require.Equal(t, "openlibrary", resp.Provider)
+	require.Len(t, resp.Results, 2)
+	var bk pkgmetadata.Book
+	require.NoError(t, json.Unmarshal(resp.Results[0], &bk))
+	require.Equal(t, "The Hobbit", bk.Title)
+}
+
+// TestServeRPCLookupBookStillUsesRegistryLookupForAWorkID proves the new
+// dispatch in lookup() does not swallow the pre-existing single-book fetch:
+// a request keyed by KeyOpenLibraryWork (no KeyOpenLibraryAuthor) still
+// reaches Registry.Lookup(kind=book) -> BookProvider.Book, never
+// lookupBooks. stubBookListProvider.Book always returns ErrNotFound (unlike
+// .Books, which returns an empty, non-error slice) -- a distinguishable
+// failure mode that pins which path actually ran.
+func TestServeRPCLookupBookStillUsesRegistryLookupForAWorkID(t *testing.T) {
+	reg := &pkgmetadata.Registry{Books: []pkgmetadata.BookProvider{stubBookListProvider{}}}
+	bus := newTestBus(t)
+	require.NoError(t, ServeRPC(bus, reg))
+
+	var resp schema.MetadataResponse
+	req := schema.MetadataRequest{Kind: commonv1.MediaKindBook, IDs: map[string]string{pkgmetadata.KeyOpenLibraryWork: "OL45883W"}}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
+	require.NotEmpty(t, resp.Error)
+}
+
+// TestServeRPCLookupBookWithNoIDsFallsThroughToRegistryLookup: neither key
+// present falls through to Registry.Lookup, which -- unlike album/episode/
+// issue -- has no "requires X" guard for kind=book (Registry.Lookup's own
+// case commonv1.MediaKindBook calls BookProvider.Book(ctx, ids) directly
+// with whatever ids it was given), so this pins that the empty-id request
+// still resolves through the ordinary single-book path (ErrNotFound from
+// the stub) rather than silently being swallowed by lookupBooks.
+func TestServeRPCLookupBookWithNoIDsFallsThroughToRegistryLookup(t *testing.T) {
+	reg := &pkgmetadata.Registry{Books: []pkgmetadata.BookProvider{stubBookListProvider{}}}
+	bus := newTestBus(t)
+	require.NoError(t, ServeRPC(bus, reg))
+
+	var resp schema.MetadataResponse
+	req := schema.MetadataRequest{Kind: commonv1.MediaKindBook, IDs: map[string]string{}}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
+	require.NotEmpty(t, resp.Error)
+}
+
 // TestIdsOfCoversAlbumAndBook pins the two idsOf cases task G2-1 added
 // alongside Registry.Lookup's new album/book support -- without them,
 // schema.MetadataResponse.IDs would come back nil for these two kinds even
