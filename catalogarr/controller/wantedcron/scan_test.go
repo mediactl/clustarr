@@ -93,6 +93,17 @@ func TestEligibleNamespaces(t *testing.T) {
 				movie("media", "unmonitored", catalogv1alpha1.MoviePhaseUnmonitored, commonv1.Attempts{}),
 				movie("media", "unavailable", catalogv1alpha1.MoviePhaseUnavailable, commonv1.Attempts{}),
 				movie("media", "pending", catalogv1alpha1.MoviePhasePending, commonv1.Attempts{}),
+				movie("media", "unevaluated", catalogv1alpha1.MoviePhaseCutoffUnevaluated, commonv1.Attempts{}),
+				movie("media", "transcoded", catalogv1alpha1.MoviePhaseTranscoded, commonv1.Attempts{}),
+			},
+			want: []string{},
+		},
+		{
+			// A transcoded file is final (CLAUDE.md, "Transcoding"): never
+			// a search candidate, as a missing or a below-cutoff file is.
+			name: "a Transcoded episode is final, never a candidate",
+			episodes: []catalogv1alpha1.Episode{
+				episode("media", "s01e01", catalogv1alpha1.EpisodePhaseTranscoded, commonv1.Attempts{}),
 			},
 			want: []string{},
 		},

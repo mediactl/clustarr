@@ -30,6 +30,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/catalogarr/controller/delayprofile"
+	"github.com/mediactl/clustarr/catalogarr/controller/rollup"
 	"github.com/mediactl/clustarr/catalogarr/worker/grab"
 	"github.com/mediactl/clustarr/catalogarr/worker/search"
 	"github.com/mediactl/clustarr/pkg/decision"
@@ -75,6 +76,11 @@ type resolveState struct {
 	// narrowing the grab to the ones that want the release (wantedKeys).
 	// Empty for a movie or a single episode.
 	episodes []*catalogv1alpha1.Episode
+	// finalEpisodes names the episodes of a pack whose file is transcoded
+	// (rollup.Transcoded). A transcoded file is final, so wantedKeys never
+	// hands the grab one of them, however much better the pack is. A
+	// single target carries the same verdict on currentFile.Transcoded.
+	finalEpisodes map[string]bool
 }
 
 // resolve fetches the item named by ref and reads off everything the decision
@@ -83,7 +89,11 @@ type resolveState struct {
 // It is deliberately narrower than the search worker's own snapshot: the
 // current file is read from the item's rolled-up status
 // (hasFile/fileQuality/fileFormatScore) rather than from the MediaFile, and
-// the already-imported source hash and title are not resolved.
+// the already-imported source hash and title are not resolved. The one fact
+// read from the MediaFile itself is whether it is transcoded, because
+// rollup.Transcoded is the one place that rule lives and it reads the file:
+// a transcoded file is final, and the RSS path is the likeliest automatic
+// grab of all.
 // (reconciled by controller -- Task C12): once
 // catalogarr/worker/search exports its snapshot builder, this should call it
 // instead, so an RSS decision and a search decision see byte-identical input.
@@ -109,6 +119,9 @@ func resolve(ctx context.Context, c client.Client, ns string, ref commonv1.Media
 			st.originalLanguageTag = m.Status.Metadata.OriginalLanguage
 		}
 		st.currentFile = currentFrom(m.Status.HasFile, m.Status.FileQuality, m.Status.FileFormatScore)
+		if err := markTranscoded(ctx, c, ns, st.currentFile, m.Status.FileRef); err != nil {
+			return st, err
+		}
 		st.identity = search.MovieIdentity(&m)
 
 	case commonv1.MediaKindEpisode, commonv1.MediaKindSeries:
@@ -123,6 +136,9 @@ func resolve(ctx context.Context, c client.Client, ns string, ref commonv1.Media
 			st.monitored = ptr.Deref(ep.Spec.Monitored, true)
 			st.available = ep.Status.AirDate != nil && !now.Before(ep.Status.AirDate.Time)
 			st.currentFile = currentFrom(ep.Status.HasFile, ep.Status.FileQuality, ep.Status.FileFormatScore)
+			if err := markTranscoded(ctx, c, ns, st.currentFile, ep.Status.FileRef); err != nil {
+				return st, err
+			}
 			eps = append(eps, &ep)
 		} else {
 			// A pack has no single file or air date of its own. It is
@@ -140,6 +156,19 @@ func resolve(ctx context.Context, c client.Client, ns string, ref commonv1.Media
 					return st, err
 				}
 				eps = append(eps, &ep)
+				if !ep.Status.HasFile {
+					continue
+				}
+				final, err := transcodedFile(ctx, c, ns, ep.Status.FileRef)
+				if err != nil {
+					return st, err
+				}
+				if final {
+					if st.finalEpisodes == nil {
+						st.finalEpisodes = map[string]bool{}
+					}
+					st.finalEpisodes[ep.Name] = true
+				}
 			}
 			st.episodes = eps
 		}
@@ -174,6 +203,44 @@ func currentFrom(hasFile bool, q *commonv1.Quality, formatScore int32) *decision
 		return nil
 	}
 	return &decision.Current{Quality: *q, FormatScore: int(formatScore)}
+}
+
+// markTranscoded sets cur.Transcoded from the MediaFile fileRef names, so the
+// decision engine rejects an automatic grab over a transcoded file
+// (decision.ReasonTranscodedFinal). A nil cur -- no file -- has nothing to
+// mark.
+func markTranscoded(ctx context.Context, c client.Client, ns string, cur *decision.Current, fileRef *string) error {
+	if cur == nil {
+		return nil
+	}
+	final, err := transcodedFile(ctx, c, ns, fileRef)
+	if err != nil {
+		return err
+	}
+	cur.Transcoded = final
+	return nil
+}
+
+// transcodedFile reports whether the MediaFile fileRef names is transcoded
+// (rollup.Transcoded). A MediaFile that is gone is not: the item's rollup has
+// not caught up with a deletion yet, and deciding as if there were no
+// transcoded file can only approve an upgrade of a file that no longer
+// exists -- the reading the search worker's currentFile takes. Any other
+// read failure is returned, so the release is retried rather than decided
+// against a guess. The error never wraps NotFound, which decideOne reads as
+// "the item itself is gone".
+func transcodedFile(ctx context.Context, c client.Client, ns string, fileRef *string) (bool, error) {
+	if fileRef == nil || *fileRef == "" {
+		return false, nil
+	}
+	var mf catalogv1alpha1.MediaFile
+	if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: *fileRef}, &mf); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("rssmatcher: get MediaFile %q: %w", *fileRef, err)
+	}
+	return rollup.Transcoded(&mf), nil
 }
 
 // queueFor lists the Downloads already working on ref, through the search

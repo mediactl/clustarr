@@ -203,7 +203,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("episode").
 		For(&catalogv1alpha1.Episode{}, builder.WithPredicates(episodePredicate())).
-		Watches(&catalogv1alpha1.MediaFile{}, handler.EnqueueRequestsFromMapFunc(r.mapMediaFile), builder.WithPredicates(k8s.GenerationChanged())).
+		Watches(&catalogv1alpha1.MediaFile{}, handler.EnqueueRequestsFromMapFunc(r.mapMediaFile), builder.WithPredicates(mediaFilePredicate())).
 		Watches(&downloadv1alpha1.Download{}, handler.EnqueueRequestsFromMapFunc(r.mapDownload), builder.WithPredicates(downloadPredicate())).
 		Watches(&catalogv1alpha1.QualityProfile{}, handler.EnqueueRequestsFromMapFunc(r.mapQualityProfile), builder.WithPredicates(k8s.GenerationChanged())).
 		WithOptions(controller.Options{RecoverPanic: ptr.To(true), ReconciliationTimeout: 5 * time.Minute}).
@@ -236,6 +236,13 @@ func episodePredicate() predicate.Predicate {
 		// status; see the movie package's moviePredicate.
 		k8s.DeadLetteredAnnotationChanged(),
 	)
+}
+
+// mediaFilePredicate is the movie package's: a spec change, or the file's
+// transcoded verdict changing in a status-only probe write (see its doc
+// comment there).
+func mediaFilePredicate() predicate.Predicate {
+	return k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(rollup.TranscodedObject))
 }
 
 // downloadPredicate is the same shape as the movie package's: a status-only
@@ -400,6 +407,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 			"seriesRef", ep.Spec.SeriesRef, "problem", profileProblem)
 	}
 	hasFile, fileRef, fileQuality, fileFormatScore, cutoffMet := FileState(mf, profile)
+	// A transcoded file is final: see the movie package's identical line.
+	transcoded := rollup.Transcoded(mf)
 	if action, file := rollup.FileTransition(ep.Status.FileRef, mf); action != "" {
 		r.publishFile(ctx, ep, action, file, mf, now)
 	}
@@ -412,7 +421,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	// rollup.DownloadNonTerminal's call, made inside activeDownload.
 	overlayPhase, _ := DownloadOverlay(dl)
 
-	phase := Phase(monitored, ep.Status.AirDate, hasFile, cutoffMet, profile != nil, ep.Status.PendingGrab != nil, now)
+	phase := Phase(monitored, ep.Status.AirDate, hasFile, transcoded, cutoffMet, profile != nil, ep.Status.PendingGrab != nil, now)
 	if overlayPhase != "" {
 		phase = overlayPhase
 	}
@@ -437,6 +446,10 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	switch {
 	case !hasFile:
 		k8s.MarkFalse(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, k8s.ReasonPending, "no file to rank against the profile cutoff")
+	case transcoded:
+		// Ahead of the profile arms, as in the movie package: a transcoded
+		// file is final and meets the cutoff whatever the profile says.
+		k8s.MarkTrue(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, rollup.ReasonTranscoded, "the file is transcoded, and a transcoded file is final")
 	case profile == nil:
 		if rollup.Transitioned(ep.Status.Conditions, catalogv1alpha1.EpisodeConditionCutoffMet, metav1.ConditionFalse, "ProfileUnresolved") {
 			r.warn(ep, "ProfileUnresolved", "cutoff not evaluated: %s", profileProblem)

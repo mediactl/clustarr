@@ -32,6 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -394,6 +395,103 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		require.NotNil(t, cutoffCond)
 		assert.Equal(t, metav1.ConditionFalse, cutoffCond.Status)
 		assert.Equal(t, k8s.ReasonPending, cutoffCond.Reason, "with no file the cutoff was not evaluated either")
+	})
+
+	// The owner's rule (CLAUDE.md, "Transcoding"), driven against Episodes
+	// already in steady state (CutoffUnmet): see the movie package's
+	// identical subtest. The probe's tag is a status-only MediaFile write
+	// that only the watch's transcoded arm can deliver; the swap is a spec
+	// write.
+	t.Run("a transcoded file reads Transcoded, never CutoffUnmet, and stays there", func(t *testing.T) {
+		bluray := commonv1.Quality{Name: "Bluray-1080p", Resolution: 1080, Source: commonv1.SourceBluray, Modifier: commonv1.ModifierNone}
+		require.NoError(t, c.Create(ctx, testQualityProfile("ep-ns", "t1-ep-cutoff-4k", "Remux-2160p")))
+		require.NoError(t, c.Create(ctx, testSeries("ep-ns", "t1-show", "t1-ep-cutoff-4k")))
+
+		steady := func(t *testing.T, name, mfName string, number int32) {
+			t.Helper()
+			require.NoError(t, c.Create(ctx, &catalogv1alpha1.Episode{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ep-ns"},
+				Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: "t1-show", SeasonNumber: 1, EpisodeNumber: number},
+			}))
+			waitForPhase(t, ctx, c, "ep-ns", name)
+			require.NoError(t, c.Create(ctx, &catalogv1alpha1.MediaFile{
+				ObjectMeta: metav1.ObjectMeta{Name: mfName, Namespace: "ep-ns"},
+				Spec: catalogv1alpha1.MediaFileSpec{
+					MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: name},
+					Path:     "/data/media/tv/Show/Season 01/" + name + ".mkv",
+					Quality:  bluray,
+				},
+			}))
+			var got catalogv1alpha1.Episode
+			require.Eventually(t, func() bool {
+				if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: name}, &got); err != nil {
+					return false
+				}
+				return got.Status.Phase == catalogv1alpha1.EpisodePhaseCutoffUnmet
+			}, 5*time.Second, 20*time.Millisecond, "%s: a Bluray-1080p file under a 2160p cutoff starts CutoffUnmet", name)
+		}
+
+		transcoded := func(t *testing.T, name string) {
+			t.Helper()
+			var got catalogv1alpha1.Episode
+			require.Eventually(t, func() bool {
+				if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: name}, &got); err != nil {
+					return false
+				}
+				return got.Status.Phase == catalogv1alpha1.EpisodePhaseTranscoded
+			}, 5*time.Second, 20*time.Millisecond, "%s: a transcoded file must read Transcoded", name)
+			assert.True(t, got.Status.HasFile, "a Transcoded episode has its file (the Series counts it)")
+			assert.True(t, got.Status.CutoffMet, "a transcoded file is final, so it meets the cutoff")
+			cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.EpisodeConditionCutoffMet)
+			require.NotNil(t, cond)
+			assert.Equal(t, metav1.ConditionTrue, cond.Status)
+			assert.Equal(t, "Transcoded", cond.Reason)
+
+			cands, err := wantedcron.ListCandidates(ctx, c, func(k commonv1.MediaKind) bool { return k == commonv1.MediaKindEpisode },
+				time.Now(), client.InNamespace("ep-ns"))
+			require.NoError(t, err)
+			for _, cand := range cands {
+				if cand.Ref.Name == name {
+					assert.Empty(t, cand.Reason, "%s: the wanted sweep must never pick a transcoded file", name)
+				}
+			}
+
+			// A further reconcile, woken by the dead-letter annotation
+			// (nothing about the file changes), must leave it Transcoded.
+			patch := client.MergeFrom(got.DeepCopy())
+			if got.Annotations == nil {
+				got.Annotations = map[string]string{}
+			}
+			got.Annotations[k8s.AnnotationDeadLettered] = "clustarr.work.catalogarr.search.low.x@2026-09-23T12:00:00Z"
+			require.NoError(t, c.Patch(ctx, &got, patch))
+			require.Eventually(t, func() bool {
+				if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: name}, &got); err != nil {
+					return false
+				}
+				return k8s.IsConditionTrue(got.Status.Conditions, k8s.ConditionDeadLettered)
+			}, 5*time.Second, 20*time.Millisecond, "%s: the poke must be reconciled", name)
+			assert.Equal(t, catalogv1alpha1.EpisodePhaseTranscoded, got.Status.Phase, "%s: Transcoded must hold across reconciles", name)
+			assert.True(t, got.Status.CutoffMet)
+		}
+
+		steady(t, "t1-show-s01e01", "t1-show-s01e01-abc1234567", 1)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr,
+			catalogac.MediaFile("t1-show-s01e01-abc1234567", "ep-ns").WithStatus(catalogac.MediaFileStatus().
+				WithProbeHash("probe-1").
+				WithMediaInfo(commonv1.MediaInfo{
+					Container: "mkv", VideoCodec: "hevc",
+					TranscodeProfile: "hevc-main10@0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+				})))
+		require.NoError(t, err)
+		transcoded(t, "t1-show-s01e01")
+
+		steady(t, "t1-show-s01e02", "t1-show-s01e02-abc1234567", 2)
+		var mf catalogv1alpha1.MediaFile
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "t1-show-s01e02-abc1234567"}, &mf))
+		mfPatch := client.MergeFrom(mf.DeepCopy())
+		mf.Spec.Original = ptr.To(false)
+		require.NoError(t, c.Patch(ctx, &mf, mfPatch))
+		transcoded(t, "t1-show-s01e02")
 	})
 
 	// A profile that cannot be resolved -- here a Series whose

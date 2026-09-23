@@ -29,6 +29,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/catalogarr/controller/rollup"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/quality"
@@ -202,7 +203,8 @@ func episodeAvailable(e *catalogv1alpha1.Episode, now time.Time) bool {
 // currentFile reads the MediaFile an item already has into the decision
 // engine's Current. Quality, revision, format score and matched formats are
 // read from MediaFileSpec, not status: spec §8.4 freezes the decided fields on
-// spec at import time and MediaFileStatus carries none of them.
+// spec at import time and MediaFileStatus carries none of them. Transcoded
+// is rollup.Transcoded's verdict, the one place that rule lives.
 //
 // SourceHash has no MediaFile-side source -- a torrent's info hash lives on
 // the Download that produced the file -- so it is resolved from
@@ -228,6 +230,10 @@ func (w *Worker) currentFile(ctx context.Context, ns, name string) (*decision.Cu
 		Revision:    mf.Spec.Revision,
 		FormatScore: int(mf.Spec.FormatScore),
 		Formats:     mf.Spec.MatchedFormats,
+		// A transcoded file is final: an automatic search never grabs
+		// over it (decision.ReasonTranscodedFinal); an interactive one
+		// still may.
+		Transcoded: rollup.Transcoded(&mf),
 	}
 	if mf.Spec.ImportedFrom == nil {
 		return cur, nil

@@ -174,7 +174,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("movie").
 		For(&catalogv1alpha1.Movie{}, builder.WithPredicates(moviePredicate())).
-		Watches(&catalogv1alpha1.MediaFile{}, handler.EnqueueRequestsFromMapFunc(r.mapMediaFile), builder.WithPredicates(k8s.GenerationChanged())).
+		Watches(&catalogv1alpha1.MediaFile{}, handler.EnqueueRequestsFromMapFunc(r.mapMediaFile), builder.WithPredicates(mediaFilePredicate())).
 		Watches(&downloadv1alpha1.Download{}, handler.EnqueueRequestsFromMapFunc(r.mapDownload), builder.WithPredicates(downloadPredicate())).
 		Watches(&catalogv1alpha1.QualityProfile{}, handler.EnqueueRequestsFromMapFunc(r.mapQualityProfile), builder.WithPredicates(k8s.GenerationChanged())).
 		WithOptions(controller.Options{RecoverPanic: ptr.To(true), ReconciliationTimeout: 5 * time.Minute}).
@@ -223,11 +223,26 @@ func moviePredicate() predicate.Predicate {
 	)
 }
 
+// mediaFilePredicate wakes the MediaFile watch on a spec change -- a create,
+// a delete, and every MediaFileSpec edit, which covers every input FileState
+// reads, spec.original included -- and on the file's transcoded verdict
+// changing (rollup.TranscodedObject). The second arm is for the probe:
+// catalogarr's MediaFile reconciler records the CLUSTARR_PROFILE tag in
+// status.mediaInfo.transcodeProfile, a status write that bumps no generation,
+// so a rescanned file an earlier install transcoded would otherwise leave the
+// Movie at CutoffUnmet -- in the search rotation -- until something unrelated
+// woke it. It compares the verdict, not the tag, so an ordinary re-probe does
+// not wake the Movie.
+func mediaFilePredicate() predicate.Predicate {
+	return k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(rollup.TranscodedObject))
+}
+
 // downloadPredicate wakes the Download watch on a spec change (Create
 // always passes regardless), on a status.phase transition, and on the
 // deletion timestamp appearing. GenerationChanged alone would be wrong here,
-// unlike the MediaFile watch above: MediaFileSpec's Quality/FormatScore are
-// spec fields, so a create or edit bumps generation, but
+// as it would for the MediaFile watch's one status input above:
+// MediaFileSpec's Quality/FormatScore are spec fields, so a create or edit
+// bumps generation, but
 // DownloadStatus.Phase is entirely status-driven -- grabarr sets it through
 // k8s.PatchStatus, which never touches spec/generation -- so a
 // GenerationChanged-only predicate would never fire on the one transition
@@ -499,6 +514,10 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 			"qualityProfileRef", m.Spec.QualityProfileRef, "problem", profileProblem)
 	}
 	hasFile, fileRef, fileQuality, fileFormatScore, cutoffMet := FileState(mf, profile)
+	// A transcoded file is final (CLAUDE.md, "Transcoding"): FileState
+	// already counts it as meeting the cutoff, and Phase reads it as
+	// Transcoded rather than Imported, CutoffUnmet or CutoffUnevaluated.
+	transcoded := rollup.Transcoded(mf)
 	if action, file := rollup.FileTransition(m.Status.FileRef, mf); action != "" {
 		r.publishFile(ctx, m, action, file, mf, now)
 	}
@@ -512,7 +531,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 	// two differ on purpose for Completed and Seeding: see its doc comment.
 	overlayPhase, _ := DownloadOverlay(dl)
 
-	phase := Phase(monitored, metaReady, available, hasFile, cutoffMet, profile != nil, m.Status.PendingGrab != nil)
+	phase := Phase(monitored, metaReady, available, hasFile, transcoded, cutoffMet, profile != nil, m.Status.PendingGrab != nil)
 	if overlayPhase != "" {
 		phase = overlayPhase
 	}
@@ -557,6 +576,12 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 	switch {
 	case !hasFile:
 		k8s.MarkFalse(m, &conditions, catalogv1alpha1.MovieConditionCutoffMet, k8s.ReasonPending, "no file to rank against the profile cutoff")
+	case transcoded:
+		// Ahead of the profile arms: a transcoded file is final, so it
+		// meets the cutoff whether or not the profile resolves, and a
+		// ProfileUnresolved here would only invite the upgrade the rule
+		// forbids. The reason says why it is met.
+		k8s.MarkTrue(m, &conditions, catalogv1alpha1.MovieConditionCutoffMet, rollup.ReasonTranscoded, "the file is transcoded, and a transcoded file is final")
 	case profile == nil:
 		if rollup.Transitioned(m.Status.Conditions, catalogv1alpha1.MovieConditionCutoffMet, metav1.ConditionFalse, "ProfileUnresolved") {
 			r.warn(m, "ProfileUnresolved", "cutoff not evaluated: %s", profileProblem)

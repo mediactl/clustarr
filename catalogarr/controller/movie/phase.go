@@ -49,12 +49,31 @@ import (
 // the cutoff, an upgrade is wanted" and puts the item in the cutoff-unmet
 // search rotation, which a dangling or unparseable profile must not do. It
 // takes CutoffUnmet's rank exactly, since it answers the same question.
-func Phase(monitored, metadataReady, available, hasFile, cutoffMet, cutoffEvaluated, pendingGrab bool) catalogv1alpha1.MoviePhase {
+//
+// transcoded reports whether the file is transcoded (rollup.Transcoded). A
+// transcoded file is final (CLAUDE.md, "Transcoding"), so it reads
+// Transcoded exactly where it would otherwise read Imported, CutoffUnmet or
+// CutoffUnevaluated: it takes Imported's rank, one arm above it, and so
+// outranks Delayed too, as Imported does. The whole order, highest first:
+//
+//	Downloading        a non-terminal Download (the reconciler's overlay, over all of these)
+//	Unmonitored
+//	Pending            metadata not ready
+//	Transcoded         a transcoded file
+//	Imported           a file that meets the cutoff
+//	Delayed            a pending grab
+//	CutoffUnevaluated  a file, no profile to rank it against
+//	CutoffUnmet        a file below the cutoff
+//	Unavailable
+//	Wanted
+func Phase(monitored, metadataReady, available, hasFile, transcoded, cutoffMet, cutoffEvaluated, pendingGrab bool) catalogv1alpha1.MoviePhase {
 	switch {
 	case !monitored:
 		return catalogv1alpha1.MoviePhaseUnmonitored
 	case !metadataReady:
 		return catalogv1alpha1.MoviePhasePending
+	case hasFile && transcoded:
+		return catalogv1alpha1.MoviePhaseTranscoded
 	case hasFile && cutoffMet:
 		return catalogv1alpha1.MoviePhaseImported
 	case pendingGrab:

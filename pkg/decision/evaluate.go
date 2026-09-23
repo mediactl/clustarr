@@ -32,8 +32,10 @@ import (
 // Target, in the order: identity (is the release for this item at all --
 // identity.go), protocol enabled, availability (skipped when o.UserInvoked),
 // size, quality-in-profile + MinFormatScore, language, sample, blocklist +
-// already-imported, queue preference, then the UpgradableSpecification table
-// via p.UpgradeDecision. Every applicable
+// already-imported, queue preference, the transcoded-final check (a
+// transcoded current file is never upgraded automatically; skipped when
+// o.UserInvoked), then the UpgradableSpecification table via
+// p.UpgradeDecision. Every applicable
 // check runs (nothing short-circuits except an unparseable title), so a
 // release can carry more than one Rejection -- matching the real
 // DownloadDecision's Rejections list, which Approved/TemporarilyRejected
@@ -106,6 +108,7 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, idx ide
 
 	candidate := quality.Candidate{Quality: rel.Quality, Revision: rel.Revision, FormatScore: score}
 	add(queueRejection(p, t, candidate))
+	add(transcodedRejection(t, o))
 	add(upgradeRejection(p, t, candidate))
 
 	d := Decision{

@@ -48,6 +48,18 @@ func availabilityRejection(t Target, o Options) *common.Rejection {
 	return &r
 }
 
+// transcodedRejection rejects an automatic upgrade of a transcoded file
+// (ReasonTranscodedFinal): a transcoded file is final. Skipped entirely for a
+// user-invoked (interactive) search, like availability, so a user picking a
+// release by hand meets only the ordinary checks.
+func transcodedRejection(t Target, o Options) *common.Rejection {
+	if o.UserInvoked || t.Current == nil || !t.Current.Transcoded {
+		return nil
+	}
+	r := newRejection(ReasonTranscodedFinal, "the current file is transcoded, and a transcoded file is final")
+	return &r
+}
+
 // qualityRejections is QualityAllowedByProfileSpecification +
 // CustomFormatAllowedByProfileSpecification: both run unconditionally (a
 // release can fail either or both at once, matching the real

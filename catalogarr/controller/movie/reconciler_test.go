@@ -37,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	k8sevents "k8s.io/client-go/tools/events"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -673,6 +674,134 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		assert.Contains(t, cond.Message, "no-such-profile")
 		assert.Equal(t, catalogv1alpha1.MoviePhaseCutoffUnevaluated, got.Status.Phase,
 			"the phase column must not read CutoffUnmet for a file never ranked against a cutoff")
+	})
+
+	// The owner's rule (CLAUDE.md, "Transcoding"): a transcoded file is final.
+	// Both ways a file is transcoded are driven against a Movie already in
+	// its steady state (CutoffUnmet, CutoffMet=False), since a test that
+	// starts from a blank object cannot see a release or a missed wake-up:
+	//
+	//   - the probe finding the CLUSTARR_PROFILE tag (a library file an
+	//     earlier install transcoded): a STATUS-only write on the MediaFile,
+	//     which bumps no generation, so only the watch's transcoded arm can
+	//     deliver it;
+	//   - a transcode swap (spec.original false): a spec write.
+	//
+	// Each must reach Transcoded with CutoffMet=True/Transcoded, stay there
+	// across later reconciles, and drop out of the wanted sweep.
+	t.Run("a transcoded file reads Transcoded, never CutoffUnmet, and stays there", func(t *testing.T) {
+		bluray := commonv1.Quality{Name: "Bluray-1080p", Resolution: 1080, Source: commonv1.SourceBluray, Modifier: commonv1.ModifierNone}
+		require.NoError(t, c.Create(ctx, testQualityProfile("avail-ns", "t1-cutoff-4k", "Remux-2160p")))
+
+		steady := func(t *testing.T, name, mfName string) {
+			t.Helper()
+			m := &catalogv1alpha1.Movie{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "avail-ns"},
+				Spec: catalogv1alpha1.MovieSpec{
+					TmdbID: 438631, QualityProfileRef: "t1-cutoff-4k", RootFolderRef: "movies-root",
+					MinimumAvailability: catalogv1alpha1.MinimumAvailabilityTBA,
+				},
+			}
+			require.NoError(t, c.Create(ctx, m))
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata,
+				catalogac.Movie(m.Name, m.Namespace).WithStatus(catalogac.MovieStatus().WithMetadata(
+					catalogac.MovieMetadata().WithTitle("Dune").WithYear(2021).
+						WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).WithRefreshedAt(metav1.Now()))))
+			require.NoError(t, err)
+			waitForPhase(t, ctx, c, "avail-ns", name)
+
+			require.NoError(t, c.Create(ctx, &catalogv1alpha1.MediaFile{
+				ObjectMeta: metav1.ObjectMeta{Name: mfName, Namespace: "avail-ns"},
+				Spec: catalogv1alpha1.MediaFileSpec{
+					MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name},
+					Path:     "/data/media/movies/Dune (2021)/" + name + ".mkv",
+					Quality:  bluray,
+				},
+			}))
+			var got catalogv1alpha1.Movie
+			require.Eventually(t, func() bool {
+				if err := c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: name}, &got); err != nil {
+					return false
+				}
+				return got.Status.Phase == catalogv1alpha1.MoviePhaseCutoffUnmet
+			}, 5*time.Second, 20*time.Millisecond, "%s: a Bluray-1080p file under a 2160p cutoff starts CutoffUnmet", name)
+			assert.False(t, got.Status.CutoffMet)
+		}
+
+		transcoded := func(t *testing.T, name string) catalogv1alpha1.Movie {
+			t.Helper()
+			var got catalogv1alpha1.Movie
+			require.Eventually(t, func() bool {
+				if err := c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: name}, &got); err != nil {
+					return false
+				}
+				return got.Status.Phase == catalogv1alpha1.MoviePhaseTranscoded
+			}, 5*time.Second, 20*time.Millisecond, "%s: a transcoded file must read Transcoded", name)
+			assert.True(t, got.Status.HasFile)
+			assert.True(t, got.Status.CutoffMet, "a transcoded file is final, so it meets the cutoff")
+			require.NotNil(t, got.Status.FileQuality)
+			assert.Equal(t, "Bluray-1080p", got.Status.FileQuality.Name, "the release quality frozen at import is still reported")
+			cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.MovieConditionCutoffMet)
+			require.NotNil(t, cond)
+			assert.Equal(t, metav1.ConditionTrue, cond.Status)
+			assert.Equal(t, "Transcoded", cond.Reason)
+			assert.Equal(t, []string{string(k8s.ManagerCatalogarr)}, statusFieldOwners(t, &got, "phase"),
+				"the phase goes through the reconciler's one status declaration, under its own manager only")
+
+			cands, err := wantedcron.ListCandidates(ctx, c, func(k commonv1.MediaKind) bool { return k == commonv1.MediaKindMovie },
+				time.Now(), client.InNamespace("avail-ns"))
+			require.NoError(t, err)
+			for _, cand := range cands {
+				if cand.Ref.Name == name {
+					assert.Empty(t, cand.Reason, "%s: the wanted sweep must never pick a transcoded file", name)
+				}
+			}
+			return got
+		}
+
+		// stays pokes the Movie with a spec edit, waits for the reconcile
+		// that edit caused to land, and checks the phase did not move.
+		stays := func(t *testing.T, name string) {
+			t.Helper()
+			var got catalogv1alpha1.Movie
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: name}, &got))
+			patch := client.MergeFrom(got.DeepCopy())
+			got.Spec.Tags = append(got.Spec.Tags, "poke")
+			require.NoError(t, c.Patch(ctx, &got, patch))
+			gen := got.Generation
+			require.Eventually(t, func() bool {
+				if err := c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: name}, &got); err != nil {
+					return false
+				}
+				return got.Status.ObservedGeneration >= gen
+			}, 5*time.Second, 20*time.Millisecond, "%s: the poke must be reconciled", name)
+			assert.Equal(t, catalogv1alpha1.MoviePhaseTranscoded, got.Status.Phase, "%s: Transcoded must hold across reconciles", name)
+			assert.True(t, got.Status.CutoffMet)
+		}
+
+		// 1. The probe reads the tag: a status-only write, exactly as the
+		// MediaFile reconciler makes it (its own manager, its one apply).
+		steady(t, "dune", "dune-abc1234567")
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr,
+			catalogac.MediaFile("dune-abc1234567", "avail-ns").WithStatus(catalogac.MediaFileStatus().
+				WithProbeHash("probe-1").
+				WithMediaInfo(commonv1.MediaInfo{
+					Container: "mkv", VideoCodec: "hevc",
+					TranscodeProfile: "hevc-main10@0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+				})))
+		require.NoError(t, err)
+		transcoded(t, "dune")
+		stays(t, "dune")
+
+		// 2. A transcode swap: catalogarr takes spec.original over.
+		steady(t, "dune-part-two", "dune-part-two-abc1234567")
+		var mf catalogv1alpha1.MediaFile
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: "dune-part-two-abc1234567"}, &mf))
+		mfPatch := client.MergeFrom(mf.DeepCopy())
+		mf.Spec.Original = ptr.To(false)
+		require.NoError(t, c.Patch(ctx, &mf, mfPatch))
+		transcoded(t, "dune-part-two")
+		stays(t, "dune-part-two")
 	})
 
 	// Ruling R-5: this reconciler is the only writer of

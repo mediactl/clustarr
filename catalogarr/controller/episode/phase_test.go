@@ -63,7 +63,38 @@ func TestPhase(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			assert.Equal(t, c.want, episode.Phase(c.monitored, c.airDate, c.hasFile, c.cutoffMet, c.cutoffEvaluated, c.pendingGrab, now))
+			assert.Equal(t, c.want, episode.Phase(c.monitored, c.airDate, c.hasFile, false, c.cutoffMet, c.cutoffEvaluated, c.pendingGrab, now))
 		})
 	}
+}
+
+// TestPhaseTranscoded: a transcoded file reads Transcoded wherever it would
+// otherwise read Imported, CutoffUnmet or CutoffUnevaluated, never
+// CutoffUnmet (CLAUDE.md, "Transcoding"); Unmonitored keeps its precedence.
+func TestPhaseTranscoded(t *testing.T) {
+	now := time.Date(2026, 9, 18, 0, 0, 0, 0, time.UTC)
+	past := metav1.NewTime(now.AddDate(0, 0, -1))
+	future := metav1.NewTime(now.AddDate(0, 0, 1))
+	cases := []struct {
+		name                       string
+		monitored                  bool
+		airDate                    *metav1.Time
+		cutoffMet, cutoffEvaluated bool
+		pendingGrab                bool
+		want                       catalogv1alpha1.EpisodePhase
+	}{
+		{"where it would read Imported", true, &past, true, true, false, catalogv1alpha1.EpisodePhaseTranscoded},
+		{"where it would read CutoffUnmet", true, &past, false, true, false, catalogv1alpha1.EpisodePhaseTranscoded},
+		{"where it would read CutoffUnevaluated", true, &past, false, false, false, catalogv1alpha1.EpisodePhaseTranscoded},
+		{"a leftover pending grab does not displace it", true, &past, false, true, true, catalogv1alpha1.EpisodePhaseTranscoded},
+		{"the air date is moot once there is a file", true, &future, false, true, false, catalogv1alpha1.EpisodePhaseTranscoded},
+		{"Unmonitored keeps its precedence", false, &past, true, true, false, catalogv1alpha1.EpisodePhaseUnmonitored},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			assert.Equal(t, c.want, episode.Phase(c.monitored, c.airDate, true, true, c.cutoffMet, c.cutoffEvaluated, c.pendingGrab, now))
+		})
+	}
+	assert.Equal(t, catalogv1alpha1.EpisodePhaseWanted, episode.Phase(true, &past, false, true, false, true, false, now),
+		"with no file there is nothing transcoded, whatever the flag says")
 }

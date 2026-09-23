@@ -47,10 +47,27 @@ import (
 // cutoffEvaluated reports whether the Series' QualityProfile resolved, i.e.
 // whether cutoffMet is a verdict at all; a file never ranked reads
 // CutoffUnevaluated at CutoffUnmet's rank (see the movie package's Phase).
-func Phase(monitored bool, airDate *metav1.Time, hasFile, cutoffMet, cutoffEvaluated, pendingGrab bool, now time.Time) catalogv1alpha1.EpisodePhase {
+//
+// transcoded reports whether the file is transcoded (rollup.Transcoded). A
+// transcoded file is final (CLAUDE.md, "Transcoding"), so it reads
+// Transcoded exactly where it would otherwise read Imported, CutoffUnmet or
+// CutoffUnevaluated, at Imported's rank. The whole order, highest first:
+//
+//	Downloading        a non-terminal Download (the reconciler's overlay, over all of these)
+//	Unmonitored
+//	Transcoded         a transcoded file
+//	Imported           a file that meets the cutoff
+//	Delayed            a pending grab
+//	CutoffUnevaluated  a file, no profile to rank it against
+//	CutoffUnmet        a file below the cutoff
+//	Unaired
+//	Wanted
+func Phase(monitored bool, airDate *metav1.Time, hasFile, transcoded, cutoffMet, cutoffEvaluated, pendingGrab bool, now time.Time) catalogv1alpha1.EpisodePhase {
 	switch {
 	case !monitored:
 		return catalogv1alpha1.EpisodePhaseUnmonitored
+	case hasFile && transcoded:
+		return catalogv1alpha1.EpisodePhaseTranscoded
 	case hasFile && cutoffMet:
 		return catalogv1alpha1.EpisodePhaseImported
 	case pendingGrab:

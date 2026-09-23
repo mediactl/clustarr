@@ -121,7 +121,9 @@ const TranscodedRecheckInterval = 24 * time.Hour
 //     (Watches + k8s.GenerationChanged, which passes creates, deletes and
 //     every spec change -- and §8.4 freezes quality/revision/formatScore/
 //     matchedFormats/releaseType in MediaFileSpec, so a generation bump
-//     covers every input the rollup read) and recompute the same fields
+//     covers every input the rollup read; since gap fix T1 they also wake
+//     on the file's transcoded verdict, which this controller's probe can
+//     flip in a status write) and recompute the same fields
 //     from rollup.PickMediaFile + rollup.FileState on a List. Their version
 //     is strictly better: it clears hasFile when the file is deleted, which
 //     the rollup could never do, and it feeds the file into the full

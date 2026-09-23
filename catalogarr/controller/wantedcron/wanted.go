@@ -158,8 +158,10 @@ func candidate(obj metav1.Object, kind commonv1.MediaKind, reason schema.SearchR
 // phaseReason is the reason shared by every kind with a Wanted/CutoffUnmet
 // phase pair: Wanted means no file at all, CutoffUnmet a file below the
 // profile's cutoff. Every other phase is either already handled
-// (Downloading, Delayed, Imported), deliberately out of scope (Unmonitored)
-// or not yet actionable (Pending, Unavailable, Unaired, CutoffUnevaluated).
+// (Downloading, Delayed, Imported), final (Transcoded: a transcoded Movie or
+// Episode file is never upgraded automatically, CLAUDE.md "Transcoding"),
+// deliberately out of scope (Unmonitored) or not yet actionable (Pending,
+// Unavailable, Unaired, CutoffUnevaluated).
 func phaseReason[P ~string](p, wanted, cutoffUnmet P) schema.SearchReason {
 	switch p {
 	case wanted:

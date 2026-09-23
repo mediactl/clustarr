@@ -43,7 +43,10 @@ type SeriesRollup struct {
 
 // Rollup folds a Series' owned Episodes into the per-season status Sonarr
 // keeps: seasons sorted ascending by number, the total episode count, the
-// total episode-with-file count, and the airing dates.
+// total episode-with-file count, and the airing dates. An episode counts as
+// having its file by status.hasFile alone, never by its phase, so a
+// Transcoded episode (a final, transcoded file) counts exactly as an
+// Imported one does.
 //
 // The airings follow Sonarr's SeriesStatisticsRepository (and its per-season
 // twin) exactly: NextAiring is the earliest air date at or after now,

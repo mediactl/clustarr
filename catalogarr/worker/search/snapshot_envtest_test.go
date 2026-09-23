@@ -26,12 +26,14 @@ import (
 	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/catalogarr/controller/rollup"
 	"github.com/mediactl/clustarr/catalogarr/worker/search"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -193,6 +195,7 @@ func TestWorkerSnapshotOfAnAnimeEpisodeWithAFile(t *testing.T) {
 	require.Equal(t, "One.Piece.S01E37.1080p.WEB-DL.x265-OLD", target.Current.SourceTitle)
 	require.Equal(t, "cccccccccccccccccccccccccccccccccccccccc", target.Current.SourceHash,
 		"the info hash comes from the Download that produced the file, not from MediaFile")
+	require.False(t, target.Current.Transcoded, "an original file with no CLUSTARR_PROFILE tag is not transcoded")
 
 	// The identity the decision engine checks every release against. The
 	// series has no metadata in this fixture, so there is no title yet: the
@@ -260,6 +263,75 @@ func TestWorkerSnapshotOfAMovieWithNoFileHasNoCurrent(t *testing.T) {
 	require.Equal(t, map[string]string{commonv1.IDKeyTMDB: "603"}, target.Identity.IDs,
 		"with no metadata yet the movie is still identifiable by its spec tmdb id")
 	require.Empty(t, target.Identity.Titles)
+}
+
+// TestWorkerSnapshotMarksATranscodedCurrentFile: the snapshot reads the
+// item's MediaFile through rollup.Transcoded, so an automatic search hands
+// the decision engine a Current it will not upgrade (TranscodedFinal). Both
+// ways a file is transcoded are covered: the swap (spec.original false) and
+// the probe's CLUSTARR_PROFILE tag.
+func TestWorkerSnapshotMarksATranscodedCurrentFile(t *testing.T) {
+	ctx := context.Background()
+	f := newWorkerFixture(t, "snapshot-transcoded")
+	c := f.mgr
+
+	for _, tc := range []struct {
+		name, mfName string
+		mark         func(t *testing.T, mfName string)
+	}{
+		{name: "a transcode swap", mfName: "the-matrix-swapped", mark: func(t *testing.T, mfName string) {
+			var mf catalogv1alpha1.MediaFile
+			require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: mfName}, &mf))
+			patch := client.MergeFrom(mf.DeepCopy())
+			mf.Spec.Original = ptr.To(false)
+			require.NoError(t, c.Patch(ctx, &mf, patch))
+		}},
+		{name: "the probe's tag", mfName: "the-matrix-tagged", mark: func(t *testing.T, mfName string) {
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr,
+				catalogac.MediaFile(mfName, f.ns).WithStatus(catalogac.MediaFileStatus().
+					WithMediaInfo(commonv1.MediaInfo{VideoCodec: "hevc", TranscodeProfile: "default@abc"})))
+			require.NoError(t, err)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mfName := tc.mfName
+			require.NoError(t, c.Create(ctx, &catalogv1alpha1.MediaFile{
+				ObjectMeta: metav1.ObjectMeta{Name: mfName, Namespace: f.ns},
+				Spec: catalogv1alpha1.MediaFileSpec{
+					MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
+					Path:     "/data/movies/The Matrix (1999)/" + mfName + ".mkv",
+					Quality:  commonv1.Quality{Name: "Bluray-1080p", Source: "bluray", Resolution: 1080},
+				},
+			}))
+			tc.mark(t, mfName)
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr,
+				catalogac.Movie("the-matrix", f.ns).WithStatus(catalogac.MovieStatus().
+					WithPhase(catalogv1alpha1.MoviePhaseTranscoded).WithHasFile(true).WithFileRef(mfName)))
+			require.NoError(t, err)
+			eventually(t, 10*time.Second, "the transcoded file and the movie's fileRef to reach the cache", func() bool {
+				var mf catalogv1alpha1.MediaFile
+				var m catalogv1alpha1.Movie
+				if c.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: mfName}, &mf) != nil ||
+					c.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: "the-matrix"}, &m) != nil {
+					return false
+				}
+				return rollup.Transcoded(&mf) && m.Status.FileRef != nil && *m.Status.FileRef == mfName
+			})
+
+			capture := &targetCapture{}
+			f.worker.Evaluate = capture.evaluate
+			env := f.envelope(t, schema.SearchTask{
+				MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
+				Reason:   schema.SearchReasonCutoffUnmet,
+			})
+			require.NoError(t, f.worker.Handle(ctx, testMessage{env: env}))
+
+			target, opts, _ := capture.get(t)
+			require.NotNil(t, target.Current)
+			require.True(t, target.Current.Transcoded, "the decision engine must be told the current file is final")
+			require.False(t, opts.UserInvoked, "an automatic search, which TranscodedFinal applies to")
+		})
+	}
 }
 
 func TestWorkerBlocklistPredicateHonoursTheExpiryDeadline(t *testing.T) {

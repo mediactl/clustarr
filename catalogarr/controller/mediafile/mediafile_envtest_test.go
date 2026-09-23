@@ -50,6 +50,7 @@ import (
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/catalogarr/controller/mediafile"
+	"github.com/mediactl/clustarr/catalogarr/controller/rollup"
 	"github.com/mediactl/clustarr/importarr/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
@@ -535,6 +536,64 @@ func TestReconcileRealFFprobe(t *testing.T) {
 	assert.Equal(t, "h264", got.Status.MediaInfo.VideoCodec)
 	require.NotEmpty(t, got.Status.MediaInfo.Audio)
 	assert.NotEmpty(t, got.Status.MediaInfo.Audio[0].ChannelLayout)
+}
+
+// TestReconcileRecordsAnEarlierInstallsTranscode is gap fix T1's detection
+// end to end, from the real producer: a library file carrying squasharr's
+// CLUSTARR_PROFILE tag -- written here by a real ffmpeg -- is imported as an
+// ORIGINAL (a rescan knows nothing of its history), and the real probe must
+// record the tag in status.mediaInfo.transcodeProfile, through the
+// apiserver's schema, so rollup.Transcoded reads the file as final. Nothing
+// else changes: the file is not taken over (spec.original stays true, a
+// field catalogarr only owns after a swap it incorporated), and no
+// transcode verdict is invented for it.
+func TestReconcileRecordsAnEarlierInstallsTranscode(t *testing.T) {
+	skipIfNoFFprobe(t)
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg not on PATH")
+	}
+	c, _ := startEnv(t)
+	ctx := t.Context()
+	const ns, name = "earlier-install", "tagged-abc1234567"
+	const tag = "hevc-main10@0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	mustNamespace(t, ctx, c, ns)
+	mustQualityProfile(t, ctx, c, "qp-video")
+	mustMovie(t, ctx, c, ns, "inception", "qp-video")
+
+	path := filepath.Join(t.TempDir(), "Inception (2010).mkv")
+	out, err := exec.CommandContext(ctx, ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+		"-i", "../../../testdata/mediainfo/sample_hevc_10bit.mkv", "-map", "0", "-c", "copy",
+		"-metadata", mediainfo.ProfileTagKey+"="+tag, path).CombinedOutput()
+	require.NoError(t, err, "ffmpeg: %s", out)
+	stat, err := os.Stat(path)
+	require.NoError(t, err)
+
+	importarrCreatesMediaFileFor(t, ctx, c, ns, name,
+		commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "inception"},
+		path, stat.Size(), stat.ModTime(),
+		commonv1.Quality{Name: "Bluray-1080p", Source: commonv1.SourceBluray, Resolution: commonv1.Resolution1080p, Modifier: commonv1.ModifierNone})
+
+	r := mediafile.NewReconciler(c, k8s.MustNewScheme(), nil)
+	_, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: name}})
+	require.NoError(t, err)
+
+	var got catalogv1alpha1.MediaFile
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	require.NotNil(t, got.Status.MediaInfo)
+	assert.Equal(t, tag, got.Status.MediaInfo.TranscodeProfile)
+	assert.True(t, rollup.Transcoded(&got), "the tag alone makes the file transcoded, and final")
+	require.NotNil(t, got.Spec.Original)
+	assert.True(t, *got.Spec.Original, "catalogarr takes a file over only when it incorporates a swap")
+	assert.Nil(t, got.Status.Transcode, "no transcode verdict is invented for a file this install never transcoded")
+
+	// A second reconcile that does not re-probe re-asserts the field rather
+	// than releasing it.
+	_, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: name}})
+	require.NoError(t, err)
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	require.NotNil(t, got.Status.MediaInfo)
+	assert.Equal(t, tag, got.Status.MediaInfo.TranscodeProfile)
 }
 
 // TestTranscodeJobWatchTriggersReconcile drives a real ctrl.Manager, proving

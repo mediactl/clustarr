@@ -75,6 +75,16 @@ var (
 	// (Identity.SingleEpisodeSearch). It is Permanent there too, so an
 	// interactive user can still take the pack through Search.spec.override.
 	ReasonFullSeason = Reason{"FullSeason", common.RejectionPermanent}
+
+	// ReasonTranscodedFinal has no *arr counterpart. It is the owner's rule
+	// (CLAUDE.md, "Transcoding"): a transcoded file is the final
+	// destination, so an automatic decision -- the RSS matcher's, or an
+	// automatic search's -- never grabs over one, whatever the candidate's
+	// quality. Target.Current.Transcoded carries the verdict. It is not
+	// raised for a user-invoked (interactive) search, as Radarr and Sonarr
+	// let a user grab by hand regardless; and it is Permanent, so no later
+	// automatic run revisits it.
+	ReasonTranscodedFinal = Reason{"TranscodedFinal", common.RejectionPermanent}
 )
 
 // verdictReasons maps every non-Upgrade quality.Verdict to the Reason

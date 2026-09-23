@@ -137,3 +137,57 @@ func TestEvaluateScoresReleaseTitleFormatsFromTheReleaseName(t *testing.T) {
 	require.Equal(t, 505, ds[0].Score)
 	require.EqualValues(t, 505, ds[0].Release.FormatScore, "the score lands on the Release that Search.status and Download.spec carry")
 }
+
+// TestEvaluateNeverUpgradesATranscodedFileAutomatically pins the owner's rule
+// (CLAUDE.md, "Transcoding"): a transcoded file is final. A clear upgrade --
+// Bluray-2160p over a Bluray-1080p file below a 2160p cutoff, which the
+// UpgradableSpecification table approves -- is rejected TranscodedFinal on
+// every automatic decision (the RSS matcher's, an automatic search's), and
+// the same release against the same file untranscoded, or offered to a
+// user's interactive search, is approved.
+func TestEvaluateNeverUpgradesATranscodedFileAutomatically(t *testing.T) {
+	bluray2160, ok := quality.Lookup("video", "Bluray-2160p")
+	require.True(t, ok)
+	bluray1080, ok := quality.Lookup("video", "Bluray-1080p")
+	require.True(t, ok)
+	p := quality.Profile{
+		Tiers:                 [][]quality.Definition{{bluray2160}, {bluray1080}},
+		CutoffIndex:           0,
+		UpgradeAllowed:        true,
+		CutoffFormatScore:     10000,
+		MinUpgradeFormatScore: 1,
+		ProperPolicy:          "preferAndUpgrade",
+		LanguageName:          "any",
+	}
+	rel := common.ReleaseInfo{
+		GUID: "idx:heat-uhd", IndexerRef: "idx", Protocol: common.ProtocolTorrent,
+		Title: "Heat.1995.2160p.UHD.BluRay.x265-GROUP",
+	}
+	target := func(transcoded bool) decision.Target {
+		return decision.Target{
+			Kind: common.MediaKindMovie, Available: true, OriginalLanguageTag: "en",
+			Identity: decision.Identity{Titles: []string{"Heat"}, Year: 1995},
+			Current:  &decision.Current{Quality: bluray1080.Quality, Transcoded: transcoded},
+		}
+	}
+	automatic := decision.Options{ProtocolsEnabled: map[string]bool{"torrent": true}}
+	interactive := decision.Options{UserInvoked: true, ProtocolsEnabled: map[string]bool{"torrent": true}}
+	eval := func(tg decision.Target, o decision.Options) decision.Decision {
+		ds := decision.Evaluate(context.Background(), tg, p, &catalogue.Catalogue{}, []common.ReleaseInfo{rel}, o)
+		require.Len(t, ds, 1)
+		return ds[0]
+	}
+
+	// The control: the release really is an upgrade of this file.
+	require.True(t, eval(target(false), automatic).Approved, "an untranscoded Bluray-1080p below a 2160p cutoff takes the upgrade")
+
+	got := eval(target(true), automatic)
+	require.False(t, got.Approved, "an automatic decision must never grab over a transcoded file")
+	require.False(t, got.TemporarilyRejected)
+	require.Len(t, got.Rejections, 1, "the upgrade itself is sound; only the transcoded rule rejects it: %+v", got.Rejections)
+	require.Equal(t, common.RejectionPermanent, got.Rejections[0].Type)
+	require.Contains(t, got.Rejections[0].Reason, decision.ReasonTranscodedFinal.Code+": ")
+
+	require.True(t, eval(target(true), interactive).Approved,
+		"a user's interactive search is left to the ordinary checks, as Radarr and Sonarr allow a manual grab")
+}

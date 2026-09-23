@@ -29,11 +29,17 @@ import (
 // value. profile is nil when the owning QualityProfile could not be
 // resolved; cutoffMet is conservatively false in that case rather than
 // panicking or guessing.
+//
+// A transcoded file ([Transcoded]) meets the cutoff whatever the profile
+// says, resolved or not: it is final, and cutoffMet false is what reads as
+// "an upgrade is wanted". Its quality is still the release's, frozen at
+// import (spec §8.4), so the profile alone would often call it below the
+// cutoff -- which is exactly the CutoffUnmet the owner's rule forbids.
 func FileState(mf *catalogv1alpha1.MediaFile, profile *quality.Profile) (hasFile bool, fileRef *string, fileQuality *commonv1.Quality, fileFormatScore int32, cutoffMet bool) {
 	if mf == nil {
 		return false, nil, nil, 0, false
 	}
 	name := mf.Name
-	cutoffMet = profile != nil && profile.CutoffMet(mf.Spec.Quality)
+	cutoffMet = Transcoded(mf) || (profile != nil && profile.CutoffMet(mf.Spec.Quality))
 	return true, &name, &mf.Spec.Quality, mf.Spec.FormatScore, cutoffMet
 }

@@ -55,6 +55,29 @@ func TestRollup(t *testing.T) {
 	assert.EqualValues(t, 1, seasons[1].EpisodeFileCount)
 }
 
+// TestRollupCountsATranscodedEpisode: a Transcoded episode has its file and
+// meets its cutoff (the episode reconciler writes hasFile and cutoffMet true
+// for it), so it counts toward the file totals exactly as an Imported one
+// does -- the Series never reads the episode phase, only hasFile.
+func TestRollupCountsATranscodedEpisode(t *testing.T) {
+	eps := []catalogv1alpha1.Episode{
+		{Spec: catalogv1alpha1.EpisodeSpec{SeasonNumber: 1, EpisodeNumber: 1}, Status: catalogv1alpha1.EpisodeStatus{
+			Phase: catalogv1alpha1.EpisodePhaseTranscoded, HasFile: true, CutoffMet: true,
+		}},
+		{Spec: catalogv1alpha1.EpisodeSpec{SeasonNumber: 1, EpisodeNumber: 2}, Status: catalogv1alpha1.EpisodeStatus{
+			Phase: catalogv1alpha1.EpisodePhaseImported, HasFile: true, CutoffMet: true,
+		}},
+		{Spec: catalogv1alpha1.EpisodeSpec{SeasonNumber: 1, EpisodeNumber: 3}, Status: catalogv1alpha1.EpisodeStatus{
+			Phase: catalogv1alpha1.EpisodePhaseWanted,
+		}},
+	}
+	r := series.Rollup(eps, time.Now())
+	require.Len(t, r.Seasons, 1)
+	assert.EqualValues(t, 3, r.EpisodeCount)
+	assert.EqualValues(t, 2, r.EpisodeFileCount, "the Transcoded episode has its file")
+	assert.EqualValues(t, 2, r.Seasons[0].EpisodeFileCount)
+}
+
 func TestRollupEmpty(t *testing.T) {
 	r := series.Rollup(nil, time.Now())
 	assert.Empty(t, r.Seasons)

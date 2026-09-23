@@ -60,7 +60,36 @@ func TestPhase(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			assert.Equal(t, c.want, movie.Phase(c.monitored, c.metaReady, c.available, c.hasFile, c.cutoffMet, c.cutoffEvaluated, c.pendingGrab))
+			assert.Equal(t, c.want, movie.Phase(c.monitored, c.metaReady, c.available, c.hasFile, false, c.cutoffMet, c.cutoffEvaluated, c.pendingGrab))
 		})
 	}
+}
+
+// TestPhaseTranscoded pins the owner's rule (CLAUDE.md, "Transcoding"): a
+// transcoded file reads Transcoded wherever it would otherwise read Imported,
+// CutoffUnmet or CutoffUnevaluated, and never CutoffUnmet. Unmonitored and
+// Pending keep their precedence; the Download overlay, applied by the
+// reconciler over this, keeps its own.
+func TestPhaseTranscoded(t *testing.T) {
+	cases := []struct {
+		name                                 string
+		monitored, metaReady, available      bool
+		cutoffMet, cutoffEvaluated, pendingG bool
+		want                                 catalogv1alpha1.MoviePhase
+	}{
+		{"where it would read Imported", true, true, true, true, true, false, catalogv1alpha1.MoviePhaseTranscoded},
+		{"where it would read CutoffUnmet", true, true, true, false, true, false, catalogv1alpha1.MoviePhaseTranscoded},
+		{"where it would read CutoffUnevaluated", true, true, true, false, false, false, catalogv1alpha1.MoviePhaseTranscoded},
+		{"a leftover pending grab does not displace it, as it does not displace Imported", true, true, true, false, true, true, catalogv1alpha1.MoviePhaseTranscoded},
+		{"availability is moot once there is a file", true, true, false, false, true, false, catalogv1alpha1.MoviePhaseTranscoded},
+		{"Unmonitored keeps its precedence", false, true, true, true, true, false, catalogv1alpha1.MoviePhaseUnmonitored},
+		{"Pending keeps its precedence", true, false, true, true, true, false, catalogv1alpha1.MoviePhasePending},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			assert.Equal(t, c.want, movie.Phase(c.monitored, c.metaReady, c.available, true, true, c.cutoffMet, c.cutoffEvaluated, c.pendingG))
+		})
+	}
+	assert.Equal(t, catalogv1alpha1.MoviePhaseWanted, movie.Phase(true, true, true, false, true, false, true, false),
+		"with no file there is nothing transcoded, whatever the flag says")
 }

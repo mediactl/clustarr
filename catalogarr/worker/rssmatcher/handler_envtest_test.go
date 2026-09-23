@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
@@ -495,6 +496,128 @@ func TestHandler_PackNobodyWantsIsNotGrabbed(t *testing.T) {
 	var downloads downloadv1alpha1.DownloadList
 	require.NoError(t, mgr.GetAPIReader().List(ctx, &downloads, client.InNamespace(ns)))
 	assert.Empty(t, downloads.Items, "an approved pack no episode wants is not grabbed")
+}
+
+// transcodedFile creates the MediaFile a transcode swap leaves behind
+// (spec.original false; a MediaFile's name is its own, so fileRef can point
+// at it) and records it on the item's status as the item's reconciler
+// would, so the item's rolled-up quality is the frozen release quality q.
+func transcodedFile(t *testing.T, ctx context.Context, c client.Client, ns string, ref commonv1.MediaRef, q commonv1.Quality) string {
+	t.Helper()
+	name := ref.Name + "-file"
+	require.NoError(t, c.Create(ctx, &catalogv1alpha1.MediaFile{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		Spec: catalogv1alpha1.MediaFileSpec{
+			MediaRef: ref, Path: "/data/media/" + name + ".mkv", Quality: q, Original: ptr.To(false),
+		},
+	}))
+	return name
+}
+
+// TestHandler_TranscodedMovieIsNeverGrabbed pins the owner's rule (CLAUDE.md,
+// "Transcoding") on the likeliest automatic grab of all. The movie's file is
+// a WEBDL-720p, three tiers below the profile's Bluray-1080p cutoff, so the
+// release is a sound upgrade -- the only thing refusing it is that the file
+// is transcoded, and final.
+func TestHandler_TranscodedMovieIsNeverGrabbed(t *testing.T) {
+	ctx := context.Background()
+	mgr := newTestManager(t)
+	c := mgr.GetClient()
+	ns := newNamespace(t, ctx, c)
+
+	createMovie(t, ctx, c, ns, "the-thing-1982", 1091, "The Thing", 1982)
+	web720 := commonv1.Quality{Name: "WEBDL-720p", Source: commonv1.SourceWebDL, Resolution: 720, Modifier: commonv1.ModifierNone}
+	file := transcodedFile(t, ctx, c, ns, commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-thing-1982"}, web720)
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Movie("the-thing-1982", ns).WithStatus(
+		catalogac.MovieStatus().WithHasFile(true).WithFileRef(file).WithFileQuality(web720)))
+	require.NoError(t, err)
+	createQualityProfile(t, ctx, c)
+	createIndexer(t, ctx, c, ns, "my-indexer")
+	createDelayProfile(t, ctx, c, ns, 0, true) // no delay: an approved release would be grabbed at once
+
+	capture := &decisionCapture{}
+	h := rssmatcher.NewHandler(rssmatcher.Deps{Client: c, Reader: mgr.GetAPIReader(), Bus: newTestBus(t), Evaluate: capture.evaluate, Now: func() time.Time { return relNow }})
+	eventually(t, 15*time.Second, "the release to be matched and decided against the transcoded file", func() bool {
+		var mf catalogv1alpha1.MediaFile
+		var m catalogv1alpha1.Movie
+		if c.Get(ctx, client.ObjectKey{Namespace: ns, Name: file}, &mf) != nil ||
+			c.Get(ctx, client.ObjectKey{Namespace: ns, Name: "the-thing-1982"}, &m) != nil || !m.Status.HasFile {
+			return false
+		}
+		if err := h.Handle(ctx, releaseMessage(t, ns, "my-indexer", blurayRelease("1091"))); err != nil {
+			t.Fatalf("Handle: %v", err)
+		}
+		_, ds := capture.get()
+		return len(ds) == 1
+	})
+
+	target, ds := capture.get()
+	require.NotNil(t, target.Current)
+	assert.True(t, target.Current.Transcoded, "the matcher must read the file's transcoded verdict")
+	require.False(t, ds[0].Approved)
+	require.Len(t, ds[0].Rejections, 1, "the upgrade is otherwise sound: %+v", ds[0].Rejections)
+	assert.True(t, strings.HasPrefix(ds[0].Rejections[0].Reason, decision.ReasonTranscodedFinal.Code+":"), ds[0].Rejections[0].Reason)
+
+	var downloads downloadv1alpha1.DownloadList
+	require.NoError(t, mgr.GetAPIReader().List(ctx, &downloads, client.InNamespace(ns)))
+	assert.Empty(t, downloads.Items, "nothing is grabbed over a transcoded file")
+}
+
+// TestHandler_PackNeverReachesATranscodedEpisode: a season pack is approved
+// against no single file, so the transcoded rule has to hold where the pack
+// is narrowed to its keys. e1's WEBDL-720p would take the pack's
+// Bluray-1080p as an upgrade, but it is transcoded; e2 has no file.
+func TestHandler_PackNeverReachesATranscodedEpisode(t *testing.T) {
+	ctx := context.Background()
+	mgr := newTestManager(t)
+	c := mgr.GetClient()
+	ns := newNamespace(t, ctx, c)
+
+	createSeries(t, ctx, c, ns, "the-wire", 79126, "The Wire", 2002)
+	aired := relNow.Add(-30 * 24 * time.Hour)
+	e1 := createEpisode(t, ctx, c, ns, "the-wire", 1, 1, &aired)
+	e2 := createEpisode(t, ctx, c, ns, "the-wire", 1, 2, &aired)
+	web720 := commonv1.Quality{Name: "WEBDL-720p", Source: commonv1.SourceWebDL, Resolution: 720, Modifier: commonv1.ModifierNone}
+	file := transcodedFile(t, ctx, c, ns, commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: e1}, web720)
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Episode(e1, ns).WithStatus(
+		catalogac.EpisodeStatus().WithHasFile(true).WithFileRef(file).WithFileQuality(web720)))
+	require.NoError(t, err)
+	createQualityProfile(t, ctx, c)
+	createIndexer(t, ctx, c, ns, "my-indexer")
+	createDelayProfile(t, ctx, c, ns, 0, true)
+	eventually(t, 10*time.Second, "both episodes and the transcoded file to reach the cache", func() bool {
+		var list catalogv1alpha1.EpisodeList
+		var mf catalogv1alpha1.MediaFile
+		if c.List(ctx, &list, client.InNamespace(ns)) != nil || len(list.Items) != 2 ||
+			c.Get(ctx, client.ObjectKey{Namespace: ns, Name: file}, &mf) != nil {
+			return false
+		}
+		files := 0
+		for i := range list.Items {
+			if list.Items[i].Status.AirDate == nil {
+				return false
+			}
+			if list.Items[i].Status.HasFile {
+				files++
+			}
+		}
+		return files == 1
+	})
+
+	h := rssmatcher.NewHandler(rssmatcher.Deps{Client: c, Reader: mgr.GetAPIReader(), Bus: newTestBus(t), Now: func() time.Time { return relNow }})
+	eventually(t, 15*time.Second, "the pack to be grabbed", func() bool {
+		if err := h.Handle(ctx, releaseMessage(t, ns, "my-indexer", seasonPack())); err != nil {
+			t.Fatalf("Handle: %v", err)
+		}
+		var downloads downloadv1alpha1.DownloadList
+		return c.List(ctx, &downloads, client.InNamespace(ns)) == nil && len(downloads.Items) == 1
+	})
+
+	var downloads downloadv1alpha1.DownloadList
+	require.NoError(t, mgr.GetAPIReader().List(ctx, &downloads, client.InNamespace(ns)))
+	require.Len(t, downloads.Items, 1)
+	assert.Equal(t, []string{e2}, downloads.Items[0].Spec.Target.Keys,
+		"the transcoded episode is final, so the pack is grabbed for the missing one only")
 }
 
 // fakeSceneSource is a scenemap.Source over literal tables.

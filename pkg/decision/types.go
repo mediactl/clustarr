@@ -32,6 +32,12 @@ import (
 // the Download that produced the file, not on MediaFile itself) and is the
 // caller's responsibility to resolve from that Download when one still
 // exists -- see Disagreement 3.
+//
+// Transcoded is true when the file is transcoded
+// (catalogarr/controller/rollup.Transcoded, the one place the rule lives): a
+// transcoded file is final, so Evaluate rejects every candidate of an
+// automatic decision against it (ReasonTranscodedFinal) and leaves only a
+// user-invoked one to the ordinary checks.
 type Current struct {
 	Quality     common.Quality
 	Revision    common.Revision
@@ -39,6 +45,7 @@ type Current struct {
 	Formats     []string
 	SourceHash  string
 	SourceTitle string
+	Transcoded  bool
 }
 
 // Queued is a release already downloading for a Target. It is a type alias
