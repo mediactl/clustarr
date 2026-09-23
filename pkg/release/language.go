@@ -51,17 +51,34 @@ var languageRegex = mustCompile(
 // Japanese.
 var languageGroups = []string{"English", "French", "German", "Spanish", "Italian", "Japanese", "Korean", "Chinese"}
 
-// detectLanguages returns the language named in title, or nil when the
-// title names none -- Radarr's and Sonarr's Language.Unknown.
+// detectLanguages returns every language named in title, each once and in
+// languageGroups order, or nil when the title names none -- Radarr's and
+// Sonarr's Language.Unknown. Radarr's LanguageParser.ParseLanguages
+// (develop) builds a list the same way: it runs every language check and
+// every LanguageRegex match rather than stopping at the first, then
+// DistinctBy's the result, so "FRENCH.GERMAN" is both. A regexp2
+// MatchTimeout ends the scan with what was found so far.
 func detectLanguages(title string) []string {
-	if m, err := languageRegex.FindStringMatch(title); err == nil && m != nil {
+	found := make(map[string]bool, len(languageGroups))
+	m, err := languageRegex.FindStringMatch(title)
+	for err == nil && m != nil {
 		for _, name := range languageGroups {
 			if grp := m.GroupByName(name); grp != nil && len(grp.Captures) > 0 {
-				return []string{name}
+				found[name] = true
 			}
 		}
+		m, err = languageRegex.FindNextMatch(m)
 	}
-	return nil
+	if len(found) == 0 {
+		return nil
+	}
+	langs := make([]string, 0, len(found))
+	for _, name := range languageGroups {
+		if found[name] {
+			langs = append(langs, name)
+		}
+	}
+	return langs
 }
 
 // languagesOf is a movie or TV title's languages: those it names, or the

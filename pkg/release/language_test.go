@@ -35,6 +35,13 @@ func TestParseLanguagesDefaultsToEnglish(t *testing.T) {
 		{"no language token", "The.Matrix.1999.1080p.BluRay.x264-GROUP", []string{"English"}},
 		{"multi token alone is no language", "Some.Movie.2020.MULTI.1080p.BluRay.x264-GROUP", []string{"English"}},
 		{"explicit french", "Amelie.2001.FRENCH.1080p.BluRay.x264-GROUP", []string{"French"}},
+		// Radarr's ParseLanguages collects every language, not the first.
+		{"two languages", "Some.Movie.2020.GERMAN.FRENCH.1080p.BluRay.x264-GROUP", []string{"French", "German"}},
+		{
+			"three languages, one repeated", "Some.Movie.2020.ENGLISH.JAPANESE.KOREAN.JAPANESE.1080p.WEB-DL-GROUP",
+			[]string{"English", "Japanese", "Korean"},
+		},
+		{"french alias and german", "Some.Movie.2020.VFF.GERMAN.1080p.BluRay.x264-GROUP", []string{"French", "German"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
