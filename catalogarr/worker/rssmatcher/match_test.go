@@ -121,8 +121,10 @@ func TestSeriesTitleYearKeys(t *testing.T) {
 		}}), "a title that already carries its year answers to that form")
 	assert.Equal(t, []string{"attack on titan", "attack on titan 2013", "shingeki no kyojin", "shingeki no kyojin 2013"},
 		seriesTitleYearKeys(&catalogv1alpha1.Series{Status: catalogv1alpha1.SeriesStatus{
-			Metadata: &catalogv1alpha1.SeriesMetadata{Title: "Attack on Titan", Year: 2013,
-				AlternateTitles: []catalogv1alpha1.AltTitle{{Title: "Shingeki no Kyojin"}, {Title: "Attack on Titan"}}},
+			Metadata: &catalogv1alpha1.SeriesMetadata{
+				Title: "Attack on Titan", Year: 2013,
+				AlternateTitles: []catalogv1alpha1.AltTitle{{Title: "Shingeki no Kyojin"}, {Title: "Attack on Titan"}},
+			},
 		}}), "an alias answers the same two ways as the title; a repeat of the title is not indexed twice")
 }
 
