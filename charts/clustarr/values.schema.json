@@ -1,0 +1,291 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "clustarr",
+  "description": "Values for the clustarr umbrella chart. Checks shapes (types, enums, known number/string formats) so a bad values file fails at `helm install`/`helm template`/`helm lint` -- with a schema-path error pointing at the exact key -- rather than deep inside a template with a `nil pointer` or a silently wrong render. See charts/clustarr/README.md for the field-by-field reference and charts/clustarr/templates/_helpers.tpl's clustarr.validate for the cross-field invariants (e.g. catalogarrMetadata.replicas/indexarr.replicas below duplicate two of those checks on purpose, so they fail here, earlier and with a clearer message, before the template-level fail ever runs). nats/nack/keda are validated only shallowly: those objects pass straight through to the bundled subcharts, which ship no values.schema.json of their own for this chart to defer to, and duplicating their whole value surface here would drift the moment either chart adds a value.",
+  "type": "object",
+  "required": ["image", "storage", "podSecurityContext", "securityContext"],
+  "properties": {
+    "nameOverride": { "type": "string" },
+    "fullnameOverride": { "type": "string" },
+
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registry", "pullPolicy", "controller", "media", "mediaCuda"],
+      "properties": {
+        "registry": { "type": "string" },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] },
+        "controller": { "$ref": "#/$defs/imageRef" },
+        "media": { "$ref": "#/$defs/imageRef" },
+        "mediaCuda": { "$ref": "#/$defs/imageRef" }
+      }
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": { "name": { "type": "string" } }
+      }
+    },
+
+    "natsUrl": { "type": "string" },
+    "natsSingleNode": { "type": ["boolean", "null"] },
+    "nats": {
+      "type": "object",
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "config": { "type": "object" },
+        "promExporter": { "type": "object" },
+        "container": { "type": "object" }
+      }
+    },
+    "nack": {
+      "type": "object",
+      "required": ["enabled"],
+      "properties": { "enabled": { "type": "boolean" } }
+    },
+
+    "keda": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "prometheusAddress"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "prometheusAddress": { "type": "string" },
+        "captionarrWorker": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "minReplicas": { "type": "integer", "minimum": 0 },
+            "maxReplicas": { "type": "integer", "minimum": 1 },
+            "threshold": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "serviceMonitor": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "interval": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$" },
+            "additionalLabels": { "type": "object" }
+          }
+        }
+      }
+    },
+
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["data", "index"],
+      "properties": {
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["existingClaim", "storageClass", "accessMode", "size"],
+          "properties": {
+            "existingClaim": { "type": "string" },
+            "storageClass": { "type": "string" },
+            "accessMode": { "$ref": "#/$defs/pvcAccessMode" },
+            "size": { "$ref": "#/$defs/quantity" }
+          }
+        },
+        "index": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["existingClaim", "storageClass", "size"],
+          "properties": {
+            "existingClaim": { "type": "string" },
+            "storageClass": { "type": "string" },
+            "size": { "$ref": "#/$defs/quantity" }
+          }
+        }
+      }
+    },
+
+    "podSecurityContext": { "type": "object" },
+    "securityContext": { "type": "object" },
+
+    "catalogarr": { "$ref": "#/$defs/serviceBlock" },
+    "catalogarrMetadata": {
+      "allOf": [{ "$ref": "#/$defs/serviceBlock" }],
+      "properties": {
+        "replicas": {
+          "const": 1,
+          "description": "Pinned: the metadata gateway holds its provider rate-limiter windows in process memory (see clustarr.validate's fail)."
+        }
+      }
+    },
+    "importarr": { "$ref": "#/$defs/serviceBlock" },
+    "importarrWorker": { "$ref": "#/$defs/serviceBlock" },
+    "indexarr": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "replicas", "facade", "resources", "nodeSelector", "tolerations", "affinity"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicas": {
+          "const": 1,
+          "description": "Pinned: the release index is a local SQLite database on a ReadWriteOnce PVC (see clustarr.validate's fail)."
+        },
+        "facade": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["service", "apiKeySecret"],
+          "properties": {
+            "service": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "port"],
+              "properties": {
+                "type": { "$ref": "#/$defs/serviceType" },
+                "port": { "$ref": "#/$defs/port" }
+              }
+            },
+            "apiKeySecret": { "type": "string" }
+          }
+        },
+        "resources": { "$ref": "#/$defs/resources" },
+        "nodeSelector": { "type": "object" },
+        "tolerations": { "type": "array" },
+        "affinity": { "type": "object" }
+      }
+    },
+    "grabarr": { "$ref": "#/$defs/serviceBlock" },
+    "squasharr": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "replicas", "slots", "resources", "nodeSelector", "tolerations", "affinity"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicas": { "type": "integer", "minimum": 0 },
+        "slots": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*=[0-9]+(,[a-z][a-z0-9]*=[0-9]+)*$",
+          "description": "squasharr --slots: comma-separated hardware=count pairs, e.g. cpu=2,nvidia=1,intel=1."
+        },
+        "resources": { "$ref": "#/$defs/resources" },
+        "nodeSelector": { "type": "object" },
+        "tolerations": { "type": "array" },
+        "affinity": { "type": "object" }
+      }
+    },
+    "captionarr": { "$ref": "#/$defs/serviceBlock" },
+    "captionarrWorker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "replicas", "ackWaitSeconds", "resources", "nodeSelector", "tolerations", "affinity"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicas": { "type": "integer", "minimum": 0 },
+        "ackWaitSeconds": { "type": "integer", "minimum": 1 },
+        "resources": { "$ref": "#/$defs/resources" },
+        "nodeSelector": { "type": "object" },
+        "tolerations": { "type": "array" },
+        "affinity": { "type": "object" }
+      }
+    },
+    "ui": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "replicas", "service", "resources", "nodeSelector", "tolerations", "affinity"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicas": { "type": "integer", "minimum": 0 },
+        "service": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "port"],
+          "properties": {
+            "type": { "$ref": "#/$defs/serviceType" },
+            "port": { "$ref": "#/$defs/port" }
+          }
+        },
+        "resources": { "$ref": "#/$defs/resources" },
+        "nodeSelector": { "type": "object" },
+        "tolerations": { "type": "array" },
+        "affinity": { "type": "object" }
+      }
+    }
+  },
+
+  "$defs": {
+    "imageRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "tag"],
+      "properties": {
+        "repository": { "type": "string" },
+        "tag": { "type": "string" }
+      }
+    },
+
+    "quantity": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[0-9]+(\\.[0-9]+)?(E|P|T|G|M|k|Ei|Pi|Ti|Gi|Mi|Ki)?$",
+      "description": "A Kubernetes resource.Quantity in binary or decimal SI form, e.g. 100Gi, 512Mi, 5000000."
+    },
+    "cpuQuantity": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[0-9]+(\\.[0-9]+)?m?$",
+      "description": "A Kubernetes CPU quantity: cores (\"1\", \"0.5\") or millicores (\"500m\")."
+    },
+    "pvcAccessMode": {
+      "type": "string",
+      "enum": ["ReadWriteMany", "ReadWriteOnce", "ReadOnlyMany", "ReadWriteOncePod"]
+    },
+    "serviceType": {
+      "type": "string",
+      "enum": ["ClusterIP", "NodePort", "LoadBalancer", "ExternalName"]
+    },
+    "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requests": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cpu": { "$ref": "#/$defs/cpuQuantity" },
+            "memory": { "$ref": "#/$defs/quantity" }
+          }
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cpu": { "$ref": "#/$defs/cpuQuantity" },
+            "memory": { "$ref": "#/$defs/quantity" }
+          }
+        }
+      }
+    },
+
+    "serviceBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "replicas", "resources", "nodeSelector", "tolerations", "affinity"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicas": { "type": "integer", "minimum": 0 },
+        "resources": { "$ref": "#/$defs/resources" },
+        "nodeSelector": { "type": "object" },
+        "tolerations": { "type": "array" },
+        "affinity": { "type": "object" }
+      }
+    }
+  }
+}

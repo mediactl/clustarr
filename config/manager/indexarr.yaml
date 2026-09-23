@@ -81,6 +81,9 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        # §12: GOMEMLIMIT = 80% of 1Gi, in bytes (see catalogarr.yaml).
+        - name: GOMEMLIMIT
+          value: "858993459"
         - name: CLUSTARR_INDEX_PATH
           value: /var/lib/clustarr/index/releases.db
         # The Torznab facade on port http (8080) FAILS CLOSED: it serves only

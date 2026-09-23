@@ -97,6 +97,12 @@ spec:
                   fieldPath: metadata.namespace
             - name: UMASK
               value: "002"
+            # §12: GOMEMLIMIT = 80% of 512Mi, in bytes (see catalogarr.yaml).
+            # This is squasharr's OWN controller process, not the transcode
+            # Job pods it creates -- those are sized per profile (§9), not
+            # this Deployment's resources.
+            - name: GOMEMLIMIT
+              value: "429496730"
             # Images stamped into the TranscodeJob pods this controller creates
             # (--worker-image, --worker-image-cuda). The Jobs run as the
             # squasharr-worker ServiceAccount above and mount clustarr-data,

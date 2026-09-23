@@ -77,6 +77,9 @@ spec:
                   fieldPath: metadata.namespace
             - name: UMASK
               value: "002"
+            # §12: GOMEMLIMIT = 80% of 1Gi, in bytes (see catalogarr.yaml).
+            - name: GOMEMLIMIT
+              value: "858993459"
           ports:
             - name: metrics
               containerPort: 8443

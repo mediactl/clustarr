@@ -215,6 +215,11 @@ spec:
         image: {{ include "clustarr.image" (dict "root" $ "which" "controller") }}
         imagePullPolicy: {{ $.Values.image.pullPolicy }}
         args: ["ui"]
+        {{- with dig "resources" "limits" "memory" "" .Values.ui }}
+        env:
+        - name: GOMEMLIMIT
+          value: {{ include "clustarr.gomemlimit" . | quote }}
+        {{- end }}
         ports:
         - name: http
           containerPort: 8080

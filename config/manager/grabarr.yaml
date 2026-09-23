@@ -86,6 +86,13 @@ spec:
                   fieldPath: metadata.namespace
             - name: UMASK
               value: "002"
+            # §12: GOMEMLIMIT = 80% of 1Gi, in bytes (see catalogarr.yaml).
+            # This is grabarr's OWN controller process, not the torrent/usenet
+            # engine workloads it creates per DownloadClient below -- those
+            # get GOMEMLIMIT from DownloadClient.spec.resources at reconcile
+            # time, not from this static manifest.
+            - name: GOMEMLIMIT
+              value: "858993459"
             # Images the controller stamps into the engine workloads it owns.
             # Those workloads mount clustarr-data below, --data-claim's own
             # default; the chart sets CLUSTARR_DATA_CLAIM because its claim

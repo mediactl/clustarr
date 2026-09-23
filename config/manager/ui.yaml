@@ -72,6 +72,10 @@ spec:
         # media file and needs no ffmpeg/ffprobe toolchain (amendment §A3.1).
         image: ghcr.io/mediactl/clustarr:dev
         args: ["ui"]
+        env:
+        # §12: GOMEMLIMIT = 80% of 256Mi, in bytes (see catalogarr.yaml).
+        - name: GOMEMLIMIT
+          value: "214748365"
         ports:
         - name: http
           containerPort: 8080

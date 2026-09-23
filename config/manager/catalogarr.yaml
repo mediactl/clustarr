@@ -1,6 +1,8 @@
 # catalogarr -- catalog.clustarr.io controllers (leader-elected) + the queue
-# workers that run on *every* replica (search, grab, import, importlist,
-# rss-matcher) + the history sink and DLQ projector (leader only).
+# workers that run on *every* replica (search, grab, rss-matcher) + the
+# history sink and DLQ projector (leader only). The import and importlist
+# consumers are importarr's, not catalogarr's (amendment §A1.2, §A1.3;
+# catalogarr/run.go's RoleWorker doc comment).
 # Design spec §3 (process topology), §6.1.
 #
 # Scale-out is allowed: the controllers stay leader-only, the workers are
@@ -87,6 +89,13 @@ spec:
             # services (and the transcode Jobs) can rewrite what it creates.
             - name: UMASK
               value: "002"
+            # §12: GOMEMLIMIT = 80% of the container's own memory limit below
+            # (1Gi * 0.8, in bytes -- the Downward API's resourceFieldRef only
+            # ever gives 100% of the limit, so this is computed by hand and
+            # kept in sync with resources.limits.memory; the chart computes
+            # the identical value at render time via clustarr.gomemlimit).
+            - name: GOMEMLIMIT
+              value: "858993459"
           ports:
             - name: metrics
               containerPort: 8443

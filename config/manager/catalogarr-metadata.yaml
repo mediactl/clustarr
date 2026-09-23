@@ -75,6 +75,9 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            # §12: GOMEMLIMIT = 80% of 512Mi, in bytes (see catalogarr.yaml).
+            - name: GOMEMLIMIT
+              value: "429496730"
           ports:
             - name: metrics
               containerPort: 8443

@@ -101,6 +101,47 @@ false
 {{- end -}}
 
 {{/*
+GOMEMLIMIT: 80% of a Kubernetes memory quantity, in whole bytes (§12:
+"Torrent engines: GOMEMLIMIT = 80% of limit"). The Downward API's
+resourceFieldRef on a container's own limit only ever gives back 100% of it
+-- there is no scaling operator -- so the 80% figure has to be computed once,
+here, from the same quantity values.yaml already puts in
+resources.limits.memory, and baked into the rendered env var as a literal.
+
+This is applied to every Clustarr service the chart renders (clustarr.workload
+below), which covers the grabarr *controller* pod but not the torrent/usenet
+engine StatefulSets and Deployments it creates per DownloadClient at runtime
+-- those get their resources from DownloadClient.spec.resources, a CRD field
+this chart never sees, so the identical 80% calculation has to be made again
+in grabarr/controller/downloadclient (Go, not a template); see the gap-fixes
+X12a report.
+
+Call with the raw resources.limits.memory string. Handles the binary
+(Ki/Mi/Gi/Ti) and decimal (K/M/G/T) Kubernetes quantity suffixes and a bare
+byte count -- every form this chart's own values.yaml uses and the ones
+`kubectl` normally accepts for memory. Anything else (exponent form, a "m"
+milli-suffix, which is meaningless for memory) fails the render rather than
+silently emitting a wrong number.
+*/}}
+{{- define "clustarr.gomemlimit" -}}
+{{- $q := . -}}
+{{- $mult := 1.0 -}}
+{{- $num := $q -}}
+{{- if hasSuffix "Ki" $q -}}{{- $mult = 1024.0 -}}{{- $num = trimSuffix "Ki" $q -}}
+{{- else if hasSuffix "Mi" $q -}}{{- $mult = 1048576.0 -}}{{- $num = trimSuffix "Mi" $q -}}
+{{- else if hasSuffix "Gi" $q -}}{{- $mult = 1073741824.0 -}}{{- $num = trimSuffix "Gi" $q -}}
+{{- else if hasSuffix "Ti" $q -}}{{- $mult = 1099511627776.0 -}}{{- $num = trimSuffix "Ti" $q -}}
+{{- else if hasSuffix "K" $q -}}{{- $mult = 1000.0 -}}{{- $num = trimSuffix "K" $q -}}
+{{- else if hasSuffix "M" $q -}}{{- $mult = 1000000.0 -}}{{- $num = trimSuffix "M" $q -}}
+{{- else if hasSuffix "G" $q -}}{{- $mult = 1000000000.0 -}}{{- $num = trimSuffix "G" $q -}}
+{{- else if hasSuffix "T" $q -}}{{- $mult = 1000000000000.0 -}}{{- $num = trimSuffix "T" $q -}}
+{{- else if not (regexMatch "^[0-9]+$" $q) -}}
+{{- fail (printf "clustarr.gomemlimit: %q is not a supported memory quantity (want a bare byte count, or a Ki/Mi/Gi/Ti/K/M/G/T suffix)" $q) -}}
+{{- end -}}
+{{- printf "%.0f" (mulf ($num | float64) $mult 0.8) -}}
+{{- end -}}
+
+{{/*
 Guard rails. These are correctness invariants from the design spec, not
 preferences, so they fail the render rather than warn.
 */}}
@@ -252,6 +293,10 @@ spec:
         {{- if .data }}
         - name: UMASK
           value: "002"
+        {{- end }}
+        {{- with dig "resources" "limits" "memory" "" .values }}
+        - name: GOMEMLIMIT
+          value: {{ include "clustarr.gomemlimit" . | quote }}
         {{- end }}
         {{- with .extraEnv }}
         {{- toYaml . | nindent 8 }}

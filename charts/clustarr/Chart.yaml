@@ -14,7 +14,7 @@ maintainers:
 - name: mediactl
   url: https://github.com/mediactl
 # Chart version; bumped on every chart change.
-version: 0.2.0
+version: 0.3.0
 # Version of Clustarr itself. Also the default image tag -- see values.yaml.
 appVersion: "0.1.0"
 # CEL validation rules in the CRDs and podFailurePolicy on the transcode Jobs
@@ -44,7 +44,17 @@ dependencies:
 # KEDA: optional (§12). The default operating mode is fixed replicas. This
 # installs the KEDA operator itself; `keda.enabled` also gates the Clustarr
 # ScaledObjects in templates/scaledobject.yaml.
+#
+# Pinned to 2.20.2 (chart version == app version for this repo), the latest
+# stable release as of 2026-09-23 (github.com/kedacore/keda releases,
+# published 2026-07-31). KEDA's published Kubernetes compatibility matrix
+# (keda.sh/docs/2.20/operate/cluster, "N-2" policy) tests 2.20 against
+# v1.33-v1.35; Kubernetes 1.37 shipped 2026-08-26, after 2.20.2, so no
+# released KEDA version is tested against it yet. 2.20.2 is the closest
+# available and the right choice regardless -- client-go-based operators are
+# generally forward-compatible within a few minor versions, and there is no
+# newer release to pick instead. Revisit when a KEDA release lists 1.36/1.37.
 - name: keda
-  version: 2.17.2
+  version: 2.20.2
   repository: https://kedacore.github.io/charts
   condition: keda.enabled
