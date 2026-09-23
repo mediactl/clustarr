@@ -963,3 +963,77 @@ func TestXMLResponsesAreQueriedWithCSS(t *testing.T) {
 	assert.Equal(t, []newznab.CategoryID{newznab.CatMovies}, r.Categories)
 	assert.Equal(t, time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC), r.PubDate.UTC(), "pubDate matches camelCase")
 }
+
+// TestJSONSelectorFilters: JSON definitions use three CSS-like filters on
+// rows and fields (Prowlarr's JsonParseFieldSelector). Without them a rows
+// selector such as "data.data:not(blocked)" was a gjson path that matched
+// nothing, and the search silently found zero results.
+func TestJSONSelectorFilters(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"data":{"data":[
+			{"name":"Keep","size":1,"ref":"tt0000001","poster":"https://img/1.jpg"},
+			{"name":"Blocked","size":2,"blocked":true},
+			{"name":"NoRef","size":3,"ref":"none","poster":"ftp://img/3.jpg"}]}}`)
+	}))
+	defer srv.Close()
+
+	def := loadFeature(t, `search:
+  paths:
+    - path: api
+      response:
+        type: json
+  rows:
+    selector: data.data:not(blocked)
+  fields:
+    title:
+      selector: name
+    size:
+      selector: size
+    seeders:
+      text: 1
+    category:
+      text: 1
+    download:
+      text: "magnet:?xt=urn:btih:abc"
+    imdbid:
+      selector: ref:contains(tt)
+      optional: true
+    poster:
+      selector: poster:has(:contains(https))
+      optional: true
+`)
+	rels, err := search(t, srv, def, "x")
+	require.NoError(t, err)
+	require.Equal(t, []string{"Keep", "NoRef"}, titles(rels), ":not drops the blocked row")
+	assert.Equal(t, "tt0000001", rels[0].IDs["imdb"], ":contains keeps a matching value")
+	assert.Empty(t, rels[1].IDs["imdb"], ":contains drops a value without the text")
+	assert.Equal(t, "https://img/1.jpg", rels[0].Poster, "a nested :has(:contains()) holds")
+	assert.Empty(t, rels[1].Poster)
+
+	def = loadFeature(t, `search:
+  paths:
+    - path: api
+      response:
+        type: json
+  rows:
+    selector: $
+  fields:
+    title:
+      selector: data.data.0.name
+    size:
+      text: 1
+    seeders:
+      text: 1
+    category:
+      text: 1
+    download:
+      text: "magnet:?xt=urn:btih:abc"
+`)
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `[{"data":{"data":[{"name":"Root"}]}}]`)
+	}))
+	defer srv2.Close()
+	rels, err = search(t, srv2, def, "x")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Root"}, titles(rels), "$ is the document root")
+}

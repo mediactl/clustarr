@@ -55,8 +55,101 @@ var jsonBracketIndex = regexp.MustCompile(`\[(\d+)\]`)
 // means "the parent row" (see searchRow) has already chosen which Doc the
 // path runs against by the time it gets here. Left in, a leading ".." is
 // gjson's JSON Lines syntax and matches nothing a Cardigann author meant.
+//
+// A leading "$" (JSON.NET's root, which Prowlarr's SelectToken accepts) is
+// dropped too; an empty path is the node itself (see jsonGet).
 func jsonPath(selector string) string {
-	return jsonBracketIndex.ReplaceAllString(strings.TrimLeft(selector, "."), ".$1")
+	return jsonBracketIndex.ReplaceAllString(strings.TrimLeft(strings.TrimPrefix(selector, "$"), "."), ".$1")
+}
+
+// jsonGet is d.Get(jsonPath(selector)), except that a selector naming the
+// node itself ("", "$", ".") returns the node, where gjson would return
+// nothing.
+func jsonGet(d gjson.Result, selector string) gjson.Result {
+	p := jsonPath(selector)
+	if p == "" {
+		return d
+	}
+	return d.Get(p)
+}
+
+// jsonFilter is one :has(key), :not(key) or :contains(text) suffix on a JSON
+// selector -- Prowlarr's JsonParseFieldSelector, which gives JSON
+// definitions the few CSS pseudo-classes they use: a freeleech-only rows
+// selector "data.data:not(freeleech_blocked)", a field "ref_id:contains(tt)".
+type jsonFilter struct{ name, key string }
+
+// splitJSONFilters splits a JSON selector into its path (everything before
+// the first ":", as Prowlarr's Split(':')[0]) and its filters, parsed as
+// Prowlarr's _jsonSelectorRegex matches them,
+// `\:(?<filter>.+?)\((?<key>.+?)\)(?=:|\z)`: the name runs to the first
+// "(", the key to the first ")" that ends the selector or precedes a ":".
+func splitJSONFilters(selector string) (string, []jsonFilter) {
+	i := strings.IndexByte(selector, ':')
+	if i < 0 {
+		return selector, nil
+	}
+	base, rest := selector[:i], selector[i:]
+	var filters []jsonFilter
+	for len(rest) > 1 && rest[0] == ':' {
+		open := strings.IndexByte(rest[2:], '(')
+		if open < 0 {
+			break
+		}
+		open += 2
+		end := -1
+		for k := open + 2; k < len(rest); k++ {
+			if rest[k] == ')' && (k+1 == len(rest) || rest[k+1] == ':') {
+				end = k
+				break
+			}
+		}
+		if end < 0 {
+			break
+		}
+		filters = append(filters, jsonFilter{name: rest[1:open], key: rest[open+1 : end]})
+		rest = rest[end+1:]
+	}
+	return base, filters
+}
+
+// jsonSelect is Select on JSON: the path's node, provided every filter
+// holds on it.
+func jsonSelect(d gjson.Result, selector string) (gjson.Result, bool) {
+	base, filters := splitJSONFilters(selector)
+	r := jsonGet(d, base)
+	if !r.Exists() {
+		return gjson.Result{}, false
+	}
+	for _, f := range filters {
+		if !f.holds(r) {
+			return gjson.Result{}, false
+		}
+	}
+	return r, true
+}
+
+// holds evaluates one filter on r. An unknown filter name is ignored, as
+// Prowlarr logs it and carries on.
+func (f jsonFilter) holds(r gjson.Result) bool {
+	switch f.name {
+	case "has", "not":
+		var found bool
+		if _, nested := splitJSONFilters(f.key); nested != nil {
+			_, found = jsonSelect(r, f.key)
+		} else {
+			found = jsonGet(r, f.key).Exists()
+		}
+		return found == (f.name == "has")
+	case "contains":
+		text := r.Raw
+		if r.Type == gjson.String {
+			text = r.String()
+		}
+		return strings.Contains(text, f.key)
+	default:
+		return true
+	}
 }
 
 // Doc wraps one parsed response body (or a sub-node of one) so
@@ -171,8 +264,8 @@ func (d Doc) Select(selector string) (Doc, bool) {
 		}
 		return Doc{rt: d.rt, html: sel}, true
 	case d.rt == ResponseJSON:
-		r := d.json.Get(jsonPath(selector))
-		if !r.Exists() {
+		r, ok := jsonSelect(d.json, selector)
+		if !ok {
 			return Doc{}, false
 		}
 		return Doc{rt: d.rt, json: r}, true
@@ -192,8 +285,16 @@ func (d Doc) Rows(selector string) []Doc {
 		d.html.Find(selector).Each(func(_ int, s *goquery.Selection) { out = append(out, Doc{rt: d.rt, html: s}) })
 		return out
 	case d.rt == ResponseJSON:
+		// Prowlarr's JsonParseRowsSelector: the filters apply to each row,
+		// not to the array.
+		base, filters := splitJSONFilters(selector)
 		var out []Doc
-		d.json.Get(jsonPath(selector)).ForEach(func(_, v gjson.Result) bool {
+		jsonGet(d.json, base).ForEach(func(_, v gjson.Result) bool {
+			for _, f := range filters {
+				if !f.holds(v) {
+					return true
+				}
+			}
 			out = append(out, Doc{rt: d.rt, json: v})
 			return true
 		})
