@@ -196,15 +196,30 @@ func allServices(lo *logging.Options, to *tracing.Options) []struct {
 			// takes the real ctx: runAll cancels ctx on any other service's
 			// failure, and ui.Run's own shutdown depends on that
 			// cancellation to stop its HTTP server. The same ctx bounds the
-			// cluster reader buildUIReader may build, so it stops on the
+			// cluster reader buildUICluster may build, so it stops on the
 			// same cancellation too.
-			reader, waitForSync := buildUIReader(ctx)
+			//
+			// Every cluster-derived field, in the same order as
+			// newUICommand's; ui_options_wiring_test.go executes both
+			// commands and fails on any func, pointer or interface field of
+			// ui.Options left nil.
+			reader, waitForSync, acts := buildUICluster(ctx)
 			proj := buildUIProjection(ctx, reader)
 			return runUI(ctx, ui.Options{
-				Reader: reader, WaitForSync: waitForSync,
-				Entries: proj.Entries, Subscribe: proj.Subscribe,
-				SubscribeDownloads: proj.SubscribeDownloads,
-				Logging:            *lo, Tracing: tr,
+				Reader:               reader,
+				WaitForSync:          waitForSync,
+				Actions:              acts,
+				Entries:              proj.Entries,
+				Subscribe:            proj.Subscribe,
+				SubscribeDownloads:   proj.SubscribeDownloads,
+				Library:              proj.Library,
+				SubscribeLibrary:     proj.SubscribeLibrary,
+				Unmatched:            proj.Unmatched,
+				SubscribeUnmatched:   proj.SubscribeUnmatched,
+				ImportLists:          proj.ImportLists,
+				SubscribeImportLists: proj.SubscribeImportLists,
+				Logging:              *lo,
+				Tracing:              tr,
 			})
 		}},
 	}

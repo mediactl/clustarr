@@ -35,6 +35,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/squasharr"
 	"github.com/mediactl/clustarr/ui"
+	"github.com/mediactl/clustarr/ui/actions"
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
@@ -349,48 +350,69 @@ func newImportarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 	return cmd
 }
 
-// buildUIReader attempts to build ui's cluster reader for ctx and reports
-// whether it succeeded through the returned values themselves, never through
-// an error: a cluster is optional for ui (Task D3-0's brief: "Do not make a
-// cluster connection mandatory"; CLAUDE.md's "the UI never writes status and
-// owns no CRD" already accepts it may not even read one), so the ordinary
-// case for a developer running `clustarr ui` with no kubeconfig is not a
-// failure at all. Any problem here is logged and swallowed; the nil, nil it
-// returns on that path is exactly what ui.Options.Reader/WaitForSync being
-// unset already means -- see ui.NewServer's defaulting.
+// buildUICluster attempts to build ui's two seams onto the cluster -- the
+// informer-backed reader every page reads through, and the *actions.Actions
+// every button writes through -- and reports whether it succeeded through
+// the returned values themselves, never through an error: a cluster is
+// optional for ui (Task D3-0's brief: "Do not make a cluster connection
+// mandatory"), so the ordinary case for a developer running `clustarr ui`
+// with no kubeconfig is not a failure at all. Any problem here is logged and
+// swallowed; the nils it returns on that path are exactly what
+// ui.Options.Reader, WaitForSync and Actions being unset already mean -- see
+// ui.NewServer's defaulting, and actions.ErrNoWriter.
+//
+// The writer is a plain client.Client over the same config and ui's own
+// scheme (ui.NewReaderScheme: corev1 plus the five Clustarr groups, which
+// covers every kind ui/actions creates or patches). It goes straight into
+// actions.New and is never handed to ui by any other route: ui.Options.Reader
+// stays a client.Reader, and *actions.Actions holds its writer unexported, so
+// the only writes ui can make are the actions ui/actions defines
+// (ui/guard_test.go, ruling R2). It is uncached on purpose: ui/actions only
+// creates and patches, and a create or a merge patch goes to the apiserver
+// whatever client sends it. Until Task G3-5 nothing built it at all, so every
+// action answered ErrNoWriter in production.
 //
 // It uses ctrl.LoggerFrom rather than pkg/obs/logging (which cmd/clustarr
 // otherwise never imports): both call sites run this before the service's
 // own obs.Bootstrap has installed a logger on ctx, matching the pattern
 // cmd/clustarr/all.go's runAll already uses for the same reason.
-func buildUIReader(ctx context.Context) (client.Reader, func(context.Context) bool) {
+func buildUICluster(ctx context.Context) (client.Reader, func(context.Context) bool, *actions.Actions) {
+	log := ctrl.LoggerFrom(ctx).WithName("ui")
+
 	cfg, err := ctrl.GetConfig()
 	if err != nil {
-		ctrl.LoggerFrom(ctx).WithName("ui").Info(
-			"no cluster reachable; ui will serve empty pages", "error", err.Error())
-		return nil, nil
+		log.Info("no cluster reachable; ui will serve empty pages and refuse every action",
+			"error", err.Error())
+		return nil, nil, nil
 	}
 
 	scheme, err := ui.NewReaderScheme()
 	if err != nil {
-		ctrl.LoggerFrom(ctx).WithName("ui").Error(err, "build ui reader scheme")
-		return nil, nil
+		log.Error(err, "build ui reader scheme")
+		return nil, nil, nil
 	}
 
 	reader, waitForSync, err := ui.NewClusterReader(ctx, cfg, scheme)
 	if err != nil {
-		ctrl.LoggerFrom(ctx).WithName("ui").Error(err, "build ui cluster reader")
-		return nil, nil
+		log.Error(err, "build ui cluster reader")
+		return nil, nil, nil
 	}
-	return reader, waitForSync
+
+	writer, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		log.Error(err, "build ui action writer; ui will serve its pages and refuse every action")
+		return reader, waitForSync, nil
+	}
+	return reader, waitForSync, actions.New(writer)
 }
 
 // buildUIProjection builds and starts Task D3-1's shared pipeline
 // projection loop (ui/projection.Projection) over reader and returns it so
-// the caller can wire ui.Options.Entries and ui.Options.Subscribe to the
-// same instance -- one list round feeding both the initial page render and
-// every open SSE connection (design plan ruling R4), replacing the
-// TODO(M3) this closes.
+// the caller can wire every page's accessor and every stream's Subscribe*
+// in ui.Options to the same instance -- one list round feeding the initial
+// render of each page and every open SSE connection (design plan ruling
+// R4). ui_projection_wiring_test.go and ui_options_wiring_test.go hold both
+// call sites to wiring every one of them.
 //
 // Starting it unconditionally, even over a nil reader, keeps both `clustarr
 // ui` call sites (this file's newUICommand and all.go's allServices)
@@ -425,17 +447,27 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		ctx := cmd.Context()
-		reader, waitForSync := buildUIReader(ctx)
+		reader, waitForSync, acts := buildUICluster(ctx)
 		proj := buildUIProjection(ctx, reader)
+		// Every cluster-derived field, in the same order as all.go's ui
+		// closure; ui_options_wiring_test.go executes both commands and fails
+		// on any func, pointer or interface field of ui.Options left nil.
 		return runUI(ctx, ui.Options{
-			BindAddress:        bindAddress,
-			Reader:             reader,
-			WaitForSync:        waitForSync,
-			Entries:            proj.Entries,
-			Subscribe:          proj.Subscribe,
-			SubscribeDownloads: proj.SubscribeDownloads,
-			Logging:            *lo,
-			Tracing:            tracingFor(to, "ui"),
+			BindAddress:          bindAddress,
+			Reader:               reader,
+			WaitForSync:          waitForSync,
+			Actions:              acts,
+			Entries:              proj.Entries,
+			Subscribe:            proj.Subscribe,
+			SubscribeDownloads:   proj.SubscribeDownloads,
+			Library:              proj.Library,
+			SubscribeLibrary:     proj.SubscribeLibrary,
+			Unmatched:            proj.Unmatched,
+			SubscribeUnmatched:   proj.SubscribeUnmatched,
+			ImportLists:          proj.ImportLists,
+			SubscribeImportLists: proj.SubscribeImportLists,
+			Logging:              *lo,
+			Tracing:              tracingFor(to, "ui"),
 		})
 	}
 	return cmd

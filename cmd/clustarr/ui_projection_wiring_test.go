@@ -23,10 +23,13 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/mediactl/clustarr/ui"
 )
 
 // TestEveryProjectionStreamIsWiredIntoBothUICommands guards the gap that
@@ -49,11 +52,29 @@ import (
 // This test is deliberately written against the METHOD SET rather than against
 // a hard-coded list of names, so a third stream added later is covered the day
 // it appears instead of needing someone to remember this file.
+//
+// It happened again with G3-3 and G3-4: SubscribeLibrary, SubscribeUnmatched
+// and SubscribeImportLists landed wired nowhere, and -- the part a Subscribe*
+// rule alone cannot see -- so did the page accessors Library, Unmatched and
+// ImportLists, whose nil defaults render the Library, Unmatched and Import
+// Lists pages with no rows at all. So beside every Subscribe* method, every
+// *Projection method that shares its name with a ui.Options field is held to
+// the same rule. ui_options_wiring_test.go is the behavioural half: it
+// executes both commands and inspects the Options they build.
 func TestEveryProjectionStreamIsWiredIntoBothUICommands(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
 
-	// Every exported Subscribe* method on *projection.Projection.
+	// Every ui.Options field name: a *Projection method sharing one is a page
+	// accessor (Entries, Library, ...) that Options expects wired.
+	uiOptionFields := map[string]bool{}
+	ot := reflect.TypeOf(ui.Options{})
+	for i := range ot.NumField() {
+		uiOptionFields[ot.Field(i).Name] = true
+	}
+
+	// Every exported Subscribe* method on *projection.Projection, and every
+	// one named after a ui.Options field.
 	var streams []string
 	projDir := filepath.Join(root, "ui", "projection")
 	entries, err := os.ReadDir(projDir)
@@ -70,7 +91,7 @@ func TestEveryProjectionStreamIsWiredIntoBothUICommands(t *testing.T) {
 			if !ok || fn.Recv == nil || !fn.Name.IsExported() {
 				continue
 			}
-			if !strings.HasPrefix(fn.Name.Name, "Subscribe") {
+			if !strings.HasPrefix(fn.Name.Name, "Subscribe") && !uiOptionFields[fn.Name.Name] {
 				continue
 			}
 			if recvTypeName(fn) == "Projection" {
@@ -86,11 +107,15 @@ func TestEveryProjectionStreamIsWiredIntoBothUICommands(t *testing.T) {
 		src, err := os.ReadFile(filepath.Join(root, "cmd", "clustarr", file))
 		require.NoError(t, err)
 		for _, m := range streams {
-			require.Contains(t, string(src), "proj."+m,
-				"cmd/clustarr/%s never wires projection.%s into ui.Options.\n"+
+			// strings.Contains rather than require.Contains, whose failure
+			// message prints the whole source file.
+			if !strings.Contains(string(src), "proj."+m) {
+				t.Errorf("cmd/clustarr/%s never wires projection.%s into ui.Options.\n"+
 					"A nil field is legal and silently falls back to a per-connection "+
-					"Reader poll, so this is inert rather than broken -- no other test "+
-					"in the tree will fail. Wire it, or delete the stream.", file, m)
+					"poll, or (for a page accessor) to no rows at all, so this is inert "+
+					"rather than broken -- no other test in the tree will fail. Wire it, "+
+					"or delete the method.", file, m)
+			}
 		}
 	}
 }

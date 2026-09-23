@@ -28,6 +28,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -65,6 +66,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/squasharr"
+	"github.com/mediactl/clustarr/ui"
 )
 
 // TestServiceStartsServesProbesAndStopsOnSignal is the M0 acceptance check for
@@ -119,6 +121,16 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 	// the catalogarr/all case's metadata gateway reaches; its prepare
 	// starts it, its verify reads what it was asked.
 	var nvFake *fakeMetadataProviders
+
+	// uiAddr is where the running ui case listens. ui has no probe port of
+	// its own -- /healthz and /readyz share its one bind address -- so each
+	// ui case binds the table's probe address, stores it here, and its
+	// verify reads it back once /readyz has answered.
+	var uiAddr atomic.Value
+
+	// allUI is `clustarr all`'s own ui closure, looked up here rather than
+	// inside run, which executes on a goroutine where t.Fatalf is illegal.
+	allUI := allServiceRun(t, "ui")
 
 	// captionData is captionarr's --data-dir in both of its cases: the one
 	// media volume the controller role lists and the worker role reads, as
@@ -546,6 +558,47 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 			// FacadeBindAddress since M0 that no code read. So the proof is a
 			// dial of the real port, not a flag that parses.
 			verify: func(t *testing.T) { verifyFacade(t, env.Config, facadeAddr) },
+		},
+		// ui had no presence in this table before plan task G3-5, and two
+		// halves of it were unreachable in production. The Library,
+		// Unmatched and Import Lists pages (G3-3, G3-4) read accessors and
+		// streams that neither command wired, so all three rendered no rows;
+		// and ui.Options.Actions (G3-1) was set nowhere, so every monitor,
+		// search, rescan, assign and settings button answered 503. Both
+		// defaults are legal and silent -- a nil field is "no rows" or
+		// ErrNoWriter -- so ui/'s own tests, which build ui.Options by hand,
+		// could not see either. verifyUI reads each page, watches each new
+		// stream push a change, and performs a patch and a create through a
+		// running process.
+		//
+		// The first case executes the real `clustarr ui` command line; the
+		// second runs `clustarr all`'s own ui closure, changing only the
+		// address it binds (all binds ui's fixed default :8080, which this
+		// machine may already be using). Two cases because the two commands
+		// build ui.Options separately.
+		{
+			name: "ui (as `clustarr ui` builds it)",
+			run: func(ctx context.Context, o k8s.Options) error {
+				uiAddr.Store(o.HealthProbeBindAddress)
+				root := NewRootCommand()
+				root.SetArgs([]string{"ui", "--bind-address", o.HealthProbeBindAddress})
+				return root.ExecuteContext(ctx)
+			},
+			verify: func(t *testing.T) { verifyUI(t, env.Config, uiAddr.Load().(string), "cmd") },
+		},
+		{
+			name: "ui (as `clustarr all` builds it)",
+			run: func(ctx context.Context, o k8s.Options) error {
+				uiAddr.Store(o.HealthProbeBindAddress)
+				run := runUI
+				defer func() { runUI = run }()
+				runUI = func(ctx context.Context, uo ui.Options) error {
+					uo.BindAddress = o.HealthProbeBindAddress
+					return run(ctx, uo)
+				}
+				return allUI(ctx, o)
+			},
+			verify: func(t *testing.T) { verifyUI(t, env.Config, uiAddr.Load().(string), "all") },
 		},
 	}
 
