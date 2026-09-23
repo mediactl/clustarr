@@ -155,6 +155,18 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
     controller for it — the rule existing is not the same as the code obeying
     it.
 
+  - **The same rule binds the main resource, not only status — and there the
+    failure is a rejected write, not a silent reset.** A manager that applies
+    `spec` must send every spec field it owns on every apply. D2-4's
+    labels-only apply omitted `spec.clientRef`; the same manager released it,
+    and the Download's "clientRef is immutable" CEL rule then rejected the
+    write. G1-3's unmonitor path sent only `spec.monitored` under the manager
+    that also creates Movies, releasing the required `tmdbID`,
+    `qualityProfileRef` and `rootFolderRef`, so the apiserver refused it.
+    Route every write from a manager through the one function that renders
+    that manager's complete set, and override a field there, rather than
+    building a second, narrower apply.
+
   **`reassertKnownStatus` has an exception.** `MediaFileStatus`' `Conditions`
   and `Sidecars` are lists whose generated `With*` methods **append**, so a
   reassert-then-overwrite helper doubles their entries. Seed a struct and
