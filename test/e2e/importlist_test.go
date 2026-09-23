@@ -22,17 +22,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // MDBList -> Movies created with the list's monitor/search sync level;
 // ImportExclusion respected; a rerun adds nothing twice."
 //
-// # mdblist is exercised for real; Trakt and Plex are not
+// # All three providers are exercised against one fixture
 //
-// test/fixtures/importliststub's own package doc comment records why:
-// importarr/worker/importlist/provider.go's BuildProvider never threads a
-// base-URL override into trakt.New or plex.New, so both always dial their
-// real hosts, and the device flow's own Reconciler.TraktBaseURL is, per
-// importarr/run.go's own comment, "a test seam" with no flag or environment
-// variable reaching it. Both subtests below create the real CRs (proving
-// the CRD accepts them and RBAC lets importarr read them) and then skip
-// immediately, by name, rather than waiting out a poll against a host this
-// cluster cannot reach (the e2e cluster has no egress at all).
+// test/fixtures/importliststub serves Trakt's device-code flow and
+// watchlists, the Plex Discover watchlist and an mdblist export from one
+// Service. Trakt and Plex reach it through importarr's --trakt-base-url and
+// --plex-base-url (X14), which config/e2e/importarr-e2e-patch.yaml sets on
+// both importarr Deployments through $CLUSTARR_TRAKT_BASE_URL and
+// $CLUSTARR_PLEX_BASE_URL: the controller drives the Trakt device flow and
+// the worker runs every sync, so both must name the fixture. Until X14 no
+// flag reached either provider, and these two legs created their CRs and
+// skipped by name.
 //
 // mdblist.URL is a required, fully operator-supplied spec field
 // (api/catalog/v1alpha1/importlist_types.go's MdbList), so it points
@@ -245,9 +245,8 @@ func TestImportListMDBListExclusionCreationAndRerun(t *testing.T) {
 
 // TestImportListTraktDeviceFlowCRDAccepted and
 // TestImportListPlexWatchlistCRDAccepted are scenario 9's Trakt and Plex
-// legs: this file's own package doc comment explains why both create the
-// real CR and then skip by name rather than poll a host this cluster
-// cannot reach.
+// legs: each creates the real CR and waits for a sync that reaches
+// test/fixtures/importliststub (see this file's package doc comment).
 func TestImportListTraktDeviceFlowCRDAccepted(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
 	defer cancel()
@@ -272,13 +271,16 @@ func TestImportListTraktDeviceFlowCRDAccepted(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, il))
 	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), il) })
 
-	t.Skip("importarr/worker/importlist/provider.go's BuildProvider builds trakt.New with no base-URL override " +
-		"(trakt.DefaultBaseURL, https://api.trakt.tv, always) and importarr/controller/importlist/controller.go's " +
-		"Reconciler.TraktBaseURL -- the device-flow seam -- is, per importarr/run.go's own comment, \"a test seam\" " +
-		"with no flag or env var reaching it: the ImportList CR above is accepted and reconciles, but its device " +
-		"flow and any sync can only ever try to reach the real Trakt API, which this no-egress cluster cannot " +
-		"answer. See test/fixtures/importliststub's package doc comment. Skipping rather than waiting out a poll " +
-		"against a host that cannot respond.")
+	// The controller starts the device-code flow against the fixture, which
+	// answers "authorization_pending" twice and then authorizes; only then
+	// can the worker sync the watchlist, so Synced=True is the proof that
+	// both the device flow and the sync reached the fixture rather than
+	// api.trakt.tv. testdata/importlist/trakt/watchlist_movies.json holds
+	// one movie.
+	live := waitForImportListSynced(ctx, t, il)
+	require.Empty(t, live.Status.LastError, "the Trakt sync reported an error")
+	require.GreaterOrEqual(t, live.Status.ItemCount, int32(1),
+		"the Trakt watchlist fixture holds a movie; the sync fetched nothing")
 }
 
 func TestImportListPlexWatchlistCRDAccepted(t *testing.T) {
@@ -305,9 +307,9 @@ func TestImportListPlexWatchlistCRDAccepted(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, il))
 	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), il) })
 
-	t.Skip("importarr/worker/importlist/provider.go's BuildProvider builds plex.New with no base-URL override " +
-		"parameter at all (plex.defaultBaseURL, https://discover.provider.plex.tv, always): the ImportList CR " +
-		"above is accepted and reconciles, but any sync can only ever try to reach the real Plex Discover API, " +
-		"which this no-egress cluster cannot answer. See test/fixtures/importliststub's package doc comment. " +
-		"Skipping rather than waiting out a poll against a host that cannot respond.")
+	// testdata/importlist/plex/watchlist_page1.json holds two movies.
+	live := waitForImportListSynced(ctx, t, il)
+	require.Empty(t, live.Status.LastError, "the Plex sync reported an error")
+	require.GreaterOrEqual(t, live.Status.ItemCount, int32(1),
+		"the Plex watchlist fixture holds movies; the sync fetched nothing")
 }

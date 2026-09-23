@@ -1,0 +1,22 @@
+# Points importarr's Trakt and Plex import-list providers at
+# config/e2e/importlist-stub.yaml's fixture (test/fixtures/importliststub),
+# which serves Trakt's device-code flow and watchlists and the Plex Discover
+# watchlist at its root. The e2e cluster has no egress, so without this both
+# providers would dial the real public APIs and every sync would time out.
+#
+# Applied to BOTH importarr Deployments: the controller (importarr) drives
+# the Trakt device-code flow, and the worker (importarr-worker) runs the
+# watchlist syncs and the token refresh -- one host for both, so the device
+# authorization and the syncs it authorizes agree. The variables are the
+# defaults of `clustarr importarr --trakt-base-url/--plex-base-url`
+# (cmd/clustarr/flags.go).
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: CLUSTARR_TRAKT_BASE_URL
+    value: http://importlist-stub.clustarr-system.svc
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: CLUSTARR_PLEX_BASE_URL
+    value: http://importlist-stub.clustarr-system.svc

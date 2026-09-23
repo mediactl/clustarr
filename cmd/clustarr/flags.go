@@ -87,6 +87,15 @@ const (
 	// chart sets it, for the same reason: its claim is "<fullname>-data",
 	// while config/'s is both flags' own default, "clustarr-data".
 	dataClaimEnv = "CLUSTARR_DATA_CLAIM"
+
+	// traktBaseURLEnv and plexBaseURLEnv point importarr's Trakt and Plex
+	// import-list providers at another host, the defaults for
+	// --trakt-base-url and --plex-base-url. No shipped manifest sets them --
+	// empty is each provider's public API -- but config/e2e does, on both
+	// importarr Deployments, to reach test/fixtures/importliststub in a
+	// cluster with no egress.
+	traktBaseURLEnv = "CLUSTARR_TRAKT_BASE_URL"
+	plexBaseURLEnv  = "CLUSTARR_PLEX_BASE_URL"
 )
 
 // envOr returns $name when it is set and non-empty, and fallback otherwise.

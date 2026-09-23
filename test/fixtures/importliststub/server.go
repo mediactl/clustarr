@@ -23,30 +23,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // and their existing recorded fixtures under testdata/importlist/ -- see
 // each provider's doc comment for the exact source read.
 //
-// # Trakt and Plex cannot be reached from a deployed cluster today
+// # How a deployed importarr reaches it
 //
-// importarr/worker/importlist/provider.go's BuildProvider constructs both
-// trakt.New and plex.New with no base-URL override -- trakt.New passes a nil
-// *DeviceFlow and only trakt.WithHTTPClient, so trakt.DefaultBaseURL
-// ("https://api.trakt.tv") is what it always dials; plex.New has no override
-// parameter at all, so plex.defaultBaseURL ("https://discover.provider.plex.tv")
-// is likewise fixed. importarr/controller/importlist/controller.go DOES carry
-// a Reconciler.TraktBaseURL field for the device-code flow specifically, but
-// importarr/run.go's own comment calls it "a test seam": no flag or
-// environment variable threads it, so even the controller's Start/Poll calls
-// cannot be redirected from a deployed binary, only from a Go test that
-// constructs the Reconciler directly.
+// Trakt and Plex are reached through importarr's --trakt-base-url and
+// --plex-base-url (cmd/clustarr; $CLUSTARR_TRAKT_BASE_URL and
+// $CLUSTARR_PLEX_BASE_URL), which config/e2e/importarr-e2e-patch.yaml
+// points at this Service on both importarr Deployments: the controller
+// drives the Trakt device-code flow (Reconciler.TraktBaseURL) and the worker
+// runs the syncs and the token refresh (BuildProvider's ProviderOptions), so
+// both name the same host. Until task X14 neither flag existed, and
+// test/e2e's scenario 9 could only create the Trakt and Plex CRs and skip.
+// This fixture's own unit tests drive it with the real pkg/importlist/trakt
+// and pkg/importlist/plex clients, proving the wire shapes.
 //
-// This fixture is still built and deployed, per this task's brief, and its
-// own unit tests drive it with the real pkg/importlist/trakt and
-// pkg/importlist/plex clients (proving the wire shapes are exactly right) --
-// but test/e2e's scenario 9 can exercise Trakt and Plex only up to creating
-// the ImportList CR; it cannot wait on a sync that structurally cannot reach
-// this fixture without an importarr code change, which is out of this task's
-// file scope (importarr/ belongs to G1-3/G2-5). See scenario 9's own comment
-// in test/e2e for the named skip this produces.
-//
-// mdblist has no such gap: MdbList.URL (api/catalog/v1alpha1/importlist_types.go)
+// mdblist never needed an override: MdbList.URL (api/catalog/v1alpha1/importlist_types.go)
 // is a required, fully operator-supplied URL -- pkg/importlist/mdblist.List
 // GETs it verbatim -- so config/e2e can point it at this fixture directly and
 // scenario 9 exercises mdblist for real, end to end.

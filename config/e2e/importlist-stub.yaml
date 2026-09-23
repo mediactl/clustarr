@@ -1,13 +1,10 @@
 # The in-cluster fixture for pkg/importlist's Trakt, Plex and mdblist
-# providers (test/fixtures/importliststub). See that package's doc comment
-# for a load-bearing caveat: Trakt and Plex cannot be reached from a
-# deployed importarr binary today (no base-URL override reaches
-# BuildProvider, and the device flow's Reconciler.TraktBaseURL is an
-# unwired test seam) -- this Deployment exists so the fixture is ready the
-# day that wiring lands, and so its own unit tests can prove the wire
-# shapes now. mdblist has no such gap: MdbList.URL is a required,
-# fully-operator-supplied spec field, so config/e2e's own ImportList CR (in
-# test/e2e, scenario 9) points it straight at this Service.
+# providers (test/fixtures/importliststub). Trakt (device-code flow and
+# watchlists) and Plex (Discover watchlist) reach it through importarr's
+# --trakt-base-url/--plex-base-url, which importarr-e2e-patch.yaml sets on
+# both importarr Deployments (X14). mdblist needs no override:
+# MdbList.URL is a required, fully operator-supplied spec field, so
+# test/e2e's scenario 9 ImportList CR points it straight at this Service.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

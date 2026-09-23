@@ -111,6 +111,11 @@ func allServices(lo *logging.Options, to *tracing.Options) []struct {
 			d := importarr.DefaultOptions()
 			d.Options = o
 			d.Role = importarr.RoleAll
+			// The same environment newImportarrCommand's two flags default
+			// from, so a dev stack pointed at a Trakt/Plex fixture reaches
+			// it the same way a Deployment does.
+			d.TraktBaseURL = envOr(traktBaseURLEnv, "")
+			d.PlexBaseURL = envOr(plexBaseURLEnv, "")
 			d.Logging = *lo
 			d.Tracing = tr
 			return runImportarr(ctx, d)

@@ -35,3 +35,11 @@ patches:
     kind: Deployment
     name: indexarr
   path: indexarr-e2e-patch.yaml
+- target:
+    kind: Deployment
+    name: importarr
+  path: importarr-e2e-patch.yaml
+- target:
+    kind: Deployment
+    name: importarr-worker
+  path: importarr-e2e-patch.yaml

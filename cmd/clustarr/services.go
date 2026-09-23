@@ -310,6 +310,8 @@ func newImportarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 		role           string
 		dataPath       string
 		sampleMaxBytes int64
+		traktBaseURL   string
+		plexBaseURL    string
 	)
 
 	cmd := &cobra.Command{
@@ -331,6 +333,12 @@ func newImportarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 		"Video size floor, in bytes: a video file smaller than this whose name does not mark it a "+
 			"sample is a suspected sample, listed as unmatched by a rescan and rejected by a "+
 			"completed-download import unless the import is manual. 0 disables the size rule.")
+	cmd.Flags().StringVar(&traktBaseURL, "trakt-base-url", envOr(traktBaseURLEnv, ""),
+		"Trakt API the import lists reach, for both the controller's device-code flow and the worker's syncs. "+
+			"Empty is https://api.trakt.tv. Defaults to $"+traktBaseURLEnv+".")
+	cmd.Flags().StringVar(&plexBaseURL, "plex-base-url", envOr(plexBaseURLEnv, ""),
+		"Plex Discover API the import lists' Plex watchlist syncs reach. Empty is Plex's own. "+
+			"Defaults to $"+plexBaseURLEnv+".")
 
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		// Every field is passed explicitly: this is a bare literal, not
@@ -343,6 +351,8 @@ func newImportarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 			Role:           importarr.Role(role),
 			DataPath:       dataPath,
 			SampleMaxBytes: sampleMaxBytes,
+			TraktBaseURL:   traktBaseURL,
+			PlexBaseURL:    plexBaseURL,
 			Logging:        *lo,
 			Tracing:        tracingFor(to, importarr.ServiceName),
 		})

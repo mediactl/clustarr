@@ -109,3 +109,64 @@ func TestImportarrSampleMaxBytesReachesTheOptions(t *testing.T) {
 		}
 	})
 }
+
+// TestImportarrListBaseURLsReachTheOptions holds the first link of the
+// Trakt and Plex base-URL wiring (X14): --trakt-base-url/--plex-base-url,
+// and the $CLUSTARR_TRAKT_BASE_URL/$CLUSTARR_PLEX_BASE_URL defaults
+// config/e2e sets, reach importarr.Options -- from `clustarr importarr` and
+// from `clustarr all` alike. importarr's TestImportListsGetTheirBaseURLs
+// holds the next, Options to the list worker and the ImportList controller.
+// Before X14 neither host was reachable from a deployed binary at all, so
+// test/e2e's Trakt and Plex legs skipped.
+func TestImportarrListBaseURLsReachTheOptions(t *testing.T) {
+	const trakt, plex = "http://importlist-stub.clustarr-system.svc", "http://plex.example:32400"
+
+	t.Run("flags", func(t *testing.T) {
+		got := stub(t, &runImportarr)
+		if _, err := execute(t, "importarr", "--role", "worker", "--namespace", "clustarr",
+			"--trakt-base-url", trakt, "--plex-base-url", plex); err != nil {
+			t.Fatalf("clustarr importarr: %v", err)
+		}
+		if got.TraktBaseURL != trakt || got.PlexBaseURL != plex {
+			t.Errorf("importarr.Options Trakt/Plex base URLs = %q/%q, want %q/%q",
+				got.TraktBaseURL, got.PlexBaseURL, trakt, plex)
+		}
+	})
+
+	t.Run("environment", func(t *testing.T) {
+		t.Setenv(traktBaseURLEnv, trakt)
+		t.Setenv(plexBaseURLEnv, plex)
+		got := stub(t, &runImportarr)
+		if _, err := execute(t, "importarr", "--role", "worker", "--namespace", "clustarr"); err != nil {
+			t.Fatalf("clustarr importarr: %v", err)
+		}
+		if got.TraktBaseURL != trakt || got.PlexBaseURL != plex {
+			t.Errorf("importarr.Options Trakt/Plex base URLs = %q/%q, want $%s/$%s's %q/%q",
+				got.TraktBaseURL, got.PlexBaseURL, traktBaseURLEnv, plexBaseURLEnv, trakt, plex)
+		}
+	})
+
+	t.Run("unset is the providers' own default", func(t *testing.T) {
+		got := stub(t, &runImportarr)
+		if _, err := execute(t, "importarr", "--role", "worker", "--namespace", "clustarr"); err != nil {
+			t.Fatalf("clustarr importarr: %v", err)
+		}
+		if got.TraktBaseURL != "" || got.PlexBaseURL != "" {
+			t.Errorf("importarr.Options Trakt/Plex base URLs = %q/%q with nothing set, want empty",
+				got.TraktBaseURL, got.PlexBaseURL)
+		}
+	})
+
+	t.Run("clustarr all", func(t *testing.T) {
+		t.Setenv(traktBaseURLEnv, trakt)
+		t.Setenv(plexBaseURLEnv, plex)
+		got := stub(t, &runImportarr)
+		if err := allServiceRun(t, "importarr")(context.Background(), k8s.DefaultOptions()); err != nil {
+			t.Fatalf("run: %v", err)
+		}
+		if got.TraktBaseURL != trakt || got.PlexBaseURL != plex {
+			t.Errorf("`clustarr all` gives importarr Trakt/Plex base URLs %q/%q, want %q/%q",
+				got.TraktBaseURL, got.PlexBaseURL, trakt, plex)
+		}
+	})
+}

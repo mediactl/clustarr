@@ -75,8 +75,9 @@ type Reconciler struct {
 	// requests (never the list fetch, which the worker makes).
 	HTTPClient *http.Client
 
-	// TraktBaseURL overrides trakt.DefaultBaseURL, for tests that point the
-	// device-code flow at an httptest server instead of the real API.
+	// TraktBaseURL overrides trakt.DefaultBaseURL for the device-code flow:
+	// importarr's --trakt-base-url (importarr/run.go), which gives the list
+	// worker the same host, and tests that point it at an httptest server.
 	TraktBaseURL string
 
 	// Clock is the time source, injected so tests are deterministic.
