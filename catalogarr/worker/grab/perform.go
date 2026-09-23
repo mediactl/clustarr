@@ -30,6 +30,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/catalogarr/controller/rollup"
 	"github.com/mediactl/clustarr/catalogarr/worker/grab/downloads"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -264,8 +265,8 @@ func createDownload(
 
 // guardExistingDownloads is the half of the double-grab guard that no lease
 // can provide: it asks the apiserver which Downloads are already working on
-// the grab's items (downloads.Covers, downloads.IsActive -- the same notion
-// the reconcilers derive status.activeDownloadRef from).
+// the grab's items -- downloads.Covers, and rollup.DownloadNonTerminal, the
+// same liveness test the reconcilers derive status.activeDownloadRef from.
 //
 // It replaces a re-read of status.activeDownloadRef that could never fire:
 // nothing on the interactive path set that ref, and under ruling R-5 this
@@ -310,14 +311,14 @@ func guardExistingDownloads(
 	for i := range list.Items {
 		dl := &list.Items[i]
 		if dl.Name == downloadName {
-			if downloads.IsActive(dl) && appliedByGrabPath(dl) {
+			if rollup.DownloadNonTerminal(dl) && appliedByGrabPath(dl) {
 				resume = true
 				continue
 			}
 			blockers = append(blockers, dl.Name)
 			continue
 		}
-		if !downloads.IsActive(dl) {
+		if !rollup.DownloadNonTerminal(dl) {
 			continue
 		}
 		for j, st := range statusTargets {
@@ -370,7 +371,7 @@ func (d Deps) leaseHolder(ns string) holderFunc {
 			return holderStale, nil
 		case err != nil:
 			return holderActive, err
-		case downloads.IsActive(&dl):
+		case rollup.DownloadNonTerminal(&dl):
 			return holderActive, nil
 		default:
 			return holderStale, nil

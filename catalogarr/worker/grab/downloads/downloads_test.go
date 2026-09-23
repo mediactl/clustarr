@@ -161,30 +161,6 @@ func TestSourceApplyConfigurationRoundTripsEveryMember(t *testing.T) {
 	assert.Equal(t, "m", *direct.MagnetURL)
 }
 
-func TestIsTerminal(t *testing.T) {
-	terminal := map[downloadv1alpha1.DownloadPhase]bool{
-		downloadv1alpha1.DownloadPhaseImported:    true,
-		downloadv1alpha1.DownloadPhaseFailed:      true,
-		downloadv1alpha1.DownloadPhaseBlocklisted: true,
-		downloadv1alpha1.DownloadPhaseRemoving:    true,
-	}
-	for _, p := range []downloadv1alpha1.DownloadPhase{
-		"",
-		downloadv1alpha1.DownloadPhasePending, downloadv1alpha1.DownloadPhaseAssigned,
-		downloadv1alpha1.DownloadPhaseQueued, downloadv1alpha1.DownloadPhaseDownloading,
-		downloadv1alpha1.DownloadPhasePaused, downloadv1alpha1.DownloadPhaseCompleted,
-		downloadv1alpha1.DownloadPhaseSeeding, downloadv1alpha1.DownloadPhaseImported,
-		downloadv1alpha1.DownloadPhaseFailed, downloadv1alpha1.DownloadPhaseBlocklisted,
-		downloadv1alpha1.DownloadPhaseRemoving,
-	} {
-		assert.Equalf(t, terminal[p], IsTerminal(p), "phase %q", p)
-	}
-
-	deleting := &downloadv1alpha1.Download{ObjectMeta: metav1.ObjectMeta{DeletionTimestamp: ptr.To(metav1.Now())}}
-	assert.False(t, IsActive(deleting), "a Download being deleted no longer occupies its item")
-	assert.True(t, IsActive(&downloadv1alpha1.Download{}), "a Download grabarr has not admitted yet does")
-}
-
 func TestCovers(t *testing.T) {
 	movie := &downloadv1alpha1.Download{
 		ObjectMeta: metav1.ObjectMeta{OwnerReferences: []metav1.OwnerReference{{UID: "movie-uid"}}},

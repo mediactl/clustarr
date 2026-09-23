@@ -15,17 +15,20 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package downloads holds the facts about a Download that every writer of
-// one, and every reader deciding whether an item already has one, must agree
-// on: which spec.source a release maps to, which Download phases no longer
-// occupy an item, and which Downloads are working on a given catalog item.
+// Package downloads holds the facts about a Download that both grab paths
+// must agree on: which spec.source a release maps to, and which Downloads are
+// working on a given catalog item.
 //
-// It is a leaf -- it imports only API types -- so the Search controller, the
-// grab worker and the Movie/Episode reconcilers can all share it without any
-// of them importing another's package. Each fact used to live in one of those
-// packages and be restated, slightly differently, in another; the two
-// restatements of the source mapping are how an interactive grab and an
-// automatic grab of one release came to be unable to coexist.
+// It is a leaf -- it imports only API types -- so the Search controller and
+// the grab worker share it without either importing the other's package. The
+// source mapping used to live in both, restated slightly differently, which is
+// how an interactive grab and an automatic grab of one release came to be
+// unable to coexist.
+//
+// Whether a Download is still live is not decided here: that is
+// catalogarr/controller/rollup.DownloadNonTerminal, the set the Movie and
+// Episode reconcilers derive status.activeDownloadRef from (gap-fix ruling
+// R-5), which the grab path's guard uses too so the two cannot disagree.
 package downloads
 
 import (
@@ -180,39 +183,9 @@ func SourceApplyConfiguration(src downloadv1alpha1.DownloadSource) *downloadac.D
 	return ac
 }
 
-// IsTerminal reports whether a Download phase no longer occupies its item.
-//
-// Imported, Failed, Blocklisted and Removing are terminal: the transfer is
-// done with, one way or another, and a new grab for the item is legitimate.
-// Every other phase is not -- including the empty phase of a Download grabarr
-// has not admitted yet, and Completed and Seeding, whose content is on disk
-// but not yet imported, where a second grab for the same item would be a
-// duplicate.
-//
-// This is the set the Movie/Episode reconcilers derive
-// status.activeDownloadRef from (gap-fix ruling R-5) and the set the grab
-// path's double-grab guard checks, so the two answer "does this item already
-// have a Download" identically.
-func IsTerminal(phase downloadv1alpha1.DownloadPhase) bool {
-	switch phase {
-	case downloadv1alpha1.DownloadPhaseImported,
-		downloadv1alpha1.DownloadPhaseFailed,
-		downloadv1alpha1.DownloadPhaseBlocklisted,
-		downloadv1alpha1.DownloadPhaseRemoving:
-		return true
-	default:
-		return false
-	}
-}
-
-// IsActive reports whether dl still occupies its item: it is neither in a
-// terminal phase nor being deleted.
-func IsActive(dl *downloadv1alpha1.Download) bool {
-	return dl.DeletionTimestamp == nil && !IsTerminal(dl.Status.Phase)
-}
-
 // Covers reports whether dl is a grab for the catalog item of the given kind,
-// name and UID.
+// name and UID -- the grab path's double-grab guard's notion of "this item
+// already has a Download".
 //
 // It does if dl carries an ownerReference to the item's UID -- every grab
 // path makes the Download's target its owner -- or if dl's spec.target names
@@ -221,6 +194,12 @@ func IsActive(dl *downloadv1alpha1.Download) bool {
 // its episodes: a pack's owner is its Series, so no Episode in it has an
 // ownerReference to match, and an owner-only check would let an episode
 // already inside a downloading pack be grabbed a second time.
+//
+// It is deliberately wider than the reconcilers' choice of which Download
+// status.activeDownloadRef names (rollup.ActiveDownload, which also requires
+// the owner). A Download the Search controller created while its item was
+// missing has no owner, but importarr still imports it into whatever
+// spec.target names, so for refusing a second grab it counts.
 //
 // uid may be empty when the caller has only a name; the ownerReference arm
 // then never matches and spec.target decides alone.
