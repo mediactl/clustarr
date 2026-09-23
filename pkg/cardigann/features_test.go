@@ -1106,3 +1106,28 @@ func TestSearchRawInputIsSplitIntoEncodedPairs(t *testing.T) {
 	assert.Equal(t, []string{""}, values["flag"], "a key with no = is a key with an empty value")
 	assert.Equal(t, []string{"all"}, values["type"])
 }
+
+// TestLoadAcceptsATabInsideADoubleQuotedFlowScalar: a literal TAB inside a
+// double-quoted scalar is valid YAML (it is the same character as "\t"), but
+// goccy/go-yaml v1.19.2 loses its place after one inside a flow mapping and
+// refuses a later, valid line. The bundled uztracker.yml was refused for
+// exactly this ("[498:66] found an invalid key for this map", from a TAB in
+// a category desc on line 200) until gap fix Z6.
+func TestLoadAcceptsATabInsideADoubleQuotedFlowScalar(t *testing.T) {
+	header := strings.Replace(fmt.Sprintf(defHeader, "UTF-8"),
+		`{id: 3, cat: Movies/HD, desc: "HD"}`, "{id: 3, cat: Movies/HD, desc: \" |- HD\tHi-Res\"}", 1)
+	def, err := cardigann.Load([]byte(header + `search:
+  path: search
+  rows:
+    selector: tr[id^="tor_"]:has(a[href^="/dl/"]), tr[id^="tor_"]:has(a[href^="magnet:?xt="])
+` + htmlRowFields))
+	require.NoError(t, err)
+	assert.Equal(t, `tr[id^="tor_"]:has(a[href^="/dl/"]), tr[id^="tor_"]:has(a[href^="magnet:?xt="])`, def.Search.Rows.Selector)
+	var desc string
+	for _, m := range def.Caps.CategoryMappings {
+		if m.ID == "3" {
+			desc = m.Desc
+		}
+	}
+	assert.Equal(t, " |- HD\tHi-Res", desc, "the TAB is kept as the character it is")
+}

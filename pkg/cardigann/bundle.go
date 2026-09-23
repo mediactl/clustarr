@@ -98,8 +98,8 @@ func (i BundleIssue) Error() string { return i.File + ": " + i.Err.Error() }
 // Unwrap exposes the cause to errors.Is/As.
 func (i BundleIssue) Unwrap() error { return i.Err }
 
-// ErrDuplicateID is a BundleIssue's cause when a second file declares an id
-// an earlier file (in name order) already provides.
+// ErrDuplicateID is a BundleIssue's cause when a file declares an id another
+// file already provides; see LoadBundle for which of them loads.
 var ErrDuplicateID = errors.New("cardigann: duplicate definition id")
 
 // ErrDefinitionTooLarge is a BundleIssue's cause when a file exceeds
@@ -108,10 +108,21 @@ var ErrDefinitionTooLarge = errors.New("cardigann: definition exceeds the size l
 
 // LoadBundle loads every *.yml and *.yaml file at the root of fsys (not
 // recursively), in name order. A file that fails -- too large, rejected by
-// Load, or declaring an id an earlier file already declared -- is reported
-// as a BundleIssue and skipped; one bad definition never keeps the rest
-// from loading. The error is only for fsys itself failing (an unreadable
+// Load, or declaring an id another file provides -- is reported as a
+// BundleIssue and skipped; one bad definition never keeps the rest from
+// loading. The error is only for fsys itself failing (an unreadable
 // directory), in which case nothing is returned.
+//
+// When several files declare one id, the file named after the id loads and
+// the others are the duplicates; with none so named, the first in name
+// order loads. A renamed upstream definition leaves its old file behind in
+// a definitions folder: Prowlarr's bundle carries btsate.yml and
+// torrent-explosiv.yml, stale copies of btstate.yml and explosiv-world.yml
+// (whose `replaces` lists the old names) declaring the same ids. Plain name
+// order kept the stale btsate.yml -- an older search API query -- and
+// refused the current btstate.yml, until gap fix Z6. Prowlarr itself never
+// meets the pair: it takes its list from indexers.prowlarr.com, which names
+// only current files.
 func LoadBundle(fsys fs.FS) ([]BundledDefinition, []BundleIssue, error) {
 	entries, err := fs.ReadDir(fsys, ".")
 	if err != nil {
@@ -130,9 +141,9 @@ func LoadBundle(fsys fs.FS) ([]BundledDefinition, []BundleIssue, error) {
 	sort.Strings(names)
 
 	var (
-		out    []BundledDefinition
+		loaded []BundledDefinition
 		issues []BundleIssue
-		byID   = map[string]string{}
+		winner = map[string]int{} // id -> index into loaded of the file that provides it
 	)
 	for _, name := range names {
 		data, err := readCapped(fsys, name)
@@ -145,13 +156,22 @@ func LoadBundle(fsys fs.FS) ([]BundledDefinition, []BundleIssue, error) {
 			issues = append(issues, BundleIssue{File: name, Err: err})
 			continue
 		}
-		if first, dup := byID[def.ID]; dup {
-			issues = append(issues, BundleIssue{File: name, Err: fmt.Errorf("%w %q, already provided by %s", ErrDuplicateID, def.ID, first)})
+		loaded = append(loaded, BundledDefinition{File: name, YAML: data, Definition: def})
+		i := len(loaded) - 1
+		if w, dup := winner[def.ID]; !dup || (!namedAfterID(loaded[w]) && namedAfterID(loaded[i])) {
+			winner[def.ID] = i
+		}
+	}
+
+	var out []BundledDefinition
+	for i, b := range loaded {
+		if w := winner[b.ID()]; w != i {
+			issues = append(issues, BundleIssue{File: b.File, Err: fmt.Errorf("%w %q, provided by %s", ErrDuplicateID, b.ID(), loaded[w].File)})
 			continue
 		}
-		byID[def.ID] = name
-		out = append(out, BundledDefinition{File: name, YAML: data, Definition: def})
+		out = append(out, b)
 	}
+	sort.SliceStable(issues, func(a, b int) bool { return issues[a].File < issues[b].File })
 	return out, issues, nil
 }
 
@@ -172,4 +192,10 @@ func readCapped(fsys fs.FS, name string) ([]byte, error) {
 		return nil, fmt.Errorf("%w: more than %d bytes", ErrDefinitionTooLarge, MaxDefinitionBytes)
 	}
 	return buf.Bytes(), nil
+}
+
+// namedAfterID reports whether b's file name, less its extension, is its
+// definition's id.
+func namedAfterID(b BundledDefinition) bool {
+	return strings.TrimSuffix(b.File, path.Ext(b.File)) == b.ID()
 }

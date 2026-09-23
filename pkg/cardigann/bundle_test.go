@@ -43,7 +43,7 @@ func TestLoadBundleLoadsEveryGoodFileAndReportsEveryBadOne(t *testing.T) {
 	fsys := fstest.MapFS{
 		"alpha.yml":        {Data: bundleDef("alpha")},
 		"beta.yaml":        {Data: bundleDef("beta")},
-		"alpha-copy.yml":   {Data: bundleDef("alpha")}, // sorts first, so it wins and alpha.yml is the duplicate
+		"alpha-copy.yml":   {Data: bundleDef("alpha")}, // sorts first, but alpha.yml is named after the id and wins
 		"broken.yml":       {Data: []byte("id: broken\nname: broken\n")},
 		"huge.yml":         {Data: append(bundleDef("huge"), []byte("# "+strings.Repeat("x", cardigann.MaxDefinitionBytes)+"\n")...)},
 		"README.md":        {Data: []byte("not a definition")},
@@ -58,16 +58,41 @@ func TestLoadBundleLoadsEveryGoodFileAndReportsEveryBadOne(t *testing.T) {
 		loaded = append(loaded, d.File+"="+d.ID())
 		assert.NotEmpty(t, d.YAML)
 	}
-	assert.Equal(t, []string{"alpha-copy.yml=alpha", "beta.yaml=beta"}, loaded, "name order; nested directories and non-YAML files ignored")
+	assert.Equal(t, []string{"alpha.yml=alpha", "beta.yaml=beta"}, loaded, "name order; nested directories and non-YAML files ignored")
 
 	byFile := map[string]error{}
 	for _, i := range issues {
 		byFile[i.File] = i.Err
 	}
 	require.Len(t, byFile, 3)
-	assert.ErrorIs(t, byFile["alpha.yml"], cardigann.ErrDuplicateID)
+	assert.ErrorIs(t, byFile["alpha-copy.yml"], cardigann.ErrDuplicateID)
 	assert.ErrorIs(t, byFile["broken.yml"], cardigann.ErrInvalidDefinition)
 	assert.ErrorIs(t, byFile["huge.yml"], cardigann.ErrDefinitionTooLarge)
+}
+
+// TestLoadBundleKeepsTheFileNamedAfterTheID: a renamed upstream definition
+// leaves its old file declaring the same id (Prowlarr's btsate.yml beside
+// btstate.yml). The file named after the id loads whichever sorts first;
+// with none so named, name order decides.
+func TestLoadBundleKeepsTheFileNamedAfterTheID(t *testing.T) {
+	fsys := fstest.MapFS{
+		"btsate.yml":  {Data: bundleDef("btstate")},
+		"btstate.yml": {Data: bundleDef("btstate")},
+		"one.yml":     {Data: bundleDef("shared")},
+		"two.yml":     {Data: bundleDef("shared")},
+	}
+	defs, issues, err := cardigann.LoadBundle(fsys)
+	require.NoError(t, err)
+	var loaded []string
+	for _, d := range defs {
+		loaded = append(loaded, d.File)
+	}
+	assert.Equal(t, []string{"btstate.yml", "one.yml"}, loaded)
+	require.Len(t, issues, 2)
+	assert.Equal(t, "btsate.yml", issues[0].File)
+	assert.ErrorIs(t, issues[0], cardigann.ErrDuplicateID)
+	assert.Contains(t, issues[0].Error(), "provided by btstate.yml")
+	assert.Equal(t, "two.yml", issues[1].File)
 }
 
 // unreadableFS is a bundle whose directory cannot be listed.

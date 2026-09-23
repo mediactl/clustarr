@@ -125,9 +125,8 @@ func Validate(data []byte) error {
 	if err != nil {
 		return err
 	}
-	data = trimBOM(data)
 	var raw any
-	if err := yaml.Unmarshal(data, &raw); err != nil {
+	if err := unmarshalYAML(data, &raw); err != nil {
 		return fmt.Errorf("cardigann: yaml decode: %w", err)
 	}
 	jsonBytes, err := json.Marshal(raw)
@@ -152,3 +151,86 @@ var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
 
 // trimBOM drops a leading UTF-8 byte-order mark.
 func trimBOM(data []byte) []byte { return bytes.TrimPrefix(data, utf8BOM) }
+
+// unmarshalYAML decodes a definition with goccy/go-yaml after trimBOM. When
+// that fails on a document holding a literal TAB, it retries once with each
+// TAB inside a double-quoted scalar written as the "\t" escape, which is the
+// same character: goccy/go-yaml v1.19.2 loses its place after a literal TAB
+// inside a double-quoted flow scalar and reports a bogus error lines later.
+// The bundled uztracker.yml has one (a category desc, `" |- ♫ Джаз и
+// Блюз<TAB>Hi-Res"` on line 200) and was refused with "[498:66] found an
+// invalid key for this map" until gap fix Z6. A document that decodes the
+// first time is never rewritten, and the retry's error is not reported: the
+// original one is.
+func unmarshalYAML(data []byte, v any, opts ...yaml.DecodeOption) error {
+	data = trimBOM(data)
+	err := yaml.UnmarshalWithOptions(data, v, opts...)
+	if err == nil || !bytes.ContainsRune(data, '\t') {
+		return err
+	}
+	fixed, changed := escapeQuotedTabs(data)
+	if !changed {
+		return err
+	}
+	if yaml.UnmarshalWithOptions(fixed, v, opts...) != nil {
+		return err
+	}
+	return nil
+}
+
+// escapeQuotedTabs rewrites every literal TAB inside a double-quoted YAML
+// scalar as the two characters "\t". A double quote opens a scalar only
+// where one can start -- first on its line, or after ": ", "- ", "[", "{"
+// or "," -- so a quote inside a plain scalar (a CSS selector's
+// `[href^="/dl/"]`) is left alone; inside a scalar a backslash escapes the
+// next byte. A "#" that starts a comment ends the line's scan. It is only
+// ever a retry (unmarshalYAML), for a document goccy already refused.
+func escapeQuotedTabs(data []byte) ([]byte, bool) {
+	var out bytes.Buffer
+	out.Grow(len(data) + 8)
+	changed, inDouble, escaped, comment := false, false, false, false
+	lastSig := byte('\n') // last non-blank byte outside a scalar on this line
+	prev := byte('\n')
+	for _, c := range data {
+		switch {
+		case inDouble: // a double-quoted scalar may run onto later lines
+			switch {
+			case escaped:
+				escaped = false
+			case c == '\\':
+				escaped = true
+			case c == '"':
+				inDouble, lastSig = false, '"'
+			case c == '\t':
+				out.WriteString(`\t`)
+				changed, prev = true, c
+				continue
+			}
+		case c == '\n':
+			comment, lastSig = false, '\n'
+		case comment:
+		case c == '#' && (prev == ' ' || prev == '\t' || prev == '\n'):
+			comment = true
+		case c == '"' && opensScalar(lastSig, prev):
+			inDouble = true
+		case c != ' ' && c != '\t':
+			lastSig = c
+		}
+		out.WriteByte(c)
+		prev = c
+	}
+	return out.Bytes(), changed
+}
+
+// opensScalar reports whether a double quote read after lastSig (the last
+// non-blank byte on the line outside a scalar) and prev (the byte just
+// before it) begins a double-quoted scalar.
+func opensScalar(lastSig, prev byte) bool {
+	switch lastSig {
+	case '\n', '[', '{', ',':
+		return true
+	case ':', '-', '?':
+		return prev == ' ' || prev == '\t'
+	}
+	return false
+}
