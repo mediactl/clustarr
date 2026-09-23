@@ -157,6 +157,10 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 			return settlement(err)
 		}
 		fetchSpan.End()
+		// Crosswalk and artwork are folded in before the document is
+		// cached, so a cache hit serves them without calling those
+		// providers again.
+		enrich(ctx, h.Registry, task.MediaRef.Kind, ids, knownExternalIDs(target), v)
 		result = v
 	}
 

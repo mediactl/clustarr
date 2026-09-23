@@ -113,6 +113,43 @@ func externalIDs(obj client.Object) (pkgmetadata.ExternalIDs, error) {
 	}
 }
 
+// knownExternalIDs returns the ExternalIDs the target's status.metadata
+// already carries -- what enrich keeps when a resolver that supplied an id
+// before cannot this time. Album's metadata has no ExternalIDs field.
+func knownExternalIDs(obj client.Object) pkgmetadata.ExternalIDs {
+	switch o := obj.(type) {
+	case *catalogv1alpha1.Movie:
+		if o.Status.Metadata != nil {
+			return o.Status.Metadata.ExternalIDs
+		}
+	case *catalogv1alpha1.Series:
+		if o.Status.Metadata != nil {
+			return o.Status.Metadata.ExternalIDs
+		}
+	case *catalogv1alpha1.Artist:
+		if o.Status.Metadata != nil {
+			return o.Status.Metadata.ExternalIDs
+		}
+	case *catalogv1alpha1.Author:
+		if o.Status.Metadata != nil {
+			return o.Status.Metadata.ExternalIDs
+		}
+	case *catalogv1alpha1.Book:
+		if o.Status.Metadata != nil {
+			return o.Status.Metadata.ExternalIDs
+		}
+	case *catalogv1alpha1.Audiobook:
+		if o.Status.Metadata != nil {
+			return o.Status.Metadata.ExternalIDs
+		}
+	case *catalogv1alpha1.Comic:
+		if o.Status.Metadata != nil {
+			return o.Status.Metadata.ExternalIDs
+		}
+	}
+	return nil
+}
+
 // refreshedAt returns the target's previous status.metadata.refreshedAt, or
 // the zero time when it has never been fetched -- the "lastRefreshed"
 // pkg/metadata.RefreshTTL needs.

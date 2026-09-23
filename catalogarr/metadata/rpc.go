@@ -434,19 +434,7 @@ func resolve(ctx context.Context, reg *pkgmetadata.Registry, req schema.Metadata
 	ctx, span := tracing.Start(ctx, "metadata.rpc.resolve")
 	defer span.End()
 
-	ids := pkgmetadata.ExternalIDs(req.IDs)
-	for _, r := range reg.Resolvers {
-		rCtx, rSpan := tracing.Start(ctx, "metadata.IDResolver.Resolve")
-		resolved, err := r.Resolve(rCtx, req.Kind, ids)
-		if err != nil {
-			tracing.RecordError(rSpan, err)
-			rSpan.End()
-			continue
-		}
-		rSpan.End()
-		ids = ids.Merge(resolved)
-	}
-	return schema.MetadataResponse{Kind: req.Kind, IDs: ids}
+	return schema.MetadataResponse{Kind: req.Kind, IDs: resolveIDs(ctx, reg, req.Kind, pkgmetadata.ExternalIDs(req.IDs))}
 }
 
 func marshalAll[T any](items []T) [][]byte {
