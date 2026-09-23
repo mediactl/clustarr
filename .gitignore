@@ -6,3 +6,8 @@ cover.out
 .data/
 /clustarr/clustarr
 .superpowers/
+
+# A bare `go build` of ./cmd/clustarr drops this binary in the repo root.
+# CLAUDE.md says never to do that (use `make build` -> bin/); this keeps a
+# slip from ever reaching a commit.
+/clustarr
