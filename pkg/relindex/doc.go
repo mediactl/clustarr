@@ -43,7 +43,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # What this package does not do
 //
 // It does not normalise titles -- the caller supplies Release.TitleNorm and
-// must normalise Query.Text with the same function, or nothing will match. It
+// must normalise Query.Text with the same function, or nothing will match.
+// pkg/release.TitleNorm is the function built for this: it keeps letters in
+// every script, where release.CleanTitle keeps only ASCII ones
+// (titlenorm_test.go runs the round trip through a real index). It
 // does not schedule the retention sweep -- Prune is a pure function of its
 // olderThan argument and Open starts no goroutines. It does not know what is
 // inside Release.InfoJSON. It does not invent a query limit.

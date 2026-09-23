@@ -43,8 +43,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // two must go through ONE function or nothing matches. The RSS worker fills
 // that column with release.CleanTitle, so this verb does too. The failure
 // mode if they ever diverge is silent -- an index that answers nothing rather
-// than an error -- which is why filters_test.go reads the worker's source and
-// fails here when it changes.
+// than an error -- which is why each side is pinned in its own package:
+// indexarr/worker/rss's TestIndexRowsCarryTheFieldsTheIndexSearchesOn asserts
+// the row the worker builds, and roundtrip_test.go runs this verb's query
+// through a real store against rows written that way. (An earlier guard
+// grepped the worker's source for the call; roundtrip_test.go says why it
+// went.)
 //
 // # Unmatchable is not unfiltered
 //
@@ -52,7 +56,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // nothing, and relindex reads each of those as the whole corpus: Search omits
 // the MATCH clause for an empty Query.Text, and emits no IN clause for an
 // empty Indexers or Categories. So a non-empty Text that normalises away
-// ("матрица", "\x00", "!!!") and a known filter whose value is explicitly
+// ("★★★", "\x00", "!!!") and a known filter whose value is explicitly
 // empty ({"indexer": ""}) both answer with an EMPTY RESULT SET rather than
 // the whole index. That is a success, not an Error -- the caller asked a
 // question with no possible answer.
@@ -60,19 +64,24 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // An empty Text is deliberately NOT in that class: it is a filters-only
 // browse, which really does mean "no text filter".
 //
-// Two known limitations of normalising, both symmetric -- the indexed column
-// went through the same function, so search stays self-consistent and the
-// only casualty is a release nobody can currently find:
+// One known limitation of normalising, symmetric -- the indexed column went
+// through the same function, so search stays self-consistent and the only
+// casualty is a release nobody can currently find: CleanTitle keeps only
+// ASCII letters and digits, so a wholly non-Latin title ("Матрица",
+// "日本語のタイトル") indexes as "" and relindex.Upsert rejects the row, and a
+// mixed one indexes and is queried by its ASCII residue alone -- which also
+// means "日本語のタイトル 2026" is a query for "2026". pkg/release.TitleNorm is
+// the fix: the same pipeline as CleanTitle, identical to it on printable
+// ASCII (so rows already indexed stay findable), but keeping letters in
+// every script. It must replace CleanTitle on BOTH sides in one change --
+// the RSS worker's and the search fan-out's TitleNorm, and this package's
+// Query.Text -- and the tests here that assert a non-Latin query normalises
+// away flip with it. pkg/relindex's titlenorm_test.go proves the round trip
+// against a real FTS5 index.
 //
-//   - CleanTitle keeps only [a-z0-9 ], so a non-Latin title indexes as "" and
-//     relindex.Upsert rejects the row outright. A non-Latin corpus needs a
-//     normaliser that keeps non-ASCII letters, in pkg/release, for both sides
-//     at once.
-//   - CleanTitle strips control runes rather than mapping them to spaces, so
-//     "dune\x00matrix" becomes the single term "dunematrix". pkg/relindex's
-//     splitControls maps them to spaces deliberately, and it never sees them
-//     now. Both sides weld identically, so this costs a title containing a
-//     control character and nothing else.
+// Control runes are no longer a limitation: CleanTitle maps them to spaces,
+// as pkg/relindex's splitControls does, so "dune\x00matrix" is the two terms
+// "dune" and "matrix" on both sides rather than the one term "dunematrix".
 //
 // # The filter vocabulary is closed
 //

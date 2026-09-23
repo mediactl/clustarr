@@ -92,7 +92,8 @@ type Release struct {
 
 	// TitleNorm is the lowercased/normalised title, the FTS5 column. The
 	// CALLER normalises: this package stores what it is given. Query.Text
-	// must be normalised with the same function or nothing will match.
+	// must be normalised with the same function or nothing will match --
+	// pkg/release.TitleNorm, which keeps non-Latin letters (doc.go).
 	TitleNorm string
 
 	// Group is the release group, the second FTS5 column. Its SQL column is
