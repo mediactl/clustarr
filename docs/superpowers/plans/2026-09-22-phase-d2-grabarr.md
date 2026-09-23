@@ -167,6 +167,17 @@ Consumes `ConsumerImportFile` (`"importarr-fileimport"`, `pkg/events/subjects.go
 - [ ] Fix `pkg/events/schema/catalog.go:226`'s subject comment: it claims `clustarr.work.catalogarr.import.normal.<download-uid>` while `ConsumerImportFile` listens on `clustarr.work.importarr.fileimport.<uid>` (`subjects.go:277`). A stale subject in a doc comment is how the next task builds the wrong publisher.
 - [ ] Test the whole handoff against envtest plus the in-memory bus: telemetry lands → phase advances → exactly one import task is published with a parseable key.
 
+### D2-8b — orphan reaping: nothing guarantees the engine ever tears a transfer down
+
+**Files:** modify `grabarr/engine/torrent/` and `grabarr/engine/usenet/`. **Do not touch `grabarr/controller/download/`** — D2-8a owns it.
+
+**Three tasks converged on "best effort" independently, and the convergence is the bug.** D2-4's finalizer calls `fsops.SafeRemove` against `status.outputPath` from the controller's own DataDir mount and drops the finalizer, deliberately not waiting for any engine — its `doc.go` argues "the finalizer needs no live engine", which is true for **disk** and not for **client state**. D2-6 owns no finalizer at all. D2-5 initially wrote its own, then read both siblings mid-task and removed it to match them. So on delete: the controller reaps the files and lets the object go, and if the engine has not yet observed the deletion it never calls `Client.Remove` — leaving a transfer the client keeps running forever. A torrent goes on seeding; a usenet fetch goes on consuming the provider's connection budget. Neither is visible in any CR, because the CR is gone.
+
+- [ ] Reap orphans level-driven, in each engine, rather than coordinating the finalizer. `download.Client.List`'s own doc comment already anticipates exactly this: it "returns every transfer the client currently holds, **including ones it re-attached and the controller has not yet matched to a Download**". Periodically list the client's transfers, list the Downloads assigned to this engine replica, and `Remove` anything with no owner.
+- [ ] **Level-driven is the requirement, not an implementation preference.** An edge-triggered handshake between controller and engine fails the cases that matter: an engine that was down when the Download was deleted, a deletion processed during re-attach, a missed watch event. A reaper that reconciles list-against-list recovers from all three because it never depends on having seen the event.
+- [ ] Be conservative about what counts as an orphan. A transfer that has just been added and whose `Download` has not yet been observed by this replica's cache **is not an orphan** — reaping it deletes live work. Gate on cache sync and on the transfer being older than a grace period, and say in the report which guard you used.
+- [ ] Test it by removing a `Download` while its transfer is live, with the engine's watch deliberately not firing, then proving the transfer is gone after a reap cycle. A test that deletes the object and lets the normal path handle it does not test the reaper.
+
 ### D2-8 — wiring, RBAC, readiness (SERIAL, after D2-1..D2-7)
 
 **Files:** `grabarr/run.go`, `cmd/clustarr/services.go`, `cmd/clustarr/all.go`, `Makefile` (`RBAC_DIRS`), `config/`, `charts/`.
