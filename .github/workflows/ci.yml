@@ -1,0 +1,152 @@
+# Verifies every push to main and every pull request: lint, generated code in
+# sync, and the full unit + envtest suite -- the same gate a change must pass
+# locally (`make generate manifests build lint test`, plus `go vet -tags e2e`).
+#
+# The suite skips, rather than fails, a test whose tool is missing (ffprobe,
+# helm, kustomize, a writable /data/media, KUBEBUILDER_ASSETS), so a green run
+# only means something if every tool is present. This workflow installs all of
+# them, at the versions local development pins: controller-gen and
+# setup-envtest as the Makefile names them, kustomize and helm for the chart
+# parity tests, and the same FFmpeg 9 build and par2cmdline-turbo release the
+# media image ships (images/Dockerfile.media) for the real-encode and repair
+# tests. The e2e suite is only compiled here; it needs a kind cluster.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CONTROLLER_GEN_VERSION: v0.22.0
+  SETUP_ENVTEST_VERSION: v0.25.1
+  KUSTOMIZE_VERSION: v5.8.1
+  HELM_VERSION: v4.2.2
+  GOLANGCI_LINT_VERSION: v2.13.2
+  FFMPEG_BRANCH: "9.0"
+  PAR2_VERSION: v1.5.0
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@d583c34f0599d37dbac4a198b9c83201be380893 # v9.3.0
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          args: --timeout=15m
+
+  generated:
+    name: generated code is current
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install controller-gen
+        run: go install "sigs.k8s.io/controller-tools/cmd/controller-gen@${CONTROLLER_GEN_VERSION}"
+
+      - name: Regenerate
+        run: |
+          make generate manifests templ
+          go mod tidy
+
+      - name: Nothing changed
+        run: |
+          # --porcelain also catches new untracked files a generator wrote.
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --porcelain
+            git --no-pager diff --stat
+            echo "::error::generated code, CRDs, RBAC, templ output or go.mod/go.sum are stale; run make generate manifests templ && go mod tidy and commit"
+            exit 1
+          fi
+
+      - name: e2e suite compiles
+        run: go vet -tags e2e ./test/...
+
+  test:
+    name: unit + envtest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Install Go tools
+        run: |
+          go install "sigs.k8s.io/controller-runtime/tools/setup-envtest@${SETUP_ENVTEST_VERSION}"
+          go install "sigs.k8s.io/kustomize/kustomize/v5@${KUSTOMIZE_VERSION}"
+
+      - name: Install ffmpeg and par2
+        run: |
+          set -euo pipefail
+          bin="${RUNNER_TEMP}/bin"
+          mkdir -p "$bin"
+          curl -fsSL -o "${RUNNER_TEMP}/ffmpeg.tar.xz" \
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n${FFMPEG_BRANCH}-latest-linux64-gpl-${FFMPEG_BRANCH}.tar.xz"
+          tar -xJf "${RUNNER_TEMP}/ffmpeg.tar.xz" --strip-components=2 -C "$bin" --wildcards '*/bin/ffmpeg' '*/bin/ffprobe'
+          p2="${PAR2_VERSION#v}"
+          curl -fsSL -o "${RUNNER_TEMP}/par2.zip" \
+            "https://github.com/animetosho/par2cmdline-turbo/releases/download/${PAR2_VERSION}/par2cmdline-turbo-${p2}-linux-amd64.zip"
+          unzip -p "${RUNNER_TEMP}/par2.zip" par2 > "$bin/par2"
+          chmod 0755 "$bin/par2"
+          echo "$bin" >> "$GITHUB_PATH"
+          "$bin/ffmpeg" -hide_banner -version | head -n 1
+          "$bin/par2" --version | head -n 1
+
+      - name: Chart dependencies
+        run: |
+          helm repo add nats https://nats-io.github.io/k8s/helm/charts/
+          helm repo add kedacore https://kedacore.github.io/charts
+          helm dependency build charts/clustarr
+
+      - name: Media root
+        # RootFolder.spec.path must start with /data/media/ (a CEL rule), so the
+        # library-scan suites need that exact prefix to be writable.
+        run: |
+          sudo mkdir -p /data/media
+          sudo chown "$(id -u):$(id -g)" /data/media
+
+      - name: make test
+        run: make test
