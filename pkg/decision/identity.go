@@ -48,6 +48,22 @@ const movieYearTolerance = 1
 // release.ParsedRelease.Year == 0.
 const minPlausibleYear = 1800
 
+// identityIndex is everything identityRejection derives from the Target
+// alone -- the same for every release of one Evaluate, and a search can carry
+// 500 releases against an item with 50 alternate titles and a thousand-row
+// scene mapping -- so Evaluate builds it once.
+type identityIndex struct {
+	titles map[string]struct{}
+	scene  sceneIndex
+}
+
+func newIdentityIndex(kind common.MediaKind, id Identity) identityIndex {
+	return identityIndex{
+		titles: targetTitleKeys(kind, id),
+		scene:  newSceneIndex(id.SceneMappings),
+	}
+}
+
 // identityRejection answers the question every other check on the §8.2
 // checklist takes for granted: is this release FOR the target item at all?
 // It is Radarr's Search/MovieSpecification ("Wrong movie") and Sonarr's
@@ -112,9 +128,9 @@ const minPlausibleYear = 1800
 // branch on purpose: a release of the wrong language is still the right
 // item; a release of the wrong item is a wasted download and a wrong import.
 //
-// targetTitles is targetTitleKeys(t.Kind, t.Identity), which Evaluate
-// computes once for all of a call's releases.
-func identityRejection(t Target, targetTitles map[string]struct{}, parsed *release.ParsedRelease, rel common.ReleaseInfo) *common.Rejection {
+// idx is newIdentityIndex(t.Kind, t.Identity), which Evaluate computes once
+// for all of a call's releases.
+func identityRejection(t Target, idx identityIndex, parsed *release.ParsedRelease, rel common.ReleaseInfo) *common.Rejection {
 	switch t.Kind {
 	case common.MediaKindMovie, common.MediaKindEpisode, common.MediaKindSeries:
 	default:
@@ -124,13 +140,13 @@ func identityRejection(t Target, targetTitles map[string]struct{}, parsed *relea
 		r := newRejection(ReasonUnknownItem, "pkg/decision has no identity rule for kind %q", t.Kind)
 		return &r
 	}
-	if r := itemRejection(t.Kind, t.Identity, targetTitles, parsed, rel); r != nil {
+	if r := itemRejection(t.Kind, t.Identity, idx.titles, parsed, rel); r != nil {
 		return r
 	}
 	if t.Kind == common.MediaKindMovie {
 		return nil
 	}
-	if r := numberingRejection(t.Identity, parsed); r != nil {
+	if r := numberingRejection(t.Identity, idx.scene, parsed); r != nil {
 		return r
 	}
 	return seasonPackRejection(t.Identity, parsed)
@@ -384,28 +400,35 @@ func releaseTitleKeys(parsed *release.ParsedRelease) []string {
 // agreeing is WrongItem; none comparable at all is UnknownItem, failing
 // closed for the same reason identityRejection's unevaluable case does.
 //
+// The release's numbering is read through the series' scene mapping first
+// (Identity.SceneMappings, releaseCoverage), so a scene-numbered release --
+// an anime "S02E05" that TVDB files as S01E18 -- is compared as the TVDB
+// episode it is, not rejected as WrongItem. With no mapping every number is
+// read literally, which is what this did before the mapping existed.
+//
 // A full-season pack of the right season covers every episode of it, so the
 // numbering half accepts one for any target. Whether a single-episode search
 // SHOULD take a whole season is the separate question seasonPackRejection
 // answers, as Sonarr answers it in a separate specification.
-func numberingRejection(id Identity, p *release.ParsedRelease) *common.Rejection {
+func numberingRejection(id Identity, scene sceneIndex, p *release.ParsedRelease) *common.Rejection {
 	var (
 		compared   bool
 		mismatches []string
 	)
-	if len(id.Episodes) > 0 && len(p.Seasons) > 0 && (p.FullSeason || len(p.Episodes) > 0) {
+	cov := releaseCoverage(p, scene)
+	if len(id.Episodes) > 0 && cov.hasInSeason() {
 		compared = true
-		if coversInSeason(id, p) {
+		if cov.coversInSeason(id.Season, id.Episodes) {
 			return nil
 		}
-		mismatches = append(mismatches, fmt.Sprintf("release is %s, the item is %s", describeRelease(p), describeTarget(id)))
+		mismatches = append(mismatches, fmt.Sprintf("release is %s%s, the item is %s", describeRelease(p), cov.describeMapping(), describeTarget(id)))
 	}
-	if len(id.Absolute) > 0 && len(p.Absolute) > 0 {
+	if len(id.Absolute) > 0 && len(cov.absolutes) > 0 {
 		compared = true
-		if containsAll(p.Absolute, id.Absolute) {
+		if cov.coversAbsolute(id.Absolute) {
 			return nil
 		}
-		mismatches = append(mismatches, fmt.Sprintf("release is absolute %v, the item is absolute %v", p.Absolute, id.Absolute))
+		mismatches = append(mismatches, fmt.Sprintf("release is absolute %v%s, the item is absolute %v", p.Absolute, cov.describeMapping(), id.Absolute))
 	}
 	if id.AirDate != nil && p.AirDate != nil {
 		compared = true
@@ -423,29 +446,6 @@ func numberingRejection(id Identity, p *release.ParsedRelease) *common.Rejection
 		"the release names no season/episode, absolute number or air date the item also has (release is %s, item is %s)",
 		describeRelease(p), describeTarget(id))
 	return &r
-}
-
-func coversInSeason(id Identity, p *release.ParsedRelease) bool {
-	if !containsAll(p.Seasons, []int{id.Season}) {
-		return false
-	}
-	return p.FullSeason || containsAll(p.Episodes, id.Episodes)
-}
-
-func containsAll(haystack, needles []int) bool {
-	for _, n := range needles {
-		found := false
-		for _, h := range haystack {
-			if h == n {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-	return true
 }
 
 func sameDay(a, b time.Time) bool {

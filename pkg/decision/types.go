@@ -120,6 +120,19 @@ type Identity struct {
 	// AirDate is a single episode's air date, the only numbering a daily
 	// series' releases carry. Nil for a pack or when not yet known.
 	AirDate *time.Time
+	// SceneMappings is the SERIES' scene-numbering table (TheXEM's, for an
+	// anime series whose scene seasons or absolute numbers differ from
+	// TVDB's). The numbering half reads a release's numbers through it first
+	// and literally only where it has no row, so a scene-numbered release is
+	// compared as the TVDB episode it names (releaseCoverage). Nil means no
+	// mapping: every number is read literally.
+	//
+	// It must be the whole series' table, not only the target's rows. A
+	// release numbered by a scene number that maps to a DIFFERENT episode is
+	// that other episode, and only its row says so: with the row missing,
+	// the number would fall back to its literal reading and could match the
+	// target by coincidence.
+	SceneMappings []SceneMapping
 	// IDQueryIndexers names (by ReleaseInfo.IndexerRef) the indexers whose
 	// query for THIS search was keyed by one of the item's ids
 	// (schema.SearchQueryModeID), i.e. the indexer matched the id server-side.

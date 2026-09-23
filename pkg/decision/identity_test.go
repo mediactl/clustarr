@@ -360,6 +360,91 @@ func TestIdentityEpisode(t *testing.T) {
 	}
 }
 
+// kaijuSceneMap is a TheXEM-shaped table for a series TVDB files as one
+// 26-episode season 1 and a season 2, which the scene releases as three
+// seasons: scene S01 is TVDB S01E01-13, scene S02 is TVDB S01E14-26, scene S03
+// is TVDB season 2. From scene S03 on, the scene absolute is TVDB's minus one
+// (the scene skips a recap TVDB counts). One scene absolute, 37, is claimed
+// by two rows (S03E10 and S03E11), which Sonarr refuses to pick between.
+func kaijuSceneMap() []decision.SceneMapping {
+	var rows []decision.SceneMapping
+	for e := 1; e <= 13; e++ {
+		rows = append(rows,
+			decision.SceneMapping{Scene: decision.EpisodeNumbering{Season: 1, Episode: e, Absolute: e}, TVDB: decision.EpisodeNumbering{Season: 1, Episode: e, Absolute: e}},
+			decision.SceneMapping{Scene: decision.EpisodeNumbering{Season: 2, Episode: e, Absolute: 13 + e}, TVDB: decision.EpisodeNumbering{Season: 1, Episode: 13 + e, Absolute: 13 + e}},
+		)
+	}
+	for e := 1; e <= 10; e++ {
+		rows = append(rows, decision.SceneMapping{
+			Scene: decision.EpisodeNumbering{Season: 3, Episode: e, Absolute: 25 + e},
+			TVDB:  decision.EpisodeNumbering{Season: 2, Episode: e, Absolute: 26 + e},
+		})
+	}
+	rows = append(rows, decision.SceneMapping{
+		Scene: decision.EpisodeNumbering{Season: 3, Episode: 11, Absolute: 37},
+		TVDB:  decision.EpisodeNumbering{Season: 2, Episode: 11, Absolute: 37},
+	})
+	rows[len(rows)-2].Scene.Absolute = 37 // S03E10 and S03E11 both claim scene absolute 37
+	return rows
+}
+
+// TestIdentitySceneNumbering is the anime scene-numbering carried defect: a
+// scene-numbered release named a TVDB episode the release's own numbers do
+// not spell, and with no scene-to-TVDB map it was rejected as WrongItem. The
+// map is read the way Sonarr reads it for an indexer release: the scene
+// reading replaces the literal one wherever a row exists, and the literal one
+// stands where none does.
+func TestIdentitySceneNumbering(t *testing.T) {
+	target := func(season, episode, absolute int, scene []decision.SceneMapping) decision.Target {
+		return decision.Target{Kind: common.MediaKindEpisode, Available: true, Identity: decision.Identity{
+			Titles: []string{"Kaiju Show"}, Season: season, Episodes: []int{episode}, Absolute: []int{absolute},
+			SceneMappings: scene,
+		}}
+	}
+	s01e18 := func(scene []decision.SceneMapping) decision.Target { return target(1, 18, 18, scene) }
+	s02e05 := func(scene []decision.SceneMapping) decision.Target { return target(2, 5, 31, scene) }
+
+	cases := []struct {
+		name   string
+		target decision.Target
+		title  string
+		want   string
+		detail string
+	}{
+		// The defect, and its fix.
+		{name: "with no map, scene S02E05 is the wrong item", target: s01e18(nil), title: "Kaiju.Show.S02E05.1080p.WEB.x264-GRP", want: "WrongItem", detail: "release is S02E05, the item is S01E18"},
+		{name: "with the map, scene S02E05 is TVDB S01E18", target: s01e18(kaijuSceneMap()), title: "Kaiju.Show.S02E05.1080p.WEB.x264-GRP"},
+		{name: "a number with no scene row is read literally", target: s01e18(kaijuSceneMap()), title: "Kaiju.Show.S01E18.1080p.WEB.x264-GRP"},
+
+		// The scene reading replaces the literal one: scene S02E05 is not
+		// TVDB S02E05 on this series, although the digits say so.
+		{name: "without the map the digits alone would pass", target: s02e05(nil), title: "Kaiju.Show.S02E05.1080p.WEB.x264-GRP"},
+		{name: "with the map, scene S02E05 is not TVDB S02E05", target: s02e05(kaijuSceneMap()), title: "Kaiju.Show.S02E05.1080p.WEB.x264-GRP", want: "WrongItem", detail: "release is S02E05 (scene numbering; TVDB S01E18), the item is S02E05"},
+		{name: "scene S03E05 is TVDB S02E05", target: s02e05(kaijuSceneMap()), title: "Kaiju.Show.S03E05.1080p.WEB.x264-GRP"},
+
+		// A pack is the TVDB episodes of its SCENE season.
+		{name: "a scene S02 pack covers TVDB S01E18", target: s01e18(kaijuSceneMap()), title: "Kaiju.Show.S02.1080p.BluRay.x264-GRP"},
+		{name: "a scene S02 pack does not cover TVDB S02E05", target: s02e05(kaijuSceneMap()), title: "Kaiju.Show.S02.1080p.BluRay.x264-GRP", want: "WrongItem", detail: "(scene numbering; TVDB S01E14, S01E15, S01E16, S01E17 and 9 more)"},
+
+		// Absolute numbers: scene absolute 30 is TVDB absolute 31 (S02E05).
+		{name: "with no map, scene absolute 30 is the wrong item", target: s02e05(nil), title: "[SubsPlease] Kaiju Show - 30 (1080p) [ABCDEF12].mkv", want: "WrongItem", detail: "release is absolute [30], the item is absolute [31]"},
+		{name: "with the map, scene absolute 30 is TVDB S02E05", target: s02e05(kaijuSceneMap()), title: "[SubsPlease] Kaiju Show - 30 (1080p) [ABCDEF12].mkv"},
+		{
+			name: "a scene absolute two rows claim is read literally", target: target(2, 11, 37, kaijuSceneMap()),
+			title: "[SubsPlease] Kaiju Show - 37 (1080p) [ABCDEF12].mkv",
+		},
+		{
+			name: "so it does not reach the rows' other episode", target: target(2, 10, 36, kaijuSceneMap()),
+			title: "[SubsPlease] Kaiju Show - 37 (1080p) [ABCDEF12].mkv", want: "WrongItem", detail: "release is absolute [37], the item is absolute [36]",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assertIdentity(t, evaluateOne(t, tc.target, tc.title, textIndexer, nil), tc.want, tc.detail)
+		})
+	}
+}
+
 // TestSingleEpisodeSearchRejectsASeasonPack is ruling R-3, after Sonarr's
 // SingleEpisodeSearchMatchSpecification: a search for ONE episode does not
 // take a full-season pack of its season, while the RSS path (no search) and a

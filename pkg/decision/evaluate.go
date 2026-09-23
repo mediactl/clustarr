@@ -44,12 +44,12 @@ func Evaluate(ctx context.Context, t Target, p quality.Profile, cat *catalogue.C
 	// for every candidate, and an unresolvable tag must warn once about the
 	// item rather than once about every release of it.
 	lang := originalLanguageName(ctx, t.OriginalLanguageTag)
-	// Likewise the item's title keys: the same for every candidate, and a
-	// search can carry 500 releases against an item with 50 alternate titles.
-	titles := targetTitleKeys(t.Kind, t.Identity)
+	// Likewise the item's identity keys (title keys, scene mapping): the same
+	// for every candidate.
+	idx := newIdentityIndex(t.Kind, t.Identity)
 	out := make([]Decision, 0, len(rels))
 	for _, rel := range rels {
-		out = append(out, evaluateOne(ctx, t, lang, titles, p, cat, rel, o))
+		out = append(out, evaluateOne(ctx, t, lang, idx, p, cat, rel, o))
 	}
 	return out
 }
@@ -57,10 +57,10 @@ func Evaluate(ctx context.Context, t Target, p quality.Profile, cat *catalogue.C
 // evaluateOne takes originalLanguage -- the item's original language already
 // resolved into the English display-name vocabulary, "" when unknown --
 // rather than re-deriving it from t, so there is exactly one conversion per
-// Evaluate and both consumers below are fed from it. targetTitles is
-// targetTitleKeys(t.Kind, t.Identity), computed once per Evaluate for the
+// Evaluate and both consumers below are fed from it. idx is
+// newIdentityIndex(t.Kind, t.Identity), computed once per Evaluate for the
 // same reason.
-func evaluateOne(ctx context.Context, t Target, originalLanguage string, targetTitles map[string]struct{}, p quality.Profile, cat *catalogue.Catalogue, rel common.ReleaseInfo, o Options) Decision {
+func evaluateOne(ctx context.Context, t Target, originalLanguage string, idx identityIndex, p quality.Profile, cat *catalogue.Catalogue, rel common.ReleaseInfo, o Options) Decision {
 	parsed, err := release.Parse(rel.Title, release.Options{Kind: t.Kind})
 	if err != nil {
 		logging.FromContext(ctx).Debug("decision: release title did not parse", "title", rel.Title, "err", err)
@@ -83,7 +83,7 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, targetT
 		}
 	}
 
-	add(identityRejection(t, targetTitles, parsed, rel))
+	add(identityRejection(t, idx, parsed, rel))
 	add(protocolRejection(rel, o))
 	add(availabilityRejection(t, o))
 	rejections = append(rejections, sizeRejections(t, p, parsed, rel)...)
