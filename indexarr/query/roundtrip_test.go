@@ -39,7 +39,8 @@ import (
 // symptom is silence rather than an error.
 //
 // An earlier version of this guard grepped indexarr/worker/rss/worker.go for
-// the spelling `release.CleanTitle(`. That pinned a string in a file rather
+// the spelling `release.CleanTitle(` (the normaliser both sides used before
+// release.TitleNorm replaced it). That pinned a string in a file rather
 // than a behaviour: it passed when the real assignment was swapped for
 // release.Normalize with a commented-out old line left above it, and it
 // failed when the identical call was extracted to a local. A round trip
@@ -48,7 +49,7 @@ import (
 // Deleting the grep was safe because the WORKER side has its own guard, not
 // because these tests took over its role -- they do not, and an earlier
 // version of this comment implied they did. The helper below hardcodes
-// TitleNorm: release.CleanTitle(title) in this package and references nothing
+// TitleNorm: release.TitleNorm(title) in this package and references nothing
 // in indexarr/worker/rss, so if the worker started writing TitleNorm some
 // other way, every test in this file would still pass. What catches that is
 // indexarr/worker/rss's TestIndexRowsCarryTheFieldsTheIndexSearchesOn
@@ -76,7 +77,7 @@ func indexed(t *testing.T, titles ...string) relindex.Store {
 			GUID:    title,
 			Title:   title,
 			// Exactly what indexarr/worker/rss writes into this column.
-			TitleNorm: release.CleanTitle(title),
+			TitleNorm: release.TitleNorm(title),
 			Protocol:  string(commonv1.ProtocolTorrent),
 			FetchedAt: time.Now().Add(time.Duration(-i) * time.Minute),
 			InfoJSON:  raw,
@@ -124,6 +125,35 @@ func TestATextQueryFindsTheRowTheIndexerStored(t *testing.T) {
 	}
 }
 
+// A wholly or partly non-Latin title round-trips through its own script.
+// Under release.CleanTitle both sides dropped every non-ASCII rune: "матрица"
+// normalised to nothing, and "日本語のタイトル 2026" degraded to "2026" and
+// matched EVERY release of that year. The partly-Latin control row below is
+// what makes that second failure visible: it shares the year and nothing else.
+func TestANonLatinQueryFindsItsOwnTitleAndNothingElse(t *testing.T) {
+	store := indexed(t,
+		"Матрица 1999 1080p BluRay",
+		"日本語のタイトル 2026 1080p WEB",
+		"마마마 2020 720p HDTV",
+		"Unrelated Film 2026 1080p WEB",
+	)
+	s := &Service{Store: store}
+
+	for _, tc := range []struct{ name, text, want string }{
+		{"cyrillic", "матрица", "Матрица 1999 1080p BluRay"},
+		{"cyrillic shouting", "МАТРИЦА", "Матрица 1999 1080p BluRay"},
+		{"japanese with a year", "日本語のタイトル 2026", "日本語のタイトル 2026 1080p WEB"},
+		{"hangul", "마마마", "마마마 2020 720p HDTV"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := s.Handle(t.Context(), schema.QueryRequest{Text: tc.text})
+			require.Empty(t, got.Error)
+			require.Equal(t, []string{tc.want}, titlesOf(got.Releases),
+				"a non-Latin query must match its own title and nothing that merely shares a year")
+		})
+	}
+}
+
 // The mirror of the test above, and the reason normalising needs a guard of
 // its own: a query that normalises to nothing must NOT come back as the whole
 // corpus. relindex.Search omits the MATCH clause for an empty Query.Text, so
@@ -133,15 +163,14 @@ func TestTextThatNormalisesAwayReturnsNothingRatherThanEverything(t *testing.T) 
 	s := &Service{Store: store}
 
 	for _, text := range []string{
-		"матрица", // Cyrillic: CleanTitle keeps only [a-z0-9 ]
-		"マトリックス",  // CJK
-		"\x00",    // a lone NUL
-		"!!!",     // punctuation only
-		"   ",     // whitespace only
-		"？？",      // full-width punctuation
+		"\x00", // a lone NUL
+		"!!!",  // punctuation only
+		"   ",  // whitespace only
+		"？？",   // full-width punctuation
+		"★★",   // symbols only
 	} {
 		t.Run(text, func(t *testing.T) {
-			require.Empty(t, release.CleanTitle(text), "precondition: it normalises away")
+			require.Empty(t, release.TitleNorm(text), "precondition: it normalises away")
 			got := s.Handle(t.Context(), schema.QueryRequest{Text: text})
 			require.Empty(t, got.Error, "unmatchable is a successful nothing, not a failure")
 			require.Empty(t, titlesOf(got.Releases), "an unmatchable query returned the whole corpus")

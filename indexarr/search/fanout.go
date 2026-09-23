@@ -471,13 +471,14 @@ func indexRow(r schema.Release, indexerName string) (relindex.Release, error) {
 		Indexer: indexerName,
 		GUID:    r.Info.GUID,
 		Title:   r.Info.Title,
-		// TitleNorm is release.CleanTitle, NOT release.Normalize: relindex
+		// TitleNorm is release.TitleNorm, NOT release.Normalize: relindex
 		// stores what it is given and escapes Query.Text without normalising
 		// it, so the indexed column and the query must go through ONE
 		// function or the index answers nothing -- silently, with an empty
 		// result set rather than an error. indexarr/worker/rss writes the
-		// same function and indexarr/query reads with it.
-		TitleNorm:  release.CleanTitle(r.Info.Title),
+		// same function and indexarr/query reads with it. It is TitleNorm
+		// rather than CleanTitle so a non-Latin title keeps its own tokens.
+		TitleNorm:  release.TitleNorm(r.Info.Title),
 		Group:      r.Info.ReleaseGroup,
 		Protocol:   string(r.Info.Protocol),
 		Categories: intsOf(r.Info.Categories),
@@ -509,9 +510,9 @@ func indexRejectReason(row relindex.Release) string {
 	case row.GUID == "":
 		return "the indexer reported no guid"
 	case row.TitleNorm == "":
-		// release.CleanTitle strips everything outside [a-z0-9 ], so a title
-		// made only of punctuation, symbols or non-Latin script normalises
-		// to nothing and the row would be invisible to every text search.
+		// release.TitleNorm keeps letters, digits and marks in every script,
+		// so only a title made of punctuation and symbols alone normalises
+		// to nothing, and the row would be invisible to every text search.
 		return "the title normalises to nothing, so the row would be unsearchable"
 	case row.FetchedAt.IsZero():
 		return "fetchedAt is the zero time"

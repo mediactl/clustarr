@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package rss
 
 import (
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -26,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/utils/ptr"
 
+	"github.com/mediactl/clustarr/pkg/release"
 	"github.com/mediactl/clustarr/pkg/relindex"
 	"github.com/mediactl/clustarr/pkg/torznab"
 )
@@ -120,17 +122,17 @@ func assertAgrees(t *testing.T, store relindex.Store, row relindex.Release) {
 }
 
 // The two shapes an indexer can actually put on the wire. Neither is exotic:
-// release.CleanTitle keeps only [a-z0-9 ], and pkg/torznab does not invent a
-// GUID for an item that carries none.
+// release.TitleNorm keeps no punctuation or symbols, and pkg/torznab does not
+// invent a GUID for an item that carries none.
 func TestRejectReasonCatchesWhatAFeedCanActuallySend(t *testing.T) {
 	at := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
-	for _, title := range []string{"★★★", "???", "日本語のタイトル", "「」【】"} {
+	for _, title := range []string{"★★★", "???", "「」【】"} {
 		t.Run(title, func(t *testing.T) {
 			rel := ProjectRelease(torznabTitled(title, "g"), "idx", "torrent")
 			rel.FetchedAt = at
 			row, err := indexRow(rel, "idx", at)
 			require.NoError(t, err)
-			require.Empty(t, row.TitleNorm, "premise changed: CleanTitle now keeps something")
+			require.Empty(t, row.TitleNorm, "premise changed: TitleNorm now keeps something")
 			require.NotEmpty(t, rejectReason(row))
 		})
 	}
@@ -140,4 +142,34 @@ func TestRejectReasonCatchesWhatAFeedCanActuallySend(t *testing.T) {
 	row, err := indexRow(rel, "idx", at)
 	require.NoError(t, err)
 	require.Equal(t, "the indexer reported no guid", rejectReason(row))
+}
+
+// A wholly non-Latin title indexes under ITSELF. Under release.CleanTitle
+// these normalised to "" and the store refused the row, so a release named
+// only in Cyrillic, Japanese or Korean was unsearchable by its own title.
+// The row goes to a REAL store and is found by a query built the way
+// indexarr/query builds one, so the two sides are proved to agree.
+func TestANonLatinTitleIndexesUnderItsOwnTitle(t *testing.T) {
+	at := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	store, closer, err := relindex.Open(t.Context(), filepath.Join(t.TempDir(), "releases.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, closer.Close()) })
+	for i, title := range []string{"Матрица", "日本語のタイトル", "마마마"} {
+		t.Run(title, func(t *testing.T) {
+			rel := ProjectRelease(torznabTitled(title, fmt.Sprintf("g%d", i)), "idx", "torrent")
+			rel.FetchedAt = at
+			row, err := indexRow(rel, "idx", at)
+			require.NoError(t, err)
+			require.Equal(t, release.TitleNorm(title), row.TitleNorm)
+			require.NotEmpty(t, row.TitleNorm)
+			require.Empty(t, rejectReason(row))
+			_, err = store.Upsert(t.Context(), []relindex.Release{row})
+			require.NoError(t, err)
+
+			got, err := store.Search(t.Context(), relindex.Query{Text: release.TitleNorm(title), Limit: 10})
+			require.NoError(t, err)
+			require.Len(t, got, 1, "the row is findable by its own title")
+			require.Equal(t, row.GUID, got[0].GUID)
+		})
+	}
 }

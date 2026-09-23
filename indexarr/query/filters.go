@@ -118,20 +118,21 @@ func buildQuery(req schema.QueryRequest) (relindex.Query, error) {
 		// Normalising is the CALLER's, and relindex says so in as many
 		// words: "the caller supplies Release.TitleNorm and must normalise
 		// Query.Text with the same function, or nothing will match"
-		// (pkg/relindex/doc.go, fts.go). The RSS worker fills that column
-		// with release.CleanTitle (indexarr/worker/rss/worker.go), so this
-		// runs the same function. Passing raw text instead would make "The
-		// Matrix" -- indexed as "matrix" -- return nothing, silently.
-		Text:  release.CleanTitle(req.Text),
+		// (pkg/relindex/doc.go, fts.go). The RSS worker and the search
+		// fan-out fill that column with release.TitleNorm
+		// (indexarr/worker/rss/worker.go, indexarr/search/fanout.go), so
+		// this runs the same function. Passing raw text instead would make
+		// "The Matrix" -- indexed as "matrix" -- return nothing, silently.
+		Text:  release.TitleNorm(req.Text),
 		Limit: scan,
 	}
 
 	// Text that normalises to nothing is UNMATCHABLE, not unfiltered.
 	//
-	// CleanTitle keeps only [a-z0-9 ], so every string without an ASCII
-	// alphanumeric -- "матрица", "マトリックス", "\x00", "!!!" -- maps to "".
+	// TitleNorm keeps letters, digits and marks in every script, so what
+	// maps to "" is text with none at all -- "!!!", "^", "\x00", "—".
 	// relindex.Search reads an empty Query.Text as "no text filter" and
-	// returns the whole corpus, so without this a Cyrillic or CJK query
+	// returns the whole corpus, so without this a punctuation-only query
 	// would answer with every release indexarr has ever seen.
 	//
 	// An EMPTY req.Text is the opposite and must keep meaning "no text
@@ -139,26 +140,13 @@ func buildQuery(req schema.QueryRequest) (relindex.Query, error) {
 	// restriction in the first place. The two are deliberately not
 	// collapsed.
 	//
-	// This is narrower than it looks, and it is the price of normalising at
-	// all: pkg/relindex's own matchExpr keeps any rune unicode.IsLetter
-	// accepts, so under a raw-text design those queries reached FTS5 and
-	// matched nothing. They cannot match anything HERE either, because the
-	// indexed column went through the same CleanTitle -- so whatever a
-	// wholly non-Latin query was looking for is not in the index under that
-	// spelling, and an empty result set is the honest answer.
-	//
-	// Note the limitation is about THIS QUERY, not about the corpus. An
-	// earlier version of this comment claimed "a Cyrillic title indexes as
-	// "" and relindex.Upsert rejects the row outright", which is true only
-	// of a release name carrying no ASCII alphanumeric ANYWHERE. Measured
-	// against a real store, "Матрица.1999.1080p.BluRay" indexes perfectly
-	// well -- as "1999 1080p bluray". What it loses is its own title, so it
-	// is findable only by its metadata. The full shape, including the
-	// partly-non-Latin query that degrades into matching every release of
-	// its year, is filed in
-	// docs/superpowers/plans/2026-09-18-remaining-work.md. The fix is a
-	// normaliser that keeps non-ASCII letters, in pkg/release, applied to
-	// both sides in one change. Carried item.
+	// A non-Latin query is NOT in this class any more. Both sides used to
+	// go through release.CleanTitle, which keeps only [a-z0-9 ]: "матрица"
+	// normalised to "" here, and "日本語のタイトル 2026" degraded to "2026"
+	// and matched every release of that year, while the indexed column had
+	// lost the same title tokens. TitleNorm on both sides (the index write
+	// and this query, switched in one change) keeps "матрица" as a term,
+	// so a Cyrillic or CJK title is findable by its own title.
 	if req.Text != "" && q.Text == "" {
 		return relindex.Query{}, errUnmatchable
 	}

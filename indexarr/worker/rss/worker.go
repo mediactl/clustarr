@@ -478,8 +478,8 @@ func (w *Worker) indexAndPublish(
 		// MaxDeliver the delivery is dead-lettered with no pending schedule
 		// left. The junk row is still in the feed next time and nothing
 		// re-seeds the chain. That is permanent, silent, and reachable from
-		// upstream XML: CleanTitle("???") and CleanTitle of any title with
-		// no ASCII alphanumerics -- CJK, Cyrillic, Hangul -- are all "", and
+		// upstream XML: TitleNorm("???") is "" -- a title of punctuation and
+		// symbols alone has no letter or digit in any script -- and
 		// pkg/torznab does not backfill an absent GUID.
 		if reason := rejectReason(row); reason != "" {
 			dropped++
@@ -490,9 +490,9 @@ func (w *Worker) indexAndPublish(
 			// the indexer's own attrs into Info.IDs before it parses and
 			// keeps them even when the parse fails, and rssmatcher matches
 			// movies and series on tmdb/tvdb ids BEFORE it ever looks at a
-			// title -- so a Cyrillic- or CJK-titled release carrying an
-			// imdbid attr is a perfectly matchable release that merely
-			// cannot be stored.
+			// title -- so a release whose title is only punctuation but
+			// which carries an imdbid attr is a perfectly matchable release
+			// that merely cannot be stored.
 			//
 			// Publishing it is safe precisely because the GUID is valid
 			// here: Nats-Msg-Id is sha1(indexer:guid), so it is distinct and
@@ -600,8 +600,8 @@ func rejectReason(row relindex.Release) string {
 	case row.GUID == "":
 		return "the indexer reported no guid"
 	case row.TitleNorm == "":
-		// release.CleanTitle strips everything outside [a-z0-9 ], so a title
-		// made only of punctuation, symbols or non-Latin script normalises
+		// release.TitleNorm keeps letters, digits and marks in every script,
+		// so only a title made of punctuation and symbols alone normalises
 		// to nothing. The row would be invisible to every text search while
 		// still counting in Stats, which is why the store refuses it.
 		//
@@ -624,19 +624,21 @@ func indexRow(rel schema.Release, indexerName string, now time.Time) (relindex.R
 		return relindex.Release{}, fmt.Errorf("rss: encode index row for %s/%s: %w",
 			indexerName, rel.Info.GUID, err)
 	}
-	// TitleNorm is release.CleanTitle, NOT release.Normalize. relindex
+	// TitleNorm is release.TitleNorm, NOT release.Normalize. relindex
 	// stores what it is given and escapes Query.Text without normalising it,
 	// so the indexed column and the query must go through ONE function or
 	// the index answers nothing -- and pkg/relindex cannot catch a mismatch
-	// from the inside. Task D1-2's contract names CleanTitle, which is also
-	// the only candidate in the tree that is documented for equality
-	// comparison: release.Normalize's own doc says it preserves case and is
-	// "for display / re-embedding ... not for equality comparison".
+	// from the inside. release.Normalize's own doc says it preserves case and
+	// is "for display / re-embedding ... not for equality comparison".
+	// TitleNorm is CleanTitle's Unicode-aware sibling: identical on printable
+	// ASCII, so rows written under CleanTitle stay findable, but a Cyrillic
+	// or CJK title keeps its own tokens instead of normalising to its ASCII
+	// residue. indexarr/search and indexarr/query use the same function.
 	row := relindex.Release{
 		Indexer:    indexerName,
 		GUID:       rel.Info.GUID,
 		Title:      rel.Info.Title,
-		TitleNorm:  release.CleanTitle(rel.Info.Title),
+		TitleNorm:  release.TitleNorm(rel.Info.Title),
 		Group:      rel.Info.ReleaseGroup,
 		Protocol:   string(rel.Info.Protocol),
 		Categories: narrow(rel.Info.Categories),

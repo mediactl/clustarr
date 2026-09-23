@@ -40,6 +40,7 @@ import (
 	searchworker "github.com/mediactl/clustarr/catalogarr/worker/search"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/release"
 	"github.com/mediactl/clustarr/pkg/relindex"
 	"github.com/mediactl/clustarr/pkg/torznab"
 )
@@ -489,7 +490,9 @@ func TestAFailingStoreStillYieldsAnOKOutcome(t *testing.T) {
 
 // The index write and the query read must use ONE normaliser or the index
 // answers nothing -- silently, with an empty result set rather than an error.
-func TestIndexRowsAreNormalisedWithCleanTitle(t *testing.T) {
+// indexarr/query reads with release.TitleNorm, so the rows must be written
+// with it.
+func TestIndexRowsAreNormalisedWithTitleNorm(t *testing.T) {
 	idx := healthyIndexer("fast")
 	store := &countingStore{}
 	s := &Service{
@@ -506,6 +509,7 @@ func TestIndexRowsAreNormalisedWithCleanTitle(t *testing.T) {
 		require.Equal(t, "fast", row.Indexer)
 		require.NotEmpty(t, row.GUID)
 		require.NotEmpty(t, row.TitleNorm)
+		require.Equal(t, release.TitleNorm(row.Title), row.TitleNorm)
 		require.False(t, row.FetchedAt.IsZero(), "relindex refuses a zero FetchedAt")
 		require.NotEmpty(t, row.InfoJSON)
 		require.Empty(t, indexRejectReason(row))

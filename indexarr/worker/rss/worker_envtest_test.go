@@ -481,22 +481,23 @@ func TestOneUnindexableRowDoesNotLoseThePage(t *testing.T) {
 	t.Cleanup(stop)
 
 	// Two good rows and three an indexer can genuinely emit: a symbol-only
-	// title, a CJK title, and an item with no guid at all.
+	// title, a title of CJK punctuation alone, and an item with no guid at
+	// all.
 	//
-	// The CJK title carries NO digits on purpose. release.CleanTitle keeps
-	// [a-z0-9 ], so "日本語のタイトル 2026" normalises to "2026" -- a perfectly
-	// storable row, and a fixture that used it would have proved nothing
-	// while looking like it proved everything.
+	// The CJK fixture is brackets, not words, on purpose. release.TitleNorm
+	// keeps letters in every script, so "日本語のタイトル" is a perfectly
+	// storable row now, and a fixture that used it would prove nothing while
+	// looking like it proved everything.
 	feed := append(pageOf(2),
 		torznab.Release{Title: "★★★", GUID: "junk-symbols"},
-		torznab.Release{Title: "日本語のタイトル", GUID: "junk-cjk"},
+		torznab.Release{Title: "「」【】", GUID: "junk-cjk-punctuation"},
 		torznab.Release{Title: "Another.Movie.2011.1080p-GRP", GUID: ""},
 	)
 	// State the premise rather than trusting it: each junk fixture must
 	// genuinely be one the index refuses, or the test proves nothing while
 	// looking like it proves everything.
 	for _, junk := range feed[2:] {
-		require.True(t, release.CleanTitle(junk.Title) == "" || junk.GUID == "",
+		require.True(t, release.TitleNorm(junk.Title) == "" || junk.GUID == "",
 			"fixture %q is perfectly storable, so it exercises nothing", junk.Title)
 	}
 
@@ -673,14 +674,14 @@ func TestAnUnstorableTitleWithIDsStillReachesTheMatcher(t *testing.T) {
 		// Storable and matchable: the control.
 		{Title: "Some.Movie.2000.1080p.BluRay.x264-GRP", GUID: "good"},
 		// Unstorable title, but it carries an id the matcher keys on.
-		{Title: "日本語のタイトル", GUID: "cjk-with-id", IDs: map[string]string{commonv1.IDKeyTMDB: "603"}},
+		{Title: "「」【】", GUID: "punct-with-id", IDs: map[string]string{commonv1.IDKeyTMDB: "603"}},
 		// Unstorable title and nothing to match on: genuinely useless.
 		{Title: "★★★", GUID: "symbols-no-id"},
 		// No GUID: every one of these would hash to the same msg-id.
 		{Title: "★★★", GUID: "", IDs: map[string]string{commonv1.IDKeyTMDB: "604"}},
 	}
 	for _, junk := range feed[1:] {
-		require.Empty(t, release.CleanTitle(junk.Title),
+		require.Empty(t, release.TitleNorm(junk.Title),
 			"fixture %q is storable, so it exercises nothing", junk.Title)
 	}
 
@@ -704,7 +705,7 @@ func TestAnUnstorableTitleWithIDsStillReachesTheMatcher(t *testing.T) {
 	defer mu.Unlock()
 	require.Contains(t, published, "good")
 
-	idOnly, ok := published["cjk-with-id"]
+	idOnly, ok := published["punct-with-id"]
 	require.True(t, ok, "a release the index cannot store can still match on its ids")
 	require.Equal(t, "603", idOnly.Info.IDs[commonv1.IDKeyTMDB])
 	require.Empty(t, idOnly.ParsedTitle, "it is published on its ids alone, not on a title")

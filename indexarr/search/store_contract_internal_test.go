@@ -117,21 +117,31 @@ func assertAgrees(t *testing.T, store relindex.Store, row relindex.Release) {
 
 // The two shapes an indexer can actually put on the wire, driven through the
 // real projection rather than a hand-built row. Neither is exotic:
-// release.CleanTitle keeps only [a-z0-9 ], and pkg/torznab does not invent a
-// GUID for an item that carries none.
+// release.TitleNorm keeps no punctuation or symbols, and pkg/torznab does not
+// invent a GUID for an item that carries none.
 func TestIndexRowCatchesWhatAFeedCanActuallySend(t *testing.T) {
 	s := &Service{Now: func() time.Time { return time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC) }}
 	idx := healthyIndexer("idx")
 
-	for _, title := range []string{"★★★", "???", "日本語のタイトル", "「」【】"} {
+	for _, title := range []string{"★★★", "???", "「」【】"} {
 		t.Run(title, func(t *testing.T) {
 			rels := s.project(&idx, []torznab.Release{{Title: title, GUID: "g"}})
 			require.Len(t, rels, 1)
 			row, err := indexRow(rels[0], "idx")
 			require.NoError(t, err)
-			require.Empty(t, row.TitleNorm, "premise changed: CleanTitle now keeps something")
+			require.Empty(t, row.TitleNorm, "premise changed: TitleNorm now keeps something")
 			require.NotEmpty(t, indexRejectReason(row))
 		})
+	}
+
+	// A wholly non-Latin title is no longer in that class: TitleNorm keeps
+	// it, so the row is stored under its own title rather than refused.
+	for _, title := range []string{"Матрица", "日本語のタイトル", "마마마"} {
+		rels := s.project(&idx, []torznab.Release{{Title: title, GUID: "g"}})
+		row, err := indexRow(rels[0], "idx")
+		require.NoError(t, err)
+		require.NotEmpty(t, row.TitleNorm, "title %q", title)
+		require.Empty(t, indexRejectReason(row), "title %q", title)
 	}
 
 	rels := s.project(&idx, []torznab.Release{{Title: "The Matrix 1999 1080p BluRay x264-GRP"}})

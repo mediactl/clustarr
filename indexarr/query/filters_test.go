@@ -121,7 +121,7 @@ func TestBuildQueryClampsTheLimitAndOverFetchesForTheOffset(t *testing.T) {
 	require.Error(t, err)
 }
 
-// The index column is release.CleanTitle(title) and relindex deliberately does
+// The index column is release.TitleNorm(title) and relindex deliberately does
 // NOT normalise Query.Text, so the query has to run the SAME function or the
 // index answers nothing. "The Matrix" indexes as "matrix"; a raw query for
 // "The Matrix" asks FTS5 for "The" AND "Matrix" and matches no row.
@@ -131,7 +131,7 @@ func TestQueryTextIsNormalisedWithTheSameFunctionAsTheIndexedColumn(t *testing.T
 	} {
 		q, err := buildQuery(schema.QueryRequest{Text: in})
 		require.NoError(t, err)
-		require.Equal(t, release.CleanTitle(in), q.Text, "text %q", in)
+		require.Equal(t, release.TitleNorm(in), q.Text, "text %q", in)
 	}
 	// "The Matrix" and "Matrix, The" collapse onto one another, which is the
 	// whole point of using the indexed column's own function.
@@ -153,9 +153,9 @@ func TestHostileFTS5TextIsDataRatherThanAnError(t *testing.T) {
 	} {
 		q, err := buildQuery(schema.QueryRequest{Text: in})
 		require.NoError(t, err, "hostile text is data, not an error: %q", in)
-		require.Equal(t, release.CleanTitle(in), q.Text,
+		require.Equal(t, release.TitleNorm(in), q.Text,
 			"no second escaper: the store owns FTS5 escaping")
-		require.NotContains(t, q.Text, `"`, "CleanTitle already dropped the FTS5 operators")
+		require.NotContains(t, q.Text, `"`, "TitleNorm already dropped the FTS5 operators")
 	}
 }
 
@@ -167,11 +167,20 @@ func TestHostileFTS5TextIsDataRatherThanAnError(t *testing.T) {
 // end-to-end half against a real store.
 func TestTextThatNormalisesAwayIsUnmatchableRatherThanUnfiltered(t *testing.T) {
 	for _, in := range []string{
-		`^`, `***`, `!!!`, "\x00", "   ", "матрица", "マトリックス", "—",
+		`^`, `***`, `!!!`, "\x00", "   ", "—",
 	} {
-		require.Empty(t, release.CleanTitle(in), "precondition: %q normalises away", in)
+		require.Empty(t, release.TitleNorm(in), "precondition: %q normalises away", in)
 		_, err := buildQuery(schema.QueryRequest{Text: in})
 		require.ErrorIs(t, err, errUnmatchable, "text %q", in)
+	}
+
+	// Non-Latin text is NOT in that class: TitleNorm keeps it, so it is a
+	// real query rather than an unmatchable one.
+	for _, in := range []string{"матрица", "マトリックス", "마마마"} {
+		q, err := buildQuery(schema.QueryRequest{Text: in})
+		require.NoError(t, err, "text %q", in)
+		require.Equal(t, release.TitleNorm(in), q.Text)
+		require.NotEmpty(t, q.Text)
 	}
 
 	// An EMPTY Text is the opposite: a filters-only browse, which really

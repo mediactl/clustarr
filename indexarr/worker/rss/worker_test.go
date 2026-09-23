@@ -370,12 +370,12 @@ func TestIndexRowsCarryTheFieldsTheIndexSearchesOn(t *testing.T) {
 	require.Equal(t, "idx", row.Indexer)
 	require.Equal(t, "guid-0", row.GUID)
 	require.Equal(t, "Some.Movie.2000.1080p.BluRay.x264-GRP", row.Title)
-	// The FTS5 column, and the exact function D1-2's contract names. relindex
-	// stores TitleNorm verbatim and escapes Query.Text without normalising
-	// it, so the search side must run Query.Text through release.CleanTitle
-	// too or the index answers nothing -- and no test inside pkg/relindex can
-	// catch the mismatch.
-	require.Equal(t, release.CleanTitle(row.Title), row.TitleNorm)
+	// The FTS5 column and its normaliser. relindex stores TitleNorm verbatim
+	// and escapes Query.Text without normalising it, so the search side runs
+	// Query.Text through release.TitleNorm too (indexarr/query) or the index
+	// answers nothing -- and no test inside pkg/relindex can catch the
+	// mismatch.
+	require.Equal(t, release.TitleNorm(row.Title), row.TitleNorm)
 	require.Equal(t, "some movie 2000 1080p bluray x264grp", row.TitleNorm)
 	require.Equal(t, "GRP", row.Group)
 	require.Equal(t, "torrent", row.Protocol)
