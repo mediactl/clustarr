@@ -301,6 +301,7 @@ spec:
                 - Downloading
                 - Imported
                 - CutoffUnmet
+                - CutoffUnevaluated
                 - Unmonitored
                 type: string
               runtimeMinutes:

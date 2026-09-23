@@ -432,6 +432,8 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		assert.Equal(t, "ProfileUnresolved", cond.Reason,
 			"a dangling qualityProfileRef must not masquerade as a file below the cutoff")
 		assert.Contains(t, cond.Message, "no-such-profile")
+		assert.Equal(t, catalogv1alpha1.EpisodePhaseCutoffUnevaluated, got.Status.Phase,
+			"the phase column must not read CutoffUnmet for a file never ranked against a cutoff")
 	})
 
 	t.Run("Download watch rolls up Downloading and clears the ref on a terminal phase", func(t *testing.T) {

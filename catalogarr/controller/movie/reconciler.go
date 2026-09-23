@@ -464,7 +464,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 	}
 	overlayPhase, active := DownloadOverlay(dl)
 
-	phase := Phase(monitored, metaReady, available, hasFile, cutoffMet, m.Status.PendingGrab != nil)
+	phase := Phase(monitored, metaReady, available, hasFile, cutoffMet, profile != nil, m.Status.PendingGrab != nil)
 	if overlayPhase != "" {
 		phase = overlayPhase
 	}

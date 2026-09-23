@@ -637,8 +637,8 @@ func TestMovieReconcilerRealController(t *testing.T) {
 	// A profile that cannot be resolved must not read as a genuine
 	// "your file is below the cutoff": that is the answer that parks the
 	// item in the search rotation looking like a legitimate upgrade
-	// candidate. The condition carries the distinction; MoviePhase has no
-	// value for "not evaluated", so the phase still reads CutoffUnmet.
+	// candidate. The condition carries the reason, and the phase reads
+	// CutoffUnevaluated -- never CutoffUnmet, which the wanted sweep chases.
 	t.Run("an unresolvable QualityProfile reports ProfileUnresolved, not CutoffUnmet", func(t *testing.T) {
 		bluray := commonv1.Quality{Name: "Bluray-1080p", Resolution: 1080, Source: commonv1.SourceBluray, Modifier: commonv1.ModifierNone}
 
@@ -684,6 +684,8 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		assert.Equal(t, "ProfileUnresolved", cond.Reason,
 			"a dangling qualityProfileRef must not masquerade as a file below the cutoff")
 		assert.Contains(t, cond.Message, "no-such-profile")
+		assert.Equal(t, catalogv1alpha1.MoviePhaseCutoffUnevaluated, got.Status.Phase,
+			"the phase column must not read CutoffUnmet for a file never ranked against a cutoff")
 	})
 
 	// A watched Download rolls up Phase=Downloading and clears

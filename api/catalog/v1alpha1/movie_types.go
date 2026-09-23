@@ -41,7 +41,15 @@ const (
 
 // MoviePhase is the coarse lifecycle state of a movie.
 //
-// +kubebuilder:validation:Enum=Pending;Unavailable;Wanted;Delayed;Downloading;Imported;CutoffUnmet;Unmonitored
+// CutoffUnevaluated is CutoffUnmet's twin for a file whose QualityProfile
+// could not be resolved (no reference, a dangling one, or a profile that does
+// not parse): the file exists but was never ranked against a cutoff, so it is
+// neither "below the cutoff" nor "met". Reporting CutoffUnmet for it read as a
+// legitimate upgrade candidate in `kubectl get` and put the item in the
+// cutoff-unmet search rotation. The CutoffMet condition's ProfileUnresolved
+// reason carries the detail.
+//
+// +kubebuilder:validation:Enum=Pending;Unavailable;Wanted;Delayed;Downloading;Imported;CutoffUnmet;CutoffUnevaluated;Unmonitored
 type MoviePhase string
 
 // Movie phases.
@@ -53,7 +61,10 @@ const (
 	MoviePhaseDownloading MoviePhase = "Downloading"
 	MoviePhaseImported    MoviePhase = "Imported"
 	MoviePhaseCutoffUnmet MoviePhase = "CutoffUnmet"
-	MoviePhaseUnmonitored MoviePhase = "Unmonitored"
+	// MoviePhaseCutoffUnevaluated: a file is imported but the quality
+	// profile could not be resolved, so its cutoff was never evaluated.
+	MoviePhaseCutoffUnevaluated MoviePhase = "CutoffUnevaluated"
+	MoviePhaseUnmonitored       MoviePhase = "Unmonitored"
 )
 
 // MovieReleaseStatus is where a movie sits in its release cycle upstream.

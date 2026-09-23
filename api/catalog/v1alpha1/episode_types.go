@@ -37,7 +37,11 @@ const (
 
 // EpisodePhase is the coarse lifecycle state of an episode.
 //
-// +kubebuilder:validation:Enum=Unaired;Wanted;Delayed;Downloading;Imported;CutoffUnmet;Unmonitored
+// CutoffUnevaluated means a file is imported but the owning Series'
+// QualityProfile could not be resolved, so the file was never ranked against
+// a cutoff; see MoviePhase for why CutoffUnmet was the wrong answer there.
+//
+// +kubebuilder:validation:Enum=Unaired;Wanted;Delayed;Downloading;Imported;CutoffUnmet;CutoffUnevaluated;Unmonitored
 type EpisodePhase string
 
 // Episode phases.
@@ -48,7 +52,10 @@ const (
 	EpisodePhaseDownloading EpisodePhase = "Downloading"
 	EpisodePhaseImported    EpisodePhase = "Imported"
 	EpisodePhaseCutoffUnmet EpisodePhase = "CutoffUnmet"
-	EpisodePhaseUnmonitored EpisodePhase = "Unmonitored"
+	// EpisodePhaseCutoffUnevaluated: a file is imported but the quality
+	// profile could not be resolved, so its cutoff was never evaluated.
+	EpisodePhaseCutoffUnevaluated EpisodePhase = "CutoffUnevaluated"
+	EpisodePhaseUnmonitored       EpisodePhase = "Unmonitored"
 )
 
 // SceneNumbering is the numbering scene releases use for an episode when it

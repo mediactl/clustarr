@@ -43,7 +43,11 @@ import (
 // cutoff-met file the way an actual Download does. Above Unaired is
 // deliberate: a pending grab for an unaired episode means a release leaked
 // early, and reporting Unaired while a grab is scheduled would be a lie.
-func Phase(monitored bool, airDate *metav1.Time, hasFile, cutoffMet, pendingGrab bool, now time.Time) catalogv1alpha1.EpisodePhase {
+//
+// cutoffEvaluated reports whether the Series' QualityProfile resolved, i.e.
+// whether cutoffMet is a verdict at all; a file never ranked reads
+// CutoffUnevaluated at CutoffUnmet's rank (see the movie package's Phase).
+func Phase(monitored bool, airDate *metav1.Time, hasFile, cutoffMet, cutoffEvaluated, pendingGrab bool, now time.Time) catalogv1alpha1.EpisodePhase {
 	switch {
 	case !monitored:
 		return catalogv1alpha1.EpisodePhaseUnmonitored
@@ -51,6 +55,8 @@ func Phase(monitored bool, airDate *metav1.Time, hasFile, cutoffMet, pendingGrab
 		return catalogv1alpha1.EpisodePhaseImported
 	case pendingGrab:
 		return catalogv1alpha1.EpisodePhaseDelayed
+	case hasFile && !cutoffEvaluated:
+		return catalogv1alpha1.EpisodePhaseCutoffUnevaluated
 	case hasFile:
 		return catalogv1alpha1.EpisodePhaseCutoffUnmet
 	case airDate == nil || now.Before(airDate.Time):

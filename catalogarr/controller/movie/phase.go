@@ -42,7 +42,14 @@ import (
 // DownloadOverlay's Downloading is allowed to override Imported. The phase
 // column is the item's state, not the pipeline's, and a user with a good
 // cutoff-met file should read Imported.
-func Phase(monitored, metadataReady, available, hasFile, cutoffMet, pendingGrab bool) catalogv1alpha1.MoviePhase {
+//
+// cutoffEvaluated reports whether the QualityProfile resolved, i.e. whether
+// cutoffMet is a verdict at all. A file whose cutoff was never evaluated
+// reads CutoffUnevaluated rather than CutoffUnmet: the latter means "below
+// the cutoff, an upgrade is wanted" and puts the item in the cutoff-unmet
+// search rotation, which a dangling or unparseable profile must not do. It
+// takes CutoffUnmet's rank exactly, since it answers the same question.
+func Phase(monitored, metadataReady, available, hasFile, cutoffMet, cutoffEvaluated, pendingGrab bool) catalogv1alpha1.MoviePhase {
 	switch {
 	case !monitored:
 		return catalogv1alpha1.MoviePhaseUnmonitored
@@ -52,6 +59,8 @@ func Phase(monitored, metadataReady, available, hasFile, cutoffMet, pendingGrab 
 		return catalogv1alpha1.MoviePhaseImported
 	case pendingGrab:
 		return catalogv1alpha1.MoviePhaseDelayed
+	case hasFile && !cutoffEvaluated:
+		return catalogv1alpha1.MoviePhaseCutoffUnevaluated
 	case hasFile:
 		return catalogv1alpha1.MoviePhaseCutoffUnmet
 	case !available:
