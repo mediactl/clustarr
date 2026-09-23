@@ -48,6 +48,14 @@ A transcoded media file should be the final destination. If we detect a transcod
 
 The predicate is `catalogarr/controller/rollup.Transcoded` -- `spec.original` false, or the probe's `status.mediaInfo.transcodeProfile` (the `CLUSTARR_PROFILE` tag) -- and such a Movie or Episode reads phase `Transcoded`, with `CutoffMet=True` reason `Transcoded`; `pkg/decision` rejects every automatic upgrade of it as `TranscodedFinal` (spec §4.2).
 
+## UI
+
+The library UI page should contain tabs for each media type:
+(Movies) (TV) (Music) (Books)
+In the TV pane, only series should be shown. Clicking a series should present a page with the seasons and episodes.
+
+Each item should show the cover art, monitored status and selected quality profile
+
 ## Invariants — do not break these
 
 - **One controller-writer per resource.** The sole exception is `MediaFile`, and
