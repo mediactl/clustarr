@@ -95,8 +95,10 @@ const AnnotationObservedFingerprint = "catalog.clustarr.io/observed-fingerprint"
 const TranscodedRecheckInterval = 24 * time.Hour
 
 // Reconciler owns 100% of MediaFile.status (see this section's "Resolving
-// the field-manager split") plus, narrowly, spec.sizeBytes/modTime/original
-// after a transcode swap. It writes nothing at all on any other resource.
+// the field-manager split") plus, narrowly, spec.path/sizeBytes/modTime/
+// original after a transcode swap (path since gap-fix R-11: a container
+// change moves the file; see swapTarget). It writes nothing at all on any
+// other resource.
 //
 // It deliberately does NOT roll the file up onto the owning Movie or
 // Episode, though an earlier revision of this controller did (task C13
@@ -219,29 +221,33 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// does not touch is re-asserted rather than released.
 	known := statusOf(&mf)
 
-	info, statErr := os.Stat(mf.Spec.Path)
+	// Detect an unincorporated successful transcode: the newest Succeeded
+	// TranscodeJob for this MediaFile whose result landed after the last
+	// probe. It is looked up BEFORE the file is stat'ed, because a swap can
+	// move the file: see swapTarget.
+	swap, err := r.latestUnincorporatedTranscode(ctx, &mf)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	path, kept := swapTarget(&mf, swap)
+	if kept != nil {
+		swap = nil
+	}
+
+	info, statErr := os.Stat(path)
 	if statErr != nil {
-		k8s.MarkFalse(&mf, &conditions, catalogv1alpha1.MediaFileConditionReady, "FileMissing", "stat %s: %s", mf.Spec.Path, statErr)
+		k8s.MarkFalse(&mf, &conditions, catalogv1alpha1.MediaFileConditionReady, "FileMissing", "stat %s: %s", path, statErr)
 		if err := r.applyStatus(ctx, &mf, conditions, known); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
 
-	ps := evaluateProbe(mf.Spec.Path, info.Size(), info.ModTime(), mf.Status.ProbeHash)
+	ps := evaluateProbe(path, info.Size(), info.ModTime(), mf.Status.ProbeHash)
 
-	// Detect an unincorporated successful transcode: the newest Succeeded
-	// TranscodeJob for this MediaFile whose result landed after the last
-	// probe. §8.5: "worker swaps file at the same path" -- spec.path never
-	// changes here, only sizeBytes/modTime/original.
-	swap, err := r.latestUnincorporatedTranscode(ctx, &mf)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	probed, changed := false, false
-	if swap != nil || ps.Stale || mf.Status.ProbeHash == "" {
-		mi, _, probeErr := r.Probe(ctx, mf.Spec.Path)
+	probed, changed, keptOutput := false, false, ""
+	if swap != nil || kept != nil || ps.Stale || mf.Status.ProbeHash == "" {
+		mi, _, probeErr := r.Probe(ctx, path)
 		if probeErr != nil {
 			k8s.MarkFalse(&mf, &conditions, catalogv1alpha1.MediaFileConditionProbed, "ProbeFailed", "%s", probeErr)
 			k8s.MarkFalse(&mf, &conditions, catalogv1alpha1.MediaFileConditionReady, "ProbeFailed", "probe failed: %s", probeErr)
@@ -275,7 +281,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		// from catalogarr would silently release whatever an earlier one
 		// in the same reconcile had just claimed. !original (true from the
 		// first swap onward, since mf.Spec.Original was force-set false)
-		// means catalogarr re-asserts sizeBytes/modTime/original with the
+		// means catalogarr re-asserts path/sizeBytes/modTime/original with the
 		// current probe's fresh values on every Apply from here on, not
 		// only the reconcile that first incorporates a swap -- otherwise a
 		// later labels-only Apply (triggered by, say, a stale re-probe with
@@ -283,7 +289,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		labels := mirrorLabels(mf.Spec.MediaRef.Kind, mf.Spec.Quality, mi, original)
 		mainAC := catalogac.MediaFile(mf.Name, mf.Namespace).WithLabels(labels)
 		if !original {
+			// spec.path is catalogarr's from the first swap on, beside the
+			// three fields it already took (gap-fix R-11): a container
+			// change, or an explicit spec.outputPath, puts the encode under
+			// a new name and retires the source, so the MediaFile must
+			// follow the file or it names a path that no longer exists. It
+			// is sent on every apply, including an in-place swap where it
+			// equals importarr's value (co-owned, harmless), because a
+			// manager that stops sending a field releases it.
 			mainAC = mainAC.WithSpec(catalogac.MediaFileSpec().
+				WithPath(path).
 				WithSizeBytes(ps.SizeBytes).
 				WithModTime(ps.ModTime).
 				WithOriginal(false))
@@ -303,7 +318,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		known.MediaInfo = mi
 		probed = true
 
-		if swap == nil && transcoded && mf.Status.ProbeHash != "" {
+		if swap == nil && kept == nil && transcoded && ps.Stale && mf.Status.ProbeHash != "" {
 			// The bytes of a file catalogarr already took over changed, and
 			// no newer Succeeded TranscodeJob explains it (a re-mux, a hand
 			// edit, a restore from backup). The size and mtime are
@@ -333,6 +348,27 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 				ProfileTag: profileTag,
 				LastResult: catalogv1alpha1.TranscodeResultSucceeded,
 			}
+			if path != mf.Spec.Path {
+				log.Info("followed a transcode to its new path", "from", mf.Spec.Path, "to", path)
+			}
+		}
+		if kept != nil {
+			profileTag, terr := r.transcodeProfileTag(ctx, kept)
+			if terr != nil {
+				return ctrl.Result{}, terr
+			}
+			// replaceSource=false: the encode was written beside the source
+			// and the source kept, so THIS MediaFile's file is untouched --
+			// not original=false, not compliant. The profile revision is
+			// recorded so squasharr's "already transcoded to this revision"
+			// check (transcodeprofile.alreadyTranscoded) does not plan the
+			// same derived copy again, and the result is history. The
+			// derived file itself is not this MediaFile's: see swapTarget.
+			known.Transcode = &catalogv1alpha1.TranscodeState{
+				ProfileTag: profileTag,
+				LastResult: catalogv1alpha1.TranscodeResultSucceeded,
+			}
+			keptOutput = kept.Status.Result.OutputPath
 		}
 	}
 
@@ -354,6 +390,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if probed && r.Recorder != nil {
 		r.Recorder.Eventf(&mf, nil, "Normal", "Probed", "Reconcile", "probed %s", mf.Spec.Path)
 	}
+	if keptOutput != "" && r.Recorder != nil {
+		r.Recorder.Eventf(&mf, nil, "Normal", "TranscodeKept", "Reconcile",
+			"the transcode was written to %s beside the kept source; this MediaFile still names %s", keptOutput, path)
+	}
 	if changed && r.Recorder != nil {
 		r.Recorder.Eventf(&mf, nil, "Warning", "TranscodedFileChanged", "Reconcile",
 			"the transcoded file at %s changed on disk with no transcode to explain it; re-probed, compliance cleared", mf.Spec.Path)
@@ -363,6 +403,52 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{RequeueAfter: TranscodedRecheckInterval}, nil
 	}
 	return ctrl.Result{}, nil
+}
+
+// swapTarget decides what an unincorporated Succeeded TranscodeJob means for
+// mf, from where the job put its output (status.result.outputPath; empty on
+// a job that predates the field, which always wrote in place) and whether
+// the source is still there -- the one fact squasharr's worker settles
+// before it records Succeeded (gap-fix R-11, x10-report.md):
+//
+//   - output at spec.path: the in-place swap of spec §8.5. path is
+//     spec.path.
+//   - output under a new name, source gone: replaceSource=true with a
+//     container change or an explicit spec.outputPath. The worker places
+//     the output, then retires the source, then reports Succeeded. The swap
+//     is incorporated at the new name: path is the output, and the caller
+//     takes spec.path over with it.
+//   - output under a new name, source still present: replaceSource=false.
+//     The encode is a derived copy beside the kept source, which stays this
+//     MediaFile's file. kept is the job; path is spec.path.
+//
+// The kept copy is deliberately referenced by nothing on the MediaFile: the
+// Succeeded TranscodeJob already records it (spec.mediaFileRef names this
+// MediaFile, status.result.outputPath the copy), and a second MediaFile for
+// it would back the same item twice -- PickMediaFile would choose between
+// them, and squasharr and captionarr would treat the copy as a new library
+// file to transcode and subtitle. It is Jellyfin's "<name> - <label>"
+// multiple-version convention (docs/research/naming.md §A3): the media
+// server shows it as a version of the same item, and the catalog does not
+// need to.
+//
+// Once a kept job is recorded, the probe that records it moves
+// status.probedAt past the job's finishedAt, so it is never reconsidered:
+// deleting the kept source later reads as FileMissing, not as licence to
+// adopt the copy.
+func swapTarget(mf *catalogv1alpha1.MediaFile, swap *transcodev1alpha1.TranscodeJob) (path string, kept *transcodev1alpha1.TranscodeJob) {
+	path = mf.Spec.Path
+	if swap == nil || swap.Status.Result == nil {
+		return path, nil
+	}
+	out := swap.Status.Result.OutputPath
+	if out == "" || out == mf.Spec.Path {
+		return path, nil
+	}
+	if _, err := os.Stat(mf.Spec.Path); err == nil {
+		return path, swap
+	}
+	return out, nil
 }
 
 // staleTranscodeState is t with the compliance verdict dropped: Compliant

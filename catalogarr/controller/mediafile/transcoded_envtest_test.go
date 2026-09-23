@@ -32,6 +32,7 @@ import (
 	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/config"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
@@ -238,4 +239,158 @@ func TestObservedFingerprintWakesTheController(t *testing.T) {
 		return c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got) == nil &&
 			got.Status.ProbeHash != hash && got.Spec.SizeBytes == int64(len(changed))
 	}, 5*time.Second, 50*time.Millisecond, "the observed-fingerprint annotation must wake the re-probe")
+}
+
+// transcodeSteadyState creates a probed, untranscoded MediaFile at
+// dir/name (importarr's apply plus one reconcile), the steady state a
+// transcode lands on.
+func transcodeSteadyState(t *testing.T, ctx context.Context, c client.Client, r *mediafile.Reconciler, ns, mfName, path string) ctrl.Request {
+	t.Helper()
+	base := time.Now().Add(-time.Hour).Truncate(time.Second)
+	require.NoError(t, os.Chtimes(path, base, base))
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	importarrCreatesMediaFile(t, ctx, c, ns, mfName, path, info.Size(), base,
+		commonv1.Quality{Name: "Bluray-1080p", Source: commonv1.SourceBluray, Resolution: commonv1.Resolution1080p, Modifier: commonv1.ModifierNone})
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: mfName}}
+	_, err = r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	var mf catalogv1alpha1.MediaFile
+	require.NoError(t, c.Get(ctx, req.NamespacedName, &mf))
+	require.NotEmpty(t, mf.Status.ProbeHash, "setup: the steady state is probed")
+	return req
+}
+
+// succeededJob records a Succeeded TranscodeJob for mfName whose output is
+// outputPath, finished after the steady state's probe.
+func succeededJob(t *testing.T, ctx context.Context, c client.Client, ns, mfName, source, outputPath string, size int64) {
+	t.Helper()
+	time.Sleep(1100 * time.Millisecond) // metav1.Time has whole seconds: finish after the probe
+	tj := &transcodev1alpha1.TranscodeJob{
+		ObjectMeta: metav1.ObjectMeta{Name: mfName + "-enc01", Namespace: ns},
+		Spec:       transcodev1alpha1.TranscodeJobSpec{MediaFileRef: mfName, ProfileRef: "hevc-main10", SourcePath: source},
+	}
+	require.NoError(t, c.Create(ctx, tj))
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerSquasharr, transcodeac.TranscodeJob(tj.Name, ns).WithStatus(
+		transcodeac.TranscodeJobStatus().
+			WithPhase(transcodev1alpha1.TranscodeJobPhaseSucceeded).
+			WithFinishedAt(metav1.NewTime(time.Now())).
+			WithResult(transcodeac.Result().WithOutputPath(outputPath).WithOutputSizeBytes(size))))
+	require.NoError(t, err)
+}
+
+// TestContainerChangeMovesSpecPath is gap-fix R-11's catalogarr half, the
+// replaceSource=true case: the encode changes container, so squasharr's
+// worker writes "<stem>.<container>" under a new name and retires the
+// source. Incorporating that swap must move spec.path to the output --
+// taking the field over from importarr, which managedFields must show --
+// or the MediaFile names a file that no longer exists.
+func TestContainerChangeMovesSpecPath(t *testing.T) {
+	ctx := context.Background()
+	c, _ := startEnv(t)
+	const ns = "container-change-ns"
+	mustNamespace(t, ctx, c, ns)
+	mustTranscodeProfile(t, ctx, c, "hevc-main10", "profile-hash-def")
+	dir := t.TempDir()
+	source := writeFile(t, dir, "Heat (1995).avi", []byte("an avi as imported"))
+
+	r := &mediafile.Reconciler{Client: c, Recorder: events.NewFakeRecorder(64), Probe: fakeProbe, Clock: time.Now}
+	req := transcodeSteadyState(t, ctx, c, r, ns, "heat-abc1234567", source)
+
+	// squasharr's worker: place the output under its new name, retire the
+	// source, then report Succeeded.
+	output := strings.TrimSuffix(source, ".avi") + ".mkv"
+	encoded := []byte("a matroska encode, not the same size")
+	require.NoError(t, os.WriteFile(output, encoded, 0o644))
+	require.NoError(t, os.Remove(source))
+	succeededJob(t, ctx, c, ns, "heat-abc1234567", source, output, int64(len(encoded)))
+
+	res, err := r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	assert.Equal(t, mediafile.TranscodedRecheckInterval, res.RequeueAfter)
+
+	var mf catalogv1alpha1.MediaFile
+	require.NoError(t, c.Get(ctx, req.NamespacedName, &mf))
+	assert.Equal(t, output, mf.Spec.Path, "the MediaFile must follow the file to its new name")
+	assert.EqualValues(t, len(encoded), mf.Spec.SizeBytes)
+	require.NotNil(t, mf.Spec.Original)
+	assert.False(t, *mf.Spec.Original)
+	require.NotNil(t, mf.Status.Transcode)
+	assert.True(t, mf.Status.Transcode.Compliant)
+	assert.Equal(t, "hevc-main10@profile-hash-def", mf.Status.Transcode.ProfileTag)
+	assert.True(t, k8s.IsConditionTrue(mf.Status.Conditions, catalogv1alpha1.MediaFileConditionReady), "the new path is present and probed")
+
+	catalogarrSpec := specFieldNames(managedFieldPaths(mf.ManagedFields, "catalogarr", ""))
+	assert.True(t, catalogarrSpec["path"], "catalogarr must own spec.path after the swap: %v", catalogarrSpec)
+	importarrSpec := specFieldNames(managedFieldPaths(mf.ManagedFields, rescan.FieldManager.String(), ""))
+	assert.False(t, importarrSpec["path"], "importarr must have released spec.path to catalogarr: %v", importarrSpec)
+	assert.True(t, importarrSpec["quality"], "and kept everything it froze at import")
+
+	// The next reconcile finds the file where the MediaFile now says it is.
+	_, err = r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	require.NoError(t, c.Get(ctx, req.NamespacedName, &mf))
+	assert.Equal(t, output, mf.Spec.Path)
+	assert.True(t, k8s.IsConditionTrue(mf.Status.Conditions, catalogv1alpha1.MediaFileConditionReady))
+}
+
+// TestReplaceSourceFalseIsNotASwap is R-11's other case: replaceSource=false
+// writes "<stem> - <profile>.<container>" beside a source that is kept.
+// The MediaFile is the source, untouched: not original=false, not
+// compliant, spec.path unchanged and never claimed by catalogarr. The
+// profile revision is recorded so squasharr does not plan the same copy
+// again. Later deleting the source reads as FileMissing, never as adopting
+// the copy.
+func TestReplaceSourceFalseIsNotASwap(t *testing.T) {
+	ctx := context.Background()
+	c, _ := startEnv(t)
+	const ns = "replace-false-ns"
+	mustNamespace(t, ctx, c, ns)
+	mustTranscodeProfile(t, ctx, c, "hevc-main10", "profile-hash-def")
+	dir := t.TempDir()
+	source := writeFile(t, dir, "Heat (1995).mkv", []byte("the source, kept"))
+
+	rec := events.NewFakeRecorder(64)
+	r := &mediafile.Reconciler{Client: c, Recorder: rec, Probe: fakeProbe, Clock: time.Now}
+	req := transcodeSteadyState(t, ctx, c, r, ns, "heat-abc1234567", source)
+	var before catalogv1alpha1.MediaFile
+	require.NoError(t, c.Get(ctx, req.NamespacedName, &before))
+
+	derived := strings.TrimSuffix(source, ".mkv") + " - hevc-main10.mkv"
+	require.NoError(t, os.WriteFile(derived, []byte("a derived encode"), 0o644))
+	succeededJob(t, ctx, c, ns, "heat-abc1234567", source, derived, int64(len("a derived encode")))
+	drain(rec)
+
+	res, err := r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	assert.Zero(t, res.RequeueAfter, "the MediaFile is still an untranscoded original")
+
+	var mf catalogv1alpha1.MediaFile
+	require.NoError(t, c.Get(ctx, req.NamespacedName, &mf))
+	assert.Equal(t, source, mf.Spec.Path, "the kept source stays the MediaFile's file")
+	assert.Equal(t, before.Spec.SizeBytes, mf.Spec.SizeBytes)
+	assert.True(t, mf.Spec.Original == nil || *mf.Spec.Original, "the source was not transcoded")
+	require.NotNil(t, mf.Status.Transcode)
+	assert.False(t, mf.Status.Transcode.Compliant, "the file at spec.path is not the encode")
+	assert.Equal(t, "hevc-main10@profile-hash-def", mf.Status.Transcode.ProfileTag, "recorded, so squasharr does not plan the copy again")
+	assert.Equal(t, catalogv1alpha1.TranscodeResultSucceeded, mf.Status.Transcode.LastResult)
+	assert.False(t, claimsSpecField(managedFieldPaths(mf.ManagedFields, "catalogarr", "")),
+		"catalogarr claims no spec field for a kept source")
+	var reported bool
+	for _, e := range drain(rec) {
+		if strings.HasPrefix(e, "Normal TranscodeKept") {
+			reported = true
+		}
+	}
+	assert.True(t, reported, "the kept copy is reported")
+
+	// Deleting the kept source later is a missing file, not an adoption.
+	require.NoError(t, os.Remove(source))
+	_, err = r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	require.NoError(t, c.Get(ctx, req.NamespacedName, &mf))
+	assert.Equal(t, source, mf.Spec.Path, "the derived copy is never adopted")
+	cond := k8s.FindCondition(mf.Status.Conditions, catalogv1alpha1.MediaFileConditionReady)
+	require.NotNil(t, cond)
+	assert.Equal(t, "FileMissing", cond.Reason)
 }

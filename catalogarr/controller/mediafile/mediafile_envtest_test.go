@@ -355,21 +355,24 @@ func TestMediaFileFieldManagersStayDisjoint(t *testing.T) {
 		}
 	}
 
-	// catalogarr's spec claim is now EXACTLY sizeBytes/modTime/original --
-	// never path, never any of the frozen release-time fields -- and it
-	// still claims labels. The rescan worker's spec claim no longer includes
-	// the three fields it just transferred, but still includes quality/path
-	// untouched: a clean ownership transfer, not a conflict.
+	// catalogarr's spec claim is now EXACTLY path/sizeBytes/modTime/
+	// original -- never any of the frozen release-time fields -- and it
+	// still claims labels. path joined the set with gap-fix R-11 (a
+	// container change moves the file; TestContainerChangeMovesSpecPath).
+	// This swap is in place, so catalogarr sends the value importarr
+	// already holds and the two CO-OWN path; the rescan worker's claim
+	// still includes it and quality, and no longer includes the three fields
+	// whose values changed: a clean ownership transfer, not a conflict.
 	catalogarrMain = managedFieldPaths(got.ManagedFields, "catalogarr", "")
 	require.NotNil(t, catalogarrMain)
 	assert.True(t, claimsLabels(catalogarrMain), "catalogarr should still claim metadata.labels after a transcode")
-	assert.Equal(t, map[string]bool{"sizeBytes": true, "modTime": true, "original": true}, specFieldNames(catalogarrMain))
+	assert.Equal(t, map[string]bool{"path": true, "sizeBytes": true, "modTime": true, "original": true}, specFieldNames(catalogarrMain))
 
 	importarrMain = managedFieldPaths(got.ManagedFields, rescan.FieldManager.String(), "")
 	require.NotNil(t, importarrMain)
 	importarrSpec := specFieldNames(importarrMain)
 	assert.True(t, importarrSpec["quality"], "the rescan worker should still own spec.quality")
-	assert.True(t, importarrSpec["path"], "the rescan worker should still own spec.path")
+	assert.True(t, importarrSpec["path"], "an in-place swap leaves spec.path co-owned: same value, no transfer")
 	assert.False(t, importarrSpec["sizeBytes"], "the rescan worker should have released sizeBytes to catalogarr")
 	assert.False(t, importarrSpec["modTime"], "the rescan worker should have released modTime to catalogarr")
 	assert.False(t, importarrSpec["original"], "the rescan worker should have released original to catalogarr")
