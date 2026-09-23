@@ -28,10 +28,21 @@ package grabarr
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"strings"
 
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
+	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/grabarr/controller/download"
+	"github.com/mediactl/clustarr/grabarr/controller/downloadclient"
+	"github.com/mediactl/clustarr/grabarr/engine/torrent"
+	"github.com/mediactl/clustarr/grabarr/engine/usenet"
+	dltorrent "github.com/mediactl/clustarr/pkg/download/torrent"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs"
@@ -120,6 +131,15 @@ type Options struct {
 	// ScratchDir is the usenet engine's working area.
 	ScratchDir string
 
+	// EngineImage is the container image the DownloadClient controller
+	// stamps onto the engine StatefulSet/Deployment it creates
+	// (CLUSTARR_ENGINE_IMAGE; config/manager/grabarr.yaml sets it on the
+	// controller Deployment). Only meaningful for [RoleController]. There is
+	// no default -- guessing an image tag would silently run the wrong
+	// engine, so [Options.Validate] requires it whenever this role reconciles
+	// controllers.
+	EngineImage string
+
 	// Logging configures this process's root logger. The zero value is a
 	// reasonable default: JSON to stderr at info level.
 	Logging logging.Options
@@ -157,6 +177,11 @@ func (o Options) Validate() error {
 	}
 	if o.Role == RoleUsenetEngine && o.ScratchDir == "" {
 		return fmt.Errorf("grabarr: --scratch-dir is required for --role %s", o.Role)
+	}
+	if o.Role.RunsControllers() && o.EngineImage == "" {
+		return fmt.Errorf("grabarr: --engine-image is required for --role %s; "+
+			"it is the image the DownloadClient controller stamps onto the engine "+
+			"workloads it creates", o.Role)
 	}
 	if !o.UsesBus() {
 		return fmt.Errorf("grabarr: --nats-url is required; download events and progress both use the bus")
@@ -213,24 +238,51 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 
-	// TODO(M3): an engine role must also gate readiness on the re-attach
-	// being complete (§6.3, §13): the torrent engine re-attaches every
-	// labelled Download from its persisted metainfo and .part files before it
-	// accepts a single new add, and reporting ready early would let the
-	// controller hand it work it would then double-download.
-	if err := k8s.AddProbes(mgr, map[string]healthz.Checker{
+	ready := map[string]healthz.Checker{
 		"jetstream": k8s.BusReadyChecker(nc, bus),
-	}); err != nil {
+	}
+
+	cacheReady, err := k8s.CacheSyncChecker(mgr)
+	if err != nil {
+		return err
+	}
+	ready["cache"] = cacheReady
+
+	// An engine role must build its embedded download.Client and, for
+	// torrent, run [torrent.Engine.ReAttach] to completion -- both
+	// synchronously, before mgr.Start returns control -- and gate readyz on
+	// it (R4, grabarr/run.go's own long-standing TODO, closed here):
+	// reporting ready before re-attach completes lets the Download
+	// controller hand this engine work it would then double-download. The
+	// usenet client re-attaches inside usenet.BuildClient itself
+	// (pkg/download/usenet.New's own doc comment), so by the time
+	// setupEngine returns there is nothing left to gate -- only the torrent
+	// engine needs an explicit readyz checker.
+	var engineClose func() error
+	if o.Role.IsEngine() {
+		checker, closeFn, err := setupEngine(ctx, mgr, bus, o)
+		if err != nil {
+			return err
+		}
+		engineClose = closeFn
+		if checker != nil {
+			ready["reattach"] = checker
+		}
+	}
+	if engineClose != nil {
+		defer func() {
+			if cerr := engineClose(); cerr != nil {
+				log.Error(cerr, "closing the embedded download client")
+			}
+		}()
+	}
+
+	if err := k8s.AddProbes(mgr, ready); err != nil {
 		return err
 	}
 
 	if o.Role.RunsControllers() {
-		if err := setupControllers(mgr, o); err != nil {
-			return err
-		}
-	}
-	if o.Role.IsEngine() {
-		if err := setupEngine(mgr, bus, o); err != nil {
+		if err := setupControllers(mgr, bus, o); err != nil {
 			return err
 		}
 	}
@@ -242,28 +294,205 @@ func Run(ctx context.Context, o Options) error {
 	return nil
 }
 
-// setupControllers is the registration point for the download reconcilers. It
-// registers nothing yet.
-//
-// TODO(M3): downloadclient -- own the engine StatefulSet (torrent) or
-// Deployment (usenet), report DiskSpaceOK from statfs, and sweep the
-// blocklist; download -- pick the ClientRef once, wait for EngineReady, pin
-// status.engine from k8s.HashOrdinal over spec.replicas, publish
-// evt.download.queued, and run the Drop/RemoveAll finalizer. (§6.3, §16 M3)
-func setupControllers(mgr ctrl.Manager, o Options) error {
-	_, _ = mgr, o
+// setupControllers registers the DownloadClient and Download reconcilers,
+// plus the blocklist sweeper (§6.3, §16 M3; plan tasks D2-3, D2-4, D2-8a).
+func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
+	if err := downloadclient.NewReconciler(
+		mgr.GetClient(), mgr.GetEventRecorder("downloadclient"), o.DataDir, o.ScratchDir, o.EngineImage,
+	).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("grabarr: downloadclient: %w", err)
+	}
+	if err := downloadclient.NewBlocklistSweeper(
+		mgr.GetClient(), mgr.GetEventRecorder("downloadclient-blocklist"),
+	).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("grabarr: downloadclient blocklist sweeper: %w", err)
+	}
+
+	dlReconciler := download.NewReconciler(mgr.GetClient(), mgr.GetEventRecorder("download"), o.DataDir)
+	// download.Reconciler.Bus is events.Publisher, not the full events.Bus:
+	// see its doc comment -- NewReconciler leaves it nil for callers that
+	// exercise only Phase=Assigned, but a real deployment must wire a real
+	// bus or a completed Download is never imported.
+	dlReconciler.Bus = bus
+	if err := dlReconciler.SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("grabarr: download: %w", err)
+	}
 	return nil
 }
 
-// setupEngine is the registration point for the transfer engines, which run as
-// manager Runnables with an informer filtered to this pod's engine label.
-//
-// TODO(M3): the torrent engine -- re-attach from persisted metainfo before
-// accepting adds, AddTorrentOpt per download directory, Stats() every 5s and
-// SSA telemetry every 10s under k8s.ManagerGrabarrEngine, seed-criteria
-// enforcement; the usenet engine -- nzbparser, yEnc assembly into ScratchDir,
-// PAR2 repair, extraction, and the atomic rename into DataDir. (§6.3, §16 M3)
-func setupEngine(mgr ctrl.Manager, bus events.Bus, o Options) error {
-	_, _, _ = mgr, bus, o
-	return nil
+// setupEngine is the registration point for the transfer engines: it builds
+// this replica's embedded download.Client, registers the engine's Download
+// reconciler and its orphan [torrent.Reaper]/[usenet.Reaper] -- a
+// manager.Runnable that NOTHING else registers (plan task D2-8b, commit
+// d5c01d2) -- and returns the readyz checker and shutdown callback, if any,
+// for [Run] to wire in. (§6.3, §16 M3; plan tasks D2-5, D2-6, D2-8)
+func setupEngine(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (healthz.Checker, func() error, error) {
+	clientName, ok := splitEngineIdentity(o.Engine)
+	if !ok {
+		return nil, nil, fmt.Errorf(
+			"grabarr: --engine %q is not \"<client>-<ordinal>\"", o.Engine)
+	}
+
+	switch o.Role {
+	case RoleTorrentEngine:
+		return setupTorrentEngine(ctx, mgr, bus, o, clientName)
+	case RoleUsenetEngine:
+		return setupUsenetEngine(ctx, mgr, bus, o, clientName)
+	default:
+		return nil, nil, fmt.Errorf("grabarr: %s is not an engine role", o.Role)
+	}
+}
+
+// splitEngineIdentity splits "<client>-<ordinal>" (grabarr.Options.Engine's
+// documented shape) into the DownloadClient name at the LAST hyphen, mirroring
+// grabarr/controller/downloadclient/workload.go's own encoding
+// ("${HOSTNAME##*-}" strips everything but the ordinal) -- the client name
+// itself may contain hyphens, so only the last separator is meaningful.
+// directClient builds a client.Client that talks to the apiserver directly,
+// bypassing the manager's informer cache entirely. Both engine setup
+// functions need one for their one-off pre-mgr.Start reads: mgr.GetClient()
+// is cache-backed and, proven empirically (grabarr's own envtest wiring
+// case, cmd/clustarr/start_envtest_test.go), does NOT lazily start the one
+// informer such a Get would need -- it fails outright with "the cache is not
+// started, can not read objects". mgr.GetAPIReader() would work for a plain
+// Get, but usenet.BuildClient also needs the full client.Client shape (it
+// reads Secrets through the same client), so this builds one from the
+// manager's own Config/Scheme/RESTMapper rather than mixing reader types.
+func directClient(mgr ctrl.Manager) (client.Client, error) {
+	c, err := client.New(mgr.GetConfig(), client.Options{Scheme: mgr.GetScheme(), Mapper: mgr.GetRESTMapper()})
+	if err != nil {
+		return nil, fmt.Errorf("grabarr: build direct apiserver client: %w", err)
+	}
+	return c, nil
+}
+
+func splitEngineIdentity(engine string) (clientName string, ok bool) {
+	i := strings.LastIndex(engine, "-")
+	if i <= 0 || i == len(engine)-1 {
+		return "", false
+	}
+	return engine[:i], true
+}
+
+// setupTorrentEngine builds the embedded anacrolix client from the named
+// DownloadClient's spec.torrent, re-attaches it synchronously (R4), and
+// registers [torrent.Reconciler] and [torrent.Reaper].
+func setupTorrentEngine(
+	ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options, clientName string,
+) (healthz.Checker, func() error, error) {
+	// mgr.GetAPIReader(), not mgr.GetClient(): this runs before mgr.Start,
+	// and the cache-backed client's own error is unambiguous about why --
+	// "the cache is not started, can not read objects" -- it does not
+	// lazily start the one informer it needs the way some controller-runtime
+	// callers assume. GetAPIReader talks to the apiserver directly and needs
+	// no cache at all.
+	var dc downloadv1alpha1.DownloadClient
+	if err := mgr.GetAPIReader().Get(ctx, types.NamespacedName{Namespace: o.Namespace, Name: clientName}, &dc); err != nil {
+		return nil, nil, fmt.Errorf("grabarr: get DownloadClient %s/%s: %w", o.Namespace, clientName, err)
+	}
+	if dc.Spec.Protocol != commonv1alpha1.ProtocolTorrent || dc.Spec.Torrent == nil {
+		return nil, nil, fmt.Errorf(
+			"grabarr: DownloadClient %s/%s is not a torrent client", o.Namespace, clientName)
+	}
+
+	// §6.3 / grabarr.DefaultDataDir's own doc comment: torrent content lives
+	// under <DataDir>/torrents/<category>/<download>, persisted re-attach
+	// state under <DataDir>/torrents/.state.
+	torrentDataDir := filepath.Join(o.DataDir, "torrents")
+	stateDir := filepath.Join(torrentDataDir, ".state")
+
+	enableDHT := dc.Spec.Torrent.EnableDHT == nil || *dc.Spec.Torrent.EnableDHT
+	rawClient, err := dltorrent.New(dltorrent.Config{
+		DataDir:    torrentDataDir,
+		ListenPort: int(dc.Spec.Torrent.ListenPort),
+		NoDHT:      !enableDHT,
+		// Seed keeps a completed torrent uploading once finished; a
+		// DownloadClient exists to run the engine spec.seedCriteria (via
+		// Download.spec.seedCriteria/DownloadClientSpec.Torrent.Seed)
+		// governs, so the client-wide switch is always on.
+		Seed:   true,
+		Logger: logging.FromContext(ctx),
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("grabarr: build torrent client: %w", err)
+	}
+
+	e := &torrent.Engine{Client: rawClient, StateDir: stateDir}
+	if _, err := e.ReAttach(ctx); err != nil {
+		_ = rawClient.Close()
+		return nil, nil, fmt.Errorf("grabarr: torrent engine re-attach: %w", err)
+	}
+
+	r := &torrent.Reconciler{
+		Client:   mgr.GetClient(),
+		Engine:   e,
+		EngineID: o.Engine,
+		StateDir: stateDir,
+		Resolver: torrent.NewBusIndexerResolver(bus),
+	}
+	if err := r.SetupWithManager(mgr); err != nil {
+		return nil, nil, fmt.Errorf("grabarr: torrent-engine reconciler: %w", err)
+	}
+
+	// [torrent.Reaper] needs mgr.GetCache() for its cache-sync gate (its own
+	// doc comment: "D2-8's wiring must set this to mgr.GetCache(), or this
+	// guard does nothing") and NeedLeaderElection()==false already makes it
+	// run on every replica -- mgr.Add is enough, no k8s.EveryReplica wrapper
+	// needed, unlike a bare func.
+	reaper := &torrent.Reaper{
+		Client:   mgr.GetClient(),
+		Engine:   e,
+		EngineID: o.Engine,
+		Cache:    mgr.GetCache(),
+	}
+	if err := mgr.Add(reaper); err != nil {
+		return nil, nil, fmt.Errorf("grabarr: torrent reaper: %w", err)
+	}
+
+	return e.HealthzCheck, rawClient.Close, nil
+}
+
+// setupUsenetEngine builds the embedded pkg/download/usenet client -- which
+// re-attaches synchronously inside usenet.BuildClient (R4 is satisfied by
+// construction; see doc.go) -- and registers [usenet.Reconciler] and
+// [usenet.Reaper].
+func setupUsenetEngine(
+	ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options, clientName string,
+) (healthz.Checker, func() error, error) {
+	// usenet.BuildClient Gets the DownloadClient (and every provider's
+	// Secret) before mgr.Start, so it needs a client that talks to the
+	// apiserver directly rather than mgr.GetClient()'s cache-backed one --
+	// see [directClient]'s doc comment.
+	direct, err := directClient(mgr)
+	if err != nil {
+		return nil, nil, err
+	}
+	cl, dc, err := usenet.BuildClient(ctx, direct, o.Namespace, clientName, o.DataDir, o.ScratchDir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("grabarr: build usenet client: %w", err)
+	}
+
+	r := &usenet.Reconciler{
+		Client:     mgr.GetClient(),
+		Download:   cl,
+		Resolver:   &usenet.Resolver{RPC: bus},
+		Recorder:   mgr.GetEventRecorder("usenet-engine"),
+		Engine:     o.Engine,
+		Categories: dc.Spec.Categories,
+	}
+	if err := r.SetupWithManager(mgr); err != nil {
+		return nil, nil, fmt.Errorf("grabarr: usenet-engine reconciler: %w", err)
+	}
+
+	reaper := &usenet.Reaper{
+		Client:   mgr.GetClient(),
+		Download: cl,
+		Engine:   o.Engine,
+		Cache:    mgr.GetCache(),
+	}
+	if err := mgr.Add(reaper); err != nil {
+		return nil, nil, fmt.Errorf("grabarr: usenet reaper: %w", err)
+	}
+
+	return nil, cl.Close, nil
 }

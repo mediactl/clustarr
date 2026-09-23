@@ -46,6 +46,12 @@ const (
 	// indexPathEnv is indexarr's SQLite release index file on the RWO
 	// volume, the default for --index-path.
 	indexPathEnv = "CLUSTARR_INDEX_PATH"
+
+	// engineImageEnv is the image grabarr's DownloadClient controller stamps
+	// onto the engine StatefulSet/Deployment it creates, the default for
+	// --engine-image. config/manager/grabarr.yaml already sets it on the
+	// grabarr Deployment.
+	engineImageEnv = "CLUSTARR_ENGINE_IMAGE"
 )
 
 // envOr returns $name when it is set and non-empty, and fallback otherwise.

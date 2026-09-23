@@ -32,7 +32,15 @@ import (
 
 // runnableServices are the service packages whose run.go is the registration
 // point for their own sub-packages.
-var runnableServices = []string{"catalogarr", "importarr"}
+//
+// grabarr joined this list for plan task D2-8: D2-8b's torrent.Reaper and
+// usenet.Reaper (commit d5c01d2) are exactly the failure shape this test was
+// built for -- a manager.Runnable with NeedLeaderElection()==false so it
+// runs on every replica, sitting in its own package with nothing under
+// grabarr/run.go naming it. An unregistered reaper is not a failing test
+// anywhere; it is simply a torrent that seeds, or a usenet fetch that keeps
+// spending the provider's connection budget, forever.
+var runnableServices = []string{"catalogarr", "importarr", "grabarr"}
 
 // TestEveryManagerRunnableIsRegistered catches a whole class of wiring
 // omission, of which Task C12a shipped one.

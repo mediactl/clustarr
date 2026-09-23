@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -32,12 +33,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	coordinationv1 "k8s.io/api/coordination/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/catalogarr"
+	"github.com/mediactl/clustarr/grabarr"
 	"github.com/mediactl/clustarr/importarr"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -130,6 +135,130 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 			d.DataPath = t.TempDir()
 			return importarr.Run(ctx, d)
 		}},
+		// grabarr had NO presence in this table before plan task D2-8: its
+		// setupControllers/setupEngine were literal no-ops
+		// ("registers nothing yet") until this task, so `clustarr grabarr`
+		// itself had never been started against a real apiserver in any
+		// test. These three cases are that proof for the role families
+		// D2-8 wired: the controller Deployment (downloadclient, its
+		// blocklist sweeper, download) and both engines -- re-attach, each
+		// Reconciler and, per D2-8b, each previously-unregistered Reaper.
+		//
+		// The first version of the two engine cases used mgr.GetClient()
+		// for the pre-mgr.Start DownloadClient read, following
+		// grabarr/engine/usenet/doc.go's own prescribed wiring snippet
+		// literally -- and the torrent-engine case failed immediately with
+		// "the cache is not started, can not read objects": the cache-backed
+		// client does not lazily start the one informer such a read needs.
+		// Both setup functions now read through a client built straight
+		// against the apiserver instead (see [directClient]/GetAPIReader in
+		// grabarr/run.go). Without this table exercising the real Run path,
+		// that would have shipped as a doc-comment-verified but
+		// never-executed wiring snippet -- inert in the exact way this task
+		// exists to catch.
+		{name: "grabarr/controller", run: func(ctx context.Context, o k8s.Options) error {
+			d := grabarr.DefaultOptions()
+			d.Options = o
+			d.DataDir = t.TempDir()
+			// There is no default: [grabarr.Options.Validate] requires it
+			// for the controller role, since the DownloadClient reconciler
+			// stamps it onto every engine workload it creates.
+			d.EngineImage = "ghcr.io/mediactl/clustarr/media:dev"
+			return grabarr.Run(ctx, d)
+		}},
+		{
+			name: "grabarr/torrent-engine",
+			prepare: func(t *testing.T) {
+				c, err := client.New(env.Config, client.Options{Scheme: k8s.MustNewScheme()})
+				if err != nil {
+					t.Fatalf("build client: %v", err)
+				}
+				// An ephemeral local port, not TorrentSpec's own
+				// kubebuilder:default=42069: a fixed well-known port risks
+				// colliding with another process already bound to it on
+				// whatever machine runs this suite.
+				_, portStr, err := net.SplitHostPort(freeAddress(t))
+				if err != nil {
+					t.Fatalf("split free address: %v", err)
+				}
+				port, err := strconv.Atoi(portStr)
+				if err != nil {
+					t.Fatalf("parse port: %v", err)
+				}
+				dc := &downloadv1alpha1.DownloadClient{
+					ObjectMeta: metav1.ObjectMeta{Name: "torrents", Namespace: "default"},
+					Spec: downloadv1alpha1.DownloadClientSpec{
+						Protocol: commonv1alpha1.ProtocolTorrent,
+						Torrent: &downloadv1alpha1.TorrentSpec{
+							ListenPort: int32(port), //nolint:gosec // bounded by net.Listen's own ephemeral range
+							// No DHT bootstrap: this suite has no
+							// Internet egress, matching
+							// reconciler_real_test.go's identical reason.
+							EnableDHT: ptr.To(false),
+						},
+					},
+				}
+				if err := c.Create(context.Background(), dc); err != nil {
+					t.Fatalf("create DownloadClient: %v", err)
+				}
+			},
+			run: func(ctx context.Context, o k8s.Options) error {
+				d := grabarr.DefaultOptions()
+				d.Options = o
+				d.Role = grabarr.RoleTorrentEngine
+				d.Engine = "torrents-0"
+				d.DataDir = t.TempDir()
+				return grabarr.Run(ctx, d)
+			},
+		},
+		{
+			name: "grabarr/usenet-engine",
+			prepare: func(t *testing.T) {
+				c, err := client.New(env.Config, client.Options{Scheme: k8s.MustNewScheme()})
+				if err != nil {
+					t.Fatalf("build client: %v", err)
+				}
+				secret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "sabnzbd-creds", Namespace: "default"},
+					Data:       map[string][]byte{"username": []byte("u"), "password": []byte("p")},
+				}
+				if err := c.Create(context.Background(), secret); err != nil {
+					t.Fatalf("create secret: %v", err)
+				}
+				dc := &downloadv1alpha1.DownloadClient{
+					ObjectMeta: metav1.ObjectMeta{Name: "sabnzbd", Namespace: "default"},
+					Spec: downloadv1alpha1.DownloadClientSpec{
+						Protocol: commonv1alpha1.ProtocolUsenet,
+						Replicas: 1,
+						Usenet: &downloadv1alpha1.UsenetSpec{
+							// pkg/download/usenet.New builds its provider
+							// pool lazily -- see its own doc comment -- so
+							// this host is never actually dialled by
+							// building the client with no in-flight jobs to
+							// re-attach; only Add would reach the network,
+							// and nothing in this case calls it.
+							Providers: []downloadv1alpha1.NNTPProvider{{
+								Name:      "stub",
+								Host:      "127.0.0.1",
+								SecretRef: corev1.LocalObjectReference{Name: "sabnzbd-creds"},
+							}},
+						},
+					},
+				}
+				if err := c.Create(context.Background(), dc); err != nil {
+					t.Fatalf("create DownloadClient: %v", err)
+				}
+			},
+			run: func(ctx context.Context, o k8s.Options) error {
+				d := grabarr.DefaultOptions()
+				d.Options = o
+				d.Role = grabarr.RoleUsenetEngine
+				d.Engine = "sabnzbd-0"
+				d.DataDir = t.TempDir()
+				d.ScratchDir = t.TempDir()
+				return grabarr.Run(ctx, d)
+			},
+		},
 		// The three "all" cases come last and are each the superset of
 		// their service's roles: controllers, workers and (for catalogarr)
 		// the metadata gateway, in one manager. Together they are `clustarr

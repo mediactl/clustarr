@@ -44,6 +44,7 @@ import (
 	"github.com/mediactl/clustarr/importarr/controller/importexclusion"
 	"github.com/mediactl/clustarr/importarr/controller/libraryscan"
 	"github.com/mediactl/clustarr/importarr/controller/rootfolderschedule"
+	"github.com/mediactl/clustarr/importarr/worker/fileimport"
 	"github.com/mediactl/clustarr/importarr/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -319,11 +320,6 @@ func DataReadyChecker(path string) healthz.Checker {
 // setupControllers registers importarr's leader-elected reconcilers
 // (amendment §A1.2, §A1.3, §A1.6; §16 M1). Each call is the one its package's
 // doc.go prescribes.
-//
-// The importer -- Watches Downloads, Completed/Seeding/Failed via
-// k8s.StatusFieldIn, and the only cross-group status write in the project
-// (Download.status.import) -- is M3's and is not registered here yet.
-// (§6.1, §10, §16 M3)
 func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	_ = o
 
@@ -360,9 +356,6 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 
 // setupWorkers registers the work.importarr.* consumers (amendment §A1.6).
 //
-// TODO(M3): the fileimport consumer (work.importarr.fileimport), the
-// CompletedDownloadService port, and the Download.status.import write it
-// performs. Moved here from catalogarr by amendment §A1.2. (§16 M3)
 // TODO(M6): the import-list consumer (work.importarr.list) and its non-video
 // sources, alongside the non-video inventory kinds. (§16 M6)
 func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
@@ -397,6 +390,33 @@ func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		return nil
 	})); err != nil {
 		return fmt.Errorf("importarr: add %s consumer: %w", events.ConsumerImportScan, err)
+	}
+
+	// The completed-download import worker (amendment §A1.2, §A1.6; plan
+	// tasks D2-7/D2-8), on ConsumerImportFile ("importarr-fileimport",
+	// R6). Wiring exactly as fileimport's own doc.go prescribes: the
+	// spec.mediaRef.target field index must be registered before the
+	// manager starts, and the subscription runs on EVERY replica for the
+	// same reason the scan consumer above does.
+	if err := fileimport.IndexMediaFileByTarget(context.Background(), mgr); err != nil {
+		return fmt.Errorf("importarr: index mediafile target: %w", err)
+	}
+	importSpec, ok := o.BusTopology().Consumer(events.ConsumerImportFile)
+	if !ok {
+		return fmt.Errorf("importarr: consumer %s missing from topology", events.ConsumerImportFile)
+	}
+	importWorker := fileimport.NewWorker(mgr.GetClient(), bus)
+	importSub := importSpec.Subscription()
+	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
+		stop, err := bus.Subscribe(ctx, importSub, importWorker.Handle)
+		if err != nil {
+			return fmt.Errorf("importarr: subscribe %s: %w", events.ConsumerImportFile, err)
+		}
+		defer stop()
+		<-ctx.Done()
+		return nil
+	})); err != nil {
+		return fmt.Errorf("importarr: add %s consumer: %w", events.ConsumerImportFile, err)
 	}
 
 	return nil

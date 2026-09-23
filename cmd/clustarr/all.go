@@ -48,6 +48,17 @@ import (
 // the one name that is true regardless of which goroutine wins the race.
 const allProcessServiceName = "clustarr"
 
+// devEngineImage is `clustarr all`'s fallback for grabarr's --engine-image
+// when $CLUSTARR_ENGINE_IMAGE is unset, matching the tag every
+// config/manager/*.yaml manifest already uses for local/kind development.
+// It is deliberately NOT grabarr.DefaultOptions' own default -- the package
+// doc on downloadclient.Reconciler.EngineImage is explicit that a real
+// cluster deployment must set this itself ("guessing an image tag would
+// silently run the wrong engine") -- but `all` is the one entry point that
+// is BY DEFINITION dev/kind only (this function's own doc comment), the same
+// reasoning devIndexPath below already applies to indexarr's IndexPath.
+const devEngineImage = "ghcr.io/mediactl/clustarr/media:dev"
+
 // allServices is what `clustarr all` starts, in the order it starts them.
 //
 // Each entry gets its own port offset because seven managers in one process
@@ -124,6 +135,15 @@ func allServices(lo *logging.Options, to *tracing.Options) []struct {
 		{"grabarr", func(ctx context.Context, o k8s.Options) error {
 			d := grabarr.DefaultOptions()
 			d.Options = o
+			// `all` runs the controller role only (see this function's own
+			// doc comment), which needs an engine image to stamp onto the
+			// StatefulSet/Deployment it creates even though this process
+			// never runs an engine itself. $CLUSTARR_ENGINE_IMAGE wins when
+			// set, the same as newGrabarrCommand's --engine-image flag;
+			// devEngineImage is the fallback a real cluster deployment never
+			// takes, because every config/manager/*.yaml manifest sets the
+			// env var explicitly.
+			d.EngineImage = envOr(engineImageEnv, devEngineImage)
 			d.Logging = *lo
 			d.Tracing = tr
 			return runGrabarr(ctx, d)

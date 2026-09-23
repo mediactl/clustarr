@@ -82,6 +82,7 @@ func TestManagerManifestsMatchTheCLI(t *testing.T) {
 	t.Setenv(natsURLEnv, "nats://nats.clustarr-system.svc:4222")
 	t.Setenv(indexPathEnv, "/var/lib/clustarr/index/releases.db")
 	t.Setenv(namespaceEnv, "clustarr-system")
+	t.Setenv(engineImageEnv, "ghcr.io/mediactl/clustarr/media:dev")
 
 	paths, err := filepath.Glob("../../config/manager/*.yaml")
 	if err != nil || len(paths) == 0 {

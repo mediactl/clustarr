@@ -147,10 +147,11 @@ func newIndexarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command
 func newGrabarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	defaults := grabarr.DefaultOptions()
 	var (
-		role    string
-		engine  string
-		dataDir string
-		scratch string
+		role        string
+		engine      string
+		dataDir     string
+		scratch     string
+		engineImage string
 	)
 
 	cmd := &cobra.Command{
@@ -171,16 +172,20 @@ func newGrabarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command 
 		"RWX media volume.")
 	cmd.Flags().StringVar(&scratch, "scratch-dir", defaults.ScratchDir,
 		"Usenet engine working area for yEnc assembly, PAR2 repair and extraction.")
+	cmd.Flags().StringVar(&engineImage, "engine-image", envOr(engineImageEnv, defaults.EngineImage),
+		"Image the DownloadClient controller stamps onto the engine StatefulSet/Deployment "+
+			"it creates. Required for --role controller. Defaults to $"+engineImageEnv+".")
 
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		return runGrabarr(cmd.Context(), grabarr.Options{
-			Options:    *common,
-			Role:       grabarr.Role(role),
-			Engine:     engine,
-			DataDir:    dataDir,
-			ScratchDir: scratch,
-			Logging:    *lo,
-			Tracing:    tracingFor(to, grabarr.ServiceName),
+			Options:     *common,
+			Role:        grabarr.Role(role),
+			Engine:      engine,
+			DataDir:     dataDir,
+			ScratchDir:  scratch,
+			EngineImage: engineImage,
+			Logging:     *lo,
+			Tracing:     tracingFor(to, grabarr.ServiceName),
 		})
 	}
 	return cmd
