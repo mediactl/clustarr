@@ -70,6 +70,9 @@ func TestDeterministicNameIsAValidObjectName(t *testing.T) {
 		"release title":    "Movie.Name.2019.2160p.UHD.BluRay.x265.10bit.HDR-GROUP",
 		"path":             "/data/media/movies/Some Movie (2019)/file.mkv",
 		"leading garbage":  "---weird---",
+		"abbreviation":     "Mr. Robot",
+		"dot beside dash":  "Dr.-No -.Yes",
+		"double dot":       "Who.. Framed",
 		"unicode":          "Amélie",
 		"over long":        strings.Repeat("abcdefghij", 40),
 		"nothing reusable": "***",
@@ -116,6 +119,15 @@ func TestNormalizeName(t *testing.T) {
 		{"a/b/c", "a-b-c"},
 		{"--lead-and-trail--", "lead-and-trail"},
 		{"UPPER.case-1", "upper.case-1"},
+		// A dot beside another separator would start or end a DNS label
+		// with "-" (or leave it empty), which no object name may; the run
+		// becomes one "-". A lone dot between characters is kept, so every
+		// name that was already valid is unchanged.
+		{"Mr. Robot", "mr-robot"},
+		{"a..b", "a-b"},
+		{"a.-b", "a-b"},
+		{"a-.b", "a-b"},
+		{"a - b", "a---b"},
 		{"***", ""},
 		{"", ""},
 	}

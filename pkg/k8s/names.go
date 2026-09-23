@@ -46,6 +46,11 @@ const (
 
 var nonNameRunes = regexp.MustCompile(`[^a-z0-9.-]+`)
 
+// dottedRuns matches a run of separators with a dot in it. Longer than the
+// dot alone, it would start or end a DNS label with "-", or leave one empty
+// ("mr.-robot", "a..b"), which the apiserver rejects.
+var dottedRuns = regexp.MustCompile(`[.-]*\.[.-]*`)
+
 // HashSuffix returns the first [HashSuffixLength] hex characters of the SHA-1
 // of parts joined by "|".
 //
@@ -108,11 +113,20 @@ func LabelSafeName(target string, parts ...string) string {
 
 // NormalizeName lower-cases s and reduces it to the characters an RFC 1123
 // subdomain allows, collapsing every run of anything else into a single "-"
-// and trimming leading and trailing separators. An input with nothing usable
-// in it returns "".
+// and trimming leading and trailing separators. A dot is kept only between
+// two alphanumerics: a separator run with a dot in it ("Mr. Robot" becomes
+// "mr.-" before this step) collapses to "-" too, so every label stays valid,
+// while a name that was already valid is unchanged. An input with nothing
+// usable in it returns "".
 func NormalizeName(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	s = nonNameRunes.ReplaceAllString(s, "-")
+	s = dottedRuns.ReplaceAllStringFunc(s, func(run string) string {
+		if run == "." {
+			return run
+		}
+		return "-"
+	})
 	s = strings.Trim(s, "-.")
 	return s
 }
