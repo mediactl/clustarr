@@ -79,8 +79,16 @@ type DownloadSpecApplyConfiguration struct {
 	RemoveDataOnDelete *bool `json:"removeDataOnDelete,omitempty"`
 	// GrabbedBy records what caused the grab.
 	GrabbedBy *downloadv1alpha1.GrabSource `json:"grabbedBy,omitempty"`
-	// Manual marks an operator-forced grab. The importer then skips the
-	// monitored and minimum-availability checks it would otherwise apply.
+	// Manual marks an operator-forced grab: a release a person picked, as a
+	// Search's grab does. The completed-download importer then treats the
+	// import as that person's decision -- it skips the upgrade comparison
+	// against an item's existing file, accepts a non-video file whose quality
+	// its extension does not determine, imports a video file only the sample
+	// size floor suspects is a sample, and records importedFrom.manual on the
+	// MediaFile. A quality the item's profile does not allow is still
+	// rejected. The importer checks neither monitoring nor availability, so
+	// there is no such check to skip. The annotation
+	// catalog.clustarr.io/import-override=true has the same effect.
 	Manual *bool `json:"manual,omitempty"`
 }
 

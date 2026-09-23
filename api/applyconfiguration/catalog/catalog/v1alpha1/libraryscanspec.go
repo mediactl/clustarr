@@ -39,7 +39,11 @@ type LibraryScanSpecApplyConfiguration struct {
 	// Mode selects how much of the tree is examined. Incremental skips files
 	// whose size and mtime match a known MediaFile fingerprint.
 	Mode *catalogv1alpha1.ScanMode `json:"mode,omitempty"`
-	// Subpath restricts the scan to one directory beneath the root folder.
+	// Subpath restricts the scan to one path beneath the root folder: a
+	// directory, whose tree is walked, or a single file, which is the only
+	// file visited. A file subpath together with the
+	// catalog.clustarr.io/import-target annotation is how a file an earlier
+	// scan left unmatched is assigned to an item by hand.
 	Subpath *string `json:"subpath,omitempty"`
 	// DryRun reports what would change without creating or updating anything.
 	DryRun *bool `json:"dryRun,omitempty"`

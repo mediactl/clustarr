@@ -102,31 +102,33 @@ const (
 	// ManagerCatalogarrWorker.
 	ManagerCatalogarrGrab FieldManager = "catalogarr-grab"
 
-	// ManagerCatalogarrFanout is the Artist, Author and Comic reconcilers
-	// when they write onto the Album, Book and Issue children they own --
-	// the role ManagerCatalogarrSeries plays for Series->Episode. One name
-	// covers all three non-video parent/child pairs rather than three
-	// separate ones, because on any given child kind only that kind's own
-	// parent ever fans out onto it -- Album never receives a write under
-	// this manager from Author, for instance -- so there is nothing for the
-	// shared name to collide with, the same way ManagerIndexarrWorker covers
-	// two worker paths that never write the same field from two different
-	// callers.
+	// ManagerCatalogarrFanout is the Comic reconciler when it writes an
+	// Issue's provider-sourced status fields (sourceID, title, date) onto the
+	// Issues it owns -- the role ManagerCatalogarrSeries plays for
+	// Series->Episode.
 	//
-	// It is deliberately distinct from ManagerCatalogarr, which the Album,
-	// Book and Issue reconcilers each use for that child's own status
-	// (phase or state, conditions, HasFile, FileRef and the rest of that
-	// child's lifecycle fields), exactly as Episode's reconciler uses
-	// ManagerCatalogarr for its own Phase/Conditions/HasFile rather than
-	// ManagerCatalogarrSeries. Server-side apply replaces a manager's whole
-	// ownership set on every apply, so a parent and its child sharing one
-	// manager name on the child object would silently release each other's
-	// fields the next time either side reconciled -- proven once already
-	// for Series/Episode (see ManagerCatalogarrSeries) and not worth
-	// re-discovering three more times over. Task G2-2 implements the three
-	// reconcilers and pins the exact field set each one sends; this name is
-	// declared ahead of that, at the task G1-0 serializes on, so G1-1
-	// through G2-4 do not each pick their own.
+	// Comic->Issue is the only non-video pair that uses it. It was declared
+	// (task G1-0) for Artist->Album and Author->Book as well, but G2-1
+	// (commit f665aa9) settled that neither of those parents writes onto its
+	// children at all: Album and Book are metadata targets of their own, so
+	// the gateway fills their status.metadata under ManagerCatalogarrMetadata
+	// from the same provider call a fan-out write would copy, and a second
+	// writer of identical values is the co-ownership trap that hides an SSA
+	// release. The Artist and Author reconcilers create their children with
+	// spec fields only and never apply to them again (their doc.go files say
+	// why). Issue, like Episode, has no status.metadata of its own, so its
+	// provider fields have nowhere else to come from.
+	//
+	// It is deliberately distinct from ManagerCatalogarr, which the Issue
+	// reconciler uses for that Issue's own status (state, conditions,
+	// hasFile, fileRef, fileQuality, activeDownloadRef), exactly as
+	// Episode's reconciler uses ManagerCatalogarr for its own
+	// Phase/Conditions/HasFile rather than ManagerCatalogarrSeries.
+	// Server-side apply replaces a manager's whole ownership set on every
+	// apply, so a parent and its child sharing one manager name on the child
+	// object would silently release each other's fields the next time
+	// either side reconciled -- proven once already for Series/Episode (see
+	// ManagerCatalogarrSeries).
 	ManagerCatalogarrFanout FieldManager = "catalogarr-fanout"
 
 	// ManagerImportarr is the importarr controller manager. It owns ImportList,
