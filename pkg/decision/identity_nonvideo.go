@@ -231,9 +231,9 @@ func (n namePart) fact() fact {
 		n.noun, n.release, len(n.item), n.nouns, n.item[0])}
 }
 
-// issueNumberFact compares issue numbers through issueNumberKey.
+// issueNumberFact compares issue numbers through IssueNumberKey.
 func issueNumberFact(item, rel string) fact {
-	want, got := issueNumberKey(item), issueNumberKey(rel)
+	want, got := IssueNumberKey(item), IssueNumberKey(rel)
 	switch {
 	case want == "":
 		return fact{unknown: "the item has no issue number"}
@@ -245,12 +245,17 @@ func issueNumberFact(item, rel string) fact {
 	return fact{}
 }
 
-// issueNumberKey is an issue number's comparison form. A plain number loses
+// IssueNumberKey is an issue number's comparison form. A plain number loses
 // its padding and trailing fractional zeros, so "050", "50" and "50.0" are
 // one issue and "12.50" is "12.5" -- Mylar's helpers.issuedigits compares
 // issues numerically for the same reason. Anything else ("Annual 1",
 // "12.HU") is compared on its lower-cased letters and digits alone.
-func issueNumberKey(s string) string {
+//
+// It is exported so a caller that finds candidate issues before the
+// identity check (the RSS matcher's issue index) keys them exactly as the
+// check compares them: were the two to disagree, the check would refuse
+// what the lookup found, or the lookup would miss what the check accepts.
+func IssueNumberKey(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	whole, frac, dotted := strings.Cut(s, ".")
 	if allDigits(whole) && (!dotted || allDigits(frac)) && (whole != "" || frac != "") {
@@ -297,6 +302,24 @@ func creatorKeys(name string) []string {
 // & Peter Straub", "Artist feat. Guest", "Gaiman, Pratchett".
 var coCredit = regexp.MustCompile(`(?i)\s+(?:&|and|feat\.?|ft\.?|featuring)\s+|\s*[;,]\s*`)
 
+// CoCredits splits a release's credit into the names it co-credits --
+// "Stephen King & Peter Straub" is "Stephen King" and "Peter Straub",
+// "Artist feat. Guest" is "Artist" and "Guest" -- dropping empty parts. A
+// credit naming one creator is itself. It is the split the identity check
+// applies to a release's artist or author (releaseCreatorKeys), exported so
+// a caller that finds candidate items first (the RSS matcher) finds every
+// item the check would accept a co-credited release for.
+func CoCredits(credit string) []string {
+	parts := coCredit.Split(credit, -1)
+	out := parts[:0]
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // releaseCreatorKeys keys a release's credit whole and each co-credited name
 // in it, so a co-written book or a featured-artist album is identified by
 // any one of its creators the item lists. Only the RELEASE side is split: an
@@ -305,7 +328,7 @@ var coCredit = regexp.MustCompile(`(?i)\s+(?:&|and|feat\.?|ft\.?|featuring)\s+|\
 // match it.
 func releaseCreatorKeys(credit string) []string {
 	keys := creatorKeys(credit)
-	for _, part := range coCredit.Split(credit, -1) {
+	for _, part := range CoCredits(credit) {
 		for _, k := range creatorKeys(part) {
 			if !containsKey(keys, k) {
 				keys = append(keys, k)

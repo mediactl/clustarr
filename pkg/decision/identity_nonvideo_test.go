@@ -127,3 +127,32 @@ func TestIdentityIssue(t *testing.T) {
 		{name: "a wrong series beats a missing number", identity: &noNumber, title: "Superman 050 (2018).cbz", want: "WrongItem", detail: `release series "Superman"`},
 	})
 }
+
+// TestExportedKeysAreTheIdentityChecksOwn pins the two helpers the RSS
+// matcher keys its lookups by to what the identity check compares.
+func TestExportedKeysAreTheIdentityChecksOwn(t *testing.T) {
+	for in, want := range map[string]string{"050": "50", "50.0": "50", "12.50": "12.5", "0": "0", "Annual 1": "annual1", "12.HU": "12hu"} {
+		if got := decision.IssueNumberKey(in); got != want {
+			t.Errorf("IssueNumberKey(%q) = %q, want %q", in, got, want)
+		}
+	}
+	for in, want := range map[string][]string{
+		"Stephen King & Peter Straub": {"Stephen King", "Peter Straub"},
+		"Artist feat. Guest":          {"Artist", "Guest"},
+		"Gaiman, Pratchett":           {"Gaiman", "Pratchett"},
+		"Simon and Garfunkel":         {"Simon", "Garfunkel"},
+		"Radiohead":                   {"Radiohead"},
+		"":                            {},
+	} {
+		got := decision.CoCredits(in)
+		if len(got) != len(want) {
+			t.Errorf("CoCredits(%q) = %q, want %q", in, got, want)
+			continue
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("CoCredits(%q) = %q, want %q", in, got, want)
+			}
+		}
+	}
+}
