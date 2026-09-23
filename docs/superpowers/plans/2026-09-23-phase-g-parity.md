@@ -92,6 +92,7 @@ Per **R4**. `make css`, committed `ui/static/app.css`, `go:embed`, CDN Tailwind 
 Library (amendment §A3: poster grid, detail modal, monitor/unmonitor/search actions, SSE on status change) and Unmatched (`LibraryScan.status.unmatched`, candidates, manual-assign using G2-4's annotations). Extend `ui/projection` rather than adding tickers — D3 R4. Stable `data-*` attributes on every row.
 
 ### G3-4 — import lists and settings pages
+**Plus the unmatched page's manual-assign action**, moved here from G3-3 because its mechanism is defined by G2-4 (rescan-unmatched files have no Download to annotate). Build it from whatever G2-4 documents; if G2-4 concluded it needs an API addition, stop and report rather than inventing one.
 **Note from G3-1:** the role test deliberately refuses any write grant not declared in `actions.Grants()`. Settings forms that patch spec on new kinds (root folders, quality profiles, indexers, download clients, providers) must add each grant to **both** `actions.Grants()` and `config/rbac/ui_role.yaml` (and its chart copy); the test cross-checks them. Use merge patch as G3-1 did — an SSA apply by `clustarr-ui` would release fields a previous UI edit owned.
 Import lists (schedule, last sync, counts, Trakt device code from G1-3's status). Settings (root folders, quality profiles, indexers, download clients, providers, profiles) as edit forms that **patch spec only**, per §A3, via `ui/actions`.
 
