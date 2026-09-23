@@ -28,6 +28,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/metadata/clients/extid"
 )
 
 // errUnsupportedKind marks a MediaKind this worker does not fetch metadata
@@ -99,12 +100,13 @@ func externalIDs(obj client.Object) (pkgmetadata.ExternalIDs, error) {
 		}
 		return pkgmetadata.ExternalIDs{pkgmetadata.KeyASIN: o.Spec.ASIN, "region": region}, nil
 	case *catalogv1alpha1.Comic:
-		// ComicSpec.Source also allows "mangadex" (ComicSourceMangaDex), for
-		// which reg.Comics has no registered provider today -- Volume simply
-		// will not find one and Lookup reports ErrNotFound, the same way an
-		// unconfigured kind behaves everywhere else in this package. Never
-		// guessing which provider a source maps to is the point: this
-		// function's job is to carry the id, not to validate the source.
+		// The id goes under its source's own key. ComicSpec.Source names the
+		// provider SourceID belongs to, so this is a lookup, not a guess:
+		// filing a MangaDex UUID under "comicvine", as this once did, handed
+		// it to every ComicProvider as if it were a ComicVine volume.
+		if o.Spec.Source == catalogv1alpha1.ComicSourceMangaDex {
+			return pkgmetadata.ExternalIDs{extid.KeyMangaDex: o.Spec.SourceID}, nil
+		}
 		return pkgmetadata.ExternalIDs{pkgmetadata.KeyComicVine: o.Spec.SourceID}, nil
 	default:
 		return nil, fmt.Errorf("%w: %T", errUnsupportedKind, obj)

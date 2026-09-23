@@ -104,6 +104,12 @@ func TestExternalIDsReadsTheSpecID(t *testing.T) {
 	ids, err = externalIDs(comic)
 	require.NoError(t, err)
 	require.Equal(t, pkgmetadata.ExternalIDs{pkgmetadata.KeyComicVine: "4050-12345"}, ids)
+
+	manga := &catalogv1alpha1.Comic{Spec: catalogv1alpha1.ComicSpec{Source: catalogv1alpha1.ComicSourceMangaDex, SourceID: "801513ba-a712-498c-8f57-cae55b38cc92"}}
+	ids, err = externalIDs(manga)
+	require.NoError(t, err)
+	require.Equal(t, pkgmetadata.ExternalIDs{"mangadex": "801513ba-a712-498c-8f57-cae55b38cc92"}, ids,
+		"a MangaDex comic's UUID is keyed by its own source, never filed under comicvine")
 }
 
 // TestExternalIDsAudiobookThreadsRegionThroughTheIDsMap pins the one kind

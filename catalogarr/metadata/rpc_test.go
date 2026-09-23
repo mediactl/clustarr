@@ -308,11 +308,24 @@ type stubComicProvider struct {
 	issues    []pkgmetadata.ComicIssue
 	err       error
 	wantVolID string
+	// name and lookupBy default to a ComicVine provider.
+	name     string
+	lookupBy []string
+	calls    *[]string
 }
 
-func (p stubComicProvider) Name() string { return "comicvine" }
+func (p stubComicProvider) Name() string {
+	if p.name == "" {
+		return "comicvine"
+	}
+	return p.name
+}
+
 func (p stubComicProvider) Capabilities() pkgmetadata.Capabilities {
-	return pkgmetadata.Capabilities{}
+	if p.lookupBy == nil {
+		return pkgmetadata.Capabilities{LookupBy: []string{pkgmetadata.KeyComicVine}}
+	}
+	return pkgmetadata.Capabilities{LookupBy: p.lookupBy}
 }
 
 func (p stubComicProvider) SearchVolumes(context.Context, string) ([]pkgmetadata.SearchHit, error) {
@@ -324,6 +337,9 @@ func (p stubComicProvider) Volume(context.Context, pkgmetadata.ExternalIDs) (*pk
 }
 
 func (p stubComicProvider) Issues(_ context.Context, volumeID string) ([]pkgmetadata.ComicIssue, error) {
+	if p.calls != nil {
+		*p.calls = append(*p.calls, p.Name()+":"+volumeID)
+	}
 	if p.wantVolID != "" && volumeID != p.wantVolID {
 		return nil, fmt.Errorf("unexpected volume id %q", volumeID)
 	}
@@ -357,6 +373,50 @@ func TestServeRPCLookupListsIssuesForComicFanout(t *testing.T) {
 	var issue pkgmetadata.ComicIssue
 	require.NoError(t, json.Unmarshal(resp.Results[0], &issue))
 	require.Equal(t, "The Black Sword", issue.Title)
+}
+
+// TestServeRPCLookupIssuesHandsEachIDOnlyToProvidersOfItsKey is the X6b
+// fix: a MangaDex Comic's UUID travels under "mangadex" and reaches only a
+// provider that looks issues up by that key, and a ComicVine id never
+// reaches a MangaDex-only provider.
+func TestServeRPCLookupIssuesHandsEachIDOnlyToProvidersOfItsKey(t *testing.T) {
+	var calls []string
+	reg := &pkgmetadata.Registry{Comics: []pkgmetadata.ComicProvider{
+		stubComicProvider{calls: &calls, issues: []pkgmetadata.ComicIssue{{Number: "1"}}},
+		stubComicProvider{calls: &calls, name: "mangadex", lookupBy: []string{"mangadex"}, issues: []pkgmetadata.ComicIssue{{Number: "41"}, {Number: "42"}}},
+	}}
+	bus := newTestBus(t)
+	require.NoError(t, ServeRPC(bus, reg))
+
+	var resp schema.MetadataResponse
+	req := schema.MetadataRequest{Kind: commonv1.MediaKindIssue, IDs: map[string]string{"mangadex": "801513ba-a712-498c-8f57-cae55b38cc92"}}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
+	require.Empty(t, resp.Error)
+	require.Equal(t, "mangadex", resp.Provider)
+	require.Len(t, resp.Results, 2)
+
+	resp = schema.MetadataResponse{}
+	req = schema.MetadataRequest{Kind: commonv1.MediaKindIssue, IDs: map[string]string{"comicvine": "4050-12345"}}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
+	require.Equal(t, "comicvine", resp.Provider)
+
+	require.Equal(t, []string{"mangadex:801513ba-a712-498c-8f57-cae55b38cc92", "comicvine:4050-12345"}, calls,
+		"the ComicVine provider never saw the UUID and the MangaDex one never saw the ComicVine id")
+}
+
+func TestServeRPCLookupIssuesNamesEveryProvidersFailure(t *testing.T) {
+	reg := &pkgmetadata.Registry{Comics: []pkgmetadata.ComicProvider{
+		stubComicProvider{err: fmt.Errorf("upstream 502")},
+		stubComicProvider{name: "metron", lookupBy: []string{"metron", "comicvine"}, err: pkgmetadata.ErrNotFound},
+	}}
+	bus := newTestBus(t)
+	require.NoError(t, ServeRPC(bus, reg))
+
+	var resp schema.MetadataResponse
+	req := schema.MetadataRequest{Kind: commonv1.MediaKindIssue, IDs: map[string]string{"comicvine": "4050-12345"}}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
+	require.Contains(t, resp.Error, "comicvine: upstream 502")
+	require.Contains(t, resp.Error, "metron: metadata: not found")
 }
 
 func TestServeRPCLookupIssuesRequiresAComicVineVolumeID(t *testing.T) {

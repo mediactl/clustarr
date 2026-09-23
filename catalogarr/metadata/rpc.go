@@ -22,12 +22,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/metadata/clients/extid"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
@@ -201,45 +203,68 @@ func lookupEpisodes(ctx context.Context, reg *pkgmetadata.Registry, req schema.M
 }
 
 // lookupIssues is lookupEpisodes' counterpart for Comic->Issue: Kind=
-// MediaKindIssue, IDs={"comicvine": volumeID} (ComicVine's own id shape,
-// "NNNN-NNNNN", covers both volumes and issues, but ComicProvider.Issues
-// takes the volume's id and returns every issue in it -- there is no
-// single-issue-by-id call, see pkg/metadata/clients/comicvine.Client.Issues).
-// Answers with Results, one JSON-encoded pkg/metadata.ComicIssue per entry,
-// first ComicProvider-that-succeeds over reg.Comics. This is the RPC path
-// G2-2's Comic reconciler is expected to call to fan issues out onto Issue
-// objects -- ComicVolume itself (what Registry.Lookup(kind=comic) and this
-// gateway's Handler fetch) never carries its issue list; Volume() and
-// Issues() are separate ComicVine calls, exactly as Series() and Episodes()
-// are separate TVDB calls.
+// MediaKindIssue, IDs carrying the comic's source id under its source's own
+// key -- {"comicvine": volumeID} (ComicVine's "4050-NNNNN" or bare
+// number) or {"mangadex": mangaUUID}, the two sources ComicSpec.Source
+// admits. There is no single-issue-by-id call: ComicProvider.Issues takes
+// the volume's id and returns every issue in it. Answers with Results, one
+// JSON-encoded pkg/metadata.ComicIssue per entry, from the first
+// ComicProvider that succeeds among those whose Capabilities().LookupBy
+// names that key. This is the RPC path G2-2's Comic reconciler calls to
+// fan issues out onto Issue objects -- ComicVolume itself (what
+// Registry.Lookup(kind=comic) and this gateway's Handler fetch) never
+// carries its issue list; Volume() and Issues() are separate calls,
+// exactly as Series() and Episodes() are separate TVDB calls.
+//
+// ComicProvider.Issues' volumeID carries no key, so only the providers
+// that declare the key may see the value: before this filter every
+// provider was handed a ComicVine id, and the gateway filed a MangaDex
+// Comic's UUID under "comicvine" too (target.go) -- a provider cannot tell
+// whose id it was given, and one that could not use it had to recognise
+// that from the value's shape alone.
 func lookupIssues(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataRequest) schema.MetadataResponse {
 	ctx, span := tracing.Start(ctx, "metadata.rpc.lookupIssues")
 	defer span.End()
 
-	volumeID, ok := req.IDs[pkgmetadata.KeyComicVine]
-	if !ok {
-		err := fmt.Errorf("metadata: issue lookup requires %q in ids", pkgmetadata.KeyComicVine)
+	key, volumeID := comicSourceID(req.IDs)
+	if key == "" {
+		err := fmt.Errorf("metadata: issue lookup requires %q or %q in ids", pkgmetadata.KeyComicVine, extid.KeyMangaDex)
 		tracing.RecordError(span, err)
 		return schema.MetadataResponse{Kind: req.Kind, Error: err.Error()}
 	}
-	var lastErr error
+	var errs []error
 	for _, p := range reg.Comics {
+		if !slices.Contains(p.Capabilities().LookupBy, key) {
+			continue
+		}
 		isCtx, isSpan := tracing.Start(ctx, "metadata.ComicProvider.Issues")
 		issues, err := p.Issues(isCtx, volumeID)
 		if err != nil {
 			tracing.RecordError(isSpan, err)
 			isSpan.End()
-			lastErr = err
+			errs = append(errs, fmt.Errorf("%s: %w", p.Name(), err))
 			continue
 		}
 		isSpan.End()
 		return schema.MetadataResponse{Kind: req.Kind, Provider: p.Name(), Results: marshalAll(issues)}
 	}
-	if lastErr == nil {
-		lastErr = pkgmetadata.ErrNotFound
+	err := errors.Join(errs...)
+	if err == nil {
+		err = fmt.Errorf("metadata: no comic provider looks issues up by %q: %w", key, pkgmetadata.ErrNotFound)
 	}
-	tracing.RecordError(span, lastErr)
-	return schema.MetadataResponse{Kind: req.Kind, Error: lastErr.Error()}
+	tracing.RecordError(span, err)
+	return schema.MetadataResponse{Kind: req.Kind, Error: err.Error()}
+}
+
+// comicSourceID returns the key and value of the comic source id in ids:
+// ComicVine's when present, else MangaDex's, else nothing.
+func comicSourceID(ids map[string]string) (key, value string) {
+	for _, k := range []string{pkgmetadata.KeyComicVine, extid.KeyMangaDex} {
+		if v := ids[k]; v != "" {
+			return k, v
+		}
+	}
+	return "", ""
 }
 
 // lookupAlbums is Artist->Album's counterpart to lookupEpisodes/lookupIssues:
