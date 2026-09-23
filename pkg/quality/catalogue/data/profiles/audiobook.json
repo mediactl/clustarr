@@ -1,8 +1,8 @@
 [{
   "name": "audiobook", "mediaKind": "audiobook",
   "tiers": [
-    {"name": "Unknown Audio", "qualities": ["Unknown Audio"]}, {"name": "MP3", "qualities": ["MP3"]},
-    {"name": "M4B", "qualities": ["M4B"]}, {"name": "FLAC", "qualities": ["FLAC"]}
+    {"name": "FLAC", "qualities": ["FLAC"]}, {"name": "M4B", "qualities": ["M4B"]},
+    {"name": "MP3", "qualities": ["MP3"]}, {"name": "Unknown Audio", "qualities": ["Unknown Audio"]}
   ],
   "cutoff": "MP3", "upgradeAllowed": true, "cutoffFormatScore": 10000, "minUpgradeFormatScore": 1,
   "scoreSet": "default", "language": "original", "properPolicy": "preferAndUpgrade", "sizeTable": "none"

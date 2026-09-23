@@ -20,9 +20,11 @@ package quality_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	common "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
@@ -192,4 +194,104 @@ func TestEveryBuiltinProfileLoadsAndReferencesOnlyFormatsThatExist(t *testing.T)
 	require.Equal(t, 100, profiles["anime-web-1080p"].MinFormatScore)
 	require.NotEqual(t, profiles["hd-bluray-web"].Hash, profiles["uhd-bluray-web"].Hash)
 	require.Equal(t, "any", profiles["hd-bluray-web"].PreferredProtocol, "FromCRD must propagate preferredProtocol onto the resolved Profile")
+}
+
+// TestEveryBuiltinProfileListsTiersBestFirst guards the tier order of every
+// embedded profile, of every kind, against that kind's own Definition
+// weights. QualityProfileSpec.Tiers and Profile.Tiers are best first, and
+// Profile.CutoffMet reads "met" as idx <= CutoffIndex, so a profile written
+// worst first silently inverts every cutoff and upgrade verdict -- which is
+// exactly what the five non-video built-ins shipped with: spec §9 writes
+// their ladders ascending ("book = PDF < MOBI < EPUB < AZW3") and they were
+// transcribed in that order, making PDF the best ebook format and every
+// comic meet cutoff.
+//
+// Tier A outranks tier B when every member of A weighs more than every
+// member of B. The first tier must outrank the last; every tier must also
+// outrank the one after it, which catches a partial inversion in the
+// middle of a ladder too.
+func TestEveryBuiltinProfileListsTiersBestFirst(t *testing.T) {
+	entries, err := catalogue.ProfileFS().ReadDir("data/profiles")
+	require.NoError(t, err)
+
+	type tierWeights struct {
+		name     string
+		min, max int
+	}
+	checked := map[catalogv1alpha1.ProfileMediaKind]int{}
+	for _, e := range entries {
+		doc, err := catalogue.ProfileFS().ReadFile("data/profiles/" + e.Name())
+		require.NoError(t, err)
+		seeds, err := quality.DecodeProfileSeeds(doc)
+		require.NoError(t, err)
+		for _, seed := range seeds {
+			kind := string(seed.Spec.MediaKind)
+			tiers := make([]tierWeights, 0, len(seed.Spec.Tiers))
+			for _, tier := range seed.Spec.Tiers {
+				tw := tierWeights{name: tier.Name, min: int(^uint(0) >> 1)}
+				for _, q := range tier.Qualities {
+					def, ok := quality.Lookup(kind, q)
+					require.Truef(t, ok, "%s: tier %q names %q, unknown to the %s ladder", seed.Name, tier.Name, q, kind)
+					tw.min = min(tw.min, def.Weight)
+					tw.max = max(tw.max, def.Weight)
+				}
+				tiers = append(tiers, tw)
+			}
+			if len(tiers) < 2 {
+				continue // a one-tier profile has no order to get wrong
+			}
+			first, last := tiers[0], tiers[len(tiers)-1]
+			assert.Greaterf(t, first.min, last.max,
+				"%s (%s): first tier %q must outrank last tier %q -- tiers are best first", seed.Name, kind, first.name, last.name)
+			for i := 0; i+1 < len(tiers); i++ {
+				assert.Greaterf(t, tiers[i].min, tiers[i+1].max,
+					"%s (%s): tier %q must outrank the tier after it, %q", seed.Name, kind, tiers[i].name, tiers[i+1].name)
+			}
+			checked[seed.Spec.MediaKind]++
+		}
+	}
+	for _, kind := range []catalogv1alpha1.ProfileMediaKind{
+		catalogv1alpha1.ProfileMediaKindVideo, catalogv1alpha1.ProfileMediaKindMusic,
+		catalogv1alpha1.ProfileMediaKindBook, catalogv1alpha1.ProfileMediaKindAudiobook,
+		catalogv1alpha1.ProfileMediaKindComic,
+	} {
+		assert.Positivef(t, checked[kind], "no multi-tier %s built-in was checked; the guard would be vacuous for that kind", kind)
+	}
+}
+
+// TestBuiltinProfileCutoffVerdicts drives the real CutoffMet over every
+// resolved multi-tier built-in: its best quality meets the cutoff and its
+// worst does not (no built-in puts its cutoff on the worst tier). This is
+// the verdict the ordering guard above protects, asserted directly -- with
+// the non-video ladders inverted, ebook's PDF met cutoff and comic's
+// cutoff (CBZ, then the last tier) was met by everything.
+func TestBuiltinProfileCutoffVerdicts(t *testing.T) {
+	profiles, errs := quality.BuiltinProfiles(catalogue.LoadedCatalogue())
+	require.Empty(t, errs)
+	for name, p := range profiles {
+		if len(p.Tiers) < 2 {
+			continue
+		}
+		require.Lessf(t, p.CutoffIndex, len(p.Tiers)-1, "%s: cutoff on the worst tier leaves nothing to upgrade from", name)
+		best, worst := p.Tiers[0][0].Quality, p.Tiers[len(p.Tiers)-1][0].Quality
+		assert.Truef(t, p.CutoffMet(best), "%s: best quality %q must meet cutoff", name, best.Name)
+		assert.Falsef(t, p.CutoffMet(worst), "%s: worst quality %q must not meet cutoff", name, worst.Name)
+	}
+
+	// The specific verdicts spec §9's cutoffs imply, named so a regression
+	// reads as the user-visible bug it is.
+	for _, tc := range []struct {
+		profile, quality string
+		met              bool
+	}{
+		{"ebook", "AZW3", true}, {"ebook", "MOBI", true}, {"ebook", "PDF", false},
+		{"comic", "CBZ", true}, {"comic", "CBR", false}, {"comic", "PDF", false},
+		{"audiobook", "FLAC", true}, {"audiobook", "MP3", true}, {"audiobook", "Unknown Audio", false},
+		{"music-lossless", "WAV", true}, {"music-lossless", "FLAC", true}, {"music-lossless", "MP3-192", false},
+		{"music-standard", "FLAC", true}, {"music-standard", "MP3-192", true}, {"music-standard", "Mid", false},
+	} {
+		p, ok := profiles[tc.profile]
+		require.Truef(t, ok, "built-in %q", tc.profile)
+		assert.Equalf(t, tc.met, p.CutoffMet(common.Quality{Name: tc.quality}), "%s: CutoffMet(%s)", tc.profile, tc.quality)
+	}
 }

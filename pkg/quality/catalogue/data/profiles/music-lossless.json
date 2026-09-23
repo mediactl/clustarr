@@ -1,10 +1,10 @@
 [{
   "name": "music-lossless", "mediaKind": "music",
   "tiers": [
-    {"name": "Trash", "qualities": ["Trash"]}, {"name": "Poor", "qualities": ["Poor"]},
-    {"name": "Low", "qualities": ["Low"]}, {"name": "Mid", "qualities": ["Mid"]},
-    {"name": "MP3-192", "qualities": ["MP3-192"]}, {"name": "FLAC", "qualities": ["FLAC"]},
-    {"name": "24bit Lossless", "qualities": ["24bit Lossless"]}, {"name": "WAV", "qualities": ["WAV"]}
+    {"name": "WAV", "qualities": ["WAV"]}, {"name": "24bit Lossless", "qualities": ["24bit Lossless"]},
+    {"name": "FLAC", "qualities": ["FLAC"]}, {"name": "MP3-192", "qualities": ["MP3-192"]},
+    {"name": "Mid", "qualities": ["Mid"]}, {"name": "Low", "qualities": ["Low"]},
+    {"name": "Poor", "qualities": ["Poor"]}, {"name": "Trash", "qualities": ["Trash"]}
   ],
   "cutoff": "FLAC", "upgradeAllowed": true, "cutoffFormatScore": 10000, "minUpgradeFormatScore": 1,
   "scoreSet": "default", "language": "original", "properPolicy": "preferAndUpgrade", "sizeTable": "none"
