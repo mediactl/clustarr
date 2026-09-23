@@ -311,3 +311,54 @@ func TestHDR10StaticMetadataPassesThroughLibx265(t *testing.T) {
 	assert.Equal(t, *raw.MasteringDisplay, *outRaw.MasteringDisplay)
 	assert.Equal(t, *raw.ContentLight, *outRaw.ContentLight)
 }
+
+// intelDevice reports whether ffmpeg can open an Intel VAAPI device on this
+// host, which needs /dev/dri/renderD128 AND the iHD driver the media image
+// installs; almost no CI box has both.
+func intelDevice(t *testing.T, kind string) bool {
+	t.Helper()
+	if _, err := os.Stat("/dev/dri/renderD128"); err != nil {
+		return false
+	}
+	dev := "vaapi=va:/dev/dri/renderD128"
+	if kind == "qsv" {
+		dev = "qsv=hw"
+	}
+	cmd := exec.Command("/usr/bin/ffmpeg", "-hide_banner", "-loglevel", "error", "-init_hw_device", dev,
+		"-f", "lavfi", "-i", "nullsrc=s=64x64:d=0.1", "-frames:v", "1", "-f", "null", "-")
+	return cmd.Run() == nil
+}
+
+// TestIntelTiersEncodeMain10OnRealHardware runs the QSV and VAAPI plans on
+// an Intel GPU, when there is one, from an 8-bit H.264 source -- the common
+// case. Without the P010 conversion the QSV tier refuses main10 on the
+// decoder's NV12 surfaces ("Current profile is unsupported", exit 218). The
+// media image was verified this way on a Comet Lake iGPU (x10-report.md).
+func TestIntelTiersEncodeMain10OnRealHardware(t *testing.T) {
+	requireLibx265(t)
+	dir := t.TempDir()
+	src := sdrSource(t, dir)
+	for _, tier := range []transcode.Tier{transcode.TierQSV, transcode.TierVAAPI} {
+		t.Run(string(tier), func(t *testing.T) {
+			if !intelDevice(t, string(tier)) {
+				t.Skipf("no Intel %s device on this host (needs /dev/dri/renderD128 and the iHD driver)", tier)
+			}
+			mi, raw, err := mediainfo.Probe(context.Background(), src)
+			require.NoError(t, err)
+			info, err := transcode.FromProbe(mi, raw)
+			require.NoError(t, err)
+			info.Path = src
+			p := fastProfile()
+			p.Hardware = transcode.HardwareIntel
+			p.Video.QSV = transcode.QSVSpec{GlobalQuality: 22, Preset: "veryslow", LookAheadDepth: 40}
+			plan, err := transcode.Plan(info, p, transcode.Capabilities{Encoders: map[transcode.Tier]bool{tier: true}}, testMeta)
+			require.NoError(t, err)
+			require.Equal(t, tier, plan.Tier)
+			require.NoError(t, transcode.NewRunner("/usr/bin/ffmpeg").Run(context.Background(), plan, func(transcode.Progress) {}))
+			out, _, err := mediainfo.Probe(context.Background(), plan.Output)
+			require.NoError(t, err)
+			assert.Equal(t, "hevc", out.VideoCodec)
+			assert.Equal(t, "Main 10", out.VideoProfile)
+		})
+	}
+}

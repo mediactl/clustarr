@@ -318,6 +318,11 @@ func renderPlan(plan *PlanResult, info MediaInfo, profile ProfileSpec, meta Plan
 			plan.VideoArgs = nvencVideoArgs(profile.Video)
 		case TierQSV:
 			plan.HWInit = qsvHWInit()
+			// hevc_qsv refuses profile main10 on the NV12 surfaces an 8-bit
+			// source decodes to ("Current profile is unsupported", exit 218,
+			// verified on a Comet Lake iGPU with the media image's runtime);
+			// convert on the GPU first, as the VAAPI tier does.
+			plan.Filters = append([]string{"vpp_qsv=format=p010"}, plan.Filters...)
 			plan.VideoArgs = qsvVideoArgs(profile.Video)
 		case TierVAAPI:
 			plan.HWInit = vaapiHWInit()

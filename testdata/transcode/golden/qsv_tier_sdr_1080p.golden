@@ -26,6 +26,8 @@ qsv
 0
 -map_chapters
 0
+-vf
+vpp_qsv=format=p010
 -c:v
 hevc_qsv
 -preset
