@@ -23,12 +23,14 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/config"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	"github.com/mediactl/clustarr/captionarr/controller/subtitlerequest"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -102,6 +104,17 @@ func TestWatchesWakeTheController(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return len(f.get("movie").Status.Existing) == 0 && len(bus.stored()) > before
 	}, 20*time.Second, 100*time.Millisecond, "an embedded provider's creation must replan the namespace's requests")
+
+	// removeAndKeep deletes the Movie and keeps the file: the Movie watch
+	// blocks the request (ItemNotFound), and a list re-adding it lifts that.
+	require.NoError(t, f.c.Delete(f.ctx, &catalogv1alpha1.Movie{ObjectMeta: metav1.ObjectMeta{Name: "movie", Namespace: f.ns}}))
+	require.Eventually(t, func() bool {
+		return cond(f.get("movie"), subtitlev1alpha1.SubtitleRequestConditionPlanned).Reason == subtitlerequest.ReasonItemNotFound
+	}, 20*time.Second, 100*time.Millisecond, "deleting the MediaFile's Movie must wake the controller")
+	f.movie("movie")
+	require.Eventually(t, func() bool {
+		return f.get("movie").Status.Phase != subtitlev1alpha1.SubtitleRequestPhaseBlocked
+	}, 20*time.Second, 100*time.Millisecond, "re-adding the Movie must wake the controller")
 
 	// The DLQ projector's annotation bumps no generation and touches no
 	// worker leaf; k8s.DeadLetteredAnnotationChanged is what lets it in.

@@ -35,6 +35,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -61,6 +62,7 @@ const (
 	ReasonPlanned            = "Planned"
 	ReasonMediaFileNotFound  = "MediaFileNotFound"
 	ReasonNotVideo           = "NotVideo"
+	ReasonItemNotFound       = "ItemNotFound"
 	ReasonAwaitingProbe      = "AwaitingProbe"
 	ReasonProfileNotFound    = "ProfileNotFound"
 	ReasonProfileInvalid     = "ProfileInvalid"
@@ -206,6 +208,9 @@ func (r *Reconciler) gather(ctx context.Context, sr *subtitlev1alpha1.SubtitleRe
 			message: fmt.Sprintf("MediaFile %q is a %s, and only movies and episodes get subtitles", mf.Name, mf.Spec.MediaRef.Kind),
 		}, nil
 	}
+	if blk, err := r.itemGone(ctx, &mf); err != nil || blk != nil {
+		return nil, blk, err
+	}
 	if mf.Status.ProbeHash == "" || mf.Status.MediaInfo == nil {
 		// Planning without the probe would count no embedded subtitle and
 		// no audio language, and search for everything. The MediaFile
@@ -274,6 +279,35 @@ func (r *Reconciler) gather(ctx context.Context, sr *subtitlev1alpha1.SubtitleRe
 		in.extractors = extractors(providers.Items, profile.Spec.Providers)
 	}
 	return in, nil, nil
+}
+
+// itemGone blocks a request whose MediaFile's Movie or Episode no longer
+// exists. An import list's removeAndKeep deletes the item and keeps the file
+// and its MediaFile record (gap-fix X7b's ruling: the record is what stops a
+// rescan re-adopting the file), so the SubtitleRequest the MediaFile owns
+// survives too -- and without this it would go on searching, downloading and
+// upgrading subtitles for a file the user kept but Clustarr no longer
+// manages. Blocked publishes nothing and re-declares the steady state, so
+// the request's history is intact if a list re-adds the item; the item
+// watches in SetupWithManager wake it either way, so no requeue is needed.
+func (r *Reconciler) itemGone(ctx context.Context, mf *catalogv1alpha1.MediaFile) (*blocked, error) {
+	key := types.NamespacedName{Namespace: mf.Namespace, Name: mf.Spec.MediaRef.Name}
+	var obj client.Object = &catalogv1alpha1.Movie{}
+	if mf.Spec.MediaRef.Kind == commonv1alpha1.MediaKindEpisode {
+		obj = &catalogv1alpha1.Episode{}
+	}
+	if err := r.Client.Get(ctx, key, obj); err != nil {
+		if apierrors.IsNotFound(err) {
+			return &blocked{
+				reason: ReasonItemNotFound,
+				message: fmt.Sprintf("the %s %q MediaFile %q belongs to no longer exists; subtitles are not fetched for a file "+
+					"Clustarr no longer manages (an import list's removeAndKeep keeps the file, not the item)",
+					mf.Spec.MediaRef.Kind, key.Name, mf.Name),
+			}, nil
+		}
+		return nil, fmt.Errorf("subtitlerequest: get %s %s: %w", mf.Spec.MediaRef.Kind, key.Name, err)
+	}
+	return nil, nil
 }
 
 // resolveProfile returns spec.profileRef's SubtitleProfile, or the one
@@ -710,9 +744,11 @@ func stringKeys(ks []subtitles.LangKey) []string {
 //   - a SubtitleProfile's generation or Invalid condition, fanned out to the
 //     requests that name it or resolve by selector.
 //
-// A fourth, rarer one: an embedded SubtitleProvider appearing, going or
-// changing spec, which decides whether spec.embedded.extract can take
-// effect ([extractableStreams]); every request in its namespace replans.
+// Two rarer ones: an embedded SubtitleProvider appearing, going or changing
+// spec, which decides whether spec.embedded.extract can take effect
+// ([extractableStreams]) -- every request in its namespace replans -- and
+// the MediaFile's Movie or Episode being created or deleted, which blocks
+// the request or lifts the block ([Reconciler.itemGone]).
 //
 // Time-based work -- a search or an upgrade coming due -- is none of these,
 // and arrives through the RequeueAfter [requeueAfter] computes.
@@ -727,7 +763,45 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(profileInvalidOf)))).
 		Watches(&subtitlev1alpha1.SubtitleProvider{}, handler.EnqueueRequestsFromMapFunc(r.mapProvider),
 			builder.WithPredicates(k8s.And(predicate.NewPredicateFuncs(isEmbeddedProvider), k8s.GenerationChanged()))).
+		Watches(&catalogv1alpha1.Movie{}, handler.EnqueueRequestsFromMapFunc(r.mapItem),
+			builder.WithPredicates(createdOrDeleted())).
+		Watches(&catalogv1alpha1.Episode{}, handler.EnqueueRequestsFromMapFunc(r.mapItem),
+			builder.WithPredicates(createdOrDeleted())).
 		Complete(r)
+}
+
+// createdOrDeleted passes creates and deletes only: [Reconciler.itemGone]
+// reads an item's existence and nothing else, and catalogarr updates Movie
+// and Episode status far too often to replan on every update.
+func createdOrDeleted() predicate.Predicate {
+	return predicate.Funcs{UpdateFunc: func(event.UpdateEvent) bool { return false }}
+}
+
+// mapItem enqueues the request of every MediaFile that references the Movie
+// or Episode o. A request shares its MediaFile's name.
+func (r *Reconciler) mapItem(ctx context.Context, o client.Object) []reconcile.Request {
+	var kind commonv1alpha1.MediaKind
+	switch o.(type) {
+	case *catalogv1alpha1.Movie:
+		kind = commonv1alpha1.MediaKindMovie
+	case *catalogv1alpha1.Episode:
+		kind = commonv1alpha1.MediaKindEpisode
+	default:
+		return nil
+	}
+	var files catalogv1alpha1.MediaFileList
+	if err := r.Client.List(ctx, &files, client.InNamespace(o.GetNamespace())); err != nil {
+		logging.FromContext(ctx).Error("list MediaFiles for a catalog item change", "item", client.ObjectKeyFromObject(o), "err", err)
+		return nil
+	}
+	var out []reconcile.Request
+	for i := range files.Items {
+		mf := &files.Items[i]
+		if mf.Spec.MediaRef.Kind == kind && mf.Spec.MediaRef.Name == o.GetName() {
+			out = append(out, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(mf)})
+		}
+	}
+	return out
 }
 
 // isEmbeddedProvider reports whether o is an embedded SubtitleProvider: the

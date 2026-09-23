@@ -69,6 +69,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     recorded on the item and acked. Redelivering would only ask the same
 //     providers the same question.
 //   - Stale -- the request, MediaFile or profile language is gone, the
+//     MediaFile's Movie or Episode is gone (an import list's removeAndKeep
+//     keeps the file, not the item; the controller blocks such a request), the
 //     controller no longer schedules the language (the item is not live,
 //     status.IsLive), or the file was re-probed since planning: acked with
 //     no write; the controller's replan publishes a fresh task.

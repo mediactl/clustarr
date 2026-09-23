@@ -21,7 +21,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // language key that does not match its own canonical derivation) and is the
 // mapper that gives captionarr's other controllers something to do -- for
 // every video-kind MediaFile a profile wins (its own spec.selector, or
-// spec.default when no selector-matching profile claims the file), it
+// spec.default when no selector-matching profile claims the file) whose
+// Movie or Episode still exists (itemSet.manages: an import list's
+// removeAndKeep keeps a file Clustarr no longer manages), it
 // ensures the one SubtitleRequest that names it, deterministic on the
 // MediaFile's own name (SubtitleRequest's own doc comment: "owned by the
 // MediaFile and shares its name") so a re-reconcile's apply is a no-op and a
@@ -51,11 +53,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	subtitleac "github.com/mediactl/clustarr/api/applyconfiguration/subtitle/subtitle/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	captionarrstatus "github.com/mediactl/clustarr/captionarr/status"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -70,7 +75,8 @@ import (
 // documents) because this package is captionarr's only creator of them.
 // mediafiles is read-only: this controller only ever reads a MediaFile's
 // labels, kind and status.probeHash to decide whether and for whom to
-// ensure a request.
+// ensure a request. movies and episodes are read only to learn whether a
+// file's item still exists (itemSet.manages).
 //
 // The blank line below is load-bearing -- see
 // cmd/clustarr.TestRBACMarkersArePackageLevel: controller-gen only collects
@@ -82,6 +88,7 @@ import (
 // +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitleprofiles/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitlerequests,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;episodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconciler owns SubtitleProfile.status (under k8s.ManagerCaptionarr, via
@@ -134,7 +141,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	if err := r.List(ctx, &mfList); err != nil {
 		return ctrl.Result{}, fmt.Errorf("subtitleprofile: list MediaFiles: %w", err)
 	}
-	matching, overlapped := selectFiles(&sp, profileList.Items, defaultWinner(profileList.Items), mfList.Items)
+	// Once per reconcile, the items those files may reference: a MediaFile
+	// whose Movie or Episode is gone -- one an import list's removeAndKeep
+	// left behind -- is not selected (itemSet.manages).
+	var movies catalogv1alpha1.MovieList
+	if err := r.List(ctx, &movies); err != nil {
+		return ctrl.Result{}, fmt.Errorf("subtitleprofile: list Movies: %w", err)
+	}
+	var episodes catalogv1alpha1.EpisodeList
+	if err := r.List(ctx, &episodes); err != nil {
+		return ctrl.Result{}, fmt.Errorf("subtitleprofile: list Episodes: %w", err)
+	}
+	matching, overlapped := selectFiles(&sp, profileList.Items, defaultWinner(profileList.Items), mfList.Items,
+		newItemSet(movies.Items, episodes.Items))
 
 	ensured := 0
 	var ensureErrs []error
@@ -292,6 +311,49 @@ func (r *Reconciler) mapMediaFileToProfiles(ctx context.Context, o client.Object
 	return reqs
 }
 
+// mapItemToProfiles enqueues the profiles that could win a MediaFile of the
+// Movie or Episode o: the item appearing (an import list re-adding it) makes
+// its kept file eligible again, and the item going (removeAndKeep) stops
+// counting the file -- neither touches the MediaFile, so its own watch never
+// fires for them.
+func (r *Reconciler) mapItemToProfiles(ctx context.Context, o client.Object) []reconcile.Request {
+	var kind commonv1.MediaKind
+	switch o.(type) {
+	case *catalogv1alpha1.Movie:
+		kind = commonv1.MediaKindMovie
+	case *catalogv1alpha1.Episode:
+		kind = commonv1.MediaKindEpisode
+	default:
+		return nil
+	}
+	var files catalogv1alpha1.MediaFileList
+	if err := r.List(ctx, &files, client.InNamespace(o.GetNamespace())); err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var reqs []reconcile.Request
+	for i := range files.Items {
+		mf := &files.Items[i]
+		if mf.Spec.MediaRef.Kind != kind || mf.Spec.MediaRef.Name != o.GetName() {
+			continue
+		}
+		for _, req := range r.mapMediaFileToProfiles(ctx, mf) {
+			if !seen[req.Name] {
+				seen[req.Name] = true
+				reqs = append(reqs, req)
+			}
+		}
+	}
+	return reqs
+}
+
+// createdOrDeleted passes creates and deletes only: an item's existence is
+// all [itemSet.manages] reads, and catalogarr updates Movie and Episode
+// status far too often for every update to replan every profile.
+func createdOrDeleted() predicate.Predicate {
+	return predicate.Funcs{UpdateFunc: func(event.UpdateEvent) bool { return false }}
+}
+
 // SetupWithManager registers the SubtitleProfile controller; captionarr's
 // run.go setupControllers calls it for the controller role.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -302,6 +364,10 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(k8s.GenerationChanged())).
 		Watches(&catalogv1alpha1.MediaFile{}, handler.EnqueueRequestsFromMapFunc(r.mapMediaFileToProfiles),
 			builder.WithPredicates(k8s.StatusFieldChanged(extractProbeHash))).
+		Watches(&catalogv1alpha1.Movie{}, handler.EnqueueRequestsFromMapFunc(r.mapItemToProfiles),
+			builder.WithPredicates(createdOrDeleted())).
+		Watches(&catalogv1alpha1.Episode{}, handler.EnqueueRequestsFromMapFunc(r.mapItemToProfiles),
+			builder.WithPredicates(createdOrDeleted())).
 		WithOptions(controller.Options{
 			RecoverPanic:          ptr.To(true),
 			ReconciliationTimeout: 5 * time.Minute,

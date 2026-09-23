@@ -62,8 +62,15 @@ func newTestClient(t *testing.T) client.Client {
 // request's own planning is task F-4's job, not this controller's -- so
 // these fixtures deliberately never touch status.probeHash unless a test is
 // specifically about the probeHash watch.
+//
+// It creates the file's Movie too: a MediaFile whose item is gone is one an
+// import list's removeAndKeep left behind, and no profile selects it.
 func movieFile(t *testing.T, ctx context.Context, c client.Client, ns, name string, labels map[string]string) *catalogv1alpha1.MediaFile {
 	t.Helper()
+	require.NoError(t, c.Create(ctx, &catalogv1alpha1.Movie{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		Spec:       catalogv1alpha1.MovieSpec{TmdbID: 329865, QualityProfileRef: "hd", RootFolderRef: "movies"},
+	}))
 	mf := &catalogv1alpha1.MediaFile{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: labels},
 		Spec: catalogv1alpha1.MediaFileSpec{

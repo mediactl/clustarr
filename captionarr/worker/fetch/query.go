@@ -40,9 +40,17 @@ import (
 // for: the first and last 64 KiB (pkg/mediainfo.ErrTooSmall).
 const movieHashMinBytes = 128 << 10
 
+// errItemGone is [Worker.buildQuery]'s verdict that the MediaFile's Movie or
+// Episode no longer exists: the file is one an import list's removeAndKeep
+// left behind (gap-fix X7b), which Clustarr no longer manages. The task is
+// acked with no write; the SubtitleRequest controller blocks the request
+// (ItemNotFound), so no further task follows.
+var errItemGone = errors.New("the media file's catalog item no longer exists")
+
 // buildQuery is spec §6.5's "load MediaFile + owner metadata (ids, title,
 // year, season/episode) ... moviehash if >= 128 KiB". The owner is the
-// Movie, or the Episode and its Series; a missing owner or missing metadata
+// Movie, or the Episode and its Series. A Movie or Episode that no longer
+// exists is [errItemGone]; missing metadata, or an Episode's missing Series,
 // leaves those fields empty rather than failing -- a hash-only search is
 // still a real search, and [searchable] decides per provider whether what
 // is left can identify the item.
@@ -62,6 +70,7 @@ func (w *Worker) buildQuery(ctx context.Context, mf *catalogv1alpha1.MediaFile, 
 		err := w.Client.Get(ctx, types.NamespacedName{Namespace: mf.Namespace, Name: mf.Spec.MediaRef.Name}, &movie)
 		switch {
 		case apierrors.IsNotFound(err):
+			return subtitles.Query{}, errItemGone
 		case err != nil:
 			return subtitles.Query{}, fmt.Errorf("get movie %s: %w", mf.Spec.MediaRef.Name, err)
 		default:
@@ -78,6 +87,7 @@ func (w *Worker) buildQuery(ctx context.Context, mf *catalogv1alpha1.MediaFile, 
 		err := w.Client.Get(ctx, types.NamespacedName{Namespace: mf.Namespace, Name: mf.Spec.MediaRef.Name}, &ep)
 		switch {
 		case apierrors.IsNotFound(err):
+			return subtitles.Query{}, errItemGone
 		case err != nil:
 			return subtitles.Query{}, fmt.Errorf("get episode %s: %w", mf.Spec.MediaRef.Name, err)
 		default:

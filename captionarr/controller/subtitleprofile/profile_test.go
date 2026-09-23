@@ -37,6 +37,16 @@ func movieFile(name string, labels map[string]string) *catalogv1alpha1.MediaFile
 	}
 }
 
+// managedItems is the item set in which every movie file named in names has
+// its Movie.
+func managedItems(names ...string) itemSet {
+	movies := make([]catalogv1alpha1.Movie, 0, len(names))
+	for _, n := range names {
+		movies = append(movies, catalogv1alpha1.Movie{ObjectMeta: metav1.ObjectMeta{Name: n, Namespace: "media"}})
+	}
+	return newItemSet(movies, nil)
+}
+
 func profileAt(name string, created time.Time, spec subtitlev1alpha1.SubtitleProfileSpec) subtitlev1alpha1.SubtitleProfile {
 	return subtitlev1alpha1.SubtitleProfile{
 		ObjectMeta: metav1.ObjectMeta{Name: name, CreationTimestamp: metav1.NewTime(created)},
@@ -170,12 +180,12 @@ func TestSelectFilesPicksTheDeterministicWinnerOnOverlap(t *testing.T) {
 	mf := movieFile("arrival-2016", map[string]string{"tier": "hd"})
 	files := []catalogv1alpha1.MediaFile{*mf}
 
-	matchingWinner, overlapWinner := selectFiles(&winner, all, nil, files)
+	matchingWinner, overlapWinner := selectFiles(&winner, all, nil, files, managedItems(mf.Name))
 	require.Len(t, matchingWinner, 1)
 	assert.Equal(t, mf.Name, matchingWinner[0].Name)
 	assert.False(t, overlapWinner)
 
-	matchingLoser, overlapLoser := selectFiles(&loser, all, nil, files)
+	matchingLoser, overlapLoser := selectFiles(&loser, all, nil, files, managedItems(mf.Name))
 	assert.Empty(t, matchingLoser)
 	assert.True(t, overlapLoser, "the losing profile must surface the overlap")
 }
@@ -195,11 +205,12 @@ func TestSelectFilesFallsBackToDefaultOnlyWhenNoSelectorMatches(t *testing.T) {
 	plainFile := movieFile("plain-movie", nil)
 	files := []catalogv1alpha1.MediaFile{*hdFile, *plainFile}
 
-	matchingDefault, _ := selectFiles(&def, all, &def, files)
+	items := managedItems(hdFile.Name, plainFile.Name)
+	matchingDefault, _ := selectFiles(&def, all, &def, files, items)
 	require.Len(t, matchingDefault, 1, "the default profile only wins the file the selective profile does not")
 	assert.Equal(t, plainFile.Name, matchingDefault[0].Name)
 
-	matchingSelective, _ := selectFiles(&selective, all, &def, files)
+	matchingSelective, _ := selectFiles(&selective, all, &def, files, items)
 	require.Len(t, matchingSelective, 1)
 	assert.Equal(t, hdFile.Name, matchingSelective[0].Name)
 }
@@ -213,7 +224,53 @@ func TestSelectFilesExcludesIneligibleKinds(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "some-book", Namespace: "media"},
 		Spec:       catalogv1alpha1.MediaFileSpec{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindBook, Name: "some-book"}},
 	}
-	matching, overlapped := selectFiles(&def, []subtitlev1alpha1.SubtitleProfile{def}, &def, []catalogv1alpha1.MediaFile{*book})
+	matching, overlapped := selectFiles(&def, []subtitlev1alpha1.SubtitleProfile{def}, &def, []catalogv1alpha1.MediaFile{*book},
+		itemSet{{commonv1.MediaKindBook, "media", "some-book"}: true})
 	assert.Empty(t, matching)
 	assert.False(t, overlapped)
+}
+
+// A MediaFile whose Movie or Episode is gone -- the record an import list's
+// removeAndKeep keeps with the file (gap-fix X7b) -- is not selected, by the
+// default or by a selector, and does not count as an overlap. Re-adding the
+// item makes it eligible again. Items are matched on kind, namespace and
+// name: a same-named Episode, or a Movie in another namespace, is not this
+// file's item.
+func TestSelectFilesSkipsAFileWhoseItemIsGone(t *testing.T) {
+	sel := &metav1.LabelSelector{MatchLabels: map[string]string{"tier": "hd"}}
+	def := profileAt("default", time.Now(), subtitlev1alpha1.SubtitleProfileSpec{
+		Default: true, Languages: []subtitlev1alpha1.LanguageItem{{Key: "en", Language: "en"}},
+	})
+	early := profileAt("early", time.Now().Add(-time.Hour), subtitlev1alpha1.SubtitleProfileSpec{
+		Selector: sel, Languages: []subtitlev1alpha1.LanguageItem{{Key: "en", Language: "en"}},
+	})
+	late := profileAt("late", time.Now(), subtitlev1alpha1.SubtitleProfileSpec{
+		Selector: sel, Languages: []subtitlev1alpha1.LanguageItem{{Key: "en", Language: "en"}},
+	})
+	all := []subtitlev1alpha1.SubtitleProfile{def, early, late}
+	kept := movieFile("kept", nil)
+	keptHD := movieFile("kept-hd", map[string]string{"tier": "hd"})
+	managed := movieFile("managed", nil)
+	files := []catalogv1alpha1.MediaFile{*kept, *keptHD, *managed}
+
+	items := newItemSet(
+		[]catalogv1alpha1.Movie{
+			{ObjectMeta: metav1.ObjectMeta{Name: "managed", Namespace: "media"}},
+			{ObjectMeta: metav1.ObjectMeta{Name: "kept", Namespace: "elsewhere"}},
+		},
+		[]catalogv1alpha1.Episode{{ObjectMeta: metav1.ObjectMeta{Name: "kept-hd", Namespace: "media"}}},
+	)
+	matching, _ := selectFiles(&def, all, &def, files, items)
+	require.Len(t, matching, 1)
+	assert.Equal(t, "managed", matching[0].Name)
+	matching, overlapped := selectFiles(&late, all, &def, files, items)
+	assert.Empty(t, matching)
+	assert.False(t, overlapped, "an unmanaged file is nobody's, so losing it is no overlap")
+
+	readded := managedItems("kept", "kept-hd", "managed")
+	matching, _ = selectFiles(&def, all, &def, files, readded)
+	assert.Len(t, matching, 2, "re-adding the item lifts the rule")
+	matching, _ = selectFiles(&early, all, &def, files, readded)
+	require.Len(t, matching, 1)
+	assert.Equal(t, "kept-hd", matching[0].Name)
 }

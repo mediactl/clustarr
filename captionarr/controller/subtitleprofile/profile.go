@@ -72,6 +72,44 @@ func eligibleKind(k commonv1.MediaKind) bool {
 	return k == commonv1.MediaKindMovie || k == commonv1.MediaKindEpisode
 }
 
+// itemKey names one catalog item a MediaFile can reference.
+type itemKey struct {
+	kind            commonv1.MediaKind
+	namespace, name string
+}
+
+// itemSet is the catalog items that currently exist, of the kinds
+// [eligibleKind] admits: the Movies and Episodes one reconcile lists.
+type itemSet map[itemKey]bool
+
+// newItemSet indexes movies and episodes.
+func newItemSet(movies []catalogv1alpha1.Movie, episodes []catalogv1alpha1.Episode) itemSet {
+	s := make(itemSet, len(movies)+len(episodes))
+	for i := range movies {
+		s[itemKey{commonv1.MediaKindMovie, movies[i].Namespace, movies[i].Name}] = true
+	}
+	for i := range episodes {
+		s[itemKey{commonv1.MediaKindEpisode, episodes[i].Namespace, episodes[i].Name}] = true
+	}
+	return s
+}
+
+// manages reports whether mf's item still exists: the MediaFile is one
+// Clustarr manages, not a record an import list's removeAndKeep left behind.
+//
+// removeAndKeep (gap-fix X7b's ruling) deletes the Movie or Episode and keeps
+// both the file and its MediaFile record -- the record is what stops a
+// library rescan from adopting the file again and re-creating the item, and
+// what a list that re-adds the item re-attaches to. Radarr deletes the file
+// records outright, so from then on nothing in it touches the file; here the
+// record stays, and it must not be mistaken for a managed file. A subtitle
+// profile therefore skips it: the user kept the file, not Clustarr's
+// management of it. The rule is level-based -- re-adding the item makes the
+// file eligible again, with no marker to maintain.
+func (s itemSet) manages(mf *catalogv1alpha1.MediaFile) bool {
+	return s[itemKey{mf.Spec.MediaRef.Kind, mf.Namespace, mf.Spec.MediaRef.Name}]
+}
+
 // canonicalKey renders the langKey LanguageItem.Key is required to equal,
 // per that field's own doc comment and pkg/subtitles/planner.go's
 // ProfileLanguage doc comment (quoted on ReasonKeyMismatch). Forced wins
@@ -173,7 +211,8 @@ func winningProfile(
 	return def
 }
 
-// selectFiles resolves every eligible file in files against the full
+// selectFiles resolves every eligible file in files -- a video kind whose
+// catalog item still exists in items ([itemSet.manages]) -- against the full
 // profiles list and def (profiles' resolved default winner, or nil), and
 // reports, from sp's point of view:
 //
@@ -188,10 +227,11 @@ func selectFiles(
 	profiles []subtitlev1alpha1.SubtitleProfile,
 	def *subtitlev1alpha1.SubtitleProfile,
 	files []catalogv1alpha1.MediaFile,
+	items itemSet,
 ) (matching []*catalogv1alpha1.MediaFile, overlapped bool) {
 	for i := range files {
 		mf := &files[i]
-		if !eligibleKind(mf.Spec.MediaRef.Kind) {
+		if !eligibleKind(mf.Spec.MediaRef.Kind) || !items.manages(mf) {
 			continue
 		}
 		winner := winningProfile(mf, profiles, def)

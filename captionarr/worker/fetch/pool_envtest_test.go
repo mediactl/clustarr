@@ -167,3 +167,26 @@ func TestTheSidecarTakesItsRootFoldersFileMode(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o640), st.Mode().Perm())
 	assert.NotEqual(t, fetch.DefaultSidecarMode, st.Mode().Perm())
 }
+
+// A task for a MediaFile whose Movie is gone -- the file an import list's
+// removeAndKeep kept (gap-fix X7b), published before the item went -- asks
+// no provider and records nothing. The controller blocks the request, so no
+// further task follows.
+func TestATaskForAFileWhoseItemIsGoneFetchesNothing(t *testing.T) {
+	f := newFixture(t, natsBus(t))
+	p := newFakeProvider("fake")
+	p.cands = []subtitles.Candidate{candidate("exact", releaseTitle)}
+	p.files["exact"] = []byte(srtWithHI)
+	f.entry("os", os1, p)
+	m := f.message(t, "en", nil)
+
+	require.NoError(t, f.c.Delete(f.ctx, &catalogv1alpha1.Movie{ObjectMeta: metav1.ObjectMeta{Name: "film", Namespace: f.ns}}))
+	before := f.get(t).ResourceVersion
+	require.NoError(t, f.worker.Handle(f.ctx, m), "acked, not redelivered")
+
+	assert.Equal(t, before, f.get(t).ResourceVersion, "nothing recorded")
+	assert.Equal(t, int32(0), p.searches.Load(), "no provider is asked for a file Clustarr no longer manages")
+	_, err := os.Stat(f.local(filepath.Join(filepath.Dir(mediaLogical), sidecarName)))
+	assert.True(t, os.IsNotExist(err), "no sidecar written")
+	assert.Empty(t, f.bus.subtitleEvents(t))
+}

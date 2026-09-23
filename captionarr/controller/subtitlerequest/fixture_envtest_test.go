@@ -215,15 +215,29 @@ func englishTrack() *commonv1alpha1.MediaInfo {
 	}
 }
 
+// movie creates the Movie a MediaFile of the same name belongs to: a
+// MediaFile whose item is gone is one Clustarr no longer manages, and its
+// request is Blocked (ItemNotFound).
+func (f *fixture) movie(name string) *catalogv1alpha1.Movie {
+	f.t.Helper()
+	m := &catalogv1alpha1.Movie{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: f.ns},
+		Spec:       catalogv1alpha1.MovieSpec{TmdbID: 603, QualityProfileRef: "hd", RootFolderRef: "movies"},
+	}
+	require.NoError(f.t, f.c.Create(f.ctx, m))
+	return m
+}
+
 // mediaFile writes <name>.mkv plus any sidecars into the fixture's directory
 // and creates the MediaFile -- at the logical /data/<name>.mkv, which the
-// reconciler's DataDir maps onto that directory -- probed (as catalogarr
-// would) when mi is non-nil.
+// reconciler's DataDir maps onto that directory -- and its Movie, probed (as
+// catalogarr would) when mi is non-nil.
 func (f *fixture) mediaFile(name string, mi *commonv1alpha1.MediaInfo, sidecars ...string) *catalogv1alpha1.MediaFile {
 	f.t.Helper()
 	for _, s := range append([]string{name + ".mkv"}, sidecars...) {
 		require.NoError(f.t, os.WriteFile(filepath.Join(f.dir, s), []byte("x"), 0o600))
 	}
+	f.movie(name)
 	mf := &catalogv1alpha1.MediaFile{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: f.ns},
 		Spec: catalogv1alpha1.MediaFileSpec{

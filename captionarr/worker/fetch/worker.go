@@ -309,6 +309,11 @@ func (w *Worker) handle(ctx context.Context, m events.Message, t task) error {
 	}
 
 	q, err := w.buildQuery(ctx, &mf, local, st.Size(), wnt.key)
+	if errors.Is(err, errItemGone) {
+		log.Info("fetch: the media file's catalog item no longer exists; nothing to fetch for a file Clustarr no longer manages",
+			"kind", kind, "item", mf.Spec.MediaRef.Name)
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("fetch: %w", err)
 	}
