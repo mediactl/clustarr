@@ -210,6 +210,28 @@ func TestHandler_SubscriptionMatchesTheSpecTable(t *testing.T) {
 	assert.Equal(t, 16, sub.MaxInFlight)
 }
 
+// TestHandler_SubscriptionReadsTheGivenTopology is the consumer-lookup item:
+// the grab consumer is looked up in the topology the process installed, not
+// in events.Default() behind its back, so a topology that tunes the consumer
+// is the one the replica subscribes with.
+func TestHandler_SubscriptionReadsTheGivenTopology(t *testing.T) {
+	topo := events.Default()
+	for i, c := range topo.Consumers {
+		if c.Name == events.ConsumerCatalogGrab {
+			topo.Consumers[i].MaxDeliver = 9
+		}
+	}
+	h := grab.NewHandler(grab.Deps{})
+	h.Topology = &topo
+	sub := h.Subscription()
+	require.NoError(t, sub.Validate())
+	assert.Equal(t, 9, sub.MaxDeliver)
+
+	var empty events.Topology
+	h.Topology = &empty
+	assert.Error(t, h.Subscription().Validate(), "a topology without the consumer must fail loudly at Subscribe")
+}
+
 // TestHandler_DuplicateGrabClearsPendingGrab is the item that turned a
 // duplicate ack into a permanent exit from automation.
 //

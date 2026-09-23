@@ -70,10 +70,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Registration (Task C12)
 //
-// Nothing in this package registers itself. catalogarr/run.go's setupWorkers
-// makes exactly this call:
+// Nothing in this package registers itself. catalogarr/run.go's
+// setupQueueWorkers makes this call, with the topology it installed:
 //
 //	grabHandler := grab.NewHandler(grab.Deps{Client: mgr.GetClient(), Bus: bus})
+//	grabHandler.Topology = &topo // o.BusTopology()
 //	if err := grabHandler.SetupWithManager(mgr, bus); err != nil {
 //		return fmt.Errorf("catalogarr: subscribe grab: %w", err)
 //	}

@@ -56,6 +56,16 @@ const grabRetry = 30 * time.Second
 // been replaced several times since -- is finally turned into a Download.
 type Handler struct {
 	Deps Deps
+
+	// Topology is the bus topology this process installed --
+	// k8s.Options.BusTopology(), the value run.go hands k8s.EnsureTopology
+	// -- and Subscription looks the catalogarr-grab consumer up in it, as
+	// catalogarr/worker/search does for its two. Nil means
+	// events.Default(), which is only correct while BusTopology's
+	// single-node collapse leaves consumers untouched; a caller that has
+	// the process's topology should always set it, so the consumer a
+	// replica subscribes to is the one it created.
+	Topology *events.Topology
 }
 
 // NewHandler returns a Handler over d.
@@ -63,15 +73,18 @@ func NewHandler(d Deps) *Handler { return &Handler{Deps: d} }
 
 // Subscription is the catalogarr-grab durable consumer from §5's table:
 // AckWait 60s, MaxDeliver 5, BackOff 10s/1m/5m, MaxAckPending 16. It is read
-// from events.Default() rather than restated so the tuning lives in exactly
-// one place.
+// from the topology rather than restated so the tuning lives in exactly one
+// place.
 func (h *Handler) Subscription() events.Subscription {
-	spec, ok := events.Default().Consumer(events.ConsumerCatalogGrab)
+	topo := events.Default()
+	if h.Topology != nil {
+		topo = *h.Topology
+	}
+	spec, ok := topo.Consumer(events.ConsumerCatalogGrab)
 	if !ok {
-		// Unreachable: ConsumerCatalogGrab is in defaultConsumers() and
-		// pkg/events' own tests assert it. A zero Subscription fails
-		// Subscription.Validate loudly at Subscribe time rather than
-		// silently consuming nothing.
+		// A topology without the catalogarr-grab consumer. A zero
+		// Subscription fails Subscription.Validate loudly at Subscribe
+		// time rather than silently consuming nothing.
 		return events.Subscription{}
 	}
 	return spec.Subscription()
@@ -82,10 +95,12 @@ func (h *Handler) Subscription() events.Subscription {
 // when the manager stops, rather than leaking a context.Background()
 // subscription that outlives a graceful shutdown.
 //
-// This is the ONLY call catalogarr/run.go's setupWorkers needs to make for the
-// grab worker:
+// This, with Topology set, is the ONLY registration catalogarr/run.go's
+// setupQueueWorkers needs for the grab worker:
 //
-//	if err := grab.NewHandler(grab.Deps{Client: mgr.GetClient(), Bus: bus}).SetupWithManager(mgr, bus); err != nil {
+//	h := grab.NewHandler(grab.Deps{Client: mgr.GetClient(), Bus: bus})
+//	h.Topology = &topo // o.BusTopology()
+//	if err := h.SetupWithManager(mgr, bus); err != nil {
 //		return fmt.Errorf("catalogarr: subscribe grab: %w", err)
 //	}
 //
