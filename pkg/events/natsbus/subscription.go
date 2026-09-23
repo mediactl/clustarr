@@ -21,7 +21,6 @@ import (
 	"context"
 	"sync"
 
-	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -53,7 +52,7 @@ type subscription struct {
 	// cancel cancels the context every handler is given.
 	cancel context.CancelFunc
 
-	watch *nats.Subscription
+	watch jetstream.ConsumeContext
 	run   func(jetstream.Msg)
 
 	mu       sync.Mutex
@@ -72,7 +71,7 @@ type parkedMsg struct {
 	seq uint64
 }
 
-func newSubscription(maxInFlight int, cancel context.CancelFunc, watch *nats.Subscription,
+func newSubscription(maxInFlight int, cancel context.CancelFunc, watch jetstream.ConsumeContext,
 	run func(jetstream.Msg),
 ) *subscription {
 	return &subscription{
@@ -150,11 +149,11 @@ func (s *subscription) startLocked(m jetstream.Msg) {
 // does not wait for running handlers; see wait. Parked deliveries are left
 // unsettled: JetStream makes them again once their acknowledgement deadlines
 // pass, to whichever replica is consuming. It is idempotent.
-func (s *subscription) halt() error {
+func (s *subscription) halt() {
 	s.mu.Lock()
 	if s.halted {
 		s.mu.Unlock()
-		return nil
+		return
 	}
 	s.halted = true
 	s.parked = nil
@@ -165,7 +164,7 @@ func (s *subscription) halt() error {
 	if c != nil {
 		c.Stop()
 	}
-	return unsubscribe(s.watch)
+	s.watch.Stop()
 }
 
 // wait blocks until every handler the subscription started has returned.

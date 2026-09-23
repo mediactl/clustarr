@@ -23,18 +23,24 @@ import (
 	"time"
 
 	natsserver "github.com/nats-io/nats-server/v2/server"
+
+	"github.com/mediactl/clustarr/pkg/events"
 )
 
-// TestMaxDeliveriesAdvisoryMatchesServer holds the watcher's restated subject
-// prefix, schema type and JSON field names to nats-server's own, which the
-// production binary deliberately does not import. A drift would leave the
-// watcher subscribed to a subject nothing publishes on, or decoding a zero
-// stream sequence, and every hung handler's message would be dropped again
-// with no test noticing.
+// TestMaxDeliveriesAdvisoryMatchesServer holds the restated subject prefix
+// (events.SubjectMaxDeliveriesAdvisoryPrefix, which the advisory stream
+// captures), the watcher's schema type and its JSON field names to
+// nats-server's own, which the production binary deliberately does not
+// import. A drift would leave the stream capturing, and the watcher reading, a
+// subject nothing publishes on, or decoding a zero stream sequence, and every
+// hung handler's message would be dropped again with no test noticing.
 func TestMaxDeliveriesAdvisoryMatchesServer(t *testing.T) {
-	if maxDeliveriesAdvisoryPrefix != natsserver.JSAdvisoryConsumerMaxDeliveryExceedPre {
+	if events.SubjectMaxDeliveriesAdvisoryPrefix != natsserver.JSAdvisoryConsumerMaxDeliveryExceedPre {
 		t.Errorf("advisory prefix = %q, nats-server publishes on %q",
-			maxDeliveriesAdvisoryPrefix, natsserver.JSAdvisoryConsumerMaxDeliveryExceedPre)
+			events.SubjectMaxDeliveriesAdvisoryPrefix, natsserver.JSAdvisoryConsumerMaxDeliveryExceedPre)
+	}
+	if want := natsserver.JSAdvisoryConsumerMaxDeliveryExceedPre + ".>"; events.FilterMaxDeliveriesAdvisories != want {
+		t.Errorf("advisory stream filter = %q, want %q", events.FilterMaxDeliveriesAdvisories, want)
 	}
 	if maxDeliveriesAdvisoryType != natsserver.JSConsumerDeliveryExceededAdvisoryType {
 		t.Errorf("advisory type = %q, nats-server sends %q",
@@ -70,7 +76,7 @@ func TestMaxDeliveriesAdvisoryMatchesServer(t *testing.T) {
 	if got != want {
 		t.Errorf("decoded %+v from %s, want %+v", got, data, want)
 	}
-	if subj := maxDeliveriesAdvisorySubject(sent.Stream, sent.Consumer); subj !=
+	if subj := events.MaxDeliveriesAdvisorySubject(sent.Stream, sent.Consumer); subj !=
 		natsserver.JSAdvisoryConsumerMaxDeliveryExceedPre+".CLUSTARR_WORK_INDEXARR.indexarr-rss" {
 		t.Errorf("advisory subject = %q", subj)
 	}

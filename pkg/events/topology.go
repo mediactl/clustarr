@@ -190,24 +190,13 @@ const singleNodeMemoryBudget = 64 * MiB
 func (t Topology) ForSingleNode() Topology {
 	out := t.clone()
 
-	var total int64
-	for i := range out.Streams {
-		total += out.Streams[i].MaxBytes
-	}
-
 	for i := range out.Streams {
 		out.Streams[i].Replicas = 1
 		out.Streams[i].Storage = StorageMemory
 		out.Streams[i].Compression = false
 		out.Streams[i].DenyDelete = false
-		if total > singleNodeMemoryBudget && out.Streams[i].MaxBytes > 0 {
-			scaled := out.Streams[i].MaxBytes * singleNodeMemoryBudget / total
-			if scaled < singleNodeMinStreamBytes {
-				scaled = singleNodeMinStreamBytes
-			}
-			out.Streams[i].MaxBytes = scaled
-		}
 	}
+	scaleToBudget(out.Streams, singleNodeMemoryBudget, singleNodeMinStreamBytes)
 	for i := range out.Buckets {
 		out.Buckets[i].Replicas = 1
 		out.Buckets[i].Storage = StorageMemory
@@ -219,6 +208,53 @@ func (t Topology) ForSingleNode() Topology {
 // stream whose MaxBytes rounds to near zero rejects its first publish, which
 // reads as a broken bus rather than a full one.
 const singleNodeMinStreamBytes = 1 * MiB
+
+// scaleToBudget shrinks the streams' MaxBytes in proportion until together
+// they reserve no more than budget, giving any stream whose share would fall
+// below floor the floor instead. The floors come out of the budget first, so
+// raising a tiny stream to its floor cannot push the total over the budget,
+// as scaling everything and then flooring did once the advisory stream
+// (64 MiB of ~9 GiB) was added. A stream with no MaxBytes is unlimited and is
+// left alone.
+func scaleToBudget(streams []StreamSpec, budget, floor int64) {
+	var total int64
+	for _, s := range streams {
+		total += max(s.MaxBytes, 0)
+	}
+	if total <= budget {
+		return
+	}
+	floored := map[int]bool{}
+	for {
+		var rest int64
+		for i, s := range streams {
+			if s.MaxBytes > 0 && !floored[i] {
+				rest += s.MaxBytes
+			}
+		}
+		left := budget - int64(len(floored))*floor
+		grew := false
+		for i, s := range streams {
+			if s.MaxBytes > 0 && !floored[i] && s.MaxBytes*left/rest < floor {
+				floored[i] = true
+				grew = true
+			}
+		}
+		if grew {
+			continue
+		}
+		for i, s := range streams {
+			switch {
+			case s.MaxBytes <= 0:
+			case floored[i]:
+				streams[i].MaxBytes = floor
+			default:
+				streams[i].MaxBytes = s.MaxBytes * left / rest
+			}
+		}
+		return
+	}
+}
 
 func (t Topology) clone() Topology {
 	out := Topology{
@@ -242,10 +278,10 @@ func (t Topology) clone() Topology {
 //   - every consumer filter is covered by that stream's subjects;
 //   - MaxDeliver is strictly greater than len(BackOff), so the last attempt
 //     is a real attempt and not an unused backoff step;
-//   - every WorkQueue stream allows message schedules, since delay profiles
-//     publish grabs into the future, and no stream pairs schedules with
-//     DiscardNew, which nats-server refuses;
-//   - the dead-letter stream exists.
+//   - every WorkQueue work stream allows message schedules, since delay
+//     profiles publish grabs into the future, and no stream pairs schedules
+//     with DiscardNew, which nats-server refuses;
+//   - the dead-letter stream and the advisory stream exist.
 func (t Topology) Validate() error {
 	var errs []error
 	seen := map[string]StreamSpec{}
@@ -261,7 +297,10 @@ func (t Topology) Validate() error {
 		if len(s.Subjects) == 0 {
 			errs = append(errs, fieldErr(s.Name+".Subjects", "is required"))
 		}
-		if s.Retention == RetentionWorkQueue && !s.AllowMsgSchedules {
+		// The advisory stream is a WorkQueue too, but only JetStream
+		// publishes to it, and never with a schedule.
+		if s.Retention == RetentionWorkQueue && !s.AllowMsgSchedules &&
+			s.Name != StreamAdvisories {
 			errs = append(errs, fieldErr(s.Name+".AllowMsgSchedules",
 				"work streams must allow message schedules, so delay profiles "+
 					"can publish a grab into the future"))
@@ -272,9 +311,11 @@ func (t Topology) Validate() error {
 					"schedules; use DiscardOld and size MaxBytes for headroom"))
 		}
 	}
-	if _, ok := seen[StreamDLQ]; !ok {
-		errs = append(errs, fieldErr("Topology.Streams",
-			"the "+StreamDLQ+" stream is required"))
+	for _, required := range []string{StreamDLQ, StreamAdvisories} {
+		if _, ok := seen[required]; !ok {
+			errs = append(errs, fieldErr("Topology.Streams",
+				"the "+required+" stream is required"))
+		}
 	}
 	names := map[string]bool{}
 	for _, c := range t.Consumers {
@@ -371,7 +412,7 @@ const (
 	FilterDownloadBlocklisted = "clustarr.evt.download.download.blocklisted.>"
 )
 
-// Default returns the production topology from the Clustarr design: seven
+// Default returns the production topology from the Clustarr design: eight
 // streams, fourteen durable consumers and ten key/value buckets.
 //
 // Three declarations the design once carried are gone because nothing ever
@@ -462,6 +503,24 @@ func defaultStreams() []StreamSpec {
 			MaxAge:      720 * time.Hour,
 			MaxBytes:    1 * GiB,
 			Duplicates:  10 * time.Minute,
+			Replicas:    3,
+		},
+		{
+			// Gap fixes Z2. WorkQueue, so an advisory is gone once a
+			// replica has dead-lettered its message and acknowledged it,
+			// and a watcher consumer created later is not handed advisories
+			// already dealt with. It outlives the DLQ's own retention:
+			// a work-queue message JetStream gave up on stays in its stream
+			// until it is copied, however long every replica is down. An
+			// advisory is under a kilobyte.
+			Name:        StreamAdvisories,
+			Description: "MAX_DELIVERIES advisories awaiting a dead-letter copy.",
+			Subjects:    []string{FilterMaxDeliveriesAdvisories},
+			Retention:   RetentionWorkQueue,
+			Storage:     StorageFile,
+			Discard:     DiscardOld,
+			MaxAge:      720 * time.Hour,
+			MaxBytes:    64 * MiB,
 			Replicas:    3,
 		},
 	}

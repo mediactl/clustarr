@@ -165,10 +165,10 @@ func (b *Bus) Close() error {
 	b.responders, b.subs = nil, nil
 	b.mu.Unlock()
 
-	var errs []error
 	for _, s := range subs {
-		errs = append(errs, s.halt())
+		s.halt()
 	}
+	var errs []error
 	for _, s := range responders {
 		errs = append(errs, unsubscribe(s))
 	}
@@ -305,8 +305,8 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 			sub.Durable, sub.Stream, err)
 	}
 
-	// Watch for lapsed final deliveries before the first delivery can be
-	// made: the watcher's SUB precedes the pull request on this connection.
+	// Watch for lapsed final deliveries. The advisories are captured in a
+	// stream, so one fired before this watcher starts is not missed.
 	watch, err := b.watchMaxDeliveries(ctx, sub)
 	if err != nil {
 		return nil, err
@@ -319,7 +319,7 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 	cctx, err := cons.Consume(s.dispatch, jetstream.PullMaxMessages(inFlight))
 	if err != nil {
 		cancel()
-		_ = unsubscribe(watch)
+		watch.Stop()
 		return nil, fmt.Errorf("natsbus: consume %s: %w", sub.Durable, err)
 	}
 	s.setConsume(cctx)
@@ -327,14 +327,14 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
-		_ = s.halt()
+		s.halt()
 		return nil, events.ErrClosed
 	}
 	b.subs = append(b.subs, s)
 	b.mu.Unlock()
 
 	return func() {
-		_ = s.halt()
+		s.halt()
 		s.wait()
 	}, nil
 }

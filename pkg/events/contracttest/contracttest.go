@@ -67,6 +67,9 @@ func RunBusContract(t *testing.T, newBus func() events.Bus) {
 	t.Run("WorkQueueHungHandlerSaturatedToDLQ", func(t *testing.T) {
 		testHungHandlerToDLQ(t, newBus, 1)
 	})
+	t.Run("WorkQueueLapseWhileUnwatchedToDLQ", func(t *testing.T) {
+		testLapseWhileUnwatchedToDLQ(t, newBus)
+	})
 	t.Run("WorkQueueHungRedeliveryFollowsBackoff", func(t *testing.T) {
 		testHungRedeliveryFollowsBackoff(t, newBus)
 	})
@@ -622,6 +625,122 @@ func testHungHandlerToDLQ(t *testing.T, newBus func() events.Bus, inFlight int) 
 		if a != uint64(i+1) {
 			t.Errorf("delivery %d reported Attempt() = %d", i, a)
 		}
+	}
+}
+
+// testLapseWhileUnwatchedToDLQ is the hung-handler case with nothing
+// watching when the final delivery lapses: the consumer's only replica stops
+// after the final delivery is made and before its deadline passes, and
+// starts again later. The message must still reach the DLQ, exactly once,
+// once a replica is back. natsbus lost it: JetStream announces the lapse on
+// core NATS when it next tries to deliver, and a pull request the stopping
+// replica left behind is enough for it to try, with no watcher subscribed.
+// The advisory stream keeps it until the next watcher reads it. membus
+// sweeps the lapse from the returning subscription.
+func testLapseWhileUnwatchedToDLQ(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+	dlq := subscribeDLQ(ctx, t, bus)
+
+	const maxDeliver = 2
+	const deadline = time.Second
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+
+	sub := events.Subscription{
+		Stream:      events.StreamWorkIndexarr,
+		Durable:     "ct-unwatched",
+		Filters:     []string{events.FilterIndexRSS},
+		AckWait:     deadline,
+		MaxDeliver:  maxDeliver,
+		Backoff:     []time.Duration{deadline},
+		MaxInFlight: maxDeliver,
+	}
+	var mu sync.Mutex
+	var attempts []uint64
+	stop, err := bus.Subscribe(ctx, sub, func(_ context.Context, m events.Message) error {
+		mu.Lock()
+		attempts = append(attempts, m.Attempt())
+		mu.Unlock()
+		// Deaf to its context on purpose: stop cancels it, and a handler
+		// that returned then would dead-letter the final delivery in
+		// process, which is not the path under test.
+		<-release
+		return errors.New("hung")
+	})
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	if _, err := bus.Publish(ctx, events.WorkRSSSubject("idx-unwatched"),
+		envelope("task-unwatched", "index.RssTask.v1", 0)); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	waitUntil(t, "the final delivery", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(attempts) >= maxDeliver
+	})
+
+	// The replica stops. Its stop waits for the hung handlers, so it runs
+	// aside; the pull and the watcher stop at once.
+	stopped := make(chan struct{})
+	go func() {
+		stop()
+		close(stopped)
+	}()
+	t.Cleanup(func() {
+		unblock()
+		<-stopped
+	})
+
+	// Well past the final delivery's deadline, with nothing watching.
+	time.Sleep(3 * deadline)
+	if n := dlq.len(); n != 0 {
+		t.Fatalf("dead-lettered %d copies with no replica subscribed; the case no longer "+
+			"tests a lapse nobody watched", n)
+	}
+
+	// A replica comes back.
+	var redelivered int
+	stop2, err := bus.Subscribe(ctx, sub, func(context.Context, events.Message) error {
+		mu.Lock()
+		redelivered++
+		mu.Unlock()
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Subscribe again: %v", err)
+	}
+	defer stop2()
+
+	dlq.waitFor(t, 1, "the dead-letter copy of a lapse nobody watched")
+	e, dlqSubject := dlq.at(0)
+	if want := events.DLQSubject("indexarr", "rss", "task-unwatched"); dlqSubject != want {
+		t.Errorf("DLQ subject = %q, want %q", dlqSubject, want)
+	}
+	for header, want := range map[string]string{
+		events.HeaderDLQReason:   events.AckWaitExhaustedReason(maxDeliver),
+		events.HeaderDLQAttempts: fmt.Sprint(maxDeliver),
+		events.HeaderDLQConsumer: sub.Durable,
+	} {
+		if got := e.Headers[header]; got != want {
+			t.Errorf("%s = %q, want %q", header, got, want)
+		}
+	}
+
+	// The spent message is not delivered again, and the hung handler's
+	// eventual failure is the same copy, not a second one.
+	unblock()
+	<-stopped
+	time.Sleep(500 * time.Millisecond)
+	if n := dlq.len(); n != 1 {
+		t.Errorf("dead-lettered %d copies, want exactly 1", n)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if redelivered != 0 {
+		t.Errorf("the returning replica was handed the spent message %d times, want 0", redelivered)
 	}
 }
 

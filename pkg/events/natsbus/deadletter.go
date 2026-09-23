@@ -24,36 +24,43 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
-// The MAX_DELIVERIES advisory. JetStream publishes one on core NATS, at
-// maxDeliveriesAdvisoryPrefix.<stream>.<consumer>, when a message's final
-// delivery lapses without a settlement: the last acknowledgement deadline
-// passed with the handler still running, or the handler naked it. The server
-// gives up on the message at that moment whatever the client is doing, and
-// the advisory is the only record of it. These are nats-server's
-// JSAdvisoryConsumerMaxDeliveryExceedPre and
+// maxDeliveriesAdvisoryType is the advisory's schema type, nats-server's
 // JSConsumerDeliveryExceededAdvisoryType, restated because importing the
-// server package to name two strings would link the whole broker into the
-// binary; the natsbus tests hold them equal to the server's.
-const (
-	maxDeliveriesAdvisoryPrefix = "$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES"
-	maxDeliveriesAdvisoryType   = "io.nats.jetstream.advisory.v1.max_deliver"
-)
+// server package to name one string would link the whole broker into the
+// binary; the natsbus tests hold it, and events.SubjectMaxDeliveriesAdvisoryPrefix,
+// equal to the server's.
+const maxDeliveriesAdvisoryType = "io.nats.jetstream.advisory.v1.max_deliver"
 
-// deadLetterQueuePrefix names the core-NATS queue group every replica's
-// watcher for one durable joins, so each advisory is handled by exactly one
-// of them. The copy's Msg-Id is the second guard, for an advisory handled
-// twice anyway.
-const deadLetterQueuePrefix = "clustarr-dlq-watch-"
+// deadLetterWatchPrefix names each consumer's watcher: the durable consumer
+// on events.StreamAdvisories that every replica consuming one durable shares,
+// so each advisory is handled by exactly one of them. The copy's Msg-Id is
+// the second guard, for an advisory handled twice anyway.
+const deadLetterWatchPrefix = "clustarr-dlq-watch-"
 
 // deadLetterTimeout bounds reading, copying and deleting one lapsed message.
 const deadLetterTimeout = 10 * time.Second
+
+// The watcher consumer's tuning. An advisory whose copy fails is retried on
+// a capped schedule for as long as it takes, rather than given up on: the
+// message it names is otherwise never dead-lettered, and on a work-queue
+// stream never removed either. AckWait covers the MaxAckPending advisories a
+// pull can hold, each allowed deadLetterTimeout, handled one at a time.
+const (
+	watchMaxAckPending = 4
+	watchAckWait       = 2 * watchMaxAckPending * deadLetterTimeout
+)
+
+// watchRetry is the delay before an advisory whose copy failed is handled
+// again, by attempt; attempts past the end reuse the last entry.
+var watchRetry = []time.Duration{
+	time.Second, 5 * time.Second, 30 * time.Second, 2 * time.Minute, 10 * time.Minute,
+}
 
 // maxDeliveriesAdvisory is the part of nats-server's
 // JSConsumerDeliveryExceededAdvisory the watcher reads.
@@ -65,17 +72,27 @@ type maxDeliveriesAdvisory struct {
 	Deliveries uint64 `json:"deliveries"`
 }
 
-// maxDeliveriesAdvisorySubject is the subject JetStream announces a lapsed
-// final delivery of durable on stream under.
-func maxDeliveriesAdvisorySubject(stream, durable string) string {
-	return maxDeliveriesAdvisoryPrefix + "." + stream + "." + durable
+// watcherName is the durable name of sub's watcher on events.StreamAdvisories.
+// It carries the stream as well as the durable, so two subscriptions that
+// reuse a durable name on different streams do not share, and fight over, one
+// watcher's filter.
+func watcherName(sub events.Subscription) string {
+	return deadLetterWatchPrefix + sub.Stream + "-" + sub.Durable
 }
 
-// watchMaxDeliveries subscribes to sub's MAX_DELIVERIES advisory and
-// dead-letters every message it names, completing the DLQ path for the one
-// case events.Settle cannot see: a handler that hangs through its final
-// delivery never returns, so nothing in process ever settles or copies the
-// message.
+// watchMaxDeliveries starts sub's MAX_DELIVERIES watcher and dead-letters
+// every message an advisory names, completing the DLQ path for the one case
+// events.Settle cannot see: a handler that hangs through its final delivery
+// never returns, so nothing in process ever settles or copies the message.
+//
+// The watcher reads the advisories from events.StreamAdvisories, which
+// captures them as JetStream publishes them, through a durable consumer
+// filtered to sub's own advisory subject. So an advisory fired while no
+// replica of sub's consumer is subscribed -- JetStream fires it when it next
+// tries to deliver, and a pull request a stopping replica left behind is
+// enough for that -- waits for the next replica to subscribe instead of being
+// lost, and one whose copy fails is retried rather than dropped. It was a
+// core-NATS queue subscription, which had neither property (gap fixes Z2).
 //
 // It runs wherever sub is consumed, which is every replica of every service
 // with a queue worker (spec §6.1: workers run on every replica), rather than
@@ -83,34 +100,63 @@ func maxDeliveriesAdvisorySubject(stream, durable string) string {
 // events.Settle, shared by natsbus and membus), so the process that owns a
 // consumer owns its dead letters; a watcher confined to catalogarr's history
 // role would leave importarr's, indexarr's and captionarr's hung handlers
-// dropped whenever that role is not deployed. The queue group keeps the
+// dropped whenever that role is not deployed. The shared durable keeps the
 // replicas from copying one advisory more than once.
-func (b *Bus) watchMaxDeliveries(ctx context.Context, sub events.Subscription) (*nats.Subscription, error) {
+func (b *Bus) watchMaxDeliveries(ctx context.Context, sub events.Subscription) (jetstream.ConsumeContext, error) {
+	name := watcherName(sub)
+	cons, err := b.js.CreateOrUpdateConsumer(ctx, events.StreamAdvisories, jetstream.ConsumerConfig{
+		Name:          name,
+		Durable:       name,
+		Description:   "Dead-letters the lapsed final deliveries of " + sub.Durable + ".",
+		AckPolicy:     jetstream.AckExplicitPolicy,
+		DeliverPolicy: jetstream.DeliverAllPolicy,
+		FilterSubject: events.MaxDeliveriesAdvisorySubject(sub.Stream, sub.Durable),
+		AckWait:       watchAckWait,
+		MaxDeliver:    -1,
+		MaxAckPending: watchMaxAckPending,
+	})
+	if err != nil {
+		if errors.Is(err, jetstream.ErrStreamNotFound) {
+			return nil, fmt.Errorf("natsbus: watch max deliveries of %s: stream %s: %w",
+				sub.Durable, events.StreamAdvisories, events.ErrStreamNotFound)
+		}
+		return nil, fmt.Errorf("natsbus: watch max deliveries of %s: %w", sub.Durable, err)
+	}
 	base := context.WithoutCancel(ctx)
-	w, err := b.nc.QueueSubscribe(maxDeliveriesAdvisorySubject(sub.Stream, sub.Durable),
-		deadLetterQueuePrefix+sub.Durable,
-		func(m *nats.Msg) { b.deadLetterLapsed(base, sub, m.Data) })
+	cc, err := cons.Consume(func(m jetstream.Msg) {
+		if b.deadLetterLapsed(base, sub, m.Data()) {
+			_ = m.Ack()
+			return
+		}
+		attempt := uint64(1)
+		if md, err := m.Metadata(); err == nil && md.NumDelivered > 0 {
+			attempt = md.NumDelivered
+		}
+		_ = m.NakWithDelay(watchRetry[min(attempt, uint64(len(watchRetry)))-1])
+	}, jetstream.PullMaxMessages(watchMaxAckPending))
 	if err != nil {
 		return nil, fmt.Errorf("natsbus: watch max deliveries of %s: %w", sub.Durable, err)
 	}
-	return w, nil
+	return cc, nil
 }
 
-// deadLetterLapsed handles one MAX_DELIVERIES advisory for sub.
-func (b *Bus) deadLetterLapsed(ctx context.Context, sub events.Subscription, data []byte) {
+// deadLetterLapsed handles one MAX_DELIVERIES advisory for sub. It reports
+// whether the advisory is finished with: false means the copy failed and the
+// advisory should be handled again.
+func (b *Bus) deadLetterLapsed(ctx context.Context, sub events.Subscription, data []byte) bool {
 	log := logging.FromContext(ctx)
 	var adv maxDeliveriesAdvisory
 	if err := json.Unmarshal(data, &adv); err != nil {
 		log.Warn("bus: ignoring an undecodable MAX_DELIVERIES advisory",
 			"durable", sub.Durable, "error", err)
-		return
+		return true
 	}
 	if adv.Type != maxDeliveriesAdvisoryType || adv.Stream != sub.Stream ||
 		adv.Consumer != sub.Durable || adv.StreamSeq == 0 {
 		log.Warn("bus: ignoring a MAX_DELIVERIES advisory for another consumer",
 			"durable", sub.Durable, "type", adv.Type, "stream", adv.Stream,
 			"consumer", adv.Consumer, "stream_seq", adv.StreamSeq)
-		return
+		return true
 	}
 	if adv.Deliveries == 0 && sub.MaxDeliver > 0 {
 		adv.Deliveries = uint64(sub.MaxDeliver)
@@ -125,14 +171,17 @@ func (b *Bus) deadLetterLapsed(ctx context.Context, sub events.Subscription, dat
 		// dead-lettered and deleted, or one the stream's limits dropped.
 		log.Info("bus: lapsed message is no longer stored; nothing to dead-letter",
 			"durable", adv.Consumer, "stream", adv.Stream, "stream_seq", adv.StreamSeq)
+		return true
 	case err != nil:
-		log.Error("bus: final delivery lapsed and was not dead-lettered",
+		log.Error("bus: final delivery lapsed and was not dead-lettered; will retry",
 			"durable", adv.Consumer, "stream", adv.Stream, "stream_seq", adv.StreamSeq,
 			"deliveries", adv.Deliveries, "msg_id", msgID, "error", err)
+		return false
 	default:
 		log.Warn("bus: final delivery lapsed unacknowledged; dead-lettered",
 			"durable", adv.Consumer, "stream", adv.Stream, "stream_seq", adv.StreamSeq,
 			"deliveries", adv.Deliveries, "msg_id", msgID, "duplicate", dup)
+		return true
 	}
 }
 

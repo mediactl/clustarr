@@ -33,7 +33,40 @@ const (
 	StreamWorkIndexarr   = "CLUSTARR_WORK_INDEXARR"
 	StreamWorkCaptionarr = "CLUSTARR_WORK_CAPTIONARR"
 	StreamDLQ            = "CLUSTARR_DLQ"
+
+	// StreamAdvisories keeps JetStream's MAX_DELIVERIES advisories until a
+	// replica of the consumer they name has dead-lettered the message. See
+	// FilterMaxDeliveriesAdvisories.
+	StreamAdvisories = "CLUSTARR_ADVISORIES"
 )
+
+// The MAX_DELIVERIES advisory. JetStream publishes one, at
+// SubjectMaxDeliveriesAdvisoryPrefix.<stream>.<consumer>, when it gives up on
+// a message whose final delivery lapsed without a settlement: the handler was
+// still running at the last acknowledgement deadline, or it naked the
+// delivery. The server gives up on the message at that moment, whatever the
+// client is doing, and the advisory is the only record of it; natsbus
+// dead-letters the message from it (spec §5, gap fixes Y1).
+//
+// The advisory is core NATS, so on its own it reaches only a subscriber
+// listening when it fires, and JetStream can fire it with none: it fires
+// when it next tries to deliver the message, which a pull request the
+// consumer's last replica left behind as it stopped is enough for. Capturing
+// it in StreamAdvisories keeps it until a replica is back (gap fixes Z2).
+// The prefix is nats-server's JSAdvisoryConsumerMaxDeliveryExceedPre,
+// restated so the production binary does not link the server; natsbus's
+// tests hold the two equal.
+const (
+	SubjectMaxDeliveriesAdvisoryPrefix = "$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES"
+	FilterMaxDeliveriesAdvisories      = SubjectMaxDeliveriesAdvisoryPrefix + ".>"
+)
+
+// MaxDeliveriesAdvisorySubject is the subject JetStream announces a lapsed
+// final delivery of durable on stream under. Stream and consumer names cannot
+// contain a dot, so it is unambiguous.
+func MaxDeliveriesAdvisorySubject(stream, durable string) string {
+	return SubjectMaxDeliveriesAdvisoryPrefix + "." + stream + "." + durable
+}
 
 // Subject roots. Every Clustarr subject starts with one of these.
 const (

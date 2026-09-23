@@ -48,7 +48,9 @@ func TestEveryConsumerHasDeliveryHeadroom(t *testing.T) {
 
 func TestWorkStreamsAllowSchedules(t *testing.T) {
 	for _, s := range events.Default().Streams {
-		if s.Retention != events.RetentionWorkQueue {
+		// The advisory stream is WorkQueue for its retention, not a work
+		// stream: only JetStream publishes to it, never with a schedule.
+		if s.Retention != events.RetentionWorkQueue || s.Name == events.StreamAdvisories {
 			continue
 		}
 		if !s.AllowMsgSchedules {
@@ -66,10 +68,13 @@ func TestWorkStreamsAllowSchedules(t *testing.T) {
 // no consumer is work nobody drains, and `importarr --role worker` installed
 // a topology it could consume nothing from. Topology.Validate cannot check
 // this -- it only walks consumers towards streams, never the reverse.
+//
+// The advisory stream is the exception: natsbus creates its consumers, one
+// per watched durable, as each subscription starts.
 func TestEveryWorkStreamHasAConsumer(t *testing.T) {
 	top := events.Default()
 	for _, s := range top.Streams {
-		if s.Retention != events.RetentionWorkQueue {
+		if s.Retention != events.RetentionWorkQueue || s.Name == events.StreamAdvisories {
 			continue
 		}
 		found := false

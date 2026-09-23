@@ -132,7 +132,8 @@ func TestEnsureDefaultTopology(t *testing.T) {
 		if cfg.Retention != events.StreamConfig(spec).Retention {
 			t.Errorf("stream %s retention = %v", spec.Name, cfg.Retention)
 		}
-		if spec.Retention == events.RetentionWorkQueue && !cfg.AllowMsgSchedules {
+		if spec.Retention == events.RetentionWorkQueue && !cfg.AllowMsgSchedules &&
+			spec.Name != events.StreamAdvisories {
 			t.Errorf("work stream %s does not allow message schedules", spec.Name)
 		}
 	}
@@ -349,4 +350,52 @@ func TestResentAdvisoryIsDeduplicated(t *testing.T) {
 	if n := storedMsgs(ctx, t, bus, events.StreamDLQ); n != 1 {
 		t.Errorf("DLQ holds %d copies after a re-sent advisory, want 1", n)
 	}
+}
+
+// TestFailedLapseCopyIsRetried pins the other half of reading advisories from
+// a stream rather than off the wire: an advisory whose dead-letter copy fails
+// is handled again until the copy is stored, where the core-NATS watcher
+// logged the failure and dropped the advisory, and with it the only record of
+// the message. The DLQ stream is deleted for the first attempt, so the copy
+// cannot be stored until Ensure puts it back.
+func TestFailedLapseCopyIsRetried(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	nc := connect(t)
+	bus, err := natsbus.New(nc)
+	if err != nil {
+		t.Fatalf("natsbus.New: %v", err)
+	}
+	t.Cleanup(func() { _ = bus.Close() })
+	top := contracttest.Topology()
+	if err := bus.Ensure(ctx, top); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+
+	advisories := hangConsumer(ctx, t, bus, nc,
+		events.StreamWorkIndexarr, "nb-retry", events.FilterIndexRSS)
+	if err := bus.JetStream().DeleteStream(ctx, events.StreamDLQ); err != nil {
+		t.Fatalf("delete %s: %v", events.StreamDLQ, err)
+	}
+	if _, err := bus.Publish(ctx, events.WorkRSSSubject("idx-retry"),
+		&events.Envelope{ID: "task-retry", Data: []byte(`{}`)}); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	select {
+	case <-advisories:
+	case <-time.After(contracttest.Timeout):
+		t.Fatal("JetStream never published a MAX_DELIVERIES advisory")
+	}
+	// Let the watcher try, and fail, with nowhere to copy to.
+	time.Sleep(500 * time.Millisecond)
+	if n := storedMsgs(ctx, t, bus, events.StreamWorkIndexarr); n != 1 {
+		t.Fatalf("%s holds %d messages before any copy was possible, want the lapsed one", events.StreamWorkIndexarr, n)
+	}
+
+	if err := bus.Ensure(ctx, top); err != nil {
+		t.Fatalf("Ensure again: %v", err)
+	}
+	waitForMsgs(ctx, t, bus, events.StreamDLQ, 1)
+	waitForMsgs(ctx, t, bus, events.StreamWorkIndexarr, 0)
+	waitForMsgs(ctx, t, bus, events.StreamAdvisories, 0)
 }
