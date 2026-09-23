@@ -614,15 +614,37 @@ func truncateRunes(s string, n int) string {
 // buildSearchRequest renders p.Path and every input (search.inputs merged
 // with path.inputs, path winning) as templates, then builds a GET (query
 // string) or POST (form body) request per p.Method (default GET).
-// "$raw" is rendered once and appended verbatim after every ordinary
-// key=value pair, not url.Values-encoded — 0dayfiles-api.yml's
-// `$raw: "{{ range .Categories }}&categories[]={{.}}{{end}}"` relies on
-// this. Empty-valued inputs are omitted unless AllowEmptyInputs.
+// Empty-valued inputs are omitted unless AllowEmptyInputs.
+//
+// The path and "$raw" are rendered as Prowlarr's GetRequest and Jackett's
+// PerformQuery render them (identical in both):
+//
+//   - The path with every substitution URL-encoded (WebUtility.UrlEncode)
+//     and then every "+" made "%20" ("HttpUtility.UrlPathEncode seems to
+//     only encode spaces, we use UrlEncode and replace + with %20"), so a
+//     keyword's "/", "?", "#" or "&" cannot restructure the URL. Until gap
+//     fix Z6 the keywords went in raw: "AC/DC" added a path segment and a
+//     "?" in a title started the query string.
+//   - "$raw" with its substitutions URL-encoded the same way, split on "&"
+//     into key=value pairs (an empty key dropped, the value after the first
+//     "="), and each pair added to the inputs, whose values are encoded
+//     again when the query is -- Prowlarr's `queryCollection.Add(key,
+//     value)` then GetQueryString. It was appended verbatim, so a raw
+//     keyword's space or "&" reached the wire unencoded.
+//
+// A GET keeps whatever query the path already carries and appends the
+// inputs after it. Until gap fix Z6 the inputs replaced it, and with no
+// inputs an empty query did: the 47 bundled search paths that carry their
+// whole query in the path ("search.php?q={{ .Keywords }}") searched with
+// none. (Prowlarr appends "?" and the inputs whatever the path holds, which
+// for the four bundled paths with both yields a second "?"; this joins
+// with "&" instead.)
 func (e Engine) buildSearchRequest(ctx context.Context, cfg Config, tc *TemplateContext, sb *SearchBlock, p SearchPathBlock) (*http.Request, error) {
-	renderedPath, err := render(p.Path, tc)
+	renderedPath, err := renderModified(p.Path, tc, webURLEncode)
 	if err != nil {
 		return nil, err
 	}
+	renderedPath = strings.ReplaceAll(renderedPath, "+", "%20")
 
 	inputs := make(map[string]Scalar, len(sb.Inputs)+len(p.Inputs))
 	if p.InheritInputs == nil || *p.InheritInputs {
@@ -635,15 +657,26 @@ func (e Engine) buildSearchRequest(ctx context.Context, cfg Config, tc *Template
 	}
 
 	values := url.Values{}
-	var rawSuffix string
-	for k, v := range inputs {
-		rendered, err := render(string(v), tc)
+	if raw, ok := inputs["$raw"]; ok {
+		rendered, err := renderModified(string(raw), tc, webURLEncode)
 		if err != nil {
 			return nil, err
 		}
+		for _, part := range strings.Split(rendered, "&") {
+			key, value, _ := strings.Cut(part, "=")
+			if key == "" {
+				continue
+			}
+			values.Add(key, value)
+		}
+	}
+	for k, v := range inputs {
 		if k == "$raw" {
-			rawSuffix = rendered
 			continue
+		}
+		rendered, err := render(string(v), tc)
+		if err != nil {
+			return nil, err
 		}
 		if rendered == "" && !sb.AllowEmptyInputs {
 			continue
@@ -667,13 +700,13 @@ func (e Engine) buildSearchRequest(ctx context.Context, cfg Config, tc *Template
 		if err != nil {
 			return nil, fmt.Errorf("cardigann: search url %q: %w", redactRawURL(u), RedactErr(err))
 		}
-		parsed.RawQuery = appendRaw(encodeValues(values, tc.enc, p.QuerySeparator), rawSuffix)
+		parsed.RawQuery = joinQuery(parsed.RawQuery, encodeValues(values, tc.enc, p.QuerySeparator))
 		req, err = http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 		if err != nil {
 			return nil, fmt.Errorf("cardigann: build request: %w", RedactErr(err))
 		}
 	} else {
-		body := appendRaw(encodeValues(values, tc.enc, ""), rawSuffix)
+		body := encodeValues(values, tc.enc, "")
 		req, err = http.NewRequestWithContext(ctx, method, u, strings.NewReader(body))
 		if err != nil {
 			return nil, fmt.Errorf("cardigann: build request: %w", RedactErr(err))
@@ -688,19 +721,16 @@ func (e Engine) buildSearchRequest(ctx context.Context, cfg Config, tc *Template
 	return req, nil
 }
 
-// appendRaw appends a rendered "$raw" input after an already-encoded
-// query/form string, matching Cardigann's own semantics: $raw carries its
-// own leading separator (0dayfiles' `&categories[]=...`) when there is
-// already other content, and loses only a leading "&" when it is the only
-// content.
-func appendRaw(encoded, raw string) string {
-	if raw == "" {
-		return encoded
+// joinQuery appends query to the query a path already carries.
+func joinQuery(existing, query string) string {
+	switch {
+	case existing == "":
+		return query
+	case query == "":
+		return existing
+	default:
+		return existing + "&" + query
 	}
-	if encoded == "" {
-		return strings.TrimPrefix(raw, "&")
-	}
-	return encoded + raw
 }
 
 // searchRow is one result row: the Doc its fields evaluate against, and --

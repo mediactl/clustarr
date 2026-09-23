@@ -34,6 +34,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -1038,4 +1039,70 @@ func TestJSONSelectorFilters(t *testing.T) {
 	rels, err = search(t, srv2, def, "x")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"Root"}, titles(rels), "$ is the document root")
+}
+
+// TestSearchPathSubstitutionsAreURLEncoded pins Prowlarr's and Jackett's
+// search path rendering (ApplyGoTemplateText with WebUtility.UrlEncode, then
+// "+" as "%20"): a keyword's "/", "?", "&" and "#" are escaped where they
+// are substituted, so they cannot add a path segment or start a query,
+// while the path's own "/" and "?" stay. A path that carries its whole
+// query keeps it -- before gap fix Z6 an empty input set replaced it with
+// nothing.
+func TestSearchPathSubstitutionsAreURLEncoded(t *testing.T) {
+	type got struct{ path, rawPath, rawQuery string }
+	var reqs []got
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqs = append(reqs, got{r.URL.Path, r.URL.EscapedPath(), r.URL.RawQuery})
+		_, _ = io.WriteString(w, `<table></table>`)
+	}))
+	defer srv.Close()
+
+	def := loadFeature(t, `search:
+  paths:
+    - path: "search/{{ .Keywords }}/1/"
+    - path: "browse.php?q={{ .Keywords }}&page=0"
+  rows:
+    selector: tr
+`+htmlRowFields)
+	_, err := search(t, srv, def, "AC/DC? Live & Loud #1")
+	require.NoError(t, err)
+	require.Len(t, reqs, 2)
+	assert.Equal(t, "/search/AC%2FDC%3F%20Live%20%26%20Loud%20%231/1/", reqs[0].rawPath)
+	assert.Equal(t, "/search/AC/DC? Live & Loud #1/1/", reqs[0].path, "one segment, decoded")
+	assert.Equal(t, "/browse.php", reqs[1].path)
+	assert.Equal(t, "q=AC%2FDC%3F%20Live%20%26%20Loud%20%231&page=0", reqs[1].rawQuery)
+}
+
+// TestSearchRawInputIsSplitIntoEncodedPairs pins "$raw" as Prowlarr's
+// GetRequest and Jackett's PerformQuery build it: rendered with its
+// substitutions URL-encoded, split on "&" into key=value pairs, and each
+// value encoded again beside the other inputs (so a raw keyword's space
+// reaches the tracker as Prowlarr sends it, "+" escaped). It used to be
+// appended verbatim, sending a keyword's space and "&" unencoded. A path's
+// own query is kept ahead of the inputs.
+func TestSearchRawInputIsSplitIntoEncodedPairs(t *testing.T) {
+	var rawQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rawQuery = r.URL.RawQuery
+		_, _ = io.WriteString(w, `<table></table>`)
+	}))
+	defer srv.Close()
+
+	def := loadFeature(t, `search:
+  paths:
+    - path: "index.php?do=search"
+  inputs:
+    $raw: "name={{ .Keywords }}&&{{ range .Categories }}c{{.}}=1&{{end}}flag"
+    type: all
+  rows:
+    selector: tr
+`+htmlRowFields)
+	_, err := search(t, srv, def, "a&b c")
+	require.NoError(t, err)
+	values, err := url.ParseQuery(rawQuery)
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(rawQuery, "do=search&"), rawQuery)
+	assert.Equal(t, []string{"a%26b+c"}, values["name"], "the keyword's own & does not split the pair")
+	assert.Equal(t, []string{""}, values["flag"], "a key with no = is a key with an empty value")
+	assert.Equal(t, []string{"all"}, values["type"])
 }

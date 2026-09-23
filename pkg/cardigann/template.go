@@ -24,6 +24,7 @@ import (
 	"regexp"
 	"strings"
 	"text/template"
+	"text/template/parse"
 	"time"
 
 	"golang.org/x/text/encoding"
@@ -179,10 +180,34 @@ var funcMap = template.FuncMap{
 // without editing testdata/cardigann/1337x.yml, which Task B0 seeded and
 // this task may not modify.
 func render(tmplText string, tc *TemplateContext) (string, error) {
-	t, err := template.New("cardigann").Funcs(funcMap).Parse(tmplText)
+	return renderModified(tmplText, tc, nil)
+}
+
+// modifierFunc is the template function name renderModified binds its
+// modifier to. A definition cannot name it: it is only ever added to the
+// parse tree, after parsing.
+const modifierFunc = "_cardigannModifier"
+
+// renderModified is render with ApplyGoTemplateText's TemplateTextModifier
+// (Prowlarr CardigannBase, Jackett CardigannIndexer): modifier, when
+// non-nil, is applied to the text every substitution produces -- a
+// variable, a range element, a join or re_replace result -- and never to
+// the template's literal text, so a search path's "/" and "?" survive while
+// a keyword's are escaped. It is done the way html/template escapes: a
+// call to modifier is appended to the pipeline of every output action in
+// the parse tree.
+func renderModified(tmplText string, tc *TemplateContext, modifier func(string) string) (string, error) {
+	parseText := func(text string) (*template.Template, error) {
+		t := template.New("cardigann").Funcs(funcMap)
+		if modifier != nil {
+			t = t.Funcs(template.FuncMap{modifierFunc: modifier})
+		}
+		return t.Parse(text)
+	}
+	t, err := parseText(tmplText)
 	if err != nil {
 		if fixed, ok := balanceActionParens(tmplText); ok {
-			if t2, err2 := template.New("cardigann").Funcs(funcMap).Parse(fixed); err2 == nil {
+			if t2, err2 := parseText(fixed); err2 == nil {
 				t, err = t2, nil
 			}
 		}
@@ -190,11 +215,73 @@ func render(tmplText string, tc *TemplateContext) (string, error) {
 			return "", fmt.Errorf("cardigann: template %q: %w", tmplText, err)
 		}
 	}
+	if modifier != nil && t.Tree != nil {
+		modifyOutputs(t.Tree.Root)
+	}
 	var buf bytes.Buffer
 	if err := t.Execute(&buf, tc); err != nil {
 		return "", fmt.Errorf("cardigann: template exec %q: %w", tmplText, err)
 	}
 	return buf.String(), nil
+}
+
+// modifyOutputs appends a modifierFunc call to every output action under n:
+// an action that declares a variable prints nothing and is left alone, and
+// an if/range/with condition is not output, so only the branches are
+// walked.
+func modifyOutputs(n parse.Node) {
+	switch n := n.(type) {
+	case *parse.ListNode:
+		if n == nil {
+			return
+		}
+		for _, c := range n.Nodes {
+			modifyOutputs(c)
+		}
+	case *parse.ActionNode:
+		if len(n.Pipe.Decl) > 0 {
+			return
+		}
+		n.Pipe.Cmds = append(n.Pipe.Cmds, &parse.CommandNode{
+			NodeType: parse.NodeCommand,
+			Pos:      n.Pos,
+			Args:     []parse.Node{parse.NewIdentifier(modifierFunc).SetPos(n.Pos)},
+		})
+	case *parse.IfNode:
+		modifyOutputs(n.List)
+		modifyOutputs(n.ElseList)
+	case *parse.RangeNode:
+		modifyOutputs(n.List)
+		modifyOutputs(n.ElseList)
+	case *parse.WithNode:
+		modifyOutputs(n.List)
+		modifyOutputs(n.ElseList)
+	}
+}
+
+// webURLEncode is .NET's WebUtility.UrlEncode, the modifier Prowlarr and
+// Jackett render a search path and a $raw input with: the UTF-8 bytes of s,
+// with ASCII letters, digits and "-_.!*()" kept, a space as "+", and every
+// other byte as %XX in upper-case hex.
+func webURLEncode(s string) string {
+	const hex = "0123456789ABCDEF"
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9',
+			c == '-', c == '_', c == '.', c == '!', c == '*', c == '(', c == ')':
+			b.WriteByte(c)
+		case c == ' ':
+			b.WriteByte('+')
+		default:
+			b.WriteByte('%')
+			b.WriteByte(hex[c>>4])
+			b.WriteByte(hex[c&0x0f])
+		}
+	}
+	return b.String()
 }
 
 // balanceActionParens finds every {{ ... }} action in tmplText and, only
