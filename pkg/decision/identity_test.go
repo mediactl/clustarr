@@ -19,6 +19,7 @@ package decision_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +30,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
+	"github.com/mediactl/clustarr/pkg/release"
 )
 
 // The two indexers every identity case is found through: one answered an id
@@ -196,14 +198,18 @@ func TestIdentityMovie(t *testing.T) {
 		{name: "an id-query release decades off is still the wrong film", title: "Dune.1984.1080p.BluRay.x264-GRP", indexer: idIndexer, want: "WrongItem", detail: "release year 1984"},
 		{name: "an id-query release's own conflicting id still rejects", title: "Dune.2021.1080p.BluRay.x264-GRP", indexer: idIndexer, ids: map[string]string{common.IDKeyTMDB: "841"}, want: "WrongItem", detail: "release tmdb id 841"},
 
-		// The unevaluable case fails closed.
-		{name: "a wholly non-Latin title, no ids, text query", title: "Дюна.2021.1080p.BluRay.x264-GRP", want: "UnknownItem", detail: "has nothing the title comparison can read"},
+		// The unevaluable case fails closed. A title of symbols alone keys to
+		// nothing under any title normaliser (TestIdentityNonLatinTitles
+		// covers the scripts pkg/release's normaliser may or may not keep).
+		{name: "a title with nothing readable, no ids, text query", title: "★★★.2021.1080p.BluRay.x264-GRP", want: "UnknownItem", detail: `release title "★★★" has nothing the title comparison can read`},
+		{name: "a title with nothing readable, with a matching id", title: "★★★.2021.1080p.BluRay.x264-GRP", ids: map[string]string{common.IDKeyTMDB: "438631"}},
+		{name: "a title with nothing readable, from an id query", title: "★★★.2021.1080p.BluRay.x264-GRP", indexer: idIndexer},
 		{name: "a wholly non-Latin title with a matching id", title: "Дюна.2021.1080p.BluRay.x264-GRP", ids: map[string]string{common.IDKeyTMDB: "438631"}},
 		{name: "a wholly non-Latin title from an id query", title: "Дюна.2021.1080p.BluRay.x264-GRP", indexer: idIndexer},
 		{
-			name: "an item known only by a non-Latin title", title: "The.Matrix.1999.1080p.BluRay.x264-GRP",
-			identity: decision.Identity{Titles: []string{"Матрица"}, Year: 1999, IDs: map[string]string{common.IDKeyTMDB: "603"}},
-			want:     "UnknownItem", detail: `none of the item's titles (primary "Матрица")`,
+			name: "an item known only by a title with nothing readable", title: "The.Matrix.1999.1080p.BluRay.x264-GRP",
+			identity: decision.Identity{Titles: []string{"★"}, Year: 1999, IDs: map[string]string{common.IDKeyTMDB: "603"}},
+			want:     "UnknownItem", detail: `none of the item's titles (primary "★")`,
 		},
 		{
 			name: "an empty Identity identifies nothing", title: "Dune.2021.1080p.BluRay.x264-GRP",
@@ -501,16 +507,51 @@ func TestSingleEpisodeSearchRejectsASeasonPack(t *testing.T) {
 	})
 }
 
-// TestIdentityHasNoRuleForOtherKinds: no caller evaluates a non-video kind
-// today, and the first one to must bring an identity rule with it rather than
-// inherit "approve anything".
-func TestIdentityHasNoRuleForOtherKinds(t *testing.T) {
-	tg := decision.Target{Kind: common.MediaKindAlbum, Available: true, Identity: decision.Identity{Titles: []string{"Kind of Blue"}}}
-	rel := common.ReleaseInfo{Title: "Miles Davis - Kind of Blue (1959) [FLAC]", Protocol: common.ProtocolTorrent}
-	ds := decision.Evaluate(context.Background(), tg, identityProfile(t), &catalogue.Catalogue{}, []common.ReleaseInfo{rel}, identityOptions())
-	require.Len(t, ds, 1)
-	require.NotNil(t, ds[0].Parsed)
-	assertIdentity(t, ds[0], "UnknownItem", `no identity rule for kind "album"`)
+// TestIdentityNonLatinTitles pins the non-Latin case against whatever
+// pkg/release's title normaliser does with the script, rather than against
+// one normaliser: while release.CleanTitle drops Cyrillic, a Cyrillic title
+// is unreadable and fails closed as UnknownItem; once it keeps it, the title
+// is compared like any other -- a different film's Cyrillic title is
+// WrongItem and the film's own Cyrillic title is a match.
+func TestIdentityNonLatinTitles(t *testing.T) {
+	readable := release.CleanTitle("Дюна") != ""
+	id := duneIdentity()
+	id.IDQueryIndexers = map[string]bool{idIndexer: true}
+
+	d := evaluateOne(t, movieTarget(id), "Дюна.2021.1080p.BluRay.x264-GRP", textIndexer, nil)
+	if readable {
+		assertIdentity(t, d, "WrongItem", `title "Дюна" matches none of the item's`)
+	} else {
+		assertIdentity(t, d, "UnknownItem", `release title "Дюна" has nothing the title comparison can read`)
+	}
+
+	id.Titles = append(id.Titles, "Дюна")
+	d = evaluateOne(t, movieTarget(id), "Дюна.2021.1080p.BluRay.x264-GRP", textIndexer, nil)
+	if readable {
+		assertIdentity(t, d, "", "")
+	} else {
+		assertIdentity(t, d, "UnknownItem", "has nothing the title comparison can read")
+	}
+}
+
+// TestIdentityHasNoRuleForContainerKinds: an Artist, Author or Comic is what
+// albums, books and issues belong to, not something a release is for. No
+// search targets one, and the first that does must bring an identity rule
+// with it rather than inherit "approve anything".
+func TestIdentityHasNoRuleForContainerKinds(t *testing.T) {
+	for _, tc := range []struct {
+		kind  common.MediaKind
+		title string
+	}{
+		{common.MediaKindArtist, "Miles Davis - Kind of Blue (1959) [FLAC]"},
+		{common.MediaKindAuthor, "Frank Herbert - Dune (1965) [EPUB]"},
+		{common.MediaKindComic, "Batman 050 (2018).cbz"},
+	} {
+		t.Run(string(tc.kind), func(t *testing.T) {
+			tg := decision.Target{Kind: tc.kind, Available: true, Identity: decision.Identity{Titles: []string{"anything"}, Creators: []string{"anyone"}}}
+			assertIdentity(t, evaluateOne(t, tg, tc.title, textIndexer, nil), "UnknownItem", fmt.Sprintf("no identity rule for kind %q", tc.kind))
+		})
+	}
 }
 
 func assertIdentity(t *testing.T, d decision.Decision, want, detail string) {

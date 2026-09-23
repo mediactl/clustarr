@@ -53,14 +53,16 @@ const minPlausibleYear = 1800
 // 500 releases against an item with 50 alternate titles and a thousand-row
 // scene mapping -- so Evaluate builds it once.
 type identityIndex struct {
-	titles map[string]struct{}
-	scene  sceneIndex
+	titles   map[string]struct{}
+	creators map[string]struct{}
+	scene    sceneIndex
 }
 
 func newIdentityIndex(kind common.MediaKind, id Identity) identityIndex {
 	return identityIndex{
-		titles: targetTitleKeys(kind, id),
-		scene:  newSceneIndex(id.SceneMappings),
+		titles:   targetTitleKeys(kind, id),
+		creators: creatorKeySet(id.Creators),
+		scene:    newSceneIndex(id.SceneMappings),
 	}
 }
 
@@ -110,17 +112,21 @@ func newIdentityIndex(kind common.MediaKind, id Identity) identityIndex {
 // (numberingRejection): the right series is not the right episode. Last, a
 // single-episode search refuses a full-season pack (seasonPackRejection).
 //
+// An album, book, audiobook or comic issue has its own rule
+// (identity_nonvideo.go): names and numbers only, no ids.
+//
 // # The unevaluable case fails closed
 //
-// release.CleanTitle keeps only ASCII letters and digits (a carried defect in
-// pkg/release), so a wholly non-Latin title cleans to nothing. When that
-// release also carries none of the item's ids and did not come from an id
-// query, there is no evidence about what it is, and this check REJECTS it as
-// UnknownItem. Failing open would approve exactly the releases hardest for a
+// A title can have nothing the comparison can read: titleKey is built on
+// release.CleanTitle, and a title CleanTitle reduces to nothing -- one made
+// only of symbols, or of any script CleanTitle does not keep -- keys to "".
+// When such a release also carries none of the item's ids and did not come
+// from an id query, there is no evidence about what it is, and this check
+// REJECTS it as UnknownItem. Failing open would approve exactly the releases hardest for a
 // human to check by eye, found by exactly the query least able to guarantee
 // them -- a keyword search -- which is the wrong-film grab this check exists
 // to stop. The cost is bounded and visible: it bites only text-fallback
-// results (ids and id queries still identify a non-Latin release), each one
+// results (ids and id queries still identify such a release), each one
 // carries a reason naming the cause, and an interactive user can still grab
 // it through Search.spec.override. The same rule covers an empty Identity,
 // so a caller that never filled one approves nothing rather than everything.
@@ -133,10 +139,17 @@ func newIdentityIndex(kind common.MediaKind, id Identity) identityIndex {
 func identityRejection(t Target, idx identityIndex, parsed *release.ParsedRelease, rel common.ReleaseInfo) *common.Rejection {
 	switch t.Kind {
 	case common.MediaKindMovie, common.MediaKindEpisode, common.MediaKindSeries:
+	case common.MediaKindAlbum:
+		return albumRejection(t.Identity, idx, parsed)
+	case common.MediaKindBook, common.MediaKindAudiobook:
+		return bookRejection(t.Identity, idx, parsed)
+	case common.MediaKindIssue:
+		return issueRejection(t.Identity, idx, parsed)
 	default:
-		// No caller evaluates another kind today (the search worker and the
-		// RSS matcher both scope themselves to video). Whoever adds one must
-		// add its identity rule; until then nothing of that kind is approved.
+		// Artist, Author and Comic are containers: a release is for one of
+		// their albums, books or issues, and no search targets them directly.
+		// Whoever adds one must add its identity rule; until then nothing of
+		// that kind is approved.
 		r := newRejection(ReasonUnknownItem, "pkg/decision has no identity rule for kind %q", t.Kind)
 		return &r
 	}
@@ -194,12 +207,12 @@ func itemRejection(kind common.MediaKind, id Identity, want map[string]struct{},
 		return &r
 	case len(want) == 0:
 		r := newRejection(ReasonUnknownItem,
-			"none of the item's titles (primary %q) has anything the title comparison can read (release.CleanTitle keeps only ASCII letters and digits), and the release neither carries one of its ids nor came from an id query",
+			"none of the item's titles (primary %q) has anything the title comparison can read, and the release neither carries one of its ids nor came from an id query",
 			id.Titles[0])
 		return &r
 	case len(got) == 0:
 		r := newRejection(ReasonUnknownItem,
-			"release title %q has nothing the title comparison can read (release.CleanTitle keeps only ASCII letters and digits), and the release neither carries one of the item's ids nor came from an id query",
+			"release title %q has nothing the title comparison can read, and the release neither carries one of the item's ids nor came from an id query",
 			parsed.Title)
 		return &r
 	}
@@ -368,7 +381,7 @@ func targetTitleKeys(kind common.MediaKind, id Identity) map[string]struct{} {
 			continue
 		}
 		keys[k] = struct{}{}
-		if kind != common.MediaKindMovie && id.Year > 0 {
+		if (kind == common.MediaKindEpisode || kind == common.MediaKindSeries) && id.Year > 0 {
 			keys[fmt.Sprintf("%s%d", k, id.Year)] = struct{}{}
 		}
 	}

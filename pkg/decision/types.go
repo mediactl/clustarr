@@ -82,20 +82,27 @@ type Target struct {
 	Identity Identity
 }
 
-// Identity is what the identity check (identity.go) compares a candidate
-// release against. Every field comes from the catalog item's own spec and
-// status; nothing here is derived from a release.
+// Identity is what the identity check (identity.go, identity_nonvideo.go)
+// compares a candidate release against. Every field comes from the catalog
+// item's own spec and status; nothing here is derived from a release.
 type Identity struct {
 	// Titles is every title the item is known by, primary first: for a movie
 	// status.metadata.title, originalTitle and alternateTitles; for an
 	// episode or a pack, the owning SERIES' title and alternate titles (an
-	// Episode has no title a release would carry). Empty until metadata
-	// lands.
+	// Episode has no title a release would carry); for an album its title;
+	// for a book or audiobook its title, and its "Title: Subtitle" form when
+	// it has a subtitle; for an issue the owning COMIC's (volume's) title --
+	// an issue's own title is not what a release names. Empty until
+	// metadata lands.
 	Titles []string
-	// Year is status.metadata.year: a movie's release year, or a series'
-	// first-aired year. 0 means unknown. For a movie it bounds the release's
-	// parsed year (movieYearRejection); for a series it is used only to
-	// recognise the "Doctor Who 2005" disambiguated-title form.
+	// Year is the one year the item is known by, 0 when unknown: a movie's
+	// status.metadata.year, a series' first-aired year, an album's release
+	// year (status.metadata.releaseDate), an issue's cover-date year
+	// (status.date). For a movie, an album and an issue it bounds the
+	// release's parsed year (movieYearRejection, albumYearTolerance,
+	// issueYearTolerance); for a series it is used only to recognise the
+	// "Doctor Who 2005" disambiguated-title form. A book or audiobook
+	// ignores it: editions span decades, and Readarr matches no year either.
 	Year int
 	// SecondaryYear is a movie's second provider-sourced year,
 	// status.metadata.secondaryYear: the year a festival premiere and a
@@ -160,6 +167,17 @@ type Identity struct {
 	// "one episode", because an RSS pack target can resolve to one episode
 	// too.
 	SingleEpisodeSearch bool
+
+	// Creators names who made a non-video item, primary first: an album's
+	// artist (the owning Artist's name and aliases), a book's or
+	// audiobook's authors. A release must name one of them
+	// (identity_nonvideo.go). Unused for video and for an issue.
+	Creators []string
+	// Issue is an issue target's number exactly as Issue.spec.number carries
+	// it ("12", "12.5", "Annual 1"); for a manga Comic, the chapter number.
+	// Compared numerically where both sides are numbers ("050" is 50), and
+	// as text otherwise. Unused for every other kind.
+	Issue string
 }
 
 // Options carries the parts of a decision that come from something other
