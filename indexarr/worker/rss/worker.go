@@ -337,6 +337,11 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	if err := idxstatus.Patch(ctx, w.Deps.Client, k8s.ManagerIndexarrWorker, &idx, mutate); err != nil {
 		return events.Retry(statusRetry, err)
 	}
+	// indexer.disabled|recovered|limited, after the apply landed and measured
+	// from the status it was seeded from (idx.Status is still pre-apply).
+	idxstatus.PublishTransitions(ctx, w.Deps.Bus, &idx, idxstatus.Transition{
+		Prev: idx.Status, Escalation: &esc, Failed: pollErr != nil, Queries: queries, At: now,
+	})
 
 	// Reschedule BEFORE returning the poll error, so a failing indexer keeps
 	// its cadence and recovers on its own rather than waiting for the next

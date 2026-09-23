@@ -422,6 +422,10 @@ func (s *Service) countGrabAt(
 		log.Warn("indexarr/download: grabsInWindow apply failed", "err", err)
 		return err
 	}
+	// indexer.limited when this grab filled the window, after the apply.
+	idxstatus.PublishTransitions(ctx, s.Bus, &fresh, idxstatus.Transition{
+		Prev: fresh.Status, Grabs: &n, At: now,
+	})
 	return nil
 }
 

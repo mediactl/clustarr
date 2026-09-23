@@ -30,6 +30,7 @@ import (
 	"github.com/mediactl/clustarr/indexarr/search"
 	"github.com/mediactl/clustarr/indexarr/worker/rss"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/torznab"
 )
 
@@ -98,4 +99,38 @@ func TestAFailedPollStillCountsTheRequestItMade(t *testing.T) {
 	require.Equal(t, int32(1), got.Status.QueriesInWindow,
 		"the ring is the source of truth: one request in this window, whatever the stale projection said")
 	require.NotNil(t, got.Status.LastFailureAt, "the failure is recorded in the same apply")
+}
+
+// The poll applies escalations too, so it announces them: a failed poll that
+// opens a backoff window publishes indexer.disabled on §5's subject, after its
+// status apply, to the history consumer the event exists for.
+func TestAFailedPollPublishesIndexerDisabled(t *testing.T) {
+	clock := newFakeClock(tNow) // past the ladder's startup grace
+	bus := newTestBus(t)
+	spec, ok := events.Default().ForSingleNode().Consumer(events.ConsumerCatalogHistory)
+	require.True(t, ok)
+	got := make(chan schema.IndexerEvent, 4)
+	stop, err := bus.Subscribe(t.Context(), spec.Subscription(), func(_ context.Context, m events.Message) error {
+		var p schema.IndexerEvent
+		if schema.Decode(m.Envelope().Schema, m.Envelope().Data, &p) == nil {
+			require.Equal(t, events.IndexerEventSubject(p.Action, p.IndexerRef.UID), m.Subject())
+			got <- p
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	t.Cleanup(stop)
+
+	idx := testIndexer("media", "idx")
+	w := queryCountingWorker(t, clock, &fakeSearcher{err: errors.New("connection refused")}, newFakeClient(idx), bus)
+	require.Error(t, w.Handle(t.Context(), rssTaskMessage(t, "media", "idx")))
+
+	select {
+	case e := <-got:
+		require.Equal(t, events.ActionDisabled, e.Action)
+		require.Equal(t, string(idx.UID), e.IndexerRef.UID)
+		require.NotNil(t, e.Until)
+	case <-time.After(5 * time.Second):
+		t.Fatal("a poll that disabled the indexer published no indexer.disabled event")
+	}
 }

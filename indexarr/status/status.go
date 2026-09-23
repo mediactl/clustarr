@@ -48,6 +48,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // CONTROLLER to compute a backoff. Co-locating the transition with the
 // declaration of the fields the transition writes is the same argument that
 // put WorkerFields in one place.
+//
+// # So does the producer of what the ladder reports
+//
+// event.go publishes design spec §5's clustarr.evt.index.indexer.
+// <disabled|recovered|limited>.<uid> from those same transitions:
+// [PublishTransitions] is called by each worker writer after its apply lands,
+// with the status the apply was seeded from, so the event and the status
+// cannot disagree about what changed.
 package status
 
 import (

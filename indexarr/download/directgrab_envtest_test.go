@@ -19,11 +19,13 @@ package download_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -32,6 +34,8 @@ import (
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/indexarr/download"
+	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -110,4 +114,49 @@ func TestDirectGrabsCountTowardTheGrabWindow(t *testing.T) {
 	require.Equal(t, int64(4211), after.Status.IndexedReleases, "released by a partial apply")
 	require.NotNil(t, after.Status.LastRssAt, "released by a partial apply")
 	require.Equal(t, int32(2), after.Status.EscalationLevel, "released by a partial apply")
+}
+
+// The grab that fills spec.limits.grabLimit announces indexer.limited, once,
+// after its status apply; a redelivery of it announces nothing.
+func TestFillingTheGrabWindowPublishesIndexerLimited(t *testing.T) {
+	ctx := t.Context()
+	c := newTestClient(t)
+	idx, svc := steadyState(t, ctx, c, "dl-limited", "tr")
+	patch := client.MergeFrom(idx.DeepCopy())
+	idx.Spec.Limits = &indexv1alpha1.Limits{GrabLimit: ptr.To[int32](2)}
+	require.NoError(t, c.Patch(ctx, idx, patch))
+
+	spec, ok := events.Default().Consumer(events.ConsumerCatalogHistory)
+	require.True(t, ok)
+	var (
+		mu  sync.Mutex
+		got []schema.IndexerEvent
+	)
+	stop, err := svc.Bus.Subscribe(ctx, spec.Subscription(), func(_ context.Context, m events.Message) error {
+		var p schema.IndexerEvent
+		if schema.Decode(m.Envelope().Schema, m.Envelope().Data, &p) == nil {
+			mu.Lock()
+			got = append(got, p)
+			mu.Unlock()
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	t.Cleanup(stop)
+	received := func() []schema.IndexerEvent {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]schema.IndexerEvent(nil), got...)
+	}
+
+	svc.Now = time.Now
+	svc.CountGrabForTest(ctx, idx, "g-1")
+	svc.CountGrabForTest(ctx, idx, "g-2")
+	svc.CountGrabForTest(ctx, idx, "g-2") // redelivered
+	require.Eventually(t, func() bool { return len(received()) == 1 }, 5*time.Second, 20*time.Millisecond)
+	require.Never(t, func() bool { return len(received()) > 1 }, time.Second, 20*time.Millisecond)
+	e := received()[0]
+	require.Equal(t, events.ActionLimited, e.Action)
+	require.Equal(t, "grabs 2/2 per day", e.Reason)
+	require.Equal(t, string(idx.UID), e.IndexerRef.UID)
 }

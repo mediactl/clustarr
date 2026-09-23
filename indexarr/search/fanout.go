@@ -602,7 +602,7 @@ func (s *Service) recordOutcome(
 	// UNDO that seed -- a recovered indexer's cleared disabledUntil has to
 	// remove the seeded value rather than carry it forward, which no
 	// generated With* helper can express.
-	return idxstatus.Patch(ctx, s.Client, k8s.ManagerIndexarrWorker, &live,
+	if err := idxstatus.Patch(ctx, s.Client, k8s.ManagerIndexarrWorker, &live,
 		func(ac *indexac.IndexerStatusApplyConfiguration) {
 			if queries != nil {
 				ac.WithQueriesInWindow(*queries)
@@ -611,7 +611,16 @@ func (s *Service) recordOutcome(
 				ac.WithIndexedReleases(live.Status.IndexedReleases + newlyIndexed)
 			}
 			idxstatus.ApplyEscalation(ac, esc, live.Status)
-		})
+		}); err != nil {
+		return err
+	}
+	// After the apply, never before: the status is the record, the event
+	// is history. live.Status is still the pre-apply status the transition
+	// is measured from.
+	idxstatus.PublishTransitions(ctx, s.Bus, &live, idxstatus.Transition{
+		Prev: live.Status, Escalation: &esc, Failed: !ok, Queries: queries, At: now,
+	})
+	return nil
 }
 
 // intsOf converts the wire's []int32 categories to the index's []int,
