@@ -240,3 +240,52 @@ func TestEpisodeFileNamesEveryEpisodeOfAMultiEpisodeFile(t *testing.T) {
 		require.Equal(t, "Episode 01-03", got)
 	})
 }
+
+// TestSeasonFolderHonoursTheOverride holds SeasonFolder to the RootFolder's
+// naming.overrides.seasonFolder, which the CRD documents as overridable but
+// the engine used to ignore (it always rendered "Season %02d"). Kodi's
+// literal "Specials" for season 0 survives the override: Kodi's scrapers
+// require that exact name.
+func TestSeasonFolderHonoursTheOverride(t *testing.T) {
+	tests := []struct {
+		dialect  naming.Dialect
+		override string
+		season   int
+		want     string
+	}{
+		{naming.DialectJellyfin, "S{season:00}", 3, "S03"},
+		{naming.DialectJellyfin, "Season {season}", 3, "Season 3"},
+		{naming.DialectPlex, "S{season:00}", 0, "S00"},
+		{naming.DialectKodi, "S{season:00}", 2, "S02"},
+		{naming.DialectKodi, "S{season:00}", 0, "Specials"},
+		{naming.DialectJellyfin, "", 4, "Season 04"}, // an empty override is no override
+	}
+	for _, tt := range tests {
+		e := naming.NewEngine(naming.Config{
+			Dialect:   tt.dialect,
+			Overrides: map[string]string{naming.TokenSeasonFolder: tt.override},
+		})
+		got, err := e.SeasonFolder(naming.Context{Season: tt.season})
+		require.NoError(t, err)
+		require.Equal(t, tt.want, got, "dialect %s, override %q, season %d", tt.dialect, tt.override, tt.season)
+	}
+}
+
+// TestSeriesFolderKeepsApostrophes holds every dialect's series folder
+// preset to the title as the provider spells it: a new show's folder used to
+// be rendered from CleanTitle, which strips apostrophes ("Bobs Burgers").
+// CleanTitle itself still strips them, for anyone who asks for it by name.
+func TestSeriesFolderKeepsApostrophes(t *testing.T) {
+	c := naming.Context{SeriesTitle: "Bob's Burgers", SeriesYear: 2011, TvdbID: "194031"}
+	for _, d := range []naming.Dialect{naming.DialectJellyfin, naming.DialectPlex, naming.DialectEmby, naming.DialectKodi} {
+		got, err := naming.NewEngine(naming.Config{Dialect: d}).SeriesFolder(c)
+		require.NoError(t, err)
+		require.Contains(t, got, "Bob's Burgers (2011)", "dialect %s", d)
+	}
+
+	clean, err := naming.NewEngine(naming.Config{
+		Overrides: map[string]string{naming.TokenSeriesFolder: "{Series CleanTitleWithoutYear}"},
+	}).SeriesFolder(c)
+	require.NoError(t, err)
+	require.Equal(t, "Bobs Burgers", clean)
+}

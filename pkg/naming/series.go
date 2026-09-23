@@ -23,9 +23,9 @@ import (
 )
 
 const (
-	episodeFileStandardTemplate = "{Series CleanTitleWithoutYear}{ (Series Year)} - S{season:00}E{episode:00}{ - Episode CleanTitle:90}{ [Quality Full]}{-Release Group}"
-	episodeFileAnimeTemplate    = "{Series CleanTitleWithoutYear}{ (Series Year)} - S{season:00}E{episode:00} - {absolute:000}{ - Episode CleanTitle:90}{ [Quality Full]}{-Release Group}"
-	episodeFileDailyTemplate    = "{Series CleanTitleWithoutYear}{ (Series Year)} - {Air-Date}{ - Episode CleanTitle:90}{ [Quality Full]}{-Release Group}"
+	episodeFileStandardTemplate = "{Series TitleWithoutYear}{ (Series Year)} - S{season:00}E{episode:00}{ - Episode CleanTitle:90}{ [Quality Full]}{-Release Group}"
+	episodeFileAnimeTemplate    = "{Series TitleWithoutYear}{ (Series Year)} - S{season:00}E{episode:00} - {absolute:000}{ - Episode CleanTitle:90}{ [Quality Full]}{-Release Group}"
+	episodeFileDailyTemplate    = "{Series TitleWithoutYear}{ (Series Year)} - {Air-Date}{ - Episode CleanTitle:90}{ [Quality Full]}{-Release Group}"
 )
 
 // formatAbsoluteRange joins anime absolute episode numbers, following the
@@ -116,15 +116,19 @@ func (e Engine) EpisodeFile(c Context) (string, error) {
 	return e.Render(e.overrideOr(key, tmpl), c)
 }
 
-// SeasonFolder renders the season subfolder name. Season 0 is specials:
-// every dialect but Kodi names it "Season 00"; Kodi's own convention (and
-// its NFO-driven scrapers) expects the literal folder name "Specials".
+// SeasonFolder renders the season subfolder name: Config.Overrides[
+// TokenSeasonFolder] when set (the RootFolder's naming.overrides.seasonFolder,
+// e.g. "S{season:00}" or "Season {season}"), else "Season %02d". Season 0 is
+// specials: Kodi's own convention (and its NFO-driven scrapers) expects the
+// literal folder name "Specials", so that one case ignores the override;
+// every other dialect renders season 0 like any season ("Season 00" by
+// default).
 func (e Engine) SeasonFolder(c Context) (string, error) {
-	if c.Season == 0 {
-		if e.Config.Dialect == DialectKodi {
-			return "Specials", nil
-		}
-		return "Season 00", nil
+	if c.Season == 0 && e.Config.Dialect == DialectKodi {
+		return "Specials", nil
+	}
+	if tmpl, ok := e.Config.Overrides[TokenSeasonFolder]; ok && tmpl != "" {
+		return e.Render(tmpl, c)
 	}
 	return fmt.Sprintf("Season %02d", c.Season), nil
 }
@@ -143,12 +147,12 @@ func (e Engine) SeriesFolder(c Context) (string, error) {
 func seriesFolderTemplate(d Dialect) string {
 	switch d {
 	case DialectPlex:
-		return "{Series CleanTitleWithoutYear}{ (Series Year)} {tvdb-{TvdbId}}"
+		return "{Series TitleWithoutYear}{ (Series Year)} {tvdb-{TvdbId}}"
 	case DialectEmby:
-		return "{Series CleanTitleWithoutYear}{ (Series Year)} [tvdb-{TvdbId}]"
+		return "{Series TitleWithoutYear}{ (Series Year)} [tvdb-{TvdbId}]"
 	case DialectKodi:
-		return "{Series CleanTitleWithoutYear}{ (Series Year)}"
+		return "{Series TitleWithoutYear}{ (Series Year)}"
 	default: // Jellyfin
-		return "{Series CleanTitleWithoutYear}{ (Series Year)} [tvdbid-{TvdbId}]"
+		return "{Series TitleWithoutYear}{ (Series Year)} [tvdbid-{TvdbId}]"
 	}
 }

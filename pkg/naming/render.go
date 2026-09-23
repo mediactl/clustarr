@@ -208,8 +208,18 @@ var tokenFuncs = map[string]tokenEntry{
 	"edition tags":                    {fn: func(c Context, _, _ int) string { return c.Edition }},
 	"custom formats":                  {fn: func(c Context, _, _ int) string { return strings.Join(c.CustomFormats, " ") }},
 	"series cleantitlewithoutyear":    {fn: func(c Context, _, _ int) string { return cleanTitle(c.SeriesTitle) }, colonSensitive: true},
-	"series year":                     {fn: func(c Context, _, _ int) string { return yearString(c.SeriesYear) }},
-	"tvdbid":                          {fn: func(c Context, _, _ int) string { return c.TvdbID }},
+	// Sonarr's {Series Title} and {Series TitleWithoutYear}: the title as the
+	// metadata provider spells it, apostrophes included ("Bob's Burgers"). The
+	// series folder and episode file presets use TitleWithoutYear, so a new
+	// show keeps its apostrophes on disk -- a deliberate departure, at the
+	// project owner's request (2026-09-23), from TRaSH's recommended
+	// {Series CleanTitleWithoutYear} (docs/research/naming.md), which strips
+	// them. CleanTitle stays available for anyone who wants that. SeriesTitle
+	// carries no year, so the two render the same.
+	"series title":            {fn: func(c Context, _, _ int) string { return c.SeriesTitle }, colonSensitive: true},
+	"series titlewithoutyear": {fn: func(c Context, _, _ int) string { return c.SeriesTitle }, colonSensitive: true},
+	"series year":             {fn: func(c Context, _, _ int) string { return yearString(c.SeriesYear) }},
+	"tvdbid":                  {fn: func(c Context, _, _ int) string { return c.TvdbID }},
 	"air-date": {fn: func(c Context, _, _ int) string {
 		if c.AirDate == nil {
 			return ""
