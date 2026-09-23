@@ -180,10 +180,10 @@ type Options struct {
 // DefaultOptions returns the options the Deployment gets with no flags.
 func DefaultOptions() Options {
 	return Options{
-		Options:       k8s.DefaultOptions(),
-		Role:          RoleController,
-		DataDir:       DefaultDataDir,
-		ScratchDir:    DefaultScratchDir,
+		Options:              k8s.DefaultOptions(),
+		Role:                 RoleController,
+		DataDir:              DefaultDataDir,
+		ScratchDir:           DefaultScratchDir,
 		DataClaimName:        downloadclient.DefaultDataClaimName,
 		EngineServiceAccount: downloadclient.DefaultEngineServiceAccount,
 	}
