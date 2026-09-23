@@ -144,6 +144,14 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 			snap.Target.OriginalLanguageTag = md.OriginalLanguage
 		}
 		snap.Target.Identity = EpisodeIdentity(&s, &e)
+		snap.Target.Identity.SceneMappings = SceneMappings(ctx, w.SceneMaps, s.Spec.TvdbID)
+		// This is a search for exactly one episode, so a whole-season pack
+		// is not what was asked for (ruling R-3, Sonarr's
+		// SingleEpisodeSearchMatchSpecification). It is set here, at the
+		// search's own call site, not in EpisodeIdentity: the RSS matcher
+		// shares that builder, and an RSS pack target can resolve to a
+		// single episode too.
+		snap.Target.Identity.SingleEpisodeSearch = true
 		hasFile, fileRef = e.Status.HasFile, e.Status.FileRef
 
 	default:

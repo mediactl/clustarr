@@ -37,6 +37,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/metadata/scenemap"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
@@ -66,6 +67,16 @@ func (c *targetCapture) get(t *testing.T) (decision.Target, decision.Options, []
 	defer c.mu.Unlock()
 	require.True(t, c.called, "Evaluate was never reached")
 	return c.target, c.opts, c.rels
+}
+
+// fakeSceneSource is a scenemap.Source over literal tables, keyed by tvdb id.
+type fakeSceneSource map[int64]*scenemap.Map
+
+func (f fakeSceneSource) SceneMap(_ context.Context, tvdbID int64) (*scenemap.Map, error) {
+	if m, ok := f[tvdbID]; ok {
+		return m, nil
+	}
+	return &scenemap.Map{TVDBID: tvdbID}, nil
 }
 
 func TestWorkerSnapshotOfAnAnimeEpisodeWithAFile(t *testing.T) {
@@ -135,6 +146,16 @@ func TestWorkerSnapshotOfAnAnimeEpisodeWithAFile(t *testing.T) {
 	w.Evaluate = capture.evaluate
 	w.Sink = newRecordingSink()
 	w.Clock = clockwork.NewFakeClockAt(testNow)
+	// TheXEM's table for the series: the target's row AND rows for other
+	// episodes, all of which must reach the identity (a row for another
+	// episode is what stops that episode's scene number reading literally
+	// as this one).
+	xem := &scenemap.Map{TVDBID: 81797, Mappings: []scenemap.Mapping{
+		{Scene: scenemap.Numbering{Season: 2, Episode: 5, Absolute: 37}, TVDB: scenemap.Numbering{Season: 1, Episode: 37, Absolute: 37}},
+		{Scene: scenemap.Numbering{Season: 2, Episode: 6, Absolute: 38}, TVDB: scenemap.Numbering{Season: 1, Episode: 38, Absolute: 38}},
+		{Scene: scenemap.Numbering{Season: 3, Episode: 1, Absolute: 99}, TVDB: scenemap.Numbering{Season: 2, Episode: 1, Absolute: 99}},
+	}}
+	w.SceneMaps = fakeSceneSource{81797: xem}
 
 	waitCached(t, ctx, c, client.ObjectKey{Namespace: ns, Name: "one-piece-s01e37-file"}, &catalogv1alpha1.MediaFile{})
 	eventually(t, 10*time.Second, "the episode status to reach the cache", func() bool {
@@ -181,6 +202,14 @@ func TestWorkerSnapshotOfAnAnimeEpisodeWithAFile(t *testing.T) {
 		IDs:    map[string]string{commonv1.IDKeyTVDB: "81797"},
 		Season: 1, Episodes: []int{37}, Absolute: []int{37}, AirDate: &airedOn,
 		IDQueryIndexers: map[string]bool{}, // the fake reply reports no id-mode outcome
+		// Ruling R-3: a search for one episode refuses a whole-season pack.
+		SingleEpisodeSearch: true,
+		// The series' WHOLE TheXEM table, not only the target's row.
+		SceneMappings: []decision.SceneMapping{
+			{Scene: decision.EpisodeNumbering{Season: 2, Episode: 5, Absolute: 37}, TVDB: decision.EpisodeNumbering{Season: 1, Episode: 37, Absolute: 37}},
+			{Scene: decision.EpisodeNumbering{Season: 2, Episode: 6, Absolute: 38}, TVDB: decision.EpisodeNumbering{Season: 1, Episode: 38, Absolute: 38}},
+			{Scene: decision.EpisodeNumbering{Season: 3, Episode: 1, Absolute: 99}, TVDB: decision.EpisodeNumbering{Season: 2, Episode: 1, Absolute: 99}},
+		},
 	}, target.Identity)
 
 	require.Len(t, target.Queue, 1, "a seeding Download still occupies the queue")

@@ -18,6 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package search
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -29,6 +31,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/metadata/scenemap"
 )
 
 func TestMovieIdentity(t *testing.T) {
@@ -46,6 +49,17 @@ func TestMovieIdentity(t *testing.T) {
 			Year:   2021,
 			IDs:    map[string]string{commonv1.IDKeyTMDB: "438631", commonv1.IDKeyIMDB: "tt1160419"},
 		}, MovieIdentity(m), "the tmdb id comes from spec; duplicate and empty titles are dropped")
+	})
+
+	t.Run("a secondary year reaches the identity (ruling R-7)", func(t *testing.T) {
+		got := MovieIdentity(&catalogv1alpha1.Movie{
+			Spec: catalogv1alpha1.MovieSpec{TmdbID: 1},
+			Status: catalogv1alpha1.MovieStatus{Metadata: &catalogv1alpha1.MovieMetadata{
+				Title: "Festival Film", Year: 2020, SecondaryYear: 2019,
+			}},
+		})
+		require.Equal(t, 2020, got.Year)
+		require.Equal(t, 2019, got.SecondaryYear)
 	})
 
 	t.Run("no metadata yet still identifies by the spec tmdb id", func(t *testing.T) {
@@ -112,4 +126,42 @@ func TestIDQueryIndexers(t *testing.T) {
 	})
 	require.Equal(t, map[string]bool{"by-id": true}, got,
 		"only an indexer that actually ran an id query vouches for its releases, keyed by the name releases carry as IndexerRef")
+}
+
+type sceneSourceFunc func(ctx context.Context, tvdbID int64) (*scenemap.Map, error)
+
+func (f sceneSourceFunc) SceneMap(ctx context.Context, tvdbID int64) (*scenemap.Map, error) {
+	return f(ctx, tvdbID)
+}
+
+func TestSceneMappings(t *testing.T) {
+	ctx := context.Background()
+	table := &scenemap.Map{TVDBID: 195721, Mappings: []scenemap.Mapping{
+		{Scene: scenemap.Numbering{Season: 2, Episode: 1}, TVDB: scenemap.Numbering{Season: 1, Episode: 13, Absolute: 13}},
+		{Scene: scenemap.Numbering{Season: 2, Episode: 2}, TVDB: scenemap.Numbering{Season: 1, Episode: 14, Absolute: 14}},
+	}}
+	calls := 0
+	src := sceneSourceFunc(func(_ context.Context, tvdbID int64) (*scenemap.Map, error) {
+		calls++
+		switch tvdbID {
+		case 195721:
+			return table, nil
+		case 1:
+			return nil, errors.New("thexem: 503")
+		default:
+			return &scenemap.Map{TVDBID: tvdbID}, nil
+		}
+	})
+
+	require.Equal(t, []decision.SceneMapping{
+		{Scene: decision.EpisodeNumbering{Season: 2, Episode: 1}, TVDB: decision.EpisodeNumbering{Season: 1, Episode: 13, Absolute: 13}},
+		{Scene: decision.EpisodeNumbering{Season: 2, Episode: 2}, TVDB: decision.EpisodeNumbering{Season: 1, Episode: 14, Absolute: 14}},
+	}, SceneMappings(ctx, src, 195721), "every row of the series' table, converted field for field")
+
+	require.Nil(t, SceneMappings(ctx, src, 1), "TheXEM unreachable: read numbers literally, do not fail the search")
+	require.Nil(t, SceneMappings(ctx, src, 2), "an unmapped series has no table")
+	require.Nil(t, SceneMappings(ctx, nil, 195721), "no source wired")
+	before := calls
+	require.Nil(t, SceneMappings(ctx, src, 0), "no tvdb id: nothing to ask for")
+	require.Equal(t, before, calls, "a series with no tvdb id costs no lookup")
 }

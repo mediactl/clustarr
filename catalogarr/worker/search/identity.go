@@ -18,12 +18,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package search
 
 import (
+	"context"
 	"strconv"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/metadata/scenemap"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
 // MovieIdentity is the decision.Identity of one Movie: every title it is
@@ -47,6 +50,10 @@ func MovieIdentity(m *catalogv1alpha1.Movie) decision.Identity {
 	id.Titles = appendTitles(id.Titles, md.Title, md.OriginalTitle)
 	id.Titles = appendTitles(id.Titles, md.AlternateTitles...)
 	id.Year = int(md.Year)
+	// Radarr's own rule is "Year or SecondaryYear" (ruling R-7): a release
+	// named by the festival year of a film dated by its general release is
+	// the same film, however far apart the two sit.
+	id.SecondaryYear = int(md.SecondaryYear)
 	if v := md.ExternalIDs[commonv1.IDKeyIMDB]; v != "" {
 		id.IDs[commonv1.IDKeyIMDB] = v
 	}
@@ -104,6 +111,54 @@ func EpisodeIdentity(s *catalogv1alpha1.Series, eps ...*catalogv1alpha1.Episode)
 		id.AirDate = &t
 	}
 	return id
+}
+
+// SceneMappings is the decision.Identity.SceneMappings of one TVDB series:
+// TheXEM's WHOLE scene-numbering table for it, read from src.
+//
+// It is exported so catalogarr/worker/rssmatcher reads the same table
+// through the same code: a search decision and an RSS decision about one
+// episode must read a scene number the same way. It must be the whole table,
+// never only the target's rows -- a scene number that maps to a different
+// episode is that other episode, and only its row says so (see
+// decision.Identity.SceneMappings).
+//
+// Every series with a tvdb id is asked, not only an anime one: Sonarr applies
+// TheXEM to every series TheXEM maps (XemService sets UseSceneNumbering on
+// any series in /map/havemap, and ParsingService reads scene numbers for
+// any series that uses it), and scenemap.Cached answers an unmapped series
+// from its cached havemap without a request of its own.
+//
+// Nil means read every number literally: no source is wired, the series has
+// no tvdb id, TheXEM does not map it, or TheXEM could not be asked. The last
+// is logged and not fatal -- scenemap's own contract is "proceed without
+// scene numbering rather than treat the series as unmapped", and failing the
+// search over it would stop every episode of every series from being
+// searched while TheXEM is down.
+func SceneMappings(ctx context.Context, src scenemap.Source, tvdbID int64) []decision.SceneMapping {
+	if src == nil || tvdbID == 0 {
+		return nil
+	}
+	m, err := src.SceneMap(ctx, tvdbID)
+	if err != nil {
+		logging.FromContext(ctx).Warn("search: TheXEM scene numbering unavailable; reading release numbers literally",
+			"tvdbID", tvdbID, "err", err)
+		return nil
+	}
+	if m == nil || len(m.Mappings) == 0 {
+		return nil
+	}
+	out := make([]decision.SceneMapping, 0, len(m.Mappings))
+	for _, row := range m.Mappings {
+		// scenemap.Numbering and decision.EpisodeNumbering are the same
+		// fields in the same order (scenemap's package doc; its contract
+		// test keeps them convertible).
+		out = append(out, decision.SceneMapping{
+			Scene: decision.EpisodeNumbering(row.Scene),
+			TVDB:  decision.EpisodeNumbering(row.TVDB),
+		})
+	}
+	return out
 }
 
 // idQueryIndexers names the indexers whose query in this search was keyed by
