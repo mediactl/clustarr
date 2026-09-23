@@ -27,3 +27,7 @@ resources:
 - role_binding.yaml
 - leader_election_role.yaml
 - leader_election_role_binding.yaml
+# ui's ClusterRole is hand-written and stays hand-written (see the note at
+# the top of ui_role.yaml) -- controller-gen never touches these two.
+- ui_role.yaml
+- ui_role_binding.yaml

@@ -2,12 +2,19 @@
 # updates. Design spec amendment §A3.
 #
 # No controller-runtime manager: ui owns no CRD, writes no status, and never
-# leader-elects. It serves /healthz, the Pipeline page and its SSE stream all
-# on one port (8080) -- there is no separate metrics or health port the way
-# every other service has, because there is no controller-runtime manager
-# standing one up. It ships with no login of its own and MUST sit behind
-# ingress authentication (design amendment §A3.5); nothing here adds that,
-# because §A3.5 leaves it to whatever ingress controller the cluster runs.
+# leader-elects. It serves /healthz, /readyz, the Pipeline page and its SSE
+# stream all on one port (8080) -- there is no separate metrics or health
+# port the way every other service has, because there is no
+# controller-runtime manager standing one up. It ships with no login of its
+# own and MUST sit behind ingress authentication (design amendment §A3.5);
+# nothing here adds that, because §A3.5 leaves it to whatever ingress
+# controller the cluster runs.
+#
+# This ServiceAccount is bound, read-only, to config/rbac/ui_role.yaml --
+# get/list/watch over the catalog, download, transcode and subtitle groups,
+# no write verb and no */status resource anywhere in it (Task D3-0; the
+# never-writes invariant is enforced by cmd/clustarr's RBAC guard, Task
+# D3-4).
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -70,11 +77,13 @@ spec:
           initialDelaySeconds: 5
           periodSeconds: 20
         readinessProbe:
-          # ui has no external dependency yet (Options.Entries is a
-          # placeholder returning no rows until the M3 cache-backed
-          # projection lands), so /healthz doubles as readiness.
+          # ui reads the cluster through an informer-backed cache
+          # (ui.NewClusterReader), so readiness gates on that cache's
+          # initial sync rather than doubling up on /healthz: a UI whose
+          # caches never sync must not report Ready and serve empty pages
+          # forever.
           httpGet:
-            path: /healthz
+            path: /readyz
             port: http
           initialDelaySeconds: 5
           periodSeconds: 10

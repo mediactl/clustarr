@@ -35,11 +35,13 @@ const shutdownGrace = 5 * time.Second
 
 // Run starts the ui HTTP server and blocks until ctx is cancelled or the
 // server fails to serve. It is the same shape as the other services'
-// Run(ctx, Options) entrypoints (see captionarr.Run, squasharr.Run, ...) so
-// a future cmd/clustarr wiring task can add `clustarr ui` the same way it
-// added every other service, even though ui needs no controller-runtime
-// manager: it has no CRD of its own and reads the cluster only through
-// Options.Entries.
+// Run(ctx, Options) entrypoints (see captionarr.Run, squasharr.Run, ...),
+// even though ui needs no controller-runtime manager: it has no CRD of its
+// own. Run itself never touches the cluster -- Options.Reader and
+// Options.WaitForSync are built by the caller (cmd/clustarr, via
+// [NewClusterReader]) before Run is called, and are already whatever they
+// are going to be, nil included, by the time Options reaches here. Run just
+// hands them to [NewServer] along with everything else.
 func Run(ctx context.Context, o Options) error {
 	if o.BindAddress == "" {
 		o.BindAddress = DefaultBindAddress

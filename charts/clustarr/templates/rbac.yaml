@@ -23,8 +23,12 @@ because no Go marker describes them.
 {{- if .Values.squasharr.enabled }}{{ $components = append $components "squasharr" }}{{ end }}
 {{- if .Values.captionarr.enabled }}{{ $components = append $components "captionarr" }}{{ end }}
 {{- if .Values.captionarrWorker.enabled }}{{ $components = append $components "captionarr-worker" }}{{ end }}
-{{/* ui is deliberately absent: it has no controller-runtime manager, reads
-     no cluster state yet, and so needs no ClusterRole/RoleBinding. */}}
+{{/* ui is deliberately absent from $components: it has no
+     controller-runtime manager and never leader-elects, so it needs no
+     entry in the manager ClusterRoleBinding loop below and no
+     leader-election RoleBinding. It gets its own, narrower ClusterRole and
+     ClusterRoleBinding right after the manager ClusterRole -- see the
+     .Values.ui.enabled block below. */}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -204,6 +208,92 @@ rules:
 - apiGroups: ["apiextensions.k8s.io"]
   resources: ["customresourcedefinitions"]
   verbs: ["get", "list", "watch"]
+{{- if .Values.ui.enabled }}
+---
+{{/* ui's ClusterRole is hand-written and stays hand-written (design plan
+     ruling R3): get/list/watch only, over the catalog, download, transcode
+     and subtitle groups, no write verb and no resource whose name ends in
+     "status" anywhere in it. This is a byte-for-byte copy of
+     config/rbac/ui_role.yaml's rules -- see the note at the top of that
+     file for why ui never shares clustarr-manager-role. */}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "clustarr.fullname" . }}-ui
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - albums
+  - artists
+  - audiobooks
+  - authors
+  - books
+  - comics
+  - delayprofiles
+  - episodes
+  - importexclusions
+  - importlists
+  - issues
+  - libraryscans
+  - mediafiles
+  - metadataproviders
+  - movies
+  - qualityprofiles
+  - rootfolders
+  - searches
+  - series
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - download.clustarr.io
+  resources:
+  - downloadclients
+  - downloads
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - subtitle.clustarr.io
+  resources:
+  - subtitleprofiles
+  - subtitleproviders
+  - subtitlerequests
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - transcode.clustarr.io
+  resources:
+  - transcodejobs
+  - transcodeprofiles
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "clustarr.fullname" . }}-ui
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ui
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "clustarr.fullname" . }}-ui
+subjects:
+- kind: ServiceAccount
+  name: {{ include "clustarr.fullname" . }}-ui
+  namespace: {{ .Release.Namespace }}
+{{- end }}
 ---
 {{/* Leader election: LeaderElectionID is <service>.clustarr.io (§2), so one
      namespaced Role covers every manager. Hand-written; controller-gen does

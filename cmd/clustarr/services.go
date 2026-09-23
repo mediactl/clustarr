@@ -18,10 +18,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package main
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/mediactl/clustarr/captionarr"
 	"github.com/mediactl/clustarr/catalogarr"
@@ -296,6 +299,42 @@ func newImportarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 	return cmd
 }
 
+// buildUIReader attempts to build ui's cluster reader for ctx and reports
+// whether it succeeded through the returned values themselves, never through
+// an error: a cluster is optional for ui (Task D3-0's brief: "Do not make a
+// cluster connection mandatory"; CLAUDE.md's "the UI never writes status and
+// owns no CRD" already accepts it may not even read one), so the ordinary
+// case for a developer running `clustarr ui` with no kubeconfig is not a
+// failure at all. Any problem here is logged and swallowed; the nil, nil it
+// returns on that path is exactly what ui.Options.Reader/WaitForSync being
+// unset already means -- see ui.NewServer's defaulting.
+//
+// It uses ctrl.LoggerFrom rather than pkg/obs/logging (which cmd/clustarr
+// otherwise never imports): both call sites run this before the service's
+// own obs.Bootstrap has installed a logger on ctx, matching the pattern
+// cmd/clustarr/all.go's runAll already uses for the same reason.
+func buildUIReader(ctx context.Context) (client.Reader, func(context.Context) bool) {
+	cfg, err := ctrl.GetConfig()
+	if err != nil {
+		ctrl.LoggerFrom(ctx).WithName("ui").Info(
+			"no cluster reachable; ui will serve empty pages", "error", err.Error())
+		return nil, nil
+	}
+
+	scheme, err := ui.NewReaderScheme()
+	if err != nil {
+		ctrl.LoggerFrom(ctx).WithName("ui").Error(err, "build ui reader scheme")
+		return nil, nil
+	}
+
+	reader, waitForSync, err := ui.NewClusterReader(ctx, cfg, scheme)
+	if err != nil {
+		ctrl.LoggerFrom(ctx).WithName("ui").Error(err, "build ui cluster reader")
+		return nil, nil
+	}
+	return reader, waitForSync
+}
+
 func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	var bindAddress string
 
@@ -309,12 +348,16 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 		SilenceUsage: true,
 	}
 	cmd.Flags().StringVar(&bindAddress, "bind-address", ui.DefaultBindAddress,
-		"Address the HTTP server listens on. Serves /healthz, the Pipeline page and its "+
-			"SSE stream on this one address -- ui runs no separate metrics or health port.")
+		"Address the HTTP server listens on. Serves /healthz, /readyz, the Pipeline page and "+
+			"its SSE stream on this one address -- ui runs no separate metrics or health port.")
 
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
-		return runUI(cmd.Context(), ui.Options{
+		ctx := cmd.Context()
+		reader, waitForSync := buildUIReader(ctx)
+		return runUI(ctx, ui.Options{
 			BindAddress: bindAddress,
+			Reader:      reader,
+			WaitForSync: waitForSync,
 			// TODO(M3): back Entries with a controller-runtime cache-backed
 			// projection over the Pipeline resources. Until then the Pipeline
 			// page renders with no rows rather than reaching for a cluster ui

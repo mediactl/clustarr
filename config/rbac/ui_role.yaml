@@ -1,0 +1,80 @@
+# ui's ClusterRole is hand-written and stays hand-written (design plan
+# ruling R3, docs/superpowers/plans/2026-09-22-phase-d3-ui.md).
+#
+# Two reasons, and the second is the real one. A +kubebuilder:rbac marker in
+# ui/ would merge into clustarr-manager-role and hand every controller the
+# UI's grants -- and a marker can only ADD verbs; there is no marker that
+# expresses "and never write". The never-writes invariant CLAUDE.md promises
+# ("The UI never writes status and owns no CRD") is therefore a property of
+# THIS document, not of controller-gen's output, and Task D3-4's
+# cmd/clustarr/ui_rbac_test.go parses it to assert that property holds: every
+# verb here is a subset of {get, list, watch}, and no resource ends in
+# "/status" -- not even to read it.
+#
+# Scope is the catalog, download, transcode and subtitle groups -- every
+# resource in each, not only the ones the pipeline and downloads pages (the
+# only pages Phase D3 builds) read today, because re-deriving this file's
+# scope every time a later page needs one more kind is exactly the kind of
+# drift a hand-written, rarely-touched file invites. index.clustarr.io is
+# deliberately absent: nothing under ui/ reads an Indexer today, and adding
+# it is a one-line, reviewable change for whichever future phase needs it,
+# not a default to grant early.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: clustarr-ui-role
+rules:
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - albums
+  - artists
+  - audiobooks
+  - authors
+  - books
+  - comics
+  - delayprofiles
+  - episodes
+  - importexclusions
+  - importlists
+  - issues
+  - libraryscans
+  - mediafiles
+  - metadataproviders
+  - movies
+  - qualityprofiles
+  - rootfolders
+  - searches
+  - series
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - download.clustarr.io
+  resources:
+  - downloadclients
+  - downloads
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - subtitle.clustarr.io
+  resources:
+  - subtitleprofiles
+  - subtitleproviders
+  - subtitlerequests
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - transcode.clustarr.io
+  resources:
+  - transcodejobs
+  - transcodeprofiles
+  verbs:
+  - get
+  - list
+  - watch

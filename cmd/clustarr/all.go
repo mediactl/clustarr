@@ -148,8 +148,11 @@ func allServices(lo *logging.Options, to *tracing.Options) []struct {
 			// (design spec §2: `clustarr all` runs every service). It still
 			// takes the real ctx: runAll cancels ctx on any other service's
 			// failure, and ui.Run's own shutdown depends on that
-			// cancellation to stop its HTTP server.
-			return runUI(ctx, ui.Options{Logging: *lo, Tracing: tr})
+			// cancellation to stop its HTTP server. The same ctx bounds the
+			// cluster reader buildUIReader may build, so it stops on the
+			// same cancellation too.
+			reader, waitForSync := buildUIReader(ctx)
+			return runUI(ctx, ui.Options{Reader: reader, WaitForSync: waitForSync, Logging: *lo, Tracing: tr})
 		}},
 	}
 }

@@ -220,8 +220,11 @@ spec:
           initialDelaySeconds: 5
           periodSeconds: 20
         readinessProbe:
+          # ui reads the cluster through an informer-backed cache
+          # (ui.NewClusterReader); readiness gates on that cache's initial
+          # sync rather than doubling up on /healthz.
           httpGet:
-            path: /healthz
+            path: /readyz
             port: http
           initialDelaySeconds: 5
           periodSeconds: 10

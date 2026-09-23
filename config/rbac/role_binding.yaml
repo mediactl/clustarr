@@ -120,6 +120,6 @@ subjects:
 - kind: ServiceAccount
   name: importarr-worker
   namespace: clustarr-system
-# ui is deliberately absent here: it has no controller-runtime manager, reads
-# no cluster state yet (Options.Entries is a placeholder pending the M3
-# cache-backed projection), and so needs no binding to clustarr-manager-role.
+# ui is deliberately absent here: it has no controller-runtime manager and
+# reads only get/list/watch on four groups, so it is never bound to
+# clustarr-manager-role. Its own, narrower binding is ui_role_binding.yaml.

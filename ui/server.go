@@ -26,6 +26,8 @@ import (
 	"context"
 	"net/http"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/pipeline"
@@ -56,6 +58,33 @@ type Options struct {
 	// cluster. A nil Entries behaves as if it always returned no rows.
 	Entries func(context.Context) []pipeline.Entry
 
+	// Reader is ui's one seam onto the cluster: an informer-backed
+	// [client.Reader], normally built by [NewClusterReader]. It is
+	// client.Reader and never client.Client or client.Writer on purpose --
+	// CLAUDE.md: "The UI never writes status and owns no CRD" -- so the type
+	// itself is the guard against ui ever reaching for Create, Update,
+	// Patch or Delete.
+	//
+	// Reader is nil whenever `clustarr ui` could not reach a cluster (no
+	// kubeconfig, no in-cluster config) or when a test builds Options
+	// directly. That is legal and stays legal: nothing in this package
+	// requires it, and a nil Reader behaves exactly as ui does today --
+	// pages render with no rows.
+	//
+	// Nothing in Task D3-0 reads Reader directly; it exists so cmd/clustarr
+	// can hand it to a later projection (Task D3-1) without changing this
+	// struct again.
+	Reader client.Reader
+
+	// WaitForSync reports whether Reader's cache has completed its initial
+	// sync -- typically [NewClusterReader]'s own WaitForCacheSync. The
+	// /readyz handler polls it: 503 while it returns false, 200 once it
+	// returns true. A nil WaitForSync defaults to a function that always
+	// returns true, matching a nil Reader: nothing to sync means nothing to
+	// wait for, and a ui with no cluster configured must still become
+	// Ready.
+	WaitForSync func(context.Context) bool
+
 	// Logging configures the root logger [Run] builds and installs on the
 	// context every request descends from. The zero value is a reasonable
 	// default: JSON to stderr at info level.
@@ -77,14 +106,16 @@ type Options struct {
 // Validate exists so ui.Options satisfies the same shape every other
 // service's Options does (cmd/clustarr's deploy-manifest test executes every
 // Deployment's argv and calls Validate() on whatever it produced). There is
-// nothing to check yet: ui takes no --role and reaches no cluster.
+// nothing to check yet: ui takes no --role, and reaching a cluster is always
+// optional (Reader may be nil).
 func (o Options) Validate() error { return nil }
 
 // Server is the ui service's whole surface: an HTTP handler and nothing
-// else. It holds no client, no cache and no field manager -- Options.Entries
-// is the only way it ever sees cluster state, and it is deliberately just a
-// function, not an interface, so a test can supply cluster state without a
-// cluster.
+// else. It holds no client, no cache and no field manager of its own --
+// Options.Entries is the only way it ever sees cluster state for the
+// Pipeline page, and Options.WaitForSync is the only way /readyz does. Both
+// are deliberately just functions, not interfaces, so a test can supply
+// cluster state, or its absence, without a cluster.
 type Server struct {
 	opts Options
 }
@@ -102,6 +133,9 @@ type Server struct {
 func NewServer(ctx context.Context, opts Options) *Server {
 	if opts.Entries == nil {
 		opts.Entries = func(context.Context) []pipeline.Entry { return nil }
+	}
+	if opts.WaitForSync == nil {
+		opts.WaitForSync = func(context.Context) bool { return true }
 	}
 	logging.FromContext(ctx).Warn(authWarning)
 	return &Server{opts: opts}
