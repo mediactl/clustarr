@@ -206,6 +206,16 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   fields zeroed within one tick of the probe that set them. The envtest that
   should have caught it asserted only that `status.caps` was non-nil, which a
   modes-only renderer satisfies. Assert every leaf, not the parent.
+- **`metav1.Time` comes back from the apiserver in the replica's local
+  timezone, so `.Year()` on it is wrong by a year near New Year.**
+  `metav1.Time.UnmarshalJSON` converts to `time.Local` on every round-trip, so
+  a release dated 1 January 00:30 UTC reads as the previous year on any host
+  west of UTC — and a year feeds folder names and year-tolerance matching, so
+  files land in the wrong folder. G2-3 found it in the Audiobook naming
+  context; the same `.Year()` call was already in the Album controller and in
+  four places in the non-video rescan and import paths. Always
+  `.UTC().Year()` (and `.UTC()` before any other calendar field), and test it
+  with a Jan 1 date on a west-of-UTC location.
 - **Never run `go get` or `go mod tidy` from parallel agents.** They corrupt
   `go.mod`. Add every dependency serially up front, then tell workers not to touch
   it.
