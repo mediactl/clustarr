@@ -120,17 +120,21 @@ func startFakeMetadataProviders(t *testing.T) *fakeMetadataProviders {
 		}
 		return ""
 	})
-	// Lenient about the volume id on purpose, and that leniency hides a
-	// real defect this suite is not the owner of: Comic.spec.sourceID is
-	// passed unchanged both to comicvine.Client.Volume, which requests
-	// /volume/<id> and so needs ComicVine's prefixed "4050-18257", and to
-	// Issues, which filters volume:<id> and needs the bare "18257". No one
-	// sourceID satisfies the real API for both calls.
-	serve(catalogv1alpha1.MetadataProviderComicVine, func(p string, _ url.Values) string {
+	// Strict about the volume id, in both of its shapes: GET /volume/{guid}
+	// answers only the prefixed guid "4050-18257", and GET /issues only
+	// filter=volume:18257, the bare numeric id -- ComicVine's real API, and
+	// exactly what pkg/metadata/clients/comicvine's normalizeVolumeID
+	// derives from Comic.spec.sourceID for each call. This fake used to
+	// accept any /volume/ path and ignore the filter, and that leniency is
+	// how passing sourceID unchanged to both calls shipped (fixed by Q-3,
+	// bbdfc03): no single id satisfies both endpoints, yet the lenient fake
+	// answered both. test/fixtures/nonvideostub enforces the same two
+	// shapes for the e2e suite.
+	serve(catalogv1alpha1.MetadataProviderComicVine, func(p string, q url.Values) string {
 		switch {
-		case strings.HasPrefix(p, "/volume/"):
+		case p == "/volume/"+nvComicVolume:
 			return "comicvine/volume_18257.json"
-		case p == "/issues":
+		case p == "/issues" && q.Get("filter") == "volume:18257":
 			return "comicvine/issues_volume_18257.json"
 		case p == "/search":
 			return "comicvine/search_batman.json"
