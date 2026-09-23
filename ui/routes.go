@@ -52,6 +52,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /library/{tab}", s.handleLibrary)
 	mux.HandleFunc("GET /events/library/{tab}", s.handleLibraryEvents)
 	mux.HandleFunc("GET /library/{namespace}/{kind}/{name}", s.handleLibraryItem)
+	mux.HandleFunc("GET /library/{namespace}/series/{name}/seasons/{n}", s.handleSeason)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/monitor", s.handleSetMonitored)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/search", s.handleSearchNow)
 	mux.HandleFunc("POST /library/rescan", s.handleRescan)
@@ -234,6 +235,10 @@ func (s *Server) handleLibraryItem(w http.ResponseWriter, r *http.Request) {
 		r.PathValue("namespace"), r.PathValue("kind"), r.PathValue("name"))
 	if !ok {
 		http.NotFound(w, r)
+		return
+	}
+	if item.Kind == commonv1.MediaKindSeries {
+		s.renderSeriesPage(w, r, item)
 		return
 	}
 

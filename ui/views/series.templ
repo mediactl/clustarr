@@ -1,0 +1,192 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"fmt"
+
+	"github.com/mediactl/clustarr/ui/projection"
+)
+
+// SeriesDetail is a series' page (spec 2026-09-23-library-page-design):
+// the item header -- poster, title, monitored toggle, profile, search now
+// -- followed by one season component per season. Episodes are not on the
+// page; each season loads its own on first expand.
+templ SeriesDetail(item projection.LibraryItem, seasons []SeasonRow) {
+	@Layout(item.Title) {
+		<a href={ templ.URL("/library/" + string(item.Tab)) } class="text-sm text-slate-400 hover:text-slate-100">&larr; Library</a>
+		@itemHeader(item)
+		<div class="mt-6 space-y-3" data-seasons={ fmt.Sprint(len(seasons)) }>
+			if len(seasons) == 0 {
+				<p class="text-slate-400">No seasons yet: they arrive with the series' metadata.</p>
+			}
+			for _, season := range seasons {
+				@SeasonComponent(season)
+			}
+		</div>
+	}
+}
+
+// itemHeader is the top of a parent's page: the card's facts at full size
+// and the two per-item actions, monitor/unmonitor and search now (§A3.2).
+templ itemHeader(item projection.LibraryItem) {
+	<div
+		class="mt-4 flex gap-5 rounded-lg border border-slate-800 bg-slate-900 p-6"
+		data-ref={ item.Ref.String() }
+		data-kind={ string(item.Kind) }
+		data-monitored={ fmt.Sprintf("%t", item.Monitored) }
+		data-phase={ item.Phase }
+		data-hasfile={ fmt.Sprintf("%t", item.HasFile) }
+		data-year={ fmt.Sprint(item.Year) }
+		data-profile={ item.QualityProfileRef }
+		data-poster={ posterState(item.Poster) }
+	>
+		@poster(item.Poster, item.Title)
+		<div class="min-w-0 flex-1">
+			<div class="flex items-start justify-between gap-4">
+				<h1 class="text-2xl font-bold">{ item.Title }</h1>
+				<span class={ monitoredBadgeClass(item.Monitored) }>{ monitoredLabel(item.Monitored) }</span>
+			</div>
+			if item.Year > 0 {
+				<div class="mt-0.5 text-sm text-slate-400">{ fmt.Sprint(item.Year) }</div>
+			}
+			<div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+				<span class="rounded-full bg-slate-800 px-2 py-0.5">{ string(item.Kind) }</span>
+				if item.QualityProfileRef != "" {
+					<span class="rounded-full bg-slate-800 px-2 py-0.5" title="quality profile">{ item.QualityProfileRef }</span>
+				}
+				if item.Phase != "" {
+					<span class={ stagePhaseBadgeClass(item.Phase) }>{ item.Phase }</span>
+				}
+			</div>
+			<div class="mt-6 flex gap-3">
+				<form method="post" action={ templ.URL(libraryActionURL(item, "monitor")) }>
+					<input type="hidden" name="return" value={ libraryDetailPath(item) }/>
+					<input type="hidden" name="monitored" value={ fmt.Sprintf("%t", !item.Monitored) }/>
+					<button type="submit" data-action="set-monitored" class="rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium hover:bg-slate-700">
+						if item.Monitored {
+							Unmonitor
+						} else {
+							Monitor
+						}
+					</button>
+				</form>
+				<form method="post" action={ templ.URL(libraryActionURL(item, "search")) }>
+					<input type="hidden" name="return" value={ libraryDetailPath(item) }/>
+					<button type="submit" data-action="search-now" class="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-500">Search now</button>
+				</form>
+			</div>
+		</div>
+	</div>
+}
+
+// SeasonComponent is one season: a <details> whose first open fetches the
+// season's episodes into its body (hx-trigger "toggle once"), and whose
+// heading links to the season's own page, so a browser without JavaScript
+// still gets there. Its data attributes carry the counts and the effective
+// monitored flag for the tests.
+templ SeasonComponent(season SeasonRow) {
+	<details
+		class="rounded-lg border border-slate-800 bg-slate-900"
+		id={ fmt.Sprintf("season-%d", season.Number) }
+		data-season={ fmt.Sprint(season.Number) }
+		data-monitored={ fmt.Sprintf("%t", season.Monitored) }
+		data-episodes={ fmt.Sprint(season.Episodes) }
+		data-files={ fmt.Sprint(season.Files) }
+		hx-get={ season.URL() }
+		hx-trigger="toggle once"
+		hx-target="find .episodes"
+		hx-swap="innerHTML"
+	>
+		<summary class="flex cursor-pointer items-center justify-between gap-4 px-4 py-3">
+			<span class="flex items-center gap-3">
+				<a href={ templ.URL(season.URL()) } class="font-medium hover:underline">{ season.Label() }</a>
+				<span class="text-xs text-slate-400">{ fmt.Sprintf("%d of %d on disk", season.Files, season.Episodes) }</span>
+				if season.NextAiring != "" {
+					<span class="text-xs text-slate-400">next { season.NextAiring }</span>
+				}
+			</span>
+			<span class={ monitoredBadgeClass(season.Monitored) }>{ monitoredLabel(season.Monitored) }</span>
+		</summary>
+		<div class="episodes border-t border-slate-800 px-4 py-3 text-sm text-slate-400">Loading…</div>
+	</details>
+}
+
+// SeasonPage is a season on its own: the series header, then its episodes.
+templ SeasonPage(item projection.LibraryItem, season SeasonRow, episodes []EpisodeRow) {
+	@Layout(fmt.Sprintf("%s · %s", item.Title, season.Label())) {
+		<a href={ libraryItemURL(item) } class="text-sm text-slate-400 hover:text-slate-100">&larr; { item.Title }</a>
+		@itemHeader(item)
+		<div class="mt-6 rounded-lg border border-slate-800 bg-slate-900" data-season={ fmt.Sprint(season.Number) }>
+			<div class="flex items-center justify-between gap-4 px-4 py-3">
+				<h2 class="font-medium">{ season.Label() }</h2>
+				<span class={ monitoredBadgeClass(season.Monitored) }>{ monitoredLabel(season.Monitored) }</span>
+			</div>
+			<div class="episodes border-t border-slate-800">
+				@EpisodeRows(episodes)
+			</div>
+		</div>
+	}
+}
+
+// EpisodeRows is the episodes component: what a season's first expand
+// fetches, and what the season page renders inline.
+templ EpisodeRows(episodes []EpisodeRow) {
+	if len(episodes) == 0 {
+		<p class="px-4 py-3 text-sm text-slate-400">No episodes in this season yet.</p>
+	} else {
+		<table class="w-full text-sm">
+			<tbody>
+				for _, ep := range episodes {
+					@EpisodeRowView(ep)
+				}
+			</tbody>
+		</table>
+	}
+}
+
+// EpisodeRowView is one episode row, and what its monitor toggle swaps in
+// place: number, title, air date, file and quality, phase, and the toggle
+// itself, an hx-post that replaces this row with the re-rendered one.
+templ EpisodeRowView(ep EpisodeRow) {
+	<tr
+		class="border-b border-slate-800/60 last:border-0"
+		data-episode={ fmt.Sprint(ep.Number) }
+		data-monitored={ fmt.Sprintf("%t", ep.Monitored) }
+		data-hasfile={ fmt.Sprintf("%t", ep.HasFile) }
+		data-quality={ ep.Quality }
+		data-phase={ ep.Phase }
+	>
+		<td class="w-12 px-4 py-2 text-slate-400">{ fmt.Sprint(ep.Number) }</td>
+		<td class="px-2 py-2">{ ep.Title }</td>
+		<td class="w-28 px-2 py-2 text-slate-400">{ ep.AirDate }</td>
+		<td class="w-36 px-2 py-2">
+			if ep.HasFile {
+				<span class="rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-300">{ ep.Quality }</span>
+			} else if ep.Phase != "" {
+				<span class={ stagePhaseBadgeClass(ep.Phase) }>{ ep.Phase }</span>
+			}
+		</td>
+		<td class="w-28 px-2 py-2 text-right">
+			<form hx-post={ ep.MonitorURL() } hx-target="closest tr" hx-swap="outerHTML" method="post" action={ templ.URL(ep.MonitorURL()) }>
+				<input type="hidden" name="monitored" value={ fmt.Sprintf("%t", !ep.Monitored) }/>
+				<button type="submit" data-action="set-monitored" class={ monitoredBadgeClass(ep.Monitored) }>{ monitoredLabel(ep.Monitored) }</button>
+			</form>
+		</td>
+	</tr>
+}
