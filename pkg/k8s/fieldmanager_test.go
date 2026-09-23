@@ -22,11 +22,12 @@ import "testing"
 func TestFieldManagersAreTheOnesTheSpecLists(t *testing.T) {
 	want := []string{
 		"catalogarr", "catalogarr-series", "catalogarr-worker",
-		"catalogarr-metadata", "catalogarr-grab",
+		"catalogarr-metadata", "catalogarr-grab", "catalogarr-fanout",
 		"importarr", "importarr-worker",
 		"indexarr",
 		"indexarr-worker", "grabarr", "grabarr-engine",
 		"squasharr", "squasharr-worker", "captionarr", "captionarr-worker",
+		"clustarr-dlq-projector", "clustarr-ui",
 	}
 	got := FieldManagers()
 	if len(got) != len(want) {

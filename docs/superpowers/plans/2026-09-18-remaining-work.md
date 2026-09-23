@@ -1150,6 +1150,7 @@ other phase.
 - [ ] Add per-service readiness beyond the JetStream ping. **Phase C did `catalogarr` (informer caches synced) and `importarr` (`/data` present and writable)**, and made every readiness runnable non-leader-elected so a non-leader replica can reach Ready. Still outstanding: the release index for `indexarr` (Phase D) and torrent re-attach for `grabarr` (Phase D) — **reporting ready early lets the controller hand an engine work it would double-download.**
 - [ ] Add `charts/clustarr/README.md` and `values.schema.json` so bad values fail at install rather than at render.
 - [ ] Add `docs/adr/README.md` with the ADR index and supersede lifecycle when ADR-0009 appears.
+- [ ] Task G1-0 added three field managers to `pkg/k8s/fieldmanager.go` and `FieldManagers()` -- `catalogarr-fanout` (Artist/Author/Comic fanning out onto Album/Book/Issue, the role `catalogarr-series` plays for Series/Episode), `clustarr-dlq-projector` (R1) and `clustarr-ui` (R2) -- but did **not** update `docs/superpowers/specs/2026-09-18-clustarr-design.md`'s field-manager table (§2, the `| Field managers (SSA) | ... |` row) to match. That file had another session's uncommitted markdown reflow sitting in the working tree at the time, and any commit touching it would have swept that reflow in. Add the three rows once the reflow lands and the file is clean.
 
 
 ### Carried out of Phase B (2026-09-18)

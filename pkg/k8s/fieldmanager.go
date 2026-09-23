@@ -102,6 +102,33 @@ const (
 	// ManagerCatalogarrWorker.
 	ManagerCatalogarrGrab FieldManager = "catalogarr-grab"
 
+	// ManagerCatalogarrFanout is the Artist, Author and Comic reconcilers
+	// when they write onto the Album, Book and Issue children they own --
+	// the role ManagerCatalogarrSeries plays for Series->Episode. One name
+	// covers all three non-video parent/child pairs rather than three
+	// separate ones, because on any given child kind only that kind's own
+	// parent ever fans out onto it -- Album never receives a write under
+	// this manager from Author, for instance -- so there is nothing for the
+	// shared name to collide with, the same way ManagerIndexarrWorker covers
+	// two worker paths that never write the same field from two different
+	// callers.
+	//
+	// It is deliberately distinct from ManagerCatalogarr, which the Album,
+	// Book and Issue reconcilers each use for that child's own status
+	// (phase or state, conditions, HasFile, FileRef and the rest of that
+	// child's lifecycle fields), exactly as Episode's reconciler uses
+	// ManagerCatalogarr for its own Phase/Conditions/HasFile rather than
+	// ManagerCatalogarrSeries. Server-side apply replaces a manager's whole
+	// ownership set on every apply, so a parent and its child sharing one
+	// manager name on the child object would silently release each other's
+	// fields the next time either side reconciled -- proven once already
+	// for Series/Episode (see ManagerCatalogarrSeries) and not worth
+	// re-discovering three more times over. Task G2-2 implements the three
+	// reconcilers and pins the exact field set each one sends; this name is
+	// declared ahead of that, at the task G1-0 serializes on, so G1-1
+	// through G2-4 do not each pick their own.
+	ManagerCatalogarrFanout FieldManager = "catalogarr-fanout"
+
 	// ManagerImportarr is the importarr controller manager. It owns ImportList,
 	// ImportExclusion and LibraryScan status.
 	//
@@ -188,6 +215,54 @@ const (
 	// ManagerCaptionarrWorker is a captionarr subtitle fetch worker. It
 	// applies SubtitleRequest.status.items entries only.
 	ManagerCaptionarrWorker FieldManager = "captionarr-worker"
+
+	// ManagerDLQProjector is the DLQ projector wired into catalogarr's
+	// RoleHistory branch (task G1-1), the one subscriber to
+	// events.ConsumerDLQProjector. Design spec §5 originally had it set a
+	// DeadLettered condition on the CR named by a dead-lettered message's
+	// Clustarr-Key header -- on any kind, in any of the six API groups,
+	// which would make one projector a second status writer on every
+	// resource in the system and break CLAUDE.md's first invariant, one
+	// controller-writer per resource. Ruling R1
+	// (docs/superpowers/plans/2026-09-23-phase-g-parity.md) replaces that
+	// condition with a metadata annotation,
+	// `clustarr.io/dead-lettered: <subject>@<RFC3339>`, applied under this
+	// manager, plus an events.k8s.io Event: metadata is not status, and an
+	// SSA apply of one annotation key owns exactly that leaf regardless of
+	// which kind the object is or which other manager owns the rest of its
+	// metadata and spec. Folding the annotation into a condition is left to
+	// each owning controller, not built here, so this manager never applies
+	// to a status subresource, on any kind -- a guard test asserts that
+	// directly rather than trusting the doc comment.
+	ManagerDLQProjector FieldManager = "clustarr-dlq-projector"
+
+	// ManagerUI is ui/actions' field manager -- per ruling R2, the only
+	// package in ui/ allowed to write anything, and the manager for every
+	// write it makes: "search now" creating a Search, "rescan" creating a
+	// LibraryScan, "monitor this" patching a catalog kind's
+	// spec.monitored. It exists so a metadata.managedFields audit can tell
+	// a UI edit from a controller's on the same object, which matters more
+	// here than it does for any other manager in this file: every other
+	// manager here asserts a controller's or worker's own reconciled truth,
+	// but a ui/actions write is a human's one-off intent landing on a spec
+	// field some controller (ManagerCatalogarr, or ManagerCatalogarrFanout
+	// on a fanned-out child) also reconciles -- and PatchStatus/Apply force
+	// ownership unconditionally, so whichever side applies next simply
+	// takes the field with no conflict raised either way. The distinct name
+	// is what lets an operator or a test tell which side made a given
+	// change; it does not by itself prevent one side from overwriting the
+	// other.
+	//
+	// It must never appear on a status subresource. Amendment §A3 and task
+	// D3-4 already required the UI to never write status at all; R2 narrows
+	// the AST guard (write calls allowed only inside ui/actions, Status()
+	// banned everywhere in ui/) and the role guard (create on searches and
+	// libraryscans, patch on the catalog kinds' main resource, still no
+	// */status and no delete) that enforced that, rather than lifting them.
+	// D3-5's e2e assertion that no UI manager appears on any status path
+	// must still hold, and a guard test asserts it the same way one does
+	// for ManagerDLQProjector above.
+	ManagerUI FieldManager = "clustarr-ui"
 )
 
 // FieldManagers lists every manager name §2 allows, in spec order.
@@ -198,6 +273,7 @@ func FieldManagers() []FieldManager {
 		ManagerCatalogarrWorker,
 		ManagerCatalogarrMetadata,
 		ManagerCatalogarrGrab,
+		ManagerCatalogarrFanout,
 		ManagerImportarr,
 		ManagerImportarrWorker,
 		ManagerIndexarr,
@@ -208,6 +284,8 @@ func FieldManagers() []FieldManager {
 		ManagerSquasharrWorker,
 		ManagerCaptionarr,
 		ManagerCaptionarrWorker,
+		ManagerDLQProjector,
+		ManagerUI,
 	}
 }
 
