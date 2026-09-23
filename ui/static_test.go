@@ -105,3 +105,22 @@ func TestGeneratedCSSCoversLibraryPageClasses(t *testing.T) {
 			"component uses; this means the committed app.css was not rebuilt with `make css` after "+
 			"library.templ was added")
 }
+
+// TestGeneratedCSSCoversImportListsPageClasses is Task G3-4's own addition
+// to TestGeneratedCSSCoversTemplateOnlyClasses' guard: border-amber-800 is a
+// class ui/views/importlists.templ's importListRow component uses for the
+// pending device-code authorization box (§A3.4's Trakt device-code flow),
+// added new by this task, so its presence in the committed app.css
+// specifically proves importlists.templ was included in the `make css`
+// build that produced it.
+func TestGeneratedCSSCoversImportListsPageClasses(t *testing.T) {
+	srv := ui.NewServer(t.Context(), ui.Options{})
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/app.css", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	require.True(t, strings.Contains(rec.Body.String(), "border-amber-800"),
+		"ui/static/app.css is missing .border-amber-800, a class ui/views/importlists.templ's "+
+			"importListRow component uses for the pending device-code authorization box; this means the "+
+			"committed app.css was not rebuilt with `make css` after importlists.templ was added")
+}

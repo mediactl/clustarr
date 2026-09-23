@@ -52,6 +52,17 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /library/rescan", s.handleRescan)
 	mux.HandleFunc("GET /unmatched", s.handleUnmatched)
 	mux.HandleFunc("GET /events/unmatched", s.handleUnmatchedEvents)
+	mux.HandleFunc("GET /import-lists", s.handleImportLists)
+	mux.HandleFunc("GET /events/import-lists", s.handleImportListsEvents)
+	mux.HandleFunc("GET /settings", s.handleSettings)
+	mux.HandleFunc("POST /settings/rootfolders/{namespace}/{name}", s.handleSetRootFolderScanSchedule)
+	mux.HandleFunc("POST /settings/qualityprofiles/{name}", s.handleSetQualityProfileUpgradeAllowed)
+	mux.HandleFunc("POST /settings/indexers/{namespace}/{name}", s.handleSetIndexerSettings)
+	mux.HandleFunc("POST /settings/downloadclients/{namespace}/{name}", s.handleSetDownloadClientSettings)
+	mux.HandleFunc("POST /settings/metadataproviders/{namespace}/{name}", s.handleSetMetadataProviderSettings)
+	mux.HandleFunc("POST /settings/subtitleproviders/{namespace}/{name}", s.handleSetSubtitleProviderSettings)
+	mux.HandleFunc("POST /settings/subtitleprofiles/{name}", s.handleSetSubtitleProfileDefault)
+	mux.HandleFunc("POST /settings/transcodeprofiles/{name}", s.handleSetTranscodeProfilePriority)
 	mux.HandleFunc("GET /{$}", s.handleIndex)
 
 	return mux

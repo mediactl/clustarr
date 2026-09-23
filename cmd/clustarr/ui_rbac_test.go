@@ -49,12 +49,15 @@ type uiGrant struct {
 }
 
 // uiActionGrants is the complete set of write permissions ui_role.yaml may
-// grant -- and must grant, since each is one the UI's three actions
-// (amendment §A3.2, ruling R2) make: create a Search, create a LibraryScan,
-// patch spec.monitored on a catalog kind that has one. It is written out
-// here rather than derived from ui/actions so a widening shows up in review
-// as an edit to this list; the test then also holds ui/actions.Grants() to
-// it, so the code's declared needs, this list and the role are one set.
+// grant -- and must grant, since each is one the UI's actions (amendment
+// §A3.2 and, for the eight Settings-page patches, Task G3-4's note under
+// ruling R2) make: create a Search, create a LibraryScan, patch
+// spec.monitored on a catalog kind that has one, and patch the one or two
+// modest fields each Settings-page kind's edit form submits
+// (ui/actions/settings.go). It is written out here rather than derived from
+// ui/actions so a widening shows up in review as an edit to this list; the
+// test then also holds ui/actions.Grants() to it, so the code's declared
+// needs, this list and the role are one set.
 var uiActionGrants = map[uiGrant]bool{
 	{"catalog.clustarr.io", "searches", "create"}:     true,
 	{"catalog.clustarr.io", "libraryscans", "create"}: true,
@@ -68,6 +71,16 @@ var uiActionGrants = map[uiGrant]bool{
 	{"catalog.clustarr.io", "issues", "patch"}:        true,
 	{"catalog.clustarr.io", "movies", "patch"}:        true,
 	{"catalog.clustarr.io", "series", "patch"}:        true,
+
+	// Task G3-4: the Settings page's edit forms, one patch grant per kind.
+	{"catalog.clustarr.io", "rootfolders", "patch"}:         true,
+	{"catalog.clustarr.io", "qualityprofiles", "patch"}:     true,
+	{"catalog.clustarr.io", "metadataproviders", "patch"}:   true,
+	{"index.clustarr.io", "indexers", "patch"}:              true,
+	{"download.clustarr.io", "downloadclients", "patch"}:    true,
+	{"subtitle.clustarr.io", "subtitleproviders", "patch"}:  true,
+	{"subtitle.clustarr.io", "subtitleprofiles", "patch"}:   true,
+	{"transcode.clustarr.io", "transcodeprofiles", "patch"}: true,
 }
 
 // uiRoleRule mirrors a ClusterRole rules entry, including the fields no rule

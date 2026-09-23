@@ -51,21 +51,25 @@ const DefaultInterval = 5 * time.Second
 // D3-3, ruling R4) to every current [SubscribeDownloads]r, plus -- Task
 // G3-3, same ruling -- the Library page's []LibraryItem to every current
 // [SubscribeLibrary]r and the Unmatched page's []UnmatchedEntry to every
-// current [SubscribeUnmatched]r, so all four streams come from one list
-// round rather than each running its own.
+// current [SubscribeUnmatched]r, plus -- Task G3-4, same ruling -- the
+// Import Lists page's []ImportListEntry to every current
+// [SubscribeImportLists]r, so all five streams come from one list round
+// rather than each running its own.
 type Projection struct {
 	reader   client.Reader
 	interval time.Duration
 
-	mu            sync.Mutex
-	entries       []pipeline.Entry
-	downloads     []downloadv1.Download
-	library       []LibraryItem
-	unmatched     []UnmatchedEntry
-	subs          map[chan []pipeline.Entry]struct{}
-	downloadSubs  map[chan []downloadv1.Download]struct{}
-	librarySubs   map[chan []LibraryItem]struct{}
-	unmatchedSubs map[chan []UnmatchedEntry]struct{}
+	mu             sync.Mutex
+	entries        []pipeline.Entry
+	downloads      []downloadv1.Download
+	library        []LibraryItem
+	unmatched      []UnmatchedEntry
+	importLists    []ImportListEntry
+	subs           map[chan []pipeline.Entry]struct{}
+	downloadSubs   map[chan []downloadv1.Download]struct{}
+	librarySubs    map[chan []LibraryItem]struct{}
+	unmatchedSubs  map[chan []UnmatchedEntry]struct{}
+	importListSubs map[chan []ImportListEntry]struct{}
 }
 
 // New builds a Projection over r, recomputed every interval once [Run] is
@@ -76,12 +80,13 @@ type Projection struct {
 // begin projecting.
 func New(r client.Reader, interval time.Duration) *Projection {
 	return &Projection{
-		reader:        r,
-		interval:      interval,
-		subs:          make(map[chan []pipeline.Entry]struct{}),
-		downloadSubs:  make(map[chan []downloadv1.Download]struct{}),
-		librarySubs:   make(map[chan []LibraryItem]struct{}),
-		unmatchedSubs: make(map[chan []UnmatchedEntry]struct{}),
+		reader:         r,
+		interval:       interval,
+		subs:           make(map[chan []pipeline.Entry]struct{}),
+		downloadSubs:   make(map[chan []downloadv1.Download]struct{}),
+		librarySubs:    make(map[chan []LibraryItem]struct{}),
+		unmatchedSubs:  make(map[chan []UnmatchedEntry]struct{}),
+		importListSubs: make(map[chan []ImportListEntry]struct{}),
 	}
 }
 
@@ -108,10 +113,10 @@ func (p *Projection) Run(ctx context.Context) error {
 
 // tick computes one projection round -- one round of List calls -- and
 // publishes every result (the pipeline entries and, per ruling R4, the
-// downloads, library and unmatched slices gathered in the same round) to
-// every subscriber of each.
+// downloads, library, unmatched and import-list slices gathered in the same
+// round) to every subscriber of each.
 func (p *Projection) tick(ctx context.Context) {
-	entries, downloads, library, unmatched, err := p.project(ctx)
+	entries, downloads, library, unmatched, importLists, err := p.project(ctx)
 	if err != nil {
 		logging.FromContext(ctx).Error("compute pipeline projection", "error", err)
 		return
@@ -123,6 +128,7 @@ func (p *Projection) tick(ctx context.Context) {
 	p.downloads = downloads
 	p.library = library
 	p.unmatched = unmatched
+	p.importLists = importLists
 	for ch := range p.subs {
 		publish(ch, entries)
 	}
@@ -134,6 +140,9 @@ func (p *Projection) tick(ctx context.Context) {
 	}
 	for ch := range p.unmatchedSubs {
 		publish(ch, unmatched)
+	}
+	for ch := range p.importListSubs {
+		publish(ch, importLists)
 	}
 }
 
@@ -200,6 +209,16 @@ func (p *Projection) Unmatched(context.Context) []UnmatchedEntry {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.unmatched
+}
+
+// ImportLists returns the most recently computed import-list slice -- the
+// Task G3-4 analogue of [Entries] for the Import Lists page, for the same
+// reasons: it never blocks on the cluster, and a Projection that has not
+// ticked yet (or was built over a nil Reader) returns nil.
+func (p *Projection) ImportLists(context.Context) []ImportListEntry {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.importLists
 }
 
 // Subscribe registers a new listener and returns a channel that receives
@@ -297,29 +316,55 @@ func (p *Projection) SubscribeUnmatched() (<-chan []UnmatchedEntry, func()) {
 	return ch, unsubscribe
 }
 
+// SubscribeImportLists is [Subscribe]'s Import Lists page counterpart (Task
+// G3-4): same immediate-then-on-change delivery, same single-call
+// unsubscribe, fed from the one additional ImportList List call [project]
+// adds to the shared tick.
+func (p *Projection) SubscribeImportLists() (<-chan []ImportListEntry, func()) {
+	ch := make(chan []ImportListEntry, 1)
+
+	p.mu.Lock()
+	ch <- p.importLists
+	p.importListSubs[ch] = struct{}{}
+	p.mu.Unlock()
+
+	var once sync.Once
+	unsubscribe := func() {
+		once.Do(func() {
+			p.mu.Lock()
+			delete(p.importListSubs, ch)
+			p.mu.Unlock()
+		})
+	}
+	return ch, unsubscribe
+}
+
 // project lists every catalog kind pkg/pipeline's describeItem handles plus
 // everything index.go's buildRelatedIndex needs, then calls pipeline.Project
 // once per catalog item. It also returns the Download list buildRelatedIndex
 // gathered along the way (ruling R4: no second List call for the downloads
 // stream), the Library page's []LibraryItem derived from the same items and
-// entries (Task G3-3, again no second List call), and the Unmatched page's
-// []UnmatchedEntry from one additional LibraryScan List call -- the one new
-// List this task adds to the shared round, rather than a ticker of its own.
-// A nil reader (no cluster configured) yields no rows without listing
-// anything.
-func (p *Projection) project(ctx context.Context) ([]pipeline.Entry, []downloadv1.Download, []LibraryItem, []UnmatchedEntry, error) {
+// entries (Task G3-3, again no second List call), the Unmatched page's
+// []UnmatchedEntry from one additional LibraryScan List call, and the
+// Import Lists page's []ImportListEntry from one additional ImportList List
+// call (Task G3-4) -- each the one new List its own task added to the
+// shared round, rather than a ticker of its own. A nil reader (no cluster
+// configured) yields no rows without listing anything.
+func (p *Projection) project(
+	ctx context.Context,
+) ([]pipeline.Entry, []downloadv1.Download, []LibraryItem, []UnmatchedEntry, []ImportListEntry, error) {
 	if p.reader == nil {
-		return nil, nil, nil, nil, nil
+		return nil, nil, nil, nil, nil, nil
 	}
 
 	idx, err := buildRelatedIndex(ctx, p.reader)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
 	items, err := p.listItems(ctx)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
 	entries := make([]pipeline.Entry, 0, len(items))
@@ -343,11 +388,17 @@ func (p *Projection) project(ctx context.Context) ([]pipeline.Entry, []downloadv
 
 	scans, err := listLibraryScans(ctx, p.reader)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 	unmatched := unmatchedFromScans(scans)
 
-	return entries, downloads, library, unmatched, nil
+	lists, err := listImportLists(ctx, p.reader)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	importLists := buildImportListEntries(lists)
+
+	return entries, downloads, library, unmatched, importLists, nil
 }
 
 // listItems lists the ten catalog kinds pkg/pipeline/project.go's

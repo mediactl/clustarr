@@ -13,17 +13,23 @@
 # groups -- every resource in each, not only the ones today's pages read,
 # because re-deriving this file's scope every time a later page needs one
 # more kind is exactly the kind of drift a hand-written, rarely-touched file
-# invites. index.clustarr.io is deliberately absent: nothing under ui/ reads
-# an Indexer today, and adding it is a one-line, reviewable change for
-# whichever future phase needs it, not a default to grant early.
+# invites. index.clustarr.io is the one exception: only "indexers" is
+# granted (the Settings page's own kind, Task G3-4), not IndexerDefinition or
+# IndexerProxy, which no page reads yet -- adding either is a one-line,
+# reviewable change for whichever future phase needs it, not a default to
+# grant early.
 #
 # Writes (Phase G ruling R2, docs/superpowers/plans/2026-09-23-phase-g-parity.md;
-# amendment §A3.2): exactly what ui/actions' three actions need and nothing
-# else -- create on searches ("search now") and libraryscans ("rescan"), and
-# patch on the ten catalog kinds that have a spec.monitored ("monitor
-# this"), which ui/actions sends as a JSON merge patch of that one field
-# under field manager clustarr-ui. ui/actions.Grants() declares the same set;
-# the RBAC guard holds this file's write verbs to exactly it.
+# amendment §A3.2 and, for the Settings-page patches, the G3-4 note under
+# ruling R2): exactly what ui/actions' actions need and nothing else --
+# create on searches ("search now") and libraryscans ("rescan"), patch on
+# the ten catalog kinds that have a spec.monitored ("monitor this"), and
+# patch on each of the eight Settings-page kinds (RootFolder, QualityProfile,
+# MetadataProvider, Indexer, DownloadClient, SubtitleProvider,
+# SubtitleProfile, TranscodeProfile), each sent as a JSON merge patch of that
+# kind's own modest field set (ui/actions/settings.go) under field manager
+# clustarr-ui. ui/actions.Grants() declares the same set; the RBAC guard
+# holds this file's write verbs to exactly it.
 #
 # Never: any resource ending in "/status" (not even to read it), update,
 # delete or deletecollection, a wildcard, or a write verb on any resource
@@ -69,6 +75,14 @@ rules:
   - list
   - watch
 - apiGroups:
+  - index.clustarr.io
+  resources:
+  - indexers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - subtitle.clustarr.io
   resources:
   - subtitleprofiles
@@ -107,5 +121,38 @@ rules:
   - issues
   - movies
   - series
+  verbs:
+  - patch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - metadataproviders
+  - qualityprofiles
+  - rootfolders
+  verbs:
+  - patch
+- apiGroups:
+  - index.clustarr.io
+  resources:
+  - indexers
+  verbs:
+  - patch
+- apiGroups:
+  - download.clustarr.io
+  resources:
+  - downloadclients
+  verbs:
+  - patch
+- apiGroups:
+  - subtitle.clustarr.io
+  resources:
+  - subtitleprofiles
+  - subtitleproviders
+  verbs:
+  - patch
+- apiGroups:
+  - transcode.clustarr.io
+  resources:
+  - transcodeprofiles
   verbs:
   - patch

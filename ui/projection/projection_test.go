@@ -72,10 +72,12 @@ func (r *countingReader) List(ctx context.Context, list client.ObjectList, opts 
 // Download, Search, TranscodeJob, SubtitleRequest) plus listItems' ten
 // (Movie, Series, Episode, Album, Artist, Author, Book, Audiobook, Comic,
 // Issue) -- pkg/pipeline/project.go's own describeItem type-switch names
-// exactly those ten catalog kinds -- plus one more: project's own
-// listLibraryScans call (Task G3-3), the one new List the Unmatched stream
-// adds to the shared round rather than running a ticker of its own.
-const listCallsPerTick = 5 + 10 + 1
+// exactly those ten catalog kinds -- plus two more: project's own
+// listLibraryScans call (Task G3-3, the one new List the Unmatched stream
+// adds to the shared round) and its listImportLists call (Task G3-4, the one
+// new List the Import Lists stream adds), neither running a ticker of its
+// own.
+const listCallsPerTick = 5 + 10 + 1 + 1
 
 // ownerRef builds a controlling OwnerReference to owner, the same shape
 // catalogarr/worker/grab/perform.go's k8s.OwnerReferenceAC produces for a
@@ -532,13 +534,95 @@ func TestUnmatchedProjectionFlattensAndSortsAcrossScans(t *testing.T) {
 	require.Equal(t, "no embedded id", entries[1].Reason)
 }
 
+// TestImportListProjectionDerivesScheduleCountsAndDeviceAuth proves
+// [buildImportListEntries] (via [Projection.ImportLists]) reads an
+// ImportList's schedule, sync counts and in-flight Trakt device-code
+// authorization exactly as the Import Lists page needs them (§A3.4: "each
+// list, its schedule, last sync, item counts, and the Trakt device-code flow
+// when authorization is pending"), and that a nil status.auth reads as no
+// pending flow rather than a zero-valued one.
+func TestImportListProjectionDerivesScheduleCountsAndDeviceAuth(t *testing.T) {
+	lastSync := metav1.NewTime(time.Now().Add(-time.Hour))
+	nextSync := metav1.NewTime(time.Now().Add(time.Hour))
+	expiresAt := metav1.NewTime(time.Now().Add(10 * time.Minute))
+
+	pending := &catalogv1.ImportList{
+		ObjectMeta: metav1.ObjectMeta{Name: "trakt-watchlist", Namespace: "default"},
+		Spec: catalogv1.ImportListSpec{
+			Kinds:   []string{"movie", "series"},
+			Enabled: ptr.To(true),
+			Trakt:   &catalogv1.TraktList{ListType: catalogv1.TraktListTypeWatchlist},
+			Defaults: catalogv1.ListDefaults{
+				QualityProfileRef: "hd-1080p", RootFolderRef: "movies",
+			},
+			SyncLevel: catalogv1.SyncLevelLogOnly,
+		},
+		Status: catalogv1.ImportListStatus{
+			LastSyncAt: &lastSync, NextSyncAt: &nextSync,
+			ItemCount: 42, AddedCount: 3, ExcludedCount: 1, RemovedCount: 0,
+			Auth: &catalogv1.DeviceAuth{
+				State: catalogv1.DeviceAuthStatePending, UserCode: "AB12-CD34",
+				VerificationURL: "https://trakt.tv/activate", ExpiresAt: &expiresAt,
+			},
+		},
+	}
+	noAuth := &catalogv1.ImportList{
+		ObjectMeta: metav1.ObjectMeta{Name: "plex-watchlist", Namespace: "default"},
+		Spec: catalogv1.ImportListSpec{
+			Kinds: []string{"movie"}, Enabled: ptr.To(false),
+			Plex: &catalogv1.PlexWatchlist{},
+			Defaults: catalogv1.ListDefaults{
+				QualityProfileRef: "hd-1080p", RootFolderRef: "movies",
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(pending, noAuth).Build()
+	proj := projection.New(fakeClient, time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = proj.Run(ctx) }()
+
+	var entries []projection.ImportListEntry
+	require.Eventually(t, func() bool {
+		entries = proj.ImportLists(ctx)
+		return len(entries) == 2
+	}, 2*time.Second, 10*time.Millisecond, "projection never produced both import lists")
+
+	byName := map[string]projection.ImportListEntry{}
+	for _, e := range entries {
+		byName[e.Ref.Name] = e
+	}
+
+	tw := byName["trakt-watchlist"]
+	require.True(t, tw.Enabled)
+	require.Equal(t, "trakt", tw.SourceType)
+	require.Equal(t, string(catalogv1.SyncLevelLogOnly), tw.SyncLevel)
+	require.Equal(t, []string{"movie", "series"}, tw.Kinds)
+	require.NotNil(t, tw.LastSyncAt)
+	require.NotNil(t, tw.NextSyncAt)
+	require.EqualValues(t, 42, tw.ItemCount)
+	require.EqualValues(t, 3, tw.AddedCount)
+	require.EqualValues(t, 1, tw.ExcludedCount)
+	require.NotNil(t, tw.Auth, "a pending device-code flow must project through")
+	require.Equal(t, "AB12-CD34", tw.Auth.UserCode)
+	require.Equal(t, "https://trakt.tv/activate", tw.Auth.VerificationURL)
+	require.NotNil(t, tw.Auth.ExpiresAt)
+
+	pw := byName["plex-watchlist"]
+	require.False(t, pw.Enabled)
+	require.Equal(t, "plex", pw.SourceType)
+	require.Nil(t, pw.Auth, "no status.auth must project as no pending flow, not a zero-valued one")
+}
+
 // TestLibraryAndUnmatchedSubscribersShareThePipelineListRound is Task
 // G3-3's own generalisation of TestDownloadsSubscribersShareThePipelineListRound
-// (ruling R4): a SubscribeLibrary or SubscribeUnmatched subscriber must not
-// add a List call of its own beyond the one shared round listCallsPerTick
-// already accounts for -- Library reuses listItems' ten List calls, and
-// Unmatched adds exactly the one LibraryScan List call folded into
-// listCallsPerTick above.
+// (ruling R4), extended by Task G3-4 to cover SubscribeImportLists too: none
+// of SubscribeLibrary, SubscribeUnmatched or SubscribeImportLists may add a
+// List call of its own beyond the one shared round listCallsPerTick already
+// accounts for -- Library reuses listItems' ten List calls, Unmatched adds
+// exactly one LibraryScan List call, and ImportLists adds exactly one
+// ImportList List call, both folded into listCallsPerTick above.
 func TestLibraryAndUnmatchedSubscribersShareThePipelineListRound(t *testing.T) {
 	movie := &catalogv1.Movie{
 		ObjectMeta: metav1.ObjectMeta{Name: "shawshank-redemption", Namespace: "default", UID: "movie-uid"},
@@ -551,7 +635,14 @@ func TestLibraryAndUnmatchedSubscribersShareThePipelineListRound(t *testing.T) {
 			Unmatched: []catalogv1.UnmatchedFile{{Path: "x.mkv", Reason: "no id", SeenAt: metav1.Now()}},
 		},
 	}
-	fakeClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(movie, scan).Build()
+	list := &catalogv1.ImportList{
+		ObjectMeta: metav1.ObjectMeta{Name: "trakt-watchlist", Namespace: "default"},
+		Spec: catalogv1.ImportListSpec{
+			Kinds: []string{"movie"}, Trakt: &catalogv1.TraktList{ListType: catalogv1.TraktListTypeWatchlist},
+			Defaults: catalogv1.ListDefaults{QualityProfileRef: "hd-1080p", RootFolderRef: "movies"},
+		},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(movie, scan, list).Build()
 
 	var calls atomic.Int64
 	reader := &countingReader{Reader: fakeClient, calls: &calls}
@@ -567,6 +658,8 @@ func TestLibraryAndUnmatchedSubscribersShareThePipelineListRound(t *testing.T) {
 	defer unsubLibrary()
 	unmatchedCh, unsubUnmatched := proj.SubscribeUnmatched()
 	defer unsubUnmatched()
+	importListsCh, unsubImportLists := proj.SubscribeImportLists()
+	defer unsubImportLists()
 
 	gotEntries := receiveNonEmpty(t, entriesCh, 2*time.Second)
 	require.Len(t, gotEntries, 1)
@@ -595,10 +688,22 @@ func TestLibraryAndUnmatchedSubscribersShareThePipelineListRound(t *testing.T) {
 	require.Len(t, gotUnmatched, 1)
 	require.Equal(t, "x.mkv", gotUnmatched[0].Path)
 
+	deadline = time.After(2 * time.Second)
+	var gotImportLists []projection.ImportListEntry
+	for len(gotImportLists) == 0 {
+		select {
+		case gotImportLists = <-importListsCh:
+		case <-deadline:
+			t.Fatal("timed out waiting for a non-empty import-lists projection")
+		}
+	}
+	require.Len(t, gotImportLists, 1)
+	require.Equal(t, "trakt-watchlist", gotImportLists[0].Ref.Name)
+
 	// Give any errant extra tick or extra List a moment to happen before
 	// asserting the call count, exactly as the downloads-stream analogue
 	// above does: interval is an hour, so nothing further should arrive.
 	time.Sleep(50 * time.Millisecond)
 	require.EqualValues(t, listCallsPerTick, calls.Load(),
-		"library and unmatched subscribers must add no List call beyond the one shared round")
+		"library, unmatched and import-list subscribers must add no List call beyond the one shared round")
 }

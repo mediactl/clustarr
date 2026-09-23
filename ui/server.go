@@ -159,6 +159,18 @@ type Options struct {
 	// SubscribeLibrary.
 	SubscribeUnmatched func() (<-chan []projection.UnmatchedEntry, func())
 
+	// ImportLists returns the current import-list projection for the Import
+	// Lists page (Task G3-4, amendment §A3.4: "each list, its schedule, last
+	// sync, item counts, and the Trakt device-code flow when authorization is
+	// pending") and its SSE stream, mirroring Library and Unmatched. A nil
+	// ImportLists behaves as if it always returned no rows.
+	ImportLists func(context.Context) []projection.ImportListEntry
+
+	// SubscribeImportLists is Subscribe's Import Lists page counterpart, with
+	// the same nil-defaults-to-a-per-connection-poll fallback as
+	// SubscribeLibrary and SubscribeUnmatched.
+	SubscribeImportLists func() (<-chan []projection.ImportListEntry, func())
+
 	// WaitForSync reports whether Reader's cache has completed its initial
 	// sync -- typically [NewClusterReader]'s own WaitForCacheSync. The
 	// /readyz handler polls it: 503 while it returns false, 200 once it
@@ -243,6 +255,12 @@ func NewServer(ctx context.Context, opts Options) *Server {
 	}
 	if opts.SubscribeUnmatched == nil {
 		opts.SubscribeUnmatched = defaultSubscribeUnmatched(opts.Unmatched)
+	}
+	if opts.ImportLists == nil {
+		opts.ImportLists = func(context.Context) []projection.ImportListEntry { return nil }
+	}
+	if opts.SubscribeImportLists == nil {
+		opts.SubscribeImportLists = defaultSubscribeImportLists(opts.ImportLists)
 	}
 	if opts.WaitForSync == nil {
 		opts.WaitForSync = func(context.Context) bool { return true }

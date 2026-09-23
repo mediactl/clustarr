@@ -16,16 +16,23 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package actions is the only package under ui/ that writes to the cluster,
-// and it writes exactly what design amendment §A3.2 lets the UI write:
+// and it writes exactly what design amendment §A3.2 (the Library page) and
+// Task G3-4 (the Settings page) let the UI write:
 //
 //   - "search now" creates a Search ([SearchNow]);
 //   - "rescan" creates a LibraryScan ([Rescan]);
-//   - "monitor this" patches a catalog item's spec.monitored ([SetMonitored]).
+//   - "monitor this" patches a catalog item's spec.monitored ([SetMonitored]);
+//   - the Settings page's edit forms each patch one settings kind's own
+//     modest field set (settings.go): RootFolder.spec.scanSchedule,
+//     QualityProfile.spec.upgradeAllowed, Indexer/DownloadClient/
+//     MetadataProvider/SubtitleProvider's spec.enabled and spec.priority,
+//     SubtitleProfile.spec.default and TranscodeProfile.spec.priority.
 //
 // Nothing else. The UI never writes status, holds no status field manager and
 // owns no CRD (§A3.2, CLAUDE.md), so every action either creates a
-// short-lived request object or patches one spec leaf -- and anything the UI
-// can do here, `kubectl create` or `kubectl patch` can do too.
+// short-lived request object or patches a handful of spec leaves -- and
+// anything the UI can do here, `kubectl create` or `kubectl patch` can do
+// too.
 //
 // # How narrow, and what enforces it
 //
@@ -47,13 +54,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     role below grants no verb that would let them succeed.
 //   - cmd/clustarr/ui_rbac_test.go holds config/rbac/ui_role.yaml to reads
 //     plus exactly [Grants]: create on searches and libraryscans, patch on
-//     the ten catalog kinds that have a spec.monitored, no */status
-//     resource, no update, no delete.
-//   - this package's envtest performs every action against a real apiserver
+//     the ten catalog kinds that have a spec.monitored and on each of the
+//     eight Settings-page kinds (settings.go), no */status resource, no
+//     update, no delete.
+//   - this package's envtest (actions_envtest_test.go) performs every §A3.2
+//     action -- SearchNow, Rescan, SetMonitored -- against a real apiserver
 //     and asserts on metadata.managedFields that [FieldManager] never
-//     appears on a status path, owns exactly spec.monitored after a patch,
-//     and that the (group, resource, verb) each action actually hit is
-//     exactly [Grants].
+//     appears on a status path and owns exactly spec.monitored after a
+//     patch. It predates the Settings actions in settings.go, which are
+//     covered instead by actions_test.go's fakeWriter-based unit tests (same
+//     merge-patch shape SetMonitored's own envtest already proves against a
+//     real apiserver) plus the RBAC guard's (group, resource, verb) check
+//     below, which is what actually stands between a missing grant and a
+//     cluster-only Forbidden.
 //
 // # Why "monitor this" is a JSON merge patch and not server-side apply
 //

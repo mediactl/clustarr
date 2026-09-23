@@ -127,14 +127,16 @@ type Grant struct {
 	Verb     string
 }
 
-// Grants returns every RBAC permission this package's three actions need,
-// and nothing else: create on searches and libraryscans, patch on each
-// catalog kind in [MediaKinds]. It is a declaration, not a computation --
-// the envtest proves the actions hit exactly these on a real apiserver, and
-// cmd/clustarr/ui_rbac_test.go proves ui_role.yaml grants exactly these as
-// its only write verbs. envtest does not enforce RBAC, so without that pair
-// an action the role does not cover would pass every test and fail only in a
-// cluster.
+// Grants returns every RBAC permission this package's actions need, and
+// nothing else: create on searches and libraryscans, patch on each catalog
+// kind in [MediaKinds] ("monitor this", §A3.2), plus -- Task G3-4, the
+// Settings page -- patch on each kind [settingsGrants] (settings.go) names.
+// It is a declaration, not a computation -- the envtest proves the §A3.2
+// actions hit exactly their share of this on a real apiserver, and
+// cmd/clustarr/ui_rbac_test.go proves ui_role.yaml grants exactly this whole
+// set as its only write verbs. envtest does not enforce RBAC, so without
+// that pair an action the role does not cover would pass every test and
+// fail only in a cluster.
 func Grants() []Grant {
 	group := catalogv1alpha1.GroupVersion.Group
 	grants := []Grant{
@@ -144,6 +146,7 @@ func Grants() []Grant {
 	for _, kind := range MediaKinds() {
 		grants = append(grants, Grant{Group: group, Resource: monitorables[kind].resource, Verb: "patch"})
 	}
+	grants = append(grants, settingsGrants()...)
 	return grants
 }
 

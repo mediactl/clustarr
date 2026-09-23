@@ -1,0 +1,182 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/mediactl/clustarr/ui/projection"
+)
+
+// ImportLists renders the Import Lists page (amendment §A3.4, Task G3-4):
+// "each list, its schedule, last sync, item counts, and the Trakt
+// device-code flow when authorization is pending". It is read-only -- the
+// page's own edit surface, if any, belongs to the Settings page once its
+// editable set grows to cover import lists, not here -- so there is no form
+// on this page at all. It is a full page, wrapped in Layout, so a plain GET
+// renders something useful even before htmx's SSE extension has connected.
+//
+// #import-lists-rows is the sse-swap target, mirroring every other live
+// page: htmx's SSE extension replaces that element's innerHTML with the
+// named event's data, so everything inside it (and only what's inside it)
+// must be exactly what ImportListRows renders.
+templ ImportLists(entries []projection.ImportListEntry) {
+	@Layout("Import Lists") {
+		<h1 class="mb-4 text-2xl font-bold">Import Lists</h1>
+		<div
+			id="import-lists-rows"
+			hx-ext="sse"
+			sse-connect="/events/import-lists"
+			sse-swap="import-lists"
+			class="space-y-4"
+		>
+			@ImportListRows(entries)
+		</div>
+	}
+}
+
+// ImportListRows renders the dynamic part of the Import Lists page: the "no
+// import lists configured" placeholder or the row list. This is also what
+// /events/import-lists renders into each SSE event's data, so the initial
+// page render and every live update produce byte-for-byte the same markup
+// for #import-lists-rows's contents.
+templ ImportListRows(entries []projection.ImportListEntry) {
+	if len(entries) == 0 {
+		<p class="text-slate-400">No import lists configured.</p>
+	}
+	<div class="grid gap-3">
+		for _, e := range entries {
+			@importListRow(e)
+		}
+	</div>
+}
+
+// importListRow renders one ImportListEntry: its source type, enabled and
+// sync-level badges, schedule, item counts, and -- while one is pending --
+// the device-code authorization flow's user code and verification URL,
+// shown clearly per this task's own instruction. Every row carries
+// data-list, data-enabled, data-source, data-sync-level, data-last-sync,
+// data-next-sync and data-auth-state (ruling R8): the UI tests assert on
+// these attributes, not on visible copy, so a wording change does not break
+// a test and a markup change does not pass one.
+templ importListRow(e projection.ImportListEntry) {
+	<div
+		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
+		data-list={ importListRef(e) }
+		data-enabled={ fmt.Sprintf("%t", e.Enabled) }
+		data-source={ e.SourceType }
+		data-sync-level={ e.SyncLevel }
+		data-last-sync={ importListTimeAttr(e.LastSyncAt) }
+		data-next-sync={ importListTimeAttr(e.NextSyncAt) }
+		data-auth-state={ importListAuthState(e) }
+	>
+		<div class="flex items-center justify-between gap-4">
+			<span class="font-medium">{ e.Ref.Name }</span>
+			<span class={ importListEnabledBadgeClass(e.Enabled) }>{ importListEnabledLabel(e.Enabled) }</span>
+		</div>
+		<div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+			if e.SourceType != "" {
+				<span class="rounded-full bg-slate-800 px-2 py-0.5">{ e.SourceType }</span>
+			}
+			if e.SyncLevel != "" {
+				<span class="rounded-full bg-slate-800 px-2 py-0.5">sync: { e.SyncLevel }</span>
+			}
+			if len(e.Kinds) > 0 {
+				<span>{ strings.Join(e.Kinds, ", ") }</span>
+			}
+		</div>
+		<div class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-400 sm:grid-cols-4">
+			<span>{ fmt.Sprintf("last sync %s", importListTimeLabel(e.LastSyncAt)) }</span>
+			<span>{ fmt.Sprintf("next sync %s", importListTimeLabel(e.NextSyncAt)) }</span>
+			<span>{ fmt.Sprintf("items %d", e.ItemCount) }</span>
+			<span>{ fmt.Sprintf("added %d · excluded %d · removed %d", e.AddedCount, e.ExcludedCount, e.RemovedCount) }</span>
+		</div>
+		if e.Auth != nil && e.Auth.State == "pending" {
+			<div class="mt-3 rounded-md border border-amber-800 bg-amber-950/40 p-3 text-sm">
+				<p class="font-medium text-amber-300">Authorization required</p>
+				<p class="mt-1 text-slate-300">
+					Go to
+					if e.Auth.VerificationURL != "" {
+						<a href={ templ.URL(e.Auth.VerificationURL) } class="text-sky-400 hover:underline">{ e.Auth.VerificationURL }</a>
+					} else {
+						<span>the provider's verification page</span>
+					}
+					and enter code
+					<span class="font-mono font-semibold text-slate-100">{ e.Auth.UserCode }</span>
+				</p>
+			</div>
+		}
+		if e.LastError != "" {
+			<div class="mt-2 text-sm text-red-400">{ e.LastError }</div>
+		}
+	</div>
+}
+
+// importListRef renders an ImportListEntry's namespace/name for its
+// data-list attribute, mirroring projection.LibraryItem.Ref.String() used on
+// the Library page's own rows.
+func importListRef(e projection.ImportListEntry) string {
+	return fmt.Sprintf("%s/%s", e.Ref.Namespace, e.Ref.Name)
+}
+
+func importListEnabledLabel(enabled bool) string {
+	if enabled {
+		return "enabled"
+	}
+	return "disabled"
+}
+
+func importListEnabledBadgeClass(enabled bool) string {
+	const base = "rounded-full px-2 py-0.5 text-xs font-medium "
+	if enabled {
+		return base + "bg-emerald-500/20 text-emerald-300"
+	}
+	return base + "bg-slate-500/20 text-slate-300"
+}
+
+// importListAuthState reads e.Auth.State, or "" when no auth flow is
+// tracked at all -- distinct from the CRD's own explicit "none" state, which
+// a real object may set once a flow has completed.
+func importListAuthState(e projection.ImportListEntry) string {
+	if e.Auth == nil {
+		return ""
+	}
+	return e.Auth.State
+}
+
+// importListTimeAttr renders a *metav1.Time as RFC3339 for a data-* attribute,
+// or "" when nil -- a stable, machine-parseable value distinct from
+// importListTimeLabel's human-readable placeholder.
+func importListTimeAttr(t *metav1.Time) string {
+	if t == nil {
+		return ""
+	}
+	return t.Format(time.RFC3339)
+}
+
+// importListTimeLabel renders a *metav1.Time for display, or "-" when nil.
+func importListTimeLabel(t *metav1.Time) string {
+	if t == nil {
+		return "-"
+	}
+	return t.Format("2006-01-02 15:04")
+}

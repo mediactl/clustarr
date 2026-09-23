@@ -1,0 +1,473 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"fmt"
+
+	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	indexv1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	subtitlev1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
+	transcodev1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+)
+
+// settingsReturnPath is every Settings-page form's "return" field: back to
+// /settings itself, regardless of ui/routes.go's finishAction own default of
+// /library (which exists for the Library page's own forms).
+const settingsReturnPath = "/settings"
+
+// Settings renders the Settings page (amendment §A3.4, Task G3-4): root
+// folders, quality profiles, indexers, download clients, metadata
+// providers, subtitle providers, subtitle profiles and transcode profiles,
+// "each rendered from the corresponding resources with an edit form that
+// patches spec". Unlike every other live page, Settings has no SSE stream
+// (§A3.4: "None") -- config like this does not need to ride the shared
+// projection's live cadence, the same reasoning ui/routes.go's
+// listRootFolders and listDownloads already give for the Library and
+// Downloads pages' own config sections -- so a plain GET is the whole page,
+// no #settings-rows sse-swap target.
+//
+// A Secret's contents are never shown: every secretRef field below renders
+// only the Secret's name, never a value read from it (this task's own
+// instruction) -- and none of these kinds' Get calls ever read a Secret at
+// all, so there is nothing to accidentally leak.
+templ Settings(
+	rootFolders []catalogv1.RootFolder,
+	qualityProfiles []catalogv1.QualityProfile,
+	indexers []indexv1.Indexer,
+	downloadClients []downloadv1.DownloadClient,
+	metadataProviders []catalogv1.MetadataProvider,
+	subtitleProviders []subtitlev1.SubtitleProvider,
+	subtitleProfiles []subtitlev1.SubtitleProfile,
+	transcodeProfiles []transcodev1.TranscodeProfile,
+) {
+	@Layout("Settings") {
+		<h1 class="mb-4 text-2xl font-bold">Settings</h1>
+		@settingsSection("Root Folders") {
+			if len(rootFolders) == 0 {
+				<p class="text-slate-400">No root folders configured.</p>
+			}
+			for _, rf := range rootFolders {
+				@rootFolderCard(rf)
+			}
+		}
+		@settingsSection("Quality Profiles") {
+			if len(qualityProfiles) == 0 {
+				<p class="text-slate-400">No quality profiles configured.</p>
+			}
+			for _, qp := range qualityProfiles {
+				@qualityProfileCard(qp)
+			}
+		}
+		@settingsSection("Indexers") {
+			if len(indexers) == 0 {
+				<p class="text-slate-400">No indexers configured.</p>
+			}
+			for _, idx := range indexers {
+				@indexerCard(idx)
+			}
+		}
+		@settingsSection("Download Clients") {
+			if len(downloadClients) == 0 {
+				<p class="text-slate-400">No download clients configured.</p>
+			}
+			for _, dc := range downloadClients {
+				@downloadClientSettingsCard(dc)
+			}
+		}
+		@settingsSection("Metadata Providers") {
+			if len(metadataProviders) == 0 {
+				<p class="text-slate-400">No metadata providers configured.</p>
+			}
+			for _, mp := range metadataProviders {
+				@metadataProviderCard(mp)
+			}
+		}
+		@settingsSection("Subtitle Providers") {
+			if len(subtitleProviders) == 0 {
+				<p class="text-slate-400">No subtitle providers configured.</p>
+			}
+			for _, sp := range subtitleProviders {
+				@subtitleProviderCard(sp)
+			}
+		}
+		@settingsSection("Subtitle Profiles") {
+			if len(subtitleProfiles) == 0 {
+				<p class="text-slate-400">No subtitle profiles configured.</p>
+			}
+			for _, sp := range subtitleProfiles {
+				@subtitleProfileCard(sp)
+			}
+		}
+		@settingsSection("Transcode Profiles") {
+			if len(transcodeProfiles) == 0 {
+				<p class="text-slate-400">No transcode profiles configured.</p>
+			}
+			for _, tp := range transcodeProfiles {
+				@transcodeProfileCard(tp)
+			}
+		}
+	}
+}
+
+// settingsSection wraps one kind's cards under a heading, mirroring
+// downloads.templ's downloadClientsSection.
+templ settingsSection(title string) {
+	<section class="mb-8">
+		<h2 class="mb-2 text-lg font-semibold">{ title }</h2>
+		<div class="grid gap-3 sm:grid-cols-2">
+			{ children... }
+		</div>
+	</section>
+}
+
+// rootFolderCard renders one RootFolder with an edit form for
+// spec.scanSchedule -- the one field RootFolderSpec offers that is neither
+// immutable (path and kind) nor a nested struct with no single obviously
+// safe leaf (ui/actions/settings.go's own doc comment on
+// SetRootFolderScanSchedule).
+templ rootFolderCard(rf catalogv1.RootFolder) {
+	<div
+		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
+		data-root-folder={ rf.Namespace + "/" + rf.Name }
+		data-scan-schedule={ rf.Spec.ScanSchedule }
+	>
+		<div class="flex items-center justify-between gap-4">
+			<span class="font-medium">{ rf.Name }</span>
+			<span class="rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-400">{ string(rf.Spec.Kind) }</span>
+		</div>
+		<p class="mt-1 text-xs text-slate-400">{ rf.Spec.Path }</p>
+		<form
+			method="post"
+			action={ templ.URL(fmt.Sprintf("/settings/rootfolders/%s/%s", rf.Namespace, rf.Name)) }
+			class="mt-3 flex items-center gap-2"
+		>
+			<input type="hidden" name="return" value={ settingsReturnPath }/>
+			<label class="text-xs text-slate-400" for={ "scanSchedule-" + rf.Name }>Scan schedule (cron)</label>
+			<input
+				type="text"
+				id={ "scanSchedule-" + rf.Name }
+				name="scanSchedule"
+				value={ rf.Spec.ScanSchedule }
+				placeholder="e.g. 0 3 * * *"
+				class="flex-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm"
+			/>
+			<button
+				type="submit"
+				data-action="save"
+				class="rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white hover:bg-sky-500"
+			>
+				Save
+			</button>
+		</form>
+	</div>
+}
+
+// qualityProfileCard renders one QualityProfile with an edit form for
+// spec.upgradeAllowed. A built-in profile's own CEL rule rejects any patch
+// to it; the form still renders (this page never special-cases builtIn by
+// hiding the form), and a rejection surfaces through routes.go's
+// finishAction -> views.ActionError, per this task's "handle the rejection
+// visibly" instruction.
+templ qualityProfileCard(qp catalogv1.QualityProfile) {
+	<div
+		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
+		data-quality-profile={ qp.Name }
+		data-built-in={ fmt.Sprintf("%t", qp.Spec.BuiltIn) }
+		data-upgrade-allowed={ fmt.Sprintf("%t", qualityProfileUpgradeAllowed(qp)) }
+	>
+		<div class="flex items-center justify-between gap-4">
+			<span class="font-medium">{ qp.Name }</span>
+			if qp.Spec.BuiltIn {
+				<span class="rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-400">built-in</span>
+			}
+		</div>
+		<p class="mt-1 text-xs text-slate-400">{ string(qp.Spec.MediaKind) } · cutoff { qp.Spec.Cutoff }</p>
+		<form
+			method="post"
+			action={ templ.URL(fmt.Sprintf("/settings/qualityprofiles/%s", qp.Name)) }
+			class="mt-3 flex items-center gap-2"
+		>
+			<input type="hidden" name="return" value={ settingsReturnPath }/>
+			<button
+				type="submit"
+				name="upgradeAllowed"
+				value={ fmt.Sprintf("%t", !qualityProfileUpgradeAllowed(qp)) }
+				data-action="set-upgrade-allowed"
+				class="rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium hover:bg-slate-700"
+			>
+				if qualityProfileUpgradeAllowed(qp) {
+					Disable upgrades
+				} else {
+					Enable upgrades
+				}
+			</button>
+		</form>
+	</div>
+}
+
+func qualityProfileUpgradeAllowed(qp catalogv1.QualityProfile) bool {
+	return qp.Spec.UpgradeAllowed == nil || *qp.Spec.UpgradeAllowed
+}
+
+// indexerCard renders one Indexer with a combined edit form for
+// spec.enabled and spec.priority, submitted together as one merge patch
+// (ui/actions.SetIndexerSettings). SecretRef is shown only by name, per this
+// task's "never expose a Secret's contents" instruction -- there is no path
+// here that reads the Secret at all.
+templ indexerCard(idx indexv1.Indexer) {
+	<div
+		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
+		data-indexer={ idx.Namespace + "/" + idx.Name }
+		data-enabled={ fmt.Sprintf("%t", indexerEnabled(idx)) }
+		data-priority={ fmt.Sprintf("%d", idx.Spec.Priority) }
+	>
+		<div class="flex items-center justify-between gap-4">
+			<span class="font-medium">{ idx.Name }</span>
+			<span class={ enabledBadgeClass(indexerEnabled(idx)) }>{ enabledLabel(indexerEnabled(idx)) }</span>
+		</div>
+		<p class="mt-1 text-xs text-slate-400">{ idx.Spec.BaseURL }</p>
+		if idx.Spec.SecretRef != nil {
+			<p class="mt-1 text-xs text-slate-500">credentials: Secret/{ idx.Spec.SecretRef.Name }</p>
+		}
+		@enabledPriorityForm(fmt.Sprintf("/settings/indexers/%s/%s", idx.Namespace, idx.Name), indexerEnabled(idx), idx.Spec.Priority, "indexer-"+idx.Name)
+	</div>
+}
+
+func indexerEnabled(idx indexv1.Indexer) bool {
+	return idx.Spec.Enabled == nil || *idx.Spec.Enabled
+}
+
+// downloadClientSettingsCard is downloads.templ's downloadClientCard's own
+// Settings-page counterpart: same identifying data, plus the edit form
+// downloads.templ's read-only summary card has no reason to carry.
+templ downloadClientSettingsCard(dc downloadv1.DownloadClient) {
+	<div
+		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
+		data-download-client={ dc.Namespace + "/" + dc.Name }
+		data-enabled={ fmt.Sprintf("%t", downloadClientEnabled(dc)) }
+		data-priority={ fmt.Sprintf("%d", dc.Spec.Priority) }
+	>
+		<div class="flex items-center justify-between gap-4">
+			<span class="font-medium">{ dc.Name }</span>
+			<span class={ enabledBadgeClass(downloadClientEnabled(dc)) }>{ enabledLabel(downloadClientEnabled(dc)) }</span>
+		</div>
+		<p class="mt-1 text-xs text-slate-400">{ string(dc.Spec.Protocol) }</p>
+		@enabledPriorityForm(fmt.Sprintf("/settings/downloadclients/%s/%s", dc.Namespace, dc.Name), downloadClientEnabled(dc), dc.Spec.Priority, "downloadclient-"+dc.Name)
+	</div>
+}
+
+func downloadClientEnabled(dc downloadv1.DownloadClient) bool {
+	return dc.Spec.Enabled == nil || *dc.Spec.Enabled
+}
+
+// metadataProviderCard renders one MetadataProvider with the same
+// enabled/priority edit form as Indexer and DownloadClient.
+templ metadataProviderCard(mp catalogv1.MetadataProvider) {
+	<div
+		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
+		data-metadata-provider={ mp.Namespace + "/" + mp.Name }
+		data-enabled={ fmt.Sprintf("%t", metadataProviderEnabled(mp)) }
+		data-priority={ fmt.Sprintf("%d", mp.Spec.Priority) }
+	>
+		<div class="flex items-center justify-between gap-4">
+			<span class="font-medium">{ mp.Name }</span>
+			<span class={ enabledBadgeClass(metadataProviderEnabled(mp)) }>{ enabledLabel(metadataProviderEnabled(mp)) }</span>
+		</div>
+		<p class="mt-1 text-xs text-slate-400">{ string(mp.Spec.Type) }</p>
+		if mp.Spec.SecretRef != nil {
+			<p class="mt-1 text-xs text-slate-500">credentials: Secret/{ mp.Spec.SecretRef.Name }</p>
+		}
+		@enabledPriorityForm(fmt.Sprintf("/settings/metadataproviders/%s/%s", mp.Namespace, mp.Name), metadataProviderEnabled(mp), mp.Spec.Priority, "metadataprovider-"+mp.Name)
+	</div>
+}
+
+func metadataProviderEnabled(mp catalogv1.MetadataProvider) bool {
+	return mp.Spec.Enabled == nil || *mp.Spec.Enabled
+}
+
+// subtitleProviderCard renders one SubtitleProvider with the same
+// enabled/priority edit form. Unlike the other three, SubtitleProviderSpec's
+// Enabled is a plain bool (no pointer, CRD default true), so there is no nil
+// case to default here.
+templ subtitleProviderCard(sp subtitlev1.SubtitleProvider) {
+	<div
+		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
+		data-subtitle-provider={ sp.Namespace + "/" + sp.Name }
+		data-enabled={ fmt.Sprintf("%t", sp.Spec.Enabled) }
+		data-priority={ fmt.Sprintf("%d", sp.Spec.Priority) }
+	>
+		<div class="flex items-center justify-between gap-4">
+			<span class="font-medium">{ sp.Name }</span>
+			<span class={ enabledBadgeClass(sp.Spec.Enabled) }>{ enabledLabel(sp.Spec.Enabled) }</span>
+		</div>
+		<p class="mt-1 text-xs text-slate-400">{ string(sp.Spec.Type) }</p>
+		if sp.Spec.SecretRef != nil {
+			<p class="mt-1 text-xs text-slate-500">credentials: Secret/{ sp.Spec.SecretRef.Name }</p>
+		}
+		@enabledPriorityForm(fmt.Sprintf("/settings/subtitleproviders/%s/%s", sp.Namespace, sp.Name), sp.Spec.Enabled, sp.Spec.Priority, "subtitleprovider-"+sp.Name)
+	</div>
+}
+
+// subtitleProfileCard renders one SubtitleProfile (cluster-scoped) with an
+// edit form for spec.default.
+templ subtitleProfileCard(sp subtitlev1.SubtitleProfile) {
+	<div
+		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
+		data-subtitle-profile={ sp.Name }
+		data-default={ fmt.Sprintf("%t", sp.Spec.Default) }
+	>
+		<div class="flex items-center justify-between gap-4">
+			<span class="font-medium">{ sp.Name }</span>
+			if sp.Spec.Default {
+				<span class="rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-300">default</span>
+			}
+		</div>
+		<form
+			method="post"
+			action={ templ.URL(fmt.Sprintf("/settings/subtitleprofiles/%s", sp.Name)) }
+			class="mt-3"
+		>
+			<input type="hidden" name="return" value={ settingsReturnPath }/>
+			<button
+				type="submit"
+				name="default"
+				value={ fmt.Sprintf("%t", !sp.Spec.Default) }
+				data-action="set-default"
+				class="rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium hover:bg-slate-700"
+			>
+				if sp.Spec.Default {
+					Unset as default
+				} else {
+					Set as default
+				}
+			</button>
+		</form>
+	</div>
+}
+
+// transcodeProfileCard renders one TranscodeProfile (cluster-scoped) with an
+// edit form for spec.priority.
+templ transcodeProfileCard(tp transcodev1.TranscodeProfile) {
+	<div
+		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
+		data-transcode-profile={ tp.Name }
+		data-priority={ fmt.Sprintf("%d", tp.Spec.Priority) }
+	>
+		<div class="flex items-center justify-between gap-4">
+			<span class="font-medium">{ tp.Name }</span>
+			if tp.Spec.Default {
+				<span class="rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-300">default</span>
+			}
+		</div>
+		<p class="mt-1 text-xs text-slate-400">{ string(tp.Spec.Hardware) } · { string(tp.Spec.Container) }</p>
+		<form
+			method="post"
+			action={ templ.URL(fmt.Sprintf("/settings/transcodeprofiles/%s", tp.Name)) }
+			class="mt-3 flex items-center gap-2"
+		>
+			<input type="hidden" name="return" value={ settingsReturnPath }/>
+			<label class="text-xs text-slate-400" for={ "priority-" + tp.Name }>Priority</label>
+			<input
+				type="number"
+				id={ "priority-" + tp.Name }
+				name="priority"
+				value={ fmt.Sprintf("%d", tp.Spec.Priority) }
+				class="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm"
+			/>
+			<button
+				type="submit"
+				data-action="save"
+				class="rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white hover:bg-sky-500"
+			>
+				Save
+			</button>
+		</form>
+	</div>
+}
+
+// enabledPriorityForm is the shared edit form for the four kinds whose
+// Settings-page edit is exactly spec.enabled and spec.priority (Indexer,
+// DownloadClient, MetadataProvider, SubtitleProvider): a priority number
+// input, plus two submit buttons that each carry the priority input's
+// current value together with their own explicit enabled=true/false --
+// clicking either both toggles enabled and saves whatever priority is
+// currently typed, in one merge patch.
+templ enabledPriorityForm(action string, enabled bool, priority int32, idPrefix string) {
+	<form method="post" action={ templ.URL(action) } class="mt-3 flex items-center gap-2">
+		<input type="hidden" name="return" value={ settingsReturnPath }/>
+		<label class="text-xs text-slate-400" for={ "priority-" + idPrefix }>Priority</label>
+		<input
+			type="number"
+			id={ "priority-" + idPrefix }
+			name="priority"
+			value={ fmt.Sprintf("%d", priority) }
+			class="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm"
+		/>
+		if enabled {
+			<button
+				type="submit"
+				name="enabled"
+				value="false"
+				data-action="disable"
+				class="rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium hover:bg-slate-700"
+			>
+				Disable
+			</button>
+		} else {
+			<button
+				type="submit"
+				name="enabled"
+				value="true"
+				data-action="enable"
+				class="rounded-md bg-emerald-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-600"
+			>
+				Enable
+			</button>
+		}
+		<button
+			type="submit"
+			name="enabled"
+			value={ fmt.Sprintf("%t", enabled) }
+			data-action="save"
+			class="rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white hover:bg-sky-500"
+		>
+			Save
+		</button>
+	</form>
+}
+
+// enabledLabel and enabledBadgeClass mirror downloads.templ's
+// clientEnabledLabel/clientEnabledBadgeClass for the identical
+// boolean-badge shape, generalised across every Settings-page kind rather
+// than duplicated per kind.
+func enabledLabel(enabled bool) string {
+	if enabled {
+		return "enabled"
+	}
+	return "disabled"
+}
+
+func enabledBadgeClass(enabled bool) string {
+	const base = "rounded-full px-2 py-0.5 text-xs font-medium "
+	if enabled {
+		return base + "bg-emerald-500/20 text-emerald-300"
+	}
+	return base + "bg-slate-500/20 text-slate-300"
+}

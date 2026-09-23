@@ -316,11 +316,12 @@ rules:
 {{- if .Values.ui.enabled }}
 ---
 {{/* ui's ClusterRole is hand-written and stays hand-written (design plan
-     ruling R3): get/list/watch over the catalog, download, transcode and
-     subtitle groups, plus exactly the writes ui/actions' three actions make
+     ruling R3): get/list/watch over the catalog, download, index, transcode
+     and subtitle groups, plus exactly the writes ui/actions' actions make
      (Phase G ruling R2) -- create on searches and libraryscans, patch on the
-     ten catalog kinds with a spec.monitored -- and no update, no delete and
-     no resource whose name ends in "status" anywhere in it. This is a
+     ten catalog kinds with a spec.monitored, and patch on the eight
+     Settings-page kinds (Task G3-4) -- and no update, no delete and no
+     resource whose name ends in "status" anywhere in it. This is a
      byte-for-byte copy of config/rbac/ui_role.yaml's rules -- see the note
      at the top of that file for why ui never shares clustarr-manager-role. */}}
 apiVersion: rbac.authorization.k8s.io/v1
@@ -366,6 +367,14 @@ rules:
   - list
   - watch
 - apiGroups:
+  - index.clustarr.io
+  resources:
+  - indexers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - subtitle.clustarr.io
   resources:
   - subtitleprofiles
@@ -404,6 +413,39 @@ rules:
   - issues
   - movies
   - series
+  verbs:
+  - patch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - metadataproviders
+  - qualityprofiles
+  - rootfolders
+  verbs:
+  - patch
+- apiGroups:
+  - index.clustarr.io
+  resources:
+  - indexers
+  verbs:
+  - patch
+- apiGroups:
+  - download.clustarr.io
+  resources:
+  - downloadclients
+  verbs:
+  - patch
+- apiGroups:
+  - subtitle.clustarr.io
+  resources:
+  - subtitleprofiles
+  - subtitleproviders
+  verbs:
+  - patch
+- apiGroups:
+  - transcode.clustarr.io
+  resources:
+  - transcodeprofiles
   verbs:
   - patch
 ---

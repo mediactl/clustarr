@@ -251,7 +251,20 @@ func TestUIManagerNeverOwnsStatus(t *testing.T) {
 			"expected one clustarr-ui entry per catalog item patched plus the Search and the LibraryScan")
 	})
 
-	t.Run("the grants the actions used are exactly actions.Grants()", func(t *testing.T) {
+	// This subtest asserted declared == used until Task G3-4 added
+	// settings.go's eight Settings-page actions: actions.Grants() now
+	// declares their grants too, but this envtest -- written for the three
+	// §A3.2 actions (SearchNow, Rescan, SetMonitored) -- never calls them,
+	// so "used" is a proper subset of "declared" by design, not by a bug.
+	// The invariant this subtest actually protects -- no action ever hits an
+	// undeclared (group, resource, verb), which would pass every test here
+	// and be Forbidden only in a real cluster -- still holds as a subset
+	// check; the settings actions get the same real-apiserver proof from
+	// settings_envtest_test.go (one kind, chosen for its non-pointer,
+	// omitempty-tagged Enabled field) plus settings_test.go's fakeWriter
+	// coverage of the rest, and cmd/clustarr/ui_rbac_test.go still holds
+	// config/rbac/ui_role.yaml to the whole of actions.Grants().
+	t.Run("the grants the actions used are declared in actions.Grants()", func(t *testing.T) {
 		used := map[actions.Grant]bool{}
 		for _, call := range rec.calls() {
 			gvk, err := apiutil.GVKForObject(call.obj, scheme)
@@ -264,8 +277,16 @@ func TestUIManagerNeverOwnsStatus(t *testing.T) {
 		for _, g := range actions.Grants() {
 			declared[g] = true
 		}
-		require.Equal(t, declared, used,
-			"actions.Grants() must be exactly the (group, resource, verb) the actions hit on a real apiserver")
+		for g := range used {
+			require.True(t, declared[g],
+				"the actions hit %+v on a real apiserver, but actions.Grants() does not declare it -- "+
+					"config/rbac/ui_role.yaml would never grant it, so this would pass every test here and "+
+					"be Forbidden only in a real cluster", g)
+		}
+		require.Len(t, used, len(actions.MediaKinds())+2,
+			"expected exactly one grant per §A3.2 action this envtest exercises -- create Search, create "+
+				"LibraryScan, patch each MediaKind -- see this subtest's own comment for why actions.Grants() "+
+				"itself is now larger than that")
 	})
 }
 

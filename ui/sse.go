@@ -56,6 +56,11 @@ const libraryPushInterval = 5 * time.Second
 // Options.SubscribeUnmatched is left nil.
 const unmatchedPushInterval = 5 * time.Second
 
+// importListsPushInterval is [defaultSubscribeImportLists]'s analogue of
+// pipelinePushInterval: how often it polls Options.ImportLists when
+// Options.SubscribeImportLists is left nil.
+const importListsPushInterval = 5 * time.Second
+
 // handlePipelineEvents streams the pipeline projection as Server-Sent
 // Events. Each event's data is the same HTML fragment views.PipelineRows
 // renders for the initial GET /pipeline -- the Pipeline page wires
@@ -348,6 +353,80 @@ func writeUnmatchedEvent(w http.ResponseWriter, ctx context.Context, entries []p
 	return true
 }
 
+// handleImportListsEvents streams the Import Lists page's projection as
+// Server-Sent Events (Task G3-4, amendment §A3.4: "Poll on sync"), mirroring
+// handleLibraryEvents and handleUnmatchedEvents. Each event's data is the
+// same HTML fragment views.ImportListRows renders for the initial GET
+// /import-lists inside #import-lists-rows; the Import Lists page wires
+// hx-ext="sse" sse-connect="/events/import-lists" sse-swap="import-lists"
+// onto that element, and htmx's SSE extension swaps its innerHTML with the
+// named event's data verbatim.
+//
+// Like the other pages' event handlers, this subscribes once via
+// Options.SubscribeImportLists and relays whatever arrives until the client
+// goes away. In production Options.SubscribeImportLists is backed by the
+// same *projection.Projection as every other stream -- one list round
+// feeding all of them (design plan ruling R4, Task G3-4); a nil
+// Options.SubscribeImportLists falls back to [defaultSubscribeImportLists],
+// a per-connection poll of Options.ImportLists.
+func (s *Server) handleImportListsEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+
+	ctx := r.Context()
+	ch, unsubscribe := s.opts.SubscribeImportLists()
+	defer unsubscribe()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case entries := <-ch:
+			if !writeImportListsEvent(w, ctx, entries) {
+				return
+			}
+			flusher.Flush()
+		}
+	}
+}
+
+// writeImportListsEvent writes one "import-lists" SSE event for entries and
+// reports whether the write succeeded, mirroring writeLibraryEvent and
+// writeUnmatchedEvent.
+func writeImportListsEvent(w http.ResponseWriter, ctx context.Context, entries []projection.ImportListEntry) bool {
+	if entries == nil {
+		entries = []projection.ImportListEntry{}
+	}
+
+	var fragment bytes.Buffer
+	if err := views.ImportListRows(entries).Render(ctx, &fragment); err != nil {
+		logging.FromContext(ctx).Error("render import list rows for sse", "error", err)
+		return false
+	}
+
+	var buf bytes.Buffer
+	buf.WriteString("event: import-lists\n")
+	for _, line := range bytes.Split(fragment.Bytes(), []byte{'\n'}) {
+		buf.WriteString("data: ")
+		buf.Write(line)
+		buf.WriteByte('\n')
+	}
+	buf.WriteByte('\n')
+
+	if _, err := w.Write(buf.Bytes()); err != nil {
+		return false
+	}
+	return true
+}
+
 // defaultSubscribe adapts entries -- a plain poll function, i.e.
 // Options.Entries -- to the Subscribe shape /events/pipeline now consumes,
 // by polling it on pipelinePushInterval from a goroutine private to each
@@ -405,6 +484,16 @@ func defaultSubscribeLibrary(library func(context.Context) []projection.LibraryI
 // Options.Unmatched itself is the only thing to poll.
 func defaultSubscribeUnmatched(unmatched func(context.Context) []projection.UnmatchedEntry) func() (<-chan []projection.UnmatchedEntry, func()) {
 	return pollingSubscribe(unmatchedPushInterval, unmatched)
+}
+
+// defaultSubscribeImportLists is [defaultSubscribeLibrary]'s Import Lists
+// page analogue (Task G3-4), polling Options.ImportLists for the same
+// reason: the ImportList-to-entry derivation lives in ui/projection,
+// unexported, so Options.ImportLists itself is the only thing to poll.
+func defaultSubscribeImportLists(
+	importLists func(context.Context) []projection.ImportListEntry,
+) func() (<-chan []projection.ImportListEntry, func()) {
+	return pollingSubscribe(importListsPushInterval, importLists)
 }
 
 func pollDownloadsOnly(ctx context.Context, reader client.Reader) []downloadv1.Download {
