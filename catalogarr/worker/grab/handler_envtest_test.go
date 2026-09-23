@@ -358,3 +358,45 @@ func TestHandler_InteractiveGrabOfTheSameReleaseDoesNotStrandDelayed(t *testing.
 	require.NoError(t, c.List(ctx, &list, client.InNamespace(ns)))
 	assert.Len(t, list.Items, 1)
 }
+
+// TestHandler_UnsourceableReleaseIsDiscardedWithoutStranding: a release with
+// nothing to download it by (no magnet, no indexer, no URL) can never be
+// grabbed, so the task is discarded rather than retried into a dead letter.
+// Discarding alone would strand the item exactly as the dead letter did --
+// pendingGrab still set, Phase=Delayed forever -- and would leave the
+// candidate in clustarr-pending as the incumbent every later release is
+// compared against. Both go.
+func TestHandler_UnsourceableReleaseIsDiscardedWithoutStranding(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	ns := newNamespace(t, ctx, c)
+
+	movie := newMovie(t, ctx, c, ns, "the-thing-1982")
+	profile := hdBlurayWeb(t)
+	bus := newTestBus(t, nil)
+	target := commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name}
+	release := torrentRelease("guid-1", "", profile.Tiers[0][0].Quality, 0)
+	release.MagnetURL = ""
+	release.DownloadURL = ""
+
+	seedWorkerStatus(t, ctx, c, movie, "", &catalogv1alpha1.PendingGrab{
+		ReleaseTitle: release.Title,
+		Protocol:     commonv1.ProtocolTorrent,
+		GrabAt:       metav1.NewTime(testNow),
+	})
+	pendingKey := seedPending(t, ctx, bus, ns, target, nil, release, downloadv1alpha1.GrabSourceRSS)
+
+	h := grab.NewHandler(grab.Deps{Client: c, Bus: bus, Now: fixedNow(testNow)})
+	err := h.Handle(ctx, grabTaskMessage(t, ns, target, nil))
+	var discard *events.DiscardError
+	require.ErrorAs(t, err, &discard, "an unsourceable release is discarded, not retried")
+	require.ErrorIs(t, err, downloads.ErrNoSource)
+
+	var got catalogv1alpha1.Movie
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(movie), &got))
+	assert.Nil(t, got.Status.PendingGrab, "the discard left the movie stranded at Phase=Delayed")
+	_, err = bus.KV(events.BucketPending).Get(ctx, pendingKey)
+	assert.ErrorIs(t, err, events.ErrKeyNotFound, "the discarded candidate is still the pending incumbent")
+	_, err = bus.KV(events.BucketLeases).Get(ctx, events.LeaseKey(grab.MediaKey(ns, target)))
+	assert.ErrorIs(t, err, events.ErrKeyNotFound, "an unsourceable release takes no lease")
+}
