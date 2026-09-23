@@ -436,7 +436,8 @@ pipelining and quota accounting, then PAR2-verifies/repairs (shelling out to
 `github.com/nwaples/rardecode/v2`. `grabarr/status` declares the two disjoint
 field-manager sets on `Download.status` — `ControllerFields`
 (`k8s.ManagerGrabarr`, nine fields) and `EngineFields`
-(`k8s.ManagerGrabarrEngine`, twenty-three) — and `Patch` refuses any other
+(`k8s.ManagerGrabarrEngine`, twenty-three then, twenty-five since gap fix
+Y2 added `engineFailureReason` and `seedGoalReached`) — and `Patch` refuses any other
 manager. `grabarr/controller/downloadclient` reconciles `DownloadClient` into
 its engine workload (a `StatefulSet` per torrent client, a `Deployment` for
 usenet), `DiskSpaceOK` and the blocklist sweep.
@@ -763,6 +764,38 @@ download fixtures serve real media, deployed the seeder and NNTP stubs, and
 wrote scenarios 15 and 16 (16's Helm and `clustarr all` legs skip); every
 scenario is still **written and never executed**. Reconciles against envtest
 (W2 gate green at `732c4a1`); not proven end to end.
+
+Gap fixes Y1-Y3 (done, 2026-09-23): the four failure-handling behaviours the
+spec named and nothing built (spec §4.4, §5, §8.3 now say "as built").
+**Hung-handler DLQ** (Y1, `bd6227e`): natsbus watches JetStream's
+`MAX_DELIVERIES` advisory per subscription, in the queue group
+`clustarr-dlq-watch-<durable>`, and copies a message whose final delivery
+lapsed on AckWait under the in-process path's Msg-Id, deleting a work-queue
+original afterwards; membus sweeps the same case. A non-work consumer's dead
+letter is named by its durable (`clustarr.dlq.catalogarr.redownload.<id>`);
+before, two event consumers shared one DLQ subject. `events.KV.DeleteRevision`
+(`1ab8ce2`) is a revision-checked delete (`ErrRevisionMismatch`; refuses
+revision 0, which JetStream reads as unconditional). **Failure reasons, seed
+goal, blocklisting** (Y2, `813145b`, `56c10c1`, `0b607c0`): engines report
+through `status.engineFailureReason` (torrent `stalled` after
+`spec.torrent.stallTimeout`, default 24h; `diskFull`; `writeError`; usenet
+`missingArticles`, `encrypted`, `diskFull`, `writeError`, and `timeout` after
+the opt-in `downloadTimeout`) and `status.seedGoalReached`; the controller
+records a terminal `failureReason`, labels a release fault blocklisted before
+publishing `failed`, leaves a local fault (`diskFull`, `writeError`) Failed
+and unlabelled, and fires `seedGoalMet`; engines remove a Failed or
+Blocklisted transfer. A server that could not be asked (bad credentials,
+refused connection) is `ErrProvidersUnavailable` and retries, not
+`missingArticles`. `importRejected` is read off `status.import` through
+`downloadv1alpha1.ImportMessageEveryFileRejected`, one constant both services
+name. **Redownload** (Y3, `dd1ea96`): the `catalogarr-redownload` durable on
+`failed` and `blocklisted` frees the grab lease (`grab.FreeLeases`,
+revision-checked) and publishes one `redownload` search per monitored target
+under a per-Download Msg-Id, none for a local fault (Radarr raises no
+DownloadFailedEvent for one) or a failure older than 24h; the grab records
+`grabbedBy=redownload`. The carried items, including the owner's policy call
+on `importRejected` blocklisting at once, are under *Downloads and events* in
+the remaining-work plan.
 
 Next: Phases D through G and the gap fixes are done (M2-M6) → **Phase H:
 end-to-end proof on kind** is next. Only Phase C's scenarios (5, 7 and 8)

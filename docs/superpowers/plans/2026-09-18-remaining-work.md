@@ -1187,6 +1187,9 @@ other phase.
 
 Harvested from every gap-fix task report ("Carried", concerns, needs nobody
 took) and from the spec pass, which checked §5 and §8 against the code.
+Gap fixes Y1-Y3 (2026-09-23, the four failure-handling behaviours the spec
+named and nothing built) ticked their four items under *Spec paths that were
+never built* and added *Downloads and events* from their reports.
 
 **End to end (Phase H).**
 
@@ -1195,15 +1198,29 @@ took) and from the spec pass, which checked §5 and §8 against the code.
 - [ ] Scenario 1's trace check covers grabarr and importarr only; the four-service proof needs a real Search-driven grab whose release points at the seeder (X12c).
 - [ ] `TestRealLoopCompletesSeedsAndRemovesOnPolicy` stalled once under heavy parallel load (X9).
 - [ ] The `cmd/clustarr` start envtest answers Kid A's release browse with The Bends' releases (no Kid A fixture), which would mislead any future track assertion (W1a gate).
+- [ ] No e2e scenario drives a real download failure. Scenario 3 still hand-sets the blocklist label (read as `manual`); a torrent with no seeder under a short `stallTimeout`, or the nntp stub denying every article, would prove Y2's blocklisting and Y3's redownload search end to end (Y2).
 
 **Spec paths that were never built** (spec §5 and §8.3 say so inline).
 
-- [ ] A Failed Download is never blocklisted automatically -- nothing sets `download.clustarr.io/blocklisted`, grabarr only honours it -- and no `redownload` search is published (`SearchReasonRedownload` has no producer); the wanted sweep re-searches instead.
-- [ ] `derivePhase` reaches only the `encrypted` failure reason; `stalled`, `diskFull`, `writeError`, `timeout`, `missingArticles` and `manual` are never derived, and neither is `SeedGoalMet`, so `download.seedGoalMet` has no producer (`grabarr/controller/download/doc.go`, X9).
+- [x] **Fixed `813145b`, `0b607c0` (Y2).** A release fault (`missingArticles`, `encrypted`, `stalled`, `timeout`, `importRejected`, `manual`) is labelled blocklisted with `blocklistedUntil`, the label going on before `failed` is published; a local fault (`diskFull`, `writeError`) fails unlabelled (spec §4.4). Was: a Failed Download is never blocklisted automatically -- nothing sets `download.clustarr.io/blocklisted`, grabarr only honours it.
+- [x] **Fixed `dd1ea96` (Y3; the lease delete made revision-checked by `1ab8ce2`, Y1).** The `catalogarr-redownload` worker frees the lease and publishes one `redownload` search per monitored target, none for a local fault (spec §8.3). Was: no `redownload` search is published (`SearchReasonRedownload` has no producer); the wanted sweep re-searches instead.
+- [x] **Fixed `813145b`, `56c10c1` (Y2).** The engines report every reason they can observe through the new engine-owned `status.engineFailureReason`, and `status.seedGoalReached` becomes `seedGoalMetAt`, `SeedGoalMet` and the `seedGoalMet` event. Was: `derivePhase` reaches only the `encrypted` failure reason; `stalled`, `diskFull`, `writeError`, `timeout`, `missingArticles` and `manual` are never derived, and neither is `SeedGoalMet`, so `download.seedGoalMet` has no producer (`grabarr/controller/download/doc.go`, X9).
 - [ ] Nothing writes 1 Hz download or transcode telemetry into `clustarr-progress` (`DownloadProgress` is unpublished, X9); the bucket holds only importarr's checkpoints.
-- [ ] The `$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES` watcher was never built: a message whose final delivery expires on AckWait (a hung handler, not a failing one) is dropped without a DLQ copy.
+- [x] **Fixed `bd6227e` (Y1).** natsbus watches the advisory per subscription, queue-grouped per durable, and copies the message under the in-process path's Msg-Id; membus sweeps a lapsed final delivery (spec §5). Was: the `$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES` watcher was never built: a message whose final delivery expires on AckWait (a hung handler, not a failing one) is dropped without a DLQ copy.
 - [ ] Declared, never used: the `catalogarr-import` consumer and `clustarr.work.catalogarr.import` subject (pre-amendment), the `indexarr-definitions` consumer and `index.DefinitionsSync` (no worker), and the `clustarr-search-cache` bucket. Build or prune.
 - [ ] A `spec.priority` change after the Add reaches neither download client (`download.Client` has no method for it, X9).
+
+**Downloads and events** (carried from gap fixes Y1-Y3).
+
+- [ ] Policy, for the owner: `importRejected` blocklists at once, which leaves no manual force-import (import annotations plus `Retrigger`) for a rejected download; Sonarr holds import-blocked downloads for the user instead (Y2).
+- [ ] `UsenetSpec.healthAction` is never read: a health breach always fails, and now blocklists -- `delete`'s behaviour, not the default `pause`'s. `TorrentSpec.removeCompleted` is never read either (Y2; both predate it).
+- [ ] Torrent seed counters and the met seed goal are in memory; spec §6.3's "persisted cumulative counters" were never built, so a restarted engine seeds again until the goal is re-met (`seedGoalMetAt` stays recorded) (Y2).
+- [ ] `stallTimeout` and `downloadTimeout` are read at engine start, like `listenPort`; the engine workload has no spec-hash rollout, so a change needs an engine restart (Y2).
+- [ ] `download.ErrPayloadMismatch` (an infohash mismatch) has no `DownloadFailureReason`, so it stays a retried error (Y2).
+- [ ] natsbus runs one handler at a time per subscription (`MaxInFlight` only sizes the pull), so a handler hung forever on a non-final delivery stalls that replica's consumer until a restart or another replica takes the message; membus dead-letters where natsbus would stall, and the saturated case is tested on membus only (Y1; predates it).
+- [ ] The MAX_DELIVERIES advisory is core NATS: fired while no replica of that consumer is subscribed, it is lost and the message gets no DLQ copy. A durable capture needs a stream over `$JS.EVENT.ADVISORY...` in `pkg/events/topology.go` (Y1).
+- [ ] A hung handler that returns an error more than 10 minutes after the advisory (`CLUSTARR_DLQ`'s duplicate window) adds a second DLQ copy; the projector's annotation is idempotent (Y1).
+- [ ] membus times a redelivery on `AckWait`, where JetStream uses `BackOff[n-1]` when BackOff is set; the contract test sets them equal (Y1; predates it).
 
 **Dead code and stale strings.**
 
