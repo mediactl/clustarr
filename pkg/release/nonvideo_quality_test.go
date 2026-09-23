@@ -251,6 +251,8 @@ func TestParseGivesNonVideoReleasesAQuality(t *testing.T) {
 		{"Pink Floyd - The Dark Side of the Moon (1973) [MP3 320]", commonv1.MediaKindAlbum, "MP3-320", 1},
 		{"Pink Floyd - The Dark Side of the Moon (1973) [MP3 V0 VBR]", commonv1.MediaKindAlbum, "MP3-VBR-V0", 1},
 		{"Pink Floyd - The Dark Side of the Moon (1973) [FLAC] REPACK", commonv1.MediaKindAlbum, "FLAC", 2},
+		{"Pink Floyd - The Dark Side of the Moon (1973) [FLAC] REPACK2", commonv1.MediaKindAlbum, "FLAC", 3},
+		{"Pink Floyd - The Dark Side of the Moon (1973) [MP3 V2 VBR]", commonv1.MediaKindAlbum, "MP3-VBR-V2", 1},
 		{"Andy Weir - Project Hail Mary (2021) [EPUB]", commonv1.MediaKindBook, "EPUB", 1},
 		{"Andy Weir - Project Hail Mary (2021) [AZW3]", commonv1.MediaKindBook, "AZW3", 1},
 		{"Andy Weir - Project Hail Mary (2021) [DJVU]", commonv1.MediaKindBook, "Unknown Text", 1},

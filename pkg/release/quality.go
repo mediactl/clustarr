@@ -125,11 +125,21 @@ var brdiskRegex = mustCompile(
 var rawhdRegex = mustCompile(`\bRaw[-_. ]?HD\b`, regexp2.IgnoreCase)
 
 // properRegex, repackRegex and versionRegex port ProperRegex, RepackRegex
-// and VersionRegex. repackRegex folds VersionRegex's repack(?<version>\d)
-// alternative into its own optional trailing digit capture.
+// and VersionRegex from the *arr QualityParsers.
 var properRegex = mustCompile(`\bproper\b`, regexp2.IgnoreCase)
 
-var repackRegex = mustCompile(`\b(?:repack|rerip)(\d)?\b`, regexp2.IgnoreCase)
+var repackRegex = mustCompile(`\b(?:repack\d?|rerip\d?)\b`, regexp2.IgnoreCase)
+
+// versionRegex is the union of the three *arr VersionRegexes: Radarr's
+// `\d[-._ ]?v(\d)[-._ ]|\[v(\d)\]|repack(\d)|rerip(\d)`, Lidarr's
+// `(?<!\bMP3\b)` guard on the leading digit (so the LAME preset in "MP3 V0"
+// is not read as version 0) and Sonarr's `(?:480|576|720|1080|2160)p[._ ]v(\d)`
+// anime alternative. Each alternative captures its digit in its own group;
+// versionFromMatch takes whichever one participated.
+var versionRegex = mustCompile(
+	`(?:\d(?<!\bMP3\b))[-._ ]?v(\d)[-._ ]|\[v(\d)\]|repack(\d)|rerip(\d)|(?:480|576|720|1080|2160)p[._ ]v(\d)`,
+	regexp2.IgnoreCase,
+)
 
 // realRegex ports RealRegex, which *arr deliberately leaves case-sensitive:
 // scene groups signal a fixed-and-reuploaded proper with uppercase REAL, and
@@ -329,35 +339,48 @@ func detectQuality(title string) (commonv1.Quality, error) {
 	return commonv1.Quality{Name: name, Source: src, Resolution: resolution, Modifier: mod}, nil
 }
 
-// detectRevision runs ProperRegex, RepackRegex and the case-sensitive
-// RealRegex, applying *arr's Version=2-on-proper-or-repack rule.
+// detectRevision ports ParseQualityModifiers, identical in Radarr, Sonarr
+// and Lidarr (src/NzbDrone.Core/Parser/QualityParser.cs on each develop
+// branch): VersionRegex sets the version outright; a PROPER or a
+// REPACK/RERIP then sets it to that version plus one, or to 2 when no
+// version was written. So REPACK2 is version 3 (repack(\d) captures 2, and
+// the repack adds one), and an anime "[v2]" is version 2. RealRegex is
+// counted separately and case-sensitively.
 func detectRevision(title string) (commonv1.Revision, error) {
 	rev := commonv1.Revision{Version: 1}
+	// *arr matches VersionRegex, ProperRegex and RepackRegex against
+	// name.Replace('_', ' ').Trim(), so an underscore-separated REPACK
+	// still has its word boundaries; RealRegex keeps the raw name.
+	normalized := strings.TrimSpace(strings.ReplaceAll(title, "_", " "))
 
-	properMatch, err := properRegex.FindStringMatch(title)
+	versionMatch, err := versionRegex.FindStringMatch(normalized)
+	if err != nil {
+		return commonv1.Revision{}, fmt.Errorf("release: revision: version match: %w", err)
+	}
+	explicit, hasExplicit := versionFromMatch(versionMatch)
+	if hasExplicit {
+		rev.Version = explicit
+	}
+	bumped := int32(2)
+	if hasExplicit {
+		bumped = explicit + 1
+	}
+
+	properMatch, err := properRegex.MatchString(normalized)
 	if err != nil {
 		return commonv1.Revision{}, fmt.Errorf("release: revision: proper match: %w", err)
 	}
+	if properMatch {
+		rev.Version = bumped
+	}
 
-	repackMatch, err := repackRegex.FindStringMatch(title)
+	repackMatch, err := repackRegex.MatchString(normalized)
 	if err != nil {
 		return commonv1.Revision{}, fmt.Errorf("release: revision: repack match: %w", err)
 	}
-
-	explicitVersion := 0
-	if repackMatch != nil {
+	if repackMatch {
+		rev.Version = bumped
 		rev.Repack = true
-		if digit := repackMatch.GroupByNumber(1); digit != nil && len(digit.Captures) > 0 {
-			if v, convErr := strconv.Atoi(digit.String()); convErr == nil {
-				explicitVersion = v
-			}
-		}
-	}
-	if properMatch != nil || repackMatch != nil {
-		rev.Version = 2
-	}
-	if int32(explicitVersion) > rev.Version {
-		rev.Version = int32(explicitVersion)
 	}
 
 	real := 0
@@ -375,6 +398,27 @@ func detectRevision(title string) (commonv1.Revision, error) {
 	rev.Real = int32(real)
 
 	return rev, nil
+}
+
+// versionFromMatch returns the digit captured by whichever versionRegex
+// alternative matched. A nil match, or one whose capture is not a digit,
+// reports false.
+func versionFromMatch(m *regexp2.Match) (int32, bool) {
+	if m == nil {
+		return 0, false
+	}
+	for i := 1; i < m.GroupCount(); i++ {
+		g := m.GroupByNumber(i)
+		if g == nil || len(g.Captures) == 0 {
+			continue
+		}
+		v, err := strconv.Atoi(g.String())
+		if err != nil {
+			return 0, false
+		}
+		return int32(v), true
+	}
+	return 0, false
 }
 
 // parseQualityTags extracts the video quality identity and proper/repack/

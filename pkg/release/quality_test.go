@@ -87,10 +87,28 @@ func TestParseQualityTagsRevisionHandlesProperRepackRealVersion(t *testing.T) {
 		{"plain", "The.Matrix.1999.1080p.BluRay.x264-GROUP", commonv1.Revision{Version: 1}},
 		{"proper", "The.Matrix.1999.PROPER.1080p.BluRay.x264-GROUP", commonv1.Revision{Version: 2}},
 		{"repack", "The.Matrix.1999.REPACK.1080p.BluRay.x264-GROUP", commonv1.Revision{Version: 2, Repack: true}},
+		// Radarr/Sonarr/Lidarr ParseQualityModifiers: VersionRegex's
+		// repack(\d) captures 2 and the repack then adds one, so REPACK2 is
+		// version 3 (Radarr's QualityParserFixture pins the same).
 		{
 			"repack2 explicit version", "The.Matrix.1999.REPACK2.1080p.BluRay.x264-GROUP",
+			commonv1.Revision{Version: 3, Repack: true},
+		},
+		{
+			"rerip2 explicit version", "The.Matrix.1999.RERIP2.1080p.BluRay.x264-GROUP",
+			commonv1.Revision{Version: 3, Repack: true},
+		},
+		{"rerip", "The.Matrix.1999.RERIP.1080p.BluRay.x264-GROUP", commonv1.Revision{Version: 2, Repack: true}},
+		{
+			"underscore-separated repack", "The_Matrix_1999_REPACK_1080p_BluRay_x264-GROUP",
 			commonv1.Revision{Version: 2, Repack: true},
 		},
+		{"anime bracket version", "[SubsPlease] Frieren - 12 [v2] (1080p) [ABCD1234].mkv", commonv1.Revision{Version: 2}},
+		{"anime episode version", "[Group] Frieren - 12v2 [1080p].mkv", commonv1.Revision{Version: 2}},
+		{"sonarr resolution version", "[Group] Frieren - 12 1080p v3 [ABCD1234]", commonv1.Revision{Version: 3}},
+		{"proper of an explicit version", "[Group] Frieren - 12 [v2] PROPER (1080p)", commonv1.Revision{Version: 3}},
+		// Lidarr's (?<!\bMP3\b) guard: the LAME preset is not version 0.
+		{"mp3 v0 is not a version", "Artist - Album (1999) [MP3 V0 VBR]", commonv1.Revision{Version: 1}},
 		{
 			"real proper", "The.Matrix.1999.REAL.PROPER.1080p.BluRay.x264-GROUP",
 			commonv1.Revision{Version: 2, Real: 1},
