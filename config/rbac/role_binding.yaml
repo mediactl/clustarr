@@ -120,6 +120,7 @@ subjects:
 - kind: ServiceAccount
   name: importarr-worker
   namespace: clustarr-system
-# ui is deliberately absent here: it has no controller-runtime manager and
-# reads only get/list/watch on four groups, so it is never bound to
-# clustarr-manager-role. Its own, narrower binding is ui_role_binding.yaml.
+# ui is deliberately absent here: it has no controller-runtime manager, and
+# its grants -- reads, plus exactly the creates and spec patches ui/actions
+# makes (Phase G ruling R2) -- are far narrower than clustarr-manager-role's,
+# so it is never bound to it. Its own binding is ui_role_binding.yaml.

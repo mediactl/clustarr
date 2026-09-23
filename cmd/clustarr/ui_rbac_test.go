@@ -18,12 +18,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package main
 
 import (
+	"bytes"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/yaml"
 
 	"github.com/mediactl/clustarr/ui/actions"
@@ -245,4 +249,190 @@ func TestUIRoleChartMatchesConfig(t *testing.T) {
 			"Copy the rules: list from config/rbac/ui_role.yaml into the ui ClusterRole block in "+
 			"charts/clustarr/templates/rbac.yaml (both are hand-written -- see the header comment in "+
 			"config/rbac/ui_role.yaml for why).")
+}
+
+// uiRBACDoc is the slice of a rendered object TestUIRoleIsBoundToTheUIServiceAccount
+// reads: enough of a Deployment, ServiceAccount, ClusterRole and
+// ClusterRoleBinding to follow the ui Deployment's identity to the rules it
+// actually holds.
+type uiRBACDoc struct {
+	Kind     string `json:"kind"`
+	Metadata struct {
+		Name      string            `json:"name"`
+		Namespace string            `json:"namespace"`
+		Labels    map[string]string `json:"labels"`
+	} `json:"metadata"`
+	Spec struct {
+		Template struct {
+			Spec struct {
+				ServiceAccountName string `json:"serviceAccountName"`
+			} `json:"spec"`
+		} `json:"template"`
+	} `json:"spec"`
+	Rules   []uiRoleRule `json:"rules"`
+	RoleRef struct {
+		Kind string `json:"kind"`
+		Name string `json:"name"`
+	} `json:"roleRef"`
+	Subjects []struct {
+		Kind      string `json:"kind"`
+		Name      string `json:"name"`
+		Namespace string `json:"namespace"`
+	} `json:"subjects"`
+}
+
+// TestUIRoleIsBoundToTheUIServiceAccount follows each installer's ui
+// Deployment to the permissions it actually runs with: its
+// serviceAccountName, that ServiceAccount, every ClusterRoleBinding naming it
+// (in the namespace it is created in), and the rules of every ClusterRole
+// those bind. It asserts that set covers every (group, resource, verb)
+// config/rbac/ui_role.yaml grants -- the reads every page lists through and
+// the writes every ui/actions action makes.
+//
+// The other two guards in this file hold ui_role.yaml's CONTENT, and the
+// chart's copy of it, but a role that exists and is bound to nothing -- or
+// to a ServiceAccount the pod does not run as, or in another namespace --
+// passes both. envtest does not enforce RBAC, so on a real cluster that is
+// every page empty and every action Forbidden, with nothing red anywhere.
+// Phase G made it matter twice over: until G3-5 wired Options.Actions no
+// action ever reached the apiserver, so nothing could have noticed the role's
+// write verbs being unreachable.
+func TestUIRoleIsBoundToTheUIServiceAccount(t *testing.T) {
+	helm := findTool(t, "helm")
+	kustomize := findTool(t, "kustomize")
+
+	root, err := filepath.Abs("../..")
+	require.NoError(t, err)
+
+	raw, err := os.ReadFile(filepath.Join(root, "config", "rbac", "ui_role.yaml"))
+	require.NoError(t, err)
+	var role uiRoleDocument
+	require.NoError(t, yaml.Unmarshal(raw, &role))
+	want := expandRules(role.Rules)
+	require.NotEmpty(t, want)
+
+	// helm template leaves metadata.namespace unset on the chart's own
+	// objects; they land in the release namespace, which is what every
+	// subject must then name.
+	const releaseNamespace = "media-rbac-test"
+	installers := []struct {
+		name, namespace string
+		docs            []uiRBACDoc
+	}{
+		{
+			name:      "helm template charts/clustarr",
+			namespace: releaseNamespace,
+			docs: decodeUIRBACDocs(t, run(t, root, helm,
+				"template", "clustarr", "charts/clustarr", "--namespace", releaseNamespace)),
+		},
+		{
+			name: "kustomize build config/default",
+			docs: decodeUIRBACDocs(t, run(t, root, kustomize, "build", "config/default")),
+		},
+	}
+
+	for _, inst := range installers {
+		t.Run(inst.name, func(t *testing.T) {
+			var deployments []uiRBACDoc
+			for _, d := range inst.docs {
+				if d.Kind == "Deployment" && d.Metadata.Labels["app.kubernetes.io/component"] == "ui" {
+					deployments = append(deployments, d)
+				}
+			}
+			require.Len(t, deployments, 1, "%s: want exactly one ui Deployment", inst.name)
+			dep := deployments[0]
+			account := dep.Spec.Template.Spec.ServiceAccountName
+			require.NotEmpty(t, account,
+				"%s: the ui Deployment sets no serviceAccountName, so it runs as the namespace's "+
+					"default ServiceAccount, which nothing binds to ui's role", inst.name)
+			namespace := dep.Metadata.Namespace
+			if namespace == "" {
+				namespace = inst.namespace
+			}
+
+			var accountDeclared bool
+			for _, d := range inst.docs {
+				if d.Kind == "ServiceAccount" && d.Metadata.Name == account &&
+					(d.Metadata.Namespace == "" || d.Metadata.Namespace == namespace) {
+					accountDeclared = true
+				}
+			}
+			require.True(t, accountDeclared,
+				"%s: the ui Deployment runs as ServiceAccount %s/%s, which the installer never creates",
+				inst.name, namespace, account)
+
+			clusterRoles := map[string][]uiRoleRule{}
+			for _, d := range inst.docs {
+				if d.Kind == "ClusterRole" {
+					clusterRoles[d.Metadata.Name] = d.Rules
+				}
+			}
+
+			granted := map[uiGrant]bool{}
+			var boundTo []string
+			for _, d := range inst.docs {
+				if d.Kind != "ClusterRoleBinding" || d.RoleRef.Kind != "ClusterRole" {
+					continue
+				}
+				for _, s := range d.Subjects {
+					if s.Kind != "ServiceAccount" || s.Name != account || s.Namespace != namespace {
+						continue
+					}
+					rules, ok := clusterRoles[d.RoleRef.Name]
+					require.True(t, ok, "%s: ClusterRoleBinding %s binds ui to ClusterRole %s, which the "+
+						"installer never creates", inst.name, d.Metadata.Name, d.RoleRef.Name)
+					boundTo = append(boundTo, d.RoleRef.Name)
+					for g := range expandRules(rules) {
+						granted[g] = true
+					}
+				}
+			}
+			require.NotEmpty(t, boundTo,
+				"%s: no ClusterRoleBinding names ServiceAccount %s/%s, the one the ui Deployment runs "+
+					"as. ui's role exists and is bound to nothing: on a real cluster every page lists "+
+					"nothing and every action is Forbidden, and envtest (no RBAC) cannot see it",
+				inst.name, namespace, account)
+
+			for g := range want {
+				require.True(t, granted[g],
+					"%s: ServiceAccount %s/%s (bound to %v) cannot %s %s/%s, which "+
+						"config/rbac/ui_role.yaml grants and the ui needs",
+					inst.name, namespace, account, boundTo, g.Verb, g.Group, g.Resource)
+			}
+		})
+	}
+}
+
+// expandRules flattens ClusterRole rules into (group, resource, verb) triples.
+func expandRules(rules []uiRoleRule) map[uiGrant]bool {
+	out := map[uiGrant]bool{}
+	for _, r := range rules {
+		for _, group := range r.APIGroups {
+			for _, resource := range r.Resources {
+				for _, verb := range r.Verbs {
+					out[uiGrant{Group: group, Resource: resource, Verb: verb}] = true
+				}
+			}
+		}
+	}
+	return out
+}
+
+// decodeUIRBACDocs splits a rendered multi-document stream into uiRBACDocs,
+// skipping the empty documents helm's conditional templates leave behind.
+func decodeUIRBACDocs(t *testing.T, in []byte) []uiRBACDoc {
+	t.Helper()
+	dec := utilyaml.NewYAMLOrJSONDecoder(bytes.NewReader(in), 4096)
+	var out []uiRBACDoc
+	for {
+		var doc uiRBACDoc
+		err := dec.Decode(&doc)
+		if errors.Is(err, io.EOF) {
+			return out
+		}
+		require.NoError(t, err, "decode rendered manifests")
+		if doc.Kind != "" {
+			out = append(out, doc)
+		}
+	}
 }

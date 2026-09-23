@@ -2,19 +2,25 @@
 # updates. Design spec amendment §A3.
 #
 # No controller-runtime manager: ui owns no CRD, writes no status, and never
-# leader-elects. It serves /healthz, /readyz, the Pipeline page and its SSE
-# stream all on one port (8080) -- there is no separate metrics or health
+# leader-elects. It serves /healthz, /readyz, every page and its SSE stream
+# all on one port (8080) -- there is no separate metrics or health
 # port the way every other service has, because there is no
 # controller-runtime manager standing one up. It ships with no login of its
 # own and MUST sit behind ingress authentication (design amendment §A3.5);
 # nothing here adds that, because §A3.5 leaves it to whatever ingress
 # controller the cluster runs.
 #
-# This ServiceAccount is bound, read-only, to config/rbac/ui_role.yaml --
-# get/list/watch over the catalog, download, transcode and subtitle groups,
-# no write verb and no */status resource anywhere in it (Task D3-0; the
-# never-writes invariant is enforced by cmd/clustarr's RBAC guard, Task
-# D3-4).
+# This ServiceAccount is bound, by config/rbac/ui_role_binding.yaml, to
+# config/rbac/ui_role.yaml: get/list/watch over the catalog, download, index,
+# transcode and subtitle groups, plus exactly the writes ui/actions makes
+# (Phase G ruling R2) -- create on searches and libraryscans, patch on the
+# catalog kinds' spec.monitored and on the Settings page's kinds -- and no
+# update, no delete and no */status resource anywhere in it. The UI edits
+# spec as field manager clustarr-ui and never writes status.
+# cmd/clustarr/ui_rbac_test.go holds the role to ui/actions.Grants() and
+# follows this Deployment's serviceAccountName to the binding, so a role
+# bound to nothing (every action Forbidden on a real cluster, invisible to
+# envtest) fails a test.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
