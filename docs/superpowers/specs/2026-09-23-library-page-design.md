@@ -95,6 +95,36 @@ returns, not from the cache.
 
 Every write stays in `ui/actions`; nothing writes status.
 
+## Metadata refresh
+
+A refresh only ever ran when metadata was stale by age (`RefreshTTL`: seven
+days for a released movie, thirty for an ended series), so a field a provider
+now publishes -- the artwork above -- reached no existing item. Spec §5 already
+gives `MetadataTask` a `refreshEpoch` that "increments whenever an operator
+forces a refresh"; this fills in the trigger.
+
+- **Trigger:** the annotation `clustarr.io/refresh-metadata: <epoch>`
+  (`catalogv1alpha1.AnnotationRefreshMetadata`) on a kind with metadata of its
+  own -- Movie, Series, Artist, Album, Author, Book, Audiobook, Comic. The value
+  is a positive integer, by convention the requester's Unix time.
+  `ui/actions.RefreshMetadata` writes it as a merge patch under `clustarr-ui`
+  (the item's existing patch grant; `Grants()` unchanged) from a "Refresh
+  metadata" button on every item page; `kubectl annotate` does the same.
+- **Consumer:** `catalogarr/metadata.Refresher`, one metadata-only controller
+  per kind, modelled on `history.Replayer`, under catalogarr's controller
+  role. It publishes `MetadataTask{mediaRef, refreshEpoch}` on the
+  high-priority metadata subject with id
+  `<uid>:<generation>:metadata:refresh:<epoch>`, which no scheduled task
+  shares, records a `MetadataRefreshRequested` Event, and removes the
+  annotation with a JSON patch that first tests the value it handled, so a
+  newer request written meanwhile is handled on the requeue rather than lost.
+  A value that is not a positive integer is refused (`MetadataRefreshRefused`)
+  and removed.
+- **Gateway:** `Handler.Handle` skips its cache lookup when `refreshEpoch > 0`
+  and fetches from the provider, then stores the fresh document as usual.
+- **Item reconcilers:** unchanged; the gateway's status write moves
+  `refreshedAt`, which already wakes them.
+
 ## Tests
 
 - **Projection:** table tests over real API objects: parents only; tab per

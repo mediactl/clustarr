@@ -547,3 +547,71 @@ func TestHandlerWritesEveryImageType(t *testing.T) {
 	}
 	require.Equal(t, want, gotTypes, "all nine roles written; the unclassified image dropped")
 }
+
+// imagedMovieProvider answers every lookup with one movie that carries a
+// poster, and counts the calls.
+type imagedMovieProvider struct{ calls int }
+
+func (p *imagedMovieProvider) Name() string { return "imaged" }
+func (p *imagedMovieProvider) Capabilities() pkgmetadata.Capabilities {
+	return pkgmetadata.Capabilities{}
+}
+
+func (p *imagedMovieProvider) Movie(context.Context, string, string) (*pkgmetadata.Movie, error) {
+	p.calls++
+	return &pkgmetadata.Movie{
+		IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyTMDB: "27205"}, Title: "Inception (fresh)", Runtime: 148,
+		Images: []pkgmetadata.Image{{Type: pkgmetadata.ImageTypePoster, URL: "https://image.tmdb.org/t/p/w500/inception.jpg"}},
+	}, nil
+}
+
+func (p *imagedMovieProvider) FindMovie(ctx context.Context, _ pkgmetadata.ExternalIDs) (*pkgmetadata.Movie, error) {
+	return p.Movie(ctx, "", "")
+}
+
+func (p *imagedMovieProvider) SearchMovies(context.Context, string, int) ([]pkgmetadata.MovieHit, error) {
+	return nil, nil
+}
+
+// A forced refresh -- a MetadataTask with a RefreshEpoch (spec §5) -- goes
+// to the provider even when the cache holds the document, and stores what
+// it fetched; that is what lets an operator pick up fields a provider now
+// publishes (the artwork the clients did not map before) without waiting
+// out RefreshTTL. A task with no epoch keeps taking the cache hit.
+func TestHandlerBypassesTheCacheOnAForcedRefresh(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	const ns, name = "hforce", "inception"
+	newMovie(t, ctx, c, ns, name, 27205)
+
+	provider := &imagedMovieProvider{}
+	stale := &fakeCache{movie: &pkgmetadata.Movie{Title: "Inception (cached)", Runtime: 148}}
+	h := &metadata.Handler{
+		Client:   c,
+		Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{provider}},
+		Cache:    stale,
+	}
+	handle := func(epoch int64) {
+		t.Helper()
+		env := &events.Envelope{Key: ns + "/" + name, Schema: schema.MetadataTask{}.Schema()}
+		task := schema.MetadataTask{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name}, RefreshEpoch: epoch}
+		var err error
+		_, env.Data, err = schema.Encode(task)
+		require.NoError(t, err)
+		require.NoError(t, h.Handle(ctx, testMessage{env: env}))
+	}
+
+	handle(0)
+	var got catalogv1alpha1.Movie
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	require.Equal(t, "Inception (cached)", got.Status.Metadata.Title, "no epoch: the cache hit stands")
+	require.Zero(t, provider.calls)
+
+	handle(1758665000)
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	require.Equal(t, 1, provider.calls, "an epoch reaches the provider despite the cache hit")
+	require.Equal(t, "Inception (fresh)", got.Status.Metadata.Title)
+	require.Len(t, got.Status.Metadata.Images, 1)
+	require.Equal(t, catalogv1alpha1.ImageTypePoster, got.Status.Metadata.Images[0].Type)
+	require.Equal(t, "https://image.tmdb.org/t/p/w500/inception.jpg", got.Status.Metadata.Images[0].URL)
+}

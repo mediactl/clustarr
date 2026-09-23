@@ -57,6 +57,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /library/{namespace}/series/{name}/seasons/{n}/monitor", s.handleSetSeasonMonitored)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/monitor", s.handleSetMonitored)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/search", s.handleSearchNow)
+	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/refresh", s.handleRefreshMetadata)
 	mux.HandleFunc("POST /library/rescan", s.handleRescan)
 	mux.HandleFunc("GET /unmatched", s.handleUnmatched)
 	mux.HandleFunc("GET /events/unmatched", s.handleUnmatchedEvents)
@@ -297,6 +298,21 @@ func (s *Server) handleSetMonitored(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	s.finishAction(w, r, err)
+}
+
+// handleRefreshMetadata is the "refresh metadata" action (design
+// 2026-09-23-library-page-design, "Metadata refresh"): POST
+// /library/{namespace}/{kind}/{name}/refresh, calling
+// Options.Actions.RefreshMetadata, which writes the refresh annotation
+// catalogarr's refresher consumes; the outcome is finishAction's.
+func (s *Server) handleRefreshMetadata(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	_, err := s.opts.Actions.RefreshMetadata(r.Context(),
+		r.PathValue("namespace"), commonv1.MediaKind(r.PathValue("kind")), r.PathValue("name"))
 	s.finishAction(w, r, err)
 }
 

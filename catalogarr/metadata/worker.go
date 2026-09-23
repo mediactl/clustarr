@@ -87,60 +87,70 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	}
 	ck := cacheKey(task.MediaRef.Kind, ids)
 
+	// A forced refresh (RefreshEpoch set, spec §5) never takes the cache
+	// hit: the operator asked for what the provider publishes now, which
+	// the cached document may lack. The fetch still lands in the cache.
+	cacheGet := func(ctx context.Context, key string, out any) (bool, error) {
+		if task.RefreshEpoch > 0 {
+			return false, nil
+		}
+		return h.Cache.Get(ctx, key, out)
+	}
+
 	var cached any
 	switch target.(type) {
 	case *catalogv1alpha1.Movie:
 		var v pkgmetadata.Movie
-		if hit, err := h.Cache.Get(ctx, ck, &v); err != nil {
+		if hit, err := cacheGet(ctx, ck, &v); err != nil {
 			return fmt.Errorf("metadata: cache get: %w", err)
 		} else if hit {
 			cached = &v
 		}
 	case *catalogv1alpha1.Series:
 		var v pkgmetadata.Series
-		if hit, err := h.Cache.Get(ctx, ck, &v); err != nil {
+		if hit, err := cacheGet(ctx, ck, &v); err != nil {
 			return fmt.Errorf("metadata: cache get: %w", err)
 		} else if hit {
 			cached = &v
 		}
 	case *catalogv1alpha1.Artist:
 		var v pkgmetadata.Artist
-		if hit, err := h.Cache.Get(ctx, ck, &v); err != nil {
+		if hit, err := cacheGet(ctx, ck, &v); err != nil {
 			return fmt.Errorf("metadata: cache get: %w", err)
 		} else if hit {
 			cached = &v
 		}
 	case *catalogv1alpha1.Album:
 		var v pkgmetadata.Album
-		if hit, err := h.Cache.Get(ctx, ck, &v); err != nil {
+		if hit, err := cacheGet(ctx, ck, &v); err != nil {
 			return fmt.Errorf("metadata: cache get: %w", err)
 		} else if hit {
 			cached = &v
 		}
 	case *catalogv1alpha1.Author:
 		var v pkgmetadata.Author
-		if hit, err := h.Cache.Get(ctx, ck, &v); err != nil {
+		if hit, err := cacheGet(ctx, ck, &v); err != nil {
 			return fmt.Errorf("metadata: cache get: %w", err)
 		} else if hit {
 			cached = &v
 		}
 	case *catalogv1alpha1.Book:
 		var v pkgmetadata.Book
-		if hit, err := h.Cache.Get(ctx, ck, &v); err != nil {
+		if hit, err := cacheGet(ctx, ck, &v); err != nil {
 			return fmt.Errorf("metadata: cache get: %w", err)
 		} else if hit {
 			cached = &v
 		}
 	case *catalogv1alpha1.Audiobook:
 		var v pkgmetadata.Audiobook
-		if hit, err := h.Cache.Get(ctx, ck, &v); err != nil {
+		if hit, err := cacheGet(ctx, ck, &v); err != nil {
 			return fmt.Errorf("metadata: cache get: %w", err)
 		} else if hit {
 			cached = &v
 		}
 	case *catalogv1alpha1.Comic:
 		var v pkgmetadata.ComicVolume
-		if hit, err := h.Cache.Get(ctx, ck, &v); err != nil {
+		if hit, err := cacheGet(ctx, ck, &v); err != nil {
 			return fmt.Errorf("metadata: cache get: %w", err)
 		} else if hit {
 			cached = &v

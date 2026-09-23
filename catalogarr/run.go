@@ -404,6 +404,15 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		return fmt.Errorf("catalogarr: search: %w", err)
 	}
 
+	// The operator's forced metadata refresh (clustarr.io/refresh-metadata):
+	// one metadata-only controller per kind with metadata of its own, beside
+	// the reconcilers that publish the scheduled refreshes.
+	if err := catalogmetadata.NewRefresher(catalogmetadata.RefreshDeps{
+		Client: c, Bus: bus, Recorder: mgr.GetEventRecorder("metadata-refresh"),
+	}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("catalogarr: metadata refresh: %w", err)
+	}
+
 	// §6.1's twelve-hourly missing/cutoff-unmet sweep. It is leader-elected
 	// (see Runnable.NeedLeaderElection), so a sweep fires once per cluster
 	// rather than once per replica.

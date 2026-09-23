@@ -279,3 +279,36 @@ func TestFailedToggleFromHTMXRepliesWithTheComponentAndAnInlineError(t *testing.
 	rec = postForm(t, srv, "/library/default/series/andor/seasons/2/monitor", url.Values{"monitored": {"true"}}, false)
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code, "a form post keeps the error page")
 }
+
+// The item header offers "Refresh metadata" (design
+// 2026-09-23-library-page-design, "Metadata refresh"): a form post to
+// /library/{ns}/{kind}/{name}/refresh that writes the refresh annotation
+// through the UI's action and redirects like every other action.
+func TestRefreshMetadataButtonPostsTheAnnotationAndRedirects(t *testing.T) {
+	srv, c := seriesActionFixture(t, true)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/default/series/andor", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), `data-action="refresh-metadata"`)
+	require.Contains(t, rec.Body.String(), `action="/library/default/series/andor/refresh"`)
+
+	rec = postForm(t, srv, "/library/default/series/andor/refresh", url.Values{"return": {"/library/default/series/andor"}}, false)
+	require.Equal(t, http.StatusSeeOther, rec.Code)
+	require.Equal(t, "/library/default/series/andor", rec.Header().Get("Location"))
+	var got catalogv1.Series
+	require.NoError(t, c.Get(t.Context(), types.NamespacedName{Namespace: "default", Name: "andor"}, &got))
+	require.NotEmpty(t, got.Annotations[catalogv1.AnnotationRefreshMetadata])
+
+	// The generic detail page (a movie) carries the button too.
+	movie := projection.LibraryItem{
+		Ref: types.NamespacedName{Namespace: "default", Name: "heat"}, Kind: commonv1.MediaKindMovie,
+		Tab: projection.TabMovies, Title: "Heat", Monitored: true,
+	}
+	plain := ui.NewServer(t.Context(), ui.Options{
+		Library: func(context.Context) []projection.LibraryItem { return []projection.LibraryItem{movie} },
+	})
+	rec = httptest.NewRecorder()
+	plain.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/default/movie/heat", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), `action="/library/default/movie/heat/refresh"`)
+}

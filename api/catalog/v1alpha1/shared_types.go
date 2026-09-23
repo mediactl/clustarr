@@ -53,6 +53,15 @@ const AnnotationSearchNow = "catalog.clustarr.io/search"
 // +kubebuilder:validation:Enum=poster;fanart;banner;logo;clearart;thumb;screenshot;disc;headshot
 type ImageType string
 
+// AnnotationRefreshMetadata is the operator's forced metadata refresh on a
+// kind with metadata of its own (Movie, Series, Artist, Album, Author, Book,
+// Audiobook, Comic): its value is a positive integer, by convention the
+// requester's Unix time. catalogarr's refresher publishes a MetadataTask
+// carrying it as the refresh epoch (spec §5) and consumes the annotation;
+// the UI's "Refresh metadata" writes it. Declared here because both the
+// writer (ui/actions) and the consumer (catalogarr/metadata) read it.
+const AnnotationRefreshMetadata = "clustarr.io/refresh-metadata"
+
 // Image types.
 const (
 	ImageTypePoster     ImageType = "poster"
