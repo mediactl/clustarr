@@ -1,0 +1,6 @@
+{
+  "success": true,
+  "data": [
+    { "movieId": 204, "title": "Breaking Bad - Fifth Season", "alternateTitle": "", "releaseYear": 2012, "type": "tvseries", "season": 5 }
+  ]
+}

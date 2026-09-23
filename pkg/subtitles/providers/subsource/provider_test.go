@@ -255,6 +255,55 @@ func TestEpisodeSearch(t *testing.T) {
 	assert.Equal(t, []string{"9101", "9102"}, ids, "E06 and S02E05 are dropped; the season pack is kept")
 }
 
+// A later season is its own movies/search entry carrying that season's
+// year, not the series' premiere year the query carries. Bazarr's exact year
+// test found nothing past season 1; the IMDb search pins the show, so a
+// season from the premiere year on is accepted. A text-search result keeps
+// the exact rule: only its year tells the show from a same-titled remake.
+func TestALaterSeasonMatchesThroughItsOwnYear(t *testing.T) {
+	s05e14 := breakingBadS01E05()
+	s05e14.Season, s05e14.Episode = 5, 14
+
+	f := &fakeSubSource{routes: map[string]func(url.Values) (int, map[string]string, []byte){
+		"/api/v1/movies/search": ok(fixture(t, "titles_season5.json")),
+		"/api/v1/subtitles":     ok(fixture(t, "episode_list_s05.json")),
+	}}
+	p := f.start(t)
+	cands, err := p.Search(context.Background(), s05e14)
+	require.NoError(t, err)
+	require.Len(t, cands, 1)
+	assert.Equal(t, "9501", cands[0].ID)
+	reqs := f.requests()
+	require.Len(t, reqs, 2)
+	assert.Equal(t, "5", reqs[0].query.Get("season"))
+	assert.Equal(t, "204", reqs[1].query.Get("movieId"))
+
+	text := &fakeSubSource{routes: map[string]func(url.Values) (int, map[string]string, []byte){
+		"/api/v1/movies/search": func(q url.Values) (int, map[string]string, []byte) {
+			if q.Get("searchType") == "imdb" {
+				return http.StatusOK, nil, []byte(`{"success":true,"data":[]}`)
+			}
+			return http.StatusOK, nil, fixture(t, "titles_season5.json")
+		},
+		"/api/v1/subtitles": ok(fixture(t, "episode_list_s05.json")),
+	}}
+	cands, err = text.start(t).Search(context.Background(), s05e14)
+	require.NoError(t, err)
+	assert.Empty(t, cands, "a text match has only its year to go on, so it stays exact")
+	assert.Len(t, text.requests(), 2, "imdb then text search, and no listing")
+
+	before := s05e14
+	before.Year = 2013 // a season entry cannot predate its series
+	early := &fakeSubSource{routes: map[string]func(url.Values) (int, map[string]string, []byte){
+		"/api/v1/movies/search": ok(fixture(t, "titles_season5.json")),
+		"/api/v1/subtitles":     ok(fixture(t, "episode_list_s05.json")),
+	}}
+	cands, err = early.start(t).Search(context.Background(), before)
+	require.NoError(t, err)
+	assert.Empty(t, cands)
+	assert.Len(t, early.requests(), 1, "no title id, so no listing")
+}
+
 func TestDownloadTakesTheEpisodeFromASeasonPack(t *testing.T) {
 	f := &fakeSubSource{routes: map[string]func(url.Values) (int, map[string]string, []byte){
 		"/api/v1/movies/search": ok(fixture(t, "titles_season.json")),

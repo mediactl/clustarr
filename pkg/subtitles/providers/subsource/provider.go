@@ -307,8 +307,8 @@ func (p *Provider) Search(ctx context.Context, q subtitles.Query) ([]subtitles.C
 
 // titleID is Bazarr's search_titles: the SubSource movieId for the item,
 // found by IMDb id and, when that finds nothing, by text; a result counts
-// when one of its titles contains the item's title and its year is the
-// item's (when the item has one). idMatch reports that the IMDb search
+// when one of its titles contains the item's title and its year matches the
+// item's (when the item has one; titleYearMatches). idMatch reports that the IMDb search
 // found it. Results are cached for titlesTTL, as Bazarr caches them.
 func (p *Provider) titleID(ctx context.Context, title, imdb string, season, year int) (id string, idMatch bool, err error) {
 	key := titleKey{imdb: imdb, title: strings.ToLower(title), season: season, year: year}
@@ -362,7 +362,7 @@ func (p *Provider) titleID(ctx context.Context, title, imdb string, season, year
 		if !matched {
 			continue
 		}
-		if y, err := strconv.Atoi(string(r.ReleaseYear)); year == 0 || (err == nil && y == year) {
+		if y, err := strconv.Atoi(string(r.ReleaseYear)); year == 0 || (err == nil && titleYearMatches(y, year, season, idMatch)) {
 			id = string(r.MovieID)
 			break
 		}
@@ -373,6 +373,24 @@ func (p *Provider) titleID(ctx context.Context, title, imdb string, season, year
 	p.titles[key] = titleEntry{id: id, idMatch: idMatch, at: p.now()}
 	p.mu.Unlock()
 	return id, idMatch, nil
+}
+
+// titleYearMatches is the year half of titleID's match. Bazarr compares the
+// result's releaseYear with the item's year exactly (search_titles, `not
+// self.video.year or self.video.year == int(result['releaseYear'])`). For a
+// show that finds nothing past its first season: each season is its own
+// movies/search entry carrying that SEASON's year, while the item's year is
+// the series' premiere, so season 5 of a 2008 show is a 2012 entry. When the
+// IMDb search found the entries the id already pins the show, and a season
+// can only air in its series' premiere year or later, so any year from the
+// premiere on is that show's season. A text-search result keeps Bazarr's
+// exact rule: there the year is all that tells a show from a same-titled
+// remake, whose season N can air long after the original premiered.
+func titleYearMatches(resultYear, itemYear, season int, idMatch bool) bool {
+	if resultYear == itemYear {
+		return true
+	}
+	return season > 0 && idMatch && resultYear > itemYear
 }
 
 // matches is SubsourceSubtitle.get_matches in this package's Match keys.
