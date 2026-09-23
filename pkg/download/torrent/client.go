@@ -132,6 +132,11 @@ type session struct {
 	paused   bool
 	imported bool
 
+	// priority is the class [applyPriorityBudget] last applied, normalised
+	// ("" is normal), so [Client.SetPriority] can tell a change from the
+	// level-driven repeat of the same value.
+	priority downloadv1alpha1.DownloadPriority
+
 	// activeSince is when the transfer last became able to make progress:
 	// its Add in this process -- including a re-attach, so an engine restart
 	// never counts downtime as a stall -- or its last Resume. The stall
@@ -149,9 +154,20 @@ type session struct {
 	// seedGoalMet is sticky: once the goal is met the torrent stops
 	// uploading (DisallowDataUpload, design spec §6.3), so nothing after it
 	// could un-meet it anyway. seedGoalMetAt is when, and where the
-	// reported seed time stops counting.
+	// reported seed time stops counting. A goal restored from
+	// [download.AddRequest.SeedHistory] is met from the Add, and its
+	// seedGoalMetAt is the moment this process sees the torrent complete, so
+	// the seed time this process adds is zero.
 	seedGoalMet   bool
 	seedGoalMetAt time.Time
+
+	// priorUploaded and priorSeedTime are the upload and seeding time a
+	// re-attached torrent had counted before its engine restarted
+	// ([download.AddRequest.SeedHistory]). anacrolix's own counters start
+	// from zero in every process, so the reported figures -- and the seed
+	// goal measured against them -- are these plus this process's own.
+	priorUploaded int64
+	priorSeedTime time.Duration
 
 	// lastUploadAt is when uploadedBytes last increased, for the seed
 	// criteria's inactiveTime.
@@ -175,6 +191,11 @@ type session struct {
 type Client struct {
 	cl  *anatorrent.Client
 	cfg Config
+
+	// defaultConns is anacrolix's own per-torrent connection budget
+	// (ClientConfig.EstablishedConnsPerTorrent), which a normal priority
+	// restores after [Client.SetPriority] moves a torrent off high or low.
+	defaultConns int
 
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -211,7 +232,12 @@ func New(cfg Config) (download.Client, error) {
 		return nil, fmt.Errorf("torrent: new anacrolix client: %w", err)
 	}
 
-	return &Client{cl: cl, cfg: cfg, sessions: make(map[string]*session)}, nil
+	return &Client{
+		cl:           cl,
+		cfg:          cfg,
+		defaultConns: acfg.EstablishedConnsPerTorrent,
+		sessions:     make(map[string]*session),
+	}, nil
 }
 
 // Info implements [download.Client.Info].
@@ -312,14 +338,21 @@ func (c *Client) Add(ctx context.Context, req download.AddRequest) (string, erro
 	sess.addedAt = addedAt
 	sess.activeSince = time.Now()
 	sess.paused = req.Paused
+	sess.priority = normalPriority(req.Priority)
 	if req.SeedCriteria != nil {
 		sess.seedCriteria = *req.SeedCriteria
 		sess.hasSeedCriteria = true
 	}
+	goalMet := sess.restoreSeedHistoryLocked(req.SeedHistory)
 	sess.mu.Unlock()
 
 	if req.Paused {
 		t.DisallowDataDownload()
+		t.DisallowDataUpload()
+	}
+	if goalMet {
+		// A goal met before the restart stays met: the torrent stays off the
+		// swarm, exactly as when the goal was first reached.
 		t.DisallowDataUpload()
 	}
 
@@ -339,7 +372,9 @@ func (c *Client) Add(ctx context.Context, req download.AddRequest) (string, erro
 	} else {
 		go selectOnInfo(t, sess, req.WantFile)
 	}
-	applyPriorityBudget(t, req.Priority)
+	if p := normalPriority(req.Priority); p != downloadv1alpha1.DownloadPriorityNormal {
+		c.applyPriorityBudget(t, p)
+	}
 	t.SetOnWriteChunkError(sess.onWriteChunkError(t))
 
 	logger.InfoContext(ctx, "torrent: added", "id", id, "name", req.Name, "paused", req.Paused)
@@ -418,6 +453,30 @@ func (c *Client) Resume(ctx context.Context, id string) error {
 		sess.activeSince = time.Now()
 	}
 	sess.paused = false
+	return nil
+}
+
+// SetPriority implements [download.Client.SetPriority]: it moves the
+// torrent's share of the peer-connection budget to the new class's, the same
+// lever [Client.Add] uses (see [applyPriorityBudget]). The same class again
+// is a no-op, so the engine may call it on every poll.
+func (c *Client) SetPriority(ctx context.Context, id string, priority downloadv1alpha1.DownloadPriority) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	t, sess, err := c.lookup(id)
+	if err != nil {
+		return err
+	}
+	p := normalPriority(priority)
+	sess.mu.Lock()
+	unchanged := normalPriority(sess.priority) == p
+	sess.priority = p
+	sess.mu.Unlock()
+	if unchanged {
+		return nil
+	}
+	c.applyPriorityBudget(t, p)
 	return nil
 }
 
@@ -554,13 +613,23 @@ const (
 	lowPriorityConns  = 10
 )
 
-func applyPriorityBudget(t *anatorrent.Torrent, p downloadv1alpha1.DownloadPriority) {
-	switch p {
+func (c *Client) applyPriorityBudget(t *anatorrent.Torrent, p downloadv1alpha1.DownloadPriority) {
+	switch normalPriority(p) {
 	case downloadv1alpha1.DownloadPriorityHigh:
 		t.SetMaxEstablishedConns(highPriorityConns)
 	case downloadv1alpha1.DownloadPriorityLow:
 		t.SetMaxEstablishedConns(lowPriorityConns)
+	default:
+		t.SetMaxEstablishedConns(c.defaultConns)
 	}
+}
+
+// normalPriority is p with "" read as normal, spec.priority's CRD default.
+func normalPriority(p downloadv1alpha1.DownloadPriority) downloadv1alpha1.DownloadPriority {
+	if p == "" {
+		return downloadv1alpha1.DownloadPriorityNormal
+	}
+	return p
 }
 
 // selectOnInfo applies want to t as soon as its info is known, then returns.

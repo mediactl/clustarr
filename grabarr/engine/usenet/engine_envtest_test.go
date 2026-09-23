@@ -212,6 +212,50 @@ func TestReconcilePausesAndResumesToMatchSpec(t *testing.T) {
 	assert.Len(t, fc.resumeCalls, 1)
 }
 
+// A job the health action paused waits for an operator: the engine must not
+// resume it just because spec.paused is false, and must report it so the
+// controller reads phase Paused. spec.paused=true is the operator's answer
+// (the client turns the health pause into an ordinary one), and
+// spec.paused=false then resumes it. spec.priority reaches the client on
+// every pass.
+func TestReconcileLeavesAHealthPauseForTheOperator(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+
+	url := nzbFixtureServer(t, []byte("payload"))
+	dl := newUsenetDownload("movie-health", "sabnzbd-0", url)
+	dl.Spec.Priority = downloadv1alpha1.DownloadPriorityLow
+	require.NoError(t, c.Create(ctx, dl))
+
+	fc := newFakeDownloadClient()
+	r := &usenetengine.Reconciler{Client: c, Download: fc, Resolver: &usenetengine.Resolver{}, Engine: "sabnzbd-0"}
+	reconcileEngine(t, r, "default", "movie-health")
+	assert.Equal(t, []downloadv1alpha1.DownloadPriority{downloadv1alpha1.DownloadPriorityLow}, fc.priorityCalls)
+
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "movie-health"}, dl))
+	it, err := fc.Get(ctx, dl.Status.DownloadID)
+	require.NoError(t, err)
+	it.Status, it.HealthPaused, it.Message = download.StatusPaused, true, "article health 50% is below the floor"
+	fc.setItem(it)
+
+	reconcileEngine(t, r, "default", "movie-health")
+	assert.Empty(t, fc.resumeCalls, "the engine resumed a job the health action paused")
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "movie-health"}, dl))
+	assert.True(t, dl.Status.HealthPaused, "the health pause was not reported")
+
+	dl.Spec.Paused = true
+	require.NoError(t, c.Update(ctx, dl))
+	reconcileEngine(t, r, "default", "movie-health")
+	assert.Len(t, fc.pauseCalls, 1, "spec.paused=true on a health-paused job is the operator's answer")
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "movie-health"}, dl))
+	assert.False(t, dl.Status.HealthPaused)
+
+	dl.Spec.Paused = false
+	require.NoError(t, c.Update(ctx, dl))
+	reconcileEngine(t, r, "default", "movie-health")
+	assert.Len(t, fc.resumeCalls, 1)
+}
+
 func TestReconcileMarksImportedAndRemovesOnImportByDefault(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)

@@ -132,6 +132,8 @@ func BuildConfig(ctx context.Context, c client.Client, dc *downloadv1alpha1.Down
 		PostProcess:        PostProcessFromSpec(us.PostProcess),
 		PreCheck:           us.PreCheck,
 		AbortHealthPercent: us.AbortHealthPercent,
+		// "" is the client's pause, which is also the CRD default.
+		HealthAction: us.HealthAction,
 	}
 	if us.PropagationDelay != nil {
 		cfg.PropagationDelay = us.PropagationDelay.Duration

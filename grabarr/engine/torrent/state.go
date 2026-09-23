@@ -59,6 +59,74 @@ type descriptor struct {
 	// transfer from when it was really added, not from the restart. Zero in
 	// a descriptor written before it existed.
 	AddedAt time.Time `json:"addedAt,omitzero"`
+
+	// Seed is the seeding the transfer has done, handed back to the client
+	// on re-attach as [download.AddRequest.SeedHistory] -- design spec
+	// §6.3's "persisted cumulative counters" -- so a restart neither resets
+	// the ratio and seed time towards the goal nor puts a torrent past its
+	// goal back on the swarm. Nil until a poll has seen any seeding, and in
+	// a descriptor written before it existed.
+	Seed *seedRecord `json:"seed,omitempty"`
+}
+
+// seedRecord is the persisted half of a torrent's seeding. Every field only
+// ever grows ([nextSeedRecord]): a client re-verifying its data after a
+// restart reports its goal unmet until the check finishes, and recording
+// that would forget the goal the restart was meant to keep.
+type seedRecord struct {
+	UploadedBytes   int64 `json:"uploadedBytes"`
+	SeedTimeSeconds int64 `json:"seedTimeSeconds"`
+	GoalMet         bool  `json:"goalMet,omitempty"`
+
+	// SavedAt is when the counters were last written, which is what bounds
+	// the writes to one per [seedPersistInterval] per transfer.
+	SavedAt time.Time `json:"savedAt"`
+}
+
+// seedPersistInterval bounds how often a transfer's seed counters are
+// rewritten. The engine polls every few seconds and the counters move on
+// nearly every poll, so writing each change would put an fsync on the shared
+// data volume per torrent every poll. A crash loses at most this much seeding
+// time and upload, which only means seeding a minute longer; a met goal is
+// never deferred ([nextSeedRecord]).
+const seedPersistInterval = time.Minute
+
+// nextSeedRecord is what prev becomes after observing item at now, and
+// whether that needs writing. It needs writing when the goal was newly met,
+// or when a counter grew and prev is [seedPersistInterval] old; the counters
+// and the goal never go backwards.
+func nextSeedRecord(prev *seedRecord, item download.Item, now time.Time) (seedRecord, bool) {
+	var p seedRecord
+	if prev != nil {
+		p = *prev
+	}
+	next := seedRecord{
+		UploadedBytes:   max(p.UploadedBytes, item.UploadedBytes),
+		SeedTimeSeconds: max(p.SeedTimeSeconds, int64(item.SeedTime/time.Second)),
+		GoalMet:         p.GoalMet || item.SeedGoalMet,
+		SavedAt:         p.SavedAt,
+	}
+	switch {
+	case next.GoalMet != p.GoalMet:
+	case next.UploadedBytes == p.UploadedBytes && next.SeedTimeSeconds == p.SeedTimeSeconds:
+		return p, false
+	case prev != nil && now.Sub(p.SavedAt) < seedPersistInterval:
+		return p, false
+	}
+	next.SavedAt = now
+	return next, true
+}
+
+// history renders r as the [download.SeedHistory] a re-attach hands back.
+func (r *seedRecord) history() *download.SeedHistory {
+	if r == nil {
+		return nil
+	}
+	return &download.SeedHistory{
+		UploadedBytes: r.UploadedBytes,
+		SeedTime:      time.Duration(r.SeedTimeSeconds) * time.Second,
+		GoalMet:       r.GoalMet,
+	}
 }
 
 // torrentFileName and sidecarFileName are the two files [saveDescriptor]
@@ -115,12 +183,24 @@ type loadedDescriptor struct {
 	Payload []byte
 }
 
+// descriptorState is the mutable half of a descriptor: what [Reconciler.sync]
+// can change after the initial Add, plus the latest observation of the
+// transfer, whose seed counters are persisted from it.
+type descriptorState struct {
+	Paused       bool
+	SeedCriteria *commonv1alpha1.SeedCriteria
+	Priority     downloadv1alpha1.DownloadPriority
+	Item         download.Item
+}
+
 // updateDescriptorState refreshes the mutable half of id's persisted
-// descriptor -- Paused and SeedCriteria, the two fields [Reconciler.sync]
-// can change after the initial Add -- without touching the payload/magnet a
-// re-resolve would otherwise require. It is a no-op, reporting ok=false,
-// when no descriptor is on disk for id (nothing to refresh: either it was
-// never persisted, e.g. a re-attach anomaly, or it has already been removed).
+// descriptor -- Paused, SeedCriteria and Priority, the fields
+// [Reconciler.sync] can change after the initial Add, and the seed counters
+// ([nextSeedRecord]) -- without touching the payload/magnet a re-resolve
+// would otherwise require. It is a no-op when no descriptor is on disk for id
+// (nothing to refresh: either it was never persisted, e.g. a re-attach
+// anomaly, or it has already been removed), and writes nothing when nothing
+// changed.
 //
 // Without this, a Download paused or re-scored after its initial Add would
 // re-attach in its ORIGINAL state after an engine restart, relying on the
@@ -128,7 +208,7 @@ type loadedDescriptor struct {
 // transfer marked paused in spec.paused runs unpaused until the very next
 // reconcile notices. Keeping the descriptor current removes that window
 // rather than tolerating it.
-func updateDescriptorState(stateDir, id string, paused bool, seedCriteria *commonv1alpha1.SeedCriteria) error {
+func updateDescriptorState(stateDir, id string, st descriptorState, now time.Time) error {
 	body, err := os.ReadFile(sidecarFileName(stateDir, id))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -140,11 +220,17 @@ func updateDescriptorState(stateDir, id string, paused bool, seedCriteria *commo
 	if err := json.Unmarshal(body, &d); err != nil {
 		return fmt.Errorf("torrent: decode descriptor for %s: %w", id, err)
 	}
-	if d.Paused == paused && seedCriteriaEqual(d.SeedCriteria, seedCriteria) {
+	seed, seedDue := nextSeedRecord(d.Seed, st.Item, now)
+	if d.Paused == st.Paused && seedCriteriaEqual(d.SeedCriteria, st.SeedCriteria) &&
+		d.Priority == st.Priority && !seedDue {
 		return nil
 	}
-	d.Paused = paused
-	d.SeedCriteria = seedCriteria
+	d.Paused = st.Paused
+	d.SeedCriteria = st.SeedCriteria
+	d.Priority = st.Priority
+	if seedDue {
+		d.Seed = &seed
+	}
 
 	out, err := json.Marshal(d)
 	if err != nil {
@@ -238,6 +324,7 @@ func (l loadedDescriptor) addRequest() download.AddRequest {
 		SeedCriteria:     l.Desc.SeedCriteria,
 		WantFile:         l.Desc.Selection.selector(),
 		AddedAt:          l.Desc.AddedAt,
+		SeedHistory:      l.Desc.Seed.history(),
 	}
 	return req
 }

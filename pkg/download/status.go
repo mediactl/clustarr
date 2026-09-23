@@ -68,7 +68,9 @@ const MaxStatusFiles = 200
 // k8s.ManagerImportarr. None of them is emitted here. [Item.FailureReason]
 // and [Item.SeedGoalMet] are the raw material for two of them, and are
 // emitted as the engine's own reports (engineFailureReason,
-// seedGoalReached), which the controller reads and turns into its verdicts.
+// seedGoalReached), which the controller reads and turns into its verdicts;
+// [Item.HealthPaused] is likewise the report (healthPaused) behind the
+// controller's Paused phase.
 //
 // Three pointer fields are omitted when nil, and that is a property of the
 // SHAPE of the observation rather than of its outcome: etaSeconds is absent
@@ -98,6 +100,7 @@ func ApplyStatus(item Item) *downloadac.DownloadStatusApplyConfiguration {
 		WithCanMoveFiles(item.CanMoveFiles).
 		WithCanBeRemoved(item.CanBeRemoved).
 		WithSeedGoalReached(item.SeedGoalMet).
+		WithHealthPaused(item.HealthPaused).
 		WithMessage(item.Message)
 
 	// Stage is an enum whose generated CRD does not admit "". An engine that
@@ -185,6 +188,7 @@ func ItemFromStatus(st downloadv1alpha1.DownloadStatus) Item {
 		CanBeRemoved:    st.CanBeRemoved,
 		IsEncrypted:     st.IsEncrypted,
 		SeedGoalMet:     st.SeedGoalReached,
+		HealthPaused:    st.HealthPaused,
 		FailureReason:   st.EngineFailureReason,
 		Message:         st.Message,
 	}

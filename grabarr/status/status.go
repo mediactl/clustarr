@@ -62,19 +62,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     the five are about the object's relationship to other objects, not to
 //     the transfer.
 //
-// [EngineFields], k8s.ManagerGrabarrEngine -- twenty-five fields: stage,
+// [EngineFields], k8s.ManagerGrabarrEngine -- twenty-six fields: stage,
 // downloadID, outputPath, contentRoot, files, the byte counters, the rates,
 // etaSeconds, progressPercent, seeders, peers, ratioMilli, seedTimeSeconds,
 // health, isEncrypted, canMoveFiles, canBeRemoved, message, lastProgressAt,
-// engineFailureReason and seedGoalReached. Each is an observation of the
+// engineFailureReason, seedGoalReached and healthPaused. Each is an observation of the
 // TRANSFER, and the controller has no way to produce any of them: it cannot
 // know the info hash the payload resolved to, the directory the engine
 // published into, how many articles were missing, or whether a disk write
 // failed. downloadID, outputPath and contentRoot are here for that reason
 // rather than because they read like telemetry; engineFailureReason and
 // seedGoalReached (gap fix Y2) are the engine's reports behind the
-// controller's failureReason and seedGoalMetAt, split so that neither field
-// has two writers.
+// controller's failureReason and seedGoalMetAt, and healthPaused (Z1) the
+// usenet engine's report behind the controller's Paused phase, split so that
+// none of those fields has two writers.
 //
 // status.import belongs to NEITHER, and is named here so that it cannot be
 // claimed by accident. It is the project's only cross-group status write:
@@ -91,7 +92,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // [ControllerFields] and [EngineFields] are complete declarations seeded from
 // the live status, so an apply that changes one field still re-sends the other
-// eight or twenty-four. Callers mutate the seeded configuration rather than
+// eight or twenty-five. Callers mutate the seeded configuration rather than
 // building one, which is what makes the complete-declaration rule enforceable
 // in a single place: two callers hand-building their own apply configurations
 // for one manager is precisely how each deletes the other's fields.

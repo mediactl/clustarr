@@ -207,6 +207,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return ctrl.Result{}, err
 	}
 
+	// A spec.priority edited after the Add. The client ignores the class
+	// the job already has, so this is level-driven like syncPause.
+	if err := r.Download.SetPriority(ctx, item.ID, dl.Spec.Priority); err != nil {
+		return ctrl.Result{}, err
+	}
 	if err := r.syncPause(ctx, &dl, item); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -274,12 +279,19 @@ func (r *Reconciler) getOrAdd(ctx context.Context, log *slog.Logger, dl *downloa
 // Pause/Resume only on a mismatch -- both are safe to call redundantly
 // ([download.Client.Resume]'s own doc says so), but skipping the call when
 // nothing disagrees avoids a checkpoint write every single poll.
+//
+// A job the health action paused (item.HealthPaused, DownloadClient
+// spec.usenet.healthAction=pause) is not a mismatch with spec.paused=false:
+// it waits for an operator, so it is never resumed from here. Setting
+// spec.paused to true is the operator answering -- the Pause turns the
+// health pause into an ordinary one with the health check off -- and setting
+// it back to false then resumes the job as usual.
 func (r *Reconciler) syncPause(ctx context.Context, dl *downloadv1alpha1.Download, item download.Item) error {
 	paused := item.Status == download.StatusPaused
 	switch {
-	case dl.Spec.Paused && !paused:
+	case dl.Spec.Paused && (!paused || item.HealthPaused):
 		return r.Download.Pause(ctx, item.ID)
-	case !dl.Spec.Paused && paused:
+	case !dl.Spec.Paused && paused && !item.HealthPaused:
 		return r.Download.Resume(ctx, item.ID)
 	}
 	return nil

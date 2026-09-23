@@ -83,6 +83,17 @@ func derivePhaseCases(t *testing.T) []derivePhaseCase {
 	paused := base()
 	paused.Spec.Paused = true
 
+	// The usenet engine's health action paused it; spec.paused is false.
+	healthPaused := base()
+	healthPaused.Status.Stage = downloadv1alpha1.DownloadStageTransferring
+	healthPaused.Status.HealthPaused = true
+
+	// A health-paused job that then failed -- its downloadTimeout passed
+	// while it waited -- is failed, not paused.
+	healthPausedThenFailed := base()
+	healthPausedThenFailed.Status.HealthPaused = true
+	healthPausedThenFailed.Status.EngineFailureReason = downloadv1alpha1.DownloadFailureTimeout
+
 	noTelemetry := base()
 
 	fetchingMetadata := base()
@@ -217,6 +228,12 @@ func derivePhaseCases(t *testing.T) []derivePhaseCase {
 			phase: downloadv1alpha1.DownloadPhaseBlocklisted, failureReason: downloadv1alpha1.DownloadFailureWriteError,
 		}},
 		{"spec.paused pauses", paused, phaseResult{phase: downloadv1alpha1.DownloadPhasePaused}},
+		{"the engine's health pause pauses", healthPaused, phaseResult{phase: downloadv1alpha1.DownloadPhasePaused}},
+		{"a failure outranks a health pause", healthPausedThenFailed, blocklistNow(downloadv1alpha1.DownloadFailureTimeout)},
+		{
+			"payloadMismatch blocklists", engineFailed(downloadv1alpha1.DownloadFailurePayloadMismatch),
+			blocklistNow(downloadv1alpha1.DownloadFailurePayloadMismatch),
+		},
 		{"no telemetry yet stays assigned", noTelemetry, phaseResult{phase: downloadv1alpha1.DownloadPhaseAssigned}},
 		{"fetchingMetadata queues", fetchingMetadata, phaseResult{phase: downloadv1alpha1.DownloadPhaseQueued}},
 		{"transferring downloads", transferring, phaseResult{phase: downloadv1alpha1.DownloadPhaseDownloading}},
@@ -270,6 +287,7 @@ func TestOnlyReleaseFaultsBlocklist(t *testing.T) {
 		downloadv1alpha1.DownloadFailureMissingArticles, downloadv1alpha1.DownloadFailureEncrypted,
 		downloadv1alpha1.DownloadFailureStalled, downloadv1alpha1.DownloadFailureTimeout,
 		downloadv1alpha1.DownloadFailureImportRejected, downloadv1alpha1.DownloadFailureManual,
+		downloadv1alpha1.DownloadFailurePayloadMismatch,
 	}
 	for _, r := range release {
 		assert.Truef(t, r.IsReleaseFault(), "%s is the release's fault", r)

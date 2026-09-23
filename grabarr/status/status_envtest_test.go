@@ -127,7 +127,7 @@ func TestTheTwoManagersDoNotReleaseEachOthersFields(t *testing.T) {
 				}))
 		}))
 
-	// Steady state: the engine's twenty-five, through the same mapping the
+	// Steady state: the engine's twenty-six, through the same mapping the
 	// engines themselves write with.
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(dl), dl))
 	require.NoError(t, status.Patch(ctx, c, k8s.ManagerGrabarrEngine, dl,
@@ -156,6 +156,7 @@ func TestTheTwoManagersDoNotReleaseEachOthersFields(t *testing.T) {
 				Message:         "seeding",
 				LastProgressAt:  &lastProgress,
 				SeedGoalMet:     true,
+				HealthPaused:    true,
 				// Not a coherent transfer -- a seeding torrent that also
 				// failed -- but this test is about ownership of every leaf,
 				// and engineFailureReason is only sent while it is set.
@@ -361,10 +362,11 @@ func assertEngineHalfIntact(t *testing.T, st downloadv1alpha1.DownloadStatus, wh
 	assert.NotNil(t, st.LastProgressAt, who+" released lastProgressAt")
 	assert.Equal(t, downloadv1alpha1.DownloadFailureWriteError, st.EngineFailureReason, who+" released engineFailureReason")
 	assert.True(t, st.SeedGoalReached, who+" released seedGoalReached")
+	assert.True(t, st.HealthPaused, who+" released healthPaused")
 	// etaSeconds is deliberately absent: the Item above has no estimate, and
 	// "absent" is the value the CRD documents for that. It is listed here so
-	// that the twenty-five-field set reads as complete rather than as
-	// twenty-four with one forgotten.
+	// that the twenty-six-field set reads as complete rather than as
+	// twenty-five with one forgotten.
 	assert.Nil(t, st.ETASeconds, who+" invented an etaSeconds")
 }
 

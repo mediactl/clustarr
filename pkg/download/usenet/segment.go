@@ -28,6 +28,7 @@ import (
 	"sync"
 	"time"
 
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
@@ -363,7 +364,7 @@ func (j *job) runBatch(ctx context.Context, targets []*os.File, b batch) error {
 	if unavailable != nil {
 		return unavailable
 	}
-	return j.healthGate()
+	return j.healthGate(ctx)
 }
 
 // writeSegment puts one decoded part at its authoritative offset.
@@ -425,8 +426,8 @@ var ErrUnrecoverable = errors.New("usenet: too many articles missing to recover"
 // healthGate stops a hopeless download early. SABnzbd calls it "abort jobs
 // that cannot be completed" and NZBGet calls it critical health; both exist
 // because finishing a 50GB transfer that par2 cannot repair wastes the whole
-// transfer.
-func (j *job) healthGate() error {
+// transfer. What "stops" means is the health action's ([job.breach]).
+func (j *job) healthGate(ctx context.Context) error {
 	health := j.healthPercent()
 	if health >= j.abortHealth && health >= j.nzb.criticalHealthPercent() {
 		return nil
@@ -434,12 +435,45 @@ func (j *job) healthGate() error {
 	j.mu.Lock()
 	last := j.lastError
 	j.mu.Unlock()
-	if last != nil {
-		return fmt.Errorf("%w: health %d%% is below the floor (abort %d%%, critical %d%%); last article error: %w",
-			ErrUnrecoverable, health, j.abortHealth, j.nzb.criticalHealthPercent(), last)
+	return j.breach(ctx, fmt.Sprintf("health %d%% is below the floor (abort %d%%, critical %d%%)",
+		health, j.abortHealth, j.nzb.criticalHealthPercent()), last)
+}
+
+// breach applies [Config.HealthAction] to a health-floor breach described by
+// detail, with cause the last article error if there is one.
+//
+// Under delete it returns [ErrUnrecoverable], which fails the job as
+// missingArticles. Under pause it pauses the job -- once; the report and the
+// checkpoint are written on the first breach only -- and returns nil, and
+// the caller waits the pause out the way it waits out any other. After an
+// operator has acknowledged a health pause (healthOverride) it returns nil
+// and does nothing: NZBGet does not health-check a job it has already
+// health-paused once.
+func (j *job) breach(ctx context.Context, detail string, cause error) error {
+	if j.client.cfg.HealthAction == downloadv1alpha1.HealthActionDelete {
+		if cause != nil {
+			return fmt.Errorf("%w: %s; last article error: %w", ErrUnrecoverable, detail, cause)
+		}
+		return fmt.Errorf("%w: %s", ErrUnrecoverable, detail)
 	}
-	return fmt.Errorf("%w: health %d%% is below the floor (abort %d%%, critical %d%%)",
-		ErrUnrecoverable, health, j.abortHealth, j.nzb.criticalHealthPercent())
+
+	j.mu.Lock()
+	if j.healthOverride || j.healthPaused {
+		j.mu.Unlock()
+		return nil
+	}
+	j.healthPaused = true
+	j.paused.Store(true)
+	j.message = "article " + detail + ": paused by healthAction pause; " +
+		"set spec.paused to true and back to false to continue without the health check, " +
+		"or delete or blocklist the Download"
+	j.mu.Unlock()
+	if err := j.checkpoint(); err != nil {
+		logging.FromContext(ctx).WarnContext(ctx, "usenet checkpoint failed", "download", j.id, "error", err)
+	}
+	logging.FromContext(ctx).WarnContext(ctx, "usenet download paused by its health action",
+		"download", j.id, "detail", detail)
+	return nil
 }
 
 // startCheckpoint persists the bitsets on a timer and returns a stop func.

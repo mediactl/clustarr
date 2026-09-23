@@ -159,6 +159,12 @@ func TestBuildConfigResolvesProvidersAndDefaultsPostProcess(t *testing.T) {
 	cfg, err = usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch")
 	require.NoError(t, err)
 	assert.Equal(t, 6*time.Hour, cfg.DownloadTimeout, "spec.usenet.downloadTimeout must reach the client")
+
+	assert.Empty(t, cfg.HealthAction, "unset is the client's pause, the CRD default")
+	dc.Spec.Usenet.HealthAction = downloadv1alpha1.HealthActionDelete
+	cfg, err = usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch")
+	require.NoError(t, err)
+	assert.Equal(t, downloadv1alpha1.HealthActionDelete, cfg.HealthAction, "spec.usenet.healthAction must reach the client")
 }
 
 func TestBuildConfigFailsOnMissingSecret(t *testing.T) {

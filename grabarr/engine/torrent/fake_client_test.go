@@ -44,6 +44,7 @@ type fakeClient struct {
 	pauseCalls        []string
 	resumeCalls       []string
 	seedCriteriaCalls []string
+	priorityCalls     []priorityCall
 	markImportedCalls []string
 	removeCalls       []removeCall
 
@@ -58,6 +59,12 @@ type fakeClient struct {
 type removeCall struct {
 	id         string
 	deleteData bool
+}
+
+// priorityCall records one SetPriority invocation.
+type priorityCall struct {
+	id       string
+	priority downloadv1alpha1.DownloadPriority
 }
 
 func newFakeClient() *fakeClient {
@@ -155,6 +162,16 @@ func (f *fakeClient) Resume(_ context.Context, id string) error {
 	item.Status = download.StatusDownloading
 	item.Stage = downloadv1alpha1.DownloadStageTransferring
 	f.items[id] = item
+	return nil
+}
+
+func (f *fakeClient) SetPriority(_ context.Context, id string, p downloadv1alpha1.DownloadPriority) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.items[id]; !ok {
+		return download.ErrNotFound
+	}
+	f.priorityCalls = append(f.priorityCalls, priorityCall{id: id, priority: p})
 	return nil
 }
 

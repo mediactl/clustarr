@@ -166,6 +166,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	}
 
 	if dl.Status.DownloadID == "" {
+		if dl.Status.EngineFailureReason.IsFailure() {
+			// This engine already reported a failure before any transfer
+			// existed -- a payload whose info hash was not the expected one
+			// -- and the controller's verdict is on its way (engine.Stopped
+			// above, next time). Resolving the payload again would only
+			// fetch the same wrong torrent.
+			return ctrl.Result{}, nil
+		}
 		return r.add(ctx, &dl)
 	}
 
@@ -217,15 +225,22 @@ func (r *Reconciler) add(ctx context.Context, dl *downloadv1alpha1.Download) (ct
 	}
 
 	id, err := r.Engine.Client.Add(ctx, addReq)
+	if errors.Is(err, download.ErrPayloadMismatch) {
+		// The indexer served a torrent other than the one the grab was
+		// decided on (spec.source.expectedInfoHash). No retry of the same
+		// source fixes that, so it is reported as the engine's failure,
+		// payloadMismatch -- a release fault the controller blocklists, which
+		// sends the redownload search elsewhere. Nothing was added, so the
+		// report carries no transfer id.
+		logging.FromContext(ctx).WarnContext(ctx, "torrent: payload does not match the expected info hash",
+			"expected", res.ExpectedInfoHash, "error", err)
+		return ctrl.Result{}, r.applyTelemetry(ctx, client.ObjectKeyFromObject(dl), download.Item{
+			Status:        download.StatusFailed,
+			FailureReason: downloadv1alpha1.DownloadFailurePayloadMismatch,
+			Message:       err.Error(),
+		})
+	}
 	if err != nil {
-		// errors.Is(err, download.ErrPayloadMismatch) is a blocklist-worthy
-		// event (the interface doc's own words), and since gap fix Y2 an
-		// engine does have a channel for a failure -- status.engineFailureReason
-		// -- but DownloadFailureReason has no member for "the indexer served
-		// different content", and reporting it as one of the others would
-		// be a guess the controller then blocklists on. It stays an error
-		// here, and controller-runtime's own backoff retries it rather than
-		// spinning tightly.
 		return ctrl.Result{}, fmt.Errorf("torrent: add %s/%s: %w", dl.Namespace, dl.Name, err)
 	}
 
@@ -291,7 +306,15 @@ func (r *Reconciler) sync(ctx context.Context, dl *downloadv1alpha1.Download, id
 		}
 	}
 
-	sc := r.seedCriteria(ctx, dl)
+	// A spec.priority edited after the Add. SetPriority is a no-op for the
+	// class the transfer already has, so this is level-driven like
+	// Pause/Resume above.
+	if err := r.Engine.Client.SetPriority(ctx, id, dl.Spec.Priority); err != nil && !errors.Is(err, download.ErrNotFound) {
+		return ctrl.Result{}, fmt.Errorf("torrent: set priority %s: %w", id, err)
+	}
+
+	dc := r.downloadClient(ctx, dl)
+	sc := seedCriteriaFrom(dl, dc)
 	if sc != nil {
 		if err := r.Engine.Client.SetSeedCriteria(ctx, id, *sc); err != nil && !errors.Is(err, download.ErrNotFound) {
 			return ctrl.Result{}, fmt.Errorf("torrent: set seed criteria %s: %w", id, err)
@@ -300,8 +323,14 @@ func (r *Reconciler) sync(ctx context.Context, dl *downloadv1alpha1.Download, id
 
 	// Keep the persisted descriptor's mutable fields current so a restart
 	// re-attaches in the state spec currently asks for, not the state Add
-	// originally saw -- see updateDescriptorState's own doc comment.
-	if err := updateDescriptorState(r.StateDir, id, dl.Spec.Paused, sc); err != nil {
+	// originally saw, and with the seeding it has done so far -- see
+	// updateDescriptorState's own doc comment.
+	if err := updateDescriptorState(r.StateDir, id, descriptorState{
+		Paused:       dl.Spec.Paused,
+		SeedCriteria: sc,
+		Priority:     dl.Spec.Priority,
+		Item:         item,
+	}, time.Now()); err != nil {
 		log.ErrorContext(ctx, "torrent: update persisted descriptor failed", "error", err)
 	}
 
@@ -323,7 +352,7 @@ func (r *Reconciler) sync(ctx context.Context, dl *downloadv1alpha1.Download, id
 		}
 	}
 
-	if item.CanBeRemoved && removeOnImport(dl) {
+	if item.CanBeRemoved && removeOnImport(dl) && removeCompleted(dc) {
 		log.InfoContext(ctx, "torrent: seed goal met and imported; removing")
 		if err := r.applyTelemetry(ctx, client.ObjectKeyFromObject(dl), item); err != nil {
 			return ctrl.Result{}, err
@@ -483,11 +512,35 @@ func (r *Reconciler) seedCriteria(ctx context.Context, dl *downloadv1alpha1.Down
 	if dl.Spec.SeedCriteria != nil {
 		return dl.Spec.SeedCriteria
 	}
-	dc := r.downloadClient(ctx, dl)
+	return seedCriteriaFrom(dl, r.downloadClient(ctx, dl))
+}
+
+// seedCriteriaFrom is [Reconciler.seedCriteria] over a DownloadClient
+// already read (nil when it could not be).
+func seedCriteriaFrom(dl *downloadv1alpha1.Download, dc *downloadv1alpha1.DownloadClient) *commonv1alpha1.SeedCriteria {
+	if dl.Spec.SeedCriteria != nil {
+		return dl.Spec.SeedCriteria
+	}
 	if dc == nil || dc.Spec.Torrent == nil {
 		return nil
 	}
 	return dc.Spec.Torrent.Seed
+}
+
+// removeCompleted is DownloadClient spec.torrent.removeCompleted, Sonarr's
+// and Radarr's "Remove Completed": whether an imported torrent past its seed
+// goal is removed from the engine at all. It is ANDed with the Download's own
+// spec.removeOnImport ([removeOnImport]) rather than overridden by it,
+// because removeOnImport defaults to true at the apiserver and so cannot say
+// "unset": the client-wide switch turns removal off for every Download, and
+// a Download can turn it off for itself. nil -- the pointer unset in Go, or a
+// DownloadClient that could not be read -- is the CRD default, true, the same
+// fallback [Reconciler.downloadClient] documents for the seed criteria.
+func removeCompleted(dc *downloadv1alpha1.DownloadClient) bool {
+	if dc == nil || dc.Spec.Torrent == nil || dc.Spec.Torrent.RemoveCompleted == nil {
+		return true
+	}
+	return *dc.Spec.Torrent.RemoveCompleted
 }
 
 // downloadClient reads dl's DownloadClient (dl.Spec.ClientRef, already

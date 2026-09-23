@@ -102,10 +102,22 @@ type Config struct {
 	// PreCheck STATs every article before committing disk and quota.
 	PreCheck bool
 
-	// AbortHealthPercent is the article-health floor. A download below it is
-	// failed rather than finished. Zero means the default (90), matching
-	// UsenetSpec's own default.
+	// AbortHealthPercent is the article-health floor. A download below it --
+	// or below the NZB's own par2 critical health -- gets [Config.HealthAction].
+	// Zero means the default (90), matching UsenetSpec's own default.
 	AbortHealthPercent int32
+
+	// HealthAction is what a breach of the health floor does
+	// (UsenetSpec.healthAction). HealthActionDelete fails the job with
+	// DownloadFailureMissingArticles, which blocklists the release.
+	// HealthActionPause -- and the zero value, matching the CRD default --
+	// holds the job paused for an operator, NZBGet's HealthCheck=pause:
+	// [download.Item.HealthPaused] reports it, [Client.Resume] leaves it in
+	// place, and [Client.Pause] followed by [Client.Resume] continues the job
+	// with the health check off, which is what resuming a health-paused
+	// download does in NZBGet (QueueCoordinator::CheckHealth skips a job
+	// whose HealthPaused flag is already set).
+	HealthAction downloadv1alpha1.HealthAction
 
 	// PipelineDepth is how many commands one connection keeps in flight.
 	PipelineDepth int
@@ -254,8 +266,13 @@ type manifest struct {
 	Imported   bool   `json:"imported,omitempty"`
 	Encrypted  bool   `json:"encrypted,omitempty"`
 	Paused     bool   `json:"paused,omitempty"`
-	// Priority is the job's spec.priority class; see [job.priority].
+	// Priority is the job's spec.priority class; see [job.getPriority].
 	Priority string `json:"priority,omitempty"`
+	// HealthPaused and HealthOverride are the health action's state; see
+	// [job.healthPaused]. Persisted so a restart neither resumes a job an
+	// operator has not looked at nor re-pauses one they told to carry on.
+	HealthPaused   bool `json:"healthPaused,omitempty"`
+	HealthOverride bool `json:"healthOverride,omitempty"`
 	// AddedAt is when the job was first added -- [download.Item.AddedAt],
 	// which an orphan reaper ages the transfer by. A manifest written before
 	// it existed decodes to zero, which the reaper reads as "unknown".
@@ -283,10 +300,11 @@ type job struct {
 
 	abortHealth int32
 
-	// priority is fixed for the job's lifetime: [Client.Add] is idempotent
-	// and changes nothing about an existing job, so it is read without mu.
-	// See [Client.outranked] for what it does.
-	priority downloadv1alpha1.DownloadPriority
+	// prio is the job's spec.priority class, a downloadv1alpha1.DownloadPriority.
+	// [Client.SetPriority] changes it after the Add, and [Client.outranked]
+	// reads it for other jobs under only the client lock, so it is atomic
+	// rather than guarded by mu. See [job.getPriority].
+	prio atomic.Value
 
 	// addedAt is fixed at the first Add and restored from the manifest on
 	// re-attach, so it is read without mu too.
@@ -302,17 +320,26 @@ type job struct {
 	// stalls the fetch workers.
 	checkpointMu sync.Mutex
 
-	mu             sync.Mutex
-	status         download.Status
-	stage          downloadv1alpha1.DownloadStage
-	reason         downloadv1alpha1.DownloadFailureReason
-	message        string
-	outputPath     string
-	downloaded     int64
-	lastProgress   time.Time
-	lastError      error
-	encrypted      bool
-	imported       bool
+	mu           sync.Mutex
+	status       download.Status
+	stage        downloadv1alpha1.DownloadStage
+	reason       downloadv1alpha1.DownloadFailureReason
+	message      string
+	outputPath   string
+	downloaded   int64
+	lastProgress time.Time
+	lastError    error
+	encrypted    bool
+	imported     bool
+
+	// healthPaused is set when the health floor is breached under the pause
+	// health action ([job.breach]); the job is paused with it, and only an
+	// operator's Pause (which clears it and sets healthOverride) followed by
+	// a Resume carries on. healthOverride turns the health check off for the
+	// rest of the job, so the breach that paused it does not pause it again.
+	healthPaused   bool
+	healthOverride bool
+
 	done           []bitset
 	failedSegs     []bitset
 	publishedFiles []download.File
@@ -378,21 +405,23 @@ func (j *job) checkpoint() error {
 	defer j.checkpointMu.Unlock()
 	j.mu.Lock()
 	m := manifest{
-		ID:         j.id,
-		Name:       j.name,
-		Category:   j.category,
-		Status:     string(j.status),
-		Stage:      string(j.stage),
-		Reason:     string(j.reason),
-		Message:    j.message,
-		OutputPath: j.outputPath,
-		Imported:   j.imported,
-		Encrypted:  j.encrypted,
-		Paused:     j.paused.Load(),
-		Priority:   string(j.priority),
-		AddedAt:    j.addedAt,
-		Done:       cloneBitsets(j.done),
-		Failed:     cloneBitsets(j.failedSegs),
+		ID:             j.id,
+		Name:           j.name,
+		Category:       j.category,
+		Status:         string(j.status),
+		Stage:          string(j.stage),
+		Reason:         string(j.reason),
+		Message:        j.message,
+		OutputPath:     j.outputPath,
+		Imported:       j.imported,
+		Encrypted:      j.encrypted,
+		Paused:         j.paused.Load(),
+		Priority:       string(j.getPriority()),
+		HealthPaused:   j.healthPaused,
+		HealthOverride: j.healthOverride,
+		AddedAt:        j.addedAt,
+		Done:           cloneBitsets(j.done),
+		Failed:         cloneBitsets(j.failedSegs),
 	}
 	j.mu.Unlock()
 
@@ -472,7 +501,9 @@ func (c *Client) loadJob(dir string) (*job, error) {
 	j.imported = m.Imported
 	j.encrypted = m.Encrypted
 	j.paused.Store(m.Paused)
-	j.priority = downloadv1alpha1.DownloadPriority(m.Priority)
+	j.prio.Store(downloadv1alpha1.DownloadPriority(m.Priority))
+	j.healthPaused = m.HealthPaused
+	j.healthOverride = m.HealthOverride
 	j.addedAt = m.AddedAt
 	restoreBitsets(j.done, m.Done)
 	restoreBitsets(j.failedSegs, m.Failed)
@@ -515,6 +546,7 @@ func (c *Client) newJob(id, name, category, dir string, parsed *nzbJob, payload 
 		reason:      downloadv1alpha1.DownloadFailureNone,
 		finished:    make(chan struct{}),
 	}
+	j.prio.Store(downloadv1alpha1.DownloadPriority(""))
 	j.done = make([]bitset, len(parsed.Files))
 	j.failedSegs = make([]bitset, len(parsed.Files))
 	for i := range parsed.Files {
@@ -619,7 +651,7 @@ func (c *Client) Add(ctx context.Context, req download.AddRequest) (string, erro
 
 	j := c.newJob(parsed.ID, req.Name, category, dir, parsed, req.Payload)
 	j.paused.Store(req.Paused)
-	j.priority = req.Priority
+	j.prio.Store(req.Priority)
 	j.addedAt = req.AddedAt
 	if j.addedAt.IsZero() {
 		j.addedAt = time.Now()
@@ -841,8 +873,11 @@ func (j *job) preCheck(ctx context.Context) error {
 	}
 	health := int32((len(ids) - len(missing)) * 100 / len(ids)) //nolint:gosec // bounded by 100.
 	if health < j.abortHealth || health < j.nzb.criticalHealthPercent() {
-		return fmt.Errorf("%w: pre-check found %d of %d articles missing (health %d%%)",
-			ErrUnrecoverable, len(missing), len(ids), health)
+		if err := j.breach(ctx, fmt.Sprintf("pre-check found %d of %d articles missing (health %d%%)",
+			len(missing), len(ids), health), nil); err != nil {
+			return err
+		}
+		return j.waitWhilePaused(ctx)
 	}
 	return nil
 }
@@ -852,8 +887,17 @@ func (j *job) postProcess(ctx context.Context) error {
 	ctx, span := tracing.Start(ctx, "usenet.job.postProcess")
 	defer span.End()
 
-	if err := j.healthGate(); err != nil {
+	if err := j.healthGate(ctx); err != nil {
 		return err
+	}
+	// The gate pauses rather than failing under the pause health action; the
+	// transfer's workers wait that out between batches, but nothing else
+	// would stop repair and unpack from running on a set the operator has
+	// not yet decided about.
+	if j.isHealthPaused() {
+		if err := j.waitWhilePaused(ctx); err != nil {
+			return err
+		}
 	}
 
 	content := j.contentDir()
@@ -1008,10 +1052,30 @@ func listContent(root string) ([]download.File, error) {
 func (j *job) snapshotStatus() download.Status {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	if j.paused.Load() && j.status == download.StatusDownloading {
+	if j.pausedLocked() {
 		return download.StatusPaused
 	}
 	return j.status
+}
+
+// pausedLocked reports whether the job reads as paused: a pause while it
+// transfers, or a health pause at any point before it finishes -- the
+// pre-check's included, which runs as Queued. The caller holds mu.
+func (j *job) pausedLocked() bool {
+	switch {
+	case j.status == download.StatusCompleted || j.status == download.StatusFailed:
+		return false
+	case j.healthPaused:
+		return true
+	default:
+		return j.paused.Load() && j.status == download.StatusDownloading
+	}
+}
+
+func (j *job) isHealthPaused() bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.healthPaused
 }
 
 func (j *job) snapshotOutputPath() string {
@@ -1036,7 +1100,7 @@ func (j *job) item() download.Item {
 	status := j.status
 	message := j.message
 	switch {
-	case j.paused.Load() && status == download.StatusDownloading:
+	case j.pausedLocked():
 		status = download.StatusPaused
 	case outranked && status == download.StatusDownloading:
 		// Waiting its turn behind a higher-priority transfer: it moves no
@@ -1072,6 +1136,7 @@ func (j *job) item() download.Item {
 		ProgressPercent: progress,
 		OutputPath:      j.outputPath,
 		IsEncrypted:     j.encrypted,
+		HealthPaused:    j.healthPaused && j.pausedLocked(),
 		Message:         message,
 		AddedAt:         j.addedAt,
 		Health: &downloadv1alpha1.UsenetHealth{
@@ -1152,11 +1217,23 @@ func (c *Client) lookup(id string) (*job, error) {
 
 // Pause suspends a transfer. The partial files stay in the scratch area, so
 // resuming re-fetches only the articles that never landed.
+//
+// Pausing a health-paused job is the operator acknowledging the breach: the
+// health pause becomes an ordinary pause, and the health check is off for the
+// rest of the job, so the Resume that follows carries on rather than pausing
+// again at the next batch ([Config.HealthAction]).
 func (c *Client) Pause(_ context.Context, id string) error {
 	j, err := c.lookup(id)
 	if err != nil {
 		return err
 	}
+	j.mu.Lock()
+	if j.healthPaused {
+		j.healthPaused = false
+		j.healthOverride = true
+		j.message = ""
+	}
+	j.mu.Unlock()
 	j.paused.Store(true)
 	return j.checkpoint()
 }
@@ -1164,12 +1241,34 @@ func (c *Client) Pause(_ context.Context, id string) error {
 // Resume undoes Pause. Resuming a transfer that is not paused is a no-op
 // returning nil, because the controller calls it from a level-driven reconcile
 // that cannot know the client's current state.
+//
+// It is also a no-op on a health-paused job. The engine resumes whenever
+// spec.paused is false, which it is for a job the health action paused, so a
+// Resume that lifted the health pause would undo it on the next poll; the
+// operator lifts it with a Pause first ([Client.Pause]).
 func (c *Client) Resume(_ context.Context, id string) error {
 	j, err := c.lookup(id)
 	if err != nil {
 		return err
 	}
+	if j.isHealthPaused() {
+		return nil
+	}
 	j.paused.Store(false)
+	return j.checkpoint()
+}
+
+// SetPriority changes the job's priority class. The class only gates the
+// transfer ([Client.outranked]), so the change takes effect at the next batch
+// boundary; the same class again is a no-op and writes nothing.
+func (c *Client) SetPriority(_ context.Context, id string, priority downloadv1alpha1.DownloadPriority) error {
+	j, err := c.lookup(id)
+	if err != nil {
+		return err
+	}
+	if !j.setPriority(priority) {
+		return nil
+	}
 	return j.checkpoint()
 }
 

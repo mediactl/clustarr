@@ -76,6 +76,7 @@ func populatedStatus() downloadv1alpha1.DownloadStatus {
 		LastProgressAt:      &at,
 		EngineFailureReason: downloadv1alpha1.DownloadFailureMissingArticles,
 		SeedGoalReached:     true,
+		HealthPaused:        true,
 	}
 }
 

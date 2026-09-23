@@ -64,7 +64,7 @@ func priorityRank(p downloadv1alpha1.DownloadPriority) int {
 // Lock order: the client lock, then each other job's lock. The caller must
 // hold neither.
 func (c *Client) outranked(j *job) bool {
-	mine := priorityRank(j.priority)
+	mine := priorityRank(j.getPriority())
 	if mine == priorityRank(downloadv1alpha1.DownloadPriorityHigh) {
 		return false
 	}
@@ -72,7 +72,7 @@ func (c *Client) outranked(j *job) bool {
 	c.mu.Lock()
 	others := make([]*job, 0, len(c.jobs))
 	for _, o := range c.jobs {
-		if o != j && priorityRank(o.priority) > mine {
+		if o != j && priorityRank(o.getPriority()) > mine {
 			others = append(others, o)
 		}
 	}
@@ -97,6 +97,36 @@ func (j *job) transferring() bool {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	return j.stage == downloadv1alpha1.DownloadStageTransferring && j.status == download.StatusDownloading
+}
+
+// getPriority is j's spec.priority class ("" reads as normal wherever it is
+// ranked).
+func (j *job) getPriority() downloadv1alpha1.DownloadPriority {
+	p, _ := j.prio.Load().(downloadv1alpha1.DownloadPriority)
+	return p
+}
+
+// setPriority changes j's class and reports whether it changed; "" and
+// normal are the same class.
+func (j *job) setPriority(p downloadv1alpha1.DownloadPriority) bool {
+	if priorityRank(j.getPriority()) == priorityRank(p) {
+		return false
+	}
+	j.prio.Store(p)
+	return true
+}
+
+// waitWhilePaused blocks while j is paused -- by a caller or by the health
+// action -- for the stages the priority gate does not cover.
+func (j *job) waitWhilePaused(ctx context.Context) error {
+	for j.paused.Load() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(turnPollInterval):
+		}
+	}
+	return ctx.Err()
 }
 
 // waitForTurn blocks while j is paused or outranked. Partial files stay on

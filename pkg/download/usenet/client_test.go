@@ -263,7 +263,10 @@ func TestClientFailsADownloadWithTooManyMissingArticles(t *testing.T) {
 	srv.refuse["f0-p1@clustarr.test"] = 430
 	srv.refuse["f0-p2@clustarr.test"] = 430
 
-	c, _, _ := newTestClient(t, Config{Providers: []Provider{srv.provider("solo", 2, 1)}})
+	c, _, _ := newTestClient(t, Config{
+		Providers:    []Provider{srv.provider("solo", 2, 1)},
+		HealthAction: downloadv1alpha1.HealthActionDelete,
+	})
 
 	id, err := c.Add(context.Background(), download.AddRequest{Name: "Swiss.Cheese", Payload: nzb})
 	require.NoError(t, err)
@@ -271,6 +274,7 @@ func TestClientFailsADownloadWithTooManyMissingArticles(t *testing.T) {
 	it := waitForTerminal(t, c, id)
 	require.Equal(t, download.StatusFailed, it.Status)
 	require.Equal(t, downloadv1alpha1.DownloadFailureMissingArticles, it.FailureReason)
+	require.False(t, it.HealthPaused, "healthAction delete fails the job; it does not pause it")
 	require.NotNil(t, it.Health)
 	require.Equal(t, int32(2), it.Health.FailedArticles)
 	require.Equal(t, int32(4), it.Health.TotalArticles)

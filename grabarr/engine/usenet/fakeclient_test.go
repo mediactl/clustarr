@@ -23,6 +23,7 @@ import (
 	"sync"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
 )
 
@@ -50,6 +51,7 @@ type fakeDownloadClient struct {
 	addErr           error
 	pauseCalls       []string
 	resumeCalls      []string
+	priorityCalls    []downloadv1alpha1.DownloadPriority
 	markImportedIDs  []string
 	removeCalls      []removeCall
 	removeErr        error
@@ -117,7 +119,10 @@ func (f *fakeDownloadClient) Pause(_ context.Context, id string) error {
 	if !ok {
 		return download.ErrNotFound
 	}
+	// Like pkg/download/usenet: pausing a health-paused job is the
+	// operator acknowledging it.
 	it.Status = download.StatusPaused
+	it.HealthPaused = false
 	f.items[id] = it
 	return nil
 }
@@ -130,8 +135,22 @@ func (f *fakeDownloadClient) Resume(_ context.Context, id string) error {
 	if !ok {
 		return download.ErrNotFound
 	}
+	if it.HealthPaused {
+		// Like pkg/download/usenet: Resume leaves a health pause alone.
+		return nil
+	}
 	it.Status = download.StatusDownloading
 	f.items[id] = it
+	return nil
+}
+
+func (f *fakeDownloadClient) SetPriority(_ context.Context, id string, p downloadv1alpha1.DownloadPriority) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.items[id]; !ok {
+		return download.ErrNotFound
+	}
+	f.priorityCalls = append(f.priorityCalls, p)
 	return nil
 }
 

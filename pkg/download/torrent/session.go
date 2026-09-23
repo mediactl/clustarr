@@ -96,7 +96,9 @@ func (c *Client) itemFromTorrent(id string, t *anatorrent.Torrent) download.Item
 	}
 
 	stats := t.Stats()
-	uploadedBytes := stats.BytesWrittenData.Int64()
+	// anacrolix counts from zero in every process; the reported figure is
+	// cumulative across engine restarts ([download.Item.UploadedBytes]).
+	uploadedBytes := sess.priorUploaded + stats.BytesWrittenData.Int64()
 
 	item.TotalBytes = totalBytes
 	item.DownloadedBytes = downloadedBytes
@@ -120,6 +122,10 @@ func (c *Client) itemFromTorrent(id string, t *anatorrent.Torrent) download.Item
 
 	if complete && sess.completedAt.IsZero() {
 		sess.completedAt = now
+		if sess.seedGoalMet && sess.seedGoalMetAt.IsZero() {
+			// A goal restored as met: it adds no seed time in this process.
+			sess.seedGoalMetAt = now
+		}
 	}
 	if uploadedBytes > sess.lastUploadBytes {
 		sess.lastUploadAt = now
@@ -135,13 +141,12 @@ func (c *Client) itemFromTorrent(id string, t *anatorrent.Torrent) download.Item
 		sess.seedGoalMetAt = now
 		t.DisallowDataUpload()
 	}
-	if complete {
-		until := now
-		if sess.seedGoalMet {
-			until = sess.seedGoalMetAt
-		}
-		item.SeedTime = until.Sub(sess.completedAt)
-	} else {
+	// Reported whether complete or not: a torrent re-verifying its data
+	// after an engine restart is not complete yet, and must still report
+	// the seed time it had, or a caller persisting the counters from here
+	// would record zero over it.
+	item.SeedTime = sess.seedTimeLocked(now)
+	if !complete {
 		sess.checkStallLocked(t.DisallowDataDownload, c.cfg.StallTimeout, now)
 	}
 
@@ -354,7 +359,7 @@ func (s *session) seedGoalMetLocked(uploadedBytes, downloadedBytes int64, now ti
 	if target == nil {
 		target = sc.PackSeedTime
 	}
-	if target != nil && !s.completedAt.IsZero() && now.Sub(s.completedAt) >= target.Duration {
+	if target != nil && !s.completedAt.IsZero() && s.seedTimeLocked(now) >= target.Duration {
 		return true
 	}
 
@@ -369,6 +374,50 @@ func (s *session) seedGoalMetLocked(uploadedBytes, downloadedBytes int64, now ti
 	}
 
 	return false
+}
+
+// seedTimeLocked is the torrent's cumulative seeding time: what it had
+// seeded before an engine restart ([session.priorSeedTime]) plus the time
+// since it completed in this process, stopping where its goal was met. The
+// caller must hold s.mu.
+func (s *session) seedTimeLocked(now time.Time) time.Duration {
+	total := s.priorSeedTime
+	if s.completedAt.IsZero() {
+		return total
+	}
+	until := now
+	if s.seedGoalMet {
+		until = s.seedGoalMetAt
+	}
+	if until.After(s.completedAt) {
+		total += until.Sub(s.completedAt)
+	}
+	return total
+}
+
+// restoreSeedHistoryLocked seeds a newly added session with the seeding its
+// torrent had done before an engine restart, and reports whether the goal
+// was already met -- in which case the caller must stop the upload. The
+// caller must hold s.mu.
+//
+// Only the counters and the verdict carry over. The inactive-seeding clock
+// (SeedCriteria.InactiveTime) restarts from this process's completion: the
+// engine was not seeding while it was down, and counting that gap as
+// inactivity would meet the goal for a torrent nobody could reach. That errs
+// towards seeding longer, never less.
+func (s *session) restoreSeedHistoryLocked(h *download.SeedHistory) (goalMet bool) {
+	if h == nil {
+		return false
+	}
+	s.priorUploaded = max(h.UploadedBytes, 0)
+	s.priorSeedTime = max(h.SeedTime, 0)
+	// Without this the first poll would read the restored count as fresh
+	// upload and restart the inactive clock for nothing.
+	s.lastUploadBytes = s.priorUploaded
+	if h.GoalMet {
+		s.seedGoalMet = true
+	}
+	return h.GoalMet
 }
 
 // onWriteChunkError returns anacrolix's storage-write-failure hook for t.

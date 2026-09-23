@@ -38,7 +38,8 @@ type phaseResult struct {
 // derivePhase computes dl's lifecycle phase from its own history
 // (status.failureReason, status.blocklistedUntil, the blocklist label,
 // spec.paused, status.import) and from what its engine reports
-// (status.stage, status.engineFailureReason, status.isEncrypted). It is
+// (status.stage, status.engineFailureReason, status.isEncrypted,
+// status.healthPaused). It is
 // called only once status.engine is pinned (controller.go's "one-way door"),
 // so Assigned is always a legal answer for a Download no telemetry has
 // reached yet.
@@ -54,7 +55,7 @@ type phaseResult struct {
 //     yet (design spec §8.3's "Failed -> Blocklisted", ruling in
 //     DownloadFailureReason.IsReleaseFault); Failed otherwise -- a local
 //     fault, or a release fault whose label an operator has since removed.
-//  3. spec.paused.
+//  3. spec.paused, or the engine's health pause.
 //  4. The engine's stage.
 //
 // # Why Failed is terminal
@@ -107,9 +108,11 @@ func derivePhase(dl *downloadv1alpha1.Download) phaseResult {
 	}
 
 	// Paused: "by spec.paused or by a health action" (DownloadPhasePaused's
-	// own doc comment). Only the spec.paused half is implemented -- there is
-	// no health-action writer anywhere in this tree yet either.
-	if dl.Spec.Paused {
+	// own doc comment). The health action is the usenet engine's report,
+	// status.healthPaused (DownloadClient spec.usenet.healthAction=pause):
+	// the job waits for an operator, and a failure it later reaches still
+	// wins above.
+	if dl.Spec.Paused || dl.Status.HealthPaused {
 		return phaseResult{phase: downloadv1alpha1.DownloadPhasePaused}
 	}
 
@@ -164,7 +167,7 @@ func derivePhase(dl *downloadv1alpha1.Download) phaseResult {
 //     comes first so a failure is terminal (see derivePhase).
 //   - status.engineFailureReason, the engine's report: missingArticles,
 //     diskFull, writeError, timeout and encrypted from usenet; stalled,
-//     diskFull and writeError from a torrent.
+//     diskFull, writeError and payloadMismatch from a torrent.
 //   - status.isEncrypted, the engine's older signal for encrypted, kept so a
 //     Download an engine flagged before engineFailureReason existed still
 //     reads as encrypted.

@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -119,7 +120,9 @@ func TestUpdateDescriptorStateRefreshesPausedAndSeedCriteria(t *testing.T) {
 	require.NoError(t, saveDescriptor(dir, "id1", nil, descriptor{Name: "movie", Magnet: "magnet:?xt=urn:btih:id1"}))
 
 	ratio := resource.MustParse("1.5")
-	require.NoError(t, updateDescriptorState(dir, "id1", true, &commonv1alpha1.SeedCriteria{Ratio: &ratio}))
+	require.NoError(t, updateDescriptorState(dir, "id1", descriptorState{
+		Paused: true, SeedCriteria: &commonv1alpha1.SeedCriteria{Ratio: &ratio},
+	}, time.Now()))
 
 	got, errs := loadDescriptors(dir)
 	require.Empty(t, errs)
@@ -136,7 +139,7 @@ func TestUpdateDescriptorStateRefreshesPausedAndSeedCriteria(t *testing.T) {
 // updateDescriptorState must never resurrect a removed transfer's state.
 func TestUpdateDescriptorStateOnUnknownIDIsANoOp(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, updateDescriptorState(dir, "never-existed", true, nil))
+	require.NoError(t, updateDescriptorState(dir, "never-existed", descriptorState{Paused: true}, time.Now()))
 	got, errs := loadDescriptors(dir)
 	assert.Empty(t, errs)
 	assert.Empty(t, got)

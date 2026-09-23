@@ -23,7 +23,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # The interface is deliberately total
 //
-// Spec §7 sketches Client as ten methods and every one of them is here. The
+// Spec §7 sketches Client as ten methods and every one of them is here, with
+// one added since (SetPriority, for a priority edited after the Add). The
 // rule that kept it that size is that no method may exist which only one
 // protocol can honour: the Download controller calls Client without knowing
 // which engine is behind it, so a method a usenet client had to refuse would
@@ -72,8 +73,8 @@ import (
 )
 
 // ErrNotFound is returned by [Client.Get], [Client.Pause], [Client.Resume],
-// [Client.SetSeedCriteria], [Client.MarkImported] and [Client.Remove] when the
-// client has no transfer with that id.
+// [Client.SetPriority], [Client.SetSeedCriteria], [Client.MarkImported] and
+// [Client.Remove] when the client has no transfer with that id.
 //
 // It is a sentinel because callers must distinguish it with errors.Is rather
 // than by string. The Download controller reads it as "this engine restarted
@@ -194,12 +195,15 @@ type Item struct {
 	// RemainingBytes is how many wanted bytes are still missing.
 	RemainingBytes int64
 
-	// DownloadedBytes is how many bytes have been fetched. It is cumulative
-	// across engine restarts for a torrent, whose counters are persisted
-	// alongside the metainfo.
+	// DownloadedBytes is how many wanted bytes are on disk and verified. A
+	// torrent re-attached after an engine restart re-verifies what it had,
+	// so this survives the restart without being persisted.
 	DownloadedBytes int64
 
-	// UploadedBytes is how many bytes have been uploaded. Torrent only.
+	// UploadedBytes is how many bytes have been uploaded. Torrent only. It is
+	// cumulative across engine restarts: a caller that persists it and hands
+	// it back through [AddRequest.SeedHistory] gets a client that counts on
+	// from it rather than from zero.
 	UploadedBytes int64
 
 	// DownRate is the current download rate in bytes per second.
@@ -232,7 +236,7 @@ type Item struct {
 	RatioMilli int32
 
 	// SeedTime is how long the torrent has been seeding, cumulative across
-	// engine restarts. Torrent only.
+	// engine restarts in the same way as UploadedBytes. Torrent only.
 	SeedTime time.Duration
 
 	// Seeders is the number of seeders the engine currently sees. Torrent only.
@@ -293,6 +297,17 @@ type Item struct {
 	// IsEncrypted is true when the content turned out to be password
 	// protected. Usenet sets it when extraction hits an encrypted archive.
 	IsEncrypted bool
+
+	// HealthPaused is true while a usenet client holds the transfer paused
+	// because its article health crossed the floor under the pause health
+	// action (DownloadClient spec.usenet.healthAction, NZBGet's
+	// HealthCheck=pause). Status is [StatusPaused] with it, and Message says
+	// why. It is distinct from a [Client.Pause] so a level-driven caller can
+	// tell the two apart: [Client.Resume] leaves a health pause in place,
+	// and [Client.Pause] turns it into an ordinary pause whose Resume carries
+	// on without the health check -- the operator's "continue anyway".
+	// Always false for a torrent.
+	HealthPaused bool
 
 	// Message is the engine's latest human-readable note.
 	Message string
@@ -440,6 +455,28 @@ type AddRequest struct {
 	// transfer's age. Zero means now. Ignored when the transfer already
 	// exists (Add is idempotent and changes nothing about it).
 	AddedAt time.Time
+
+	// SeedHistory, when non-nil, is the seeding a torrent had already done
+	// before an engine restart -- a caller re-attaching a transfer passes
+	// back the [Item.UploadedBytes], [Item.SeedTime] and [Item.SeedGoalMet]
+	// it persisted. The client counts on from those figures, so a restart
+	// neither resets the ratio and seed time towards the goal nor makes a
+	// torrent whose goal was already met upload again (design spec §6.3's
+	// "persisted cumulative counters"). Nil means none. Ignored by a usenet
+	// client, which never seeds, and when the transfer already exists.
+	SeedHistory *SeedHistory
+}
+
+// SeedHistory is a torrent's seeding so far; see [AddRequest.SeedHistory].
+type SeedHistory struct {
+	// UploadedBytes is the upload counted before the restart.
+	UploadedBytes int64
+	// SeedTime is the seeding time counted before the restart.
+	SeedTime time.Duration
+	// GoalMet is true when the seed goal had already been met. It is final:
+	// a torrent that met its goal stops uploading for good (design spec
+	// §6.3), and it must not start again because its engine restarted.
+	GoalMet bool
 }
 
 // FileSelector reports whether one file of a transfer should be fetched. path
@@ -490,6 +527,14 @@ type Client interface {
 	// not an error, because the controller calls it from a level-driven
 	// reconcile that cannot know the client's current state.
 	Resume(ctx context.Context, id string) error
+
+	// SetPriority changes the transfer's priority class after its Add, for a
+	// spec.priority edited on a running Download. Each client applies the
+	// class with the same lever [AddRequest.Priority] documents. Setting the
+	// priority a transfer already has is a no-op -- the engines call it from
+	// a level-driven reconcile on every poll -- and an empty priority is
+	// normal, the CRD default.
+	SetPriority(ctx context.Context, id string, priority downloadv1alpha1.DownloadPriority) error
 
 	// SetSeedCriteria updates the goal at which a torrent may stop seeding.
 	// It may be called at any time, including after the goal is already met.

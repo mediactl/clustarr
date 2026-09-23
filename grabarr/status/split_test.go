@@ -44,7 +44,7 @@ var (
 		"DownloadRateBps", "UploadRateBps", "ETASeconds", "ProgressPercent",
 		"Seeders", "Peers", "RatioMilli", "SeedTimeSeconds", "Health",
 		"IsEncrypted", "CanMoveFiles", "CanBeRemoved", "Message", "LastProgressAt",
-		"EngineFailureReason", "SeedGoalReached",
+		"EngineFailureReason", "SeedGoalReached", "HealthPaused",
 	}
 	// Written by importarr's file-import worker under k8s.ManagerImportarr.
 	// Listed so that "owned by nobody in grabarr" is an assertion rather than
@@ -97,6 +97,7 @@ func fullStatus() downloadv1alpha1.DownloadStatus {
 		LastProgressAt:      &at,
 		EngineFailureReason: downloadv1alpha1.DownloadFailureStalled,
 		SeedGoalReached:     true,
+		HealthPaused:        true,
 		Import:              &downloadv1alpha1.ImportState{State: downloadv1alpha1.ImportPhaseImported},
 		Conditions:          []metav1.Condition{{Type: downloadv1alpha1.DownloadConditionAssigned}},
 	}
@@ -144,7 +145,7 @@ func TestEveryDownloadStatusFieldIsAccountedFor(t *testing.T) {
 		assert.Truef(t, ok, "%s is claimed by the split but is not a field of DownloadStatus", name)
 	}
 	require.Len(t, controllerOwned, 9)
-	require.Len(t, engineOwned, 25)
+	require.Len(t, engineOwned, 26)
 	assert.Equal(t, typ.NumField(), len(controllerOwned)+len(engineOwned)+len(foreignOwned))
 }
 
