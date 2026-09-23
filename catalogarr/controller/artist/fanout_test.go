@@ -65,21 +65,34 @@ func TestAlbumAcceptedSecondaryTypesEmptyMeansStudio(t *testing.T) {
 	assert.True(t, artist.AlbumAccepted(profile, alb), "no secondary types folds onto the profile's studio default")
 }
 
-func TestAlbumAcceptedSecondaryTypesRejectsAnyDisallowedType(t *testing.T) {
-	profile := defaultProfile()
-	profile.SecondaryTypes = []string{"studio", "compilation"}
-	// A release group tagged Live+Compilation must be rejected because Live
-	// is not allowed, even though Compilation is -- Lidarr rejects on ANY
-	// disallowed secondary type, not only when none are allowed.
-	alb := pkgmetadata.Album{PrimaryType: "Album", SecondaryTypes: []string{"Live", "Compilation"}}
-	assert.False(t, artist.AlbumAccepted(profile, alb))
-}
-
-func TestAlbumAcceptedSecondaryTypesAllowsEveryAllowedCombination(t *testing.T) {
-	profile := defaultProfile()
-	profile.SecondaryTypes = []string{"studio", "compilation", "live"}
-	alb := pkgmetadata.Album{PrimaryType: "Album", SecondaryTypes: []string{"Live", "Compilation"}}
-	assert.True(t, artist.AlbumAccepted(profile, alb))
+// TestAlbumAcceptedSecondaryTypesFollowLidarr pins Lidarr's rule
+// (SkyHookProxy.FilterAlbums, SkyHookProxy.cs lines 144-146 at da7b4dfb):
+// no secondary types passes when Studio is allowed, and otherwise ANY one
+// allowed secondary type is enough.
+func TestAlbumAcceptedSecondaryTypesFollowLidarr(t *testing.T) {
+	cases := []struct {
+		name    string
+		allowed []string
+		types   []string
+		want    bool
+	}{
+		{"no types, studio allowed", []string{"studio"}, nil, true},
+		{"no types, studio not allowed", []string{"compilation"}, nil, false},
+		{"one allowed among disallowed is enough", []string{"studio", "compilation"}, []string{"Live", "Compilation"}, true},
+		{"every type allowed", []string{"compilation", "live"}, []string{"Live", "Compilation"}, true},
+		{"no type allowed", []string{"studio"}, []string{"Live", "Compilation"}, false},
+		{"studio does not admit an album that has types", []string{"studio"}, []string{"Live"}, false},
+		{"an unfoldable type counts as not allowed", []string{"live"}, []string{"Unknown new type"}, false},
+		{"an unfoldable type beside an allowed one", []string{"live"}, []string{"Unknown new type", "Live"}, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			profile := defaultProfile()
+			profile.SecondaryTypes = c.allowed
+			alb := pkgmetadata.Album{PrimaryType: "Album", SecondaryTypes: c.types}
+			assert.Equal(t, c.want, artist.AlbumAccepted(profile, alb))
+		})
+	}
 }
 
 func TestAlbumAcceptedSecondaryTypeCrosswalk(t *testing.T) {

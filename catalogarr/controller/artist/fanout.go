@@ -139,17 +139,20 @@ func containsFold(list []string, want string) bool {
 // plain string with no non-empty guarantee) is rejected rather than guessed
 // into "album".
 //
-// SecondaryTypes: EVERY one of alb's secondary types must fold
-// (mapSecondaryType) onto a token in profile.SecondaryTypes -- Lidarr's own
-// MetadataProfileService rejects a release group carrying ANY secondary
-// type the profile disallows, not just one carrying none of the allowed
-// types, so a "Live"+"Compilation" release group with only "compilation"
-// allowed is still rejected. An empty SecondaryTypes list (mapAlbum today:
-// a plain MusicBrainz studio album) is folded onto ["studio"], the
-// profile's own default acceptance token for that case
-// (MusicMetadataProfile.SecondaryTypes' +kubebuilder:default={studio}). A
-// secondary type mapSecondaryType cannot fold (see its own doc comment)
-// rejects the album outright, the same as failing the allow-list.
+// SecondaryTypes: Lidarr's rule, verbatim (SkyHookProxy.FilterAlbums,
+// src/NzbDrone.Core/MetadataSource/SkyHook/SkyHookProxy.cs lines 144-146 at
+// Lidarr/Lidarr da7b4dfb1a9e7e1d6625c2dbc3fff96971ab26bd):
+//
+//	((!album.SecondaryTypes.Any() && secondaryTypes.Contains("Studio")) ||
+//	 album.SecondaryTypes.Any(x => secondaryTypes.Contains(x)))
+//
+// An album with no secondary types is accepted when the profile allows
+// "studio" (this project's token for Lidarr's "Studio", the profile's
+// +kubebuilder:default={studio}); otherwise it is accepted when ANY one of
+// its secondary types folds (mapSecondaryType) onto an allowed token, so a
+// "Live"+"Compilation" release group passes a profile allowing only
+// "compilation". A secondary type mapSecondaryType cannot fold counts as
+// not allowed, as a name outside Lidarr's allowed set does there.
 //
 // ReleaseStatuses: alb must have at least one release whose status folds
 // (ReleaseStatusAccepted) onto a token in profile.ReleaseStatuses -- Lidarr's
@@ -168,22 +171,8 @@ func AlbumAccepted(profile catalogv1alpha1.MusicMetadataProfile, alb pkgmetadata
 		return false
 	}
 
-	secondaryTokens := make([]string, 0, len(alb.SecondaryTypes))
-	if len(alb.SecondaryTypes) == 0 {
-		secondaryTokens = append(secondaryTokens, "studio")
-	} else {
-		for _, mb := range alb.SecondaryTypes {
-			token, ok := mapSecondaryType(mb)
-			if !ok {
-				return false
-			}
-			secondaryTokens = append(secondaryTokens, token)
-		}
-	}
-	for _, token := range secondaryTokens {
-		if !containsFold(profile.SecondaryTypes, token) {
-			return false
-		}
+	if !secondaryTypesAccepted(profile, alb.SecondaryTypes) {
+		return false
 	}
 
 	if len(alb.Releases) > 0 {
@@ -200,6 +189,20 @@ func AlbumAccepted(profile catalogv1alpha1.MusicMetadataProfile, alb pkgmetadata
 	}
 
 	return true
+}
+
+// secondaryTypesAccepted is AlbumAccepted's secondary-type dimension; see
+// its doc comment for the Lidarr lines it follows.
+func secondaryTypesAccepted(profile catalogv1alpha1.MusicMetadataProfile, secondaryTypes []string) bool {
+	if len(secondaryTypes) == 0 {
+		return containsFold(profile.SecondaryTypes, "studio")
+	}
+	for _, mb := range secondaryTypes {
+		if token, ok := mapSecondaryType(mb); ok && containsFold(profile.SecondaryTypes, token) {
+			return true
+		}
+	}
+	return false
 }
 
 // AlbumCandidate is the minimal shape InitialAlbumMonitored and its
