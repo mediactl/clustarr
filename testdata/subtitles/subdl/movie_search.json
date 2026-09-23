@@ -1,0 +1,59 @@
+{
+  "status": true,
+  "results": [
+    { "sd_id": 12345, "type": "movie", "name": "Inception", "imdb_id": "tt1375666", "tmdb_id": 27205, "first_air_date": null, "year": 2010 }
+  ],
+  "subtitles": [
+    {
+      "release_name": "Inception.2010.720p.BluRay.x264-REWARD",
+      "name": "SUBDL::inception-english-12345.zip",
+      "lang": "english", "language": "EN", "author": "subber",
+      "url": "/subtitle/12345-67890.zip", "subtitlePage": "/s/info/abc/inception",
+      "season": null, "episode": null, "hi": false,
+      "episode_from": null, "episode_end": null, "full_season": false,
+      "comment": "Synced for the REWARD release",
+      "releases": ["Inception.2010.720p.BluRay.x264-REWARD", "Inception.2010.1080p.BluRay.x264-SPARKS"]
+    },
+    {
+      "release_name": "Inception.2010.1080p.BluRay.x264-SPARKS",
+      "name": "SUBDL::inception-english-12346.zip",
+      "lang": "english", "language": "EN", "author": "sdh-maker",
+      "url": "/subtitle/12346-67891.zip", "subtitlePage": "/s/info/def/inception",
+      "season": null, "episode": null, "hi": false,
+      "episode_from": null, "episode_end": null, "full_season": false,
+      "comment": "SDH version",
+      "releases": ["Inception.2010.1080p.BluRay.x264-SPARKS"]
+    },
+    {
+      "release_name": "Inception.2010.1080p.BluRay.x264-SPARKS",
+      "name": "SUBDL::inception-english-12347.zip",
+      "lang": "english", "language": "EN", "author": "ai",
+      "url": "/subtitle/12347-67892.zip", "subtitlePage": "/s/info/ghi/inception",
+      "season": null, "episode": null, "hi": false, "ai_translated": true,
+      "episode_from": null, "episode_end": null, "full_season": false,
+      "comment": "",
+      "releases": ["Inception.2010.1080p.BluRay.x264-SPARKS"]
+    },
+    {
+      "release_name": "Inception.2010.1080p.BluRay.x264-SPARKS.Forced",
+      "name": "SUBDL::inception-english-12348.zip",
+      "lang": "english", "language": "EN", "author": "subber",
+      "url": "/subtitle/12348-67893.zip", "subtitlePage": "/s/info/jkl/inception",
+      "season": null, "episode": null, "hi": false,
+      "episode_from": null, "episode_end": null, "full_season": false,
+      "comment": "Forced subtitles only",
+      "releases": ["Inception.2010.1080p.BluRay.x264-SPARKS"]
+    },
+    {
+      "release_name": "Inception.2010.1080p.BluRay.x264-SPARKS",
+      "name": "SUBDL::inception-manipuri-12349.zip",
+      "lang": "manipuri", "language": "MNI", "author": "subber",
+      "url": "/subtitle/12349-67894.zip", "subtitlePage": "/s/info/mno/inception",
+      "season": null, "episode": null, "hi": false,
+      "episode_from": null, "episode_end": null, "full_season": false,
+      "comment": "",
+      "releases": ["Inception.2010.1080p.BluRay.x264-SPARKS"]
+    }
+  ],
+  "totalPages": 1
+}

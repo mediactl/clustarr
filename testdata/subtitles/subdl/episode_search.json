@@ -1,0 +1,35 @@
+{
+  "status": true,
+  "subtitles": [
+    {
+      "name": "SUBDL::breaking-bad-s01e05.zip", "language": "EN", "lang": "english", "author": "tv-subber",
+      "url": "/subtitle/555-1.zip", "subtitlePage": "/s/info/bb/s01e05",
+      "season": 1, "episode": 5, "episode_from": 5, "episode_end": 5, "full_season": false, "hi": false,
+      "comment": "", "releases": ["Breaking.Bad.S01E05.720p.BluRay.x264-DEMAND"]
+    },
+    {
+      "name": "SUBDL::breaking-bad-season-1.zip", "language": "EN", "lang": "english", "author": "packer",
+      "url": "/subtitle/555-2.zip", "subtitlePage": "/s/info/bb/season-1",
+      "season": 1, "episode": 0, "episode_from": null, "episode_end": 0, "full_season": true, "hi": false,
+      "comment": "SDH version", "releases": ["Breaking.Bad.S01.Complete.720p.BluRay.x264-DEMAND"],
+      "unpack_files": [
+        { "url": "/subtitle/555-2-e05.srt", "file_n_id": "normal5", "name": "Breaking.Bad.S01E05.srt", "season": 1, "episode": 5, "hi": false },
+        { "url": "/subtitle/555-2-e05-sdh.srt", "file_n_id": "sdh5", "name": "Breaking.Bad.S01E05.SDH.srt", "season": 1, "episode": 5, "hi": true },
+        { "url": "/subtitle/555-2-e06.srt", "file_n_id": "normal6", "name": "Breaking.Bad.S01E06.srt", "season": 1, "episode": 6, "hi": false }
+      ]
+    },
+    {
+      "name": "SUBDL::breaking-bad-e01-e04.zip", "language": "EN", "lang": "english", "author": "packer",
+      "url": "/subtitle/555-3.zip", "subtitlePage": "/s/info/bb/e01-e04",
+      "season": 1, "episode": 0, "episode_from": 1, "episode_end": 4, "full_season": false, "hi": false,
+      "comment": "", "releases": ["Breaking.Bad.S01E01-E04.720p.BluRay.x264-DEMAND"]
+    },
+    {
+      "name": "SUBDL::breaking-bad-e05-e07.zip", "language": "EN", "lang": "english", "author": "packer",
+      "url": "/subtitle/555-4.zip", "subtitlePage": "/s/info/bb/e05-e07",
+      "season": 1, "episode": 0, "episode_from": 5, "episode_end": 7, "full_season": false, "hi": false,
+      "comment": "", "releases": ["Breaking.Bad.S01E05-E07.720p.BluRay.x264-DEMAND"]
+    }
+  ],
+  "totalPages": 1
+}

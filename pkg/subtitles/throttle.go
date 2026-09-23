@@ -131,8 +131,17 @@ var defaultDurations = map[string]time.Duration{
 }
 
 // providerOverrides is research note §10's per-provider column.
+//
+// subdl: APIThrottled 15 min, and ProviderError 1 h -- which the subdl
+// client raises only for a 402 (a paid subscription is required), mapped
+// to KindConfig. Its DownloadLimitExceeded row, "until 00:00 GMT + 1 h",
+// is not a fixed duration: the client sets RetryAfter to it.
+// subsource: AuthenticationError 1 h. Its ForbiddenError (15 min) has no
+// Kind of its own and shares KindAuth's row.
 var providerOverrides = map[string]map[string]time.Duration{
 	"opensubtitlescom": {KindTooManyRequests: time.Minute, KindDownloadLimitExceeded: 6 * time.Hour},
+	"subdl":            {KindAPIThrottled: 15 * time.Minute, KindConfig: time.Hour},
+	"subsource":        {KindAuth: time.Hour},
 }
 
 // ThrottleFor is spec §7's exact signature: the verbatim duration table
