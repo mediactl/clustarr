@@ -699,6 +699,7 @@ spec:
                 - timeout
                 - importRejected
                 - manual
+                - payloadMismatch
                 type: string
               etaSeconds:
                 description: |-
@@ -719,6 +720,7 @@ spec:
                 - timeout
                 - importRejected
                 - manual
+                - payloadMismatch
                 type: string
               files:
                 description: Files lists the files in the transfer.
@@ -777,6 +779,17 @@ spec:
                     format: int32
                     type: integer
                 type: object
+              healthPaused:
+                description: |-
+                  HealthPaused is true while the usenet engine holds the transfer paused
+                  because its article health fell below the DownloadClient's
+                  abortHealthPercent under healthAction pause, NZBGet's HealthCheck=pause.
+                  It is the engine's report; the grabarr controller reads it as phase
+                  Paused, the "by a health action" half of that phase. The job waits for
+                  an operator: setting spec.paused to true and back to false continues it
+                  without the health check, and deleting or blocklisting the Download
+                  gives up on it. Written by grabarr-engine. Usenet only.
+                type: boolean
               import:
                 description: |-
                   Import is the import outcome. It is the one cross-service field on this

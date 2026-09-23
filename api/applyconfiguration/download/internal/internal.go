@@ -499,6 +499,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: health
       type:
         namedType: com.github.mediactl.clustarr.api.download.v1alpha1.UsenetHealth
+    - name: healthPaused
+      type:
+        scalar: boolean
     - name: import
       type:
         namedType: com.github.mediactl.clustarr.api.download.v1alpha1.ImportState

@@ -44,7 +44,9 @@ type UsenetSpecApplyConfiguration struct {
 	// AbortHealthPercent is the article-health floor, as a whole percentage.
 	// A download whose projected health falls below it triggers healthAction.
 	AbortHealthPercent *int32 `json:"abortHealthPercent,omitempty"`
-	// HealthAction is what happens when abortHealthPercent is breached.
+	// HealthAction is what happens when abortHealthPercent, or the NZB's own
+	// par2 critical health, is breached -- during the transfer or at the
+	// pre-check. See HealthActionPause and HealthActionDelete.
 	HealthAction *downloadv1alpha1.HealthAction `json:"healthAction,omitempty"`
 	// Scratch sizes the per-replica working area.
 	Scratch *ScratchSpecApplyConfiguration `json:"scratch,omitempty"`
@@ -53,7 +55,8 @@ type UsenetSpecApplyConfiguration struct {
 	// count, and so does time spent paused -- before the engine fails it
 	// with reason timeout, which blocklists the release. Unset or "0s" means
 	// no deadline, which is the default: neither SABnzbd nor NZBGet bounds a
-	// whole job. The engine reads it at start.
+	// whole job. The engine reads it at start, so a change rolls the engine
+	// pod: its template carries a hash of every setting read at start.
 	DownloadTimeout *v1.Duration `json:"downloadTimeout,omitempty"`
 }
 

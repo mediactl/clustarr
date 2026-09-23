@@ -124,6 +124,15 @@ type DownloadStatusApplyConfiguration struct {
 	// grabarr-engine; the grabarr controller turns the first true into
 	// status.seedGoalMetAt and the SeedGoalMet condition. Torrent only.
 	SeedGoalReached *bool `json:"seedGoalReached,omitempty"`
+	// HealthPaused is true while the usenet engine holds the transfer paused
+	// because its article health fell below the DownloadClient's
+	// abortHealthPercent under healthAction pause, NZBGet's HealthCheck=pause.
+	// It is the engine's report; the grabarr controller reads it as phase
+	// Paused, the "by a health action" half of that phase. The job waits for
+	// an operator: setting spec.paused to true and back to false continues it
+	// without the health check, and deleting or blocklisting the Download
+	// gives up on it. Written by grabarr-engine. Usenet only.
+	HealthPaused *bool `json:"healthPaused,omitempty"`
 	// Import is the import outcome. It is the one cross-service field on this
 	// object: importarr's file-import worker, not grabarr, writes it,
 	// through server-side apply with its own field manager (k8s.ManagerImportarr),
@@ -406,6 +415,14 @@ func (b *DownloadStatusApplyConfiguration) WithEngineFailureReason(value downloa
 // If called multiple times, the SeedGoalReached field is set to the value of the last call.
 func (b *DownloadStatusApplyConfiguration) WithSeedGoalReached(value bool) *DownloadStatusApplyConfiguration {
 	b.SeedGoalReached = &value
+	return b
+}
+
+// WithHealthPaused sets the HealthPaused field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the HealthPaused field is set to the value of the last call.
+func (b *DownloadStatusApplyConfiguration) WithHealthPaused(value bool) *DownloadStatusApplyConfiguration {
+	b.HealthPaused = &value
 	return b
 }
 

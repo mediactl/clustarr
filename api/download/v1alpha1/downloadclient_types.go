@@ -45,9 +45,14 @@ type HealthAction string
 
 // Health actions.
 const (
-	// HealthActionPause pauses the download and waits for operator input.
+	// HealthActionPause pauses the download and waits for operator input,
+	// NZBGet's HealthCheck=pause: the Download reads phase Paused with
+	// status.healthPaused set and the engine's message saying why. Setting
+	// spec.paused to true and back to false continues it without the health
+	// check; deleting it, or labelling it blocklisted, gives up on it.
 	HealthActionPause HealthAction = "pause"
-	// HealthActionDelete deletes the download and blocklists the release.
+	// HealthActionDelete fails the download with reason missingArticles,
+	// which blocklists the release and removes the job from the engine.
 	HealthActionDelete HealthAction = "delete"
 )
 
@@ -107,7 +112,12 @@ type TorrentSpec struct {
 	// +kubebuilder:default={ratio:"1",seedTime:"168h",packSeedTime:"336h",inactiveTime:"24h"}
 	Seed *commonv1alpha1.SeedCriteria `json:"seed,omitempty"`
 
-	// RemoveCompleted removes a torrent from the engine once its seed goal is met.
+	// RemoveCompleted removes a torrent from the engine once it has been
+	// imported and its seed goal is met: Sonarr's and Radarr's "Remove
+	// Completed" download-client setting. It combines with each Download's
+	// spec.removeOnImport, and a torrent is removed only when both are true;
+	// false keeps every imported torrent on the engine, uploading nothing
+	// once its goal is met. The engine reads it on every reconcile.
 	// +optional
 	// +kubebuilder:default=true
 	RemoveCompleted *bool `json:"removeCompleted,omitempty"`
@@ -121,7 +131,8 @@ type TorrentSpec struct {
 	// metadata never arrives. The clock restarts when the engine re-attaches
 	// the torrent and when it is resumed, so neither a restart nor a pause is
 	// counted against it. "0s" disables stall detection. The engine reads it
-	// at start.
+	// at start, so a change rolls the engine pods: their template carries a
+	// hash of every setting read at start.
 	// +optional
 	// +kubebuilder:default="24h"
 	StallTimeout *metav1.Duration `json:"stallTimeout,omitempty"`
@@ -273,7 +284,9 @@ type UsenetSpec struct {
 	// +kubebuilder:validation:Maximum=100
 	AbortHealthPercent int32 `json:"abortHealthPercent,omitempty"`
 
-	// HealthAction is what happens when abortHealthPercent is breached.
+	// HealthAction is what happens when abortHealthPercent, or the NZB's own
+	// par2 critical health, is breached -- during the transfer or at the
+	// pre-check. See HealthActionPause and HealthActionDelete.
 	// +optional
 	// +kubebuilder:default=pause
 	HealthAction HealthAction `json:"healthAction,omitempty"`
@@ -287,7 +300,8 @@ type UsenetSpec struct {
 	// count, and so does time spent paused -- before the engine fails it
 	// with reason timeout, which blocklists the release. Unset or "0s" means
 	// no deadline, which is the default: neither SABnzbd nor NZBGet bounds a
-	// whole job. The engine reads it at start.
+	// whole job. The engine reads it at start, so a change rolls the engine
+	// pod: its template carries a hash of every setting read at start.
 	// +optional
 	DownloadTimeout *metav1.Duration `json:"downloadTimeout,omitempty"`
 }

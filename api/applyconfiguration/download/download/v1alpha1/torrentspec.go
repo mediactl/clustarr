@@ -53,7 +53,12 @@ type TorrentSpecApplyConfiguration struct {
 	// Seed is the default seed goal for torrents on this client. A Download may
 	// override it with its own spec.seedCriteria.
 	Seed *commonv1alpha1.SeedCriteria `json:"seed,omitempty"`
-	// RemoveCompleted removes a torrent from the engine once its seed goal is met.
+	// RemoveCompleted removes a torrent from the engine once it has been
+	// imported and its seed goal is met: Sonarr's and Radarr's "Remove
+	// Completed" download-client setting. It combines with each Download's
+	// spec.removeOnImport, and a torrent is removed only when both are true;
+	// false keeps every imported torrent on the engine, uploading nothing
+	// once its goal is met. The engine reads it on every reconcile.
 	RemoveCompleted *bool `json:"removeCompleted,omitempty"`
 	// StallTimeout is how long an unfinished, unpaused torrent may go without
 	// downloading a byte before the engine fails it as stalled -- which
@@ -64,7 +69,8 @@ type TorrentSpecApplyConfiguration struct {
 	// metadata never arrives. The clock restarts when the engine re-attaches
 	// the torrent and when it is resumed, so neither a restart nor a pause is
 	// counted against it. "0s" disables stall detection. The engine reads it
-	// at start.
+	// at start, so a change rolls the engine pods: their template carries a
+	// hash of every setting read at start.
 	StallTimeout *v1.Duration `json:"stallTimeout,omitempty"`
 }
 

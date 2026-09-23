@@ -124,7 +124,7 @@ const (
 
 // DownloadFailureReason is the machine-readable cause of a failure.
 //
-// +kubebuilder:validation:Enum=none;missingArticles;diskFull;encrypted;stalled;writeError;timeout;importRejected;manual
+// +kubebuilder:validation:Enum=none;missingArticles;diskFull;encrypted;stalled;writeError;timeout;importRejected;manual;payloadMismatch
 type DownloadFailureReason string
 
 // Download failure reasons.
@@ -147,6 +147,10 @@ const (
 	DownloadFailureImportRejected DownloadFailureReason = "importRejected"
 	// DownloadFailureManual means an operator failed the Download by hand.
 	DownloadFailureManual DownloadFailureReason = "manual"
+	// DownloadFailurePayloadMismatch means the resolved torrent's info hash
+	// is not spec.source.expectedInfoHash: the indexer served different
+	// content than the grab decision was made from, so nothing was added.
+	DownloadFailurePayloadMismatch DownloadFailureReason = "payloadMismatch"
 )
 
 // IsReleaseFault reports whether a failure for reason r is the RELEASE's
@@ -155,7 +159,10 @@ const (
 //
 // The ruling (gap fix Y2): missingArticles, encrypted, stalled, timeout,
 // importRejected and manual blocklist; diskFull and writeError do not, and
-// neither do none or an empty or unknown reason. A local fault is not
+// neither do none or an empty or unknown reason. payloadMismatch (Z1)
+// blocklists too: an info hash that differs from the one the grab decided on
+// is the indexer serving other content, which no retry of the same release
+// can fix. A local fault is not
 // evidence against the release -- the same release grabbed onto a disk with
 // room would have succeeded -- so blocklisting it would discard a good
 // release and send the redownload search to a worse one. Sonarr draws the
@@ -169,7 +176,8 @@ const (
 func (r DownloadFailureReason) IsReleaseFault() bool {
 	switch r {
 	case DownloadFailureMissingArticles, DownloadFailureEncrypted, DownloadFailureStalled,
-		DownloadFailureTimeout, DownloadFailureImportRejected, DownloadFailureManual:
+		DownloadFailureTimeout, DownloadFailureImportRejected, DownloadFailureManual,
+		DownloadFailurePayloadMismatch:
 		return true
 	default:
 		return false
@@ -678,6 +686,17 @@ type DownloadStatus struct {
 	// status.seedGoalMetAt and the SeedGoalMet condition. Torrent only.
 	// +optional
 	SeedGoalReached bool `json:"seedGoalReached,omitempty"`
+
+	// HealthPaused is true while the usenet engine holds the transfer paused
+	// because its article health fell below the DownloadClient's
+	// abortHealthPercent under healthAction pause, NZBGet's HealthCheck=pause.
+	// It is the engine's report; the grabarr controller reads it as phase
+	// Paused, the "by a health action" half of that phase. The job waits for
+	// an operator: setting spec.paused to true and back to false continues it
+	// without the health check, and deleting or blocklisting the Download
+	// gives up on it. Written by grabarr-engine. Usenet only.
+	// +optional
+	HealthPaused bool `json:"healthPaused,omitempty"`
 
 	// Import is the import outcome. It is the one cross-service field on this
 	// object: importarr's file-import worker, not grabarr, writes it,
