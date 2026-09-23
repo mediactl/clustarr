@@ -420,11 +420,12 @@ func TestIndexerReleaseFirehose(t *testing.T) {
 // TestIndexerFailureBackoff is scenario 17's fourth leg: health and backoff
 // are observable, and a disabled indexer is actually left alone.
 func TestIndexerFailureBackoff(t *testing.T) {
-	// The precondition, and its cost, are resolved BEFORE the scenario context
-	// exists, so waiting out indexarr's startup grace is not charged against
-	// scenarioTimeout. See indexarrEscalationReadyAt.
-	readyAt := indexarrEscalationReadyAt(t)
-	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout+time.Until(readyAt))
+	// The startup-grace allowance is resolved BEFORE the scenario context
+	// exists, so it is not charged against scenarioTimeout. It is an ALLOWANCE,
+	// not a sleep: nothing here waits for it, the escalation wait below is
+	// simply sized to survive it. See indexarrStartupGraceEndsAt.
+	graceEndsAt := indexarrStartupGraceEndsAt(t)
+	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout+remaining(graceEndsAt))
 	defer cancel()
 	t0 := time.Now()
 
@@ -460,8 +461,28 @@ func TestIndexerFailureBackoff(t *testing.T) {
 	// and then every poll fails against a real HTTP 500.
 	broken := newIndexer(ctx, t, "e2e-idx-flaky", torznabstub.PathSearchDown, time.Minute, true)
 	healthy := newIndexer(ctx, t, "e2e-idx-up", "", 15*time.Minute, false)
-	waitForIndexerReady(ctx, t, broken)
 	waitForIndexerReady(ctx, t, healthy)
+
+	// status.caps, NOT Ready, is what this indexer is waited on for -- and the
+	// difference is a real race, not pedantry. Caps are folded in on a
+	// SUCCESSFUL probe only and are never cleared by a later failure, so
+	// "caps != nil" is monotonic; Ready/Healthy are not. Once indexarr is past
+	// its startup grace the very first failing RSS poll disables this indexer
+	// within seconds of the caps probe that made it Ready, so a wait on Ready
+	// polling every 2s can miss the window entirely and hang -- which is
+	// exactly what a rerun against an already-warm cluster would do. Caps
+	// being present is also the thing the scenario actually depends on: it is
+	// what makes the reconciler seed the RSS poll chain and what keeps the
+	// search fan-out from skipping with "caps not probed".
+	waitFor(t, ctx, indexerReadyTimeout, "Indexer "+broken.Name+" probed caps",
+		func(ctx context.Context) (bool, error) {
+			var live indexv1alpha1.Indexer
+			if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(broken), &live); err != nil {
+				//nolint:nilerr // keep polling
+				return false, nil
+			}
+			return live.Status.Caps != nil, nil
+		}, describeIndexer(client.ObjectKeyFromObject(broken)), describeTorznabRequests(t0))
 
 	// Everything the search half needs, built now so its cost comes out of the
 	// startup-grace wait rather than being added to it.
@@ -474,8 +495,6 @@ func TestIndexerFailureBackoff(t *testing.T) {
 		catalogv1alpha1.MinimumAvailabilityAnnounced)
 	waitForMovieSettled(ctx, t, movie, "Fixture Search Film")
 
-	waitUntil(ctx, t, readyAt, "indexarr's startup grace to elapse")
-
 	// The RSS poll is the driver: the reconciler records no escalation (R6/R15
 	// -- escalation is computed where the failure is observed), so a caps
 	// failure alone would only move conditions.
@@ -486,8 +505,22 @@ func TestIndexerFailureBackoff(t *testing.T) {
 	// indexer would legitimately come back mid-check. Level 2 is a 5-minute
 	// window, which the quiet check fits inside with margin, and the final
 	// assertion below proves the window really was still open.
+	//
+	// The deadline carries the startup-grace allowance on top of
+	// escalationTimeout. It is added unconditionally rather than branched on
+	// whether CLUSTARR_INDEXER_STARTUP_GRACE is set, because whether the
+	// deployed indexarr HONOURS that variable is not observable from outside
+	// the process -- and the only honest way to handle an unobservable fact is
+	// not to depend on it. When the variable works, the condition holds within
+	// a couple of minutes and the wait returns then; the allowance costs
+	// nothing it does not need.
+	escalationDeadline := escalationTimeout + remaining(graceEndsAt)
+	if rem := remaining(graceEndsAt); rem > 0 {
+		t.Logf("allowing an extra %s for indexarr's startup grace, which suppresses "+
+			"escalation entirely until then", rem.Round(time.Second))
+	}
 	var down indexv1alpha1.Indexer
-	waitFor(t, ctx, escalationTimeout, "Indexer "+broken.Name+" disabled by backoff",
+	waitFor(t, ctx, escalationDeadline, "Indexer "+broken.Name+" disabled by backoff",
 		func(ctx context.Context) (bool, error) {
 			if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(broken), &down); err != nil {
 				//nolint:nilerr // keep polling
@@ -597,8 +630,16 @@ func waitUntil(ctx context.Context, t *testing.T, at time.Time, why string) {
 	}
 }
 
-// indexarrEscalationReadyAt returns the wall-clock instant from which
-// indexarr's backoff ladder can be observed to move at all.
+// remaining is how long is left until at, never negative.
+func remaining(at time.Time) time.Duration {
+	if d := time.Until(at); d > 0 {
+		return d
+	}
+	return 0
+}
+
+// indexarrStartupGraceEndsAt returns the wall-clock instant from which
+// indexarr's backoff ladder is certain to be able to move.
 //
 // indexarr/status.RecordFailure suppresses escalation for any failure inside
 // StartupGrace (15 minutes) of the indexarr PROCESS's start -- Prowlarr's
@@ -612,19 +653,21 @@ func waitUntil(ctx context.Context, t *testing.T, at time.Time, why string) {
 // YET: StartupGrace is a const in indexarr/status/health.go and nothing in
 // indexarr/run.go plumbs an override. The D1-9 brief listed the variable as an
 // interface task D1-8 would provide; D1-8 did not, and D1-9 may not edit
-// indexarr. So this helper does the honest thing rather than either lying or
-// failing:
+// indexarr.
 //
-//   - the variable is present AND indexarr's deployed image reads it: not
-//     detectable from outside, so presence alone is taken at face value and
-//     the wait is skipped;
-//   - the variable is absent: say so, loudly, and return the instant at which
-//     the real 15-minute grace elapses, so the assertion still tests the
-//     ladder rather than testing the grace.
+// Whether the deployed image honours the variable is NOT observable from
+// outside the process, so this function does not branch on it. It checks that
+// config/e2e declares the variable correctly when it declares it at all --
+// that much is checkable -- and otherwise always returns the instant the real
+// grace elapses, measured from the newest indexarr Pod's startTime. The caller
+// uses it as an ALLOWANCE on a wait's deadline, never as a sleep: when the
+// variable does work, the ladder moves in a couple of minutes and the wait
+// returns then, so the allowance costs nothing. Plumb the variable in
+// indexarr/run.go and the worst case disappears too.
 //
 // The margin covers the gap between the Pod's StartTime (which the kubelet
 // stamps) and the moment the process's own package variables initialise.
-func indexarrEscalationReadyAt(t *testing.T) time.Time {
+func indexarrStartupGraceEndsAt(t *testing.T) time.Time {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
@@ -634,21 +677,21 @@ func indexarrEscalationReadyAt(t *testing.T) time.Time {
 		"the indexarr Deployment must exist; TestMain's gate should already have refused otherwise")
 
 	const graceEnv = "CLUSTARR_INDEXER_STARTUP_GRACE"
+	declared := false
 	for _, c := range dep.Spec.Template.Spec.Containers {
 		for _, e := range c.Env {
 			if e.Name != graceEnv {
 				continue
 			}
+			declared = true
 			d, err := time.ParseDuration(e.Value)
 			require.NoError(t, err, "%s=%q is not a Go duration", graceEnv, e.Value)
 			require.Zero(t, d, "config/e2e must set %s to 0s, not %q", graceEnv, e.Value)
-			return time.Now()
 		}
 	}
 
-	// Absent. Fall back to the real grace, measured from the newest indexarr
-	// Pod -- the newest, because that is the process whose clock the ladder is
-	// compared against.
+	// The real grace, measured from the newest indexarr Pod -- the newest,
+	// because that is the process whose clock the ladder is compared against.
 	var pods corev1.PodList
 	require.NoError(t, k8sClient.List(ctx, &pods,
 		client.InNamespace(Namespace),
@@ -664,10 +707,12 @@ func indexarrEscalationReadyAt(t *testing.T) time.Time {
 		"no running indexarr Pod reported a startTime, so its startup grace cannot be bounded")
 
 	const startMargin = 30 * time.Second
-	readyAt := newest.Add(idxstatus.StartupGrace).Add(startMargin)
-	t.Logf("indexarr was NOT built with %s, so escalation is suppressed until %s "+
-		"(%s from the indexarr Pod's start at %s); waiting it out rather than reporting "+
-		"'escalation never moved'. Plumb the variable in indexarr/run.go to make this instant.",
-		graceEnv, readyAt.Format(time.RFC3339), idxstatus.StartupGrace, newest.Format(time.RFC3339))
-	return readyAt
+	endsAt := newest.Add(idxstatus.StartupGrace).Add(startMargin)
+	t.Logf("indexarr Pod started %s; %s declared in the Deployment: %t. "+
+		"Allowing until %s (%s + %s margin) for escalation to become possible; the wait "+
+		"returns as soon as the ladder actually moves, which is immediately if the variable "+
+		"is honoured. Plumb it in indexarr/run.go to remove the worst case.",
+		newest.Format(time.RFC3339), graceEnv, declared,
+		endsAt.Format(time.RFC3339), idxstatus.StartupGrace, startMargin)
+	return endsAt
 }
