@@ -93,7 +93,11 @@ func TestParsedNonVideoReleasesLandOnTheirLadders(t *testing.T) {
 		{"music-lossless", "Pink Floyd - The Dark Side of the Moon (1973) [FLAC 24bit]", common.MediaKindAlbum, true},
 		{"music-lossless", "Pink Floyd - The Dark Side of the Moon (1973) [MP3 192]", common.MediaKindAlbum, false},
 		{"music-lossless", "Pink Floyd - The Dark Side of the Moon (1973) [MP3 128]", common.MediaKindAlbum, false},
+		{"music-lossless", "Pink Floyd - The Dark Side of the Moon (1973) [MP3 320]", common.MediaKindAlbum, false},
 		{"music-standard", "Pink Floyd - The Dark Side of the Moon (1973) [MP3 192]", common.MediaKindAlbum, true},
+		{"music-standard", "Pink Floyd - The Dark Side of the Moon (1973) [MP3 320]", common.MediaKindAlbum, true},
+		{"music-standard", "Pink Floyd - The Dark Side of the Moon (1973) [MP3 V0 VBR]", common.MediaKindAlbum, true},
+		{"music-standard", "Pink Floyd - The Dark Side of the Moon (1973) [AAC 256]", common.MediaKindAlbum, true},
 		{"music-standard", "Pink Floyd - The Dark Side of the Moon (1973) [MP3 128]", common.MediaKindAlbum, false},
 		{"ebook", "Andy Weir - Project Hail Mary (2021) [EPUB]", common.MediaKindBook, true},
 		{"ebook", "Andy Weir - Project Hail Mary (2021) [PDF]", common.MediaKindBook, false},
@@ -133,16 +137,48 @@ func TestNonVideoRevisionUpgradeNeedsTheSameQuality(t *testing.T) {
 func TestLookupResolvesLidarrNamesOnTheMusicLadder(t *testing.T) {
 	for name, tier := range map[string]string{
 		"MP3-64": "Trash", "MP3-128": "Poor", "OGG Vorbis Q5": "Poor",
-		"ALAC": "FLAC", "APE": "FLAC", "WavPack": "FLAC",
+		"MP3-192": "Low", "MP3-224": "Low", "AAC-192": "Low", "WMA": "Low", "OGG Vorbis Q6": "Low",
+		"MP3-256": "Mid", "MP3-VBR-V2": "Mid", "AAC-256": "Mid", "OGG Vorbis Q7": "Mid", "OGG Vorbis Q8": "Mid",
+		"MP3-320": "High", "MP3-VBR-V0": "High", "AAC-320": "High", "AAC-VBR": "High", "OGG Vorbis Q9": "High", "OGG Vorbis Q10": "High",
+		"ALAC": "FLAC", "APE": "FLAC", "WavPack": "FLAC", "Lossless": "FLAC",
 		"FLAC 24bit": "24bit Lossless", "ALAC 24bit": "24bit Lossless",
 	} {
 		def, ok := quality.Lookup("music", name)
 		require.True(t, ok, name)
 		assert.Equal(t, tier, def.Name, name)
 	}
-	// The lossy middle is deliberately unmapped: see nonVideoDefinitions.
-	for _, name := range []string{"MP3-256", "MP3-320", "MP3-VBR-V0", "AAC-256"} {
-		_, ok := quality.Lookup("music", name)
-		assert.False(t, ok, name)
+}
+
+// TestEveryLidarrQualityFitsTheBuiltinMusicProfiles holds the music ladder
+// to pkg/release's whole music vocabulary: every lossy and lossless quality
+// Lidarr defines -- everything but "Unknown", which Lidarr's own Standard and
+// Lossless profiles refuse too -- must be allowed by every built-in music
+// profile, on exactly one tier. A name the ladder does not carry is a
+// release that can never be grabbed, which is how MP3-256, MP3-320, V0, AAC
+// and Vorbis releases sat on no tier while the ladder ranked "MP3-192" above
+// "Mid".
+func TestEveryLidarrQualityFitsTheBuiltinMusicProfiles(t *testing.T) {
+	profiles, errs := quality.BuiltinProfiles(catalogue.LoadedCatalogue())
+	require.Empty(t, errs)
+
+	checked := 0
+	for _, name := range release.LidarrQualities() {
+		if name == "Unknown" {
+			continue
+		}
+		checked++
+		holders := 0
+		for _, d := range []string{"Trash", "Poor", "Low", "Mid", "High", "FLAC", "24bit Lossless", "WAV"} {
+			def, ok := quality.Lookup("music", d)
+			require.True(t, ok, d)
+			if p := (quality.Profile{Tiers: [][]quality.Definition{{def}}}); p.Allowed(common.Quality{Name: name}) {
+				holders++
+			}
+		}
+		assert.Equal(t, 1, holders, "%q must sit on exactly one music tier", name)
+		for _, prof := range []string{"music-standard", "music-lossless"} {
+			assert.True(t, profiles[prof].Allowed(common.Quality{Name: name}), "%s: %q fits no tier", prof, name)
+		}
 	}
+	require.Equal(t, 37, checked)
 }

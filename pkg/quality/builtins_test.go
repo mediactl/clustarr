@@ -295,10 +295,19 @@ func TestBuiltinProfileCutoffVerdicts(t *testing.T) {
 		{"audiobook", "Unknown Audio", false},
 		{"music-lossless", "WAV", true},
 		{"music-lossless", "FLAC", true},
+		{"music-lossless", "ALAC", true},
+		{"music-lossless", "FLAC 24bit", true},
+		{"music-lossless", "MP3-320", false},
 		{"music-lossless", "MP3-192", false},
 		{"music-standard", "FLAC", true},
+		// Lidarr's default Standard profile: cutoff MP3-192, and 256 and 320
+		// are above it.
 		{"music-standard", "MP3-192", true},
-		{"music-standard", "Mid", false},
+		{"music-standard", "MP3-256", true},
+		{"music-standard", "MP3-320", true},
+		{"music-standard", "Mid", true},
+		{"music-standard", "MP3-160", false},
+		{"music-standard", "Poor", false},
 	} {
 		p, ok := profiles[tc.profile]
 		require.Truef(t, ok, "built-in %q", tc.profile)

@@ -63,7 +63,8 @@ func TestLookupResolvesNonVideoTables(t *testing.T) {
 		wantWeight int
 	}{
 		{"music", "FLAC", 6},
-		{"music", "MP3-192", 5},
+		{"music", "Low", 3},
+		{"music", "High", 5},
 		{"music", "WAV", 8},
 		{"book", "PDF", 1},
 		{"book", "MOBI", 2},

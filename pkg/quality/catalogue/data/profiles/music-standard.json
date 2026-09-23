@@ -1,9 +1,10 @@
 [{
   "name": "music-standard", "mediaKind": "music",
+  "_source": "Lidarr's quality groups (Qualities/Quality.cs) as spec section 9's eight tiers, best first. The tier named MP3-192 holds Lidarr's Low Quality Lossy group, which is where Lidarr puts MP3-192 and what Lidarr's default Standard profile's MP3-192 cutoff selects.",
   "tiers": [
     {"name": "WAV", "qualities": ["WAV"]}, {"name": "24bit Lossless", "qualities": ["24bit Lossless"]},
-    {"name": "FLAC", "qualities": ["FLAC"]}, {"name": "MP3-192", "qualities": ["MP3-192"]},
-    {"name": "Mid", "qualities": ["Mid"]}, {"name": "Low", "qualities": ["Low"]},
+    {"name": "FLAC", "qualities": ["FLAC"]}, {"name": "High", "qualities": ["High"]},
+    {"name": "Mid", "qualities": ["Mid"]}, {"name": "MP3-192", "qualities": ["Low"]},
     {"name": "Poor", "qualities": ["Poor"]}, {"name": "Trash", "qualities": ["Trash"]}
   ],
   "cutoff": "MP3-192", "upgradeAllowed": true, "cutoffFormatScore": 10000, "minUpgradeFormatScore": 1,

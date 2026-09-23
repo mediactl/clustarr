@@ -272,3 +272,28 @@ func TestParseGivesNonVideoReleasesAQuality(t *testing.T) {
 		assert.Equal(t, tt.version, p.Revision.Version, tt.title)
 	}
 }
+
+// TestLidarrQualitiesIsTheWholeVocabulary: the list pkg/quality holds its
+// music ladder to must be Lidarr's 38 qualities, and nothing either music
+// parser returns may fall outside it.
+func TestLidarrQualitiesIsTheWholeVocabulary(t *testing.T) {
+	names := LidarrQualities()
+	require.Len(t, names, 38, "Lidarr's Quality.All")
+	known := make(map[string]bool, len(names))
+	for _, n := range names {
+		require.False(t, known[n], "duplicate %q", n)
+		known[n] = true
+	}
+
+	for _, n := range names {
+		assert.True(t, known[musicQuality("Some album ["+n+"]").Name], n)
+	}
+	for _, codec := range []string{"mp1", "mp2", "mp3", "aac", "alac", "flac", "vorbis", "opus", "wmav2", "wmapro", "pcm_s16le", "ape", "wavpack", "dts"} {
+		for kbps := 0; kbps <= 600; kbps++ {
+			for _, bits := range []int{0, 16, 24} {
+				got := AudioFileQuality(codec, kbps, bits).Name
+				require.True(t, known[got], "AudioFileQuality(%q, %d, %d) = %q, not a Lidarr quality", codec, kbps, bits, got)
+			}
+		}
+	}
+}

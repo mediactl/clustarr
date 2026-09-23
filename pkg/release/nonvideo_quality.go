@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package release
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/dlclark/regexp2"
@@ -62,6 +63,25 @@ const (
 	qWAV          = "WAV"
 	qAACVBR       = "AAC-VBR"
 )
+
+// lidarrQualities is Lidarr's Quality.All, in its order: every music
+// quality name musicQuality and AudioFileQuality can return.
+var lidarrQualities = []string{
+	qMusicUnknown,
+	"MP3-8", "MP3-16", "MP3-24", "MP3-32", "MP3-40", "MP3-48", "MP3-56", "MP3-64", "MP3-80",
+	"MP3-96", "MP3-112", "MP3-128", "MP3-160", "MP3-192", "MP3-224", qMP3VBRV0, "MP3-256", "MP3-320", qMP3VBRV2,
+	"AAC-192", "AAC-256", "AAC-320", qAACVBR, qWMA,
+	"OGG Vorbis Q10", "OGG Vorbis Q9", "OGG Vorbis Q8", "OGG Vorbis Q7", "OGG Vorbis Q6", "OGG Vorbis Q5",
+	qFLAC, qALAC, qAPE, qWavPack, qFLAC24, qALAC24, qWAV,
+}
+
+// LidarrQualities returns every music quality name this package can put in
+// ParsedRelease.Quality or AudioFileQuality's result: Lidarr's Quality.All
+// (Qualities/Quality.cs), "Unknown" first. pkg/quality holds its music
+// ladder to it.
+func LidarrQualities() []string {
+	return slices.Clone(lidarrQualities)
+}
 
 // lidarrCodecRegex ports Lidarr's CodecRegex.
 var lidarrCodecRegex = mustCompile(

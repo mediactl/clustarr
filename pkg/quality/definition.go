@@ -85,41 +85,50 @@ var videoDefinitions = []Definition{
 // lists every upstream name it stands for in Aliases, and Profile.Index
 // places a release by Name or alias.
 //
-// music collapses Lidarr's 38 qualities into the 8 tier names this ladder
-// has always had. Lidarr's groups (Qualities/Quality.cs,
-// DefaultQualityDefinitions, develop, fetched 2026-09-23) map onto five of
-// them without ambiguity, and those carry Lidarr's member names:
+// music collapses Lidarr's 38 qualities into spec §9's eight tiers --
+// Trash/Poor/Low/Mid/High lossy, Lossless, 24-bit, WAV -- which are Lidarr's
+// own groups (Qualities/Quality.cs, DefaultQualityDefinitions, develop,
+// fetched 2026-09-23), with 24-bit split out of Lossless as the spec does
+// (Lidarr already weights it above the rest of the group). Each tier lists
+// Lidarr's member names, and its group name, as aliases:
 //
-//	Trash          <- Trash Quality Lossy (MP3-8 .. MP3-80)
-//	Poor           <- Poor Quality Lossy (MP3-96, MP3-112, MP3-128, MP3-160, OGG Vorbis Q5)
-//	FLAC           <- Lossless (FLAC, ALAC, APE, WavPack)
-//	24bit Lossless <- FLAC 24bit, ALAC 24bit (Lidarr weights them above the rest of Lossless)
+//	Trash          <- Trash Quality Lossy: MP3-8 .. MP3-80
+//	Poor           <- Poor Quality Lossy: MP3-96, MP3-112, MP3-128, MP3-160, OGG Vorbis Q5
+//	Low            <- Low Quality Lossy: MP3-192, MP3-224, AAC-192, WMA, OGG Vorbis Q6
+//	Mid            <- Mid Quality Lossy: MP3-256, MP3-VBR-V2, AAC-256, OGG Vorbis Q7, OGG Vorbis Q8
+//	High           <- High Quality Lossy: MP3-320, MP3-VBR-V0, AAC-320, AAC-VBR, OGG Vorbis Q9, OGG Vorbis Q10
+//	FLAC           <- Lossless: FLAC, ALAC, APE, WavPack
+//	24bit Lossless <- FLAC 24bit, ALAC 24bit
 //	WAV            <- WAV
 //
-// The lossy middle does not map, and is deliberately left without aliases
-// rather than guessed: this ladder ranks "MP3-192" ABOVE "Mid", where Lidarr
-// puts MP3-192 in "Low Quality Lossy", below Mid (MP3-256) and High (MP3-320,
-// V0). No assignment of Lidarr's Low, Mid and High groups to "Low", "Mid"
-// and "MP3-192" is both monotone and true to the names, so a release of
-// MP3-256, MP3-320, V0, V2, AAC or Vorbis is on no tier of this ladder yet;
-// MP3-192 itself matches the "MP3-192" tier by name. Fixing it means spec
-// §9's own tiers -- Trash/Poor/Low/Mid/High lossy, Lossless, 24-bit, WAV --
-// and rewriting the two built-in music profiles' tiers
-// (pkg/quality/catalogue/data/profiles/music-*.json) in the same change,
-// since they list "MP3-192" above "Mid" and TestEveryBuiltinProfileListsTiersBestFirst
-// holds them to this ladder's weights.
+// So every lossy and lossless quality pkg/release can name sits on exactly
+// one tier (TestEveryLidarrQualityFitsTheBuiltinMusicProfiles). Lidarr's
+// "Unknown" -- a codec the parser did not recognise, or MP1/MP2 -- is on
+// none, as it is in Lidarr's own Standard and Lossless profiles.
+//
+// MP3-192 is a member of Low, as in Lidarr. An earlier ladder had a tier
+// NAMED "MP3-192" ranked above Mid, which put a 192 kbps MP3 above a 256 kbps
+// one; the name now resolves to Low. The built-in music-standard profile
+// keeps spec §9's cutoff "MP3-192" as the name of the tier that holds Low,
+// which is what Lidarr's Standard profile's MP3-192 cutoff selects too.
 var nonVideoDefinitions = map[string][]Definition{
 	"music": {
 		{Name: "Trash", Weight: 1, Quality: common.Quality{Name: "Trash"}, Aliases: []string{
-			"MP3-8", "MP3-16", "MP3-24", "MP3-32", "MP3-40", "MP3-48", "MP3-56", "MP3-64", "MP3-80",
+			"Trash Quality Lossy", "MP3-8", "MP3-16", "MP3-24", "MP3-32", "MP3-40", "MP3-48", "MP3-56", "MP3-64", "MP3-80",
 		}},
 		{Name: "Poor", Weight: 2, Quality: common.Quality{Name: "Poor"}, Aliases: []string{
-			"MP3-96", "MP3-112", "MP3-128", "MP3-160", "OGG Vorbis Q5",
+			"Poor Quality Lossy", "MP3-96", "MP3-112", "MP3-128", "MP3-160", "OGG Vorbis Q5",
 		}},
-		{Name: "Low", Weight: 3, Quality: common.Quality{Name: "Low"}},
-		{Name: "Mid", Weight: 4, Quality: common.Quality{Name: "Mid"}},
-		{Name: "MP3-192", Weight: 5, Quality: common.Quality{Name: "MP3-192"}}, // spec §9 names this exact cutoff for music-standard
-		{Name: "FLAC", Weight: 6, Quality: common.Quality{Name: "FLAC"}, Aliases: []string{"ALAC", "APE", "WavPack"}},
+		{Name: "Low", Weight: 3, Quality: common.Quality{Name: "Low"}, Aliases: []string{
+			"Low Quality Lossy", "MP3-192", "MP3-224", "AAC-192", "WMA", "OGG Vorbis Q6",
+		}},
+		{Name: "Mid", Weight: 4, Quality: common.Quality{Name: "Mid"}, Aliases: []string{
+			"Mid Quality Lossy", "MP3-256", "MP3-VBR-V2", "AAC-256", "OGG Vorbis Q7", "OGG Vorbis Q8",
+		}},
+		{Name: "High", Weight: 5, Quality: common.Quality{Name: "High"}, Aliases: []string{
+			"High Quality Lossy", "MP3-320", "MP3-VBR-V0", "AAC-320", "AAC-VBR", "OGG Vorbis Q9", "OGG Vorbis Q10",
+		}},
+		{Name: "FLAC", Weight: 6, Quality: common.Quality{Name: "FLAC"}, Aliases: []string{"Lossless", "ALAC", "APE", "WavPack"}},
 		{Name: "24bit Lossless", Weight: 7, Quality: common.Quality{Name: "24bit Lossless"}, Aliases: []string{"FLAC 24bit", "ALAC 24bit"}},
 		{Name: "WAV", Weight: 8, Quality: common.Quality{Name: "WAV"}},
 	},
