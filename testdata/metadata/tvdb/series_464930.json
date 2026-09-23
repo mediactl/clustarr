@@ -1,0 +1,40 @@
+{
+  "data": {
+    "id": 464930,
+    "name": "유부녀 킬러",
+    "slug": "a-bona-fide-killer",
+    "image": "https://artworks.thetvdb.com/banners/v4/series/464930/posters/68d0a1b2c3d4e.jpg",
+    "nameTranslations": ["kor", "eng", "jpn", "zhtw", "spa", "ara"],
+    "overviewTranslations": ["kor", "eng", "jpn", "zhtw", "spa", "ara"],
+    "aliases": [
+      {"language": "eng", "name": "Married Woman Killer"},
+      {"language": "eng", "name": "A Bonafide Killer"}
+    ],
+    "overview": "비밀 조직의 계약 킬러가 15년 만에 돌아온다.",
+    "firstAired": "2025-08-15",
+    "lastAired": "2025-09-19",
+    "status": {"id": 2, "name": "Ended", "recordType": "series", "keepUpdated": false},
+    "originalCountry": "kor",
+    "originalLanguage": "kor",
+    "averageRuntime": 45,
+    "remoteIds": [
+      {"id": "tt35678901", "type": 2, "sourceName": "IMDB"},
+      {"id": "271534", "type": 4, "sourceName": "TheMovieDB.com"}
+    ],
+    "genres": [{"id": 5, "name": "Action"}, {"id": 8, "name": "Comedy"}],
+    "airsTime": "20:00",
+    "translations": {
+      "nameTranslations": [
+        {"name": "유부녀 킬러", "language": "kor", "isPrimary": true},
+        {"name": "A Bona Fide Killer", "language": "eng"},
+        {"name": "Married Woman Killer", "language": "eng", "isAlias": true},
+        {"name": "A Bonafide Killer", "language": "eng", "isAlias": true},
+        {"name": "人妻キラー", "language": "jpn"}
+      ],
+      "overviewTranslations": [
+        {"overview": "비밀 조직의 계약 킬러가 15년 만에 돌아온다.", "language": "kor", "isPrimary": true},
+        {"overview": "A contract killer for a covert organization returns after a fifteen-year absence.", "language": "eng"}
+      ]
+    }
+  }
+}

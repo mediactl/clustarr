@@ -398,3 +398,75 @@ func TestSeriesMapsItsAliasesIntoAlternateTitles(t *testing.T) {
 		{Title: "Le Trône de fer", Language: "fr"},
 	}, s.AlternateTitles)
 }
+
+// TestSeriesTakesThePrimaryEnglishTranslationAsItsTitle: a
+// SeriesExtendedRecord's `name` is the series' original-language name, so
+// 147 series on a real library read as 유부녀 킬러, デス・パレード and Machos
+// Alfa. The English title lives only in the record's translations
+// (`?meta=translations`), where the primary `eng` name is the one without
+// `isAlias`; the aliases repeat there with `isAlias: true`. The client asks
+// for the translations, takes the primary English name and overview, and
+// keeps the original name as an alternate title in its own language, so
+// identity matching still recognises a release named that way.
+func TestSeriesTakesThePrimaryEnglishTranslationAsItsTitle(t *testing.T) {
+	login, _ := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
+	series, err := os.ReadFile("../../../../testdata/metadata/tvdb/series_464930.json")
+	require.NoError(t, err)
+	var meta atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/login":
+			_, _ = w.Write(login)
+		case "/series/464930/extended":
+			meta.Store(r.URL.Query().Get("meta"))
+			_, _ = w.Write(series)
+		default:
+			t.Errorf("unexpected request: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	c := tvdb.New("test-key", "test-pin", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+
+	s, err := c.Series(context.Background(), "464930")
+	require.NoError(t, err)
+	require.Equal(t, "translations", meta.Load(), "the extended record must be asked for its translations")
+	require.Equal(t, "A Bona Fide Killer", s.Title, "the primary eng translation, not the record's original-language name nor an eng alias")
+	require.Equal(t, "A contract killer for a covert organization returns after a fifteen-year absence.", s.Overview)
+	require.Equal(t, "ko", s.OriginalLanguage)
+	// "A Bonafide Killer" is absent: DistinctAltTitles keys titles on their
+	// letters alone, so it is a spelling of the title, not another name.
+	require.Equal(t, []metadata.AltTitle{
+		{Title: "유부녀 킬러", Language: "ko"},
+		{Title: "Married Woman Killer", Language: "en"},
+	}, s.AlternateTitles, "the original name leads the alternate titles; the aliases follow as before")
+}
+
+// TestSeriesKeepsTheRecordNameWithoutAnEnglishTranslation: with no primary
+// English translation the record's own name and overview stand, and the
+// name is not repeated among the alternate titles.
+func TestSeriesKeepsTheRecordNameWithoutAnEnglishTranslation(t *testing.T) {
+	login, _ := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
+	series := []byte(`{"data":{"id":417478,"name":"Machos Alfa","overview":"Cuatro amigos.","originalLanguage":"spa",
+		"status":{"name":"Continuing"},"aliases":[{"language":"spa","name":"Los machos alfa"}],
+		"translations":{"nameTranslations":[{"name":"Machos Alfa","language":"spa","isPrimary":true},
+		{"name":"Alpha Males","language":"eng","isAlias":true}],
+		"overviewTranslations":[{"overview":"Cuatro amigos.","language":"spa","isPrimary":true}]}}}`)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/login":
+			_, _ = w.Write(login)
+		case "/series/417478/extended":
+			_, _ = w.Write(series)
+		default:
+			t.Errorf("unexpected request: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	c := tvdb.New("test-key", "test-pin", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+
+	s, err := c.Series(context.Background(), "417478")
+	require.NoError(t, err)
+	require.Equal(t, "Machos Alfa", s.Title, "an eng entry marked isAlias is a nickname, not the title")
+	require.Equal(t, "Cuatro amigos.", s.Overview)
+	require.Equal(t, []metadata.AltTitle{{Title: "Los machos alfa", Language: "es"}}, s.AlternateTitles)
+}

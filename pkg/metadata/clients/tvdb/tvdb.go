@@ -124,7 +124,42 @@ type seriesExtendedResponse struct {
 			Type  int    `json:"type"`
 			Image string `json:"image"`
 		} `json:"artworks"`
+		// Translations is what `?meta=translations` adds: the record's
+		// name and overview in every language it has, the aliases among
+		// them flagged isAlias. Name above is the original-language name,
+		// so the English title is only ever here.
+		Translations struct {
+			Names     []translation `json:"nameTranslations"`
+			Overviews []translation `json:"overviewTranslations"`
+		} `json:"translations"`
 	} `json:"data"`
+}
+
+// translation is one entry of a SeriesExtendedRecord's translations: a
+// name or an overview in one ISO 639-3 language. An alias (isAlias) is a
+// nickname the series is also known by in that language, never its title.
+type translation struct {
+	Name     string `json:"name"`
+	Overview string `json:"overview"`
+	Language string `json:"language"`
+	IsAlias  bool   `json:"isAlias"`
+}
+
+// titleLanguage is the ISO 639-3 code of the language the catalog's titles
+// and overviews are kept in. English, unconditionally: TheTVDB's record
+// name is the original-language one, and a library page of 유부녀 킬러,
+// デス・パレード and Machos Alfa is not what an English-speaking operator
+// asked for. A per-provider language setting is a separate change.
+const titleLanguage = "eng"
+
+// primary returns the first non-alias entry in lang, or the zero value.
+func primary(ts []translation, lang string) translation {
+	for _, t := range ts {
+		if t.Language == lang && !t.IsAlias {
+			return t
+		}
+	}
+	return translation{}
 }
 
 // artworkTypes maps TheTVDB v4's artwork type ids (/artwork/types) onto
@@ -138,23 +173,32 @@ var artworkTypes = map[int]metadata.ImageType{
 }
 
 // Series fetches a single series' extended record from
-// /series/{id}/extended.
+// /series/{id}/extended?meta=translations. Its title and overview are the
+// record's primary English translation when there is one (titleLanguage),
+// and the record's own original-language name and overview otherwise.
 func (c *Client) Series(ctx context.Context, tvdbID string) (*metadata.Series, error) {
 	ctx, span := tracing.Start(ctx, "metadata.tvdb.Series")
 	defer span.End()
 	logger := logging.FromContext(ctx)
 
 	var raw seriesExtendedResponse
-	if err := c.doRequest(ctx, http.MethodGet, "/series/"+tvdbID+"/extended", &raw); err != nil {
+	if err := c.doRequest(ctx, http.MethodGet, "/series/"+tvdbID+"/extended?meta=translations", &raw); err != nil {
 		tracing.RecordError(span, err)
 		logger.ErrorContext(ctx, "tvdb: series fetch failed", "tvdb_id", tvdbID, "error", err)
 		return nil, err
 	}
 
+	title, overview := raw.Data.Name, raw.Data.Overview
+	if t := primary(raw.Data.Translations.Names, titleLanguage); t.Name != "" {
+		title = t.Name
+	}
+	if t := primary(raw.Data.Translations.Overviews, titleLanguage); t.Overview != "" {
+		overview = t.Overview
+	}
 	s := &metadata.Series{
 		IDs:              metadata.ExternalIDs{metadata.KeyTVDB: strconv.FormatInt(raw.Data.ID, 10)},
-		Title:            raw.Data.Name,
-		Overview:         raw.Data.Overview,
+		Title:            title,
+		Overview:         overview,
 		Status:           mapSeriesStatus(raw.Data.Status.Name),
 		OriginalLanguage: originalLanguage(raw.Data.OriginalLanguage),
 		AirTime:          raw.Data.AirsTime,
@@ -171,11 +215,14 @@ func (c *Client) Series(ctx context.Context, tvdbID string) (*metadata.Series, e
 	for _, g := range raw.Data.Genres {
 		s.Genres = append(s.Genres, g.Name)
 	}
-	// TheTVDB's aliases are the series' alternate titles, their language
-	// normalised as OriginalLanguage is; DistinctAltTitles drops the
-	// series' own name and repeats. None carries a scene season: that
-	// numbering comes from scene mappings, not from TheTVDB.
-	aliases := make([]metadata.AltTitle, 0, len(raw.Data.Aliases))
+	// The record's original-language name leads the alternate titles, so a
+	// release named that way still matches the series once its title is
+	// the English one; DistinctAltTitles drops it when it is the title.
+	// TheTVDB's aliases follow, their language normalised as
+	// OriginalLanguage is, repeats dropped. None carries a scene season:
+	// that numbering comes from scene mappings, not from TheTVDB.
+	aliases := make([]metadata.AltTitle, 0, len(raw.Data.Aliases)+1)
+	aliases = append(aliases, metadata.AltTitle{Title: raw.Data.Name, Language: originalLanguage(raw.Data.OriginalLanguage)})
 	for _, a := range raw.Data.Aliases {
 		aliases = append(aliases, metadata.AltTitle{Title: a.Name, Language: originalLanguage(a.Language)})
 	}

@@ -767,6 +767,7 @@ func ThrottleFor(provider string, err error) (reason string, d time.Duration)
 type ExternalIDs map[string]string; func (e ExternalIDs) Merge(o ExternalIDs) ExternalIDs
 type MovieProvider interface { Movie(ctx, tmdbID string, region string) (*Movie, error); FindMovie(ctx, ExternalIDs) (*Movie, error); SearchMovies(ctx, q string, year int) ([]MovieHit, error) }
 type SeriesProvider interface { Series(ctx, tvdbID string) (*Series, error); Episodes(ctx, tvdbID, order string) ([]Episode, error); Updates(ctx, since time.Time) ([]string, error) }
+// 2026-09-23: the TVDB client asks /series/{id}/extended?meta=translations and takes the primary "eng" name and overview as Series.Title and Overview -- the record's own name is the original-language one, which had 147 series reading 유부녀 킬러 or Machos Alfa -- and keeps that original name as the first AlternateTitle so identity matching still recognises it. English is fixed (tvdb.titleLanguage); a per-provider language setting is a separate change. TMDB already asks for en-US.
 type ArtistProvider, BookProvider, AudiobookProvider, ComicProvider, ArtworkProvider, IDResolver interface{ /* per note */ }
 type Registry struct{ /* providers by kind+priority, first-wins merge */ }; func (r *Registry) Lookup(ctx, kind common.MediaKind, ids ExternalIDs) (any, error)
 type Cache interface { Get(ctx, key string, out any) (bool, error); Set(ctx, key string, v any, ttl time.Duration) error }
