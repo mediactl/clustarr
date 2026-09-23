@@ -3,18 +3,15 @@ module github.com/mediactl/clustarr
 go 1.27
 
 require (
-	github.com/Masterminds/sprig/v3 v3.3.0
 	github.com/PuerkitoBio/goquery v1.13.0
 	github.com/Tensai75/nntp v0.1.5
 	github.com/a-h/templ v0.3.1020
 	github.com/anacrolix/generics v0.1.1-0.20251125230353-15d98d46693b
 	github.com/anacrolix/torrent v1.61.0
-	github.com/antchfx/xmlquery v1.5.1
 	github.com/asticode/go-astisub v0.45.0
 	github.com/bodgit/sevenzip v1.6.5
 	github.com/cyruzin/golang-tmdb v1.9.4
 	github.com/dlclark/regexp2 v1.12.0
-	github.com/gabriel-vasile/mimetype v1.4.15
 	github.com/go-logr/logr v1.4.4
 	github.com/goccy/go-yaml v1.19.2
 	github.com/hashicorp/golang-lru/v2 v2.0.7
@@ -55,9 +52,6 @@ require (
 )
 
 require (
-	dario.cat/mergo v1.0.1 // indirect
-	github.com/Masterminds/goutils v1.1.1 // indirect
-	github.com/Masterminds/semver/v3 v3.4.0 // indirect
 	github.com/RoaringBitmap/roaring v1.2.3 // indirect
 	github.com/alecthomas/atomic v0.1.0-alpha2 // indirect
 	github.com/anacrolix/btree v0.0.0-20251201064447-d86c3fa41bd8 // indirect
@@ -77,7 +71,6 @@ require (
 	github.com/anacrolix/utp v0.1.0 // indirect
 	github.com/andybalholm/brotli v1.2.2 // indirect
 	github.com/andybalholm/cascadia v1.3.4 // indirect
-	github.com/antchfx/xpath v1.3.6 // indirect
 	github.com/antithesishq/antithesis-sdk-go v0.8.0-default-no-op // indirect
 	github.com/asticode/go-astikit v0.20.0 // indirect
 	github.com/asticode/go-astits v1.8.0 // indirect
@@ -117,7 +110,6 @@ require (
 	github.com/go-openapi/swag/yamlutils v0.28.0 // indirect
 	github.com/go-resty/resty/v2 v2.17.2 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
-	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
@@ -133,8 +125,6 @@ require (
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/minio/highwayhash v1.0.4 // indirect
 	github.com/minio/sha256-simd v1.0.0 // indirect
-	github.com/mitchellh/copystructure v1.2.0 // indirect
-	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/mr-tron/base58 v1.2.0 // indirect
@@ -172,10 +162,8 @@ require (
 	github.com/protolambda/ctxlock v0.1.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rs/dnscache v0.0.0-20211102005908-e0241e321417 // indirect
-	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
-	github.com/spf13/cast v1.7.0 // indirect
 	github.com/stangelandcl/ppmd v0.1.1 // indirect
 	github.com/tidwall/btree v1.8.1 // indirect
 	github.com/tidwall/match v1.1.1 // indirect

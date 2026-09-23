@@ -35,11 +35,11 @@ import (
 )
 
 // PAR2 verification and repair is an EXEC, not a Go module, and that is a
-// recorded decision rather than an omission: hack/deps/deps.go:56-58 says so,
-// images/Dockerfile.media already ships par2cmdline-turbo v1.5.0, and the
-// research note measured the only pure-Go alternative (akalin/gopar) as too
-// slow and too memory-hungry for a 50GB release -- it reads everything into
-// memory and has no SIMD.
+// recorded decision rather than an omission: hack/deps/deps.go's package
+// doc says so, images/Dockerfile.media already ships par2cmdline-turbo
+// v1.5.0, and the research note measured the only pure-Go alternative
+// (akalin/gopar) as too slow and too memory-hungry for a 50GB release -- it
+// reads everything into memory and has no SIMD.
 //
 // Tests that need real repair therefore skip when the binary is absent, the
 // same way pkg/transcode's tests skip without ffmpeg.
