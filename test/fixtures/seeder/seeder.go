@@ -22,7 +22,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // against it over cluster networking. It never reaches the Internet: there
 // is no DHT (nothing to bootstrap it from in an isolated cluster) and no
 // upstream tracker, only the announce URL this package embeds in its own
-// .torrent, pointing back at itself.
+// .torrent, pointing back at itself. The tracker tells clients to announce
+// again every [ReannounceInterval] seconds rather than the usual five
+// minutes, so a client that loses its connection finds the seeder again at
+// once instead of stalling an e2e download (see singlePeerTracker).
 //
 // This mirrors test/fixtures/torznabstub's shape: a small, real server that
 // speaks the real wire protocol its production counterpart parses, so a

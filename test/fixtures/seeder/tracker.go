@@ -37,10 +37,22 @@ import (
 // trackers enabled, DHT disabled because there is no Internet to bootstrap
 // it from -- discover and connect to the seeder using nothing but the
 // .torrent's own announce URL, exactly as it would against a real tracker.
+//
+// Every answer carries ReannounceInterval, not the tracker server's default
+// five minutes. With no DHT and no PEX the tracker is the client's only way
+// to find the seeder, and anacrolix/torrent re-announces only when the last
+// answer's interval has elapsed: after a dropped connection a download sat
+// idle for up to five minutes before it found the seeder again (seen by gap
+// fix Z1), which on e2e's timeouts reads as a stalled download. The interval
+// is a constant so every run announces on the same schedule.
 type singlePeerTracker struct {
 	infoHash metainfo.Hash
 	peer     trackerServer.PeerInfo
 }
+
+// ReannounceInterval is the "interval", in seconds, every announce answer
+// carries: how long a client waits before it announces again.
+const ReannounceInterval = 2
 
 func newSinglePeerTracker(infoHash metainfo.Hash, peer netip.AddrPort) *singlePeerTracker {
 	return &singlePeerTracker{infoHash: infoHash, peer: trackerServer.PeerInfo{AnnounceAddr: peer}}
@@ -73,11 +85,13 @@ func (t *singlePeerTracker) Scrape(_ context.Context, infoHashes []trackerServer
 func (t *singlePeerTracker) GetPeers(
 	_ context.Context, infoHash trackerServer.InfoHash, _ trackerServer.GetPeersOpts, _ trackerServer.AnnounceAddr,
 ) trackerServer.ServerAnnounceResult {
+	interval := generics.Some(int32(ReannounceInterval))
 	if infoHash != t.infoHash {
-		return trackerServer.ServerAnnounceResult{Seeders: generics.Some(int32(0))}
+		return trackerServer.ServerAnnounceResult{Seeders: generics.Some(int32(0)), Interval: interval}
 	}
 	return trackerServer.ServerAnnounceResult{
-		Peers:   []trackerServer.PeerInfo{t.peer},
-		Seeders: generics.Some(int32(1)),
+		Peers:    []trackerServer.PeerInfo{t.peer},
+		Seeders:  generics.Some(int32(1)),
+		Interval: interval,
 	}
 }

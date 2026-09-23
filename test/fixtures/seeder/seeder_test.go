@@ -130,6 +130,8 @@ func TestAnnounceReturnsThisSeederAsTheOnlyPeer(t *testing.T) {
 	gotAddr, ok := gotPeer.ToNetipAddrPort()
 	require.True(t, ok)
 	require.Equal(t, wantAddr, gotAddr, "the tracker must advertise the seeder's own BitTorrent listen address")
+	require.EqualValues(t, seeder.ReannounceInterval, httpResp.Interval,
+		"a client re-announces after this long; the server default of five minutes stalls a download that lost the seeder")
 }
 
 func TestAnnounceForADifferentInfoHashFindsNobody(t *testing.T) {
@@ -159,6 +161,7 @@ func TestAnnounceForADifferentInfoHashFindsNobody(t *testing.T) {
 	var httpResp httpTracker.HttpResponse
 	require.NoError(t, bencode.Unmarshal(body, &httpResp))
 	require.Empty(t, httpResp.Peers.List, "a torrent this fixture never seeded must find nobody")
+	require.EqualValues(t, seeder.ReannounceInterval, httpResp.Interval)
 }
 
 // TestRealClientCompletesATransferThroughTheTrackerAlone is the fixture's
