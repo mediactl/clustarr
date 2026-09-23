@@ -459,6 +459,20 @@ cluster and is expected to sit behind whatever ingress authentication the
 operator already runs. It ships with no login, so its Service must not be
 exposed directly. `docs/` and the chart's notes both say so.
 
+**As built (2026-09-23).** The mode is chosen explicitly rather than implied.
+`clustarr ui --auth-mode` (`clustarr all --ui-auth-mode`) has no default:
+`ui.Options.Validate` refuses an empty or unknown mode and `ui.Run` validates
+before it binds, so a process started without one exits at once having served
+nothing, and under `clustarr all` that failure stops every service in the
+process. `anonymous` is the only mode: every request is served without a
+login, the startup line names the mode and repeats the ingress-authentication
+requirement, and it stays a warning. The chart's `ui.auth.mode` defaults to
+`anonymous`, so a Helm install chooses on the operator's behalf, and its schema
+enumerates the modes so an unknown one fails `helm template` instead of
+crash-looping a pod; `config/manager/ui.yaml` passes `--auth-mode=anonymous`
+for the same reason. A second mode (a forwarded-user header from an
+authenticating proxy is the natural one) slots into the same flag.
+
 ---
 
 ## A4. Effect on the milestones

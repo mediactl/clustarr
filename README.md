@@ -10,9 +10,10 @@ user configures is a custom resource, everything a user waits on is a custom res
 status and conditions. There is also a server-rendered web UI (templ + htmx + SSE) as a view over
 those same resources — it writes no status and owns no CRD of its own, so anything it does,
 `kubectl` can do too. At this stage it is a skeleton: a Pipeline page and its live SSE stream,
-wired to a placeholder that returns no rows until a real, cache-backed projection lands. It ships
-with no authentication of its own and must sit behind whatever ingress authentication the cluster
-already runs.
+wired to a placeholder that returns no rows until a real, cache-backed projection lands. Its
+authentication mode is chosen explicitly (`--auth-mode`; the chart's `ui.auth.mode`) and it refuses
+to serve without one; the only mode, `anonymous`, serves every request without a login, so it must
+sit behind whatever ingress authentication the cluster already runs.
 
 It takes its domain logic from the projects that already got it right: release parsing, quality
 decisions and naming from Radarr/Sonarr/Lidarr/Readarr, indexer definitions from Prowlarr,

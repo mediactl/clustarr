@@ -43,6 +43,11 @@ const shutdownGrace = 5 * time.Second
 // are going to be, nil included, by the time Options reaches here. Run just
 // hands them to [NewServer] along with everything else.
 func Run(ctx context.Context, o Options) error {
+	// Before the logger, the tracer or the listener: a ui started without
+	// an explicit authentication mode exits here, having served nothing.
+	if err := o.Validate(); err != nil {
+		return err
+	}
 	if o.BindAddress == "" {
 		o.BindAddress = DefaultBindAddress
 	}

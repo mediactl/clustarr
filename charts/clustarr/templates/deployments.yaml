@@ -250,7 +250,7 @@ spec:
       - name: ui
         image: {{ include "clustarr.image" (dict "root" $ "which" "controller") }}
         imagePullPolicy: {{ $.Values.image.pullPolicy }}
-        args: ["ui"]
+        args: ["ui", {{ printf "--auth-mode=%s" .Values.ui.auth.mode | quote }}]
         {{- with dig "resources" "limits" "memory" "" .Values.ui }}
         env:
         - name: GOMEMLIMIT

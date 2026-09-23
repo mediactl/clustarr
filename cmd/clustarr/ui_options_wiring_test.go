@@ -78,8 +78,8 @@ func TestBothUICommandsWireEveryUIOption(t *testing.T) {
 	t.Setenv("KUBECONFIG", kubeconfig)
 
 	for _, argv := range [][]string{
-		{"ui", "--bind-address", "127.0.0.1:0"},
-		{"all"},
+		{"ui", "--bind-address", "127.0.0.1:0", "--auth-mode", "anonymous"},
+		{"all", "--ui-auth-mode", "anonymous"},
 	} {
 		t.Run("clustarr "+argv[0], func(t *testing.T) {
 			o := captureUIOptions(t, argv...)

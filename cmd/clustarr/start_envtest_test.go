@@ -614,7 +614,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 			run: func(ctx context.Context, o k8s.Options) error {
 				uiAddr.Store(o.HealthProbeBindAddress)
 				root := NewRootCommand()
-				root.SetArgs([]string{"ui", "--bind-address", o.HealthProbeBindAddress})
+				root.SetArgs([]string{"ui", "--bind-address", o.HealthProbeBindAddress, "--auth-mode", "anonymous"})
 				return root.ExecuteContext(ctx)
 			},
 			verify: func(t *testing.T) { verifyUI(t, env.Config, uiAddr.Load().(string), "cmd") },
@@ -627,7 +627,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 				// is allServices' third argument.
 				var lo logging.Options
 				var to tracing.Options
-				for _, svc := range allServices(&lo, &to, o.HealthProbeBindAddress) {
+				for _, svc := range allServices(&lo, &to, o.HealthProbeBindAddress, ui.AuthModeAnonymous) {
 					if svc.name == "ui" {
 						return svc.run(ctx, o)
 					}
@@ -856,7 +856,7 @@ func allServiceRun(t *testing.T, name string) func(ctx context.Context, o k8s.Op
 	t.Helper()
 	var lo logging.Options
 	var to tracing.Options
-	for _, svc := range allServices(&lo, &to, ui.DefaultBindAddress) {
+	for _, svc := range allServices(&lo, &to, ui.DefaultBindAddress, ui.AuthModeAnonymous) {
 		if svc.name == name {
 			return svc.run
 		}

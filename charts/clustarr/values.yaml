@@ -349,11 +349,17 @@ captionarrWorker:
 
 # Server-rendered web UI (templ + htmx + SSE). Design spec amendment §A3. No
 # controller-runtime manager, no CRD, no status writes -- see the note in
-# templates/deployments.yaml for why it does not use clustarr.workload. Ships
-# with no login of its own and MUST sit behind ingress authentication.
+# templates/deployments.yaml for why it does not use clustarr.workload.
 ui:
   enabled: true
   replicas: 1
+  # The authentication mode (--auth-mode), chosen explicitly: the binary
+  # refuses to serve without one, and this default is what makes a Helm
+  # install choose. The only mode is anonymous, which serves every request
+  # without a login, so the Service MUST sit behind ingress authentication
+  # and never be exposed directly (amendment §A3.5).
+  auth:
+    mode: anonymous
   service:
     type: ClusterIP
     port: 8080

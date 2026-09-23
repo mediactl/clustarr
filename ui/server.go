@@ -25,7 +25,10 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"slices"
+	"strings"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -41,19 +44,45 @@ import (
 // empty.
 const DefaultBindAddress = ":8080"
 
+// AuthMode is how the ui authenticates a request (design amendment
+// §A3.5). It is chosen explicitly: Options.Validate refuses an empty one,
+// so a process started without `--auth-mode` serves nothing, and the
+// chart's `ui.auth.mode` is what makes a Helm install choose. Anonymous is
+// the only mode so far.
+type AuthMode string
+
+// AuthModeAnonymous serves every request without a login. The ui then
+// exposes the whole library and every action to whoever reaches its
+// Service, so it must sit behind whatever ingress authentication the
+// cluster already runs and must never be exposed directly.
+const AuthModeAnonymous AuthMode = "anonymous"
+
+// authModes is every mode Validate admits, in the order the error lists
+// them.
+var authModes = []AuthMode{AuthModeAnonymous}
+
 // authWarning is logged once, at startup, because it is the one thing an
-// operator deploying this service must not miss: it ships with no login of
-// its own (§A3.5) and must sit behind whatever ingress authentication the
-// cluster already runs.
-const authWarning = "ui service has no built-in authentication; it must sit behind ingress " +
-	"authentication and must never be exposed directly " +
-	"(design amendment §A3.5, docs/superpowers/specs/2026-09-18-clustarr-design-amendment-1.md:390-398)"
+// operator deploying this service must not miss: under the anonymous mode
+// it has no login of its own (§A3.5) and must sit behind whatever ingress
+// authentication the cluster already runs.
+const authWarning = "ui authentication mode is anonymous: every request is served without a login; " +
+	"it must sit behind ingress authentication and must never be exposed directly " +
+	"(design amendment §A3.5, docs/superpowers/specs/2026-09-18-clustarr-design-amendment-1.md)"
 
 // Options configures a [Server].
 type Options struct {
 	// BindAddress is the address the HTTP server listens on, e.g. ":8080".
 	// [Run] defaults it to [DefaultBindAddress] when empty.
 	BindAddress string
+
+	// AuthMode is the authentication mode the operator chose (`--auth-mode`
+	// on `clustarr ui`, `--ui-auth-mode` on `clustarr all`, the chart's
+	// `ui.auth.mode`). It has no default: [Validate] refuses an empty or
+	// unknown mode, and [Run] validates before it binds, so the ui never
+	// serves by omission. [NewServer] does not check it -- a test builds
+	// Options by hand and gets a handler regardless -- which is why the
+	// check sits on the production path and not on construction.
+	AuthMode AuthMode
 
 	// Entries returns the current pipeline projection for the Pipeline page
 	// and its SSE stream. Production wiring backs this with a
@@ -212,12 +241,34 @@ type Options struct {
 	Tracing tracing.Options
 }
 
-// Validate exists so ui.Options satisfies the same shape every other
-// service's Options does (cmd/clustarr's deploy-manifest test executes every
-// Deployment's argv and calls Validate() on whatever it produced). There is
-// nothing to check yet: ui takes no --role, and reaching a cluster is always
-// optional (Reader may be nil).
-func (o Options) Validate() error { return nil }
+// Validate is what [Run] checks before it binds, and what cmd/clustarr's
+// deploy-manifest test calls on the options every Deployment's argv
+// produces. The one rule is the explicit authentication mode: an empty
+// AuthMode is refused with the flag to set and the modes that exist, and
+// so is a mode this build does not know. ui takes no --role, and reaching
+// a cluster is always optional (Reader may be nil), so nothing else is
+// checked.
+func (o Options) Validate() error {
+	if o.AuthMode == "" {
+		return fmt.Errorf("ui: --auth-mode is not set: the ui serves nothing until an authentication "+
+			"mode is chosen explicitly; the modes are %s, and anonymous serves every request without a "+
+			"login, so it must sit behind ingress authentication (design amendment §A3.5)", authModeList())
+	}
+	if !slices.Contains(authModes, o.AuthMode) {
+		return fmt.Errorf("ui: --auth-mode %q is not a mode this build knows; the modes are %s",
+			string(o.AuthMode), authModeList())
+	}
+	return nil
+}
+
+// authModeList renders authModes for an error message.
+func authModeList() string {
+	names := make([]string, len(authModes))
+	for i, m := range authModes {
+		names[i] = string(m)
+	}
+	return strings.Join(names, ", ")
+}
 
 // Server is the ui service's whole surface: an HTTP handler and nothing
 // else. It holds no client, no cache and no field manager of its own (its

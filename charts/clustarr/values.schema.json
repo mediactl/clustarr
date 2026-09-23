@@ -235,10 +235,22 @@
     "ui": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "replicas", "service", "resources", "nodeSelector", "tolerations", "affinity"],
+      "required": ["enabled", "replicas", "auth", "service", "resources", "nodeSelector", "tolerations", "affinity"],
       "properties": {
         "enabled": { "type": "boolean" },
         "replicas": { "type": "integer", "minimum": 0 },
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "description": "ui --auth-mode: the authentication mode, chosen explicitly (the binary refuses to serve without one). anonymous serves every request without a login, so the Service must sit behind ingress authentication (design amendment §A3.5).",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["anonymous"]
+            }
+          }
+        },
         "service": {
           "type": "object",
           "additionalProperties": false,

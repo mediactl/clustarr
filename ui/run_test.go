@@ -67,7 +67,7 @@ func TestRunEndsAnOpenSSEStreamOnContextCancel(t *testing.T) {
 
 	runErr := make(chan error, 1)
 	go func() {
-		runErr <- ui.Run(runCtx, ui.Options{BindAddress: addr, Entries: entries})
+		runErr <- ui.Run(runCtx, ui.Options{BindAddress: addr, AuthMode: ui.AuthModeAnonymous, Entries: entries})
 	}()
 
 	// Wait for the listener to come up.

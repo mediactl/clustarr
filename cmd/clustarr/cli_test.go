@@ -729,6 +729,7 @@ func TestAllGivesEachServiceItsOwnPorts(t *testing.T) {
 		"--tracing-enabled",
 		"--tracing-sample-ratio", "0.5",
 		"--ui-bind-address", "127.0.0.1:18080",
+		"--ui-auth-mode", "anonymous",
 	); err != nil {
 		t.Fatalf("clustarr all: %v", err)
 	}

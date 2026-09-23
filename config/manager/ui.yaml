@@ -71,7 +71,10 @@ spec:
         # ghcr.io/mediactl/clustarr: the distroless image. ui touches no
         # media file and needs no ffmpeg/ffprobe toolchain (amendment §A3.1).
         image: ghcr.io/mediactl/clustarr:dev
-        args: ["ui"]
+        # --auth-mode is chosen explicitly (ui refuses to serve without it);
+        # anonymous serves every request without a login, so this Service
+        # must sit behind ingress authentication (amendment §A3.5).
+        args: ["ui", "--auth-mode=anonymous"]
         env:
         # §12: GOMEMLIMIT = 80% of 256Mi, in bytes (see catalogarr.yaml).
         - name: GOMEMLIMIT

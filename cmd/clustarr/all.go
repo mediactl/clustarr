@@ -79,8 +79,9 @@ const devFacadeBindAddress = ":9696"
 // lo and to are the root command's shared --log-*/--tracing-* options
 // (see bindObservabilityFlags): every service gets the same lo, and the same
 // to except for ServiceName, which is forced to allProcessServiceName for
-// the reason given on that constant. uiAddr is --ui-bind-address.
-func allServices(lo *logging.Options, to *tracing.Options, uiAddr string) []struct {
+// the reason given on that constant. uiAddr is --ui-bind-address and
+// uiAuthMode is --ui-auth-mode, ui's explicit authentication mode (§A3.5).
+func allServices(lo *logging.Options, to *tracing.Options, uiAddr string, uiAuthMode ui.AuthMode) []struct {
 	name string
 	run  func(ctx context.Context, o k8s.Options) error
 } {
@@ -227,6 +228,7 @@ func allServices(lo *logging.Options, to *tracing.Options, uiAddr string) []stru
 			proj := buildUIProjection(ctx, reader)
 			return runUI(ctx, ui.Options{
 				BindAddress:          uiAddr,
+				AuthMode:             uiAuthMode,
 				Reader:               reader,
 				WaitForSync:          waitForSync,
 				Projected:            proj.Projected,
@@ -267,9 +269,14 @@ func newAllCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	}
 	common := bindCommonFlags(cmd.Flags())
 	var uiAddr string
+	var uiAuthMode string
 	cmd.Flags().StringVar(&uiAddr, "ui-bind-address", ui.DefaultBindAddress,
 		"Address ui's HTTP server listens on. It is not offset like the managers' ports: ui has one "+
 			"listener, serving its pages, /healthz and /readyz together.")
+	cmd.Flags().StringVar(&uiAuthMode, "ui-auth-mode", "",
+		"ui's authentication mode (`clustarr ui`'s --auth-mode), chosen explicitly: ui refuses to "+
+			"serve without one, and that failure stops every service in this process. The only mode "+
+			"is anonymous, which serves every request without a login (design amendment §A3.5).")
 
 	// Leader election buys nothing in a single process that already runs one
 	// of each controller, and would only add a Lease per service to clean up.
@@ -282,7 +289,7 @@ func newAllCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 		base.LeaderElect = false
 		base.BusSingleNode = true
 
-		services := allServices(lo, to, uiAddr)
+		services := allServices(lo, to, uiAddr, ui.AuthMode(uiAuthMode))
 		optionsFor := make([]k8s.Options, len(services))
 		for i, svc := range services {
 			o := base

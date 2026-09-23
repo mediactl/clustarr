@@ -470,19 +470,26 @@ func buildUIProjection(ctx context.Context, reader client.Reader) *projection.Pr
 
 func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	var bindAddress string
+	var authMode string
 
 	cmd := &cobra.Command{
 		Use:   "ui",
 		Short: "Server-rendered web UI",
 		Long: "ui is the server-rendered web UI (templ + htmx + SSE): it never writes status and\n" +
-			"owns no CRD of its own, so it takes no --role. It ships with no login of its own\n" +
-			"and must sit behind ingress authentication (design amendment §A3.5).",
+			"owns no CRD of its own, so it takes no --role. Its authentication mode is chosen\n" +
+			"explicitly with --auth-mode and it refuses to serve without one; the only mode,\n" +
+			"anonymous, serves every request without a login and must sit behind ingress\n" +
+			"authentication (design amendment §A3.5).",
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 	}
 	cmd.Flags().StringVar(&bindAddress, "bind-address", ui.DefaultBindAddress,
 		"Address the HTTP server listens on. Serves /healthz, /readyz, the Pipeline page and "+
 			"its SSE stream on this one address -- ui runs no separate metrics or health port.")
+	cmd.Flags().StringVar(&authMode, "auth-mode", "",
+		"Authentication mode, chosen explicitly: ui refuses to serve without one. The only mode is "+
+			"anonymous, which serves every request without a login and must sit behind ingress "+
+			"authentication (design amendment §A3.5).")
 
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		ctx := cmd.Context()
@@ -493,6 +500,7 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 		// on any func, pointer or interface field of ui.Options left nil.
 		return runUI(ctx, ui.Options{
 			BindAddress:          bindAddress,
+			AuthMode:             ui.AuthMode(authMode),
 			Reader:               reader,
 			WaitForSync:          waitForSync,
 			Projected:            proj.Projected,

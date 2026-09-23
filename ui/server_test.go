@@ -155,7 +155,7 @@ func TestNewServerWarnsThroughTheContextLogger(t *testing.T) {
 
 	ui.NewServer(ctx, ui.Options{})
 
-	require.Contains(t, buf.String(), "no built-in authentication",
+	require.Contains(t, buf.String(), "ingress authentication",
 		"NewServer must log the §A3.5 warning through the logger on its context")
 }
 

@@ -29,7 +29,7 @@ Services in this release:
   captionarr-worker    {{ if .Values.keda.enabled }}{{ .Values.keda.captionarrWorker.minReplicas }}-{{ .Values.keda.captionarrWorker.maxReplicas }} (KEDA){{ else }}{{ .Values.captionarrWorker.replicas }} (fixed){{ end }}  subtitle fetch consumers
 {{- end }}
 {{- if .Values.ui.enabled }}
-  ui                   {{ .Values.ui.replicas }}  web UI (no login of its own -- put it behind ingress authentication)
+  ui                   {{ .Values.ui.replicas }}  web UI (auth mode {{ .Values.ui.auth.mode }}: no login of its own -- put it behind ingress authentication)
 {{- end }}
 
 Watch them come up:
