@@ -261,7 +261,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	// fan-out, the RSS poll and the download verb only Wait on the same
 	// *ratelimit.Limiter. It used to live inside buildClient, which
 	// ClientCache now shares -- see applyRateLimit.
-	applyRateLimit(idx.Spec, r.Limiters, 0)
+	applyRateLimit(idx.Spec, nil, r.Limiters, 0)
 
 	transport, err := resolveProxy(ctx, r.Client, &idx)
 	if err != nil {

@@ -33,6 +33,7 @@ import (
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/cardigann"
 	"github.com/mediactl/clustarr/pkg/ratelimit"
 	"github.com/mediactl/clustarr/pkg/torznab"
 )
@@ -240,7 +241,12 @@ func rpsFor(delay metav1.Duration) float64 {
 // Indexer). spec.requestDelay's contract is that it "is raised to the
 // definition's requestDelay when that is larger": a definition author who
 // measured a tracker's tolerance knows something the operator may not.
-func applyRateLimit(spec indexv1alpha1.IndexerSpec, lim *ratelimit.Limiter, floor time.Duration) {
+//
+// def is the Indexer's Cardigann definition, or nil for spec.generic: see
+// [rateKey] for why it moves the key.
+func applyRateLimit(
+	spec indexv1alpha1.IndexerSpec, def *cardigann.Definition, lim *ratelimit.Limiter, floor time.Duration,
+) {
 	if lim == nil {
 		return
 	}
@@ -248,7 +254,23 @@ func applyRateLimit(spec indexv1alpha1.IndexerSpec, lim *ratelimit.Limiter, floo
 	if floor > delay.Duration {
 		delay = metav1.Duration{Duration: floor}
 	}
-	lim.SetConfig(ratelimit.HostKey(spec.BaseURL), ratelimit.Config{RPS: rpsFor(delay), Burst: 1})
+	lim.SetConfig(rateKey(spec, def), ratelimit.Config{RPS: rpsFor(delay), Burst: 1})
+}
+
+// rateKey is the one spelling of an Indexer's limiter bucket, shared by the
+// writer ([applyRateLimit]) and every reader.
+//
+// For spec.generic it is the host of spec.baseURL, which is where the Torznab
+// client sends every request. For a definition-backed Indexer it is the host
+// of def.SiteLink(spec.baseURL): cardigann.NewConfig moves a base URL that is
+// one of the definition's legacylinks to links[0], so the engine's requests
+// go THERE, and a bucket keyed on the configured legacy host would pace
+// nothing. A key with no Config reads the Limiter's default instead.
+func rateKey(spec indexv1alpha1.IndexerSpec, def *cardigann.Definition) string {
+	if def != nil {
+		return ratelimit.HostKey(def.SiteLink(spec.BaseURL))
+	}
+	return ratelimit.HostKey(spec.BaseURL)
 }
 
 // requestDelayFor is spec.requestDelay with its CRD default applied to an

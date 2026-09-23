@@ -157,20 +157,10 @@ func (s *SessionStore) Save(ctx context.Context, idx *indexv1alpha1.Indexer, ses
 		return err
 	}
 	if s.Client != nil {
-		owner := metav1ac.OwnerReference().
-			WithAPIVersion(indexv1alpha1.GroupVersion.String()).
-			WithKind("Indexer").
-			WithName(idx.Name).
-			WithUID(idx.UID).
-			WithController(true).
-			WithBlockOwnerDeletion(true)
-		ac := corev1ac.Secret(sessionSecretName(idx.Name), idx.Namespace).
-			WithOwnerReferences(owner).
-			WithType(corev1.SecretTypeOpaque).
-			WithData(map[string][]byte{
-				SessionSecretKeySession: data,
-				SessionSecretKeyCookie:  []byte(sess.CookieHeader()),
-			})
+		ac := sessionSecretAC(idx, map[string][]byte{
+			SessionSecretKeySession: data,
+			SessionSecretKeyCookie:  []byte(sess.CookieHeader()),
+		})
 		if _, err := k8s.Apply(ctx, s.Client, k8s.ManagerIndexarr, ac); err != nil {
 			return fmt.Errorf("indexer: write session secret: %w", err)
 		}
@@ -181,4 +171,54 @@ func (s *SessionStore) Save(ctx context.Context, idx *indexv1alpha1.Indexer, ses
 		}
 	}
 	return nil
+}
+
+// Drop forgets idx's session: the KV entry is deleted and the owned Secret's
+// two keys are emptied, which Load reads as "no session" -- so the next
+// Indexer reconcile logs in again rather than keep reusing a session the
+// tracker has already killed.
+//
+// It EMPTIES the Secret rather than deleting it: the Secret is applied under
+// k8s.ManagerIndexarr with the same complete declaration Save makes (owner,
+// type, both keys), so this needs no verb Save does not already have, and
+// Save's next apply fills it again. A search that re-logged in and still
+// failed calls this; see cardigannClient.Search.
+func (s *SessionStore) Drop(ctx context.Context, idx *indexv1alpha1.Indexer) error {
+	if s == nil {
+		return nil
+	}
+	var errs []error
+	if s.KV != nil {
+		if err := s.KV.Delete(ctx, SessionKey(idx.UID)); err != nil {
+			errs = append(errs, fmt.Errorf("indexer: drop session from %s: %w", events.BucketIndexerSessions, err))
+		}
+	}
+	if s.Client != nil {
+		ac := sessionSecretAC(idx, map[string][]byte{
+			SessionSecretKeySession: {},
+			SessionSecretKeyCookie:  {},
+		})
+		if _, err := k8s.Apply(ctx, s.Client, k8s.ManagerIndexarr, ac); err != nil {
+			errs = append(errs, fmt.Errorf("indexer: empty session secret: %w", err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// sessionSecretAC is the owned session Secret's complete declaration: a
+// CONTROLLER owner reference to idx, type Opaque, and data. Save and Drop
+// both render it here, so the two cannot declare different field sets under
+// the one manager.
+func sessionSecretAC(idx *indexv1alpha1.Indexer, data map[string][]byte) *corev1ac.SecretApplyConfiguration {
+	owner := metav1ac.OwnerReference().
+		WithAPIVersion(indexv1alpha1.GroupVersion.String()).
+		WithKind("Indexer").
+		WithName(idx.Name).
+		WithUID(idx.UID).
+		WithController(true).
+		WithBlockOwnerDeletion(true)
+	return corev1ac.Secret(sessionSecretName(idx.Name), idx.Namespace).
+		WithOwnerReferences(owner).
+		WithType(corev1.SecretTypeOpaque).
+		WithData(data)
 }

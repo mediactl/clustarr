@@ -94,7 +94,7 @@ func (r *Reconciler) reconcileDefinition(
 		return r.patch(ctx, idx, conditions, ctrl.Result{RequeueAfter: reprobeInterval})
 	}
 
-	applyRateLimit(idx.Spec, r.Limiters, definitionDelay(def.RequestDelay))
+	applyRateLimit(idx.Spec, def, r.Limiters, definitionDelay(def.RequestDelay))
 
 	transport, err := resolveProxy(ctx, r.Client, idx)
 	if err != nil {

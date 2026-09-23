@@ -26,6 +26,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -266,41 +267,118 @@ func siteBase(baseURL string) string {
 // resolved configuration. It is the Cardigann counterpart of *torznab.Client
 // and is built by the same one function, [buildWireClient], for the same
 // reason: the proxy and the limiter are applied in exactly one place.
+//
+// It is cached ([ClientCache]) and shared by every concurrent search, poll
+// and download against the Indexer, so the one thing it mutates -- the
+// session a re-login replaces -- is behind mu.
 type cardigannClient struct {
-	engine  cardigann.Engine
-	def     *cardigann.Definition
+	engine cardigann.Engine
+	def    *cardigann.Definition
+
+	mu      sync.Mutex
 	cfg     cardigann.Config
 	secrets []string
+
+	// relogin logs in again and persists the new session. nil means this
+	// client cannot (a unit test, or a definition with no login block), and
+	// an expired session is then an ordinary failure.
+	relogin func(ctx context.Context) (*cardigann.Session, error)
+
+	// loginMu single-flights relogin: the fan-out searching one indexer from
+	// several requests at once must log in once, not once per request.
+	loginMu sync.Mutex
+}
+
+// config is the current configuration, session included.
+func (c *cardigannClient) config() cardigann.Config {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.cfg
 }
 
 // Search runs the definition. A search.error match comes back as a
 // *cardigann.SearchError -- an error, which the fan-out records against the
-// indexer's escalation, rather than zero releases (ruling R6).
+// indexer's escalation, rather than zero results (ruling R6).
+//
+// A search the tracker redirected to its login page (cardigann's
+// ErrSessionExpired) is NOT an indexer failure: the session was killed or
+// timed out server-side, which says nothing about the tracker's health. The
+// client logs in again and retries the search once, as Prowlarr's
+// HttpIndexerBase does when CheckIfLoginNeeded matches a response. Only a
+// failed re-login -- which is the credentials or the tracker failing -- or a
+// second redirect straight after a fresh login reaches the caller as an
+// error, and those escalate like any other failure.
 func (c *cardigannClient) Search(ctx context.Context, q torznab.Query) ([]torznab.Release, error) {
-	return c.engine.Search(ctx, c.def, c.cfg, cardigann.QueryFromTorznab(q))
+	cfg := c.config()
+	query := cardigann.QueryFromTorznab(q)
+	rels, err := c.engine.Search(ctx, c.def, cfg, query)
+	if err == nil || c.relogin == nil || !errors.Is(err, cardigann.ErrSessionExpired) {
+		return rels, err
+	}
+	if lerr := c.renewSession(ctx, cfg.Session); lerr != nil {
+		return nil, lerr
+	}
+	return c.engine.Search(ctx, c.def, c.config(), query)
+}
+
+// renewSession replaces stale with a fresh login, unless another caller
+// already did while this one waited for loginMu.
+func (c *cardigannClient) renewSession(ctx context.Context, stale *cardigann.Session) error {
+	c.loginMu.Lock()
+	defer c.loginMu.Unlock()
+	if c.config().Session != stale {
+		return nil // renewed by the caller ahead of us
+	}
+	sess, err := c.relogin(ctx)
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cfg.Session = sess
+	c.secrets = appendSessionSecrets(c.secrets, sess)
+	return nil
 }
 
 // Download resolves one release link through the definition's download
 // block. It is what rpc.indexarr.download dispatches to for this Indexer.
 func (c *cardigannClient) Download(ctx context.Context, link string) (io.ReadCloser, error) {
-	return c.engine.Download(ctx, c.def, c.cfg, link)
+	return c.engine.Download(ctx, c.def, c.config(), link)
 }
 
 // Secrets lists the values a diagnostic must never carry: every Secret value
-// and the session cookie.
-func (c *cardigannClient) Secrets() []string { return c.secrets }
+// and the session cookie, including any a re-login added.
+func (c *cardigannClient) Secrets() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.secrets)
+}
+
+// appendSessionSecrets adds sess's cookie header and values to secrets.
+func appendSessionSecrets(secrets []string, sess *cardigann.Session) []string {
+	if h := sess.CookieHeader(); h != "" {
+		secrets = append(secrets, h)
+		for _, c := range sess.Cookies {
+			secrets = append(secrets, c.Value)
+		}
+	}
+	return secrets
+}
 
 // newEngine builds the engine for one Indexer. The limiter is READ onto it,
 // never configured here (applyRateLimit is the only writer of a host's
-// Config), and keyed by ratelimit.HostKey(spec.baseURL): the spelling the
-// reconciler writes under, so every verb against this tracker draws on one
-// bucket. A nil limiter is left as a nil interface -- assigning a nil
+// Config), and keyed by [rateKey]: the host of def.SiteLink(spec.baseURL),
+// where the engine's requests actually go, and the spelling the reconciler
+// writes under, so every verb against this tracker draws on one bucket. A
+// nil limiter is left as a nil interface -- assigning a nil
 // *ratelimit.Limiter would produce a non-nil interface and a nil-receiver
 // panic on the first request.
-func newEngine(spec indexv1alpha1.IndexerSpec, lim *ratelimit.Limiter, transport http.RoundTripper) cardigann.Engine {
+func newEngine(
+	spec indexv1alpha1.IndexerSpec, def *cardigann.Definition, lim *ratelimit.Limiter, transport http.RoundTripper,
+) cardigann.Engine {
 	eng := cardigann.Engine{
 		HTTP:    &http.Client{Timeout: timeoutFor(spec.Timeout)},
-		RateKey: ratelimit.HostKey(spec.BaseURL),
+		RateKey: rateKey(spec, def),
 	}
 	if transport != nil {
 		eng.Proxy = transport
@@ -329,14 +407,9 @@ func buildCardigann(
 	for _, v := range secret {
 		secrets = append(secrets, string(v))
 	}
-	if h := session.CookieHeader(); h != "" {
-		secrets = append(secrets, h)
-		for _, c := range session.Cookies {
-			secrets = append(secrets, c.Value)
-		}
-	}
+	secrets = appendSessionSecrets(secrets, session)
 	return &cardigannClient{
-		engine:  newEngine(spec, lim, transport),
+		engine:  newEngine(spec, def, lim, transport),
 		def:     def,
 		cfg:     cfg,
 		secrets: secrets,

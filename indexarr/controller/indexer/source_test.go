@@ -158,7 +158,7 @@ func TestTheLimiterKeyIsRatelimitHostKey(t *testing.T) {
 		Generic:      &indexv1alpha1.GenericNewznab{},
 		RequestDelay: &metav1.Duration{Duration: time.Hour},
 	}
-	applyRateLimit(spec, lim, 0)
+	applyRateLimit(spec, nil, lim, 0)
 
 	key := ratelimit.HostKey(spec.BaseURL)
 	require.True(t, lim.Allow(key))
@@ -211,7 +211,7 @@ func TestApplyRateLimitConfiguresOneBucketPerHost(t *testing.T) {
 		Generic:      &indexv1alpha1.GenericNewznab{},
 		RequestDelay: &metav1.Duration{Duration: time.Hour},
 	}
-	applyRateLimit(spec, lim, 0)
+	applyRateLimit(spec, nil, lim, 0)
 
 	// One token per hour with a burst of 1: the first Allow drains the
 	// bucket and the second is refused. That is what proves SetConfig was

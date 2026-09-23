@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -252,19 +253,47 @@ func TestClientCacheBuildsTheCardigannEngineForADefinition(t *testing.T) {
 // fast", it is unpaced.
 func TestTheEngineWaitsOnTheReconcilersBucket(t *testing.T) {
 	spec := indexv1alpha1.IndexerSpec{BaseURL: "https://tracker.example:8443/sub"}
-	eng := newEngine(spec, ratelimit.New(ratelimit.Config{}), nil)
+	def := &cardigann.Definition{Links: []string{"https://tracker.example:8443/sub/"}}
+	eng := newEngine(spec, def, ratelimit.New(ratelimit.Config{}), nil)
 	require.Equal(t, ratelimit.HostKey(spec.BaseURL), eng.RateKey)
 	require.NotNil(t, eng.Limiter)
 
 	// A nil limiter stays a nil INTERFACE; a typed nil would panic on Wait.
-	eng = newEngine(spec, nil, nil)
+	eng = newEngine(spec, def, nil, nil)
 	require.Nil(t, eng.Limiter)
+}
+
+// An Indexer still configured with one of the definition's legacylinks sends
+// every request to links[0] (cardigann.NewConfig's SiteLink), so the bucket
+// must be keyed there -- by the writer and the engine alike. Keyed on the
+// configured legacy host, the engine's real host would read the Limiter's
+// default and the operator's requestDelay would pace nothing.
+func TestTheBucketFollowsTheDefinitionsSiteLink(t *testing.T) {
+	def := &cardigann.Definition{
+		Links:       []string{"https://new-tracker.example/"},
+		LegacyLinks: []string{"https://old-tracker.example/"},
+	}
+	spec := indexv1alpha1.IndexerSpec{
+		BaseURL: "https://old-tracker.example", RequestDelay: &metav1.Duration{Duration: time.Hour},
+	}
+	eng := newEngine(spec, def, ratelimit.New(ratelimit.Config{}), nil)
+	require.Equal(t, "new-tracker.example", eng.RateKey)
+
+	lim := ratelimit.New(ratelimit.Config{})
+	applyRateLimit(spec, def, lim, 0)
+	require.True(t, lim.Allow("new-tracker.example"))
+	require.False(t, lim.Allow("new-tracker.example"), "the SiteLink host was not paced")
+
+	// A current link, and a generic Indexer, keep their own host.
+	spec.BaseURL = "https://mirror.example"
+	require.Equal(t, "mirror.example", rateKey(spec, def))
+	require.Equal(t, "mirror.example", rateKey(spec, nil))
 }
 
 func TestApplyRateLimitIsRaisedToTheDefinitionsDelay(t *testing.T) {
 	lim := ratelimit.New(ratelimit.Config{})
 	spec := indexv1alpha1.IndexerSpec{BaseURL: "https://t.example", RequestDelay: &metav1.Duration{Duration: 0}}
-	applyRateLimit(spec, lim, definitionDelay(5))
+	applyRateLimit(spec, nil, lim, definitionDelay(5))
 	key := ratelimit.HostKey(spec.BaseURL)
 	require.True(t, lim.Allow(key))
 	require.False(t, lim.Allow(key), "a definition's 5s requestDelay did not pace a 0s spec")

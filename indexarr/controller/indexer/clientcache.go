@@ -29,6 +29,8 @@ import (
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/indexarr/download"
+	"github.com/mediactl/clustarr/pkg/cardigann"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/ratelimit"
 )
 
@@ -237,7 +239,46 @@ func buildWireClient(
 	if err != nil {
 		return nil, err
 	}
+	if def.Login != nil {
+		cg.relogin = reloginFunc(cg, idx.DeepCopy(), sessions)
+	}
 	return cg, nil
+}
+
+// reloginFunc is how a cached Cardigann client recovers from a session the
+// tracker killed: log in again with the same engine (so the same proxy and
+// limiter) and persist the new session through the store the reconciler
+// writes, so every other path -- the reconciler, the generic fetcher reading
+// the Secret's cookie key -- sees it too.
+//
+// A failed login DROPS the stored session before it returns: the reconciler
+// only logs in when the session is missing or near expiry, so a killed but
+// unexpired session left in place would be reused by every search until it
+// aged out. Dropped, the next reconcile logs in and reports a credential
+// problem as the Authenticated condition, where an operator looks.
+func reloginFunc(cg *cardigannClient, owner *indexv1alpha1.Indexer, sessions *SessionStore) func(context.Context) (*cardigann.Session, error) {
+	return func(ctx context.Context) (*cardigann.Session, error) {
+		log := logging.FromContext(ctx).With("indexer", client.ObjectKeyFromObject(owner))
+		cfg := cg.config()
+		cfg.Session = nil
+		sess, err := cg.engine.Login(ctx, cg.def, cfg)
+		if err != nil {
+			if derr := sessions.Drop(ctx, owner); derr != nil {
+				log.Warn("indexer: dropping the expired session failed", "error", derr)
+			}
+			return nil, fmt.Errorf("indexer: logging in again after the tracker expired the session: %w",
+				cardigann.RedactErr(err))
+		}
+		if sess != nil && cg.def.RequiresSession() {
+			if serr := sessions.Save(ctx, owner, sess); serr != nil {
+				// The new session works in this client either way; the
+				// reconciler's next pass persists one of its own.
+				log.Warn("indexer: persisting the renewed session failed", "error", serr)
+			}
+		}
+		log.Info("indexer: the tracker expired the session; logged in again")
+		return sess, nil
+	}
 }
 
 // lookup returns the cached client for idx when it was built from the same
