@@ -134,8 +134,8 @@ type File struct {
 	// SizeBytes is the file's size.
 	SizeBytes int64
 
-	// Skipped is true when the engine was told not to fetch this file -- a
-	// sample, or an unwanted episode inside a season pack.
+	// Skipped is true when the engine was told not to fetch this file -- an
+	// unwanted episode inside a season pack ([AddRequest.WantFile]).
 	Skipped bool
 }
 
@@ -144,12 +144,14 @@ type File struct {
 // a slow status apply without racing the engine.
 //
 // Every field here maps onto a Download.status field that
-// k8s.ManagerGrabarrEngine owns, with three exceptions that the controller
+// k8s.ManagerGrabarrEngine owns, with four exceptions. Three the controller
 // consumes directly and writes under its own manager: [Item.Status] becomes
 // status.phase, [Item.FailureReason] becomes status.failureReason, and the
 // transition timestamps (startedAt, completedAt, seedGoalMetAt) are derived by
 // the controller from those two. An engine that wrote them itself would be a
-// second writer of the controller's owned set.
+// second writer of the controller's owned set. The fourth, [Item.AddedAt], is
+// never persisted to status at all: it is the engine's own bookkeeping, read
+// by its orphan reaper.
 //
 // # Torrent-only and usenet-only fields
 //
@@ -241,7 +243,14 @@ type Item struct {
 	Health *downloadv1alpha1.UsenetHealth
 
 	// OutputPath is where the finished content was published -- the directory
-	// or single file the importer is pointed at.
+	// or single file the importer is pointed at. It is the path the Download
+	// controller's removeDataOnDelete finalizer removes, so it must be set
+	// for as long as the transfer has anything on the shared data volume.
+	//
+	// A torrent downloads in place, so its OutputPath is its per-transfer
+	// directory from the moment it is added. A usenet transfer assembles in
+	// node-local scratch and publishes by atomic rename, so its OutputPath is
+	// empty until that rename.
 	OutputPath string
 
 	// ContentRoot is the directory [File.Path] entries are relative to.
@@ -283,6 +292,20 @@ type Item struct {
 	// write would RELEASE status.lastProgressAt and the stall detector would
 	// lose its reference on the first tick after the value was set.
 	LastProgressAt *time.Time
+
+	// AddedAt is when this transfer was first added to the client, carried
+	// across engine restarts: a client that persists its own state (usenet)
+	// restores it from there, and one its caller re-attaches (torrent) takes
+	// it back from [AddRequest.AddedAt]. Zero means the client does not know.
+	//
+	// It is a true transfer age, which is what an engine's orphan reaper
+	// measures its grace period against. A first-seen time kept in the
+	// reaper's own memory is not: every restart would re-extend every
+	// orphan's window, so a crash-looping engine could defer reaping
+	// indefinitely.
+	//
+	// It is not written to Download.status -- see the type's doc comment.
+	AddedAt time.Time
 }
 
 // Info is what a client reports about itself.
@@ -359,6 +382,16 @@ type AddRequest struct {
 	Paused bool
 
 	// Priority orders this transfer within the client's queue.
+	//
+	// The design spec gives spec.priority no semantics beyond its enum; the
+	// API type's own doc does ("high jumps the queue", "low runs only when
+	// the engine is otherwise idle"), and each client honours it with the
+	// lever its protocol has. A usenet client has a queue in all but name --
+	// every job competes for one pool of provider connections -- so it
+	// transfers strictly by priority class. A torrent client has no queue at
+	// all (anacrolix runs every torrent at once, and a peerless torrent
+	// consumes nothing), so it maps the class onto each torrent's share of
+	// peer connections instead; see pkg/download/torrent.
 	Priority downloadv1alpha1.DownloadPriority
 
 	// SeedCriteria is the seed goal for this transfer, already merged from
@@ -366,7 +399,38 @@ type AddRequest struct {
 	// default. Ignored by a usenet client, for the reason [Client] gives for
 	// SetSeedCriteria.
 	SeedCriteria *commonv1alpha1.SeedCriteria
+
+	// WantFile selects which files of a multi-file transfer to fetch, so a
+	// season pack grabbed for one missing episode downloads that episode
+	// rather than the whole season. It is called once per file, with the
+	// path [Item.Files] will report for it, once the client knows the file
+	// list -- for a magnet, only after its metadata arrives, which is why
+	// this is a predicate and not a list of paths.
+	//
+	// Nil wants every file. Selection only ever narrows: a WantFile that
+	// rejects EVERY file is ignored and the whole transfer is wanted, because
+	// a transfer that wants nothing would report Completed with nothing on
+	// disk. Files it rejects are still listed, with [File.Skipped] set, and
+	// [Item.TotalBytes]/[Item.RemainingBytes]/[Item.ProgressPercent] measure
+	// the wanted files only.
+	//
+	// Torrent only. A usenet release is a set of archive volumes and PAR2
+	// files, none of which maps to one episode, so a usenet client ignores
+	// it.
+	WantFile FileSelector
+
+	// AddedAt, when non-zero, is when this transfer was FIRST added -- a
+	// caller re-attaching a transfer after an engine restart passes back the
+	// [Item.AddedAt] it persisted, so the restart does not reset the
+	// transfer's age. Zero means now. Ignored when the transfer already
+	// exists (Add is idempotent and changes nothing about it).
+	AddedAt time.Time
 }
+
+// FileSelector reports whether one file of a transfer should be fetched. path
+// is the file's path as [File.Path] reports it; sizeBytes is its length. See
+// [AddRequest.WantFile].
+type FileSelector func(path string, sizeBytes int64) bool
 
 // Client is one download client -- an embedded torrent engine or an NNTP
 // engine -- as grabarr's controllers and engine runnables use it.
@@ -433,6 +497,14 @@ type Client interface {
 	// Remove stops a transfer and forgets it. With deleteData it also deletes
 	// the downloaded files; files already hard-linked into the library survive,
 	// because a hard link is not a copy.
+	//
+	// Forgetting is durable. A client that persists its own per-transfer
+	// state (usenet's scratch manifest) discards it on every Remove,
+	// deleteData or not, or the next restart would re-attach the transfer
+	// it was told to forget -- and an orphan reaper, which always passes
+	// deleteData=false, would reap the same transfer after every restart.
+	// deleteData governs only the downloaded content on the shared data
+	// volume.
 	//
 	// Remove is idempotent: removing an unknown id returns [ErrNotFound],
 	// which a finalizer treats as success.

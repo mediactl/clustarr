@@ -113,6 +113,14 @@ type session struct {
 	mu sync.Mutex
 
 	contentRoot string
+	addedAt     time.Time
+
+	// selectionApplied is set once [applySelection] has marked the wanted
+	// files, which for a magnet is only after its metadata arrives. wanted
+	// is indexed like t.Files(); nil means every file is wanted, including
+	// when [download.AddRequest.WantFile] was nil or rejected everything.
+	selectionApplied bool
+	wanted           []bool
 
 	paused   bool
 	imported bool
@@ -268,9 +276,15 @@ func (c *Client) Add(ctx context.Context, req download.AddRequest) (string, erro
 		return id, nil
 	}
 
+	addedAt := req.AddedAt
+	if addedAt.IsZero() {
+		addedAt = time.Now()
+	}
+
 	sess := c.sessionFor(id)
 	sess.mu.Lock()
 	sess.contentRoot = dir
+	sess.addedAt = addedAt
 	sess.paused = req.Paused
 	if req.SeedCriteria != nil {
 		sess.seedCriteria = *req.SeedCriteria
@@ -283,19 +297,22 @@ func (c *Client) Add(ctx context.Context, req download.AddRequest) (string, erro
 		t.DisallowDataUpload()
 	}
 
-	// AddRequest has no per-file selection yet (D2-1 scope is the whole
-	// interface, not season-pack file picking), so the whole torrent is
-	// always wanted. DownloadAll is what makes anacrolix dial and request
-	// peers at all -- a torrent with every piece at PiecePriorityNone (the
-	// default on a freshly added Torrent) never wants peers, regardless of
-	// DisallowDataDownload, which gates REQUESTS rather than intent.
+	// Marking pieces wanted is what makes anacrolix dial and request peers
+	// at all -- a torrent with every piece at PiecePriorityNone (the default
+	// on a freshly added Torrent) never wants peers, regardless of
+	// DisallowDataDownload, which gates REQUESTS rather than intent. See
+	// [applySelection] for which pieces.
 	//
-	// A magnet Add has no info yet, and DownloadAll before info arrives
-	// iterates zero pieces -- there is nothing to mark wanted. wantAllOnInfo
-	// waits for GotInfo (already closed immediately for a payload Add, since
-	// MergeSpec sets info synchronously) and calls DownloadAll exactly once,
-	// so both paths end up wanting the whole torrent.
-	go wantAllOnInfo(t)
+	// A payload Add has its info already (MergeSpec sets it synchronously),
+	// so the selection is applied here, before Add returns, and the first
+	// Get already reports the narrowed totals. A magnet Add has no file list
+	// yet, and marking before info arrives iterates zero pieces; selectOnInfo
+	// waits for GotInfo and applies it exactly once.
+	if t.Info() != nil {
+		applySelection(t, sess, req.WantFile)
+	} else {
+		go selectOnInfo(t, sess, req.WantFile)
+	}
 	applyPriorityBudget(t, req.Priority)
 	t.SetOnWriteChunkError(sess.onWriteChunkError(t))
 
@@ -482,6 +499,19 @@ func resolveSpec(req download.AddRequest) (*anatorrent.TorrentSpec, error) {
 // one gets less, leaving more for everything else. DownloadPriorityNormal
 // and an empty value are left at anacrolix's own
 // ClientConfig.EstablishedConnsPerTorrent default.
+//
+// Checked against the spec (gap-fix ruling R-12): design spec §4.4 gives
+// DownloadSpec.Priority only its enum, {high,normal,low} defaulting to
+// normal, and says nothing of what a client does with it. The API type's
+// doc is the only statement of intent -- "high jumps the queue", "low runs
+// only when the engine is otherwise idle" -- and it presumes a queue this
+// engine does not have. Strict class gating, which is what the usenet
+// client does, would be wrong here: a high-priority torrent with no peers
+// moves no bytes and consumes nothing, yet would hold every normal and low
+// torrent at zero for as long as its swarm stays empty -- the starvation
+// qBittorrent's "do not count slow torrents" queueing option exists to
+// avoid. A share of the connection budget degrades gracefully instead, so
+// this mapping stands as a deliberate judgement rather than a gap.
 const (
 	highPriorityConns = 100
 	lowPriorityConns  = 10
@@ -496,15 +526,64 @@ func applyPriorityBudget(t *anatorrent.Torrent, p downloadv1alpha1.DownloadPrior
 	}
 }
 
-// wantAllOnInfo marks every piece of t wanted as soon as its info is known,
-// then returns. It exits without doing anything if t is dropped first, so it
-// never leaks a goroutine for a magnet whose metadata never arrives.
-func wantAllOnInfo(t *anatorrent.Torrent) {
+// selectOnInfo applies want to t as soon as its info is known, then returns.
+// It exits without doing anything if t is dropped first, so it never leaks a
+// goroutine for a magnet whose metadata never arrives.
+func selectOnInfo(t *anatorrent.Torrent, sess *session, want download.FileSelector) {
 	select {
 	case <-t.GotInfo():
-		t.DownloadAll()
+		applySelection(t, sess, want)
 	case <-t.Closed():
 	}
+}
+
+// applySelection marks the files want selects as wanted -- or every piece,
+// when want is nil or selects nothing or everything -- and records the
+// outcome on sess. t's info must be known.
+//
+// A partial selection raises the chosen files' priority (File.SetPriority)
+// rather than the pieces': anacrolix takes a piece's effective priority as
+// the highest of its own and of every file overlapping it, so a piece that
+// straddles a wanted and an unwanted file is fetched whole, and the
+// unwanted neighbour gets those few bytes written -- the same boundary
+// behaviour every BitTorrent client has, since a piece is only verifiable
+// whole.
+//
+// "Selects nothing" falls back to everything rather than to nothing: a
+// torrent that wants no piece would report Completed at once with nothing
+// on disk, and the importer would then block on an empty content root with
+// no indication that the selection, not the release, was the problem.
+func applySelection(t *anatorrent.Torrent, sess *session, want download.FileSelector) {
+	files := t.Files()
+	var wanted []bool
+	if want != nil {
+		wanted = make([]bool, len(files))
+		n := 0
+		for i, f := range files {
+			if want(f.Path(), f.Length()) {
+				wanted[i] = true
+				n++
+			}
+		}
+		if n == 0 || n == len(files) {
+			wanted = nil
+		}
+	}
+
+	if wanted == nil {
+		t.DownloadAll()
+	} else {
+		for i, f := range files {
+			if wanted[i] {
+				f.SetPriority(anatorrent.PiecePriorityNormal)
+			}
+		}
+	}
+
+	sess.mu.Lock()
+	sess.wanted = wanted
+	sess.selectionApplied = true
+	sess.mu.Unlock()
 }
 
 // sessionFor returns the bookkeeping session for id, creating an empty one

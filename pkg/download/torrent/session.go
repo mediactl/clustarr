@@ -49,22 +49,41 @@ func (c *Client) itemFromTorrent(id string, t *anatorrent.Torrent) download.Item
 	defer sess.mu.Unlock()
 
 	now := time.Now()
-	complete := t.Complete().Bool()
 	info := t.Info()
 
-	item := download.Item{ID: id, ContentRoot: sess.contentRoot}
+	// A torrent downloads in place: its per-transfer directory is both the
+	// content root and the published output from the moment it is added,
+	// which is what lets the Download controller's removeDataOnDelete
+	// finalizer remove it even once this engine is gone (ruling R-6).
+	item := download.Item{
+		ID:          id,
+		ContentRoot: sess.contentRoot,
+		OutputPath:  sess.contentRoot,
+		AddedAt:     sess.addedAt,
+	}
 
-	var totalBytes, downloadedBytes, remainingBytes int64
-	if info != nil {
+	// Until the selection is applied (for a magnet, until its metadata has
+	// arrived and [applySelection] has run) nothing is wanted yet, so the
+	// torrent is reported exactly as one still fetching metadata.
+	selecting := info != nil && !sess.selectionApplied
+
+	var (
+		complete                                    bool
+		totalBytes, downloadedBytes, remainingBytes int64
+	)
+	switch {
+	case info == nil || selecting:
+	case sess.wanted == nil:
+		complete = t.Complete().Bool()
 		totalBytes = info.TotalLength()
 		downloadedBytes = t.BytesCompleted()
 		remainingBytes = t.BytesMissing()
 		for _, f := range t.Files() {
-			item.Files = append(item.Files, download.File{
-				Path:      f.Path(),
-				SizeBytes: f.Length(),
-			})
+			item.Files = append(item.Files, download.File{Path: f.Path(), SizeBytes: f.Length()})
 		}
+	default:
+		complete, totalBytes, downloadedBytes, item.Files = selectedProgress(t, sess.wanted)
+		remainingBytes = totalBytes - downloadedBytes
 	}
 
 	stats := t.Stats()
@@ -119,7 +138,7 @@ func (c *Client) itemFromTorrent(id string, t *anatorrent.Torrent) download.Item
 		// would otherwise be in: Pause's contract is "transfers nothing",
 		// and a Stage left over from before the pause would say otherwise.
 		item.Status = download.StatusPaused
-	case info == nil:
+	case info == nil || selecting:
 		item.Status = download.StatusQueued
 		item.Stage = downloadv1alpha1.DownloadStageFetchingMetadata
 	case isChecking(t):
@@ -135,6 +154,54 @@ func (c *Client) itemFromTorrent(id string, t *anatorrent.Torrent) download.Item
 	}
 
 	return item
+}
+
+// selectedProgress measures a torrent with a partial file selection over its
+// WANTED files only -- [download.Item.TotalBytes]'s own contract: "the size
+// of the wanted content -- the selected files, not the whole torrent" --
+// and lists every file, the unwanted ones as Skipped. wanted is indexed like
+// t.Files().
+//
+// anacrolix's own Complete, BytesCompleted and BytesMissing all count the
+// whole torrent, so none of them can say a partial selection is finished:
+// Complete never turns on while an unwanted file is missing. Completion is
+// therefore every piece overlapping a wanted file verified complete. The
+// per-file byte count is checked first because it is one call per file and
+// is already short of the file's length for any file still transferring,
+// so the per-piece walk only runs once the wanted bytes are all present.
+// (File.BytesCompleted also counts written-but-unverified chunks, which is
+// why it can rule completion out but not in.)
+func selectedProgress(t *anatorrent.Torrent, wanted []bool) (complete bool, total, done int64, files []download.File) {
+	all := t.Files()
+	files = make([]download.File, 0, len(all))
+	complete = true
+	for i, f := range all {
+		want := i < len(wanted) && wanted[i]
+		files = append(files, download.File{Path: f.Path(), SizeBytes: f.Length(), Skipped: !want})
+		if !want {
+			continue
+		}
+		have := f.BytesCompleted()
+		total += f.Length()
+		done += have
+		if have < f.Length() {
+			complete = false
+		}
+	}
+	if !complete {
+		return false, total, done, files
+	}
+	for i, f := range all {
+		if i >= len(wanted) || !wanted[i] {
+			continue
+		}
+		for p := f.BeginPieceIndex(); p < f.EndPieceIndex(); p++ {
+			if !t.PieceState(p).Complete {
+				return false, total, done, files
+			}
+		}
+	}
+	return true, total, done, files
 }
 
 // isChecking reports whether any of t's pieces are being hashed or are
