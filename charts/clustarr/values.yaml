@@ -21,10 +21,10 @@ image:
     repository: mediactl/clustarr
     tag: ""
   media:
-    repository: mediactl/clustarr-media
+    repository: mediactl/clustarr/media
     tag: ""
   mediaCuda:
-    repository: mediactl/clustarr-media-cuda
+    repository: mediactl/clustarr/media-cuda
     tag: ""
 imagePullSecrets: []
 
