@@ -1,0 +1,58 @@
+# A dedicated ServiceAccount bound to a ClusterRole granting exactly what
+# config/prometheus/metrics_reader_role.yaml's clustarr-metrics-reader
+# grants (`get` on the nonResourceURL /metrics), so
+# test/e2e/observability_test.go can mint a short-lived token for it
+# (`kubectl create token`) and pass the authn/authz filter on every
+# service's :8443 /metrics -- docs/observability.md §13: "controller-
+# runtime metrics ... are served on :8443 BEHIND THE AUTHN/AUTHZ FILTER, so
+# the endpoint is https and the scrape must present a bearer token."
+#
+# The ClusterRole below is a duplicate of metrics_reader_role.yaml, not a
+# kustomize reference to it: kustomize's default load restrictor refuses a
+# resource path outside this kustomization's own root
+# ("security; file ... is not in or below ..."), and config/prometheus's
+# OWN kustomization.yaml cannot be used as that resource instead because it
+# also pulls in servicemonitors.yaml, which needs the Prometheus Operator
+# CRDs config/e2e does not install. Two definitions of one four-line rule
+# is the accepted cost; if `nonResourceURLs: [/metrics]` ever needs a
+# second verb or path, update both.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: e2e-metrics-reader
+  namespace: clustarr-system
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: e2e-metrics-reader
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: e2e-metrics-reader
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: e2e-metrics-reader
+rules:
+  - nonResourceURLs:
+      - /metrics
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: e2e-metrics-reader
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: e2e-metrics-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: e2e-metrics-reader
+subjects:
+  - kind: ServiceAccount
+    name: e2e-metrics-reader
+    namespace: clustarr-system
