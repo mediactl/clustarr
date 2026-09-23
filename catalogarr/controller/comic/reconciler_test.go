@@ -396,8 +396,10 @@ func TestComicReconcilerRealController(t *testing.T) {
 		const uuid = "a1c7c817-4e59-43b7-9365-09675a149a6f"
 		pub := &fakePublisher{}
 		mdRequester := &fakeIssueRPC{issues: []metadata.ComicIssue{{Number: "1"}, {Number: "2"}}}
-		r := &comic.Reconciler{Client: mangaClient, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
-			Bus: combinedBus{Publisher: pub, requester: mdRequester}}
+		r := &comic.Reconciler{
+			Client: mangaClient, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
+			Bus: combinedBus{Publisher: pub, requester: mdRequester},
+		}
 
 		cm := &catalogv1alpha1.Comic{
 			ObjectMeta: metav1.ObjectMeta{Name: "one-piece-manga", Namespace: "comic-mangadex-ns"},
@@ -443,8 +445,10 @@ func TestComicReconcilerRealController(t *testing.T) {
 		rq := &fakeIssueRPC{issues: []metadata.ComicIssue{
 			{IDs: metadata.ExternalIDs{metadata.KeyComicVine: "7001"}, Number: "1", Title: "One"},
 		}}
-		r := &comic.Reconciler{Client: keepClient, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
-			Bus: combinedBus{Publisher: &fakePublisher{}, requester: rq}}
+		r := &comic.Reconciler{
+			Client: keepClient, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
+			Bus: combinedBus{Publisher: &fakePublisher{}, requester: rq},
+		}
 		cm := &catalogv1alpha1.Comic{
 			ObjectMeta: metav1.ObjectMeta{Name: "saga", Namespace: "comic-keepid-ns"},
 			Spec: catalogv1alpha1.ComicSpec{
