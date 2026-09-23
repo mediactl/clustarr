@@ -166,7 +166,15 @@ func (pc *processConfig) processFile(
 	if perr != nil {
 		return nil, fmt.Sprintf("%s: could not parse the filename: %v", rel, perr), nil
 	}
-	parsed.Group = releaseGroupOrEmpty(parsed)
+	// A file whose name names no language takes the movie's original
+	// language, as Radarr's AggregateLanguages does ("Use movie language as
+	// fallback if we couldn't parse a language"). Resolved once, here, so
+	// the score below and the languages frozen into the spec agree -- the
+	// order pkg/decision.Evaluate uses for a release. parsed.Group is the
+	// parser's own: pkg/release ports Radarr's ReleaseGroupParser, so the
+	// quality-token guard this worker once carried would only drop a real
+	// group that shares a quality word.
+	parsed.Languages = parsed.LanguagesFor(pc.originalLanguageName)
 
 	if !pc.profile.Allowed(parsed.Quality) {
 		return nil, fmt.Sprintf("%s: quality %s is not allowed by the quality profile", rel, parsed.Quality.Name), nil

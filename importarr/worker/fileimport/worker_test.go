@@ -25,7 +25,6 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/naming"
 	"github.com/mediactl/clustarr/pkg/quality"
-	"github.com/mediactl/clustarr/pkg/release"
 )
 
 func TestRelPath(t *testing.T) {
@@ -77,22 +76,6 @@ func TestTargetKey(t *testing.T) {
 	require.Equal(t, "movie/the-matrix", targetKey("movie", "the-matrix"))
 	require.NotEqual(t, targetKey("movie", "x"), targetKey("episode", "x"),
 		"the same name under a different kind must not collide")
-}
-
-func TestReleaseGroupOrEmpty(t *testing.T) {
-	// An ordinary scene layout: pkg/release parses the group correctly, so
-	// the guard must pass it through unchanged.
-	parsed, err := release.ParsePath("/data/movies/Heat.1995.1080p.BluRay.x264-SPARKS.mkv", release.Options{Kind: commonv1.MediaKindMovie})
-	require.NoError(t, err)
-	require.Equal(t, "SPARKS", releaseGroupOrEmpty(parsed))
-
-	// The documented defect: pkg/release attributes quality tokens to Group
-	// on this layout ("Heat (1995) - Bluray-1080p.mkv"), and the guard must
-	// drop the whole contaminated value rather than freeze a lie.
-	contaminated, err := release.ParsePath("/data/movies/Heat (1995) - Bluray-1080p.mkv", release.Options{Kind: commonv1.MediaKindMovie})
-	require.NoError(t, err)
-	require.Equal(t, "", releaseGroupOrEmpty(contaminated),
-		"a group that is visibly a quality token must be dropped, not frozen")
 }
 
 func TestDestinationPath(t *testing.T) {
