@@ -169,3 +169,15 @@ const DefaultMaxOutputToSourcePercent = 100
 func MaxOutputToSourcePercent(p transcodev1alpha1.PolicySpec) int32 {
 	return ptr.Deref(p.MaxOutputToSourcePercent, DefaultMaxOutputToSourcePercent)
 }
+
+// DefaultActiveDeadline is the per-task deadline when the profile sets none.
+// TestFlooredDefaultsMatchTheGeneratedCRD holds it to the CRD default.
+const DefaultActiveDeadline = 48 * time.Hour
+
+// ActiveDeadline is a profile's per-task deadline, enforced by the worker.
+func ActiveDeadline(p transcodev1alpha1.TranscodeProfileSpec) time.Duration {
+	if p.ActiveDeadline.Duration > 0 {
+		return p.ActiveDeadline.Duration
+	}
+	return DefaultActiveDeadline
+}
