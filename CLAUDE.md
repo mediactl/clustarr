@@ -319,11 +319,93 @@ been executed against a kind cluster**; that and `make e2e` generally are
 deferred by explicit user instruction until D1–D3 implementation is complete,
 not by oversight. Reconciles against envtest; not proven end to end.
 
-Next: `grabarr` and `importarr`'s file-import worker (**Phase D2**, M3
-downloads and import) and the first UI slice (**Phase D3**) are in flight →
-M4 transcode → M5 subtitles → M6 parity, import lists and non-video
-inventory, then **Phase H: end-to-end proof on kind**. Phase detail, and the
-list Phase C and D1 carried forward, are in
+Phase D2 (done): M3 downloads and import — `grabarr` and `importarr`'s
+file-import worker. `pkg/download/torrent` over `anacrolix/torrent`
+(idempotent `Add` on the infohash, `Resume`/`SetSeedCriteria` no-ops on an
+already-satisfied state, anacrolix state mapped onto `download.Status`);
+`pkg/download/usenet` over `Tensai75/nntp` plus pure-Go `javi11/rapidyenc` —
+`javi11/nntppool` was ruled out as cgo-only (R9), so this package writes its
+own bounded connection pool, 430-failover across configured servers,
+pipelining and quota accounting, then PAR2-verifies/repairs (shelling out to
+`par2cmdline-turbo`, no Go module) and unpacks with
+`github.com/nwaples/rardecode/v2`. `grabarr/status` declares the two disjoint
+field-manager sets on `Download.status` — `ControllerFields`
+(`k8s.ManagerGrabarr`, nine fields) and `EngineFields`
+(`k8s.ManagerGrabarrEngine`, twenty-three) — and `Patch` refuses any other
+manager. `grabarr/controller/downloadclient` reconciles `DownloadClient` into
+its engine workload (a `StatefulSet` per torrent client, a `Deployment` for
+usenet), `DiskSpaceOK` and the blocklist sweep.
+`grabarr/controller/download` picks a `ClientRef`, waits for `EngineReady`,
+pins the choice into `status.engine` once and never recomputes it, and runs
+the `removeDataOnDelete` finalizer. `grabarr/engine/torrent` and
+`grabarr/engine/usenet` gate readiness on re-attach completing first (R4) and
+write only `EngineFields` telemetry; each carries a level-driven `Reaper`
+(`torrent.Reaper`, `usenet.Reaper`) that lists client transfers against
+owned Downloads and removes orphans past a grace period, proved by deleting a
+`Download` with the engine's watch deliberately not firing.
+`importarr/worker/fileimport` consumes `ConsumerImportFile`
+(`"importarr-fileimport"`) and creates `MediaFile`, writing only
+`MediaFileSpec` per the spec/status split; it also settled the
+`Download.status.import` ownership question three comments disagreed on,
+onto `k8s.ManagerImportarr`. D2-4, D2-5 and D2-6 could not advance
+`status.phase` past `Assigned` — it is `ControllerFields`, not something an
+engine can write — so `grep -rn WorkFileImportSubject` found the subject
+builder and the consumer but no publisher, and the phase→import handoff that
+is D2's own gate could not complete until D2-8a
+(`grabarr/controller/download`) added phase derivation from engine telemetry
+(`Assigned`→`Queued`→`Downloading`→`Completed`→`Seeding`→`Imported`, plus
+`Paused`/`Failed`/`Blocklisted`/`Removing`) and published exactly one
+`schema.ImportTask` per completion. Separately, D2-8 found the grabarr
+reconcilers, both engines, both reapers and the file-import worker
+registered nowhere and wired them into `grabarr/run.go` and
+`cmd/clustarr`, added `grabarr` to the registration guard's
+`runnableServices`, and regenerated RBAC. A CEL defect found along the way
+was Critical: the `Download` release-identity rule
+(`api/download/v1alpha1/download_types.go`) compared five `+optional` fields
+unguarded, so an absent one raised "no such key" and the apiserver rejected
+the write outright — fatal for usenet, which never carries `infoHash` — for
+every write after creation, including the status-only applies that are
+grabarr's only way to report progress; fixed in `c5e86d5` by guarding every
+comparison with `has()`, with `pkg/crdcheck/download_cel_test.go` as the
+regression guard using a dynamic client so an absent `infoHash` stays absent
+on the wire. E2E scenarios (`test/e2e/download_test.go`,
+`test/e2e/import_test.go`: 1 through import, 2, 3, 4, 6) are **written and
+never executed**, deferred by user instruction until D1–D3 are all in.
+Reconciles against envtest; not proven end to end.
+
+Phase D3 (done): the first UI slice — the pipeline and downloads pages over
+real cluster state, streamed. `ui/reader.go`'s `NewClusterReader` builds a
+standalone controller-runtime `cache.Cache` (no manager, no metrics or
+leader-election port); `Options.Reader` staying nil is still legal and
+renders empty pages. `/readyz` now gates on cache sync while `/healthz`
+stays unconditional, and `config/rbac/ui_role.yaml` is a hand-written
+`get,list,watch`-only role (no `*/status`) bound to the previously-unbound
+`ServiceAccount ui`. `ui/projection`'s `Projection` replaces the old
+per-connection 5s poll with one process-wide tick that lists `Download`,
+`TranscodeJob`, `SubtitleRequest`, `Search` and `MediaFile`, indexes them by
+owner through `metav1.OwnerReference` UID, projects `pipeline.Entry` and
+`downloadv1.Download` rows, and fans both out through `Subscribe`/
+`SubscribeDownloads` to every open SSE connection. `ui/views/downloads.templ`
+renders all eleven `DownloadPhase` values plus a `DownloadClient` section
+without panicking on a zero-value status; `GET /downloads` and
+`GET /events/downloads` join the existing pipeline page and stream. The
+never-writes invariant (CLAUDE.md) is now two enforced guards rather than an
+accident of no RBAC grant existing (D3-4, `6597877`): `ui/guard_test.go`'s
+`TestUINeverWrites` is an AST guard over every non-test file in `ui/`
+rejecting a `client.Writer` selector (`Create`, `Update`, `Patch`, `Delete`,
+`DeleteAllOf`, `Status`) on anything typed from controller-runtime's
+`client` package, plus any import of `pkg/k8s`; `cmd/clustarr/ui_rbac_test.go`'s
+`TestUIRoleGrantsOnlyReadVerbs` and `TestUIRoleChartMatchesConfig` assert
+`ui_role.yaml`'s verbs are a subset of `{get,list,watch}` with no `/status`
+resource, and hold the chart's copy byte-identical to it. E2E scenario 14
+(`test/e2e/ui_test.go`: the pipeline and downloads pages) is **written and
+never executed**, deferred the same way. Reconciles against envtest; not
+proven end to end.
+
+Next: Phase D is done (D1 indexers, D2 downloads and import, D3 the first UI
+slice) → **M4 transcode** (`squasharr`) is next → M5 subtitles → M6 parity,
+import lists and non-video inventory, then **Phase H: end-to-end proof on
+kind**. Phase detail, and the list Phase C, D1 and D2 carried forward, are in
 `docs/superpowers/plans/2026-09-18-remaining-work.md`; milestone detail is in
 the spec's §16 and amendment §A4.
 

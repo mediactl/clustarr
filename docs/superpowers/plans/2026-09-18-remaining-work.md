@@ -909,8 +909,60 @@ wired yet".
 >   the torrent and usenet engines, the Download controller and its re-attach
 >   semantics, and the completed-download import. Lands scenarios 1 (through
 >   import), 2, 3, 4 and 6.
+>
+>   **D2 done (2026-09-23).** D2-0 through D2-10 landed: `pkg/download/torrent`
+>   (anacrolix), `pkg/download/usenet` (`Tensai75/nntp` plus pure-Go
+>   `javi11/rapidyenc`, own connection pool per R9's cgo ruling), `grabarr/status`'s
+>   `ControllerFields`/`EngineFields` split, the `DownloadClient` and `Download`
+>   controllers, the torrent and usenet engines with re-attach-gated readiness,
+>   a level-driven orphan `Reaper` in each engine, and
+>   `importarr/worker/fileimport`. D2-8a (`f8a1a4a`) closed the hole the other
+>   three tasks each left at one edge: nothing advanced `status.phase` past
+>   `Assigned` (it is `ControllerFields`, not an engine-writable field) and
+>   nothing published the import task, so `grep -rn WorkFileImportSubject`
+>   found the subject builder and the consumer but no publisher — D2's own
+>   gate could not complete until this task added phase derivation and a
+>   once-per-completion `schema.ImportTask` publish. D2-8 (`3930cb0`) found
+>   the grabarr reconcilers, both engines, both reapers and the file-import
+>   worker registered nowhere, wired them into `grabarr/run.go` and
+>   `cmd/clustarr`, added `grabarr` to the registration guard, ran the one
+>   permitted serial `go mod tidy`, and regenerated RBAC. `c5e86d5` fixed a
+>   Critical found along the way: `Download`'s release-identity CEL rule
+>   compared five `+optional` fields unguarded, so an absent one raised "no
+>   such key" and the apiserver rejected the write — fatal for usenet, which
+>   never carries `infoHash`, on every write after creation including the
+>   status-only applies grabarr reports progress through;
+>   `pkg/crdcheck/download_cel_test.go` guards it with a dynamic-client
+>   fixture so a typed client's always-marshalled empty string can't mask the
+>   bug again. The gate — `make generate`, `make manifests`, `make build`,
+>   `make lint`, `make test` with `KUBEBUILDER_ASSETS` exported — is green
+>   with no skips and no `go.mod`/`go.sum` diff. Scenarios 1 (through
+>   import), 2, 3, 4 and 6 (`test/e2e/download_test.go`,
+>   `test/e2e/import_test.go`) are written but **not** run against kind,
+>   deferred the same way as D1's scenario 17. Two fixture/deploy gaps that
+>   will block those scenarios' first kind run are filed below, in the Phase
+>   D defects block.
 > - **D3 — the first UI slice.** The pipeline and downloads pages over real
 >   resources. Lands the corresponding parts of scenario 14.
+>
+>   **D3 done (2026-09-23).** D3-0 through D3-5 landed: `ui/reader.go`'s
+>   standalone `cache.Cache` (`NewClusterReader`, no manager, nil `Reader`
+>   stays legal), `/readyz` gating on cache sync while `/healthz` stays
+>   unconditional, a hand-written read-only `config/rbac/ui_role.yaml` bound
+>   to the previously-unbound `ServiceAccount ui`, `ui/projection`'s
+>   process-wide tick replacing the old per-connection poll and fanning out
+>   pipeline and downloads rows alike, the downloads page and its
+>   `/events/downloads` SSE stream, and D3-4's two never-writes guards
+>   (`6597877`): `ui/guard_test.go`'s `TestUINeverWrites` (an AST guard
+>   rejecting any `client.Writer` selector, including `Status`, on a
+>   controller-runtime `client`-typed value anywhere in non-test `ui/` code,
+>   plus any import of `pkg/k8s`) and `cmd/clustarr/ui_rbac_test.go`'s
+>   `TestUIRoleGrantsOnlyReadVerbs`/`TestUIRoleChartMatchesConfig` (the role's
+>   verbs are a subset of `{get,list,watch}`, no `/status` resource, chart
+>   copy byte-identical). The invariant is now those two guards, not an
+>   accident of no RBAC grant existing. Same gate as D2, green. Scenario 14's
+>   pipeline and downloads pages (`test/e2e/ui_test.go`) are written but
+>   **not** run against kind, deferred the same way.
 >
 > The fixture image grows in the phase that needs it: the Torznab/Newznab
 > fixture indexer in D1, the seeder and NNTP stub in D2.
@@ -1184,10 +1236,15 @@ here is a regression introduced by Phase C unless it says so.
 - [ ] **A torrent's files cannot be selected individually, so every file in a release is always downloaded.** `download.AddRequest` carries no file-selection field, so `pkg/download/torrent` wants all files unconditionally. This is correct for a single-movie torrent and wasteful for a season pack where only one episode is missing — the case Radarr and Sonarr both handle by deselecting files. Needs an `AddRequest` field, which is a seam change, plus engine support. Nothing in D2 owns it.
 - [ ] **`DownloadPriority` maps onto anacrolix's connection budget by judgement, not by specification.** D2-1 found no spec citation for what a priority should mean to a torrent client and chose a mapping. It is plausible and it is unsourced. D2-3 and D2-5 drive the real controller loop and should confirm or correct it against what the spec actually intends by `spec.priority`.
 
-- [ ] **CRITICAL, and it blocks D2-4/D2-6/D2-7: `Download`'s "release identity is immutable" CEL rule dereferences five optional fields unguarded, so a usenet Download is unwritable after creation.** `api/download/v1alpha1/download_types.go:292` reads `self.guid == oldSelf.guid && self.indexerRef == oldSelf.indexerRef && self.title == oldSelf.title && self.protocol == oldSelf.protocol && self.infoHash == oldSelf.infoHash`. Every one of those five is `+optional` with `omitempty` in `api/common/v1alpha1/release_types.go` (GUID:73, IndexerRef:77, Title:85, Protocol:89, InfoHash:121). An absent optional field is simply not in the object map, so CEL raises "no such key" rather than comparing — the rule errors, and **the apiserver rejects the write**. Found by D2-3 and confirmed empirically under envtest, then re-confirmed here by reading the types. The field that makes this certain rather than theoretical is `infoHash`: **usenet releases do not have one**, by protocol, so every usenet `Download` fails every update after creation — including a status-only apply, which is the only way grabarr reports progress at all. Torrent Downloads survive only because they happen to carry all five. Fix: guard each comparison with `has()` on both `self` and `oldSelf`, or express it as `!has(oldSelf.X) || (has(self.X) && self.X == oldSelf.X)` per field, matching the shape `clientRef`'s own rule at line 270 already uses correctly. Needs `make manifests` in the same commit, and an envtest that creates a Download with no `infoHash` and then patches its status — a test asserting only on a torrent-shaped fixture passes against the broken rule.
+- [x] ~~**CRITICAL, and it blocks D2-4/D2-6/D2-7: `Download`'s "release identity is immutable" CEL rule dereferences five optional fields unguarded, so a usenet Download is unwritable after creation.**~~ **Fixed at `c5e86d5`.** `api/download/v1alpha1/download_types.go:292` read `self.guid == oldSelf.guid && self.indexerRef == oldSelf.indexerRef && self.title == oldSelf.title && self.protocol == oldSelf.protocol && self.infoHash == oldSelf.infoHash`. Every one of those five is `+optional` with `omitempty` in `api/common/v1alpha1/release_types.go` (GUID:73, IndexerRef:77, Title:85, Protocol:89, InfoHash:121). An absent optional field is simply not in the object map, so CEL raised "no such key" rather than comparing — the rule errored, and **the apiserver rejected the write**. Found by D2-3 and confirmed empirically under envtest, then re-confirmed here by reading the types. The field that made this certain rather than theoretical is `infoHash`: **usenet releases do not have one**, by protocol, so every usenet `Download` failed every update after creation — including a status-only apply, which is the only way grabarr reports progress at all. Torrent Downloads survived only because they happened to carry all five. `c5e86d5` guards every comparison with `has()` on both `self` and `oldSelf`, matching the shape `clientRef`'s own rule at line 270 already used correctly, and regenerated `config/rbac/role.yaml`/the chart's copy in the same commit. `pkg/crdcheck/download_cel_test.go` is the regression guard, built through a dynamic client on purpose — a typed Go client always marshals `infoHash: ""`, which puts the key in the object and would pass against the bug.
 
 - [ ] **The engine's `Client.Remove` can still finish after the controller has torn down the files.** D2-8b's reaper (`d5c01d2`) guarantees no transfer runs forever, which was the severe half of the problem. It does not resolve the narrower ordering race: `grabarr/controller/download`'s finalizer runs `fsops.SafeRemove` against `status.outputPath` and drops the finalizer without waiting for any engine, so an engine may still hold those files open when they are unlinked. On Linux the data survives until close, so the practical effect is delayed space reclamation and writes into unlinked inodes rather than corruption — which is why it is filed rather than fixed. Resolving it properly means the controller waiting on an engine acknowledgement, which is a controller change and a coordination protocol that D2-8b was explicitly scoped out of. Decide deliberately rather than letting three tasks converge on best-effort again, which is how the reaper came to be needed.
 - [ ] **The reaper's grace period is process-local, not a true transfer age.** `download.Item` carries no creation timestamp, so `Reaper` tracks first-seen-unmatched in memory. A process restart re-extends every in-flight orphan's window. Conservative — never less safe, only less prompt — but it means a crash-looping engine could defer reaping indefinitely. A timestamp on `download.Item` would fix it and is a seam change no D2 task owns. `ReapInterval` (2m) and `OrphanGrace` (10m) are also unsourced judgement calls; the spec says nothing about reaper timing.
+
+**Found during the D2/D3 gate (2026-09-23) — both block the first kind run of scenarios 1, 2 and 6.**
+
+- [ ] **Both download fixtures name their served content `clustarr-fixture.bin`, which is not in `pkg/fsops.MediaExtensions`, so the file-import worker will skip it as unattributable and the `MediaFile` tail of scenarios 1, 2 and 6 is permanently blocked until a fixture serves a real media extension.** Verified directly: `test/fixtures/seeder/seeder.go` and `test/fixtures/nntpstub/fixture.go` both name the payload `clustarr-fixture.bin`, and `pkg/fsops/classify.go:36`'s `MediaExtensions` is `{.mkv, .epub, .mobi, .azw, .azw3, .pdf, .cbz, .cbr, .cb7, .cbt}` — no `.bin` entry, by design (the set is "deliberately narrow, grounded only in what docs/research/naming.md verifies"). `importarr/worker/fileimport` never guesses (CLAUDE.md's never-guess rule), so an unattributable file goes to `LibraryScan.status.unmatched` rather than becoming a `MediaFile`. The download and import halves of D2-10's scenarios can still run to completion; only the `MediaFile`-creation assertion at the end of scenarios 1, 2 and 6 is blocked. Fix is one field on each fixture's served filename (e.g. `clustarr-fixture.mkv`), not a code change — owned by whoever runs D2-10's scenarios against kind first.
+- [ ] **`config/e2e` deploys neither `test/fixtures/seeder` nor `test/fixtures/nntpstub` as a Service, so D2-10's download scenarios skip before creating anything.** Verified: `config/e2e/kustomization.yaml` and its sibling patches list `tmdb-stub.yaml`, `tvdb-stub.yaml` and `torznab-stub.yaml`, all three wired as the D1 pattern established, but no `seeder.yaml` or `nntpstub.yaml` exists in the directory and neither fixture binary is referenced anywhere under `config/`. D1's Torznab/Newznab fixture is the working pattern to copy (a `Deployment` plus a `Service` the relevant controller's spec points at); D2-9 built the two binaries and D2-10 wrote scenarios that assume they are reachable in-cluster, but no task actually added the manifests. Until they exist, `TestDownloadTorrentGrabToImportAttempt` and `TestDownloadUsenetNoInfoHashWithCrossServerFailover` have nothing to grab against and will skip or fail at setup, before the code under test runs at all.
 
 **Phase E — transcode.**
 
