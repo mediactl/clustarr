@@ -343,7 +343,7 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: maxOutputToSourcePercent
       type:
         scalar: numeric
-      default: 1
+      default: 100
     - name: minDuration
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Duration

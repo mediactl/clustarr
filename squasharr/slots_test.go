@@ -104,8 +104,23 @@ func TestRolesAndValidate(t *testing.T) {
 
 	o := DefaultOptions()
 	o.Namespace = "clustarr"
+	o.WorkerImage = "ghcr.io/mediactl/clustarr/media:dev"
 	if err := o.Validate(); err != nil {
-		t.Fatalf("the default options are invalid: %v", err)
+		t.Fatalf("the default options plus a worker image are invalid: %v", err)
+	}
+	if o.WorkerServiceAccount != DefaultWorkerServiceAccount || o.DataClaimName == "" {
+		t.Errorf("DefaultOptions lost the worker ServiceAccount or data claim: %+v", o)
+	}
+
+	// The controller stamps the worker image onto every Job it creates.
+	o.WorkerImage = ""
+	if err := o.Validate(); err == nil {
+		t.Error("a controller without --worker-image was accepted")
+	}
+	o.WorkerImage = "ghcr.io/mediactl/clustarr/media:dev"
+	o.WorkerServiceAccount = ""
+	if err := o.Validate(); err == nil {
+		t.Error("a controller without --worker-service-account was accepted; its Jobs would run as the namespace default")
 	}
 
 	// A worker is the entrypoint of one Job and has to know which.
@@ -118,5 +133,15 @@ func TestRolesAndValidate(t *testing.T) {
 	o.JobName = "inception-abc1234567"
 	if err := o.Validate(); err != nil {
 		t.Errorf("a worker with --job was rejected: %v", err)
+	}
+
+	// Ruling R6: the worker never uses the bus, so it must not demand one.
+	o.NATSURL = ""
+	if err := o.Validate(); err != nil {
+		t.Errorf("a worker without --nats-url was rejected: %v", err)
+	}
+	o.Namespace = ""
+	if err := o.Validate(); err == nil {
+		t.Error("a worker with no namespace was accepted; it could not name its TranscodeJob")
 	}
 }

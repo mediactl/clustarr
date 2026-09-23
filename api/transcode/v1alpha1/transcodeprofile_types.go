@@ -330,22 +330,33 @@ type PolicySpec struct {
 	// +kubebuilder:default="1m"
 	MinDuration metav1.Duration `json:"minDuration,omitempty"`
 
-	// MaxOutputToSourceRatio fails a job whose output is larger than this
-	// multiple of the source size.
+	// MaxOutputToSourcePercent fails a job whose output is larger than this
+	// percentage of the source size: 100 (the default) refuses any output
+	// bigger than the file it replaces, 150 allows half as large again. It is
+	// the design spec's MaxOutputToSourceRatio 1.0 as a scaled integer, since
+	// the API carries no floats. 0 disables the check.
 	// +optional
-	// +kubebuilder:default=1.0
+	// +kubebuilder:default=100
+	// +kubebuilder:validation:Minimum=0
 	MaxOutputToSourcePercent int32 `json:"maxOutputToSourcePercent,omitempty"`
 
-	// ReplaceSource replaces the source file with the output on success.
+	// ReplaceSource replaces the source file with the output on success. A
+	// pointer so a Go client can send an explicit false; unset means true.
+	// Only true is supported in v1alpha1: the output is always renamed over
+	// the source path, and writing it anywhere else needs a library path
+	// migration that does not exist yet.
 	// +optional
 	// +kubebuilder:default=true
-	ReplaceSource bool `json:"replaceSource,omitempty"`
+	// +kubebuilder:validation:XValidation:rule="self",message="replaceSource=false is not supported in v1alpha1: the verified output always replaces the source path"
+	ReplaceSource *bool `json:"replaceSource,omitempty"`
 
-	// RecycleBin moves the replaced source to the recycle bin instead of
-	// deleting it.
+	// RecycleBin keeps the replaced source in the root folder's recycle bin.
+	// false lets the swap drop the library's link to it outright (a seeding
+	// hard link elsewhere under /data keeps its own copy either way). A
+	// pointer so a Go client can send an explicit false; unset means true.
 	// +optional
 	// +kubebuilder:default=true
-	RecycleBin bool `json:"recycleBin,omitempty"`
+	RecycleBin *bool `json:"recycleBin,omitempty"`
 }
 
 // VerifySpec describes post-encode verification.
@@ -448,7 +459,10 @@ type TranscodeProfileSpec struct {
 
 	// Resources are the encode container's resource requirements. The default
 	// limits (cpu 8, memory 4Gi) suit 1080p; the CPU limit is fed to the x265
-	// thread pools.
+	// thread pools. The kubebuilder default fills only an ABSENT field, and a
+	// Go client always sends this struct, so the controller also floors an
+	// entirely empty value (no limits, no requests) to the same default when
+	// it builds the Job: an encode with no resources at all is never meant.
 	// +optional
 	// +kubebuilder:default={limits:{cpu:"8",memory:"4Gi"}}
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
@@ -458,6 +472,9 @@ type TranscodeProfileSpec struct {
 	GPU *GPUSpec `json:"gpu,omitempty"`
 
 	// Scratch is the emptyDir sizeLimit for the encode pod's scratch space.
+	// A Go client always sends a Quantity, so the controller floors a zero
+	// (or negative) one to the 20Gi default when it builds the Job: a
+	// zero-byte scratch volume has no coherent meaning.
 	// +optional
 	// +kubebuilder:default="20Gi"
 	Scratch resource.Quantity `json:"scratch,omitempty"`
@@ -468,6 +485,9 @@ type TranscodeProfileSpec struct {
 	Priority int32 `json:"priority,omitempty"`
 
 	// ActiveDeadline is the batch Job activeDeadlineSeconds for the encode.
+	// A Go client always sends a Duration, so the controller floors a zero
+	// (or negative) one to the 48h default when it builds the Job, rather
+	// than running the encode with no deadline at all.
 	// +optional
 	// +kubebuilder:default="48h"
 	ActiveDeadline metav1.Duration `json:"activeDeadline,omitempty"`

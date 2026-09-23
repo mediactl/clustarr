@@ -18,13 +18,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package transcodeprofile
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -32,52 +36,172 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
-func TestToProfileSpecConvertsEveryField(t *testing.T) {
-	maxRate, bufSize := int32(20000), int32(40000)
-	spec := transcodev1alpha1.TranscodeProfileSpec{
+// renderSpec returns a spec with every leaf of every render-relevant field
+// set to a non-zero value, so that changing any one of them is a change a
+// correct converter must carry into the hash.
+func renderSpec() transcodev1alpha1.TranscodeProfileSpec {
+	return transcodev1alpha1.TranscodeProfileSpec{
 		Container: transcodev1alpha1.ContainerMKV,
-		Hardware:  transcodev1alpha1.HardwareNVIDIA,
+		Hardware:  transcodev1alpha1.HardwareCPU,
 		Video: transcodev1alpha1.VideoSpec{
-			Codec:       "hevc",
-			PixelFormat: "yuv420p10le",
-			Profile:     "main10",
-			CRF:         transcodev1alpha1.CRFTable{SD: 21, HD: 22, UHD: 23, HDROffset: -1},
-			Preset:      "slow",
-			MaxRateKbps: &maxRate,
-			BufSizeKbps: &bufSize,
-			NVENC:       transcodev1alpha1.NVENCSpec{Preset: "p6", Tune: "hq", CQ: 24},
+			Codec: "hevc", PixelFormat: "yuv420p10le", Profile: "main10",
+			CRF:    transcodev1alpha1.CRFTable{SD: 21, HD: 22, UHD: 23, HDROffset: -1},
+			Preset: "slow", Tune: ptr.To("grain"),
+			KeyintFactor: 10, BFrames: 8, Refs: 4, RCLookahead: 40, AQMode: 3,
+			MaxRateKbps: ptr.To[int32](20000), BufSizeKbps: ptr.To[int32](40000),
+			ExtraX265Params: map[string]string{"no-sao": "1"},
+			NVENC:           transcodev1alpha1.NVENCSpec{Preset: "p6", Tune: "hq", CQ: 24, Multipass: "fullres", BRefMode: "middle"},
+			QSV:             transcodev1alpha1.QSVSpec{GlobalQuality: 22, Preset: "veryslow", LookAheadDepth: 40},
 		},
 		Audio: transcodev1alpha1.AudioSpec{
-			Codec:                 "aac",
-			BitratePerChannelKbps: 64,
-			KeepOriginal:          transcodev1alpha1.KeepOriginalAtmos,
-			DropCommentary:        true,
+			Codec: "aac", BitratePerChannelKbps: 64, KeepOriginal: transcodev1alpha1.KeepOriginalAtmos,
+			Languages: []string{"eng"}, DropCommentary: true, StereoCompatTrack: true,
 		},
-		HDR: transcodev1alpha1.HDRSpec{
-			HDR10Plus:   transcodev1alpha1.HDR10PlusDrop,
-			DolbyVision: transcodev1alpha1.DolbyVisionPassthrough,
-		},
+		Subtitles: transcodev1alpha1.SubSpec{CopyText: true, CopyBitmap: true, CopyAttachments: true},
+		HDR:       transcodev1alpha1.HDRSpec{HDR10Plus: transcodev1alpha1.HDR10PlusDrop, DolbyVision: transcodev1alpha1.DolbyVisionPassthrough},
 		Policy: transcodev1alpha1.PolicySpec{
-			SkipIfCompliant: true,
-			MinDuration:     metav1.Duration{Duration: 90 * time.Second},
+			SkipIfCompliant: true, RemuxOnlyWhenVideoCompliant: true,
+			NeverTranscodeModifiers:  []string{"remux", "brdisk"},
+			MinDuration:              metav1.Duration{Duration: time.Minute},
+			MaxOutputToSourcePercent: 100,
+			ReplaceSource:            ptr.To(true), RecycleBin: ptr.To(true),
 		},
+		Verify: transcodev1alpha1.VerifySpec{PacketCount: true, FullDecode: true, VMAFMinCentis: ptr.To[int32](9000)},
 	}
+}
 
-	got := toProfileSpec(spec)
-	assert.EqualValues(t, "mkv", got.Container)
-	assert.EqualValues(t, "nvidia", got.Hardware)
-	assert.Equal(t, "hevc", got.Video.Codec)
-	assert.EqualValues(t, -1, got.Video.CRF.HDROffset)
-	assert.Equal(t, &maxRate, got.Video.MaxRateKbps)
-	assert.Equal(t, &bufSize, got.Video.BufSizeKbps)
-	assert.EqualValues(t, "p6", got.Video.NVENC.Preset)
-	assert.EqualValues(t, "atmos", got.Audio.KeepOriginal)
-	assert.True(t, got.Audio.DropCommentary)
-	assert.EqualValues(t, "passthrough", got.HDR.DolbyVision)
-	// The one non-trivial conversion: metav1.Duration wraps time.Duration
-	// under a different field name (.Duration); everything else in this
-	// struct is a same-named, same-typed (mod package qualifier) copy.
-	assert.Equal(t, 90*time.Second, got.Policy.MinDuration)
+// schedulingFields are the TranscodeProfileSpec fields that legitimately do
+// NOT reach status.hash, each with a change to prove it. They decide where
+// and when an encode runs and how it is admitted -- never a byte of what it
+// writes -- so an edit to any of them must not re-transcode the library.
+// pkg/transcode.ProfileSpec omits exactly these, by its own doc comment.
+var schedulingFields = map[string]func(*transcodev1alpha1.TranscodeProfileSpec){
+	"Default":  func(s *transcodev1alpha1.TranscodeProfileSpec) { s.Default = true },
+	"Selector": func(s *transcodev1alpha1.TranscodeProfileSpec) { s.Selector = &metav1.LabelSelector{} },
+	"Resources": func(s *transcodev1alpha1.TranscodeProfileSpec) {
+		s.Resources.Limits = corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("16")}
+	},
+	"GPU":      func(s *transcodev1alpha1.TranscodeProfileSpec) { s.GPU = &transcodev1alpha1.GPUSpec{Count: 2} },
+	"Scratch":  func(s *transcodev1alpha1.TranscodeProfileSpec) { s.Scratch = resource.MustParse("50Gi") },
+	"Priority": func(s *transcodev1alpha1.TranscodeProfileSpec) { s.Priority = 99 },
+	"ActiveDeadline": func(s *transcodev1alpha1.TranscodeProfileSpec) {
+		s.ActiveDeadline = metav1.Duration{Duration: time.Hour}
+	},
+	"TTLSecondsAfterFinished": func(s *transcodev1alpha1.TranscodeProfileSpec) { s.TTLSecondsAfterFinished = 60 },
+	"Chunking":                func(s *transcodev1alpha1.TranscodeProfileSpec) { s.Chunking = &transcodev1alpha1.ChunkSpec{} },
+}
+
+// status.hash names every TranscodeJob and is the CLUSTARR_PROFILE tag
+// catalogarr compares, so it is what makes a profile edit re-transcode: a
+// field the hash does not see is a field whose edit silently does nothing
+// to the library. E-1 computed it through its own converter while the
+// worker executed another; this pins the one converter left.
+//
+// The walk is over the CRD type, not pkg/transcode's mirror: a field added
+// to TranscodeProfileSpec and forgotten in worker.ProfileSpec (or missing
+// from transcode.ProfileSpec altogether) fails here by its path. Every
+// top-level field must be walked or listed in schedulingFields, so a new
+// field cannot slip past uncategorised.
+func TestStatusHashChangesWithEveryRenderField(t *testing.T) {
+	base := renderSpec()
+	baseHash := profileHash(base)
+
+	specType := reflect.TypeOf(base)
+	var walked int
+	for i := range specType.NumField() {
+		field := specType.Field(i)
+		if change, ok := schedulingFields[field.Name]; ok {
+			s := renderSpec()
+			change(&s)
+			assert.Equalf(t, baseHash, profileHash(s),
+				"%s is a scheduling field; changing it must not change status.hash (it would re-transcode the library)", field.Name)
+			continue
+		}
+		for _, leaf := range leafPaths(field.Type, []int{i}, field.Name) {
+			s := renderSpec()
+			v := reflect.ValueOf(&s).Elem().FieldByIndex(leaf.index)
+			require.Falsef(t, v.IsZero(), "renderSpec leaves %s zero; set it so changing it is meaningful", leaf.name)
+			mutate(t, v, leaf.name)
+			assert.NotEqualf(t, baseHash, profileHash(s),
+				"changing %s does not change status.hash: worker.ProfileSpec (or pkg/transcode.ProfileSpec) drops it, "+
+					"so editing it would never re-transcode anything", leaf.name)
+			walked++
+		}
+	}
+	// A floor, so a walk that silently stopped recursing cannot pass.
+	require.GreaterOrEqual(t, walked, 45, "the leaf walk visited only %d fields", walked)
+
+	for name := range schedulingFields {
+		_, ok := specType.FieldByName(name)
+		require.Truef(t, ok, "schedulingFields names %s, which TranscodeProfileSpec no longer has", name)
+	}
+}
+
+// Unset and the CRD default are the same policy, so they are the same hash:
+// a profile created by a Go client (nil) and one the apiserver defaulted
+// (true) must not be told apart, or every Go-created profile would
+// re-transcode the moment kubectl touched it.
+func TestStatusHashTreatsUnsetPolicyPointersAsTheirDefault(t *testing.T) {
+	defaulted := renderSpec()
+	unset := renderSpec()
+	unset.Policy.ReplaceSource, unset.Policy.RecycleBin = nil, nil
+	assert.Equal(t, profileHash(defaulted), profileHash(unset))
+
+	off := renderSpec()
+	off.Policy.RecycleBin = ptr.To(false)
+	assert.NotEqual(t, profileHash(defaulted), profileHash(off))
+}
+
+type leaf struct {
+	index []int
+	name  string
+}
+
+// leafPaths lists every non-struct field reachable from t through struct
+// fields, as FieldByIndex paths. metav1.Duration is a struct and so is
+// walked into, reaching its time.Duration.
+func leafPaths(t reflect.Type, prefix []int, name string) []leaf {
+	if t.Kind() != reflect.Struct {
+		return []leaf{{index: prefix, name: name}}
+	}
+	var out []leaf
+	for i := range t.NumField() {
+		f := t.Field(i)
+		if !f.IsExported() {
+			continue
+		}
+		out = append(out, leafPaths(f.Type, append(append([]int(nil), prefix...), i), name+"."+f.Name)...)
+	}
+	return out
+}
+
+// mutate changes v, which is non-zero, to a different value of its type.
+func mutate(t *testing.T, v reflect.Value, name string) {
+	t.Helper()
+	switch v.Kind() {
+	case reflect.String:
+		v.SetString(v.String() + "-changed")
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		v.SetInt(v.Int() + 1)
+	case reflect.Bool:
+		v.SetBool(!v.Bool())
+	case reflect.Pointer:
+		p := reflect.New(v.Type().Elem())
+		p.Elem().Set(v.Elem())
+		mutate(t, p.Elem(), name)
+		v.Set(p)
+	case reflect.Map:
+		m := reflect.MakeMap(v.Type())
+		for _, k := range v.MapKeys() {
+			m.SetMapIndex(k, v.MapIndex(k))
+		}
+		m.SetMapIndex(reflect.ValueOf("changed").Convert(v.Type().Key()), reflect.ValueOf("1").Convert(v.Type().Elem()))
+		v.Set(m)
+	case reflect.Slice:
+		v.Set(reflect.Append(v, reflect.ValueOf("changed").Convert(v.Type().Elem())))
+	default:
+		t.Fatalf("%s has kind %s, which this test does not know how to change; teach mutate", name, v.Kind())
+	}
 }
 
 func TestTranscodeJobNameIsDeterministicOnFileAndHash(t *testing.T) {

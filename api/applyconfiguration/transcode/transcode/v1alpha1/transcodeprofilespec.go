@@ -56,15 +56,24 @@ type TranscodeProfileSpecApplyConfiguration struct {
 	Verify *VerifySpecApplyConfiguration `json:"verify,omitempty"`
 	// Resources are the encode container's resource requirements. The default
 	// limits (cpu 8, memory 4Gi) suit 1080p; the CPU limit is fed to the x265
-	// thread pools.
+	// thread pools. The kubebuilder default fills only an ABSENT field, and a
+	// Go client always sends this struct, so the controller also floors an
+	// entirely empty value (no limits, no requests) to the same default when
+	// it builds the Job: an encode with no resources at all is never meant.
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
 	// GPU schedules the encode pod onto a GPU.
 	GPU *GPUSpecApplyConfiguration `json:"gpu,omitempty"`
 	// Scratch is the emptyDir sizeLimit for the encode pod's scratch space.
+	// A Go client always sends a Quantity, so the controller floors a zero
+	// (or negative) one to the 20Gi default when it builds the Job: a
+	// zero-byte scratch volume has no coherent meaning.
 	Scratch *resource.Quantity `json:"scratch,omitempty"`
 	// Priority orders jobs created from this profile; higher runs first.
 	Priority *int32 `json:"priority,omitempty"`
 	// ActiveDeadline is the batch Job activeDeadlineSeconds for the encode.
+	// A Go client always sends a Duration, so the controller floors a zero
+	// (or negative) one to the 48h default when it builds the Job, rather
+	// than running the encode with no deadline at all.
 	ActiveDeadline *metav1.Duration `json:"activeDeadline,omitempty"`
 	// TTLSecondsAfterFinished is the batch Job ttlSecondsAfterFinished.
 	TTLSecondsAfterFinished *int32 `json:"ttlSecondsAfterFinished,omitempty"`

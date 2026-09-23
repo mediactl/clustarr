@@ -151,6 +151,11 @@ func allServices(lo *logging.Options, to *tracing.Options) []struct {
 		{"squasharr", func(ctx context.Context, o k8s.Options) error {
 			d := squasharr.DefaultOptions()
 			d.Options = o
+			// The controller role stamps a worker image onto every
+			// transcode Job it creates, exactly as grabarr's stamps an
+			// engine image above; the same env-then-dev-default fallback.
+			d.WorkerImage = envOr(workerImageEnv, devEngineImage)
+			d.WorkerImageCUDA = envOr(workerImageCUDAEnv, "")
 			d.Logging = *lo
 			d.Tracing = tr
 			return runSquasharr(ctx, d)

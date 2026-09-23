@@ -18,6 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package worker
 
 import (
+	"k8s.io/utils/ptr"
+
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/transcode"
 )
@@ -27,6 +29,13 @@ import (
 // (default, selector, resources, gpu, scratch, priority, activeDeadline,
 // ttlSecondsAfterFinished, chunking) have no counterpart there, by design:
 // see transcode.ProfileSpec's own doc comment.
+//
+// It is the ONE converter in squasharr. The TranscodeProfile controller
+// hashes its result into status.hash (with hardware nil), the TranscodeJob
+// controller plans from it, and this worker executes it; a field dropped
+// here is therefore dropped from all three at once, and
+// transcodeprofile's TestStatusHashChangesWithEveryRenderField fails by
+// name.
 //
 // hardware, when non-nil, is TranscodeJob.spec.hardware, which overrides
 // the profile's encoder backend for one job.
@@ -87,8 +96,8 @@ func ProfileSpec(spec transcodev1alpha1.TranscodeProfileSpec, hardware *transcod
 			NeverTranscodeModifiers:     spec.Policy.NeverTranscodeModifiers,
 			MinDuration:                 spec.Policy.MinDuration.Duration,
 			MaxOutputToSourcePercent:    spec.Policy.MaxOutputToSourcePercent,
-			ReplaceSource:               spec.Policy.ReplaceSource,
-			RecycleBin:                  spec.Policy.RecycleBin,
+			ReplaceSource:               ReplaceSource(spec.Policy),
+			RecycleBin:                  RecycleBin(spec.Policy),
 		},
 		Verify: transcode.VerifySpec{
 			PacketCount:   spec.Verify.PacketCount,
@@ -97,3 +106,14 @@ func ProfileSpec(spec transcodev1alpha1.TranscodeProfileSpec, hardware *transcod
 		},
 	}
 }
+
+// ReplaceSource is policy.replaceSource with its CRD default applied: unset
+// means true. The pointer exists so a Go client can say false; nil must
+// still read as the default, because a spec built in Go and never
+// round-tripped through the apiserver has nil here, and the kubebuilder
+// default is applied only to what the apiserver stores.
+func ReplaceSource(p transcodev1alpha1.PolicySpec) bool { return ptr.Deref(p.ReplaceSource, true) }
+
+// RecycleBin is policy.recycleBin with its CRD default applied: unset
+// means true.
+func RecycleBin(p transcodev1alpha1.PolicySpec) bool { return ptr.Deref(p.RecycleBin, true) }

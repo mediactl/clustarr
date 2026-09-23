@@ -18,6 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package transcodejob
 
 import (
+	"time"
+
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -72,6 +74,55 @@ const (
 	nodeLabelIntel  = "intel.feature.node.kubernetes.io/gpu"
 )
 
+// The TranscodeProfile defaults buildJob floors a zero to. Each restates a
+// +kubebuilder:default in transcodeprofile_types.go, and
+// TestFlooredDefaultsMatchTheGeneratedCRD holds them to the generated CRD.
+//
+// They exist because a kubebuilder default fills only an ABSENT field, and
+// encoding/json always sends a struct: a profile created by a Go client
+// carries activeDeadline "0s", resources {} and scratch "0", present and
+// zero, so the apiserver defaults none of them. Unfloored, that Job would
+// run with no deadline, no resource limits and an unbounded scratch
+// volume. None of those zeros has a coherent meaning, which is the D1
+// precedent's test for flooring (Indexer.spec.timeout).
+const defaultActiveDeadline = 48 * time.Hour
+
+var defaultScratch = resource.MustParse("20Gi")
+
+func defaultResources() corev1.ResourceRequirements {
+	return corev1.ResourceRequirements{Limits: corev1.ResourceList{
+		corev1.ResourceCPU:    resource.MustParse("8"),
+		corev1.ResourceMemory: resource.MustParse("4Gi"),
+	}}
+}
+
+// activeDeadlineFor floors spec.activeDeadline at the CRD default.
+func activeDeadlineFor(p *transcodev1alpha1.TranscodeProfile) time.Duration {
+	if d := p.Spec.ActiveDeadline.Duration; d > 0 {
+		return d
+	}
+	return defaultActiveDeadline
+}
+
+// resourcesFor floors an entirely empty spec.resources at the CRD default.
+// Anything the operator did set is kept as it is: a profile with only a
+// memory limit meant exactly that.
+func resourcesFor(p *transcodev1alpha1.TranscodeProfile) corev1.ResourceRequirements {
+	r := p.Spec.Resources
+	if len(r.Limits) == 0 && len(r.Requests) == 0 && len(r.Claims) == 0 {
+		return defaultResources()
+	}
+	return *r.DeepCopy()
+}
+
+// scratchFor floors spec.scratch at the CRD default.
+func scratchFor(p *transcodev1alpha1.TranscodeProfile) resource.Quantity {
+	if p.Spec.Scratch.Sign() > 0 {
+		return p.Spec.Scratch.DeepCopy()
+	}
+	return defaultScratch.DeepCopy()
+}
+
 // JobConfig is everything about a transcode Job that does not come from the
 // TranscodeJob or its profile: deployment-level settings task E-4 threads in
 // from flags.
@@ -99,8 +150,8 @@ type JobConfig struct {
 	ServiceAccountName string
 
 	// NATSURL, when set, is exported to the worker as NATS_URL. The worker
-	// never uses the bus (ruling R6); this exists only while
-	// squasharr.Options.Validate still demands --nats-url on every role.
+	// never uses the bus (ruling R6) and squasharr's worker role no longer
+	// demands --nats-url, so squasharr/run.go leaves this empty.
 	NATSURL string
 
 	// ExtraArgs are appended after the fixed worker arguments (for example
@@ -166,7 +217,7 @@ func buildJob(tj *transcodev1alpha1.TranscodeJob, profile *transcodev1alpha1.Tra
 		env = append(env, corev1.EnvVar{Name: "NATS_URL", Value: cfg.NATSURL})
 	}
 
-	resources := *profile.Spec.Resources.DeepCopy()
+	resources := resourcesFor(profile)
 	gpuCount := int64(1)
 	if g := profile.Spec.GPU; g != nil && g.Count > 0 {
 		gpuCount = int64(g.Count)
@@ -230,9 +281,7 @@ func buildJob(tj *transcodev1alpha1.TranscodeJob, profile *transcodev1alpha1.Tra
 			Spec:       pod,
 		},
 	}
-	if d := profile.Spec.ActiveDeadline.Duration; d > 0 {
-		spec.ActiveDeadlineSeconds = ptr.To(int64(d.Seconds()))
-	}
+	spec.ActiveDeadlineSeconds = ptr.To(int64(activeDeadlineFor(profile).Seconds()))
 	if ttl := profile.Spec.TTLSecondsAfterFinished; ttl > 0 {
 		spec.TTLSecondsAfterFinished = ptr.To(ttl)
 	}
@@ -276,12 +325,8 @@ func podFailurePolicy() *batchv1.PodFailurePolicy {
 }
 
 func scratchSource(profile *transcodev1alpha1.TranscodeProfile) *corev1.EmptyDirVolumeSource {
-	src := &corev1.EmptyDirVolumeSource{}
-	if !profile.Spec.Scratch.IsZero() {
-		q := profile.Spec.Scratch.DeepCopy()
-		src.SizeLimit = &q
-	}
-	return src
+	q := scratchFor(profile)
+	return &corev1.EmptyDirVolumeSource{SizeLimit: &q}
 }
 
 // addGPU requests count of a GPU resource. Extended resources cannot be

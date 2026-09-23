@@ -13,6 +13,15 @@ kind: ServiceAccount
 metadata:
   name: squasharr
 ---
+# The identity every transcode Job pod runs as (--worker-service-account's
+# default). It holds only the worker's own ClusterRole
+# (config/rbac/squasharr_worker_role.yaml, generated from
+# squasharr/worker's markers), never squasharr's manager role.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: squasharr-worker
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -88,7 +97,10 @@ spec:
                   fieldPath: metadata.namespace
             - name: UMASK
               value: "002"
-            # Images stamped into the TranscodeJob pods this controller creates.
+            # Images stamped into the TranscodeJob pods this controller creates
+            # (--worker-image, --worker-image-cuda). The Jobs run as the
+            # squasharr-worker ServiceAccount above and mount clustarr-data,
+            # both the flags' own defaults.
             - name: CLUSTARR_WORKER_IMAGE
               value: ghcr.io/mediactl/clustarr/media:dev
             - name: CLUSTARR_WORKER_IMAGE_CUDA

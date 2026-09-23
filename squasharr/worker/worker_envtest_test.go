@@ -34,8 +34,11 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	"sigs.k8s.io/yaml"
 
 	transcodeac "github.com/mediactl/clustarr/api/applyconfiguration/transcode/transcode/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -118,7 +121,22 @@ type fixture struct {
 
 var fixtureSeq int
 
+// fixtureOptions vary newFixtureWith from the default world.
+type fixtureOptions struct {
+	// videoArgs replace the source clip's video encoder arguments.
+	videoArgs []string
+
+	// createProfile creates the TranscodeProfile named name instead of the
+	// typed create newFixture does. status.hash is set afterwards either way.
+	createProfile func(t *testing.T, c client.Client, name string)
+}
+
 func newFixture(t *testing.T, c client.Client) *fixture {
+	t.Helper()
+	return newFixtureWith(t, c, fixtureOptions{})
+}
+
+func newFixtureWith(t *testing.T, c client.Client, fo fixtureOptions) *fixture {
 	t.Helper()
 	ctx := context.Background()
 	fixtureSeq++
@@ -136,11 +154,18 @@ func newFixture(t *testing.T, c client.Client) *fixture {
 
 	// A two-second H.264 + AAC clip: not compliant, so the plan encodes.
 	require.NoError(t, os.MkdirAll(filepath.Dir(f.local), 0o755))
-	gen := exec.Command(ffmpegBin, "-hide_banner", "-loglevel", "error", "-y",
+	videoArgs := fo.videoArgs
+	if videoArgs == nil {
+		videoArgs = []string{"-c:v", "libx264", "-pix_fmt", "yuv420p"}
+	}
+	args := []string{
+		"-hide_banner", "-loglevel", "error", "-y",
 		"-f", "lavfi", "-i", "testsrc2=size=320x240:rate=24:duration=2",
 		"-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=48000:duration=2",
-		"-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k",
-		"-shortest", f.local)
+	}
+	args = append(args, videoArgs...)
+	args = append(args, "-c:a", "aac", "-b:a", "96k", "-shortest", f.local)
+	gen := exec.Command(ffmpegBin, args...)
 	out, err := gen.CombinedOutput()
 	require.NoError(t, err, string(out))
 	f.original, err = os.ReadFile(f.local)
@@ -169,19 +194,28 @@ func newFixture(t *testing.T, c client.Client) *fixture {
 		},
 	}))
 
-	tp := &transcodev1alpha1.TranscodeProfile{
-		ObjectMeta: metav1.ObjectMeta{Name: f.profileName},
-		Spec: transcodev1alpha1.TranscodeProfileSpec{
-			Video: transcodev1alpha1.VideoSpec{Preset: "ultrafast"},
-			Policy: transcodev1alpha1.PolicySpec{
-				MinDuration: metav1.Duration{Duration: 0},
-				// An int32 whose CRD default is 1: set it so a real, tiny
-				// clip is not refused for being larger than 1% of itself.
-				MaxOutputToSourcePercent: 10_000,
+	if fo.createProfile != nil {
+		fo.createProfile(t, c, f.profileName)
+	} else {
+		require.NoError(t, c.Create(ctx, &transcodev1alpha1.TranscodeProfile{
+			ObjectMeta: metav1.ObjectMeta{Name: f.profileName},
+			Spec: transcodev1alpha1.TranscodeProfileSpec{
+				Video: transcodev1alpha1.VideoSpec{Preset: "ultrafast"},
+				Policy: transcodev1alpha1.PolicySpec{
+					MinDuration: metav1.Duration{Duration: 0},
+					// The default clip is already an efficient x264 encode
+					// of a synthetic source, and x265 ultrafast re-encodes
+					// it LARGER (about 160%), so the limit is lifted here.
+					// The CRD default (100) is exercised by
+					// TestRunUnderTheCRDDefaultOutputLimitSwapsANormalTranscode,
+					// against a source as bloated as a real remux.
+					MaxOutputToSourcePercent: 10_000,
+				},
 			},
-		},
+		}))
 	}
-	require.NoError(t, c.Create(ctx, tp))
+	tp := &transcodev1alpha1.TranscodeProfile{}
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: f.profileName}, tp))
 	require.NoError(t, status.PatchProfile(ctx, c, k8s.ManagerSquasharr, tp,
 		func(ac *transcodeac.TranscodeProfileStatusApplyConfiguration) { ac.WithHash(f.profileHash) }))
 
@@ -494,6 +528,105 @@ func TestRunClassifiesInputFailures(t *testing.T) {
 		assert.Contains(t, err.Error(), "maxOutputToSourcePercent")
 		f.requireSourceUntouched(t)
 	})
+}
+
+// createProfileFromYAML creates a TranscodeProfile the way kubectl does: from
+// YAML, through an unstructured object, so every field the manifest leaves
+// out is ABSENT on the wire and the apiserver applies its kubebuilder
+// default. A typed create cannot show a default on a struct-valued field
+// (encoding/json always sends a struct, so the field is present) and only
+// happens to show one on an omitempty scalar; this is the honest shape of
+// "what an operator who wrote the minimum gets".
+func createProfileFromYAML(t *testing.T, c client.Client, name, spec string) error {
+	t.Helper()
+	var obj map[string]any
+	require.NoError(t, yaml.Unmarshal([]byte("apiVersion: transcode.clustarr.io/v1alpha1\n"+
+		"kind: TranscodeProfile\n"+
+		"metadata:\n  name: "+name+"\n"+
+		"spec:\n"+spec), &obj))
+	return c.Create(context.Background(), &unstructured.Unstructured{Object: obj})
+}
+
+// The CRD default for policy.maxOutputToSourcePercent was 1 -- "fail any
+// output larger than 1% of its source" -- so under a profile written with
+// the minimum, every real transcode exited 4. E-3's tests passed only
+// because they set the field. This one leaves it out, as an operator would,
+// and transcodes a source that is realistically bloated next to HEVC (a
+// near-lossless H.264 encode, the shape of a remux). The output must land.
+func TestRunUnderTheCRDDefaultOutputLimitSwapsANormalTranscode(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	ctx := context.Background()
+
+	f := newFixtureWith(t, c, fixtureOptions{
+		videoArgs: []string{"-c:v", "libx264", "-preset", "ultrafast", "-crf", "1", "-pix_fmt", "yuv420p"},
+		createProfile: func(t *testing.T, c client.Client, name string) {
+			// minDuration is the one policy override: its default (1m) would
+			// skip a two-second clip. maxOutputToSourcePercent is absent.
+			require.NoError(t, createProfileFromYAML(t, c, name,
+				"  video:\n    preset: ultrafast\n  policy:\n    minDuration: 0s\n"))
+		},
+	})
+
+	var tp transcodev1alpha1.TranscodeProfile
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: f.profileName}, &tp))
+	require.Equal(t, int32(100), tp.Spec.Policy.MaxOutputToSourcePercent,
+		"the apiserver's default for policy.maxOutputToSourcePercent: an output no bigger than its source")
+	require.True(t, ReplaceSource(tp.Spec.Policy))
+	require.True(t, RecycleBin(tp.Spec.Policy))
+
+	code, err := Run(ctx, c, f.options())
+	require.NoError(t, err)
+	require.Equal(t, ExitOK, code)
+
+	codec, _ := videoCodec(t, f.local)
+	assert.Equal(t, "hevc", codec, "the verified output must be at the source path")
+	res := f.get(t, c).Status.Result
+	require.NotNil(t, res)
+	assert.Positive(t, res.OutputToSourcePercent)
+	assert.LessOrEqual(t, res.OutputToSourcePercent, int32(100))
+	assert.Len(t, f.binEntries(t), 1, "the default recycles the original")
+}
+
+// policy.recycleBin=false is expressible now that it is a pointer, and the
+// swap honours it: the output replaces the source, nothing enters the bin,
+// and the seeding hard link still holds the original bytes.
+func TestRunWithRecycleBinOffSwapsWithoutRecycling(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	ctx := context.Background()
+	f := newFixture(t, c)
+
+	var tp transcodev1alpha1.TranscodeProfile
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: f.profileName}, &tp))
+	tp.Spec.Policy.RecycleBin = ptr.To(false)
+	require.NoError(t, c.Update(ctx, &tp))
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: f.profileName}, &tp))
+	require.NotNil(t, tp.Spec.Policy.RecycleBin, "a typed false must survive the round trip, not be re-defaulted")
+	require.False(t, *tp.Spec.Policy.RecycleBin)
+
+	code, err := Run(ctx, c, f.options())
+	require.NoError(t, err)
+	require.Equal(t, ExitOK, code)
+
+	codec, _ := videoCodec(t, f.local)
+	assert.Equal(t, "hevc", codec)
+	assert.Empty(t, f.binEntries(t), "recycleBin=false must not link the original into the bin")
+	seed, err := os.ReadFile(f.seed)
+	require.NoError(t, err)
+	assert.True(t, bytes.Equal(f.original, seed), "the seeding copy is a separate link and survives (§6.4)")
+}
+
+// replaceSource=false is expressible as a pointer but not supported: the
+// apiserver refuses it rather than storing a policy the worker would
+// silently ignore by replacing the source anyway.
+func TestTheAPIRefusesReplaceSourceFalse(t *testing.T) {
+	c := requireCluster(t)
+	err := createProfileFromYAML(t, c, "replace-source-false", "  policy:\n    replaceSource: false\n")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "replaceSource=false is not supported")
+
+	require.NoError(t, createProfileFromYAML(t, c, "replace-source-true", "  policy:\n    replaceSource: true\n"))
 }
 
 // statusFieldsOwnedBy returns the top-level status fields the apiserver

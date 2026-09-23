@@ -18,13 +18,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package transcodejob
 
 import (
+	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/yaml"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/transcode"
@@ -110,6 +114,97 @@ func TestBuildJobDoesNotMutateTheProfile(t *testing.T) {
 	buildJob(testTJ(), p, transcodev1alpha1.HardwareNVIDIA, JobConfig{})
 	_, leaked := p.Spec.Resources.Limits[resourceNVIDIAGPU]
 	assert.False(t, leaked, "the GPU limit must be added to a copy of the profile's resources")
+}
+
+// A Go client sends activeDeadline, resources and scratch present-but-zero,
+// so the CRD defaults never reach them; the Job must get the defaults
+// anyway, not "no deadline, no limits, unbounded scratch".
+func TestBuildJobFloorsZeroProfileSchedulingFields(t *testing.T) {
+	zero := &transcodev1alpha1.TranscodeProfile{ObjectMeta: metav1.ObjectMeta{Name: "zero"}}
+	job := buildJob(testTJ(), zero, transcodev1alpha1.HardwareCPU, JobConfig{Image: "cpu:1"})
+
+	require.NotNil(t, job.Spec.ActiveDeadlineSeconds)
+	assert.Equal(t, int64(48*3600), *job.Spec.ActiveDeadlineSeconds)
+	ctr := job.Spec.Template.Spec.Containers[0]
+	assert.Equal(t, "8", ctr.Resources.Limits.Cpu().String())
+	assert.Equal(t, "4Gi", ctr.Resources.Limits.Memory().String())
+	var scratch *resource.Quantity
+	for _, v := range job.Spec.Template.Spec.Volumes {
+		if v.Name == scratchVolumeName {
+			scratch = v.EmptyDir.SizeLimit
+		}
+	}
+	require.NotNil(t, scratch, "the scratch emptyDir must always have a sizeLimit")
+	assert.Equal(t, "20Gi", scratch.String())
+
+	// A negative deadline or scratch is as meaningless as a zero one.
+	neg := zero.DeepCopy()
+	neg.Spec.ActiveDeadline = metav1.Duration{Duration: -time.Hour}
+	neg.Spec.Scratch = resource.MustParse("-1Gi")
+	job = buildJob(testTJ(), neg, transcodev1alpha1.HardwareCPU, JobConfig{Image: "cpu:1"})
+	assert.Equal(t, int64(48*3600), *job.Spec.ActiveDeadlineSeconds)
+	assert.Equal(t, "20Gi", job.Spec.Template.Spec.Volumes[1].EmptyDir.SizeLimit.String())
+}
+
+// Only an entirely empty value is floored. What an operator set is theirs:
+// a memory-only limit stays memory-only, and explicit values pass through.
+func TestBuildJobKeepsSetSchedulingFields(t *testing.T) {
+	p := &transcodev1alpha1.TranscodeProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "set"},
+		Spec: transcodev1alpha1.TranscodeProfileSpec{
+			Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("2Gi"),
+			}},
+			ActiveDeadline: metav1.Duration{Duration: 3 * time.Hour},
+			Scratch:        resource.MustParse("5Gi"),
+		},
+	}
+	job := buildJob(testTJ(), p, transcodev1alpha1.HardwareCPU, JobConfig{Image: "cpu:1"})
+	ctr := job.Spec.Template.Spec.Containers[0]
+	assert.Equal(t, int64(3*3600), *job.Spec.ActiveDeadlineSeconds)
+	assert.Equal(t, "2Gi", ctr.Resources.Limits.Memory().String())
+	_, hasCPU := ctr.Resources.Limits[corev1.ResourceCPU]
+	assert.False(t, hasCPU, "a set resources block is not merged with the default")
+	assert.Equal(t, "5Gi", job.Spec.Template.Spec.Volumes[1].EmptyDir.SizeLimit.String())
+}
+
+// The floors restate three +kubebuilder:default values. Read the generated
+// schema, which is what is installed, so the two cannot drift apart.
+func TestFlooredDefaultsMatchTheGeneratedCRD(t *testing.T) {
+	raw, err := os.ReadFile("../../../config/crd/bases/transcode.clustarr.io_transcodeprofiles.yaml")
+	require.NoError(t, err)
+	var crd struct {
+		Spec struct {
+			Versions []struct {
+				Schema struct {
+					OpenAPIV3Schema struct {
+						Properties struct {
+							Spec struct {
+								Properties map[string]struct {
+									Default any `json:"default"`
+								} `json:"properties"`
+							} `json:"spec"`
+						} `json:"properties"`
+					} `json:"openAPIV3Schema"`
+				} `json:"schema"`
+			} `json:"versions"`
+		} `json:"spec"`
+	}
+	require.NoError(t, yaml.Unmarshal(raw, &crd))
+	require.NotEmpty(t, crd.Spec.Versions, "the CRD was not parsed; run `make manifests`")
+	props := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties.Spec.Properties
+
+	d, err := time.ParseDuration(props["activeDeadline"].Default.(string))
+	require.NoError(t, err)
+	assert.Equal(t, defaultActiveDeadline, d, "defaultActiveDeadline no longer mirrors spec.activeDeadline's default")
+	assert.Equal(t, defaultScratch.String(), props["scratch"].Default, "defaultScratch no longer mirrors spec.scratch's default")
+
+	var want corev1.ResourceRequirements
+	b, err := yaml.Marshal(props["resources"].Default)
+	require.NoError(t, err)
+	require.NoError(t, yaml.Unmarshal(b, &want))
+	assert.True(t, equality.Semantic.DeepEqual(want, defaultResources()),
+		"defaultResources() = %v no longer mirrors spec.resources' default %v", defaultResources(), want)
 }
 
 func TestHardwareForEncoder(t *testing.T) {

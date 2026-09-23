@@ -336,6 +336,44 @@ func TestPlanQueueAdmitRun(t *testing.T) {
 	assert.EqualValues(t, 1, tj.Status.Attempts)
 }
 
+// A profile created through a typed Go client -- the way every controller
+// and test in this tree creates one -- sends activeDeadline "0s",
+// resources {} and scratch "0" present, so the apiserver's defaults (48h,
+// cpu 8 / 4Gi, 20Gi) never apply to it. The premise is asserted on the
+// stored object first; then the Job built from it must carry the defaults
+// anyway, rather than no deadline, no limits and an unbounded scratch.
+func TestJobFromATypedClientProfileGetsTheCRDDefaults(t *testing.T) {
+	_, c := startEnv(t)
+	const ns = "tj-typed-defaults"
+	newNamespace(t, c, ns)
+	p := newProfile(t, c, "typed", "hash1", nil)
+	require.Zero(t, p.Spec.ActiveDeadline.Duration, "premise: a typed create sends activeDeadline present and zero")
+	require.Empty(t, p.Spec.Resources.Limits, "premise: a typed create sends resources present and empty")
+	require.True(t, p.Spec.Scratch.IsZero(), "premise: a typed create sends scratch present and zero")
+
+	newMediaFile(t, c, ns, "arrival", "probe1", ptr.To(h264Probe()))
+	newTJ(t, c, ns, "arrival-typed", "arrival", "typed", "probe1", nil)
+	r := newReconciler(c, map[string]int32{"cpu": 1})
+	reconcileTJ(t, r, ns, "arrival-typed")
+
+	tj := getTJ(t, c, ns, "arrival-typed")
+	require.NotNil(t, tj.Status.JobRef)
+	job := getJob(t, c, ns, *tj.Status.JobRef)
+	require.NotNil(t, job.Spec.ActiveDeadlineSeconds, "a Job with no deadline can run forever")
+	assert.Equal(t, int64(48*3600), *job.Spec.ActiveDeadlineSeconds)
+	ctr := job.Spec.Template.Spec.Containers[0]
+	assert.Equal(t, "8", ctr.Resources.Limits.Cpu().String())
+	assert.Equal(t, "4Gi", ctr.Resources.Limits.Memory().String())
+	var scratch *resource.Quantity
+	for _, v := range job.Spec.Template.Spec.Volumes {
+		if v.Name == "scratch" && v.EmptyDir != nil {
+			scratch = v.EmptyDir.SizeLimit
+		}
+	}
+	require.NotNil(t, scratch)
+	assert.Equal(t, "20Gi", scratch.String())
+}
+
 // TestSkipAndRejectAreSkipped covers ruling R1: skip records a plan with
 // mode=skip; reject leaves status.plan unset. Neither creates a Job.
 func TestSkipAndRejectAreSkipped(t *testing.T) {

@@ -228,6 +228,8 @@ func TestSquasharrManagerOptionsAndSlots(t *testing.T) {
 		"--slots", "cpu=4,nvidia=2,intel=0",
 		"--namespace", "clustarr",
 		"--leader-elect",
+		"--worker-image", "ghcr.io/mediactl/clustarr/media:dev",
+		"--worker-image-cuda", "ghcr.io/mediactl/clustarr/media-cuda:dev",
 	); err != nil {
 		t.Fatalf("clustarr squasharr: %v", err)
 	}
@@ -242,6 +244,54 @@ func TestSquasharrManagerOptionsAndSlots(t *testing.T) {
 	}
 	if !got.ManagerOptions().LeaderElection {
 		t.Error("the squasharr controller did not take the leader lease")
+	}
+	if got.WorkerImage != "ghcr.io/mediactl/clustarr/media:dev" || got.WorkerImageCUDA != "ghcr.io/mediactl/clustarr/media-cuda:dev" {
+		t.Errorf("worker images = %q / %q, want the --worker-image/--worker-image-cuda values", got.WorkerImage, got.WorkerImageCUDA)
+	}
+	// Unset, the Jobs run as config/'s squasharr-worker and mount its claim.
+	if got.WorkerServiceAccount != squasharr.DefaultWorkerServiceAccount {
+		t.Errorf("WorkerServiceAccount = %q, want the default %q", got.WorkerServiceAccount, squasharr.DefaultWorkerServiceAccount)
+	}
+	if got.DataClaimName != "clustarr-data" {
+		t.Errorf("DataClaimName = %q, want clustarr-data", got.DataClaimName)
+	}
+}
+
+// The squasharr Deployment configures its Jobs by environment, not argv:
+// config/manager sets the two images, and the chart also sets the worker
+// ServiceAccount and data claim, whose names carry the release fullname.
+// Each variable must reach its flag, or the chart's Jobs would run as an
+// account that does not exist.
+func TestSquasharrWorkerSettingsComeFromTheEnvironment(t *testing.T) {
+	t.Setenv(workerImageEnv, "registry.example/media:1")
+	t.Setenv(workerImageCUDAEnv, "registry.example/media-cuda:1")
+	t.Setenv(workerServiceAccountEnv, "release-clustarr-squasharr-worker")
+	t.Setenv(dataClaimEnv, "release-clustarr-data")
+	got := stub(t, &runSquasharr)
+	if _, err := execute(t, "squasharr", "--namespace", "clustarr"); err != nil {
+		t.Fatalf("clustarr squasharr: %v", err)
+	}
+	if err := got.Validate(); err != nil {
+		t.Fatalf("the environment-configured options are invalid: %v", err)
+	}
+	for name, pair := range map[string][2]string{
+		workerImageEnv:          {got.WorkerImage, "registry.example/media:1"},
+		workerImageCUDAEnv:      {got.WorkerImageCUDA, "registry.example/media-cuda:1"},
+		workerServiceAccountEnv: {got.WorkerServiceAccount, "release-clustarr-squasharr-worker"},
+		dataClaimEnv:            {got.DataClaimName, "release-clustarr-data"},
+	} {
+		if pair[0] != pair[1] {
+			t.Errorf("$%s: got %q, want %q", name, pair[0], pair[1])
+		}
+	}
+
+	// And the controller refuses to start without an image to stamp.
+	t.Setenv(workerImageEnv, "")
+	if _, err := execute(t, "squasharr", "--namespace", "clustarr"); err != nil {
+		t.Fatalf("clustarr squasharr: %v", err)
+	}
+	if err := got.Validate(); err == nil {
+		t.Error("a squasharr controller with no worker image was accepted")
 	}
 }
 

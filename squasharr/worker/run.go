@@ -252,6 +252,13 @@ func (r *runner) run(ctx context.Context) error {
 		// nothing correct to tag with; it will be there shortly.
 		return retriable("squasharr worker: TranscodeProfile %s has no status.hash yet", tp.Name)
 	}
+	if !ReplaceSource(tp.Spec.Policy) {
+		// The CRD refuses replaceSource=false (CEL), so this is a profile
+		// stored before that rule, or a CRD installed without it. Writing
+		// over the source anyway would do the one thing the profile says
+		// not to, and the same profile fails the same way on every retry.
+		return invalidSource("squasharr worker: TranscodeProfile %s sets policy.replaceSource=false, which v1alpha1 does not support", tp.Name)
+	}
 	var mf catalogv1alpha1.MediaFile
 	if err := r.c.Get(ctx, types.NamespacedName{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}, &mf); err != nil {
 		return getErr("MediaFile "+tj.Spec.MediaFileRef, err)
@@ -384,11 +391,17 @@ func (r *runner) run(ctx context.Context) error {
 
 	// 6. The swap (R5). Link the original into the bin, then rename the
 	// verified output over the source path. See the package doc for why
-	// this order and what a crash between any two steps leaves.
-	recycled, err := fsops.RecycleLink(bin, local)
-	if err != nil {
-		removePart(ctx, plan.Output)
-		return retriable("squasharr worker: recycle source: %w", err)
+	// this order and what a crash between any two steps leaves. With
+	// policy.recycleBin=false there is no link: the rename alone drops the
+	// library's name for the original, and a seeding hard link elsewhere
+	// keeps its inode alive regardless.
+	var recycled string
+	if RecycleBin(tp.Spec.Policy) {
+		recycled, err = fsops.RecycleLink(bin, local)
+		if err != nil {
+			removePart(ctx, plan.Output)
+			return retriable("squasharr worker: recycle source: %w", err)
+		}
 	}
 	if err := fsops.MoveAtomic(plan.Output, local); err != nil {
 		removePart(ctx, plan.Output)

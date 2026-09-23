@@ -28,6 +28,7 @@ import (
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/transcode"
+	"github.com/mediactl/clustarr/squasharr/worker"
 )
 
 // Reasons this controller sets on TranscodeProfile.status.conditions, beyond
@@ -65,83 +66,24 @@ func eligibleKind(k commonv1.MediaKind) bool {
 	return k == commonv1.MediaKindMovie || k == commonv1.MediaKindEpisode
 }
 
-// toProfileSpec converts the CRD spec into pkg/transcode's plain-Go mirror,
-// field for field. The two shapes are deliberately identical except for
-// package-qualified enum types (transcodev1alpha1.Hardware vs
-// transcode.Hardware, ...) and metav1.Duration vs time.Duration -- see
-// pkg/transcode.ProfileSpec's own doc comment for why Default, Selector,
-// Resources, GPU, Scratch, Priority, ActiveDeadline, TTLSecondsAfterFinished
-// and Chunking are excluded: those are Kubernetes scheduling fields this
-// controller resolves, never ffmpeg-render inputs.
-func toProfileSpec(s transcodev1alpha1.TranscodeProfileSpec) transcode.ProfileSpec {
-	return transcode.ProfileSpec{
-		Container: transcode.Container(s.Container),
-		Hardware:  transcode.Hardware(s.Hardware),
-		Video: transcode.VideoSpec{
-			Codec:       s.Video.Codec,
-			PixelFormat: s.Video.PixelFormat,
-			Profile:     s.Video.Profile,
-			CRF: transcode.CRFTable{
-				SD:        s.Video.CRF.SD,
-				HD:        s.Video.CRF.HD,
-				UHD:       s.Video.CRF.UHD,
-				HDROffset: s.Video.CRF.HDROffset,
-			},
-			Preset:          s.Video.Preset,
-			Tune:            s.Video.Tune,
-			KeyintFactor:    s.Video.KeyintFactor,
-			BFrames:         s.Video.BFrames,
-			Refs:            s.Video.Refs,
-			RCLookahead:     s.Video.RCLookahead,
-			AQMode:          s.Video.AQMode,
-			MaxRateKbps:     s.Video.MaxRateKbps,
-			BufSizeKbps:     s.Video.BufSizeKbps,
-			ExtraX265Params: s.Video.ExtraX265Params,
-			NVENC: transcode.NVENCSpec{
-				Preset:    s.Video.NVENC.Preset,
-				Tune:      s.Video.NVENC.Tune,
-				CQ:        s.Video.NVENC.CQ,
-				Multipass: s.Video.NVENC.Multipass,
-				BRefMode:  s.Video.NVENC.BRefMode,
-			},
-			QSV: transcode.QSVSpec{
-				GlobalQuality:  s.Video.QSV.GlobalQuality,
-				Preset:         s.Video.QSV.Preset,
-				LookAheadDepth: s.Video.QSV.LookAheadDepth,
-			},
-		},
-		Audio: transcode.AudioSpec{
-			Codec:                 s.Audio.Codec,
-			BitratePerChannelKbps: s.Audio.BitratePerChannelKbps,
-			KeepOriginal:          transcode.KeepOriginalPolicy(s.Audio.KeepOriginal),
-			Languages:             s.Audio.Languages,
-			DropCommentary:        s.Audio.DropCommentary,
-			StereoCompatTrack:     s.Audio.StereoCompatTrack,
-		},
-		Subtitles: transcode.SubSpec{
-			CopyText:        s.Subtitles.CopyText,
-			CopyBitmap:      s.Subtitles.CopyBitmap,
-			CopyAttachments: s.Subtitles.CopyAttachments,
-		},
-		HDR: transcode.HDRSpec{
-			HDR10Plus:   transcode.HDR10PlusMode(s.HDR.HDR10Plus),
-			DolbyVision: transcode.DolbyVisionMode(s.HDR.DolbyVision),
-		},
-		Policy: transcode.PolicySpec{
-			SkipIfCompliant:             s.Policy.SkipIfCompliant,
-			RemuxOnlyWhenVideoCompliant: s.Policy.RemuxOnlyWhenVideoCompliant,
-			NeverTranscodeModifiers:     s.Policy.NeverTranscodeModifiers,
-			MinDuration:                 s.Policy.MinDuration.Duration,
-			MaxOutputToSourcePercent:    s.Policy.MaxOutputToSourcePercent,
-			ReplaceSource:               s.Policy.ReplaceSource,
-			RecycleBin:                  s.Policy.RecycleBin,
-		},
-		Verify: transcode.VerifySpec{
-			PacketCount:   s.Verify.PacketCount,
-			FullDecode:    s.Verify.FullDecode,
-			VMAFMinCentis: s.Verify.VMAFMinCentis,
-		},
-	}
+// profileHash is status.hash: pkg/transcode.ProfileHash over the profile as
+// squasharr/worker.ProfileSpec converts it -- the one converter squasharr
+// has, which the TranscodeJob controller plans from and the worker
+// executes. This package had its own copy until E-4; two converters is two
+// chances to drop a field, and a field dropped from the hash is a field
+// whose edit never re-transcodes anything, since the hash names every
+// TranscodeJob and is the CLUSTARR_PROFILE tag catalogarr compares.
+//
+// hardware is nil: TranscodeJob.spec.hardware is a per-job override of the
+// backend, not a different profile, and the tag is the profile's.
+//
+// The Kubernetes scheduling fields (default, selector, resources, gpu,
+// scratch, priority, activeDeadline, ttlSecondsAfterFinished, chunking) do
+// not reach the hash, by design: they decide where and when an encode runs,
+// never what it writes, so editing a CPU limit must not re-transcode a
+// library. TestStatusHashChangesWithEveryRenderField holds both halves.
+func profileHash(spec transcodev1alpha1.TranscodeProfileSpec) string {
+	return transcode.ProfileHash(worker.ProfileSpec(spec, nil))
 }
 
 // transcodeJobName renders the exact scheme TranscodeJob's own doc comment

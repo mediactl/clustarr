@@ -23,6 +23,16 @@ CRD_DIR := config/crd/bases
 # markers.
 RBAC_DIRS := catalogarr importarr indexarr grabarr squasharr captionarr
 
+# The transcode worker runs in a batch Job pod under its OWN ServiceAccount
+# (squasharr-worker), not squasharr's, so the manager ClusterRole above --
+# which its markers also feed -- is not what it holds. controller-gen reads
+# markers only from the packages it is pointed at, so a second run over this
+# one package emits exactly the worker's Role. The markers in
+# squasharr/worker/doc.go are therefore the single source for both, and
+# cmd/clustarr's TestSquasharrWorkerRoleMatchesTheWorkerMarkers catches a
+# marker added without regenerating.
+SQUASHARR_WORKER_RBAC := squasharr/worker
+
 .PHONY: all
 all: generate manifests build
 
@@ -113,6 +123,7 @@ manifests: ## Generate CRDs and RBAC.
 	else \
 		echo "skipping rbac: none of ($(RBAC_DIRS)) exist yet"; \
 	fi
+	$(CONTROLLER_GEN) rbac:roleName=clustarr-squasharr-worker-role paths=./$(SQUASHARR_WORKER_RBAC) output:rbac:stdout > config/rbac/squasharr_worker_role.yaml
 
 .PHONY: fmt
 fmt: ## Run gofmt.

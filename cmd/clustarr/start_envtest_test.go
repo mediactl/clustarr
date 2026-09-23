@@ -41,12 +41,14 @@ import (
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/catalogarr"
 	"github.com/mediactl/clustarr/grabarr"
 	"github.com/mediactl/clustarr/importarr"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/squasharr"
 )
 
 // TestServiceStartsServesProbesAndStopsOnSignal is the M0 acceptance check for
@@ -116,6 +118,10 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		// disposable without changing the code path being tested.
 		prepare func(t *testing.T)
 		run     func(ctx context.Context, o k8s.Options) error
+		// verify runs once /readyz is green, before shutdown. A service
+		// whose controllers are registered but never reconcile still goes
+		// Ready, so this is where a case proves its reconcilers run.
+		verify func(t *testing.T)
 	}{
 		{name: "catalogarr/worker", run: func(ctx context.Context, o k8s.Options) error {
 			d := catalogarr.DefaultOptions()
@@ -259,6 +265,60 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 				return grabarr.Run(ctx, d)
 			},
 		},
+		// squasharr had no presence in this table before plan task E-4:
+		// its setupControllers was a literal no-op through E-0..E-3 while
+		// the TranscodeProfile and TranscodeJob reconcilers sat in their own
+		// packages, fully tested and reachable from nowhere. Readiness alone
+		// would not prove the wiring -- a manager with no controllers goes
+		// Ready too -- so verify watches each reconciler do its first piece
+		// of work: the profile controller hashing a profile, and the job
+		// controller moving a TranscodeJob to Pending.
+		//
+		// The worker role is absent on purpose, not by omission: it is a
+		// Job pod's entrypoint, starts no manager and serves no probes (the
+		// Job has none), so it has no /readyz to reach. Its proof is that
+		// its exit code reaches the process --
+		// TestSquasharrWorkerExitCodeReachesTheProcess.
+		{
+			name: "squasharr/controller",
+			run: func(ctx context.Context, o k8s.Options) error {
+				d := squasharr.DefaultOptions()
+				d.Options = o
+				d.DataDir = t.TempDir()
+				d.WorkerImage = "ghcr.io/mediactl/clustarr/media:dev"
+				return squasharr.Run(ctx, d)
+			},
+			verify: func(t *testing.T) {
+				c, err := client.New(env.Config, client.Options{Scheme: k8s.MustNewScheme()})
+				if err != nil {
+					t.Fatalf("build client: %v", err)
+				}
+				ctx := context.Background()
+				profile := &transcodev1alpha1.TranscodeProfile{ObjectMeta: metav1.ObjectMeta{Name: "readyz-probe"}}
+				if err := c.Create(ctx, profile); err != nil {
+					t.Fatalf("create TranscodeProfile: %v", err)
+				}
+				tj := &transcodev1alpha1.TranscodeJob{
+					ObjectMeta: metav1.ObjectMeta{Name: "readyz-probe", Namespace: "default"},
+					Spec: transcodev1alpha1.TranscodeJobSpec{
+						MediaFileRef: "no-such-file", ProfileRef: "readyz-probe",
+						SourcePath: "/data/media/movies/x.mkv", SourceProbeHash: "0123456789abcdef",
+					},
+				}
+				if err := c.Create(ctx, tj); err != nil {
+					t.Fatalf("create TranscodeJob: %v", err)
+				}
+				waitFor(t, "the TranscodeProfile controller to hash readyz-probe", func() bool {
+					var p transcodev1alpha1.TranscodeProfile
+					return c.Get(ctx, client.ObjectKeyFromObject(profile), &p) == nil && p.Status.Hash != ""
+				})
+				waitFor(t, "the TranscodeJob controller to move readyz-probe to Pending", func() bool {
+					var got transcodev1alpha1.TranscodeJob
+					return c.Get(ctx, client.ObjectKeyFromObject(tj), &got) == nil &&
+						got.Status.Phase == transcodev1alpha1.TranscodeJobPhasePending
+				})
+			},
+		},
 		// The three "all" cases come last and are each the superset of
 		// their service's roles: controllers, workers and (for catalogarr)
 		// the metadata gateway, in one manager. Together they are `clustarr
@@ -364,6 +424,10 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 			// for importarr's worker roles.
 			waitForProbe(t, "http://"+probeAddr+"/readyz")
 
+			if tc.verify != nil {
+				tc.verify(t)
+			}
+
 			// SIGTERM cancels the signal-handler context; cancelling here is
 			// the same path.
 			cancel()
@@ -444,6 +508,19 @@ func freeAddress(t *testing.T) string {
 		t.Fatalf("release the port: %v", err)
 	}
 	return addr
+}
+
+// waitFor polls cond until it holds or 30s pass.
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", what)
 }
 
 func waitForProbe(t *testing.T, url string) {

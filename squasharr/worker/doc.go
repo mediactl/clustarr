@@ -77,13 +77,36 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // is a separate hard link to the original inode; renaming over the library
 // name does not touch it (§6.4).
 //
+// policy.recycleBin=false skips the link: the rename alone then drops the
+// library's name for the original. policy.replaceSource=false is refused
+// by the CRD, and by [Run] (exit 3) should a stored profile carry it
+// anyway -- the output always replaces the source path in v1alpha1.
+//
 // # Status
 //
 // The worker writes only squasharr/status.WorkerFields -- progress, result
 // and stderrTail -- under k8s.ManagerSquasharrWorker, always through
 // squasharr/status.Patch, always from a freshly read object.
 //
+// # RBAC: these markers are the Job pod's whole Role
+//
+// The Job pod does not run as squasharr's ServiceAccount, so the manager
+// ClusterRole -- which these markers also feed, like every marker under
+// squasharr/ -- is not what it holds. `make manifests` runs controller-gen a
+// second time over THIS package alone and writes
+// config/rbac/squasharr_worker_role.yaml, bound to the squasharr-worker
+// ServiceAccount that squasharr's --worker-service-account names on every
+// Job. So the markers below are the single source: add a Get here and the
+// worker's own Role gains it on the next regeneration, and
+// cmd/clustarr's TestSquasharrWorkerRoleMatchesTheWorkerMarkers fails until
+// that regeneration is committed.
+//
+// transcodejobs/status patch is the server-side apply squasharr/status.Patch
+// makes; squasharr/status declares the same grant for the controller, but
+// its markers do not reach this Role.
+//
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get
+// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs/status,verbs=patch
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodeprofiles,verbs=get
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=list

@@ -119,7 +119,7 @@ func TestProfileSpecCarriesEveryField(t *testing.T) {
 		Policy: transcodev1alpha1.PolicySpec{
 			SkipIfCompliant: true, RemuxOnlyWhenVideoCompliant: true, NeverTranscodeModifiers: []string{"remux"},
 			MinDuration: metav1.Duration{Duration: time.Minute}, MaxOutputToSourcePercent: 100,
-			ReplaceSource: true, RecycleBin: true,
+			ReplaceSource: ptr.To(true), RecycleBin: ptr.To(true),
 		},
 		Verify:  transcodev1alpha1.VerifySpec{PacketCount: true, FullDecode: true, VMAFMinCentis: ptr.To[int32](9000)},
 		Scratch: resource.MustParse("1Gi"),
@@ -130,6 +130,22 @@ func TestProfileSpecCarriesEveryField(t *testing.T) {
 
 	cpu := transcodev1alpha1.HardwareCPU
 	assert.Equal(t, transcode.HardwareCPU, ProfileSpec(spec, &cpu).Hardware, "TranscodeJob.spec.hardware overrides the profile")
+}
+
+// policy.replaceSource and policy.recycleBin are pointers so a Go client
+// can say false; unset must still mean the CRD default, true, because a spec
+// built in Go never passes through the apiserver's defaulting.
+func TestPolicyPointersDefaultToTrue(t *testing.T) {
+	var unset transcodev1alpha1.PolicySpec
+	assert.True(t, ReplaceSource(unset))
+	assert.True(t, RecycleBin(unset))
+	assert.True(t, ProfileSpec(transcodev1alpha1.TranscodeProfileSpec{}, nil).Policy.ReplaceSource)
+	assert.True(t, ProfileSpec(transcodev1alpha1.TranscodeProfileSpec{}, nil).Policy.RecycleBin)
+
+	off := transcodev1alpha1.PolicySpec{ReplaceSource: ptr.To(false), RecycleBin: ptr.To(false)}
+	assert.False(t, ReplaceSource(off))
+	assert.False(t, RecycleBin(off))
+	assert.False(t, ProfileSpec(transcodev1alpha1.TranscodeProfileSpec{Policy: off}, nil).Policy.RecycleBin)
 }
 
 func assertNoZeroLeaf(t *testing.T, v reflect.Value, path string) {

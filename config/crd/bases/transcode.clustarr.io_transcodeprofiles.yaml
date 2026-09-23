@@ -69,8 +69,11 @@ spec:
             properties:
               activeDeadline:
                 default: 48h
-                description: ActiveDeadline is the batch Job activeDeadlineSeconds
-                  for the encode.
+                description: |-
+                  ActiveDeadline is the batch Job activeDeadlineSeconds for the encode.
+                  A Go client always sends a Duration, so the controller floors a zero
+                  (or negative) one to the 48h default when it builds the Job, rather
+                  than running the encode with no deadline at all.
                 type: string
               audio:
                 default: {}
@@ -231,11 +234,15 @@ spec:
                   afterwards.
                 properties:
                   maxOutputToSourcePercent:
-                    default: 1
+                    default: 100
                     description: |-
-                      MaxOutputToSourceRatio fails a job whose output is larger than this
-                      multiple of the source size.
+                      MaxOutputToSourcePercent fails a job whose output is larger than this
+                      percentage of the source size: 100 (the default) refuses any output
+                      bigger than the file it replaces, 150 allows half as large again. It is
+                      the design spec's MaxOutputToSourceRatio 1.0 as a scaled integer, since
+                      the API carries no floats. 0 disables the check.
                     format: int32
+                    minimum: 0
                     type: integer
                   minDuration:
                     default: 1m
@@ -255,8 +262,10 @@ spec:
                   recycleBin:
                     default: true
                     description: |-
-                      RecycleBin moves the replaced source to the recycle bin instead of
-                      deleting it.
+                      RecycleBin keeps the replaced source in the root folder's recycle bin.
+                      false lets the swap drop the library's link to it outright (a seeding
+                      hard link elsewhere under /data keeps its own copy either way). A
+                      pointer so a Go client can send an explicit false; unset means true.
                     type: boolean
                   remuxOnlyWhenVideoCompliant:
                     default: true
@@ -266,9 +275,17 @@ spec:
                     type: boolean
                   replaceSource:
                     default: true
-                    description: ReplaceSource replaces the source file with the output
-                      on success.
+                    description: |-
+                      ReplaceSource replaces the source file with the output on success. A
+                      pointer so a Go client can send an explicit false; unset means true.
+                      Only true is supported in v1alpha1: the output is always renamed over
+                      the source path, and writing it anywhere else needs a library path
+                      migration that does not exist yet.
                     type: boolean
+                    x-kubernetes-validations:
+                    - message: 'replaceSource=false is not supported in v1alpha1:
+                        the verified output always replaces the source path'
+                      rule: self
                   skipIfCompliant:
                     default: true
                     description: SkipIfCompliant skips files that already satisfy
@@ -289,7 +306,10 @@ spec:
                 description: |-
                   Resources are the encode container's resource requirements. The default
                   limits (cpu 8, memory 4Gi) suit 1080p; the CPU limit is fed to the x265
-                  thread pools.
+                  thread pools. The kubebuilder default fills only an ABSENT field, and a
+                  Go client always sends this struct, so the controller also floors an
+                  entirely empty value (no limits, no requests) to the same default when
+                  it builds the Job: an encode with no resources at all is never meant.
                 properties:
                   claims:
                     description: |-
@@ -352,8 +372,11 @@ spec:
                 - type: integer
                 - type: string
                 default: 20Gi
-                description: Scratch is the emptyDir sizeLimit for the encode pod's
-                  scratch space.
+                description: |-
+                  Scratch is the emptyDir sizeLimit for the encode pod's scratch space.
+                  A Go client always sends a Quantity, so the controller floors a zero
+                  (or negative) one to the 20Gi default when it builds the Job: a
+                  zero-byte scratch volume has no coherent meaning.
                 pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                 x-kubernetes-int-or-string: true
               selector:

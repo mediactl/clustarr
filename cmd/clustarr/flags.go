@@ -52,6 +52,24 @@ const (
 	// --engine-image. config/manager/grabarr.yaml already sets it on the
 	// grabarr Deployment.
 	engineImageEnv = "CLUSTARR_ENGINE_IMAGE"
+
+	// workerImageEnv and workerImageCUDAEnv are the images squasharr's
+	// TranscodeJob controller stamps onto the cpu/intel and nvidia transcode
+	// Jobs it creates, the defaults for --worker-image and
+	// --worker-image-cuda. config/manager/squasharr.yaml and the chart set
+	// both on the squasharr Deployment.
+	workerImageEnv     = "CLUSTARR_WORKER_IMAGE"
+	workerImageCUDAEnv = "CLUSTARR_WORKER_IMAGE_CUDA"
+
+	// workerServiceAccountEnv is the ServiceAccount those Jobs run as, the
+	// default for --worker-service-account. Only the chart sets it: its
+	// ServiceAccounts carry the release fullname, while config/'s is the
+	// flag's own default.
+	workerServiceAccountEnv = "CLUSTARR_WORKER_SERVICE_ACCOUNT"
+
+	// dataClaimEnv is the RWX /data claim those Jobs mount, the default for
+	// squasharr's --data-claim. Only the chart sets it, for the same reason.
+	dataClaimEnv = "CLUSTARR_DATA_CLAIM"
 )
 
 // envOr returns $name when it is set and non-empty, and fallback otherwise.

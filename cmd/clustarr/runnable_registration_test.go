@@ -40,7 +40,13 @@ import (
 // grabarr/run.go naming it. An unregistered reaper is not a failing test
 // anywhere; it is simply a torrent that seeds, or a usenet fetch that keeps
 // spending the provider's connection budget, forever.
-var runnableServices = []string{"catalogarr", "importarr", "grabarr"}
+//
+// squasharr joined for plan task E-4. It has no Runnable types today --
+// both its components are reconcilers, which the start envtest proves are
+// registered by watching each one reconcile -- but a slot sweeper or a
+// recycle-bin reaper is exactly the shape that would arrive next, and the
+// guard should already be looking when it does.
+var runnableServices = []string{"catalogarr", "importarr", "grabarr", "squasharr"}
 
 // TestEveryManagerRunnableIsRegistered catches a whole class of wiring
 // omission, of which Task C12a shipped one.

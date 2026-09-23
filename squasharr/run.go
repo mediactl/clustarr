@@ -30,13 +30,16 @@ import (
 	"strings"
 
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
-	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/squasharr/controller/transcodejob"
+	"github.com/mediactl/clustarr/squasharr/controller/transcodeprofile"
+	"github.com/mediactl/clustarr/squasharr/worker"
 )
 
 // Service identity, from §2 and §6.4.
@@ -76,7 +79,8 @@ const (
 	RoleController Role = "controller"
 
 	// RoleWorker is the entrypoint of a transcode Job pod: probe, ffmpeg,
-	// verify, atomic rename.
+	// verify, atomic rename. It runs no manager and exits with the
+	// worker's code (see [ExitError]).
 	RoleWorker Role = "worker"
 )
 
@@ -158,6 +162,13 @@ func FormatSlots(slots map[string]int32) string {
 	return strings.Join(parts, ",")
 }
 
+// DefaultWorkerServiceAccount is the ServiceAccount transcode Job pods run
+// as: config/manager/squasharr.yaml declares it and
+// config/rbac/squasharr_worker_role_binding.yaml binds it to the worker's
+// own ClusterRole. The chart names it <fullname>-squasharr-worker and passes
+// that through $CLUSTARR_WORKER_SERVICE_ACCOUNT.
+const DefaultWorkerServiceAccount = "squasharr-worker"
+
 // Options is everything `clustarr squasharr` needs.
 type Options struct {
 	k8s.Options
@@ -175,6 +186,26 @@ type Options struct {
 	// only; the Job template sets it.
 	JobName string
 
+	// WorkerImage is the image cpu and intel transcode Jobs run
+	// (--worker-image). Required for the controller role: every Job it
+	// creates is stamped with it.
+	WorkerImage string
+
+	// WorkerImageCUDA is the image nvidia transcode Jobs run
+	// (--worker-image-cuda). Empty falls back to WorkerImage.
+	WorkerImageCUDA string
+
+	// WorkerServiceAccount is the ServiceAccount every transcode Job's pod
+	// runs as (--worker-service-account). It must hold the worker's RBAC --
+	// squasharr/worker/doc.go's markers, generated into their own
+	// ClusterRole -- and NOT this controller's; left empty, the pods would
+	// run as the namespace default and fail their first Get.
+	WorkerServiceAccount string
+
+	// DataClaimName is the RWX PersistentVolumeClaim transcode Jobs mount at
+	// DataDir (--data-claim): the same claim this Deployment mounts.
+	DataClaimName string
+
 	// Logging configures this process's root logger. The zero value is a
 	// reasonable default: JSON to stderr at info level.
 	Logging logging.Options
@@ -188,10 +219,12 @@ type Options struct {
 // DefaultOptions returns the options the Deployment gets with no flags.
 func DefaultOptions() Options {
 	return Options{
-		Options: k8s.DefaultOptions(),
-		Role:    RoleController,
-		Slots:   DefaultSlots(),
-		DataDir: DefaultDataDir,
+		Options:              k8s.DefaultOptions(),
+		Role:                 RoleController,
+		Slots:                DefaultSlots(),
+		DataDir:              DefaultDataDir,
+		WorkerServiceAccount: DefaultWorkerServiceAccount,
+		DataClaimName:        transcodejob.DefaultDataClaimName,
 	}
 }
 
@@ -205,14 +238,35 @@ func (o Options) Validate() error {
 			return fmt.Errorf("squasharr: slot budget for %q is negative", hardware)
 		}
 	}
-	if o.Role == RoleWorker && o.JobName == "" {
-		return fmt.Errorf("squasharr: --job is required for --role %s", RoleWorker)
-	}
 	if o.DataDir == "" {
 		return fmt.Errorf("squasharr: --data-dir is required")
 	}
-	if !o.UsesBus() {
-		return fmt.Errorf("squasharr: --nats-url is required; transcode progress uses the bus")
+	switch o.Role {
+	case RoleWorker:
+		// The worker never touches the bus (Phase E ruling R6: progress is
+		// status.progress, not NATS), so --nats-url is not asked of it.
+		if o.JobName == "" {
+			return fmt.Errorf("squasharr: --job is required for --role %s", RoleWorker)
+		}
+		if o.Namespace == "" {
+			return fmt.Errorf("squasharr: --namespace (or $POD_NAMESPACE) is required for --role %s: "+
+				"it names the TranscodeJob's namespace", RoleWorker)
+		}
+	case RoleController:
+		if !o.UsesBus() {
+			return fmt.Errorf("squasharr: --nats-url is required for --role %s", RoleController)
+		}
+		if o.WorkerImage == "" {
+			return fmt.Errorf("squasharr: --worker-image is required for --role %s: "+
+				"every transcode Job it creates runs that image", RoleController)
+		}
+		if o.WorkerServiceAccount == "" {
+			return fmt.Errorf("squasharr: --worker-service-account is required for --role %s: "+
+				"a Job pod on the namespace default ServiceAccount holds none of the worker's RBAC", RoleController)
+		}
+		if o.DataClaimName == "" {
+			return fmt.Errorf("squasharr: --data-claim is required for --role %s", RoleController)
+		}
 	}
 	return o.Options.Validate()
 }
@@ -223,7 +277,36 @@ func (o Options) ManagerOptions() ctrl.Options {
 	return o.Options.ManagerOptions(LeaderElectionID, o.LeaderElect && o.Role.RunsControllers())
 }
 
-// Run starts the manager and blocks until ctx is cancelled.
+// ExitError is the worker's outcome as a process exit code, carried up to
+// main so the code reaches os.Exit intact.
+//
+// The codes are a contract with the transcode Job's podFailurePolicy
+// (Phase E ruling R4): 3 and 4 fail the Job outright; anything else is
+// retried up to backoffLimit. A plain error from Run makes main exit 1,
+// which is retried -- so without this, a source that changed since it was
+// planned, or an output that failed verification, would be transcoded
+// again backoffLimit times for the same answer.
+type ExitError struct {
+	// Code is the worker's exit code: squasharr/worker.ExitRetriable,
+	// ExitInvalidSource or ExitVerifyFailed. Never 0.
+	Code int
+
+	// Err is the reason.
+	Err error
+}
+
+func (e *ExitError) Error() string {
+	if e.Err == nil {
+		return fmt.Sprintf("squasharr worker: exit %d", e.Code)
+	}
+	return e.Err.Error()
+}
+
+func (e *ExitError) Unwrap() error { return e.Err }
+
+// Run starts the manager and blocks until ctx is cancelled -- or, for
+// --role worker, transcodes one TranscodeJob and returns its outcome, nil
+// for success or an [*ExitError] carrying the exit code.
 func Run(ctx context.Context, o Options) error {
 	if err := o.Validate(); err != nil {
 		return err
@@ -236,6 +319,10 @@ func Run(ctx context.Context, o Options) error {
 		return fmt.Errorf("squasharr: %w", err)
 	}
 	defer shutdown()
+
+	if o.Role == RoleWorker {
+		return runWorker(ctx, o)
+	}
 
 	log := ctrl.LoggerFrom(ctx).WithName(ServiceName)
 	k8s.RegisterRESTClientMetrics()
@@ -263,54 +350,96 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 
+	// Readiness on every replica, leader or not: the cache check is an
+	// EveryReplica runnable, so a standby squasharr goes Ready beside the
+	// lease holder instead of deadlocking a rollout.
+	cacheReady, err := k8s.CacheSyncChecker(mgr)
+	if err != nil {
+		return err
+	}
 	if err := k8s.AddProbes(mgr, map[string]healthz.Checker{
 		"jetstream": k8s.BusReadyChecker(nc, bus),
+		"cache":     cacheReady,
 	}); err != nil {
 		return err
 	}
 
-	if o.Role.RunsControllers() {
-		if err := setupControllers(mgr, o); err != nil {
-			return err
-		}
-	} else if err := setupWorker(mgr, bus, o); err != nil {
+	if err := setupControllers(mgr, o); err != nil {
 		return err
 	}
 
-	log.Info("starting", "role", o.Role, "slots", FormatSlots(o.Slots))
+	log.Info("starting", "role", o.Role, "slots", FormatSlots(o.Slots),
+		"workerImage", o.WorkerImage, "workerServiceAccount", o.WorkerServiceAccount)
 	if err := mgr.Start(ctx); err != nil {
 		return fmt.Errorf("squasharr: manager: %w", err)
 	}
 	return nil
 }
 
-// setupControllers is the registration point for the transcode reconcilers. It
-// registers nothing yet.
+// setupControllers registers squasharr's two reconcilers (§6.4, §16 M4):
+// the TranscodeProfile controller, which hashes profiles and creates a
+// TranscodeJob per file a profile wins (task E-1), and the TranscodeJob
+// controller, which plans, creates the suspended batch Job, admits it
+// against the --slots budget and mirrors it into phase (task E-2).
 //
-// TODO(M4): transcodeprofile -- Watches MediaFiles, mapped to the profiles
-// whose selector matches, with k8s.StatusFieldChanged on status.probeHash per
-// §10, and creates TranscodeJobs by deterministic name (k8s.ChildName);
-// transcodejob -- Pending to Planned to Queued (Job created suspended) to
-// Running (unsuspended once a slot of its hardware class is free), mirroring
-// the Job's conditions through Owns and cleaning up on TTL. (§6.4, §16 M4)
+// The TranscodeJob reconciler reads batch Jobs through mgr.GetAPIReader(),
+// never the cache: admission counts the Jobs it unsuspended a moment ago,
+// and a cache one event behind would admit past the budget (ADR-0005).
 func setupControllers(mgr ctrl.Manager, o Options) error {
-	_, _ = mgr, o
+	if err := transcodeprofile.NewReconciler(
+		mgr.GetClient(), mgr.GetScheme(), mgr.GetEventRecorder("transcodeprofile"),
+	).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("squasharr: transcodeprofile: %w", err)
+	}
+	if err := (&transcodejob.Reconciler{
+		Client: mgr.GetClient(),
+		Reader: mgr.GetAPIReader(),
+		Slots:  o.Slots,
+		Job: transcodejob.JobConfig{
+			Image:              o.WorkerImage,
+			ImageCUDA:          o.WorkerImageCUDA,
+			DataClaimName:      o.DataClaimName,
+			DataDir:            o.DataDir,
+			ServiceAccountName: o.WorkerServiceAccount,
+			// NATSURL stays empty: the worker never uses the bus (R6),
+			// and its role no longer requires --nats-url.
+		},
+	}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("squasharr: transcodejob: %w", err)
+	}
 	return nil
 }
 
-// setupWorker is the registration point for the transcode worker.
+// runWorker is the whole of --role worker, the entrypoint of one transcode
+// Job pod: transcode the TranscodeJob --job names and return.
 //
-// The worker is the entrypoint of a batch/v1 Job, not a long-lived controller:
-// it transcodes one TranscodeJob and exits with 0, 2, 3 or 4 (§6.4). It is
-// wired through the manager anyway so it inherits the client, the metrics
-// endpoint and the probes; M4 replaces this with a one-shot Runnable that
-// stops the manager when the encode finishes.
+// It starts no manager. A manager would bring a cache, a metrics listener,
+// probes and leader election to a process that makes a handful of reads
+// and exits, and its cache would be actively wrong here: every status
+// apply re-reads the TranscodeJob first (the lost-update rule), and that
+// re-read must see the apiserver, not an informer that lags it. So the
+// client is built straight against the apiserver.
 //
-// TODO(M4): probe, run ffmpeg with -progress pipe:1, publish progress to
-// progress.transcode.<uid>, verify packet counts, tag CLUSTARR_PROFILE and
-// rename atomically over the source with the original going to the recycle
-// bin. (§6.4, §16 M4)
-func setupWorker(mgr ctrl.Manager, bus events.Bus, o Options) error {
-	_, _, _ = mgr, bus, o
-	return nil
+// The exit code is the point of the function. worker.Run classifies every
+// failure at the place it happens; runWorker hands the code up as an
+// [*ExitError], and main exits with it.
+func runWorker(ctx context.Context, o Options) error {
+	cfg, err := ctrl.GetConfig()
+	if err != nil {
+		return fmt.Errorf("squasharr: load kubeconfig: %w", err)
+	}
+	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	if err != nil {
+		return fmt.Errorf("squasharr: build client: %w", err)
+	}
+	code, err := worker.Run(ctx, c, worker.Options{
+		JobName:   o.JobName,
+		Namespace: o.Namespace,
+		DataDir:   o.DataDir,
+		Threads:   worker.ThreadsFromEnv(),
+	})
+	if code == worker.ExitOK {
+		return nil
+	}
+	return &ExitError{Code: code, Err: err}
 }

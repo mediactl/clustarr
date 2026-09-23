@@ -38,13 +38,22 @@ type PolicySpecApplyConfiguration struct {
 	NeverTranscodeModifiers []string `json:"neverTranscodeModifiers,omitempty"`
 	// MinDuration is the shortest source runtime considered for transcoding.
 	MinDuration *v1.Duration `json:"minDuration,omitempty"`
-	// MaxOutputToSourceRatio fails a job whose output is larger than this
-	// multiple of the source size.
+	// MaxOutputToSourcePercent fails a job whose output is larger than this
+	// percentage of the source size: 100 (the default) refuses any output
+	// bigger than the file it replaces, 150 allows half as large again. It is
+	// the design spec's MaxOutputToSourceRatio 1.0 as a scaled integer, since
+	// the API carries no floats. 0 disables the check.
 	MaxOutputToSourcePercent *int32 `json:"maxOutputToSourcePercent,omitempty"`
-	// ReplaceSource replaces the source file with the output on success.
+	// ReplaceSource replaces the source file with the output on success. A
+	// pointer so a Go client can send an explicit false; unset means true.
+	// Only true is supported in v1alpha1: the output is always renamed over
+	// the source path, and writing it anywhere else needs a library path
+	// migration that does not exist yet.
 	ReplaceSource *bool `json:"replaceSource,omitempty"`
-	// RecycleBin moves the replaced source to the recycle bin instead of
-	// deleting it.
+	// RecycleBin keeps the replaced source in the root folder's recycle bin.
+	// false lets the swap drop the library's link to it outright (a seeding
+	// hard link elsewhere under /data keeps its own copy either way). A
+	// pointer so a Go client can send an explicit false; unset means true.
 	RecycleBin *bool `json:"recycleBin,omitempty"`
 }
 

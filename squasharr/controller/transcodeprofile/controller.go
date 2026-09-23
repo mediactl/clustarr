@@ -56,7 +56,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
-	"github.com/mediactl/clustarr/pkg/transcode"
 	squasharrstatus "github.com/mediactl/clustarr/squasharr/status"
 )
 
@@ -128,7 +127,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return ctrl.Result{}, fmt.Errorf("transcodeprofile: list TranscodeProfiles: %w", err)
 	}
 
-	hash := transcode.ProfileHash(toProfileSpec(tp.Spec))
+	hash := profileHash(tp.Spec)
 	invalid, invalidReason, invalidMessage := validateProfile(&tp, profileList.Items)
 
 	var mfList catalogv1alpha1.MediaFileList
@@ -340,9 +339,8 @@ func mapTranscodeJobToProfile(_ context.Context, o client.Object) []reconcile.Re
 	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: tj.Spec.ProfileRef}}}
 }
 
-// SetupWithManager registers the TranscodeProfile controller. squasharr's
-// run.go setupControllers wires this in as task E-4 (out of this task's
-// scope; this package is not imported from run.go yet).
+// SetupWithManager registers the TranscodeProfile controller; squasharr's
+// run.go setupControllers calls it.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("transcodeprofile").

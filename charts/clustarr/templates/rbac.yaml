@@ -358,6 +358,80 @@ subjects:
   name: {{ include "clustarr.fullname" . }}-ui
   namespace: {{ .Release.Namespace }}
 {{- end }}
+{{- if .Values.squasharr.enabled }}
+---
+{{/* The transcode worker's identity. Every batch Job squasharr creates runs
+     its pod as this ServiceAccount (the controller's
+     $CLUSTARR_WORKER_SERVICE_ACCOUNT, set in deployments.yaml), never as
+     squasharr's own. Its ClusterRole's rules are a VERBATIM copy of
+     config/rbac/squasharr_worker_role.yaml, which `make manifests` generates
+     from squasharr/worker's +kubebuilder:rbac markers alone;
+     cmd/clustarr.TestChartWorkerRBACMatchesTheGeneratedRole holds the copy
+     to it. A ClusterRole because TranscodeProfile is cluster-scoped. */}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "clustarr.fullname" . }}-squasharr-worker
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: squasharr-worker
+{{- with .Values.imagePullSecrets }}
+imagePullSecrets:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "clustarr.fullname" . }}-squasharr-worker
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: squasharr-worker
+rules:
+# BEGIN generated from config/rbac/squasharr_worker_role.yaml -- do not edit by hand.
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - mediafiles
+  verbs:
+  - get
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - rootfolders
+  verbs:
+  - list
+- apiGroups:
+  - transcode.clustarr.io
+  resources:
+  - transcodejobs
+  - transcodeprofiles
+  verbs:
+  - get
+- apiGroups:
+  - transcode.clustarr.io
+  resources:
+  - transcodejobs/status
+  verbs:
+  - patch
+# END generated from config/rbac/squasharr_worker_role.yaml.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "clustarr.fullname" . }}-squasharr-worker
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: squasharr-worker
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "clustarr.fullname" . }}-squasharr-worker
+subjects:
+- kind: ServiceAccount
+  name: {{ include "clustarr.fullname" . }}-squasharr-worker
+  namespace: {{ .Release.Namespace }}
+{{- end }}
 ---
 {{/* Leader election: LeaderElectionID is <service>.clustarr.io (§2), so one
      namespaced Role covers every manager. Hand-written; controller-gen does

@@ -194,10 +194,14 @@ func newGrabarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command 
 func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	defaults := squasharr.DefaultOptions()
 	var (
-		role    string
-		slots   string
-		dataDir string
-		jobName string
+		role            string
+		slots           string
+		dataDir         string
+		jobName         string
+		workerImage     string
+		workerImageCUDA string
+		workerAccount   string
+		dataClaim       string
 	)
 
 	cmd := &cobra.Command{
@@ -218,6 +222,19 @@ func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 		"RWX media volume.")
 	cmd.Flags().StringVar(&jobName, "job", defaults.JobName,
 		"TranscodeJob this worker is transcoding. Required for --role worker.")
+	cmd.Flags().StringVar(&workerImage, "worker-image", envOr(workerImageEnv, defaults.WorkerImage),
+		"Image the controller stamps onto cpu and intel transcode Jobs. Required for --role controller. "+
+			"Defaults to $"+workerImageEnv+".")
+	cmd.Flags().StringVar(&workerImageCUDA, "worker-image-cuda", envOr(workerImageCUDAEnv, defaults.WorkerImageCUDA),
+		"Image the controller stamps onto nvidia transcode Jobs; empty uses --worker-image. "+
+			"Defaults to $"+workerImageCUDAEnv+".")
+	cmd.Flags().StringVar(&workerAccount, "worker-service-account",
+		envOr(workerServiceAccountEnv, defaults.WorkerServiceAccount),
+		"ServiceAccount transcode Job pods run as; it must hold the worker's RBAC "+
+			"(config/rbac/squasharr_worker_role.yaml). Defaults to $"+workerServiceAccountEnv+", then "+
+			squasharr.DefaultWorkerServiceAccount+".")
+	cmd.Flags().StringVar(&dataClaim, "data-claim", envOr(dataClaimEnv, defaults.DataClaimName),
+		"RWX PersistentVolumeClaim transcode Jobs mount at --data-dir. Defaults to $"+dataClaimEnv+".")
 
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		budget, err := squasharr.ParseSlots(slots)
@@ -225,13 +242,17 @@ func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 			return err
 		}
 		return runSquasharr(cmd.Context(), squasharr.Options{
-			Options: *common,
-			Role:    squasharr.Role(role),
-			Slots:   budget,
-			DataDir: dataDir,
-			JobName: jobName,
-			Logging: *lo,
-			Tracing: tracingFor(to, squasharr.ServiceName),
+			Options:              *common,
+			Role:                 squasharr.Role(role),
+			Slots:                budget,
+			DataDir:              dataDir,
+			JobName:              jobName,
+			WorkerImage:          workerImage,
+			WorkerImageCUDA:      workerImageCUDA,
+			WorkerServiceAccount: workerAccount,
+			DataClaimName:        dataClaim,
+			Logging:              *lo,
+			Tracing:              tracingFor(to, squasharr.ServiceName),
 		})
 	}
 	return cmd
