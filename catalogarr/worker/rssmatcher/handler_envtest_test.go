@@ -19,6 +19,7 @@ package rssmatcher_test
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -390,13 +391,31 @@ func seasonPack() schema.Release {
 	}
 }
 
-// setFile records an imported file of quality q on an episode, as the
-// episode reconciler's rollup would.
-func setFile(t *testing.T, ctx context.Context, c client.Client, ns, name string, q commonv1.Quality) {
+// setFile imports a file of quality q for an episode: its MediaFile, which
+// is what the RSS path reads the current file from, and the episode's
+// rollup pointing at it, as the episode reconciler would write it. It
+// returns the MediaFile's name.
+func setFile(t *testing.T, ctx context.Context, c client.Client, ns, name string, q commonv1.Quality) string {
 	t.Helper()
+	file := name + "-file"
+	require.NoError(t, c.Create(ctx, &catalogv1alpha1.MediaFile{
+		ObjectMeta: metav1.ObjectMeta{Name: file, Namespace: ns},
+		Spec: catalogv1alpha1.MediaFileSpec{
+			MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: name},
+			Path:     "/data/tv/" + file + ".mkv", Quality: q,
+		},
+	}))
 	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Episode(name, ns).WithStatus(
-		catalogac.EpisodeStatus().WithHasFile(true).WithFileQuality(q)))
+		catalogac.EpisodeStatus().WithHasFile(true).WithFileRef(file).WithFileQuality(q)))
 	require.NoError(t, err)
+	return file
+}
+
+// mediaFilesCached reports whether n MediaFiles of ns are in the cache the
+// handler reads through.
+func mediaFilesCached(ctx context.Context, c client.Client, ns string, n int) bool {
+	var files catalogv1alpha1.MediaFileList
+	return c.List(ctx, &files, client.InNamespace(ns)) == nil && len(files.Items) == n
 }
 
 // TestHandler_PackGrabNarrowsToTheEpisodesThatWantIt pins the X9 finding:
@@ -428,7 +447,7 @@ func TestHandler_PackGrabNarrowsToTheEpisodesThatWantIt(t *testing.T) {
 	// season would be grabbed with the wrong keys and never re-matched.
 	eventually(t, 10*time.Second, "every episode and both files to reach the cache", func() bool {
 		var list catalogv1alpha1.EpisodeList
-		if c.List(ctx, &list, client.InNamespace(ns)) != nil || len(list.Items) != 3 {
+		if c.List(ctx, &list, client.InNamespace(ns)) != nil || len(list.Items) != 3 || !mediaFilesCached(ctx, c, ns, 2) {
 			return false
 		}
 		files := 0
@@ -483,7 +502,8 @@ func TestHandler_PackNobodyWantsIsNotGrabbed(t *testing.T) {
 	h := rssmatcher.NewHandler(rssmatcher.Deps{Client: c, Bus: newTestBus(t), Evaluate: capture.evaluate, Now: func() time.Time { return relNow }})
 	eventually(t, 15*time.Second, "the pack to be matched to both episodes and approved", func() bool {
 		var list catalogv1alpha1.EpisodeList
-		if c.List(ctx, &list, client.InNamespace(ns)) != nil || len(list.Items) != 2 || !list.Items[0].Status.HasFile || !list.Items[1].Status.HasFile {
+		if c.List(ctx, &list, client.InNamespace(ns)) != nil || len(list.Items) != 2 || !list.Items[0].Status.HasFile || !list.Items[1].Status.HasFile ||
+			!mediaFilesCached(ctx, c, ns, 2) {
 			return false
 		}
 		if err := h.Handle(ctx, releaseMessage(t, ns, "my-indexer", seasonPack())); err != nil {
@@ -561,6 +581,81 @@ func TestHandler_TranscodedMovieIsNeverGrabbed(t *testing.T) {
 	var downloads downloadv1alpha1.DownloadList
 	require.NoError(t, mgr.GetAPIReader().List(ctx, &downloads, client.InNamespace(ns)))
 	assert.Empty(t, downloads.Items, "nothing is grabbed over a transcoded file")
+}
+
+// TestHandler_CurrentFileIsTheMediaFile: the RSS decision reads the item's
+// current file from its MediaFile, as the search worker does, so it carries
+// the revision and the source the status rollup has no field for. The
+// release here is the very torrent the file was imported from: the rollup
+// alone (a 720p file under a 1080p release) reads it as an upgrade, the
+// MediaFile's source hash as already imported.
+func TestHandler_CurrentFileIsTheMediaFile(t *testing.T) {
+	ctx := context.Background()
+	mgr := newTestManager(t)
+	c := mgr.GetClient()
+	ns := newNamespace(t, ctx, c)
+
+	movie := createMovie(t, ctx, c, ns, "the-thing-1982", 1091, "The Thing", 1982)
+	rel := blurayRelease("1091")
+	rel.Info.InfoHash = "0123456789abcdef0123456789abcdef01234567"
+	// The Download the file came from, long since imported.
+	require.NoError(t, c.Create(ctx, &downloadv1alpha1.Download{
+		ObjectMeta: metav1.ObjectMeta{Name: "imported-one", Namespace: ns},
+		Spec: downloadv1alpha1.DownloadSpec{
+			Protocol: commonv1.ProtocolTorrent,
+			Source:   downloadv1alpha1.DownloadSource{MagnetURL: ptrTo(rel.Info.MagnetURL)},
+			Release:  rel.Info,
+			Target:   commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name},
+		},
+	}))
+	web720 := commonv1.Quality{Name: "WEBDL-720p", Source: commonv1.SourceWebDL, Resolution: 720, Modifier: commonv1.ModifierNone}
+	require.NoError(t, c.Create(ctx, &catalogv1alpha1.MediaFile{
+		ObjectMeta: metav1.ObjectMeta{Name: "the-thing-file", Namespace: ns},
+		Spec: catalogv1alpha1.MediaFileSpec{
+			MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name},
+			Path:     "/data/media/the-thing.mkv", Quality: web720,
+			Revision:     commonv1.Revision{Version: 2},
+			ImportedFrom: &catalogv1alpha1.ImportSource{DownloadRef: "imported-one", ReleaseTitle: rel.Info.Title},
+		},
+	}))
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Movie(movie.Name, ns).WithStatus(
+		catalogac.MovieStatus().WithHasFile(true).WithFileRef("the-thing-file").WithFileQuality(web720)))
+	require.NoError(t, err)
+	createQualityProfile(t, ctx, c)
+	createIndexer(t, ctx, c, ns, "my-indexer")
+	createDelayProfile(t, ctx, c, ns, 0, true)
+
+	capture := &decisionCapture{}
+	h := rssmatcher.NewHandler(rssmatcher.Deps{Client: c, Reader: mgr.GetAPIReader(), Bus: newTestBus(t), Evaluate: capture.evaluate, Now: func() time.Time { return relNow }})
+	eventually(t, 15*time.Second, "the release to be decided against the imported file", func() bool {
+		var mf catalogv1alpha1.MediaFile
+		var dl downloadv1alpha1.Download
+		var m catalogv1alpha1.Movie
+		if c.Get(ctx, client.ObjectKey{Namespace: ns, Name: "the-thing-file"}, &mf) != nil ||
+			c.Get(ctx, client.ObjectKey{Namespace: ns, Name: "imported-one"}, &dl) != nil ||
+			c.Get(ctx, client.ObjectKeyFromObject(movie), &m) != nil || !m.Status.HasFile {
+			return false
+		}
+		if err := h.Handle(ctx, releaseMessage(t, ns, "my-indexer", rel)); err != nil {
+			t.Fatalf("Handle: %v", err)
+		}
+		_, ds := capture.get()
+		return len(ds) == 1
+	})
+
+	target, ds := capture.get()
+	require.NotNil(t, target.Current)
+	assert.Equal(t, commonv1.Revision{Version: 2}, target.Current.Revision, "the revision is the MediaFile's; the rollup has none")
+	assert.Equal(t, rel.Info.InfoHash, target.Current.SourceHash, "the source hash is the importing Download's")
+	assert.Equal(t, rel.Info.Title, target.Current.SourceTitle)
+	require.False(t, ds[0].Approved)
+	reasons := make([]string, 0, len(ds[0].Rejections))
+	for _, r := range ds[0].Rejections {
+		reasons = append(reasons, r.Reason)
+	}
+	assert.Truef(t, slices.ContainsFunc(reasons, func(r string) bool {
+		return strings.HasPrefix(r, decision.ReasonAlreadyImportedSameHash.Code+":")
+	}), "the release already imported is refused: %v", reasons)
 }
 
 // TestHandler_PackNeverReachesATranscodedEpisode: a season pack is approved

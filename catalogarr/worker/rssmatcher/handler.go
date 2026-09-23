@@ -303,7 +303,7 @@ func (h *Handler) decideOne(
 	approved := decisions[0]
 	keys := ref.Keys
 	if ref.Kind == commonv1.MediaKindSeries {
-		keys = wantedKeys(profile, approved.Release, st.episodes, st.finalEpisodes)
+		keys = wantedKeys(profile, approved.Release, st.episodes, st.episodeFiles)
 		if len(keys) == 0 {
 			// Every episode the pack covers already has a file this release
 			// would not improve on: nothing here is wanted.
@@ -362,8 +362,10 @@ func (h *Handler) sceneMemo() sceneLookup {
 // release: an episode with no file, or whose file the release is an upgrade
 // of under profile (quality.Profile.UpgradeDecision, the rule the decision
 // engine applies to a single episode's current file) -- and never one whose
-// file is transcoded (final, keyed by episode name), which is final however
-// the qualities compare.
+// file is transcoded, which is final however the qualities compare. files is
+// each episode's current file, read from its MediaFile (resolveState's
+// episodeFiles), so the comparison carries the file's revision: a PROPER of
+// the quality on disk is an upgrade of it.
 //
 // The matcher resolves a season pack to every monitored episode of the
 // season, including ones already at their cutoff, and grabarr downloads only
@@ -373,18 +375,18 @@ func (h *Handler) sceneMemo() sceneLookup {
 // (UpgradeDiskSpecification rejects a release when any episode it covers
 // already has an equal or better file); Clustarr can take just the episodes
 // that want it, which is what the keys are for.
-func wantedKeys(profile quality.Profile, rel commonv1.ReleaseInfo, eps []*catalogv1alpha1.Episode, final map[string]bool) []string {
+func wantedKeys(profile quality.Profile, rel commonv1.ReleaseInfo, eps []*catalogv1alpha1.Episode, files map[string]*decision.Current) []string {
 	candidate := quality.Candidate{Quality: rel.Quality, Revision: rel.Revision, FormatScore: int(rel.FormatScore)}
 	keys := make([]string, 0, len(eps))
 	for _, ep := range eps {
-		if final[ep.Name] {
-			// A transcoded file is final (CLAUDE.md, "Transcoding"): the
-			// single-episode path rejects it as TranscodedFinal, and a pack
-			// must not reach it by the back door.
-			continue
-		}
-		if ep.Status.HasFile && ep.Status.FileQuality != nil {
-			current := quality.Candidate{Quality: *ep.Status.FileQuality, FormatScore: int(ep.Status.FileFormatScore)}
+		if cur := files[ep.Name]; cur != nil {
+			if cur.Transcoded {
+				// A transcoded file is final (CLAUDE.md, "Transcoding"):
+				// the single-episode path rejects it as TranscodedFinal,
+				// and a pack must not reach it by the back door.
+				continue
+			}
+			current := quality.Candidate{Quality: cur.Quality, Revision: cur.Revision, FormatScore: cur.FormatScore}
 			if profile.UpgradeDecision(current, candidate) != quality.Upgrade {
 				continue
 			}

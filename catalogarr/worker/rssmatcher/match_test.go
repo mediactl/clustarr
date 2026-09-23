@@ -18,14 +18,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package rssmatcher
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
@@ -160,14 +167,49 @@ func TestSameDay(t *testing.T) {
 	assert.True(t, sameDay(a, time.Date(2026, 9, 18, 4, 0, 0, 0, east)))
 }
 
-func TestCurrentFrom(t *testing.T) {
-	assert.Nil(t, currentFrom(false, nil, 0), "no file means no current candidate")
-	assert.Nil(t, currentFrom(true, nil, 0), "hasFile without a quality is not usable input")
+// TestCurrentFileReadsTheMediaFile: the RSS path's current file is the
+// MediaFile's frozen spec -- revision and source included -- plus the source
+// Download's info hash, read by the search worker's own search.CurrentFile,
+// not the item's rolled-up quality, which has neither.
+func TestCurrentFileReadsTheMediaFile(t *testing.T) {
+	ctx := context.Background()
+	const ns = "rss"
+	web1080 := commonv1.Quality{Name: "WEBDL-1080p", Source: commonv1.SourceWebDL, Resolution: 1080}
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(
+		&catalogv1alpha1.MediaFile{
+			ObjectMeta: metav1.ObjectMeta{Name: "file", Namespace: ns},
+			Spec: catalogv1alpha1.MediaFileSpec{
+				Path: "/data/tv/x.mkv", Quality: web1080, Revision: commonv1.Revision{Version: 2},
+				FormatScore: 30, MatchedFormats: []string{"x265"},
+				ImportedFrom: &catalogv1alpha1.ImportSource{DownloadRef: "dl", ReleaseTitle: "Show.S01E01.1080p.WEB-DL.PROPER-GRP"},
+			},
+		},
+		&downloadv1alpha1.Download{
+			ObjectMeta: metav1.ObjectMeta{Name: "dl", Namespace: ns},
+			Spec:       downloadv1alpha1.DownloadSpec{Release: commonv1.ReleaseInfo{InfoHash: "abc123"}},
+		},
+	).Build()
 
-	q := &commonv1.Quality{Name: "Bluray-1080p", Resolution: 1080}
-	cur := currentFrom(true, q, 42)
-	if assert.NotNil(t, cur) {
-		assert.Equal(t, *q, cur.Quality)
-		assert.Equal(t, 42, cur.FormatScore)
+	cur, err := currentFile(ctx, c, ns, true, ptr.To("file"))
+	require.NoError(t, err)
+	require.NotNil(t, cur)
+	assert.Equal(t, web1080, cur.Quality)
+	assert.Equal(t, commonv1.Revision{Version: 2}, cur.Revision, "the revision is what makes a PROPER an upgrade, or not")
+	assert.Equal(t, 30, cur.FormatScore)
+	assert.Equal(t, []string{"x265"}, cur.Formats)
+	assert.Equal(t, "Show.S01E01.1080p.WEB-DL.PROPER-GRP", cur.SourceTitle)
+	assert.Equal(t, "abc123", cur.SourceHash, "the info hash comes from the Download that produced the file")
+
+	for name, c2 := range map[string]struct {
+		hasFile bool
+		ref     *string
+	}{
+		"no file":                       {false, ptr.To("file")},
+		"a file with no ref":            {true, nil},
+		"a ref to a MediaFile now gone": {true, ptr.To("gone")},
+	} {
+		cur, err := currentFile(ctx, c, ns, c2.hasFile, c2.ref)
+		require.NoError(t, err, name)
+		assert.Nil(t, cur, name)
 	}
 }

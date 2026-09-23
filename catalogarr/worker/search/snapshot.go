@@ -160,19 +160,25 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 		hasFile, fileRef = e.Status.HasFile, e.Status.FileRef
 
 	case commonv1.MediaKindAlbum, commonv1.MediaKindBook, commonv1.MediaKindAudiobook, commonv1.MediaKindIssue:
-		var err error
-		hasFile, fileRef, err = w.snapshotNonVideo(ctx, ns, ref, &snap)
+		v, err := ReadNonVideo(ctx, w.Client, ns, ref, w.now())
 		if err != nil {
 			return snap, err
 		}
-		snap.IDs = nonVideoIDs(snap.Target.Identity)
+		snap.QualityProfileRef = v.QualityProfileRef
+		snap.Target.Monitored = v.Monitored
+		snap.Target.Available = v.Available
+		snap.Target.Identity = v.Identity
+		// Already resolved, MediaFile and all (ReadNonVideo), so hasFile
+		// stays false and the file is not read a second time below.
+		snap.Target.Current = v.Current
+		snap.IDs = nonVideoIDs(v.Identity)
 
 	default:
 		return snap, fmt.Errorf("unsupported media kind %q", ref.Kind)
 	}
 
 	if hasFile && fileRef != nil && *fileRef != "" {
-		current, err := w.currentFile(ctx, ns, *fileRef)
+		current, err := CurrentFile(ctx, w.Client, ns, *fileRef)
 		if err != nil {
 			return snap, err
 		}
@@ -205,10 +211,11 @@ func episodeAvailable(e *catalogv1alpha1.Episode, now time.Time) bool {
 	return e.Status.Phase != "" && e.Status.Phase != catalogv1alpha1.EpisodePhaseUnaired
 }
 
-// currentFile reads the MediaFile an item already has into the decision
-// engine's Current. Quality, revision, format score and matched formats are
-// read from MediaFileSpec, not status: spec §8.4 freezes the decided fields on
-// spec at import time and MediaFileStatus carries none of them. Transcoded
+// CurrentFile reads the MediaFile named name -- the file an item already
+// has -- into the decision engine's Current. Quality, revision, format score
+// and matched formats are read from MediaFileSpec, not status: spec §8.4
+// freezes the decided fields on spec at import time and MediaFileStatus
+// carries none of them. Transcoded
 // is rollup.Transcoded's verdict (catalogv1alpha1.(*MediaFile).Transcoded,
 // the one place that rule lives).
 //
@@ -218,9 +225,17 @@ func episodeAvailable(e *catalogv1alpha1.Episode, now time.Time) bool {
 // Download is not an error: blocklisting keeps the Download around, and
 // already-imported matching falls back to the release title, which
 // spec.importedFrom.releaseTitle always carries.
-func (w *Worker) currentFile(ctx context.Context, ns, name string) (*decision.Current, error) {
+//
+// It is exported so catalogarr/worker/rssmatcher reads an item's current
+// file through this same code: an RSS decision and a search decision about
+// one item must see the same file, revision, source hash and all. Reading
+// the item's status rollup instead (hasFile/fileQuality/fileFormatScore)
+// loses the revision, so a PROPER of the quality already on disk reads as
+// no upgrade, and the source hash and title, so a re-post of the very
+// release already imported reads as new.
+func CurrentFile(ctx context.Context, c client.Reader, ns, name string) (*decision.Current, error) {
 	var mf catalogv1alpha1.MediaFile
-	if err := w.Client.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &mf); err != nil {
+	if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &mf); err != nil {
 		if apierrors.IsNotFound(err) {
 			// status.hasFile is a rollup written by another reconcile; a
 			// dangling fileRef means the rollup has not caught up with a
@@ -247,7 +262,7 @@ func (w *Worker) currentFile(ctx context.Context, ns, name string) (*decision.Cu
 	cur.SourceTitle = mf.Spec.ImportedFrom.ReleaseTitle
 	if ref := mf.Spec.ImportedFrom.DownloadRef; ref != "" {
 		var d downloadv1alpha1.Download
-		switch err := w.Client.Get(ctx, client.ObjectKey{Namespace: ns, Name: ref}, &d); {
+		switch err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: ref}, &d); {
 		case err == nil:
 			cur.SourceHash = d.Spec.Release.InfoHash
 		case apierrors.IsNotFound(err):
