@@ -1,0 +1,846 @@
+[
+ {
+  "type": "TV",
+  "anidb_id": 1,
+  "anilist_id": 290,
+  "animecountdown_id": 36462,
+  "animenewsnetwork_id": 14,
+  "anime-planet_id": "crest-of-the-stars",
+  "anisearch_id": 3039,
+  "imdb_id": [
+   "tt0286390"
+  ],
+  "kitsu_id": 265,
+  "livechart_id": 4157,
+  "mal_id": 290,
+  "simkl_id": 36462,
+  "themoviedb_id": {
+   "tv": 26209
+  },
+  "tvdb_id": 72025,
+  "season": {
+   "tvdb": 1,
+   "tmdb": 1
+  }
+ },
+ {
+  "type": "TV",
+  "anidb_id": 4,
+  "anilist_id": 396,
+  "animecountdown_id": 37584,
+  "animenewsnetwork_id": 447,
+  "anime-planet_id": "banner-of-the-stars",
+  "anisearch_id": 375,
+  "imdb_id": [
+   "tt0286390"
+  ],
+  "kitsu_id": 363,
+  "livechart_id": 4531,
+  "mal_id": 396,
+  "simkl_id": 37584,
+  "themoviedb_id": {
+   "tv": 26209
+  },
+  "tvdb_id": 72025,
+  "season": {
+   "tvdb": 2,
+   "tmdb": 2
+  }
+ },
+ {
+  "type": "TV",
+  "anidb_id": 5,
+  "anilist_id": 397,
+  "animecountdown_id": 36399,
+  "animenewsnetwork_id": 448,
+  "anime-planet_id": "banner-of-the-stars-ii",
+  "anisearch_id": 772,
+  "imdb_id": [
+   "tt0286390"
+  ],
+  "kitsu_id": 364,
+  "livechart_id": 5589,
+  "mal_id": 397,
+  "simkl_id": 36399,
+  "themoviedb_id": {
+   "tv": 26209
+  },
+  "tvdb_id": 72025,
+  "season": {
+   "tvdb": 3,
+   "tmdb": 3
+  }
+ },
+ {
+  "type": "SPECIAL",
+  "anidb_id": 6,
+  "anilist_id": 1124,
+  "animecountdown_id": 40816,
+  "animenewsnetwork_id": 787,
+  "anime-planet_id": "crest-of-the-stars-birth",
+  "anisearch_id": 3304,
+  "imdb_id": [
+   "tt0286390"
+  ],
+  "kitsu_id": 1008,
+  "livechart_id": 6910,
+  "mal_id": 1124,
+  "simkl_id": 40816,
+  "themoviedb_id": {
+   "tv": 26209
+  },
+  "tvdb_id": 72025,
+  "season": {
+   "tvdb": 0,
+   "tmdb": 0
+  }
+ },
+ {
+  "type": "OVA",
+  "anidb_id": 11,
+  "anilist_id": 821,
+  "animecountdown_id": 36955,
+  "animenewsnetwork_id": 1155,
+  "anime-planet_id": "initial-d-battle-stage",
+  "anisearch_id": 806,
+  "imdb_id": [
+   "tt7941838"
+  ],
+  "kitsu_id": 728,
+  "livechart_id": 8274,
+  "mal_id": 821,
+  "simkl_id": 36955,
+  "themoviedb_id": {
+   "movie": [
+    1390599
+   ]
+  },
+  "tvdb_id": 70900,
+  "season": {
+   "tvdb": 0
+  },
+  "episode_offset": {
+   "tvdb": 2
+  }
+ },
+ {
+  "type": "SPECIAL",
+  "anidb_id": 884,
+  "anilist_id": 399,
+  "animecountdown_id": 40490,
+  "animenewsnetwork_id": 4368,
+  "anime-planet_id": "banner-of-the-stars-tokubetsu-hen",
+  "anisearch_id": 2087,
+  "imdb_id": [
+   "tt0286390"
+  ],
+  "kitsu_id": 366,
+  "livechart_id": 8049,
+  "mal_id": 399,
+  "simkl_id": 40490,
+  "themoviedb_id": {
+   "tv": 26209
+  },
+  "tvdb_id": 72025,
+  "season": {
+   "tvdb": 0,
+   "tmdb": 0
+  },
+  "episode_offset": {
+   "tvdb": 2,
+   "tmdb": 2
+  }
+ },
+ {
+  "type": "MOVIE",
+  "anidb_id": 1250,
+  "anilist_id": 1441,
+  "animecountdown_id": 37340,
+  "animenewsnetwork_id": 51,
+  "anime-planet_id": "night-on-the-galactic-railroad",
+  "anisearch_id": 1102,
+  "imdb_id": [
+   "tt1920940",
+   "tt0089206"
+  ],
+  "kitsu_id": 1294,
+  "livechart_id": 6241,
+  "mal_id": 1441,
+  "simkl_id": 37340,
+  "themoviedb_id": {
+   "movie": [
+    37585
+   ]
+  }
+ },
+ {
+  "type": "SPECIAL",
+  "anidb_id": 1623,
+  "anilist_id": 1381,
+  "animecountdown_id": 39470,
+  "animenewsnetwork_id": 4367,
+  "anime-planet_id": "crest-of-the-stars-tokubetsu-hen",
+  "anisearch_id": 874,
+  "imdb_id": [
+   "tt0286390"
+  ],
+  "kitsu_id": 1235,
+  "mal_id": 1381,
+  "simkl_id": 39470,
+  "themoviedb_id": {
+   "tv": 26209
+  },
+  "tvdb_id": 72025,
+  "season": {
+   "tvdb": 0,
+   "tmdb": 0
+  },
+  "episode_offset": {
+   "tvdb": 1,
+   "tmdb": 1
+  }
+ },
+ {
+  "type": "OVA",
+  "anidb_id": 2673,
+  "anilist_id": 398,
+  "animecountdown_id": 39804,
+  "animenewsnetwork_id": 4899,
+  "anime-planet_id": "banner-of-the-stars-iii",
+  "anisearch_id": 3527,
+  "imdb_id": [
+   "tt0286390"
+  ],
+  "kitsu_id": 365,
+  "livechart_id": 5522,
+  "mal_id": 398,
+  "simkl_id": 39804,
+  "themoviedb_id": {
+   "tv": 26209
+  },
+  "tvdb_id": 72025,
+  "season": {
+   "tvdb": 0,
+   "tmdb": 0
+  },
+  "episode_offset": {
+   "tvdb": 4,
+   "tmdb": 4
+  }
+ },
+ {
+  "type": "TV",
+  "anidb_id": 4880,
+  "anilist_id": 1735,
+  "animecountdown_id": 40053,
+  "animenewsnetwork_id": 7293,
+  "anime-planet_id": "naruto-shippuden",
+  "anisearch_id": 3972,
+  "imdb_id": [
+   "tt0988824"
+  ],
+  "kitsu_id": 1555,
+  "livechart_id": 316,
+  "mal_id": 1735,
+  "simkl_id": 40053,
+  "themoviedb_id": {
+   "tv": 31910
+  },
+  "tvdb_id": 79824
+ },
+ {
+  "type": "MOVIE",
+  "anidb_id": 5178,
+  "anilist_id": 2472,
+  "animecountdown_id": 38972,
+  "animenewsnetwork_id": 8017,
+  "anime-planet_id": "naruto-shippuden-movie-1",
+  "anisearch_id": 4272,
+  "imdb_id": [
+   "tt0988982"
+  ],
+  "kitsu_id": 2245,
+  "livechart_id": 3791,
+  "mal_id": 2472,
+  "simkl_id": 38972,
+  "themoviedb_id": {
+   "tv": 31910
+  },
+  "tvdb_id": 79824,
+  "season": {
+   "tvdb": 0,
+   "tmdb": 0
+  }
+ },
+ {
+  "type": "MOVIE",
+  "anidb_id": 5914,
+  "anilist_id": 4437,
+  "animecountdown_id": 38654,
+  "animenewsnetwork_id": 9194,
+  "anime-planet_id": "naruto-shippuden-movie-2-bonds",
+  "anisearch_id": 4816,
+  "imdb_id": [
+   "tt1160524"
+  ],
+  "kitsu_id": 3606,
+  "livechart_id": 3790,
+  "mal_id": 4437,
+  "simkl_id": 38654,
+  "themoviedb_id": {
+   "tv": 31910
+  },
+  "tvdb_id": 79824,
+  "season": {
+   "tvdb": 0,
+   "tmdb": 0
+  }
+ },
+ {
+  "type": "MOVIE",
+  "anidb_id": 6503,
+  "anilist_id": 6325,
+  "animecountdown_id": 37029,
+  "animenewsnetwork_id": 10757,
+  "anime-planet_id": "naruto-shippuden-movie-3-the-will-of-fire",
+  "anisearch_id": 5279,
+  "imdb_id": [
+   "tt1481363"
+  ],
+  "kitsu_id": 4520,
+  "livechart_id": 3854,
+  "mal_id": 6325,
+  "simkl_id": 37029,
+  "themoviedb_id": {
+   "tv": 31910
+  },
+  "tvdb_id": 79824,
+  "season": {
+   "tvdb": 0,
+   "tmdb": 0
+  }
+ },
+ {
+  "type": "MOVIE",
+  "anidb_id": 7483,
+  "anilist_id": 8246,
+  "animecountdown_id": 41551,
+  "animenewsnetwork_id": 11422,
+  "anime-planet_id": "naruto-shippuden-movie-4-the-lost-tower",
+  "anisearch_id": 6206,
+  "imdb_id": [
+   "tt1703048"
+  ],
+  "kitsu_id": 5266,
+  "livechart_id": 3859,
+  "mal_id": 8246,
+  "simkl_id": 41551,
+  "themoviedb_id": {
+   "tv": 31910
+  },
+  "tvdb_id": 79824,
+  "season": {
+   "tvdb": 0,
+   "tmdb": 0
+  }
+ },
+ {
+  "type": "OVA",
+  "anidb_id": 8159,
+  "anilist_id": 10075,
+  "animecountdown_id": 36740,
+  "animenewsnetwork_id": 24788,
+  "anime-planet_id": "naruto-shippuden-ova-sage-naruto-vs-sasuke",
+  "anisearch_id": 6730,
+  "imdb_id": [
+   "tt0988824"
+  ],
+  "kitsu_id": 6022,
+  "livechart_id": 4416,
+  "mal_id": 10075,
+  "simkl_id": 36740,
+  "themoviedb_id": {
+   "tv": 31910
+  },
+  "tvdb_id": 79824,
+  "season": {
+   "tvdb": 0,
+   "tmdb": 0
+  }
+ },
+ {
+  "type": "MOVIE",
+  "anidb_id": 8312,
+  "anilist_id": 10589,
+  "animecountdown_id": 41096,
+  "animenewsnetwork_id": 12869,
+  "anime-planet_id": "naruto-shippuden-movie-5-blood-prison",
+  "anisearch_id": 7002,
+  "imdb_id": [
+   "tt1999167"
+  ],
+  "kitsu_id": 6256,
+  "livechart_id": 3799,
+  "mal_id": 10589,
+  "simkl_id": 41096,
+  "themoviedb_id": {
+   "tv": 31910
+  },
+  "tvdb_id": 79824,
+  "season": {
+   "tvdb": 0,
+   "tmdb": 0
+  }
+ },
+ {
+  "type": "MOVIE",
+  "anidb_id": 8384,
+  "anilist_id": 10686,
+  "animecountdown_id": 37127,
+  "animenewsnetwork_id": 15415,
+  "anime-planet_id": "honoo-no-chuunin-shiken-naruto-vs-konohamaru",
+  "anisearch_id": 7033,
+  "imdb_id": [
+   "tt0988824"
+  ],
+  "kitsu_id": 6292,
+  "livechart_id": 4425,
+  "mal_id": 10686,
+  "simkl_id": 37127,
+  "themoviedb_id": {
+   "tv": 31910
+  },
+  "tvdb_id": 79824,
+  "season": {
+   "tvdb": 0,
+   "tmdb": 0
+  }
+ },
+ {
+  "type": "MOVIE",
+  "anidb_id": 8387,
+  "anilist_id": 10659,
+  "animecountdown_id": 40143,
+  "animenewsnetwork_id": 23662,
+  "anime-planet_id": "naruto-naruto-to-mashin-to-mitsu-no-onegai-dattebayo",
+  "anisearch_id": 7036,
+  "imdb_id": [
+   "tt0988824"
+  ],
+  "kitsu_id": 6282,
+  "livechart_id": 4847,
+  "mal_id": 10659,
+  "simkl_id": 40143,
+  "themoviedb_id": {
+   "tv": 31910
+  },
+  "tvdb_id": 79824,
+  "season": {
+   "tvdb": 0,
+   "tmdb": 0
+  }
+ },
+ {
+  "type": "MOVIE",
+  "anidb_id": 9023,
+  "anilist_id": 13667,
+  "animecountdown_id": 41575,
+  "animenewsnetwork_id": 14172,
+  "anime-planet_id": "naruto-shippuden-movie-6-road-to-ninja",
+  "anisearch_id": 7646,
+  "imdb_id": [
+   "tt2290828"
+  ],
+  "kitsu_id": 7008,
+  "livechart_id": 1058,
+  "mal_id": 13667,
+  "simkl_id": 41575,
+  "themoviedb_id": {
+   "tv": 31910
+  },
+  "tvdb_id": 79824,
+  "season": {
+   "tvdb": 0,
+   "tmdb": 0
+  }
+ },
+ {
+  "type": "TV",
+  "anidb_id": 9541,
+  "anilist_id": 16498,
+  "animecountdown_id": 39687,
+  "animenewsnetwork_id": 14950,
+  "anime-planet_id": "attack-on-titan",
+  "anisearch_id": 8219,
+  "imdb_id": [
+   "tt2560140"
+  ],
+  "kitsu_id": 7442,
+  "livechart_id": 38,
+  "mal_id": 16498,
+  "simkl_id": 39687,
+  "themoviedb_id": {
+   "tv": 1429
+  },
+  "tvdb_id": 267440,
+  "season": {
+   "tvdb": 1,
+   "tmdb": 1
+  }
+ },
+ {
+  "type": "MOVIE",
+  "anidb_id": 9588,
+  "anilist_id": 16870,
+  "animecountdown_id": 52714,
+  "animenewsnetwork_id": 16184,
+  "anime-planet_id": "the-last-naruto-the-movie",
+  "anisearch_id": 9794,
+  "imdb_id": [
+   "tt3717532"
+  ],
+  "kitsu_id": 7543,
+  "livechart_id": 118,
+  "mal_id": 16870,
+  "simkl_id": 52714,
+  "themoviedb_id": {
+   "tv": 31910
+  },
+  "tvdb_id": 79824,
+  "season": {
+   "tvdb": 0,
+   "tmdb": 0
+  },
+  "episode_offset": {
+   "tvdb": 11,
+   "tmdb": 11
+  }
+ },
+ {
+  "type": "OVA",
+  "anidb_id": 9826,
+  "anilist_id": 18397,
+  "animecountdown_id": 38688,
+  "animenewsnetwork_id": 17609,
+  "anime-planet_id": "attack-on-titan-ova",
+  "anisearch_id": 8677,
+  "imdb_id": [
+   "tt2560140"
+  ],
+  "kitsu_id": 7694,
+  "livechart_id": 139,
+  "mal_id": 18397,
+  "simkl_id": 38688,
+  "themoviedb_id": {
+   "tv": 1429
+  },
+  "tvdb_id": 267440,
+  "season": {
+   "tvdb": 0,
+   "tmdb": 0
+  }
+ },
+ {
+  "type": "MOVIE",
+  "anidb_id": 10583,
+  "animecountdown_id": 49394,
+  "anisearch_id": 9587,
+  "imdb_id": [
+   "tt3646944",
+   "tt3646946"
+  ],
+  "simkl_id": 49394,
+  "themoviedb_id": {
+   "tv": 1429
+  },
+  "tvdb_id": 267440,
+  "season": {
+   "tvdb": 0,
+   "tmdb": 0
+  }
+ },
+ {
+  "type": "TV",
+  "anidb_id": 10944,
+  "anilist_id": 20958,
+  "animecountdown_id": 439744,
+  "animenewsnetwork_id": 16681,
+  "anime-planet_id": "attack-on-titan-2nd-season",
+  "anisearch_id": 10082,
+  "imdb_id": [
+   "tt2560140"
+  ],
+  "kitsu_id": 8671,
+  "livechart_id": 754,
+  "mal_id": 25777,
+  "simkl_id": 439744,
+  "themoviedb_id": {
+   "tv": 1429
+  },
+  "tvdb_id": 267440,
+  "season": {
+   "tvdb": 2,
+   "tmdb": 2
+  }
+ },
+ {
+  "type": "MOVIE",
+  "anidb_id": 10961,
+  "anilist_id": 21220,
+  "animecountdown_id": 445208,
+  "animenewsnetwork_id": 16924,
+  "anime-planet_id": "boruto-naruto-the-movie",
+  "anisearch_id": 10223,
+  "imdb_id": [
+   "tt4618398"
+  ],
+  "kitsu_id": 10089,
+  "livechart_id": 1318,
+  "mal_id": 28755,
+  "simkl_id": 445208,
+  "themoviedb_id": {
+   "tv": 31910
+  },
+  "tvdb_id": 79824,
+  "season": {
+   "tvdb": 0,
+   "tmdb": 0
+  }
+ },
+ {
+  "type": "TV",
+  "anidb_id": 13241,
+  "anilist_id": 99147,
+  "animecountdown_id": 694485,
+  "animenewsnetwork_id": 19819,
+  "anime-planet_id": "attack-on-titan-3rd-season",
+  "anisearch_id": 12550,
+  "imdb_id": [
+   "tt2560140"
+  ],
+  "kitsu_id": 13569,
+  "livechart_id": 2737,
+  "mal_id": 35760,
+  "simkl_id": 694485,
+  "themoviedb_id": {
+   "tv": 1429
+  },
+  "tvdb_id": 267440,
+  "season": {
+   "tvdb": 3,
+   "tmdb": 3
+  }
+ },
+ {
+  "type": "MOVIE",
+  "anidb_id": 13546,
+  "anilist_id": 100465,
+  "animecountdown_id": 732309,
+  "animenewsnetwork_id": 20508,
+  "anime-planet_id": "attack-on-titan-movie-3-the-roar-of-awakening",
+  "anisearch_id": 12951,
+  "imdb_id": [
+   "tt7941892"
+  ],
+  "kitsu_id": 41487,
+  "livechart_id": 2959,
+  "mal_id": 36702,
+  "simkl_id": 732309,
+  "themoviedb_id": {
+   "tv": 1429
+  },
+  "tvdb_id": 267440,
+  "season": {
+   "tvdb": 0,
+   "tmdb": 0
+  }
+ },
+ {
+  "type": "TV",
+  "anidb_id": 14444,
+  "anilist_id": 104578,
+  "animecountdown_id": 931899,
+  "animenewsnetwork_id": 21812,
+  "anime-planet_id": "attack-on-titan-3rd-season-part-ii",
+  "anisearch_id": 13942,
+  "imdb_id": [
+   "tt2560140"
+  ],
+  "kitsu_id": 41982,
+  "livechart_id": 3558,
+  "mal_id": 38524,
+  "simkl_id": 931899,
+  "themoviedb_id": {
+   "tv": 1429
+  },
+  "tvdb_id": 267440,
+  "season": {
+   "tvdb": 3,
+   "tmdb": 3
+  },
+  "episode_offset": {
+   "tvdb": 12,
+   "tmdb": 12
+  }
+ },
+ {
+  "type": "TV",
+  "anidb_id": 14977,
+  "anilist_id": 110277,
+  "animecountdown_id": 1120029,
+  "animenewsnetwork_id": 22277,
+  "anime-planet_id": "attack-on-titan-the-final-season",
+  "anisearch_id": 14484,
+  "imdb_id": [
+   "tt2560140"
+  ],
+  "kitsu_id": 42422,
+  "livechart_id": 9491,
+  "mal_id": 40028,
+  "simkl_id": 1120029,
+  "themoviedb_id": {
+   "tv": 1429
+  },
+  "tvdb_id": 267440,
+  "season": {
+   "tvdb": 4,
+   "tmdb": 4
+  }
+ },
+ {
+  "type": "MOVIE",
+  "anidb_id": 15582,
+  "anilist_id": 119113,
+  "animecountdown_id": 1358719,
+  "animenewsnetwork_id": 23718,
+  "anime-planet_id": "attack-on-titan-movie-4-chronicle",
+  "anisearch_id": 15289,
+  "imdb_id": [
+   "tt12415546"
+  ],
+  "kitsu_id": 43212,
+  "livechart_id": 9996,
+  "mal_id": 42091,
+  "simkl_id": 1358719,
+  "themoviedb_id": {
+   "movie": [
+    714194
+   ]
+  },
+  "tvdb_id": 267440,
+  "season": {
+   "tvdb": 0
+  }
+ },
+ {
+  "type": "TV",
+  "anidb_id": 16177,
+  "anilist_id": 131681,
+  "animecountdown_id": 1579947,
+  "animenewsnetwork_id": 24648,
+  "anime-planet_id": "attack-on-titan-the-final-season-part-ii",
+  "anisearch_id": 16103,
+  "imdb_id": [
+   "tt2560140"
+  ],
+  "kitsu_id": 44240,
+  "livechart_id": 10487,
+  "mal_id": 48583,
+  "simkl_id": 1579947,
+  "themoviedb_id": {
+   "tv": 1429
+  },
+  "tvdb_id": 267440,
+  "season": {
+   "tvdb": 4,
+   "tmdb": 4
+  },
+  "episode_offset": {
+   "tvdb": 16,
+   "tmdb": 16
+  }
+ },
+ {
+  "type": "SPECIAL",
+  "anidb_id": 17303,
+  "anilist_id": 146984,
+  "animecountdown_id": 1883416,
+  "animenewsnetwork_id": 25492,
+  "anime-planet_id": "attack-on-titan-the-final-season-the-final-chapters",
+  "anisearch_id": 17265,
+  "imdb_id": [
+   "tt2560140"
+  ],
+  "kitsu_id": 46038,
+  "livechart_id": 11174,
+  "mal_id": 51535,
+  "simkl_id": 1883416,
+  "themoviedb_id": {
+   "tv": 1429
+  },
+  "tvdb_id": 267440,
+  "season": {
+   "tvdb": 4,
+   "tmdb": 4
+  },
+  "episode_offset": {
+   "tvdb": 28,
+   "tmdb": 28
+  }
+ },
+ {
+  "type": "SPECIAL",
+  "anilist_id": 142051,
+  "anime-planet_id": "raise-a-suilen-nvade-show",
+  "kitsu_id": 47450,
+  "mal_id": 51478
+ },
+ {
+  "type": "TV",
+  "anidb_id": 252,
+  "anilist_id": 93,
+  "animecountdown_id": 38848,
+  "animenewsnetwork_id": 883,
+  "anime-planet_id": "mobile-suit-gundam-seed",
+  "anisearch_id": 1515,
+  "imdb_id": [
+   "tt0374407"
+  ],
+  "kitsu_id": 72,
+  "livechart_id": 3933,
+  "mal_id": 93,
+  "simkl_id": 38848,
+  "themoviedb_id": {
+   "tv": 20111
+  },
+  "tvdb_id": 254931,
+  "season": {
+   "tvdb": 1,
+   "tmdb": 1
+  }
+ },
+ {
+  "type": "TV",
+  "anidb_id": 2186,
+  "anilist_id": 94,
+  "animecountdown_id": 40026,
+  "animenewsnetwork_id": 2669,
+  "anime-planet_id": "mobile-suit-gundam-seed-destiny",
+  "anisearch_id": 1444,
+  "imdb_id": [
+   "tt0374407"
+  ],
+  "kitsu_id": 73,
+  "livechart_id": 10614,
+  "mal_id": 94,
+  "simkl_id": 40026,
+  "themoviedb_id": {
+   "tv": 20111
+  },
+  "tvdb_id": 254931,
+  "season": {
+   "tvdb": 1,
+   "tmdb": 1
+  }
+ }
+]
