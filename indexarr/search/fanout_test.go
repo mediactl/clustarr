@@ -675,3 +675,57 @@ func TestSearchOnAnIncompleteServiceFailsRatherThanPanics(t *testing.T) {
 	require.Equal(t, schema.SearchOutcomeError, resp.Outcomes[0].Status)
 	require.Contains(t, resp.Outcomes[0].Error, "client factory")
 }
+
+// spec.minimumSeeders, by the same function the RSS poll uses: a torrent the
+// indexer reports below it is neither indexed nor returned, one it reports no
+// count for is kept (Sonarr's TorrentSeedingSpecification), and the threshold
+// is per Indexer.
+func TestSearchDropsTorrentsBelowTheIndexersMinimumSeeders(t *testing.T) {
+	strict := healthyIndexer("strict")
+	strict.Spec.MinimumSeeders = ptr.To[int32](10)
+	lax := healthyIndexer("lax")
+	lax.Spec.MinimumSeeders = ptr.To[int32](0)
+
+	feed := func(prefix string) []torznab.Release {
+		rels := wireReleases(3)
+		for i := range rels {
+			rels[i].GUID = prefix + "-" + rels[i].GUID
+		}
+		rels[0].Seeders = ptr.To[int32](0)
+		rels[1].Seeders = ptr.To[int32](10)
+		rels[2].Seeders = nil
+		return rels
+	}
+	store := &countingStore{}
+	s := &Service{
+		Client: newFakeClient(&strict, &lax),
+		Store:  store,
+		ClientFor: stubClientFor(map[string]stubClient{
+			"strict": {releases: feed("s")}, "lax": {releases: feed("l")},
+		}),
+	}
+	cands := selectCandidates([]indexv1alpha1.Indexer{strict, lax}, movieRequest(),
+		torznab.ModeMovieSearch, selectNow)
+	outcomes, results := s.fanOut(context.Background(), cands, movieRequest(), torznab.ModeMovieSearch, 2*time.Second)
+
+	guids := map[string][]string{}
+	for _, r := range results {
+		for _, rel := range r.Releases {
+			guids[r.Name] = append(guids[r.Name], rel.Info.GUID)
+		}
+	}
+	require.ElementsMatch(t, []string{"s-guid-1", "s-guid-2"}, guids["strict"], "0 < 10 is dropped; unreported is kept")
+	require.ElementsMatch(t, []string{"l-guid-0", "l-guid-1", "l-guid-2"}, guids["lax"], "an explicit 0 admits a seederless torrent")
+	for _, o := range outcomes {
+		require.Equal(t, schema.SearchOutcomeOK, o.Status)
+		if o.IndexerName == "strict" {
+			require.Equal(t, int32(2), o.Releases, "the outcome counts what was returned, not what was fetched")
+		}
+	}
+
+	var indexed []string
+	for _, row := range store.rows {
+		indexed = append(indexed, row.GUID)
+	}
+	require.NotContains(t, indexed, "s-guid-0", "a release below the minimum is not indexed either")
+}

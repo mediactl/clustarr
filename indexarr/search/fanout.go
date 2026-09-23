@@ -389,7 +389,8 @@ func (s *Service) failOutcome(
 	return out
 }
 
-// project turns the wire releases into the firehose payload.
+// project turns the wire releases into the firehose payload, dropping any
+// torrent below the Indexer's spec.minimumSeeders.
 //
 // rss.ProjectRelease is the ONE torznab.Release -> schema.Release projection
 // in this repo (task D1-7 owns it). Building a second one here is the Phase C
@@ -406,6 +407,12 @@ func (s *Service) project(idx *indexv1alpha1.Indexer, raw []torznab.Release) []s
 	now := s.now()
 	out := make([]schema.Release, 0, len(raw))
 	for _, r := range raw {
+		// spec.minimumSeeders, by the same function the RSS poll uses: a
+		// torrent the indexer reports below it is neither indexed nor
+		// returned (Sonarr's TorrentSeedingSpecification).
+		if rss.BelowMinimumSeeders(idx, string(protocol), r.Seeders) {
+			continue
+		}
 		rel := rss.ProjectRelease(r, idx.Name, string(protocol))
 		// ProjectRelease leaves FetchedAt zero on purpose: exactly one place
 		// stamps it, and for a search that place is here.

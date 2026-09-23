@@ -462,7 +462,15 @@ func (w *Worker) indexAndPublish(
 
 	rows := make([]relindex.Release, 0, len(fetched))
 	projected := make([]schema.Release, 0, len(fetched))
+	belowSeeders := 0
 	for _, r := range fetched {
+		// spec.minimumSeeders, as Sonarr's TorrentSeedingSpecification: a
+		// torrent the indexer reports below it is neither indexed nor
+		// published, so no consumer of the firehose ever grabs it.
+		if BelowMinimumSeeders(idx, string(protocol), r.Seeders) {
+			belowSeeders++
+			continue
+		}
 		rel := ProjectRelease(r, idx.Name, string(protocol))
 		rel.FetchedAt = now
 
@@ -512,6 +520,11 @@ func (w *Worker) indexAndPublish(
 		}
 		projected = append(projected, rel)
 		rows = append(rows, row)
+	}
+
+	if belowSeeders > 0 {
+		log.Debug("rss: skipped releases below spec.minimumSeeders",
+			"skipped", belowSeeders, "minimumSeeders", idx.Spec.MinimumSeedersOrDefault())
 	}
 
 	// Upsert FIRST, and take lastRssNewCount from its truthful `inserted`.
