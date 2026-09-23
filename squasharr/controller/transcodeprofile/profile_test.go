@@ -84,6 +84,8 @@ var schedulingFields = map[string]func(*transcodev1alpha1.TranscodeProfileSpec){
 	"GPU":      func(s *transcodev1alpha1.TranscodeProfileSpec) { s.GPU = &transcodev1alpha1.GPUSpec{Count: 2} },
 	"Scratch":  func(s *transcodev1alpha1.TranscodeProfileSpec) { s.Scratch = resource.MustParse("50Gi") },
 	"Priority": func(s *transcodev1alpha1.TranscodeProfileSpec) { s.Priority = 99 },
+	// MaxConcurrent is admission-only (per-profile concurrency, X1 item 8).
+	"MaxConcurrent": func(s *transcodev1alpha1.TranscodeProfileSpec) { s.MaxConcurrent = 3 },
 	"ActiveDeadline": func(s *transcodev1alpha1.TranscodeProfileSpec) {
 		s.ActiveDeadline = metav1.Duration{Duration: time.Hour}
 	},

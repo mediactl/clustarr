@@ -84,7 +84,7 @@ func TestAdmission(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			obj := &unstructured.Unstructured{Object: c.obj}
-			var ri dynamic.ResourceInterface = dyn.Resource(c.gvr).Namespace("default")
+			ri := dyn.Resource(c.gvr).Namespace("default")
 			if clusterScoped[c.gvr] {
 				ri = dyn.Resource(c.gvr)
 			}
