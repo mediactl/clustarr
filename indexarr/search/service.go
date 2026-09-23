@@ -214,10 +214,9 @@ func (s *Service) Search(ctx context.Context, req schema.SearchRequest) schema.S
 		attribute.Int("search.releases", len(rels)),
 		attribute.Bool("search.truncated", truncated),
 	)
-	// fetched alongside releases is the only visibility into the merge:
-	// spec §6.2's "alsoOn" provenance -- which OTHER indexers offered a
-	// release that was collapsed -- has no field on schema.Release or
-	// commonv1.ReleaseInfo, and the payload is frozen. Carried item.
+	// fetched alongside releases shows how much the merge collapsed in
+	// aggregate; which OTHER indexers offered a particular collapsed release
+	// is on that release, in Info.AlsoOn (spec §6.2's alsoOn provenance).
 	log.Info("indexarr/search: replied",
 		"kind", req.Kind, "candidates", len(cands), "fetched", fetched,
 		"releases", len(rels), "truncated", truncated)

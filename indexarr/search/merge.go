@@ -18,9 +18,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package search
 
 import (
+	"slices"
 	"sort"
 	"strings"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
@@ -39,10 +41,11 @@ type indexerResult struct {
 // then (indexer, guid), which is per-indexer by construction and therefore
 // only catches an indexer that repeated itself inside one page.
 //
-// CARRIED ITEM: a usenet release offered by two indexers has no infohash and
-// two distinct guids, so it is NOT collapsed. A title+size key was considered
-// and rejected -- a wrong dedupe silently loses releases, which is worse than
-// a duplicate that pkg/decision ranks sanely downstream.
+// By design (gap-fix ruling R-2): a usenet release offered by two indexers
+// has no infohash and two distinct guids, so it is NOT collapsed. A
+// title+size key was considered and rejected -- a wrong dedupe silently loses
+// releases, which is worse than a duplicate that pkg/decision ranks sanely
+// downstream.
 func dedupeKey(r schema.Release) string {
 	if h := strings.ToLower(strings.TrimSpace(r.Info.InfoHash)); h != "" {
 		return "hash:" + h
@@ -56,12 +59,21 @@ func dedupeKey(r schema.Release) string {
 // catalogarr re-scores everything through pkg/decision. It is fully
 // deterministic -- ties fall back to arrival sequence -- so the same inputs
 // always truncate the same way.
+//
+// Each survivor carries spec §6.2's alsoOn provenance in Info.AlsoOn: the
+// OTHER indexers that offered the same release, by object name, sorted and
+// capped at commonv1.MaxAlsoOn. Info.IndexerRef is the source the merge kept
+// and is never repeated there. Only an infohash collapse can name another
+// indexer -- the (indexer, guid) key is per-indexer by construction -- so a
+// usenet release, which dedupeKey never collapses across indexers, always
+// has an empty AlsoOn.
 func mergeReleases(results []indexerResult, limit int) ([]schema.Release, bool) {
 	type entry struct {
 		rel      schema.Release
 		priority int32
 		seeders  int32
 		seq      int
+		sources  []string // every indexer that offered this key
 	}
 	best := make(map[string]*entry)
 	order := make([]string, 0, limit)
@@ -73,15 +85,22 @@ func mergeReleases(results []indexerResult, limit int) ([]schema.Release, bool) 
 			cur := &entry{rel: r, priority: res.Priority, seeders: seedersOf(r), seq: seq}
 			prev, ok := best[k]
 			if !ok {
+				cur.sources = []string{r.Info.IndexerRef}
 				best[k] = cur
 				order = append(order, k)
 				continue
 			}
+			sources := prev.sources
+			if !slices.Contains(sources, r.Info.IndexerRef) {
+				sources = append(sources, r.Info.IndexerRef)
+			}
+			prev.sources = sources
 			if cur.priority < prev.priority ||
 				(cur.priority == prev.priority && cur.seeders > prev.seeders) {
 				// Keep the winner's slot in the original order: the survivor
 				// changes, its position does not, so the merge stays stable.
 				cur.seq = prev.seq
+				cur.sources = sources
 				best[k] = cur
 			}
 		}
@@ -106,9 +125,30 @@ func mergeReleases(results []indexerResult, limit int) ([]schema.Release, bool) 
 	}
 	out := make([]schema.Release, 0, len(merged))
 	for _, e := range merged {
-		out = append(out, e.rel)
+		r := e.rel
+		r.Info.AlsoOn = alsoOn(e.sources, r.Info.IndexerRef)
+		out = append(out, r)
 	}
 	return out, truncated
+}
+
+// alsoOn is sources without kept, deduplicated, sorted by name so the same
+// merge always renders the same list, and truncated to commonv1.MaxAlsoOn --
+// the CRD's MaxItems, past which the apiserver would reject the whole
+// Search.status or Download.spec that carries this release. An empty result
+// is nil, so the omitempty field is absent rather than [].
+func alsoOn(sources []string, kept string) []string {
+	var out []string
+	for _, s := range sources {
+		if s != "" && s != kept && !slices.Contains(out, s) {
+			out = append(out, s)
+		}
+	}
+	sort.Strings(out)
+	if len(out) > commonv1.MaxAlsoOn {
+		out = out[:commonv1.MaxAlsoOn]
+	}
+	return out
 }
 
 // seedersOf reads the seeder count, treating "the indexer reported none" as

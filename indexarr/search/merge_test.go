@@ -72,7 +72,7 @@ func TestMergeCollapsesARepeatedGUIDFromOneIndexer(t *testing.T) {
 	require.Len(t, got, 1)
 }
 
-// CARRIED ITEM, pinned executably: a usenet release offered by two indexers
+// Ruling R-2, pinned executably: a usenet release offered by two indexers
 // has no infohash and two distinct guids, so it is NOT collapsed. Inventing a
 // title+size key was considered and rejected -- a wrong dedupe silently loses
 // releases.
@@ -146,4 +146,65 @@ func TestMergeIsDeterministic(t *testing.T) {
 	guids := []string{first[0].Info.GUID, first[1].Info.GUID, first[2].Info.GUID}
 	require.Contains(t, guids, "a1")
 	require.NotContains(t, guids, "b1")
+}
+
+// Spec §6.2's alsoOn provenance: the survivor of an infohash collapse names
+// every OTHER indexer that offered it, never the one it came from, sorted so
+// the same merge renders the same list.
+func TestMergeRecordsTheOtherIndexersInAlsoOn(t *testing.T) {
+	got, _ := mergeReleases([]indexerResult{
+		{Name: "zeta", Priority: 25, Releases: []schema.Release{rel("zeta", "g-z", "abc123", 5)}},
+		{Name: "alpha", Priority: 10, Releases: []schema.Release{rel("alpha", "g-a", "ABC123", 1)}},
+		{Name: "mid", Priority: 25, Releases: []schema.Release{rel("mid", "g-m", "abc123", 900)}},
+		{Name: "solo", Priority: 25, Releases: []schema.Release{rel("solo", "g-s", "fff", 3)}},
+	}, schema.MaxSearchReleases)
+
+	require.Len(t, got, 2)
+	byRef := map[string]schema.Release{}
+	for _, r := range got {
+		byRef[r.Info.IndexerRef] = r
+	}
+	kept, ok := byRef["alpha"]
+	require.True(t, ok, "priority 10 wins the collapse")
+	require.Equal(t, []string{"mid", "zeta"}, kept.Info.AlsoOn)
+	require.NotContains(t, kept.Info.AlsoOn, kept.Info.IndexerRef)
+
+	require.Nil(t, byRef["solo"].Info.AlsoOn, "a release one indexer offered has no provenance")
+}
+
+// A repeat inside one indexer's page is not a second source, and a usenet
+// release is never collapsed across indexers, so neither gains an AlsoOn.
+func TestMergeAlsoOnNeverNamesTheKeptIndexer(t *testing.T) {
+	got, _ := mergeReleases([]indexerResult{{
+		Name: "a", Priority: 25,
+		Releases: []schema.Release{rel("a", "dup", "", 1), rel("a", "dup", "", 1)},
+	}}, schema.MaxSearchReleases)
+	require.Len(t, got, 1)
+	require.Nil(t, got[0].Info.AlsoOn)
+
+	got, _ = mergeReleases([]indexerResult{
+		{Name: "a", Priority: 25, Releases: []schema.Release{rel("a", "guid-a", "", 0)}},
+		{Name: "b", Priority: 25, Releases: []schema.Release{rel("b", "guid-b", "", 0)}},
+	}, schema.MaxSearchReleases)
+	require.Len(t, got, 2)
+	for _, r := range got {
+		require.Nil(t, r.Info.AlsoOn)
+	}
+}
+
+// The list is capped at the CRD's MaxItems: past it the apiserver rejects the
+// whole Search.status or Download.spec that carries the release.
+func TestMergeTruncatesAlsoOnToMaxAlsoOn(t *testing.T) {
+	var results []indexerResult
+	results = append(results, indexerResult{Name: "keeper", Priority: 1,
+		Releases: []schema.Release{rel("keeper", "g", "abc", 1)}})
+	for i := range commonv1.MaxAlsoOn + 5 {
+		name := "idx-" + strconv.Itoa(100+i)
+		results = append(results, indexerResult{Name: name, Priority: 25,
+			Releases: []schema.Release{rel(name, "g-"+name, "abc", 1)}})
+	}
+	got, _ := mergeReleases(results, schema.MaxSearchReleases)
+	require.Len(t, got, 1)
+	require.Equal(t, "keeper", got[0].Info.IndexerRef)
+	require.Len(t, got[0].Info.AlsoOn, commonv1.MaxAlsoOn)
 }
