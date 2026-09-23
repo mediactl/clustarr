@@ -18,11 +18,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package download reconciles Download: it picks a DownloadClient for a
 // newly-created Download, waits for that client's engine to report ready,
 // pins the choice into status.engine so a later reconcile cannot silently
-// migrate a running transfer, and runs a finalizer honouring
-// spec.removeDataOnDelete. Design spec §6.3; plan task D2-4. Field manager:
-// k8s.ManagerGrabarr only -- see grabarr/status for the full split with
-// k8s.ManagerGrabarrEngine and why an over-claim against the engine's set is
-// silent rather than a conflict.
+// migrate a running transfer, advances status.phase from engine-owned
+// telemetry once pinned, publishes the file-import work item once content
+// is complete on disk, and runs a finalizer honouring
+// spec.removeDataOnDelete. Design spec §6.3; plan tasks D2-4 and D2-8a.
+// Field manager: k8s.ManagerGrabarr only -- see grabarr/status for the full
+// split with k8s.ManagerGrabarrEngine and why an over-claim against the
+// engine's set is silent rather than a conflict.
 //
 // # ClientRef selection
 //
@@ -61,41 +63,57 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // ready one so a temporarily-down engine keeps its share (HashOrdinal's own
 // doc comment).
 //
-// # What this task deliberately does not do
+// # What D2-4 deliberately did not do, and what D2-8a closed
 //
 // The eleven-value DownloadPhase enum is closed and pinned (plan ruling R1):
 // catalogarr/controller/rollup/downloadoverlay.go's DownloadOverlay switches
 // on all of it, with a default branch (Completed, Seeding, Imported, Failed,
-// Blocklisted, Removing) that means "no opinion". This reconciler only ever
-// writes Pending and Assigned -- the two rows R1 itself says are "exercised
-// by anything real before grabarr lands" -- and NEVER writes Removing during
-// the finalizer (see below). It is therefore a strict subset of the closed
-// set and cannot diverge from the rollup switch by construction: every value
-// this package can produce already has a case in that switch.
+// Blocklisted, Removing) that means "no opinion". D2-4 (43845da) only ever
+// wrote Pending and Assigned, because the mapping a further phase needed
+// requires engine-owned telemetry (status.stage, status.isEncrypted, ...)
+// that no writer produced until D2-5/D2-6 landed (wave 3, after D2-4) --
+// writing it earlier would have been a guess dressed as an implementation,
+// untestable against fields nothing populated.
 //
-// It follows that Queued/Downloading/Paused/Completed/Seeding/Imported/
-// Failed/Blocklisted are not implemented here. Those all require reading
-// engine-owned telemetry (status.stage, status.canBeRemoved, ...) that no
-// writer produces until D2-5/D2-6 land (wave 3, after this task); a mapping
-// written against fields nothing populates would be untested and a guess
-// dressed as an implementation. The plan's own D2-4 section names exactly
-// four deliverables -- ClientRef pick, EngineReady wait, status.engine pin,
-// finalizer -- and none of them requires that mapping.
+// D2-8a is that further task. [derivePhase] (phase.go) reads status.stage,
+// status.isEncrypted, status.import and the blocklist label, and
+// advancePhase (controller.go) drives status.phase through
+// Assigned -> Queued -> Downloading -> Completed/Seeding -> Imported, plus
+// Paused and Failed. It remains a strict subset of the closed set and
+// cannot diverge from the rollup switch by construction -- phase.go's own
+// doc comment gives the full accounting, verified against
+// downloadoverlay.go's source. Removing is still never written, by the
+// finalizer or anywhere else (see below, unchanged from D2-4).
 //
-// This package also does not publish schema.DownloadEvent or
-// schema.ImportTask, even though design spec §6.3's condensed prose
-// ("Phase=Assigned; evt.download.queued; delete the grab lease on terminal
-// phase") and plan ruling R8 (both payload types have zero producers) gesture
-// at a producer somewhere in grabarr. The plan's own D2-4 task text does not
-// mention either one, R8 assigns neither to a specific task, "delete the grab
-// lease" is catalogarr/worker/grab's KV state and out of this directory, and
-// schema.ImportTask's own subject -- events.WorkFileImportSubject, which
-// importarr/worker/fileimport's ConsumerImportFile actually listens on -- is
-// disjoint from the "clustarr.work.catalogarr.import..." subject that type's
-// own doc comment still (incorrectly) claims. Wiring the Completed-phase
-// producer that would make importarr's already-landed consumer fire is a real
-// gap in the end-to-end pipeline, but it belongs with whichever task teaches
-// this package about Completed in the first place, not with D2-4.
+// derivePhase does not reach every DownloadFailureReason: only encrypted is
+// telemetry-derivable without a live download.Client, which this package
+// still does not hold (see "The finalizer needs no live engine" below).
+// stalled, diskFull, writeError, timeout, missingArticles and manual remain
+// unimplemented -- phase.go explains why each would need either a live
+// Client or an unsourced inactivity-threshold judgment call, which this
+// task declined to make up rather than guess at. SeedGoalMet is the one
+// condition grabarr/status.ControllerFields lists (its own doc comment:
+// "the reconciler derives all five on every pass") that advancePhase does
+// not compute, for the same reason: status.canBeRemoved conflates "seed
+// goal met" with "import finished" and nothing else in the available
+// telemetry distinguishes the two.
+//
+// advancePhase also now publishes schema.ImportTask to
+// events.WorkFileImportSubject(<download-uid>) the first reconcile that
+// observes the content complete on disk (Completed or Seeding) --
+// design spec §6.3's condensed prose ("Phase=Assigned; evt.download.queued;
+// delete the grab lease on terminal phase") and plan ruling R8 (the payload
+// type had zero producers) both gestured at this producer without D2-4
+// claiming it. It is the one importarr/worker/fileimport's ConsumerImportFile
+// (D2-7) has been waiting on since it landed; see controller.go's
+// publishImportTask and advancePhase doc comments for the exactly-once
+// discipline (a Downloaded-condition gate, backed by a deterministic
+// Envelope.ID for the broker's own dedup window as a second, independent
+// layer). schema.DownloadEvent and schema.DownloadProgress remain
+// unpublished by this package -- "delete the grab lease" is
+// catalogarr/worker/grab's KV state and out of this directory regardless --
+// so §6.3's evt.download.queued notification and the 1Hz progress stream
+// are still a real gap for whichever task takes them next.
 //
 // # The finalizer needs no live engine
 //
@@ -112,12 +130,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // plants the field directly, standing in for the engine that will really set
 // it once D2-5/D2-6 land.
 //
-// The finalizer does not set status.phase=Removing. Every phase this
-// reconciler is scoped to falls on DownloadOverlay's default branch either
-// way (Removing included), so the omission has no observable effect on the
-// rollup, and asserting "the engine is tearing the transfer down"
-// (DownloadPhaseRemoving's own doc comment) would describe a process this
-// controller is not actually running.
+// The finalizer does not set status.phase=Removing (unchanged by D2-8a,
+// which owns advancePhase, not reconcileDelete). Removing itself falls on
+// DownloadOverlay's default branch regardless of who writes it, so the
+// omission has no observable effect on the rollup either way, and asserting
+// "the engine is tearing the transfer down" (DownloadPhaseRemoving's own
+// doc comment) would describe a process this controller is not actually
+// running.
 //
 // # RBAC markers are package-level
 //

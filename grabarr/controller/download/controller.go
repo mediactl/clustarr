@@ -27,7 +27,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/events"
+	k8sevents "k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -40,10 +40,13 @@ import (
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	grabarrstatus "github.com/mediactl/clustarr/grabarr/status"
+	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/version"
 )
 
 // clientRefIndexKey indexes Download by spec.clientRef, so a DownloadClient
@@ -66,26 +69,67 @@ const (
 	// ReasonEngineNotReady means the assigned DownloadClient's EngineReady
 	// condition is not True.
 	ReasonEngineNotReady = "EngineNotReady"
+	// ReasonEncrypted is the Failed condition's reason when status.isEncrypted
+	// is true -- see phase.go's derivePhase for why this is currently the
+	// only failure signal this package can read without a live
+	// download.Client.
+	ReasonEncrypted = "Encrypted"
 )
 
 // Reconciler picks a DownloadClient for a Download, waits for its engine, pins
-// the assignment, and runs the removeDataOnDelete finalizer. Field manager:
-// k8s.ManagerGrabarr only; see doc.go for the full scope and the fields this
-// task deliberately leaves to later work.
+// the assignment, advances status.phase from engine-owned telemetry once
+// assigned, publishes the file-import work item, and runs the
+// removeDataOnDelete finalizer. Field manager: k8s.ManagerGrabarr only; see
+// doc.go for the full scope and the fields this package deliberately leaves
+// to later work.
 type Reconciler struct {
 	Client   client.Client
-	Recorder events.EventRecorder
+	Recorder k8sevents.EventRecorder
 
 	// DataDir is the shared RWX volume every grabarr pod -- controller and
 	// engine alike -- mounts (config/manager/grabarr.yaml), used by the
 	// finalizer to remove a Download's on-disk content directly. See doc.go's
 	// "The finalizer needs no live engine".
 	DataDir string
+
+	// Bus publishes schema.ImportTask once a Download's content is first
+	// observed complete on disk (see [derivePhase] and [publishImportTask]).
+	// events.Publisher, not the full events.Bus, is deliberate: this
+	// reconciler only ever produces, never subscribes or reads KV, the same
+	// minimal-footprint choice catalogarr/controller/movie.Reconciler and
+	// catalogarr/controller/search.Reconciler already make for their own Bus
+	// fields.
+	//
+	// Nil is accepted by NewReconciler -- every test built before this task
+	// exercises only Stage="" (Phase=Assigned), which never reaches the
+	// publish path -- but it is not a silently-degraded configuration once a
+	// Download's content genuinely completes: [publishImportTask] returns an
+	// error rather than skipping the publish, so a misconfigured deployment
+	// fails its reconcile loudly and keeps retrying rather than leaving a
+	// completed Download that is never imported. Task D2-8 must wire a real
+	// events.Bus before registering this controller.
+	Bus events.Publisher
+
+	// Now is the clock. Nil means time.Now; the same seam
+	// downloadclient.BlocklistSweeper.Now provides, here for
+	// status.startedAt/status.completedAt.
+	Now func() time.Time
 }
 
-// NewReconciler builds a Reconciler.
-func NewReconciler(c client.Client, recorder events.EventRecorder, dataDir string) *Reconciler {
+// NewReconciler builds a Reconciler with no Bus configured; set the field
+// directly for a caller that needs status.phase to advance past
+// Completed/Seeding, which is every caller other than this package's own
+// pre-D2-8a fixtures.
+func NewReconciler(c client.Client, recorder k8sevents.EventRecorder, dataDir string) *Reconciler {
 	return &Reconciler{Client: c, Recorder: recorder, DataDir: dataDir}
+}
+
+// now returns r.Now() if set, else time.Now.
+func (r *Reconciler) now() time.Time {
+	if r.Now != nil {
+		return r.Now()
+	}
+	return time.Now()
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
@@ -120,16 +164,10 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, dl *downloadv1alpha1.D
 	log := logging.FromContext(ctx).With("download", client.ObjectKeyFromObject(dl))
 
 	if dl.Status.Engine != "" {
-		// Pinned already: doc.go's "one-way door". This reconcile has nothing
-		// new to decide, but grabarr/status.ControllerFields does not seed
-		// Conditions (WithConditions appends, so a seed plus a fresh set would
-		// duplicate the "Assigned" entry) -- reassert it explicitly rather
-		// than let an apply with no mutate silently omit it.
-		if err := r.applyStatus(ctx, dl, downloadv1alpha1.DownloadPhaseAssigned, dl.Status.Engine, true,
-			k8s.ReasonReconciled, "clientRef=%s engine=%s", dl.Spec.ClientRef, dl.Status.Engine); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, nil
+		// Pinned already: doc.go's "one-way door". clientRef/engine are not
+		// recomputed, but status.phase now is -- see advancePhase and
+		// [derivePhase] (D2-8a).
+		return r.advancePhase(ctx, dl)
 	}
 
 	clientName := dl.Spec.ClientRef
@@ -250,6 +288,152 @@ func (r *Reconciler) applyStatus(
 	})
 }
 
+// advancePhase runs once status.engine is pinned (controller.go's "one-way
+// door"). It maps engine-owned telemetry plus the Download's own history
+// onto status.phase (see [derivePhase] in phase.go for the mapping and
+// plan ruling R1), and publishes importarr's file-import work item exactly
+// once, the first reconcile that observes the content complete on disk.
+func (r *Reconciler) advancePhase(ctx context.Context, dl *downloadv1alpha1.Download) (ctrl.Result, error) {
+	ctx, span := tracing.Start(ctx, "download.Reconciler.advancePhase")
+	defer span.End()
+	log := logging.FromContext(ctx).With("download", client.ObjectKeyFromObject(dl))
+
+	res := derivePhase(dl)
+	wasComplete := k8s.IsConditionTrue(dl.Status.Conditions, downloadv1alpha1.DownloadConditionDownloaded)
+	nowComplete := isContentComplete(res.phase)
+
+	// Publish BEFORE recording, never after: a crash between the two leaves
+	// a Download whose content is complete but whose Downloaded condition is
+	// still False, so the next reconcile (this same watch will fire again on
+	// its own retry) publishes again -- survivable, because D2-7's
+	// file-import worker is idempotent both through its own dedup
+	// fingerprint and through its status.import.state check
+	// (importarr/worker/fileimport/dedup.go, worker.go). Recording first and
+	// publishing second would risk the opposite outcome: a Download marked
+	// Downloaded whose import task was never actually sent, which nothing
+	// in the system would ever retry.
+	if nowComplete && !wasComplete {
+		if err := r.publishImportTask(ctx, dl); err != nil {
+			return ctrl.Result{}, fmt.Errorf("download: publish import task for %s/%s: %w", dl.Namespace, dl.Name, err)
+		}
+		log.Info("content complete on disk; published import task", "phase", res.phase)
+	}
+
+	if err := r.applyAdvancedStatus(ctx, dl, res, wasComplete || nowComplete); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, nil
+}
+
+// applyAdvancedStatus sends the complete k8s.ManagerGrabarr declaration for
+// res: phase, failureReason (set only for Failed and explicitly cleared
+// otherwise -- grabarr/status.ControllerFields' "to CLEAR a field" note),
+// the startedAt/completedAt transition timestamps derived from this same
+// phase edge, and every condition this task computes, derived fresh rather
+// than carried forward (grabarr/status.ControllerFields' own doc comment:
+// "the reconciler derives all five on every pass" -- SeedGoalMet is the one
+// exception, deliberately not computed here; see phase.go). downloaded is
+// passed in rather than recomputed so advancePhase's publish gate and the
+// Downloaded condition this method sets can never disagree about whether
+// content is complete.
+func (r *Reconciler) applyAdvancedStatus(
+	ctx context.Context,
+	dl *downloadv1alpha1.Download,
+	res phaseResult,
+	downloaded bool,
+) error {
+	now := metav1.NewTime(r.now())
+	return grabarrstatus.Patch(ctx, r.Client, k8s.ManagerGrabarr, dl, func(ac *downloadac.DownloadStatusApplyConfiguration) {
+		ac.WithPhase(res.phase)
+		ac.WithEngine(dl.Status.Engine)
+
+		if res.phase == downloadv1alpha1.DownloadPhaseFailed {
+			ac.WithFailureReason(res.failureReason)
+		} else {
+			// Clear rather than carry forward: ControllerFields seeds
+			// FailureReason from the live status, and a Download that is no
+			// longer Failed must not keep explaining a failure that is no
+			// longer true.
+			ac.FailureReason = nil
+		}
+
+		if dl.Status.StartedAt == nil && dl.Status.Stage != "" {
+			ac.WithStartedAt(now)
+		}
+		if dl.Status.CompletedAt == nil && downloaded {
+			ac.WithCompletedAt(now)
+		}
+
+		conditions := append([]metav1.Condition(nil), dl.Status.Conditions...)
+		k8s.MarkTrue(dl, &conditions, downloadv1alpha1.DownloadConditionAssigned, k8s.ReasonReconciled,
+			"clientRef=%s engine=%s", dl.Spec.ClientRef, dl.Status.Engine)
+		if downloaded {
+			k8s.MarkTrue(dl, &conditions, downloadv1alpha1.DownloadConditionDownloaded, k8s.ReasonSucceeded,
+				"content complete on disk (phase=%s)", res.phase)
+		} else {
+			k8s.MarkFalse(dl, &conditions, downloadv1alpha1.DownloadConditionDownloaded, k8s.ReasonReconciling,
+				"transfer in progress (stage=%s)", dl.Status.Stage)
+		}
+		if res.phase == downloadv1alpha1.DownloadPhaseFailed {
+			// ReasonEncrypted today: it is the only failure this function
+			// can reach. See phase.go for why the others are not attempted.
+			k8s.MarkTrue(dl, &conditions, downloadv1alpha1.DownloadConditionFailed, ReasonEncrypted, "%s", res.failureReason)
+		} else {
+			k8s.MarkFalse(dl, &conditions, downloadv1alpha1.DownloadConditionFailed, k8s.ReasonSucceeded, "no failure observed")
+		}
+		if res.phase == downloadv1alpha1.DownloadPhaseImported {
+			k8s.MarkTrue(dl, &conditions, downloadv1alpha1.DownloadConditionImported, k8s.ReasonSucceeded, "import finished")
+		} else {
+			k8s.MarkFalse(dl, &conditions, downloadv1alpha1.DownloadConditionImported, k8s.ReasonReconciling, "not yet imported")
+		}
+		ac.WithConditions(k8s.ConditionACs(conditions)...)
+	})
+}
+
+// publishImportTask publishes schema.ImportTask so importarr's
+// ConsumerImportFile file-import worker (D2-7) imports dl. advancePhase
+// calls it at most once per completion via its Downloaded-condition gate;
+// this method adds a second, independent idempotency layer for the one case
+// that gate cannot cover -- a crash between this publish succeeding and the
+// status apply that records it (grabarr/status.Patch, in
+// applyAdvancedStatus), which would otherwise leave the next reconcile
+// reading a still-False Downloaded condition and publishing a duplicate.
+// The Envelope's ID is deterministic per Download identity rather than per
+// publish attempt, so the broker's own MsgID dedup window absorbs that
+// specific near-term retry; D2-7's worker is also independently idempotent
+// through its own dedup fingerprint (importarr/worker/fileimport/dedup.go)
+// and its status.import.state check, so a duplicate that outlives both
+// windows is survivable rather than free -- exactly what the plan asks the
+// producer to be.
+func (r *Reconciler) publishImportTask(ctx context.Context, dl *downloadv1alpha1.Download) error {
+	if r.Bus == nil {
+		return fmt.Errorf("download: no event bus configured for %s/%s", dl.Namespace, dl.Name)
+	}
+
+	task := schema.ImportTask{
+		DownloadRef: schema.Ref{Namespace: dl.Namespace, Name: dl.Name, UID: string(dl.UID)},
+	}
+	schemaName, data, err := schema.Encode(task)
+	if err != nil {
+		return fmt.Errorf("encode import task: %w", err)
+	}
+	subject := events.WorkFileImportSubject(string(dl.UID))
+	env := &events.Envelope{
+		ID:     dl.Namespace + "/" + dl.Name + ":" + string(dl.UID) + ":import",
+		Type:   "catalog.ImportTask",
+		Schema: schemaName,
+		Source: "grabarr-controller@" + version.String(),
+		Key:    dl.Namespace + "/" + dl.Name,
+		Time:   r.now(),
+		Data:   data,
+	}
+	tracing.Inject(ctx, env)
+	if _, err := r.Bus.Publish(ctx, subject, env); err != nil {
+		return fmt.Errorf("publish %s: %w", subject, err)
+	}
+	return nil
+}
+
 // reconcileDelete runs the spec.removeDataOnDelete finalizer and, once done,
 // drops the finalizer. See doc.go's "The finalizer needs no live engine" for
 // why this reaches directly for fsops rather than a download.Client.
@@ -337,6 +521,45 @@ func engineReadyStatus(o client.Object) metav1.ConditionStatus {
 	return ""
 }
 
+// phaseSignal projects the Download fields [derivePhase] reads that are NOT
+// covered by metadata.generation, for k8s.StatusFieldChanged on the
+// controller's own watch of Download. Without this, D2-8a's phase
+// advancement would never fire: status.stage and status.isEncrypted are
+// written by k8s.ManagerGrabarrEngine and status.import by
+// k8s.ManagerImportarr, on the SAME object this controller already watches,
+// but neither write bumps metadata.generation (only a spec change does),
+// and a label add/change -- the blocklist path -- bumps neither generation
+// nor any status field. Every existing predicate on this watch
+// (GenerationChanged, Deleting) would silently miss all three, which is
+// exactly the class of bug the plan's own hazard list calls a lost wake
+// rather than a lost update: the reconcile that would have advanced the
+// phase simply never runs.
+//
+// status.progressPercent and the byte/rate counters are deliberately absent
+// from the projection: [derivePhase] does not read them (see phase.go), so
+// including them here would only turn this controller into the
+// continuously-reconciling hot loop predicates.go's own package comment
+// warns against ("a metadata refresh ... must not wake squasharr").
+type downloadPhaseSignal struct {
+	stage       downloadv1alpha1.DownloadStage
+	encrypted   bool
+	importDone  bool
+	blocklisted bool
+}
+
+func phaseSignal(o client.Object) downloadPhaseSignal {
+	dl, ok := o.(*downloadv1alpha1.Download)
+	if !ok {
+		return downloadPhaseSignal{}
+	}
+	return downloadPhaseSignal{
+		stage:       dl.Status.Stage,
+		encrypted:   dl.Status.IsEncrypted,
+		importDone:  dl.Status.Import != nil && dl.Status.Import.State == downloadv1alpha1.ImportPhaseImported,
+		blocklisted: dl.Labels[downloadv1alpha1.LabelBlocklisted] == downloadv1alpha1.LabelBlocklistedValue,
+	}
+}
+
 // SetupWithManager registers the Download controller.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &downloadv1alpha1.Download{}, clientRefIndexKey,
@@ -356,7 +579,11 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// deletionTimestamp (that is a metadata change, not a spec change),
 		// which would leave a deleted-with-finalizer Download stuck until an
 		// unrelated event nudged it; k8s.Deleting() covers exactly that case.
-		For(&downloadv1alpha1.Download{}, builder.WithPredicates(k8s.Or(k8s.GenerationChanged(), k8s.Deleting()))).
+		// k8s.StatusFieldChanged(phaseSignal) is D2-8a's own addition -- see
+		// that function's doc comment for why phase advancement is
+		// unreachable without it.
+		For(&downloadv1alpha1.Download{}, builder.WithPredicates(k8s.Or(
+			k8s.GenerationChanged(), k8s.Deleting(), k8s.StatusFieldChanged(phaseSignal)))).
 		Watches(&downloadv1alpha1.DownloadClient{}, handler.EnqueueRequestsFromMapFunc(r.mapDownloadClient),
 			builder.WithPredicates(k8s.StatusFieldChanged(engineReadyStatus))).
 		WithOptions(controller.Options{ReconciliationTimeout: 5 * time.Minute}).

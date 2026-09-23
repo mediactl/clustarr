@@ -223,7 +223,13 @@ type GrabTask struct {
 func (GrabTask) Schema() string { return "catalog.GrabTask.v1" }
 
 // ImportTask asks an import worker to import a completed download.
-// Subject: clustarr.work.catalogarr.import.normal.<download-uid>.
+// Subject: clustarr.work.importarr.fileimport.<download-uid>, built by
+// events.WorkFileImportSubject and consumed by ConsumerImportFile
+// ("importarr-fileimport", topology.go). This comment previously claimed
+// clustarr.work.catalogarr.import.normal.<download-uid>, which no consumer
+// ever listened on; amendment-1 moved the importer out of catalogarr into
+// importarr/worker/fileimport (D2-7), and the subject documented here never
+// followed.
 type ImportTask struct {
 	// DownloadRef is the completed Download to import.
 	DownloadRef Ref `json:"downloadRef"`
