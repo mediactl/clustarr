@@ -121,10 +121,13 @@ func TestReconcileRefusesAListWhoseProviderCannotYieldAKind(t *testing.T) {
 	il := steadyList(t, ctx, c, bus, r, &clock, ns)
 	before := il.Status.DeepCopy()
 
-	// A StevenLu feed cannot yield series (gap-fix ruling R-10). The clock
-	// moves past nextSyncAt, so a sync would otherwise be due.
-	il.Spec.Kinds = []string{"movie", "series"}
-	require.NoError(t, c.Update(ctx, il))
+	// A StevenLu feed cannot yield series (gap-fix ruling R-10). Since X14
+	// the CRD refuses such a spec, so this is the list admitted BEFORE it
+	// did: the reconciler reads it with series added, through a client whose
+	// Get stands in for the older object. Everything else -- the status
+	// apply, the bus -- is the real apiserver. The clock moves past
+	// nextSyncAt, so a sync would otherwise be due.
+	r.Client = staleKinds{Client: c, name: il.Name, kinds: []string{"movie", "series"}}
 	clock = clock.Add(25 * time.Hour)
 	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: il.Name}})
 	require.NoError(t, err)
@@ -279,4 +282,23 @@ func TestReconcileKeepsSyncedOnceTheCheckpointHasExpired(t *testing.T) {
 	require.Equal(t, before.Status, synced.Status, "an expired checkpoint is not a list that never synced")
 	require.Equal(t, before.Message, synced.Message)
 	require.Equal(t, il.Status.ItemCount, got.Status.ItemCount)
+}
+
+// staleKinds is a client whose Get returns the named ImportList with
+// spec.kinds replaced: an ImportList admitted before the CRD carried R-10's
+// CEL rules (task X14), which the apiserver would now refuse to store.
+type staleKinds struct {
+	client.Client
+	name  string
+	kinds []string
+}
+
+func (s staleKinds) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if err := s.Client.Get(ctx, key, obj, opts...); err != nil {
+		return err
+	}
+	if il, ok := obj.(*catalogv1alpha1.ImportList); ok && key.Name == s.name {
+		il.Spec.Kinds = append([]string(nil), s.kinds...)
+	}
+	return nil
 }

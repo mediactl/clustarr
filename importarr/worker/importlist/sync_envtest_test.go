@@ -256,8 +256,13 @@ func TestHandleFailsAKindTheProviderCannotYieldInsteadOfSkippingIt(t *testing.T)
 
 	newConfigMap(t, ctx, c, ns, "watchlist-csv", csvFixture)
 	il := newImdbCSVList(ns, "watchlist", "watchlist-csv", catalogv1alpha1.SyncLevelLogOnly)
-	il.Spec.Kinds = []string{"movie", "album"}
+	il.Spec.Kinds = []string{"movie"}
 	require.NoError(t, c.Create(ctx, il))
+	// An imdbCSV list asking for albums is refused at admission since X14
+	// (R-10's CEL rules), so the one the worker must still defend against
+	// is a stale task for a list admitted before them: the worker reads it
+	// with "album" added, through a client whose Get stands in for it.
+	stale := staleKinds{Client: c, name: il.Name, kinds: []string{"movie", "album"}}
 
 	arr := &catalogv1alpha1.ImportList{
 		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "lidarr"},
@@ -271,7 +276,7 @@ func TestHandleFailsAKindTheProviderCannotYieldInsteadOfSkippingIt(t *testing.T)
 	}
 	require.NoError(t, c.Create(ctx, arr))
 
-	w := worker.NewWorker(c, bus)
+	w := worker.NewWorker(stale, bus)
 	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, il.Name, string(il.UID))))
 	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, arr.Name, string(arr.UID))))
 
@@ -472,4 +477,23 @@ func TestHandleRemembersAnItemItCouldNotResolveThisCycle(t *testing.T) {
 	err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: movieName(t)}, &m)
 	require.True(t, apierrors.IsNotFound(err), "removeAndKeep acts on an item a failed cycle carried forward, got %v", err)
 	require.Equal(t, int32(1), lastResult(t, ctx, bus, il.UID).Removed)
+}
+
+// staleKinds is a client whose Get returns the named ImportList with
+// spec.kinds replaced: an ImportList admitted before the CRD carried R-10's
+// CEL rules (task X14), which the apiserver would now refuse to store.
+type staleKinds struct {
+	client.Client
+	name  string
+	kinds []string
+}
+
+func (s staleKinds) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if err := s.Client.Get(ctx, key, obj, opts...); err != nil {
+		return err
+	}
+	if il, ok := obj.(*catalogv1alpha1.ImportList); ok && key.Name == s.name {
+		il.Spec.Kinds = append([]string(nil), s.kinds...)
+	}
+	return nil
 }
