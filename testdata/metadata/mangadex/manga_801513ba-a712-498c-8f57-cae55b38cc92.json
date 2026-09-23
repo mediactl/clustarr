@@ -1,0 +1,251 @@
+{
+ "result": "ok",
+ "response": "entity",
+ "data": {
+  "id": "801513ba-a712-498c-8f57-cae55b38cc92",
+  "type": "manga",
+  "attributes": {
+   "title": {
+    "ja-ro": "Berserk"
+   },
+   "altTitles": [
+    {
+     "ja": "ベルセルク"
+    },
+    {
+     "ko": "베르세르크"
+    },
+    {
+     "zh": "烙印勇士"
+    },
+    {
+     "zh-hk": "劍風傳奇"
+    },
+    {
+     "ar": "برسرك"
+    },
+    {
+     "ar": "بيرسيرك"
+    }
+   ],
+   "description": {
+    "en": "Guts, known as the Black Swordsman, seeks sanctuary from the demonic forces attracted to him and his woman because of a demonic mark on their necks, and also vengeance against the man who branded him as an unholy sacrifice. Aided only by his titanic strength gained from a harsh childhood lived with mercenaries, a gigantic sword, and an iron prosthetic left hand, Guts must struggle against his bleak destiny, all the while fighting with a rage that might strip him of his humanity.\n___\nWon the 6th Osamu Tezuka Cultural Prize Excellence Award in 2002.\n\nNote: Following Miura Kentarou's death in 2021, the series has been taken over by Kouji Mori, who supervises the series with art done by Studio Gaga.",
+    "ja": "巨大な剣を背負い、鉄の義手をつけた剣士・ガッツ。彼の行くところ、血の雨が降り、死体の山が築かれる…！"
+   },
+   "isLocked": false,
+   "links": {
+    "al": "30002",
+    "ap": "berserk",
+    "bl": "181526",
+    "bw": "series/16664/list",
+    "kt": "8",
+    "mu": "njeqwry",
+    "amz": "https://www.amazon.co.jp/-/en/dp/B074C597F1",
+    "cdj": "https://www.cdjapan.co.jp/product/NEOBK-3115032",
+    "ebj": "https://ebookjapan.yahoo.co.jp/books/127562/",
+    "mal": "2",
+    "raw": "https://younganimal.com/series/f68f676b354d4/",
+    "engtl": "https://www.darkhorsedirect.com/products/berserk-multi-volume-books"
+   },
+   "officialLinks": null,
+   "originalLanguage": "ja",
+   "lastVolume": "",
+   "lastChapter": "",
+   "publicationDemographic": "seinen",
+   "status": "ongoing",
+   "year": 1989,
+   "contentRating": "erotica",
+   "tags": [
+    {
+     "id": "0a39b5a1-b235-4886-a747-1d05d216532d",
+     "type": "tag",
+     "attributes": {
+      "name": {
+       "en": "Award Winning"
+      },
+      "description": {},
+      "group": "format",
+      "version": 1
+     },
+     "relationships": []
+    },
+    {
+     "id": "36fd93ea-e8b8-445e-b836-358f02b3d33d",
+     "type": "tag",
+     "attributes": {
+      "name": {
+       "en": "Monsters"
+      },
+      "description": {},
+      "group": "theme",
+      "version": 1
+     },
+     "relationships": []
+    },
+    {
+     "id": "391b0423-d847-456f-aff0-8b0cfc03066b",
+     "type": "tag",
+     "attributes": {
+      "name": {
+       "en": "Action"
+      },
+      "description": {},
+      "group": "genre",
+      "version": 1
+     },
+     "relationships": []
+    },
+    {
+     "id": "39730448-9a5f-48a2-85b0-a70db87b1233",
+     "type": "tag",
+     "attributes": {
+      "name": {
+       "en": "Demons"
+      },
+      "description": {},
+      "group": "theme",
+      "version": 1
+     },
+     "relationships": []
+    },
+    {
+     "id": "3b60b75c-a2d7-4860-ab56-05f391bb889c",
+     "type": "tag",
+     "attributes": {
+      "name": {
+       "en": "Psychological"
+      },
+      "description": {},
+      "group": "genre",
+      "version": 1
+     },
+     "relationships": []
+    },
+    {
+     "id": "5fff9cde-849c-4d78-aab0-0d52b2ee1d25",
+     "type": "tag",
+     "attributes": {
+      "name": {
+       "en": "Survival"
+      },
+      "description": {},
+      "group": "theme",
+      "version": 1
+     },
+     "relationships": []
+    }
+   ],
+   "state": "published",
+   "chapterNumbersResetOnNewVolume": false,
+   "createdAt": "2018-01-30T13:50:05+00:00",
+   "updatedAt": "2026-09-03T17:00:25+00:00",
+   "version": 125,
+   "availableTranslatedLanguages": [
+    "fr",
+    "pt-br",
+    "es-la"
+   ],
+   "latestUploadedChapter": "40511559-31b0-45c0-bccc-95a43d580b39"
+  },
+  "relationships": [
+   {
+    "id": "5863578d-4e4f-4b57-b64d-1dd45a893cb0",
+    "type": "author",
+    "attributes": {
+     "name": "Miura Kentarou",
+     "imageUrl": null,
+     "biography": {},
+     "twitter": null,
+     "pixiv": null,
+     "melonBook": null,
+     "fanBox": null,
+     "booth": null,
+     "namicomi": null,
+     "nicoVideo": null,
+     "skeb": null,
+     "fantia": null,
+     "tumblr": null,
+     "youtube": null,
+     "weibo": null,
+     "naver": null,
+     "website": null,
+     "createdAt": "2021-04-19T21:59:45+00:00",
+     "updatedAt": "2025-06-12T20:52:08+00:00",
+     "version": 5
+    }
+   },
+   {
+    "id": "e4dc18d8-1b8d-48e6-9b70-0f93a5af35ca",
+    "type": "author",
+    "attributes": {
+     "name": "Mori Kouji",
+     "imageUrl": null,
+     "biography": {},
+     "twitter": "https://twitter.com/taigaofgenesis",
+     "pixiv": null,
+     "melonBook": null,
+     "fanBox": null,
+     "booth": null,
+     "namicomi": null,
+     "nicoVideo": null,
+     "skeb": null,
+     "fantia": null,
+     "tumblr": null,
+     "youtube": null,
+     "weibo": null,
+     "naver": null,
+     "website": null,
+     "createdAt": "2021-04-19T21:59:45+00:00",
+     "updatedAt": "2025-06-12T20:53:54+00:00",
+     "version": 5
+    }
+   },
+   {
+    "id": "5863578d-4e4f-4b57-b64d-1dd45a893cb0",
+    "type": "artist"
+   },
+   {
+    "id": "8d88f37d-bd1e-4974-a309-7dfce13f9c56",
+    "type": "artist"
+   },
+   {
+    "id": "bab715d9-1b6a-4f50-8fea-ac5628ebfd8e",
+    "type": "cover_art",
+    "attributes": {
+     "description": "",
+     "volume": "43",
+     "fileName": "81e1c82d-6672-400c-8c58-4ff9bfb89031.jpg",
+     "locale": "ja",
+     "createdAt": "2025-08-22T11:23:23+00:00",
+     "updatedAt": "2025-08-22T11:23:23+00:00",
+     "version": 1
+    }
+   },
+   {
+    "id": "4a5d677d-e3ac-4c23-a6bf-bb92c984fee4",
+    "type": "manga",
+    "related": "preserialization"
+   },
+   {
+    "id": "5a143603-d575-4062-9528-12c2ddb83af3",
+    "type": "manga",
+    "related": "side_story"
+   },
+   {
+    "id": "77994aef-fe9a-418b-97a8-12b306a8dbdc",
+    "type": "manga",
+    "related": "doujinshi"
+   },
+   {
+    "id": "d9e2f26e-c762-41a6-bb71-b6ae18cadde2",
+    "type": "manga",
+    "related": "colored"
+   },
+   {
+    "id": "fab932f0-385e-46c2-b67a-f7e68ad85208",
+    "type": "manga",
+    "related": "doujinshi"
+   }
+  ]
+ }
+}

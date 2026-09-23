@@ -1,0 +1,165 @@
+{
+ "result": "ok",
+ "volumes": {
+  "none": {
+   "volume": "none",
+   "count": 26,
+   "chapters": {
+    "386": {
+     "chapter": "386",
+     "id": "a8a25d77-245f-4b35-9a24-b831e27e090e",
+     "isUnavailable": false,
+     "others": [
+      "6aa809b6-ebff-4636-91d9-85b461c3b8b9",
+      "6db6eafd-1ed2-4484-af9b-96341fb8cc80",
+      "2d2f3bf9-5cec-4d29-b7a8-f2f0d7081935",
+      "86ec23e5-29b7-4aa8-9a96-51331c644dc4",
+      "d5431b60-a7c2-49b5-ac5c-872d02ab05c8",
+      "15c57efd-ec11-4cfd-a252-0e2a4b17b29f",
+      "5cc2bd58-f2f9-4ed0-95bd-db23db362694"
+     ],
+     "count": 8
+    },
+    "385": {
+     "chapter": "385",
+     "id": "d4a574a4-e324-4855-8615-a53187e43c1f",
+     "isUnavailable": false,
+     "others": [
+      "073f7326-6d6b-464e-95ca-2685f7b7bf86",
+      "b667f10b-651b-457f-95f2-3c4321b69443",
+      "f9b0a1f0-c417-46d2-84b8-c92643c2a253",
+      "999fa3ac-b235-433d-bed5-fd2fd445203e",
+      "c049766a-515f-479b-b90a-f75adbba0d60",
+      "fda72c9d-fca2-4b5e-a991-ca011ca82e45"
+     ],
+     "count": 7
+    }
+   }
+  },
+  "41": {
+   "volume": "41",
+   "count": 76,
+   "chapters": {
+    "364": {
+     "chapter": "364",
+     "id": "040d13db-b38b-4f9f-acc4-bb74437e435e",
+     "isUnavailable": false,
+     "others": [
+      "662a4e07-2029-4f83-861a-8fb4e09ebb43",
+      "4f3c9741-a2e3-4f29-9dc8-bc359f4f70aa",
+      "16de1caa-c658-4fef-9337-d85b332ca199",
+      "acaae845-5adf-4827-a335-41b6264767d1",
+      "fe7b1968-b0ae-4f26-99d2-144f3e4cf9ac",
+      "e7cb3ecd-cf29-4f91-8c89-fd7b4b117c3e",
+      "3d1300b5-f9f1-4fda-9cb7-b24bf003360f",
+      "3b1977bc-bcda-4e69-bc02-f3f1a0cc7b0e",
+      "954b6134-cd6f-4212-8381-ecb2ff0505b3"
+     ],
+     "count": 10
+    },
+    "363": {
+     "chapter": "363",
+     "id": "4ca52f70-c1d3-495d-9c34-aa5668cbcae8",
+     "isUnavailable": false,
+     "others": [
+      "7c9e8ea7-d676-4136-85db-2c7c742623d8",
+      "5620652c-8698-4e13-8acb-20eef4e59f39",
+      "84252829-6279-4ba9-99bb-70cebee1386a",
+      "b39d967f-29f9-4c7d-b0e1-3f751d673d7f",
+      "0ddf1c7c-519b-4dcd-9487-febd76c960e9",
+      "4d3e68a6-950c-49ef-bfe3-94344ec348e7",
+      "bbf4ab6e-bbd9-4f5f-975a-9d2892d36ebb",
+      "98e23fdd-c4e7-4f8b-be8b-625bad914faf"
+     ],
+     "count": 9
+    }
+   }
+  },
+  "40": {
+   "volume": "40",
+   "count": 94,
+   "chapters": {
+    "357": {
+     "chapter": "357",
+     "id": "3cca2e11-4b64-4815-b91c-9086097fa524",
+     "isUnavailable": false,
+     "others": [
+      "c1c35de4-2b31-4939-bc03-afc63c9eadd1",
+      "e2aba255-0822-4756-8e79-6b772cdfe483",
+      "2733abe8-7e63-4c78-a320-fc538b85a750",
+      "8faa48d1-6415-425c-a9ec-d85d938b3c41",
+      "64410237-9063-43d1-bb36-516bfa8e456f",
+      "8796e317-507d-4eae-8e95-897e7a87ed7f",
+      "78ac4f95-ce77-4ff1-b803-28a4fb4310ae",
+      "cb35935f-c8e3-40f1-b179-6e8803fc3252",
+      "825bdaf2-e7fc-4342-a852-fb2bcf14e6c6",
+      "591924dd-8fd3-4ee6-b779-de78e2196fd3",
+      "4cae18bd-eb2b-47a5-a857-7c634488cd48"
+     ],
+     "count": 12
+    },
+    "356.2": {
+     "chapter": "356.2",
+     "id": "04de8a4e-5206-4138-ac86-0a01b23dc710",
+     "isUnavailable": false,
+     "others": [
+      "7887acb3-42d6-4057-b6fc-ffe2590461c2",
+      "e8e14f25-3c4a-4d4e-8329-297e197ad3a8",
+      "384f51fd-17a1-4a96-9173-fab2c665398c",
+      "10a3c55f-29c4-416a-8e12-0fbc90f0c5e0",
+      "68caee3a-a603-4f96-afa3-11ef9464d890",
+      "5a519600-3dfb-4efb-b824-c01260502e45",
+      "6da11e38-0b76-4381-a7c0-eccbc1edfef8",
+      "eb6597cc-40e6-4e32-a8c1-760e5b9f761d"
+     ],
+     "count": 9
+    }
+   }
+  },
+  "2": {
+   "volume": "2",
+   "count": 35,
+   "chapters": {
+    "5": {
+     "chapter": "5",
+     "id": "05af2978-61eb-4fd3-b58a-58e2cb839161",
+     "isUnavailable": false,
+     "others": [],
+     "count": 1
+    },
+    "4": {
+     "chapter": "4",
+     "id": "377c2a17-6c6b-43a6-b5ec-4cc69f8bdc2c",
+     "isUnavailable": false,
+     "others": [],
+     "count": 1
+    }
+   }
+  },
+  "1": {
+   "volume": "1",
+   "count": 67,
+   "chapters": {
+    "3": {
+     "chapter": "3",
+     "id": "6f19f021-d0e7-4d0a-b89f-12051bbc2e6a",
+     "isUnavailable": false,
+     "others": [
+      "082584ac-bdc6-4069-bffd-596104eb1098"
+     ],
+     "count": 2
+    },
+    "2": {
+     "chapter": "2",
+     "id": "38310cd3-d890-4d0e-bc21-d87b37fae891",
+     "isUnavailable": false,
+     "others": [
+      "796294e5-c05c-45e5-a5b5-3a9214b34a96",
+      "73186794-29e5-45bb-98f7-aa207bbbe4c0"
+     ],
+     "count": 3
+    }
+   }
+  }
+ }
+}
