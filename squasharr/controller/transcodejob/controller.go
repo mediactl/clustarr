@@ -30,17 +30,20 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	k8sevents "k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	transcodeac "github.com/mediactl/clustarr/api/applyconfiguration/transcode/transcode/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -107,6 +110,14 @@ type Reconciler struct {
 	// Job is the deployment-level half of every Job this creates.
 	Job JobConfig
 
+	// Recorder emits a Kubernetes Event on the TranscodeJob for each
+	// lifecycle edge (events.go). Nil records none.
+	Recorder k8sevents.EventRecorder
+
+	// Bus publishes clustarr.evt.transcode.job.<action> (§5) for each edge
+	// §5 names (events.go). Nil publishes none.
+	Bus events.Bus
+
 	// Now is the clock. Nil means time.Now.
 	Now func() time.Time
 }
@@ -154,10 +165,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	if err := r.Client.Get(ctx, req.NamespacedName, &tj); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	if k8s.IsDeleting(&tj) || terminal(tj.Status.Phase) {
-		// A finished job's Job is TTL-collected by Kubernetes; nothing here
-		// changes once the phase is terminal.
+	if k8s.IsDeleting(&tj) {
 		return ctrl.Result{}, nil
+	}
+	if terminal(tj.Status.Phase) {
+		// A finished job's Job is TTL-collected by Kubernetes, and nothing
+		// about the transcode changes once the phase is terminal -- except
+		// the DLQ projector's annotation, which lands mostly on FINISHED
+		// jobs (their succeeded/failed/skipped events are what reach the
+		// history consumer). apply folds it and writes only if that changed
+		// the conditions, from a seed of the live status, so every other
+		// field is re-declared as it stands.
+		return ctrl.Result{}, r.apply(ctx, &tj, tj.Status.DeepCopy())
 	}
 
 	desired := tj.Status.DeepCopy()
@@ -189,9 +208,20 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		finished = &fresh
 	}
 
+	// History for the edges this pass crossed, published before the apply
+	// that records them (see publishJobEvents for why before, and why best
+	// effort); the Kubernetes Events follow the apply.
+	edges := transitions(&tj.Status, desired)
+	var result *transcodev1alpha1.Result
+	if finished != nil {
+		result = finished.Status.Result
+	}
+	r.publishJobEvents(ctx, &tj, desired, result, edges)
+
 	if err := r.apply(ctx, &tj, desired); err != nil {
 		return ctrl.Result{}, errors.Join(stepErr, err)
 	}
+	r.recordEvents(&tj, edges)
 	if stepErr != nil {
 		return ctrl.Result{}, stepErr
 	}
@@ -603,7 +633,14 @@ func controllerView(st transcodev1alpha1.TranscodeJobStatus) transcodev1alpha1.T
 // every field this manager owns is sent whichever path got here.
 // Conditions are rendered once, in full: squasharr/status seeds none of
 // them, and the generated WithConditions appends.
+//
+// It is also the one place the DLQ projector's annotation is folded into
+// the conditions (pkg/k8s.MarkDeadLettered): DeadLettered=True while the
+// object carries clustarr.io/dead-lettered, absent once it does not. Every
+// path that writes status comes through here, so no apply can release the
+// condition another one set.
 func (r *Reconciler) apply(ctx context.Context, tj *transcodev1alpha1.TranscodeJob, desired *transcodev1alpha1.TranscodeJobStatus) error {
+	k8s.MarkDeadLettered(tj, &desired.Conditions)
 	if equality.Semantic.DeepEqual(controllerView(tj.Status), controllerView(*desired)) {
 		return nil
 	}
@@ -657,12 +694,21 @@ func mediaFileSignal(o client.Object) string {
 	return fmt.Sprintf("%s|%t", mf.Status.ProbeHash, mf.Status.MediaInfo != nil)
 }
 
+// transcodeJobPredicate is the controller's own filter on TranscodeJob:
+// create and spec change (GenerationChanged), plus the DLQ projector's
+// annotation appearing, changing or being removed, which touches neither
+// generation nor status (DeadLetteredAnnotationChanged). NOT its own status:
+// the worker writes progress every ~10s and that is none of this
+// controller's business.
+func transcodeJobPredicate() predicate.Predicate {
+	return k8s.Or(k8s.GenerationChanged(), k8s.DeadLetteredAnnotationChanged())
+}
+
 // SetupWithManager registers the TranscodeJob controller.
 //
 // What wakes it, and why each is needed:
-//   - TranscodeJob create and spec change (spec.suspend, spec.priority).
-//     NOT its own status: the worker writes progress every ~10s and that is
-//     none of this controller's business.
+//   - TranscodeJob create and spec change (spec.suspend, spec.priority), and
+//     the DLQ projector's annotation ([transcodeJobPredicate]).
 //   - An owned Job's suspend flag, pod counters or terminal conditions
 //     ([jobSignal]). The Job controller writes those as status, which never
 //     moves metadata.generation, so a generation predicate here would leave
@@ -697,7 +743,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("transcodejob").
-		For(&transcodev1alpha1.TranscodeJob{}, builder.WithPredicates(k8s.GenerationChanged())).
+		For(&transcodev1alpha1.TranscodeJob{}, builder.WithPredicates(transcodeJobPredicate())).
 		Owns(&batchv1.Job{}, builder.WithPredicates(k8s.StatusFieldChanged(jobSignal))).
 		Watches(&transcodev1alpha1.TranscodeProfile{},
 			handler.EnqueueRequestsFromMapFunc(r.mapIndexed(indexProfileRef, false)),

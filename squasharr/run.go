@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
+	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -376,7 +377,7 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 
-	if err := setupControllers(mgr, o); err != nil {
+	if err := setupControllers(mgr, o, bus); err != nil {
 		return err
 	}
 
@@ -397,16 +398,21 @@ func Run(ctx context.Context, o Options) error {
 // The TranscodeJob reconciler reads batch Jobs through mgr.GetAPIReader(),
 // never the cache: admission counts the Jobs it unsuspended a moment ago,
 // and a cache one event behind would admit past the budget (ADR-0005).
-func setupControllers(mgr ctrl.Manager, o Options) error {
+//
+// bus carries the TranscodeJob controller's clustarr.evt.transcode.job.*
+// history events (§5); the worker never uses it (Phase E ruling R6).
+func setupControllers(mgr ctrl.Manager, o Options, bus events.Bus) error {
 	if err := transcodeprofile.NewReconciler(
 		mgr.GetClient(), mgr.GetScheme(), mgr.GetEventRecorder("transcodeprofile"),
 	).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("squasharr: transcodeprofile: %w", err)
 	}
 	if err := (&transcodejob.Reconciler{
-		Client: mgr.GetClient(),
-		Reader: mgr.GetAPIReader(),
-		Slots:  o.Slots,
+		Client:   mgr.GetClient(),
+		Reader:   mgr.GetAPIReader(),
+		Slots:    o.Slots,
+		Recorder: mgr.GetEventRecorder("transcodejob"),
+		Bus:      bus,
 		Job: transcodejob.JobConfig{
 			Image:              o.WorkerImage,
 			ImageCUDA:          o.WorkerImageCUDA,

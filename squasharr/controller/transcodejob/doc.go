@@ -62,6 +62,24 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // an uncached re-read so a lagging cache cannot hand the same transition
 // back. tier is the slot class (cpu, nvidia, intel). See metrics.go.
 //
+// # Events and history
+//
+// Each lifecycle edge a reconcile crosses (events.go: planned, skipped,
+// queued, started, succeeded, failed) is a Kubernetes Event on the
+// TranscodeJob, recorded after the status apply that holds it, and -- for the
+// five §5 names -- a clustarr.evt.transcode.job.<action>.<uid> JobEvent,
+// published before that apply with Envelope id "<uid>:<action>" so a
+// re-observed edge dedups. Both are best effort.
+//
+// # Dead letters
+//
+// The DLQ projector annotates a TranscodeJob (clustarr.io/dead-lettered)
+// when one of its JobEvents is dead-lettered. apply folds it into a
+// DeadLettered condition (pkg/k8s.MarkDeadLettered) on every write, and a
+// terminal job -- the usual target, since its last events are the ones a
+// failing history consumer drops -- is still reconciled for exactly that
+// fold. The For() predicate passes an annotation-only change.
+//
 // # Status ownership
 //
 // k8s.ManagerSquasharr, through squasharr/status.Patch, and only
@@ -81,4 +99,5 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodeprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 package transcodejob
