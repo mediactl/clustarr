@@ -158,6 +158,11 @@ preferences, so they fail the render rather than warn.
 {{- if and .Values.keda.enabled (not .Values.keda.prometheusAddress) -}}
 {{- fail "keda.prometheusAddress must be set when keda.enabled=true: the JetStream lag triggers query prometheus-nats-exporter through the Prometheus scaler." -}}
 {{- end -}}
+{{- with .Values.indexarr.cardigann.definitions -}}
+{{- if and .configMap .existingClaim -}}
+{{- fail "indexarr.cardigann.definitions: set configMap or existingClaim, not both: indexarr loads one Cardigann definitions directory (--cardigann-definitions-dir), mounted from exactly one volume." -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 
 {{/*
@@ -175,6 +180,8 @@ Call with a dict:
   grace      terminationGracePeriodSeconds
   httpPort   true to expose the Torznab facade port
   extraEnv   list of extra env maps (optional)
+  extraVolumeMounts list of extra container volumeMount maps (optional)
+  extraVolumes      list of extra pod volume maps (optional)
   leaderElect true for a component that runs controllers (§3, §12)
 */}}
 {{- define "clustarr.workload" }}
@@ -340,6 +347,9 @@ spec:
         {{- end }}
         - name: tmp
           mountPath: /tmp
+        {{- with .extraVolumeMounts }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- with .values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -366,4 +376,7 @@ spec:
       # readOnlyRootFilesystem: true, so /tmp has to be a volume.
       - name: tmp
         emptyDir: {}
+      {{- with .extraVolumes }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
 {{- end }}

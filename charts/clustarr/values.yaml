@@ -233,6 +233,30 @@ indexarr:
     # random key under "apikey" when it does not exist and never modifies
     # one that does, so pre-create it to choose the key.
     apiKeySecret: ""
+  # Cardigann indexer definitions, applied as IndexerDefinitions at startup
+  # so an Indexer's spec.definition can name any of them.
+  cardigann:
+    # Load the corpus compiled into the binary (Prowlarr's Cardigann
+    # definitions). false sets CLUSTARR_CARDIGANN_BUNDLED=false; true renders
+    # nothing, because on is the binary's own default. Moot when a
+    # definitions directory is mounted below: that replaces the corpus.
+    bundled: true
+    # A directory of definition files (<id>.yml, what hack/sync-cardigann
+    # writes) mounted read-only into indexarr and passed as
+    # --cardigann-definitions-dir. It REPLACES the embedded corpus rather
+    # than adding to it; to add or override one definition, create an
+    # IndexerDefinition instead. Off while both sources are empty; set at
+    # most one (clustarr.validate refuses both).
+    definitions:
+      # An existing ConfigMap in the release namespace, one key per file.
+      # A ConfigMap holds at most 1 MiB, so this suits a pinned or trimmed
+      # set, not the whole corpus -- use a claim for that.
+      configMap: ""
+      # An existing PersistentVolumeClaim holding the files.
+      existingClaim: ""
+      # Directory inside the ConfigMap or claim that holds the files; ""
+      # is its root. Files are read from that one directory, not below it.
+      subPath: ""
   resources:
     requests:
       cpu: 100m

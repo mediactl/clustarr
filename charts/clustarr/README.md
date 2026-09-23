@@ -161,6 +161,33 @@ forward-compatible within a few minor versions of API server skew, and
 there is no newer KEDA release to pick instead; revisit this pin once one
 lists 1.36 or 1.37 in its compatibility table.
 
+## Cardigann definitions
+
+indexarr applies Cardigann indexer definitions as `IndexerDefinition`s at
+startup, so an `Indexer`'s `spec.definition` can name any of them. By default
+they come from the corpus compiled into the binary (Prowlarr's definitions,
+packed by `hack/pack-cardigann`); nothing needs mounting.
+
+To pin, trim or update that set without a new image, mount a directory of
+definition files -- what `hack/sync-cardigann` writes -- from an existing
+ConfigMap or PVC:
+
+```sh
+kubectl -n clustarr-system create configmap cardigann-defs --from-file=defs/
+helm upgrade --install clustarr charts/clustarr -n clustarr-system \
+  --set indexarr.cardigann.definitions.configMap=cardigann-defs
+```
+
+The chart mounts it read-only at `/etc/clustarr/cardigann` and sets
+`CLUSTARR_CARDIGANN_DEFINITIONS_DIR`. The directory **replaces** the embedded
+corpus rather than adding to it, and only files directly in it (`*.yml`,
+`*.yaml`) are read. A ConfigMap holds at most 1 MiB, so for the whole corpus
+use `existingClaim`. To add or override a single definition on top of the
+corpus, create an `IndexerDefinition` instead of mounting anything.
+`indexarr.cardigann.bundled: false` loads no corpus at all when nothing is
+mounted. indexarr reads the directory once at startup, so restart it after
+changing the files.
+
 ## Values
 
 The full reference is `values.yaml` itself -- every value has a comment
@@ -204,6 +231,9 @@ template.
 | `<service>.nodeSelector`/`.tolerations`/`.affinity` | Standard Kubernetes scheduling knobs. | `{}`, `[]`, `{}` |
 | `indexarr.facade.service.type`/`.port` | The Torznab facade Service (`/{indexer}/api`, `/{indexer}/download`, `/search/api`). | `ClusterIP`, `8080` |
 | `indexarr.facade.apiKeySecret` | Secret holding the facade's API keys; empty means `<release>-indexarr-facade`, created by indexarr itself with one random key. | `""` |
+| `indexarr.cardigann.bundled` | Load the Cardigann corpus compiled into the binary (`--cardigann-bundled`). `false` renders `CLUSTARR_CARDIGANN_BUNDLED=false`; `true` renders nothing. Moot when `indexarr.cardigann.definitions` mounts a directory. See [Cardigann definitions](#cardigann-definitions). | `true` |
+| `indexarr.cardigann.definitions.configMap`/`.existingClaim` | An existing ConfigMap or PVC of definition files, mounted read-only and passed as `--cardigann-definitions-dir`, **replacing** the embedded corpus. Off while both are empty; `clustarr.validate` refuses both. | `""`, `""` |
+| `indexarr.cardigann.definitions.subPath` | Directory inside that ConfigMap or claim holding the files; empty is its root. | `""` |
 | `squasharr.slots` | `--slots` budget string, e.g. `cpu=2,nvidia=1,intel=1`. | `cpu=2,nvidia=1,intel=1` |
 | `squasharr.intelRenderGroups` | GIDs of the host group owning `/dev/dri/renderD*` on the Intel GPU nodes (`--intel-render-groups`), added to every Intel transcode Job's pod as `supplementalGroups`. Host-specific, so no default; leave empty with a runtime that has `device_ownership_from_security_context`. | `[]` |
 | `captionarrWorker.ackWaitSeconds` | Also `terminationGracePeriodSeconds`, so a worker can drain its in-flight fetch on `SIGTERM` instead of losing it to redelivery. | `120` |

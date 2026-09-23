@@ -130,7 +130,7 @@
     "indexarr": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "replicas", "facade", "resources", "nodeSelector", "tolerations", "affinity"],
+      "required": ["enabled", "replicas", "facade", "cardigann", "resources", "nodeSelector", "tolerations", "affinity"],
       "properties": {
         "enabled": { "type": "boolean" },
         "replicas": {
@@ -152,6 +152,38 @@
               }
             },
             "apiKeySecret": { "type": "string" }
+          }
+        },
+        "cardigann": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["bundled", "definitions"],
+          "properties": {
+            "bundled": {
+              "type": "boolean",
+              "description": "indexarr --cardigann-bundled: load the Cardigann corpus compiled into the binary. false renders CLUSTARR_CARDIGANN_BUNDLED=false; true renders nothing (the binary's default). Moot when definitions mounts a directory, which replaces the corpus."
+            },
+            "definitions": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["configMap", "existingClaim", "subPath"],
+              "description": "A directory of Cardigann definition files mounted read-only into indexarr as --cardigann-definitions-dir, replacing the embedded corpus. Off while configMap and existingClaim are both empty. At most one may be set; clustarr.validate enforces that at render time, where it can say why, rather than here.",
+              "properties": {
+                "configMap": {
+                  "type": "string",
+                  "description": "An existing ConfigMap in the release namespace, one key per definition file. A ConfigMap holds at most 1 MiB."
+                },
+                "existingClaim": {
+                  "type": "string",
+                  "description": "An existing PersistentVolumeClaim holding the definition files."
+                },
+                "subPath": {
+                  "type": "string",
+                  "pattern": "^([^/].*)?$",
+                  "description": "Directory inside the ConfigMap or claim holding the files; empty is its root. Relative, so no leading '/' (the apiserver also refuses '..')."
+                }
+              }
+            }
           }
         },
         "resources": { "$ref": "#/$defs/resources" },

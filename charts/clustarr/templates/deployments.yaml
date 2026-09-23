@@ -67,6 +67,36 @@ asked for them, so they can never be chart templates.
       "httpPort" false) }}
 {{- end }}
 {{- if .Values.indexarr.enabled }}
+{{- $indexEnv := list
+      (dict "name" "CLUSTARR_INDEX_PATH" "value" "/var/lib/clustarr/index/releases.db")
+      (dict "name" "CLUSTARR_FACADE_API_KEY_SECRET" "value" (include "clustarr.facadeAPIKeySecret" $)) }}
+{{- $indexVolumes := list }}
+{{- $indexMounts := list }}
+{{- /* --cardigann-bundled defaults on in the binary, so only "off" is
+     rendered: the default render stays byte-identical to config/manager. */}}
+{{- if not .Values.indexarr.cardigann.bundled }}
+{{- $indexEnv = append $indexEnv (dict "name" "CLUSTARR_CARDIGANN_BUNDLED" "value" "false") }}
+{{- end }}
+{{- /* A definitions directory replaces the embedded corpus entirely
+     (--cardigann-definitions-dir). Read-only: indexarr only reads it, and
+     the root filesystem is read-only anyway. clustarr.validate refuses
+     configMap and existingClaim together. */}}
+{{- with .Values.indexarr.cardigann.definitions }}
+{{- if or .configMap .existingClaim }}
+{{- $dir := "/etc/clustarr/cardigann" }}
+{{- $indexEnv = append $indexEnv (dict "name" "CLUSTARR_CARDIGANN_DEFINITIONS_DIR" "value" $dir) }}
+{{- $mount := dict "name" "cardigann" "mountPath" $dir "readOnly" true }}
+{{- with .subPath }}
+{{- $_ := set $mount "subPath" . }}
+{{- end }}
+{{- $indexMounts = append $indexMounts $mount }}
+{{- if .configMap }}
+{{- $indexVolumes = append $indexVolumes (dict "name" "cardigann" "configMap" (dict "name" .configMap)) }}
+{{- else }}
+{{- $indexVolumes = append $indexVolumes (dict "name" "cardigann" "persistentVolumeClaim" (dict "claimName" .existingClaim "readOnly" true)) }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{/* Recreate + RWO index PVC: one SQLite writer, one PVC holder. */}}
 {{- include "clustarr.workload" (dict
       "root" $
@@ -79,9 +109,9 @@ asked for them, so they can never be chart templates.
       "strategy" "Recreate"
       "grace" 60
       "httpPort" true
-      "extraEnv" (list
-        (dict "name" "CLUSTARR_INDEX_PATH" "value" "/var/lib/clustarr/index/releases.db")
-        (dict "name" "CLUSTARR_FACADE_API_KEY_SECRET" "value" (include "clustarr.facadeAPIKeySecret" $)))) }}
+      "extraEnv" $indexEnv
+      "extraVolumeMounts" $indexMounts
+      "extraVolumes" $indexVolumes) }}
 {{- end }}
 {{- if .Values.grabarr.enabled }}
 {{- include "clustarr.workload" (dict
