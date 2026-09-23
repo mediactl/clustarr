@@ -88,7 +88,8 @@ func TestHandler_ApprovedReleaseTakesTheGrabPath(t *testing.T) {
 	createDelayProfile(t, ctx, c, ns, 0, true) // no delay at all: grab now
 
 	bus := newTestBus(t)
-	h := rssmatcher.NewHandler(rssmatcher.Deps{Client: c, Bus: bus, Now: func() time.Time { return relNow }})
+	live := &countingReader{Reader: mgr.GetAPIReader()}
+	h := rssmatcher.NewHandler(rssmatcher.Deps{Client: c, Reader: live, Bus: bus, Now: func() time.Time { return relNow }})
 
 	// The manager's cache is eventually consistent, so poll until the write
 	// is visible to the index rather than racing it.
@@ -109,6 +110,9 @@ func TestHandler_ApprovedReleaseTakesTheGrabPath(t *testing.T) {
 	assert.Equal(t, "hd-bluray-web", dl.Spec.QualityProfileRef)
 	require.Len(t, dl.OwnerReferences, 1)
 	assert.Equal(t, movie.Name, dl.OwnerReferences[0].Name)
+
+	assert.Positive(t, live.count(),
+		"the grab's double-grab guard reads Downloads through Deps.Reader, live, not through the cache")
 
 	// Read uncached: managedFields is what shows an over-claim.
 	var got catalogv1alpha1.Movie
@@ -415,6 +419,42 @@ func TestHandler_SubscriptionMatchesTheSpecTable(t *testing.T) {
 	assert.Equal(t, 6, sub.MaxDeliver)
 	assert.Equal(t, []time.Duration{time.Second, 5 * time.Second, 30 * time.Second, 2 * time.Minute, 10 * time.Minute}, sub.Backoff)
 	assert.Equal(t, 256, sub.MaxInFlight)
+}
+
+// TestHandler_SubscriptionComesFromTheGivenTopology: the consumer is looked
+// up in the topology the process installed, not in events.Default() -- the
+// carried "consumer lookup is inconsistent" item.
+func TestHandler_SubscriptionComesFromTheGivenTopology(t *testing.T) {
+	topo := events.Default()
+	for i := range topo.Consumers {
+		if topo.Consumers[i].Name == events.ConsumerCatalogRSSMatcher {
+			topo.Consumers[i].AckWait = 42 * time.Second
+		}
+	}
+	sub := rssmatcher.NewHandler(rssmatcher.Deps{Topology: &topo}).Subscription()
+	assert.Equal(t, 42*time.Second, sub.AckWait)
+}
+
+// countingReader counts the Download Lists made through it.
+type countingReader struct {
+	client.Reader
+	mu    sync.Mutex
+	lists int
+}
+
+func (r *countingReader) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if _, ok := list.(*downloadv1alpha1.DownloadList); ok {
+		r.mu.Lock()
+		r.lists++
+		r.mu.Unlock()
+	}
+	return r.Reader.List(ctx, list, opts...)
+}
+
+func (r *countingReader) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.lists
 }
 
 func ptrTo[T any](v T) *T { return &v }

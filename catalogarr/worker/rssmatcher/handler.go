@@ -68,6 +68,20 @@ type Deps struct {
 	Client client.Client
 	Bus    events.Bus
 
+	// Reader is an uncached reader -- manager.GetAPIReader() -- handed to
+	// the grab path (grab.Deps.Reader), whose double-grab guard reads the
+	// item's Downloads live. Through the cache a Download another path
+	// created milliseconds earlier can be missed, and the RSS grab is the
+	// likeliest racer of all: it fires the moment an indexer publishes a
+	// release a search may just have grabbed. Nil falls back to Client, the
+	// cache, which is only right in a test with no second writer.
+	Reader client.Reader
+
+	// Topology is the bus topology this process installed
+	// (k8s.Options.BusTopology()); Subscription looks the consumer up in it.
+	// Nil means events.Default().
+	Topology *events.Topology
+
 	// Catalogue is the resolved TRaSH custom-format corpus. Nil means
 	// catalogue.LoadedCatalogue().
 	Catalogue *catalogue.Catalogue
@@ -113,12 +127,17 @@ func NewHandler(d Deps) *Handler { return &Handler{Deps: d} }
 
 // Subscription is the catalogarr-rss-matcher durable consumer from §5's
 // table: the whole clustarr.rel.> firehose, AckWait 30s, MaxDeliver 6,
-// BackOff 1s/5s/30s/2m/10m, MaxAckPending 256. It is read from
-// events.Default() rather than restated so the tuning lives in one place.
+// BackOff 1s/5s/30s/2m/10m, MaxAckPending 256. It is read from the topology
+// the process installed (Deps.Topology) rather than restated, so the tuning
+// lives in one place and the consumer subscribed to is the one created.
 func (h *Handler) Subscription() events.Subscription {
-	spec, ok := events.Default().Consumer(events.ConsumerCatalogRSSMatcher)
+	topo := events.Default()
+	if h.Deps.Topology != nil {
+		topo = *h.Deps.Topology
+	}
+	spec, ok := topo.Consumer(events.ConsumerCatalogRSSMatcher)
 	if !ok {
-		// Unreachable: ConsumerCatalogRSSMatcher is in defaultConsumers().
+		// Unreachable with the default topology, which carries the consumer.
 		// A zero Subscription fails Validate loudly at Subscribe time rather
 		// than silently consuming nothing.
 		return events.Subscription{}
@@ -271,7 +290,7 @@ func (h *Handler) decideOne(
 
 	approved := decisions[0]
 	if err := grab.Decide(ctx,
-		grab.Deps{Client: h.Deps.Client, Bus: h.Deps.Bus, Now: h.Deps.Now},
+		grab.Deps{Client: h.Deps.Client, Reader: h.Deps.Reader, Bus: h.Deps.Bus, Now: h.Deps.Now},
 		profile,
 		delaySpec,
 		grab.Approved{
