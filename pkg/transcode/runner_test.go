@@ -30,6 +30,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/mediactl/clustarr/pkg/transcode"
@@ -390,4 +391,38 @@ func probeForTest(t *testing.T, path string) (transcode.MediaInfo, error) {
 		}
 	}
 	return info, nil
+}
+
+// When ffmpeg both exits non-zero AND its -progress stream cannot be read,
+// RunError must carry both causes: the reader failure often explains the
+// exit, and reporting the wait error alone hid it.
+func TestRunReportsBothTheWaitAndTheProgressReaderErrors(t *testing.T) {
+	if _, err := os.Stat("/bin/sh"); err != nil {
+		t.Skip("/bin/sh not present on this box")
+	}
+	// One 70 000-byte progress line overflows bufio.Scanner's 64 KiB token
+	// limit (the reader fails with ErrTooLong); the rest fits in the pipe
+	// buffer, so the script still reaches its own exit 3.
+	script := filepath.Join(t.TempDir(), "fake-ffmpeg.sh")
+	require.NoError(t, os.WriteFile(script, []byte(`#!/bin/sh
+printf 'frame=%070000d\n' 1
+echo "boom" >&2
+exit 3
+`), 0o755))
+	plan := &transcode.PlanResult{
+		Decision:  transcode.DecisionEncode,
+		Output:    filepath.Join(t.TempDir(), "fake.part.mkv"),
+		Container: transcode.ContainerMKV,
+		VideoArgs: []string{"-c:v", "copy"},
+	}
+
+	err := transcode.NewRunner(script).Run(context.Background(), plan, func(transcode.Progress) {})
+	var runErr *transcode.RunError
+	require.ErrorAs(t, err, &runErr)
+	assert.Equal(t, 3, runErr.ExitCode)
+	var exitErr *exec.ExitError
+	assert.ErrorAs(t, err, &exitErr, "the wait error must be reachable")
+	assert.ErrorIs(t, err, bufio.ErrTooLong, "the progress reader's error must be reachable too")
+	assert.Contains(t, err.Error(), "reading progress", "and both must be in the message")
+	assert.Contains(t, err.Error(), "exit status 3")
 }

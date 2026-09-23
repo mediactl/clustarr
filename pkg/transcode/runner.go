@@ -31,6 +31,9 @@ import (
 	"syscall"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
@@ -173,10 +176,15 @@ func (w *stderrTail) Write(p []byte) (int, error) {
 func (w *stderrTail) String() string { return string(w.buf) }
 
 // RunError is returned by Runner.Run on any non-nil-error exit: a bad exit
-// code, a signal, or ffmpeg exiting cleanly without ever reporting
-// progress=end. StderrTail is capped at 4096 bytes, the same limit as
-// TranscodeJobStatus.StderrTail, so a caller can copy it directly into CRD
-// status.
+// code, a signal, a failure reading ffmpeg's -progress stream, or ffmpeg
+// exiting cleanly without ever reporting progress=end. StderrTail is capped
+// at 4096 bytes, the same limit as TranscodeJobStatus.StderrTail, so a
+// caller can copy it directly into CRD status.
+//
+// Err carries EVERY cause Run saw, joined (errors.Join): when ffmpeg both
+// exits non-zero and its progress stream fails to parse, both are there,
+// and errors.Is/As reach either one. Reporting only the wait error, as Run
+// once did, hid the reader failure that often explains it.
 type RunError struct {
 	ExitCode   int
 	StderrTail string
@@ -184,7 +192,11 @@ type RunError struct {
 }
 
 func (e *RunError) Error() string {
-	return fmt.Sprintf("transcode: ffmpeg exited %d: %s", e.ExitCode, e.StderrTail)
+	if e.Err == nil {
+		return fmt.Sprintf("transcode: ffmpeg exited %d: %s", e.ExitCode, e.StderrTail)
+	}
+	return fmt.Sprintf("transcode: ffmpeg exited %d (%s): %s", e.ExitCode,
+		strings.ReplaceAll(e.Err.Error(), "\n", "; "), e.StderrTail)
 }
 
 func (e *RunError) Unwrap() error { return e.Err }
@@ -209,8 +221,17 @@ func NewRunner(ffmpegPath string) Runner { return Runner{FFmpegPath: ffmpegPath}
 // the progress callback at ffmpeg's own -stats_period cadence (Args always
 // renders -stats_period 1) until a final progress=end block. Returns nil on
 // a clean exit with progress=end observed; otherwise a *RunError.
+//
+// The run is one "transcode.run" span (amendment §A2.2: every ffmpeg
+// invocation is spanned), tagged with the plan's decision, tier and
+// container and, on failure, ffmpeg's exit code. Never a path or a title:
+// those are unbounded.
 func (r Runner) Run(ctx context.Context, plan *PlanResult, progress func(Progress)) error {
-	ctx, span := tracing.Start(ctx, "transcode.run")
+	ctx, span := tracing.Start(ctx, "transcode.run", trace.WithAttributes(
+		attribute.String("transcode.decision", string(plan.Decision)),
+		attribute.String("transcode.tier", string(plan.Tier)),
+		attribute.String("transcode.container", string(plan.Container)),
+	))
 	defer span.End()
 
 	args := Args(plan)
@@ -286,14 +307,8 @@ func (r Runner) Run(ctx context.Context, plan *PlanResult, progress func(Progres
 		if cmd.ProcessState != nil {
 			exitCode = cmd.ProcessState.ExitCode()
 		}
-		cause := waitErr
-		if cause == nil && scanErr != nil {
-			cause = fmt.Errorf("transcode: run: reading progress: %w", scanErr)
-		}
-		if cause == nil {
-			cause = fmt.Errorf("transcode: run: ffmpeg exited cleanly without a progress=end block")
-		}
-		runErr := &RunError{ExitCode: exitCode, StderrTail: tail.String(), Err: cause}
+		runErr := &RunError{ExitCode: exitCode, StderrTail: tail.String(), Err: runCause(waitErr, scanErr)}
+		span.SetAttributes(attribute.Int("transcode.exit_code", exitCode))
 		tracing.RecordError(span, runErr)
 		logger.Error("transcode: ffmpeg run failed", "error", runErr, "exitCode", exitCode, "progress", last)
 		removePartialOutput(logger, plan.Output)
@@ -302,6 +317,23 @@ func (r Runner) Run(ctx context.Context, plan *PlanResult, progress func(Progres
 
 	logger.Info("transcode: ffmpeg run complete", "progress", last)
 	return nil
+}
+
+// runCause is every reason a run failed, joined: the wait error, the
+// progress-reader error, or -- when neither happened -- the missing
+// progress=end block that is the only remaining way to get here.
+func runCause(waitErr, scanErr error) error {
+	var causes []error
+	if waitErr != nil {
+		causes = append(causes, waitErr)
+	}
+	if scanErr != nil {
+		causes = append(causes, fmt.Errorf("transcode: run: reading progress: %w", scanErr))
+	}
+	if len(causes) == 0 {
+		return errors.New("transcode: run: ffmpeg exited cleanly without a progress=end block")
+	}
+	return errors.Join(causes...)
 }
 
 // removePartialOutput deletes the .part.<ext> file Run was writing, on any
