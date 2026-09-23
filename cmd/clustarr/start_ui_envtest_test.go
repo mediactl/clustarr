@@ -53,9 +53,9 @@ import (
 // It creates one Movie (with a status catalogarr would have written), one
 // LibraryScan listing an unmatched file, and one ImportList, then:
 //
-//   - GETs /library, /unmatched and /import-lists and waits for each object's
-//     row;
-//   - opens /events/library, /events/unmatched and /events/import-lists
+//   - GETs /library/movies (the library's first tab, where a Movie lands),
+//     /unmatched and /import-lists and waits for each object's row;
+//   - opens /events/library/movies, /events/unmatched and /events/import-lists
 //     BEFORE changing anything, and waits on each open connection for a frame
 //     carrying the change -- a stream that only ever replays its first frame
 //     cannot pass;
@@ -126,18 +126,18 @@ func verifyUI(t *testing.T, cfg *rest.Config, addr, suffix string) {
 
 	// The pages. Each reads the shared projection, which ticks every
 	// projection.DefaultInterval, so the rows arrive within a tick.
-	page := waitForPage(t, base+"/library", movieRow)
+	page := waitForPage(t, base+"/library/movies", movieRow)
 	if got := rowAttr(page, movieRow, "data-monitored"); got != "true" {
-		t.Fatalf("GET /library: %s renders data-monitored=%q, want \"true\"", ref, got)
+		t.Fatalf("GET /library/movies: %s renders data-monitored=%q, want \"true\"", ref, got)
 	}
 	waitForPage(t, base+"/unmatched", `data-path="`+firstPath+`"`)
 	waitForPage(t, base+"/import-lists", listRow)
 
 	// The streams, opened before any change.
-	libraryFrames := openSSE(t, base+"/events/library")
+	libraryFrames := openSSE(t, base+"/events/library/movies")
 	unmatchedFrames := openSSE(t, base+"/events/unmatched")
 	listFrames := openSSE(t, base+"/events/import-lists")
-	awaitFrame(t, "/events/library's first frame", libraryFrames, func(f string) bool {
+	awaitFrame(t, "/events/library/movies's first frame", libraryFrames, func(f string) bool {
 		return rowAttr(f, movieRow, "data-monitored") == "true"
 	})
 	awaitFrame(t, "/events/unmatched's first frame", unmatchedFrames, func(f string) bool {
@@ -165,7 +165,7 @@ func verifyUI(t *testing.T, cfg *rest.Config, addr, suffix string) {
 	if m := statusManagers(got.ManagedFields); len(m) != 1 || !m[string(k8s.ManagerCatalogarr)] {
 		t.Errorf("status managers after the UI action = %v, want only %s", m, k8s.ManagerCatalogarr)
 	}
-	awaitFrame(t, "/events/library to push the unmonitored Movie", libraryFrames, func(f string) bool {
+	awaitFrame(t, "/events/library/movies to push the unmonitored Movie", libraryFrames, func(f string) bool {
 		return rowAttr(f, movieRow, "data-monitored") == "false"
 	})
 
