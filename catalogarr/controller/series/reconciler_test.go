@@ -24,6 +24,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -462,6 +463,41 @@ func TestSeriesReconcilerRealController(t *testing.T) {
 		assert.EqualValues(t, 2, got.Status.Seasons[0].EpisodeCount)
 	})
 
+	// The DLQ projector's annotation folds into a DeadLettered condition on
+	// a Series already in its steady state, and removing it removes the
+	// condition, without releasing anything else this manager owns.
+	t.Run("the dead-lettered annotation folds into a DeadLettered condition and back out", func(t *testing.T) {
+		before := mustGet(t, ctx, c, "series-ns", "one-piece")
+		require.NotEmpty(t, before.Status.Phase)
+		patch := client.MergeFrom(before.DeepCopy())
+		if before.Annotations == nil {
+			before.Annotations = map[string]string{}
+		}
+		before.Annotations[k8s.AnnotationDeadLettered] = "clustarr.work.catalogarr.metadata.normal.x@2026-09-23T12:00:00Z"
+		require.NoError(t, c.Patch(ctx, &before, patch))
+
+		var got catalogv1alpha1.Series
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, types.NamespacedName{Namespace: "series-ns", Name: "one-piece"}, &got); err != nil {
+				return false
+			}
+			return k8s.IsConditionTrue(got.Status.Conditions, k8s.ConditionDeadLettered)
+		}, 5*time.Second, 20*time.Millisecond, "an annotation-only change must reach the reconcile and become a condition")
+		assert.Equal(t, before.Status.Phase, got.Status.Phase)
+		assert.Equal(t, before.Status.EpisodeCount, got.Status.EpisodeCount)
+		assert.Equal(t, before.Status.Path, got.Status.Path)
+
+		patch = client.MergeFrom(got.DeepCopy())
+		delete(got.Annotations, k8s.AnnotationDeadLettered)
+		require.NoError(t, c.Patch(ctx, &got, patch))
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, types.NamespacedName{Namespace: "series-ns", Name: "one-piece"}, &got); err != nil {
+				return false
+			}
+			return k8s.FindCondition(got.Status.Conditions, k8s.ConditionDeadLettered) == nil
+		}, 5*time.Second, 20*time.Millisecond, "removing the annotation must remove the condition")
+	})
+
 	// The concrete proof that seriesPredicate (GenerationChanged Or
 	// StatusFieldChanged on status.metadata.refreshedAt) wakes this
 	// controller when the metadata gateway writes status.metadata, but this
@@ -800,9 +836,12 @@ func TestSeriesReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		}, 5*time.Second, 10*time.Millisecond)
 
 		req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "series-transient-ns", Name: name}}
+		// One aired episode and one upcoming, so the steady state carries
+		// both previousAiring and nextAiring for a blip to release.
+		aired, upcoming := time.Now().Add(-72*time.Hour), time.Now().Add(72*time.Hour)
 		requester := &fakeEpisodeRPC{episodes: []metadata.Episode{
-			{SeasonNumber: 1, EpisodeNumber: 1, Title: "Pilot"},
-			{SeasonNumber: 1, EpisodeNumber: 2, Title: "Episode 2"},
+			{SeasonNumber: 1, EpisodeNumber: 1, Title: "Pilot", AirDate: &aired},
+			{SeasonNumber: 1, EpisodeNumber: 2, Title: "Episode 2", AirDate: &upcoming},
 		}}
 		bus := combinedBus{Publisher: fakePublisher{}, requester: requester}
 		r := &series.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: bus}
@@ -856,6 +895,9 @@ func TestSeriesReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		require.NotEmpty(t, got.Status.Path)
 		require.Equal(t, int32(2), got.Status.EpisodeCount)
 		require.Len(t, got.Status.Seasons, 1)
+		require.NotNil(t, got.Status.NextAiring, "setup: the steady state must carry nextAiring")
+		require.NotNil(t, got.Status.PreviousAiring, "setup: the steady state must carry previousAiring")
+		require.NotNil(t, got.Status.Seasons[0].NextAiring, "setup: the steady state must carry the season's nextAiring")
 		return req
 	}
 
@@ -918,6 +960,8 @@ func TestSeriesReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		assert.Equal(t, before.Status.EpisodeCount, after.Status.EpisodeCount, "QueueFull must not release EpisodeCount")
 		assert.Equal(t, before.Status.EpisodeFileCount, after.Status.EpisodeFileCount, "QueueFull must not release EpisodeFileCount")
 		assert.Equal(t, before.Status.Seasons, after.Status.Seasons, "QueueFull must not release Seasons")
+		assert.Equal(t, before.Status.NextAiring, after.Status.NextAiring, "QueueFull must not release NextAiring")
+		assert.Equal(t, before.Status.PreviousAiring, after.Status.PreviousAiring, "QueueFull must not release PreviousAiring")
 	})
 
 	t.Run("RootFolderNotFound does not release the steady state", func(t *testing.T) {
@@ -972,6 +1016,8 @@ func TestSeriesReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		assert.Equal(t, before.Status.EpisodeCount, after.Status.EpisodeCount, "RootFolderNotFound must not release EpisodeCount")
 		assert.Equal(t, before.Status.EpisodeFileCount, after.Status.EpisodeFileCount, "RootFolderNotFound must not release EpisodeFileCount")
 		assert.Equal(t, before.Status.Seasons, after.Status.Seasons, "RootFolderNotFound must not release Seasons")
+		assert.Equal(t, before.Status.NextAiring, after.Status.NextAiring, "RootFolderNotFound must not release NextAiring")
+		assert.Equal(t, before.Status.PreviousAiring, after.Status.PreviousAiring, "RootFolderNotFound must not release PreviousAiring")
 	})
 }
 
@@ -1077,4 +1123,119 @@ type fakePublisher struct{ err error }
 
 func (f fakePublisher) Publish(_ context.Context, _ string, _ *events.Envelope, _ ...events.PublishOption) (events.Receipt, error) {
 	return events.Receipt{}, f.err
+}
+
+// subjectRecorder records the subject of every publish.
+type subjectRecorder struct {
+	mu       sync.Mutex
+	subjects []string
+}
+
+func (p *subjectRecorder) Publish(_ context.Context, subject string, _ *events.Envelope, _ ...events.PublishOption) (events.Receipt, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.subjects = append(p.subjects, subject)
+	return events.Receipt{}, nil
+}
+
+func (p *subjectRecorder) has(prefix string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, s := range p.subjects {
+		if strings.HasPrefix(s, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestSeriesRollupIsPostFanOut is the carried "rollup from the pre-fan-out
+// episode list" defect and the nextAiring/previousAiring writer, together:
+// ONE reconcile of a Series with no Episodes yet must fan them out AND roll
+// them up -- counts, seasons and airings -- in the same apply. Before, that
+// pass rolled up the list read before the RPC (empty) and the counts only
+// appeared if a later reconcile happened to come. It then clears everything
+// again (R-12's WithSeasons-at-zero question) by removing every Episode.
+func TestSeriesRollupIsPostFanOut(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfg := newTestConfig(t)
+	c := startCacheOnly(t, ctx, cfg)
+	const ns = "postfanout-ns"
+	require.NoError(t, c.Create(ctx, testNamespace(ns)))
+	require.NoError(t, c.Create(ctx, testRootFolder(ns, "tv-root", "/data/media/tv")))
+
+	s := &catalogv1alpha1.Series{
+		ObjectMeta: metav1.ObjectMeta{Name: "severance", Namespace: ns},
+		Spec: catalogv1alpha1.SeriesSpec{
+			TvdbID: 371980, QualityProfileRef: "none", RootFolderRef: "tv-root",
+			AddOptions: catalogv1alpha1.SeriesAddOptions{Monitor: catalogv1alpha1.SeriesMonitorAll},
+		},
+	}
+	require.NoError(t, c.Create(ctx, s))
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Series(s.Name, ns).WithStatus(
+		catalogac.SeriesStatus().WithMetadata(catalogac.SeriesMetadata().WithTitle("Severance").WithYear(2022).
+			WithStatus(catalogv1alpha1.SeriesRunStatusContinuing).WithRefreshedAt(metav1.Now()))))
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		var got catalogv1alpha1.Series
+		return c.Get(ctx, client.ObjectKeyFromObject(s), &got) == nil && got.Status.Metadata != nil
+	}, 5*time.Second, 10*time.Millisecond)
+
+	day := 24 * time.Hour
+	now := time.Now()
+	e1, e2, e3 := now.Add(-10*day), now.Add(-2*day), now.Add(5*day)
+	requester := &fakeEpisodeRPC{episodes: []metadata.Episode{
+		{SeasonNumber: 1, EpisodeNumber: 1, Title: "Good News About Hell", AirDate: &e1},
+		{SeasonNumber: 1, EpisodeNumber: 2, Title: "Half Loop", AirDate: &e2},
+		{SeasonNumber: 1, EpisodeNumber: 3, Title: "In Perpetuity", AirDate: &e3},
+	}}
+	rec := k8sevents.NewFakeRecorder(32)
+	pub := &subjectRecorder{}
+	r := &series.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: rec, Bus: combinedBus{Publisher: pub, requester: requester}}
+	req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(s)}
+
+	res, err := r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	assert.InDelta(t, (5 * day).Seconds(), res.RequeueAfter.Seconds(), 60,
+		"the reconcile must come back when the next episode airs, since nothing else wakes it then")
+
+	var got catalogv1alpha1.Series
+	require.Eventually(t, func() bool {
+		return c.Get(ctx, req.NamespacedName, &got) == nil && got.Status.AddOptionsApplied
+	}, 5*time.Second, 10*time.Millisecond)
+	assert.EqualValues(t, 3, got.Status.EpisodeCount, "the first pass must count the Episodes it just created")
+	require.Len(t, got.Status.Seasons, 1)
+	assert.EqualValues(t, 3, got.Status.Seasons[0].EpisodeCount)
+	require.NotNil(t, got.Status.NextAiring)
+	assert.WithinDuration(t, e3, got.Status.NextAiring.Time, time.Second)
+	require.NotNil(t, got.Status.PreviousAiring)
+	assert.WithinDuration(t, e2, got.Status.PreviousAiring.Time, time.Second)
+	require.NotNil(t, got.Status.Seasons[0].NextAiring)
+	assert.WithinDuration(t, e3, got.Status.Seasons[0].NextAiring.Time, time.Second)
+	assert.Contains(t, <-rec.Events, "Normal EpisodesAdded created 3 Episode(s)")
+	assert.True(t, pub.has("clustarr.evt.catalog.series.added."), "the first reconcile announces the Series: %v", pub.subjects)
+
+	// R-12: WithSeasons with zero elements. Remove every Episode and let the
+	// provider return none: the rollup is empty, the apply omits seasons,
+	// and -- this manager being the only owner -- the omission clears it.
+	requester.episodes = nil
+	var eps catalogv1alpha1.EpisodeList
+	require.NoError(t, c.List(ctx, &eps, client.InNamespace(ns)))
+	require.Len(t, eps.Items, 3)
+	for i := range eps.Items {
+		require.NoError(t, c.Delete(ctx, &eps.Items[i]))
+	}
+	require.Eventually(t, func() bool {
+		var left catalogv1alpha1.EpisodeList
+		return c.List(ctx, &left, client.InNamespace(ns)) == nil && len(left.Items) == 0
+	}, 5*time.Second, 10*time.Millisecond)
+	_, err = r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		return c.Get(ctx, req.NamespacedName, &got) == nil && got.Status.EpisodeCount == 0
+	}, 5*time.Second, 10*time.Millisecond)
+	assert.Empty(t, got.Status.Seasons, "an empty rollup must clear status.seasons")
+	assert.Nil(t, got.Status.NextAiring)
+	assert.Nil(t, got.Status.PreviousAiring)
 }

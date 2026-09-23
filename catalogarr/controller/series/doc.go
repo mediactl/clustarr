@@ -21,7 +21,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Series out into owned Episode objects per spec §8.1.
 //
 // Series is the sole writer of status.phase, status.path, status.seasons,
-// status.episodeCount and status.episodeFileCount; status.metadata belongs
+// status.episodeCount, status.episodeFileCount, status.nextAiring and
+// status.previousAiring (all rolled up from the post-fan-out Episodes, the
+// airings with Sonarr's monitored-only statistics semantics); status.metadata belongs
 // to the metadata gateway (Task C5, field manager
 // k8s.ManagerCatalogarrMetadata). The per-Episode provider fields
 // (title/overview/airDate/tvdbID/absoluteNumber/runtimeMinutes) are written
@@ -45,4 +47,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // the same-manager clobbering risk the status fields do. Distinct field
 // manager NAMES on disjoint fields within one subresource is exactly the
 // §5 grabarr/grabarr-engine pattern on DownloadStatus.
+//
+// The reconciler also folds the DLQ projector's annotation into a
+// DeadLettered condition, emits Events on phase, fan-out and failure edges,
+// and publishes the Series' added/updated/deleted domain events (report.go).
 package series

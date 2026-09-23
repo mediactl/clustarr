@@ -35,12 +35,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/catalogarr/controller/rollup"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -178,6 +180,9 @@ func seriesPredicate() predicate.Predicate {
 			}
 			return s.Status.Metadata.RefreshedAt
 		}),
+		// The DLQ projector's annotation changes neither generation nor
+		// status; see the movie package's moviePredicate.
+		k8s.DeadLetteredAnnotationChanged(),
 	)
 }
 
@@ -206,13 +211,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	return r.reconcileNormal(ctx, &s)
 }
 
-// reconcileDelete removes the finalizer. Owned Episodes are garbage
-// collected by the apiserver via their controller reference; there is
-// nothing else owned outside Kubernetes at this phase.
+// reconcileDelete announces the deletion and removes the finalizer. Owned
+// Episodes are garbage collected by the apiserver via their controller
+// reference; there is nothing else owned outside Kubernetes at this phase.
+// The deleted ItemEvent goes out before the finalizer comes off, so a failed
+// removal re-announces under the same envelope id rather than losing it.
 func (r *Reconciler) reconcileDelete(ctx context.Context, s *catalogv1alpha1.Series) (ctrl.Result, error) {
 	name, err := k8s.FinalizerFor(s, r.Scheme)
 	if err != nil {
 		return ctrl.Result{}, reconcile.TerminalError(err)
+	}
+	if controllerutil.ContainsFinalizer(s, name) {
+		r.publishItem(ctx, s, events.ActionDeleted, time.Now().UTC())
 	}
 	if _, err := k8s.RemoveFinalizer(ctx, r.Client, s, name); err != nil {
 		return ctrl.Result{}, err
@@ -230,6 +240,15 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 	now := time.Now().UTC()
 	monitored := ptr.Deref(s.Spec.Monitored, true)
 	conditions := append([]metav1.Condition(nil), s.Status.Conditions...)
+	// Folded first, on the one slice every apply below declares (the two
+	// early returns included); see the movie package's reconcileNormal.
+	k8s.MarkDeadLettered(s, &conditions)
+
+	// Announced before any apply: the first apply records addOptionsApplied
+	// and observedGeneration, which is what consumes the edge.
+	if action := rollup.ItemAction(s.Generation, s.Status.ObservedGeneration, s.Status.AddOptionsApplied); action != "" {
+		r.publishItem(ctx, s, action, now)
+	}
 
 	statusAC := catalogac.SeriesStatus().WithObservedGeneration(s.Generation)
 	// Sent on every reconcile once the decision point is reached, not just
@@ -270,6 +289,9 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 		_, pubErr := r.Bus.Publish(ctx, events.WorkMetadataSubject(events.PriorityNormal, mediaKey), env)
 		if pubErr != nil {
 			if errors.Is(pubErr, events.ErrQueueFull) {
+				if rollup.Transitioned(s.Status.Conditions, conditionQueueFull, metav1.ConditionTrue, "QueueFull") {
+					r.warn(s, "QueueFull", "metadata work queue is full; retrying the refresh in a minute")
+				}
 				k8s.MarkTrue(s, &conditions, conditionQueueFull, "QueueFull", "metadata work queue is full")
 				statusAC = reassertKnownStatus(statusAC, s)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
@@ -290,6 +312,9 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 		var rf catalogv1alpha1.RootFolder
 		if err := r.Get(ctx, types.NamespacedName{Namespace: s.Namespace, Name: s.Spec.RootFolderRef}, &rf); err != nil {
 			if apierrors.IsNotFound(err) {
+				if rollup.Transitioned(s.Status.Conditions, k8s.ConditionReady, metav1.ConditionFalse, "RootFolderNotFound") {
+					r.warn(s, "RootFolderNotFound", "rootFolder %q not found", s.Spec.RootFolderRef)
+				}
 				k8s.MarkFalse(s, &conditions, k8s.ConditionReady, "RootFolderNotFound", "rootFolder %q not found", s.Spec.RootFolderRef)
 				statusAC = reassertKnownStatus(statusAC, s)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
@@ -322,35 +347,74 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 
 	// Episode-listing RPC fan-out (last step, per §8.1): a failure here
 	// surfaces on EpisodesSynced/Phase without blocking the patch above.
-	episodesSynced, episodes, syncErr := r.syncEpisodes(ctx, s, now)
+	fan, syncErr := r.syncEpisodes(ctx, s, now)
 	if syncErr != nil {
+		if rollup.Transitioned(s.Status.Conditions, catalogv1alpha1.SeriesConditionEpisodesSynced, metav1.ConditionFalse, "RPCError") {
+			r.warn(s, "EpisodeSyncFailed", "episode listing RPC failed: %s", syncErr.Error())
+		}
 		k8s.MarkFalse(s, &conditions, catalogv1alpha1.SeriesConditionEpisodesSynced, "RPCError", "episode listing RPC failed: %s", syncErr.Error())
 	} else {
 		k8s.MarkTrue(s, &conditions, catalogv1alpha1.SeriesConditionEpisodesSynced, k8s.ReasonReconciled, "episodes synced")
 	}
-
-	seasons, episodeCount, episodeFileCount := Rollup(episodes)
-	seasonACs := make([]*catalogac.SeasonStatusApplyConfiguration, 0, len(seasons))
-	for _, ssn := range seasons {
-		seasonACs = append(seasonACs, catalogac.SeasonStatus().
-			WithNumber(ssn.Number).WithEpisodeCount(ssn.EpisodeCount).WithEpisodeFileCount(ssn.EpisodeFileCount))
+	if fan.created > 0 {
+		r.normal(s, "EpisodesAdded", "created %d Episode(s)", fan.created)
 	}
-	statusAC = statusAC.WithSeasons(seasonACs...).WithEpisodeCount(episodeCount).WithEpisodeFileCount(episodeFileCount)
 
-	phase := Phase(monitored, metaReady, episodesSynced)
+	// The rollup is taken over the POST-fan-out Episodes: what this very
+	// reconcile created and the air dates it just applied, not the list read
+	// before the RPC. The pre-fan-out list was only right after a second
+	// reconcile, and that one came only if a new Episode's Create happened to
+	// wake this controller.
+	roll := Rollup(fan.episodes, now)
+	statusAC = statusAC.WithSeasons(seasonACs(roll.Seasons)...).
+		WithEpisodeCount(roll.EpisodeCount).
+		WithEpisodeFileCount(roll.EpisodeFileCount)
+	if roll.NextAiring != nil {
+		statusAC = statusAC.WithNextAiring(*roll.NextAiring)
+	}
+	if roll.PreviousAiring != nil {
+		statusAC = statusAC.WithPreviousAiring(*roll.PreviousAiring)
+	}
+
+	phase := Phase(monitored, metaReady, fan.synced)
 	statusAC = statusAC.WithPhase(phase)
 
-	k8s.MarkReady(s, &conditions, metaReady && episodesSynced && phase != catalogv1alpha1.SeriesPhasePending, k8s.ReasonReconciled, "phase=%s", phase)
+	k8s.MarkReady(s, &conditions, metaReady && fan.synced && phase != catalogv1alpha1.SeriesPhasePending, k8s.ReasonReconciled, "phase=%s", phase)
 	statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
 
 	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Series(s.Name, s.Namespace).WithStatus(statusAC)); err != nil {
 		return ctrl.Result{}, err
 	}
+	if s.Status.Phase != "" && s.Status.Phase != phase {
+		r.normal(s, string(phase), "phase %s -> %s", s.Status.Phase, phase)
+	}
 
 	if syncErr != nil {
 		return ctrl.Result{RequeueAfter: episodeSyncRPCBackoff}, nil
 	}
+	// nextAiring moves when an episode airs, and nothing else wakes this
+	// controller then (the Owns() watch fires on HasFile only), so come back
+	// just after it.
+	if roll.NextAiring != nil {
+		return ctrl.Result{RequeueAfter: roll.NextAiring.Sub(now) + time.Second}, nil
+	}
 	return ctrl.Result{}, nil
+}
+
+// seasonACs renders the per-season rollup. It is the one place a
+// SeasonStatus becomes an apply configuration, shared by the happy path and
+// reassertKnownStatus, so both declare the same leaves.
+func seasonACs(seasons []catalogv1alpha1.SeasonStatus) []*catalogac.SeasonStatusApplyConfiguration {
+	out := make([]*catalogac.SeasonStatusApplyConfiguration, 0, len(seasons))
+	for _, ssn := range seasons {
+		ac := catalogac.SeasonStatus().
+			WithNumber(ssn.Number).WithEpisodeCount(ssn.EpisodeCount).WithEpisodeFileCount(ssn.EpisodeFileCount)
+		if ssn.NextAiring != nil {
+			ac = ac.WithNextAiring(*ssn.NextAiring)
+		}
+		out = append(out, ac)
+	}
+	return out
 }
 
 // reassertKnownStatus re-adds every field this manager owns besides
@@ -360,7 +424,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 // metadata publish hitting a full queue, or a RootFolder lookup that
 // briefly 404s -- and without this, PatchStatus's apply would omit every
 // field it does not mention, releasing (zeroing) a healthy Series'
-// Path/Seasons/EpisodeCount/EpisodeFileCount/Phase the next time either
+// Path/Seasons/EpisodeCount/EpisodeFileCount/NextAiring/PreviousAiring/Phase
+// the next time either
 // blip happens. This is the same apply-release mechanism as movie's own
 // reassertKnownStatus and the Series/Episode field-manager split, a third
 // form of it in this wave: a healthy object sitting at Ready must not be
@@ -374,33 +439,52 @@ func reassertKnownStatus(statusAC *catalogac.SeriesStatusApplyConfiguration, s *
 	if s.Status.Path != "" {
 		statusAC = statusAC.WithPath(s.Status.Path)
 	}
-	seasonACs := make([]*catalogac.SeasonStatusApplyConfiguration, 0, len(s.Status.Seasons))
-	for _, ssn := range s.Status.Seasons {
-		seasonACs = append(seasonACs, catalogac.SeasonStatus().
-			WithNumber(ssn.Number).WithEpisodeCount(ssn.EpisodeCount).WithEpisodeFileCount(ssn.EpisodeFileCount))
-	}
-	statusAC = statusAC.WithSeasons(seasonACs...)
+	statusAC = statusAC.WithSeasons(seasonACs(s.Status.Seasons)...)
 	statusAC = statusAC.WithEpisodeCount(s.Status.EpisodeCount)
 	statusAC = statusAC.WithEpisodeFileCount(s.Status.EpisodeFileCount)
+	if s.Status.NextAiring != nil {
+		statusAC = statusAC.WithNextAiring(*s.Status.NextAiring)
+	}
+	if s.Status.PreviousAiring != nil {
+		statusAC = statusAC.WithPreviousAiring(*s.Status.PreviousAiring)
+	}
 	return statusAC
+}
+
+// fanOut is what syncEpisodes reports: whether the fan-out completed, how
+// many Episodes it created, and the Series' Episodes as they stand AFTER it.
+type fanOut struct {
+	synced   bool
+	created  int
+	episodes []catalogv1alpha1.Episode
 }
 
 // syncEpisodes lists s's currently owned Episodes, requests its episode list
 // from the metadata gateway, ensures each desired Episode exists with its
-// provider-sourced status fields, and returns the full (pre-fan-out) owned
-// Episode list for Rollup -- self-correcting: a newly created Episode's own
-// Create event passes Owns()'s StatusFieldChanged predicate (Creates always
-// pass), so a Rollup based on the pre-fan-out list here is completed by the
-// very next reconcile it triggers, rather than needing a second List call
-// against a cache that may not yet see this pass's own creates.
-func (r *Reconciler) syncEpisodes(ctx context.Context, s *catalogv1alpha1.Series, now time.Time) (synced bool, existing []catalogv1alpha1.Episode, err error) {
+// provider-sourced status fields, and returns the post-fan-out Episode list
+// for Rollup: every Episode the List found, with the ones this pass ensured
+// replaced by what it just wrote (a new Episode, or a fresh air date), so
+// the rollup reflects this reconcile rather than the one before it. On any
+// failure it still returns everything it knows -- the pre-fan-out list plus
+// whatever it ensured before failing.
+func (r *Reconciler) syncEpisodes(ctx context.Context, s *catalogv1alpha1.Series, now time.Time) (fanOut, error) {
 	var episodeList catalogv1alpha1.EpisodeList
 	if err := r.List(ctx, &episodeList, client.InNamespace(s.Namespace), client.MatchingFields{episodeBySeriesRefIndexKey: s.Name}); err != nil {
-		return false, nil, err
+		return fanOut{}, err
 	}
+	existing := make(map[string]catalogv1alpha1.Episode, len(episodeList.Items))
 	existingNames := make(map[string]bool, len(episodeList.Items))
 	for _, ep := range episodeList.Items {
+		existing[ep.Name] = ep
 		existingNames[ep.Name] = true
+	}
+	out := fanOut{}
+	done := func() fanOut {
+		out.episodes = make([]catalogv1alpha1.Episode, 0, len(existing))
+		for _, ep := range existing {
+			out.episodes = append(out.episodes, ep)
+		}
+		return out
 	}
 
 	order := EffectiveEpisodeOrder(s.Spec.SeriesType, s.Spec.EpisodeOrder)
@@ -416,28 +500,34 @@ func (r *Reconciler) syncEpisodes(ctx context.Context, s *catalogv1alpha1.Series
 
 	var resp schema.MetadataResponse
 	if rpcErr := r.Bus.Request(rpcCtx, events.RPCMetadataLookup, req, &resp); rpcErr != nil {
-		return false, episodeList.Items, rpcErr
+		return done(), rpcErr
 	}
 	if resp.Error != "" {
-		return false, episodeList.Items, fmt.Errorf("metadata gateway: %s", resp.Error)
+		return done(), fmt.Errorf("metadata gateway: %s", resp.Error)
 	}
 
 	fetched := make([]metadata.Episode, 0, len(resp.Results))
 	for _, raw := range resp.Results {
 		var ep metadata.Episode
 		if err := json.Unmarshal(raw, &ep); err != nil {
-			return false, episodeList.Items, fmt.Errorf("decode episode: %w", err)
+			return done(), fmt.Errorf("decode episode: %w", err)
 		}
 		fetched = append(fetched, ep)
 	}
 
 	desired := DesiredEpisodes(s, s.Status.AddOptionsApplied, existingNames, fetched, now)
 	for _, d := range desired {
-		if err := r.ensureEpisode(ctx, s, d); err != nil {
-			return false, episodeList.Items, err
+		ep, created, err := r.ensureEpisode(ctx, s, d)
+		if err != nil {
+			return done(), err
+		}
+		existing[d.Name] = ep
+		if created {
+			out.created++
 		}
 	}
-	return true, episodeList.Items, nil
+	out.synced = true
+	return done(), nil
 }
 
 // ensureEpisode gets or creates the Episode named d.Name, then patches its
@@ -454,9 +544,14 @@ func (r *Reconciler) syncEpisodes(ctx context.Context, s *catalogv1alpha1.Series
 // reporting it. See the inline comments below for why the split follows
 // metadata.Episode's own types, and
 // TestSeriesEnsureEpisodeProviderFieldRefresh for the pinning test.
-func (r *Reconciler) ensureEpisode(ctx context.Context, s *catalogv1alpha1.Series, d DesiredEpisode) error {
+//
+// It returns the Episode as this call leaves it -- the live object, or the
+// one it created, with status.airDate set to what it just applied -- and
+// whether it created it, for syncEpisodes' post-fan-out rollup.
+func (r *Reconciler) ensureEpisode(ctx context.Context, s *catalogv1alpha1.Series, d DesiredEpisode) (catalogv1alpha1.Episode, bool, error) {
 	var ep catalogv1alpha1.Episode
 	key := types.NamespacedName{Namespace: s.Namespace, Name: d.Name}
+	created := false
 	err := r.Get(ctx, key, &ep)
 	switch {
 	case apierrors.IsNotFound(err):
@@ -472,13 +567,16 @@ func (r *Reconciler) ensureEpisode(ctx context.Context, s *catalogv1alpha1.Serie
 			ep.Spec.Monitored = d.Monitored
 		}
 		if err := k8s.SetControllerReference(s, &ep, r.Scheme); err != nil {
-			return err
+			return ep, false, err
 		}
-		if err := r.Create(ctx, &ep); err != nil && !apierrors.IsAlreadyExists(err) {
-			return err
+		switch err := r.Create(ctx, &ep); {
+		case err == nil:
+			created = true
+		case !apierrors.IsAlreadyExists(err):
+			return ep, false, err
 		}
 	case err != nil:
-		return err
+		return ep, false, err
 	}
 
 	// Title, Overview, RuntimeMinutes and TvdbID are sent unconditionally,
@@ -523,8 +621,17 @@ func (r *Reconciler) ensureEpisode(ctx context.Context, s *catalogv1alpha1.Serie
 	// Episode reconciler's own fields needed here, and if the two ever
 	// genuinely claim the same field the apiserver reports a loud conflict
 	// instead of losing data quietly.
-	_, err = k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarrSeries, catalogac.Episode(d.Name, s.Namespace).WithStatus(statusAC))
-	return err
+	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarrSeries, catalogac.Episode(d.Name, s.Namespace).WithStatus(statusAC)); err != nil {
+		return ep, created, err
+	}
+	// What this manager just declared is what the object now says: the
+	// provider's air date, or none (the omission above released it).
+	ep.Status.AirDate = nil
+	if d.AirDate != nil {
+		t := metav1.NewTime(*d.AirDate)
+		ep.Status.AirDate = &t
+	}
+	return ep, created, nil
 }
 
 // seriesRefreshState derives the metadata.RefreshTTL state bucket from a

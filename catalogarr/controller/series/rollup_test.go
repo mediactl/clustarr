@@ -19,9 +19,12 @@ package series_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/catalogarr/controller/series"
@@ -38,10 +41,11 @@ func TestRollup(t *testing.T) {
 		{Spec: catalogv1alpha1.EpisodeSpec{SeasonNumber: 1, EpisodeNumber: 2}, Status: catalogv1alpha1.EpisodeStatus{HasFile: false}},
 		{Spec: catalogv1alpha1.EpisodeSpec{SeasonNumber: 2, EpisodeNumber: 1}, Status: catalogv1alpha1.EpisodeStatus{HasFile: true}},
 	}
-	seasons, count, fileCount := series.Rollup(eps)
+	r := series.Rollup(eps, time.Now())
+	seasons := r.Seasons
 	require.Len(t, seasons, 2)
-	assert.EqualValues(t, 3, count)
-	assert.EqualValues(t, 2, fileCount)
+	assert.EqualValues(t, 3, r.EpisodeCount)
+	assert.EqualValues(t, 2, r.EpisodeFileCount)
 	// seasons sorted ascending by number, per +listMapKey=number's implied order
 	assert.EqualValues(t, 1, seasons[0].Number)
 	assert.EqualValues(t, 2, seasons[0].EpisodeCount)
@@ -52,8 +56,48 @@ func TestRollup(t *testing.T) {
 }
 
 func TestRollupEmpty(t *testing.T) {
-	seasons, count, fileCount := series.Rollup(nil)
-	assert.Empty(t, seasons)
-	assert.Zero(t, count)
-	assert.Zero(t, fileCount)
+	r := series.Rollup(nil, time.Now())
+	assert.Empty(t, r.Seasons)
+	assert.Zero(t, r.EpisodeCount)
+	assert.Zero(t, r.EpisodeFileCount)
+	assert.Nil(t, r.NextAiring)
+	assert.Nil(t, r.PreviousAiring)
+}
+
+// TestRollupAirings pins Sonarr's SeriesStatisticsRepository semantics:
+// next is the earliest monitored air date at or after now, previous the
+// latest monitored one before now, per season as well as per series, and an
+// unmonitored or undated episode counts toward neither.
+func TestRollupAirings(t *testing.T) {
+	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+	at := func(d time.Duration) *metav1.Time { v := metav1.NewTime(now.Add(d)); return &v }
+	ep := func(season, number int32, air *metav1.Time, monitored bool) catalogv1alpha1.Episode {
+		return catalogv1alpha1.Episode{
+			Spec:   catalogv1alpha1.EpisodeSpec{SeasonNumber: season, EpisodeNumber: number, Monitored: ptr.To(monitored)},
+			Status: catalogv1alpha1.EpisodeStatus{AirDate: air},
+		}
+	}
+	day := 24 * time.Hour
+	eps := []catalogv1alpha1.Episode{
+		ep(1, 1, at(-30*day), true),
+		ep(1, 2, at(-7*day), true),  // the previous airing
+		ep(1, 3, at(-1*day), false), // later, but unmonitored
+		ep(2, 1, at(0), true),       // airs exactly now: that is "next", not "previous"
+		ep(2, 2, at(7*day), true),
+		ep(3, 1, at(2*day), false), // unmonitored: season 3 has no next airing
+		ep(3, 2, nil, true),        // no air date at all
+	}
+
+	r := series.Rollup(eps, now)
+	require.NotNil(t, r.PreviousAiring)
+	assert.True(t, r.PreviousAiring.Time.Equal(now.Add(-7*day)), "previous is the latest MONITORED airing before now")
+	require.NotNil(t, r.NextAiring)
+	assert.True(t, r.NextAiring.Time.Equal(now), "an airing at now is the next one (Sonarr: AirDateUtc >= now)")
+
+	require.Len(t, r.Seasons, 3)
+	assert.Nil(t, r.Seasons[0].NextAiring, "season 1 has aired")
+	require.NotNil(t, r.Seasons[1].NextAiring)
+	assert.True(t, r.Seasons[1].NextAiring.Time.Equal(now))
+	assert.Nil(t, r.Seasons[2].NextAiring, "an unmonitored or undated episode is nobody's next airing")
+	assert.EqualValues(t, 7, r.EpisodeCount, "counts are not filtered by monitoring")
 }

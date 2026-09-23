@@ -19,18 +19,43 @@ package series
 
 import (
 	"sort"
+	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 )
 
+// SeriesRollup is everything Rollup folds a Series' Episodes into.
+type SeriesRollup struct {
+	// Seasons is the per-season rollup, sorted ascending by number, each
+	// with its own NextAiring.
+	Seasons []catalogv1alpha1.SeasonStatus
+
+	// EpisodeCount and EpisodeFileCount are the series totals.
+	EpisodeCount, EpisodeFileCount int32
+
+	// NextAiring and PreviousAiring are the series' next and most recent
+	// airings; nil when there is none.
+	NextAiring, PreviousAiring *metav1.Time
+}
+
 // Rollup folds a Series' owned Episodes into the per-season status Sonarr
-// keeps: seasons sorted ascending by number, the total episode count and
-// the total episode-with-file count. It is honest-but-currently-inert in
-// this task's own production wiring -- nothing in Task C6 ever sets
-// Episode.Status.HasFile=true except the Episode controller's own MediaFile
-// watch, which this same task lands -- but the arithmetic here does not
-// depend on that being true yet.
-func Rollup(episodes []catalogv1alpha1.Episode) (seasons []catalogv1alpha1.SeasonStatus, episodeCount, episodeFileCount int32) {
+// keeps: seasons sorted ascending by number, the total episode count, the
+// total episode-with-file count, and the airing dates.
+//
+// The airings follow Sonarr's SeriesStatisticsRepository (and its per-season
+// twin) exactly: NextAiring is the earliest air date at or after now,
+// PreviousAiring the latest one before now, and both consider MONITORED
+// episodes only -- Sonarr's query nulls out every row with Monitored = false
+// before its MIN/MAX
+// (https://github.com/Sonarr/Sonarr/blob/develop/src/NzbDrone.Core/SeriesStats/SeriesStatisticsRepository.cs).
+// An episode with no air date counts toward neither. seriesRefreshState
+// reads PreviousAiring for the "recently ended" refresh bucket; until this
+// had a writer, every ended series fell through to the slow EndedOld TTL.
+func Rollup(episodes []catalogv1alpha1.Episode, now time.Time) SeriesRollup {
+	var out SeriesRollup
 	bySeason := map[int32]*catalogv1alpha1.SeasonStatus{}
 	var order []int32
 	for _, ep := range episodes {
@@ -42,17 +67,44 @@ func Rollup(episodes []catalogv1alpha1.Episode) (seasons []catalogv1alpha1.Seaso
 			order = append(order, n)
 		}
 		s.EpisodeCount++
-		episodeCount++
+		out.EpisodeCount++
 		if ep.Status.HasFile {
 			s.EpisodeFileCount++
-			episodeFileCount++
+			out.EpisodeFileCount++
 		}
+
+		if ep.Status.AirDate == nil || !ptr.Deref(ep.Spec.Monitored, true) {
+			continue
+		}
+		at := ep.Status.AirDate.Time
+		if at.Before(now) {
+			out.PreviousAiring = later(out.PreviousAiring, at)
+			continue
+		}
+		out.NextAiring = earlier(out.NextAiring, at)
+		s.NextAiring = earlier(s.NextAiring, at)
 	}
 
 	sort.Slice(order, func(i, j int) bool { return order[i] < order[j] })
-	seasons = make([]catalogv1alpha1.SeasonStatus, 0, len(order))
+	out.Seasons = make([]catalogv1alpha1.SeasonStatus, 0, len(order))
 	for _, n := range order {
-		seasons = append(seasons, *bySeason[n])
+		out.Seasons = append(out.Seasons, *bySeason[n])
 	}
-	return seasons, episodeCount, episodeFileCount
+	return out
+}
+
+func earlier(cur *metav1.Time, at time.Time) *metav1.Time {
+	if cur == nil || at.Before(cur.Time) {
+		t := metav1.NewTime(at)
+		return &t
+	}
+	return cur
+}
+
+func later(cur *metav1.Time, at time.Time) *metav1.Time {
+	if cur == nil || at.After(cur.Time) {
+		t := metav1.NewTime(at)
+		return &t
+	}
+	return cur
 }
