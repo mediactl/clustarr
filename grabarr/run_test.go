@@ -23,9 +23,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/labels"
 
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/grabarr"
 )
 
@@ -108,23 +106,24 @@ func TestValidateRequiresTheBus(t *testing.T) {
 	require.Contains(t, err.Error(), "nats-url")
 }
 
-// Every grabarr role caches only the Secrets labelled for a watch: the
-// DownloadClient controller watches those for rotated usenet credentials and
-// reads the rest by name, so no role ever caches the cluster's other Secrets.
-func TestManagerOptionsCacheOnlyWatchLabelledSecrets(t *testing.T) {
+// No grabarr role caches Secrets: every read is a by-name get, so none
+// starts an informer, which would need list and watch on every Secret in
+// scope (the controller's ruling on cdde136).
+func TestManagerOptionsNeverCacheSecrets(t *testing.T) {
 	for _, role := range grabarr.Roles() {
 		o := grabarr.DefaultOptions()
 		o.Role = role
-		var found bool
-		for obj, by := range o.ManagerOptions().Cache.ByObject {
-			if _, ok := obj.(*corev1.Secret); !ok {
-				continue
-			}
-			found = true
-			require.NotNil(t, by.Label, "%s caches every Secret", role)
-			require.True(t, by.Label.Matches(labels.Set{downloadv1alpha1.LabelWatch: downloadv1alpha1.LabelWatchValue}))
-			require.False(t, by.Label.Matches(labels.Set{}), "%s caches an unlabelled Secret", role)
+		mo := o.ManagerOptions()
+		require.NotNil(t, mo.Client.Cache, "%s caches Secrets", role)
+		var disabled bool
+		for _, obj := range mo.Client.Cache.DisableFor {
+			_, ok := obj.(*corev1.Secret)
+			disabled = disabled || ok
 		}
-		require.True(t, found, "%s has no Secret cache filter", role)
+		require.True(t, disabled, "%s caches Secrets", role)
+		for obj := range mo.Cache.ByObject {
+			_, ok := obj.(*corev1.Secret)
+			require.False(t, ok, "%s configures a Secret informer", role)
+		}
 	}
 }

@@ -123,11 +123,9 @@ type Reconciler struct {
 
 	// SecretReader reads the Secrets a usenet engine reads at start, by name
 	// ([Reconciler.secretDigests]). Production passes the manager's uncached
-	// mgr.GetAPIReader(), so a read is a plain `get` and does not depend on
-	// the Secret carrying downloadv1alpha1.LabelWatch -- the manager's own
-	// Secret cache holds only labelled Secrets (grabarr.Options.ManagerOptions),
-	// and a cached Get of any other would read NotFound. NewReconciler sets
-	// it to the client it is given.
+	// mgr.GetAPIReader(), so a read is a plain `get`: a cached read would
+	// start a Secret informer, which needs list and watch on every Secret in
+	// scope. NewReconciler sets it to the client it is given.
 	SecretReader client.Reader
 }
 
@@ -393,11 +391,14 @@ func setEngineReadyCondition(dc *downloadv1alpha1.DownloadClient, conditions *[]
 // the only way a running engine sees it: it resolves the credentials once,
 // when it builds its client.
 //
-// Each Secret is read by name with a plain `get` through [Reconciler.SecretReader],
-// the least a read by name needs. What brings a rotation here promptly is
-// the watch in [Reconciler.SetupWithManager], which covers only Secrets
-// labelled downloadv1alpha1.LabelWatch; every other Secret is re-read on the
-// periodic reconcile ([recheckInterval]) and rolls the engine then.
+// Each Secret is read by name with a plain `get` through
+// [Reconciler.SecretReader], and nothing watches Secrets: a watch needs list
+// and watch, which RBAC cannot narrow by name or label, so grabarr could
+// enumerate every Secret in its scope -- other services' credentials
+// included -- for the sake of restarting an engine sooner (the controller's
+// ruling on cdde136). A rotation is therefore picked up by the periodic
+// reconcile ([recheckInterval], five minutes) or by any earlier one, which
+// re-reads the Secret and rolls the engine.
 //
 // A Secret that does not exist digests as "absent" -- the engine cannot start
 // without it, and creating it must restart the engine, which a changed digest
@@ -457,34 +458,6 @@ func secretDataDigest(data map[string][]byte) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// mapSecretToClients enqueues every usenet DownloadClient in the Secret's
-// namespace that names it as a provider's secretRef, so a rotated credential
-// restarts the engine now rather than at the next periodic reconcile. The
-// watch behind it sees only Secrets labelled downloadv1alpha1.LabelWatch (the
-// manager's cache is filtered to them), so this runs for those alone.
-func (r *Reconciler) mapSecretToClients(ctx context.Context, obj client.Object) []reconcile.Request {
-	var list downloadv1alpha1.DownloadClientList
-	if err := r.Client.List(ctx, &list, client.InNamespace(obj.GetNamespace())); err != nil {
-		logging.FromContext(ctx).WarnContext(ctx, "downloadclient: list clients for a Secret change failed",
-			"secret", obj.GetName(), "error", err)
-		return nil
-	}
-	var out []reconcile.Request
-	for i := range list.Items {
-		dc := &list.Items[i]
-		if dc.Spec.Usenet == nil {
-			continue
-		}
-		for _, p := range dc.Spec.Usenet.Providers {
-			if p.SecretRef.Name == obj.GetName() {
-				out = append(out, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(dc)})
-				break
-			}
-		}
-	}
-	return out
-}
-
 // mapDownloadToClient enqueues the DownloadClient a Download is labelled for,
 // so an assignment or a phase change is reconciled promptly instead of
 // waiting up to [recheckInterval] for the Active/Queued/Seeding rollup to
@@ -505,9 +478,6 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&appsv1.StatefulSet{}).
 		Owns(&appsv1.Deployment{}).
 		Watches(&downloadv1alpha1.Download{}, handler.EnqueueRequestsFromMapFunc(mapDownloadToClient)).
-		// Only Secrets labelled downloadv1alpha1.LabelWatch reach this watch:
-		// the manager caches no other (grabarr.Options.ManagerOptions).
-		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.mapSecretToClients)).
 		WithOptions(controller.Options{ReconciliationTimeout: 5 * time.Minute}).
 		Complete(r)
 }

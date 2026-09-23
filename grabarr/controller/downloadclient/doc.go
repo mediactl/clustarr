@@ -136,13 +136,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 //
-// The usenet engine's provider Secrets are read by name (get) to fold their
-// data into the engine's config hash, and watched (list, watch) through a
-// cache filtered to Secrets labelled download.clustarr.io/watch=enabled, so a
-// rotation restarts the engine at once. RBAC cannot narrow list and watch by
-// label, so the filter bounds what the controller holds rather than what it
-// may ask for; the unfiltered alternative would cache every Secret in the
-// cluster.
+// The usenet engine's provider Secrets are read by name, get alone, to fold
+// their data into the engine's config hash. They are deliberately not
+// watched: list and watch cannot be narrowed in RBAC, and would let grabarr
+// enumerate every Secret in its scope.
 //
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 package downloadclient

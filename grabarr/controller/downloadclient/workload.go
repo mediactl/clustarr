@@ -359,8 +359,9 @@ func engineConfigHash(dc *downloadv1alpha1.DownloadClient, secrets map[string]st
 //
 // The usenet providers' Secrets are read at start too, so their data is in
 // the hash as well, one digest per Secret: a rotated password restarts the
-// engine like any spec change (Z1 follow-up; see [Reconciler.secretDigests]
-// for how they are read and watched).
+// engine like any spec change, at the next reconcile (Z1 follow-up; see
+// [Reconciler.secretDigests] for how they are read, and why they are not
+// watched).
 //
 // It deliberately leaves out what already changes the pod template on its
 // own (resources, nodeSelector, tolerations) and what no engine reads
