@@ -171,6 +171,18 @@ func checkDataDir() error {
 				"every planted file would be classified as a sample and skipped",
 			clip, info.Size(), seed.MinMediaBytes)
 	}
+	// The torznab-stub appends its request log here, and scenario 17 reads it
+	// from the host side to prove the fixture was contacted on THIS run. The
+	// directory is created by `clustarr-e2e-fixtures seed`, as the host user,
+	// because the stub pod cannot create it: it runs as uid/gid 1000 against a
+	// hostPath directory it does not own. A fixture image predating that
+	// change leaves this absent, which would otherwise surface as an empty
+	// request log and an assertion nobody can explain.
+	reqDir := filepath.Join(dir, fixtureDirName, seed.TorznabDirName)
+	if _, err := os.Stat(reqDir); err != nil {
+		return fmt.Errorf("the torznab request-log directory %q is missing "+
+			"(rebuild the fixture image: `clustarr-e2e-fixtures seed` creates it): %w", reqDir, err)
+	}
 	return nil
 }
 

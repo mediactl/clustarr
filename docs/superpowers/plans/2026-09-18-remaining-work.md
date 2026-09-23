@@ -888,9 +888,8 @@ wired yet".
 >   because the original phase bundled the subsystems: an Indexer reconciling
 >   to healthy against the fixture indexer, a `Search` CR returning ranked
 >   results end to end through `rpc.indexarr.search`, and the release firehose
->   reaching `catalogarr`'s RSS matcher with a legal envelope key. Number it
->   when the D1 plan is written and add it to the roster below, so Phase H's
->   audit sees seventeen.
+>   reaching `catalogarr`'s RSS matcher with a legal envelope key. It is
+>   **scenario 17** in the roster below, so Phase H's audit sees seventeen.
 > - **D2 — `grabarr` + `importarr`'s file-import worker (M3).** DownloadClient,
 >   the torrent and usenet engines, the Download controller and its re-attach
 >   semantics, and the completed-download import. Lands scenarios 1 (through
@@ -1045,12 +1044,23 @@ milestone in spec §16 and every amendment section:
 16. **Deployment parity.** The Helm chart with e2e values passes scenario 1
     as the kustomize overlay does; `clustarr all` in one pod passes
     scenario 1; the KEDA opt-in renders.
+17. **Indexer, federated search and the release firehose (M2).** An `Indexer`
+    against the in-cluster Torznab fixture reconciles to healthy with
+    `status.caps` from a live capabilities fetch and `status.protocol`
+    resolved; a `Search` CR returns ranked `status.results` end to end
+    through `rpc.indexarr.search`, worst-first on the wire and best-first in
+    status, with every result keyed by the Indexer's object name; the RSS
+    worker's release reaches `catalogarr`'s rss-matcher with a legal
+    `<namespace>/<indexer>` envelope key, proven by the matched Movie's
+    `status.pendingGrab`; and a failing indexer escalates, is disabled, and
+    is then neither queried by the fan-out (`skipped`) nor polled again
+    (the fixture's request log stays quiet).
 
 **Rule for Phases C–G, effective now:** each phase lands the scenarios its
 milestone enables (C: 5, 7, 8 and the envtest-only parts of 1; D: 1 through
-the import, 2, 3, 4, 6 and the pipeline/downloaders pages of 14; E: 12 and the
-transcode leg of 1; F: 13 and the subtitle leg of 1; G: 9, 10, 11 and the
-rest of 14) and keeps `hack/e2e.sh` green for everything landed so far.
+the import, 2, 3, 4, 6, **17** and the pipeline/downloaders pages of 14;
+E: 12 and the transcode leg of 1; F: 13 and the subtitle leg of 1;
+G: 9, 10, 11 and the rest of 14) and keeps `hack/e2e.sh` green for everything landed so far.
 Phase H is then the audit that fills the gaps — 15 and 16 in full, the
 trace assertion in 1, CI — and the final proof, not the first time the
 system is deployed.

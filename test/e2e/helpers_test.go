@@ -20,24 +20,33 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package e2e
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/test/fixtures/seed"
+	"github.com/mediactl/clustarr/test/fixtures/torznabstub"
 )
 
 // fixtureDirName is the directory under $CLUSTARR_DATA_DIR that hack/e2e.sh
@@ -393,4 +402,511 @@ func isConditionTrue(conds []metav1.Condition, condType string) bool {
 		}
 	}
 	return false
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 17: the fixture indexer, federated search and the release firehose.
+// ---------------------------------------------------------------------------
+
+// indexerReadyTimeout covers an Indexer's first reconcile: one caps fetch
+// against a Service on the same node. It races no redelivery ladder at all --
+// the reconcile is a watch-driven controller-runtime reconcile, not a queue
+// task -- so the only things to cover are the fixture pod's own readiness
+// (probe period 5s, up to a few periods on a loaded node), indexarr's
+// per-request Timeout (Indexer.spec.timeout, default 30s) and a
+// controller-runtime rate-limited requeue after a first failure (the default
+// workqueue starts at 5ms and doubles, so two failures cost milliseconds, not
+// minutes). Two minutes is roughly four times the worst realistic case and
+// short enough that a genuinely broken fixture is reported before the suite
+// has burned its budget.
+const indexerReadyTimeout = 2 * time.Minute
+
+// searchCompletedTimeout is bounded by the CONTROLLER, not by the queue:
+// catalogarr/controller/search's SearchRunningTimeout (5 minutes) fails a
+// Search that has sat in Running that long, so no wait past it can ever
+// observe a Completed that was not already going to arrive.
+//
+// Within that window the task rides ConsumerCatalogSearchHigh (AckWait 120s,
+// MaxDeliver 5, BackOff 30s/2m/10m):
+//
+//	attempt 1 delivered at   0s, AckWait expires at 120s, backoff 30s
+//	attempt 2 delivered at 150s, AckWait expires at 270s, backoff  2m
+//	attempt 3 delivered at 390s  -- already past SearchRunningTimeout
+//
+// so one lost ack is survivable and two are not, by construction. Six minutes
+// clears SearchRunningTimeout plus the reconciler's own requeue and this
+// suite's 2s poll; it deliberately does NOT reach for attempt 3, which the
+// controller has already given a verdict on.
+const searchCompletedTimeout = 6 * time.Minute
+
+// firehoseTimeout covers a release travelling indexarr's RSS poll ->
+// CLUSTARR_RELEASES -> catalogarr's rss-matcher -> a status write. It races
+// TWO ladders in series.
+//
+// ConsumerIndexRSS (AckWait 60s, Heartbeat 30s, MaxDeliver 4, BackOff
+// 1m/5m/15m):
+//
+//	attempt 1 at 0s, expires 60s, backoff 1m -> attempt 2 at 120s
+//
+// ConsumerCatalogRSSMatcher (AckWait 30s, MaxDeliver 6, BackOff
+// 1s/5s/30s/2m/10m), measured from the release's publish:
+//
+//	attempt 1 at   0s   attempt 2 at  31s   attempt 3 at  66s
+//	attempt 4 at 126s   attempt 5 at 276s   attempt 6 at 906s
+//
+// Covering one lost RSS delivery (120s) plus the matcher's FIFTH delivery
+// (276s) plus the decide-and-apply round trip and this suite's 2s poll is
+// 120 + 276 + ~20 = 416s. Seven minutes sits past that and far short of the
+// matcher's sixth attempt at 120 + 906 = 1026s, which would exceed every
+// per-scenario context here.
+//
+// It equals scanCompletedTimeout by coincidence, not by copying: that one is
+// derived from ConsumerImportScan. Changing either ladder changes only its
+// own constant.
+const firehoseTimeout = 7 * time.Minute
+
+// escalationTimeout covers driving a failing indexer far enough up Prowlarr's
+// backoff ladder to be disabled for longer than [quietWindow].
+//
+// The driver is the RSS poll at the scenario's rssInterval of 1 minute, and
+// the ladder's first step is a ZERO-length disable
+// (indexarr/status.escalationTable's [0, 1m, 5m, ...]), so reaching a
+// 5-minute window takes three failing polls: level 0 -> 1 (a 1m window),
+// then, when that window expires, level 1 -> 2 (a 5m window). That is ~180s.
+// One of those polls can lose its delivery and come back on ConsumerIndexRSS's
+// second attempt, 120s after its schedule; with the apply and this suite's 2s
+// poll that is ~320s. Six minutes sits past it and short of that consumer's
+// third delivery at 480s.
+//
+// It does NOT include indexarr's startup grace; see
+// requireIndexarrEscalationObservable, which waits that out separately and
+// says so.
+const escalationTimeout = 6 * time.Minute
+
+// quietWindow is how long scenario 17 watches a disabled indexer's request
+// log for a query that must not arrive. It is two rssInterval periods: a
+// worker that ignored the backoff would poll within one, and a second covers
+// a poll whose delivery slipped. A longer window proves nothing extra, only
+// eats the scenario budget -- and it must stay well inside the ladder's
+// 5-minute step, or the indexer legitimately comes back mid-check.
+const quietWindow = 2 * time.Minute
+
+// torznabRequestLogPath is where test/fixtures/torznabstub appends its JSONL
+// request log, as the HOST sees it. The stub writes it at
+// /data/.e2e-fixtures/torznab/requests.jsonl inside the cluster; both names
+// are the same file through kind's hostPath mount.
+func torznabRequestLogPath() string {
+	return filepath.Join(dataDir(), fixtureDirName, seed.TorznabDirName, seed.RequestLogName)
+}
+
+// readTorznabRequests returns every request the fixture indexer logged at or
+// after t0. It is the ONLY way this suite can observe what indexarr asked the
+// indexer: the test process cannot reach a ClusterIP Service, so the fixture
+// writes onto the shared /data volume instead.
+//
+// The since filter is what makes an assertion live rather than merely
+// consistent. Phase C's lesson was that scaling a stub to zero was NOT enough
+// to prove a metadata assertion was hitting it -- a warm cache served the same
+// answer -- and only forcing cold caches distinguished the two. Here there is
+// no equivalent doubt to resolve by deletion: a request logged after the
+// scenario started can only have been issued during this run. Both clocks are
+// the host kernel's (kind's node shares it), so the comparison is sound
+// without any clock-skew allowance.
+func readTorznabRequests(t0 time.Time) ([]torznabstub.Entry, error) {
+	path := torznabRequestLogPath()
+	f, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil // the stub has not been asked anything yet
+		}
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	defer func() { _ = f.Close() }()
+
+	var out []torznabstub.Entry
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	for sc.Scan() {
+		line := bytes.TrimSpace(sc.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var e torznabstub.Entry
+		if err := json.Unmarshal(line, &e); err != nil {
+			// A torn final line is expected: the stub appends while this
+			// reads. Skipping it is right; failing on it would be flaky.
+			continue
+		}
+		if !e.At.Before(t0) {
+			out = append(out, e)
+		}
+	}
+	return out, sc.Err()
+}
+
+// torznabRequestsSince is readTorznabRequests for an assertion: a log this
+// suite cannot read at all is a harness failure, not a verdict about indexarr.
+func torznabRequestsSince(t *testing.T, t0 time.Time) []torznabstub.Entry {
+	t.Helper()
+	es, err := readTorznabRequests(t0)
+	if err != nil {
+		t.Fatalf("torznabRequestsSince: %v", err)
+	}
+	return es
+}
+
+// torznabRequestsMatching filters the log to the requests on one apiPath,
+// optionally narrowed to one t= function ("" means every function).
+func torznabRequestsMatching(t *testing.T, t0 time.Time, apiPath, function string) []torznabstub.Entry {
+	t.Helper()
+	var out []torznabstub.Entry
+	for _, e := range torznabRequestsSince(t, t0) {
+		if e.Path != apiPath {
+			continue
+		}
+		if function != "" && e.T != function {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// describeTorznabRequests renders the fixture's request log for a failure
+// message. hack/e2e.sh copies the whole file into test/e2e/artifacts, but that
+// happens after `go test` returns; a wait that fails needs the evidence
+// inline, in the message, on the machine where it failed.
+func describeTorznabRequests(t0 time.Time) func() string {
+	return func() string {
+		es, err := readTorznabRequests(t0)
+		if err != nil {
+			return fmt.Sprintf("the fixture indexer's request log could not be read: %v", err)
+		}
+		if len(es) == 0 {
+			return "the fixture indexer logged NO request since this scenario started " +
+				"-- indexarr never contacted it (check the indexarr logs and the Indexer's conditions)"
+		}
+		out := fmt.Sprintf("fixture indexer saw %d request(s) since this scenario started:", len(es))
+		for _, e := range es {
+			out += fmt.Sprintf("\n    %s %s?%s -> %d", e.At.Format(time.RFC3339), e.Path, e.Query, e.Status)
+		}
+		return out
+	}
+}
+
+// newIndexer creates a generic Torznab Indexer pointed at the in-cluster
+// fixture and registers its cleanup. apiPath selects the fixture's
+// personality: "" takes Indexer.spec.generic.apiPath's own default of "/api"
+// (the healthy one), torznabstub.PathSearchDown one that answers caps and
+// fails every search, torznabstub.PathDown one that fails everything.
+//
+// The object NAME matters beyond uniqueness here, and uniqueName supplies what
+// is needed: it is the second token of the release subject, the second segment
+// of the firehose envelope key, and the first half of
+// events.MsgIDForRelease -- which CLUSTARR_RELEASES dedups on for two hours. A
+// fixed name would mean a rerun inside that window silently publishing
+// nothing, and the firehose scenario waiting out its whole timeout for a
+// release the broker had already suppressed.
+func newIndexer(ctx context.Context, t *testing.T, prefix, apiPath string, rssInterval time.Duration, enableRss bool) *indexv1alpha1.Indexer {
+	t.Helper()
+	idx := &indexv1alpha1.Indexer{
+		ObjectMeta: metav1.ObjectMeta{Name: uniqueName(prefix), Namespace: Namespace},
+		Spec: indexv1alpha1.IndexerSpec{
+			BaseURL: "http://torznab-stub.clustarr-system.svc",
+			Generic: &indexv1alpha1.GenericNewznab{
+				Protocol: commonv1.ProtocolTorrent,
+				APIPath:  apiPath,
+			},
+			SecretRef:   &corev1.LocalObjectReference{Name: "torznab-fixture-credentials"},
+			EnableRss:   ptr.To(enableRss),
+			RssInterval: metav1.Duration{Duration: rssInterval},
+			// 2s is the CRD default and would pace three fan-out requests
+			// across six seconds for no reason against a local fixture.
+			RequestDelay: metav1.Duration{Duration: 100 * time.Millisecond},
+			Priority:     25,
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, idx))
+	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), idx) })
+	return idx
+}
+
+// waitForIndexerReady waits until the Indexer reconciled to Ready and Healthy
+// with status.caps populated from a live capabilities fetch.
+func waitForIndexerReady(ctx context.Context, t *testing.T, idx *indexv1alpha1.Indexer) indexv1alpha1.Indexer {
+	t.Helper()
+	t0 := time.Now().Add(-time.Minute) // the caps fetch may already have happened
+	var live indexv1alpha1.Indexer
+	waitFor(t, ctx, indexerReadyTimeout, "Indexer "+idx.Name+" Ready with caps",
+		func(ctx context.Context) (bool, error) {
+			if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(idx), &live); err != nil {
+				//nolint:nilerr // keep polling
+				return false, nil
+			}
+			return live.Status.Caps != nil &&
+				isConditionTrue(live.Status.Conditions, indexv1alpha1.IndexerConditionReady) &&
+				isConditionTrue(live.Status.Conditions, indexv1alpha1.IndexerConditionHealthy), nil
+		}, describeIndexer(client.ObjectKeyFromObject(idx)), describeTorznabRequests(t0))
+	return live
+}
+
+// describeIndexer renders one Indexer's resolved fields, escalation and
+// conditions for a failure message. An Indexer that never goes healthy has
+// almost always stalled on one condition, and naming it is the difference
+// between a diagnosis and a shrug.
+func describeIndexer(key client.ObjectKey) func() string {
+	return func() string {
+		var live indexv1alpha1.Indexer
+		if err := k8sClient.Get(context.Background(), key, &live); err != nil {
+			return fmt.Sprintf("Indexer %s could not be read back: %v", key.Name, err)
+		}
+		modes := "<no status.caps>"
+		if live.Status.Caps != nil {
+			keys := make([]string, 0, len(live.Status.Caps.Modes))
+			for k := range live.Status.Caps.Modes {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			modes = strings.Join(keys, ",")
+		}
+		apiPath := "<no spec.generic>"
+		if live.Spec.Generic != nil {
+			apiPath = live.Spec.Generic.APIPath
+		}
+		out := fmt.Sprintf("Indexer %s apiPath=%q protocol=%q privacy=%q capsModes=[%s] "+
+			"escalationLevel=%d disabledUntil=%v initialFailureAt=%v lastRssAt=%v lastRssNewCount=%d "+
+			"indexedReleases=%d lastFailure=%q",
+			key.Name, apiPath, live.Status.Protocol, live.Status.Privacy, modes,
+			live.Status.EscalationLevel, live.Status.DisabledUntil, live.Status.InitialFailureAt,
+			live.Status.LastRssAt, live.Status.LastRssNewCount,
+			live.Status.IndexedReleases, live.Status.LastFailure)
+		for _, c := range live.Status.Conditions {
+			out += fmt.Sprintf("\n    condition %s=%s reason=%s message=%q", c.Type, c.Status, c.Reason, c.Message)
+		}
+		return out
+	}
+}
+
+// describeSearch renders one Search's phase, timings, per-indexer outcomes and
+// result count for a failure message. status.indexerOutcomes is the field that
+// diagnoses a failed search, and it is the first thing a reader needs.
+func describeSearch(key client.ObjectKey) func() string {
+	return func() string {
+		var live catalogv1alpha1.Search
+		if err := k8sClient.Get(context.Background(), key, &live); err != nil {
+			return fmt.Sprintf("Search %s could not be read back: %v", key.Name, err)
+		}
+		out := fmt.Sprintf("Search %s phase=%q startedAt=%v finishedAt=%v results=%d",
+			key.Name, live.Status.Phase, live.Status.StartedAt, live.Status.FinishedAt,
+			len(live.Status.Results))
+		for _, o := range live.Status.IndexerOutcomes {
+			out += fmt.Sprintf("\n    indexerOutcome %s state=%s count=%d durationMs=%d error=%q",
+				o.Name, o.State, o.Count, o.DurationMs, o.Error)
+		}
+		for _, c := range live.Status.Conditions {
+			out += fmt.Sprintf("\n    condition %s=%s reason=%s message=%q", c.Type, c.Status, c.Reason, c.Message)
+		}
+		return out
+	}
+}
+
+// tier is one entry of a scenario-owned QualityProfile.
+type tier struct {
+	name      string
+	qualities []string
+}
+
+// newRankedQualityProfile creates a cluster-scoped, multi-tier QualityProfile
+// and registers its cleanup. Scenarios that assert an ORDER need it:
+// config/e2e's e2e-any has a single tier, so every quality in it compares
+// equal and a ranking assertion would pass on size or seeders instead of on
+// quality.
+//
+// Two fields are deliberately not left at their CRD defaults, and both are
+// working around the SAME Phase C defect rather than expressing a preference.
+// catalogarr stores Movie.status.metadata.originalLanguage as a BCP-47 tag
+// ("en", from TMDB) and hands it straight to pkg/decision as
+// Target.OriginalLanguage and to the custom-format catalogue as
+// ItemContext.OriginalLanguage -- but both of those consume Radarr's English
+// DISPLAY names ("English"), which is what release.ParsedRelease.Languages
+// carries and what catalogue.ItemContext's own doc comment demands. The
+// mismatch means, for an English release of an English movie:
+//
+//   - language "original" (the CRD DEFAULT) rejects every release with
+//     ReasonWantedLanguage ("original language en is wanted, but found
+//     [English]"); and
+//   - the language-not-original custom format matches, scoring -10000, which
+//     the default MinFormatScore of 0 then rejects as well.
+//
+// So a profile left at its defaults approves NOTHING, on any real movie, in
+// either the search path or the RSS path. That is not this task's to fix --
+// it is in catalogarr/worker/search/snapshot.go and
+// catalogarr/worker/rssmatcher/resolve.go -- and scenario 17 is about the
+// indexer path, so the profile opts out of both checks and says why. Remove
+// these two lines once the vocabulary mismatch is fixed.
+func newRankedQualityProfile(ctx context.Context, t *testing.T, prefix string, tiers []tier) *catalogv1alpha1.QualityProfile {
+	t.Helper()
+	spec := catalogv1alpha1.QualityProfileSpec{
+		MediaKind:      catalogv1alpha1.ProfileMediaKindVideo,
+		BuiltIn:        false,
+		Cutoff:         tiers[len(tiers)-1].name,
+		UpgradeAllowed: ptr.To(true),
+		Language:       "any",
+		MinFormatScore: -10000,
+	}
+	for _, tr := range tiers {
+		spec.Tiers = append(spec.Tiers, catalogv1alpha1.Tier{Name: tr.name, Qualities: tr.qualities})
+	}
+	// QualityProfile is cluster-scoped (api/catalog/v1alpha1/qualityprofile_types.go
+	// "+kubebuilder:resource:scope=Cluster"), so the object carries no namespace.
+	qp := &catalogv1alpha1.QualityProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: uniqueName(prefix)},
+		Spec:       spec,
+	}
+	require.NoError(t, k8sClient.Create(ctx, qp))
+	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), qp) })
+
+	waitFor(t, ctx, 2*time.Minute, "QualityProfile "+qp.Name+" Ready", func(ctx context.Context) (bool, error) {
+		var live catalogv1alpha1.QualityProfile
+		if err := k8sClient.Get(ctx, client.ObjectKey{Name: qp.Name}, &live); err != nil {
+			//nolint:nilerr // keep polling
+			return false, nil
+		}
+		return isConditionTrue(live.Status.Conditions, catalogv1alpha1.QualityProfileConditionReady), nil
+	})
+	return qp
+}
+
+// newDelayProfile creates a namespaced DelayProfile holding torrent grabs back
+// by torrentDelayMinutes, with bypassIfHighestQuality explicitly OFF.
+//
+// That flag defaults to TRUE on the CRD, and grab.Bypasses skips the delay
+// entirely for a top-tier release -- which would turn a scenario asserting
+// status.pendingGrab into one that silently created a Download instead.
+func newDelayProfile(ctx context.Context, t *testing.T, prefix string, torrentDelayMinutes int32) *catalogv1alpha1.DelayProfile {
+	t.Helper()
+	dp := &catalogv1alpha1.DelayProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: uniqueName(prefix), Namespace: Namespace},
+		Spec: catalogv1alpha1.DelayProfileSpec{
+			EnableTorrent:          ptr.To(true),
+			EnableUsenet:           ptr.To(true),
+			PreferredProtocol:      catalogv1alpha1.DelayPreferredProtocolTorrent,
+			TorrentDelayMinutes:    torrentDelayMinutes,
+			UsenetDelayMinutes:     torrentDelayMinutes,
+			BypassIfHighestQuality: ptr.To(false),
+			// Lowest wins, and a scenario's own profile must beat the
+			// catch-all the chart installs at order 1000 if one is present.
+			Order: 1,
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, dp))
+	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), dp) })
+	return dp
+}
+
+// newMovie creates a monitored Movie for a fixture-owned TMDB id and
+// registers its cleanup.
+//
+// minimumAvailability is a parameter rather than the CRD's "released" default
+// because it decides whether the RSS matcher will even consider the item:
+// catalogarr/controller/movie.Availability returns "always available" for
+// announced without consulting metadata at all, so a scenario that depends on
+// a release being accepted can hold that guarantee independently of whether
+// the metadata refresh has landed.
+func newMovie(
+	ctx context.Context,
+	t *testing.T,
+	prefix string,
+	tmdbID int64,
+	qualityProfileRef, rootFolderRef string,
+	minAvail catalogv1alpha1.MinimumAvailability,
+) *catalogv1alpha1.Movie {
+	t.Helper()
+	m := &catalogv1alpha1.Movie{
+		ObjectMeta: metav1.ObjectMeta{Name: uniqueName(prefix), Namespace: Namespace},
+		Spec: catalogv1alpha1.MovieSpec{
+			TmdbID:              tmdbID,
+			Monitored:           ptr.To(true),
+			MinimumAvailability: minAvail,
+			QualityProfileRef:   qualityProfileRef,
+			RootFolderRef:       rootFolderRef,
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, m))
+	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), m) })
+	return m
+}
+
+// patchMovieDelayProfile pins a DelayProfile onto a Movie. It is a spec write,
+// which is exactly what a user or the UI would do; nothing in this suite ever
+// writes a status.
+func patchMovieDelayProfile(ctx context.Context, t *testing.T, m *catalogv1alpha1.Movie, delayProfileRef string) {
+	t.Helper()
+	var live catalogv1alpha1.Movie
+	require.NoError(t, k8sClient.Get(ctx, client.ObjectKeyFromObject(m), &live))
+	patch := client.MergeFrom(live.DeepCopy())
+	live.Spec.DelayProfileRef = ptr.To(delayProfileRef)
+	require.NoError(t, k8sClient.Patch(ctx, &live, patch))
+}
+
+// waitForMovieSettled waits until the metadata gateway has resolved the Movie
+// AND the Movie reconciler has published status.available.
+//
+// wantTitle can only have come from the in-cluster TMDB stub's JSON: it
+// appears nowhere on disk, in any CR, or in any other fixture, so asserting it
+// is what distinguishes "the gateway reached a verdict" from "the name was
+// echoed back from the spec".
+func waitForMovieSettled(ctx context.Context, t *testing.T, m *catalogv1alpha1.Movie, wantTitle string) catalogv1alpha1.Movie {
+	t.Helper()
+	var live catalogv1alpha1.Movie
+	waitFor(t, ctx, 3*time.Minute, "Movie "+m.Name+" metadata and availability",
+		func(ctx context.Context) (bool, error) {
+			if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(m), &live); err != nil {
+				//nolint:nilerr // keep polling
+				return false, nil
+			}
+			return live.Status.Metadata != nil &&
+				isConditionTrue(live.Status.Conditions, catalogv1alpha1.MovieConditionMetadataReady) &&
+				live.Status.Available, nil
+		}, describeMovie(client.ObjectKeyFromObject(m)))
+	require.Equal(t, wantTitle, live.Status.Metadata.Title,
+		"status.metadata.title must come from the TMDB stub's fixture JSON, not from anywhere convenient")
+	return live
+}
+
+// runSearch creates an interactive Search CR scoped to indexerRefs, waits for
+// it to reach Completed and returns the finished object. A Search that reaches
+// Failed fails the test immediately: the controller has already reached a
+// verdict, and its indexerOutcomes carry the reason.
+func runSearch(ctx context.Context, t *testing.T, m *catalogv1alpha1.Movie, indexerRefs []string) catalogv1alpha1.Search {
+	t.Helper()
+	t0 := time.Now()
+	srch := &catalogv1alpha1.Search{
+		ObjectMeta: metav1.ObjectMeta{Name: uniqueName("e2e-search"), Namespace: Namespace},
+		Spec: catalogv1alpha1.SearchSpec{
+			MediaRef:    &commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: m.Name},
+			IndexerRefs: indexerRefs,
+			Limit:       50,
+			TTL:         metav1.Duration{Duration: time.Hour},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, srch))
+	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), srch) })
+
+	var done catalogv1alpha1.Search
+	waitFor(t, ctx, searchCompletedTimeout, "Search "+srch.Name+" Completed",
+		func(ctx context.Context) (bool, error) {
+			var live catalogv1alpha1.Search
+			if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(srch), &live); err != nil {
+				//nolint:nilerr // keep polling
+				return false, nil
+			}
+			if live.Status.Phase == catalogv1alpha1.SearchPhaseFailed {
+				return false, fmt.Errorf("Search %s reached Failed; outcomes=%+v conditions=%+v",
+					live.Name, live.Status.IndexerOutcomes, live.Status.Conditions)
+			}
+			done = live
+			return live.Status.Phase == catalogv1alpha1.SearchPhaseCompleted, nil
+		}, describeSearch(client.ObjectKeyFromObject(srch)), describeTorznabRequests(t0))
+	return done
 }
