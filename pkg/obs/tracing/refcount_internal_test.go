@@ -151,3 +151,42 @@ func TestSetupConcurrentReferencesAreBalanced(t *testing.T) {
 	require.NoError(t, held(ctx))
 	require.Equal(t, 1, *teardowns)
 }
+
+// TestSpansStayValidAfterFullTeardown is the carried "otel provider left
+// dead" item (X14): with the REAL install, the last shutdown used to leave
+// the otel global pointing at the provider it had just shut down, which
+// hands out no-op tracers -- so every span until the next Setup had an
+// invalid context, no trace id reached a log line and Inject wrote no
+// Clustarr-Trace header. A process that restarts its services, or a test
+// binary that runs one after another, lost propagation in between.
+func TestSpansStayValidAfterFullTeardown(t *testing.T) {
+	setupMu.Lock()
+	savedRefs, savedShutdown := setupRefs, setupShutdown
+	setupRefs, setupShutdown = 0, nil
+	setupMu.Unlock()
+	t.Cleanup(func() {
+		setupMu.Lock()
+		defer setupMu.Unlock()
+		setupRefs, setupShutdown = savedRefs, savedShutdown
+	})
+	ctx := context.Background()
+
+	shutdown, err := Setup(ctx, Options{SampleRatio: 1})
+	require.NoError(t, err)
+	_, live := Start(ctx, "while-installed")
+	require.True(t, live.SpanContext().IsValid())
+	live.End()
+
+	require.NoError(t, shutdown(ctx))
+	_, after := Start(ctx, "after-teardown")
+	defer after.End()
+	require.True(t, after.SpanContext().IsValid(),
+		"a span started after the last shutdown has an invalid context: the otel global was left on a dead provider")
+
+	again, err := Setup(ctx, Options{SampleRatio: 1})
+	require.NoError(t, err)
+	_, next := Start(ctx, "after-reinstall")
+	require.True(t, next.SpanContext().IsValid())
+	next.End()
+	require.NoError(t, again(ctx))
+}

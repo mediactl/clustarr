@@ -104,8 +104,9 @@ var enrich = logging.With
 // the provider is retired only when the last of them has returned. A caller's
 // own shutdown is idempotent (its own sync.Once), so a double defer releases
 // one reference, not two. Once the count reaches zero the state is cleared,
-// and a later Setup installs a fresh provider rather than handing back a dead
-// one.
+// the otel global gets an exporter-less resting provider rather than the
+// dead one (see release), and a later Setup installs a fresh provider rather
+// than handing back a dead one.
 //
 // The first caller's Options still win for as long as any reference is held;
 // callers that need a specific, honest resource.service.name when several
@@ -178,10 +179,29 @@ func release(ctx context.Context) error {
 	}
 	sd := setupShutdown
 	setupShutdown = nil
-	if sd == nil {
-		return nil
+	var err error
+	if sd != nil {
+		err = sd(ctx)
 	}
-	return sd(ctx)
+	// The otel global still points at the provider just shut down, and a
+	// shut-down sdktrace provider hands out no-op tracers: every span
+	// started after this -- until some later Setup -- would have an invalid
+	// context, so no trace id reaches a log line and Inject writes no
+	// Clustarr-Trace header. In production nothing runs after the last
+	// service's teardown, but a long-lived process that stops and restarts
+	// its services, or a test binary that runs one after another, would
+	// silently lose propagation in between. So the last release leaves a
+	// resting provider in its place: it samples and so produces valid,
+	// propagatable span contexts, and exports nothing -- it has no exporter
+	// to flush or close, so it needs no teardown of its own.
+	otel.SetTracerProvider(restingProvider())
+	return err
+}
+
+// restingProvider is the TracerProvider the otel global holds between a full
+// teardown and the next Setup; see release.
+func restingProvider() trace.TracerProvider {
+	return sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.AlwaysSample())))
 }
 
 // install does the one-time work Setup performs exactly once per process.
