@@ -231,6 +231,12 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   uncommitted work, and `stash` is process-global): move the branch ref with a
   compare-and-swap, `git update-ref refs/heads/<branch> <sha>^ <sha>`, which
   leaves the index and working tree exactly as they were.
+  **A pathspec scopes files, not authors.** Two agents editing the *same*
+  file cannot be separated by it: whichever commits first takes the other's
+  uncommitted hunks in that file too. That is how one agent's `lookupBooks`
+  landed inside another's `lookupAlbums` commit. Harmless there, but it means
+  a shared file should have one owner per wave, or be committed immediately
+  after each edit.
 - **A NATS KV key must match `^[-/_=\.a-zA-Z0-9]+$`, and nothing in the Go
   types enforces it.** Build every key through `events.KVKeyToken`; its
   escaping is injective on purpose, because a sanitiser that maps every
