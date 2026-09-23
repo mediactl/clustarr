@@ -31,7 +31,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	k8sevents "k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -84,7 +84,7 @@ func newFixture(t *testing.T, ns string) *fixture {
 	newNamespace(t, context.Background(), c, ns)
 	pub := &recordingPublisher{}
 	clock := clockwork.NewFakeClockAt(time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC))
-	r := search.NewReconciler(c, pub, record.NewFakeRecorder(32))
+	r := search.NewReconciler(c, pub, k8sevents.NewFakeRecorder(32))
 	r.Clock = clock
 	return &fixture{c: c, pub: pub, clock: clock, r: r, ns: ns}
 }

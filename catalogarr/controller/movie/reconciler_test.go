@@ -32,7 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/record"
+	k8sevents "k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -118,7 +118,7 @@ func startManager(t *testing.T, ctx context.Context, cfg *rest.Config, bus event
 	r := &movie.Reconciler{
 		Client:      mgr.GetClient(),
 		Scheme:      mgr.GetScheme(),
-		Recorder:    mgr.GetEventRecorderFor("movie"), //nolint:staticcheck // matches C12's run.go registration line verbatim; record.EventRecorder is the brief's specified field type
+		Recorder:    mgr.GetEventRecorder("movie"), // matches run.go's registration line verbatim
 		Bus:         bus,
 		OnReconcile: counter.inc,
 	}
@@ -861,7 +861,7 @@ func TestMovieReconcilerQueueFull(t *testing.T) {
 	require.NoError(t, c.Create(ctx, m))
 
 	r := &movie.Reconciler{
-		Client: c, Scheme: k8s.MustNewScheme(), Recorder: record.NewFakeRecorder(10),
+		Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
 		Bus: fakePublisher{err: events.ErrQueueFull},
 	}
 	res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "queuefull-ns", Name: "heat-2"}})
@@ -927,7 +927,7 @@ func TestMovieReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		waitForCachedMetadata(t, ctx, c, "transient-ns", name)
 
 		req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "transient-ns", Name: name}}
-		r := &movie.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: record.NewFakeRecorder(10), Bus: fakePublisher{}}
+		r := &movie.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: fakePublisher{}}
 		_, err = r.Reconcile(ctx, req)
 		require.NoError(t, err)
 		waitForPhase(t, ctx, c, "transient-ns", name)
@@ -996,7 +996,7 @@ func TestMovieReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		}, 5*time.Second, 10*time.Millisecond)
 
 		r2 := &movie.Reconciler{
-			Client: c, Scheme: k8s.MustNewScheme(), Recorder: record.NewFakeRecorder(10),
+			Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
 			Bus: fakePublisher{err: events.ErrQueueFull},
 		}
 		res, err := r2.Reconcile(ctx, req)
@@ -1050,7 +1050,7 @@ func TestMovieReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			return got.Spec.RootFolderRef == "does-not-exist"
 		}, 5*time.Second, 10*time.Millisecond)
 
-		r2 := &movie.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: record.NewFakeRecorder(10), Bus: fakePublisher{}}
+		r2 := &movie.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: fakePublisher{}}
 		res, err := r2.Reconcile(ctx, req)
 		require.NoError(t, err)
 		assert.Equal(t, time.Minute, res.RequeueAfter)
@@ -1101,7 +1101,7 @@ func TestMovieReconcilerAvailabilityAndPath(t *testing.T) {
 	require.NoError(t, c.Create(ctx, testNamespace("avail-ns")))
 	require.NoError(t, c.Create(ctx, testRootFolder("avail-ns", "movies-root", "/data/media/movies")))
 
-	r := &movie.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: record.NewFakeRecorder(10), Bus: bus}
+	r := &movie.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: bus}
 
 	t.Run("available now", func(t *testing.T) {
 		yesterday := metav1.NewTime(time.Now().Add(-24 * time.Hour))

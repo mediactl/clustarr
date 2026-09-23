@@ -34,7 +34,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -548,7 +548,7 @@ func TestTranscodeJobWatchTriggersReconcile(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	r := mediafile.NewReconciler(mgr.GetClient(), mgr.GetScheme(), record.NewFakeRecorder(32))
+	r := mediafile.NewReconciler(mgr.GetClient(), mgr.GetScheme(), events.NewFakeRecorder(32))
 	r.Probe = fakeProbe
 	require.NoError(t, r.SetupWithManager(mgr))
 
@@ -643,7 +643,7 @@ func TestSubtitleRequestWatchTriggersReconcile(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	r := mediafile.NewReconciler(mgr.GetClient(), mgr.GetScheme(), record.NewFakeRecorder(32))
+	r := mediafile.NewReconciler(mgr.GetClient(), mgr.GetScheme(), events.NewFakeRecorder(32))
 	r.Probe = fakeProbe
 	require.NoError(t, r.SetupWithManager(mgr))
 

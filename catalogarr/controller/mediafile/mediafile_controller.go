@@ -27,7 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -46,13 +46,13 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
-// The MediaFile controller's RBAC. The Events group is "" and not
-// events.k8s.io because this reconciler takes a
-// k8s.io/client-go/tools/record.EventRecorder, which is what the deprecated
-// mgr.GetEventRecorderFor returns and which writes CORE/v1 Events. The
-// controllers taking a k8s.io/client-go/tools/events recorder (rootfolder,
-// qualityprofile, delayprofile, metadataprovider) keep events.k8s.io, and the
-// generated Role grants both groups -- see catalogarr's setupControllers.
+// The MediaFile controller's RBAC. The Events group is events.k8s.io and not
+// "" because the Recorder is a k8s.io/client-go/tools/events.EventRecorder,
+// handed in by mgr.GetEventRecorder, and that writes events.k8s.io/v1. The
+// marker and the recorder type move together or not at all: a mismatch is
+// denied only on a real cluster, and no suite can see it, because envtest does
+// not enforce RBAC. catalogarr's setupControllers records the occasion this
+// repo learned it.
 //
 // The blank line below is load-bearing: controller-gen only collects
 // +kubebuilder:rbac from PACKAGE-level comments, and a marker block touching a
@@ -64,7 +64,7 @@ import (
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodeprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitlerequests,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconciler owns 100% of MediaFile.status (see this section's "Resolving
 // the field-manager split") plus, narrowly, spec.sizeBytes/modTime/original
@@ -105,7 +105,7 @@ import (
 type Reconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 	Probe    ProbeFunc
 	Clock    func() time.Time
 }
@@ -116,7 +116,7 @@ type ProbeFunc func(ctx context.Context, path string) (*commonv1.MediaInfo, *med
 
 // NewReconciler builds a Reconciler with production defaults: the real
 // ffprobe-backed Probe and the wall clock.
-func NewReconciler(c client.Client, scheme *runtime.Scheme, recorder record.EventRecorder) *Reconciler {
+func NewReconciler(c client.Client, scheme *runtime.Scheme, recorder events.EventRecorder) *Reconciler {
 	return &Reconciler{
 		Client:   c,
 		Scheme:   scheme,
@@ -304,7 +304,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	if probed && r.Recorder != nil {
-		r.Recorder.Eventf(&mf, "Normal", "Probed", "probed %s", mf.Spec.Path)
+		r.Recorder.Eventf(&mf, nil, "Normal", "Probed", "Reconcile", "probed %s", mf.Spec.Path)
 	}
 
 	return ctrl.Result{}, nil
@@ -389,7 +389,7 @@ func (r *Reconciler) applyStatus(ctx context.Context, mf *catalogv1alpha1.MediaF
 // integration calls it as:
 //
 //	return mediafile.NewReconciler(mgr.GetClient(), mgr.GetScheme(),
-//	    mgr.GetEventRecorderFor("mediafile-controller")).SetupWithManager(mgr)
+//	    mgr.GetEventRecorder("mediafile-controller")).SetupWithManager(mgr)
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	ctx := context.Background()
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &transcodev1alpha1.TranscodeJob{}, transcodeJobMediaFileRefIndex, indexTranscodeJobByMediaFileRef); err != nil {

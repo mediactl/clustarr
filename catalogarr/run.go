@@ -287,25 +287,34 @@ func Run(ctx context.Context, o Options) error {
 // Building them here would break the MediaFile single-writer split (importarr
 // owns what it observed, catalogarr owns what it decided).
 //
-// Two recorder conventions coexist in this tree and both are wired here.
+// One recorder convention: every reconciler here takes a
+// k8s.io/client-go/tools/events.EventRecorder from mgr.GetEventRecorder, and
+// that writes events.k8s.io/v1 -- the API §13 asks for. The deprecated
+// mgr.GetEventRecorderFor, which returns a
+// k8s.io/client-go/tools/record.EventRecorder and writes core/v1 Events, is
+// gone from this tree, so no package needs a groups="" events rule and the
+// generated Role grants events only in events.k8s.io.
 //
-// The reconcilers written in wave 1 (movie, series, episode, mediafile,
-// search, and importarr's rootfolderschedule) take a
-// k8s.io/client-go/tools/record.EventRecorder, which is what the DEPRECATED
-// mgr.GetEventRecorderFor returns and which writes CORE/v1 Events. The
-// profile and provider reconcilers take a k8s.io/client-go/tools/events
-// EventRecorder, which mgr.GetEventRecorder returns and which writes
-// events.k8s.io/v1 -- the API §13 actually asks for. Their RBAC markers
-// differ to match, and the generated Role grants both groups.
+// One core-group events rule survives and must: controller-runtime's own
+// leader election still calls GetEventRecorderFor internally
+// (pkg/leaderelection/leader_election.go) and writes core/v1 Events for
+// acquire/renew. That rule lives in the hand-written leader-election Role
+// (config/rbac/leader_election_role.yaml and the chart's copy), not in the
+// marker-generated manager ClusterRole, so deleting it because "nothing
+// writes core events any more" would break leader election.
 //
-// Until Task C12a the wave 1 controllers declared events.k8s.io while
-// writing core/v1, so the generated Role granted a group nobody wrote and
-// omitted the one they did: on a real cluster every one of their events would
-// have been denied, and no envtest could see it because envtest does not
-// enforce RBAC. The markers are now honest. Migrating those six onto
-// mgr.GetEventRecorder -- which would retire the deprecated call below and
-// leave one convention -- is follow-up work: three of the six are in packages
-// other tasks held open while this one ran.
+// The tree arrived at one convention the hard way, and the lesson outlives
+// the split. Until Task C12a the wave 1 controllers (movie, series, episode,
+// mediafile, search, and importarr's rootfolderschedule) declared
+// events.k8s.io while still writing core/v1 through the deprecated recorder,
+// so the generated Role granted a group nobody wrote and omitted the one they
+// did: on a real cluster every one of their events would have been denied,
+// and no envtest could see it, because envtest does not enforce RBAC. C12a
+// made the markers honest by moving them back to ""; this task moved the
+// recorders instead, and moved each marker in the same commit. The rule that
+// falls out of both: the RBAC marker and the recorder type are one change. A
+// marker that disagrees with the recorder beside it passes every test in this
+// repo and fails only in production.
 func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	c := mgr.GetClient()
 	scheme := mgr.GetScheme()
@@ -313,7 +322,7 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if err := (&movie.Reconciler{
 		Client:   c,
 		Scheme:   scheme,
-		Recorder: mgr.GetEventRecorderFor("movie"), //nolint:staticcheck // record.EventRecorder; see the note above
+		Recorder: mgr.GetEventRecorder("movie"),
 		Bus:      bus,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("catalogarr: movie: %w", err)
@@ -322,7 +331,7 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if err := (&series.Reconciler{
 		Client:   c,
 		Scheme:   scheme,
-		Recorder: mgr.GetEventRecorderFor("series"), //nolint:staticcheck // record.EventRecorder; see the note above
+		Recorder: mgr.GetEventRecorder("series"),
 		Bus:      bus,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("catalogarr: series: %w", err)
@@ -331,13 +340,13 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if err := (&episode.Reconciler{
 		Client:   c,
 		Scheme:   scheme,
-		Recorder: mgr.GetEventRecorderFor("episode"), //nolint:staticcheck // record.EventRecorder; see the note above
+		Recorder: mgr.GetEventRecorder("episode"),
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("catalogarr: episode: %w", err)
 	}
 
 	if err := mediafile.NewReconciler(c, scheme,
-		mgr.GetEventRecorderFor("mediafile"), //nolint:staticcheck // record.EventRecorder; see the note above
+		mgr.GetEventRecorder("mediafile"),
 	).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("catalogarr: mediafile: %w", err)
 	}
@@ -372,7 +381,7 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	}
 
 	if err := searchctl.NewReconciler(c, bus,
-		mgr.GetEventRecorderFor("search"), //nolint:staticcheck // record.EventRecorder; see the note above
+		mgr.GetEventRecorder("search"),
 	).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("catalogarr: search: %w", err)
 	}

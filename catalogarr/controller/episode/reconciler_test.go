@@ -114,7 +114,7 @@ func startManager(t *testing.T, ctx context.Context, cfg *rest.Config) client.Cl
 	r := &episode.Reconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("episode"), //nolint:staticcheck // matches C12's run.go registration line verbatim
+		Recorder: mgr.GetEventRecorder("episode"), // matches run.go's registration line verbatim
 	}
 	require.NoError(t, r.SetupWithManager(mgr))
 

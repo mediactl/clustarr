@@ -27,7 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/record"
+	k8sevents "k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -164,7 +164,7 @@ func TestMediaFileReconcileDoesNotReleaseOwnerStatus(t *testing.T) {
 	scheme := k8s.MustNewScheme()
 
 	newMediaFileReconciler := func() *mediafile.Reconciler {
-		r := mediafile.NewReconciler(c, scheme, record.NewFakeRecorder(20))
+		r := mediafile.NewReconciler(c, scheme, k8sevents.NewFakeRecorder(20))
 		r.Probe = fakeProbe
 		r.Clock = time.Now
 		return r
@@ -221,7 +221,7 @@ func TestMediaFileReconcileDoesNotReleaseOwnerStatus(t *testing.T) {
 			return got.Status.Metadata != nil && got.Status.ActiveDownloadRef != nil
 		}, 10*time.Second, 20*time.Millisecond, "setup: cache never observed metadata and activeDownloadRef")
 
-		mr := &movie.Reconciler{Client: c, Scheme: scheme, Recorder: record.NewFakeRecorder(20), Bus: nopPublisher{}}
+		mr := &movie.Reconciler{Client: c, Scheme: scheme, Recorder: k8sevents.NewFakeRecorder(20), Bus: nopPublisher{}}
 		req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: name}}
 		_, err = mr.Reconcile(ctx, req)
 		require.NoError(t, err)
@@ -308,7 +308,7 @@ func TestMediaFileReconcileDoesNotReleaseOwnerStatus(t *testing.T) {
 			return got.Status.AirDate != nil && got.Status.ActiveDownloadRef != nil
 		}, 10*time.Second, 20*time.Millisecond, "setup: cache never observed airDate and activeDownloadRef")
 
-		er := &episode.Reconciler{Client: c, Scheme: scheme, Recorder: record.NewFakeRecorder(20)}
+		er := &episode.Reconciler{Client: c, Scheme: scheme, Recorder: k8sevents.NewFakeRecorder(20)}
 		req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: name}}
 		_, err = er.Reconcile(ctx, req)
 		require.NoError(t, err)

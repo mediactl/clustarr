@@ -143,10 +143,12 @@ func isAuthError(err error) bool {
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=metadataproviders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=metadataproviders/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
-// The Recorder here is a k8s.io/client-go/tools/events.EventRecorder, so
-// events.k8s.io is the correct group -- unlike the Movie, Series, Episode,
-// MediaFile and Search reconcilers, which take a record.EventRecorder and
-// write core/v1. mgr.GetEventRecorder supplies it.
+// The Recorder is a k8s.io/client-go/tools/events.EventRecorder, handed in by
+// mgr.GetEventRecorder, and it writes events.k8s.io/v1 -- so events.k8s.io is
+// the group to grant and the core group is not. The marker and the recorder
+// type move together or not at all: a mismatch is denied only on a real
+// cluster, and no suite can see it, because envtest does not enforce RBAC.
+// catalogarr's setupControllers records the occasion this repo learned it.
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // SetupWithManager registers the MetadataProvider controller.

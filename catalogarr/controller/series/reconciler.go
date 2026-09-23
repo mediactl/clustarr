@@ -29,7 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	k8sevents "k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -95,15 +95,13 @@ type bus interface {
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes/status,verbs=get;update;patch
-// The Events group is "" and not events.k8s.io: this reconciler takes a
-// k8s.io/client-go/tools/record.EventRecorder, which is what
-// mgr.GetEventRecorderFor returns, and that writes CORE/v1 Events. The
-// generated Role granting events.k8s.io instead would have had every event
-// emission denied on a real cluster -- envtest does not enforce RBAC, so no
-// suite could see it. See catalogarr's setupControllers for the split in this
-// tree: the controllers taking a tools/events recorder (rootfolder,
-// qualityprofile, delayprofile, metadataprovider) keep events.k8s.io.
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// The Recorder is a k8s.io/client-go/tools/events.EventRecorder, handed in by
+// mgr.GetEventRecorder, and it writes events.k8s.io/v1 -- so events.k8s.io is
+// the group to grant and the core group is not. The marker and the recorder
+// type move together or not at all: a mismatch is denied only on a real
+// cluster, and no suite can see it, because envtest does not enforce RBAC.
+// catalogarr's setupControllers records the occasion this repo learned it.
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconciler reconciles a Series: metadata staleness (publishing a
 // MetadataTask when the cache is missing or past its RefreshTTL), path and
@@ -129,7 +127,7 @@ type bus interface {
 type Reconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Recorder k8sevents.EventRecorder
 	Bus      bus
 
 	// OnReconcile is a test-only hook, called at the top of every Reconcile.

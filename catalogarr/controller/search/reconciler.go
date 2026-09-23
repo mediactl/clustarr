@@ -35,7 +35,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	k8sevents "k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -79,15 +79,13 @@ const queueFullRequeue = time.Minute
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=series,verbs=get;list;watch
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch;create;update;patch
-// The Events group is "" and not events.k8s.io: this reconciler takes a
-// k8s.io/client-go/tools/record.EventRecorder, which is what
-// mgr.GetEventRecorderFor returns, and that writes CORE/v1 Events. The
-// generated Role granting events.k8s.io instead would have had every event
-// emission denied on a real cluster -- envtest does not enforce RBAC, so no
-// suite could see it. See catalogarr's setupControllers for the split in this
-// tree: the controllers taking a tools/events recorder (rootfolder,
-// qualityprofile, delayprofile, metadataprovider) keep events.k8s.io.
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// The Recorder is a k8s.io/client-go/tools/events.EventRecorder, handed in by
+// mgr.GetEventRecorder, and it writes events.k8s.io/v1 -- so events.k8s.io is
+// the group to grant and the core group is not. The marker and the recorder
+// type move together or not at all: a mismatch is denied only on a real
+// cluster, and no suite can see it, because envtest does not enforce RBAC.
+// catalogarr's setupControllers records the occasion this repo learned it.
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconciler reconciles Search. It is the sole writer of Search's
 // status.phase, status.conditions, status.observedGeneration,
@@ -97,14 +95,14 @@ const queueFullRequeue = time.Minute
 type Reconciler struct {
 	Client   client.Client
 	Bus      events.Publisher
-	Recorder record.EventRecorder
+	Recorder k8sevents.EventRecorder
 	Scheme   *runtime.Scheme
 	Clock    clockwork.Clock
 }
 
 // NewReconciler builds a Search reconciler with the real clock and the project
 // scheme. SetupWithManager replaces the scheme with the manager's own.
-func NewReconciler(c client.Client, bus events.Publisher, rec record.EventRecorder) *Reconciler {
+func NewReconciler(c client.Client, bus events.Publisher, rec k8sevents.EventRecorder) *Reconciler {
 	return &Reconciler{
 		Client:   c,
 		Bus:      bus,
@@ -584,12 +582,12 @@ func (r *Reconciler) event(s *catalogv1alpha1.Search, reason, format string, arg
 	if r.Recorder == nil {
 		return
 	}
-	r.Recorder.Eventf(s, "Normal", reason, format, args...)
+	r.Recorder.Eventf(s, nil, "Normal", reason, "Reconcile", format, args...)
 }
 
 func (r *Reconciler) eventWarning(s *catalogv1alpha1.Search, reason, format string, args ...any) {
 	if r.Recorder == nil {
 		return
 	}
-	r.Recorder.Eventf(s, "Warning", reason, format, args...)
+	r.Recorder.Eventf(s, nil, "Warning", reason, "Reconcile", format, args...)
 }

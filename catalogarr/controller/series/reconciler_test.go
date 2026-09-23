@@ -34,7 +34,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/record"
+	k8sevents "k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -163,7 +163,7 @@ func startManager(t *testing.T, ctx context.Context, cfg *rest.Config, bus combi
 	r := &series.Reconciler{
 		Client:      mgr.GetClient(),
 		Scheme:      mgr.GetScheme(),
-		Recorder:    mgr.GetEventRecorderFor("series"), //nolint:staticcheck // matches C12's run.go registration line verbatim
+		Recorder:    mgr.GetEventRecorder("series"), // matches run.go's registration line verbatim
 		Bus:         bus,
 		OnReconcile: counter.inc,
 	}
@@ -567,7 +567,7 @@ func TestSeriesEpisodeFieldManagersStayDisjoint(t *testing.T) {
 		{SeasonNumber: 1, EpisodeNumber: 1, Title: "Pilot"},
 	}}
 	bus := combinedBus{Publisher: fakePublisher{}, requester: requester}
-	r := &series.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: record.NewFakeRecorder(10), Bus: bus}
+	r := &series.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: bus}
 
 	s := &catalogv1alpha1.Series{
 		ObjectMeta: metav1.ObjectMeta{Name: "field-manager-series", Namespace: "fieldmanager-ns"},
@@ -731,7 +731,7 @@ func TestSeriesReconcilerQueueFull(t *testing.T) {
 	require.NoError(t, c.Create(ctx, s))
 
 	r := &series.Reconciler{
-		Client: c, Scheme: k8s.MustNewScheme(), Recorder: record.NewFakeRecorder(10),
+		Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
 		Bus: combinedBus{Publisher: fakePublisher{err: events.ErrQueueFull}, requester: fakeEpisodeRPC{}},
 	}
 	res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "series-queuefull-ns", Name: "the-expanse"}})
@@ -805,7 +805,7 @@ func TestSeriesReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			{SeasonNumber: 1, EpisodeNumber: 2, Title: "Episode 2"},
 		}}
 		bus := combinedBus{Publisher: fakePublisher{}, requester: requester}
-		r := &series.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: record.NewFakeRecorder(10), Bus: bus}
+		r := &series.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: bus}
 		_, err = r.Reconcile(ctx, req)
 		require.NoError(t, err)
 
@@ -893,7 +893,7 @@ func TestSeriesReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		}, 5*time.Second, 10*time.Millisecond)
 
 		r2 := &series.Reconciler{
-			Client: c, Scheme: k8s.MustNewScheme(), Recorder: record.NewFakeRecorder(10),
+			Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
 			Bus: combinedBus{Publisher: fakePublisher{err: events.ErrQueueFull}, requester: fakeEpisodeRPC{}},
 		}
 		res, err := r2.Reconcile(ctx, req)
@@ -944,7 +944,7 @@ func TestSeriesReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		}, 5*time.Second, 10*time.Millisecond)
 
 		r2 := &series.Reconciler{
-			Client: c, Scheme: k8s.MustNewScheme(), Recorder: record.NewFakeRecorder(10),
+			Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
 			Bus: combinedBus{Publisher: fakePublisher{}, requester: fakeEpisodeRPC{}},
 		}
 		res, err := r2.Reconcile(ctx, req)
@@ -1010,7 +1010,7 @@ func TestSeriesEnsureEpisodeProviderFieldRefresh(t *testing.T) {
 		},
 	}}
 	bus := combinedBus{Publisher: fakePublisher{}, requester: requester}
-	r := &series.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: record.NewFakeRecorder(10), Bus: bus}
+	r := &series.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: bus}
 
 	s := &catalogv1alpha1.Series{
 		ObjectMeta: metav1.ObjectMeta{Name: "refresh-series", Namespace: "refresh-ns"},
