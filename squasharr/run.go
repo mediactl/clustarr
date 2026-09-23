@@ -25,6 +25,7 @@ package squasharr
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -206,6 +207,12 @@ type Options struct {
 	// DataDir (--data-claim): the same claim this Deployment mounts.
 	DataClaimName string
 
+	// IntelRenderGroups are the supplementalGroups every Intel transcode
+	// Job's pod gets: the GID(s) of the host group owning /dev/dri/renderD*
+	// on the Intel GPU nodes. See transcodejob.JobConfig.IntelRenderGroups
+	// for why there is no built-in value.
+	IntelRenderGroups []int64
+
 	// Logging configures this process's root logger. The zero value is a
 	// reasonable default: JSON to stderr at info level.
 	Logging logging.Options
@@ -236,6 +243,11 @@ func (o Options) Validate() error {
 	for hardware, budget := range o.Slots {
 		if budget < 0 {
 			return fmt.Errorf("squasharr: slot budget for %q is negative", hardware)
+		}
+	}
+	for _, gid := range o.IntelRenderGroups {
+		if gid < 0 {
+			return fmt.Errorf("squasharr: intel render group %d is negative", gid)
 		}
 	}
 	if o.DataDir == "" {
@@ -401,6 +413,10 @@ func setupControllers(mgr ctrl.Manager, o Options) error {
 			DataClaimName:      o.DataClaimName,
 			DataDir:            o.DataDir,
 			ServiceAccountName: o.WorkerServiceAccount,
+			IntelRenderGroups:  o.IntelRenderGroups,
+			// §11: the Jobs create files with the same UMASK this
+			// Deployment was given.
+			Umask: os.Getenv(transcodejob.UmaskEnv),
 			// NATSURL stays empty: the worker never uses the bus (R6),
 			// and its role no longer requires --nats-url.
 		},

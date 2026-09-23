@@ -72,6 +72,21 @@ const (
 
 	nodeLabelNVIDIA = "nvidia.com/gpu.present"
 	nodeLabelIntel  = "intel.feature.node.kubernetes.io/gpu"
+
+	tmpVolumeName = "tmp"
+	tmpMountPath  = "/tmp"
+
+	// podUID and podGID are the identity every transcode Job pod runs as:
+	// the clustarr user images/Dockerfile.media and Dockerfile.media-cuda
+	// create, and the runAsUser/runAsGroup/fsGroup every Deployment under
+	// config/manager sets. TestJobPodSecurityMatchesTheDeployments holds
+	// the Job to config/manager/squasharr.yaml.
+	podUID = int64(1000)
+	podGID = int64(1000)
+
+	// UmaskEnv is §11's UMASK, passed through to the worker so it creates
+	// files with the same mode the Deployments do.
+	UmaskEnv = "UMASK"
 )
 
 // The TranscodeProfile defaults buildJob floors a zero to. Each restates a
@@ -149,6 +164,23 @@ type JobConfig struct {
 	// default, which has none of it.
 	ServiceAccountName string
 
+	// IntelRenderGroups are the supplementalGroups an Intel (QSV/VAAPI) Job
+	// pod gets, so its non-root user can open the /dev/dri/renderD* node the
+	// Intel GPU device plugin mounts (§6.4: "supplementalGroups render").
+	// The node is owned by the HOST's render group, whose GID is allocated
+	// per distribution and per install (commonly 104-110 or 992-993), so
+	// there is no correct built-in value: the operator supplies it. Empty
+	// sets none, which works only where the container runtime is configured
+	// with device_ownership_from_security_context (containerd, CRI-O), which
+	// hands the device to the pod's runAsUser/runAsGroup instead.
+	IntelRenderGroups []int64
+
+	// Umask, when set, is exported to the worker as UMASK (§11: every
+	// media-touching pod creates files with UMASK 002). squasharr/run.go
+	// passes the controller's own $UMASK through, so the Jobs follow
+	// whatever the Deployment was given.
+	Umask string
+
 	// NATSURL, when set, is exported to the worker as NATS_URL. The worker
 	// never uses the bus (ruling R6) and squasharr's worker role no longer
 	// demands --nats-url, so squasharr/run.go leaves this empty.
@@ -216,6 +248,9 @@ func buildJob(tj *transcodev1alpha1.TranscodeJob, profile *transcodev1alpha1.Tra
 	if cfg.NATSURL != "" {
 		env = append(env, corev1.EnvVar{Name: "NATS_URL", Value: cfg.NATSURL})
 	}
+	if cfg.Umask != "" {
+		env = append(env, corev1.EnvVar{Name: UmaskEnv, Value: cfg.Umask})
+	}
 
 	resources := resourcesFor(profile)
 	gpuCount := int64(1)
@@ -226,14 +261,17 @@ func buildJob(tj *transcodev1alpha1.TranscodeJob, profile *transcodev1alpha1.Tra
 	pod := corev1.PodSpec{
 		RestartPolicy:      corev1.RestartPolicyNever,
 		ServiceAccountName: cfg.ServiceAccountName,
+		SecurityContext:    podSecurityContext(),
 		Containers: []corev1.Container{{
-			Name:  containerName,
-			Image: image,
-			Args:  args,
-			Env:   env,
+			Name:            containerName,
+			Image:           image,
+			Args:            args,
+			Env:             env,
+			SecurityContext: containerSecurityContext(),
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: dataVolumeName, MountPath: dataDir},
 				{Name: scratchVolumeName, MountPath: scratchMountPath},
+				{Name: tmpVolumeName, MountPath: tmpMountPath},
 			},
 		}},
 		Volumes: []corev1.Volume{
@@ -241,6 +279,7 @@ func buildJob(tj *transcodev1alpha1.TranscodeJob, profile *transcodev1alpha1.Tra
 				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: claim},
 			}},
 			{Name: scratchVolumeName, VolumeSource: corev1.VolumeSource{EmptyDir: scratchSource(profile)}},
+			{Name: tmpVolumeName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 		},
 	}
 
@@ -258,6 +297,9 @@ func buildJob(tj *transcodev1alpha1.TranscodeJob, profile *transcodev1alpha1.Tra
 	case transcodev1alpha1.HardwareIntel:
 		addGPU(&resources, resourceIntelGPU, gpuCount)
 		pod.Affinity = requireNodeLabel(nodeLabelIntel)
+		if len(cfg.IntelRenderGroups) > 0 {
+			pod.SecurityContext.SupplementalGroups = append([]int64(nil), cfg.IntelRenderGroups...)
+		}
 	}
 	pod.Containers[0].Resources = resources
 
@@ -294,6 +336,34 @@ func buildJob(tj *transcodev1alpha1.TranscodeJob, profile *transcodev1alpha1.Tra
 			Annotations: annotations,
 		},
 		Spec: spec,
+	}
+}
+
+// podSecurityContext is the pod half of the security settings every
+// Deployment under config/manager carries: non-root as the images' clustarr
+// user, the RuntimeDefault seccomp profile, and fsGroup on the RWX /data
+// volume with OnRootMismatch so a large library is not re-chowned on every
+// pod start.
+func podSecurityContext() *corev1.PodSecurityContext {
+	return &corev1.PodSecurityContext{
+		RunAsNonRoot:        ptr.To(true),
+		RunAsUser:           ptr.To(podUID),
+		RunAsGroup:          ptr.To(podGID),
+		FSGroup:             ptr.To(podGID),
+		FSGroupChangePolicy: ptr.To(corev1.FSGroupChangeOnRootMismatch),
+		SeccompProfile:      &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+	}
+}
+
+// containerSecurityContext is the container half: no privilege escalation,
+// every capability dropped, and a read-only root filesystem. The worker
+// writes only under /data (the .part output beside the source), /scratch and
+// /tmp, and each of those is a volume.
+func containerSecurityContext() *corev1.SecurityContext {
+	return &corev1.SecurityContext{
+		AllowPrivilegeEscalation: ptr.To(false),
+		ReadOnlyRootFilesystem:   ptr.To(true),
+		Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
 	}
 }
 
