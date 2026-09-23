@@ -30,7 +30,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // Only the controller half of SubtitleRequest.status, under
 // k8s.ManagerCaptionarr, through captionarr/status.PatchRequest -- phase,
-// profileGeneration, probeHash, fileFingerprint, existing, conditions,
+// profileGeneration, probeHash, fileFingerprint, existing, conditions
+// (Planned, Satisfied, CutoffMet, and DeadLettered while the DLQ projector's
+// clustarr.io/dead-lettered annotation is on the object),
 // observedGeneration, and per item ONLY attempts and nextSearchAt (ruling
 // R4). Every apply is the complete declaration of that set, the Blocked
 // paths included. It writes nothing on MediaFile (ruling R1): catalogarr

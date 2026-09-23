@@ -536,6 +536,14 @@ func (r *Reconciler) block(ctx context.Context, sr *subtitlev1alpha1.SubtitleReq
 // apply writes st and conds as the complete k8s.ManagerCaptionarr
 // declaration.
 //
+// It is also the one place this reconciler's status apply builds
+// conditions, so it is where the DLQ projector's clustarr.io/dead-lettered
+// annotation is folded into a DeadLettered condition (k8s.MarkDeadLettered,
+// Phase G ruling R1): present while the annotation is, removed with it, on
+// the planned and every Blocked path alike -- a fetch task or subtitle event
+// about this request that exhausted its redeliveries is visible on the
+// object rather than only on CLUSTARR_DLQ.
+//
 // No re-Get precedes it, and that is deliberate rather than an oversight of
 // the read-work-apply rule: every leaf this manager declares has exactly one
 // writer -- this reconciler, leader-elected, serialized per object by the
@@ -548,6 +556,7 @@ func (r *Reconciler) block(ctx context.Context, sr *subtitlev1alpha1.SubtitleReq
 func (r *Reconciler) apply(ctx context.Context, sr *subtitlev1alpha1.SubtitleRequest,
 	st subtitlev1alpha1.SubtitleRequestStatus, conds []metav1.Condition,
 ) error {
+	k8s.MarkDeadLettered(sr, &conds)
 	target := sr.DeepCopy()
 	target.Status = st
 	return status.PatchRequest(ctx, r.Client, k8s.ManagerCaptionarr, target,
@@ -616,15 +625,18 @@ func (r *Reconciler) resetForceSearch(ctx context.Context, sr *subtitlev1alpha1.
 	return nil
 }
 
-// carriedConditions returns the live Planned, Satisfied and CutoffMet
-// conditions, in that order, for the caller to update. Only these three are
-// carried: they are the complete set this manager declares.
+// carriedConditions returns the live Planned, Satisfied, CutoffMet and
+// DeadLettered conditions, in that order, for the caller to update. Only
+// these four are carried: they are the complete set this manager declares.
+// DeadLettered is carried so an unchanged annotation keeps its condition's
+// lastTransitionTime; [Reconciler.apply] sets or removes it.
 func carriedConditions(live []metav1.Condition) []metav1.Condition {
 	var out []metav1.Condition
 	for _, t := range []string{
 		subtitlev1alpha1.SubtitleRequestConditionPlanned,
 		subtitlev1alpha1.SubtitleRequestConditionSatisfied,
 		subtitlev1alpha1.SubtitleRequestConditionCutoffMet,
+		k8s.ConditionDeadLettered,
 	} {
 		if c := k8s.FindCondition(live, t); c != nil {
 			out = append(out, *c)
@@ -667,11 +679,14 @@ func stringKeys(ks []subtitles.LangKey) []string {
 //
 // Three things wake a request, and each has its own predicate:
 //
-//   - its own spec (metadata.generation), or a change to any leaf the
-//     WORKER owns on any item ([workerSignal]). Worker writes never bump
-//     metadata.generation, so a generation-only predicate would never see a
-//     language get downloaded or come back unavailable; this controller's
-//     own writes change none of those leaves, so they do not re-trigger it.
+//   - its own spec (metadata.generation), a change to any leaf the WORKER
+//     owns on any item ([workerSignal]), or the DLQ projector's
+//     clustarr.io/dead-lettered annotation appearing, changing or being
+//     removed (k8s.DeadLetteredAnnotationChanged). Worker writes and
+//     annotations never bump metadata.generation, so a generation-only
+//     predicate would never see a language get downloaded or come back
+//     unavailable, nor fold a dead letter; this controller's own writes
+//     change none of those, so they do not re-trigger it.
 //   - its MediaFile's status.probeHash (§10's row for captionarr). The
 //     request shares the MediaFile's name (SubtitleRequestSpec.MediaFileRef).
 //   - a SubtitleProfile's generation or Invalid condition, fanned out to the
@@ -683,7 +698,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("subtitlerequest").
 		For(&subtitlev1alpha1.SubtitleRequest{}, builder.WithPredicates(k8s.Or(
-			k8s.GenerationChanged(), k8s.StatusFieldChanged(workerSignal)))).
+			k8s.GenerationChanged(), k8s.StatusFieldChanged(workerSignal), k8s.DeadLetteredAnnotationChanged()))).
 		Watches(&catalogv1alpha1.MediaFile{}, handler.EnqueueRequestsFromMapFunc(mapMediaFile),
 			builder.WithPredicates(k8s.StatusFieldChanged(probeHashOf))).
 		Watches(&subtitlev1alpha1.SubtitleProfile{}, handler.EnqueueRequestsFromMapFunc(r.mapProfile),

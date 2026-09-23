@@ -93,4 +93,15 @@ func TestWatchesWakeTheController(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return f.get("movie").Status.ProbeHash == "hash-2" && len(bus.stored()) == before+1
 	}, 20*time.Second, 100*time.Millisecond, "a new probeHash must wake the controller and search the new file")
+
+	// The DLQ projector's annotation bumps no generation and touches no
+	// worker leaf; k8s.DeadLetteredAnnotationChanged is what lets it in.
+	f.annotate("movie", "clustarr.evt.subtitle.subtitle.failed.x@2026-09-23T10:00:00Z")
+	require.Eventually(t, func() bool {
+		return k8s.FindCondition(f.get("movie").Status.Conditions, k8s.ConditionDeadLettered) != nil
+	}, 20*time.Second, 100*time.Millisecond, "an annotation-only change must wake the controller")
+	f.annotate("movie", "")
+	require.Eventually(t, func() bool {
+		return k8s.FindCondition(f.get("movie").Status.Conditions, k8s.ConditionDeadLettered) == nil
+	}, 20*time.Second, 100*time.Millisecond, "removing the annotation must wake the controller too")
 }
