@@ -40,10 +40,31 @@ const (
 	labelClient     = "download.clustarr.io/client"
 	componentEngine = "grabarr-engine"
 
-	// dataVolumeName and scratchVolumeName are the pod-local volume names;
-	// they say nothing about the PVC or emptyDir backing them.
+	// dataVolumeName, scratchVolumeName and tmpVolumeName are the pod-local
+	// volume names; they say nothing about the PVC or emptyDir backing them.
 	dataVolumeName    = "data"
 	scratchVolumeName = "scratch"
+	tmpVolumeName     = "tmp"
+
+	// tmpDir is an emptyDir because the root filesystem is read-only (see
+	// containerSecurityContextAC): nothing in either engine writes there
+	// today -- anacrolix keeps its piece-completion database beside the data
+	// under /data, and the usenet engine's part files, par2 repair and
+	// unpack all work under its scratch dir and /data -- but SQLite (the
+	// cgo build's piece completion) and anything calling os.TempDir fall
+	// back to /tmp, and an unwritable /tmp fails at runtime, on a real node,
+	// where no test sees it. Every Deployment mounts one for the same reason.
+	tmpDir = "/tmp"
+
+	// podUID and podGID are the identity every engine pod runs as: the
+	// clustarr user images/Dockerfile.media creates (USER 1000:1000), and the
+	// runAsUser/runAsGroup/fsGroup every Deployment under config/manager
+	// sets, grabarr's own included -- so an engine's files on /data belong
+	// to the same group every other service reads and rewrites them as
+	// (§11). TestEnginePodSecurityMatchesTheDeployment holds the engine pods
+	// to config/manager/grabarr.yaml.
+	podUID = int64(1000)
+	podGID = int64(1000)
 
 	// engineContainerName is the one container every engine pod runs.
 	engineContainerName = "engine"
@@ -224,18 +245,54 @@ func tolerationsAC(ts []corev1.Toleration) []*corev1ac.TolerationApplyConfigurat
 	return out
 }
 
+// podSecurityContextAC is the pod half of the security settings every
+// Deployment under config/manager carries, and squasharr's transcode Jobs
+// with them: non-root as the image's clustarr user, the RuntimeDefault
+// seccomp profile, and fsGroup on the RWX /data volume (and the usenet
+// scratch claim) with OnRootMismatch, so a large library is not re-chowned
+// on every engine start. Until X16 an engine pod had none of it: it ran as
+// whatever the image said, unconfined, with no fsGroup on the volume its
+// downloads land on.
+func podSecurityContextAC() *corev1ac.PodSecurityContextApplyConfiguration {
+	return corev1ac.PodSecurityContext().
+		WithRunAsNonRoot(true).
+		WithRunAsUser(podUID).
+		WithRunAsGroup(podGID).
+		WithFSGroup(podGID).
+		WithFSGroupChangePolicy(corev1.FSGroupChangeOnRootMismatch).
+		WithSeccompProfile(corev1ac.SeccompProfile().WithType(corev1.SeccompProfileTypeRuntimeDefault))
+}
+
+// containerSecurityContextAC is the container half: no privilege
+// escalation, every capability dropped, and a read-only root filesystem.
+// Each engine writes only to volumes -- /data (the transfers, the torrent
+// engine's re-attach state and piece completion), the usenet engine's
+// scratch dir, and /tmp -- and the torrent engine's peer port is the
+// DownloadClient's listenPort, 42069 by default, unprivileged, so dropping
+// NET_BIND_SERVICE with the rest costs nothing unless an operator picks a
+// port below 1024.
+func containerSecurityContextAC() *corev1ac.SecurityContextApplyConfiguration {
+	return corev1ac.SecurityContext().
+		WithAllowPrivilegeEscalation(false).
+		WithReadOnlyRootFilesystem(true).
+		WithCapabilities(corev1ac.Capabilities().WithDrop("ALL"))
+}
+
 // podSpecAC assembles the PodSpec every engine pod shares: the one container
 // callers pass in, the shared /data volume every grabarr pod mounts (§6.3;
 // config/manager/grabarr.yaml mounts the same "clustarr-data" claim on the
-// controller Deployment), plus whatever extra volumes the caller needs
-// (usenet's scratch volume), spec.nodeSelector and spec.tolerations.
+// controller Deployment), whatever extra volumes the caller needs (usenet's
+// scratch volume), the /tmp emptyDir the read-only root filesystem needs,
+// the pod security context, spec.nodeSelector and spec.tolerations.
 func podSpecAC(dc *downloadv1alpha1.DownloadClient, container *corev1ac.ContainerApplyConfiguration, dataClaimName string, rt EngineRuntime, extraVolumes ...*corev1ac.VolumeApplyConfiguration) *corev1ac.PodSpecApplyConfiguration {
 	volumes := append([]*corev1ac.VolumeApplyConfiguration{
 		corev1ac.Volume().WithName(dataVolumeName).WithPersistentVolumeClaim(
 			corev1ac.PersistentVolumeClaimVolumeSource().WithClaimName(dataClaimName)),
 	}, extraVolumes...)
+	volumes = append(volumes, corev1ac.Volume().WithName(tmpVolumeName).WithEmptyDir(corev1ac.EmptyDirVolumeSource()))
 
 	spec := corev1ac.PodSpec().
+		WithSecurityContext(podSecurityContextAC()).
 		WithContainers(container).
 		WithVolumes(volumes...).
 		WithRestartPolicy(corev1.RestartPolicyAlways)
@@ -306,7 +363,11 @@ func torrentContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir string
 			WithProtocol(corev1.ProtocolTCP)).
 		WithEnv(engineEnv(dc, rt)...).
 		WithResources(resourceRequirementsAC(dc.Spec.Resources)).
-		WithVolumeMounts(corev1ac.VolumeMount().WithName(dataVolumeName).WithMountPath(dataDir))
+		WithSecurityContext(containerSecurityContextAC()).
+		WithVolumeMounts(
+			corev1ac.VolumeMount().WithName(dataVolumeName).WithMountPath(dataDir),
+			corev1ac.VolumeMount().WithName(tmpVolumeName).WithMountPath(tmpDir),
+		)
 }
 
 // usenetContainer builds the usenet engine's container. Usenet clients are
@@ -331,9 +392,11 @@ func usenetContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scratc
 		WithArgs(args...).
 		WithEnv(engineEnv(dc, rt)...).
 		WithResources(resourceRequirementsAC(dc.Spec.Resources)).
+		WithSecurityContext(containerSecurityContextAC()).
 		WithVolumeMounts(
 			corev1ac.VolumeMount().WithName(dataVolumeName).WithMountPath(dataDir),
 			corev1ac.VolumeMount().WithName(scratchVolumeName).WithMountPath(scratchDir),
+			corev1ac.VolumeMount().WithName(tmpVolumeName).WithMountPath(tmpDir),
 		)
 }
 

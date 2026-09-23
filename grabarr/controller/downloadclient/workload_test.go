@@ -115,11 +115,12 @@ func TestBuildStatefulSetShape(t *testing.T) {
 	require.Len(t, c.Ports, 1)
 	assert.Equal(t, int32(51413), *c.Ports[0].ContainerPort)
 
-	require.Len(t, c.VolumeMounts, 1)
+	require.Len(t, c.VolumeMounts, 2)
 	assert.Equal(t, dataVolumeName, *c.VolumeMounts[0].Name)
 	assert.Equal(t, "/data", *c.VolumeMounts[0].MountPath)
+	assert.Equal(t, tmpVolumeName, *c.VolumeMounts[1].Name)
 
-	require.Len(t, sts.Spec.Template.Spec.Volumes, 1)
+	require.Len(t, sts.Spec.Template.Spec.Volumes, 2)
 	require.NotNil(t, sts.Spec.Template.Spec.Volumes[0].PersistentVolumeClaim)
 	assert.Equal(t, "clustarr-data", *sts.Spec.Template.Spec.Volumes[0].PersistentVolumeClaim.ClaimName)
 }
@@ -148,8 +149,8 @@ func TestBuildDeploymentShape(t *testing.T) {
 		"--engine", "nzb-0",
 	}, c.Args)
 
-	require.Len(t, c.VolumeMounts, 2)
-	require.Len(t, dep.Spec.Template.Spec.Volumes, 2)
+	require.Len(t, c.VolumeMounts, 3)
+	require.Len(t, dep.Spec.Template.Spec.Volumes, 3)
 	assert.Equal(t, scratchVolumeName, *dep.Spec.Template.Spec.Volumes[1].Name)
 	require.NotNil(t, dep.Spec.Template.Spec.Volumes[1].EmptyDir)
 }

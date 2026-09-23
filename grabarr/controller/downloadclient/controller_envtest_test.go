@@ -27,6 +27,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
+	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
+	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -141,12 +144,91 @@ func TestReconcileUsenetClientCreatesDeployment(t *testing.T) {
 	var dep appsv1.Deployment
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "sab-engine"}, &dep))
 	require.Equal(t, int32(1), *dep.Spec.Replicas)
-	require.Len(t, dep.Spec.Template.Spec.Volumes, 2)
+	var volumes []string
+	for _, v := range dep.Spec.Template.Spec.Volumes {
+		volumes = append(volumes, v.Name)
+	}
+	require.Equal(t, []string{"data", "scratch", "tmp"}, volumes)
 
 	var got downloadv1alpha1.DownloadClient
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "sab"}, &got))
 	require.NotNil(t, got.Status.Engine)
 	require.Equal(t, "sab-engine", got.Status.Engine.WorkloadRef)
+}
+
+// TestAnExistingEngineWorkloadGainsThePodSecurity starts from an engine
+// StatefulSet already running in the pre-X16 shape -- applied by the same
+// field manager, with no security context and no /tmp -- because that is
+// what every cluster upgrading into X16 has. The next reconcile must bring it
+// to the secured shape (a manager's apply replaces its own set, so nothing
+// of the old template survives), and the apiserver must accept that shape.
+func TestAnExistingEngineWorkloadGainsThePodSecurity(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+
+	dc := &downloadv1alpha1.DownloadClient{
+		ObjectMeta: metav1.ObjectMeta{Name: "legacy", Namespace: "default"},
+		Spec: downloadv1alpha1.DownloadClientSpec{
+			Protocol: commonv1alpha1.ProtocolTorrent,
+			Replicas: 1,
+			Torrent:  &downloadv1alpha1.TorrentSpec{},
+		},
+	}
+	require.NoError(t, c.Create(ctx, dc))
+
+	labels := map[string]string{"app.kubernetes.io/component": "grabarr-engine", "download.clustarr.io/client": "legacy"}
+	old := appsv1ac.StatefulSet("legacy-engine", "default").
+		WithLabels(labels).
+		WithSpec(appsv1ac.StatefulSetSpec().
+			WithReplicas(1).
+			WithSelector(metav1ac.LabelSelector().WithMatchLabels(labels)).
+			WithTemplate(corev1ac.PodTemplateSpec().WithLabels(labels).WithSpec(corev1ac.PodSpec().
+				WithContainers(corev1ac.Container().WithName("engine").WithImage("img").
+					WithVolumeMounts(corev1ac.VolumeMount().WithName("data").WithMountPath("/data"))).
+				WithVolumes(corev1ac.Volume().WithName("data").WithPersistentVolumeClaim(
+					corev1ac.PersistentVolumeClaimVolumeSource().WithClaimName("clustarr-data"))))))
+	_, err := k8s.Apply(ctx, c, k8s.ManagerGrabarr, old)
+	require.NoError(t, err)
+
+	r := downloadclient.NewReconciler(c, events.NewFakeRecorder(10), "/data", "/scratch", "img")
+	r.DiskUsage = func(string) (fsops.Usage, error) {
+		return fsops.Usage{Total: 100 << 30, Free: 50 << 30, Available: 50 << 30}, nil
+	}
+	reconcileOK(t, r, "default", "legacy")
+
+	var sts appsv1.StatefulSet
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "legacy-engine"}, &sts))
+	pod := sts.Spec.Template.Spec
+	psc := pod.SecurityContext
+	require.NotNil(t, psc)
+	require.NotNil(t, psc.RunAsNonRoot)
+	require.True(t, *psc.RunAsNonRoot)
+	require.NotNil(t, psc.RunAsUser)
+	require.Equal(t, int64(1000), *psc.RunAsUser)
+	require.NotNil(t, psc.RunAsGroup)
+	require.Equal(t, int64(1000), *psc.RunAsGroup)
+	require.NotNil(t, psc.FSGroup)
+	require.Equal(t, int64(1000), *psc.FSGroup)
+	require.NotNil(t, psc.FSGroupChangePolicy)
+	require.Equal(t, corev1.FSGroupChangeOnRootMismatch, *psc.FSGroupChangePolicy)
+	require.NotNil(t, psc.SeccompProfile)
+	require.Equal(t, corev1.SeccompProfileTypeRuntimeDefault, psc.SeccompProfile.Type)
+
+	require.Len(t, pod.Containers, 1)
+	csc := pod.Containers[0].SecurityContext
+	require.NotNil(t, csc)
+	require.NotNil(t, csc.ReadOnlyRootFilesystem)
+	require.True(t, *csc.ReadOnlyRootFilesystem)
+	require.NotNil(t, csc.AllowPrivilegeEscalation)
+	require.False(t, *csc.AllowPrivilegeEscalation)
+	require.NotNil(t, csc.Capabilities)
+	require.Equal(t, []corev1.Capability{"ALL"}, csc.Capabilities.Drop)
+
+	var tmp bool
+	for _, m := range pod.Containers[0].VolumeMounts {
+		tmp = tmp || m.MountPath == "/tmp"
+	}
+	require.True(t, tmp, "the read-only root filesystem needs /tmp as a volume")
 }
 
 func TestReconcileBelowMinFreeIsNotReady(t *testing.T) {
