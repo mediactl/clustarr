@@ -36,13 +36,15 @@ import (
 // Match maps one release onto the monitored catalog items it could satisfy.
 //
 // The order is §6.1's: external ids first, normalized title (and year) as
-// the fallback. Ids are exact and cheap; a title match is a guess, so it is
+// the fallback. A non-video release carries no id its item has, so it is
+// matched by the names on it alone (nonvideo.go). Ids are exact and cheap; a title match is a guess, so it is
 // only consulted when the indexer gave no usable id. An unmonitored item is
 // never returned -- §8.7 says "monitored items", and grabbing for an item the
 // user switched off would be a surprise with a download attached.
 //
-// A returned MediaRef is shaped for grab.StatusTargets: a movie or a single
-// episode is itself, and a pack is the Series with the Episode names in Keys.
+// A returned MediaRef is shaped for grab.StatusTargets: a movie, a single
+// episode, an album, a book, an audiobook or a comic issue is itself, and a
+// pack is the Series with the Episode names in Keys.
 //
 // Match reads every episode number literally. The handler matches through
 // matchWith, handing it the series' scene-numbering table.
@@ -68,12 +70,10 @@ func matchWith(ctx context.Context, c client.Client, namespace string, rel schem
 	case commonv1.MediaKindSeries, commonv1.MediaKindEpisode:
 		return matchSeries(ctx, c, namespace, rel, scenes)
 	default:
-		// schema.Release carries no artist, author or issue fields, so a
-		// non-video release has nothing but a title to match on, and an
-		// unclassified release is not something to guess at. Non-video
-		// items are searched for (the search worker and the wanted sweep),
-		// not matched from the firehose.
-		return nil, nil
+		// An album, a book, an audiobook or a comic issue, by the names
+		// indexarr put on the release (nonvideo.go). An unclassified
+		// release is not something to guess at: it matches nothing.
+		return matchNonVideo(ctx, c, namespace, rel)
 	}
 }
 

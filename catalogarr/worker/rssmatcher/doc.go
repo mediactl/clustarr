@@ -31,7 +31,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // normalizedTitle+year -> monitored items". A controller-runtime field index
 // IS that map: the manager's informers maintain it, lookups are in-memory, and
 // it needs no second cache layer, no invalidation and no code of its own
-// beyond the extractor functions. IndexFields builds six of them.
+// beyond the extractor functions. IndexFields builds thirteen of them: six for
+// movies and series, seven for the non-video kinds (nonvideo.go).
 //
 // # Approved releases take the same path as a search's
 //
@@ -44,7 +45,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # Registration
 //
 // Nothing registers itself. catalogarr's setupQueueWorkers registers this
-// package's six indexes and catalogarr/worker/search's three Download indexes
+// package's thirteen indexes and catalogarr/worker/search's three Download indexes
 // together, from one call (registerWorkerIndexes), and then:
 //
 //	h := rssmatcher.NewHandler(rssmatcher.Deps{

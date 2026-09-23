@@ -289,23 +289,6 @@ func TestMatch_DailySeriesByAirDate(t *testing.T) {
 	})
 }
 
-// TestMatch_NonVideoKindsAreOutOfScope: §16 scopes catalogarr's non-video
-// kinds to M6, and an unclassified release is not something to guess at.
-func TestMatch_NonVideoKindsAreOutOfScope(t *testing.T) {
-	ctx := context.Background()
-	mgr := newTestManager(t)
-	c := mgr.GetClient()
-	ns := newNamespace(t, ctx, c)
-
-	for _, kind := range []commonv1.MediaKind{commonv1.MediaKindAlbum, commonv1.MediaKindBook, commonv1.MediaKindIssue, ""} {
-		rel := movieRelease("Anything", 2020, nil)
-		rel.Kind = kind
-		refs, err := rssmatcher.Match(ctx, c, ns, rel)
-		require.NoError(t, err)
-		assert.Emptyf(t, refs, "kind %q", kind)
-	}
-}
-
 // TestMatch_SeriesTitleFallbackFollowsSonarr: a release with no tvdb id is
 // matched by its series title the way Sonarr's ParsingService matches one --
 // by the clean title, the year included wherever the release named it -- and

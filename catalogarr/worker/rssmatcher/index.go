@@ -57,9 +57,33 @@ const (
 	// "<seriesRef>#<absoluteNumber>", for an anime release numbered only
 	// absolutely ("Show - 18"), which names no season to look up by.
 	IndexEpisodeSeriesAbsolute = "rssmatcher.clustarr.io/episode-series-absolute"
+
+	// IndexArtistName indexes Artist by nameKeys of its name and sort name.
+	IndexArtistName = "rssmatcher.clustarr.io/artist-name"
+
+	// IndexAlbumArtistTitle indexes Album by "<artistRef>|<clean title>".
+	IndexAlbumArtistTitle = "rssmatcher.clustarr.io/album-artist-title"
+
+	// IndexAuthorName indexes Author by nameKeys of its name and sort name.
+	IndexAuthorName = "rssmatcher.clustarr.io/author-name"
+
+	// IndexBookAuthorTitle indexes Book by "<authorRef>|<clean title>", one
+	// entry per title the book is known by.
+	IndexBookAuthorTitle = "rssmatcher.clustarr.io/book-author-title"
+
+	// IndexAudiobookAuthorTitle indexes Audiobook by "<clean author>|<clean
+	// title>", one entry per credited author and title.
+	IndexAudiobookAuthorTitle = "rssmatcher.clustarr.io/audiobook-author-title"
+
+	// IndexComicTitle indexes Comic by its clean title.
+	IndexComicTitle = "rssmatcher.clustarr.io/comic-title"
+
+	// IndexIssueComicNumber indexes Issue by "<comicRef>#<issue number key>".
+	IndexIssueComicNumber = "rssmatcher.clustarr.io/issue-comic-number"
 )
 
-// IndexFields registers the six indexes Match needs. Call it once per
+// IndexFields registers the thirteen indexes Match needs: six for movies
+// and series, seven for the non-video kinds (nonvideo.go). Call it once per
 // manager, before the cache starts.
 //
 // It takes a client.FieldIndexer rather than a ctrl.Manager so a test can
@@ -99,13 +123,33 @@ func IndexFields(ctx context.Context, idx client.FieldIndexer) error {
 	}); err != nil {
 		return err
 	}
-	return idx.IndexField(ctx, &catalogv1alpha1.Episode{}, IndexEpisodeSeriesAbsolute, func(o client.Object) []string {
+	if err := idx.IndexField(ctx, &catalogv1alpha1.Episode{}, IndexEpisodeSeriesAbsolute, func(o client.Object) []string {
 		ep, ok := o.(*catalogv1alpha1.Episode)
 		if !ok || ep.Spec.SeriesRef == "" || ep.Status.AbsoluteNumber == nil {
 			return nil
 		}
 		return []string{absoluteKey(ep.Spec.SeriesRef, *ep.Status.AbsoluteNumber)}
-	})
+	}); err != nil {
+		return err
+	}
+	for _, f := range []struct {
+		obj     client.Object
+		name    string
+		extract client.IndexerFunc
+	}{
+		{&catalogv1alpha1.Artist{}, IndexArtistName, artistNameKeys},
+		{&catalogv1alpha1.Album{}, IndexAlbumArtistTitle, albumKeys},
+		{&catalogv1alpha1.Author{}, IndexAuthorName, authorNameKeys},
+		{&catalogv1alpha1.Book{}, IndexBookAuthorTitle, bookKeys},
+		{&catalogv1alpha1.Audiobook{}, IndexAudiobookAuthorTitle, audiobookKeys},
+		{&catalogv1alpha1.Comic{}, IndexComicTitle, comicTitleKeys},
+		{&catalogv1alpha1.Issue{}, IndexIssueComicNumber, issueKeys},
+	} {
+		if err := idx.IndexField(ctx, f.obj, f.name, f.extract); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // TitleYearKey is the IndexMovieTitleYear / IndexSeriesTitleYear value for

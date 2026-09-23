@@ -122,7 +122,8 @@ func (d Deps) evaluate() EvaluateFunc {
 	return decision.Evaluate
 }
 
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;episodes;delayprofiles;qualityprofiles,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;episodes;mediafiles;delayprofiles;qualityprofiles,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists;albums;authors;books;audiobooks;comics;issues,verbs=get;list;watch
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch
 
 // Handler is the catalogarr-rss-matcher consumer.
