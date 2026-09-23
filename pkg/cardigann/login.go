@@ -119,6 +119,13 @@ func (e Engine) Login(ctx context.Context, def *Definition, cfg Config) (*Sessio
 		return nil, fmt.Errorf("cardigann: cookie jar: %w", err)
 	}
 	lf := loginFlow{e: e, def: def, cfg: cfg, lb: lb, tc: e.templateContext(def, cfg), jar: jar}
+	switch lb.Method {
+	case "", "form", "post":
+		// Prowlarr sends login.cookies with the form and post logins --
+		// the corpus uses it for a "JAVA=OK" that gets past a JavaScript
+		// check -- so they start in the jar.
+		lf.seedCookies()
+	}
 
 	switch lb.Method {
 	case "", "form":
@@ -163,6 +170,20 @@ type loginFlow struct {
 // error selectors against the response it got.
 func (lf loginFlow) exchange(follow bool) exchange {
 	return exchange{def: lf.def, site: lf.cfg.BaseURL, follow: follow, jar: lf.jar}
+}
+
+// seedCookies puts each login.cookies entry written as a Cookie header into
+// the jar for the site.
+func (lf loginFlow) seedCookies() {
+	site, err := url.Parse(lf.cfg.BaseURL)
+	if err != nil || site.Host == "" {
+		return
+	}
+	for _, entry := range lf.lb.Cookies {
+		if c := parseCookieHeader(entry); len(c) > 0 {
+			lf.jar.SetCookies(site, c)
+		}
+	}
 }
 
 // headers is login.headers, else search.headers (Prowlarr's
@@ -486,20 +507,40 @@ func (lf loginFlow) checkErrors(resp *http.Response, body []byte) error {
 	return checkLoginErrors(body, lf.lb.Error, lf.tc)
 }
 
-// loginCookie reads each name in lb.Cookies out of cfg.Values (a plain
-// string setting, or — since login.cookies names arbitrary cookie names,
-// not setting names — a raw value ResolveSettings passed through
-// unchanged) and builds Session.Cookies directly, erroring when a listed
-// name has no value. There is no HTTP round trip for the login step
-// itself: the user supplies the cookie value directly (note §3.5).
+// loginCookie builds the Session from cookies the operator supplies; there
+// is no HTTP round trip for the login itself (note §3.5), only login.test
+// when the definition has one.
+//
+// The cookies come from the `cookie` setting, a Cookie header pasted from a
+// browser ("uid=1; pass=abc") -- Prowlarr's semantics (it reads the
+// setting and ignores login.cookies for this method), and what all 138
+// cookie-method definitions in the v11 corpus declare. Each login.cookies
+// entry adds to them: one in header form ("name=value") literally, and a
+// bare name as the value of the setting (or raw config key) of that name --
+// this package's original reading, kept for definitions written to it.
+// Until X8a only the bare-name reading existed, so every corpus cookie
+// tracker logged in with no cookies at all.
+//
+// A cookie login that ends with no cookie is an error: it can only ever
+// send unauthenticated requests. No error quotes a cookie value.
 func (e Engine) loginCookie(ctx context.Context, def *Definition, cfg Config, lb *LoginBlock) (*Session, error) {
 	var cookies []*http.Cookie
-	for _, name := range lb.Cookies {
-		val, ok := cfg.stringValue(name)
-		if !ok || val == "" {
-			return nil, fmt.Errorf("cardigann: login cookie %q has no configured value", name)
+	if raw, ok := cfg.stringValue("cookie"); ok {
+		cookies = append(cookies, parseCookieHeader(raw)...)
+	}
+	for _, entry := range lb.Cookies {
+		if strings.Contains(entry, "=") {
+			cookies = append(cookies, parseCookieHeader(entry)...)
+			continue
 		}
-		cookies = append(cookies, &http.Cookie{Name: name, Value: val})
+		val, ok := cfg.stringValue(entry)
+		if !ok || val == "" {
+			return nil, fmt.Errorf("cardigann: login cookie %q has no configured value", entry)
+		}
+		cookies = append(cookies, &http.Cookie{Name: entry, Value: val})
+	}
+	if len(cookies) == 0 {
+		return nil, errors.New("cardigann: cookie login: no cookie configured (the cookie setting is empty)")
 	}
 	sess := &Session{Cookies: cookies, ExpiresAt: e.now().Add(sessionTTL)}
 	if lb.Test != nil {
@@ -508,6 +549,24 @@ func (e Engine) loginCookie(ctx context.Context, def *Definition, cfg Config, lb
 		}
 	}
 	return sess, nil
+}
+
+// parseCookieHeader reads a Cookie header the way a user pastes one --
+// Prowlarr's CookieUtil.CookieHeaderToDictionary: pairs split on ";",
+// surrounding space and empty pairs ignored (a trailing "; " is common),
+// the value everything after the first "=". http.ParseCookie refuses all of
+// that.
+func parseCookieHeader(h string) []*http.Cookie {
+	var out []*http.Cookie
+	for _, part := range strings.Split(h, ";") {
+		name, value, ok := strings.Cut(strings.TrimSpace(part), "=")
+		name = strings.TrimSpace(name)
+		if !ok || name == "" {
+			continue
+		}
+		out = append(out, &http.Cookie{Name: name, Value: strings.TrimSpace(value)})
+	}
+	return out
 }
 
 // runLoginTest GETs test.Path (with sess attached) and asserts

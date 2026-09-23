@@ -125,6 +125,7 @@ func Validate(data []byte) error {
 	if err != nil {
 		return err
 	}
+	data = trimBOM(data)
 	var raw any
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return fmt.Errorf("cardigann: yaml decode: %w", err)
@@ -142,3 +143,12 @@ func Validate(data []byte) error {
 	}
 	return nil
 }
+
+// utf8BOM is the byte-order mark some editors write at the start of a UTF-8
+// file. YAML allows one at the start of a stream, and one of the v11
+// corpus's definitions (torrent-pirat.yml) starts with it, but
+// goccy/go-yaml reads it as the first character of the first key.
+var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
+
+// trimBOM drops a leading UTF-8 byte-order mark.
+func trimBOM(data []byte) []byte { return bytes.TrimPrefix(data, utf8BOM) }

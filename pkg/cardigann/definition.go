@@ -424,7 +424,7 @@ func Load(data []byte) (*Definition, error) {
 		return nil, err
 	}
 	var def Definition
-	if err := yaml.UnmarshalWithOptions(data, &def, yaml.Strict()); err != nil {
+	if err := yaml.UnmarshalWithOptions(trimBOM(data), &def, yaml.Strict()); err != nil {
 		return nil, fmt.Errorf("cardigann: decode: %w", err)
 	}
 	if err := def.checkEngineConstraints(); err != nil {

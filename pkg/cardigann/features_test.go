@@ -799,3 +799,68 @@ func TestHTMLCaseKeysAreSelectorsTriedInFileOrder(t *testing.T) {
 	}
 	assert.Equal(t, []float64{0, 0.5, 1}, factors, "first matching selector wins, in file order; * falls back")
 }
+
+// TestLoadAcceptsALeadingByteOrderMark: YAML allows a BOM at the start of a
+// stream and torrent-pirat.yml in the v11 corpus has one; goccy/go-yaml
+// read it as part of the first key and every such definition failed Load.
+func TestLoadAcceptsALeadingByteOrderMark(t *testing.T) {
+	body := fmt.Sprintf(defHeader, "UTF-8") + `search:
+  path: search
+  rows:
+    selector: tr
+` + htmlRowFields
+	def, err := cardigann.Load(append([]byte{0xEF, 0xBB, 0xBF}, body...))
+	require.NoError(t, err)
+	assert.Equal(t, "feature", def.ID)
+}
+
+// TestLoginCookieReadsTheCookieSetting: every cookie-method definition in
+// the v11 corpus declares a `cookie` setting holding a pasted Cookie header
+// and no login.cookies; the method read only login.cookies, so each logged
+// in with no cookies.
+func TestLoginCookieReadsTheCookieSetting(t *testing.T) {
+	def := loadFeature(t, `settings:
+  - {name: cookie, type: text, label: Cookie}
+login:
+  method: cookie
+search:
+  path: search
+  rows:
+    selector: tr
+`+htmlRowFields)
+	cfg, err := cardigann.NewConfig(def, "https://tracker.example/", map[string]string{"cookie": " uid=1; pass=abc=; "})
+	require.NoError(t, err)
+	sess, err := cardigann.Engine{}.Login(context.Background(), def, cfg)
+	require.NoError(t, err)
+	assert.Equal(t, "uid=1; pass=abc=", sess.CookieHeader())
+
+	cfg, err = cardigann.NewConfig(def, "https://tracker.example/", map[string]string{})
+	require.NoError(t, err)
+	_, err = cardigann.Engine{}.Login(context.Background(), def, cfg)
+	require.Error(t, err, "a cookie login with no cookie can only send unauthenticated requests")
+}
+
+// TestLoginFormSendsLoginCookies: login.cookies (header form) go with a
+// form login's requests, as Prowlarr sends them.
+func TestLoginFormSendsLoginCookies(t *testing.T) {
+	var landing, submit string
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
+		landing = r.Header.Get("Cookie")
+		_, _ = io.WriteString(w, loginFormPage)
+	})
+	mux.HandleFunc("POST /do-login", func(w http.ResponseWriter, r *http.Request) {
+		submit = r.Header.Get("Cookie")
+		_, _ = io.WriteString(w, "<html>ok</html>")
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	def := loadFeature(t, strings.Replace(loginFormDefinition, "  form: \"#login\"\n", "  form: \"#login\"\n  cookies: [\"JAVA=OK\"]\n", 1))
+	cfg, err := cardigann.NewConfig(def, srv.URL+"/", map[string]string{"username": "u", "password": "p"})
+	require.NoError(t, err)
+	_, err = cardigann.Engine{HTTP: srv.Client()}.Login(context.Background(), def, cfg)
+	require.NoError(t, err)
+	assert.Equal(t, "JAVA=OK", landing)
+	assert.Equal(t, "JAVA=OK", submit)
+}
