@@ -195,13 +195,30 @@ func parseSubtitles(raw []byte) (subs *astisub.Subtitles, isASS bool, err error)
 // after mods is dropped outright — never left as a hollow cue — and
 // go-astisub's writers renumber remaining items positionally, so no manual
 // index bookkeeping is needed here.
+//
+// ModFixUppercase follows Bazarr's two extra rules for it (uppercase.go):
+// it applies only when the subtitle, as parsed and before any mod ran, is
+// mostly upper case, and it applies after every other mod, wherever the
+// profile lists it. Because it acts on each cue on its own, running it at
+// the end of each cue's chain is the same as Bazarr's whole-file pass after
+// the line mods.
 func applyMods(subs *astisub.Subtitles, mods []string) error {
+	fixUpper := false
 	for _, mod := range mods {
 		switch mod {
-		case ModRemoveHI, ModFixUppercase, ModRemoveTags, ModOCRFixes, ModCommon, ModReverseRTL, ModColor:
+		case ModFixUppercase:
+			fixUpper = true
+		case ModRemoveHI, ModRemoveTags, ModOCRFixes, ModCommon, ModReverseRTL, ModColor:
 		default:
 			return fmt.Errorf("subtitles: unknown mod %q", mod)
 		}
+	}
+	if fixUpper {
+		upper, err := mostlyUppercase(subs.Items)
+		if err != nil {
+			return fmt.Errorf("subtitles: fixUppercase: %w", err)
+		}
+		fixUpper = upper
 	}
 
 	kept := subs.Items[:0]
@@ -216,7 +233,7 @@ func applyMods(subs *astisub.Subtitles, mods []string) error {
 					return fmt.Errorf("subtitles: removeHI: %w", err)
 				}
 			case ModFixUppercase:
-				text = fixUppercase(text)
+				// Applied after the loop, gated on mostlyUppercase.
 			case ModRemoveTags, ModOCRFixes, ModCommon, ModReverseRTL, ModColor:
 				// Deferred: no fixture-verified behaviour for these yet.
 				// Recognised (not an error) so a profile listing them does
@@ -224,6 +241,9 @@ func applyMods(subs *astisub.Subtitles, mods []string) error {
 				// the same way as ModRemoveHI once one is needed by the
 				// captionarr worker.
 			}
+		}
+		if fixUpper {
+			text = fixUppercase(text)
 		}
 		if strings.TrimSpace(text) == "" {
 			continue // the cue's text vanished entirely — drop the cue itself
@@ -263,8 +283,3 @@ func setItemText(item *astisub.Item, text string) {
 	}
 	item.Lines = lines
 }
-
-// fixUppercase is a placeholder for Bazarr's fix_uppercase heuristic
-// (research note §6 item 3): deferred, same posture as ModRemoveTags et al.
-// above, until a fixture calls for it.
-func fixUppercase(s string) string { return s }
