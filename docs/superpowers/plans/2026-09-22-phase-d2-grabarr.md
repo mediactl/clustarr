@@ -154,6 +154,19 @@ Consumes `ConsumerImportFile` (`"importarr-fileimport"`, `pkg/events/subjects.go
 
 `Envelope.Key` is `<namespace>/<name>`: `strings.Cut` on `/`, dead-letter on failure. **Never guess** — an unattributable file goes to `LibraryScan.status.unmatched` with a reason, never a speculative item.
 
+### D2-8a — phase advancement and the import handoff (the phase gate depends on it)
+
+**Files:** modify `grabarr/controller/download/`; `pkg/events/schema/catalog.go` (one stale doc comment).
+
+**This task exists because three correctly-scoped tasks each saw one edge of the same hole.** D2-4 implemented only `Pending`↔`Assigned`, because the plan named four deliverables and every later phase needs engine telemetry that did not exist yet. D2-5 and D2-6 write telemetry under `ManagerGrabarrEngine` but **cannot** write `status.phase` — it belongs to `ControllerFields`. D2-7 built the file-import consumer. The result: **nothing advances a Download past `Assigned`, and nothing ever publishes the work item that triggers import.** `grep -rn WorkFileImportSubject` finds the subject builder, the consumer, and no publisher at all. So D2's own gate — a release grabbed, downloaded, imported, `MediaFile` created — cannot complete, and would have failed at the first e2e run with no obvious owner.
+
+- [ ] Derive `status.phase` in the Download controller from engine-owned telemetry (`status.stage`, `status.progressPercent`, the item's reported status), advancing `Assigned` → `Queued` → `Downloading` → `Completed` → `Seeding` → `Imported`, plus `Paused`, `Failed`, `Blocklisted`, `Removing`.
+- [ ] **R1 still binds and is the sharp edge.** `catalogarr/controller/rollup/downloadoverlay.go:66-76` switches on every phase and its `default` branch means "no overlay" — so an unhandled or mistyped phase does not error, it makes the movie's rollup quietly wrong. Any change to either file belongs in **both, in one commit**.
+- [ ] On reaching a phase where content is complete on disk, publish `schema.ImportTask` to `events.WorkFileImportSubject(<download-uid>)`. `Envelope.Key` is `<namespace>/<name>` — the consumer `strings.Cut`s on `/` and dead-letters on failure.
+- [ ] **Publish exactly once per completion.** A level-driven reconciler re-runs; a naive publish-on-observe floods the consumer with duplicate import tasks for one download. D2-7's worker is idempotent via a dedup fingerprint, so a duplicate is survivable, not free — make the producer idempotent too and say how.
+- [ ] Fix `pkg/events/schema/catalog.go:226`'s subject comment: it claims `clustarr.work.catalogarr.import.normal.<download-uid>` while `ConsumerImportFile` listens on `clustarr.work.importarr.fileimport.<uid>` (`subjects.go:277`). A stale subject in a doc comment is how the next task builds the wrong publisher.
+- [ ] Test the whole handoff against envtest plus the in-memory bus: telemetry lands → phase advances → exactly one import task is published with a parseable key.
+
 ### D2-8 — wiring, RBAC, readiness (SERIAL, after D2-1..D2-7)
 
 **Files:** `grabarr/run.go`, `cmd/clustarr/services.go`, `cmd/clustarr/all.go`, `Makefile` (`RBAC_DIRS`), `config/`, `charts/`.
