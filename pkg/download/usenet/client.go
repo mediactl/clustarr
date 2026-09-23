@@ -292,6 +292,16 @@ type job struct {
 	// re-attach, so it is read without mu too.
 	addedAt time.Time
 
+	// checkpointMu serialises checkpoint: one manifest write at a time, each
+	// taking its snapshot inside the section, so the newest snapshot is
+	// always the last one renamed into place. Without it two concurrent
+	// checkpoints (a Resume beside the transfer's own progress write) raced on
+	// fsops.AtomicWrite's single ".partial" name -- one rename moved the
+	// other's file away and failed it -- and an older snapshot could land
+	// after a newer one. It is separate from mu so a slow fsync still never
+	// stalls the fetch workers.
+	checkpointMu sync.Mutex
+
 	mu             sync.Mutex
 	status         download.Status
 	stage          downloadv1alpha1.DownloadStage
@@ -360,9 +370,12 @@ func (j *job) fail(reason downloadv1alpha1.DownloadFailureReason, err error) {
 	_ = j.checkpoint()
 }
 
-// checkpoint persists the manifest. The bitsets are copied under the lock and
-// written outside it, so a slow fsync does not stall every fetch worker.
+// checkpoint persists the manifest. The bitsets are copied under mu and
+// written outside it, so a slow fsync does not stall every fetch worker;
+// checkpointMu keeps two checkpoints from overlapping (see its doc).
 func (j *job) checkpoint() error {
+	j.checkpointMu.Lock()
+	defer j.checkpointMu.Unlock()
 	j.mu.Lock()
 	m := manifest{
 		ID:         j.id,

@@ -27,6 +27,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -599,4 +600,39 @@ func TestARestartResumesFromTheCheckpointedSegments(t *testing.T) {
 	require.Zero(t, srv.servedCount("f0-p1@clustarr.test"), "segment 1 was already on disk")
 	require.Equal(t, 1, srv.servedCount("f0-p2@clustarr.test"))
 	require.Equal(t, 1, srv.servedCount("f0-p3@clustarr.test"))
+}
+
+// TestConcurrentCheckpointsNeverCollide is the regression test for a race CI
+// found: checkpoint used to snapshot under mu and write outside any lock, so
+// two concurrent checkpoints (Resume beside the transfer's own progress write)
+// raced on fsops.AtomicWrite's single "manifest.json.partial" name -- one
+// rename moved the other's temp file away and the loser failed with ENOENT.
+func TestConcurrentCheckpointsNeverCollide(t *testing.T) {
+	srv := newStubServer(t)
+	nzb := buildNZB(t, srv, "Race", []fileSpec{{name: "movie.mkv", parts: [][]byte{partPayload(1, 400)}}})
+	c, _, _ := newTestClient(t, Config{Providers: []Provider{srv.provider("solo", 2, 1)}})
+
+	id, err := c.Add(context.Background(), download.AddRequest{Name: "Race", Payload: nzb})
+	require.NoError(t, err)
+	j, err := c.lookup(id)
+	require.NoError(t, err)
+
+	const writers = 16
+	errs := make(chan error, writers*20)
+	var wg sync.WaitGroup
+	for range writers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 20 {
+				errs <- j.checkpoint()
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	waitForTerminal(t, c, id)
 }
