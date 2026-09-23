@@ -25,11 +25,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // generated at all -- and every envtest still passed, because envtest does
 // not enforce RBAC.
 //
-// config/rbac/role.yaml is NOT regenerated in D2-0: the download controllers
-// that need the rest of grabarr's rules do not exist yet, and role.yaml and
-// the chart's copy of it were being rewritten by another task while this
-// landed. Task D2-8 owns the regeneration and the chart sync; the markers are
-// here so that regeneration picks them up without anyone having to remember.
+// config/rbac/role.yaml and the chart's copy of it ARE regenerated for these
+// two markers, because cmd/clustarr's TestGeneratedRoleCoversEveryStatusWriter
+// reads marker TEXT out of the tree and requires the generated Role to grant
+// every <resource>/status it finds. A marker without a regeneration is a
+// tree-wide test failure, not a note for later -- which is the point of that
+// guard: it refuses to let a permission exist only as a comment.
+//
+// grabarr's OTHER rules -- downloadclients, the engine StatefulSet, the
+// blocklist sweep -- are not here, because the controllers that need them do
+// not exist yet. Task D2-8 regenerates again once they do.
 //
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads/status,verbs=get;update;patch

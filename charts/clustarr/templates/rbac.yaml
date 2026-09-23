@@ -145,6 +145,14 @@ rules:
   - update
   - watch
 - apiGroups:
+  - download.clustarr.io
+  resources:
+  - downloads/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - events.k8s.io
   resources:
   - events
