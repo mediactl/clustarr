@@ -38,6 +38,8 @@ const (
 
 // MediaRef points at a catalog object of the given kind in the same namespace
 // as the referencing object.
+//
+// +kubebuilder:validation:XValidation:rule="!has(self.track) || self.kind == 'album'",message="track addresses a Track within an Album, so it needs kind album"
 type MediaRef struct {
 	// Kind is the media kind of the referenced object.
 	// +required
@@ -52,6 +54,15 @@ type MediaRef struct {
 	// +optional
 	// +kubebuilder:validation:MaxItems=200
 	Keys []string `json:"keys,omitempty"`
+
+	// Track narrows an album reference to one Track of that Album: the
+	// MusicBrainz recording MBID that keys the Album's status.tracks. A
+	// MediaFile holding a single track sets it, so the Album can attribute
+	// the file to that Track (status.tracks[].fileRef) rather than only to
+	// the Album as a whole. Valid only with kind album.
+	// +optional
+	// +kubebuilder:validation:MaxLength=36
+	Track string `json:"track,omitempty"`
 }
 
 // HdrFormat is the high-dynamic-range format of a video stream, using the

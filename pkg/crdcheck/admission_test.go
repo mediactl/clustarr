@@ -43,6 +43,7 @@ type admissionCase struct {
 var (
 	gvrIndexerProxies = schema.GroupVersionResource{Group: "index.clustarr.io", Version: "v1alpha1", Resource: "indexerproxies"}
 	gvrArtists        = schema.GroupVersionResource{Group: "catalog.clustarr.io", Version: "v1alpha1", Resource: "artists"}
+	gvrMediaFiles     = schema.GroupVersionResource{Group: "catalog.clustarr.io", Version: "v1alpha1", Resource: "mediafiles"}
 )
 
 // TestAdmission pins the API shape decisions of the gap-fix wave (X1) at the
@@ -72,6 +73,7 @@ func TestAdmission(t *testing.T) {
 	cases := []admissionCase{}
 	cases = append(cases, indexerProxyPortCases()...)
 	cases = append(cases, artistSecondaryTypeCases()...)
+	cases = append(cases, mediaRefTrackCases()...)
 
 	ctx := context.Background()
 	for _, c := range cases {
@@ -133,5 +135,41 @@ func artistSecondaryTypeCases() []admissionCase {
 	return []admissionCase{
 		{"Artist profile accepting fieldRecording is admitted", gvrArtists, artist("studio", "fieldRecording"), ""},
 		{"Artist profile with an unknown secondary type is refused", gvrArtists, artist("Field recording"), "secondaryTypes"},
+	}
+}
+
+// mediaRefTrackCases: MediaRef.track addresses one Track of an Album by its
+// recording MBID, so a single-track MediaFile can be attributed per track.
+// It is meaningless on any other kind and the CEL rule on MediaRef says so.
+func mediaRefTrackCases() []admissionCase {
+	mediaFile := func(ref map[string]any) map[string]any {
+		return map[string]any{
+			"apiVersion": "catalog.clustarr.io/v1alpha1",
+			"kind":       "MediaFile",
+			"metadata":   map[string]any{"name": "mf", "namespace": "default"},
+			"spec": map[string]any{
+				"mediaRef": ref,
+				"path":     "/data/media/music/Artist/Album (2001)/01 - Track.flac",
+			},
+		}
+	}
+	const recording = "5b11f4ce-a62d-471e-81fc-a69a8278c7da"
+	return []admissionCase{
+		{
+			"MediaFile addressing an album track is admitted", gvrMediaFiles,
+			mediaFile(map[string]any{"kind": "album", "name": "nevermind", "track": recording}), "",
+		},
+		{
+			"MediaFile addressing a whole album is still admitted", gvrMediaFiles,
+			mediaFile(map[string]any{"kind": "album", "name": "nevermind"}), "",
+		},
+		{
+			"MediaFile with a track on a non-album kind is refused", gvrMediaFiles,
+			mediaFile(map[string]any{"kind": "movie", "name": "heat", "track": recording}), "needs kind album",
+		},
+		{
+			"MediaFile with an over-long track id is refused", gvrMediaFiles,
+			mediaFile(map[string]any{"kind": "album", "name": "nevermind", "track": recording + "-x"}), "spec.mediaRef.track",
+		},
 	}
 }

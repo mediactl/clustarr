@@ -57,6 +57,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: name
       type:
         scalar: string
+    - name: track
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.common.v1alpha1.Modifier
   scalar: string
 - name: com.github.mediactl.clustarr.api.common.v1alpha1.Protocol
