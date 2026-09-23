@@ -363,6 +363,22 @@ func (r *Reconciler) advancePhase(ctx context.Context, dl *downloadv1alpha1.Down
 		log.Info("content complete on disk; published import task", "phase", res.phase)
 	}
 
+	// The label goes on first: before the failed event, so the redownload
+	// search that event triggers (catalogarr, design spec §8.3) already
+	// finds this release on the blocklist; and before the status apply
+	// that records blocklistedUntil, because derivePhase reads
+	// "blocklistedUntil set, label absent" as an operator having lifted the
+	// blocklist -- a crash between a status-first pair would leave a
+	// release fault silently never blocklisted. Label-first, a crash leaves
+	// a labelled Download with no deadline and no recorded failure, which
+	// the next reconcile completes, publishing failed then.
+	if res.blocklist {
+		if err := r.applyObject(ctx, dl, dl.Spec.ClientRef, dl.Status.Engine, true); err != nil {
+			return ctrl.Result{}, fmt.Errorf("download: blocklist %s/%s: %w", dl.Namespace, dl.Name, err)
+		}
+		log.Info("blocklisted the release", "reason", res.failureReason)
+	}
+
 	// History events for the edges this reconcile observes, each on the
 	// same condition the status apply below uses to record it -- see
 	// publishDownloadEvent for why before, and why best effort.
@@ -386,19 +402,6 @@ func (r *Reconciler) advancePhase(ctx context.Context, dl *downloadv1alpha1.Down
 	}
 	if action, ok := phaseActions[res.phase]; ok && res.phase != dl.Status.Phase {
 		r.publishDownloadEvent(ctx, dl, action, string(res.failureReason))
-	}
-
-	// The label goes on BEFORE the status apply that records
-	// blocklistedUntil, never after. derivePhase reads "blocklistedUntil set,
-	// label absent" as an operator having lifted the blocklist, so a crash
-	// between a status-first pair would leave a release fault that is
-	// silently never blocklisted. Label-first, the crash leaves a labelled
-	// Download without a deadline, which the next reconcile completes.
-	if res.blocklist {
-		if err := r.applyObject(ctx, dl, dl.Spec.ClientRef, dl.Status.Engine, true); err != nil {
-			return ctrl.Result{}, fmt.Errorf("download: blocklist %s/%s: %w", dl.Namespace, dl.Name, err)
-		}
-		log.Info("blocklisted the release", "reason", res.failureReason)
 	}
 
 	if err := r.applyAdvancedStatus(ctx, dl, res, wasComplete || nowComplete); err != nil {
