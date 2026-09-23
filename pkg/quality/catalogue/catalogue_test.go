@@ -63,45 +63,48 @@ func TestMatchAppliesPerKindGroupThenAllGroupsSemantics(t *testing.T) {
 		"x265-hd": x265HD, "tier-example": tier,
 	}}
 
+	// Title is the parsed ITEM title, as release.Parse leaves it; the full
+	// release name ReleaseTitle conditions read travels on the ItemContext.
 	cases := []struct {
-		name string
-		r    *release.ParsedRelease
-		want []string
+		name         string
+		releaseTitle string
+		r            *release.ParsedRelease
+		want         []string
 	}{
 		{
-			"x265 1080p matches x265-hd",
-			&release.ParsedRelease{Title: "Movie.2020.1080p.BluRay.x265-GROUP", Quality: common.Quality{Resolution: common.Resolution1080p}},
+			"x265 1080p matches x265-hd", "Movie.2020.1080p.BluRay.x265-GROUP",
+			&release.ParsedRelease{Title: "Movie", Quality: common.Quality{Resolution: common.Resolution1080p}},
 			[]string{"x265-hd"},
 		},
 		{
-			"x265 2160p does not match x265-hd (negated required Resolution fails)",
-			&release.ParsedRelease{Title: "Movie.2020.2160p.BluRay.x265-GROUP", Quality: common.Quality{Resolution: common.Resolution2160p}},
+			"x265 2160p does not match x265-hd (negated required Resolution fails)", "Movie.2020.2160p.BluRay.x265-GROUP",
+			&release.ParsedRelease{Title: "Movie", Quality: common.Quality{Resolution: common.Resolution2160p}},
 			nil,
 		},
 		{
-			"h264 does not match x265-hd (required ReleaseTitle group fails)",
-			&release.ParsedRelease{Title: "Movie.2020.1080p.BluRay.x264-GROUP", Quality: common.Quality{Resolution: common.Resolution1080p}},
+			"h264 does not match x265-hd (required ReleaseTitle group fails)", "Movie.2020.1080p.BluRay.x264-GROUP",
+			&release.ParsedRelease{Title: "Movie", Quality: common.Quality{Resolution: common.Resolution1080p}},
 			nil,
 		},
 		{
-			"GROUPA bluray matches tier-example",
+			"GROUPA bluray matches tier-example", "x",
 			&release.ParsedRelease{Title: "x", Group: "GROUPA", Quality: common.Quality{Source: common.SourceBluray}},
 			[]string{"tier-example"},
 		},
 		{
-			"GROUPC bluray does not match tier-example (no member of the OR group matched)",
+			"GROUPC bluray does not match tier-example (no member of the OR group matched)", "x",
 			&release.ParsedRelease{Title: "x", Group: "GROUPC", Quality: common.Quality{Source: common.SourceBluray}},
 			nil,
 		},
 		{
-			"GROUPA webdl does not match tier-example (required Source group fails)",
+			"GROUPA webdl does not match tier-example (required Source group fails)", "x",
 			&release.ParsedRelease{Title: "x", Group: "GROUPA", Quality: common.Quality{Source: common.SourceWebDL}},
 			nil,
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := cat.Match(context.Background(), tc.r, catalogue.ItemContext{})
+			got := cat.Match(context.Background(), tc.r, catalogue.ItemContext{ReleaseTitle: tc.releaseTitle})
 			require.ElementsMatch(t, tc.want, got)
 		})
 	}
@@ -157,9 +160,9 @@ func TestScoreSumsMatchedFormatsAndDefaultsUnscoredSlugsToZero(t *testing.T) {
 		"c": {Slug: "c", Conditions: []catalogue.Condition{{Kind: catalogue.CondReleaseTitle, Required: true, Pattern: mustCompile(t, `C`)}}},
 	}}
 	scores := map[string]int{"a": 100, "b": -10000} // "c" intentionally not in scores
-	r := &release.ParsedRelease{Title: "A.B.C.Release"}
+	r := &release.ParsedRelease{Title: "Release"}
 
-	score, matched := cat.Score(context.Background(), scores, r, catalogue.ItemContext{})
+	score, matched := cat.Score(context.Background(), scores, r, catalogue.ItemContext{ReleaseTitle: "A.B.C.Release"})
 	require.ElementsMatch(t, []string{"a", "b", "c"}, matched)
 	require.Equal(t, -9900, score) // 100 + -10000 + 0(unscored "c") = -9900
 }
@@ -211,6 +214,9 @@ func TestMatchAgainstRealEmbeddedFormats(t *testing.T) {
 		r    *release.ParsedRelease
 		want []string
 	}{
+		// Each r.Title is the full release name ONLY so this table stays
+		// readable; the loop below moves it to ItemContext.ReleaseTitle, where
+		// production carries it, and gives Match the item title instead.
 		{
 			"Bluray 1080p from a HD Bluray Tier 01 group",
 			&release.ParsedRelease{
@@ -265,7 +271,10 @@ func TestMatchAgainstRealEmbeddedFormats(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := cat.Match(context.Background(), tc.r, catalogue.ItemContext{OriginalLanguageName: "English"})
+			r := *tc.r
+			ic := catalogue.ItemContext{OriginalLanguageName: "English", ReleaseTitle: r.Title}
+			r.Title = "Movie Title"
+			got := cat.Match(context.Background(), &r, ic)
 			require.ElementsMatch(t, tc.want, got)
 		})
 	}
@@ -335,12 +344,12 @@ func TestMatchRequiresADetectedAsianLanguageForAnimeDualAudio(t *testing.T) {
 
 	title := "Anime.Title.S01.DUAL.Audio.1080p.BluRay.x264-GROUP"
 
-	withJapanese := &release.ParsedRelease{Title: title, Languages: []string{"Japanese"}}
-	got := cat.Match(context.Background(), withJapanese, catalogue.ItemContext{})
+	withJapanese := &release.ParsedRelease{Title: "Anime Title", Languages: []string{"Japanese"}}
+	got := cat.Match(context.Background(), withJapanese, catalogue.ItemContext{ReleaseTitle: title})
 	require.Contains(t, got, "anime-dual-audio", "a detected Japanese language tag must satisfy the Language Kind-group")
 
-	withEnglishOnly := &release.ParsedRelease{Title: title, Languages: []string{"English"}}
-	got = cat.Match(context.Background(), withEnglishOnly, catalogue.ItemContext{})
+	withEnglishOnly := &release.ParsedRelease{Title: "Anime Title", Languages: []string{"English"}}
+	got = cat.Match(context.Background(), withEnglishOnly, catalogue.ItemContext{ReleaseTitle: title})
 	require.NotContains(t, got, "anime-dual-audio", "English-only must not satisfy the Japanese/Chinese/Korean Language Kind-group")
 }
 
@@ -551,4 +560,61 @@ func TestLanguageNotEnglishAllowsTheItemsOwnOriginalLanguage(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestReleaseTitleConditionsReadTheFullReleaseName is the X7a-reported
+// defect: every ReleaseTitle condition was matched against
+// ParsedRelease.Title, which release.Parse leaves as the ITEM title
+// ("Heat"), so no repack, HDR, codec or streaming format ever scored on a
+// real release, in search, import or rescan. Radarr's and Sonarr's
+// ReleaseTitleSpecification match the full release title or the file name
+// (ItemContext.ReleaseTitle / Filename). The release goes through the REAL
+// parser here, because a hand-built ParsedRelease whose Title is the whole
+// release name is exactly what hid the defect.
+func TestReleaseTitleConditionsReadTheFullReleaseName(t *testing.T) {
+	cat := &catalogue.Catalogue{Formats: loadAllEmbeddedFormats(t)}
+	const name = "Heat.1995.REPACK.2160p.UHD.BluRay.HDR.x265-GROUP"
+	parsed, err := release.Parse(name, release.Options{Kind: common.MediaKindMovie})
+	require.NoError(t, err)
+	require.Equal(t, "Heat", parsed.Title, "the parser's Title is the item title; that is why it cannot be what ReleaseTitle conditions read")
+	parsed.Languages = []string{"English"}
+	scores := map[string]int{"repack-proper": 5, "hdr": 500}
+
+	for _, tc := range []struct {
+		name string
+		ic   catalogue.ItemContext
+	}{
+		{"a search release, by its release title", catalogue.ItemContext{ReleaseTitle: name}},
+		{"an imported file, by its file name alone", catalogue.ItemContext{Filename: name + ".mkv"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.ic.OriginalLanguageName = "English"
+			score, matched := cat.Score(context.Background(), scores, parsed, tc.ic)
+			require.Contains(t, matched, "repack-proper")
+			require.Contains(t, matched, "hdr")
+			require.Equal(t, 505, score)
+		})
+	}
+
+	t.Run("the release title is simplified as Radarr's SimplifyReleaseTitle does", func(t *testing.T) {
+		// `\s*[<>?*|]` is removed before matching, so "Heat. <PROPER" reads
+		// as "Heat.PROPER".
+		adjacent := &catalogue.Catalogue{Formats: map[string]*catalogue.Format{
+			"adjacent": {Slug: "adjacent", Conditions: []catalogue.Condition{{Kind: catalogue.CondReleaseTitle, Required: true, Pattern: mustCompile(t, `Heat\.PROPER`)}}},
+		}}
+		require.Equal(t, []string{"adjacent"}, adjacent.Match(context.Background(), parsed, catalogue.ItemContext{ReleaseTitle: "Heat. <PROPER"}))
+	})
+
+	t.Run("no release title and no file name matches no ReleaseTitle condition", func(t *testing.T) {
+		// Radarr's MatchString(null) is false. The parsed item title must not
+		// stand in for the missing name: a pattern for the item title itself
+		// does not match.
+		itemTitle := &catalogue.Catalogue{Formats: map[string]*catalogue.Format{
+			"item-title": {Slug: "item-title", Conditions: []catalogue.Condition{{Kind: catalogue.CondReleaseTitle, Required: true, Pattern: mustCompile(t, `^Heat$`)}}},
+		}}
+		require.Empty(t, itemTitle.Match(context.Background(), parsed, catalogue.ItemContext{}))
+		matched := cat.Match(context.Background(), parsed, catalogue.ItemContext{OriginalLanguageName: "English"})
+		require.NotContains(t, matched, "repack-proper")
+		require.NotContains(t, matched, "hdr")
+	})
 }

@@ -104,3 +104,36 @@ func TestEvaluateFullPipeline(t *testing.T) {
 	require.Equal(t, "hd-tracker:12345", ranked[0].Release.GUID, "Bluray-1080p outranks WEBDL-720p")
 	require.Equal(t, "hd-tracker:12346", ranked[1].Release.GUID)
 }
+
+// TestEvaluateScoresReleaseTitleFormatsFromTheReleaseName is the X7a-found
+// defect at the search end: Evaluate must hand the catalogue the indexer's
+// full release name, because the parsed title is only "Heat" and every
+// ReleaseTitle custom format (repack, HDR, codecs, streaming) reads the
+// name. Scored against the real embedded catalogue.
+func TestEvaluateScoresReleaseTitleFormatsFromTheReleaseName(t *testing.T) {
+	bluray2160, ok := quality.Lookup("video", "Bluray-2160p")
+	require.True(t, ok)
+	p := quality.Profile{
+		Tiers:        [][]quality.Definition{{bluray2160}},
+		LanguageName: "any",
+		Sizes:        quality.MovieSizeTable(),
+		ProperPolicy: "preferAndUpgrade",
+		Scores:       map[string]int{"repack-proper": 5, "hdr": 500},
+	}
+	tg := decision.Target{
+		Kind: common.MediaKindMovie, Available: true, OriginalLanguageTag: "en",
+		Identity: decision.Identity{Titles: []string{"Heat"}, Year: 1995},
+	}
+	rel := common.ReleaseInfo{
+		GUID: "idx:heat", IndexerRef: "idx", Protocol: common.ProtocolTorrent,
+		Title: "Heat.1995.REPACK.2160p.UHD.BluRay.HDR.x265-GROUP",
+	}
+	o := decision.Options{UserInvoked: true, ProtocolsEnabled: map[string]bool{"torrent": true}}
+
+	ds := decision.Evaluate(context.Background(), tg, p, catalogue.LoadedCatalogue(), []common.ReleaseInfo{rel}, o)
+	require.Len(t, ds, 1)
+	require.Contains(t, ds[0].Matched, "repack-proper")
+	require.Contains(t, ds[0].Matched, "hdr")
+	require.Equal(t, 505, ds[0].Score)
+	require.EqualValues(t, 505, ds[0].Release.FormatScore, "the score lands on the Release that Search.status and Download.spec carry")
+}

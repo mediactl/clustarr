@@ -19,6 +19,7 @@ package catalogue
 
 import (
 	"context"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -152,10 +153,10 @@ type ItemContext struct {
 	// "Name" in its name because the CRD field it ultimately comes from,
 	// Movie.status.metadata.originalLanguage, is a TAG: the two vocabularies
 	// sit either side of one conversion, and feeding a tag in here scores
-	// every release of the item at language-not-original's -10000.
-	// pkg/decision.Evaluate is the only production producer of an
-	// ItemContext and converts the tag exactly once
-	// (pkg/decision/language.go).
+	// every release of the item at language-not-original's -10000. Every
+	// producer converts the tag exactly once: pkg/decision.Evaluate for a
+	// release (pkg/decision/language.go), importarr's file import and rescan
+	// through LanguageName for a file.
 	//
 	// Empty means the item's original language is UNKNOWN, which is not the
 	// same as "no language": a "language == Original" Condition cannot be
@@ -164,7 +165,37 @@ type ItemContext struct {
 	OriginalLanguageName string
 	IndexerFlags         []string
 	ReleaseType          common.ReleaseType
+
+	// ReleaseTitle is the FULL release name every ReleaseTitle condition is
+	// matched against -- "Heat.1995.REPACK.2160p.UHD.BluRay.HDR.x265-GROUP",
+	// never the parsed item title "Heat" -- together with Filename. It is
+	// Radarr's CustomFormatInput.MovieInfo.SimpleReleaseTitle and Sonarr's
+	// EpisodeInfo.ReleaseTitle (ReleaseTitleSpecification.cs, both develop:
+	// `MatchString(...ReleaseTitle) || MatchString(input.Filename)`). What
+	// fills it depends on where the release came from, as in Radarr's
+	// CustomFormatCalculationService:
+	//   - a search or RSS release: the indexer's release title;
+	//   - a file being imported from a download: the download's release
+	//     (scene) name when there is one, else the file's own name;
+	//   - a file already in the library: the scene name it was imported
+	//     from when known, else the file's own name.
+	// Empty matches nothing, as Radarr's MatchString(null) does -- a
+	// ParsedRelease cannot stand in for it, because the parser strips out
+	// exactly the tokens (REPACK, HDR, x265, AMZN, ...) the conditions look
+	// for.
+	ReleaseTitle string
+	// Filename is the base name of the file a format is being computed for,
+	// on import and rescan (Radarr's CustomFormatInput.Filename,
+	// Path.GetFileName of the file). Empty for a search or RSS release,
+	// which has no file yet.
+	Filename string
 }
+
+// simpleReleaseTitle is Radarr's SimplifyReleaseTitle (Parser.cs,
+// SimpleReleaseTitleRegex `\s*(?:[<>?*|])`): the release title with the
+// characters a filesystem cannot carry removed, so a pattern written against
+// file names matches the release name too.
+var simpleReleaseTitle = regexp.MustCompile(`\s*[<>?*|]`)
 
 // evalCondition applies Negate to the raw match, per spec §9: "Negate per
 // condition". CondEdition/CondSize/CondYear are accepted no-ops: they always
@@ -177,7 +208,12 @@ func evalCondition(ctx context.Context, c Condition, r *release.ParsedRelease, i
 	var raw bool
 	switch c.Kind {
 	case CondReleaseTitle:
-		raw = matchTRaSH(ctx, c.Pattern, c.Name, r.Title)
+		// The full release name or the file name, never r.Title: that is the
+		// parsed ITEM title ("Heat"), and matching it meant no ReleaseTitle
+		// pattern (repack, HDR, codecs, streaming services, ...) ever fired
+		// on a real release. See ItemContext.ReleaseTitle.
+		raw = (ic.ReleaseTitle != "" && matchTRaSH(ctx, c.Pattern, c.Name, simpleReleaseTitle.ReplaceAllString(ic.ReleaseTitle, ""))) ||
+			(ic.Filename != "" && matchTRaSH(ctx, c.Pattern, c.Name, ic.Filename))
 	case CondReleaseGroup:
 		raw = matchTRaSH(ctx, c.Pattern, c.Name, r.Group)
 	case CondSource:

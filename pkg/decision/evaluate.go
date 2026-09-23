@@ -77,7 +77,13 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, idx ide
 	parsed.Languages = parsed.LanguagesFor(originalLanguage)
 	parsed.ApplyTo(&rel)
 
-	ic := catalogue.ItemContext{OriginalLanguageName: originalLanguage, IndexerFlags: rel.IndexerFlags, ReleaseType: parsed.ReleaseType}
+	// ReleaseTitle is the indexer's full release name: ReleaseTitle custom
+	// format conditions (repack, HDR, codecs, streaming services) read it, not
+	// the parsed item title. A release has no file yet, so no Filename.
+	ic := catalogue.ItemContext{
+		OriginalLanguageName: originalLanguage, IndexerFlags: rel.IndexerFlags, ReleaseType: parsed.ReleaseType,
+		ReleaseTitle: rel.Title,
+	}
 	score, matched := p.Score(ctx, cat, parsed, ic)
 	rel.FormatScore = int32(score)
 	rel.MatchedFormats = capMatchedFormats(matched)
