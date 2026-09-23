@@ -158,7 +158,7 @@ func TestTheLimiterKeyIsRatelimitHostKey(t *testing.T) {
 		Generic:      &indexv1alpha1.GenericNewznab{},
 		RequestDelay: metav1.Duration{Duration: time.Hour},
 	}
-	applyRateLimit(spec, lim)
+	applyRateLimit(spec, lim, 0)
 
 	key := ratelimit.HostKey(spec.BaseURL)
 	require.True(t, lim.Allow(key))
@@ -190,7 +190,7 @@ func TestBuildClient(t *testing.T) {
 				RequestDelay: metav1.Duration{Duration: 2 * time.Second},
 				Timeout:      metav1.Duration{Duration: 5 * time.Second},
 			}
-			c, endpoint, err := buildClient(spec, nil, lim)
+			c, endpoint, err := buildClient(spec, nil, lim, nil)
 			if tc.wantErr != "" {
 				require.ErrorContains(t, err, tc.wantErr)
 				return
@@ -211,7 +211,7 @@ func TestApplyRateLimitConfiguresOneBucketPerHost(t *testing.T) {
 		Generic:      &indexv1alpha1.GenericNewznab{},
 		RequestDelay: metav1.Duration{Duration: time.Hour},
 	}
-	applyRateLimit(spec, lim)
+	applyRateLimit(spec, lim, 0)
 
 	// One token per hour with a burst of 1: the first Allow drains the
 	// bucket and the second is refused. That is what proves SetConfig was
@@ -236,7 +236,7 @@ func TestBuildClientWritesNoLimiterConfig(t *testing.T) {
 		Generic:      &indexv1alpha1.GenericNewznab{},
 		RequestDelay: metav1.Duration{Duration: time.Hour},
 	}
-	_, _, err := buildClient(spec, nil, lim)
+	_, _, err := buildClient(spec, nil, lim, nil)
 	require.NoError(t, err)
 
 	// The Limiter's default here is unlimited, so if buildClient had written
@@ -360,7 +360,7 @@ func TestBuildClientToleratesANilLimiter(t *testing.T) {
 		RequestDelay: metav1.Duration{Duration: 2 * time.Second},
 	}
 	require.NotPanics(t, func() {
-		c, endpoint, err := buildClient(spec, nil, nil)
+		c, endpoint, err := buildClient(spec, nil, nil, nil)
 		require.NoError(t, err)
 		require.NotNil(t, c)
 		require.Equal(t, "/api", endpoint.Path)

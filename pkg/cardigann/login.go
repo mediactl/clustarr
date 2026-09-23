@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -325,13 +326,24 @@ func checkLoginErrors(body []byte, errs []ErrorBlock, tc *TemplateContext) error
 		if !ok {
 			continue
 		}
-		msg := "login failed"
+		msg := ""
 		if eb.Message != nil {
 			if rendered, mok, merr := eb.Message.Extract(context.Background(), matched, tc); merr == nil && mok {
 				msg = rendered
 			}
 		}
-		return &LoginError{Message: msg}
+		if msg == "" {
+			// The matched element's own text, as Prowlarr's CheckForError
+			// does and as checkSearchErrors does: "Invalid username or
+			// password" is what an operator needs in the Authenticated
+			// condition, and "login failed" says nothing the reason does not.
+			msg, _ = matched.Text("")
+		}
+		msg = strings.Join(strings.Fields(msg), " ")
+		if msg == "" {
+			msg = "login failed"
+		}
+		return &LoginError{Message: truncateRunes(msg, maxSearchErrorMessage)}
 	}
 	return nil
 }

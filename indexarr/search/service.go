@@ -41,8 +41,12 @@ import (
 // IndexerClient is the one call the fan-out makes against a live indexer.
 //
 // It is an interface rather than *torznab.Client so the fan-out is testable
-// without a network, and so a Cardigann-backed client (M6) drops in
-// unchanged.
+// without a network, and so a Cardigann-backed client drops in unchanged --
+// which it does (ruling R5): indexarr/controller/indexer's Cardigann engine
+// adapter satisfies this interface, so a definition-backed indexer inherits
+// this package's dedupe, query-limit window and health/backoff instead of
+// getting a parallel path that skips them. A tracker's search.error page
+// reaches Search as an error (ruling R6), and is escalated like any other.
 type IndexerClient interface {
 	Search(ctx context.Context, q torznab.Query) ([]torznab.Release, error)
 }
@@ -52,12 +56,11 @@ type IndexerClient interface {
 //
 // In production it is indexarr/controller/indexer.ClientCache.For, and that
 // is load-bearing rather than incidental: it shares the reconciler's own
-// buildClient, so the caps probe and every search use one construction. The
-// proxy is the reason to care. IndexerSpec.ProxyRef and torznab.WithProxy
-// both exist and NEITHER is applied yet (M6); when M6 adds it, one shared
-// builder means the probe and the fan-out gain it together. A second copy
-// here would let the probe honour the operator's proxy while every search
-// bypassed it -- leaking the real IP to a private tracker while status
+// builders, so the caps probe (or Cardigann login) and every search use one
+// construction. The proxy is the reason to care: spec.proxyRef is applied in
+// that one builder, so the probe and the fan-out gain it together. A second
+// copy here would let the probe honour the operator's proxy while every
+// search bypassed it -- leaking the real IP to a private tracker while status
 // reported the proxy healthy.
 //
 // This package never constructs a ratelimit.Limiter, never calls

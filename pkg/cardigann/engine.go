@@ -40,10 +40,45 @@ import (
 // and .Today.Year) — tests set it to a fixed instant so date-relative
 // fixtures ("12:25am", "Yesterday 12:25") assert an exact result instead
 // of one that depends on the day the suite happens to run.
+//
+// Limiter paces every outbound request (login, search, download, and each
+// of their sub-requests). It is injected and NEVER defaulted on: the caller
+// owns rate limiting, holding one bucket per indexer host shared across
+// every verb, and a library-side default would sit in series underneath it
+// and silently change the effective rate. A nil Limiter is "unpaced", which
+// is what a test wants. RateKey is the bucket key to Wait on -- indexarr
+// passes ratelimit.HostKey(spec.baseURL), the same spelling its reconciler
+// writes the bucket's Config under -- and an empty RateKey falls back to
+// each request's own host, so a definition whose download links live on
+// another host is still paced per host rather than not at all.
 type Engine struct {
-	HTTP  *http.Client
-	Proxy http.RoundTripper
-	Now   func() time.Time
+	HTTP    *http.Client
+	Proxy   http.RoundTripper
+	Now     func() time.Time
+	Limiter RateLimiter
+	RateKey string
+}
+
+// RateLimiter is the one method Engine needs from a limiter.
+// *ratelimit.Limiter satisfies it; an interface rather than that concrete
+// type so a test can count the waits.
+type RateLimiter interface {
+	Wait(ctx context.Context, key string) error
+}
+
+// wait blocks on e.Limiter for req, or returns at once when none is set.
+func (e Engine) wait(ctx context.Context, req *http.Request) error {
+	if e.Limiter == nil {
+		return nil
+	}
+	key := e.RateKey
+	if key == "" {
+		key = req.URL.Host
+	}
+	if err := e.Limiter.Wait(ctx, key); err != nil {
+		return fmt.Errorf("cardigann: rate limit wait for %s: %w", RedactURL(req.URL), err)
+	}
+	return nil
 }
 
 // Caps derives Capabilities via Definition.Capabilities. It takes no
@@ -200,6 +235,10 @@ func RedactErr(err error) error {
 func (e Engine) do(ctx context.Context, req *http.Request) (*http.Response, []byte, error) {
 	ctx, span := tracing.Start(ctx, "cardigann."+strings.ToLower(req.Method))
 	defer span.End()
+	if err := e.wait(ctx, req); err != nil {
+		tracing.RecordError(span, err)
+		return nil, nil, err
+	}
 	client := e.httpClient()
 	resp, err := client.Do(req.WithContext(ctx))
 	if err != nil {

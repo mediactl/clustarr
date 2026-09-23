@@ -20,6 +20,7 @@ package indexer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -27,8 +28,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/indexarr/download"
 	"github.com/mediactl/clustarr/pkg/ratelimit"
-	"github.com/mediactl/clustarr/pkg/torznab"
 )
 
 // DefaultClientCacheTTL bounds how long a cached client may outlive a change
@@ -45,19 +46,21 @@ import (
 // minutes.
 const DefaultClientCacheTTL = 5 * time.Minute
 
-// ClientCache builds the Torznab/Newznab client for one Indexer, and is the
-// [search.ClientFor] and rss SearcherFor the wiring hands to the search
-// fan-out and the RSS poll.
+// ClientCache builds the wire [Client] for one Indexer -- a *torznab.Client
+// for spec.generic, the Cardigann engine adapter for spec.definition and
+// spec.definitionRef -- and is the [search.ClientFor] and rss SearcherFor the
+// wiring hands to the search fan-out and the RSS poll. That one factory
+// serving both source kinds IS ruling R5: a Cardigann indexer reaches the
+// fan-out through the same seam as a Torznab one, so the fan-out's dedupe,
+// query-limit window and health/backoff apply to it unchanged.
 //
 // # Why it exists in THIS package
 //
-// The client must be built by exactly one function, because
-// IndexerSpec.ProxyRef and torznab.WithProxy both exist and neither is
-// applied yet. When M6 wires the proxy it belongs in [buildClient], beside
-// the IndexerProxy reconciler -- and if the fan-out had its own copy, the
-// caps probe would honour the proxy while every search and every RSS poll
-// bypassed it, leaking the operator's real IP to a private tracker while
-// status reported the proxy Ready. Sharing buildClient makes that
+// The client must be built by exactly one function, [buildWireClient],
+// because spec.proxyRef is applied there: if the fan-out had its own copy,
+// the caps probe would honour the proxy while every search and every RSS
+// poll bypassed it, leaking the operator's real IP to a private tracker
+// while status reported the proxy Ready. Sharing one builder makes that
 // impossible rather than merely unlikely.
 //
 // It notably does NOT write limiter config. That is [applyRateLimit], called
@@ -88,6 +91,13 @@ type ClientCache struct {
 	client   client.Client
 	limiters *ratelimit.Limiter
 
+	// Sessions is where a definition-backed Indexer's login session is read
+	// from when its client is built. nil means "the owned Secret only"
+	// (NewSessionStore(c, nil)), which is always correct because the
+	// reconciler writes the Secret on every login; wiring the bus here adds
+	// the clustarr-indexer-sessions KV read in front of it.
+	Sessions *SessionStore
+
 	// TTL bounds a cached entry's age. Zero means [DefaultClientCacheTTL];
 	// negative disables caching entirely, which is what a test that wants to
 	// count GETs sets.
@@ -103,7 +113,7 @@ type ClientCache struct {
 // clientEntry is one Indexer's built client and what it was built from.
 type clientEntry struct {
 	resourceVersion string
-	client          *torznab.Client
+	client          Client
 	builtAt         time.Time
 }
 
@@ -133,7 +143,12 @@ func (cc *ClientCache) ttl() time.Duration {
 //
 // It is shaped exactly like search.ClientFor and rss.Deps.SearcherFor, and is
 // what indexarr/run.go hands to both.
-func (cc *ClientCache) For(ctx context.Context, idx *indexv1alpha1.Indexer) (*torznab.Client, error) {
+//
+// The cache key cannot see a new login session either -- a session lives in
+// a Secret and a KV entry, not on the Indexer -- so the reconciler calls
+// [ClientCache.Forget] after every successful login, and the next call
+// rebuilds with the fresh session.
+func (cc *ClientCache) For(ctx context.Context, idx *indexv1alpha1.Indexer) (Client, error) {
 	if idx == nil {
 		return nil, errors.New("indexer: no Indexer to build a client for")
 	}
@@ -147,11 +162,11 @@ func (cc *ClientCache) For(ctx context.Context, idx *indexv1alpha1.Indexer) (*to
 	// that two goroutines racing on one indexer may both build; the loser's
 	// client is simply dropped, and a torznab.Client is an http.Client and a
 	// URL, not a connection.
-	secret, err := readSecret(ctx, cc.client, idx.Namespace, idx.Spec.SecretRef)
-	if err != nil {
-		return nil, err
+	sessions := cc.Sessions
+	if sessions == nil {
+		sessions = NewSessionStore(cc.client, nil)
 	}
-	built, _, err := buildClient(idx.Spec, secret, cc.limiters)
+	built, err := buildWireClient(ctx, cc.client, idx, cc.limiters, sessions)
 	if err != nil {
 		return nil, err
 	}
@@ -159,9 +174,75 @@ func (cc *ClientCache) For(ctx context.Context, idx *indexv1alpha1.Indexer) (*to
 	return built, nil
 }
 
+// DefinitionFetcherFor is the download.FetcherFor for a definition-backed
+// Indexer: rpc.indexarr.download dispatches a Cardigann release to
+// Engine.Download (its download block, before-request and selectors) rather
+// than to a plain GET that would skip all three. It reads through the same
+// cache as [ClientCache.For], so a download and a search on one indexer use
+// one engine, one session and one proxy.
+func (cc *ClientCache) DefinitionFetcherFor(ctx context.Context, idx *indexv1alpha1.Indexer) (download.Fetcher, error) {
+	cli, err := cc.For(ctx, idx)
+	if err != nil {
+		return nil, err
+	}
+	cg, ok := cli.(*cardigannClient)
+	if !ok {
+		return nil, fmt.Errorf("indexer: %s/%s is not definition-backed", idx.Namespace, idx.Name)
+	}
+	return download.EngineFetcher(cg), nil
+}
+
+// buildWireClient is the ONE construction of an Indexer's wire client,
+// shared by the cache (search, RSS, download). The Indexer reconciler builds
+// the same pieces -- buildClient, buildCardigann, resolveProxy -- from the
+// spec and Secret it already holds, so the proxy and the limiter reach
+// every path through the same functions.
+func buildWireClient(
+	ctx context.Context,
+	c client.Client,
+	idx *indexv1alpha1.Indexer,
+	lim *ratelimit.Limiter,
+	sessions *SessionStore,
+) (Client, error) {
+	kind, err := resolveSource(idx.Spec)
+	if err != nil {
+		return nil, err
+	}
+	secret, err := readSecret(ctx, c, idx.Namespace, idx.Spec.SecretRef)
+	if err != nil {
+		return nil, err
+	}
+	transport, err := resolveProxy(ctx, c, idx)
+	if err != nil {
+		return nil, err
+	}
+	if kind == sourceGeneric {
+		tc, _, err := buildClient(idx.Spec, secret, lim, transport)
+		if err != nil {
+			// Not `return tc, err`: a nil *torznab.Client in a non-nil
+			// interface is a nil dereference one call later.
+			return nil, err
+		}
+		return tc, nil
+	}
+	def, err := resolveDefinition(ctx, c, idx.Spec)
+	if err != nil {
+		return nil, err
+	}
+	sess, err := sessions.Load(ctx, idx)
+	if err != nil {
+		return nil, err
+	}
+	cg, err := buildCardigann(idx.Spec, def, secret, sess, lim, transport)
+	if err != nil {
+		return nil, err
+	}
+	return cg, nil
+}
+
 // lookup returns the cached client for idx when it was built from the same
 // resourceVersion and is still inside the TTL.
-func (cc *ClientCache) lookup(idx *indexv1alpha1.Indexer) (*torznab.Client, bool) {
+func (cc *ClientCache) lookup(idx *indexv1alpha1.Indexer) (Client, bool) {
 	if cc.ttl() < 0 {
 		return nil, false
 	}
@@ -177,7 +258,7 @@ func (cc *ClientCache) lookup(idx *indexv1alpha1.Indexer) (*torznab.Client, bool
 	return e.client, true
 }
 
-func (cc *ClientCache) store(idx *indexv1alpha1.Indexer, built *torznab.Client) {
+func (cc *ClientCache) store(idx *indexv1alpha1.Indexer, built Client) {
 	if cc.ttl() < 0 {
 		return
 	}

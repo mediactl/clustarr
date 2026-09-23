@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mediactl/clustarr/pkg/newznab"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -248,6 +249,15 @@ func (e Engine) searchOnePath(ctx context.Context, def *Definition, cfg Config, 
 		return nil, err
 	}
 
+	// search.error BEFORE rows. A tracker's error or rate-limit page is a
+	// well-formed document with no result rows in it, so without this the
+	// row extraction below returns zero releases and the caller reads a
+	// failing tracker as a tracker with nothing to offer -- which never
+	// trips indexarr's health escalation or backoff (Phase G ruling R6).
+	if err := checkSearchErrors(ctx, doc, def.Search.Error, tc); err != nil {
+		return nil, err
+	}
+
 	rows, err := extractRows(ctx, doc, def.Search.Rows, tc)
 	if err != nil {
 		return nil, err
@@ -266,6 +276,81 @@ func (e Engine) searchOnePath(ctx context.Context, def *Definition, cfg Config, 
 		out = append(out, rel)
 	}
 	return out, nil
+}
+
+// ErrSearchFailed is the sentinel every *SearchError unwraps to, so a caller
+// can test errors.Is(err, cardigann.ErrSearchFailed) through any wrapping.
+var ErrSearchFailed = errors.New("cardigann: the indexer reported a search error")
+
+// SearchError is a search.error block that matched the response: the
+// tracker answered, and what it answered with was an error page (a
+// rate-limit notice, a banned account, an expired API key) rather than
+// results.
+//
+// Message is the TRACKER'S text. It is diagnostic, bounded by
+// maxSearchErrorMessage, and must never become a metric label.
+type SearchError struct{ Message string }
+
+func (e *SearchError) Error() string { return "cardigann: search failed: " + e.Message }
+
+// Unwrap makes errors.Is(err, ErrSearchFailed) hold.
+func (e *SearchError) Unwrap() error { return ErrSearchFailed }
+
+// maxSearchErrorMessage bounds SearchError.Message. An error selector that
+// matches `:root` (0dayfiles-api.yml's "Account is Banned" check does
+// exactly that) would otherwise carry the whole page into the error.
+const maxSearchErrorMessage = 512
+
+// checkSearchErrors evaluates search.error against one parsed response.
+//
+// It follows Prowlarr's CardigannBase.CheckForError: the first block whose
+// Selector matches wins; the message is the block's Message selector when it
+// has one -- evaluated against the whole document, as Prowlarr does, so a
+// `text:` template or a selector elsewhere on the page both work -- and
+// otherwise the matched element's own text. ErrorBlock.Path is not
+// consulted: it is a login-only discriminator (which page of a multi-step
+// login the block applies to) and a search has exactly one response.
+func checkSearchErrors(ctx context.Context, doc Doc, errs []ErrorBlock, tc *TemplateContext) error {
+	for _, eb := range errs {
+		if eb.Selector == "" {
+			continue
+		}
+		matched, ok := doc.Select(eb.Selector)
+		if !ok {
+			continue
+		}
+		msg := ""
+		if eb.Message != nil {
+			rendered, mok, merr := eb.Message.Extract(ctx, doc, tc)
+			if merr != nil {
+				return fmt.Errorf("cardigann: search error message: %w", merr)
+			}
+			if mok {
+				msg = rendered
+			}
+		}
+		if msg == "" {
+			msg, _ = matched.Text("")
+		}
+		msg = strings.Join(strings.Fields(msg), " ")
+		if msg == "" {
+			msg = "the indexer returned an error page"
+		}
+		return &SearchError{Message: truncateRunes(msg, maxSearchErrorMessage)}
+	}
+	return nil
+}
+
+// truncateRunes shortens s to at most n bytes without splitting a UTF-8
+// sequence.
+func truncateRunes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
 
 // buildSearchRequest renders p.Path and every input (search.inputs merged

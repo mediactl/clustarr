@@ -103,13 +103,35 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // does not move escalationLevel: writing the escalation set here under
 // indexarr-worker would release the counters this reconciler does not know.
 //
+// # Cardigann-defined Indexers (Phase G, G1-1)
+//
+// spec.definitionRef names an IndexerDefinition; spec.definition names a
+// bundled id, which -- because the bundled corpus is not shipped yet --
+// resolves only through an IndexerDefinition that declares it (spec.replaces,
+// then status.id). The definition supplies status.caps (modes renamed to the
+// Torznab wire values), status.protocol (torrent) and status.privacy (with
+// the schema's "semi-private" mapped to the CRD's "semiPrivate"); no caps
+// probe runs. The login is the probe: a session-producing login (form, post,
+// cookie) runs when the session is missing or near expiry and is persisted
+// by [SessionStore] into the clustarr-indexer-sessions KV bucket (key
+// [SessionKey]) and the owned Secret named by status.sessionSecretRef; a
+// get/oneurl login runs on the caps-probe cadence to prove the credentials.
+//
+// Searching is NOT done here. [ClientCache.For] builds the Cardigann engine
+// adapter behind the same [Client] interface a *torznab.Client satisfies, so
+// the search fan-out, the RSS poll and -- through
+// [ClientCache.DefinitionFetcherFor] -- the download verb all drive it
+// through their existing seams (ruling R5), and a tracker's search.error
+// page is an error the fan-out escalates rather than zero results (R6).
+//
+// spec.proxyRef is applied, for http and socks5 proxies, by the one builder
+// every path shares; socks4 and flaresolverr are refused rather than
+// bypassed. IndexerProxy.spec.selector matching is NOT implemented.
+//
 // # What this controller does NOT do
 //
-// No Cardigann login test and no session-Secret creation (M6): the reference
-// in status.sessionSecretRef is resolved and published, the Secret behind it
-// is not created here. No proxy routing. No domain events -- §8.2's
-// indexer.disabled|recovered|limited fire where the escalation transition is
-// applied, which is the worker, not here.
+// No domain events -- §8.2's indexer.disabled|recovered|limited fire where
+// the escalation transition is applied, which is the worker, not here.
 //
 // It DOES seed the RSS poll chain, and that is the only thing it publishes
 // (ruling R36). This sentence previously read "No RSS scheduling (that is the
@@ -141,6 +163,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // catalogarr's setupControllers records the occasion this repo learned it.
 //
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch
+// +kubebuilder:rbac:groups=index.clustarr.io,resources=indexerdefinitions,verbs=get;list;watch
+// +kubebuilder:rbac:groups=index.clustarr.io,resources=indexerproxies,verbs=get;list;watch
 //
 // secrets is get ONLY, not get;list;watch. indexarr.Options.ManagerOptions
 // disables the Secret cache (client.CacheOptions.DisableFor), so every Secret
@@ -155,6 +179,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // not use. What this marker fixes is the declaration -- the package asks for
 // what it uses, so the day the role is split per service the narrowing is
 // already recorded. Splitting it is the real fix and is not this task's.
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get
+//
+// create and patch are for the owned session Secret alone: SessionStore.Save
+// server-side applies it, and an apply that creates needs both verbs.
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;create;patch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 package indexer

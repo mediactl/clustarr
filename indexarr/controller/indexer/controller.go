@@ -116,6 +116,11 @@ type Reconciler struct {
 	// seeded, rather than skipping in silence.
 	Bus events.Bus
 
+	// Sessions persists Cardigann login sessions (clustarr-indexer-sessions
+	// KV plus the owned Secret). NewReconciler builds it from the bus; nil
+	// means the Secret alone.
+	Sessions *SessionStore
+
 	mu       sync.Mutex
 	capsSeen map[types.UID]capsMemo
 }
@@ -146,6 +151,7 @@ func NewReconciler(
 		Recorder: recorder,
 		Limiters: limiters,
 		Bus:      bus,
+		Sessions: NewSessionStore(c, bus),
 		capsSeen: map[types.UID]capsMemo{},
 	}
 }
@@ -236,40 +242,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	}
 
 	if kind != sourceGeneric {
-		// The Cardigann engine, IndexerDefinition ingestion and the login
-		// flow are M6 (§16). Unknown, not False: nothing is wrong with
-		// this Indexer, there is simply no code to drive it yet.
-		//
-		// KNOWN LIMITATION, recorded rather than fixed. An Indexer
-		// CONVERTED from spec.generic to spec.definition keeps the
-		// status.protocol and status.privacy resolved under its previous
-		// shape, because this return happens before they are recomputed
-		// and ControllerFields re-sends what is on the object.
-		//
-		// The two are not stuck for the same reason, and only one of
-		// them is actually stuck. status.privacy is a plain string and
-		// ControllerFields sends WithPrivacy unconditionally, so setting
-		// idx.Status.Privacy = "" here would clear it explicitly and
-		// cleanly. status.protocol is the one with no good move: the CRD
-		// marks it enum [torrent, usenet], so ControllerFields must OMIT
-		// it when empty, and the only way to clear it is to stop sending
-		// it -- i.e. to RELEASE it. A release is indistinguishable, on
-		// the object and in the managedFields, from the very bug this
-		// package is built to prevent, so doing it deliberately on one
-		// branch would make every future audit of that field ambiguous.
-		//
-		// Both are therefore left alone together, so the pair stays
-		// consistent rather than half-cleared. What tells an operator
-		// they are not being maintained is
-		// Ready=Unknown/DefinitionNotImplemented plus the stale
-		// observedGeneration on the carried-forward conditions. M6 owns
-		// the real fix: it resolves both fields FROM the definition, at
-		// which point this branch stops existing.
-		k8s.SetCondition(&idx, &conditions, k8s.NewCondition(
-			indexv1alpha1.IndexerConditionReady, metav1.ConditionUnknown,
-			ReasonDefinitionNotImplemented,
-			"Cardigann definitions are M6; only spec.generic is reconciled in M2"))
-		return r.patch(ctx, &idx, conditions, ctrl.Result{})
+		return r.reconcileDefinition(ctx, &idx, conditions, now)
 	}
 
 	secret, err := readSecret(ctx, r.Client, idx.Namespace, idx.Spec.SecretRef)
@@ -287,9 +260,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	// fan-out, the RSS poll and the download verb only Wait on the same
 	// *ratelimit.Limiter. It used to live inside buildClient, which
 	// ClientCache now shares -- see applyRateLimit.
-	applyRateLimit(idx.Spec, r.Limiters)
+	applyRateLimit(idx.Spec, r.Limiters, 0)
 
-	tc, endpoint, err := buildClient(idx.Spec, secret, r.Limiters)
+	transport, err := resolveProxy(ctx, r.Client, &idx)
+	if err != nil {
+		return r.proxyUnavailable(ctx, &idx, conditions, err)
+	}
+
+	tc, endpoint, err := buildClient(idx.Spec, secret, r.Limiters, transport)
 	if err != nil {
 		tracing.RecordError(span, err)
 		k8s.MarkReady(&idx, &conditions, false, k8s.ReasonInvalidSpec, "%s", err.Error())
@@ -323,22 +301,42 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 			tracing.RecordError(span, perr)
 			log.Warn("caps probe failed", "host", endpoint.Host, "reason", outcome.Reason, "error", perr)
 		}
+		// The probe was a network round trip. Re-read before deriving the
+		// conditions from the worker's fields and applying.
+		if gone, err := r.refreshWorkerFields(ctx, &idx); err != nil || gone {
+			return ctrl.Result{}, err
+		}
 	}
 
+	return r.finish(ctx, &idx, conditions, probed, outcome, time.Now())
+}
+
+// finish derives Authenticated, RateLimited, Healthy and Ready from what this
+// pass learned, seeds the RSS chain and applies. It is the shared tail of the
+// generic and the definition-backed paths, so the two cannot disagree about
+// what a failed probe or a failed login means for Ready.
+func (r *Reconciler) finish(
+	ctx context.Context,
+	idx *indexv1alpha1.Indexer,
+	conditions []metav1.Condition,
+	probed bool,
+	outcome probeOutcome,
+	now time.Time,
+) (ctrl.Result, error) {
 	switch {
 	case !probed || outcome.Reason == "":
-		k8s.MarkTrue(&idx, &conditions, indexv1alpha1.IndexerConditionAuthenticated, k8s.ReasonReconciled, "credentials accepted")
+		k8s.MarkTrue(idx, &conditions, indexv1alpha1.IndexerConditionAuthenticated, k8s.ReasonReconciled, "credentials accepted")
 	case outcome.AuthFailed:
-		k8s.MarkFalse(&idx, &conditions, indexv1alpha1.IndexerConditionAuthenticated, ReasonCredentialsRejected, "%s", outcome.Message)
+		k8s.MarkFalse(idx, &conditions, indexv1alpha1.IndexerConditionAuthenticated, outcome.Reason, "%s", outcome.Message)
 		if r.Recorder != nil {
-			r.Recorder.Eventf(&idx, nil, corev1.EventTypeWarning, ReasonCredentialsRejected,
+			r.Recorder.Eventf(idx, nil, corev1.EventTypeWarning, outcome.Reason,
 				"Reconcile", "the indexer rejected the configured credentials: %s", outcome.Message)
 		}
 	default:
 		// Always set, never left absent: a condition this manager
 		// sometimes sends and sometimes omits is released on the apply
 		// that omits it.
-		k8s.MarkUnknown(&idx, &conditions, indexv1alpha1.IndexerConditionAuthenticated, outcome.Reason, "%s", outcome.Message)
+		k8s.MarkUnknown(idx, &conditions, indexv1alpha1.IndexerConditionAuthenticated, outcome.Reason, "%s", outcome.Message)
 	}
 
 	limited, limitMsg := rateLimited(idx.Spec, idx.Status)
@@ -346,21 +344,21 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		limited, limitMsg = true, outcome.Message
 	}
 	if limited {
-		k8s.MarkTrue(&idx, &conditions, indexv1alpha1.IndexerConditionRateLimited, ReasonLimitReached, "%s", limitMsg)
+		k8s.MarkTrue(idx, &conditions, indexv1alpha1.IndexerConditionRateLimited, ReasonLimitReached, "%s", limitMsg)
 	} else {
-		k8s.MarkFalse(&idx, &conditions, indexv1alpha1.IndexerConditionRateLimited, k8s.ReasonReconciled, "under the configured limits")
+		k8s.MarkFalse(idx, &conditions, indexv1alpha1.IndexerConditionRateLimited, k8s.ReasonReconciled, "under the configured limits")
 	}
 
 	healthy := idxstatus.Healthy(idx.Status, now) && outcome.Reason == ""
 	switch {
 	case !idxstatus.Healthy(idx.Status, now):
-		k8s.MarkFalse(&idx, &conditions, indexv1alpha1.IndexerConditionHealthy, ReasonBackingOff,
+		k8s.MarkFalse(idx, &conditions, indexv1alpha1.IndexerConditionHealthy, ReasonBackingOff,
 			"backing off until %s (escalation level %d)",
 			idx.Status.DisabledUntil.Time.UTC().Format(time.RFC3339), idx.Status.EscalationLevel)
 	case outcome.Reason != "":
-		k8s.MarkFalse(&idx, &conditions, indexv1alpha1.IndexerConditionHealthy, outcome.Reason, "%s", outcome.Message)
+		k8s.MarkFalse(idx, &conditions, indexv1alpha1.IndexerConditionHealthy, outcome.Reason, "%s", outcome.Message)
 	default:
-		k8s.MarkTrue(&idx, &conditions, indexv1alpha1.IndexerConditionHealthy, k8s.ReasonReconciled, "last request succeeded")
+		k8s.MarkTrue(idx, &conditions, indexv1alpha1.IndexerConditionHealthy, k8s.ReasonReconciled, "last request succeeded")
 	}
 
 	// RateLimited deliberately does NOT clear Ready. A daily query budget
@@ -370,11 +368,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	// throttle is an exception, not a budget.)
 	switch {
 	case healthy && idx.Status.Caps != nil:
-		k8s.MarkReady(&idx, &conditions, true, k8s.ReasonReconciled, "reachable, caps probed")
+		k8s.MarkReady(idx, &conditions, true, k8s.ReasonReconciled, "reachable, caps probed")
 	case idx.Status.Caps == nil:
-		k8s.MarkReady(&idx, &conditions, false, ReasonProbeFailed, "caps have never been probed successfully")
+		k8s.MarkReady(idx, &conditions, false, ReasonProbeFailed, "caps have never been probed successfully")
 	default:
-		k8s.MarkReady(&idx, &conditions, false,
+		k8s.MarkReady(idx, &conditions, false,
 			firstNonEmpty(outcome.Reason, ReasonBackingOff),
 			"%s", firstNonEmpty(outcome.Message, "backing off"))
 	}
@@ -383,9 +381,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	// write is unconditional on every path through Reconcile, and an early
 	// return here would be exactly the partial-status bug this package is
 	// built to avoid. The bus failure is surfaced after the write instead.
-	seedErr := r.seedRSSSchedule(ctx, &idx, healthy, now)
+	seedErr := r.seedRSSSchedule(ctx, idx, healthy, now)
 
-	res, err := r.patch(ctx, &idx, conditions, ctrl.Result{RequeueAfter: r.requeueAfter(idx.Status, outcome, now)})
+	res, err := r.patch(ctx, idx, conditions, ctrl.Result{RequeueAfter: r.requeueAfter(idx.Status, outcome, now)})
 	if err != nil {
 		return res, err
 	}

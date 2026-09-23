@@ -76,18 +76,19 @@ func resolveSource(spec indexv1alpha1.IndexerSpec) (sourceKind, error) {
 // Privacy classes. They match IndexerDefinition's DefinitionType enum
 // (public|semiPrivate|private) so the two status fields read the same, even
 // though status.privacy itself carries no enum marker. Note that
-// pkg/cardigann.DefinitionType spells the middle one "semi-private"; M6 maps
-// between them.
+// pkg/cardigann.DefinitionType spells the middle one "semi-private";
+// definitionPrivacy maps between them.
 const (
 	PrivacyPublic      = "public"
 	PrivacySemiPrivate = "semiPrivate"
 	PrivacyPrivate     = "private"
 )
 
-// protocolFor resolves status.protocol. It returns "" for a definition-backed
-// Indexer, whose protocol comes from the Cardigann definition (M6). The
-// caller MUST omit status.protocol when this returns "": the CRD schema is
-// enum: [torrent, usenet] and an explicit "" is rejected.
+// protocolFor resolves status.protocol for a spec.generic Indexer. It returns
+// "" for a definition-backed one, whose protocol the reconciler takes from
+// the definition instead (definitionProtocol). The caller MUST omit
+// status.protocol when it is "": the CRD schema is enum: [torrent, usenet]
+// and an explicit "" is rejected.
 func protocolFor(kind sourceKind, spec indexv1alpha1.IndexerSpec) commonv1alpha1.Protocol {
 	if kind == sourceGeneric && spec.Generic != nil {
 		return spec.Generic.Protocol
@@ -103,7 +104,7 @@ func protocolFor(kind sourceKind, spec indexv1alpha1.IndexerSpec) commonv1alpha1
 // front of one; an uncredentialled one is a public index.
 func privacyFor(kind sourceKind, secret map[string][]byte) string {
 	if kind != sourceGeneric {
-		return "" // M6 reads it off the definition
+		return "" // definitionPrivacy reads it off the definition
 	}
 	if len(secret["apikey"]) > 0 || len(secret["passkey"]) > 0 || len(secret["cookie"]) > 0 {
 		return PrivacyPrivate
@@ -113,8 +114,8 @@ func privacyFor(kind sourceKind, secret map[string][]byte) string {
 
 // sessionSecretSuffix names the Secret that holds an indexer's login session
 // (Cardigann cookies and JWTs, mirrored from the clustarr-indexer-sessions KV
-// bucket). The reconciler publishes the name in status.sessionSecretRef; M6's
-// login flow creates and fills it.
+// bucket). The reconciler publishes the name in status.sessionSecretRef, and
+// SessionStore.Save creates and fills it after a Cardigann login.
 const sessionSecretSuffix = "-session"
 
 // maxObjectName is a DNS subdomain's limit (RFC 1123).
@@ -251,11 +252,29 @@ func rpsFor(delay metav1.Duration) float64 {
 // A nil limiter disables pacing rather than panicking, the same way a nil
 // Recorder disables events: it is what lets a unit test build a Reconciler
 // with nothing but a client.
-func applyRateLimit(spec indexv1alpha1.IndexerSpec, lim *ratelimit.Limiter) {
+//
+// floor is a Cardigann definition's own requestDelay (zero for a generic
+// Indexer). spec.requestDelay's contract is that it "is raised to the
+// definition's requestDelay when that is larger": a definition author who
+// measured a tracker's tolerance knows something the operator may not.
+func applyRateLimit(spec indexv1alpha1.IndexerSpec, lim *ratelimit.Limiter, floor time.Duration) {
 	if lim == nil {
 		return
 	}
-	lim.SetConfig(ratelimit.HostKey(spec.BaseURL), ratelimit.Config{RPS: rpsFor(spec.RequestDelay), Burst: 1})
+	delay := spec.RequestDelay
+	if floor > delay.Duration {
+		delay = metav1.Duration{Duration: floor}
+	}
+	lim.SetConfig(ratelimit.HostKey(spec.BaseURL), ratelimit.Config{RPS: rpsFor(delay), Burst: 1})
+}
+
+// definitionDelay converts a definition's requestDelay (seconds, a float in
+// the schema) to a Duration, ignoring a negative or absurd value.
+func definitionDelay(seconds float64) time.Duration {
+	if seconds <= 0 || seconds > 3600 {
+		return 0
+	}
+	return time.Duration(seconds * float64(time.Second))
 }
 
 // buildClient assembles the Torznab client for one Indexer and returns the
@@ -263,10 +282,9 @@ func applyRateLimit(spec indexv1alpha1.IndexerSpec, lim *ratelimit.Limiter) {
 //
 // It is the ONE place a Torznab client for an Indexer is constructed --
 // the caps probe here, and the search fan-out and RSS poll through
-// [ClientCache]. That is not tidiness. IndexerSpec.ProxyRef and
-// torznab.WithProxy both exist and NEITHER is applied yet (M6). When M6 adds
-// the proxy option it lands here, so the caps probe and every search and poll
-// gain it together. Had the fan-out kept its own copy of this function, the
+// [ClientCache]. That is not tidiness: spec.proxyRef is applied here (the
+// transport argument), so the caps probe and every search and poll gain it
+// together. Had the fan-out kept its own copy of this function, the
 // probe would honour the operator's proxy while every search bypassed it --
 // leaking the real IP to a private tracker while status reported the proxy
 // healthy.
@@ -276,7 +294,17 @@ func applyRateLimit(spec indexv1alpha1.IndexerSpec, lim *ratelimit.Limiter) {
 // series underneath this one and silently change the effective rate. This
 // function only READS it onto the client; [applyRateLimit] is the only writer
 // of a key's Config.
-func buildClient(spec indexv1alpha1.IndexerSpec, secret map[string][]byte, lim *ratelimit.Limiter) (*torznab.Client, *url.URL, error) {
+//
+// transport is the IndexerProxy route from [resolveProxy], or nil for a
+// direct connection. It is installed through WithHTTPClient BEFORE the
+// timeout option, because WithHTTPClient replaces the whole *http.Client and
+// would otherwise discard the timeout.
+func buildClient(
+	spec indexv1alpha1.IndexerSpec,
+	secret map[string][]byte,
+	lim *ratelimit.Limiter,
+	transport http.RoundTripper,
+) (*torznab.Client, *url.URL, error) {
 	u, err := url.Parse(spec.BaseURL)
 	if err != nil {
 		return nil, nil, fmt.Errorf("indexer: parse spec.baseURL %q: %w", spec.BaseURL, err)
@@ -299,7 +327,11 @@ func buildClient(spec indexv1alpha1.IndexerSpec, secret map[string][]byte, lim *
 	}
 	endpoint := base.JoinPath(apiPath)
 
-	opts := []torznab.ClientOption{torznab.WithTimeout(timeoutFor(spec.Timeout))}
+	var opts []torznab.ClientOption
+	if transport != nil {
+		opts = append(opts, torznab.WithHTTPClient(&http.Client{Transport: transport}))
+	}
+	opts = append(opts, torznab.WithTimeout(timeoutFor(spec.Timeout)))
 	if lim != nil {
 		// D1-1 reshaped this option: the limiter carries no key argument,
 		// because the client keys it on its own baseURL host -- the same

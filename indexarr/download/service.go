@@ -83,9 +83,19 @@ type Service struct {
 	// disables accounting rather than failing the grab.
 	Bus events.Bus
 
-	// Fetch builds the Fetcher for one Indexer. D1-8 supplies
+	// Fetch builds the Fetcher for one spec.generic Indexer. D1-8 supplies
 	// NewFetcherFor; a test supplies a stub.
 	Fetch FetcherFor
+
+	// Definitions builds the Fetcher for a definition-backed Indexer
+	// (spec.definition or spec.definitionRef). Production supplies
+	// indexer.ClientCache.DefinitionFetcherFor, which dispatches to
+	// cardigann.Engine.Download. A nil Definitions REFUSES a
+	// definition-backed grab rather than falling back to Fetch: a plain GET
+	// skips the definition's download block (its before-request and link
+	// selectors), and for most trackers the link a search returned is a
+	// details page, so the fallback would hand grabarr an HTML page.
+	Definitions FetcherFor
 
 	// Now is the clock. nil means time.Now.
 	Now func() time.Time
@@ -190,7 +200,15 @@ func (s *Service) fetchAndCount(
 	// feed RecordFailure -- a dead link is a release-level fact, not an
 	// indexer-level one. Carried item.
 
-	f, err := s.Fetch(ctx, &idx)
+	fetchFor := s.Fetch
+	if definitionBacked(&idx) {
+		if s.Definitions == nil {
+			return fail(nil, "indexarr: indexer %s is definition-backed and the Cardigann download path is not configured", key),
+				resultNotConfigured, label
+		}
+		fetchFor = s.Definitions
+	}
+	f, err := fetchFor(ctx, &idx)
 	if err != nil {
 		return fail(nil, "indexarr: build client for %s: %v", key, cardigann.RedactErr(err)),
 			resultTransport, label

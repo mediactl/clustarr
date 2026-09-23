@@ -352,11 +352,14 @@ func TestDisablingAnIndexerReleasesNothing(t *testing.T) {
 	}
 }
 
-// A definition-backed Indexer cannot resolve status.protocol, and the CRD
-// marks the field enum [torrent, usenet]: sending an explicit "" is an
-// apiserver REJECTION of the whole apply, not a no-op. require.NoError on
-// the Reconcile is what proves the trap is avoided.
-func TestDefinitionBackedIndexerIsDeferredWithoutAProtocol(t *testing.T) {
+// A definition-backed Indexer whose definition does not exist yet cannot
+// resolve status.protocol, and the CRD marks the field enum [torrent,
+// usenet]: sending an explicit "" is an apiserver REJECTION of the whole
+// apply, not a no-op. require.NoError on the Reconcile is what proves the
+// trap is avoided. The bundled corpus is not shipped, so a bare id with no
+// IndexerDefinition providing it is DefinitionNotFound, retried on a short
+// tick because "Indexer first, definition second" is an ordinary apply race.
+func TestAMissingDefinitionIsReportedWithoutAProtocol(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
 	ns := newNamespace(t, ctx, c, "idx-definition")
@@ -366,19 +369,19 @@ func TestDefinitionBackedIndexerIsDeferredWithoutAProtocol(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: name.Name, Namespace: ns},
 		Spec: indexv1alpha1.IndexerSpec{
 			BaseURL:    "https://1337x.invalid",
-			Definition: ptr.To("1337x"),
+			Definition: ptr.To("1337x-not-provided"),
 		},
 	}))
 
 	r, _ := newReconciler(t, c)
 	res, err := reconcileOnce(t, r, name)
 	require.NoError(t, err, "an empty status.protocol would be rejected by the enum")
-	require.Zero(t, res.RequeueAfter)
+	require.Equal(t, time.Minute, res.RequeueAfter)
 
 	got := mustGet(t, c, name)
 	ready := conditionOf(t, got, indexv1alpha1.IndexerConditionReady)
-	require.Equal(t, metav1.ConditionUnknown, ready.Status)
-	require.Equal(t, indexer.ReasonDefinitionNotImplemented, ready.Reason)
+	require.Equal(t, metav1.ConditionFalse, ready.Status)
+	require.Equal(t, indexer.ReasonDefinitionNotFound, ready.Reason)
 	require.Empty(t, got.Status.Protocol)
 	require.Equal(t, "leetx-session", got.Status.SessionSecretRef)
 }

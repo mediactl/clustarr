@@ -1,0 +1,31 @@
+id: synthetic-search-error
+name: Synthetic Search Error
+description: "test fixture — a tracker whose error page must read as an error, not as zero results"
+language: en-US
+type: semi-private
+encoding: UTF-8
+links: ["https://example.invalid/"]
+caps:
+  categorymappings:
+    - {id: 1, cat: Movies, desc: "Movies"}
+    - {id: 2, cat: TV, desc: "TV"}
+  modes:
+    search: [q]
+    movie-search: [q, imdbid]
+    tv-search: [q, season, ep]
+search:
+  path: browse
+  inputs:
+    q: "{{ .Keywords }}"
+  error:
+    - selector: "div.alert-error"
+    - selector: "div.banned"
+      message:
+        text: "account banned on {{ .Config.sitelink }}"
+  rows: {selector: "table.results tr.row"}
+  fields:
+    title: {selector: "td.title"}
+    size: {selector: "td.size"}
+    seeders: {selector: "td.seeders"}
+    category: {text: "1"}
+    download: {selector: "td.title a", attribute: href}
