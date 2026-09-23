@@ -1099,6 +1099,20 @@ func verifyCaptionarrController(t *testing.T, cfg *rest.Config, dataDir string) 
 	if err != nil {
 		t.Fatalf("stat the video: %v", err)
 	}
+	// The Movie the MediaFile backs. captionarr plans subtitles only for a
+	// file whose item still exists (X11b: a removeAndKeep import list keeps
+	// the MediaFile record and deletes only the Movie, and such a file is no
+	// longer managed), so without it the profile never ensures a request.
+	// verifyCaptionarrWorker deletes it with the rest.
+	movie := &catalogv1alpha1.Movie{
+		ObjectMeta: metav1.ObjectMeta{Name: captionProbe, Namespace: "default"},
+		Spec: catalogv1alpha1.MovieSpec{
+			TmdbID: 604, QualityProfileRef: "hd-bluray-web", RootFolderRef: "movies",
+		},
+	}
+	if err := c.Create(ctx, movie); err != nil {
+		t.Fatalf("create Movie: %v", err)
+	}
 	mf := &catalogv1alpha1.MediaFile{
 		ObjectMeta: metav1.ObjectMeta{Name: captionProbe, Namespace: "default"},
 		Spec: catalogv1alpha1.MediaFileSpec{
@@ -1178,6 +1192,7 @@ func verifyCaptionarrWorker(t *testing.T, cfg *rest.Config) {
 		for _, o := range []client.Object{
 			&subtitlev1alpha1.SubtitleRequest{ObjectMeta: metav1.ObjectMeta{Name: captionProbe, Namespace: "default"}},
 			&catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: captionProbe, Namespace: "default"}},
+			&catalogv1alpha1.Movie{ObjectMeta: metav1.ObjectMeta{Name: captionProbe, Namespace: "default"}},
 			&subtitlev1alpha1.SubtitleProvider{ObjectMeta: metav1.ObjectMeta{Name: captionProbe, Namespace: "default"}},
 			&subtitlev1alpha1.SubtitleProfile{ObjectMeta: metav1.ObjectMeta{Name: captionProbe}},
 		} {
