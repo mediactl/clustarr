@@ -34,5 +34,7 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(newTVDBStubCommand())
 	root.AddCommand(newTorznabStubCommand())
 	root.AddCommand(newSeedCommand())
+	root.AddCommand(newSeederCommand())
+	root.AddCommand(newNNTPStubCommand())
 	return root
 }
