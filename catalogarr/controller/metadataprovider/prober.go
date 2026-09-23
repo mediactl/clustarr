@@ -145,15 +145,12 @@ type tmdbProber struct{ c *tmdb.Client }
 
 // probeTMDBMovieID is The Matrix (1999), TMDB id 603 -- one of the platform's
 // oldest and most stable catalog entries, chosen only for being a permanent,
-// well-formed id. SearchMovies would be the more natural probe (a search
-// proves reachability without asserting any particular title exists), but
-// pkg/metadata/clients/tmdb.Client.SearchMovies is an unimplemented stub
-// that always returns metadata.ErrUnsupported without making a call (Phase
-// B shipped it only to satisfy the metadata.MovieProvider interface; see
-// its doc comment "not implemented by this task ... until a later task
-// needs it") -- it cannot serve as a reachability/credential probe at all,
-// so Movie() is used instead, the same "fixed, stable input" pattern
-// audnexusProber below already uses for the same reason.
+// well-formed id. The probe looks it up with Movie() rather than searching:
+// SearchMovies was a stub that made no call until gap-fix task X6a, and it
+// is still the weaker probe -- a search that answers zero hits proves the
+// credential no better than an error does, while a lookup of a fixed id has
+// exactly one right answer. It is the same "fixed, stable input" pattern
+// audnexusProber below uses.
 const probeTMDBMovieID = "603"
 
 func (p tmdbProber) Probe(ctx context.Context) (ProbeResult, error) {
@@ -180,13 +177,9 @@ func (p tvdbProber) Probe(ctx context.Context) (ProbeResult, error) {
 type musicbrainzProber struct{ c *musicbrainz.Client }
 
 // probeMBArtistID is Radiohead's real, permanent MusicBrainz artist MBID.
-// SearchArtists would be the more natural probe, but
-// pkg/metadata/clients/musicbrainz.Client.SearchArtists is an unimplemented
-// stub that always returns metadata.ErrUnsupported without making a call
-// ("MusicBrainz search uses Lucene query syntax, which is out of scope
-// here" per its doc comment) -- it cannot serve as a reachability probe, so
-// Artist() is used instead with a fixed, stable id, the same pattern
-// tmdbProber and audnexusProber use for the same reason.
+// The probe looks it up with Artist() rather than searching, for the reason
+// probeTMDBMovieID gives (SearchArtists, likewise a stub until gap-fix task
+// X6a, can answer zero hits): a fixed, stable id has one right answer.
 const probeMBArtistID = "a74b1b7f-71a5-4011-9441-d0b5e4122711"
 
 func (p musicbrainzProber) Probe(ctx context.Context) (ProbeResult, error) {

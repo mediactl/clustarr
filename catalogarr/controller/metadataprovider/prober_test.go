@@ -33,9 +33,9 @@ import (
 
 func TestTMDBProberSucceeds(t *testing.T) {
 	// tmdbProber.Probe calls Movie(ctx, "603", "") -- see prober.go's
-	// probeTMDBMovieID comment for why (SearchMovies is an unimplemented
-	// Phase B stub) -- so the fake server answers a movie-details shape,
-	// not a search-results shape.
+	// probeTMDBMovieID comment for why a fixed-id lookup, not a search --
+	// so the fake server answers a movie-details shape, not a
+	// search-results shape.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": 603, "title": "The Matrix"})
 	}))
@@ -165,9 +165,8 @@ func TestTVDBProberSucceeds(t *testing.T) {
 
 func TestMusicBrainzProberSucceeds(t *testing.T) {
 	// musicbrainzProber.Probe calls Artist(ctx, probeMBArtistID) -- see
-	// prober.go's comment for why (SearchArtists is an unimplemented Phase B
-	// stub) -- so the fake server answers a single-artist shape, not a
-	// search-results shape.
+	// prober.go's comment for why a fixed-id lookup, not a search -- so the
+	// fake server answers a single-artist shape, not a search-results shape.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"id": "a74b1b7f-71a5-4011-9441-d0b5e4122711", "name": "Radiohead",
