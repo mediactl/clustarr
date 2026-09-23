@@ -107,51 +107,57 @@ func InitialBookMonitored(mode catalogv1alpha1.AuthorMonitorMode, b metadata.Boo
 // synthetic, fully-populated values), so it starts doing real work the day
 // that call is enriched, without a second change here.
 //
-// Every Skip* flag drops the work when the flag is set AND the underlying
-// field is absent, per each field's own doc comment on BookMetadataProfile
-// ("drops works with no release date", etc.) -- a literal, not a lenient,
-// reading: "the field is missing" is exactly the condition each flag names,
-// regardless of whether the cause is a genuine gap in Open Library's data or
-// (today) the client's own field coverage. AllowedLanguages and MinPages are
-// restrictive rather than Skip-prefixed, but are read the same way for
-// consistency: a work with no known matching edition does not pass a
-// restriction it cannot be shown to satisfy.
+// Absent data never excludes a work -- only data that IS present and fails
+// the check does. This matches artist.AlbumAccepted's own ReleaseStatuses
+// handling (catalogarr/controller/artist/fanout.go, `if len(alb.Releases) >
+// 0 { ... }`), the sibling controller's identical fix for the identical
+// class of gap (MusicBrainz never populating Album.Releases): an earlier
+// version of this function excluded on absence, which meant any Author with
+// a MetadataProfile set got zero Books, silently, with nothing to explain
+// it. "The provider gave no value" and "the provider gave a value that
+// fails the filter" are deliberately kept distinct below; only the second
+// excludes.
+//
+// SkipMissingDate and SkipMissingISBN are structurally different from the
+// rest: unlike an allow-list (AllowedLanguages) or a threshold
+// (MinPages), their ENTIRE check IS "is the data absent" -- there is no
+// separate "value that fails" for them to test once presence is granted.
+// Under the same-data-model constraint above (this package cannot tell "the
+// provider confirmed no date" from "we never fetched it"), that makes them
+// permanently unable to fire today: excluding on b.FirstPublished == nil or
+// !hasISBN(b.Editions) IS excluding on absence, exactly what this rule
+// forbids. They stay declared, not deleted, so a future task that finds a
+// way to represent "confirmed absent" (rather than "not fetched") has
+// somewhere to land the real check, and so a reader sees this was decided,
+// not missed.
 //
 // MinPopularity is the one dimension with nowhere to read from at all: no
 // field on pkg/metadata.Book, pkg/metadata.Author or pkg/metadata.Rating
 // carries a "popularity" score (Rating carries Votes per named source, but
 // no source is designated as a popularity proxy anywhere in this pipeline).
 // It is a documented no-op -- never disqualifies a work -- rather than an
-// invented source, matching this project's "never guess" rule.
+// invented source, matching this project's "never guess" rule; it is
+// already consistent with the absent-never-excludes rule above by
+// construction, since it never even reads p.MinPopularity.
 func MatchesProfile(p catalogv1alpha1.BookMetadataProfile, b metadata.Book) bool {
-	if p.SkipMissingDate && b.FirstPublished == nil {
+	// SkipMissingDate, SkipMissingISBN: see the doc comment above -- their
+	// only possible check IS an absence check, so under the
+	// absent-never-excludes rule neither can ever fire. No code follows for
+	// either flag; this comment is that decision's record.
+
+	if p.SkipPartsAndSets && len(b.Subjects) > 0 && isPartOfASet(b) {
 		return false
 	}
-	if p.SkipMissingISBN && !hasISBN(b.Editions) {
+	if p.SkipSeriesSecondary && len(b.Series) > 0 && isSeriesSecondaryOnly(b.Series) {
 		return false
 	}
-	if p.SkipPartsAndSets && isPartOfASet(b) {
+	if len(p.AllowedLanguages) > 0 && len(b.Editions) > 0 && !anyEditionInLanguages(b.Editions, p.AllowedLanguages) {
 		return false
 	}
-	if p.SkipSeriesSecondary && isSeriesSecondaryOnly(b.Series) {
-		return false
-	}
-	if len(p.AllowedLanguages) > 0 && !anyEditionInLanguages(b.Editions, p.AllowedLanguages) {
-		return false
-	}
-	if p.MinPages > 0 && !anyEditionHasMinPages(b.Editions, p.MinPages) {
+	if p.MinPages > 0 && len(b.Editions) > 0 && !anyEditionHasMinPages(b.Editions, p.MinPages) {
 		return false
 	}
 	return true
-}
-
-func hasISBN(editions []metadata.Edition) bool {
-	for _, ed := range editions {
-		if ed.IDs[metadata.KeyISBN13] != "" {
-			return true
-		}
-	}
-	return false
 }
 
 // isPartOfASet has no dedicated field on pkg/metadata.Book (Open Library
@@ -162,7 +168,7 @@ func hasISBN(editions []metadata.Edition) bool {
 // subject strings rather than leaving the flag entirely inert; b.Subjects is
 // unpopulated by Books() today (see this package's doc.go), so this is
 // exercised by this package's tests against a synthetic Book, not by any
-// live call yet.
+// live call yet. Called only when len(b.Subjects) > 0 (MatchesProfile).
 func isPartOfASet(b metadata.Book) bool {
 	for _, s := range b.Subjects {
 		switch s {
@@ -173,13 +179,12 @@ func isPartOfASet(b metadata.Book) bool {
 	return false
 }
 
-// isSeriesSecondaryOnly is true when b has at least one SeriesLink and NONE
-// of them is Primary -- a work that is only ever a secondary entry in the
-// reading orders it belongs to.
+// isSeriesSecondaryOnly is true when EVERY one of links is non-Primary -- a
+// work that is only ever a secondary entry in the reading orders it belongs
+// to. Called only when len(links) > 0 (MatchesProfile); an empty list is
+// absent data, handled by the caller, not by returning false here for the
+// same reason.
 func isSeriesSecondaryOnly(links []metadata.SeriesLink) bool {
-	if len(links) == 0 {
-		return false
-	}
 	for _, l := range links {
 		if l.Primary {
 			return false

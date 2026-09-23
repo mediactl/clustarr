@@ -251,8 +251,13 @@ func TestAuthorReconcilerFanOutCreatesSpecOnlyBooks(t *testing.T) {
 }
 
 // TestAuthorReconcilerAppliesMetadataProfile proves spec.metadataProfile is
-// actually applied in the fan-out: a work that fails SkipMissingDate never
-// becomes a Book.
+// actually applied in the fan-out: a work that fails SkipPartsAndSets never
+// becomes a Book, while a work with no profile-relevant data at all
+// (author.MatchesProfile's absent-never-excludes rule, matching G2-2a's
+// identical fix for the identical class of gap) still does. SkipMissingDate
+// is deliberately NOT used here: it can never exclude anything (see
+// author.MatchesProfile's own doc comment), so it would not prove this test's
+// point.
 func TestAuthorReconcilerAppliesMetadataProfile(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -261,20 +266,19 @@ func TestAuthorReconcilerAppliesMetadataProfile(t *testing.T) {
 	require.NoError(t, c.Create(ctx, testNamespace("author-profile-ns")))
 	createRootFolder(t, ctx, c, "author-profile-ns", "book-root", "/data/media/books")
 
-	past := metav1.NewTime(time.Now().Add(-24 * time.Hour)).Time
 	a := &catalogv1alpha1.Author{
 		ObjectMeta: metav1.ObjectMeta{Name: "profiled-author", Namespace: "author-profile-ns"},
 		Spec: catalogv1alpha1.AuthorSpec{
 			OpenLibraryID: "OL1A", QualityProfileRef: "none", RootFolderRef: "book-root",
-			MetadataProfile: catalogv1alpha1.BookMetadataProfile{SkipMissingDate: true},
+			MetadataProfile: catalogv1alpha1.BookMetadataProfile{SkipPartsAndSets: true},
 			AddOptions:      catalogv1alpha1.AuthorAddOptions{Monitor: catalogv1alpha1.AuthorMonitorAll},
 		},
 	}
 	require.NoError(t, c.Create(ctx, a))
 
 	requester := fakeBookListRPC{books: []metadata.Book{
-		{IDs: metadata.ExternalIDs{metadata.KeyOpenLibraryWork: "OL111W"}, FirstPublished: &past},
-		{IDs: metadata.ExternalIDs{metadata.KeyOpenLibraryWork: "OL222W"}},
+		{IDs: metadata.ExternalIDs{metadata.KeyOpenLibraryWork: "OL111W"}, Title: "The Hobbit"}, // no Subjects: absent data, included
+		{IDs: metadata.ExternalIDs{metadata.KeyOpenLibraryWork: "OL222W"}, Subjects: []string{"Boxed sets"}},
 	}}
 	r := &author.Reconciler{
 		Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
@@ -286,11 +290,12 @@ func TestAuthorReconcilerAppliesMetadataProfile(t *testing.T) {
 
 	_ = waitForCondition(t, ctx, c, "author-profile-ns", "profiled-author", catalogv1alpha1.AuthorConditionBooksSynced, metav1.ConditionTrue)
 
-	var datedBook catalogv1alpha1.Book
-	assert.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "author-profile-ns", Name: author.BookName("profiled-author", "OL111W")}, &datedBook))
+	var plainBook catalogv1alpha1.Book
+	assert.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "author-profile-ns", Name: author.BookName("profiled-author", "OL111W")}, &plainBook),
+		"a work with no Subjects data has nothing to exclude on and must still become a Book")
 
-	var undatedBook catalogv1alpha1.Book
-	assert.Error(t, c.Get(ctx, types.NamespacedName{Namespace: "author-profile-ns", Name: author.BookName("profiled-author", "OL222W")}, &undatedBook), "the undated work must have been filtered out by SkipMissingDate")
+	var boxedSetBook catalogv1alpha1.Book
+	assert.Error(t, c.Get(ctx, types.NamespacedName{Namespace: "author-profile-ns", Name: author.BookName("profiled-author", "OL222W")}, &boxedSetBook), "the boxed-set work must have been filtered out by SkipPartsAndSets")
 
 	// Second pass rolls up the one book the profile let through (see the
 	// identical note in TestAuthorReconcilerFanOutCreatesSpecOnlyBooks).

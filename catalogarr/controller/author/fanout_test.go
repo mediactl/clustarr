@@ -81,53 +81,63 @@ func TestInitialBookMonitored(t *testing.T) {
 	}
 }
 
+// TestMatchesProfile pins the rule a coordinator correction made explicit
+// after finding this package disagreed with its sibling
+// (artist.AlbumAccepted's own ReleaseStatuses handling, the same fix for
+// the same class of gap): a dimension whose data is ABSENT on the fetched
+// work must never exclude it -- only a dimension whose data IS present and
+// fails the check does. Every dimension below is tested on both sides of
+// that line except SkipMissingDate/SkipMissingISBN, which this package's
+// fanout.go explains can never legally reach the "present and fails" side
+// at all (their whole check IS an absence check), so they are pinned as
+// permanent no-ops instead, on both an empty and a populated Book.
 func TestMatchesProfile(t *testing.T) {
-	past := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
-
 	t.Run("no filters set matches anything", func(t *testing.T) {
 		assert.True(t, author.MatchesProfile(catalogv1alpha1.BookMetadataProfile{}, metadata.Book{}))
 	})
 
-	t.Run("SkipMissingDate drops a work with no date", func(t *testing.T) {
+	t.Run("SkipMissingDate can never exclude: absence is its whole check, which the rule forbids acting on", func(t *testing.T) {
 		p := catalogv1alpha1.BookMetadataProfile{SkipMissingDate: true}
-		assert.False(t, author.MatchesProfile(p, metadata.Book{}))
-		assert.True(t, author.MatchesProfile(p, metadata.Book{FirstPublished: &past}))
+		assert.True(t, author.MatchesProfile(p, metadata.Book{}), "no date: not excluded")
+		past := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+		assert.True(t, author.MatchesProfile(p, metadata.Book{FirstPublished: &past}), "a date: still not excluded, there is nothing else to check")
 	})
 
-	t.Run("SkipMissingISBN drops a work with no edition carrying an ISBN", func(t *testing.T) {
+	t.Run("SkipMissingISBN can never exclude: absence is its whole check, which the rule forbids acting on", func(t *testing.T) {
 		p := catalogv1alpha1.BookMetadataProfile{SkipMissingISBN: true}
-		assert.False(t, author.MatchesProfile(p, metadata.Book{}))
-		assert.False(t, author.MatchesProfile(p, metadata.Book{Editions: []metadata.Edition{{IDs: metadata.ExternalIDs{}}}}))
+		assert.True(t, author.MatchesProfile(p, metadata.Book{}), "no editions: not excluded")
+		assert.True(t, author.MatchesProfile(p, metadata.Book{Editions: []metadata.Edition{{IDs: metadata.ExternalIDs{}}}}), "an edition with no ISBN: still not excluded")
 		assert.True(t, author.MatchesProfile(p, metadata.Book{
 			Editions: []metadata.Edition{{IDs: metadata.ExternalIDs{metadata.KeyISBN13: "9780000000000"}}},
-		}))
+		}), "an edition with an ISBN: not excluded either -- there was never anything to exclude on")
 	})
 
-	t.Run("SkipPartsAndSets drops a boxed set", func(t *testing.T) {
+	t.Run("SkipPartsAndSets: absent Subjects included, a boxed set present and matching excluded", func(t *testing.T) {
 		p := catalogv1alpha1.BookMetadataProfile{SkipPartsAndSets: true}
-		assert.True(t, author.MatchesProfile(p, metadata.Book{}))
-		assert.False(t, author.MatchesProfile(p, metadata.Book{Subjects: []string{"Boxed sets"}}))
+		assert.True(t, author.MatchesProfile(p, metadata.Book{}), "absent: included")
+		assert.True(t, author.MatchesProfile(p, metadata.Book{Subjects: []string{"Fiction"}}), "present, not a set: included")
+		assert.False(t, author.MatchesProfile(p, metadata.Book{Subjects: []string{"Boxed sets"}}), "present, is a set: excluded")
 	})
 
-	t.Run("SkipSeriesSecondary drops a work only ever secondary in its series", func(t *testing.T) {
+	t.Run("SkipSeriesSecondary: absent Series included, present-and-secondary-only excluded", func(t *testing.T) {
 		p := catalogv1alpha1.BookMetadataProfile{SkipSeriesSecondary: true}
-		assert.True(t, author.MatchesProfile(p, metadata.Book{}), "no series links at all is not secondary")
-		assert.False(t, author.MatchesProfile(p, metadata.Book{Series: []metadata.SeriesLink{{Series: "LOTR", Primary: false}}}))
-		assert.True(t, author.MatchesProfile(p, metadata.Book{Series: []metadata.SeriesLink{{Series: "LOTR", Primary: true}}}))
+		assert.True(t, author.MatchesProfile(p, metadata.Book{}), "absent: included")
+		assert.False(t, author.MatchesProfile(p, metadata.Book{Series: []metadata.SeriesLink{{Series: "LOTR", Primary: false}}}), "present, secondary only: excluded")
+		assert.True(t, author.MatchesProfile(p, metadata.Book{Series: []metadata.SeriesLink{{Series: "LOTR", Primary: true}}}), "present, has a primary entry: included")
 	})
 
-	t.Run("AllowedLanguages restricts to a matching edition", func(t *testing.T) {
+	t.Run("AllowedLanguages: absent Editions included, present-and-no-match excluded", func(t *testing.T) {
 		p := catalogv1alpha1.BookMetadataProfile{AllowedLanguages: []string{"eng"}}
-		assert.False(t, author.MatchesProfile(p, metadata.Book{}))
-		assert.False(t, author.MatchesProfile(p, metadata.Book{Editions: []metadata.Edition{{Language: "fre"}}}))
-		assert.True(t, author.MatchesProfile(p, metadata.Book{Editions: []metadata.Edition{{Language: "fre"}, {Language: "eng"}}}))
+		assert.True(t, author.MatchesProfile(p, metadata.Book{}), "absent: included, not excluded on missing edition data")
+		assert.False(t, author.MatchesProfile(p, metadata.Book{Editions: []metadata.Edition{{Language: "fre"}}}), "present, no matching language: excluded")
+		assert.True(t, author.MatchesProfile(p, metadata.Book{Editions: []metadata.Edition{{Language: "fre"}, {Language: "eng"}}}), "present, one matching language: included")
 	})
 
-	t.Run("MinPages requires an edition meeting the page count", func(t *testing.T) {
+	t.Run("MinPages: absent Editions included, present-and-below-threshold excluded", func(t *testing.T) {
 		p := catalogv1alpha1.BookMetadataProfile{MinPages: 200}
-		assert.False(t, author.MatchesProfile(p, metadata.Book{}))
-		assert.False(t, author.MatchesProfile(p, metadata.Book{Editions: []metadata.Edition{{PageCount: 100}}}))
-		assert.True(t, author.MatchesProfile(p, metadata.Book{Editions: []metadata.Edition{{PageCount: 250}}}))
+		assert.True(t, author.MatchesProfile(p, metadata.Book{}), "absent: included, not excluded on missing edition data")
+		assert.False(t, author.MatchesProfile(p, metadata.Book{Editions: []metadata.Edition{{PageCount: 100}}}), "present, below threshold: excluded")
+		assert.True(t, author.MatchesProfile(p, metadata.Book{Editions: []metadata.Edition{{PageCount: 250}}}), "present, meets threshold: included")
 	})
 
 	t.Run("MinPopularity is a documented no-op: never disqualifies", func(t *testing.T) {
@@ -135,6 +145,26 @@ func TestMatchesProfile(t *testing.T) {
 		p := catalogv1alpha1.BookMetadataProfile{MinPopularity: v}
 		assert.True(t, author.MatchesProfile(p, metadata.Book{}))
 	})
+}
+
+// TestMatchesProfileFalsifiesAbsentNeverExcludes proves the fix in
+// TestMatchesProfile actually changed behaviour, not merely restated it:
+// reverting AllowedLanguages/MinPages to their pre-fix "absent excludes"
+// shape (excluding whenever len(editions)==0, the exact bug this task's
+// coordinator flagged) would fail these two assertions. This test does not
+// revert the code -- see the task report for the throwaway-revert
+// falsification actually performed -- it pins the specific, minimal
+// observable difference the fix makes: an author-level MetadataProfile with
+// AllowedLanguages or MinPages set must not zero out every fetched work
+// that lacks edition data, which is every work fetched today (this
+// package's doc.go).
+func TestMatchesProfileFalsifiesAbsentNeverExcludes(t *testing.T) {
+	noEditionData := metadata.Book{IDs: metadata.ExternalIDs{metadata.KeyOpenLibraryWork: "OL1W"}, Title: "The Hobbit"}
+
+	assert.True(t, author.MatchesProfile(catalogv1alpha1.BookMetadataProfile{AllowedLanguages: []string{"eng"}}, noEditionData),
+		"a real fetched work (title known, editions not) must survive an AllowedLanguages filter")
+	assert.True(t, author.MatchesProfile(catalogv1alpha1.BookMetadataProfile{MinPages: 100}, noEditionData),
+		"a real fetched work (title known, editions not) must survive a MinPages filter")
 }
 
 func TestDesiredBooks(t *testing.T) {
@@ -159,14 +189,24 @@ func TestDesiredBooks(t *testing.T) {
 
 	t.Run("applies the metadata profile", func(t *testing.T) {
 		a2 := *a
-		a2.Spec.MetadataProfile = catalogv1alpha1.BookMetadataProfile{SkipMissingDate: true}
-		past := now.Add(-24 * time.Hour)
+		a2.Spec.MetadataProfile = catalogv1alpha1.BookMetadataProfile{SkipPartsAndSets: true}
 		books := []metadata.Book{
-			{IDs: metadata.ExternalIDs{metadata.KeyOpenLibraryWork: "OL1W"}, FirstPublished: &past},
-			{IDs: metadata.ExternalIDs{metadata.KeyOpenLibraryWork: "OL2W"}}, // no date, dropped
+			{IDs: metadata.ExternalIDs{metadata.KeyOpenLibraryWork: "OL1W"}, Subjects: []string{"Fiction"}},
+			{IDs: metadata.ExternalIDs{metadata.KeyOpenLibraryWork: "OL2W"}, Subjects: []string{"Boxed sets"}}, // a set, dropped
 		}
 		desired := author.DesiredBooks(&a2, false, nil, books, now)
 		require.Len(t, desired, 1)
+		assert.Equal(t, "OL1W", desired[0].WorkID)
+	})
+
+	t.Run("a fetched work with no profile-relevant data at all still passes any filter", func(t *testing.T) {
+		a2 := *a
+		a2.Spec.MetadataProfile = catalogv1alpha1.BookMetadataProfile{SkipMissingDate: true, AllowedLanguages: []string{"eng"}, MinPages: 100}
+		books := []metadata.Book{
+			{IDs: metadata.ExternalIDs{metadata.KeyOpenLibraryWork: "OL1W"}, Title: "The Hobbit"}, // no editions, no date
+		}
+		desired := author.DesiredBooks(&a2, false, nil, books, now)
+		require.Len(t, desired, 1, "absent data must never zero out the fan-out")
 		assert.Equal(t, "OL1W", desired[0].WorkID)
 	})
 
