@@ -69,6 +69,15 @@ func NewHandler(recordedDir string, logger *slog.Logger) http.Handler {
 	mux.HandleFunc("GET /musicbrainz/artist/a74b1b7f-71a5-4011-9441-d0b5e4122711",
 		serveFile(filepath.Join(recordedDir, "musicbrainz", "artist_radiohead.json"), logger))
 	mux.HandleFunc("GET /musicbrainz/release-group/", musicbrainzReleaseGroups(recordedDir, logger))
+	// Client.Album (pkg/metadata/clients/musicbrainz/musicbrainz.go's
+	// releases method) additionally browses every release of a release
+	// group via go.uploadedlobster.com/musicbrainzws2's Client.
+	// BrowseReleases, which hits "/release/" with a "release-group" query
+	// parameter (musicbrainzws2's own filter.go: r.SetQueryParam(
+	// "release-group", ...)) -- never guessed, read off that vendored
+	// library's source the same way musicbrainzReleaseGroups' own doc
+	// comment describes for the release-group routes.
+	mux.HandleFunc("GET /musicbrainz/release/", musicbrainzReleases(recordedDir, logger))
 
 	// Open Library: base "/openlibrary".
 	mux.HandleFunc("GET /openlibrary/isbn/9780141439518.json",
@@ -79,6 +88,12 @@ func NewHandler(recordedDir string, logger *slog.Logger) http.Handler {
 		serveFile(filepath.Join(recordedDir, "openlibrary", "works_OL21594A.json"), logger))
 	mux.HandleFunc("GET /openlibrary/works/OL138052W.json",
 		serveFile(filepath.Join(recordedDir, "openlibrary", "work_OL138052W.json"), logger))
+	// Client.Book additionally fetches this work's editions (openlibrary.go:
+	// "/works/"+workID+"/editions.json?limit="+editionsLimit) to fill
+	// Book.Editions and derive FirstPublished from the earliest one -- the
+	// query string does not affect net/http's ServeMux path match.
+	mux.HandleFunc("GET /openlibrary/works/OL138052W/editions.json",
+		serveFile(filepath.Join(recordedDir, "openlibrary", "editions_OL138052W.json"), logger))
 	mux.HandleFunc("GET /openlibrary/search.json",
 		serveFile(filepath.Join(recordedDir, "openlibrary", "search_pride_and_prejudice.json"), logger))
 
@@ -138,6 +153,20 @@ func musicbrainzReleaseGroups(recordedDir string, logger *slog.Logger) http.Hand
 			serveFile(filepath.Join(recordedDir, "musicbrainz", "browse_releasegroups_radiohead.json"), logger)(w, r)
 		case r.URL.Path == "/musicbrainz/release-group/0b56cf2b-8e64-39e0-b6d5-9a89e46be9f6":
 			serveFile(filepath.Join(recordedDir, "musicbrainz", "releasegroup_kid_a.json"), logger)(w, r)
+		default:
+			notFound(logger)(w, r)
+		}
+	}
+}
+
+// musicbrainzReleases answers the release-group browse-releases shape
+// (?release-group=<mbid>) Client.Album's releases method drives -- see
+// NewHandler's route comment above for where that query shape comes from.
+func musicbrainzReleases(recordedDir string, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/musicbrainz/release/" && r.URL.Query().Get("release-group") == "0b56cf2b-8e64-39e0-b6d5-9a89e46be9f6":
+			serveFile(filepath.Join(recordedDir, "musicbrainz", "browse_releases_the_bends.json"), logger)(w, r)
 		default:
 			notFound(logger)(w, r)
 		}
