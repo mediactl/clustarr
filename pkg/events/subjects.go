@@ -174,6 +174,11 @@ func CatalogReleaseSubject(action, targetUID string) string {
 
 // CatalogMediaFileSubject builds
 // clustarr.evt.catalog.mediafile.<imported|replaced|deleted>.<uid>.
+//
+// uid is the catalog item's UID, not the MediaFile's: the Movie and Episode
+// reconcilers publish these as their fileRef changes, and the reconciler
+// that sees a MediaFile deleted no longer has its UID. It matches
+// CatalogReleaseSubject's <target-uid>.
 func CatalogMediaFileSubject(action, uid string) string {
 	return fmt.Sprintf("clustarr.evt.catalog.mediafile.%s.%s", tok(action), tok(uid))
 }

@@ -32,7 +32,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // It is the one network fetch for the corpus and it runs here, by hand,
 // never inside `go test`.
 //
-// # Why the corpus is not vendored (ruling R-13)
+// # The corpus Clustarr ships
+//
+// The project owner added Prowlarr's Cardigann definitions to the project on
+// 2026-09-23: 752 files from a Prowlarr Definitions directory, packed by
+// hack/pack-cardigann (`make cardigann-bundle`) into
+// indexarr/bundle/embedded/definitions.zip, which indexarr loads at startup.
+// That superseded gap-fix ruling R-13, under which nothing was vendored. This
+// tool still fetches a pinned upstream commit into a directory, which
+// indexarr's --cardigann-definitions-dir loads in place of the embedded
+// corpus.
+//
+// # Upstream licensing record (ruling R-13, kept as history)
+//
+// Recorded when R-13 was decided, before the owner's addition above, and
+// kept unchanged as the record that ruling rested on.
 //
 // R-13 allows vendoring the upstream definitions only under a
 // GPL-3.0-compatible licence. Verified on 2026-09-23 against the pinned

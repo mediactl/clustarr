@@ -32,7 +32,12 @@ import (
 // with apply.
 //
 // Issue is one issue of a Comic. Issues are created and owned by the Comic
-// controller and named <comic>-<calculatedNumber padded to 5.1>.
+// controller and named <comic>-<calculatedNumber padded to 5.1> for a plain
+// number ("12.5" is saga-012.5). An integer followed by lower-case letters
+// appends them ("12a" is saga-012.0-a), and any other number appends a
+// DNS-safe readable part and a 10-character digest of the number ("12.HU" is
+// saga-012.1-hu-<digest>), so distinct numbers never share a name; past the
+// name limit the readable part is dropped (comic.IssueName).
 type IssueApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:""`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`

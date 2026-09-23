@@ -38,11 +38,13 @@ Prometheus CR). These carry `app.kubernetes.io/part-of: clustarr`; add a
 ## What you get
 
 controller-runtime's own request/reconcile/workqueue series and the REST
-client metrics, plus the Clustarr collectors from §13:
-`clustarr_queue_pending`, `clustarr_search_indexer_duration_seconds`,
-`clustarr_indexer_escalation_level`, `clustarr_download_rate_bytes`,
-`clustarr_transcode_fps`, `clustarr_transcode_slots`,
-`clustarr_subtitle_provider_throttled`, `clustarr_metadata_cache_hits_total`.
+client metrics, plus the `clustarr_*` series `pkg/obs/metrics` registers --
+downloads, imports, indexer queries, search decisions, the metadata cache,
+transcodes, subtitle fetches, provider quota and the work queues. The full
+list, with labels and what to alert on, is the metrics table in
+`docs/observability.md`. (This page used to list the design spec §13's
+original names, such as `clustarr_transcode_fps` and
+`clustarr_transcode_slots`; those were never registered.)
 
 NATS itself is not scraped here. The plain `config/nats` StatefulSet has no
 exporter sidecar; use the upstream nats chart (which `charts/clustarr` pulls

@@ -15,15 +15,20 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package bundle loads an operator-supplied Cardigann definition bundle into
-// the cluster as IndexerDefinitions.
+// Package bundle loads a Cardigann definition bundle into the cluster as
+// IndexerDefinitions.
 //
-// Clustarr ships no corpus: upstream Prowlarr/Indexers has no licence, so it
-// cannot be vendored into a GPL-3.0 binary (gap-fix ruling R-13;
-// pkg/cardigann's bundle.go). What ships instead is hack/sync-cardigann,
-// which fetches a pinned corpus into a directory, and this loader, which
-// indexarr runs at startup when --cardigann-definitions-dir names such a
-// directory (mounted from a ConfigMap, a PVC or an init container): every
+// Two bundles reach it. By default it is the corpus compiled into the
+// binary: Prowlarr's Cardigann definitions, added to the project by its
+// owner on 2026-09-23 and embedded as a deflated zip
+// (indexarr/bundle/embedded, --cardigann-bundled, default true). That
+// supersedes gap-fix ruling R-13, under which Clustarr shipped no corpus;
+// hack/sync-cardigann's package doc keeps the upstream licensing record R-13
+// was decided on. Otherwise it is an operator's directory, which
+// --cardigann-definitions-dir names and which replaces the embedded corpus
+// (mounted from a ConfigMap, a PVC or an init container, for example what
+// hack/sync-cardigann writes). Either way indexarr runs this loader at
+// startup, and every
 // definition cardigann.LoadBundle accepts becomes an IndexerDefinition named
 // cardigann.ObjectName(id), so an Indexer's spec.definition: <id> resolves
 // through it -- the indexer controller matches a definition id against

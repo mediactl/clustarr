@@ -51,7 +51,7 @@ import (
 //	                        (catalog.ItemEvent, ReleaseEvent, MediaFileEvent,
 //	                        SearchTask, GrabTask and MetadataTask, by
 //	                        MediaRef.kind)
-//	                      ImportList   (catalog.ImportListSynced)
+//	                      ImportList   (catalog.ImportListSynced, importarr.ListTask)
 //	                      LibraryScan  (importarr.ScanTask)
 //	index.clustarr.io     Indexer      (index.Release, IndexerEvent, RssTask)
 //	download.clustarr.io  Download     (catalog.ImportTask, download.DownloadEvent)
@@ -59,8 +59,7 @@ import (
 //	subtitle.clustarr.io  SubtitleRequest (subtitle.SubtitleEvent, FetchTask)
 //
 // Every other kind never carries it: a dead letter whose schema has no
-// resolver (importarr.ListTask among them, so an ImportList is annotated only
-// through its ImportListSynced event), or that names no single object
+// resolver, or that names no single object
 // (catalog.WantedScan, index.DefinitionsSync), gets a namespace-level Warning
 // Event instead. MediaFile, RootFolder, QualityProfile, DownloadClient,
 // TranscodeProfile, SubtitleProfile, SubtitleProvider and the rest are never

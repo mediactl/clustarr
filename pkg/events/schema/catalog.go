@@ -314,7 +314,10 @@ type MetadataResponse struct {
 	// Result is the provider document, JSON-encoded.
 	Result []byte `json:"result,omitempty"`
 
-	// Results holds the hits of a search request.
+	// Results holds a list-shaped answer, one JSON-encoded document per
+	// entry: the hits of a search, or the entities of a list lookup (a
+	// series' episodes, a volume's issues, an artist's albums, an author's
+	// books).
 	Results [][]byte `json:"results,omitempty"`
 
 	// CachedAt is when the gateway cached the document, if it was a hit.

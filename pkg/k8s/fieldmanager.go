@@ -63,10 +63,11 @@ const (
 
 	// ManagerCatalogarrWorker is the catalogarr queue worker. It covers the
 	// consumers that write status fields NO other catalogarr writer touches:
-	// the interactive search worker's Search.status.finishedAt/
-	// indexerOutcomes/results, and the import consumer. (The importlist
-	// consumer this comment also named was pre-amendment dead code, pruned in
-	// the gap-fix wave: import lists are importarr's.)
+	// the search worker's Search.status.finishedAt/indexerOutcomes/results.
+	// (The import and importlist consumers this comment also named went to
+	// importarr with amendment §A1: the importlist half was pruned from
+	// pkg/events in the gap-fix wave, and the catalogarr-import consumer is
+	// still declared in the topology but has no subscriber.)
 	//
 	// The two consumers that used to share it and could not -- the metadata
 	// gateway and the grab path -- have their own names below. See
@@ -102,9 +103,9 @@ const (
 	// path used to apply the ref as well, so the two managers co-owned it
 	// under ForceOwnership and ownership migrated to whichever applied last;
 	// the reconciler's "omit to clear on a terminal Download" only worked
-	// while it happened to hold the field. Until task X4a lands,
-	// catalogarr/worker/grab still applies it (kindops.go); that write is the
-	// defect R-5 removes, not a second sanctioned owner.
+	// while it happened to hold the field. Gap-fix task X4a removed the grab
+	// path's write, and its first apply under this manager releases any ref
+	// an older object still credits to it.
 	//
 	// It never applies status.phase: the reconcilers own phase and
 	// conditions under ManagerCatalogarr, and recompute Phase=Delayed from
@@ -133,7 +134,7 @@ const (
 	//
 	// It is deliberately distinct from ManagerCatalogarr, which the Issue
 	// reconciler uses for that Issue's own status (state, conditions,
-	// hasFile, fileRef, fileQuality, activeDownloadRef), exactly as
+	// hasFile, fileRef, fileQuality, cutoffMet, activeDownloadRef), exactly as
 	// Episode's reconciler uses ManagerCatalogarr for its own
 	// Phase/Conditions/HasFile rather than ManagerCatalogarrSeries.
 	// Server-side apply replaces a manager's whole ownership set on every

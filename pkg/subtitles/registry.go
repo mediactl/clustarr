@@ -27,6 +27,12 @@ import (
 var ErrDuplicateProvider = errors.New("subtitles: provider already registered")
 
 // Registry holds the configured set of subtitle Providers.
+//
+// It has no production caller. captionarr's fetch worker used one, keyed by
+// provider type, until gap fix X11b: that dedupe meant two SubtitleProvider
+// objects of one type (two accounts) could never both be searched, so the
+// worker now pools one entry per SubtitleProvider object itself
+// (captionarr/worker/fetch). Kept for its tests; a prune candidate.
 type Registry struct {
 	mu     sync.RWMutex
 	byName map[string]Provider

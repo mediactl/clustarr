@@ -118,16 +118,19 @@ type TranscodeState struct {
 // formatScore, matchedFormats and releaseType frozen at import -- while
 // catalogarr owns all of MediaFileStatus, plus metadata.labels, and takes
 // over sizeBytes, modTime and original once it incorporates a transcode
-// swap. Both write under their own field manager, so the apiserver enforces
-// the split rather than convention.
+// swap -- and path as well when the transcode landed under a new name and
+// the source is gone (a container change or an explicit outputPath). Both
+// write under their own field manager, so the apiserver enforces the split
+// rather than convention.
 type MediaFileSpec struct {
 	// MediaRef points at the catalog item this file backs.
 	// +required
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="mediaRef is immutable"
 	MediaRef commonv1.MediaRef `json:"mediaRef"`
 
-	// Path is the file's absolute path. It changes only when catalogarr renames
-	// the file or swaps in a transcode.
+	// Path is the file's absolute path. importarr sets it at import; it
+	// changes only when catalogarr swaps in a transcode written under a new
+	// name, and catalogarr then owns it.
 	// +required
 	Path string `json:"path"`
 

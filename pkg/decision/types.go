@@ -70,8 +70,10 @@ type Target struct {
 	Current             *Current
 	Queue               []Queued
 	Blocklist           func(infohash, title string) bool
-	// FreeBytes is carried per spec §7; unused by this task -- see
-	// Disagreement 5. A later task may wire up a free-space check against it.
+	// FreeBytes is read by nothing. Spec §7 listed it; gap fix X13 struck it
+	// there, because free space is judged at import against
+	// RootFolder.minFreeBytes and by the RootFolder's DiskSpaceOK condition,
+	// not by the release decision (Disagreement 5). A prune candidate.
 	FreeBytes int64
 	// Identity is WHICH item this is: what a candidate release has to be for
 	// before anything else about it matters (identity.go). The zero value

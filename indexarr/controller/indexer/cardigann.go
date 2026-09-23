@@ -83,9 +83,9 @@ const maxDefinitionErr = 800
 // resolveDefinition loads the Cardigann definition an Indexer names.
 //
 // spec.definitionRef is an IndexerDefinition's name. spec.definition is a
-// definition id, and Clustarr ships no corpus (ruling R-13): an id resolves
-// only through an IndexerDefinition that provides it -- operator-applied, or
-// loaded from a mounted bundle (indexarr/bundle) -- by spec.replaces first,
+// definition id, and an id resolves only through an IndexerDefinition that
+// provides it -- loaded by indexarr/bundle from the embedded corpus or a
+// mounted directory, or operator-applied -- by spec.replaces first,
 // its parsed status.id second, and last the retired ids its spec.yaml says
 // it replaces (status.replaces), so an Indexer written against a tracker's
 // old id keeps working after the definition is renamed. See

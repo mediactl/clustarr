@@ -33,14 +33,14 @@ import (
 // startup -- the corpus a cluster ships with rather than one an operator
 // applies as IndexerDefinition objects one at a time.
 //
-// Clustarr does not embed one. The upstream corpus (Prowlarr/Indexers) has
-// no licence at the commit hack/sync-cardigann pins, and its history
-// descends from Jackett's GPL-2.0 tree, so vendoring it into a GPL-3.0
-// binary is not something this project can do (ruling R-13; the evidence is
-// in hack/sync-cardigann's package doc). LoadBundle therefore takes an
-// fs.FS: a directory the operator mounts (what hack/sync-cardigann writes),
-// or -- should the corpus ever be vendored -- an embed.FS, with no change
-// here.
+// LoadBundle takes an fs.FS, so one loader serves both bundles indexarr
+// knows: the corpus compiled into the binary (indexarr/bundle/embedded, a
+// deflated zip read through archive/zip's *zip.Reader -- Prowlarr's
+// definitions, added to the project by its owner on 2026-09-23, which
+// superseded gap-fix ruling R-13's "embed nothing") and a directory an
+// operator mounts (os.DirFS; what hack/sync-cardigann writes). The upstream
+// licensing record R-13 was decided on is in hack/sync-cardigann's package
+// doc.
 
 // MaxDefinitionBytes is the largest definition LoadBundle accepts: the
 // 1 MiB MaxLength on IndexerDefinition.spec.yaml, so every bundled

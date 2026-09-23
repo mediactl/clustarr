@@ -107,10 +107,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # Cardigann-defined Indexers (Phase G, G1-1)
 //
 // spec.definitionRef names an IndexerDefinition; spec.definition names a
-// definition id, which -- Clustarr shipping no corpus (ruling R-13) --
-// resolves only through an IndexerDefinition that provides it
-// (spec.replaces, then status.id, then status.replaces: the retired ids the
-// definition's Cardigann `replaces` key says it supersedes). The definition supplies status.caps (modes renamed to the
+// definition id, which resolves only through an IndexerDefinition that
+// provides it -- one indexarr's bundle loader created from the embedded
+// corpus or a mounted directory (indexarr/bundle), or one an operator
+// applied (spec.replaces, then status.id, then status.replaces: the retired
+// ids the definition's Cardigann `replaces` key says it supersedes). The
+// definition supplies status.caps (modes renamed to the
 // Torznab wire values), status.protocol (torrent) and status.privacy (with
 // the schema's "semi-private" mapped to the CRD's "semiPrivate"); no caps
 // probe runs. The login is the probe: a session-producing login (form, post,

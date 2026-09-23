@@ -20,8 +20,10 @@ package cardigann_test
 // One test per Cardigann v11 field that was decoded but never read until
 // Task X8a: each builds a small definition of its own (through Load, so the
 // schema admits it), serves it from httptest, and asserts the behaviour
-// Prowlarr gives the field. The corpus's own files cannot be fixtures here
-// -- see hack/sync-cardigann for why they are not vendored.
+// Prowlarr gives the field. Each test keeps its definition small and
+// self-contained rather than borrowing a corpus file, so it pins one field's
+// behaviour and nothing else (the corpus itself is loaded, whole, by
+// indexarr/bundle/embedded's tests).
 
 import (
 	"context"

@@ -40,8 +40,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // Normalising is the caller's, and pkg/relindex says so outright: it stores
 // the Release.TitleNorm it is given and does not normalise Query.Text, so the
-// two must go through ONE function or nothing matches. The RSS worker fills
-// that column with release.CleanTitle, so this verb does too. The failure
+// two must go through ONE function or nothing matches. The RSS worker and the
+// search fan-out fill that column with release.TitleNorm, so this verb
+// normalises Query.Text with it too. The failure
 // mode if they ever diverge is silent -- an index that answers nothing rather
 // than an error -- which is why each side is pinned in its own package:
 // indexarr/worker/rss's TestIndexRowsCarryTheFieldsTheIndexSearchesOn asserts
@@ -64,23 +65,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // An empty Text is deliberately NOT in that class: it is a filters-only
 // browse, which really does mean "no text filter".
 //
-// One known limitation of normalising, symmetric -- the indexed column went
-// through the same function, so search stays self-consistent and the only
-// casualty is a release nobody can currently find: CleanTitle keeps only
-// ASCII letters and digits, so a wholly non-Latin title ("Матрица",
-// "日本語のタイトル") indexes as "" and relindex.Upsert rejects the row, and a
-// mixed one indexes and is queried by its ASCII residue alone -- which also
-// means "日本語のタイトル 2026" is a query for "2026". pkg/release.TitleNorm is
-// the fix: the same pipeline as CleanTitle, identical to it on printable
-// ASCII (so rows already indexed stay findable), but keeping letters in
-// every script. It must replace CleanTitle on BOTH sides in one change --
-// the RSS worker's and the search fan-out's TitleNorm, and this package's
-// Query.Text -- and the tests here that assert a non-Latin query normalises
-// away flip with it. pkg/relindex's titlenorm_test.go proves the round trip
+// Non-Latin titles are no longer a limitation (retired at gap fix X8b,
+// commit 8883db0). Under release.CleanTitle, which keeps only ASCII letters
+// and digits, a wholly non-Latin title ("Матрица", "日本語のタイトル") indexed
+// as "" and relindex.Upsert rejected the row, and "日本語のタイトル 2026" was a
+// query for "2026". release.TitleNorm is the same pipeline, identical to
+// CleanTitle on printable ASCII (so rows indexed before the switch stay
+// findable), but it keeps letters and marks in every script; the RSS
+// worker, the search fan-out and this package switched to it in one change.
+// roundtrip_test.go and pkg/relindex's titlenorm_test.go prove the round trip
 // against a real FTS5 index.
 //
-// Control runes are no longer a limitation: CleanTitle maps them to spaces,
-// as pkg/relindex's splitControls does, so "dune\x00matrix" is the two terms
+// Control runes are no longer a limitation either: the shared pipeline maps
+// them to spaces, as pkg/relindex's splitControls does, so "dune\x00matrix" is the two terms
 // "dune" and "matrix" on both sides rather than the one term "dunematrix".
 //
 // # The filter vocabulary is closed

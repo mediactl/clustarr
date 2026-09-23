@@ -97,9 +97,10 @@ const (
 
 // fanoutBudget is how long the whole fan-out may take.
 //
-// The shipped caller always sends 45000 and sets no context deadline of its
-// own, so the real outer bound is its consumer's AckWait: indexarr owns this
-// budget and must keep it.
+// The shipped caller sends 45000 and, since gap fix X4b, also bounds its own
+// wait with context.WithTimeout(DeadlineMillis); indexarr still owns this
+// budget and must keep it, because a request that sets no DeadlineMillis
+// still gets one.
 func fanoutBudget(req schema.SearchRequest) time.Duration {
 	b := MaxRPCBudget
 	if req.DeadlineMillis > 0 {

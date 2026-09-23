@@ -260,6 +260,14 @@ func buildArtistMetadataAC(a *pkgmetadata.Artist, now time.Time) *catalogac.Arti
 // the newly created object then flows through the exact same
 // MetadataTask -> Handler -> ManagerCatalogarrMetadata pipeline as any
 // Movie or Series, which is what this file exists to build.
+//
+// One leaf is the exception, and it is not the fan-out's: since gap fix X5b
+// the Album reconciler (ManagerCatalogarr) writes
+// AlbumStatus.metadata.selectedReleaseID, because only it knows which of the
+// album's releases the files on disk belong to (Lidarr's
+// RefreshAlbumService.MonitorSingleRelease). SSA tracks ownership per leaf,
+// so this renderer never sends that leaf and the gateway owns every other
+// one; the album envtest checks the split in managedFields.
 func buildAlbumMetadataAC(a *pkgmetadata.Album, now time.Time) *catalogac.AlbumMetadataApplyConfiguration {
 	ac := catalogac.AlbumMetadata().
 		WithTitle(a.Title).

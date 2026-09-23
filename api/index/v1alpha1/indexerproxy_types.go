@@ -74,8 +74,13 @@ type IndexerProxySpec struct {
 	// +kubebuilder:default="60s"
 	RequestTimeout metav1.Duration `json:"requestTimeout,omitempty"`
 
-	// Selector matches the Indexers (by label) that use this proxy. At most
-	// one FlareSolverr proxy may match an Indexer; it is applied last.
+	// Selector matches the Indexers (by label) that use this proxy. An empty
+	// selector matches no Indexer: a Go client always sends {}, so "{}
+	// matches everything" would route a whole namespace. An Indexer's own
+	// spec.proxyRef wins over any selector. At most one http, socks4 or
+	// socks5 proxy and at most one FlareSolverr may apply to an Indexer, and
+	// the FlareSolverr is applied last; anything more, or a FlareSolverr
+	// beside a proxy with credentials, fails closed (indexarr/proxy).
 	// +optional
 	Selector metav1.LabelSelector `json:"selector,omitempty"`
 }
