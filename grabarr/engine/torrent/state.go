@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
@@ -44,6 +45,20 @@ type descriptor struct {
 	Priority         downloadv1alpha1.DownloadPriority `json:"priority,omitempty"`
 	Paused           bool                              `json:"paused"`
 	SeedCriteria     *commonv1alpha1.SeedCriteria      `json:"seedCriteria,omitempty"`
+
+	// Selection is the file selection resolved from the catalog at the
+	// first Add ([resolveSelection]); nil wants every file. It is persisted
+	// rather than re-resolved because re-attach runs before the manager
+	// starts, and because the catalog may have moved on -- an episode
+	// imported since, say -- while the transfer's own on-disk pieces were
+	// chosen by the original selection.
+	Selection *Selection `json:"selection,omitempty"`
+
+	// AddedAt is the transfer's first-added time ([download.Item.AddedAt]),
+	// handed back to the client on re-attach so the orphan reaper ages the
+	// transfer from when it was really added, not from the restart. Zero in
+	// a descriptor written before it existed.
+	AddedAt time.Time `json:"addedAt,omitzero"`
 }
 
 // torrentFileName and sidecarFileName are the two files [saveDescriptor]
@@ -221,6 +236,8 @@ func (l loadedDescriptor) addRequest() download.AddRequest {
 		Priority:         l.Desc.Priority,
 		Paused:           l.Desc.Paused,
 		SeedCriteria:     l.Desc.SeedCriteria,
+		WantFile:         l.Desc.Selection.selector(),
+		AddedAt:          l.Desc.AddedAt,
 	}
 	return req
 }

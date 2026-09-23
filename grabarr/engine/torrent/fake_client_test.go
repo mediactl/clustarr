@@ -22,6 +22,7 @@ import (
 	"crypto/sha1" //nolint:gosec // test fixture id derivation, not cryptography
 	"encoding/hex"
 	"sync"
+	"time"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
@@ -46,7 +47,8 @@ type fakeClient struct {
 	markImportedCalls []string
 	removeCalls       []removeCall
 
-	addErr error
+	addErr    error
+	removeErr error
 }
 
 // removeCall records one Remove invocation, id and deleteData together --
@@ -92,6 +94,10 @@ func (f *fakeClient) Add(_ context.Context, req download.AddRequest) (string, er
 		status = download.StatusPaused
 		stage = ""
 	}
+	addedAt := req.AddedAt
+	if addedAt.IsZero() {
+		addedAt = time.Now()
+	}
 	f.items[id] = download.Item{
 		ID:          id,
 		Status:      status,
@@ -99,6 +105,7 @@ func (f *fakeClient) Add(_ context.Context, req download.AddRequest) (string, er
 		ContentRoot: "/data/torrents/" + req.Category + "/" + req.Name,
 		Files:       []download.File{{Path: req.Name + ".bin", SizeBytes: 100}},
 		TotalBytes:  100,
+		AddedAt:     addedAt,
 	}
 	return id, nil
 }
@@ -177,6 +184,9 @@ func (f *fakeClient) MarkImported(_ context.Context, id string) error {
 func (f *fakeClient) Remove(_ context.Context, id string, deleteData bool) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.removeErr != nil {
+		return f.removeErr
+	}
 	if _, ok := f.items[id]; !ok {
 		return download.ErrNotFound
 	}

@@ -68,37 +68,36 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // configuration (downloadac.DownloadStatus()), so the append it performs on
 // Files is the one documented safe case.
 //
-// # No finalizer here -- matched against both landed siblings
+// # The engine finalizer (ruling R-6)
 //
-// This package never touches metadata.finalizers. D2-4
-// (grabarr/controller/download/controller.go's reconcileDelete) holds the
-// sole finalizer, k8s.FinalizerFor(dl, scheme) =
-// "download.clustarr.io/download", and does its own data removal directly
-// against the shared DataDir via fsops.SafeRemove(dl.Status.OutputPath) --
-// it does not wait for any engine to react first. grabarr/engine/usenet's
-// Reconciler (D2-6) reaches the identical design independently: an engine
-// calls [download.Client.Remove] for its own in-process cleanup once it
-// observes a deletionTimestamp, idempotently
-// ([download.ErrNotFound] counts as done, matching Remove's own contract),
-// but claims no finalizer of its own. [Reconciler.reconcileDeleting] follows
-// that same shape. An earlier draft of this package added its own
-// FinalizerEngine before D2-4 or D2-6 were readable in this shared
-// worktree, reasoning that two independent finalizers cannot race each
-// other; once both landed and could actually be read, this package matched
-// them instead of leaving a third, different answer to the identical
-// question standing in one phase.
+// [Reconciler] adds grabarr/engine's [engine.Finalizer] to every Download
+// labelled for this replica before it adds the transfer, and on deletion
+// removes the transfer (honouring spec.removeDataOnDelete), drops the
+// persisted re-attach descriptor and only then drops the finalizer. The
+// Download controller's own removeDataOnDelete finalizer waits for this
+// one, so the controller never unlinks files this engine still holds open
+// -- the ordering race Phase D2 carried. grabarr/engine's package doc has
+// the whole protocol, including the bounded timeout after which the
+// controller stops waiting for an engine that is gone.
 //
-// That design leaves exactly the gap plan task D2-8b names: reconcileDelete
-// drops the finalizer without waiting for any engine, so a Download deleted
-// while this engine's watch has not yet delivered the deletion -- down,
-// mid-re-attach, or a missed event -- never reaches reconcileDeleting at
-// all, and its transfer keeps running with no CR left to say so. [Reaper]
-// (reaper.go) is the fix: a level-driven pass, independent of any watch
-// event, that lists [Engine.Client]'s own transfers against this replica's
-// Downloads and removes whatever has no match after a grace period. See its
-// doc comment for the two conservatism guards and why deleteData is always
-// false there.
+// [Reaper] (reaper.go) remains, as the backstop for exactly that timeout: a
+// transfer this engine re-attaches after the controller dropped the
+// finalizer on its behalf has no Download left, and the reaper -- a
+// level-driven pass that lists [Engine.Client]'s own transfers against this
+// replica's Downloads -- removes it once it is older than the grace period.
+// See its doc comment for the two conservatism guards and why deleteData is
+// always false there.
 //
+// # File selection
+//
+// A Download whose target is an Episode, or a Series narrowed to Episodes
+// by spec.target.keys (a pack), fetches only those episodes' files: the
+// first Add reads the Episodes through [Reconciler.EpisodeReader] and turns
+// them into a [Selection] -- official, scene and absolute numbers and air
+// dates -- that becomes AddRequest.WantFile and is persisted in the
+// descriptor so re-attach rebuilds the same one. A file is skipped only
+// when it positively names an unwanted episode; see [wantFile].
+
 // # What this package does not attempt
 //
 // It does not implement DownloadClient-driven rate limiting
@@ -127,7 +126,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // pass happens and the chart is synced, once, after every D2-1..D2-7 task has
 // landed its own markers.
 //
+// The finalizer protocol adds downloads/finalizers (the engine now updates
+// metadata.finalizers on Downloads), and file selection adds a get on
+// catalog Episodes.
+//
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads/finalizers,verbs=update
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloadclients,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes,verbs=get
 package torrent

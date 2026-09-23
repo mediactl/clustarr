@@ -22,12 +22,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/grabarr/engine"
 	"github.com/mediactl/clustarr/pkg/download"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -41,8 +41,9 @@ const (
 	// the next one.
 	DefaultReapInterval = 2 * time.Minute
 
-	// DefaultOrphanGrace is how long a transfer must be observed with no
-	// matching Download, continuously, before [Reaper] treats it as an
+	// DefaultOrphanGrace is how old a transfer with no matching Download
+	// must be -- by its own [download.Item.AddedAt], see
+	// grabarr/engine.OrphanClock -- before [Reaper] treats it as an
 	// orphan rather than one this replica added moments ago and has not yet
 	// matched.
 	//
@@ -65,17 +66,15 @@ type cacheSyncWaiter interface {
 	WaitForCacheSync(ctx context.Context) bool
 }
 
-// Reaper recovers a class of bug none of D2-4, D2-5 or D2-6 caused alone:
-// D2-4's Download controller finalizer removes files and drops the
-// finalizer without waiting for any engine (its doc.go, "the finalizer
-// needs no live engine" -- true for disk, not for client state), and this
-// package owns no finalizer at all (see doc.go's "What this package
-// deliberately does not do"). So a Download deleted while this replica's
-// watch has not yet delivered the deletion -- this engine was down, the
-// deletion was processed during re-attach, or the watch event was simply
-// missed -- leaves its transfer running in [Reconciler.Download] forever: a
-// usenet fetch goes on spending the provider's connection budget with
-// nothing in any CR to say so.
+// Reaper is the backstop behind the engine finalizer (grabarr/engine's
+// [engine.Finalizer], gap-fix ruling R-6). The finalizer makes the ordinary
+// path safe: a deleted Download is not gone until this engine has removed
+// its transfer. But the Download controller drops that finalizer on the
+// engine's behalf once the engine has been gone for a bounded timeout --
+// that is what keeps a deletion from wedging forever on a DownloadClient
+// that no longer exists -- and a transfer this engine still holds when it
+// comes back then has no Download at all: a usenet fetch goes on spending
+// the provider's connection budget with nothing in any CR to say so.
 //
 // It is deliberately level-driven rather than triggered by the delete event
 // that [Reconciler.reconcileDeleting] handles: on a timer, it lists every
@@ -97,16 +96,15 @@ type cacheSyncWaiter interface {
 // populated even once.
 //
 // Guard two, independent of the first: a transfer with no matching Download
-// is not reaped on the pass it is first seen unmatched. [Reaper] remembers,
-// in memory, the first tick each transfer id was seen unmatched and only
-// removes it once that has held continuously for [Reaper.OrphanGrace] --
-// see [DefaultOrphanGrace] for why that duration is sized against this
+// is reaped only once it is at least [Reaper.OrphanGrace] old -- see
+// [DefaultOrphanGrace] for why that duration is sized against this
 // package's own slowest Add-to-match path. This catches the case cache-sync
 // alone cannot: a fully synced cache that simply has not yet been told about
-// a Download this same replica added moments ago. A transfer flips back to
-// "matched" the instant it appears in a Download's status.downloadID, which
-// resets its clock, so a slow-but-legitimate Add is never at risk once it
-// lands.
+// a Download this same replica added moments ago. The age is the
+// transfer's own [download.Item.AddedAt], which the client persists in its
+// scratch manifest, so an engine restart does not grant an orphan a fresh
+// grace period ([engine.OrphanClock] has the details, and the fallback for
+// a transfer whose age is unknown).
 //
 // [Reconciler] itself needs no equivalent re-attach gate here: unlike
 // grabarr/engine/torrent's [Engine], [download.Client] as built by
@@ -118,8 +116,10 @@ type cacheSyncWaiter interface {
 //
 // By the time a transfer is old enough to be reaped, its Download is gone
 // from the apiserver entirely -- there is no spec.removeDataOnDelete left to
-// read, and D2-4's finalizer already ran fsops.SafeRemove against
-// status.outputPath when spec asked for it. Passing deleteData=true here
+// read, and the Download controller's finalizer already ran
+// fsops.SafeRemove against status.outputPath when spec asked for it (it
+// does so once the engine finalizer is gone, or once it stopped waiting
+// for an engine that was gone -- the only way a transfer ends up here). Passing deleteData=true here
 // would ask the client to delete files the controller either already
 // removed (redundant, and this package cannot know whether the client
 // treats a missing file as success) or deliberately left in place (a
@@ -165,8 +165,7 @@ type Reaper struct {
 	// Now is a seam for tests; nil means time.Now.
 	Now func() time.Time
 
-	mu             sync.Mutex
-	unmatchedSince map[string]time.Time
+	clock engine.OrphanClock
 }
 
 // NeedLeaderElection makes the reaper run on every replica rather than only
@@ -200,8 +199,9 @@ func (r *Reaper) now() time.Time {
 }
 
 // Start implements manager.Runnable. It blocks on [Reaper.Cache]'s
-// WaitForCacheSync before the first tick, then reaps on [Reaper.ReapInterval]
-// until ctx is done. It returns nil on cancellation, matching every other
+// WaitForCacheSync, reaps once straight away -- so an engine that restarts
+// more often than [Reaper.ReapInterval] still reaps orphans older than the
+// grace -- then reaps on [Reaper.ReapInterval] until ctx is done. It returns nil on cancellation, matching every other
 // Runnable in this tree (e.g. catalogarr/controller/wantedcron): a Runnable
 // that returns an error takes the whole manager down with it, and a
 // graceful shutdown is not an error.
@@ -218,6 +218,7 @@ func (r *Reaper) Start(ctx context.Context) error {
 	ticker := time.NewTicker(r.reapInterval())
 	defer ticker.Stop()
 	log.InfoContext(ctx, "usenet: orphan reaper started", "interval", r.reapInterval(), "grace", r.orphanGrace())
+	r.tick(ctx, log)
 	for {
 		select {
 		case <-ctx.Done():
@@ -257,7 +258,7 @@ func (r *Reaper) ReapOnce(ctx context.Context) error {
 		return fmt.Errorf("usenetengine: list client transfers: %w", err)
 	}
 	if len(items) == 0 {
-		r.forgetAll()
+		r.clock.Reset()
 		return nil
 	}
 
@@ -277,66 +278,14 @@ func (r *Reaper) ReapOnce(ctx context.Context) error {
 			log.ErrorContext(ctx, "usenet: orphan reap: remove failed", "id", id, "error", err)
 			continue
 		}
-		r.forget(id)
+		r.clock.Forget(id)
 		log.InfoContext(ctx, "usenet: reaped orphaned transfer with no matching Download", "id", id)
 	}
 	return nil
 }
 
-// orphansDue updates the unmatched-since bookkeeping from one List pass and
-// returns the ids that have now been unmatched continuously for at least
-// [Reaper.orphanGrace] -- see the type doc's "Guard two".
+// orphansDue records one List pass against the known ids and returns the
+// transfers now old enough to reap -- see the type doc's "Guard two".
 func (r *Reaper) orphansDue(items []download.Item, known map[string]struct{}) []string {
-	now := r.now()
-	grace := r.orphanGrace()
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.unmatchedSince == nil {
-		r.unmatchedSince = make(map[string]time.Time)
-	}
-
-	seen := make(map[string]struct{}, len(items))
-	var due []string
-	for _, item := range items {
-		seen[item.ID] = struct{}{}
-		if _, ok := known[item.ID]; ok {
-			// Matched: this transfer belongs to a Download this replica's
-			// cache currently holds. Forget any earlier unmatched sighting
-			// so a transient miss (a delayed status write, a re-Get racing
-			// this pass) does not carry a stale clock forward.
-			delete(r.unmatchedSince, item.ID)
-			continue
-		}
-		first, tracked := r.unmatchedSince[item.ID]
-		if !tracked {
-			r.unmatchedSince[item.ID] = now
-			continue
-		}
-		if now.Sub(first) >= grace {
-			due = append(due, item.ID)
-		}
-	}
-
-	// Drop bookkeeping for ids the client no longer reports at all (already
-	// removed some other way) so the map does not grow unbounded across a
-	// long-lived engine process.
-	for id := range r.unmatchedSince {
-		if _, ok := seen[id]; !ok {
-			delete(r.unmatchedSince, id)
-		}
-	}
-	return due
-}
-
-func (r *Reaper) forget(id string) {
-	r.mu.Lock()
-	delete(r.unmatchedSince, id)
-	r.mu.Unlock()
-}
-
-func (r *Reaper) forgetAll() {
-	r.mu.Lock()
-	r.unmatchedSince = nil
-	r.mu.Unlock()
+	return r.clock.Due(items, known, r.now(), r.orphanGrace())
 }

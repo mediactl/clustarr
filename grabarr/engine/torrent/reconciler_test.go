@@ -33,6 +33,7 @@ import (
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/grabarr/engine"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -161,7 +162,8 @@ func TestReconcileAddThenSyncAppliesEngineTelemetry(t *testing.T) {
 	require.NoError(t, c.Get(ctx, req.NamespacedName, &got))
 	assert.NotEmpty(t, got.Status.DownloadID)
 	assert.Equal(t, downloadv1alpha1.DownloadStageTransferring, got.Status.Stage)
-	assert.Empty(t, got.Finalizers, "this package never owns a finalizer -- see reconcileDeleting's doc comment")
+	assert.Equal(t, []string{engine.Finalizer}, got.Finalizers,
+		"the engine finalizer goes on with the first Add (ruling R-6), and it is the only one this package owns")
 
 	// A second reconcile must not re-Add (idempotent id) and must sync
 	// pause/seed-criteria/telemetry through the existing id.

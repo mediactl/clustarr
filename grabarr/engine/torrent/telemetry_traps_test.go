@@ -184,13 +184,12 @@ func TestApplyTelemetryManagedFieldsAreOnlyGrabarrEngine(t *testing.T) {
 
 // TestReconcileDeletingRemovesDataWhenRequestedAndTouchesNoOtherManagedField
 // mirrors grabarr/engine/usenet's identical test
-// (TestReconcileDeletingRemovesTransferAndTouchesNoOtherManagedField): this
-// package never owns a finalizer (see reconcileDeleting's doc comment for
-// why, and the cross-task convention it matches), so the object needs a
-// FOREIGN finalizer to keep it around with a deletionTimestamp at all --
-// exactly as the sibling's test does. reconcileDeleting must call
-// Client.Remove and nothing else: no status write, no managedFields entry of
-// its own, no finalizer touched.
+// (TestReconcileDeletingRemovesTransferAndTouchesNoOtherManagedField). A
+// FOREIGN finalizer (standing in for the Download controller's own) keeps
+// the object around once this engine has dropped its [engine.Finalizer],
+// so the test can look at what reconcileDeleting left behind: the transfer
+// removed, the engine finalizer gone and the foreign one untouched, and no
+// status write or managedFields entry of its own.
 func TestReconcileDeletingRemovesDataWhenRequestedAndTouchesNoOtherManagedField(t *testing.T) {
 	ctx := context.Background()
 	c := newEnvtestClient(t)
@@ -225,7 +224,9 @@ func TestReconcileDeletingRemovesDataWhenRequestedAndTouchesNoOtherManagedField(
 	assert.True(t, fc.removeCalls[0].deleteData)
 
 	var got downloadv1alpha1.Download
-	require.NoError(t, c.Get(ctx, key, &got), "the object must still exist -- this package owns no finalizer to release it")
+	require.NoError(t, c.Get(ctx, key, &got), "the object must still exist -- the foreign finalizer holds it")
+	assert.Equal(t, []string{"test.clustarr.io/keep"}, got.Finalizers,
+		"the engine finalizer must be dropped once the transfer is removed, and nothing else touched")
 	assert.NotEmpty(t, got.Status.DownloadID, "reconcileDeleting makes no status write of its own")
 
 	statusManagers := map[string]bool{}

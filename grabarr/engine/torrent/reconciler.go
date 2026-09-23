@@ -37,6 +37,7 @@ import (
 	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/download/v1alpha1"
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/grabarr/engine"
 	"github.com/mediactl/clustarr/grabarr/status"
 	"github.com/mediactl/clustarr/pkg/download"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -96,6 +97,14 @@ type Reconciler struct {
 	// PollInterval overrides [defaultPollInterval] for tests that would
 	// otherwise wait seconds between polls.
 	PollInterval time.Duration
+
+	// EpisodeReader reads the catalog Episodes a pack Download targets, so
+	// the transfer fetches only their files ([resolveSelection]). It is read
+	// once per Download, at its first Add, so production passes the
+	// manager's uncached mgr.GetAPIReader() rather than starting an Episode
+	// informer in every engine pod. Nil disables file selection: every file
+	// of every torrent is wanted, the behaviour before selection existed.
+	EpisodeReader client.Reader
 }
 
 func (r *Reconciler) httpClient() *http.Client {
@@ -143,6 +152,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return r.reconcileDeleting(ctx, log, &dl)
 	}
 
+	// The engine finalizer goes on before the transfer does, so no transfer
+	// ever exists for a Download that could be deleted without this engine
+	// hearing of it (ruling R-6; grabarr/engine's package doc). A write here
+	// does not end the reconcile -- pkg/k8s.EnsureFinalizer's "finalizer
+	// without early return".
+	if _, err := k8s.EnsureFinalizer(ctx, r.Client, &dl, engine.Finalizer); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	if dl.Status.DownloadID == "" {
 		return r.add(ctx, &dl)
 	}
@@ -172,6 +190,16 @@ func (r *Reconciler) add(ctx context.Context, dl *downloadv1alpha1.Download) (ct
 	category := r.category(ctx, dl)
 	seedCriteria := r.seedCriteria(ctx, dl)
 
+	// A selection that cannot be resolved -- an Episode deleted since the
+	// grab, a catalog read that failed -- degrades to the whole torrent
+	// rather than failing the add: fetching more than needed is the safe
+	// direction, and a transfer blocked on the catalog helps nobody.
+	selection, err := resolveSelection(ctx, r.EpisodeReader, downloadTarget{namespace: dl.Namespace, target: dl.Spec.Target})
+	if err != nil {
+		logging.FromContext(ctx).WarnContext(ctx, "torrent: file selection unavailable; fetching every file", "error", err)
+		selection = nil
+	}
+
 	addReq := download.AddRequest{
 		Name:             dl.Name,
 		Magnet:           res.Magnet,
@@ -181,6 +209,7 @@ func (r *Reconciler) add(ctx context.Context, dl *downloadv1alpha1.Download) (ct
 		Paused:           dl.Spec.Paused,
 		Priority:         dl.Spec.Priority,
 		SeedCriteria:     seedCriteria,
+		WantFile:         selection.selector(),
 	}
 
 	id, err := r.Engine.Client.Add(ctx, addReq)
@@ -196,6 +225,14 @@ func (r *Reconciler) add(ctx context.Context, dl *downloadv1alpha1.Download) (ct
 		return ctrl.Result{}, fmt.Errorf("torrent: add %s/%s: %w", dl.Namespace, dl.Name, err)
 	}
 
+	// Get before persisting: the descriptor records the client's own
+	// AddedAt, which for an idempotent re-Add of a transfer the client
+	// already held is the original add, not now.
+	item, err := r.Engine.Client.Get(ctx, id)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("torrent: get %s after add: %w", id, err)
+	}
+
 	if err := saveDescriptor(r.StateDir, id, res.Payload, descriptor{
 		Name:             dl.Name,
 		Category:         category,
@@ -204,6 +241,8 @@ func (r *Reconciler) add(ctx context.Context, dl *downloadv1alpha1.Download) (ct
 		Priority:         dl.Spec.Priority,
 		Paused:           dl.Spec.Paused,
 		SeedCriteria:     seedCriteria,
+		Selection:        selection,
+		AddedAt:          item.AddedAt,
 	}); err != nil {
 		// The transfer is already running in-process; a descriptor write
 		// failure means it will not survive THIS engine's next restart, not
@@ -213,10 +252,6 @@ func (r *Reconciler) add(ctx context.Context, dl *downloadv1alpha1.Download) (ct
 		return ctrl.Result{}, fmt.Errorf("torrent: persist descriptor for %s: %w", id, err)
 	}
 
-	item, err := r.Engine.Client.Get(ctx, id)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("torrent: get %s after add: %w", id, err)
-	}
 	if err := r.applyTelemetry(ctx, client.ObjectKeyFromObject(dl), item); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -322,38 +357,41 @@ func (r *Reconciler) handleMissingTransfer(ctx context.Context, dl *downloadv1al
 	return ctrl.Result{}, fmt.Errorf("torrent: %s has a persisted descriptor but %w", id, download.ErrNotFound)
 }
 
-// reconcileDeleting removes dl's transfer from the client, honouring
-// spec.removeDataOnDelete, and drops the persisted re-attach descriptor.
+// reconcileDeleting is this engine's half of the teardown protocol (ruling
+// R-6, grabarr/engine's package doc): remove dl's transfer from the client,
+// drop the persisted re-attach descriptor, then drop [engine.Finalizer] --
+// in that order, so the Download controller's removeDataOnDelete finalizer,
+// which waits for this one, never deletes files this engine still holds
+// open.
 //
-// It never touches metadata.finalizers. That is the landed, cross-task
-// convention this package matches rather than invents: D2-4's Download
-// controller (grabarr/controller/download/controller.go's reconcileDelete)
-// holds the sole finalizer (k8s.FinalizerFor(dl, scheme),
-// "download.clustarr.io/download") and does its own data removal directly
-// against the shared DataDir via fsops.SafeRemove(dl.Status.OutputPath) --
-// it does not wait for any engine. grabarr/engine/usenet's Reconciler
-// (D2-6, landed first) reaches the same conclusion independently: an engine
-// calls Client.Remove for its own in-process cleanup (releasing anacrolix's
-// handles on files the controller may delete out from under it) and idempotency
-// ([download.ErrNotFound] is success, matching Client.Remove's own contract),
-// but owning a second finalizer here would only race the controller's, which
-// does not coordinate with one. This package's earlier draft added its own
-// FinalizerEngine before D2-4 and D2-6 had landed in this shared worktree;
-// once both were readable it was removed to match, rather than leaving two
-// different answers to the identical question standing in one phase.
+// Remove honours spec.removeDataOnDelete itself, while the engine is
+// certain the transfer has released its files. The controller's own
+// finalizer then removes status.outputPath too; for the ordinary path that
+// finds nothing left, and for the path where this engine is gone and the
+// controller stopped waiting, it is the only removal there is.
+//
+// A Download with no status.downloadID never had a transfer recorded, so
+// there is nothing to remove, but the finalizer still goes: it was added
+// before the transfer, and holding the object for a transfer that never
+// existed would wedge its deletion until the controller's timeout.
 func (r *Reconciler) reconcileDeleting(ctx context.Context, log *slog.Logger, dl *downloadv1alpha1.Download) (ctrl.Result, error) {
-	id := dl.Status.DownloadID
-	if id == "" {
-		return ctrl.Result{}, nil
+	if id := dl.Status.DownloadID; id != "" {
+		deleteData := dl.Spec.RemoveDataOnDelete == nil || *dl.Spec.RemoveDataOnDelete
+		if err := r.Engine.Client.Remove(ctx, id, deleteData); err != nil && !errors.Is(err, download.ErrNotFound) {
+			return ctrl.Result{}, fmt.Errorf("torrent: remove %s on delete: %w", id, err)
+		}
+		if err := removeDescriptor(r.StateDir, id); err != nil {
+			// Logged, not retried: holding the Download hostage to a state-dir
+			// write is worse than the cost of a descriptor left behind, which
+			// is one re-attach on the next restart that the orphan reaper then
+			// removes -- descriptor and all.
+			log.ErrorContext(ctx, "torrent: remove descriptor on delete failed", "id", id, "error", err)
+		}
+		log.InfoContext(ctx, "torrent: removed transfer for a deleting Download", "id", id, "deleteData", deleteData)
 	}
-	deleteData := dl.Spec.RemoveDataOnDelete == nil || *dl.Spec.RemoveDataOnDelete
-	if err := r.Engine.Client.Remove(ctx, id, deleteData); err != nil && !errors.Is(err, download.ErrNotFound) {
-		return ctrl.Result{}, fmt.Errorf("torrent: remove %s on delete: %w", id, err)
+	if _, err := k8s.RemoveFinalizer(ctx, r.Client, dl, engine.Finalizer); err != nil {
+		return ctrl.Result{}, err
 	}
-	if err := removeDescriptor(r.StateDir, id); err != nil {
-		log.ErrorContext(ctx, "torrent: remove descriptor on delete failed", "id", id, "error", err)
-	}
-	log.InfoContext(ctx, "torrent: removed transfer for a deleting Download", "id", id, "deleteData", deleteData)
 	return ctrl.Result{}, nil
 }
 

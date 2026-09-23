@@ -454,6 +454,10 @@ func setupTorrentEngine(
 		EngineID: o.Engine,
 		StateDir: stateDir,
 		Resolver: torrent.NewBusIndexerResolver(bus),
+		// Uncached: the Episodes a pack targets are read once per Download,
+		// at its first Add, for file selection -- not worth an Episode
+		// informer in every engine pod.
+		EpisodeReader: mgr.GetAPIReader(),
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
 		return nil, nil, fmt.Errorf("grabarr: torrent-engine reconciler: %w", err)

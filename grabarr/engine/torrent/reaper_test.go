@@ -30,7 +30,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/grabarr/engine"
 	"github.com/mediactl/clustarr/pkg/download"
+	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
 // TestReaperReapsOrphanAfterDeleteWithNoWatchEvent is D2-8b's own test
@@ -89,12 +91,16 @@ func TestReaperReapsOrphanAfterDeleteWithNoWatchEvent(t *testing.T) {
 	_, err = fc.Get(ctx, id)
 	require.NoError(t, err, "a matched transfer must never be removed")
 
-	// Delete the Download directly. No finalizer is set (this package never
-	// claims one -- see doc.go), so it is gone from the apiserver
-	// immediately, exactly as it would be once grabarr/controller/download's
-	// finalizer has already run fsops.SafeRemove and dropped its own
-	// finalizer without waiting for this engine.
+	// Delete the Download, then drop the engine finalizer the Reconcile
+	// added without letting this engine run -- exactly what the Download
+	// controller does on the engine's behalf once the engine has been gone
+	// past its teardown timeout (ruling R-6), and the only way a transfer
+	// outlives its Download now.
+	require.Equal(t, []string{engine.Finalizer}, got.Finalizers)
 	require.NoError(t, c.Delete(ctx, &got))
+	require.NoError(t, c.Get(ctx, req.NamespacedName, &got))
+	_, err = k8s.RemoveFinalizer(ctx, c, &got, engine.Finalizer)
+	require.NoError(t, err)
 	err = c.Get(ctx, req.NamespacedName, &downloadv1alpha1.Download{})
 	require.True(t, apierrors.IsNotFound(err), "the Download must be fully gone, not merely marked for deletion")
 
