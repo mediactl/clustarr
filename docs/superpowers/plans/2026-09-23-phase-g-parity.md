@@ -92,14 +92,20 @@ Per **R4**. `make css`, committed `ui/static/app.css`, `go:embed`, CDN Tailwind 
 Library (amendment §A3: poster grid, detail modal, monitor/unmonitor/search actions, SSE on status change) and Unmatched (`LibraryScan.status.unmatched`, candidates, manual-assign using G2-4's annotations). Extend `ui/projection` rather than adding tickers — D3 R4. Stable `data-*` attributes on every row.
 
 ### G3-4 — import lists and settings pages
+**Note from G3-1:** the role test deliberately refuses any write grant not declared in `actions.Grants()`. Settings forms that patch spec on new kinds (root folders, quality profiles, indexers, download clients, providers) must add each grant to **both** `actions.Grants()` and `config/rbac/ui_role.yaml` (and its chart copy); the test cross-checks them. Use merge patch as G3-1 did — an SSA apply by `clustarr-ui` would release fields a previous UI edit owned.
 Import lists (schedule, last sync, counts, Trakt device code from G1-3's status). Settings (root folders, quality profiles, indexers, download clients, providers, profiles) as edit forms that **patch spec only**, per §A3, via `ui/actions`.
 
 ### G3-5 — G3 wiring, and the projection-stream guard
 Every new route and stream wired in both `clustarr ui` and `clustarr all`; `cmd/clustarr/ui_projection_wiring_test.go` covers any new `Subscribe*` automatically.
 
+**Carried into G3-5 from G3-1 (`4b146af`):**
+- **`Options.Actions` is set nowhere, so every UI action returns `ErrNoWriter`.** Build `actions.New(client)` from a real client with ui's scheme in **both** `clustarr ui` and `clustarr all`. Add a guard in the style of `ui_projection_wiring_test.go` so an unset `Actions` is a red test, not a UI whose buttons silently do nothing.
+- Stale text to correct: `CLAUDE.md` names `TestUIRoleGrantsOnlyReadVerbs` (renamed `TestUIRoleGrantsOnlyReadsAndActionWrites`) and says the D3 AST guard checks only calls on the `client` package (it matches the method name on anything); `config/manager/ui.yaml:13` still says the ServiceAccount is "bound, read-only"; amendment-1 §A3.2 says the UI "holds no field manager" — ruling R2 gives it `clustarr-ui` for spec, never status. Amend §A3.2 with a dated note rather than rewriting it.
+
 ## G4 — fixtures, e2e (written, not run), gate
 
 ### G4-1 — fixtures and scenarios 9, 10, 11 and the rest of 14
+**Fix first (from G3-1):** `test/e2e/ui_test.go`'s `requireNoUIManager` rejects **any** manager whose name contains `ui` on the whole object. After R2 the UI legitimately owns `spec.monitored` under `clustarr-ui`, so the first e2e that performs a UI action would fail spuriously. Narrow it to the actual invariant: no `clustarr-ui` entry on the **status** subresource — the same assertion `TestUIManagerNeverOwnsStatus` makes in envtest.
 The Cardigann tracker page, import-list stubs and non-video metadata stubs in `test/fixtures/`, deployed from `config/e2e`. **Do not run.**
 
 ### G4-2 — gate, CLAUDE.md Status, carried list
