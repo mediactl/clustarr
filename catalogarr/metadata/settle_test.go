@@ -19,6 +19,7 @@ package metadata
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -58,4 +59,37 @@ func TestSettlementMapsProviderErrorsToBusActions(t *testing.T) {
 		want := errors.New("boom")
 		require.Same(t, want, settlement(want))
 	})
+}
+
+// TestSettlementDecidesPerProvider is the X6b fix: Registry.Lookup joins
+// every provider's error, errors.Is matches any one of them, and a joined
+// not-found used to Discard a task another provider would have answered
+// on a retry.
+func TestSettlementDecidesPerProvider(t *testing.T) {
+	transient := errors.New("tvdb: unexpected status 502")
+	unsupported := fmt.Errorf("%w: %q: %w", errors.New("mangadex: not a manga UUID"), "4050-1", pkgmetadata.ErrUnsupported)
+	tests := []struct {
+		name    string
+		err     error
+		discard bool
+	}{
+		{"not found beside a transient failure stays retryable", errors.Join(pkgmetadata.ErrNotFound, transient), false},
+		{"credentials rejected beside a transient failure stays retryable", errors.Join(transient, pkgmetadata.ErrAuth), false},
+		{"wrapped, the join is still split", fmt.Errorf("lookup: %w", errors.Join(pkgmetadata.ErrNotFound, transient)), false},
+		{"every provider saying not found is final", errors.Join(pkgmetadata.ErrNotFound, fmt.Errorf("tmdb: %w", pkgmetadata.ErrNotFound)), true},
+		{"not found beside a provider that cannot use the ids is final", errors.Join(pkgmetadata.ErrNotFound, unsupported), true},
+		{"one provider's error wrapping two sentinels is one answer", errors.Join(unsupported), false},
+		{"a single provider's not found is final", errors.Join(pkgmetadata.ErrNotFound), true},
+		{"a not found that wraps its detail with a second %w is one final answer", fmt.Errorf("%w: %w", pkgmetadata.ErrNotFound, errors.New("tmdb: 404 for /movie/1")), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := settlement(tt.err)
+			var de *events.DiscardError
+			require.Equal(t, tt.discard, errors.As(got, &de), "settlement(%v) = %v", tt.err, got)
+			if !tt.discard {
+				require.Same(t, tt.err, got, "a retryable error passes through to the subscription backoff")
+			}
+		})
+	}
 }
