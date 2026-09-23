@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/indexarr/bundle"
 	"github.com/mediactl/clustarr/indexarr/controller/indexer"
 	"github.com/mediactl/clustarr/indexarr/controller/indexerdefinition"
 	"github.com/mediactl/clustarr/indexarr/controller/indexerproxy"
@@ -166,6 +167,14 @@ type Options struct {
 	// It is a NAME, never a key: a key in a flag or its default would sit
 	// in argv, `ps` and --help.
 	FacadeAPIKeySecret string
+
+	// CardigannDefinitionsDir is a Cardigann definition bundle to load as
+	// IndexerDefinitions at startup (--cardigann-definitions-dir): a
+	// directory of definition YAML files, such as hack/sync-cardigann
+	// writes, mounted into the pod. Empty loads nothing -- Clustarr ships no
+	// corpus (ruling R-13), so an Indexer's spec.definition resolves only
+	// against IndexerDefinitions someone created. See indexarr/bundle.
+	CardigannDefinitionsDir string
 
 	// Logging configures this process's root logger. The zero value is a
 	// reasonable default: JSON to stderr at info level.
@@ -376,6 +385,9 @@ func Run(ctx context.Context, o Options) error {
 		if err := setupControllers(mgr, bus, clients); err != nil {
 			return err
 		}
+		if err := setupBundle(mgr, o); err != nil {
+			return err
+		}
 	}
 	if o.Role.RunsWorkers() {
 		verbs, err := setupWorkers(mgr, bus, store, clients)
@@ -571,6 +583,25 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, clients *indexer.ClientC
 		return fmt.Errorf("indexarr: indexerproxy: %w", err)
 	}
 
+	return nil
+}
+
+// setupBundle registers the Cardigann bundle loader when
+// --cardigann-definitions-dir names a bundle (task X14; X8a built
+// cardigann.LoadBundle and left its consumer to the wiring): it applies every
+// definition the bundle accepts as a labelled IndexerDefinition, once, after
+// the caches sync, and leaves any same-named IndexerDefinition that is not
+// the bundle's alone (see indexarr/bundle). A bundle directory that cannot
+// be read stops the manager: the operator asked for definitions that are
+// not there.
+func setupBundle(mgr ctrl.Manager, o Options) error {
+	if o.CardigannDefinitionsDir == "" {
+		return nil
+	}
+	loader := &bundle.Loader{Client: mgr.GetClient(), Dir: o.CardigannDefinitionsDir}
+	if err := mgr.Add(k8s.EveryReplica(loader.Run)); err != nil {
+		return fmt.Errorf("indexarr: add the Cardigann bundle loader: %w", err)
+	}
 	return nil
 }
 

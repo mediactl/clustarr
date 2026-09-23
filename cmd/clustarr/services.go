@@ -114,6 +114,7 @@ func newIndexarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command
 		indexPath    string
 		facade       string
 		facadeSecret string
+		definitions  string
 	)
 
 	cmd := &cobra.Command{
@@ -137,16 +138,21 @@ func newIndexarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command
 		"Secret in --namespace whose every non-blank entry is an API key the Torznab facade accepts; "+
 			"created with one random key under \""+indexarr.FacadeAPIKeyField+"\" when absent. The facade "+
 			"never serves without a key. Defaults to $"+facadeAPIKeySecretEnv+".")
+	cmd.Flags().StringVar(&definitions, "cardigann-definitions-dir", envOr(cardigannDefinitionsDirEnv, ""),
+		"Directory of Cardigann definition files (what hack/sync-cardigann writes) to load as IndexerDefinitions "+
+			"at startup, so an Indexer's spec.definition can name any of them. Empty loads none: Clustarr ships no "+
+			"corpus. Defaults to $"+cardigannDefinitionsDirEnv+".")
 
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		return runIndexarr(cmd.Context(), indexarr.Options{
-			Options:            *common,
-			Role:               indexarr.Role(role),
-			IndexPath:          indexPath,
-			FacadeBindAddress:  facade,
-			FacadeAPIKeySecret: facadeSecret,
-			Logging:            *lo,
-			Tracing:            tracingFor(to, indexarr.ServiceName),
+			Options:                 *common,
+			Role:                    indexarr.Role(role),
+			IndexPath:               indexPath,
+			FacadeBindAddress:       facade,
+			FacadeAPIKeySecret:      facadeSecret,
+			CardigannDefinitionsDir: definitions,
+			Logging:                 *lo,
+			Tracing:                 tracingFor(to, indexarr.ServiceName),
 		})
 	}
 	return cmd

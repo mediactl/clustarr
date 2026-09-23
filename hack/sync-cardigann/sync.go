@@ -30,7 +30,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"testing/fstest"
@@ -285,22 +284,11 @@ func readEntry(r io.Reader, name string) ([]byte, error) {
 	return data, nil
 }
 
-// dnsLabelInvalid is every run of characters a Kubernetes object name may
-// not contain.
-var dnsLabelInvalid = regexp.MustCompile(`[^a-z0-9.-]+`)
-
-// objectName turns a definition id into an IndexerDefinition name (DNS-1123
-// subdomain): lower-cased, other characters replaced by "-". The corpus
-// needs this once, for "Bittorrentfiles". The id itself is untouched in
-// spec.yaml, which is what an Indexer's spec.definition resolves against.
-func objectName(id string) string {
-	name := dnsLabelInvalid.ReplaceAllString(strings.ToLower(id), "-")
-	name = strings.Trim(name, "-.")
-	if len(name) > 253 {
-		name = strings.Trim(name[:253], "-.")
-	}
-	return name
-}
+// objectName turns a definition id into an IndexerDefinition name: the one
+// rule both producers of bundle objects share, cardigann.ObjectName, so the
+// manifests this writes and the objects indexarr's bundle loader creates
+// from the same corpus have the same names.
+func objectName(id string) string { return cardigann.ObjectName(id) }
 
 // dedupeNames refuses a definition whose object name another accepted
 // definition already has (ids differing only in case).

@@ -111,6 +111,13 @@ const (
 	// because the GID is per host install (images/Dockerfile.media's header
 	// names the flag); the chart sets it from squasharr.intelRenderGroups.
 	intelRenderGroupsEnv = "CLUSTARR_INTEL_RENDER_GROUPS"
+
+	// cardigannDefinitionsDirEnv is the default for indexarr's
+	// --cardigann-definitions-dir: a mounted directory of Cardigann
+	// definitions (what hack/sync-cardigann writes) to load as
+	// IndexerDefinitions at startup. No manifest sets it: Clustarr ships no
+	// corpus (ruling R-13), so an operator who wants one mounts it.
+	cardigannDefinitionsDirEnv = "CLUSTARR_CARDIGANN_DEFINITIONS_DIR"
 )
 
 // envOr returns $name when it is set and non-empty, and fallback otherwise.

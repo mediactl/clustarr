@@ -59,6 +59,7 @@ import (
 	"github.com/mediactl/clustarr/importarr"
 	importlistworker "github.com/mediactl/clustarr/importarr/worker/importlist"
 	"github.com/mediactl/clustarr/indexarr"
+	"github.com/mediactl/clustarr/indexarr/bundle"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -562,13 +563,28 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 				// would collide with whatever this machine already runs.
 				facadeAddr = freeAddress(t)
 				t.Setenv(facadeBindAddressEnv, facadeAddr)
+				// A one-definition Cardigann bundle, loaded the way `clustarr
+				// all` loads one: from $CLUSTARR_CARDIGANN_DEFINITIONS_DIR
+				// (X14, --cardigann-definitions-dir).
+				bundleDir := t.TempDir()
+				def, err := os.ReadFile("../../testdata/cardigann/1337x.yml")
+				if err != nil {
+					t.Fatalf("read the bundle fixture: %v", err)
+				}
+				if err := os.WriteFile(filepath.Join(bundleDir, "1337x.yml"), def, 0o600); err != nil {
+					t.Fatalf("write the bundle: %v", err)
+				}
+				t.Setenv(cardigannDefinitionsDirEnv, bundleDir)
 			},
 			run: allServiceRun(t, "indexarr"),
 			// The Torznab facade (plan task G1-2) was built, tested with
 			// httptest and bound to nothing: indexarr.Options had carried a
 			// FacadeBindAddress since M0 that no code read. So the proof is a
 			// dial of the real port, not a flag that parses.
-			verify: func(t *testing.T) { verifyFacade(t, env.Config, facadeAddr) },
+			verify: func(t *testing.T) {
+				verifyFacade(t, env.Config, facadeAddr)
+				verifyBundle(t, env.Config)
+			},
 		},
 		// ui had no presence in this table before plan task G3-5, and two
 		// halves of it were unreachable in production. The Library,
@@ -1098,6 +1114,28 @@ func verifyFacade(t *testing.T, cfg *rest.Config, addr string) {
 	if code != http.StatusBadGateway || !strings.Contains(body, "build client for default/facade-cardigann") {
 		t.Errorf("a definition-backed grab got %d %q, want 502 from building the Cardigann engine", code, body)
 	}
+}
+
+// verifyBundle waits for indexarr's Cardigann bundle loader (X14; the
+// consumer X8a's cardigann.LoadBundle was built for) to turn the bundle the
+// case mounted into a labelled IndexerDefinition, and for the
+// IndexerDefinition controller to parse it -- status.id is what an Indexer's
+// spec.definition resolves against.
+func verifyBundle(t *testing.T, cfg *rest.Config) {
+	t.Helper()
+	ctx := context.Background()
+	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	if err != nil {
+		t.Fatalf("build client: %v", err)
+	}
+	waitFor(t, "the bundle loader's IndexerDefinition 1337x, parsed", func() bool {
+		var d indexv1alpha1.IndexerDefinition
+		return c.Get(ctx, client.ObjectKey{Name: "1337x"}, &d) == nil &&
+			d.Labels[bundle.LabelBundled] == "true" && d.Status.ID == "1337x"
+	})
+	t.Cleanup(func() {
+		_ = c.Delete(context.Background(), &indexv1alpha1.IndexerDefinition{ObjectMeta: metav1.ObjectMeta{Name: "1337x"}})
+	})
 }
 
 // waitForLong is waitFor with room for a leader election: a released lease

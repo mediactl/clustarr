@@ -235,6 +235,37 @@ func TestIndexarrFacadeSettings(t *testing.T) {
 	}
 }
 
+// TestIndexarrCardigannDefinitionsDir holds --cardigann-definitions-dir
+// (X14) to indexarr.Options, from the flag, from
+// $CLUSTARR_CARDIGANN_DEFINITIONS_DIR and from `clustarr all`; the start
+// envtest's indexarr case holds the rest, the directory to IndexerDefinitions.
+func TestIndexarrCardigannDefinitionsDir(t *testing.T) {
+	got := stub(t, &runIndexarr)
+	if _, err := execute(t, "indexarr", "--namespace", "clustarr", "--cardigann-definitions-dir", "/bundle"); err != nil {
+		t.Fatalf("clustarr indexarr: %v", err)
+	}
+	if got.CardigannDefinitionsDir != "/bundle" {
+		t.Errorf("CardigannDefinitionsDir = %q, want the flag's /bundle", got.CardigannDefinitionsDir)
+	}
+
+	t.Setenv(cardigannDefinitionsDirEnv, "/from-env")
+	if _, err := execute(t, "indexarr", "--namespace", "clustarr"); err != nil {
+		t.Fatalf("clustarr indexarr: %v", err)
+	}
+	if got.CardigannDefinitionsDir != "/from-env" {
+		t.Errorf("CardigannDefinitionsDir = %q, want $%s's /from-env", got.CardigannDefinitionsDir, cardigannDefinitionsDirEnv)
+	}
+
+	all := stub(t, &runIndexarr)
+	if err := allServiceRun(t, "indexarr")(context.Background(), k8s.DefaultOptions()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if all.CardigannDefinitionsDir != "/from-env" {
+		t.Errorf("`clustarr all` gives indexarr CardigannDefinitionsDir %q, want $%s's /from-env",
+			all.CardigannDefinitionsDir, cardigannDefinitionsDirEnv)
+	}
+}
+
 // TestGrabarrDataClaimComesFromTheEnvironment: the DownloadClient controller
 // stamps --data-claim onto every engine workload, config/ relies on its
 // default and the chart sets $CLUSTARR_DATA_CLAIM, because the chart's claim

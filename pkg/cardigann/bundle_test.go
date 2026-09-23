@@ -81,3 +81,24 @@ func TestLoadBundleFailsOnlyWhenTheDirectoryCannotBeRead(t *testing.T) {
 	assert.Empty(t, defs)
 	assert.Empty(t, issues)
 }
+
+// TestObjectName pins the IndexerDefinition name a bundled definition gets:
+// hack/sync-cardigann's manifests and indexarr's bundle loader both name
+// objects through it, so they converge on one object per definition.
+func TestObjectName(t *testing.T) {
+	for in, want := range map[string]string{
+		"1337x":           "1337x",
+		"Bittorrentfiles": "bittorrentfiles",
+		"a_b.c":           "a-b.c",
+		"--x--":           "x",
+		"___":             "",
+	} {
+		if got := cardigann.ObjectName(in); got != want {
+			t.Errorf("ObjectName(%q) = %q, want %q", in, got, want)
+		}
+	}
+	long := strings.Repeat("a", 300)
+	if got := cardigann.ObjectName(long); len(got) != 253 {
+		t.Errorf("ObjectName of a 300-character id is %d characters, want 253", len(got))
+	}
+}

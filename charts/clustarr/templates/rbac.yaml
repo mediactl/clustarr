@@ -395,11 +395,11 @@ rules:
   - index.clustarr.io
   resources:
   - indexerdefinitions
-  - indexerproxies
-  - indexers
   verbs:
+  - create
   - get
   - list
+  - patch
   - watch
 - apiGroups:
   - index.clustarr.io
@@ -411,6 +411,15 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - index.clustarr.io
+  resources:
+  - indexerproxies
+  - indexers
+  verbs:
+  - get
+  - list
+  - watch
 # END generated from config/rbac/indexarr_role.yaml.
 {{- end }}
 {{- if hasKey $roles "grabarr" }}

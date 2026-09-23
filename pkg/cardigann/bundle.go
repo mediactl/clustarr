@@ -24,6 +24,7 @@ import (
 	"io"
 	"io/fs"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -61,6 +62,29 @@ type BundledDefinition struct {
 // ID is the definition's own id, the name an Indexer's spec.definition
 // selects it by.
 func (b BundledDefinition) ID() string { return b.Definition.ID }
+
+// objectNameInvalid is every run of characters a Kubernetes object name may
+// not contain.
+var objectNameInvalid = regexp.MustCompile(`[^a-z0-9.-]+`)
+
+// ObjectName is the IndexerDefinition name a bundled definition is created
+// under: its id as a DNS-1123 subdomain -- lower-cased, other characters
+// replaced by "-", trimmed of leading and trailing separators, capped at 253.
+// The corpus needs this once, for "Bittorrentfiles". The id itself is
+// untouched in spec.yaml, which is what an Indexer's spec.definition
+// resolves against. Both producers of bundle objects name them through
+// this -- hack/sync-cardigann's manifests and indexarr's bundle loader --
+// so applying the one and mounting the other converge on the same objects
+// instead of creating each definition twice. "" means the id yields no
+// valid name.
+func ObjectName(id string) string {
+	name := objectNameInvalid.ReplaceAllString(strings.ToLower(id), "-")
+	name = strings.Trim(name, "-.")
+	if len(name) > 253 {
+		name = strings.Trim(name[:253], "-.")
+	}
+	return name
+}
 
 // BundleIssue is one file LoadBundle refused, and why. Err is bounded (a
 // schema failure is a *SchemaError), so it can go into a condition message.
