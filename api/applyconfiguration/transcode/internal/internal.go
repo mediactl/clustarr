@@ -527,15 +527,24 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: associative
           keys:
           - type
+    - name: fallbackReason
+      type:
+        scalar: string
     - name: finishedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: hardware
+      type:
+        namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.Hardware
     - name: jobRef
       type:
         scalar: string
     - name: message
       type:
         scalar: string
+    - name: nextAttemptAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
     - name: observedGeneration
       type:
         scalar: numeric
@@ -555,6 +564,9 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
     - name: stderrTail
+      type:
+        scalar: string
+    - name: workerPod
       type:
         scalar: string
 - name: com.github.mediactl.clustarr.api.transcode.v1alpha1.TranscodeProfile
@@ -620,7 +632,7 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: hardware
       type:
         namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.Hardware
-      default: cpu
+      default: auto
     - name: hdr
       type:
         namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.HDRSpec

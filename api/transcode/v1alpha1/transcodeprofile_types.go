@@ -36,7 +36,7 @@ const (
 
 // Hardware selects the encoder backend a transcode runs on.
 //
-// +kubebuilder:validation:Enum=cpu;nvidia;intel
+// +kubebuilder:validation:Enum=cpu;nvidia;intel;auto
 type Hardware string
 
 // Hardware backends.
@@ -44,6 +44,9 @@ const (
 	HardwareCPU    Hardware = "cpu"
 	HardwareNVIDIA Hardware = "nvidia"
 	HardwareIntel  Hardware = "intel"
+	// HardwareAuto prefers a GPU class with a labelled GPU node and a free slot,
+	// else cpu, chosen per task at dispatch (spec §18.5).
+	HardwareAuto Hardware = "auto"
 )
 
 // KeepOriginalPolicy says when the original audio track is kept alongside
@@ -435,9 +438,10 @@ type TranscodeProfileSpec struct {
 	// +kubebuilder:default="mkv"
 	Container Container `json:"container,omitempty"`
 
-	// Hardware is the encoder backend.
+	// Hardware is the encoder backend: auto is chosen per task, with CPU
+	// fallback; cpu, nvidia and intel are pinned and never fall back.
 	// +optional
-	// +kubebuilder:default="cpu"
+	// +kubebuilder:default="auto"
 	Hardware Hardware `json:"hardware,omitempty"`
 
 	// Video describes the video encode.
@@ -505,15 +509,17 @@ type TranscodeProfileSpec struct {
 	// +kubebuilder:validation:Minimum=0
 	MaxConcurrent int32 `json:"maxConcurrent,omitempty"`
 
-	// ActiveDeadline is the batch Job activeDeadlineSeconds for the encode.
-	// A Go client always sends a Duration, so the controller floors a zero
-	// (or negative) one to the 48h default when it builds the Job, rather
-	// than running the encode with no deadline at all.
+	// ActiveDeadline is each task's deadline, enforced by the worker; a task
+	// past it is blocked as DeadlineExceeded. A Go client always sends a
+	// Duration, so the controller floors a zero (or negative) one to the 48h
+	// default when it builds the Job, rather than running the encode with no
+	// deadline at all.
 	// +optional
 	// +kubebuilder:default="48h"
 	ActiveDeadline metav1.Duration `json:"activeDeadline,omitempty"`
 
-	// TTLSecondsAfterFinished is the batch Job ttlSecondsAfterFinished.
+	// TTLSecondsAfterFinished: Deprecated: ignored. Transcode pools never
+	// finish; this is removed at the next API version.
 	// +optional
 	// +kubebuilder:default=86400
 	TTLSecondsAfterFinished int32 `json:"ttlSecondsAfterFinished,omitempty"`

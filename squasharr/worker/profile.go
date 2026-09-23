@@ -45,8 +45,11 @@ import (
 // the profile's encoder backend for one job.
 func ProfileSpec(spec transcodev1alpha1.TranscodeProfileSpec, hardware *transcodev1alpha1.Hardware) transcode.ProfileSpec {
 	hw := spec.Hardware
-	if hardware != nil && *hardware != "" {
+	if hardware != nil && *hardware != "" && *hardware != transcodev1alpha1.HardwareAuto {
 		hw = *hardware
+	}
+	if hw == transcodev1alpha1.HardwareAuto || hw == "" {
+		hw = transcodev1alpha1.HardwareCPU // auto with no class chosen yet plans for CPU
 	}
 	v := spec.Video
 	return transcode.ProfileSpec{

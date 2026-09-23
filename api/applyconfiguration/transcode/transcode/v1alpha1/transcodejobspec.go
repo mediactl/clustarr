@@ -41,7 +41,7 @@ type TranscodeJobSpecApplyConfiguration struct {
 	OutputPath *string `json:"outputPath,omitempty"`
 	// Priority orders jobs; higher runs first.
 	Priority *int32 `json:"priority,omitempty"`
-	// Hardware overrides the profile's encoder backend.
+	// Hardware overrides the profile's hardware for this job; auto is allowed.
 	Hardware *transcodev1alpha1.Hardware `json:"hardware,omitempty"`
 	// Suspend pauses the job (user pause).
 	Suspend *bool `json:"suspend,omitempty"`

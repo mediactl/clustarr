@@ -28,10 +28,9 @@ import (
 // TranscodeJobStatusApplyConfiguration represents a declarative configuration of the TranscodeJobStatus type for use
 // with apply.
 //
-// TranscodeJobStatus defines the observed state of TranscodeJob. The
-// controller (squasharr) owns phase, plan, jobRef, attempts, timestamps,
-// message and conditions; the worker (squasharr-worker) owns progress, result
-// and stderrTail via server-side apply with a disjoint field set.
+// TranscodeJobStatus defines the observed state of TranscodeJob. squasharr
+// writes every field, from its reconciler and from the worker's status events
+// (spec §18.2).
 type TranscodeJobStatusApplyConfiguration struct {
 	// ObservedGeneration is the most recent generation observed by the controller.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
@@ -39,9 +38,10 @@ type TranscodeJobStatusApplyConfiguration struct {
 	Phase *transcodev1alpha1.TranscodeJobPhase `json:"phase,omitempty"`
 	// Plan is the planner's rendered decision.
 	Plan *PlanApplyConfiguration `json:"plan,omitempty"`
-	// JobRef is the name of the batch Job running the encode.
+	// JobRef names the pool Job whose workers take this job's task (one per
+	// profile and hardware class).
 	JobRef *string `json:"jobRef,omitempty"`
-	// Attempts is the number of encode attempts so far.
+	// Attempts counts dispatches: each publish of this job's task increments it.
 	Attempts *int32 `json:"attempts,omitempty"`
 	// StartedAt is when the encode started.
 	StartedAt *v1.Time `json:"startedAt,omitempty"`
@@ -55,6 +55,16 @@ type TranscodeJobStatusApplyConfiguration struct {
 	Result *ResultApplyConfiguration `json:"result,omitempty"`
 	// StderrTail is the tail of the encoder's stderr, at most 4 KiB.
 	StderrTail *string `json:"stderrTail,omitempty"`
+	// WorkerPod is the pool pod running this job's current attempt, so
+	// `kubectl logs` can find it. Empty when no worker has claimed it.
+	WorkerPod *string `json:"workerPod,omitempty"`
+	// Hardware is the class the current attempt was dispatched to.
+	Hardware *transcodev1alpha1.Hardware `json:"hardware,omitempty"`
+	// FallbackReason, once set, keeps an auto job on CPU: why its GPU attempt
+	// was abandoned (spec §18.5).
+	FallbackReason *string `json:"fallbackReason,omitempty"`
+	// NextAttemptAt holds a requeued job back from dispatch until then.
+	NextAttemptAt *v1.Time `json:"nextAttemptAt,omitempty"`
 	// Conditions holds Planned, JobCreated, Verified, Succeeded and Failed.
 	Conditions []metav1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 }
@@ -150,6 +160,38 @@ func (b *TranscodeJobStatusApplyConfiguration) WithResult(value *ResultApplyConf
 // If called multiple times, the StderrTail field is set to the value of the last call.
 func (b *TranscodeJobStatusApplyConfiguration) WithStderrTail(value string) *TranscodeJobStatusApplyConfiguration {
 	b.StderrTail = &value
+	return b
+}
+
+// WithWorkerPod sets the WorkerPod field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the WorkerPod field is set to the value of the last call.
+func (b *TranscodeJobStatusApplyConfiguration) WithWorkerPod(value string) *TranscodeJobStatusApplyConfiguration {
+	b.WorkerPod = &value
+	return b
+}
+
+// WithHardware sets the Hardware field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Hardware field is set to the value of the last call.
+func (b *TranscodeJobStatusApplyConfiguration) WithHardware(value transcodev1alpha1.Hardware) *TranscodeJobStatusApplyConfiguration {
+	b.Hardware = &value
+	return b
+}
+
+// WithFallbackReason sets the FallbackReason field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the FallbackReason field is set to the value of the last call.
+func (b *TranscodeJobStatusApplyConfiguration) WithFallbackReason(value string) *TranscodeJobStatusApplyConfiguration {
+	b.FallbackReason = &value
+	return b
+}
+
+// WithNextAttemptAt sets the NextAttemptAt field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the NextAttemptAt field is set to the value of the last call.
+func (b *TranscodeJobStatusApplyConfiguration) WithNextAttemptAt(value v1.Time) *TranscodeJobStatusApplyConfiguration {
+	b.NextAttemptAt = &value
 	return b
 }
 

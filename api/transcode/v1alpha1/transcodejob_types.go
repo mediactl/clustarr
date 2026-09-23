@@ -76,6 +76,9 @@ const (
 	TranscodeJobConditionSucceeded = "Succeeded"
 	// TranscodeJobConditionFailed is True once the job failed permanently.
 	TranscodeJobConditionFailed = "Failed"
+	// ConditionBlocked is True for a terminal Failed job squasharr will not
+	// retry; delete the TranscodeJob to retry (spec §18.4).
+	ConditionBlocked = "Blocked"
 )
 
 // TranscodeJobSpec defines the desired state of TranscodeJob.
@@ -109,7 +112,7 @@ type TranscodeJobSpec struct {
 	// +optional
 	Priority int32 `json:"priority,omitempty"`
 
-	// Hardware overrides the profile's encoder backend.
+	// Hardware overrides the profile's hardware for this job; auto is allowed.
 	// +optional
 	Hardware *Hardware `json:"hardware,omitempty"`
 
@@ -244,10 +247,9 @@ type Result struct {
 	MediaInfo *commonv1alpha1.MediaInfo `json:"mediaInfo,omitempty"`
 }
 
-// TranscodeJobStatus defines the observed state of TranscodeJob. The
-// controller (squasharr) owns phase, plan, jobRef, attempts, timestamps,
-// message and conditions; the worker (squasharr-worker) owns progress, result
-// and stderrTail via server-side apply with a disjoint field set.
+// TranscodeJobStatus defines the observed state of TranscodeJob. squasharr
+// writes every field, from its reconciler and from the worker's status events
+// (spec §18.2).
 type TranscodeJobStatus struct {
 	// ObservedGeneration is the most recent generation observed by the controller.
 	// +optional
@@ -261,11 +263,12 @@ type TranscodeJobStatus struct {
 	// +optional
 	Plan *Plan `json:"plan,omitempty"`
 
-	// JobRef is the name of the batch Job running the encode.
+	// JobRef names the pool Job whose workers take this job's task (one per
+	// profile and hardware class).
 	// +optional
 	JobRef *string `json:"jobRef,omitempty"`
 
-	// Attempts is the number of encode attempts so far.
+	// Attempts counts dispatches: each publish of this job's task increments it.
 	// +optional
 	Attempts int32 `json:"attempts,omitempty"`
 
@@ -294,6 +297,26 @@ type TranscodeJobStatus struct {
 	// +kubebuilder:validation:MaxLength=4096
 	StderrTail string `json:"stderrTail,omitempty"`
 
+	// WorkerPod is the pool pod running this job's current attempt, so
+	// `kubectl logs` can find it. Empty when no worker has claimed it.
+	// +optional
+	// +kubebuilder:validation:MaxLength=253
+	WorkerPod string `json:"workerPod,omitempty"`
+
+	// Hardware is the class the current attempt was dispatched to.
+	// +optional
+	Hardware Hardware `json:"hardware,omitempty"`
+
+	// FallbackReason, once set, keeps an auto job on CPU: why its GPU attempt
+	// was abandoned (spec §18.5).
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	FallbackReason string `json:"fallbackReason,omitempty"`
+
+	// NextAttemptAt holds a requeued job back from dispatch until then.
+	// +optional
+	NextAttemptAt *metav1.Time `json:"nextAttemptAt,omitempty"`
+
 	// Conditions holds Planned, JobCreated, Verified, Succeeded and Failed.
 	// +optional
 	// +listType=map
@@ -317,6 +340,8 @@ type TranscodeJobStatus struct {
 // +kubebuilder:printcolumn:name="Mode",type="string",JSONPath=".status.plan.mode",priority=1
 // +kubebuilder:printcolumn:name="Progress",type="integer",JSONPath=".status.progress.percent"
 // +kubebuilder:printcolumn:name="Attempts",type="integer",JSONPath=".status.attempts",priority=1
+// +kubebuilder:printcolumn:name="Hardware",type=string,JSONPath=".status.hardware"
+// +kubebuilder:printcolumn:name="Worker",type=string,JSONPath=".status.workerPod",priority=1
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 type TranscodeJob struct {
 	metav1.TypeMeta   `json:",inline"`

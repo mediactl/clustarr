@@ -448,6 +448,10 @@ func (in *TranscodeJobStatus) DeepCopyInto(out *TranscodeJobStatus) {
 		*out = new(Result)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.NextAttemptAt != nil {
+		in, out := &in.NextAttemptAt, &out.NextAttemptAt
+		*out = (*in).DeepCopy()
+	}
 	if in.Conditions != nil {
 		in, out := &in.Conditions, &out.Conditions
 		*out = make([]v1.Condition, len(*in))

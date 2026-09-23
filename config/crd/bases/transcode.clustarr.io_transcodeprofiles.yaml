@@ -70,10 +70,11 @@ spec:
               activeDeadline:
                 default: 48h
                 description: |-
-                  ActiveDeadline is the batch Job activeDeadlineSeconds for the encode.
-                  A Go client always sends a Duration, so the controller floors a zero
-                  (or negative) one to the 48h default when it builds the Job, rather
-                  than running the encode with no deadline at all.
+                  ActiveDeadline is each task's deadline, enforced by the worker; a task
+                  past it is blocked as DeadlineExceeded. A Go client always sends a
+                  Duration, so the controller floors a zero (or negative) one to the 48h
+                  default when it builds the Job, rather than running the encode with no
+                  deadline at all.
                 type: string
               audio:
                 default: {}
@@ -204,12 +205,15 @@ spec:
                     type: array
                 type: object
               hardware:
-                default: cpu
-                description: Hardware is the encoder backend.
+                default: auto
+                description: |-
+                  Hardware is the encoder backend: auto is chosen per task, with CPU
+                  fallback; cpu, nvidia and intel are pinned and never fall back.
                 enum:
                 - cpu
                 - nvidia
                 - intel
+                - auto
                 type: string
               hdr:
                 default: {}
@@ -465,7 +469,9 @@ spec:
                 type: object
               ttlSecondsAfterFinished:
                 default: 86400
-                description: TTLSecondsAfterFinished is the batch Job ttlSecondsAfterFinished.
+                description: |-
+                  TTLSecondsAfterFinished: Deprecated: ignored. Transcode pools never
+                  finish; this is removed at the next API version.
                 format: int32
                 type: integer
               verify:

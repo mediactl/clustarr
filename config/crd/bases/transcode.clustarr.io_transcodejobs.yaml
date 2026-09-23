@@ -37,6 +37,13 @@ spec:
       name: Attempts
       priority: 1
       type: integer
+    - jsonPath: .status.hardware
+      name: Hardware
+      type: string
+    - jsonPath: .status.workerPod
+      name: Worker
+      priority: 1
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -68,11 +75,13 @@ spec:
             description: TranscodeJobSpec defines the desired state of TranscodeJob.
             properties:
               hardware:
-                description: Hardware overrides the profile's encoder backend.
+                description: Hardware overrides the profile's hardware for this job;
+                  auto is allowed.
                 enum:
                 - cpu
                 - nvidia
                 - intel
+                - auto
                 type: string
               mediaFileRef:
                 description: MediaFileRef is the name of the MediaFile (same namespace)
@@ -120,13 +129,13 @@ spec:
             type: object
           status:
             description: |-
-              TranscodeJobStatus defines the observed state of TranscodeJob. The
-              controller (squasharr) owns phase, plan, jobRef, attempts, timestamps,
-              message and conditions; the worker (squasharr-worker) owns progress, result
-              and stderrTail via server-side apply with a disjoint field set.
+              TranscodeJobStatus defines the observed state of TranscodeJob. squasharr
+              writes every field, from its reconciler and from the worker's status events
+              (spec §18.2).
             properties:
               attempts:
-                description: Attempts is the number of encode attempts so far.
+                description: 'Attempts counts dispatches: each publish of this job''s
+                  task increments it.'
                 format: int32
                 type: integer
               conditions:
@@ -191,15 +200,37 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              fallbackReason:
+                description: |-
+                  FallbackReason, once set, keeps an auto job on CPU: why its GPU attempt
+                  was abandoned (spec §18.5).
+                maxLength: 256
+                type: string
               finishedAt:
                 description: FinishedAt is when the encode finished.
                 format: date-time
                 type: string
+              hardware:
+                description: Hardware is the class the current attempt was dispatched
+                  to.
+                enum:
+                - cpu
+                - nvidia
+                - intel
+                - auto
+                type: string
               jobRef:
-                description: JobRef is the name of the batch Job running the encode.
+                description: |-
+                  JobRef names the pool Job whose workers take this job's task (one per
+                  profile and hardware class).
                 type: string
               message:
                 description: Message is a human-readable summary of the current state.
+                type: string
+              nextAttemptAt:
+                description: NextAttemptAt holds a requeued job back from dispatch
+                  until then.
+                format: date-time
                 type: string
               observedGeneration:
                 description: ObservedGeneration is the most recent generation observed
@@ -556,6 +587,12 @@ spec:
                 description: StderrTail is the tail of the encoder's stderr, at most
                   4 KiB.
                 maxLength: 4096
+                type: string
+              workerPod:
+                description: |-
+                  WorkerPod is the pool pod running this job's current attempt, so
+                  `kubectl logs` can find it. Empty when no worker has claimed it.
+                maxLength: 253
                 type: string
             type: object
         type: object

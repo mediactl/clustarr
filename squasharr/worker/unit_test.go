@@ -224,6 +224,20 @@ func TestProfileSpecAppliesPointerDefaults(t *testing.T) {
 	assert.Zero(t, off.Policy.MaxOutputToSourcePercent)
 }
 
+// An auto profile with no class chosen yet plans for CPU. Its profile hash is
+// therefore the one a cpu profile had, so changing the CRD default from cpu to
+// auto re-transcodes nothing.
+func TestProfileSpecResolvesAutoToCPU(t *testing.T) {
+	auto := transcodev1alpha1.TranscodeProfileSpec{Hardware: transcodev1alpha1.HardwareAuto}
+	cpu := transcodev1alpha1.TranscodeProfileSpec{Hardware: transcodev1alpha1.HardwareCPU}
+	assert.Equal(t, ProfileSpec(cpu, nil), ProfileSpec(auto, nil))
+	nv := transcodev1alpha1.HardwareNVIDIA
+	assert.Equal(t, ProfileSpec(transcodev1alpha1.TranscodeProfileSpec{Hardware: nv}, nil), ProfileSpec(auto, &nv),
+		"a chosen class overrides auto")
+	autoOverride := transcodev1alpha1.HardwareAuto
+	assert.Equal(t, ProfileSpec(cpu, nil), ProfileSpec(cpu, &autoOverride), "an auto override of a pinned profile keeps cpu")
+}
+
 func assertNoZeroLeaf(t *testing.T, v reflect.Value, path string) {
 	t.Helper()
 	if v.Kind() == reflect.Struct {

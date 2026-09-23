@@ -40,7 +40,8 @@ type TranscodeProfileSpecApplyConfiguration struct {
 	Selector *v1.LabelSelectorApplyConfiguration `json:"selector,omitempty"`
 	// Container is the output container.
 	Container *transcodev1alpha1.Container `json:"container,omitempty"`
-	// Hardware is the encoder backend.
+	// Hardware is the encoder backend: auto is chosen per task, with CPU
+	// fallback; cpu, nvidia and intel are pinned and never fall back.
 	Hardware *transcodev1alpha1.Hardware `json:"hardware,omitempty"`
 	// Video describes the video encode.
 	Video *VideoSpecApplyConfiguration `json:"video,omitempty"`
@@ -75,12 +76,14 @@ type TranscodeProfileSpecApplyConfiguration struct {
 	// admission applies alongside the --slots budgets. Zero or absent means no
 	// per-profile cap: only the hardware slot budget applies.
 	MaxConcurrent *int32 `json:"maxConcurrent,omitempty"`
-	// ActiveDeadline is the batch Job activeDeadlineSeconds for the encode.
-	// A Go client always sends a Duration, so the controller floors a zero
-	// (or negative) one to the 48h default when it builds the Job, rather
-	// than running the encode with no deadline at all.
+	// ActiveDeadline is each task's deadline, enforced by the worker; a task
+	// past it is blocked as DeadlineExceeded. A Go client always sends a
+	// Duration, so the controller floors a zero (or negative) one to the 48h
+	// default when it builds the Job, rather than running the encode with no
+	// deadline at all.
 	ActiveDeadline *metav1.Duration `json:"activeDeadline,omitempty"`
-	// TTLSecondsAfterFinished is the batch Job ttlSecondsAfterFinished.
+	// TTLSecondsAfterFinished: Deprecated: ignored. Transcode pools never
+	// finish; this is removed at the next API version.
 	TTLSecondsAfterFinished *int32 `json:"ttlSecondsAfterFinished,omitempty"`
 	// Chunking configures chunked encoding. Deferred: accepted but
 	// chunking.enabled must be false in v1alpha1.
