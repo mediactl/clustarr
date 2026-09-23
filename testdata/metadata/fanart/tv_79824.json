@@ -1,0 +1,18 @@
+{
+ "name": "Naruto Shippuden",
+ "thetvdb_id": "79824",
+ "image_count": 5,
+ "clearlogo": [
+  {"id": "34371", "url": "https://assets.fanart.tv/fanart/naruto-shippuden-5064f1d33d7c6.png", "lang": "en", "likes": "6", "added": "2012-09-27 23:41:07", "width": "400", "height": "155"}
+ ],
+ "tvposter": [
+  {"id": "54902", "url": "https://assets.fanart.tv/fanart/naruto-shippuden-52a7f3a9e8e5b.jpg", "lang": "en", "likes": "4", "added": "2013-12-11 04:30:01", "width": "1000", "height": "1426"}
+ ],
+ "seasonposter": [
+  {"id": "61202", "url": "https://assets.fanart.tv/fanart/naruto-shippuden-5306d4a4c50b1.jpg", "lang": "en", "likes": "1", "season": "3", "added": "2014-02-21 03:04:52", "width": "1000", "height": "1426"},
+  {"id": "61203", "url": "https://assets.fanart.tv/fanart/naruto-shippuden-5306d4a4c50b2.jpg", "lang": "en", "likes": "0", "season": "all", "added": "2014-02-21 03:04:53", "width": "1000", "height": "1426"}
+ ],
+ "characterart": [
+  {"id": "40001", "url": "https://assets.fanart.tv/fanart/naruto-shippuden-51b0c4c1c0c01.png", "lang": "en", "likes": "2", "added": "2013-06-06 17:00:17", "width": "512", "height": "512"}
+ ]
+}

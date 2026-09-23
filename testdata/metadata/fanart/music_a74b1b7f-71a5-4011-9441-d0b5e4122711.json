@@ -1,0 +1,20 @@
+{
+ "name": "Radiohead",
+ "mbid_id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+ "image_count": 4,
+ "artistthumb": [
+  {"id": "3011", "url": "https://assets.fanart.tv/fanart/radiohead-4dd6cd7d1a4c4.jpg", "lang": "en", "likes": "5", "added": "2011-05-20 16:57:01", "width": "1000", "height": "1000"}
+ ],
+ "artistbackground": [
+  {"id": "3012", "url": "https://assets.fanart.tv/fanart/radiohead-4dd6cd7d1a4c5.jpg", "lang": "en", "likes": "7", "added": "2011-05-20 16:57:02", "width": "1920", "height": "1080"}
+ ],
+ "hdmusiclogo": [
+  {"id": "3013", "url": "https://assets.fanart.tv/fanart/radiohead-4dd6cd7d1a4c6.png", "lang": "en", "likes": "3", "added": "2011-05-20 16:57:03", "width": "800", "height": "310"}
+ ],
+ "musicbanner": [
+  {"id": "3014", "url": "https://assets.fanart.tv/fanart/radiohead-4dd6cd7d1a4c7.jpg", "lang": "en", "likes": "1", "added": "2011-05-20 16:57:04", "width": "1000", "height": "185"}
+ ],
+ "albums": [
+  {"release_group_id": "b1392450-e666-3926-a536-22c65f834433", "albumcover": [{"id": "3015", "url": "https://assets.fanart.tv/fanart/ok-computer-4dd6cd7d1a4c8.jpg", "lang": "en", "likes": "2"}]}
+ ]
+}

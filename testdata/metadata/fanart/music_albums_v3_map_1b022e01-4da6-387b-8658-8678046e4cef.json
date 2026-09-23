@@ -1,0 +1,11 @@
+{
+ "name": "Nirvana",
+ "mbid_id": "5b11f4ce-a62d-471e-81fc-a69a8278c7da",
+ "albums": {
+  "1b022e01-4da6-387b-8658-8678046e4cef": {
+   "albumcover": [
+    {"id": "42123", "url": "https://assets.fanart.tv/fanart/nevermind-4fa3e6aa2d9a4.jpg", "lang": "en", "likes": "3"}
+   ]
+  }
+ }
+}
