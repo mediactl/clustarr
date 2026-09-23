@@ -388,6 +388,16 @@ func TestAlreadyTranscodedAndProbed(t *testing.T) {
 	mf.Status.Transcode = &catalogv1alpha1.TranscodeState{ProfileTag: "hevc@deadbeef"}
 	assert.True(t, alreadyTranscoded(&mf, "hevc@deadbeef"))
 	assert.False(t, alreadyTranscoded(&mf, "hevc@newhash"), "a stale (pre-edit) tag must not count as already transcoded")
+
+	// The probe's record of the file's own tag counts, and stands before a
+	// swap's mirror: it is what the worker's live probe of the same bytes
+	// reads. A file with only the probe's tag -- an earlier install's
+	// output a rescan found -- is already transcoded too.
+	mf.Status.MediaInfo.TranscodeProfile = "hevc@newhash"
+	assert.True(t, alreadyTranscoded(&mf, "hevc@newhash"))
+	assert.False(t, alreadyTranscoded(&mf, "hevc@deadbeef"), "the probe's tag stands before the swap's mirror")
+	mf.Status.Transcode = nil
+	assert.True(t, alreadyTranscoded(&mf, "hevc@newhash"), "the probe's tag alone counts")
 }
 
 // A file whose Movie or Episode is gone -- an import list's removeAndKeep

@@ -22,6 +22,7 @@ import (
 
 	"k8s.io/utils/ptr"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/transcode"
 )
@@ -108,6 +109,29 @@ func ProfileSpec(spec transcodev1alpha1.TranscodeProfileSpec, hardware *transcod
 			VMAFMinCentis: spec.Verify.VMAFMinCentis,
 		},
 	}
+}
+
+// RecordedProfileTag is the CLUSTARR_PROFILE tag ("<profile>@<hash>") the
+// MediaFile records for its file, "" for none. catalogarr records it two
+// ways: its probe reads the file's own tag into
+// status.mediaInfo.transcodeProfile, and a swap it incorporates mirrors the
+// tag into status.transcode.profileTag. The probe's stands first, because
+// it is the tag this worker's live probe of the same bytes reads (a job
+// runs only while the probe hash still matches). A file probed before that
+// field existed has it empty until its bytes change, and the swap's mirror
+// stands in.
+//
+// Both the TranscodeProfile controller (is this file already this profile's
+// work?) and the TranscodeJob controller's planner read it here, so the two
+// cannot disagree on which tag a file carries.
+func RecordedProfileTag(mf *catalogv1alpha1.MediaFile) string {
+	if mi := mf.Status.MediaInfo; mi != nil && mi.TranscodeProfile != "" {
+		return mi.TranscodeProfile
+	}
+	if t := mf.Status.Transcode; t != nil {
+		return t.ProfileTag
+	}
+	return ""
 }
 
 // ReplaceSource is policy.replaceSource with its CRD default applied: unset

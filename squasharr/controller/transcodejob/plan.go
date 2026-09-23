@@ -26,10 +26,13 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/transcode"
+	"github.com/mediactl/clustarr/squasharr/worker"
 )
 
-// profileTagKey is the container tag catalogarr mirrors into
-// MediaFile.status.transcode.profileTag after a swap, "<name>@<hash>" (§4.5).
+// profileTagKey is the container tag squasharr writes into every output,
+// "<name>@<hash>" (§4.5). catalogarr records it two ways: the probe reads it
+// into MediaFile.status.mediaInfo.transcodeProfile, and a swap mirrors it
+// into status.transcode.profileTag.
 const profileTagKey = "CLUSTARR_PROFILE"
 
 // maxPlanList is the CRD's MaxItems on every list inside status.plan.
@@ -45,10 +48,13 @@ const maxPlanList = 200
 // (pkg/transcode's TestFromSummaryAndFromProbeRenderTheSameArgs, and this
 // package's TestStatusPlanIsTheArgvTheWorkerRenders).
 //
-// The summary carries no format tags, so the CLUSTARR_PROFILE tag
-// catalogarr mirrored into status.transcode.profileTag after a swap stands
-// in for the container tag the worker reads; it only ever decides "already
-// transcoded", never an argument.
+// The summary's format tags are one: the file's CLUSTARR_PROFILE, which the
+// probe records as status.mediaInfo.transcodeProfile. That is the tag the
+// worker's live probe reads from the same bytes, so it stands first. A file
+// probed before that field existed has it empty until its bytes change, and
+// then the status.transcode.profileTag catalogarr mirrored after a swap
+// stands in. Either only ever decides "already transcoded with this
+// profile", never an argument.
 func mediaInfoFromFile(path string, mf *catalogv1alpha1.MediaFile) (transcode.MediaInfo, error) {
 	info, err := transcode.FromSummary(path, mf.Status.MediaInfo)
 	if err != nil {
@@ -56,8 +62,8 @@ func mediaInfoFromFile(path string, mf *catalogv1alpha1.MediaFile) (transcode.Me
 	}
 	info.Format.SizeBytes = mf.Spec.SizeBytes
 	info.Modifier = string(mf.Spec.Quality.Modifier)
-	if t := mf.Status.Transcode; t != nil && t.ProfileTag != "" {
-		info.Tags = map[string]string{profileTagKey: t.ProfileTag}
+	if tag := worker.RecordedProfileTag(mf); tag != "" {
+		info.Tags = map[string]string{profileTagKey: tag}
 	}
 	return info, nil
 }

@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -423,6 +424,53 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 		assert.Contains(t, cond.Message, "reject")
 	})
 
+	// A file squasharr already wrote under this profile is not transcoded
+	// again, however catalogarr recorded the tag: the probe reads the file's
+	// CLUSTARR_PROFILE into status.mediaInfo.transcodeProfile (an earlier
+	// install's output, found by a rescan, has only that), and a swap
+	// mirrors it into status.transcode.profileTag. The video is compliant
+	// but a kept TrueHD track is not AAC, so only the tag can skip it; a
+	// tag from another hash is not this profile's work and is planned.
+	tagged := func() commonv1.MediaInfo {
+		mi := compliantProbe()
+		mi.Audio = append(mi.Audio, commonv1.AudioStream{Index: 2, Codec: "truehd", Channels: 8, Language: "eng"})
+		return mi
+	}
+	for _, tc := range []struct {
+		name, probeTag, swapTag string
+		skipped                 bool
+	}{
+		{name: "tagged by the probe", probeTag: "hevc@hash1", skipped: true},
+		{name: "tagged by a swap", swapTag: "hevc@hash1", skipped: true},
+		{name: "the probe's tag wins over a stale swap tag", probeTag: "hevc@hash1", swapTag: "hevc@old", skipped: true},
+		{name: "tagged by another hash", probeTag: "hevc@old"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			name := "tag-" + strings.ReplaceAll(strings.ReplaceAll(tc.name, " ", "-"), "'", "")
+			mi := tagged()
+			mi.TranscodeProfile = tc.probeTag
+			newMediaFile(t, c, ns, name, "", nil)
+			st := catalogac.MediaFileStatus().WithProbeHash("p-" + name).WithMediaInfo(mi)
+			if tc.swapTag != "" {
+				st = st.WithTranscode(catalogac.TranscodeState().WithProfileTag(tc.swapTag))
+			}
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.MediaFile(name, ns).WithStatus(st))
+			require.NoError(t, err)
+			newTJ(t, c, ns, name, name, "hevc", "p-"+name, nil)
+			reconcileTJ(t, r, ns, name)
+			tj := getTJ(t, c, ns, name)
+			if !tc.skipped {
+				assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, tj.Status.Phase, "message: %s", tj.Status.Message)
+				require.NotNil(t, tj.Status.Plan)
+				assert.Equal(t, transcodev1alpha1.PlanModeRemuxOnly, tj.Status.Plan.Mode)
+				return
+			}
+			assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseSkipped, tj.Status.Phase, "message: %s", tj.Status.Message)
+			require.NotNil(t, tj.Status.Plan)
+			assert.Equal(t, "tagged with current profile hash", tj.Status.Plan.SkipReason)
+		})
+	}
+
 	// Gap-fix ruling R-11 (superseding Phase E's R8, which skipped these): a
 	// container change is planned to a NEW name beside the source, in both
 	// directions and case-insensitively, and the .part the plan renders is
@@ -493,7 +541,7 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 	for _, j := range jobs.Items {
 		withJobs = append(withJobs, j.Annotations[transcodejob.AnnotationTranscodeJob])
 	}
-	assert.ElementsMatch(t, []string{"mp4src-hevc", "mkvsrc-mp4out", "upper-hevc", "kept-keep"}, withJobs,
+	assert.ElementsMatch(t, []string{"tag-tagged-by-another-hash", "mp4src-hevc", "mkvsrc-mp4out", "upper-hevc", "kept-keep"}, withJobs,
 		"every planned job, container changes included, creates a Job; the failed one does not")
 }
 
