@@ -55,25 +55,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     k8s.ManagerCatalogarrFanout's doc comment, and this package's own
 //     reconciler.go for where that manager is deliberately never referenced).
 //
-// A parallel, unrelated data gap belongs here too: AuthorSpec.MetadataProfile
+// A parallel data note belongs here too: AuthorSpec.MetadataProfile
 // (BookMetadataProfile) is applied in full against pkg/metadata.Book's real
 // field set (fanout.go's MatchesProfile), but
 // pkg/metadata/clients/openlibrary.Client.Books -- the author-works-list call
-// this fan-out is built on -- populates only IDs, AuthorIDs and Title per
-// work; it never sets FirstPublished, Genres, Subjects, Series or Editions
-// (verified against openlibrary.go). So today, SkipMissingDate,
-// SkipMissingISBN, SkipPartsAndSets, SkipSeriesSecondary and AllowedLanguages
-// see only zero values from every fetched work and MinPages likewise never
-// sees a page count -- MatchesProfile is exercised end-to-end by this
-// package's tests against synthetic pkg/metadata.Book values with those
-// fields populated, proving the logic, but a live Author with any of those
-// filters enabled will see it apply uniformly (Skip* drops every work;
-// AllowedLanguages/MinPages, being restrictive, do too) until a later task
-// enriches the Books() call the same way G2-1 flagged BookProvider.Book's own
-// missing Editions. MinPopularity has no home at all yet: no field on
-// pkg/metadata.Book, pkg/metadata.Author or the CRD's BookMetadata carries a
-// popularity score anywhere in this pipeline, so it is a documented no-op
-// (never disqualifies a work) rather than a guess at a source. Neither gap is
-// worked around here, per this project's "never guess" rule and G2-1's own
-// carried Editions precedent.
+// this fan-out is built on -- maps each work record's title, overview,
+// subjects, authors and first-publication date, and fetches no editions (one
+// more request per work; openlibrary.Client.Book fetches them for a single
+// work). So SkipPartsAndSets now sees each work's subjects, while
+// AllowedLanguages and MinPages, which read editions, see none and pass
+// under MatchesProfile's absent-never-excludes rule. SkipMissingDate and
+// SkipMissingISBN stay documented no-ops (MatchesProfile's doc comment says
+// why); Readarr's own rule for the first is `!SkipMissingDate ||
+// ReleaseDate.HasValue` (MetadataProfileService.FilterBooks), which the date
+// Books now carries could support. MinPopularity has no home at all yet: no
+// field on pkg/metadata.Book, pkg/metadata.Author or the CRD's BookMetadata
+// carries a popularity score anywhere in this pipeline, so it is a documented
+// no-op (never disqualifies a work) rather than a guess at a source.
 package author

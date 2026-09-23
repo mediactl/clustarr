@@ -99,13 +99,12 @@ func InitialBookMonitored(mode catalogv1alpha1.AuthorMonitorMode, b metadata.Boo
 }
 
 // MatchesProfile decides whether an Open Library work becomes a Book, per
-// AuthorSpec.MetadataProfile. See this package's doc.go for the current data
-// gap: today's openlibrary.Client.Books() call never populates the fields
-// most of these dimensions read, so in practice most of them see only zero
-// values -- this function is nonetheless implemented against pkg/metadata.
-// Book's full field set (proven correct by this package's tests against
-// synthetic, fully-populated values), so it starts doing real work the day
-// that call is enriched, without a second change here.
+// AuthorSpec.MetadataProfile. See this package's doc.go for which fields
+// openlibrary.Client.Books() fills (subjects and first-publication date, but
+// no editions); this function is implemented against pkg/metadata.Book's
+// full field set (proven by this package's tests against synthetic,
+// fully-populated values), so the edition dimensions start working the day
+// that call carries editions, without a second change here.
 //
 // Absent data never excludes a work -- only data that IS present and fails
 // the check does. This matches artist.AlbumAccepted's own ReleaseStatuses
@@ -165,10 +164,8 @@ func MatchesProfile(p catalogv1alpha1.BookMetadataProfile, b metadata.Book) bool
 // work -- there is no structured "this is a box set or a volume of a larger
 // set" boolean anywhere this pipeline reads). Subjects is the closest field
 // that exists, so this checks it for Open Library's own conventional
-// subject strings rather than leaving the flag entirely inert; b.Subjects is
-// unpopulated by Books() today (see this package's doc.go), so this is
-// exercised by this package's tests against a synthetic Book, not by any
-// live call yet. Called only when len(b.Subjects) > 0 (MatchesProfile).
+// subject strings rather than leaving the flag entirely inert. Called only
+// when len(b.Subjects) > 0 (MatchesProfile).
 func isPartOfASet(b metadata.Book) bool {
 	for _, s := range b.Subjects {
 		switch s {
