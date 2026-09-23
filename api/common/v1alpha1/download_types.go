@@ -39,7 +39,11 @@ type SeedCriteria struct {
 	// +optional
 	PackSeedTime *metav1.Duration `json:"packSeedTime,omitempty"`
 
-	// InactiveTime is how long a torrent may sit without activity before it is considered stalled.
+	// InactiveTime is how long a completed torrent may seed without uploading before its seed
+	// goal counts as met, measured from the later of completion and the last upload
+	// (qBittorrent's inactive seeding time limit). Like Ratio and SeedTime, reaching it alone
+	// meets the goal. It is not a stall timeout: an incomplete torrent that receives no data
+	// fails on the DownloadClient's torrent.stallTimeout instead.
 	// +optional
 	InactiveTime *metav1.Duration `json:"inactiveTime,omitempty"`
 }

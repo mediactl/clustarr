@@ -286,8 +286,12 @@ spec:
                       override it with its own spec.seedCriteria.
                     properties:
                       inactiveTime:
-                        description: InactiveTime is how long a torrent may sit without
-                          activity before it is considered stalled.
+                        description: |-
+                          InactiveTime is how long a completed torrent may seed without uploading before its seed
+                          goal counts as met, measured from the later of completion and the last upload
+                          (qBittorrent's inactive seeding time limit). Like Ratio and SeedTime, reaching it alone
+                          meets the goal. It is not a stall timeout: an incomplete torrent that receives no data
+                          fails on the DownloadClient's torrent.stallTimeout instead.
                         type: string
                       packSeedTime:
                         description: PackSeedTime is how long a pack (season, discography)

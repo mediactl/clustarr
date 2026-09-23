@@ -195,26 +195,37 @@ func TestDownloadUsenetNoInfoHashWithCrossServerFailover(t *testing.T) {
 // blocklisted, and a fresh grab of a different release for the same target
 // is unaffected.
 //
-// No component in this tree writes download.clustarr.io/blocklisted yet --
-// grabarr/controller/download/phase.go's own doc comment: "Nothing in the
-// tree sets this label yet (grep finds only readers...)" -- so this test
-// plays that not-yet-built policy writer's part directly, the same
-// "create it directly and say why" pattern test/e2e/ui_test.go uses for
-// Download creation. This is safe against a REAL, running Download
-// controller: derivePhase checks the blocklist label before it ever looks
-// at engine-owned Stage telemetry, so setting the label produces
+// grabarr now writes download.clustarr.io/blocklisted itself, for a release
+// fault (gap fix Y2: DownloadFailureReason.IsReleaseFault), but this test
+// still sets the label by hand, which grabarr reads as failureReason
+// "manual" -- an operator blocklisting a release. Driving a real release
+// fault instead (a torrent with no seeder under a short
+// spec.torrent.stallTimeout, or the nntp stub denying every article) is
+// possible now and not done here. The hand-set label is safe against a
+// REAL, running Download controller: derivePhase checks the label before it
+// ever looks at engine-owned telemetry, so setting it produces
 // DownloadPhaseBlocklisted regardless of what a real engine concurrently
 // reports -- there is no field-manager race here, only a label (plain
-// metadata) the controller reads on its own next reconcile.
+// metadata, owned by this test's merge patch) the controller reads on its
+// own next reconcile and never re-applies, since grabarr labels only a
+// release fault it found itself.
 //
-// BlocklistSweeper's actual deletion of the blocklisted Download
-// (grabarr/controller/downloadclient/blocklist.go) is not exercised: it
-// needs status.blocklistedUntil, which nothing here sets (choosing a TTL is
-// the same not-yet-built policy layer's job, and the CRD's own default,
-// DefaultBlocklistTTL, is 90 days -- far past any scenario timeout), and it
-// is itself only reachable once setupControllers registers it (task D2-8,
-// see this file's package doc comment). This test proves grabarr's
-// consumption of the label, not the sweep.
+// What else that reconcile now does, and this test does not assert: it
+// records blocklistedUntil, DefaultBlocklistTTL (90 days) out; it publishes
+// the failed and blocklisted events; the torrent engine removes the
+// transfer and, per spec.removeDataOnDelete, its data; and catalogarr's
+// catalogarr-redownload consumer (gap fix Y3) frees the Movie's grab lease
+// (none here: a Download made by hand never took one) and publishes one
+// redownload search. That search may grab a Download of its own if an
+// Indexer is reachable from this namespace; nothing below counts
+// Downloads, so it cannot fail the scenario. The second Download is still
+// created directly, as before.
+//
+// BlocklistSweeper's deletion of the blocklisted Download
+// (grabarr/controller/downloadclient/blocklist.go, registered in
+// grabarr/run.go) is not exercised: blocklistedUntil is 90 days out, far
+// past any scenario timeout. blocklist_envtest_test.go proves the sweep.
+// This test proves grabarr's consumption of the label, not the sweep.
 func TestDownloadBlocklistThenRedownload(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
 	defer cancel()
