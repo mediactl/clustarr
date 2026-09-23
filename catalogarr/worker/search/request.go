@@ -44,11 +44,15 @@ type TargetIDs struct {
 	// then carries the absolute number and there is no season token.
 	Anime bool
 	Year  int32
-	// OriginalLanguage is not part of the request; it rides along because
-	// every caller that builds a TargetIDs also needs it for the
-	// custom-format ItemContext, and threading one value is cheaper than
-	// two parallel structs.
-	OriginalLanguage string
+	// OriginalLanguageTag is not part of the request; it rides along
+	// because every caller that builds a TargetIDs also needs it for the
+	// decision Target, and threading one value is cheaper than two parallel
+	// structs. It is the BCP-47 tag exactly as
+	// Movie/Series.status.metadata.originalLanguage stores it, NOT a Radarr
+	// English display name -- decision.Target.OriginalLanguageTag is where
+	// it lands and pkg/decision owns the one conversion into the
+	// display-name vocabulary the catalogue speaks.
+	OriginalLanguageTag string
 }
 
 // BuildSearchRequest renders one catalog item's identity into the federated

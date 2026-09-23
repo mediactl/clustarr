@@ -67,15 +67,37 @@ func qualityRejections(p quality.Profile, rel common.ReleaseInfo, score int) []c
 // languageRejection is LanguageSpecification, using Profile.LanguageName --
 // go doc ./pkg/quality: "'original' and 'any' pass through unchanged, an
 // empty Language stays empty (no constraint)".
-func languageRejection(t Target, p quality.Profile, parsed *release.ParsedRelease) *common.Rejection {
+//
+// originalLanguage is the TARGET's original language, already resolved out of
+// its BCP-47 CRD form into the same English display-name vocabulary
+// parsed.Languages uses, and "" when it is unknown -- see
+// originalLanguageName (language.go). Both parameters are therefore in one
+// vocabulary by construction; this function does no translating of its own.
+func languageRejection(originalLanguage string, p quality.Profile, parsed *release.ParsedRelease) *common.Rejection {
 	switch p.LanguageName {
 	case "", "any":
 		return nil
 	case "original":
-		if containsFold(parsed.Languages, t.OriginalLanguage) {
+		if originalLanguage == "" {
+			// The item's original language is unknown: no metadata yet, or a
+			// provider tag the language table does not carry. There is no
+			// fact here to reject against, so this fails OPEN.
+			//
+			// This is a deliberate divergence from Radarr, which resolves a
+			// missing original language to Language.Unknown and then rejects
+			// every release for not being it. Failing closed on a fact we do
+			// not have makes an item permanently ungrabbable for a reason no
+			// operator can act on -- which is exactly the shape of the defect
+			// this branch was written to fix, where "en" never matched
+			// "English" and a default profile approved nothing at all. A
+			// grabbed release of the wrong language is recoverable; a library
+			// that silently never grabs is not.
 			return nil
 		}
-		r := newRejection(ReasonWantedLanguage, "original language %s is wanted, but found %v", t.OriginalLanguage, parsed.Languages)
+		if containsFold(parsed.Languages, originalLanguage) {
+			return nil
+		}
+		r := newRejection(ReasonWantedLanguage, "original language %s is wanted, but found %v", originalLanguage, parsed.Languages)
 		return &r
 	default:
 		if containsFold(parsed.Languages, p.LanguageName) {

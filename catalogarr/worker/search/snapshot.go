@@ -81,9 +81,9 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 		if md := m.Status.Metadata; md != nil {
 			snap.IDs.Year = md.Year
 			snap.IDs.ImdbID = md.ExternalIDs[commonv1.IDKeyIMDB]
-			snap.IDs.OriginalLanguage = md.OriginalLanguage
+			snap.IDs.OriginalLanguageTag = md.OriginalLanguage
 			snap.Target.RuntimeMinutes = int(md.RuntimeMinutes)
-			snap.Target.OriginalLanguage = md.OriginalLanguage
+			snap.Target.OriginalLanguageTag = md.OriginalLanguage
 		}
 		hasFile, fileRef = m.Status.HasFile, m.Status.FileRef
 
@@ -134,8 +134,8 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 		snap.Target.EpisodeRuntimes = []int{int(runtime)}
 		if md := s.Status.Metadata; md != nil {
 			snap.IDs.Year = md.Year
-			snap.IDs.OriginalLanguage = md.OriginalLanguage
-			snap.Target.OriginalLanguage = md.OriginalLanguage
+			snap.IDs.OriginalLanguageTag = md.OriginalLanguage
+			snap.Target.OriginalLanguageTag = md.OriginalLanguage
 		}
 		hasFile, fileRef = e.Status.HasFile, e.Status.FileRef
 

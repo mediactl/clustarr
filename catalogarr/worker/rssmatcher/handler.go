@@ -240,15 +240,15 @@ func (h *Handler) decideOne(
 	}
 
 	input := decision.Target{
-		Kind:             ref.Kind,
-		Key:              events.MediaKey(string(ref.Kind), ns, ref.Name),
-		Monitored:        st.monitored,
-		Available:        st.available,
-		RuntimeMinutes:   st.runtimeMinutes,
-		OriginalLanguage: st.originalLanguage,
-		Current:          st.currentFile,
-		Queue:            queueFor(ctx, h.Deps.Client, ns, ref),
-		Blocklist:        blocklist,
+		Kind:                ref.Kind,
+		Key:                 events.MediaKey(string(ref.Kind), ns, ref.Name),
+		Monitored:           st.monitored,
+		Available:           st.available,
+		RuntimeMinutes:      st.runtimeMinutes,
+		OriginalLanguageTag: st.originalLanguageTag,
+		Current:             st.currentFile,
+		Queue:               queueFor(ctx, h.Deps.Client, ns, ref),
+		Blocklist:           blocklist,
 	}
 	opts := decisionOptions(ctx, h.Deps.Client, ns, delaySpec, rel)
 

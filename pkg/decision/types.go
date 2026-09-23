@@ -49,16 +49,25 @@ type Queued = quality.Candidate
 // carried on a candidate release itself. Blocklist matches on infohash
 // (torrent) or title (usenet) -- docs/research/naming.md §A7.
 type Target struct {
-	Kind             common.MediaKind
-	Key              string
-	Monitored        bool
-	Available        bool
-	RuntimeMinutes   int
-	EpisodeRuntimes  []int
-	OriginalLanguage string
-	Current          *Current
-	Queue            []Queued
-	Blocklist        func(infohash, title string) bool
+	Kind            common.MediaKind
+	Key             string
+	Monitored       bool
+	Available       bool
+	RuntimeMinutes  int
+	EpisodeRuntimes []int
+	// OriginalLanguageTag is the item's original language as a BCP-47 tag,
+	// verbatim from Movie.status.metadata.originalLanguage or its Series
+	// twin -- "en", "ja", "pt-BR". NOT a display name: the conversion into
+	// the English-display-name vocabulary release.ParsedRelease.Languages
+	// and the TRaSH catalogue speak happens inside Evaluate, exactly once,
+	// in originalLanguageName (language.go). A caller that copies the CRD
+	// field straight across is correct; that is the only thing a caller
+	// should do. Empty, or a tag the table does not carry, means "unknown"
+	// and constrains nothing.
+	OriginalLanguageTag string
+	Current             *Current
+	Queue               []Queued
+	Blocklist           func(infohash, title string) bool
 	// FreeBytes is carried per spec §7; unused by this task -- see
 	// Disagreement 5. A later task may wire up a free-space check against it.
 	FreeBytes int64

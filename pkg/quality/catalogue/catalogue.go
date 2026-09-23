@@ -114,7 +114,7 @@ type Condition struct {
 	Source         common.Source      // CondSource
 	Resolution     int32              // CondResolution
 	Modifier       common.Modifier    // CondModifier
-	Language       string             // CondLanguage; "Original" (languageByID[-2]) resolves against ItemContext.OriginalLanguage. Otherwise an English display name from languageByID (languages.go), matching release.ParsedRelease.Languages' own vocabulary -- never an ISO code.
+	Language       string             // CondLanguage; LanguageOriginal ("Original", language id -2) resolves against ItemContext.OriginalLanguageName. Otherwise an English display name from the languages table (languages.go), matching release.ParsedRelease.Languages' own vocabulary -- never an ISO code or BCP-47 tag.
 	ExceptLanguage bool               // CondLanguage; true means "any detected language other than Language", not a negation of "contains Language" -- see evalCondition's CondLanguage case.
 	Flag           string             // CondIndexerFlag
 	ReleaseType    common.ReleaseType // CondReleaseType
@@ -144,13 +144,26 @@ type Catalogue struct {
 // release.ParsedRelease.ReleaseType -- e.g. a season pack matched against one
 // missing episode).
 type ItemContext struct {
-	// OriginalLanguage must use the same English-display-name vocabulary as
-	// release.ParsedRelease.Languages (see languages.go's languageByID doc
-	// comment) -- e.g. "Japanese", not "ja" or "jpn" -- for a "language ==
-	// original" Condition to ever match.
-	OriginalLanguage string
-	IndexerFlags     []string
-	ReleaseType      common.ReleaseType
+	// OriginalLanguageName is the item's original language as a Radarr
+	// English DISPLAY NAME -- "Japanese", never the BCP-47 tag "ja" and
+	// never "jpn" -- because that is the vocabulary
+	// release.ParsedRelease.Languages and every CondLanguage Condition are
+	// built from (see languages.go's own table doc). The field carries
+	// "Name" in its name because the CRD field it ultimately comes from,
+	// Movie.status.metadata.originalLanguage, is a TAG: the two vocabularies
+	// sit either side of one conversion, and feeding a tag in here scores
+	// every release of the item at language-not-original's -10000.
+	// pkg/decision.Evaluate is the only production producer of an
+	// ItemContext and converts the tag exactly once
+	// (pkg/decision/language.go).
+	//
+	// Empty means the item's original language is UNKNOWN, which is not the
+	// same as "no language": a "language == Original" Condition cannot be
+	// evaluated at all then, and contributes nothing rather than matching.
+	// See evalCondition's CondLanguage case.
+	OriginalLanguageName string
+	IndexerFlags         []string
+	ReleaseType          common.ReleaseType
 }
 
 // evalCondition applies Negate to the raw match, per spec §9: "Negate per
@@ -175,8 +188,25 @@ func evalCondition(ctx context.Context, c Condition, r *release.ParsedRelease, i
 		raw = r.Quality.Modifier == c.Modifier
 	case CondLanguage:
 		want := c.Language
-		if want == "Original" {
-			want = ic.OriginalLanguage
+		if want == LanguageOriginal {
+			if ic.OriginalLanguageName == "" {
+				// The item's original language is unknown, so there is
+				// nothing for this Condition to compare against.
+				//
+				// Return BEFORE Negate, deliberately. The only shipped
+				// Condition of this shape is language-not-original, a
+				// NEGATED "contains Original" scored -10000: applying Negate
+				// to an unevaluable comparison turns "we do not know the
+				// original language" into "this release is definitely not in
+				// it", which is how a profile at CRD defaults came to reject
+				// every release of every item whose original language had
+				// not resolved. A Kind-group with no matching Condition is
+				// simply not ok (formatMatches), so the format does not
+				// match and scores nothing -- the correct reading of an
+				// absent fact.
+				return false
+			}
+			want = ic.OriginalLanguageName
 		}
 		if c.ExceptLanguage {
 			// Radarr's LanguageSpecification.IsSatisfiedByWithoutNegate:

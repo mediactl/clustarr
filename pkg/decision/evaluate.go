@@ -39,14 +39,22 @@ import (
 // are then derived from exactly as Radarr's DownloadDecision does
 // (Disagreement 6).
 func Evaluate(ctx context.Context, t Target, p quality.Profile, cat *catalogue.Catalogue, rels []common.ReleaseInfo, o Options) []Decision {
+	// Resolved once per call, not once per release: the lookup is the same
+	// for every candidate, and an unresolvable tag must warn once about the
+	// item rather than once about every release of it.
+	lang := originalLanguageName(ctx, t.OriginalLanguageTag)
 	out := make([]Decision, 0, len(rels))
 	for _, rel := range rels {
-		out = append(out, evaluateOne(ctx, t, p, cat, rel, o))
+		out = append(out, evaluateOne(ctx, t, lang, p, cat, rel, o))
 	}
 	return out
 }
 
-func evaluateOne(ctx context.Context, t Target, p quality.Profile, cat *catalogue.Catalogue, rel common.ReleaseInfo, o Options) Decision {
+// evaluateOne takes originalLanguage -- the item's original language already
+// resolved into the English display-name vocabulary, "" when unknown --
+// rather than re-deriving it from t, so there is exactly one conversion per
+// Evaluate and both consumers below are fed from it.
+func evaluateOne(ctx context.Context, t Target, originalLanguage string, p quality.Profile, cat *catalogue.Catalogue, rel common.ReleaseInfo, o Options) Decision {
 	parsed, err := release.Parse(rel.Title, release.Options{Kind: t.Kind})
 	if err != nil {
 		logging.FromContext(ctx).Debug("decision: release title did not parse", "title", rel.Title, "err", err)
@@ -57,7 +65,7 @@ func evaluateOne(ctx context.Context, t Target, p quality.Profile, cat *catalogu
 	}
 	parsed.ApplyTo(&rel)
 
-	ic := catalogue.ItemContext{OriginalLanguage: t.OriginalLanguage, IndexerFlags: rel.IndexerFlags, ReleaseType: parsed.ReleaseType}
+	ic := catalogue.ItemContext{OriginalLanguageName: originalLanguage, IndexerFlags: rel.IndexerFlags, ReleaseType: parsed.ReleaseType}
 	score, matched := p.Score(ctx, cat, parsed, ic)
 	rel.FormatScore = int32(score)
 	rel.MatchedFormats = matched
@@ -73,7 +81,7 @@ func evaluateOne(ctx context.Context, t Target, p quality.Profile, cat *catalogu
 	add(availabilityRejection(t, o))
 	rejections = append(rejections, sizeRejections(t, p, parsed, rel)...)
 	rejections = append(rejections, qualityRejections(p, rel, score)...)
-	add(languageRejection(t, p, parsed))
+	add(languageRejection(originalLanguage, p, parsed))
 	add(sampleRejection(rel))
 	rejections = append(rejections, blocklistAndHistoryRejections(t, rel)...)
 

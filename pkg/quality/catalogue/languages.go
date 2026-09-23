@@ -156,6 +156,13 @@ var languages = []Language{
 	{ID: 57, Name: "Georgian", Tag: "ka"},
 }
 
+// LanguageOriginal is the display name of Radarr's id -2 pseudo-language: a
+// CondLanguage Condition holding it does not name a language at all, it
+// defers to the catalog item's own original language
+// (ItemContext.OriginalLanguageName). It is a pseudo-language, so it carries
+// no ISO-639-1 tag and LanguageTag reports false for it.
+const LanguageOriginal = "Original"
+
 // Languages returns a copy of the language table, in id order.
 func Languages() []Language {
 	out := make([]Language, len(languages))

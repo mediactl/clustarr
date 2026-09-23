@@ -54,14 +54,17 @@ const defaultIndexerPriority = 25
 // stays in one readable place instead of being threaded through six
 // parameters.
 type resolveState struct {
-	monitored        bool
-	available        bool
-	runtimeMinutes   int
-	originalLanguage string
-	qualityProfile   string
-	delayProfileRef  *string
-	tags             []string
-	currentFile      *decision.Current
+	monitored      bool
+	available      bool
+	runtimeMinutes int
+	// originalLanguageTag is the BCP-47 tag verbatim from
+	// status.metadata.originalLanguage, which is what
+	// decision.Target.OriginalLanguageTag wants. Never a display name.
+	originalLanguageTag string
+	qualityProfile      string
+	delayProfileRef     *string
+	tags                []string
+	currentFile         *decision.Current
 }
 
 // resolve fetches the item named by ref and reads off everything the decision
@@ -92,7 +95,7 @@ func resolve(ctx context.Context, c client.Client, ns string, ref commonv1.Media
 		st.tags = m.Spec.Tags
 		if m.Status.Metadata != nil {
 			st.runtimeMinutes = int(m.Status.Metadata.RuntimeMinutes)
-			st.originalLanguage = m.Status.Metadata.OriginalLanguage
+			st.originalLanguageTag = m.Status.Metadata.OriginalLanguage
 		}
 		st.currentFile = currentFrom(m.Status.HasFile, m.Status.FileQuality, m.Status.FileFormatScore)
 
@@ -124,7 +127,7 @@ func resolve(ctx context.Context, c client.Client, ns string, ref commonv1.Media
 		st.monitored = st.monitored && ptr.Deref(s.Spec.Monitored, true)
 		if s.Status.Metadata != nil {
 			st.runtimeMinutes = int(s.Status.Metadata.RuntimeMinutes)
-			st.originalLanguage = s.Status.Metadata.OriginalLanguage
+			st.originalLanguageTag = s.Status.Metadata.OriginalLanguage
 		}
 
 	default:
