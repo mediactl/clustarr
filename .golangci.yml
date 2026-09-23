@@ -1,4 +1,12 @@
 version: "2"
+run:
+  # test/e2e is behind the `e2e` build tag, so without this every file in it
+  # is invisible to the linter -- `./...` does not mean "every file", it means
+  # "every file the default build constraints select". Running the linter over
+  # the tag by hand found real issues the plain `make lint` had passed. Adding
+  # a tag only ADDS files; the untagged tree is linted exactly as before.
+  build-tags:
+    - e2e
 linters:
   default: standard
   enable:
