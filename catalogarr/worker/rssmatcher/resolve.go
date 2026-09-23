@@ -85,7 +85,8 @@ type resolveState struct {
 // instead, so an RSS decision and a search decision see byte-identical input.
 // The reduction is safe in one direction only -- it can approve an upgrade a
 // fuller snapshot would have rejected as already-imported, and the grab's own
-// lease plus activeDownloadRef re-read still stop a duplicate Download.
+// lease plus its lookup of the item's live Downloads still stop a duplicate
+// Download.
 func resolve(ctx context.Context, c client.Client, ns string, ref commonv1.MediaRef, now time.Time) (resolveState, error) {
 	var st resolveState
 	switch ref.Kind {
@@ -167,8 +168,8 @@ func currentFrom(hasFile bool, q *commonv1.Quality, formatScore int32) *decision
 // queueFor lists the Downloads already working on ref, through the search
 // worker's exported IndexDownloadTarget index. A read failure is a warning,
 // not an error: an empty queue can only approve a release the fuller check
-// might have deferred, and the grab's lease plus activeDownloadRef re-read
-// still stop a second Download for the same item.
+// might have deferred, and the grab's lease plus its lookup of the item's
+// live Downloads still stop a second Download for the same item.
 func queueFor(ctx context.Context, c client.Client, ns string, ref commonv1.MediaRef) []decision.Queued {
 	var list downloadv1alpha1.DownloadList
 	if err := c.List(ctx, &list,

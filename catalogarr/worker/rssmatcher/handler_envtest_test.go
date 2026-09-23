@@ -36,6 +36,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
@@ -71,8 +72,10 @@ func blurayRelease(tmdbID string) schema.Release {
 
 // TestHandler_ApprovedReleaseTakesTheGrabPath is §8.7's clause end to end: a
 // matched, approved release goes through grab.Decide -- the same entry point a
-// search's sink uses -- and comes out as a Download plus
-// status.activeDownloadRef.
+// search's sink uses -- and comes out as a Download owned by the item. Under
+// ruling R-5 the grab path does not write status.activeDownloadRef (the
+// Movie reconciler derives it from this Download), so the item's status is
+// asserted for what the grab must NOT have done.
 func TestHandler_ApprovedReleaseTakesTheGrabPath(t *testing.T) {
 	ctx := context.Background()
 	mgr := newTestManager(t)
@@ -107,13 +110,18 @@ func TestHandler_ApprovedReleaseTakesTheGrabPath(t *testing.T) {
 	require.Len(t, dl.OwnerReferences, 1)
 	assert.Equal(t, movie.Name, dl.OwnerReferences[0].Name)
 
-	// The client behind a manager is a cache, so the status write this grab
-	// just made is only eventually visible through it.
+	// Read uncached: managedFields is what shows an over-claim.
 	var got catalogv1alpha1.Movie
-	eventually(t, 10*time.Second, "the movie's activeDownloadRef to appear", func() bool {
-		return c.Get(ctx, client.ObjectKeyFromObject(movie), &got) == nil && got.Status.ActiveDownloadRef != nil
-	})
-	assert.Equal(t, dl.Name, *got.Status.ActiveDownloadRef)
+	require.NoError(t, mgr.GetAPIReader().Get(ctx, client.ObjectKeyFromObject(movie), &got))
+	assert.Nil(t, got.Status.ActiveDownloadRef,
+		"no reconciler runs here, and the grab path no longer writes activeDownloadRef (ruling R-5)")
+	for _, mf := range got.ManagedFields {
+		if mf.Manager == string(k8s.ManagerCatalogarrGrab) && mf.FieldsV1 != nil {
+			assert.NotContains(t, string(mf.FieldsV1.Raw), `"f:activeDownloadRef"`,
+				"the grab manager must not claim activeDownloadRef")
+			assert.NotContains(t, string(mf.FieldsV1.Raw), `"f:phase"`, "the RSS path must never write Phase")
+		}
+	}
 	assert.Empty(t, got.Status.Phase, "the RSS path must never write Phase")
 	require.NotNil(t, got.Status.Metadata, "the grab must not release the gateway's status.metadata")
 }

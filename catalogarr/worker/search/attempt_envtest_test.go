@@ -76,27 +76,39 @@ func TestWorkerRecordsASearchAttempt(t *testing.T) {
 // that belongs on this side of the boundary.
 //
 // grab.RecordSearchAttempt writes under k8s.ManagerCatalogarrGrab, which also
-// owns status.activeDownloadRef and status.pendingGrab. Server-side apply
-// replaces a manager's whole ownership set, so a helper that declared only the
-// two timestamp fields would delete a delayed item's pendingGrab and take it
-// out of Phase=Delayed back to Wanted -- where the wanted cron would re-search
-// an item that already had a grab scheduled. That is the exact failure that
-// split catalogarr-worker into per-consumer field managers, and it is why this
+// owns status.pendingGrab. Server-side apply replaces a manager's whole
+// ownership set, so a helper that declared only the two timestamp fields
+// would delete a delayed item's pendingGrab and take it out of Phase=Delayed
+// back to Wanted -- where the wanted cron would re-search an item that
+// already had a grab scheduled. That is the exact failure that split
+// catalogarr-worker into per-consumer field managers, and it is why this
 // package calls into grab instead of reimplementing the cycle. C9 guarantees
 // it; this pins the guarantee from the caller's side, where a regression in
 // grab would otherwise surface as a mystery in search.
+//
+// Ruling R-5 moved status.activeDownloadRef to one writer, the item's
+// reconciler under k8s.ManagerCatalogarr, so the steady state below seeds it
+// there: recording an attempt must leave the reconciler's ref alone AND must
+// not claim it for the grab manager, which only managedFields can show (an
+// over-claim under a forced apply keeps every value intact).
 func TestWorkerRecordingAnAttemptLeavesTheGrabPathsFieldsIntact(t *testing.T) {
 	ctx := context.Background()
 	f := newWorkerFixture(t, "worker-attempt-coexist")
 
-	// Drive the item to the steady state the guarantee is about: a delayed
-	// grab already pending, under the same field manager. A blank object
-	// could not observe a release.
-	grabAt := metav1.NewTime(time.Now().Add(time.Hour).Truncate(time.Second))
-	_, err := k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalogarrGrab,
+	// Drive the item to the steady state the guarantee is about: the
+	// reconciler's phase and activeDownloadRef, and a delayed grab already
+	// pending under the grab manager. A blank object could not observe a
+	// release.
+	_, err := k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalogarr,
 		catalogac.Movie("the-matrix", f.ns).WithStatus(
 			catalogac.MovieStatus().
-				WithActiveDownloadRef("the-matrix-abc1234567").
+				WithPhase(catalogv1alpha1.MoviePhaseDelayed).
+				WithActiveDownloadRef("the-matrix-abc1234567")))
+	require.NoError(t, err)
+	grabAt := metav1.NewTime(time.Now().Add(time.Hour).Truncate(time.Second))
+	_, err = k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalogarrGrab,
+		catalogac.Movie("the-matrix", f.ns).WithStatus(
+			catalogac.MovieStatus().
 				WithPendingGrab(catalogac.PendingGrab().
 					WithGrabAt(grabAt).
 					WithProtocol(commonv1.ProtocolTorrent).
@@ -125,13 +137,35 @@ func TestWorkerRecordingAnAttemptLeavesTheGrabPathsFieldsIntact(t *testing.T) {
 	require.NoError(t, f.api.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: "the-matrix"}, after))
 
 	require.NotNil(t, after.Status.ActiveDownloadRef,
-		"recording a search attempt must not release the grab path's activeDownloadRef")
+		"recording a search attempt must not release the reconciler's activeDownloadRef")
 	require.Equal(t, "the-matrix-abc1234567", *after.Status.ActiveDownloadRef)
+	require.Equal(t, catalogv1alpha1.MoviePhaseDelayed, after.Status.Phase)
 	require.NotNil(t, after.Status.PendingGrab,
 		"recording a search attempt must not release a delayed item's pendingGrab")
 	require.Equal(t, grabAt.UTC(), after.Status.PendingGrab.GrabAt.UTC())
 	require.Equal(t, commonv1.ProtocolTorrent, after.Status.PendingGrab.Protocol)
 	require.Equal(t, "The.Matrix.1999.2160p.UHD.BluRay.x265-BEST", after.Status.PendingGrab.ReleaseTitle)
+
+	// R-5 from the ownership record: the grab manager owns the pending grab
+	// and the attempt fields, and NOT activeDownloadRef -- that stays the
+	// reconciler's alone.
+	grabFields, reconcilerFields := "", ""
+	for _, mf := range after.ManagedFields {
+		if mf.Subresource != "status" || mf.FieldsV1 == nil {
+			continue
+		}
+		switch mf.Manager {
+		case string(k8s.ManagerCatalogarrGrab):
+			grabFields = string(mf.FieldsV1.Raw)
+		case string(k8s.ManagerCatalogarr):
+			reconcilerFields = string(mf.FieldsV1.Raw)
+		}
+	}
+	require.Contains(t, grabFields, `"f:pendingGrab"`)
+	require.Contains(t, grabFields, `"f:searchAttempts"`)
+	require.NotContains(t, grabFields, `"f:activeDownloadRef"`,
+		"the grab manager must not claim activeDownloadRef (ruling R-5)")
+	require.Contains(t, reconcilerFields, `"f:activeDownloadRef"`)
 
 	// And the attempt really was recorded, so this is not passing by doing
 	// nothing at all.
