@@ -61,7 +61,7 @@ func TestReleaseYearUsesUTCNotTheReconcilingReplicasLocalZone(t *testing.T) {
 	releasedAtUTC := time.Date(1997, 1, 1, 0, 30, 0, 0, time.UTC)
 	afterReplicaLocalized := metav1.NewTime(releasedAtUTC.In(losAngeles))
 
-	require.Equal(t, 1996, afterReplicaLocalized.Time.Year(),
+	require.Equal(t, 1996, afterReplicaLocalized.Year(),
 		"sanity check: plain .Year() on the localized value really does read the wrong calendar year")
 	assert.Equal(t, 1997, album.ReleaseYear(&afterReplicaLocalized),
 		"ReleaseYear must call .UTC() before .Year(), or a January release lands in the wrong-year folder")
