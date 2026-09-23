@@ -213,3 +213,23 @@ func TestDefaultRecycleBinIsTheCRDs(t *testing.T) {
 	require.Equal(t, fsops.DefaultRecycleBin, fsops.RecycleBinPath(""))
 	require.Equal(t, "/data/elsewhere", fsops.RecycleBinPath("/data/elsewhere"))
 }
+
+// A day's folder holds files recycled up to its last second, so it is kept
+// until retention has passed since the END of the day: a file recycled at
+// 23:59 is never removed before it is retention old.
+func TestSweepRecycleBinKeepsADayUntilItsLastFileIsRetentionOld(t *testing.T) {
+	root := t.TempDir()
+	day := "2026-09-11"
+	require.NoError(t, os.MkdirAll(filepath.Join(root, day), 0o775))
+	retention := 7 * 24 * time.Hour
+
+	// A file recycled at 2026-09-11 23:59 is 7 days old at 2026-09-18
+	// 23:59; at 12:00 that day it is not.
+	removed, err := fsops.SweepRecycleBin(context.Background(), root, retention, time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC))
+	require.NoError(t, err)
+	require.Zero(t, removed, "part of the day is not yet retention old")
+
+	removed, err = fsops.SweepRecycleBin(context.Background(), root, retention, time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC))
+	require.NoError(t, err)
+	require.Equal(t, 1, removed, "the whole day is")
+}

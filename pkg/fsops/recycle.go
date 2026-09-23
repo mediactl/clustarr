@@ -107,9 +107,15 @@ func recycleDest(root, path string) (string, error) {
 }
 
 // SweepRecycleBin removes every dated subdirectory of root (the
-// yyyy-mm-dd layout Recycle creates) whose date is before
-// now.Add(-retention), returning how many it removed. now is a parameter,
-// not time.Now(), so the sweeper is deterministically testable. A
+// yyyy-mm-dd layout Recycle creates) whose whole day ended at least
+// retention before now, returning how many it removed. The folder of a day
+// holds files recycled at any time that day, up to its last second, so a
+// folder is kept until retention has passed since the END of its day: no
+// file is removed sooner than retention after it was recycled (Sonarr's
+// cleanup keeps a folder until its last write is cleanupDays old, which
+// the day's end bounds). Comparing the day's START with now - retention
+// removed a file recycled late on a day up to a day early. now is a
+// parameter, not time.Now(), so the sweeper is deterministically testable. A
 // subdirectory name that does not parse as yyyy-mm-dd is left alone
 // rather than guessed at, per amendment §A1.5's never-guess rule.
 //
@@ -144,7 +150,7 @@ func SweepRecycleBin(ctx context.Context, root string, retention time.Duration, 
 		if err != nil {
 			continue // not one of ours; never guess, leave it alone
 		}
-		if day.Before(cutoff) {
+		if !day.AddDate(0, 0, 1).After(cutoff) {
 			if err := os.RemoveAll(filepath.Join(root, e.Name())); err != nil {
 				return removed, fmt.Errorf("fsops: remove %s: %w", e.Name(), err)
 			}
