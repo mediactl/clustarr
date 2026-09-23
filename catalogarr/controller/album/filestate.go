@@ -28,17 +28,37 @@ import (
 // package's own tests read as album.FileState(...), matching the movie and
 // episode packages' identical re-export.
 //
-// Album has no per-track file attribution yet (design §9's "import matches
-// tracks by number+duration via id3v2/dhowden tags" is importarr's job,
-// M6/G2-4, not built) -- there is no MediaRef shape that could point at one
-// specific Track within an Album (commonv1.MediaRef carries Kind+Name only;
-// see this reconciler's own doc comment). So mf here is deliberately the
-// single MediaFile rollup.PickMediaFile selects across every MediaFile
-// referencing this Album as a whole (kind=album, name=<this Album>) -- a
-// coarse, Movie-like "does at least one file back this album" signal, not a
-// per-track one. status.trackFileCount is computed separately, from
-// status.tracks' own FileRef field (always empty today, for the same
-// reason), not from this function's result -- see rollup.go.
+// mf is the single MediaFile rollup.PickMediaFile selects across every
+// MediaFile referencing this Album (kind=album, name=<this Album>), with or
+// without a track: a coarse, Movie-like "does a file back this album"
+// signal that phase, quality and cutoff are decided from. The per-track
+// picture is FilesByRecording's: status.tracks[].fileRef and
+// status.trackFileCount come from it.
 func FileState(mf *catalogv1alpha1.MediaFile, profile *quality.Profile) (hasFile bool, fileRef *string, fileQuality *commonv1.Quality, fileFormatScore int32, cutoffMet bool) {
 	return rollup.FileState(mf, profile)
+}
+
+// FilesByRecording maps each recording MBID to the MediaFile holding it,
+// from the MediaFiles that address a single track of this Album
+// (spec.mediaRef {kind: album, name: <album>, track: <recording MBID>},
+// commonv1.MediaRef.Track). A file that addresses the whole album carries no
+// track and is not in the map. When two files claim one recording --
+// an upgrade whose importer has not yet removed the file it replaces --
+// rollup.PickMediaFile chooses between them, so the answer never depends on
+// list order.
+func FilesByRecording(mfs []catalogv1alpha1.MediaFile) map[string]string {
+	byRecording := map[string][]catalogv1alpha1.MediaFile{}
+	for _, mf := range mfs {
+		if mf.Spec.MediaRef.Kind != commonv1.MediaKindAlbum || mf.Spec.MediaRef.Track == "" {
+			continue
+		}
+		byRecording[mf.Spec.MediaRef.Track] = append(byRecording[mf.Spec.MediaRef.Track], mf)
+	}
+	files := make(map[string]string, len(byRecording))
+	for recording, claims := range byRecording {
+		if mf := rollup.PickMediaFile(claims); mf != nil {
+			files[recording] = mf.Name
+		}
+	}
+	return files
 }

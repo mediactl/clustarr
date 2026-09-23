@@ -20,8 +20,10 @@ package album_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -386,7 +388,8 @@ func TestAlbumReconcilerBuildsTracksFromTheExistingSingleLookupRPC(t *testing.T)
 	fetched := &pkgmetadata.Album{
 		IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBReleaseGroup: "b1392450-e5a3-37d1-83d3-b8b08ca6c4d9"},
 		Releases: []pkgmetadata.AlbumRelease{{
-			IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBRelease: "rel-1"},
+			IDs:    pkgmetadata.ExternalIDs{pkgmetadata.KeyMBRelease: "rel-1"},
+			Status: "Official",
 			Media: []pkgmetadata.Medium{{Position: 1, Tracks: []pkgmetadata.Track{
 				{IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBRecording: "rec-1"}, Title: "Airbag", Position: 1},
 				{IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBRecording: "rec-2"}, Title: "Paranoid Android", Position: 2},
@@ -571,4 +574,192 @@ func TestAlbumReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		assert.Equal(t, before.Status.Path, after.Status.Path, "ArtistNotFound must not release Path")
 		assert.Equal(t, before.Status.Phase, after.Status.Phase, "ArtistNotFound must not release Phase")
 	})
+}
+
+// fieldsUnder walks a managedFields FieldsV1 document down path (each
+// element without its "f:" prefix) and returns the leaf names below it.
+func fieldsUnder(fields map[string]any, path ...string) map[string]bool {
+	cur := fields
+	for _, p := range path {
+		next, ok := cur["f:"+p].(map[string]any)
+		if !ok {
+			return map[string]bool{}
+		}
+		cur = next
+	}
+	out := map[string]bool{}
+	for k := range cur {
+		if k != "." {
+			out[strings.TrimPrefix(k, "f:")] = true
+		}
+	}
+	return out
+}
+
+// TestAlbumReconcilerSelectsAReleaseAndAttributesTracks drives the release
+// selection and per-track attribution end to end against a real apiserver,
+// then acts on the Album in that steady state: the gateway re-applying its
+// metadata, a transient RPC failure, and a profile no release passes.
+func TestAlbumReconcilerSelectsAReleaseAndAttributesTracks(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfg := newTestConfig(t)
+	c := startCacheOnly(t, ctx, cfg)
+	const ns = "album-select-ns"
+	require.NoError(t, c.Create(ctx, testNamespace(ns)))
+	require.NoError(t, c.Create(ctx, testRootFolder(ns, "music-root", "/data/media/music")))
+	createSteadyArtist(t, ctx, c, ns, "radiohead", "a74b1b7f-71a5-4011-9441-d0b5e4122711", "music-root")
+
+	alb := &catalogv1alpha1.Album{
+		ObjectMeta: metav1.ObjectMeta{Name: "ok-computer", Namespace: ns},
+		Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: "radiohead", ReleaseGroupID: "b1392450-e5a3-37d1-83d3-b8b08ca6c4d9"},
+	}
+	require.NoError(t, c.Create(ctx, alb))
+	gatewayApply := func(title string) {
+		t.Helper()
+		metaAC := catalogac.Album(alb.Name, alb.Namespace).WithStatus(catalogac.AlbumStatus().WithMetadata(
+			catalogac.AlbumMetadata().WithTitle(title).WithRefreshedAt(metav1.Now())))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, metaAC)
+		require.NoError(t, err)
+	}
+	gatewayApply("OK Computer")
+
+	mf := &catalogv1alpha1.MediaFile{
+		ObjectMeta: metav1.ObjectMeta{Name: "ok-computer-paranoid-android", Namespace: ns},
+		Spec: catalogv1alpha1.MediaFileSpec{
+			MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: alb.Name, Track: "rec-2"},
+			Path:     "/data/media/music/radiohead/OK Computer (1997)/02 - Paranoid Android.flac",
+			Quality:  commonv1.Quality{Name: "FLAC"},
+		},
+	}
+	require.NoError(t, c.Create(ctx, mf))
+	key := types.NamespacedName{Namespace: ns, Name: alb.Name}
+	require.Eventually(t, func() bool {
+		var got catalogv1alpha1.Album
+		var mfs catalogv1alpha1.MediaFileList
+		return c.Get(ctx, key, &got) == nil && got.Status.Metadata != nil &&
+			c.List(ctx, &mfs, client.InNamespace(ns)) == nil && len(mfs.Items) == 1
+	}, 5*time.Second, 10*time.Millisecond, "setup: the cache never observed the Album and its MediaFile")
+
+	track := func(rec, title string, pos int32) pkgmetadata.Track {
+		return pkgmetadata.Track{IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBRecording: rec}, Title: title, Position: pos}
+	}
+	fetched := &pkgmetadata.Album{
+		IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBReleaseGroup: alb.Spec.ReleaseGroupID},
+		Releases: []pkgmetadata.AlbumRelease{
+			{
+				// More tracks, but a promo: the Artist's default profile
+				// accepts official releases only.
+				IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBRelease: "promo"}, Status: "Promotion", TrackCount: 3,
+				Media: []pkgmetadata.Medium{{Position: 1, Tracks: []pkgmetadata.Track{
+					track("rec-1", "Airbag", 1), track("rec-2", "Paranoid Android", 2), track("rec-3", "Bonus", 3),
+				}}},
+			},
+			{
+				IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBRelease: "official"}, Status: "Official", TrackCount: 2,
+				Media: []pkgmetadata.Medium{{Position: 1, Tracks: []pkgmetadata.Track{
+					track("rec-1", "Airbag", 1), track("rec-2", "Paranoid Android", 2),
+				}}},
+			},
+		},
+	}
+	reconcileWith := func(rpc fakeAlbumLookupRPC) {
+		t.Helper()
+		r := &album.Reconciler{
+			Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
+			Bus: combinedBus{Publisher: fakePublisher{}, requester: rpc},
+		}
+		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+		require.NoError(t, err)
+	}
+
+	reconcileWith(fakeAlbumLookupRPC{album: fetched})
+	var got catalogv1alpha1.Album
+	require.Eventually(t, func() bool {
+		return c.Get(ctx, key, &got) == nil && got.Status.Metadata != nil && got.Status.Metadata.SelectedReleaseID != ""
+	}, 5*time.Second, 10*time.Millisecond, "selectedReleaseID was never written")
+	assert.Equal(t, "official", got.Status.Metadata.SelectedReleaseID)
+	assert.Equal(t, "OK Computer", got.Status.Metadata.Title, "the gateway's leaves are untouched")
+	require.Len(t, got.Status.Tracks, 2)
+	assert.Nil(t, got.Status.Tracks[0].FileRef, "Airbag has no file")
+	require.NotNil(t, got.Status.Tracks[1].FileRef)
+	assert.Equal(t, mf.Name, *got.Status.Tracks[1].FileRef, "the MediaFile addressing recording rec-2 is that track's file")
+	assert.EqualValues(t, 1, got.Status.TrackFileCount)
+	cond := k8s.FindCondition(got.Status.Conditions, "TracksSynced")
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionTrue, cond.Status)
+	assert.Equal(t, string(album.SelectionBest), cond.Reason)
+
+	// Ownership, leaf by leaf: catalogarr owns selectedReleaseID and nothing
+	// else under status.metadata; the gateway owns the rest and not it.
+	mine := fieldsUnder(managedStatusFieldPaths(got.ManagedFields, "catalogarr"), "status", "metadata")
+	assert.Equal(t, map[string]bool{"selectedReleaseID": true}, mine)
+	theirs := fieldsUnder(managedStatusFieldPaths(got.ManagedFields, "catalogarr-metadata"), "status", "metadata")
+	assert.True(t, theirs["title"])
+	assert.False(t, theirs["selectedReleaseID"], "the gateway must not co-own selectedReleaseID")
+
+	// The gateway re-applying its own complete set must not release it.
+	gatewayApply("OK Computer (Remastered)")
+	require.Eventually(t, func() bool {
+		return c.Get(ctx, key, &got) == nil && got.Status.Metadata.Title == "OK Computer (Remastered)"
+	}, 5*time.Second, 10*time.Millisecond)
+	assert.Equal(t, "official", got.Status.Metadata.SelectedReleaseID, "a gateway apply released selectedReleaseID")
+
+	// A transient RPC failure in this steady state keeps the listing, the
+	// attribution and the selection.
+	reconcileWith(fakeAlbumLookupRPC{err: errors.New("nats: timeout")})
+	require.Eventually(t, func() bool {
+		if c.Get(ctx, key, &got) != nil {
+			return false
+		}
+		cond := k8s.FindCondition(got.Status.Conditions, "TracksSynced")
+		return cond != nil && cond.Reason == "RPCError"
+	}, 5*time.Second, 10*time.Millisecond)
+	assert.Len(t, got.Status.Tracks, 2, "an RPC blip released status.tracks")
+	assert.EqualValues(t, 1, got.Status.TrackFileCount, "an RPC blip released status.trackFileCount")
+	assert.Equal(t, "official", got.Status.Metadata.SelectedReleaseID, "an RPC blip released selectedReleaseID")
+
+	// An early return (QueueFull on a stale-metadata publish) in the same
+	// steady state reasserts the selection rather than releasing it.
+	staleAC := catalogac.Album(alb.Name, alb.Namespace).WithStatus(catalogac.AlbumStatus().WithMetadata(
+		catalogac.AlbumMetadata().WithTitle("OK Computer (Remastered)").WithRefreshedAt(metav1.NewTime(time.Now().Add(-30 * 24 * time.Hour)))))
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, staleAC)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		return c.Get(ctx, key, &got) == nil && got.Status.Metadata.RefreshedAt.Time.Before(time.Now().Add(-24*time.Hour))
+	}, 5*time.Second, 10*time.Millisecond)
+	queueFull := &album.Reconciler{
+		Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
+		Bus: combinedBus{Publisher: fakePublisher{err: events.ErrQueueFull}, requester: fakeAlbumLookupRPC{album: fetched}},
+	}
+	_, err = queueFull.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		return c.Get(ctx, key, &got) == nil && k8s.IsConditionTrue(got.Status.Conditions, "QueueFull")
+	}, 5*time.Second, 10*time.Millisecond)
+	assert.Equal(t, "official", got.Status.Metadata.SelectedReleaseID, "the QueueFull early return released selectedReleaseID")
+	assert.Len(t, got.Status.Tracks, 2)
+	gatewayApply("OK Computer (Remastered)")
+	require.Eventually(t, func() bool {
+		return c.Get(ctx, key, &got) == nil && got.Status.Metadata.RefreshedAt.After(time.Now().Add(-time.Hour))
+	}, 5*time.Second, 10*time.Millisecond)
+
+	// A release group none of whose releases the profile accepts selects
+	// nothing, and says why.
+	bootlegOnly := &pkgmetadata.Album{Releases: []pkgmetadata.AlbumRelease{{
+		IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBRelease: "boot"}, Status: "Bootleg", TrackCount: 1,
+		Media: []pkgmetadata.Medium{{Position: 1, Tracks: []pkgmetadata.Track{track("rec-1", "Airbag", 1)}}},
+	}}}
+	reconcileWith(fakeAlbumLookupRPC{album: bootlegOnly})
+	require.Eventually(t, func() bool {
+		if c.Get(ctx, key, &got) != nil {
+			return false
+		}
+		cond := k8s.FindCondition(got.Status.Conditions, "TracksSynced")
+		return cond != nil && cond.Reason == string(album.SelectionNoAcceptedRelease)
+	}, 5*time.Second, 10*time.Millisecond)
+	assert.Empty(t, got.Status.Tracks)
+	assert.Empty(t, got.Status.Metadata.SelectedReleaseID)
+	assert.Equal(t, "OK Computer (Remastered)", got.Status.Metadata.Title)
+	assert.False(t, k8s.IsConditionTrue(got.Status.Conditions, k8s.ConditionReady))
 }

@@ -32,20 +32,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // This reconciler is the sole writer of status.conditions, status.tracks,
 // status.phase, status.path, status.trackFileCount, status.quality,
-// status.formatScore, status.cutoffMet and (conditionally)
-// status.activeDownloadRef, under k8s.ManagerCatalogarr.
-// status.metadata (including status.metadata.selectedReleaseID) belongs
-// SOLELY to the metadata gateway (k8s.ManagerCatalogarrMetadata) -- see
+// status.formatScore, status.cutoffMet, (conditionally)
+// status.activeDownloadRef and status.metadata.selectedReleaseID, under
+// k8s.ManagerCatalogarr. Every other leaf of status.metadata belongs to the
+// metadata gateway (k8s.ManagerCatalogarrMetadata) -- see
 // buildAlbumMetadataAC's doc comment in catalogarr/metadata/patch.go for
-// why the Artist fan-out that creates this object never seeds it, and why
-// this reconciler must not either. status.pendingGrab,
-// status.lastSearchedAt and status.searchAttempts belong to the grab path
-// (k8s.ManagerCatalogarrGrab); catalogarr/worker/search does not dispatch
-// non-video kinds yet, so nothing writes those three fields on an Album
-// today, but this reconciler still only READS status.pendingGrab (for
-// Phase) and never writes it, mirroring episode.Reconciler's identical
-// read-only treatment -- the split is a field-manager rule, not a
-// consequence of any gap in non-video support.
+// why the Artist fan-out that creates this object never seeds it.
+// selectedReleaseID is the one exception because only this reconciler can
+// decide it (selectedReleaseAC in reconciler.go); server-side apply tracks
+// ownership per leaf, so sharing the struct releases nothing of the
+// gateway's. status.pendingGrab, status.lastSearchedAt and
+// status.searchAttempts belong to the grab path
+// (k8s.ManagerCatalogarrGrab); this reconciler only READS
+// status.pendingGrab (for Phase) and never writes it, mirroring
+// episode.Reconciler's identical read-only treatment.
 //
 // status.quality/status.formatScore/status.cutoffMet ARE genuinely
 // evaluated, not stubbed: pkg/quality.FromCRD resolves a QualityProfile
@@ -58,19 +58,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // catalogarr/controller/audiobook is the sibling precedent this package's
 // reconciler.go follows for that half.
 //
-// Track-listing gap: status.tracks is computed by SelectRelease/BuildTracks
-// (tracks.go) from the SAME pkg/metadata.Album entity the gateway fetches
-// for status.metadata (fetched independently here, via a direct RPC call
-// through rpc.catalogarr.metadata.lookup, kind=album, keyed by
-// KeyMBReleaseGroup -- the existing single-release-group path
-// Registry.Lookup already serves, not a new RPC verb). This is safe against
-// the same-manager-co-ownership trap buildAlbumMetadataAC's comment warns
-// about because Tracks is a disjoint field from status.metadata, owned
-// solely by this reconciler either way. But pkg/metadata/clients/
-// musicbrainz's mapAlbum does not currently populate Album.Releases from
-// EITHER of ArtistProvider's Albums() or Album() calls (a Phase B client
-// gap, out of this task's directories), so in production today
-// SelectRelease always sees an empty release list and status.tracks is
-// always empty. The mechanism is correct and tested against fixture data;
-// it activates once that gap is closed. Flagged in this task's report.
+// Track listing: status.tracks comes from the pkg/metadata.Album the
+// gateway also fetches for status.metadata -- fetched independently here,
+// via a direct RPC call through rpc.catalogarr.metadata.lookup, kind=album,
+// keyed by KeyMBReleaseGroup, which browses the group's releases with their
+// media and recordings (pkg/metadata/clients/musicbrainz's Album). One
+// release is selected (SelectRelease, tracks.go: a pin, then Lidarr's
+// keep-the-monitored-release, most-files, most-tracks rule over the
+// releases the Artist's metadata profile accepts) and flattened into
+// status.tracks (BuildTracks). A MediaFile addressing one track --
+// spec.mediaRef {kind: album, name: <album>, track: <recording MBID>} --
+// sets that track's fileRef (FilesByRecording, filestate.go), and
+// status.trackFileCount counts them.
 package album

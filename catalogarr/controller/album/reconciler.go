@@ -72,9 +72,9 @@ const conditionTracksSynced = "TracksSynced"
 const (
 	// mediaFileByAlbumIndexKey indexes MediaFile by the Album it backs,
 	// filtered to spec.mediaRef.kind=album -- the same shape as
-	// episode.mediaFileByEpisodeIndexKey. See filestate.go's own doc
-	// comment for why this is a coarse, whole-album signal rather than a
-	// per-track one.
+	// episode.mediaFileByEpisodeIndexKey. It returns whole-album and
+	// per-track (spec.mediaRef.track) files alike; filestate.go's
+	// FileState and FilesByRecording each take the view they need.
 	mediaFileByAlbumIndexKey = ".spec.mediaRef.album"
 
 	// albumByActiveDownloadIndexKey indexes Album by its
@@ -121,7 +121,7 @@ type bus interface {
 // metadata target, not a fan-out child like Episode), path (via the owning
 // Artist's own resolved path), the track-listing RPC sync, and the
 // file/download rollup from a watched MediaFile and Download. See this
-// package's doc.go for the full field-manager and track-listing-gap
+// package's doc.go for the full field-manager and track-listing
 // rationale.
 type Reconciler struct {
 	client.Client
@@ -428,29 +428,50 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 		statusAC = statusAC.WithPath(pth)
 	}
 
-	// Track-listing RPC sync (last-but-one step, per §8.1's ordering): a
-	// failure surfaces on conditionTracksSynced without blocking the patch.
-	tracksSynced, tracks, truncated, syncErr := r.syncTracks(ctx, alb)
-	if syncErr != nil {
-		k8s.MarkFalse(alb, &conditions, conditionTracksSynced, "RPCError", "track listing RPC failed: %s", syncErr.Error())
-	} else {
-		k8s.MarkTrue(alb, &conditions, conditionTracksSynced, k8s.ReasonReconciled, "tracks synced")
-	}
-	if truncated {
-		k8s.MarkTrue(alb, &conditions, catalogv1alpha1.AlbumConditionInvalid, "TooManyTracks", "the selected release has more than %d tracks", maxTracks)
-	} else {
-		k8s.MarkFalse(alb, &conditions, catalogv1alpha1.AlbumConditionInvalid, k8s.ReasonReconciled, "track count within limits")
-	}
-	statusAC = statusAC.WithTracks(tracks...)
-	statusAC = statusAC.WithTrackFileCount(countTracksWithFile(tracks))
-
-	// File/download rollup (last step): a coarse, whole-album signal -- see
-	// filestate.go's own doc comment for why there is no per-track
-	// attribution yet.
+	// Every MediaFile of this Album, whole-album and per-track alike: the
+	// per-track ones (spec.mediaRef.track) decide which release has the
+	// most files and fill status.tracks[].fileRef; all of them feed the
+	// whole-album rollup below.
 	var mfList catalogv1alpha1.MediaFileList
 	if err := r.List(ctx, &mfList, client.InNamespace(alb.Namespace), client.MatchingFields{mediaFileByAlbumIndexKey: alb.Name}); err != nil {
 		return ctrl.Result{}, err
 	}
+	files := FilesByRecording(mfList.Items)
+
+	// Track-listing RPC sync and release selection (per §8.1's ordering): a
+	// failure surfaces on conditionTracksSynced without blocking the patch.
+	ts := r.syncTracks(ctx, alb, artistObj.Spec.MetadataProfile, files)
+	tracksSynced := false
+	switch {
+	case ts.err != nil:
+		k8s.MarkFalse(alb, &conditions, conditionTracksSynced, "RPCError", "track listing RPC failed: %s", ts.err.Error())
+	case ts.selection == SelectionPinnedReleaseMissing:
+		k8s.MarkFalse(alb, &conditions, conditionTracksSynced, string(ts.selection),
+			"spec.releaseID %q is not a release of this group, and spec.anyReleaseOk is false", ptr.Deref(alb.Spec.ReleaseID, ""))
+	case ts.selection == SelectionNoAcceptedRelease:
+		k8s.MarkFalse(alb, &conditions, conditionTracksSynced, string(ts.selection),
+			"no release of this group has tracks and a status the artist's metadata profile accepts (releaseStatuses %v)",
+			artistObj.Spec.MetadataProfile.ReleaseStatuses)
+	case ts.selected == "":
+		tracksSynced = true
+		k8s.MarkTrue(alb, &conditions, conditionTracksSynced, string(ts.selection), "the release group lists no releases yet")
+	default:
+		tracksSynced = true
+		k8s.MarkTrue(alb, &conditions, conditionTracksSynced, string(ts.selection), "tracks taken from release %s", ts.selected)
+	}
+	if ts.truncated {
+		k8s.MarkTrue(alb, &conditions, catalogv1alpha1.AlbumConditionInvalid, "TooManyTracks", "the selected release has more than %d tracks", maxTracks)
+	} else {
+		k8s.MarkFalse(alb, &conditions, catalogv1alpha1.AlbumConditionInvalid, k8s.ReasonReconciled, "track count within limits")
+	}
+	statusAC = statusAC.WithTracks(ts.tracks...)
+	statusAC = statusAC.WithTrackFileCount(countTracksWithFile(ts.tracks))
+	if md := selectedReleaseAC(alb, ts.selected); md != nil {
+		statusAC = statusAC.WithMetadata(md)
+	}
+
+	// File/download rollup (last step): a coarse, whole-album signal -- see
+	// filestate.go's FileState for why phase and quality stay whole-album.
 	mf := rollup.PickMediaFile(mfList.Items)
 
 	profile, profileProblem, err := r.resolveProfile(ctx, alb, &artistObj)
@@ -505,7 +526,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 		return ctrl.Result{}, err
 	}
 
-	if syncErr != nil {
+	if ts.err != nil {
 		return ctrl.Result{RequeueAfter: metadataSyncRPCBackoff}, nil
 	}
 	return ctrl.Result{}, nil
@@ -517,8 +538,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 // ArtistNotFound, RootFolderNotFound): all three are transient failures,
 // and without this, PatchStatus's apply would omit every field it does not
 // mention, releasing (zeroing) a healthy Album's Tracks/Phase/Path/
-// TrackFileCount/Quality/FormatScore/CutoffMet/ActiveDownloadRef the next
-// time any of them blips. Mirrors series.reassertKnownStatus, with one
+// TrackFileCount/Quality/FormatScore/CutoffMet/ActiveDownloadRef and
+// status.metadata.selectedReleaseID the next time any of them blips. Mirrors series.reassertKnownStatus, with one
 // addition: Tracks is a list whose generated WithTracks APPENDS (CLAUDE.md's
 // reassertKnownStatus exception, the same shape as MediaFileStatus's
 // Conditions/Sidecars), so this seeds the AC's Tracks field exactly once
@@ -559,20 +580,68 @@ func reassertKnownStatus(statusAC *catalogac.AlbumStatusApplyConfiguration, alb 
 	if alb.Status.ActiveDownloadRef != nil {
 		statusAC = statusAC.WithActiveDownloadRef(*alb.Status.ActiveDownloadRef)
 	}
+	if alb.Status.Metadata != nil {
+		if md := selectedReleaseAC(alb, alb.Status.Metadata.SelectedReleaseID); md != nil {
+			statusAC = statusAC.WithMetadata(md)
+		}
+	}
 	return statusAC
+}
+
+// selectedReleaseAC is this reconciler's one leaf inside status.metadata:
+// selectedReleaseID, "the release the tracks were taken from". Everything
+// else in status.metadata is the metadata gateway's
+// (k8s.ManagerCatalogarrMetadata); server-side apply tracks ownership per
+// leaf, so the two managers share the struct without either releasing the
+// other's fields. Only this reconciler can decide the value -- it is the
+// one that selects the release, from the files it watches -- so it is the
+// writer, under k8s.ManagerCatalogarr like the rest of its status.
+//
+// It is sent only once the gateway has written status.metadata (a non-zero
+// refreshedAt): applying it to an Album without metadata would create a
+// status.metadata holding nothing else, which every reader of
+// "status.metadata != nil" -- this reconciler's own path step among them --
+// would take for fetched metadata. Returning nil omits the leaf, which
+// releases it: no selection is the right value then.
+func selectedReleaseAC(alb *catalogv1alpha1.Album, releaseID string) *catalogac.AlbumMetadataApplyConfiguration {
+	if releaseID == "" || alb.Status.Metadata == nil || alb.Status.Metadata.RefreshedAt.IsZero() {
+		return nil
+	}
+	return catalogac.AlbumMetadata().WithSelectedReleaseID(releaseID)
+}
+
+// trackSync is syncTracks' result: the track list to declare, the release
+// it came from ("" for none) and how that release was chosen.
+type trackSync struct {
+	tracks    []*catalogac.TrackApplyConfiguration
+	truncated bool
+	selected  string
+	selection Selection
+	err       error
 }
 
 // syncTracks fetches alb's release group via the metadata gateway's
 // EXISTING single-entity lookup (rpc.catalogarr.metadata.lookup, kind=album,
 // keyed by pkgmetadata.KeyMBReleaseGroup -- the same call
 // Registry.Lookup(kind=album) serves for the gateway's own status.metadata
-// fetch; no new RPC verb needed, unlike artist.Reconciler's syncAlbums),
-// selects a release per SelectRelease, and flattens it via BuildTracks.
+// fetch, which browses the group's releases with their media and
+// recordings; no new RPC verb needed, unlike artist.Reconciler's
+// syncAlbums), selects a release per SelectRelease, and flattens it via
+// BuildTracks with files' per-track fileRefs.
 //
-// synced=true with a nil/empty tracks result is a valid, non-error outcome
-// (nothing fetched yet, or no release to take tracks from) -- only an RPC
-// transport failure or a gateway-reported error counts as sync failure.
-func (r *Reconciler) syncTracks(ctx context.Context, alb *catalogv1alpha1.Album) (synced bool, tracks []*catalogac.TrackApplyConfiguration, truncated bool, err error) {
+// A failed fetch keeps what the Album already has -- its track list
+// (fileRefs refreshed from files) and its selected release -- and reports
+// the error: this is a transient failure, and declaring an empty list would
+// release a healthy listing on every blip.
+func (r *Reconciler) syncTracks(ctx context.Context, alb *catalogv1alpha1.Album, profile catalogv1alpha1.MusicMetadataProfile, files map[string]string) trackSync {
+	previous := ""
+	if alb.Status.Metadata != nil {
+		previous = alb.Status.Metadata.SelectedReleaseID
+	}
+	kept := func(err error) trackSync {
+		return trackSync{tracks: TracksFromStatus(alb.Status.Tracks, files), selected: previous, err: err}
+	}
+
 	req := schema.MetadataRequest{
 		Kind: commonv1.MediaKindAlbum,
 		IDs:  map[string]string{pkgmetadata.KeyMBReleaseGroup: alb.Spec.ReleaseGroupID},
@@ -582,33 +651,29 @@ func (r *Reconciler) syncTracks(ctx context.Context, alb *catalogv1alpha1.Album)
 
 	var resp schema.MetadataResponse
 	if rpcErr := r.Bus.Request(rpcCtx, events.RPCMetadataLookup, req, &resp); rpcErr != nil {
-		return false, nil, false, rpcErr
+		return kept(rpcErr)
 	}
 	if resp.Error != "" {
-		return false, nil, false, fmt.Errorf("metadata gateway: %s", resp.Error)
+		return kept(fmt.Errorf("metadata gateway: %s", resp.Error))
 	}
-	if len(resp.Result) == 0 {
-		return true, nil, false, nil
-	}
-
 	var fetched pkgmetadata.Album
-	if err := json.Unmarshal(resp.Result, &fetched); err != nil {
-		return false, nil, false, fmt.Errorf("decode album: %w", err)
+	if len(resp.Result) > 0 {
+		if err := json.Unmarshal(resp.Result, &fetched); err != nil {
+			return kept(fmt.Errorf("decode album: %w", err))
+		}
 	}
 
-	release, ok := SelectRelease(alb.Spec, fetched.Releases)
-	if !ok {
-		return true, nil, false, nil
+	release, selection := SelectRelease(alb.Spec, profile, previous, fetched.Releases, files)
+	if release == nil {
+		return trackSync{selection: selection}
 	}
-	built, truncatedResult := BuildTracks(release)
-	return true, built, truncatedResult, nil
+	built, truncated := BuildTracks(release, files)
+	return trackSync{tracks: built, truncated: truncated, selected: release.IDs[pkgmetadata.KeyMBRelease], selection: selection}
 }
 
 // countTracksWithFile is status.trackFileCount's definition: the number of
-// tracks whose FileRef is set. BuildTracks never sets FileRef (no per-track
-// import attribution exists yet -- see this package's doc.go), so this is
-// always 0 against real data today; the computation is correct and ready
-// for whenever that gap closes.
+// tracks whose FileRef is set, which BuildTracks and TracksFromStatus take
+// from the MediaFiles addressing a single track (FilesByRecording).
 func countTracksWithFile(tracks []*catalogac.TrackApplyConfiguration) int32 {
 	var n int32
 	for _, t := range tracks {
