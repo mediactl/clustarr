@@ -174,7 +174,13 @@ func createMovie(t *testing.T, ctx context.Context, c client.Client, ns, name st
 	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Movie(name, ns).WithStatus(
 		catalogac.MovieStatus().WithAvailable(true).WithMetadata(
 			catalogac.MovieMetadata().WithTitle(title).WithYear(year).WithRuntimeMinutes(109).
-				WithOriginalLanguage("English").
+				// A BCP-47 TAG, which is what
+				// MovieMetadata.OriginalLanguage is documented to hold and
+				// what the metadata gateway really writes. It read "English"
+				// while pkg/decision consumed this field as a display name;
+				// storing the consumer's vocabulary in the producer's field
+				// is what made the fixture pass where production could not.
+				WithOriginalLanguage("en").
 				WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).WithRefreshedAt(metav1.Now()),
 		)))
 	require.NoError(t, err)
@@ -240,12 +246,15 @@ func createQualityProfile(t *testing.T, ctx context.Context, c client.Client) {
 			MediaKind:      catalogv1alpha1.ProfileMediaKindVideo,
 			UpgradeAllowed: ptr.To(true),
 			Cutoff:         "Bluray-1080p",
-			// "any" rather than the default "original": with "original" the
-			// TRaSH corpus scores an English release of a movie whose
-			// originalLanguage the gateway has not filled in at
-			// language-not-original (-10000), which is a fixture artefact,
-			// not the behaviour under test here.
-			Language: "any",
+			// language is deliberately LEFT OUT so the apiserver defaults it
+			// to "original", which is what a user who never touched the field
+			// gets. It used to be pinned to "any" to dodge the vocabulary
+			// defect (catalogarr handed pkg/decision a BCP-47 tag while both
+			// of its consumers spoke Radarr display names, so "original"
+			// rejected everything and language-not-original scored -10000 on
+			// top); pkg/decision/language.go converts at the boundary now, and
+			// this suite is more useful holding the default than opting out of
+			// it.
 			Tiers: []catalogv1alpha1.Tier{
 				{Name: "Bluray-1080p", Qualities: []string{"Bluray-1080p"}},
 				{Name: "WEB 1080p", Qualities: []string{"WEBDL-1080p", "WEBRip-1080p"}},

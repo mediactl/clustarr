@@ -62,9 +62,9 @@ func TestEvaluateFullPipeline(t *testing.T) {
 		PreferredProtocol:     "torrent",
 	}
 	tg := decision.Target{
-		Kind:             common.MediaKindMovie,
-		Available:        true,
-		OriginalLanguage: "English",
+		Kind:                common.MediaKindMovie,
+		Available:           true,
+		OriginalLanguageTag: "en",
 	}
 	o := decision.Options{
 		UserInvoked:       true,

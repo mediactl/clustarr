@@ -267,3 +267,74 @@ func TestWorkerBlocklistPredicateHonoursTheExpiryDeadline(t *testing.T) {
 		"an expired blocklist entry no longer blocks; expiry is applied at read time, not baked into the index")
 	require.False(t, target.Blocklist("3333333333333333333333333333333333333333", "Never.Seen.Before"))
 }
+
+// TestWorkerSearchAtCRDDefaultsApprovesAnEnglishRelease is the search path's
+// half of the language-vocabulary regression, and the only test in this
+// package that runs the REAL pkg/decision.Evaluate: every other one replaces
+// it with approveEverything or a capture, which is exactly why a search that
+// approved nothing at all could ship.
+//
+// The Movie's originalLanguage is "en" -- a BCP-47 tag, which is what
+// MovieMetadata.OriginalLanguage is documented to hold and what the metadata
+// gateway writes -- and testQualityProfile sets neither language nor
+// minFormatScore, so the apiserver defaults them to "original" and 0. Before
+// the boundary conversion in pkg/decision/language.go, that combination
+// rejected this English release twice over: once as ReasonWantedLanguage
+// ("en" never matches ["English"]) and once as a -10000 custom-format score
+// from language-not-original.
+//
+// The search is INTERACTIVE only because an automatic one fails closed on
+// protocols without a DelayProfile (TestWorkerProtocolFallbackIsGatedOnUserInvoked),
+// which would mask the language verdict behind a ProtocolDisabled rejection.
+// Every check this test is about -- language, custom-format score, quality,
+// size -- runs identically on both paths.
+func TestWorkerSearchAtCRDDefaultsApprovesAnEnglishRelease(t *testing.T) {
+	ctx := context.Background()
+	f := newWorkerFixture(t, "snapshot-crd-defaults")
+	f.worker.Evaluate = decision.Evaluate
+
+	_, err := k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalogarrMetadata,
+		catalogac.Movie("the-matrix", f.ns).WithStatus(
+			catalogac.MovieStatus().WithAvailable(true).WithMetadata(
+				catalogac.MovieMetadata().WithTitle("The Matrix").WithYear(1999).
+					WithRuntimeMinutes(136).
+					WithOriginalLanguage("en").
+					WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).
+					WithRefreshedAt(metav1.Now()))))
+	require.NoError(t, err)
+	eventually(t, 10*time.Second, "the cache to see the movie's metadata", func() bool {
+		var m catalogv1alpha1.Movie
+		if err := f.mgr.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: "the-matrix"}, &m); err != nil {
+			return false
+		}
+		return m.Status.Metadata != nil && m.Status.Metadata.OriginalLanguage == "en"
+	})
+
+	srch := &catalogv1alpha1.Search{
+		ObjectMeta: metav1.ObjectMeta{Name: "srch", Namespace: f.ns},
+		Spec: catalogv1alpha1.SearchSpec{
+			MediaRef: &commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
+			TTL:      metav1.Duration{Duration: time.Hour},
+		},
+	}
+	require.NoError(t, f.mgr.Create(ctx, srch))
+	waitCached(t, ctx, f.mgr, client.ObjectKey{Namespace: f.ns, Name: "srch"}, &catalogv1alpha1.Search{})
+	writeControllerStatus(t, ctx, f.mgr, f.ns, "srch")
+
+	env := f.envelope(t, schema.SearchTask{
+		MediaRef:    commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
+		Reason:      schema.SearchReasonInteractive,
+		SearchRef:   &schema.Ref{Namespace: f.ns, Name: "srch"},
+		UserInvoked: true,
+	})
+	require.NoError(t, f.worker.Handle(ctx, testMessage{env: env}))
+
+	got := &catalogv1alpha1.Search{}
+	require.NoError(t, f.api.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: "srch"}, got))
+	require.Len(t, got.Status.Results, 2)
+	for _, r := range got.Status.Results {
+		require.True(t, r.Approved,
+			"a profile at CRD defaults must approve an English release of an English movie; %s was rejected with %+v (score %d)",
+			r.GUID, r.Rejections, r.FormatScore)
+	}
+}

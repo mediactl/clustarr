@@ -136,11 +136,11 @@ func TestMatchEvaluatesLanguageIndexerFlagAndReleaseTypeKinds(t *testing.T) {
 	}}
 
 	r := &release.ParsedRelease{Title: "x", Languages: []string{"French"}}
-	got := cat.Match(context.Background(), r, catalogue.ItemContext{OriginalLanguage: "English", IndexerFlags: []string{"freeleech"}, ReleaseType: common.ReleaseTypeSeasonPack})
+	got := cat.Match(context.Background(), r, catalogue.ItemContext{OriginalLanguageName: "English", IndexerFlags: []string{"freeleech"}, ReleaseType: common.ReleaseTypeSeasonPack})
 	require.ElementsMatch(t, []string{"not-original", "season-pack", "freeleech"}, got)
 
 	rOriginal := &release.ParsedRelease{Title: "x", Languages: []string{"English"}}
-	got = cat.Match(context.Background(), rOriginal, catalogue.ItemContext{OriginalLanguage: "English", ReleaseType: common.ReleaseTypeSingle})
+	got = cat.Match(context.Background(), rOriginal, catalogue.ItemContext{OriginalLanguageName: "English", ReleaseType: common.ReleaseTypeSingle})
 	require.ElementsMatch(t, []string{}, got)
 }
 
@@ -193,12 +193,19 @@ func TestMatchAgainstRealEmbeddedFormats(t *testing.T) {
 	cat := &catalogue.Catalogue{Formats: all}
 
 	// Every case carries Languages: []string{"English"} and is matched against
-	// ItemContext{OriginalLanguage: "en"}: without them, the embedded
-	// language-not-original/language-not-english formats (Step 18) would
-	// spuriously match every case here, since an *empty* language list
+	// ItemContext{OriginalLanguageName: "English"}: without the Languages
+	// entry, the embedded language-not-original/language-not-english formats
+	// (Step 18) would match every case here, since an *empty* language list
 	// vacuously satisfies a negated "contains" check -- that is the correct
 	// per-condition semantics (see catalogue.go's evalCondition doc), not a
 	// bug to work around by weakening it; realistic fixture data avoids it.
+	//
+	// The OriginalLanguageName entry is a different matter: an EMPTY one no
+	// longer matches language-not-original, because an unknown original
+	// language leaves that condition unevaluated rather than negating into a
+	// match (see TestLanguageNotOriginalNeedsAKnownOriginalLanguage). It is
+	// kept here because "English" is what this fixture means, not to dodge
+	// anything.
 	cases := []struct {
 		name string
 		r    *release.ParsedRelease
@@ -258,7 +265,7 @@ func TestMatchAgainstRealEmbeddedFormats(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := cat.Match(context.Background(), tc.r, catalogue.ItemContext{OriginalLanguage: "English"})
+			got := cat.Match(context.Background(), tc.r, catalogue.ItemContext{OriginalLanguageName: "English"})
 			require.ElementsMatch(t, tc.want, got)
 		})
 	}
@@ -427,4 +434,34 @@ func TestLanguageNotEnglishComparesAgainstPkgReleasesRealVocabulary(t *testing.T
 	french := &release.ParsedRelease{Title: "x", Languages: []string{"French"}}
 	got = cat.Match(context.Background(), french, catalogue.ItemContext{})
 	require.Contains(t, got, "language-not-english", "a French release must be flagged as not-English")
+}
+
+// TestLanguageNotOriginalNeedsAKnownOriginalLanguage is the sibling of the
+// test above, for the other half of the same vocabulary boundary and the
+// half that survived it.
+//
+// language-not-original is a NEGATED "contains Original" scored -10000, and
+// "Original" resolves to ItemContext.OriginalLanguageName. When that value is
+// empty -- which is what pkg/decision now hands over for an item whose
+// original language it could not resolve, including an unfetched one and a
+// BCP-47 tag Radarr's table does not carry -- the condition has nothing to
+// compare against. Applying Negate to an unevaluable comparison turned "we do
+// not know" into "definitely not the original language", which combined with
+// the CRD's default minFormatScore of 0 rejected every release of the item.
+func TestLanguageNotOriginalNeedsAKnownOriginalLanguage(t *testing.T) {
+	all := loadAllEmbeddedFormats(t)
+	cat := &catalogue.Catalogue{Formats: all}
+	english := &release.ParsedRelease{Title: "x", Languages: []string{"English"}}
+
+	got := cat.Match(context.Background(), english, catalogue.ItemContext{OriginalLanguageName: ""})
+	require.NotContains(t, got, "language-not-original",
+		"an UNKNOWN original language must leave the condition unevaluated, not score -10000")
+
+	got = cat.Match(context.Background(), english, catalogue.ItemContext{OriginalLanguageName: "English"})
+	require.NotContains(t, got, "language-not-original",
+		"an English release of an English item is in its original language")
+
+	got = cat.Match(context.Background(), english, catalogue.ItemContext{OriginalLanguageName: "Japanese"})
+	require.Contains(t, got, "language-not-original",
+		"a KNOWN, different original language must still score; the unknown case must not have disabled the format")
 }

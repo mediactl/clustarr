@@ -83,30 +83,40 @@ func TestQualityRejections(t *testing.T) {
 	})
 }
 
+// TestLanguageRejection exercises languageRejection directly. Its first
+// parameter is the item's original language ALREADY resolved into the
+// English display-name vocabulary ("Japanese", not "ja") -- the resolution
+// itself is originalLanguageName's job and is covered in language_test.go.
 func TestLanguageRejection(t *testing.T) {
 	t.Run("any accepts everything", func(t *testing.T) {
 		p := quality.Profile{LanguageName: "any"}
-		require.Nil(t, languageRejection(Target{}, p, &release.ParsedRelease{Languages: []string{"French"}}))
+		require.Nil(t, languageRejection("", p, &release.ParsedRelease{Languages: []string{"French"}}))
 	})
 	t.Run("original language present", func(t *testing.T) {
 		p := quality.Profile{LanguageName: "original"}
-		tg := Target{OriginalLanguage: "Japanese"}
-		require.Nil(t, languageRejection(tg, p, &release.ParsedRelease{Languages: []string{"Japanese", "English"}}))
+		require.Nil(t, languageRejection("Japanese", p, &release.ParsedRelease{Languages: []string{"Japanese", "English"}}))
 	})
 	t.Run("original language missing rejects", func(t *testing.T) {
 		p := quality.Profile{LanguageName: "original"}
-		tg := Target{OriginalLanguage: "Japanese"}
-		got := languageRejection(tg, p, &release.ParsedRelease{Languages: []string{"English"}})
+		got := languageRejection("Japanese", p, &release.ParsedRelease{Languages: []string{"English"}})
 		require.NotNil(t, got)
 		require.Contains(t, got.Reason, ReasonWantedLanguage.Code)
 	})
+	t.Run("unknown original language constrains nothing", func(t *testing.T) {
+		// "" is what originalLanguageName returns for an absent tag AND for
+		// a tag the language table cannot resolve. Rejecting here is the
+		// defect language_test.go pins: a fact we do not have must not read
+		// as a fact that failed.
+		p := quality.Profile{LanguageName: "original"}
+		require.Nil(t, languageRejection("", p, &release.ParsedRelease{Languages: []string{"English"}}))
+	})
 	t.Run("specific wanted language missing rejects", func(t *testing.T) {
 		p := quality.Profile{LanguageName: "German"}
-		require.NotNil(t, languageRejection(Target{}, p, &release.ParsedRelease{Languages: []string{"English"}}))
+		require.NotNil(t, languageRejection("", p, &release.ParsedRelease{Languages: []string{"English"}}))
 	})
 	t.Run("empty LanguageName means no constraint", func(t *testing.T) {
 		p := quality.Profile{LanguageName: ""}
-		require.Nil(t, languageRejection(Target{}, p, &release.ParsedRelease{Languages: nil}))
+		require.Nil(t, languageRejection("", p, &release.ParsedRelease{Languages: nil}))
 	})
 }
 
