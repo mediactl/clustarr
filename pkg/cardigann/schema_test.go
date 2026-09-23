@@ -18,8 +18,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package cardigann_test
 
 import (
+	"fmt"
+	"os"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
+	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -87,4 +92,57 @@ func TestValidateAndLoadRejectMalformedInputWithoutPanicking(t *testing.T) {
 			assert.Error(t, loadErr)
 		})
 	}
+}
+
+// TestSchemaErrorNamesNoWorkingDirectory: the embedded schema used to be
+// registered under the bare name "schema-v11.json", which jsonschema/v6
+// resolves against the process working directory -- so a validation
+// failure rendered as file:///<cwd>/schema-v11.json#..., leaking the
+// binary's working directory into Indexer and IndexerDefinition conditions
+// for a file that is //go:embed-ed and not on disk at all.
+func TestSchemaErrorNamesNoWorkingDirectory(t *testing.T) {
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+
+	verr := cardigann.Validate([]byte("id: x\nname: x\n"))
+	require.Error(t, verr)
+	assert.NotContains(t, verr.Error(), "file://")
+	assert.NotContains(t, verr.Error(), wd)
+	assert.Contains(t, verr.Error(), cardigann.SchemaURL)
+}
+
+// TestSchemaErrorIsBounded: jsonschema/v6 renders every failed branch of
+// every oneOf, so a large invalid definition produced an error over three
+// times its own size -- 105,599 bytes for a 73 KB file, past the 32,768-byte
+// maxLength on conditions[].message. Over that the apply is rejected, not
+// truncated: the condition explaining the invalid definition would itself
+// fail to write, and the reconcile would error-loop on a terminal state.
+func TestSchemaErrorIsBounded(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("id: big\nname: big\ndescription: d\nlanguage: en-US\ntype: public\nencoding: UTF-8\n")
+	b.WriteString("links: [\"https://example.org/\"]\n")
+	b.WriteString("caps: {categorymappings: [{id: 1, cat: Movies}], modes: {search: [q]}}\n")
+	b.WriteString("search:\n  path: /\n  rows: {selector: tr}\n  fields:\n")
+	for i := range 3000 {
+		// Every field name is illegal, and every value is the wrong type,
+		// so each one fails every patternProperties branch.
+		fmt.Fprintf(&b, "    bogus%d: [%d]\n", i, i)
+	}
+	data := []byte(b.String())
+
+	verr := cardigann.Validate(data)
+	require.Error(t, verr)
+	assert.LessOrEqual(t, len(verr.Error()), cardigann.MaxSchemaErrorBytes+len("cardigann: schema validation: "),
+		"a schema error must fit a condition message")
+	assert.True(t, utf8.ValidString(verr.Error()))
+
+	// The full detail is still reachable for a caller that wants it.
+	var ve *jsonschema.ValidationError
+	require.ErrorAs(t, verr, &ve)
+	assert.Greater(t, len(ve.Error()), cardigann.MaxSchemaErrorBytes, "the fixture must actually exceed the bound")
+	assert.ErrorIs(t, verr, cardigann.ErrInvalidDefinition)
+
+	_, lerr := cardigann.Load(data)
+	require.Error(t, lerr)
+	assert.LessOrEqual(t, len(lerr.Error()), cardigann.MaxSchemaErrorBytes+len("cardigann: schema validation: "))
 }
