@@ -1,0 +1,338 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package transcodejob
+
+import (
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
+
+	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/squasharr/worker"
+)
+
+// Labels and annotations squasharr stamps on the Jobs it creates.
+const (
+	// LabelManagedBy/ManagedByValue select every transcode Job squasharr
+	// owns; the admission pass lists by it.
+	LabelManagedBy = "app.kubernetes.io/managed-by"
+	ManagedByValue = "squasharr"
+
+	// LabelHardware is the slot class the Job is budgeted against.
+	LabelHardware = "transcode.clustarr.io/hardware"
+
+	// AnnotationProfile is the TranscodeProfile name. An annotation, not a
+	// label: a cluster-scoped name may be longer than a label value allows.
+	AnnotationProfile = "transcode.clustarr.io/profile"
+
+	// AnnotationTranscodeJob is the owning TranscodeJob's name, for
+	// `kubectl get jobs -o yaml` readers; the owner reference is what the
+	// code follows.
+	AnnotationTranscodeJob = "transcode.clustarr.io/transcodejob"
+)
+
+// Pod-shape constants.
+const (
+	containerName     = "transcode"
+	dataVolumeName    = "data"
+	scratchVolumeName = "scratch"
+	scratchMountPath  = "/scratch"
+
+	// DefaultDataClaimName is the RWX claim every clustarr pod mounts at
+	// /data, the same "clustarr-data" grabarr's DefaultDataClaimName names.
+	DefaultDataClaimName = "clustarr-data"
+
+	// DefaultDataDir is where the Job mounts it and what --data-dir says.
+	DefaultDataDir = "/data"
+
+	backoffLimit = int32(2)
+
+	resourceNVIDIAGPU = corev1.ResourceName("nvidia.com/gpu")
+	resourceIntelGPU  = corev1.ResourceName("gpu.intel.com/i915")
+
+	nodeLabelNVIDIA = "nvidia.com/gpu.present"
+	nodeLabelIntel  = "intel.feature.node.kubernetes.io/gpu"
+)
+
+// JobConfig is everything about a transcode Job that does not come from the
+// TranscodeJob or its profile: deployment-level settings task E-4 threads in
+// from flags.
+type JobConfig struct {
+	// Image runs cpu and intel transcodes (--worker-image).
+	Image string
+
+	// ImageCUDA runs nvidia transcodes (--worker-image-cuda). Empty falls
+	// back to Image.
+	ImageCUDA string
+
+	// DataClaimName is the RWX PersistentVolumeClaim mounted at DataDir.
+	// Empty means DefaultDataClaimName.
+	DataClaimName string
+
+	// DataDir is the mount path and the --data-dir value. Empty means
+	// DefaultDataDir.
+	DataDir string
+
+	// ServiceAccountName is the worker pod's service account. It needs the
+	// worker's own RBAC (squasharr/worker/doc.go: transcodejobs get,
+	// transcodejobs/status patch, transcodeprofiles get, mediafiles get,
+	// rootfolders list) -- not this controller's. Empty uses the namespace
+	// default, which has none of it.
+	ServiceAccountName string
+
+	// NATSURL, when set, is exported to the worker as NATS_URL. The worker
+	// never uses the bus (ruling R6); this exists only while
+	// squasharr.Options.Validate still demands --nats-url on every role.
+	NATSURL string
+
+	// ExtraArgs are appended after the fixed worker arguments (for example
+	// --nats-single-node on kind).
+	ExtraArgs []string
+}
+
+// jobName is the batch Job's name: deterministic from the TranscodeJob's
+// name and UID, and within the 63 characters the Job controller needs to put
+// it in the batch.kubernetes.io/job-name label. The UID means a TranscodeJob
+// deleted and recreated under the same name gets a fresh Job rather than
+// adopting a finished one.
+func jobName(tj *transcodev1alpha1.TranscodeJob) string {
+	return k8s.LabelSafeName(tj.Name, tj.Namespace, tj.Name, string(tj.UID))
+}
+
+// buildJob renders the suspended batch/v1 Job for tj (§6.4, ADR-0005).
+//
+// hardware is the slot class decided from status.plan -- NOT the profile's
+// spec.hardware, because the planner forces Dolby Vision onto the CPU tier
+// and a remux-only plan needs no GPU at all.
+func buildJob(tj *transcodev1alpha1.TranscodeJob, profile *transcodev1alpha1.TranscodeProfile,
+	hardware transcodev1alpha1.Hardware, cfg JobConfig,
+) *batchv1.Job {
+	dataDir := cfg.DataDir
+	if dataDir == "" {
+		dataDir = DefaultDataDir
+	}
+	claim := cfg.DataClaimName
+	if claim == "" {
+		claim = DefaultDataClaimName
+	}
+	image := cfg.Image
+	if hardware == transcodev1alpha1.HardwareNVIDIA && cfg.ImageCUDA != "" {
+		image = cfg.ImageCUDA
+	}
+
+	name := jobName(tj)
+	labels := map[string]string{
+		"app.kubernetes.io/name":      "clustarr",
+		"app.kubernetes.io/component": "squasharr-worker",
+		LabelManagedBy:                ManagedByValue,
+		LabelHardware:                 string(hardware),
+	}
+	annotations := map[string]string{
+		AnnotationProfile:      tj.Spec.ProfileRef,
+		AnnotationTranscodeJob: tj.Name,
+	}
+
+	args := []string{"squasharr", "--role", "worker", "--job", tj.Name, "--data-dir", dataDir}
+	args = append(args, cfg.ExtraArgs...)
+
+	env := []corev1.EnvVar{
+		{Name: "POD_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"}}},
+		{Name: "POD_NAMESPACE", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"}}},
+		// §6.4: x265 reads the host's CPU count, not the cgroup quota, so
+		// the worker sizes its thread pools from this.
+		{Name: worker.CPULimitEnv, ValueFrom: &corev1.EnvVarSource{ResourceFieldRef: &corev1.ResourceFieldSelector{
+			ContainerName: containerName, Resource: "limits.cpu", Divisor: resource.MustParse("1"),
+		}}},
+	}
+	if cfg.NATSURL != "" {
+		env = append(env, corev1.EnvVar{Name: "NATS_URL", Value: cfg.NATSURL})
+	}
+
+	resources := *profile.Spec.Resources.DeepCopy()
+	gpuCount := int64(1)
+	if g := profile.Spec.GPU; g != nil && g.Count > 0 {
+		gpuCount = int64(g.Count)
+	}
+
+	pod := corev1.PodSpec{
+		RestartPolicy:      corev1.RestartPolicyNever,
+		ServiceAccountName: cfg.ServiceAccountName,
+		Containers: []corev1.Container{{
+			Name:  containerName,
+			Image: image,
+			Args:  args,
+			Env:   env,
+			VolumeMounts: []corev1.VolumeMount{
+				{Name: dataVolumeName, MountPath: dataDir},
+				{Name: scratchVolumeName, MountPath: scratchMountPath},
+			},
+		}},
+		Volumes: []corev1.Volume{
+			{Name: dataVolumeName, VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: claim},
+			}},
+			{Name: scratchVolumeName, VolumeSource: corev1.VolumeSource{EmptyDir: scratchSource(profile)}},
+		},
+	}
+
+	switch hardware {
+	case transcodev1alpha1.HardwareNVIDIA:
+		addGPU(&resources, resourceNVIDIAGPU, gpuCount)
+		pod.Containers[0].Env = append(pod.Containers[0].Env,
+			corev1.EnvVar{Name: "NVIDIA_DRIVER_CAPABILITIES", Value: "video,compute,utility"})
+		rc := "nvidia"
+		if g := profile.Spec.GPU; g != nil && g.RuntimeClassName != "" {
+			rc = g.RuntimeClassName
+		}
+		pod.RuntimeClassName = ptr.To(rc)
+		pod.Affinity = requireNodeLabel(nodeLabelNVIDIA)
+	case transcodev1alpha1.HardwareIntel:
+		addGPU(&resources, resourceIntelGPU, gpuCount)
+		pod.Affinity = requireNodeLabel(nodeLabelIntel)
+	}
+	pod.Containers[0].Resources = resources
+
+	// The profile's GPU placement applies only to a GPU transcode: a Dolby
+	// Vision source forced onto the CPU tier under a GPU profile must not be
+	// pinned to (and tolerate the taints of) the GPU nodes.
+	if g := profile.Spec.GPU; g != nil && hardware != transcodev1alpha1.HardwareCPU {
+		if len(g.NodeSelector) > 0 {
+			pod.NodeSelector = g.NodeSelector
+		}
+		pod.Tolerations = g.Tolerations
+	}
+
+	spec := batchv1.JobSpec{
+		Suspend:              ptr.To(true),
+		BackoffLimit:         ptr.To(backoffLimit),
+		PodReplacementPolicy: ptr.To(batchv1.Failed),
+		PodFailurePolicy:     podFailurePolicy(),
+		Template: corev1.PodTemplateSpec{
+			ObjectMeta: metav1.ObjectMeta{Labels: labels, Annotations: annotations},
+			Spec:       pod,
+		},
+	}
+	if d := profile.Spec.ActiveDeadline.Duration; d > 0 {
+		spec.ActiveDeadlineSeconds = ptr.To(int64(d.Seconds()))
+	}
+	if ttl := profile.Spec.TTLSecondsAfterFinished; ttl > 0 {
+		spec.TTLSecondsAfterFinished = ptr.To(ttl)
+	}
+
+	return &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        name,
+			Namespace:   tj.Namespace,
+			Labels:      labels,
+			Annotations: annotations,
+		},
+		Spec: spec,
+	}
+}
+
+// podFailurePolicy is ruling R4, against the exit codes squasharr/worker
+// declares (worker.ExitInvalidSource = 3, worker.ExitVerifyFailed = 4). A
+// pod evicted, preempted or drained (DisruptionTarget) is replaced without
+// spending a retry, and a worker that exits 3 (the source is not the file
+// that was planned) or 4 (the output failed verification) fails the whole
+// Job at once -- retrying either would transcode the same bad input
+// backoffLimit more times for the same answer. Every other non-zero exit,
+// 2 included, is retried up to backoffLimit.
+func podFailurePolicy() *batchv1.PodFailurePolicy {
+	return &batchv1.PodFailurePolicy{Rules: []batchv1.PodFailurePolicyRule{
+		{
+			Action: batchv1.PodFailurePolicyActionIgnore,
+			OnPodConditions: []batchv1.PodFailurePolicyOnPodConditionsPattern{{
+				Type: corev1.DisruptionTarget, Status: corev1.ConditionTrue,
+			}},
+		},
+		{
+			Action: batchv1.PodFailurePolicyActionFailJob,
+			OnExitCodes: &batchv1.PodFailurePolicyOnExitCodesRequirement{
+				ContainerName: ptr.To(containerName),
+				Operator:      batchv1.PodFailurePolicyOnExitCodesOpIn,
+				Values:        []int32{worker.ExitInvalidSource, worker.ExitVerifyFailed},
+			},
+		},
+	}}
+}
+
+func scratchSource(profile *transcodev1alpha1.TranscodeProfile) *corev1.EmptyDirVolumeSource {
+	src := &corev1.EmptyDirVolumeSource{}
+	if !profile.Spec.Scratch.IsZero() {
+		q := profile.Spec.Scratch.DeepCopy()
+		src.SizeLimit = &q
+	}
+	return src
+}
+
+// addGPU requests count of a GPU resource. Extended resources cannot be
+// overcommitted, so the request, when set, must equal the limit; setting
+// only the limit lets the apiserver default the request to it.
+func addGPU(rr *corev1.ResourceRequirements, name corev1.ResourceName, count int64) {
+	if rr.Limits == nil {
+		rr.Limits = corev1.ResourceList{}
+	}
+	q := *resource.NewQuantity(count, resource.DecimalSI)
+	rr.Limits[name] = q
+	if rr.Requests != nil {
+		if _, ok := rr.Requests[name]; ok {
+			rr.Requests[name] = q
+		}
+	}
+}
+
+func requireNodeLabel(key string) *corev1.Affinity {
+	return &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+		RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+			NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+				MatchExpressions: []corev1.NodeSelectorRequirement{{
+					Key: key, Operator: corev1.NodeSelectorOpIn, Values: []string{"true"},
+				}},
+			}},
+		},
+	}}
+}
+
+// jobFinished reports whether the Job reached a terminal condition, and
+// which. A Job is finished only once Complete or Failed is True; the
+// transient SuccessCriteriaMet/FailureTarget conditions precede those while
+// the Job controller is still cleaning up pods.
+func jobFinished(j *batchv1.Job) (done, succeeded bool, cond *batchv1.JobCondition) {
+	for i := range j.Status.Conditions {
+		c := &j.Status.Conditions[i]
+		if c.Status != corev1.ConditionTrue {
+			continue
+		}
+		switch c.Type {
+		case batchv1.JobComplete:
+			return true, true, c
+		case batchv1.JobFailed:
+			return true, false, c
+		}
+	}
+	return false, false, nil
+}
+
+// jobSuspended reports spec.suspend.
+func jobSuspended(j *batchv1.Job) bool {
+	return j.Spec.Suspend != nil && *j.Spec.Suspend
+}
