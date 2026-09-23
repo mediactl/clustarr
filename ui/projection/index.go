@@ -69,6 +69,15 @@ type relatedIndex struct {
 	jobs      map[types.UID][]transcodev1.TranscodeJob
 	subtitles map[types.UID][]subtitlev1.SubtitleRequest
 
+	// all is every Download this round's single List call returned,
+	// regardless of ownership -- unlike downloads above, which drops any
+	// Download with no controlling owner reference. [relatedIndex.AllDownloads]
+	// exposes it so Projection can feed /events/downloads (Task D3-3) from
+	// the same list round this index already does for ownership
+	// resolution, per ruling R4: no second List call for the downloads
+	// stream.
+	all []downloadv1.Download
+
 	mediaFiles map[types.UID]*catalogv1.MediaFile
 
 	// mediaFileOwner maps a MediaFile's own UID to whichever catalog item's
@@ -110,6 +119,7 @@ func buildRelatedIndex(ctx context.Context, r client.Reader) (*relatedIndex, err
 	if err := r.List(ctx, &downloads); err != nil {
 		return nil, fmt.Errorf("projection: list downloads: %w", err)
 	}
+	idx.all = downloads.Items
 	for i := range downloads.Items {
 		if owner, ok := controllingOwnerUID(&downloads.Items[i]); ok {
 			idx.downloads[owner] = append(idx.downloads[owner], downloads.Items[i])
@@ -168,6 +178,16 @@ func controllingOwnerUID(obj metav1.Object) (types.UID, bool) {
 		return "", false
 	}
 	return refs[0].UID, true
+}
+
+// AllDownloads returns every Download buildRelatedIndex's single List call
+// returned this round, regardless of ownership -- the same population the
+// Downloads page (ui/routes.go's listDownloads) shows via its own,
+// independent List call. Projection uses this one instead of making a
+// second List of its own, so the SAME list round that feeds pipeline rows
+// also feeds /events/downloads (Task D3-3, ruling R4).
+func (idx *relatedIndex) AllDownloads() []downloadv1.Download {
+	return idx.all
 }
 
 // Related returns the Related bundle buildRelatedIndex has for the catalog

@@ -37,6 +37,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /pipeline", s.handlePipeline)
 	mux.HandleFunc("GET /events/pipeline", s.handlePipelineEvents)
 	mux.HandleFunc("GET /downloads", s.handleDownloads)
+	mux.HandleFunc("GET /events/downloads", s.handleDownloadsEvents)
 	mux.HandleFunc("GET /{$}", s.handleIndex)
 
 	return mux

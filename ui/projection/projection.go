@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/pipeline"
 )
@@ -45,14 +46,20 @@ import (
 const DefaultInterval = 5 * time.Second
 
 // Projection computes []pipeline.Entry over a client.Reader on a fixed
-// interval and broadcasts the result to every current [Subscribe]r.
+// interval and broadcasts the result to every current [Subscribe]r. The
+// same tick also broadcasts the Download list gathered along the way (Task
+// D3-3, ruling R4) to every current [SubscribeDownloads]r, so the pipeline
+// stream and the downloads stream both come from one list round rather than
+// each running its own.
 type Projection struct {
 	reader   client.Reader
 	interval time.Duration
 
-	mu      sync.Mutex
-	entries []pipeline.Entry
-	subs    map[chan []pipeline.Entry]struct{}
+	mu           sync.Mutex
+	entries      []pipeline.Entry
+	downloads    []downloadv1.Download
+	subs         map[chan []pipeline.Entry]struct{}
+	downloadSubs map[chan []downloadv1.Download]struct{}
 }
 
 // New builds a Projection over r, recomputed every interval once [Run] is
@@ -63,9 +70,10 @@ type Projection struct {
 // begin projecting.
 func New(r client.Reader, interval time.Duration) *Projection {
 	return &Projection{
-		reader:   r,
-		interval: interval,
-		subs:     make(map[chan []pipeline.Entry]struct{}),
+		reader:       r,
+		interval:     interval,
+		subs:         make(map[chan []pipeline.Entry]struct{}),
+		downloadSubs: make(map[chan []downloadv1.Download]struct{}),
 	}
 }
 
@@ -90,9 +98,12 @@ func (p *Projection) Run(ctx context.Context) error {
 	}
 }
 
-// tick computes one projection round and publishes it to every subscriber.
+// tick computes one projection round -- one round of List calls -- and
+// publishes both results (the pipeline entries and, per Task D3-3's ruling
+// R4, the downloads slice gathered in the same round) to every subscriber
+// of each.
 func (p *Projection) tick(ctx context.Context) {
-	entries, err := p.project(ctx)
+	entries, downloads, err := p.project(ctx)
 	if err != nil {
 		logging.FromContext(ctx).Error("compute pipeline projection", "error", err)
 		return
@@ -101,20 +112,26 @@ func (p *Projection) tick(ctx context.Context) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.entries = entries
+	p.downloads = downloads
 	for ch := range p.subs {
 		publish(ch, entries)
 	}
+	for ch := range p.downloadSubs {
+		publish(ch, downloads)
+	}
 }
 
-// publish delivers entries to ch without blocking. A slow subscriber -- an
-// SSE connection whose client stopped reading -- gets its stale, buffered
-// frame replaced by the newest one instead of stalling the whole projection
-// loop: "a slow consumer drops frames rather than blocking the loop; the
-// newest projection is the only one worth delivering" (design plan, Task
-// D3-1).
-func publish(ch chan []pipeline.Entry, entries []pipeline.Entry) {
+// publish delivers v to ch without blocking. A slow subscriber -- an SSE
+// connection whose client stopped reading -- gets its stale, buffered frame
+// replaced by the newest one instead of stalling the whole projection loop:
+// "a slow consumer drops frames rather than blocking the loop; the newest
+// projection is the only one worth delivering" (design plan, Task D3-1).
+// It is generic over the payload so both the pipeline broadcast ([]pipeline.
+// Entry) and the downloads broadcast ([]downloadv1.Download, Task D3-3)
+// share the one implementation.
+func publish[T any](ch chan T, v T) {
 	select {
-	case ch <- entries:
+	case ch <- v:
 		return
 	default:
 	}
@@ -123,7 +140,7 @@ func publish(ch chan []pipeline.Entry, entries []pipeline.Entry) {
 	default:
 	}
 	select {
-	case ch <- entries:
+	case ch <- v:
 	default:
 	}
 }
@@ -137,6 +154,16 @@ func (p *Projection) Entries(context.Context) []pipeline.Entry {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.entries
+}
+
+// Downloads returns the most recently computed downloads slice -- the
+// Task D3-3 analogue of [Entries] for the same reasons: it never blocks on
+// the cluster, and a Projection that has not ticked yet (or was built over
+// a nil Reader) returns nil.
+func (p *Projection) Downloads(context.Context) []downloadv1.Download {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.downloads
 }
 
 // Subscribe registers a new listener and returns a channel that receives
@@ -163,23 +190,49 @@ func (p *Projection) Subscribe() (<-chan []pipeline.Entry, func()) {
 	return ch, unsubscribe
 }
 
+// SubscribeDownloads is [Subscribe]'s downloads-stream counterpart (Task
+// D3-3): same immediate-then-on-change delivery, same single-call
+// unsubscribe, but fed from the Download list [tick] already gathers for
+// [Subscribe] -- ruling R4's "one list round feeds both streams" -- rather
+// than a List call of its own.
+func (p *Projection) SubscribeDownloads() (<-chan []downloadv1.Download, func()) {
+	ch := make(chan []downloadv1.Download, 1)
+
+	p.mu.Lock()
+	ch <- p.downloads
+	p.downloadSubs[ch] = struct{}{}
+	p.mu.Unlock()
+
+	var once sync.Once
+	unsubscribe := func() {
+		once.Do(func() {
+			p.mu.Lock()
+			delete(p.downloadSubs, ch)
+			p.mu.Unlock()
+		})
+	}
+	return ch, unsubscribe
+}
+
 // project lists every catalog kind pkg/pipeline's describeItem handles plus
 // everything index.go's buildRelatedIndex needs, then calls pipeline.Project
-// once per catalog item. A nil reader (no cluster configured) yields no
-// rows without listing anything.
-func (p *Projection) project(ctx context.Context) ([]pipeline.Entry, error) {
+// once per catalog item. It also returns the Download list buildRelatedIndex
+// gathered along the way (ruling R4: no second List call for the downloads
+// stream). A nil reader (no cluster configured) yields no rows without
+// listing anything.
+func (p *Projection) project(ctx context.Context) ([]pipeline.Entry, []downloadv1.Download, error) {
 	if p.reader == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	idx, err := buildRelatedIndex(ctx, p.reader)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	items, err := p.listItems(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	entries := make([]pipeline.Entry, 0, len(items))
@@ -192,7 +245,14 @@ func (p *Projection) project(ctx context.Context) ([]pipeline.Entry, error) {
 	// newest-first by when each entered its current stage, so whatever just
 	// moved is at the top.
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Since.After(entries[j].Since) })
-	return entries, nil
+
+	// Sorted by name for the same reason ui/routes.go's listDownloads sorts
+	// its own, independent List the same way: a stable render, here across
+	// successive SSE frames rather than across requests.
+	downloads := idx.AllDownloads()
+	sort.Slice(downloads, func(i, j int) bool { return downloads[i].Name < downloads[j].Name })
+
+	return entries, downloads, nil
 }
 
 // listItems lists the ten catalog kinds pkg/pipeline/project.go's

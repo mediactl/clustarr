@@ -28,6 +28,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/pipeline"
@@ -95,6 +96,24 @@ type Options struct {
 	// *projection.Projection.
 	Subscribe func() (<-chan []pipeline.Entry, func())
 
+	// SubscribeDownloads is Subscribe's Task D3-3 counterpart for the
+	// Downloads page: a channel that receives the current downloads slice
+	// immediately upon subscribing, and again whenever it changes, plus a
+	// func that unsubscribes. /events/downloads (ui/sse.go) reads from it
+	// instead of listing Download itself on its own ticker, so production
+	// wiring can back this with the SAME shared *projection.Projection as
+	// Subscribe -- one list round feeding both streams (design plan ruling
+	// R4).
+	//
+	// A nil SubscribeDownloads -- every test in this package that sets only
+	// Reader (or neither), and any `clustarr ui` process too short-lived to
+	// have wired a projection loop yet -- defaults in [NewServer] to a
+	// per-connection poll of Reader, mirroring Subscribe's own nil fallback.
+	// GET /downloads (ui/routes.go's handleDownloads) does not use this
+	// field at all; it lists through Reader directly, exactly as it did
+	// before this field existed.
+	SubscribeDownloads func() (<-chan []downloadv1.Download, func())
+
 	// WaitForSync reports whether Reader's cache has completed its initial
 	// sync -- typically [NewClusterReader]'s own WaitForCacheSync. The
 	// /readyz handler polls it: 503 while it returns false, 200 once it
@@ -158,6 +177,12 @@ func NewServer(ctx context.Context, opts Options) *Server {
 		// closure never sees a nil entries func even when a caller built
 		// Options directly with neither field set.
 		opts.Subscribe = defaultSubscribe(opts.Entries)
+	}
+	if opts.SubscribeDownloads == nil {
+		// opts.Reader may itself be nil here; defaultSubscribeDownloads and
+		// the poller behind it treat that exactly like Entries returning no
+		// rows -- see pollDownloadsOnly's own doc comment.
+		opts.SubscribeDownloads = defaultSubscribeDownloads(opts.Reader)
 	}
 	if opts.WaitForSync == nil {
 		opts.WaitForSync = func(context.Context) bool { return true }

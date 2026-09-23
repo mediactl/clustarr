@@ -111,6 +111,26 @@ func receiveNonEmpty(t *testing.T, ch <-chan []pipeline.Entry, timeout time.Dura
 	}
 }
 
+// receiveNonEmptyDownloads is [receiveNonEmpty]'s Task D3-3 counterpart for
+// SubscribeDownloads' channel, for the identical reason: Subscribe(Downloads)
+// delivers the current snapshot immediately, which can race the Projection's
+// own first tick and arrive empty.
+func receiveNonEmptyDownloads(t *testing.T, ch <-chan []downloadv1.Download, timeout time.Duration) []downloadv1.Download {
+	t.Helper()
+	deadline := time.After(timeout)
+	for {
+		select {
+		case downloads := <-ch:
+			if len(downloads) > 0 {
+				return downloads
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for a non-empty downloads projection")
+			return nil
+		}
+	}
+}
+
 // TestSubscribersShareOneListRound is Task D3-1's central assertion (design
 // plan, R4): two subscribers must see the same slice computed from a single
 // list round, not one list round each. interval is an hour so exactly one
@@ -148,6 +168,60 @@ func TestSubscribersShareOneListRound(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	require.EqualValues(t, listCallsPerTick, calls.Load(),
 		"two subscribers must not cause more than one list round's worth of List calls")
+}
+
+// TestDownloadsSubscribersShareThePipelineListRound is Task D3-3's
+// generalisation of TestSubscribersShareOneListRound (ruling R4): a
+// SubscribeDownloads subscriber must see the Download list gathered by the
+// SAME tick that already feeds Subscribe -- buildRelatedIndex's one List of
+// Download, kept for ownership resolution -- not a List call of its own.
+// interval is an hour, exactly as above, so listCallsPerTick stays an exact
+// bound with both a pipeline and a downloads subscriber attached at once.
+func TestDownloadsSubscribersShareThePipelineListRound(t *testing.T) {
+	movie := &catalogv1.Movie{
+		ObjectMeta: metav1.ObjectMeta{Name: "shawshank-redemption", Namespace: "default", UID: "movie-uid"},
+		Status:     catalogv1.MovieStatus{Metadata: &catalogv1.MovieMetadata{Title: "The Shawshank Redemption"}},
+	}
+	download := &downloadv1.Download{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "shawshank-download",
+			Namespace:       "default",
+			OwnerReferences: []metav1.OwnerReference{ownerRef(movie, "Movie")},
+		},
+		Spec: downloadv1.DownloadSpec{
+			Protocol: commonv1.ProtocolTorrent,
+			Target:   commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name},
+		},
+		Status: downloadv1.DownloadStatus{Phase: downloadv1.DownloadPhaseDownloading, ProgressPercent: 10},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(movie, download).Build()
+
+	var calls atomic.Int64
+	reader := &countingReader{Reader: fakeClient, calls: &calls}
+
+	proj := projection.New(reader, time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = proj.Run(ctx) }()
+
+	entriesCh, unsubEntries := proj.Subscribe()
+	defer unsubEntries()
+	downloadsCh, unsubDownloads := proj.SubscribeDownloads()
+	defer unsubDownloads()
+
+	gotEntries := receiveNonEmpty(t, entriesCh, 2*time.Second)
+	require.Len(t, gotEntries, 1, "the pipeline stream must still see the one Movie")
+
+	gotDownloads := receiveNonEmptyDownloads(t, downloadsCh, 2*time.Second)
+	require.Len(t, gotDownloads, 1)
+	require.Equal(t, "shawshank-download", gotDownloads[0].Name)
+
+	// Give any errant extra tick or extra List a moment to happen before
+	// asserting the call count, exactly as TestSubscribersShareOneListRound
+	// does: interval is an hour, so nothing further should arrive.
+	time.Sleep(50 * time.Millisecond)
+	require.EqualValues(t, listCallsPerTick, calls.Load(),
+		"a downloads subscriber must add no List call beyond the one round the pipeline subscriber already shares")
 }
 
 // TestUnsubscribeStopsDelivery proves the func Subscribe returns actually
