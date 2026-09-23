@@ -55,26 +55,29 @@ type storedToken struct {
 type memCache struct {
 	mu        sync.Mutex
 	token     string
+	server    string
 	expiresAt time.Time
 	loadErr   error
 	storeErr  error
 	stores    []storedToken
+	servers   []string
 }
 
-func (c *memCache) LoadToken(context.Context) (string, time.Time, error) {
+func (c *memCache) LoadToken(context.Context) (string, string, time.Time, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.token, c.expiresAt, c.loadErr
+	return c.token, c.server, c.expiresAt, c.loadErr
 }
 
-func (c *memCache) StoreToken(_ context.Context, token string, expiresAt time.Time) error {
+func (c *memCache) StoreToken(_ context.Context, token, server string, expiresAt time.Time) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.stores = append(c.stores, storedToken{token, expiresAt})
+	c.servers = append(c.servers, server)
 	if c.storeErr != nil {
 		return c.storeErr
 	}
-	c.token, c.expiresAt = token, expiresAt
+	c.token, c.server, c.expiresAt = token, server, expiresAt
 	return nil
 }
 

@@ -200,7 +200,7 @@ func TestSetQuotaAndSetAuthMergeRatherThanClobber(t *testing.T) {
 	require.NoError(t, err)
 
 	tokenExpiry := time.Date(2026, 9, 23, 18, 0, 0, 0, time.UTC)
-	st, err := throttle.SetAuth(t.Context(), kv, "uid-7", "jwt-value", tokenExpiry)
+	st, err := throttle.SetAuth(t.Context(), kv, "uid-7", "jwt-value", "vip-api.opensubtitles.com", tokenExpiry)
 	require.NoError(t, err)
 
 	require.NotNil(t, st.Quota, "SetAuth must not have erased the quota SetQuota wrote")
@@ -208,6 +208,7 @@ func TestSetQuotaAndSetAuthMergeRatherThanClobber(t *testing.T) {
 	require.NotNil(t, st.Quota.ResetAt)
 	assert.Equal(t, resetAt, *st.Quota.ResetAt)
 	assert.Equal(t, "jwt-value", st.JWT)
+	assert.Equal(t, "vip-api.opensubtitles.com", st.APIServer)
 	require.NotNil(t, st.TokenExpiresAt)
 	assert.Equal(t, tokenExpiry, *st.TokenExpiresAt)
 }

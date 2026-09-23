@@ -27,7 +27,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -83,9 +85,15 @@ func decodeJSON(body io.Reader, v any) error {
 // Config configures a Provider.
 type Config struct {
 	APIKey, Username, Password, UserAgent string
-	Endpoint                              string        // default "https://api.opensubtitles.com/api/v1"
-	HTTPClient                            *http.Client  // default http.DefaultClient
-	Limiter                               *rate.Limiter // default nil — no client-side pacing; see New's doc comment (ruling R3)
+	// Endpoint is the API root. Left empty it is
+	// "https://api.opensubtitles.com/api/v1" for the login, and every later
+	// request goes to the host the login response names in base_url --
+	// "vip-api.opensubtitles.com" for a VIP account -- as Bazarr's
+	// server_url() does. An explicit Endpoint (a proxy, a test server) is
+	// used as is for every request.
+	Endpoint   string
+	HTTPClient *http.Client  // default http.DefaultClient
+	Limiter    *rate.Limiter // default nil — no client-side pacing; see New's doc comment (ruling R3)
 
 	// TokenCache, if set, shares this account's login token with every
 	// other Provider (and every other replica) wired to the same cache. A
@@ -99,9 +107,13 @@ type Config struct {
 type Provider struct {
 	cfg Config
 
+	// followServer is whether the login's base_url host replaces the
+	// endpoint for API calls: only when Config.Endpoint was left empty.
+	followServer bool
+
 	mu        sync.Mutex
 	token     string
-	baseURL   string
+	server    string    // the base_url host the token was issued with, "" for cfg.Endpoint
 	expiresAt time.Time // token's expiry: its JWT exp claim, else login time + tokenLifetime
 }
 
@@ -119,13 +131,54 @@ type Provider struct {
 // Limiter means "no client-side pacing at all", exercised in every existing
 // test in this package.
 func New(cfg Config) *Provider {
-	if cfg.Endpoint == "" {
+	follow := cfg.Endpoint == ""
+	if follow {
 		cfg.Endpoint = defaultEndpoint
 	}
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = http.DefaultClient
 	}
-	return &Provider{cfg: cfg, baseURL: cfg.Endpoint}
+	return &Provider{cfg: cfg, followServer: follow}
+}
+
+// apiURL is the root every authenticated request goes to: the base_url host
+// the current token came with, else Config.Endpoint.
+func (p *Provider) apiURL() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.server != "" {
+		return "https://" + p.server + "/api/v1"
+	}
+	return p.cfg.Endpoint
+}
+
+// acceptServer is the base_url host p will send API calls to, or "" for
+// Config.Endpoint. A host is followed only with the default endpoint, and
+// only when it is an opensubtitles.com host: every request carries the API
+// key and the bearer token, so a login response naming any other host is
+// not obeyed.
+func (p *Provider) acceptServer(ctx context.Context, baseURL string) string {
+	host := strings.TrimSpace(baseURL)
+	if !p.followServer || host == "" {
+		return ""
+	}
+	if !isOpenSubtitlesHost(host) {
+		logging.FromContext(ctx).Warn("opensubtitlescom: ignoring a base_url that is not an opensubtitles.com host", "baseURL", baseURL)
+		return ""
+	}
+	return host
+}
+
+// isOpenSubtitlesHost reports whether host is a bare opensubtitles.com host
+// name, with nothing -- no scheme, userinfo, port, path or query -- around it.
+func isOpenSubtitlesHost(host string) bool {
+	u, err := url.Parse("https://" + host)
+	if err != nil || u.Host != host || u.Port() != "" || u.User != nil ||
+		u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return false
+	}
+	name := strings.ToLower(u.Hostname())
+	return name == "opensubtitles.com" || strings.HasSuffix(name, ".opensubtitles.com")
 }
 
 // wait blocks on cfg.Limiter if one was supplied, or returns immediately if
@@ -146,6 +199,10 @@ func (p *Provider) Capabilities() subtitles.Capabilities {
 	}
 }
 
+// loginResponse is POST /login's body. base_url is a bare host
+// ("api.opensubtitles.com", or "vip-api.opensubtitles.com" for a VIP
+// account), which Bazarr's login() stores as server_hostname and every later
+// request is sent to.
 type loginResponse struct {
 	Token   string `json:"token"`
 	BaseURL string `json:"base_url"`
@@ -170,13 +227,13 @@ func (p *Provider) ensureToken(ctx context.Context, rejected string) error {
 	defer p.mu.Unlock()
 	now := time.Now()
 	if rejected != "" && p.token == rejected {
-		p.token, p.expiresAt = "", time.Time{}
+		p.token, p.server, p.expiresAt = "", "", time.Time{}
 	}
 	if p.token != "" && tokenFresh(p.token, p.expiresAt, now) {
 		return nil
 	}
 	if p.cfg.TokenCache != nil {
-		tok, exp, err := p.cfg.TokenCache.LoadToken(ctx)
+		tok, server, exp, err := p.cfg.TokenCache.LoadToken(ctx)
 		switch {
 		case err != nil:
 			// The cache is an optimisation: an unreadable one costs a
@@ -184,6 +241,7 @@ func (p *Provider) ensureToken(ctx context.Context, rejected string) error {
 			logging.FromContext(ctx).Warn("opensubtitlescom: token cache unreadable; logging in", "err", err)
 		case tok != "" && tok != rejected && tokenFresh(tok, exp, now):
 			p.token, p.expiresAt = tok, exp
+			p.server = p.acceptServer(ctx, server)
 			return nil
 		}
 	}
@@ -237,10 +295,11 @@ func (p *Provider) loginLocked(ctx context.Context, now time.Time) error {
 	}
 	p.token = lr.Token
 	p.expiresAt = tokenExpiry(lr.Token, now)
-	logging.FromContext(ctx).Debug("opensubtitlescom login ok", "vip", lr.User.VIP, "expiresAt", p.expiresAt)
+	p.server = p.acceptServer(ctx, lr.BaseURL)
+	logging.FromContext(ctx).Debug("opensubtitlescom login ok", "vip", lr.User.VIP, "server", p.server, "expiresAt", p.expiresAt)
 
 	if p.cfg.TokenCache != nil {
-		if err := p.cfg.TokenCache.StoreToken(ctx, p.token, p.expiresAt); err != nil {
+		if err := p.cfg.TokenCache.StoreToken(ctx, p.token, p.server, p.expiresAt); err != nil {
 			// This Provider has its token; the other replicas will log in
 			// themselves. Worth a warning, not a failed search.
 			logging.FromContext(ctx).Warn("opensubtitlescom: could not share the login token", "err", err)

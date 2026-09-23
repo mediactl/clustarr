@@ -381,7 +381,7 @@ func TestReconcileNeverWritesJWTIntoStatus(t *testing.T) {
 
 	const secretJWT = "eyJ-totally-secret-token-value"
 	expiry := time.Now().Add(24 * time.Hour)
-	_, err := throttle.SetAuth(ctx, kv, string(sp.UID), secretJWT, expiry)
+	_, err := throttle.SetAuth(ctx, kv, string(sp.UID), secretJWT, "", expiry)
 	require.NoError(t, err)
 
 	r := subtitleprovider.NewReconciler(c, kv, k8sevents.NewFakeRecorder(10))

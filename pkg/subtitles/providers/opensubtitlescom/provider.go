@@ -126,7 +126,7 @@ func (p *Provider) Search(ctx context.Context, q subtitles.Query) ([]subtitles.C
 	// because the API caches on the exact query string and redirects an
 	// unsorted one.
 	resp, err := p.doAuthed(ctx, func() (*http.Request, error) {
-		return http.NewRequestWithContext(ctx, http.MethodGet, p.baseURL+"/subtitles?"+params.Encode(), nil)
+		return http.NewRequestWithContext(ctx, http.MethodGet, p.apiURL()+"/subtitles?"+params.Encode(), nil)
 	})
 	if err != nil {
 		tracing.RecordError(span, err)
@@ -283,7 +283,7 @@ func (p *Provider) Download(ctx context.Context, c subtitles.Candidate) ([]byte,
 		return nil, "", fmt.Errorf("subtitles: opensubtitlescom download: encode request: %w", err)
 	}
 	resp, err := p.doAuthed(ctx, func() (*http.Request, error) {
-		return http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/download", bytes.NewReader(body))
+		return http.NewRequestWithContext(ctx, http.MethodPost, p.apiURL()+"/download", bytes.NewReader(body))
 	})
 	if err != nil {
 		tracing.RecordError(span, err)

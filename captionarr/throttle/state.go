@@ -116,6 +116,12 @@ type State struct {
 	// and IS projected (it is a timestamp, not a secret).
 	JWT            string     `json:"jwt,omitempty"`
 	TokenExpiresAt *time.Time `json:"tokenExpiresAt,omitempty"`
+	// APIServer is the API host JWT was issued with -- OpenSubtitles.com's
+	// login base_url, "vip-api.opensubtitles.com" for a VIP account -- so a
+	// replica adopting the token sends it where the login said to, as
+	// Bazarr caches oscom_server beside oscom_token. Empty means the
+	// provider's configured endpoint. Not a secret, and not projected.
+	APIServer string `json:"apiServer,omitempty"`
 
 	// LastSuccessAt is when a request to this provider last succeeded.
 	LastSuccessAt *time.Time `json:"lastSuccessAt,omitempty"`
@@ -285,11 +291,13 @@ func SetQuota(ctx context.Context, kv events.KV, providerUID string, remaining i
 	})
 }
 
-// SetAuth caches a freshly-obtained login token for providerUID, so other
-// worker replicas can reuse it instead of logging in themselves.
-func SetAuth(ctx context.Context, kv events.KV, providerUID, jwt string, expiresAt time.Time) (State, error) {
+// SetAuth caches a freshly-obtained login token for providerUID, and the API
+// host it was issued with, so other worker replicas can reuse both instead
+// of logging in themselves.
+func SetAuth(ctx context.Context, kv events.KV, providerUID, jwt, apiServer string, expiresAt time.Time) (State, error) {
 	return mutateState(ctx, kv, providerUID, func(st *State) {
 		st.JWT = jwt
+		st.APIServer = apiServer
 		if expiresAt.IsZero() {
 			st.TokenExpiresAt = nil
 		} else {

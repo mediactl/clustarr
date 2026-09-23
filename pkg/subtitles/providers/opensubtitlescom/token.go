@@ -36,14 +36,19 @@ import (
 // The token is a credential. An implementation must keep it out of logs
 // and out of any CRD status.
 type TokenCache interface {
-	// LoadToken returns the shared token and its expiry. An empty token
-	// with a nil error means there is none yet. The Provider checks
-	// freshness itself, so a cache may return an expired token.
-	LoadToken(ctx context.Context) (token string, expiresAt time.Time, err error)
-	// StoreToken records a token this Provider has just obtained, and when
-	// it expires: the JWT's own exp claim when it has one, otherwise the
-	// login time plus the documented 24-hour life.
-	StoreToken(ctx context.Context, token string, expiresAt time.Time) error
+	// LoadToken returns the shared token, the API host it was issued with
+	// (the login response's base_url, "" when none was followed) and its
+	// expiry. An empty token with a nil error means there is none yet. The
+	// Provider checks freshness itself, so a cache may return an expired
+	// token.
+	LoadToken(ctx context.Context) (token, server string, expiresAt time.Time, err error)
+	// StoreToken records a token this Provider has just obtained, the API
+	// host it was issued with, and when it expires: the JWT's own exp claim
+	// when it has one, otherwise the login time plus the documented 24-hour
+	// life. The host travels with the token as Bazarr caches oscom_server
+	// beside oscom_token, so a replica adopting a VIP account's token also
+	// sends it to the VIP host.
+	StoreToken(ctx context.Context, token, server string, expiresAt time.Time) error
 }
 
 const (

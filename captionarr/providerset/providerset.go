@@ -483,23 +483,24 @@ type TokenCache struct {
 
 var _ opensubtitlescom.TokenCache = TokenCache{}
 
-// LoadToken returns the shared token and its expiry; an empty token when
-// none has been stored. The client judges freshness itself.
-func (c TokenCache) LoadToken(ctx context.Context) (string, time.Time, error) {
+// LoadToken returns the shared token, the API host it was issued with and
+// its expiry; an empty token when none has been stored. The client judges
+// freshness itself.
+func (c TokenCache) LoadToken(ctx context.Context) (string, string, time.Time, error) {
 	st, err := throttle.Get(ctx, c.KV, c.ProviderUID)
 	if err != nil {
-		return "", time.Time{}, err
+		return "", "", time.Time{}, err
 	}
 	var exp time.Time
 	if st.TokenExpiresAt != nil {
 		exp = *st.TokenExpiresAt
 	}
-	return st.JWT, exp, nil
+	return st.JWT, st.APIServer, exp, nil
 }
 
-// StoreToken records a token the client has just obtained.
-func (c TokenCache) StoreToken(ctx context.Context, token string, expiresAt time.Time) error {
-	_, err := throttle.SetAuth(ctx, c.KV, c.ProviderUID, token, expiresAt)
+// StoreToken records a token the client has just obtained and its API host.
+func (c TokenCache) StoreToken(ctx context.Context, token, server string, expiresAt time.Time) error {
+	_, err := throttle.SetAuth(ctx, c.KV, c.ProviderUID, token, server, expiresAt)
 	return err
 }
 
