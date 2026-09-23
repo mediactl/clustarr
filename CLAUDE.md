@@ -175,6 +175,18 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
 - **Never run `go get` or `go mod tidy` from parallel agents.** They corrupt
   `go.mod`. Add every dependency serially up front, then tell workers not to touch
   it.
+- **The git index is shared by every agent in the worktree, so `git add <path>`
+  followed by a bare `git commit` is not a path-scoped commit.** It commits
+  whatever else was already staged. This swept fourteen files of another agent's
+  half-finished, non-compiling work into a docs commit, under a docs message.
+  Staging your own path is not the scoping step -- the commit is. The only safe
+  form while anyone else is working is a pathspec on the commit itself:
+  `git commit -m '...' -- path/to/file`, which builds the commit from HEAD plus
+  those paths and ignores the index for everything else. To undo a sweep, do
+  **not** `git reset --hard` or `git stash` (both destroy the other agent's
+  uncommitted work, and `stash` is process-global): move the branch ref with a
+  compare-and-swap, `git update-ref refs/heads/<branch> <sha>^ <sha>`, which
+  leaves the index and working tree exactly as they were.
 - **A NATS KV key must match `^[-/_=\.a-zA-Z0-9]+$`, and nothing in the Go
   types enforces it.** Build every key through `events.KVKeyToken`; its
   escaping is injective on purpose, because a sanitiser that maps every
