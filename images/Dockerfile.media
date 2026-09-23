@@ -8,11 +8,16 @@
 #
 # Choices (see the design spec §2 and docs/research/download.md, transcode.md):
 #
-# * CGO build. The usenet pipeline depends on javi11/nntppool/v4, which is
-#   cgo-only (bundled rapidyenc SIMD objects). The result links against glibc,
-#   libstdc++ and libresolv, so the build stage is pinned to the *-bookworm
-#   Go image and the final stage is debian:bookworm-slim -- same glibc, no
-#   "GLIBC_x.yz not found" surprises.
+# * CGO build. With cgo, anacrolix/torrent links its uTP transport
+#   (github.com/anacrolix/go-libutp) and its sqlite piece-completion store
+#   (github.com/go-llsqlite/crawshaw); CGO_ENABLED=0 drops both, which is
+#   why Dockerfile.controller can build without cgo and this image, which
+#   runs the torrent engine, does not. (The usenet pipeline no longer needs
+#   cgo: javi11/nntppool was ruled out as cgo-only, and pkg/download/usenet
+#   uses Tensai75/nntp with the pure-Go javi11/rapidyenc.) The result links
+#   against glibc, libstdc++ and libresolv, so the build stage is pinned to
+#   the *-bookworm Go image and the final stage is debian:bookworm-slim --
+#   same glibc, no "GLIBC_x.yz not found" surprises.
 #
 # * ffmpeg: static GPL build from BtbN/FFmpeg-Builds rather than the distro
 #   package. Debian bookworm ships ffmpeg 5.1; the spec needs ffmpeg 9 with
