@@ -127,18 +127,22 @@ func newBus(t *testing.T) events.Bus {
 // TestSetupWorkersLeavesTheBlocklistPathLive is the proof behind Task C12a's
 // startup-ordering requirement.
 //
-// catalogarr/worker/rssmatcher reads the blocklist and the live queue through
-// catalogarr/worker/search's three Download field indexes. When those indexes
-// are absent, every one of those reads fails and the matcher WARNS and
-// carries on as if the release were not blocklisted and the queue were empty
-// -- so a wiring mistake does not break anything visibly, it just starts
-// grabbing releases an operator blocklisted. Until this task the indexes were
+// catalogarr/worker/rssmatcher then read the blocklist and the live queue
+// through catalogarr/worker/search's three Download field indexes; when they
+// were absent every one of those reads failed and the matcher WARNED and
+// carried on as if the release were not blocklisted and the queue were empty
+// -- so a wiring mistake did not break anything visibly, it just started
+// grabbing releases an operator blocklisted. Until that task the indexes were
 // registered as a side effect of search.Worker.SetupWithManager, i.e. by
-// whichever worker happened to be enabled.
+// whichever worker happened to be enabled. The blocklist has since become one
+// labelled List (search.LoadBlocklist) and its two indexes are gone; the
+// queue lookup still degrades that way, and the matcher's own thirteen
+// indexes are in workerIndexes too.
 //
 // This test wires the workers exactly as Run does and then asks the manager's
-// cache the same question the matcher asks. A passing List proves the index
-// reached the cache; nothing else does.
+// cache the same question the matcher asks, for every index in
+// workerIndexes. A passing List proves the index reached the cache; nothing
+// else does.
 func TestSetupWorkersLeavesTheBlocklistPathLive(t *testing.T) {
 	requireEnvtest(t)
 
@@ -156,7 +160,7 @@ func TestSetupWorkersLeavesTheBlocklistPathLive(t *testing.T) {
 			list := idx.list()
 			require.NoError(t, mgr.GetClient().List(ctx, list, client.MatchingFields{idx.name: "probe"}),
 				"field index %q is not live on the manager's cache, so the RSS matcher's "+
-					"blocklist and queue lookups would silently degrade", idx.name)
+					"queue and matching lookups would degrade or fail", idx.name)
 		})
 	}
 }

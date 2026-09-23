@@ -36,6 +36,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/catalogarr/worker/rssmatcher"
+	"github.com/mediactl/clustarr/catalogarr/worker/search"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -213,10 +214,9 @@ func TestHandler_BlocklistedReleaseIsRejected(t *testing.T) {
 	bus := newTestBus(t)
 	h := rssmatcher.NewHandler(rssmatcher.Deps{Client: c, Bus: bus, Now: func() time.Time { return relNow }})
 
-	eventually(t, 15*time.Second, "the blocklist index to see the blocked Download", func() bool {
-		var list downloadv1alpha1.DownloadList
-		return c.List(ctx, &list, client.InNamespace(ns),
-			client.MatchingFields{"search.clustarr.io/blocklist-infohash": rel.Info.InfoHash}) == nil && len(list.Items) == 1
+	eventually(t, 15*time.Second, "the cache to see the blocked Download on the blocklist", func() bool {
+		bl, err := search.LoadBlocklist(ctx, c, ns, time.Now())
+		return err == nil && bl.Contains(rel.Info.InfoHash, "")
 	})
 
 	require.NoError(t, h.Handle(ctx, releaseMessage(t, ns, "my-indexer", rel)))

@@ -898,11 +898,12 @@ func (w *Worker) topology() events.Topology {
 // because it was unexported.)
 //
 // It does NOT call [RegisterDownloadIndexes]. It used to, and that made the
-// three Download indexes a side effect of this worker being enabled -- while
-// catalogarr/worker/rssmatcher reads the same three and degrades to "not
-// blocklisted, empty queue" with a warning when they are missing. A role that
-// ran the RSS matcher without the search worker would therefore grab
-// blocklisted releases, silently. Task C12a moved the registration to
+// Download indexes a side effect of this worker being enabled -- while
+// catalogarr/worker/rssmatcher read the same ones and degraded to "not
+// blocklisted, empty queue" with a warning when they were missing. A role
+// that ran the RSS matcher without the search worker would therefore have
+// grabbed blocklisted releases, silently. (The blocklist is one labelled List
+// now, LoadBlocklist; only the queue's index remains.) Task C12a moved the registration to
 // catalogarr's registerWorkerIndexes, which runs once for every worker role,
 // and added a startup assertion that the indexes really reached the cache.
 // The caller must have made that call before this one.

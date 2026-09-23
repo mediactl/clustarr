@@ -31,66 +31,30 @@ import (
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
-// Field index names, used both by RegisterDownloadIndexes and by the worker's
-// own List calls. They are exported so a task that shares a manager with this
-// worker can reuse the indexes instead of registering a second, conflicting
-// one under a different name.
-const (
-	// IndexBlocklistInfoHash indexes blocklisted Downloads by
-	// spec.release.infoHash.
-	//
-	// Neither blocklist index is read by the decision paths any more: both
-	// load the whole namespace blocklist in one List (LoadBlocklist) instead
-	// of two indexed lookups per release. They stay registered because
-	// catalogarr's startup assertion (assertWorkerIndexes) names them.
-	IndexBlocklistInfoHash = "search.clustarr.io/blocklist-infohash"
-	// IndexBlocklistTitle indexes blocklisted Downloads by the normalized
-	// spec.release.title, which is how a usenet release -- one with no info
-	// hash -- is recognised again.
-	IndexBlocklistTitle = "search.clustarr.io/blocklist-title"
-	// IndexDownloadTarget indexes non-terminal Downloads by their target
-	// catalog item: the live queue for one media key. "Non-terminal" is
-	// rollup.DownloadNonTerminal, the set the item reconcilers derive
-	// status.activeDownloadRef from and the grab path's double-grab guard
-	// reads, so the three can never disagree about one Download: a Seeding
-	// torrent still occupies the queue (its content is one import away),
-	// Imported, Failed, Blocklisted and Removing do not, and neither does a
-	// Download already being deleted.
-	IndexDownloadTarget = "search.clustarr.io/download-target"
-)
-
-// RegisterDownloadIndexes adds the three field indexes the search worker needs
-// on Download: two for the live blocklist (spec.release.infoHash and a
-// normalized spec.release.title, restricted to Downloads carrying
-// download.clustarr.io/blocklisted -- see that label's doc comment for why the
-// blocklist has no CRD of its own), and one for "is there already an active
-// Download for this target" (the queue). Call it once per manager, before the
-// cache starts.
+// IndexDownloadTarget is the field index name, used both by
+// RegisterDownloadIndexes and by the worker's own List calls. It is exported
+// so a task that shares a manager with this worker can reuse the index
+// instead of registering a second, conflicting one under a different name.
 //
-// Expiry is deliberately NOT part of the blocklist indexes. A field index is
-// computed when an object changes, so a time-based predicate baked into it
-// would go stale the moment the deadline passed without anything writing the
-// object. The index narrows to the labelled set; blocklisted() applies
-// status.blocklistedUntil at read time, against the worker's own clock.
+// It indexes non-terminal Downloads by their target catalog item: the live
+// queue for one media key. "Non-terminal" is rollup.DownloadNonTerminal, the
+// set the item reconcilers derive status.activeDownloadRef from and the grab
+// path's double-grab guard reads, so the three can never disagree about one
+// Download: a Seeding torrent still occupies the queue (its content is one
+// import away), Imported, Failed, Blocklisted and Removing do not, and
+// neither does a Download already being deleted.
+const IndexDownloadTarget = "search.clustarr.io/download-target"
+
+// RegisterDownloadIndexes adds the one field index the search worker needs on
+// Download: "is there already an active Download for this target" (the
+// queue). Call it once per manager, before the cache starts.
+//
+// The blocklist has no index. It is one List of the Downloads carrying
+// download.clustarr.io/blocklisted per decision (LoadBlocklist) -- see that
+// label's doc comment for why the blocklist has no CRD of its own -- and the
+// two blocklist indexes this used to register, by info hash and by title,
+// were read by nothing once LoadBlocklist replaced the per-release lookups.
 func RegisterDownloadIndexes(ctx context.Context, idx client.FieldIndexer) error {
-	if err := idx.IndexField(ctx, &downloadv1alpha1.Download{}, IndexBlocklistInfoHash, func(o client.Object) []string {
-		d, ok := o.(*downloadv1alpha1.Download)
-		if !ok || !isBlocklisted(d) || d.Spec.Release.InfoHash == "" {
-			return nil
-		}
-		return []string{normalizeInfoHash(d.Spec.Release.InfoHash)}
-	}); err != nil {
-		return err
-	}
-	if err := idx.IndexField(ctx, &downloadv1alpha1.Download{}, IndexBlocklistTitle, func(o client.Object) []string {
-		d, ok := o.(*downloadv1alpha1.Download)
-		if !ok || !isBlocklisted(d) || d.Spec.Release.Title == "" {
-			return nil
-		}
-		return []string{release.CleanTitle(d.Spec.Release.Title)}
-	}); err != nil {
-		return err
-	}
 	return idx.IndexField(ctx, &downloadv1alpha1.Download{}, IndexDownloadTarget, func(o client.Object) []string {
 		d, ok := o.(*downloadv1alpha1.Download)
 		if !ok || !rollup.DownloadNonTerminal(d) {
@@ -145,9 +109,10 @@ type Blocklist struct {
 // LoadBlocklist reads the namespace's blocklisted Downloads in ONE List and
 // keeps those still blocklisted at now (a nil blocklistedUntil means forever:
 // grabarr sets one when it blocklists, and its absence is not a licence to
-// grab the release again). Expiry is applied here, at read time, for the same
-// reason RegisterDownloadIndexes leaves it out of the indexes: nothing writes
-// the object when its deadline passes.
+// grab the release again). Expiry is applied here, at read time, because
+// nothing writes the object when its deadline passes: a field index or label
+// selector computed when the object changed would go stale the moment the
+// deadline passed.
 //
 // A List failure is returned, not swallowed. The per-release form treated a
 // failed lookup as "not blocklisted" with a warning, which turned a transient

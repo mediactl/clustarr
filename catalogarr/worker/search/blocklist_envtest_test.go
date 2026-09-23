@@ -33,7 +33,6 @@ import (
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/catalogarr/worker/search"
 	"github.com/mediactl/clustarr/pkg/k8s"
-	"github.com/mediactl/clustarr/pkg/release"
 )
 
 const (
@@ -96,7 +95,11 @@ func newDownload(t *testing.T, ctx context.Context, c client.Client, ns string, 
 	require.NoError(t, err)
 }
 
-func TestDownloadIndexesFindBlocklistedReleasesAndTheLiveQueue(t *testing.T) {
+// TestTheBlocklistAndTheLiveQueueReadThroughTheCache reads both of the
+// search worker's Download lookups through a real manager cache: the
+// blocklist (one labelled List, LoadBlocklist) and the live queue (the one
+// field index, IndexDownloadTarget).
+func TestTheBlocklistAndTheLiveQueueReadThroughTheCache(t *testing.T) {
 	ctx := context.Background()
 	mgr := newTestManager(t)
 	c := mgr.GetClient()
@@ -131,14 +134,15 @@ func TestDownloadIndexesFindBlocklistedReleasesAndTheLiveQueue(t *testing.T) {
 		return names
 	}
 
-	eventually(t, 10*time.Second, "the blocklist info-hash index to see blocked-1", func() bool {
-		return len(listNames(search.IndexBlocklistInfoHash, blockedHash)) == 1
+	eventually(t, 10*time.Second, "the cache to see blocked-1 on the blocklist", func() bool {
+		bl, err := search.LoadBlocklist(ctx, c, ns, time.Now())
+		return err == nil && bl.Contains(blockedHash, "")
 	})
-	require.Equal(t, []string{"blocked-1"}, listNames(search.IndexBlocklistInfoHash, blockedHash))
-	require.Empty(t, listNames(search.IndexBlocklistInfoHash, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+	bl, err := search.LoadBlocklist(ctx, c, ns, time.Now())
+	require.NoError(t, err)
+	require.False(t, bl.Contains("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ""),
 		"an un-labelled Download is not on the blocklist")
-
-	require.Equal(t, []string{"blocked-1"}, listNames(search.IndexBlocklistTitle, release.CleanTitle(blockedTitle)),
+	require.True(t, bl.Contains("", blockedTitle),
 		"a usenet release has no info hash; the normalized title is how it is recognised again")
 
 	eventually(t, 10*time.Second, "the target index to settle", func() bool {

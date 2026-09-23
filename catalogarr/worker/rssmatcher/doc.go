@@ -45,8 +45,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # Registration
 //
 // Nothing registers itself. catalogarr's setupQueueWorkers registers this
-// package's thirteen indexes and catalogarr/worker/search's three Download indexes
-// together, from one call (registerWorkerIndexes), and then:
+// package's thirteen indexes and catalogarr/worker/search's Download target
+// index together, from one call (registerWorkerIndexes), and then:
 //
 //	h := rssmatcher.NewHandler(rssmatcher.Deps{
 //		Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Bus: bus,
@@ -57,15 +57,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //		return fmt.Errorf("catalogarr: subscribe rss-matcher: %w", err)
 //	}
 //
-// The three Download indexes are NOT registered by the search worker. They
-// used to be -- search.Worker.SetupWithManager called RegisterDownloadIndexes
-// itself -- which made them a side effect of whichever worker happened to be
+// The Download indexes are NOT registered by the search worker. They used to
+// be -- search.Worker.SetupWithManager called RegisterDownloadIndexes itself
+// -- which made them a side effect of whichever worker happened to be
 // enabled, while this package read the blocklist and the live queue through
 // them and, when they were absent, degraded to "not blocklisted, empty queue"
 // with a WARNING rather than an error. Task C12a moved the registration into
 // one deterministic call and added a startup assertion (assertWorkerIndexes)
-// that fails the manager when any index it names is missing. The blocklist
-// is now read with one labelled List per release (search.LoadBlocklist), and
-// a failed read retries instead of deciding as if nothing were blocklisted;
-// only the queue still reads an index.
+// that fails the manager when any index it names is missing -- every one of
+// this package's too. The blocklist is now read with one labelled List per
+// release (search.LoadBlocklist), and a failed read retries instead of
+// deciding as if nothing were blocklisted; its two indexes are gone, and
+// only the queue still reads a Download index.
 package rssmatcher

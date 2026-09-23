@@ -98,13 +98,13 @@ var workerIndexes = []struct {
 	list func() client.ObjectList
 }{
 	// catalogarr/worker/search's Download target index: the per-target live
-	// queue the search worker and the RSS matcher both read. Its two
-	// blocklist indexes are still registered by RegisterDownloadIndexes but
-	// read by nothing -- the blocklist is one labelled List per decision
-	// since X4b (search.LoadBlocklist) -- so asserting them proved nothing.
+	// queue the search worker and the RSS matcher both read. It is the only
+	// Download index left: the blocklist is one labelled List per decision
+	// since X4b (search.LoadBlocklist), and the two blocklist indexes nothing
+	// read any more were pruned.
 	{search.IndexDownloadTarget, func() client.ObjectList { return &downloadv1alpha1.DownloadList{} }},
 
-	// catalogarr/worker/rssmatcher's six matching indexes -- §6.1's
+	// catalogarr/worker/rssmatcher's thirteen matching indexes -- §6.1's
 	// "informer-backed in-memory map". The absolute-number one (X4b) is what
 	// lets an absolute-only anime release match at all.
 	{rssmatcher.IndexMovieTmdbID, func() client.ObjectList { return &catalogv1alpha1.MovieList{} }},
@@ -113,20 +113,29 @@ var workerIndexes = []struct {
 	{rssmatcher.IndexSeriesTitleYear, func() client.ObjectList { return &catalogv1alpha1.SeriesList{} }},
 	{rssmatcher.IndexEpisodeSeriesSeason, func() client.ObjectList { return &catalogv1alpha1.EpisodeList{} }},
 	{rssmatcher.IndexEpisodeSeriesAbsolute, func() client.ObjectList { return &catalogv1alpha1.EpisodeList{} }},
+	// The seven non-video ones (Z3). A missing one is louder than a missing
+	// queue index -- every release of its kind retries into the DLQ -- but
+	// only once such a release arrives; asserting it here finds it at start.
+	{rssmatcher.IndexArtistName, func() client.ObjectList { return &catalogv1alpha1.ArtistList{} }},
+	{rssmatcher.IndexAlbumArtistTitle, func() client.ObjectList { return &catalogv1alpha1.AlbumList{} }},
+	{rssmatcher.IndexAuthorName, func() client.ObjectList { return &catalogv1alpha1.AuthorList{} }},
+	{rssmatcher.IndexBookAuthorTitle, func() client.ObjectList { return &catalogv1alpha1.BookList{} }},
+	{rssmatcher.IndexAudiobookAuthorTitle, func() client.ObjectList { return &catalogv1alpha1.AudiobookList{} }},
+	{rssmatcher.IndexComicTitle, func() client.ObjectList { return &catalogv1alpha1.ComicList{} }},
+	{rssmatcher.IndexIssueComicNumber, func() client.ObjectList { return &catalogv1alpha1.IssueList{} }},
 }
 
 // registerWorkerIndexes registers every index in [workerIndexes], once, on
 // one manager.
 //
 // It is deliberately NOT a side effect of whichever worker happens to be
-// enabled. catalogarr/worker/rssmatcher reads the blocklist and the queue
-// through catalogarr/worker/search's three Download indexes, and if they are
-// absent its lookups degrade to "not blocklisted, empty queue" with a WARNING
-// rather than an error -- so a wiring mistake leaves the RSS path quietly
-// grabbing releases the operator has blocklisted, for as long as nobody reads
-// the logs. Registering both sets here, from one call, is what makes the
-// dependency an ordering fact instead of a coincidence; [assertWorkerIndexes]
-// is what proves it held.
+// enabled. catalogarr/worker/rssmatcher reads the live queue through
+// catalogarr/worker/search's Download target index, and if it is absent the
+// lookup degrades to "empty queue" with a WARNING rather than an error -- so
+// a wiring mistake leaves the RSS path deciding as if nothing were already
+// downloading, for as long as nobody reads the logs. Registering both sets
+// here, from one call, is what makes the dependency an ordering fact instead
+// of a coincidence; [assertWorkerIndexes] is what proves it held.
 //
 // A field index name is global to a manager's cache and registering one twice
 // is an error, so this must be the only caller of either function.
@@ -146,8 +155,8 @@ func registerWorkerIndexes(ctx context.Context, mgr manager.Manager) error {
 //
 // This is the startup assertion the degraded path needs. controller-runtime's
 // cache answers a client.MatchingFields lookup for an unregistered index with
-// "no index with name <n> has been registered", and every caller in the RSS
-// path swallows that error by design (an unreadable blocklist must not stop
+// "no index with name <n> has been registered", and the RSS matcher's queue
+// lookup swallows that error by design (an unreadable queue must not stop
 // the firehose). So the only moment the difference between "live" and
 // "silently inert" is observable is here, at startup, before any of it
 // matters.
@@ -160,7 +169,7 @@ func assertWorkerIndexes(mgr manager.Manager) error {
 	// non-electing process is treated as elected, so the assertion did run
 	// there; the gap was catalogarr's combined controller,worker,history
 	// Deployment, which elects, where every non-leader replica skipped the
-	// check and the degraded blocklist path it exists to catch was back.
+	// check and the degraded path it exists to catch was back.
 	return mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		if !mgr.GetCache().WaitForCacheSync(ctx) {
 			// The manager is shutting down; nothing to assert.
@@ -172,7 +181,7 @@ func assertWorkerIndexes(mgr manager.Manager) error {
 			if err := c.List(ctx, list, client.MatchingFields{idx.name: "startup-probe"}); err != nil {
 				return fmt.Errorf(
 					"catalogarr: field index %q is not registered on this manager, so the queue workers "+
-						"would run degraded -- an unregistered blocklist index reads as not blocklisted: %w",
+						"would run degraded -- an unregistered queue index reads as an empty queue: %w",
 					idx.name, err)
 			}
 		}
