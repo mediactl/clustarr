@@ -62,7 +62,7 @@ type Config struct {
 	APIKey, Username, Password, UserAgent string
 	Endpoint                              string        // default "https://api.opensubtitles.com/api/v1"
 	HTTPClient                            *http.Client  // default http.DefaultClient
-	Limiter                               *rate.Limiter // default rate.NewLimiter(5, 5) — 5 req/s per §4.3
+	Limiter                               *rate.Limiter // default nil — no client-side pacing; see New's doc comment (ruling R3)
 }
 
 // Provider implements subtitles.Provider against OpenSubtitles.com.
@@ -76,6 +76,18 @@ type Provider struct {
 }
 
 // New builds a Provider from cfg, applying defaults for any zero field.
+//
+// It does NOT default cfg.Limiter. The caller owns rate limiting
+// (CLAUDE.md's "Conventions across pkg/", which names this exact client as
+// one that follows it): a library defaulting a limiter on means every
+// Provider gets its own private allowance, so N fetch workers sharing one
+// OpenSubtitles.com account would collectively exceed the account's real
+// rate by a factor of N. captionarr's fetch worker (F-5) is expected to pass
+// [Config.Limiter] wired to the shared clustarr-provider-throttle KV token
+// bucket ([throttle.Acquire]) instead, or -- for a single-process caller
+// that genuinely wants a local-only limiter -- its own *rate.Limiter. A nil
+// Limiter means "no client-side pacing at all", exercised in every existing
+// test in this package.
 func New(cfg Config) *Provider {
 	if cfg.Endpoint == "" {
 		cfg.Endpoint = defaultEndpoint
@@ -83,10 +95,16 @@ func New(cfg Config) *Provider {
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = http.DefaultClient
 	}
-	if cfg.Limiter == nil {
-		cfg.Limiter = rate.NewLimiter(5, 5) // 5 req/s per IP, research note §4.3
-	}
 	return &Provider{cfg: cfg, baseURL: cfg.Endpoint}
+}
+
+// wait blocks on cfg.Limiter if one was supplied, or returns immediately if
+// not -- see New's doc comment on why no default is applied here.
+func (p *Provider) wait(ctx context.Context) error {
+	if p.cfg.Limiter == nil {
+		return nil
+	}
+	return p.cfg.Limiter.Wait(ctx)
 }
 
 func (p *Provider) Name() string       { return "opensubtitlescom" }
@@ -129,7 +147,7 @@ func (p *Provider) EnsureLoggedIn(ctx context.Context) error {
 	}
 	p.setCommonHeadersLocked(req)
 
-	if err := p.cfg.Limiter.Wait(ctx); err != nil {
+	if err := p.wait(ctx); err != nil {
 		return err
 	}
 	resp, err := p.cfg.HTTPClient.Do(req)

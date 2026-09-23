@@ -44,6 +44,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/subtitles"
@@ -55,6 +57,18 @@ const defaultEndpoint = "https://api.gestdown.info"
 type Config struct {
 	Endpoint   string // default "https://api.gestdown.info"
 	HTTPClient *http.Client
+
+	// Limiter, if set, paces every outbound request (show lookup, subtitle
+	// search and download alike) on the caller's own budget. It defaults to
+	// nil -- no client-side pacing -- rather than to a limiter this package
+	// invents itself: CLAUDE.md's "the caller owns rate limiting" rule,
+	// ruling R3. A library defaulting one on would give every Provider
+	// instance a private allowance, so N fetch workers sharing this process
+	// would collectively out-pace whatever budget the caller intended.
+	// captionarr's fetch worker (F-5) is expected to wire this to the shared
+	// clustarr-provider-throttle KV token bucket the same way it wires
+	// opensubtitlescom.Config.Limiter.
+	Limiter *rate.Limiter
 }
 
 // Provider implements subtitles.Provider against Gestdown.
@@ -74,6 +88,15 @@ func New(cfg Config) *Provider {
 		cfg.HTTPClient = http.DefaultClient
 	}
 	return &Provider{cfg: cfg}
+}
+
+// wait blocks on cfg.Limiter if one was supplied, or returns immediately if
+// not -- see Config.Limiter's doc comment on why no default is applied here.
+func (p *Provider) wait(ctx context.Context) error {
+	if p.cfg.Limiter == nil {
+		return nil
+	}
+	return p.cfg.Limiter.Wait(ctx)
 }
 
 func (p *Provider) Name() string       { return "gestdown" }
@@ -123,6 +146,9 @@ func (p *Provider) Search(ctx context.Context, q subtitles.Query) ([]subtitles.C
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
+		return nil, err
+	}
+	if err := p.wait(ctx); err != nil {
 		return nil, err
 	}
 	resp, err := p.cfg.HTTPClient.Do(req)
@@ -182,6 +208,9 @@ func (p *Provider) resolveShowID(ctx context.Context, tvdbID string) (string, er
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.cfg.Endpoint+"/shows/external/tvdb/"+tvdbID, nil)
 	if err != nil {
+		return "", err
+	}
+	if err := p.wait(ctx); err != nil {
 		return "", err
 	}
 	resp, err := p.cfg.HTTPClient.Do(req)
@@ -260,6 +289,9 @@ func (p *Provider) Download(ctx context.Context, c subtitles.Candidate) ([]byte,
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.cfg.Endpoint+c.FetchID, nil)
 	if err != nil {
+		return nil, "", err
+	}
+	if err := p.wait(ctx); err != nil {
 		return nil, "", err
 	}
 	resp, err := p.cfg.HTTPClient.Do(req)

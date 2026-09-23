@@ -109,7 +109,7 @@ func (p *Provider) Search(ctx context.Context, q subtitles.Query) ([]subtitles.C
 	}
 	p.setAuthHeaders(req)
 
-	if err := p.cfg.Limiter.Wait(ctx); err != nil {
+	if err := p.wait(ctx); err != nil {
 		return nil, err
 	}
 	resp, err := p.cfg.HTTPClient.Do(req)
@@ -186,7 +186,7 @@ func (p *Provider) Download(ctx context.Context, c subtitles.Candidate) ([]byte,
 	}
 	p.setAuthHeaders(req)
 
-	if err := p.cfg.Limiter.Wait(ctx); err != nil {
+	if err := p.wait(ctx); err != nil {
 		return nil, "", err
 	}
 	resp, err := p.cfg.HTTPClient.Do(req)

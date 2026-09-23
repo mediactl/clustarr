@@ -246,8 +246,15 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
 ### Conventions across `pkg/`
 
 - **The caller owns rate limiting.** A library package accepts an injected
-  limiter (`torznab.WithRateLimit`, the metadata and OpenSubtitles clients) and
-  never defaults one on; the controller holds one limiter per host.
+  limiter (`torznab.WithRateLimit`; the metadata, OpenSubtitles.com and
+  Gestdown clients' `Config.Limiter`) and never defaults one on; the
+  controller holds one limiter per host. `pkg/subtitles/providers/
+  opensubtitlescom` shipped in Phase F with exactly the violation this rule
+  warns against -- `Config.Limiter == nil` silently got `rate.NewLimiter(5,
+  5)` -- so a caller with no Limiter configured got a private 5 req/s
+  allowance per `Provider` instance instead of the shared budget captionarr's
+  KV token bucket (`captionarr/throttle`) provides; fixed under ruling R3,
+  alongside giving `providers/gestdown` the injection point it had never had.
 - **Every HTTP response body is read through a cap** — a package-level max, an
   `io.LimitReader(body, max+1)` and an `ErrResponseTooLarge` sentinel.
 - **Provider errors expose sentinels** (`metadata.ErrNotFound`,
