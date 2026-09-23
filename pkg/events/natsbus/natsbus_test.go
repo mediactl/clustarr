@@ -189,3 +189,164 @@ func TestEnsureRefusesRetentionChange(t *testing.T) {
 func isRetentionErr(err error) bool {
 	return errors.Is(err, events.ErrRetentionImmutable)
 }
+
+// hangConsumer subscribes durable on stream with a handler that blocks until
+// the test ends, and returns every MAX_DELIVERIES advisory JetStream
+// publishes for it, captured off the wire so a test can re-send one.
+func hangConsumer(ctx context.Context, t *testing.T, bus *natsbus.Bus, nc *nats.Conn,
+	stream, durable, filter string,
+) <-chan *nats.Msg {
+	t.Helper()
+	advisories := make(chan *nats.Msg, 8)
+	adv, err := nc.ChanSubscribe(
+		natsserver.JSAdvisoryConsumerMaxDeliveryExceedPre+"."+stream+"."+durable, advisories)
+	if err != nil {
+		t.Fatalf("subscribe to advisories: %v", err)
+	}
+	t.Cleanup(func() { _ = adv.Unsubscribe() })
+
+	release := make(chan struct{})
+	stop, err := bus.Subscribe(ctx, events.Subscription{
+		Stream:      stream,
+		Durable:     durable,
+		Filters:     []string{filter},
+		AckWait:     200 * time.Millisecond,
+		MaxDeliver:  2,
+		Backoff:     []time.Duration{200 * time.Millisecond},
+		MaxInFlight: 3,
+	}, func(ctx context.Context, _ events.Message) error {
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		return errors.New("hung")
+	})
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	// Cleanups run last-in first-out: release the hung handler, then stop.
+	t.Cleanup(stop)
+	t.Cleanup(func() { close(release) })
+	return advisories
+}
+
+// storedMsgs is how many messages the named stream holds.
+func storedMsgs(ctx context.Context, t *testing.T, bus *natsbus.Bus, stream string) uint64 {
+	t.Helper()
+	st, err := bus.JetStream().Stream(ctx, stream)
+	if err != nil {
+		t.Fatalf("stream %s: %v", stream, err)
+	}
+	info, err := st.Info(ctx)
+	if err != nil {
+		t.Fatalf("stream %s info: %v", stream, err)
+	}
+	return info.State.Msgs
+}
+
+func waitForMsgs(ctx context.Context, t *testing.T, bus *natsbus.Bus, stream string, want uint64) {
+	t.Helper()
+	deadline := time.Now().Add(contracttest.Timeout)
+	for storedMsgs(ctx, t, bus, stream) != want {
+		if time.Now().After(deadline) {
+			t.Fatalf("%s holds %d messages, want %d", stream,
+				storedMsgs(ctx, t, bus, stream), want)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func resend(t *testing.T, nc *nats.Conn, advisories <-chan *nats.Msg) {
+	t.Helper()
+	select {
+	case adv := <-advisories:
+		if err := nc.Publish(adv.Subject, adv.Data); err != nil {
+			t.Fatalf("re-send advisory: %v", err)
+		}
+		if err := nc.Flush(); err != nil {
+			t.Fatalf("flush: %v", err)
+		}
+	case <-time.After(contracttest.Timeout):
+		t.Fatal("JetStream never published a MAX_DELIVERIES advisory")
+	}
+	time.Sleep(500 * time.Millisecond)
+}
+
+// TestLapsedWorkQueueMessageIsDeleted pins the half of the advisory path the
+// contract suite cannot observe: once a work-queue message whose final
+// delivery lapsed is copied to the DLQ, it is deleted from its work stream,
+// as an in-process Term would remove it. JetStream itself leaves it stored
+// indefinitely. A re-sent advisory then finds nothing to copy.
+func TestLapsedWorkQueueMessageIsDeleted(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	nc := connect(t)
+	bus, err := natsbus.New(nc)
+	if err != nil {
+		t.Fatalf("natsbus.New: %v", err)
+	}
+	t.Cleanup(func() { _ = bus.Close() })
+	if err := bus.Ensure(ctx, contracttest.Topology()); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+
+	advisories := hangConsumer(ctx, t, bus, nc,
+		events.StreamWorkIndexarr, "nb-hung", events.FilterIndexRSS)
+	if _, err := bus.Publish(ctx, events.WorkRSSSubject("idx-1"),
+		&events.Envelope{ID: "task-wq", Data: []byte(`{}`)}); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+
+	waitForMsgs(ctx, t, bus, events.StreamDLQ, 1)
+	waitForMsgs(ctx, t, bus, events.StreamWorkIndexarr, 0)
+
+	resend(t, nc, advisories)
+	if n := storedMsgs(ctx, t, bus, events.StreamDLQ); n != 1 {
+		t.Errorf("DLQ holds %d copies after a re-sent advisory, want 1", n)
+	}
+}
+
+// TestResentAdvisoryIsDeduplicated re-sends a real MAX_DELIVERIES advisory
+// for a message that is still stored -- on a Limits stream, which the
+// watcher never deletes from -- so the watcher reads and copies it a second
+// time. The copy's Msg-Id must be stable, so CLUSTARR_DLQ's duplicate window
+// absorbs it. A release, like an event, names no task, so the copy must be
+// named by the consuming durable, as events.Settle's path names it.
+func TestResentAdvisoryIsDeduplicated(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	nc := connect(t)
+	bus, err := natsbus.New(nc)
+	if err != nil {
+		t.Fatalf("natsbus.New: %v", err)
+	}
+	t.Cleanup(func() { _ = bus.Close() })
+	if err := bus.Ensure(ctx, contracttest.Topology()); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+
+	advisories := hangConsumer(ctx, t, bus, nc,
+		events.StreamReleases, "nb-hung-rel", events.FilterAllReleases)
+	if _, err := bus.Publish(ctx, events.ReleaseSubject("torrent", "idx", 2000),
+		&events.Envelope{ID: "rel-1", Data: []byte(`{}`)}); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+
+	waitForMsgs(ctx, t, bus, events.StreamDLQ, 1)
+	if n := storedMsgs(ctx, t, bus, events.StreamReleases); n != 1 {
+		t.Errorf("%s holds %d messages, want the lapsed one kept", events.StreamReleases, n)
+	}
+	// A release subject names no task, so the copy is named by the durable.
+	dlq, err := bus.JetStream().Stream(ctx, events.StreamDLQ)
+	if err != nil {
+		t.Fatalf("DLQ stream: %v", err)
+	}
+	if _, err := dlq.GetLastMsgForSubject(ctx, events.DLQSubject("nb", "hung-rel", "rel-1")); err != nil {
+		t.Errorf("no dead letter on the durable-named subject: %v", err)
+	}
+
+	resend(t, nc, advisories)
+	if n := storedMsgs(ctx, t, bus, events.StreamDLQ); n != 1 {
+		t.Errorf("DLQ holds %d copies after a re-sent advisory, want 1", n)
+	}
+}

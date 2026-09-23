@@ -61,6 +61,7 @@ func RunBusContract(t *testing.T, newBus func() events.Bus) {
 	t.Run("WorkQueueRetryThenAck", func(t *testing.T) { testRetryThenAck(t, newBus) })
 	t.Run("WorkQueueDiscardToDLQ", func(t *testing.T) { testDiscardToDLQ(t, newBus) })
 	t.Run("WorkQueueMaxDeliverToDLQ", func(t *testing.T) { testMaxDeliverToDLQ(t, newBus) })
+	t.Run("WorkQueueHungHandlerToDLQ", func(t *testing.T) { testHungHandlerToDLQ(t, newBus) })
 	t.Run("WorkQueueAckRemoves", func(t *testing.T) { testAckRemoves(t, newBus) })
 	t.Run("ScheduledPublish", func(t *testing.T) { testScheduledPublish(t, newBus) })
 	t.Run("KeyValueCreateAndCAS", func(t *testing.T) { testKVCreateAndCAS(t, newBus) })
@@ -478,6 +479,129 @@ func testMaxDeliverToDLQ(t *testing.T, newBus func() events.Bus) {
 	for i, a := range attempts {
 		if a != uint64(i+1) {
 			t.Errorf("attempt %d reported Attempt() = %d", i, a)
+		}
+	}
+}
+
+// testHungHandlerToDLQ holds the one dead-letter case events.Settle cannot
+// see: a handler that blocks past its acknowledgement deadline on every
+// delivery never returns, so nothing in process settles the final delivery.
+// The bus must still copy the message to the DLQ once that delivery lapses
+// -- natsbus from JetStream's MAX_DELIVERIES advisory, membus from its own
+// ack-deadline sweep -- exactly once, and a hung handler that finally returns
+// an error must not add a second copy.
+func testHungHandlerToDLQ(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+	dlq := subscribeDLQ(ctx, t, bus)
+
+	const maxDeliver = 2
+	const ackWait = 300 * time.Millisecond
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	// Registered after setup's Close, so it runs first: a bus that waits
+	// for its handlers on Close must not wait on a hung one.
+	t.Cleanup(unblock)
+
+	var mu sync.Mutex
+	var attempts []uint64
+	returned := 0
+	stop, err := bus.Subscribe(ctx, events.Subscription{
+		Stream:  events.StreamWorkIndexarr,
+		Durable: "ct-hung",
+		Filters: []string{events.FilterIndexRSS},
+		// With BackOff set, JetStream times out delivery n on BackOff[n-1],
+		// not AckWait; keeping them equal gives both buses one schedule.
+		AckWait:    ackWait,
+		MaxDeliver: maxDeliver,
+		Backoff:    []time.Duration{ackWait},
+		// A hung handler stops natsbus pulling again, so every delivery must
+		// fit its first pull, which MaxInFlight sizes; against nats-server
+		// 2.15 a pull of exactly MaxDeliver never carries the final
+		// redelivery, so allow one more. membus's saturated case -- every
+		// slot held by a hung handler -- is membus_test's.
+		MaxInFlight: maxDeliver + 1,
+	}, func(ctx context.Context, m events.Message) error {
+		mu.Lock()
+		attempts = append(attempts, m.Attempt())
+		mu.Unlock()
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		mu.Lock()
+		returned++
+		mu.Unlock()
+		return errors.New("handler hung past its acknowledgement deadline")
+	})
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	defer stop()
+
+	subject := events.WorkRSSSubject("idx-hung")
+	body := envelope("task-hung", "index.RssTask.v1", map[string]string{"k": "v"})
+	if _, err := bus.Publish(ctx, subject, body); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+
+	dlq.waitFor(t, 1, "dead-letter copies of a hung handler's message")
+	mu.Lock()
+	if returned != 0 {
+		t.Errorf("%d handlers returned before the copy; it must come from the lapsed final delivery, not from Settle", returned)
+	}
+	mu.Unlock()
+
+	e, dlqSubject := dlq.at(0)
+	if want := events.DLQSubject("indexarr", "rss", "task-hung"); dlqSubject != want {
+		t.Errorf("DLQ subject = %q, want %q", dlqSubject, want)
+	}
+	for header, want := range map[string]string{
+		events.HeaderDLQReason:   events.AckWaitExhaustedReason(maxDeliver),
+		events.HeaderDLQAttempts: fmt.Sprint(maxDeliver),
+		events.HeaderDLQConsumer: "ct-hung",
+		events.HeaderDLQSubject:  subject,
+		events.HeaderDLQMsgID:    "task-hung",
+		"X-Contract":             "yes",
+	} {
+		if got := e.Headers[header]; got != want {
+			t.Errorf("%s = %q, want %q", header, got, want)
+		}
+	}
+	if string(e.Data) != string(body.Data) {
+		t.Errorf("dead-lettered payload = %q, want the original %q", e.Data, body.Data)
+	}
+	if e.Schema != body.Schema || e.Key != body.Key {
+		t.Errorf("dead-lettered schema/key = %q/%q, want %q/%q", e.Schema, e.Key, body.Schema, body.Key)
+	}
+
+	// While the handler stays hung: no delivery past MaxDeliver, no second
+	// copy.
+	time.Sleep(4 * ackWait)
+	if n := dlq.len(); n != 1 {
+		t.Errorf("dead-lettered %d copies while the handler hung, want exactly 1", n)
+	}
+
+	// Release it. Every delivery now fails, and the final one is dead-lettered
+	// by Settle under the same Msg-Id: a duplicate, not a second copy.
+	unblock()
+	waitUntil(t, "every delivery's handler to return", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return returned >= len(attempts) && len(attempts) >= maxDeliver
+	})
+	time.Sleep(300 * time.Millisecond)
+	if n := dlq.len(); n != 1 {
+		t.Errorf("dead-lettered %d copies once the hung handler returned, want exactly 1", n)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(attempts) != maxDeliver {
+		t.Errorf("attempts = %v, want exactly %d deliveries", attempts, maxDeliver)
+	}
+	for i, a := range attempts {
+		if a != uint64(i+1) {
+			t.Errorf("delivery %d reported Attempt() = %d", i, a)
 		}
 	}
 }

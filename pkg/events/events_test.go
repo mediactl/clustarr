@@ -455,3 +455,49 @@ func TestKVBucketNamesHaveNoDots(t *testing.T) {
 		}
 	}
 }
+
+// TestDeadLetterSubjectNamesTheFailedTask pins the <service>.<task> tokens of
+// a dead letter's subject. A work subject names its own service and task. An
+// event or a release does not -- it names its producer's domain, and several
+// durables consume one event -- so those are named by the consuming durable:
+// catalogarr-redownload and catalogarr-history dead-lettering the same
+// Download failed event land on two subjects, not one shared
+// clustarr.dlq.download.download.<id>.
+func TestDeadLetterSubjectNamesTheFailedTask(t *testing.T) {
+	failed := events.DownloadEventSubject(events.ActionFailed, "dl-uid")
+	cases := []struct {
+		name, subject, durable, want string
+	}{
+		{
+			"work subject names itself", events.WorkSearchSubject(events.PriorityHigh, "m1"),
+			events.ConsumerCatalogSearchHigh, events.DLQSubject("catalogarr", "search", "id-1"),
+		},
+		{
+			"event, redownload consumer", failed,
+			events.ConsumerCatalogRedownload, events.DLQSubject("catalogarr", "redownload", "id-1"),
+		},
+		{
+			"same event, history consumer", failed,
+			events.ConsumerCatalogHistory, events.DLQSubject("catalogarr", "history", "id-1"),
+		},
+		{
+			"release, rss matcher", events.ReleaseSubject("torrent", "idx", 2000),
+			events.ConsumerCatalogRSSMatcher, events.DLQSubject("catalogarr", "rss-matcher", "id-1"),
+		},
+		{"durable without a task", failed, "loner", events.DLQSubject("loner", "unknown", "id-1")},
+		{"no durable", failed, "", events.DLQSubject("unknown", "unknown", "id-1")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, env := events.DeadLetterEnvelope(&events.Envelope{ID: "id-1"}, tc.subject, 3,
+				tc.durable, "boom")
+			if got != tc.want {
+				t.Errorf("DLQ subject = %q, want %q", got, tc.want)
+			}
+			if env.Headers[events.HeaderDLQSubject] != tc.subject {
+				t.Errorf("%s = %q, want the original %q", events.HeaderDLQSubject,
+					env.Headers[events.HeaderDLQSubject], tc.subject)
+			}
+		})
+	}
+}

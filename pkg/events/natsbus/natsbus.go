@@ -21,7 +21,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // buckets are created from an events.Topology by Ensure; handler errors are
 // translated into explicit acknowledgements, delayed negative
 // acknowledgements and dead-letter copies by the shared events.Settle policy,
-// so its observable behaviour matches membus.
+// and a final delivery whose handler hangs past its acknowledgement deadline
+// is dead-lettered from JetStream's MAX_DELIVERIES advisory, which every
+// subscription watches for its own consumer, so its observable behaviour
+// matches membus.
 package natsbus
 
 import (
@@ -90,6 +93,7 @@ type Bus struct {
 	topology   events.Topology
 	buckets    map[string]jetstream.KeyValue
 	responders []*nats.Subscription
+	watchers   []*nats.Subscription
 	consumers  []jetstream.ConsumeContext
 }
 
@@ -129,8 +133,7 @@ func New(nc *nats.Conn, opts ...Option) (*Bus, error) {
 }
 
 // JetStream exposes the underlying context for the few callers that need
-// JetStream directly, such as the dead-letter advisory watcher and the
-// message replay path.
+// JetStream directly, such as the message replay path.
 func (b *Bus) JetStream() jetstream.JetStream { return b.js }
 
 // Ensure applies t and remembers it, so Publish can resolve a subject to its
@@ -154,15 +157,15 @@ func (b *Bus) Close() error {
 		return nil
 	}
 	b.closed = true
-	responders, consumers := b.responders, b.consumers
-	b.responders, b.consumers = nil, nil
+	responders, watchers, consumers := b.responders, b.watchers, b.consumers
+	b.responders, b.watchers, b.consumers = nil, nil, nil
 	b.mu.Unlock()
 
 	for _, c := range consumers {
 		c.Stop()
 	}
 	var errs []error
-	for _, s := range responders {
+	for _, s := range append(responders, watchers...) {
 		if err := s.Unsubscribe(); err != nil &&
 			!errors.Is(err, nats.ErrConnectionClosed) &&
 			!errors.Is(err, nats.ErrBadSubscription) {
@@ -277,6 +280,13 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 			sub.Durable, sub.Stream, err)
 	}
 
+	// Watch for lapsed final deliveries before the first delivery can be
+	// made: the watcher's SUB precedes the pull request on this connection.
+	watch, err := b.watchMaxDeliveries(ctx, sub)
+	if err != nil {
+		return nil, err
+	}
+
 	var copts []jetstream.PullConsumeOpt
 	if sub.MaxInFlight > 0 {
 		copts = append(copts, jetstream.PullMaxMessages(sub.MaxInFlight))
@@ -285,15 +295,22 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 		b.handle(ctx, sub, h, m)
 	}, copts...)
 	if err != nil {
+		_ = watch.Unsubscribe()
 		return nil, fmt.Errorf("natsbus: consume %s: %w", sub.Durable, err)
 	}
 
 	b.mu.Lock()
 	b.consumers = append(b.consumers, cctx)
+	b.watchers = append(b.watchers, watch)
 	b.mu.Unlock()
 
 	var once sync.Once
-	return func() { once.Do(cctx.Stop) }, nil
+	return func() {
+		once.Do(func() {
+			cctx.Stop()
+			_ = watch.Unsubscribe()
+		})
+	}, nil
 }
 
 func (b *Bus) handle(ctx context.Context, sub events.Subscription,

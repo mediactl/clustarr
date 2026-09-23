@@ -21,7 +21,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // without a broker, and it deliberately reproduces the observable semantics
 // of natsbus rather than a simplified subset: work-queue claiming, explicit
 // acknowledgement with redelivery after the ack deadline, delayed
-// redelivery, MaxDeliver with a copy to the dead-letter stream, publish
+// redelivery, MaxDeliver with a copy to the dead-letter stream (including a
+// final delivery whose handler hangs past its ack deadline, which natsbus
+// catches from JetStream's MAX_DELIVERIES advisory), publish
 // deduplication by message ID inside the stream's duplicate window,
 // DiscardNew back-pressure, scheduled publishes, and key/value create,
 // compare-and-swap and TTL.
@@ -265,7 +267,8 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 				return
 			default:
 			}
-			m, over := st.claim(sub.Durable, sub.Filters, b.clock.Now(), ackWait, sub.MaxDeliver)
+			b.deadLetterLapsed(loopCtx, st, sub, ackWait)
+			m := st.claim(sub.Durable, sub.Filters, b.clock.Now(), ackWait, sub.MaxDeliver)
 			if m == nil {
 				select {
 				case <-loopCtx.Done():
@@ -274,19 +277,29 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 				}
 				continue
 			}
-			select {
-			case sem <- struct{}{}:
-			case <-loopCtx.Done():
-				return
-			case <-b.done:
-				return
+			// Wait for a free handler slot. Every slot may be held by a
+			// handler that has hung, so keep sweeping while waiting:
+			// JetStream expires a final delivery on the server whatever the
+			// client is doing, and so must this bus.
+		wait:
+			for {
+				select {
+				case sem <- struct{}{}:
+					break wait
+				case <-loopCtx.Done():
+					return
+				case <-b.done:
+					return
+				case <-b.clock.After(pollInterval):
+					b.deadLetterLapsed(loopCtx, st, sub, ackWait)
+				}
 			}
 			handlers.Add(1)
-			go func(m *memMsg, over bool) {
+			go func(m *memMsg) {
 				defer handlers.Done()
 				defer func() { <-sem }()
-				b.deliver(loopCtx, st, sub, h, m, over, ackWait)
-			}(m, over)
+				b.deliver(loopCtx, st, sub, h, m, ackWait)
+			}(m)
 		}
 	}()
 
@@ -299,22 +312,28 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 	}, nil
 }
 
-// deliver runs one handler invocation and settles the message. over is set
-// when the delivery budget was already exhausted by acknowledgement
-// timeouts, in which case the handler is skipped and the message is
-// dead-lettered straight away.
+// deadLetterLapsed copies every message whose final delivery to sub has
+// lapsed to the dead-letter stream, without a handler slot and without the
+// handler returning. It is membus's equivalent of natsbus's MAX_DELIVERIES
+// advisory watcher: a handler still hung when the last acknowledgement
+// deadline passes is otherwise never settled, and nothing would ever copy the
+// message. The copy carries the ID the in-process path would give it, so a
+// hung handler that finally returns an error is a duplicate, not a second
+// copy.
+func (b *Bus) deadLetterLapsed(ctx context.Context, st *stream, sub events.Subscription,
+	ackWait time.Duration,
+) {
+	for _, m := range st.lapsed(sub.Durable, sub.Filters, b.clock.Now(), sub.MaxDeliver) {
+		msg := &message{bus: b, stream: st, msg: m, durable: sub.Durable, ackWait: ackWait}
+		b.deadLetter(ctx, msg, sub.Durable, events.AckWaitExhaustedReason(uint64(sub.MaxDeliver)))
+	}
+}
+
+// deliver runs one handler invocation and settles the message.
 func (b *Bus) deliver(ctx context.Context, st *stream, sub events.Subscription,
-	h events.Handler, m *memMsg, over bool, ackWait time.Duration,
+	h events.Handler, m *memMsg, ackWait time.Duration,
 ) {
 	msg := &message{bus: b, stream: st, msg: m, durable: sub.Durable, ackWait: ackWait}
-	if over {
-		b.settle(ctx, msg, sub, events.Settlement{
-			Action: events.SettleTerm,
-			Reason: fmt.Sprintf("max deliveries exceeded (%d): acknowledgement timed out",
-				sub.MaxDeliver),
-		})
-		return
-	}
 	hctx := b.opts.hooks.RunAfterReceive(ctx, msg.Envelope())
 	var err error
 	func() {

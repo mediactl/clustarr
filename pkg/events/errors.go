@@ -147,6 +147,10 @@ type Settlement struct {
 //   - any other error retries with the explicit Retry delay, or else the
 //     subscription's backoff schedule, until attempt reaches MaxDeliver, at
 //     which point the message is dead-lettered instead.
+//
+// A handler that never returns from its final delivery never reaches Settle.
+// That message is dead-lettered by the bus itself once the final
+// acknowledgement deadline passes, with AckWaitExhaustedReason.
 func Settle(err error, attempt uint64, s Subscription) Settlement {
 	if err == nil {
 		return Settlement{Action: SettleAck}
@@ -169,11 +173,36 @@ func Settle(err error, attempt uint64, s Subscription) Settlement {
 	return Settlement{Action: SettleNak, Delay: delay}
 }
 
+// AckWaitExhaustedReason is the Clustarr-DLQ-Reason of a message whose final
+// delivery lapsed unsettled: the handler was still running -- hung, not
+// failing -- when the last acknowledgement deadline passed, so the broker gave
+// up on the message with no handler error to report. Settle never sees such a
+// message, because the handler never returned. natsbus dead-letters it from
+// JetStream's MAX_DELIVERIES advisory and membus from its own ack-deadline
+// sweep, and both write this reason so the two buses stay indistinguishable.
+func AckWaitExhaustedReason(maxDeliver uint64) string {
+	return fmt.Sprintf("max deliveries exceeded (%d): acknowledgement timed out", maxDeliver)
+}
+
 // DeadLetter builds the envelope and subject for the dead-lettered copy of m,
 // preserving the original payload and headers and adding the Clustarr-DLQ-*
 // headers the projector reads.
 func DeadLetter(m Message, durable, reason string) (subject string, e *Envelope) {
-	orig := m.Envelope()
+	return DeadLetterEnvelope(m.Envelope(), m.Subject(), m.Attempt(), durable, reason)
+}
+
+// DeadLetterEnvelope is DeadLetter for a message the caller holds no delivery
+// of -- natsbus's advisory watcher reads the stored message back by stream
+// sequence after JetStream has given up on it. orig is the stored envelope,
+// subject the subject it was published on and attempts the delivery count.
+//
+// The copy's ID, and so its Nats-Msg-Id, is derived from durable and the
+// original ID alone, so the in-process path and the advisory path dead-letter
+// one message under one ID: whichever stores it first wins and the other is a
+// duplicate inside CLUSTARR_DLQ's deduplication window.
+func DeadLetterEnvelope(orig *Envelope, subject string, attempts uint64,
+	durable, reason string,
+) (dlqSubject string, e *Envelope) {
 	out := orig.Clone()
 	if out == nil {
 		out = &Envelope{}
@@ -182,33 +211,52 @@ func DeadLetter(m Message, durable, reason string) (subject string, e *Envelope)
 		out.Headers = map[string]string{}
 	}
 	out.Headers[HeaderDLQReason] = reason
-	out.Headers[HeaderDLQAttempts] = strconv.FormatUint(m.Attempt(), 10)
+	out.Headers[HeaderDLQAttempts] = strconv.FormatUint(attempts, 10)
 	out.Headers[HeaderDLQConsumer] = durable
-	out.Headers[HeaderDLQSubject] = m.Subject()
+	out.Headers[HeaderDLQSubject] = subject
 	if orig != nil && orig.ID != "" {
 		out.Headers[HeaderDLQMsgID] = orig.ID
 	}
-	service, task := splitWorkSubject(m.Subject())
+	service, task := dlqServiceTask(subject, durable)
 	id := out.ID
 	if id == "" {
-		id = strconv.FormatUint(m.Attempt(), 10)
+		id = strconv.FormatUint(attempts, 10)
 	}
 	out.ID = "dlq:" + durable + ":" + id
 	return DLQSubject(service, task, id), out
 }
 
-// splitWorkSubject extracts the service and task tokens from a subject so the
-// dead-letter copy lands on clustarr.dlq.<service>.<task>.<id>. Subjects that
-// do not follow the clustarr.<class>.<service>.<task>... shape fall back to
-// "unknown".
-func splitWorkSubject(subject string) (service, task string) {
-	parts := strings.Split(subject, ".")
+// dlqServiceTask names the <service> and <task> tokens of a dead letter's
+// subject, clustarr.dlq.<service>.<task>.<id>.
+//
+// A work subject, clustarr.work.<service>.<task>..., names both itself. Any
+// other subject does not: an event on CLUSTARR_EVENTS
+// (clustarr.evt.<group>.<kind>.<action>.<uid>) or a release on
+// CLUSTARR_RELEASES names its producer's domain, not the task that failed on
+// it, and one event is consumed by several durables -- catalogarr-history and
+// catalogarr-redownload both read a Download's failed event. Reading tokens
+// 2 and 3 of those gave clustarr.dlq.download.download.<id>, a "service" that
+// does not exist, shared by every consumer of the event, so two consumers'
+// dead letters of one event collided on one subject and the projector's
+// last-sequence lookup could name the other's copy. Those take the tokens
+// from the consumer's durable name, <service>-<task>, instead:
+// catalogarr-redownload's lands on clustarr.dlq.catalogarr.redownload.<id>.
+// Anything unparseable falls back to "unknown".
+func dlqServiceTask(subject, durable string) (service, task string) {
 	service, task = "unknown", "unknown"
-	if len(parts) > 2 {
+	parts := strings.Split(subject, ".")
+	if len(parts) > 2 && parts[0] == SubjectRoot && parts[1] == "work" {
 		service = parts[2]
+		if len(parts) > 3 {
+			task = parts[3]
+		}
+		return service, task
 	}
-	if len(parts) > 3 {
-		task = parts[3]
+	if s, t, ok := strings.Cut(durable, "-"); ok && s != "" && t != "" {
+		return s, t
+	}
+	if durable != "" {
+		service = durable
 	}
 	return service, task
 }

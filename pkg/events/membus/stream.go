@@ -50,6 +50,16 @@ type consumerState struct {
 	settled bool
 }
 
+// due reports whether the message would be redelivered to this consumer at
+// now: no delivery is in flight inside its acknowledgement deadline and no
+// negative acknowledgement is still holding it back.
+func (cs *consumerState) due(now time.Time) bool {
+	if !cs.ackDeadline.IsZero() && now.Before(cs.ackDeadline) {
+		return false
+	}
+	return cs.nextAt.IsZero() || !now.Before(cs.nextAt)
+}
+
 // memMsg is one stored message.
 type memMsg struct {
 	seq       uint64
@@ -156,12 +166,12 @@ func (s *stream) expireLocked(now time.Time) {
 }
 
 // claim hands the next deliverable message to a durable consumer. It returns
-// a nil message when nothing is ready. The boolean reports that the message
-// has already used its whole delivery budget through acknowledgement
-// timeouts, so it must be dead-lettered instead of handled.
+// nil when nothing is ready. A message whose delivery budget is spent is
+// never handed out again: its final delivery is still in flight, or lapsed
+// is about to dead-letter it.
 func (s *stream) claim(durable string, filters []string, now time.Time,
 	ackWait time.Duration, maxDeliver int,
-) (*memMsg, bool) {
+) *memMsg {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	workQueue := s.spec.Retention == events.RetentionWorkQueue
@@ -179,23 +189,11 @@ func (s *stream) claim(durable string, filters []string, now time.Time,
 			continue
 		}
 		cs := m.stateFor(durable)
-		if cs.settled {
-			continue
-		}
-		if !cs.ackDeadline.IsZero() && now.Before(cs.ackDeadline) {
-			continue
-		}
-		if !cs.nextAt.IsZero() && now.Before(cs.nextAt) {
+		if cs.settled || !cs.due(now) {
 			continue
 		}
 		if maxDeliver > 0 && cs.attempts >= uint64(maxDeliver) {
-			// The delivery budget ran out while a previous delivery was
-			// in flight; hand it back so the caller can dead-letter it.
-			cs.settled = true
-			if workQueue {
-				s.removeLocked(m)
-			}
-			return m, true
+			continue
 		}
 		cs.attempts++
 		cs.ackDeadline = now.Add(ackWait)
@@ -203,9 +201,50 @@ func (s *stream) claim(durable string, filters []string, now time.Time,
 		if workQueue {
 			m.claim = durable
 		}
-		return m, false
+		return m
 	}
-	return nil, false
+	return nil
+}
+
+// lapsed returns, exactly once each, the messages whose final delivery to
+// durable has lapsed: the delivery budget is spent and the message would
+// otherwise be due again, because its acknowledgement deadline passed with
+// the handler still running or because the handler naked it. JetStream gives
+// up on such a message on the server, whatever the client is doing, and
+// announces it with the MAX_DELIVERIES advisory natsbus dead-letters from;
+// this is membus's equivalent. Each message is marked settled for durable,
+// and removed from a WorkQueue stream, as a terminated delivery would be.
+func (s *stream) lapsed(durable string, filters []string, now time.Time,
+	maxDeliver int,
+) []*memMsg {
+	if maxDeliver <= 0 {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	workQueue := s.spec.Retention == events.RetentionWorkQueue
+	var out []*memMsg
+	for _, m := range s.msgs {
+		if m.removed || !matchAny(filters, m.subject) {
+			continue
+		}
+		if workQueue && m.claim != "" && m.claim != durable {
+			continue
+		}
+		cs, ok := m.state[durable]
+		if !ok || cs.settled || cs.attempts < uint64(maxDeliver) || !cs.due(now) {
+			continue
+		}
+		cs.settled = true
+		cs.ackDeadline = time.Time{}
+		out = append(out, m)
+	}
+	if workQueue {
+		for _, m := range out {
+			s.removeLocked(m)
+		}
+	}
+	return out
 }
 
 func (s *stream) removeLocked(m *memMsg) {
