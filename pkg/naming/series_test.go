@@ -164,3 +164,79 @@ func TestEpisodeAndAbsoluteRangeTokensAreEmptyForEveryStyleWhenNoEpisodes(t *tes
 		})
 	}
 }
+
+// TestEpisodeFileNamesEveryEpisodeOfAMultiEpisodeFile is the X7a-found
+// defect: the episode presets' "S{season:00}E{episode:00}" rendered only the
+// first episode, so a file holding S01E01-E03 was named as S01E01 alone.
+// Sonarr expands the whole season-episode pattern per MultiEpisodeStyle
+// (FileNameBuilder.AddSeasonEpisodeNumberingTokens); every expected value
+// below is what Sonarr's FormatNumberTokens/FormatRangeNumberTokens produce
+// for the same pattern, including Duplicate's use of the separator the
+// template puts before the pattern (" - ").
+func TestEpisodeFileNamesEveryEpisodeOfAMultiEpisodeFile(t *testing.T) {
+	c := naming.Context{
+		SeriesTitle: "The Series Title!", SeriesYear: 2010,
+		Season: 1, Episodes: []int{1, 2, 3}, EpisodeTitle: "Episode Title",
+		Quality: commonv1.Quality{Source: commonv1.SourceWebDL, Resolution: 1080},
+	}
+	for _, tc := range []struct {
+		style naming.MultiEpisodeStyle
+		want  string
+	}{
+		{"", "S01E01-E03"}, // the zero value is Sonarr's and the CRD's default, prefixedRange
+		{naming.MultiEpisodePrefixedRange, "S01E01-E03"},
+		{naming.MultiEpisodeExtend, "S01E01-02-03"},
+		{naming.MultiEpisodeDuplicate, "S01E01 - S01E02 - S01E03"},
+		{naming.MultiEpisodeRepeat, "S01E01E02E03"},
+		{naming.MultiEpisodeScene, "S01E01-E02-E03"},
+		{naming.MultiEpisodeRange, "S01E01-03"},
+	} {
+		t.Run("style "+string(tc.style), func(t *testing.T) {
+			got, err := naming.NewEngine(naming.Config{MultiEpisodeStyle: tc.style}).EpisodeFile(c)
+			require.NoError(t, err)
+			require.Equal(t, "The Series Title! (2010) - "+tc.want+" - Episode Title [WEBDL-1080p]", got)
+		})
+	}
+
+	t.Run("anime: the absolute numbers are expanded too", func(t *testing.T) {
+		anime := c
+		anime.Absolute = []int{13, 14, 15}
+		for _, tc := range []struct {
+			style naming.MultiEpisodeStyle
+			want  string
+		}{
+			{naming.MultiEpisodePrefixedRange, "S01E01-E03 - 013-015"},
+			{naming.MultiEpisodeExtend, "S01E01-02-03 - 013-014-015"},
+			// Duplicate repeats each pattern with the separator around it:
+			// " - " on both sides, since the pattern and the absolute token
+			// sit between "}" and "{" in the preset.
+			{naming.MultiEpisodeDuplicate, "S01E01 - S01E02 - S01E03 - 013 - 014 - 015"},
+			{naming.MultiEpisodeRepeat, "S01E01E02E03 - 013-014-015"},
+		} {
+			got, err := naming.NewEngine(naming.Config{MultiEpisodeStyle: tc.style}).EpisodeFile(anime)
+			require.NoError(t, err)
+			require.Equal(t, "The Series Title! (2010) - "+tc.want+" - Episode Title [WEBDL-1080p]", got, string(tc.style))
+		}
+	})
+
+	t.Run("a Sonarr-syntax override template is expanded the same way", func(t *testing.T) {
+		e := naming.NewEngine(naming.Config{
+			MultiEpisodeStyle: naming.MultiEpisodeDuplicate,
+			Overrides:         map[string]string{naming.TokenEpisodeFile: "{Series CleanTitleWithoutYear}.S{season:00}E{episode:00}.{Quality Full}"},
+		})
+		got, err := e.EpisodeFile(naming.Context{SeriesTitle: "Show", Season: 2, Episodes: []int{4, 5}, Quality: commonv1.Quality{Source: commonv1.SourceTV, Resolution: 720}})
+		require.NoError(t, err)
+		require.Equal(t, "Show.S02E04.S02E05.HDTV-720p", got)
+
+		e = naming.NewEngine(naming.Config{Overrides: map[string]string{naming.TokenEpisodeFile: "{Series CleanTitleWithoutYear} {season}x{episode:00}"}})
+		got, err = e.EpisodeFile(naming.Context{SeriesTitle: "Show", Season: 2, Episodes: []int{4, 5}})
+		require.NoError(t, err)
+		require.Equal(t, "Show 2x04-x05", got)
+	})
+
+	t.Run("a lone {episode} token is the first and last episode", func(t *testing.T) {
+		got, err := naming.NewEngine(naming.Config{}).Render("Episode {episode:00}", naming.Context{Season: 1, Episodes: []int{1, 2, 3}})
+		require.NoError(t, err)
+		require.Equal(t, "Episode 01-03", got)
+	})
+}

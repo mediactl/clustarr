@@ -92,7 +92,7 @@ func formatEpisodeRange(season int, episodes []int, style MultiEpisodeStyle) str
 		return fmt.Sprintf("S%02dE%02d-%02d", season, episodes[0], episodes[len(episodes)-1])
 	case MultiEpisodePrefixedRange:
 		return fmt.Sprintf("S%02dE%02d-E%02d", season, episodes[0], episodes[len(episodes)-1])
-	default: // MultiEpisodeExtend and the zero value
+	default: // MultiEpisodeExtend (the zero value arrives as prefixedRange: orDefault)
 		var b strings.Builder
 		fmt.Fprintf(&b, "S%02dE%02d", season, episodes[0])
 		for _, ep := range episodes[1:] {

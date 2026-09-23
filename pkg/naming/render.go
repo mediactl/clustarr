@@ -29,6 +29,9 @@ import (
 var tokenRe = regexp.MustCompile(`\{([^{}]*)\}`)
 
 func (e Engine) Render(tmpl string, c Context) (string, error) {
+	// A multi-episode file's season-episode pattern and absolute numbers are
+	// expanded first, as whole patterns (multiepisode.go).
+	tmpl = e.expandMultiEpisode(tmpl, c)
 	var errOut error
 	out := tokenRe.ReplaceAllStringFunc(tmpl, func(raw string) string {
 		if errOut != nil {
@@ -45,9 +48,9 @@ func (e Engine) Render(tmpl string, c Context) (string, error) {
 		// cases handled specially here instead of rebuilding the whole map
 		// per Engine on every Render call.
 		case "episoderange":
-			val = formatEpisodeRange(c.Season, c.Episodes, e.Config.MultiEpisodeStyle)
+			val = formatEpisodeRange(c.Season, c.Episodes, e.Config.MultiEpisodeStyle.orDefault())
 		case "absoluterange":
-			val = formatAbsoluteRange(c.Absolute, e.Config.MultiEpisodeStyle)
+			val = formatAbsoluteRange(c.Absolute, e.Config.MultiEpisodeStyle.orDefault())
 		default:
 			entry, ok := tokenFuncs[key]
 			if !ok {
@@ -197,7 +200,7 @@ var tokenFuncs = map[string]tokenEntry{
 	"mediainfo audiocodec":            {fn: func(c Context, _, _ int) string { return firstAudioCodec(c.MediaInfo) }},
 	"mediainfo audiochannels":         {fn: func(c Context, _, _ int) string { return firstAudioChannels(c.MediaInfo) }},
 	"season":                          {fn: func(c Context, pad, _ int) string { return padInt(c.Season, pad) }},
-	"episode":                         {fn: func(c Context, pad, _ int) string { return padInt(firstOr(c.Episodes), pad) }},
+	"episode":                         {fn: episodeToken},
 	"absolute":                        {fn: func(c Context, pad, _ int) string { return padInt(firstOr(c.Absolute), pad) }},
 	"episode cleantitle":              {fn: func(c Context, _, trunc int) string { return truncate(cleanTitle(c.EpisodeTitle), trunc) }},
 	"quality full":                    {fn: func(c Context, _, _ int) string { return qualityFull(c.Quality, c.Revision) }},
@@ -243,6 +246,18 @@ func padInt(n, width int) string {
 		return fmt.Sprintf("%0*d", width, n)
 	}
 	return strconv.Itoa(n)
+}
+
+// episodeToken renders an {episode} token that is not part of a
+// season-episode pattern (expandMultiEpisode has already expanded those):
+// the first and last episode joined by "-" when there are several, as
+// Sonarr's own {Episode} token handler does
+// (AddSeasonEpisodeNumberingTokens).
+func episodeToken(c Context, pad, _ int) string {
+	if len(c.Episodes) > 1 {
+		return padInt(c.Episodes[0], pad) + "-" + padInt(c.Episodes[len(c.Episodes)-1], pad)
+	}
+	return padInt(firstOr(c.Episodes), pad)
 }
 
 func firstOr(xs []int) int {
