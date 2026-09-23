@@ -40,6 +40,13 @@ func TestEngineLoginForm(t *testing.T) {
 			gotUser, gotPass, gotCSRF = r.Form.Get("username"), r.Form.Get("password"), r.Form.Get("csrf_token")
 			http.SetCookie(w, &http.Cookie{Name: "session", Value: "abc"})
 			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodGet && r.URL.Path == "/dashboard":
+			// login.test: the logout link shows only to a live session.
+			if c, err := r.Cookie("session"); err == nil && c.Value == "abc" {
+				_, _ = w.Write([]byte(`<html><body><a class="logout" href="/logout">log out</a></body></html>`))
+				return
+			}
+			_, _ = w.Write([]byte(`<html><body><a href="/login">log in</a></body></html>`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -177,6 +184,105 @@ func TestEngineLoginPost(t *testing.T) {
 	assert.Equal(t, "hunter2", gotPass)
 	require.Len(t, sess.Cookies, 1)
 	assert.Equal(t, "session", sess.Cookies[0].Name)
+}
+
+// TestEngineLoginTestRunsForEveryMethod: login.test proves the session for
+// a form, post, get and cookie login alike (Jackett's TestLogin after every
+// DoLogin; Prowlarr's CheckIfLoginIsNeeded on every response), not only for
+// a cookie login. A tracker that answers a bad login with a 200 and no
+// login.error match is caught by the test page instead; a redirect or an
+// HTTP error from the test page fails it too, and search.headers ride along.
+func TestEngineLoginTestRunsForEveryMethod(t *testing.T) {
+	var testHeader string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/login":
+			if r.Method == http.MethodGet && r.URL.Query().Get("apikey") == "" {
+				_, _ = w.Write([]byte(`<html><body><form action="/login" method="post"><input name="username"></form></body></html>`))
+				return
+			}
+			// Any credentials "work": the tracker sets its cookie whatever
+			// was sent, and only the test page tells a real session apart.
+			_ = r.ParseForm()
+			if r.Form.Get("username") == "good" || r.URL.Query().Get("apikey") == "good" {
+				http.SetCookie(w, &http.Cookie{Name: "session", Value: "live"})
+			} else {
+				http.SetCookie(w, &http.Cookie{Name: "session", Value: "dead"})
+			}
+		case "/me":
+			testHeader = r.Header.Get("X-Test")
+			if c, err := r.Cookie("session"); err == nil && c.Value == "live" {
+				_, _ = w.Write([]byte(`<html><body><a class="logout">out</a></body></html>`))
+				return
+			}
+			_, _ = w.Write([]byte(`<html><body>who are you</body></html>`))
+		case "/gone":
+			http.Redirect(w, r, "/login", http.StatusFound)
+		case "/broken":
+			http.Error(w, "boom", http.StatusInternalServerError)
+		case "/json":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	eng := cardigann.Engine{HTTP: srv.Client()}
+	test := &cardigann.PageTestBlock{Path: "me", Selector: "a.logout"}
+	search := cardigann.SearchBlock{Headers: map[string][]string{"X-Test": {"{{ .Config.username }}"}}}
+
+	methods := map[string]*cardigann.LoginBlock{
+		"form": {Method: "form", Path: "login", Inputs: map[string]cardigann.Scalar{"username": "{{ .Config.username }}"}},
+		"post": {Method: "post", Path: "login", Inputs: map[string]cardigann.Scalar{"username": "{{ .Config.username }}"}},
+		"get":  {Method: "get", Path: "login", Inputs: map[string]cardigann.Scalar{"apikey": "{{ .Config.username }}"}},
+	}
+	for name, lb := range methods {
+		t.Run(name, func(t *testing.T) {
+			lb.Test = test
+			def := &cardigann.Definition{Links: []string{srv.URL + "/"}, Login: lb, Search: search}
+			for _, user := range []string{"good", "bad"} {
+				cfg, err := cardigann.NewConfig(def, srv.URL+"/", map[string]string{"username": user})
+				require.NoError(t, err)
+				sess, err := eng.Login(context.Background(), def, cfg)
+				if user == "bad" {
+					var le *cardigann.LoginError
+					require.ErrorAs(t, err, &le)
+					assert.Contains(t, le.Message, `login test selector "a.logout" did not match`)
+					continue
+				}
+				require.NoError(t, err)
+				require.NotNil(t, sess)
+				assert.Equal(t, "good", testHeader, "search.headers ride on the test request")
+			}
+		})
+	}
+
+	cookieDef := func(path string) *cardigann.Definition {
+		return &cardigann.Definition{
+			Links:  []string{srv.URL + "/"},
+			Login:  &cardigann.LoginBlock{Method: "cookie", Test: &cardigann.PageTestBlock{Path: path, Selector: "a.logout"}},
+			Search: search,
+		}
+	}
+	for path, want := range map[string]string{
+		"me":     "",
+		"gone":   "login test page redirected",
+		"broken": "login test page returned HTTP 500",
+		"json":   "", // the selector is checked on HTML only
+	} {
+		def := cookieDef(path)
+		cfg, err := cardigann.NewConfig(def, srv.URL+"/", map[string]string{"cookie": "session=live"})
+		require.NoError(t, err)
+		_, err = eng.Login(context.Background(), def, cfg)
+		if want == "" {
+			assert.NoError(t, err, path)
+			continue
+		}
+		var le *cardigann.LoginError
+		require.ErrorAs(t, err, &le, path)
+		assert.Equal(t, want, le.Message, path)
+	}
 }
 
 func TestEngineDetectsCloudflareChallenge(t *testing.T) {

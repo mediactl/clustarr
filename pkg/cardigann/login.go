@@ -109,11 +109,34 @@ func loginRequiresSession(lb *LoginBlock) bool {
 // Go's client follows that redirect and, without a jar, the only cookies
 // left are the index page's. Prowlarr's HttpClient keeps a cookie container
 // across its redirect loop for the same reason.
+//
+// Whatever the method, a definition's login.test then proves the Session
+// authenticates (runLoginTest) before Login returns it: Jackett's
+// ApplyConfiguration runs TestLogin after every DoLogin, and Prowlarr runs
+// the same selector over every response (CheckIfLoginIsNeeded). Until gap
+// fix Z6 only a cookie login was tested, so a form or post login whose
+// credentials the tracker silently ignored -- no login.error selector
+// matching, a 200 back -- was reported Authenticated with a dead session;
+// 302 of the 752 bundled definitions carry a test on a form or post login.
 func (e Engine) Login(ctx context.Context, def *Definition, cfg Config) (*Session, error) {
 	lb := def.Login
 	if lb == nil {
 		return nil, nil
 	}
+	sess, err := e.login(ctx, def, cfg, lb)
+	if err != nil {
+		return nil, err
+	}
+	if lb.Test != nil {
+		if err := e.runLoginTest(ctx, def, cfg, sess, lb.Test); err != nil {
+			return nil, err
+		}
+	}
+	return sess, nil
+}
+
+// login is Login's per-method dispatch, before login.test.
+func (e Engine) login(ctx context.Context, def *Definition, cfg Config, lb *LoginBlock) (*Session, error) {
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		return nil, fmt.Errorf("cardigann: cookie jar: %w", err)
@@ -509,7 +532,7 @@ func (lf loginFlow) checkErrors(resp *http.Response, body []byte) error {
 
 // loginCookie builds the Session from cookies the operator supplies; there
 // is no HTTP round trip for the login itself (note §3.5), only login.test
-// when the definition has one.
+// when the definition has one (Login runs it for every method).
 //
 // The cookies come from the `cookie` setting, a Cookie header pasted from a
 // browser ("uid=1; pass=abc") -- Prowlarr's semantics (it reads the
@@ -542,13 +565,7 @@ func (e Engine) loginCookie(ctx context.Context, def *Definition, cfg Config, lb
 	if len(cookies) == 0 {
 		return nil, errors.New("cardigann: cookie login: no cookie configured (the cookie setting is empty)")
 	}
-	sess := &Session{Cookies: cookies, ExpiresAt: e.now().Add(sessionTTL)}
-	if lb.Test != nil {
-		if err := e.runLoginTest(ctx, def, cfg, sess, lb.Test); err != nil {
-			return nil, err
-		}
-	}
-	return sess, nil
+	return &Session{Cookies: cookies, ExpiresAt: e.now().Add(sessionTTL)}, nil
 }
 
 // parseCookieHeader reads a Cookie header the way a user pastes one --
@@ -569,19 +586,43 @@ func parseCookieHeader(h string) []*http.Cookie {
 	return out
 }
 
-// runLoginTest GETs test.Path (with sess attached) and asserts
-// test.Selector matches, confirming a Session actually authenticates. A
-// redirect is not followed: a dead session is redirected to the login page,
-// which is exactly what the test exists to notice (Prowlarr's
-// CheckIfLoginIsNeeded treats any redirect as "login needed").
+// runLoginTest GETs test.Path with sess and search.headers attached (what
+// Jackett's TestLogin sends) and asserts test.Selector matches, confirming a
+// Session actually authenticates. A redirect is not followed: a dead session
+// is redirected to the login page, which is exactly what the test exists to
+// notice. An HTTP error status fails the test, and the selector is checked
+// only on an HTML response -- both as Prowlarr's CheckIfLoginIsNeeded does
+// (HasHttpRedirect, HasHttpError, and `ContentType?.Contains("text/html")
+// ?? true`).
 func (e Engine) runLoginTest(ctx context.Context, def *Definition, cfg Config, sess *Session, test *PageTestBlock) error {
 	cfg.Session = sess
-	resp, body, err := e.get(ctx, cfg, test.Path, exchange{def: def, site: cfg.BaseURL})
+	u, err := resolveURL(cfg.BaseURL, test.Path)
 	if err != nil {
 		return err
 	}
-	if resp != nil && resp.StatusCode >= 300 && resp.StatusCode < 400 {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return fmt.Errorf("cardigann: build request: %w", RedactErr(err))
+	}
+	if err := renderHeaders(req, def.Search.Headers, e.templateContext(def, cfg)); err != nil {
+		return err
+	}
+	attachSession(req, sess)
+	resp, body, err := e.do(ctx, req, exchange{def: def, site: cfg.BaseURL})
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 		return &LoginError{Message: "login test page redirected"}
+	}
+	if resp.StatusCode >= 400 {
+		return &LoginError{Message: fmt.Sprintf("login test page returned HTTP %d", resp.StatusCode)}
+	}
+	if test.Selector == "" {
+		return nil
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.Contains(strings.ToLower(ct), "text/html") {
+		return nil
 	}
 	enc, _ := def.textEncoding()
 	if body, err = decodeBody(enc, body); err != nil {
@@ -591,11 +632,8 @@ func (e Engine) runLoginTest(ctx context.Context, def *Definition, cfg Config, s
 	if err != nil {
 		return fmt.Errorf("cardigann: parse login test page: %w", err)
 	}
-	if test.Selector == "" {
-		return nil
-	}
 	if _, ok := doc.Select(test.Selector); !ok {
-		return &LoginError{Message: "login test selector did not match"}
+		return &LoginError{Message: fmt.Sprintf("login test selector %q did not match", test.Selector)}
 	}
 	return nil
 }
