@@ -20,7 +20,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // It exists so packages that publish or consume messages can be unit-tested
 // without a broker, and it deliberately reproduces the observable semantics
 // of natsbus rather than a simplified subset: work-queue claiming, explicit
-// acknowledgement with redelivery after the ack deadline, delayed
+// acknowledgement with redelivery after the ack deadline (Backoff[n-1] for
+// delivery n when Backoff is set, as JetStream times it), delayed
 // redelivery, MaxDeliver with a copy to the dead-letter stream (including a
 // final delivery whose handler hangs past its ack deadline, which natsbus
 // catches from JetStream's MAX_DELIVERIES advisory), publish
@@ -248,10 +249,7 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 	if inFlight <= 0 {
 		inFlight = 1
 	}
-	ackWait := sub.AckWait
-	if ackWait <= 0 {
-		ackWait = 30 * time.Second
-	}
+	ackWait := func(attempt uint64) time.Duration { return ackWaitFor(sub, attempt) }
 
 	var handlers sync.WaitGroup
 	b.wg.Add(1)
@@ -312,6 +310,32 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 	}, nil
 }
 
+// defaultAckWait is the acknowledgement deadline of a subscription that
+// sets neither AckWait nor Backoff: JetStream's own default
+// (nats-server JsAckWaitDefault).
+const defaultAckWait = 30 * time.Second
+
+// ackWaitFor is how long delivery attempt (1-based) of sub may go unsettled
+// before the message is due again. It is JetStream's rule, not a membus
+// choice: with Backoff set, nats-server overrides AckWait with Backoff[0] and
+// times delivery n out on Backoff[n-1], reusing the last entry past the end
+// (consumer.go checkPending: deadline = BackOff[rdc], rdc = deliveries-1);
+// without Backoff, every delivery gets AckWait. An InProgress resets the
+// clock but keeps the delivery's deadline.
+func ackWaitFor(sub events.Subscription, attempt uint64) time.Duration {
+	if n := len(sub.Backoff); n > 0 {
+		i := 0
+		if attempt > 1 {
+			i = int(min(attempt-1, uint64(n-1)))
+		}
+		return sub.Backoff[i]
+	}
+	if sub.AckWait > 0 {
+		return sub.AckWait
+	}
+	return defaultAckWait
+}
+
 // deadLetterLapsed copies every message whose final delivery to sub has
 // lapsed to the dead-letter stream, without a handler slot and without the
 // handler returning. It is membus's equivalent of natsbus's MAX_DELIVERIES
@@ -321,7 +345,7 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 // hung handler that finally returns an error is a duplicate, not a second
 // copy.
 func (b *Bus) deadLetterLapsed(ctx context.Context, st *stream, sub events.Subscription,
-	ackWait time.Duration,
+	ackWait func(attempt uint64) time.Duration,
 ) {
 	for _, m := range st.lapsed(sub.Durable, sub.Filters, b.clock.Now(), sub.MaxDeliver) {
 		msg := &message{bus: b, stream: st, msg: m, durable: sub.Durable, ackWait: ackWait}
@@ -331,7 +355,7 @@ func (b *Bus) deadLetterLapsed(ctx context.Context, st *stream, sub events.Subsc
 
 // deliver runs one handler invocation and settles the message.
 func (b *Bus) deliver(ctx context.Context, st *stream, sub events.Subscription,
-	h events.Handler, m *memMsg, ackWait time.Duration,
+	h events.Handler, m *memMsg, ackWait func(attempt uint64) time.Duration,
 ) {
 	msg := &message{bus: b, stream: st, msg: m, durable: sub.Durable, ackWait: ackWait}
 	hctx := b.opts.hooks.RunAfterReceive(ctx, msg.Envelope())

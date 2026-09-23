@@ -170,7 +170,7 @@ func (s *stream) expireLocked(now time.Time) {
 // never handed out again: its final delivery is still in flight, or lapsed
 // is about to dead-letter it.
 func (s *stream) claim(durable string, filters []string, now time.Time,
-	ackWait time.Duration, maxDeliver int,
+	ackWait func(attempt uint64) time.Duration, maxDeliver int,
 ) *memMsg {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -196,7 +196,7 @@ func (s *stream) claim(durable string, filters []string, now time.Time,
 			continue
 		}
 		cs.attempts++
-		cs.ackDeadline = now.Add(ackWait)
+		cs.ackDeadline = now.Add(ackWait(cs.attempts))
 		cs.nextAt = time.Time{}
 		if workQueue {
 			m.claim = durable
@@ -286,10 +286,13 @@ func (s *stream) nak(m *memMsg, durable string, now time.Time, delay time.Durati
 	}
 }
 
-func (s *stream) inProgress(m *memMsg, durable string, now time.Time, ackWait time.Duration) {
+func (s *stream) inProgress(m *memMsg, durable string, now time.Time,
+	ackWait func(attempt uint64) time.Duration,
+) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	m.stateFor(durable).ackDeadline = now.Add(ackWait)
+	cs := m.stateFor(durable)
+	cs.ackDeadline = now.Add(ackWait(cs.attempts))
 }
 
 func matchAny(filters []string, subject string) bool {
@@ -307,7 +310,7 @@ type message struct {
 	stream  *stream
 	msg     *memMsg
 	durable string
-	ackWait time.Duration
+	ackWait func(attempt uint64) time.Duration
 
 	mu      sync.Mutex
 	settled bool

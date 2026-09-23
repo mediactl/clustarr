@@ -105,7 +105,7 @@ type Subscription struct {
 	Filters []string
 
 	// AckWait is how long the broker waits for a settlement before it
-	// redelivers.
+	// redelivers. It applies only when Backoff is empty: see Backoff.
 	AckWait time.Duration
 
 	// MaxDeliver caps total delivery attempts. It must be strictly greater
@@ -114,6 +114,12 @@ type Subscription struct {
 
 	// Backoff is the redelivery schedule. Entry i is the delay applied after
 	// attempt i+1 fails; attempts past the end reuse the last entry.
+	//
+	// When it is set it is also the acknowledgement deadline, replacing
+	// AckWait, because that is what JetStream does: delivery n that goes
+	// unsettled -- a handler still running, not one that failed -- is
+	// redelivered Backoff[n-1] after it was made (the last entry past the
+	// end). Every bus follows that rule.
 	Backoff []time.Duration
 
 	// MaxInFlight caps unacknowledged messages held by this consumer.

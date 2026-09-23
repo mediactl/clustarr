@@ -67,6 +67,9 @@ func RunBusContract(t *testing.T, newBus func() events.Bus) {
 	t.Run("WorkQueueHungHandlerSaturatedToDLQ", func(t *testing.T) {
 		testHungHandlerToDLQ(t, newBus, 1)
 	})
+	t.Run("WorkQueueHungRedeliveryFollowsBackoff", func(t *testing.T) {
+		testHungRedeliveryFollowsBackoff(t, newBus)
+	})
 	t.Run("MaxInFlightHandlersRunConcurrently", func(t *testing.T) {
 		testMaxInFlightConcurrency(t, newBus)
 	})
@@ -619,6 +622,83 @@ func testHungHandlerToDLQ(t *testing.T, newBus func() events.Bus, inFlight int) 
 		if a != uint64(i+1) {
 			t.Errorf("delivery %d reported Attempt() = %d", i, a)
 		}
+	}
+}
+
+// testHungRedeliveryFollowsBackoff pins when a delivery nobody settled is
+// made again. With Backoff set, JetStream times delivery n out on
+// Backoff[n-1] (the last entry past the end), not AckWait, and a bus that
+// timed every delivery on AckWait would hand a hung handler's message out on
+// a different schedule in a unit test than in production. Unequal values keep
+// the rules apart: AckWait is far longer than either entry, and the entries
+// differ, so using Backoff[n] (or Backoff[0] throughout) shows too.
+func testHungRedeliveryFollowsBackoff(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+	dlq := subscribeDLQ(ctx, t, bus)
+
+	const (
+		maxDeliver = 3
+		first      = 250 * time.Millisecond
+		second     = 2 * time.Second
+		ackWait    = 25 * time.Second
+		// slack absorbs the gap between the broker making a delivery and
+		// the handler recording it; a timer never fires early.
+		slack = 200 * time.Millisecond
+	)
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+
+	var mu sync.Mutex
+	var at []time.Time
+	stop, err := bus.Subscribe(ctx, events.Subscription{
+		Stream:     events.StreamWorkIndexarr,
+		Durable:    "ct-backoff",
+		Filters:    []string{events.FilterIndexRSS},
+		AckWait:    ackWait,
+		MaxDeliver: maxDeliver,
+		Backoff:    []time.Duration{first, second},
+		// Every delivery hangs, so each needs its own handler.
+		MaxInFlight: maxDeliver,
+	}, func(ctx context.Context, _ events.Message) error {
+		mu.Lock()
+		at = append(at, time.Now())
+		mu.Unlock()
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		return errors.New("hung")
+	})
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	defer stop()
+
+	if _, err := bus.Publish(ctx, events.WorkRSSSubject("idx-backoff"),
+		envelope("task-backoff", "index.RssTask.v1", 0)); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	waitUntil(t, fmt.Sprintf("%d deliveries of a hung handler's message", maxDeliver), func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(at) >= maxDeliver
+	})
+	dlq.waitFor(t, 1, "the dead-letter copy of the lapsed final delivery")
+	copied := time.Now()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if gap := at[1].Sub(at[0]); gap < first-slack || gap >= second-slack {
+		t.Errorf("delivery 2 came %v after delivery 1, want Backoff[0] = %v", gap, first)
+	}
+	if gap := at[2].Sub(at[1]); gap < second-slack || gap >= ackWait/2 {
+		t.Errorf("delivery 3 came %v after delivery 2, want Backoff[1] = %v", gap, second)
+	}
+	// The final delivery reuses the last entry.
+	if gap := copied.Sub(at[2]); gap < second-slack || gap >= ackWait/2 {
+		t.Errorf("the final delivery lapsed %v after it was made, want Backoff[1] = %v", gap, second)
 	}
 }
 
