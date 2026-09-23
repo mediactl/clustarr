@@ -102,6 +102,7 @@ func (pc *processConfig) run(ctx context.Context) (importOutcome, error) {
 		}
 		besideMedia = n > 0
 	}
+	var cands []fileCandidate
 	err := classifier.Walk(ctx, root, func(srcPath string, info os.FileInfo, class fsops.FileClass) error {
 		if err := pc.worker.beat(ctx, pc.message, &lastHeartbeat); err != nil {
 			return err
@@ -112,20 +113,40 @@ func (pc *processConfig) run(ctx context.Context) (importOutcome, error) {
 			}
 			return nil
 		}
-
-		imported, rejection, err := pc.processFile(ctx, srcPath, info, &recycledOld)
-		if err != nil {
-			return err
+		c := fileCandidate{path: srcPath, info: info}
+		if p, err := release.ParsePath(srcPath, release.Options{Kind: commonv1.MediaKindMovie}); err == nil {
+			c.ranked(pc.profile, p.Quality, p.Revision, true)
 		}
-		if rejection != "" {
-			out.rejections = append(out.rejections, rejection)
-			return nil
-		}
-		out.imported = append(out.imported, imported)
+		cands = append(cands, c)
 		return nil
 	}, out.unreadable(root))
 	if err != nil {
 		return out, err
+	}
+
+	// A movie holds one file: the best candidate is imported and every
+	// other is rejected (order.go).
+	sortCandidates(cands)
+	filledBy := ""
+	for _, c := range cands {
+		if err := pc.worker.beat(ctx, pc.message, &lastHeartbeat); err != nil {
+			return out, err
+		}
+		rel := relPath(root, c.path)
+		if filledBy != "" {
+			out.rejections = append(out.rejections, c.lateRejection(rel, "movie "+pc.target.Name, filledBy))
+			continue
+		}
+		imported, rejection, err := pc.processFile(ctx, c.path, c.info, &recycledOld)
+		if err != nil {
+			return out, err
+		}
+		if rejection != "" {
+			out.rejections = append(out.rejections, rejection)
+			continue
+		}
+		out.imported = append(out.imported, imported)
+		filledBy = rel
 	}
 	return out, nil
 }
@@ -210,7 +231,7 @@ func (pc *processConfig) processFile(
 	parsed.Languages = parsed.LanguagesFor(pc.originalLanguageName)
 
 	if !pc.profile.Allowed(parsed.Quality) {
-		return nil, fmt.Sprintf("%s: quality %s is not allowed by the quality profile", rel, parsed.Quality.Name), nil
+		return nil, notAllowedRejection(rel, parsed.Quality), nil
 	}
 
 	// ReleaseTitle custom formats (repack/proper, HDR, codecs, streaming

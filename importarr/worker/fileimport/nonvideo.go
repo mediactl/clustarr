@@ -161,6 +161,7 @@ func (w *Worker) runNonVideo(
 			plan.singleTrack = ""
 		}
 	}
+	var cands []fileCandidate
 	err := classifier.Walk(ctx, root, func(srcPath string, info os.FileInfo, class fsops.FileClass) error {
 		if err := w.beat(ctx, m, &lastHeartbeat); err != nil {
 			return err
@@ -173,19 +174,48 @@ func (w *Worker) runNonVideo(
 			}
 			return nil
 		}
-		imported, rejection, err := w.importNonVideoFile(ctx, dl, plan, manual, srcPath, info, dests, &recycledOld)
-		if err != nil {
-			return err
+		c := fileCandidate{path: srcPath, info: info}
+		if singleFileKind(plan.ref.Kind) {
+			q, known := FrozenFileQuality(ctx, w.ProbeAudio, plan.ref.Kind, srcPath, dl.Spec.Release.Title,
+				relPath(root, srcPath))
+			c.ranked(plan.profile, q, commonv1.Revision{}, known)
 		}
-		if rejection != "" {
-			out.rejections = append(out.rejections, rejection)
-			return nil
-		}
-		out.imported = append(out.imported, imported)
+		cands = append(cands, c)
 		return nil
 	}, out.unreadable(root))
 	if err != nil {
 		return out, err
+	}
+
+	// A book or an issue holds one file: the best candidate -- an ebook
+	// release's AZW3 over its EPUB over its MOBI, as the profile ranks them
+	// -- is imported and the rest rejected (order.go). An album's tracks
+	// and an audiobook's parts are all imported, in walk order.
+	if singleFileKind(plan.ref.Kind) {
+		sortCandidates(cands)
+	}
+	filledBy := ""
+	for _, c := range cands {
+		if err := w.beat(ctx, m, &lastHeartbeat); err != nil {
+			return out, err
+		}
+		if filledBy != "" {
+			out.rejections = append(out.rejections, c.lateRejection(relPath(root, c.path),
+				string(plan.ref.Kind)+" "+plan.ref.Name, filledBy))
+			continue
+		}
+		imported, rejection, err := w.importNonVideoFile(ctx, dl, plan, manual, c.path, c.info, dests, &recycledOld)
+		if err != nil {
+			return out, err
+		}
+		if rejection != "" {
+			out.rejections = append(out.rejections, rejection)
+			continue
+		}
+		out.imported = append(out.imported, imported)
+		if singleFileKind(plan.ref.Kind) {
+			filledBy = relPath(root, c.path)
+		}
 	}
 	if manual && !singleFileKind(plan.ref.Kind) && len(out.imported) > 0 {
 		w.supersede(ctx, plan, dests, &out)
@@ -253,7 +283,7 @@ func (w *Worker) importNonVideoFile(
 	q, known := FrozenFileQuality(ctx, w.ProbeAudio, kind, srcPath, dl.Spec.Release.Title, rel)
 	switch {
 	case known && !plan.profile.Allowed(q):
-		return nil, fmt.Sprintf("%s: quality %s is not allowed by the quality profile", rel, q.Name), nil
+		return nil, notAllowedRejection(rel, q), nil
 	case !known && !manual:
 		return nil, fmt.Sprintf("%s: the quality of a %s %s file cannot be determined without probing; "+
 			"only a manual import (spec.manual, or %s=true) accepts it",

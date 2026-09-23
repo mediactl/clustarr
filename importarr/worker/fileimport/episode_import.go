@@ -255,6 +255,7 @@ func (w *Worker) runEpisodes(
 			plan.sceneName = dl.Spec.Release.Title
 		}
 	}
+	var cands []fileCandidate
 	err = classifier.Walk(ctx, root, func(srcPath string, info os.FileInfo, class fsops.FileClass) error {
 		if err := w.beat(ctx, m, &lastHeartbeat); err != nil {
 			return err
@@ -265,18 +266,37 @@ func (w *Worker) runEpisodes(
 			}
 			return nil
 		}
-		imported, rejection, err := w.importEpisodeFile(ctx, dl, plan, manual, srcPath, info, dests, replaced)
+		c := fileCandidate{path: srcPath, info: info}
+		if p, err := release.ParsePath(srcPath, release.Options{Kind: commonv1.MediaKindEpisode}); err == nil {
+			c.ranked(plan.profile, p.Quality, p.Revision, true)
+		}
+		cands = append(cands, c)
+		return nil
+	}, out.unreadable(root))
+	if err != nil {
+		return out, err
+	}
+
+	// Each episode holds one file: candidates are imported best first, and
+	// a file whose episodes this import already filled is rejected
+	// (order.go), as Sonarr's ImportApprovedEpisodes does.
+	sortCandidates(cands)
+	filled := map[string]string{}
+	for _, c := range cands {
+		if err := w.beat(ctx, m, &lastHeartbeat); err != nil {
+			return out, err
+		}
+		imported, rejection, err := w.importEpisodeFile(ctx, dl, plan, manual, c.path, c.info, dests, replaced, filled)
 		if err != nil {
-			return err
+			return out, err
 		}
 		if rejection != "" {
 			out.rejections = append(out.rejections, rejection)
-			return nil
+			continue
 		}
 		out.imported = append(out.imported, imported)
-		return nil
-	}, out.unreadable(root))
-	return out, err
+	}
+	return out, nil
 }
 
 // importEpisodeFile imports one episode file, or says why it was rejected.
@@ -286,7 +306,7 @@ func (w *Worker) runEpisodes(
 // is recycled once.
 func (w *Worker) importEpisodeFile(
 	ctx context.Context, dl *downloadv1alpha1.Download, plan episodePlan, manual bool,
-	srcPath string, info os.FileInfo, dests map[string]string, replaced map[string]bool,
+	srcPath string, info os.FileInfo, dests map[string]string, replaced map[string]bool, filled map[string]string,
 ) (*downloadac.ImportedFileApplyConfiguration, string, error) {
 	log := logging.FromContext(ctx)
 	rel := relPath(dl.Status.ContentRoot, srcPath)
@@ -308,7 +328,12 @@ func (w *Worker) importEpisodeFile(
 
 	parsed.Languages = parsed.LanguagesFor(plan.originalLanguageName)
 	if !plan.profile.Allowed(parsed.Quality) {
-		return nil, fmt.Sprintf("%s: quality %s is not allowed by the quality profile", rel, parsed.Quality.Name), nil
+		return nil, notAllowedRejection(rel, parsed.Quality), nil
+	}
+	for _, e := range eps {
+		if by, ok := filled[e.Name]; ok {
+			return nil, filledRejection(rel, "episode "+e.Name, by), nil
+		}
 	}
 	// ReleaseTitle custom formats read the scene name when the download
 	// has one for this file (runEpisodes), else the file name, and the file
@@ -415,6 +440,9 @@ func (w *Worker) importEpisodeFile(
 		}
 	}
 
+	for _, e := range eps {
+		filled[e.Name] = rel
+	}
 	metrics.ImportFilesTotal.WithLabelValues(metricKindEpisode, mode.String(), "imported").Inc()
 	log.Info("fileimport: imported an episode file", "source", rel, "dest", dest, "mediaFile", mfName,
 		"episodes", strings.Join(names(eps), ","), "formatScore", score)

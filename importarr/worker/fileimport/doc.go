@@ -97,6 +97,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // No import renames a file over one already at its destination without
 // linking the old one into the recycle bin first (placeFile).
 //
+// An item that holds one file -- a movie, a book, an issue, an episode --
+// gets one file from a download however many the download carries for it
+// (order.go): every file is admitted first, the candidates are ranked by
+// the profile's quality order, then revision, then size, and imported best
+// first, and a later file whose item is already filled is a rejection, as in
+// Radarr's ImportApprovedMovie and Sonarr's ImportApprovedEpisodes. An
+// album's tracks and an audiobook's parts are all imported.
+//
 // # Manual import
 //
 // Design spec §8.4's two Download annotations:
