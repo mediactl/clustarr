@@ -38,6 +38,7 @@ import (
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/indexarr/bundle"
+	"github.com/mediactl/clustarr/indexarr/bundle/embedded"
 	"github.com/mediactl/clustarr/indexarr/controller/indexer"
 	"github.com/mediactl/clustarr/indexarr/controller/indexerdefinition"
 	"github.com/mediactl/clustarr/indexarr/controller/indexerproxy"
@@ -171,10 +172,16 @@ type Options struct {
 	// CardigannDefinitionsDir is a Cardigann definition bundle to load as
 	// IndexerDefinitions at startup (--cardigann-definitions-dir): a
 	// directory of definition YAML files, such as hack/sync-cardigann
-	// writes, mounted into the pod. Empty loads nothing -- Clustarr ships no
-	// corpus (ruling R-13), so an Indexer's spec.definition resolves only
-	// against IndexerDefinitions someone created. See indexarr/bundle.
+	// writes, mounted into the pod. When set it replaces the embedded corpus
+	// entirely, so an operator can pin or trim the definitions. See
+	// indexarr/bundle.
 	CardigannDefinitionsDir string
+
+	// CardigannBundled loads the corpus compiled into the binary
+	// (indexarr/bundle/embedded, --cardigann-bundled) when
+	// CardigannDefinitionsDir is empty. The CLI defaults it on; the zero
+	// value, which Go callers such as tests get, loads nothing.
+	CardigannBundled bool
 
 	// Logging configures this process's root logger. The zero value is a
 	// reasonable default: JSON to stderr at info level.
@@ -586,19 +593,28 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, clients *indexer.ClientC
 	return nil
 }
 
-// setupBundle registers the Cardigann bundle loader when
-// --cardigann-definitions-dir names a bundle (task X14; X8a built
-// cardigann.LoadBundle and left its consumer to the wiring): it applies every
-// definition the bundle accepts as a labelled IndexerDefinition, once, after
-// the caches sync, and leaves any same-named IndexerDefinition that is not
-// the bundle's alone (see indexarr/bundle). A bundle directory that cannot
-// be read stops the manager: the operator asked for definitions that are
-// not there.
+// setupBundle registers the Cardigann bundle loader: from the directory
+// --cardigann-definitions-dir names when it is set, otherwise from the
+// corpus embedded in the binary when --cardigann-bundled is on (task X14;
+// X8a built cardigann.LoadBundle and left its consumer to the wiring). It
+// applies every definition the bundle accepts as a labelled
+// IndexerDefinition, once, after the caches sync, and leaves any same-named
+// IndexerDefinition that is not the bundle's alone (see indexarr/bundle). A
+// bundle directory that cannot be read stops the manager: the operator asked
+// for definitions that are not there.
 func setupBundle(mgr ctrl.Manager, o Options) error {
-	if o.CardigannDefinitionsDir == "" {
+	loader := &bundle.Loader{Client: mgr.GetClient(), Dir: o.CardigannDefinitionsDir}
+	switch {
+	case o.CardigannDefinitionsDir != "":
+	case o.CardigannBundled:
+		fsys, err := embedded.FS()
+		if err != nil {
+			return fmt.Errorf("indexarr: %w", err)
+		}
+		loader.Dir, loader.FS = "(embedded)", fsys
+	default:
 		return nil
 	}
-	loader := &bundle.Loader{Client: mgr.GetClient(), Dir: o.CardigannDefinitionsDir}
 	if err := mgr.Add(k8s.EveryReplica(loader.Run)); err != nil {
 		return fmt.Errorf("indexarr: add the Cardigann bundle loader: %w", err)
 	}

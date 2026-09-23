@@ -838,3 +838,41 @@ func keysOf[V any](m map[string]V) []string {
 	sort.Strings(out)
 	return out
 }
+
+// TestIndexarrCardigannBundled holds --cardigann-bundled to
+// indexarr.Options: on by default, off from the flag or from
+// $CLUSTARR_CARDIGANN_BUNDLED, and on by default in `clustarr all` too, so a
+// fresh install and a dev stack both get the embedded corpus.
+func TestIndexarrCardigannBundled(t *testing.T) {
+	got := stub(t, &runIndexarr)
+	if _, err := execute(t, "indexarr", "--namespace", "clustarr"); err != nil {
+		t.Fatalf("clustarr indexarr: %v", err)
+	}
+	if !got.CardigannBundled {
+		t.Errorf("CardigannBundled = false by default, want true")
+	}
+
+	if _, err := execute(t, "indexarr", "--namespace", "clustarr", "--cardigann-bundled=false"); err != nil {
+		t.Fatalf("clustarr indexarr: %v", err)
+	}
+	if got.CardigannBundled {
+		t.Errorf("CardigannBundled = true with --cardigann-bundled=false")
+	}
+
+	t.Setenv(cardigannBundledEnv, "false")
+	if _, err := execute(t, "indexarr", "--namespace", "clustarr"); err != nil {
+		t.Fatalf("clustarr indexarr: %v", err)
+	}
+	if got.CardigannBundled {
+		t.Errorf("CardigannBundled = true with $%s=false", cardigannBundledEnv)
+	}
+
+	t.Setenv(cardigannBundledEnv, "")
+	all := stub(t, &runIndexarr)
+	if err := allServiceRun(t, "indexarr")(context.Background(), k8s.DefaultOptions()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !all.CardigannBundled {
+		t.Errorf("`clustarr all` indexarr: CardigannBundled = false by default, want true")
+	}
+}

@@ -147,6 +147,11 @@ tidy: ## Tidy go.mod.
 
 ##@ Build
 
+.PHONY: cardigann-bundle
+cardigann-bundle: ## Re-pack .data/Definitions into the embedded Cardigann corpus (indexarr/bundle/embedded).
+	go run ./hack/pack-cardigann -src .data/Definitions -out indexarr/bundle/embedded/definitions.zip
+
+
 .PHONY: build
 build: ## Build the clustarr binary.
 	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/clustarr ./cmd/clustarr

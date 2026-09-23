@@ -115,14 +115,27 @@ const (
 	// cardigannDefinitionsDirEnv is the default for indexarr's
 	// --cardigann-definitions-dir: a mounted directory of Cardigann
 	// definitions (what hack/sync-cardigann writes) to load as
-	// IndexerDefinitions at startup. No manifest sets it: Clustarr ships no
-	// corpus (ruling R-13), so an operator who wants one mounts it.
+	// IndexerDefinitions at startup, in place of the embedded corpus.
 	cardigannDefinitionsDirEnv = "CLUSTARR_CARDIGANN_DEFINITIONS_DIR"
+
+	// cardigannBundledEnv is the default for indexarr's --cardigann-bundled:
+	// load the Cardigann corpus compiled into the binary when no
+	// --cardigann-definitions-dir is given. Unset means on.
+	cardigannBundledEnv = "CLUSTARR_CARDIGANN_BUNDLED"
 )
 
 // envOr returns $name when it is set and non-empty, and fallback otherwise.
 func envOr(name, fallback string) string {
 	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// envBoolOr returns $name parsed as a bool when it is set and parses, and
+// fallback otherwise.
+func envBoolOr(name string, fallback bool) bool {
+	if v, err := strconv.ParseBool(os.Getenv(name)); err == nil {
 		return v
 	}
 	return fallback

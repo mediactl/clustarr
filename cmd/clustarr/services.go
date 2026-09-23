@@ -115,6 +115,7 @@ func newIndexarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command
 		facade       string
 		facadeSecret string
 		definitions  string
+		bundled      bool
 	)
 
 	cmd := &cobra.Command{
@@ -140,8 +141,11 @@ func newIndexarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command
 			"never serves without a key. Defaults to $"+facadeAPIKeySecretEnv+".")
 	cmd.Flags().StringVar(&definitions, "cardigann-definitions-dir", envOr(cardigannDefinitionsDirEnv, ""),
 		"Directory of Cardigann definition files (what hack/sync-cardigann writes) to load as IndexerDefinitions "+
-			"at startup, so an Indexer's spec.definition can name any of them. Empty loads none: Clustarr ships no "+
+			"at startup, so an Indexer's spec.definition can name any of them. When set it replaces the embedded "+
 			"corpus. Defaults to $"+cardigannDefinitionsDirEnv+".")
+	cmd.Flags().BoolVar(&bundled, "cardigann-bundled", envBoolOr(cardigannBundledEnv, true),
+		"Load the Cardigann definitions compiled into the binary as IndexerDefinitions when "+
+			"--cardigann-definitions-dir is empty. Defaults to $"+cardigannBundledEnv+", else true.")
 
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		return runIndexarr(cmd.Context(), indexarr.Options{
@@ -151,6 +155,7 @@ func newIndexarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command
 			FacadeBindAddress:       facade,
 			FacadeAPIKeySecret:      facadeSecret,
 			CardigannDefinitionsDir: definitions,
+			CardigannBundled:        bundled,
 			Logging:                 *lo,
 			Tracing:                 tracingFor(to, indexarr.ServiceName),
 		})

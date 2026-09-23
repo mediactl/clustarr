@@ -147,9 +147,12 @@ func allServices(lo *logging.Options, to *tracing.Options, uiAddr string) []stru
 			// already expects an indexer aggregator on.
 			d.FacadeBindAddress = envOr(facadeBindAddressEnv, devFacadeBindAddress)
 			d.FacadeAPIKeySecret = envOr(facadeAPIKeySecretEnv, d.FacadeAPIKeySecret)
-			// A dev stack loads a Cardigann bundle the way a Deployment does:
-			// from the directory $CLUSTARR_CARDIGANN_DEFINITIONS_DIR names.
+			// A dev stack loads Cardigann definitions the way a Deployment
+			// does: from the directory $CLUSTARR_CARDIGANN_DEFINITIONS_DIR
+			// names, else the embedded corpus unless
+			// $CLUSTARR_CARDIGANN_BUNDLED turns it off.
 			d.CardigannDefinitionsDir = envOr(cardigannDefinitionsDirEnv, "")
+			d.CardigannBundled = envBoolOr(cardigannBundledEnv, true)
 			// The facade keeps its API key in a Secret in indexarr's own
 			// namespace (indexarr.Options.Validate), and a dev shell with no
 			// $POD_NAMESPACE and no --namespace has none to name. `all` is
