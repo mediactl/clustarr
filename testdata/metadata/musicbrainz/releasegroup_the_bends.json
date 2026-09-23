@@ -1,0 +1,64 @@
+{
+  "id": "b8048f24-c026-3398-b23a-b5e50716cbc7",
+  "secondary-types": [],
+  "disambiguation": "",
+  "rating": {
+    "value": 4.15,
+    "votes-count": 67
+  },
+  "secondary-type-ids": [],
+  "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+  "primary-type": "Album",
+  "genres": [
+    {
+      "id": "ceeaa283-5d7b-4202-8d1d-e25d116b2a18",
+      "name": "alternative rock",
+      "disambiguation": "",
+      "count": 13
+    },
+    {
+      "count": 4,
+      "disambiguation": "",
+      "id": "f1c9b874-7ef2-4e79-9419-c0bcb5f33a30",
+      "name": "britpop"
+    },
+    {
+      "count": 1,
+      "name": "indie rock",
+      "id": "ccd19ebf-052c-4afe-8ad9-fbb0a73f94a7",
+      "disambiguation": ""
+    },
+    {
+      "disambiguation": "",
+      "name": "pop rock",
+      "id": "797e2e85-5ffd-495c-a757-8b4079052f0e",
+      "count": 1
+    },
+    {
+      "count": 4,
+      "name": "post-britpop",
+      "id": "a493b79c-4072-4371-a14c-446b1027982a",
+      "disambiguation": ""
+    },
+    {
+      "disambiguation": "",
+      "name": "post-grunge",
+      "id": "bbb1310c-24cb-4fc9-97c4-f93e4549f1e2",
+      "count": 1
+    },
+    {
+      "count": 2,
+      "id": "d698ece0-6fed-4262-b446-42c98b73b65a",
+      "name": "psychedelic",
+      "disambiguation": ""
+    },
+    {
+      "count": 11,
+      "name": "rock",
+      "id": "0e3fc579-2d24-4f20-9dae-736e1ec78798",
+      "disambiguation": ""
+    }
+  ],
+  "first-release-date": "1994-11-29",
+  "title": "The Bends"
+}

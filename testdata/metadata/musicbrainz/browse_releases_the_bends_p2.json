@@ -1,0 +1,112 @@
+{
+  "release-count": 3,
+  "release-offset": 2,
+  "releases": [
+    {
+      "title": "The Bends",
+      "date": "1995-03-08",
+      "release-events": [
+        {
+          "area": {
+            "id": "2db42837-c832-3c27-b4a3-08198f75693c",
+            "name": "Japan",
+            "iso-3166-1-codes": [
+              "JP"
+            ]
+          },
+          "date": "1995-03-08"
+        }
+      ],
+      "status": "Official",
+      "label-info": [
+        {
+          "catalog-number": "TOCP-8489",
+          "label": {
+            "id": "c029628b-6633-439e-bcee-ed02e8a338f7",
+            "name": "EMI",
+            "sort-name": "EMI"
+          }
+        }
+      ],
+      "media": [
+        {
+          "id": "5a604881-e6e5-3952-828e-0dbdb17b7b18",
+          "format": "CD",
+          "position": 1,
+          "track-offset": 0,
+          "track-count": 2,
+          "title": "",
+          "tracks": [
+            {
+              "length": 259200,
+              "title": "Planet Telex",
+              "recording": {
+                "id": "49bb3701-1b75-4232-8999-ff5318adf676",
+                "title": "Planet Telex",
+                "length": 259200,
+                "disambiguation": "",
+                "video": false
+              },
+              "number": "1",
+              "id": "daafd37c-e037-39aa-8d97-0ecbdb2222c9",
+              "artist-credit": [
+                {
+                  "name": "Radiohead",
+                  "joinphrase": "",
+                  "artist": {
+                    "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+                    "name": "Radiohead",
+                    "sort-name": "Radiohead"
+                  }
+                }
+              ],
+              "position": 1
+            },
+            {
+              "number": "2",
+              "artist-credit": [
+                {
+                  "name": "Radiohead",
+                  "joinphrase": "",
+                  "artist": {
+                    "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+                    "name": "Radiohead",
+                    "sort-name": "Radiohead"
+                  }
+                }
+              ],
+              "id": "4aa2d226-a92a-39d1-b508-e3f0c0b7a040",
+              "position": 2,
+              "length": 246200,
+              "recording": {
+                "id": "ad922fb0-f2ac-4d47-803f-a61cfa69117e",
+                "title": "The Bends",
+                "length": 246200,
+                "disambiguation": "",
+                "video": false
+              },
+              "title": "The Bends"
+            }
+          ]
+        }
+      ],
+      "id": "b3b28d75-e474-43b8-a9ec-4c6856fc10b2",
+      "artist-credit": [
+        {
+          "name": "Radiohead",
+          "joinphrase": "",
+          "artist": {
+            "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+            "name": "Radiohead",
+            "sort-name": "Radiohead"
+          }
+        }
+      ],
+      "packaging": "Jewel Case",
+      "country": "JP",
+      "barcode": "4988006704794",
+      "asin": "B000007363",
+      "disambiguation": ""
+    }
+  ]
+}
