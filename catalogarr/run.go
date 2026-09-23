@@ -45,6 +45,7 @@ import (
 	searchctl "github.com/mediactl/clustarr/catalogarr/controller/search"
 	"github.com/mediactl/clustarr/catalogarr/controller/series"
 	"github.com/mediactl/clustarr/catalogarr/controller/wantedcron"
+	"github.com/mediactl/clustarr/catalogarr/history"
 	catalogmetadata "github.com/mediactl/clustarr/catalogarr/metadata"
 	"github.com/mediactl/clustarr/catalogarr/worker/grab"
 	"github.com/mediactl/clustarr/catalogarr/worker/rssmatcher"
@@ -401,10 +402,8 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	return nil
 }
 
-// setupWorkers registers the queue consumers and the metadata gateway.
-//
-// TODO(M6): the history sink plus DLQ projector (RoleHistory) writing
-// events.k8s.io Events on the owning CR. (§13, §16 M6)
+// setupWorkers registers the queue consumers, the metadata gateway and the
+// history sink plus DLQ projector.
 //
 // The import and importlist consumers are importarr's
 // (work.importarr.fileimport, work.importarr.list -- amendment §A1.6).
@@ -418,6 +417,47 @@ func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		if err := setupMetadataGateway(mgr, bus); err != nil {
 			return err
 		}
+	}
+	if o.Role.Has(RoleHistory) || o.Role.Has(RoleAll) {
+		if err := setupHistory(mgr, bus); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// setupHistory registers RoleHistory's two consumers (§13, §16 M6; plan task
+// G1-4 built them, G1-5 wires them): the history sink on
+// ConsumerCatalogHistory, projecting every clustarr.evt.> domain event onto
+// an events.k8s.io Event regarding the CR it concerns, and the DLQ projector
+// on ConsumerDLQProjector, which per ruling R1 annotates the dead-lettered
+// CR under k8s.ManagerDLQProjector and emits a Warning Event -- it never
+// writes status.
+//
+// Until this was filled in, --role history was a valid role that started
+// nothing: both durable consumers existed server-side since M0 with no
+// subscriber, so every domain event and every dead letter piled up
+// unacknowledged on CLUSTARR_EVENTS and CLUSTARR_DLQ while the manifests ran
+// `--role controller,worker,history` and reported Ready.
+//
+// Both subscriptions are k8s.EveryReplica runnables inside their own
+// SetupWithManager, so every replica of the catalogarr Deployment drains the
+// two streams, not only the leader.
+//
+// Each gets its own recorder name, so `kubectl get events` attributes a
+// projected domain event and a dead letter to different reporting
+// controllers.
+func setupHistory(mgr ctrl.Manager, bus events.Bus) error {
+	if err := history.NewSink(history.SinkDeps{
+		Recorder: mgr.GetEventRecorder("catalogarr-history"),
+	}).SetupWithManager(mgr, bus); err != nil {
+		return fmt.Errorf("catalogarr: history sink: %w", err)
+	}
+	if err := history.NewDLQProjector(history.DLQDeps{
+		Client:   mgr.GetClient(),
+		Recorder: mgr.GetEventRecorder("clustarr-dlq-projector"),
+	}).SetupWithManager(mgr, bus); err != nil {
+		return fmt.Errorf("catalogarr: dlq projector: %w", err)
 	}
 	return nil
 }

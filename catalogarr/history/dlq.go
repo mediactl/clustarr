@@ -73,12 +73,22 @@ func (d DLQDeps) now() time.Time {
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=patch
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=patch
 // +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitlerequests,verbs=patch
+//
+// namespaces get is here for one reason, and it is not a read: a dead letter
+// whose kind cannot be resolved gets a Warning Event REGARDING its core/v1
+// Namespace (Handle's second case), so this package names corev1.Namespace.
+// Creating an Event needs no permission on the object it regards, and nothing
+// here Gets, Lists or Watches a Namespace -- but cmd/clustarr's
+// TestEveryBuiltinKindAControllerTouchesHasAnRBACMarker is deliberately
+// syntactic (a type a package names is a type it may one day read), and
+// `get` is the narrowest verb that answers it. Added by task G1-5.
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get
 
 // DLQProjector is the clustarr-dlq-projector consumer. Per ruling R1 it
 // applies exactly one metadata annotation -- [AnnotationDeadLettered] -- to
 // the CR a dead letter concerns, under k8s.ManagerDLQProjector, and emits a
-// Warning Event. It never patches a status subresource: every RBAC grant
-// above is the main resource only, with the "patch" verb and nothing else --
+// Warning Event. It never patches a status subresource: every RBAC grant on
+// a CR above is the main resource only, with the "patch" verb and nothing else --
 // no get, no list, no watch, because a blind server-side-apply PATCH needs
 // none of them. dlq_envtest_test.go asserts both halves of that against a
 // real apiserver's managedFields, not just this comment.

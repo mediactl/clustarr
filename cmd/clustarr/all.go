@@ -59,6 +59,12 @@ const allProcessServiceName = "clustarr"
 // reasoning devIndexPath below already applies to indexarr's IndexPath.
 const devEngineImage = "ghcr.io/mediactl/clustarr/media:dev"
 
+// devFacadeBindAddress is `clustarr all`'s address for indexarr's Torznab
+// facade when $CLUSTARR_FACADE_BIND_ADDRESS is unset. It is not indexarr's
+// own :8080 because ui keeps that address in this one process (see
+// allServices); :9696 is Prowlarr's port.
+const devFacadeBindAddress = ":9696"
+
 // allServices is what `clustarr all` starts, in the order it starts them.
 //
 // Each entry gets its own port offset because seven managers in one process
@@ -128,6 +134,22 @@ func allServices(lo *logging.Options, to *tracing.Options) []struct {
 			// index that vanishes on restart, hiding a broken mount
 			// indefinitely. Only the dev entry point chooses a dev path.
 			d.IndexPath = devIndexPath()
+			// The Torznab facade cannot take its default :8080 here: ui,
+			// below, already binds :8080 in this same process, and runAll
+			// would cancel the whole stack on the second bind. The dev
+			// default is Prowlarr's :9696, the port every Torznab client
+			// already expects an indexer aggregator on.
+			d.FacadeBindAddress = envOr(facadeBindAddressEnv, devFacadeBindAddress)
+			d.FacadeAPIKeySecret = envOr(facadeAPIKeySecretEnv, d.FacadeAPIKeySecret)
+			// The facade keeps its API key in a Secret in indexarr's own
+			// namespace (indexarr.Options.Validate), and a dev shell with no
+			// $POD_NAMESPACE and no --namespace has none to name. `all` is
+			// the one entry point where that is ordinary rather than a
+			// misconfiguration, so it runs without the facade instead of
+			// refusing to start every service; pass --namespace to get it.
+			if o.Namespace == "" {
+				d.FacadeBindAddress = k8s.DisabledBindAddress
+			}
 			d.Logging = *lo
 			d.Tracing = tr
 			return runIndexarr(ctx, d)

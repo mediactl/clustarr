@@ -41,6 +41,7 @@ import (
 	"github.com/mediactl/clustarr/indexarr/controller/indexerdefinition"
 	"github.com/mediactl/clustarr/indexarr/controller/indexerproxy"
 	"github.com/mediactl/clustarr/indexarr/download"
+	"github.com/mediactl/clustarr/indexarr/facade"
 	"github.com/mediactl/clustarr/indexarr/query"
 	"github.com/mediactl/clustarr/indexarr/search"
 	"github.com/mediactl/clustarr/indexarr/worker/rss"
@@ -72,13 +73,21 @@ const (
 
 	// DefaultFacadeBindAddress serves the Torznab facade §6.2 describes:
 	// /{indexer}/api, /{indexer}/download and the aggregate /search/api.
-	// It must equal the container port the Service routes to. This was
-	// ":9696" -- Prowlarr's port -- while the manifest, the Service's named
-	// port and the chart all use 8080, and no flag exists to override it,
-	// so the facade would have bound a port nothing routes. The facade
-	// itself is M6; the constant is corrected here because it is a landmine
-	// in a file this phase edits.
+	// It must equal the container port the Service routes to (8080, the
+	// port named "http" in config/manager/indexarr.yaml and the chart);
+	// TestDefaultFacadeBindAddressMatchesTheServicePort pins it. It was once
+	// ":9696" -- Prowlarr's port -- which nothing routed to.
 	DefaultFacadeBindAddress = ":8080"
+
+	// DefaultFacadeAPIKeySecret is the Secret, in indexarr's own namespace,
+	// whose data entries are the API keys the Torznab facade accepts. The
+	// facade FAILS CLOSED -- facade.New refuses to build without a key --
+	// so indexarr creates this Secret with one random key on first start
+	// when it does not exist, the way Prowlarr generates its own API key.
+	// config/ uses this name as-is; the chart's carries the release
+	// fullname and reaches --facade-api-key-secret through
+	// $CLUSTARR_FACADE_API_KEY_SECRET. See [ensureFacadeAPIKeys].
+	DefaultFacadeAPIKeySecret = "indexarr-facade"
 )
 
 // Release-index retention, from §6.2's "`expires_at` sweep every 10 min
@@ -151,6 +160,13 @@ type Options struct {
 	// FacadeBindAddress serves the Torznab facade. "0" disables it.
 	FacadeBindAddress string
 
+	// FacadeAPIKeySecret names the Secret in Namespace whose every non-blank
+	// data entry is an API key the facade accepts; see
+	// [DefaultFacadeAPIKeySecret]. Only read when the facade is enabled.
+	// It is a NAME, never a key: a key in a flag or its default would sit
+	// in argv, `ps` and --help.
+	FacadeAPIKeySecret string
+
 	// Logging configures this process's root logger. The zero value is a
 	// reasonable default: JSON to stderr at info level.
 	Logging logging.Options
@@ -164,10 +180,11 @@ type Options struct {
 // DefaultOptions returns the options the Deployment gets with no flags.
 func DefaultOptions() Options {
 	return Options{
-		Options:           k8s.DefaultOptions(),
-		Role:              RoleAll,
-		IndexPath:         DefaultIndexPath,
-		FacadeBindAddress: DefaultFacadeBindAddress,
+		Options:            k8s.DefaultOptions(),
+		Role:               RoleAll,
+		IndexPath:          DefaultIndexPath,
+		FacadeBindAddress:  DefaultFacadeBindAddress,
+		FacadeAPIKeySecret: DefaultFacadeAPIKeySecret,
 	}
 }
 
@@ -188,7 +205,27 @@ func (o Options) Validate() error {
 	if o.LeaderElect {
 		return fmt.Errorf("indexarr: --leader-elect is not supported; §3 pins indexarr to exactly one replica")
 	}
+	if o.FacadeEnabled() {
+		if o.FacadeBindAddress == "" {
+			return fmt.Errorf("indexarr: --facade-bind-address is empty; give an address, or %q to disable the facade",
+				k8s.DisabledBindAddress)
+		}
+		if o.FacadeAPIKeySecret == "" {
+			return fmt.Errorf("indexarr: --facade-api-key-secret is required while the Torznab facade is enabled; " +
+				"it fails closed and will not serve without an API key")
+		}
+		if o.Namespace == "" {
+			return fmt.Errorf("indexarr: the Torznab facade's API-key Secret lives in indexarr's own namespace; "+
+				"set --namespace (or $POD_NAMESPACE), or --facade-bind-address=%s to disable the facade",
+				k8s.DisabledBindAddress)
+		}
+	}
 	return o.Options.Validate()
+}
+
+// FacadeEnabled reports whether this process serves the Torznab facade.
+func (o Options) FacadeEnabled() bool {
+	return o.Role.RunsWorkers() && o.FacadeBindAddress != k8s.DisabledBindAddress
 }
 
 // ManagerOptions renders the controller-runtime options for this role without
@@ -316,10 +353,16 @@ func Run(ctx context.Context, o Options) error {
 
 	// One Limiter for the whole process, behind one ClientCache: the caps
 	// probe, the search fan-out, the RSS poll and the download verb all pace
-	// against the same bucket per host, and every Torznab client any of them
-	// uses comes out of indexer.buildClient, so M6's proxy option cannot
-	// reach one path and miss another.
+	// against the same bucket per host, and every wire client any of them
+	// uses -- Torznab or Cardigann -- comes out of the indexer package's one
+	// builder, so spec.proxyRef cannot reach one path and miss another.
 	clients := indexer.NewClientCache(mgr.GetClient(), ratelimit.New(defaultLimiterConfig()))
+	// The KV half of the session store: without it the cache reads a
+	// definition-backed Indexer's login session from the owned Secret only,
+	// which is correct but a live apiserver GET per client build. The
+	// reconciler writes both (indexer.NewReconciler builds its own store
+	// from the same bus), so reads and writes see the same two tiers.
+	clients.Sessions = indexer.NewSessionStore(mgr.GetClient(), bus)
 
 	ready, err := readinessChecks(mgr, store, k8s.BusReadyChecker(nc, bus))
 	if err != nil {
@@ -335,12 +378,17 @@ func Run(ctx context.Context, o Options) error {
 		}
 	}
 	if o.Role.RunsWorkers() {
-		if err := setupWorkers(mgr, bus, store, clients); err != nil {
+		verbs, err := setupWorkers(mgr, bus, store, clients)
+		if err != nil {
+			return err
+		}
+		if err := setupFacade(ctx, mgr, o, verbs); err != nil {
 			return err
 		}
 	}
 
-	log.Info("starting", "role", o.Role, "indexPath", o.IndexPath)
+	log.Info("starting", "role", o.Role, "indexPath", o.IndexPath,
+		"facade", o.FacadeBindAddress, "facadeEnabled", o.FacadeEnabled())
 	if err := mgr.Start(ctx); err != nil {
 		return fmt.Errorf("indexarr: manager: %w", err)
 	}
@@ -472,8 +520,12 @@ func IndexReadyChecker(store relindex.Store) healthz.Checker {
 // which is the entire point of the worker. TestTheIndexerReconcilerGetsARealBus
 // turns "someone notices a warning" into a failing test.
 //
-// TODO(M6): the Cardigann login test and the owned session Secret for
-// indexer, and proxy routing for indexerproxy. (§6.2, §16 M6)
+// The Cardigann login and the owned session Secret (plan task G1-1) live
+// inside the Indexer reconciler, which NewReconciler wires to the bus's
+// clustarr-indexer-sessions bucket. Proxy routing for spec.proxyRef is
+// applied by the one client builder every path shares, not by the
+// IndexerProxy reconciler, which only probes reachability.
+// IndexerProxy.spec.selector matching is not implemented.
 func setupControllers(mgr ctrl.Manager, bus events.Bus, clients *indexer.ClientCache) error {
 	c := mgr.GetClient()
 
@@ -524,16 +576,28 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, clients *indexer.ClientC
 // deployment detail a future change can invalidate silently, and it is why
 // Phase C's readiness deadlock survived review, so nothing here relies on it.
 //
-// TODO(M6): the Cardigann engine and the Torznab facade on
-// o.FacadeBindAddress. (§6.2, §16 M6)
-func setupWorkers(mgr ctrl.Manager, bus events.Bus, store relindex.Store, clients *indexer.ClientCache) error {
+// It returns the three verb bodies it built, so [setupFacade] serves the
+// SAME instances the RPC responder does: one download.Service with one
+// Definitions dispatch, one search fan-out with one query-limit window. A
+// facade holding its own copies would be a second path around both.
+func setupWorkers(
+	mgr ctrl.Manager, bus events.Bus, store relindex.Store, clients *indexer.ClientCache,
+) (verbs, error) {
 	c := mgr.GetClient()
 
 	// indexarr/download's doc.go documents this construction verbatim.
+	//
+	// Definitions is the Cardigann half (plan task G1-1). Without it,
+	// Service.Handle REFUSES every grab from a spec.definition or
+	// spec.definitionRef Indexer with "the Cardigann download path is not
+	// configured" -- deliberately, rather than falling back to a plain GET of
+	// what is usually a details page -- so an unwired field made every
+	// definition-backed indexer searchable and ungrabbable.
 	dl := &download.Service{
-		Client: c,
-		Bus:    bus,
-		Fetch:  download.NewFetcherFor(c, clients.Limiters()),
+		Client:      c,
+		Bus:         bus,
+		Fetch:       download.NewFetcherFor(c, clients.Limiters()),
+		Definitions: clients.DefinitionFetcherFor,
 	}
 	q := &query.Service{Store: store}
 	svc := &search.Service{
@@ -567,7 +631,7 @@ func setupWorkers(mgr ctrl.Manager, bus events.Bus, store relindex.Store, client
 		<-ctx.Done()
 		return nil
 	})); err != nil {
-		return fmt.Errorf("indexarr: add the RPC responder: %w", err)
+		return verbs{}, fmt.Errorf("indexarr: add the RPC responder: %w", err)
 	}
 
 	if err := rss.NewWorker(rss.Deps{
@@ -582,13 +646,76 @@ func setupWorkers(mgr ctrl.Manager, bus events.Bus, store relindex.Store, client
 			return cli, nil
 		},
 	}).SetupWithManager(mgr, bus); err != nil {
-		return fmt.Errorf("indexarr: subscribe rss: %w", err)
+		return verbs{}, fmt.Errorf("indexarr: subscribe rss: %w", err)
 	}
 
 	if err := mgr.Add(k8s.EveryReplica(sweepReleaseIndex(store))); err != nil {
-		return fmt.Errorf("indexarr: add the release-index sweep: %w", err)
+		return verbs{}, fmt.Errorf("indexarr: add the release-index sweep: %w", err)
 	}
 
+	return verbs{search: svc, query: q, download: dl}, nil
+}
+
+// verbs are the bodies of clustarr.rpc.indexarr.search, .query and
+// .download, as setupWorkers built them.
+type verbs struct {
+	search   *search.Service
+	query    *query.Service
+	download *download.Service
+}
+
+// setupFacade serves the Torznab facade (design §6.2; plan tasks G1-2 built
+// it, G1-5 wires it) on o.FacadeBindAddress, in this process, over the very
+// verb bodies the RPC responder serves -- the facade calls them as plain Go
+// functions, so a Torznab search from Sonarr and an automatic search from
+// catalogarr take the same fan-out, dedupe, query-limit window and
+// health/backoff.
+//
+// The facade fails closed: facade.New refuses to build without an API key.
+// The keys come from the Secret o.FacadeAPIKeySecret names, which
+// [ensureFacadeAPIKeys] creates with one random key when it is absent, so a
+// fresh install serves an authenticated facade rather than none or an open
+// one. They are read ONCE, here, before the manager starts: rotating a key is
+// an edit to the Secret and a restart of indexarr's one replica.
+//
+// It is a k8s.EveryReplica: it needs no lease, and indexarr is pinned to one
+// replica anyway. A bind failure (the port already taken) returns from
+// Server.Run, which stops the manager and fails the pod loudly rather than
+// running an indexarr whose facade silently is not there.
+func setupFacade(ctx context.Context, mgr ctrl.Manager, o Options, v verbs) error {
+	if !o.FacadeEnabled() {
+		logging.FromContext(ctx).Info("indexarr: the Torznab facade is disabled",
+			"facadeBindAddress", o.FacadeBindAddress)
+		return nil
+	}
+	keys, err := ensureFacadeAPIKeys(ctx, mgr.GetAPIReader(), mgr.GetClient(), o.Namespace, o.FacadeAPIKeySecret)
+	if err != nil {
+		return err
+	}
+	srv, err := facade.New(o.FacadeBindAddress, facade.Config{
+		// The cached client: the facade Gets Indexers by name on every
+		// request, and indexarr's controllers already hold that informer.
+		Client: mgr.GetClient(),
+		// facade/doc.go: indexarr's own namespace, where §3's one replica
+		// and every chart value and e2e fixture put Indexers. It makes a
+		// per-indexer route one Get rather than a cluster-wide List.
+		Namespace: o.Namespace,
+		Search:    v.search.Search,
+		Query:     v.query.Handle,
+		Download:  v.download.Handle,
+		APIKeys:   keys,
+	})
+	if err != nil {
+		return fmt.Errorf("indexarr: build the Torznab facade: %w", err)
+	}
+	if srv == nil {
+		// facade.New's documented "disabled" answer, for DisabledBindAddress,
+		// which FacadeEnabled already excluded.
+		return nil
+	}
+	if err := mgr.Add(k8s.EveryReplica(srv.Run)); err != nil {
+		return fmt.Errorf("indexarr: add the Torznab facade: %w", err)
+	}
 	return nil
 }
 

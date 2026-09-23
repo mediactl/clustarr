@@ -86,8 +86,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     mutate is rejected outright with `duplicate entries for key
 //     [type="Ready"]`.
 //
-// The owned set may vary with the spec's SHAPE -- a definition-backed Indexer
-// cannot resolve status.protocol, and the CRD's enum [torrent, usenet] makes
+// The owned set may vary with what the Indexer has ever resolved -- until a
+// readable Secret (spec.generic) or a loaded definition has produced
+// status.protocol it is empty, and the CRD's enum [torrent, usenet] makes
 // sending "" an apiserver rejection, so it is omitted. It must never vary
 // with a transient OUTCOME.
 //

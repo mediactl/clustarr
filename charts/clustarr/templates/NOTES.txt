@@ -35,6 +35,15 @@ Services in this release:
 Watch them come up:
 
   kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }} -w
+{{- if .Values.indexarr.enabled }}
+
+Torznab facade (for Sonarr, Radarr or anything else that speaks Torznab):
+  http://{{ include "clustarr.fullname" . }}-indexarr.{{ .Release.Namespace }}.svc:{{ .Values.indexarr.facade.service.port }}/<indexer>/api
+  It requires an API key. indexarr generates one on first start unless the
+  Secret already exists; read it with:
+
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "clustarr.facadeAPIKeySecret" . }} -o jsonpath='{.data.apikey}' | base64 -d
+{{- end }}
 
 NATS:
 {{- if .Values.nats.enabled }}

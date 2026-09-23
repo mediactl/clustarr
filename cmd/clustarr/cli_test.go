@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"net"
 	"runtime"
 	"sort"
 	"strings"
@@ -175,6 +176,95 @@ func TestIndexarrManagerOptions(t *testing.T) {
 	}
 	if got.IndexPath != "/index/releases.db" {
 		t.Errorf("index path = %q", got.IndexPath)
+	}
+}
+
+// TestIndexarrFacadeSettings covers the Torznab facade's two flags. The
+// API-key Secret is named, never keyed: --facade-api-key-secret defaults to
+// indexarr.DefaultFacadeAPIKeySecret (config/'s name) and then to
+// $CLUSTARR_FACADE_API_KEY_SECRET (the chart's, which carries the release
+// fullname). The facade fails closed, so an enabled facade with no namespace
+// to keep that Secret in is refused before anything starts.
+func TestIndexarrFacadeSettings(t *testing.T) {
+	got := stub(t, &runIndexarr)
+	if _, err := execute(t, "indexarr", "--namespace", "clustarr"); err != nil {
+		t.Fatalf("clustarr indexarr: %v", err)
+	}
+	if got.FacadeAPIKeySecret != indexarr.DefaultFacadeAPIKeySecret || got.FacadeBindAddress != ":8080" {
+		t.Errorf("facade = %q / secret %q, want :8080 / %q",
+			got.FacadeBindAddress, got.FacadeAPIKeySecret, indexarr.DefaultFacadeAPIKeySecret)
+	}
+	if !got.FacadeEnabled() {
+		t.Error("the facade is disabled by default")
+	}
+
+	t.Setenv(facadeAPIKeySecretEnv, "media-clustarr-indexarr-facade")
+	t.Setenv(facadeBindAddressEnv, ":9797")
+	if _, err := execute(t, "indexarr", "--namespace", "clustarr"); err != nil {
+		t.Fatalf("clustarr indexarr: %v", err)
+	}
+	if got.FacadeAPIKeySecret != "media-clustarr-indexarr-facade" || got.FacadeBindAddress != ":9797" {
+		t.Errorf("facade = %q / secret %q, want the environment's :9797 / media-clustarr-indexarr-facade",
+			got.FacadeBindAddress, got.FacadeAPIKeySecret)
+	}
+	if err := got.Validate(); err != nil {
+		t.Fatalf("the parsed options are invalid: %v", err)
+	}
+
+	// No namespace: nowhere to keep the key, so an enabled facade is refused
+	// and a disabled one is not.
+	t.Setenv(namespaceEnv, "")
+	if _, err := execute(t, "indexarr"); err != nil {
+		t.Fatalf("clustarr indexarr: %v", err)
+	}
+	if err := got.Validate(); err == nil {
+		t.Error("an enabled facade with no namespace for its API-key Secret was accepted")
+	}
+	if _, err := execute(t, "indexarr", "--facade-bind-address", "0"); err != nil {
+		t.Fatalf("clustarr indexarr: %v", err)
+	}
+	if err := got.Validate(); err != nil {
+		t.Errorf("a disabled facade still demanded a namespace: %v", err)
+	}
+	if _, err := execute(t, "indexarr", "--namespace", "clustarr", "--facade-api-key-secret", ""); err != nil {
+		t.Fatalf("clustarr indexarr: %v", err)
+	}
+	if err := got.Validate(); err == nil {
+		t.Error("an enabled facade with no API-key Secret was accepted")
+	}
+}
+
+// TestGrabarrDataClaimComesFromTheEnvironment: the DownloadClient controller
+// stamps --data-claim onto every engine workload, config/ relies on its
+// default and the chart sets $CLUSTARR_DATA_CLAIM, because the chart's claim
+// carries the release fullname. See TestGrabarrEnginesMountAClaimTheInstallerCreates
+// for the same fact read from what each installer renders.
+func TestGrabarrDataClaimComesFromTheEnvironment(t *testing.T) {
+	got := stub(t, &runGrabarr)
+	t.Setenv(engineImageEnv, "ghcr.io/mediactl/clustarr/media:dev")
+	if _, err := execute(t, "grabarr", "--namespace", "clustarr"); err != nil {
+		t.Fatalf("clustarr grabarr: %v", err)
+	}
+	if got.DataClaimName != "clustarr-data" {
+		t.Errorf("DataClaimName = %q, want config/'s clustarr-data", got.DataClaimName)
+	}
+
+	t.Setenv(dataClaimEnv, "media-clustarr-data")
+	if _, err := execute(t, "grabarr", "--namespace", "clustarr"); err != nil {
+		t.Fatalf("clustarr grabarr: %v", err)
+	}
+	if got.DataClaimName != "media-clustarr-data" {
+		t.Errorf("DataClaimName = %q, want $%s's media-clustarr-data", got.DataClaimName, dataClaimEnv)
+	}
+	if err := got.Validate(); err != nil {
+		t.Fatalf("the parsed options are invalid: %v", err)
+	}
+
+	if _, err := execute(t, "grabarr", "--namespace", "clustarr", "--data-claim", ""); err != nil {
+		t.Fatalf("clustarr grabarr: %v", err)
+	}
+	if err := got.Validate(); err == nil {
+		t.Error("a grabarr controller with no data claim to stamp was accepted")
 	}
 }
 
@@ -485,7 +575,11 @@ func TestAllGivesEachServiceItsOwnPorts(t *testing.T) {
 		record("importarr", o.Options, o.Logging, o.Tracing, o.Validate)
 		return nil
 	}
+	var indexOpts indexarr.Options
 	runIndexarr = func(_ context.Context, o indexarr.Options) error {
+		mu.Lock()
+		indexOpts = o
+		mu.Unlock()
 		record("indexarr", o.Options, o.Logging, o.Tracing, o.Validate)
 		return nil
 	}
@@ -570,12 +664,37 @@ func TestAllGivesEachServiceItsOwnPorts(t *testing.T) {
 				name, to.ServiceName)
 		}
 	}
+	// indexarr's Torznab facade and ui are the two HTTP servers `all` runs
+	// that are not offset per service, and both default to :8080. Whichever
+	// bound second would fail, and runAll would cancel the whole stack.
+	uiAddr := uiOpts.BindAddress
+	if uiAddr == "" {
+		uiAddr = ui.DefaultBindAddress
+	}
+	if !indexOpts.FacadeEnabled() {
+		t.Errorf("indexarr: the Torznab facade is disabled under `clustarr all --namespace clustarr`")
+	}
+	if portOf(t, indexOpts.FacadeBindAddress) == portOf(t, uiAddr) {
+		t.Errorf("indexarr's facade (%q) and ui (%q) share a port in `clustarr all`",
+			indexOpts.FacadeBindAddress, uiAddr)
+	}
+
 	if uiOpts.Logging.Level != slog.LevelWarn {
 		t.Errorf("ui: Logging.Level = %v, want warn", uiOpts.Logging.Level)
 	}
 	if !uiOpts.Tracing.Enabled || uiOpts.Tracing.SampleRatio != 0.5 || uiOpts.Tracing.ServiceName != "clustarr" {
 		t.Errorf("ui: Tracing = %+v, want Enabled=true SampleRatio=0.5 ServiceName=\"clustarr\"", uiOpts.Tracing)
 	}
+}
+
+// portOf returns addr's port.
+func portOf(t *testing.T, addr string) string {
+	t.Helper()
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		t.Fatalf("split %q: %v", addr, err)
+	}
+	return port
 }
 
 func assertDistinct(t *testing.T, what string, addrs map[string]string) {

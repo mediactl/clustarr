@@ -77,13 +77,16 @@ import (
 //
 // Protocol is deliberately omitted when empty rather than sent as "": the
 // generated CRD marks it enum [torrent, usenet], so an empty string is
-// rejected outright, and a definition-backed Indexer (M6) cannot resolve a
-// protocol until its definition loads. That is the one legitimate variation
-// in this set, and the rule it follows is worth stating: the owned set may
-// vary with the spec's SHAPE, never with a transient OUTCOME. Omitting
-// protocol because the spec cannot resolve one is shape. Omitting caps
-// because this reconcile's probe failed would be outcome, and that is the
-// release bug.
+// rejected outright. It is empty exactly while the Indexer has never
+// resolved one: a spec.generic Indexer takes it from spec.generic.protocol
+// once its Secret first reads, and a definition-backed one (G1-1) is
+// "torrent" once its definition first loads -- and keeps it, because a
+// definition that later vanishes leaves the resolved fields as they were
+// (indexer.reconcileDefinition). That is the one legitimate variation in
+// this set, and the rule it follows is worth stating: the owned set may vary
+// with what the spec has ever RESOLVED, never with a transient OUTCOME.
+// Omitting caps because this reconcile's probe failed would be outcome, and
+// that is the release bug.
 func ControllerFields(st indexv1alpha1.IndexerStatus) *indexac.IndexerStatusApplyConfiguration {
 	ac := indexac.IndexerStatus().
 		WithObservedGeneration(st.ObservedGeneration).

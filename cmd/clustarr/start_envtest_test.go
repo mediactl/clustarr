@@ -21,30 +21,42 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	natsserver "github.com/nats-io/nats-server/v2/server"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
+	appsv1 "k8s.io/api/apps/v1"
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/catalogarr"
+	"github.com/mediactl/clustarr/catalogarr/history"
 	"github.com/mediactl/clustarr/grabarr"
 	"github.com/mediactl/clustarr/importarr"
+	importlistworker "github.com/mediactl/clustarr/importarr/worker/importlist"
+	"github.com/mediactl/clustarr/indexarr"
+	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -95,6 +107,10 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 
 	natsURL := startEmbeddedNATS(t)
 
+	// facadeAddr is where the indexarr case's facade listens; its prepare
+	// picks it, its verify dials it.
+	var facadeAddr string
+
 	// One case per role that is worth standing up, in an order that respects
 	// a constraint controller-runtime imposes on the whole PROCESS:
 	// controller names are unique per binary, not per manager
@@ -133,6 +149,24 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 			d.Options, d.Role = o, catalogarr.RoleMetadata
 			return catalogarr.Run(ctx, d)
 		}},
+		// --role history was a valid role that started NOTHING until plan
+		// task G1-5: the history sink and DLQ projector (G1-4) sat in
+		// catalogarr/history, fully tested and registered nowhere, while
+		// both durable consumers had existed server-side since M0 -- so
+		// every domain event and dead letter piled up unacknowledged behind
+		// a catalogarr Deployment that ran --role controller,worker,history
+		// and reported Ready. Readiness proves none of that, so verify
+		// publishes one of each on the real bus and watches each consumer
+		// do its first piece of work.
+		{
+			name: "catalogarr/history",
+			run: func(ctx context.Context, o k8s.Options) error {
+				d := catalogarr.DefaultOptions()
+				d.Options, d.Role = o, catalogarr.RoleHistory
+				return catalogarr.Run(ctx, d)
+			},
+			verify: func(t *testing.T) { verifyHistory(t, env.Config, natsURL) },
+		},
 		{name: "importarr/worker", run: func(ctx context.Context, o k8s.Options) error {
 			d := importarr.DefaultOptions()
 			d.Options, d.Role = o, importarr.RoleWorker
@@ -162,16 +196,61 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		// that would have shipped as a doc-comment-verified but
 		// never-executed wiring snippet -- inert in the exact way this task
 		// exists to catch.
-		{name: "grabarr/controller", run: func(ctx context.Context, o k8s.Options) error {
-			d := grabarr.DefaultOptions()
-			d.Options = o
-			d.DataDir = t.TempDir()
-			// There is no default: [grabarr.Options.Validate] requires it
-			// for the controller role, since the DownloadClient reconciler
-			// stamps it onto every engine workload it creates.
-			d.EngineImage = "ghcr.io/mediactl/clustarr/media:dev"
-			return grabarr.Run(ctx, d)
-		}},
+		{
+			name: "grabarr/controller",
+			run: func(ctx context.Context, o k8s.Options) error {
+				d := grabarr.DefaultOptions()
+				d.Options = o
+				d.DataDir = t.TempDir()
+				// There is no default: [grabarr.Options.Validate] requires it
+				// for the controller role, since the DownloadClient reconciler
+				// stamps it onto every engine workload it creates.
+				d.EngineImage = "ghcr.io/mediactl/clustarr/media:dev"
+				// The chart's claim name under release "media", not
+				// config/'s default: plan task G1-5's --data-claim must
+				// reach the engine workload, and only a non-default value
+				// can show that it does.
+				d.DataClaimName = "media-clustarr-data"
+				return grabarr.Run(ctx, d)
+			},
+			verify: func(t *testing.T) {
+				c, err := client.New(env.Config, client.Options{Scheme: k8s.MustNewScheme()})
+				if err != nil {
+					t.Fatalf("build client: %v", err)
+				}
+				ctx := context.Background()
+				dc := &downloadv1alpha1.DownloadClient{
+					ObjectMeta: metav1.ObjectMeta{Name: "claim-probe", Namespace: "default"},
+					Spec: downloadv1alpha1.DownloadClientSpec{
+						Protocol: commonv1alpha1.ProtocolTorrent,
+						Torrent:  &downloadv1alpha1.TorrentSpec{EnableDHT: ptr.To(false)},
+					},
+				}
+				if err := c.Create(ctx, dc); err != nil {
+					t.Fatalf("create DownloadClient: %v", err)
+				}
+				var claim string
+				waitFor(t, "the DownloadClient controller to create claim-probe-engine", func() bool {
+					var sts appsv1.StatefulSet
+					if c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "claim-probe-engine"}, &sts) != nil {
+						return false
+					}
+					for _, v := range sts.Spec.Template.Spec.Volumes {
+						if v.PersistentVolumeClaim != nil {
+							claim = v.PersistentVolumeClaim.ClaimName
+						}
+					}
+					return true
+				})
+				if claim != "media-clustarr-data" {
+					t.Errorf("the engine StatefulSet mounts claim %q, want --data-claim's media-clustarr-data: "+
+						"grabarr/run.go did not pass Options.DataClaimName to the DownloadClient reconciler", claim)
+				}
+				if err := c.Delete(ctx, dc); err != nil {
+					t.Errorf("delete DownloadClient: %v", err)
+				}
+			},
+		},
 		{
 			name: "grabarr/torrent-engine",
 			prepare: func(t *testing.T) {
@@ -343,13 +422,25 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 			d.Options, d.Role = o, catalogarr.RoleAll
 			return catalogarr.Run(ctx, d)
 		}},
-		{name: "importarr/all (non-leader)", run: func(ctx context.Context, o k8s.Options) error {
-			d := importarr.DefaultOptions()
-			d.Options, d.Role = o, importarr.RoleAll
-			d.DataPath = t.TempDir()
-			d.LeaderElect = true
-			return importarr.Run(ctx, d)
-		}},
+		//
+		// Once it is Ready as a non-leader, verify releases the lease and
+		// the case becomes the leader: that is the only way this binary can
+		// watch importarr's controllers WORK -- controller names are unique
+		// per process, so there cannot be a second importarr case with
+		// controllers -- and plan task G1-5 needs exactly that, for the
+		// ImportList controller and list worker G1-3 built and nothing
+		// registered.
+		{
+			name: "importarr/all (non-leader)",
+			run: func(ctx context.Context, o k8s.Options) error {
+				d := importarr.DefaultOptions()
+				d.Options, d.Role = o, importarr.RoleAll
+				d.DataPath = t.TempDir()
+				d.LeaderElect = true
+				return importarr.Run(ctx, d)
+			},
+			verify: func(t *testing.T) { verifyImportList(t, env.Config, natsURL) },
+		},
 		// indexarr is driven through `clustarr all`'s OWN closure rather than
 		// a locally built Options, and that is the entire point of the case.
 		//
@@ -376,8 +467,18 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 				dir := t.TempDir()
 				t.Setenv("XDG_CACHE_HOME", dir)
 				t.Setenv("HOME", dir)
+				// `clustarr all` binds the Torznab facade on
+				// $CLUSTARR_FACADE_BIND_ADDRESS, else :9696; a fixed port
+				// would collide with whatever this machine already runs.
+				facadeAddr = freeAddress(t)
+				t.Setenv(facadeBindAddressEnv, facadeAddr)
 			},
 			run: allServiceRun(t, "indexarr"),
+			// The Torznab facade (plan task G1-2) was built, tested with
+			// httptest and bound to nothing: indexarr.Options had carried a
+			// FacadeBindAddress since M0 that no code read. So the proof is a
+			// dial of the real port, not a flag that parses.
+			verify: func(t *testing.T) { verifyFacade(t, env.Config, facadeAddr) },
 		},
 	}
 
@@ -591,4 +692,228 @@ func allServiceRun(t *testing.T, name string) func(ctx context.Context, o k8s.Op
 	}
 	t.Fatalf("`clustarr all` has no %q service; allServices was renamed or reordered", name)
 	return nil
+}
+
+// verifyHistory publishes one domain event and one dead letter on the real
+// bus and waits for RoleHistory's two consumers to act on them: the sink
+// turning the event into an events.k8s.io Event on the CR it concerns, and
+// the DLQ projector annotating the dead-lettered CR (ruling R1) -- the
+// first observable piece of work each does.
+func verifyHistory(t *testing.T, cfg *rest.Config, natsURL string) {
+	t.Helper()
+	ctx := context.Background()
+	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	if err != nil {
+		t.Fatalf("build client: %v", err)
+	}
+	bus, nc, err := k8s.ConnectBus(natsURL, "start-test")
+	if err != nil {
+		t.Fatalf("connect the bus: %v", err)
+	}
+	t.Cleanup(func() { _ = bus.Close(); nc.Close() })
+
+	// The sink: an ImportListSynced event regarding default/history-probe.
+	synced := schema.ImportListSynced{
+		ListRef: schema.Ref{Namespace: "default", Name: "history-probe", UID: "history-probe-uid"},
+		Fetched: 3, Added: 1, At: time.Now(),
+	}
+	schemaName, data, err := schema.Encode(synced)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if _, err := bus.Publish(ctx, events.CatalogImportListSyncedSubject("history-probe-uid"), &events.Envelope{
+		ID: "start-test-history-sink", Type: "catalog.ImportListSynced", Schema: schemaName,
+		Source: "start-test", Key: "default/history-probe", Time: time.Now(), Data: data,
+	}); err != nil {
+		t.Fatalf("publish the domain event: %v", err)
+	}
+	waitFor(t, "the history sink to project the domain event onto an Event", func() bool {
+		var list eventsv1.EventList
+		if c.List(ctx, &list, client.InNamespace("default")) != nil {
+			return false
+		}
+		for _, e := range list.Items {
+			if e.Regarding.Kind == "ImportList" && e.Regarding.Name == "history-probe" &&
+				e.ReportingController == "catalogarr-history" {
+				return true
+			}
+		}
+		return false
+	})
+
+	// The DLQ projector: a dead-lettered SearchTask for a Movie that exists.
+	movie := &catalogv1alpha1.Movie{
+		ObjectMeta: metav1.ObjectMeta{Name: "history-probe", Namespace: "default"},
+		Spec: catalogv1alpha1.MovieSpec{
+			TmdbID: 603, QualityProfileRef: "hd-bluray-web", RootFolderRef: "movies",
+		},
+	}
+	if err := c.Create(ctx, movie); err != nil {
+		t.Fatalf("create Movie: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Delete(context.Background(), movie) })
+	schemaName, data, err = schema.Encode(schema.SearchTask{
+		MediaRef: commonv1alpha1.MediaRef{Kind: commonv1alpha1.MediaKindMovie, Name: "history-probe"},
+		Reason:   schema.SearchReasonMissing,
+	})
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	const origSubject = "clustarr.work.catalogarr.search.high.default_history-probe"
+	if _, err := bus.Publish(ctx, events.DLQSubject("catalogarr", "search", "history-probe"), &events.Envelope{
+		ID: "dlq:start-test:history-probe", Type: "catalog.search", Schema: schemaName,
+		Source: "start-test", Key: "default/history-probe", Time: time.Now(), Data: data,
+		Headers: map[string]string{
+			events.HeaderDLQSubject:  origSubject,
+			events.HeaderDLQReason:   "max deliveries exceeded (5): start test",
+			events.HeaderDLQConsumer: "catalogarr-search-high",
+			events.HeaderDLQAttempts: "5",
+		},
+	}); err != nil {
+		t.Fatalf("publish the dead letter: %v", err)
+	}
+	waitFor(t, "the DLQ projector to annotate the dead-lettered Movie", func() bool {
+		var got catalogv1alpha1.Movie
+		return c.Get(ctx, client.ObjectKeyFromObject(movie), &got) == nil &&
+			strings.HasPrefix(got.Annotations[history.AnnotationDeadLettered], origSubject+"@")
+	})
+}
+
+// verifyImportList takes importarr/all from non-leader to leader and waits
+// for the ImportList controller to schedule a sync (status.nextSyncAt) and
+// the list worker to consume it (its Result checkpoint in clustarr-progress).
+// The list points at a closed local port, so the sync fails at once and
+// offline -- a failed sync still checkpoints, which is the worker's first
+// observable piece of work.
+func verifyImportList(t *testing.T, cfg *rest.Config, natsURL string) {
+	t.Helper()
+	ctx := context.Background()
+	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	if err != nil {
+		t.Fatalf("build client: %v", err)
+	}
+	lease := &coordinationv1.Lease{ObjectMeta: metav1.ObjectMeta{Name: importarr.LeaderElectionID, Namespace: "default"}}
+	if err := c.Delete(ctx, lease); err != nil {
+		t.Fatalf("release the held %s lease: %v", importarr.LeaderElectionID, err)
+	}
+
+	il := &catalogv1alpha1.ImportList{
+		ObjectMeta: metav1.ObjectMeta{Name: "startup-probe", Namespace: "default"},
+		Spec: catalogv1alpha1.ImportListSpec{
+			Kinds:    []string{"movie"},
+			Custom:   &catalogv1alpha1.CustomList{URL: "http://127.0.0.1:1/list.json"},
+			Defaults: catalogv1alpha1.ListDefaults{QualityProfileRef: "hd-bluray-web", RootFolderRef: "movies"},
+		},
+	}
+	if err := c.Create(ctx, il); err != nil {
+		t.Fatalf("create ImportList: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Delete(context.Background(), il) })
+
+	waitForLong(t, "the ImportList controller (now leader) to schedule a sync", func() bool {
+		var got catalogv1alpha1.ImportList
+		return c.Get(ctx, client.ObjectKeyFromObject(il), &got) == nil && got.Status.NextSyncAt != nil
+	})
+
+	bus, nc, err := k8s.ConnectBus(natsURL, "start-test")
+	if err != nil {
+		t.Fatalf("connect the bus: %v", err)
+	}
+	t.Cleanup(func() { _ = bus.Close(); nc.Close() })
+	key := importlistworker.ResultKey(string(il.UID))
+	var res importlistworker.Result
+	waitFor(t, "the list worker to checkpoint the sync it was sent", func() bool {
+		e, err := bus.KV(events.BucketProgress).Get(ctx, key)
+		if err != nil {
+			return false
+		}
+		res, err = importlistworker.DecodeResult(e.Value)
+		return err == nil
+	})
+	if res.Error == "" {
+		t.Errorf("the list worker reported success fetching a closed port: %+v", res)
+	}
+}
+
+// verifyFacade dials the Torznab facade `clustarr all` bound: the API key
+// indexarr generated into its Secret, a 401 without it, a 200 aggregate
+// search with it, and a definition-backed grab that reaches the Cardigann
+// download path (plan task G1-5's other wiring) rather than being refused
+// as "not configured".
+func verifyFacade(t *testing.T, cfg *rest.Config, addr string) {
+	t.Helper()
+	ctx := context.Background()
+	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	if err != nil {
+		t.Fatalf("build client: %v", err)
+	}
+	var sec corev1.Secret
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: indexarr.DefaultFacadeAPIKeySecret}, &sec); err != nil {
+		t.Fatalf("indexarr did not generate the facade's API-key Secret: %v", err)
+	}
+	key := string(sec.Data[indexarr.FacadeAPIKeyField])
+	if len(key) != 64 {
+		t.Fatalf("generated API key has %d characters, want 64 hex", len(key))
+	}
+
+	get := func(path string) (int, string) {
+		t.Helper()
+		resp, err := http.Get("http://" + addr + path) //nolint:noctx // bounded by the server's own timeouts
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		return resp.StatusCode, string(body)
+	}
+
+	if code, _ := get("/search/api?t=search&q=probe"); code != http.StatusUnauthorized {
+		t.Errorf("an unauthenticated aggregate search got %d, want 401: the facade must fail closed", code)
+	}
+	if code, body := get("/search/api?t=search&q=probe&apikey=" + key); code != http.StatusOK || !strings.Contains(body, "<rss") {
+		t.Errorf("an authenticated aggregate search got %d %q, want 200 and an RSS document", code, body)
+	}
+
+	idx := &indexv1alpha1.Indexer{
+		ObjectMeta: metav1.ObjectMeta{Name: "facade-cardigann", Namespace: "default"},
+		Spec: indexv1alpha1.IndexerSpec{
+			DefinitionRef: ptr.To("no-such-definition"),
+			BaseURL:       "http://127.0.0.1:1/",
+		},
+	}
+	if err := c.Create(ctx, idx); err != nil {
+		t.Fatalf("create Indexer: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Delete(context.Background(), idx) })
+	var code int
+	var body string
+	waitFor(t, "the facade to see the definition-backed Indexer", func() bool {
+		code, body = get("/facade-cardigann/download?guid=g&url=http%3A%2F%2F127.0.0.1%3A1%2Fx&apikey=" + key)
+		return code != http.StatusNotFound
+	})
+	if strings.Contains(body, "Cardigann download path is not configured") {
+		t.Errorf("a definition-backed grab was refused as not configured: download.Service.Definitions is unset (%d %q)",
+			code, body)
+	}
+	if code != http.StatusBadGateway || !strings.Contains(body, "build client for default/facade-cardigann") {
+		t.Errorf("a definition-backed grab got %d %q, want 502 from building the Cardigann engine", code, body)
+	}
+}
+
+// waitForLong is waitFor with room for a leader election: a released lease
+// is acquired on the elector's next retry, and only then do the controllers
+// start their informers.
+func waitForLong(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(90 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", what)
 }

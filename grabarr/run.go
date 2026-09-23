@@ -140,6 +140,21 @@ type Options struct {
 	// controllers.
 	EngineImage string
 
+	// DataClaimName is the RWX PersistentVolumeClaim the DownloadClient
+	// controller mounts at DataDir in every engine workload it creates
+	// (--data-claim): the same claim this Deployment mounts. Only meaningful
+	// for [RoleController].
+	//
+	// It is a flag, not the constant it used to be, because the two
+	// installers name the claim differently: config/ ships "clustarr-data",
+	// which is [downloadclient.DefaultDataClaimName], while the chart names
+	// it "<release fullname>-data". Hard-coded, every engine pod under any
+	// release name other than "clustarr" mounted a PVC that does not exist
+	// and sat in ContainerCreating forever -- the same bug plan task E-4
+	// fixed for squasharr's transcode Jobs. The chart sets it through
+	// $CLUSTARR_DATA_CLAIM.
+	DataClaimName string
+
 	// Logging configures this process's root logger. The zero value is a
 	// reasonable default: JSON to stderr at info level.
 	Logging logging.Options
@@ -153,10 +168,11 @@ type Options struct {
 // DefaultOptions returns the options the Deployment gets with no flags.
 func DefaultOptions() Options {
 	return Options{
-		Options:    k8s.DefaultOptions(),
-		Role:       RoleController,
-		DataDir:    DefaultDataDir,
-		ScratchDir: DefaultScratchDir,
+		Options:       k8s.DefaultOptions(),
+		Role:          RoleController,
+		DataDir:       DefaultDataDir,
+		ScratchDir:    DefaultScratchDir,
+		DataClaimName: downloadclient.DefaultDataClaimName,
 	}
 }
 
@@ -182,6 +198,10 @@ func (o Options) Validate() error {
 		return fmt.Errorf("grabarr: --engine-image is required for --role %s; "+
 			"it is the image the DownloadClient controller stamps onto the engine "+
 			"workloads it creates", o.Role)
+	}
+	if o.Role.RunsControllers() && o.DataClaimName == "" {
+		return fmt.Errorf("grabarr: --data-claim is required for --role %s; "+
+			"it is the PersistentVolumeClaim every engine workload mounts at --data-dir", o.Role)
 	}
 	if !o.UsesBus() {
 		return fmt.Errorf("grabarr: --nats-url is required; download events and progress both use the bus")
@@ -297,9 +317,14 @@ func Run(ctx context.Context, o Options) error {
 // setupControllers registers the DownloadClient and Download reconcilers,
 // plus the blocklist sweeper (§6.3, §16 M3; plan tasks D2-3, D2-4, D2-8a).
 func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
-	if err := downloadclient.NewReconciler(
+	dcReconciler := downloadclient.NewReconciler(
 		mgr.GetClient(), mgr.GetEventRecorder("downloadclient"), o.DataDir, o.ScratchDir, o.EngineImage,
-	).SetupWithManager(mgr); err != nil {
+	)
+	// NewReconciler defaults the claim to config/'s "clustarr-data"; the
+	// chart's is "<release fullname>-data", so the flag must win or every
+	// engine under any other release name mounts a claim that does not exist.
+	dcReconciler.DataClaimName = o.DataClaimName
+	if err := dcReconciler.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("grabarr: downloadclient: %w", err)
 	}
 	if err := downloadclient.NewBlocklistSweeper(

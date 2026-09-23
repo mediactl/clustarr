@@ -23,10 +23,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // It does not instantiate a cardigann.Engine, does not log in to a tracker,
 // does not run a search, and does not register the definition into any live
-// indexer set. Wiring a definition into an Indexer is M6 (Phase G), and Phase
-// G inherits a recorded list of eleven unimplemented Cardigann features.
-// Everything here is parse-and-report against pkg/cardigann's two pure entry
-// points, Validate and Load.
+// indexer set. An Indexer that names this kind (spec.definitionRef, or a
+// bundled id this kind declares through spec.replaces or status.id) is
+// resolved and driven by indexarr/controller/indexer, which builds the
+// engine, logs in, and hands it to the search fan-out, the RSS poll and the
+// download verb (plan task G1-1, wired by G1-5). Everything here is
+// parse-and-report against pkg/cardigann's two pure entry points, Validate
+// and Load.
 //
 // # Wiring (Task D1-8)
 //

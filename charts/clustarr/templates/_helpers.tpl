@@ -22,6 +22,17 @@ Name helpers -- standard Helm shapes.
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{/*
+The Secret holding the Torznab facade's API keys (indexarr
+--facade-api-key-secret). indexarr creates it with one random key when it is
+absent and never modifies it, so the chart only names it -- it does not
+render it, and so `helm uninstall` leaves the key behind for a reinstall to
+reuse. Set indexarr.facade.apiKeySecret to use a Secret you manage.
+*/}}
+{{- define "clustarr.facadeAPIKeySecret" -}}
+{{- default (printf "%s-indexarr-facade" (include "clustarr.fullname" .)) .Values.indexarr.facade.apiKeySecret -}}
+{{- end -}}
+
 {{- define "clustarr.labels" -}}
 helm.sh/chart: {{ include "clustarr.chart" . }}
 app.kubernetes.io/name: {{ include "clustarr.name" . }}

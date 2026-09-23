@@ -93,9 +93,13 @@ type Reconciler struct {
 	EngineImage string
 
 	// DataClaimName is the PersistentVolumeClaim every grabarr pod mounts at
-	// DataDir. config/manager/grabarr.yaml and charts/clustarr both name it
-	// "clustarr-data"; DefaultDataClaimName restates that for the same reason
-	// DefaultMinFreeBytes restates RootFolderSpec's absent field.
+	// DataDir. The two installers do NOT agree on it: config/ names it
+	// "clustarr-data" (DefaultDataClaimName, which NewReconciler sets), while
+	// charts/clustarr names it "<release fullname>-data". grabarr/run.go
+	// therefore always overwrites it from --data-claim ($CLUSTARR_DATA_CLAIM,
+	// which the chart sets); this field once claimed both installers used
+	// "clustarr-data", and under any release name but "clustarr" every
+	// engine mounted a claim that did not exist.
 	DataClaimName string
 
 	// MinFreeBytes is the floor DiskSpaceOK enforces on DataDir. Zero uses
@@ -106,8 +110,9 @@ type Reconciler struct {
 	DiskUsage diskUsageFunc
 }
 
-// DefaultDataClaimName is the PVC every grabarr pod -- controller and engine
-// alike -- mounts at DataDir, per config/manager/grabarr.yaml.
+// DefaultDataClaimName is the PVC config/'s grabarr pods -- controller and
+// engine alike -- mount at DataDir, per config/manager/grabarr.yaml. The
+// chart's differs; see Reconciler.DataClaimName.
 const DefaultDataClaimName = "clustarr-data"
 
 // NewReconciler builds a Reconciler with the real filesystem probe and the

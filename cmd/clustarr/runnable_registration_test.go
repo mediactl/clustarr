@@ -24,6 +24,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -41,12 +42,39 @@ import (
 // anywhere; it is simply a torrent that seeds, or a usenet fetch that keeps
 // spending the provider's connection budget, forever.
 //
-// squasharr joined for plan task E-4. It has no Runnable types today --
-// both its components are reconcilers, which the start envtest proves are
-// registered by watching each one reconcile -- but a slot sweeper or a
-// recycle-bin reaper is exactly the shape that would arrive next, and the
-// guard should already be looking when it does.
-var runnableServices = []string{"catalogarr", "importarr", "grabarr", "squasharr"}
+// squasharr joined for plan task E-4. indexarr and captionarr joined for plan
+// task G1-5, together with the component shapes below: indexarr had its own
+// walk (indexarr/wiring_envtest_test.go) and so was left out here, and
+// captionarr's controllers and fetch worker were -- and, pending F-6, are --
+// registered nowhere.
+var runnableServices = []string{"catalogarr", "importarr", "indexarr", "grabarr", "squasharr", "captionarr"}
+
+// pendingWiring is every component [TestEveryServiceComponentIsRegistered]
+// finds unregistered today, keyed "<dir>.<Type>", with the plan task that
+// owns registering it. An entry is a debt with a name on it, not an
+// exemption: the test FAILS when a listed component becomes registered, so
+// the owning task has to delete its line, and it fails for any unregistered
+// component not listed here.
+//
+// album, author and book, and fileimport's Retrigger, are listed before they
+// are committed: plan tasks G2-2 and G2-4 build them in parallel with this,
+// and G2-5 is the task that wires every G2 component, so the guard must not
+// turn their own commits red. It will turn G2-5's red until G2-5 deletes
+// the lines -- which is the point.
+var pendingWiring = map[string]string{
+	"catalogarr/controller/album.Reconciler":            "G2-5",
+	"catalogarr/controller/artist.Reconciler":           "G2-5",
+	"catalogarr/controller/audiobook.Reconciler":        "G2-5",
+	"catalogarr/controller/author.Reconciler":           "G2-5",
+	"catalogarr/controller/book.Reconciler":             "G2-5",
+	"catalogarr/controller/comic.Reconciler":            "G2-5",
+	"catalogarr/controller/issue.Reconciler":            "G2-5",
+	"importarr/worker/fileimport.Retrigger":             "G2-5",
+	"captionarr/controller/subtitleprofile.Reconciler":  "F-6",
+	"captionarr/controller/subtitleprovider.Reconciler": "F-6",
+	"captionarr/controller/subtitlerequest.Reconciler":  "F-6",
+	"captionarr/worker/fetch.Worker":                    "F-6",
+}
 
 // TestEveryManagerRunnableIsRegistered catches a whole class of wiring
 // omission, of which Task C12a shipped one.
@@ -98,6 +126,307 @@ func TestEveryManagerRunnableIsRegistered(t *testing.T) {
 	require.Positive(t, total,
 		"no manager.Runnable types were found under any service; this guard is not looking "+
 			"where it thinks it is")
+}
+
+// TestEveryServiceComponentIsRegistered is the guard plan task G1-5 exists
+// to be: it finds code that is complete, tested and unreachable.
+//
+// TestEveryManagerRunnableIsRegistered keys on Start+NeedLeaderElection, and
+// almost nothing Phases D through G built has that shape. The history sink,
+// the DLQ projector, the import-list worker, the Torznab facade and every
+// reconciler are registered through SetupWithManager, a closure around
+// bus.Subscribe(..., x.Handle), or mgr.Add(k8s.EveryReplica(srv.Run)) -- so
+// every one of them was invisible to it, and G1-5 found all four G1
+// components registered nowhere with every test green. D2's equivalent task
+// found three more.
+//
+// Three shapes, each structural rather than a name we chose:
+//
+//   - a SetupWithManager method: the registration call itself;
+//   - a Handle(context.Context, events.Message) error method: an
+//     events.Handler, which does nothing until someone subscribes it;
+//   - a Run(context.Context) error method: a server, which serves nothing
+//     until someone adds it to the manager.
+//
+// Each such exported type must be reachable from its service's wiring
+// source: that source must name the type, or one of its constructors (an
+// exported function of the same package whose first result is the type), or
+// a package-level Setup or Serve of that package -- catalogarr/metadata and
+// indexarr/search register their own internals through one of those. The
+// package qualifier is resolved through the wiring files' own imports, so an
+// alias (searchctl, importlistctrl) counts and a same-named package
+// elsewhere does not.
+//
+// What it cannot see, stated rather than hoped: that the name is REACHED at
+// run time (a registration behind a role nothing selects), and a component
+// made live by a field assignment (download.Service.Definitions). The start
+// envtest is the backstop for the first; indexarr's wiring envtest drives
+// the second.
+func TestEveryServiceComponentIsRegistered(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	require.NoError(t, err)
+
+	pending := map[string]bool{}
+	var total int
+	for _, service := range runnableServices {
+		t.Run(service, func(t *testing.T) {
+			serviceDir := filepath.Join(root, service)
+			refs := wiringRefs(t, serviceDir)
+			for _, c := range serviceComponents(t, root, serviceDir) {
+				total++
+				key := c.dir + "." + c.name
+				alias, imported := refs.aliases[c.importPath]
+				wired := false
+				if imported {
+					for _, sym := range c.entrypoints() {
+						if refs.selectors[alias+"."+sym] {
+							wired = true
+							break
+						}
+					}
+				}
+				owner, isPending := pendingWiring[key]
+				switch {
+				case isPending && wired:
+					t.Errorf("%s is registered now; delete its pendingWiring entry (owner %s) so the guard "+
+						"watches it again", key, owner)
+				case isPending:
+					pending[key] = true
+					t.Logf("pending: %s is registered nowhere yet; plan task %s owns it", key, owner)
+				case !wired:
+					t.Errorf("%s (%s) is a %s, but %s's wiring source (%s/*.go) never reaches it -- "+
+						"it does not name %v through an import of %s. It is complete, possibly tested, "+
+						"and inert: no compiler error, nothing in the logs.",
+						key, c.file, c.shape, service, service, c.entrypoints(), c.importPath)
+				}
+			}
+		})
+	}
+	require.Positive(t, total,
+		"no SetupWithManager, events.Handler or Run(ctx) types were found under any service; "+
+			"this guard is not looking where it thinks it is")
+	t.Logf("checked %d components, %d pending", total, len(pending))
+}
+
+// component is one exported type with a registrable shape.
+type component struct {
+	name       string // "Reconciler"
+	dir        string // "catalogarr/controller/movie", slash-separated, relative to the repo root
+	importPath string
+	file       string
+	shape      string
+	// ctors are the package's exported functions whose first result is the
+	// type; pkgEntrypoints are its package-level Setup/Serve functions.
+	ctors          []string
+	pkgEntrypoints []string
+}
+
+// entrypoints are the selectors that reach c from outside its package.
+func (c component) entrypoints() []string {
+	out := append([]string{c.name}, c.ctors...)
+	return append(out, c.pkgEntrypoints...)
+}
+
+// serviceComponents walks serviceDir's sub-packages for the three shapes
+// TestEveryServiceComponentIsRegistered describes. The service's own
+// top-level package is the wiring, not a component, and is skipped.
+func serviceComponents(t *testing.T, root, serviceDir string) []component {
+	t.Helper()
+
+	type pkgInfo struct {
+		shapes         map[string]string   // type -> shape
+		files          map[string]string   // type -> file
+		ctors          map[string][]string // type -> constructors
+		pkgEntrypoints []string
+	}
+	pkgs := map[string]*pkgInfo{}
+
+	err := filepath.WalkDir(serviceDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		dir := filepath.Dir(path)
+		if dir == serviceDir {
+			return nil
+		}
+		fset := token.NewFileSet()
+		file, perr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if perr != nil {
+			return perr
+		}
+		info := pkgs[dir]
+		if info == nil {
+			info = &pkgInfo{shapes: map[string]string{}, files: map[string]string{}, ctors: map[string][]string{}}
+			pkgs[dir] = info
+		}
+		rel, _ := filepath.Rel(root, path)
+		eventsAlias := importAlias(file, "github.com/mediactl/clustarr/pkg/events", "events")
+
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || !ast.IsExported(fn.Name.Name) {
+				continue
+			}
+			if fn.Recv == nil {
+				if fn.Name.Name == "Setup" || fn.Name.Name == "Serve" {
+					info.pkgEntrypoints = append(info.pkgEntrypoints, fn.Name.Name)
+				}
+				if fn.Type.Results != nil && len(fn.Type.Results.List) > 0 {
+					if typ := receiverTypeName(fn.Type.Results.List[0].Type); typ != "" {
+						info.ctors[typ] = append(info.ctors[typ], fn.Name.Name)
+					}
+				}
+				continue
+			}
+			if len(fn.Recv.List) != 1 {
+				continue
+			}
+			recv := receiverTypeName(fn.Recv.List[0].Type)
+			if recv == "" || !ast.IsExported(recv) {
+				continue
+			}
+			shape := ""
+			switch {
+			case fn.Name.Name == "SetupWithManager":
+				shape = "SetupWithManager registration"
+			case fn.Name.Name == "Handle" && isEventsHandler(fn.Type, eventsAlias):
+				shape = "events.Handler (bus consumer)"
+			case fn.Name.Name == "Run" && isRunCtxError(fn.Type):
+				shape = "server (Run(ctx) error)"
+			default:
+				continue
+			}
+			if _, seen := info.shapes[recv]; !seen {
+				info.shapes[recv] = shape
+				info.files[recv] = rel
+			}
+		}
+		return nil
+	})
+	require.NoError(t, err)
+
+	var out []component
+	for dir, info := range pkgs {
+		relDir, _ := filepath.Rel(root, dir)
+		relDir = filepath.ToSlash(relDir)
+		for typ, shape := range info.shapes {
+			out = append(out, component{
+				name: typ, dir: relDir, importPath: "github.com/mediactl/clustarr/" + relDir,
+				file: info.files[typ], shape: shape,
+				ctors: info.ctors[typ], pkgEntrypoints: info.pkgEntrypoints,
+			})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].dir+out[i].name < out[j].dir+out[j].name })
+	return out
+}
+
+// importAlias is the identifier file refers to importPath by, or "" when it
+// does not import it.
+func importAlias(file *ast.File, importPath, pkgName string) string {
+	for _, imp := range file.Imports {
+		if strings.Trim(imp.Path.Value, `"`) != importPath {
+			continue
+		}
+		if imp.Name != nil {
+			return imp.Name.Name
+		}
+		return pkgName
+	}
+	return ""
+}
+
+// isEventsHandler reports whether ft is func(context.Context, events.Message) error.
+func isEventsHandler(ft *ast.FuncType, eventsAlias string) bool {
+	if eventsAlias == "" || ft.Params == nil || ft.Results == nil || len(ft.Results.List) != 1 {
+		return false
+	}
+	var params []ast.Expr
+	for _, f := range ft.Params.List {
+		n := len(f.Names)
+		if n == 0 {
+			n = 1
+		}
+		for range n {
+			params = append(params, f.Type)
+		}
+	}
+	if len(params) != 2 {
+		return false
+	}
+	sel, ok := params[1].(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	x, ok := sel.X.(*ast.Ident)
+	return ok && x.Name == eventsAlias && sel.Sel.Name == "Message" && isIdent(ft.Results.List[0].Type, "error")
+}
+
+// isRunCtxError reports whether ft is func(context.Context) error.
+func isRunCtxError(ft *ast.FuncType) bool {
+	if ft.Params == nil || len(ft.Params.List) != 1 || len(ft.Params.List[0].Names) > 1 {
+		return false
+	}
+	if ft.Results == nil || len(ft.Results.List) != 1 || !isIdent(ft.Results.List[0].Type, "error") {
+		return false
+	}
+	sel, ok := ft.Params.List[0].Type.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	x, ok := sel.X.(*ast.Ident)
+	return ok && x.Name == "context" && sel.Sel.Name == "Context"
+}
+
+func isIdent(e ast.Expr, name string) bool {
+	id, ok := e.(*ast.Ident)
+	return ok && id.Name == name
+}
+
+// refs is what a service's wiring files reach: every import path under the
+// alias it is imported by, and every "alias.Name" selector they contain.
+type refs struct {
+	aliases   map[string]string
+	selectors map[string]bool
+}
+
+// wiringRefs parses the service's top-level .go files -- run.go and anything
+// beside it, the same set wiringSource reads.
+func wiringRefs(t *testing.T, serviceDir string) refs {
+	t.Helper()
+	entries, err := os.ReadDir(serviceDir)
+	require.NoError(t, err)
+
+	r := refs{aliases: map[string]string{}, selectors: map[string]bool{}}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, filepath.Join(serviceDir, name), nil, parser.SkipObjectResolution)
+		require.NoError(t, err)
+		for _, imp := range file.Imports {
+			path := strings.Trim(imp.Path.Value, `"`)
+			alias := path[strings.LastIndex(path, "/")+1:]
+			if imp.Name != nil {
+				alias = imp.Name.Name
+			}
+			r.aliases[path] = alias
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			if sel, ok := n.(*ast.SelectorExpr); ok {
+				if x, ok := sel.X.(*ast.Ident); ok {
+					r.selectors[x.Name+"."+sel.Sel.Name] = true
+				}
+			}
+			return true
+		})
+	}
+	return r
 }
 
 // wiringSource concatenates the service's top-level .go files -- run.go and

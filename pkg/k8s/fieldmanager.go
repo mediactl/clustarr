@@ -217,10 +217,10 @@ const (
 	ManagerCaptionarrWorker FieldManager = "captionarr-worker"
 
 	// ManagerDLQProjector is the DLQ projector wired into catalogarr's
-	// RoleHistory branch (task G1-1), the one subscriber to
-	// events.ConsumerDLQProjector. Design spec §5 originally had it set a
-	// DeadLettered condition on the CR named by a dead-lettered message's
-	// Clustarr-Key header -- on any kind, in any of the six API groups,
+	// RoleHistory branch (built by task G1-4, wired by G1-5), the one
+	// subscriber to events.ConsumerDLQProjector. Design spec §5 originally
+	// had it set a DeadLettered condition on the CR named by a dead-lettered
+	// message's Clustarr-Key header -- on any kind, in any of the six API groups,
 	// which would make one projector a second status writer on every
 	// resource in the system and break CLAUDE.md's first invariant, one
 	// controller-writer per resource. Ruling R1

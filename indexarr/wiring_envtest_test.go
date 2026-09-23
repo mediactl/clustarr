@@ -125,9 +125,15 @@ func TestMain(m *testing.M) {
 //     role that is never selected, or inside an `if false`, still satisfies
 //     this. TestIndexarrWiringRegistersEveryComponent starts a real manager
 //     for that reason.
-//  4. Anything M6 has not written yet -- the Cardigann engine and the Torznab
-//     facade have no code, so there is nothing to discover and nothing to
-//     forget.
+//  4. A field assignment that makes a component live. download.Service's
+//     Definitions (the Cardigann grab path, G1-1) and the ClientCache's
+//     Sessions are plain fields; left unset, every definition-backed grab
+//     is refused with "not configured" and nothing structural notices. The
+//     subtest "a definition-backed grab reaches the Cardigann download path"
+//     below drives that path over the bus. The Torznab facade has no
+//     SetupWithManager or Serve either -- it is facade.New plus Server.Run --
+//     and cmd/clustarr's TestServiceStartsServesProbesAndStopsOnSignal is its
+//     proof: it dials the port `clustarr all` binds.
 //  5. Which VALUE a resolved local actually holds. Pass 1 below maps a local
 //     variable to the package its initialiser came from by name, so two
 //     variables from one package are indistinguishable -- registering the
@@ -706,7 +712,8 @@ func TestIndexarrWiringRegistersEveryComponent(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, setupControllers(mgr, bus, clients))
-	require.NoError(t, setupWorkers(mgr, bus, store, clients))
+	_, err = setupWorkers(mgr, bus, store, clients)
+	require.NoError(t, err)
 	startManager(t, mgr)
 
 	t.Run("the Indexer reconciler runs and seeds the RSS chain with a REAL bus", func(t *testing.T) {
@@ -828,6 +835,44 @@ func TestIndexarrWiringRegistersEveryComponent(t *testing.T) {
 		require.NoError(t, bus.Request(ctx, events.RPCIndexSearch, schema.SearchRequest{
 			Namespace: ns, Kind: commonv1alpha1.MediaKindMovie, Text: "wiring probe",
 		}, &s))
+	})
+
+	t.Run("a definition-backed grab reaches the Cardigann download path", func(t *testing.T) {
+		// download.Service REFUSES a grab from a spec.definition or
+		// spec.definitionRef Indexer while its Definitions field is nil --
+		// deliberately, rather than GETting what is usually a details page
+		// -- so until plan task G1-5 set it, every Cardigann indexer was
+		// searchable and ungrabbable, and every test in the tree was green.
+		// The definition named here does not exist, so the grab still fails;
+		// what is asserted is WHERE it fails: inside
+		// ClientCache.DefinitionFetcherFor, building the engine, rather than
+		// at the "not configured" gate in front of it.
+		idx := &indexv1alpha1.Indexer{
+			ObjectMeta: metav1.ObjectMeta{Name: "cardigann-grab", Namespace: ns},
+			Spec: indexv1alpha1.IndexerSpec{
+				DefinitionRef: ptr.To("no-such-definition"),
+				BaseURL:       "http://127.0.0.1:1/",
+			},
+		}
+		require.NoError(t, c.Create(ctx, idx))
+
+		var d schema.DownloadResponse
+		require.Eventually(t, func() bool {
+			d = schema.DownloadResponse{}
+			err := bus.Request(ctx, events.RPCIndexDownload, schema.DownloadRequest{
+				IndexerRef: schema.Ref{Namespace: ns, Name: idx.Name},
+				GUID:       "cardigann-probe",
+				URL:        "http://127.0.0.1:1/download/1",
+			}, &d)
+			// "indexer <ns>/<name> not found" is the download verb's cache
+			// catching up to the Create above; anything else is an answer.
+			return err == nil && !strings.Contains(d.Error, "indexer "+ns+"/"+idx.Name+" not found")
+		}, 30*time.Second, 200*time.Millisecond, "the download verb never saw the Indexer: %q", d.Error)
+		require.NotContains(t, d.Error, "Cardigann download path is not configured",
+			"download.Service.Definitions is nil: run.go never set it to "+
+				"ClientCache.DefinitionFetcherFor, so every grab from a definition-backed indexer is refused")
+		require.Contains(t, d.Error, "build client for",
+			"the grab should have failed building the Cardigann engine for a missing IndexerDefinition; got %q", d.Error)
 	})
 
 	t.Run("the release index is opened and swept", func(t *testing.T) {

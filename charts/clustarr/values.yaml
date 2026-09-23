@@ -227,6 +227,12 @@ indexarr:
     service:
       type: ClusterIP
       port: 8080
+    # The facade serves only requests carrying an apikey that is a value in
+    # this Secret, in the release namespace. Empty means
+    # "<release fullname>-indexarr-facade". indexarr creates it with one
+    # random key under "apikey" when it does not exist and never modifies
+    # one that does, so pre-create it to choose the key.
+    apiKeySecret: ""
   resources:
     requests:
       cpu: 100m

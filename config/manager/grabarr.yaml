@@ -87,6 +87,9 @@ spec:
             - name: UMASK
               value: "002"
             # Images the controller stamps into the engine workloads it owns.
+            # Those workloads mount clustarr-data below, --data-claim's own
+            # default; the chart sets CLUSTARR_DATA_CLAIM because its claim
+            # carries the release fullname.
             - name: CLUSTARR_ENGINE_IMAGE
               value: ghcr.io/mediactl/clustarr/media:dev
           ports:

@@ -67,9 +67,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Registration
 //
-// Nothing here registers itself. Task G1-5 wires it into importarr's
-// setupControllers, alongside libraryscan, rootfolderschedule and
-// importexclusion already there, with exactly the shape those three use:
+// Nothing here registers itself. importarr/run.go's setupControllers does
+// (task G1-5), alongside libraryscan, rootfolderschedule and
+// importexclusion, with exactly the shape those three use:
 //
 //	if err := (&importlist.Reconciler{
 //	        Client: mgr.GetClient(),

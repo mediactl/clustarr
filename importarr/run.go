@@ -42,9 +42,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
 	"github.com/mediactl/clustarr/importarr/controller/importexclusion"
+	importlistctrl "github.com/mediactl/clustarr/importarr/controller/importlist"
 	"github.com/mediactl/clustarr/importarr/controller/libraryscan"
 	"github.com/mediactl/clustarr/importarr/controller/rootfolderschedule"
 	"github.com/mediactl/clustarr/importarr/worker/fileimport"
+	"github.com/mediactl/clustarr/importarr/worker/importlist"
 	"github.com/mediactl/clustarr/importarr/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -351,13 +353,29 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		return fmt.Errorf("importarr: importexclusion: %w", err)
 	}
 
+	// The ImportList controller (plan task G1-3): schedules one
+	// work.importarr.list.<name> task per spec.refreshInterval, drives
+	// Trakt's device-code flow, and is the sole writer of ImportList.status,
+	// which it projects from the list worker's clustarr-progress checkpoint
+	// below. HTTPClient and Clock are left nil on purpose: both default
+	// (http.DefaultClient, bounded by the reconcile context; time.Now), and
+	// TraktBaseURL is a test seam.
+	if err := (&importlistctrl.Reconciler{
+		Client: mgr.GetClient(),
+		Bus:    bus,
+	}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("importarr: importlist: %w", err)
+	}
+
 	return nil
 }
 
-// setupWorkers registers the work.importarr.* consumers (amendment §A1.6).
+// setupWorkers registers the work.importarr.* consumers (amendment §A1.6):
+// scan, fileimport and list.
 //
-// TODO(M6): the import-list consumer (work.importarr.list) and its non-video
-// sources, alongside the non-video inventory kinds. (§16 M6)
+// The list worker creates Movie and Series only today; a spec.kinds entry
+// naming a non-video kind is skipped with a logged reason until G2's
+// controllers land (see importarr/worker/importlist's syncKind).
 func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	// The spec.path field index the incremental fingerprint check reads. It
 	// must be registered before the manager starts, which is why it is here
@@ -417,6 +435,30 @@ func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		return nil
 	})); err != nil {
 		return fmt.Errorf("importarr: add %s consumer: %w", events.ConsumerImportFile, err)
+	}
+
+	// The import-list sync worker (amendment §A1.3, §A1.6; plan task G1-3),
+	// on ConsumerImportList ("importarr-list"): fetch, dedupe, drop what an
+	// ImportExclusion blocks, then create or update catalog items under
+	// k8s.ManagerImportarrWorker. It never writes ImportList.status -- it
+	// checkpoints a Result to clustarr-progress for the controller above to
+	// project. EVERY replica, for the same reason as the two consumers above.
+	listSpec, ok := o.BusTopology().Consumer(events.ConsumerImportList)
+	if !ok {
+		return fmt.Errorf("importarr: consumer %s missing from topology", events.ConsumerImportList)
+	}
+	listWorker := importlist.NewWorker(mgr.GetClient(), bus)
+	listSub := listSpec.Subscription()
+	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
+		stop, err := bus.Subscribe(ctx, listSub, listWorker.Handle)
+		if err != nil {
+			return fmt.Errorf("importarr: subscribe %s: %w", events.ConsumerImportList, err)
+		}
+		defer stop()
+		<-ctx.Done()
+		return nil
+	})); err != nil {
+		return fmt.Errorf("importarr: add %s consumer: %w", events.ConsumerImportList, err)
 	}
 
 	return nil

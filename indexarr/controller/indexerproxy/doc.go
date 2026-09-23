@@ -24,10 +24,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // It does not route any indexer request through the proxy, does not build a
 // transport for one, does not read the credentials in spec.secretRef (it only
 // checks that the Secret exists), and does not evaluate spec.selector against
-// any Indexer. Applying a proxy to an indexer's requests -- including the
-// "at most one FlareSolverr matches, applied last" rule in the CRD -- is M6
-// (Phase G), together with the FlareSolverr client itself. What happens here
-// is a reachability probe and nothing else.
+// any Indexer. What happens here is a reachability probe and nothing else.
+//
+// Routing is not absent, it lives elsewhere: an Indexer's spec.proxyRef is
+// applied to every request that Indexer makes -- caps probe, search, RSS poll
+// and download -- by indexarr/controller/indexer's one shared client builder
+// (plan task G1-1), for http and socks5 proxies; socks4 and flaresolverr are
+// refused there rather than bypassed. What remains unbuilt is spec.selector
+// matching (a proxy an Indexer does not name reaches nothing), the "at most
+// one FlareSolverr matches, applied last" rule in the CRD, and the
+// FlareSolverr client itself.
 //
 // # Wiring (Task D1-8)
 //

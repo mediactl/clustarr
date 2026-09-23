@@ -83,6 +83,18 @@ spec:
               fieldPath: metadata.namespace
         - name: CLUSTARR_INDEX_PATH
           value: /var/lib/clustarr/index/releases.db
+        # The Torznab facade on port http (8080) FAILS CLOSED: it serves only
+        # requests carrying an apikey that is a value in this Secret (in the
+        # pod's namespace). indexarr creates it with one random key under
+        # "apikey" on first start if it does not exist, and never modifies
+        # one that does -- so create it yourself first to choose the key.
+        # Read the generated one with:
+        #   kubectl -n clustarr-system get secret indexarr-facade \
+        #     -o jsonpath='{.data.apikey}' | base64 -d
+        # This is the Secret's NAME (--facade-api-key-secret); no key is ever
+        # passed on argv or in an env var.
+        - name: CLUSTARR_FACADE_API_KEY_SECRET
+          value: indexarr-facade
         ports:
         - name: http
           containerPort: 8080

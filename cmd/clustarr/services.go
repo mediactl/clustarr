@@ -109,9 +109,10 @@ func newCatalogarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comma
 func newIndexarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	defaults := indexarr.DefaultOptions()
 	var (
-		role      string
-		indexPath string
-		facade    string
+		role         string
+		indexPath    string
+		facade       string
+		facadeSecret string
 	)
 
 	cmd := &cobra.Command{
@@ -128,17 +129,23 @@ func newIndexarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command
 	cmd.Flags().StringVar(&role, "role", defaults.Role.String(), roleUsage(indexarr.Roles()))
 	cmd.Flags().StringVar(&indexPath, "index-path", envOr(indexPathEnv, defaults.IndexPath),
 		"SQLite release index file, on the RWO volume. Defaults to $"+indexPathEnv+".")
-	cmd.Flags().StringVar(&facade, "facade-bind-address", defaults.FacadeBindAddress,
-		`Address the Torznab facade binds to. "0" disables it.`)
+	cmd.Flags().StringVar(&facade, "facade-bind-address", envOr(facadeBindAddressEnv, defaults.FacadeBindAddress),
+		`Address the Torznab facade binds to. "0" disables it. Defaults to $`+facadeBindAddressEnv+".")
+	cmd.Flags().StringVar(&facadeSecret, "facade-api-key-secret",
+		envOr(facadeAPIKeySecretEnv, defaults.FacadeAPIKeySecret),
+		"Secret in --namespace whose every non-blank entry is an API key the Torznab facade accepts; "+
+			"created with one random key under \""+indexarr.FacadeAPIKeyField+"\" when absent. The facade "+
+			"never serves without a key. Defaults to $"+facadeAPIKeySecretEnv+".")
 
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		return runIndexarr(cmd.Context(), indexarr.Options{
-			Options:           *common,
-			Role:              indexarr.Role(role),
-			IndexPath:         indexPath,
-			FacadeBindAddress: facade,
-			Logging:           *lo,
-			Tracing:           tracingFor(to, indexarr.ServiceName),
+			Options:            *common,
+			Role:               indexarr.Role(role),
+			IndexPath:          indexPath,
+			FacadeBindAddress:  facade,
+			FacadeAPIKeySecret: facadeSecret,
+			Logging:            *lo,
+			Tracing:            tracingFor(to, indexarr.ServiceName),
 		})
 	}
 	return cmd
@@ -152,6 +159,7 @@ func newGrabarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command 
 		dataDir     string
 		scratch     string
 		engineImage string
+		dataClaim   string
 	)
 
 	cmd := &cobra.Command{
@@ -175,17 +183,21 @@ func newGrabarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command 
 	cmd.Flags().StringVar(&engineImage, "engine-image", envOr(engineImageEnv, defaults.EngineImage),
 		"Image the DownloadClient controller stamps onto the engine StatefulSet/Deployment "+
 			"it creates. Required for --role controller. Defaults to $"+engineImageEnv+".")
+	cmd.Flags().StringVar(&dataClaim, "data-claim", envOr(dataClaimEnv, defaults.DataClaimName),
+		"RWX PersistentVolumeClaim the engine workloads the controller creates mount at --data-dir. "+
+			"Defaults to $"+dataClaimEnv+".")
 
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		return runGrabarr(cmd.Context(), grabarr.Options{
-			Options:     *common,
-			Role:        grabarr.Role(role),
-			Engine:      engine,
-			DataDir:     dataDir,
-			ScratchDir:  scratch,
-			EngineImage: engineImage,
-			Logging:     *lo,
-			Tracing:     tracingFor(to, grabarr.ServiceName),
+			Options:       *common,
+			Role:          grabarr.Role(role),
+			Engine:        engine,
+			DataDir:       dataDir,
+			ScratchDir:    scratch,
+			EngineImage:   engineImage,
+			DataClaimName: dataClaim,
+			Logging:       *lo,
+			Tracing:       tracingFor(to, grabarr.ServiceName),
 		})
 	}
 	return cmd

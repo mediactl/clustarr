@@ -68,8 +68,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // it has nothing to conflict with while those packages are under concurrent
 // development; it only shares the wire schema
 // (github.com/mediactl/clustarr/pkg/events/schema) and the Indexer CRD type.
-// Wiring New's three funcs to the real services is indexarr/run.go's job
-// (a later task), not this package's.
+// Wiring New's three funcs to the real services is indexarr/run.go's job,
+// not this package's: setupFacade (plan task G1-5) hands it the same
+// search, query and download services the RPC responder serves.
 //
 // # Auth
 //
@@ -81,9 +82,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // key would serve a private tracker's search results and download links --
 // passkeys included, since DownloadResponse.Bytes/RedirectURL carry
 // whatever the indexer's own session produces -- to anything that can reach
-// the Service's port. The caller (indexarr/run.go, a later task) is
-// expected to source the key(s) from a Kubernetes Secret; this package
-// takes plain strings so it does not need a client.Client just to read one.
+// the Service's port. The caller sources the key(s) from a Kubernetes
+// Secret -- indexarr/run.go's setupFacade reads every non-blank entry of
+// --facade-api-key-secret, generating it with one random key when absent
+// (indexarr/facadekey.go); this package takes plain strings so it does not
+// need a client.Client just to read one.
 //
 // # Disabling
 //

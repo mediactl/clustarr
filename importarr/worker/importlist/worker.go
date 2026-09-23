@@ -44,7 +44,7 @@ const defaultMetadataTimeout = 10 * time.Second
 
 // Worker handles clustarr.work.importarr.list.* messages: one message is
 // one ImportList's sync, across every catalog kind its spec.kinds names.
-// See this package's doc comment for how task G1-5 registers it.
+// See this package's doc comment for how importarr/run.go registers it.
 //
 // The worker is never the writer of ImportList.status: k8s.ManagerImportarr
 // (the controller's field manager) owns it in full, per that constant's own

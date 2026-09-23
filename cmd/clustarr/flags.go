@@ -47,6 +47,20 @@ const (
 	// volume, the default for --index-path.
 	indexPathEnv = "CLUSTARR_INDEX_PATH"
 
+	// facadeBindAddressEnv is the address indexarr's Torznab facade binds,
+	// the default for --facade-bind-address. No manifest sets it -- both
+	// installers use the flag's own :8080, the port their Services route --
+	// but `clustarr all` reads it too, since its ui already holds :8080.
+	facadeBindAddressEnv = "CLUSTARR_FACADE_BIND_ADDRESS"
+
+	// facadeAPIKeySecretEnv names the Secret holding the facade's API keys,
+	// the default for --facade-api-key-secret. It is a Secret NAME, never a
+	// key: a key in a flag default would print in --help and sit in argv.
+	// Both installers set it: config/ to the flag's own default,
+	// "indexarr-facade", so the manifest says where the key lives, and the
+	// chart to "<release fullname>-indexarr-facade".
+	facadeAPIKeySecretEnv = "CLUSTARR_FACADE_API_KEY_SECRET"
+
 	// engineImageEnv is the image grabarr's DownloadClient controller stamps
 	// onto the engine StatefulSet/Deployment it creates, the default for
 	// --engine-image. config/manager/grabarr.yaml already sets it on the
@@ -68,7 +82,10 @@ const (
 	workerServiceAccountEnv = "CLUSTARR_WORKER_SERVICE_ACCOUNT"
 
 	// dataClaimEnv is the RWX /data claim those Jobs mount, the default for
-	// squasharr's --data-claim. Only the chart sets it, for the same reason.
+	// squasharr's --data-claim, and likewise the claim grabarr's engine
+	// workloads mount, the default for grabarr's --data-claim. Only the
+	// chart sets it, for the same reason: its claim is "<fullname>-data",
+	// while config/'s is both flags' own default, "clustarr-data".
 	dataClaimEnv = "CLUSTARR_DATA_CLAIM"
 )
 

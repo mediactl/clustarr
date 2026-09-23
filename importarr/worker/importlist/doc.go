@@ -72,9 +72,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Registration
 //
-// Nothing here registers itself. Task G1-5 wires it into importarr-worker's
-// setupWorkers, alongside the rescan and fileimport consumers already
-// there, with exactly the shape those two already use:
+// Nothing here registers itself. importarr/run.go's setupWorkers does (task
+// G1-5), alongside the rescan and fileimport consumers, with exactly the
+// shape those two use:
 //
 //	spec, ok := o.BusTopology().Consumer(events.ConsumerImportList)
 //	if !ok {
