@@ -231,6 +231,15 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - transcode.clustarr.io
+  resources:
+  - transcodejobs/status
+  - transcodeprofiles/status
+  verbs:
+  - get
+  - patch
+  - update
 # END generated from config/rbac/role.yaml.
 #
 # Chart-only rules: controller-gen emits no marker for these.
