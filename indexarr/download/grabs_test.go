@@ -222,3 +222,36 @@ func (k *conflictKV) Delete(ctx context.Context, key string) error {
 func (k *conflictKV) Watch(ctx context.Context, p string) (<-chan events.Entry, error) {
 	return k.inner.Watch(ctx, p)
 }
+
+// A grab counted at its OWN time: the direct-grab reconciler meets every
+// existing Download again on each start, so a grab older than the window must
+// not be counted, one inside it is counted at its creation time, and a GUID
+// already in the ring is never counted twice.
+func TestCountGrabAtHonoursTheGrabTime(t *testing.T) {
+	ctx := context.Background()
+	kv := newTestKV(t)
+	idx := testIndexer("media", "pub", "uid-at", indexv1alpha1.LimitUnitDay)
+	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+
+	n, counted, err := CountGrabAt(ctx, kv, idx, "old", now.Add(-25*time.Hour), now)
+	require.NoError(t, err)
+	require.False(t, counted, "a grab older than the window is not counted")
+	require.Zero(t, n)
+
+	n, counted, err = CountGrabAt(ctx, kv, idx, "recent", now.Add(-23*time.Hour), now)
+	require.NoError(t, err)
+	require.True(t, counted)
+	require.Equal(t, int32(1), n)
+
+	// Replayed an hour later: the same GUID is not a second grab, and the
+	// entry still sits at its creation time, so it leaves the window when
+	// that grab would -- not a day after the replay.
+	n, counted, err = CountGrabAt(ctx, kv, idx, "recent", now.Add(-23*time.Hour), now.Add(time.Hour))
+	require.NoError(t, err)
+	require.False(t, counted)
+	require.Equal(t, int32(1), n)
+
+	n, _, err = CountGrab(ctx, kv, idx, "later", now.Add(2*time.Hour))
+	require.NoError(t, err)
+	require.Equal(t, int32(1), n, "the 23h-old grab has aged out of the day window")
+}

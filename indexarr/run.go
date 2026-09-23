@@ -498,8 +498,10 @@ func IndexReadyChecker(store relindex.Store) healthz.Checker {
 	}
 }
 
-// setupControllers registers indexarr's three reconcilers (§6.2, §16 M2 and
-// M6). Each package's doc.go documents the exact call; these are those calls.
+// setupControllers registers indexarr's reconcilers (§6.2, §16 M2 and M6):
+// Indexer, IndexerDefinition and IndexerProxy, plus the direct-grab counter
+// that watches Downloads. Each package's doc.go documents the exact call;
+// these are those calls.
 //
 // All three take a k8s.io/client-go/tools/events.EventRecorder from
 // mgr.GetEventRecorder, which writes events.k8s.io/v1 Events, and their
@@ -547,6 +549,13 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, clients *indexer.ClientC
 		mgr.GetEventRecorder("indexerdefinition"),
 	).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("indexarr: indexerdefinition: %w", err)
+	}
+
+	// Grabs whose source is a direct torrentURL/magnetURL/nzbURL never reach
+	// rpc.indexarr.download, so this counts them into the same grab ring
+	// from the Download's creation; see download.DirectGrabReconciler.
+	if err := (&download.DirectGrabReconciler{Client: c, Bus: bus}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("indexarr: direct-grab accounting: %w", err)
 	}
 
 	// The nil *http.Client is indexerproxy.NewReconciler's documented

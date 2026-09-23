@@ -325,24 +325,38 @@ func (s *Service) classify(
 func (s *Service) countGrab(
 	ctx context.Context, idx *indexv1alpha1.Indexer, guid string, log *slog.Logger,
 ) {
+	now := s.now()
+	// Non-fatal on this path: countGrabAt has already logged, and an
+	// accounting outage must never strand a grab that already has its bytes.
+	_ = s.countGrabAt(ctx, idx, guid, now, now, log)
+}
+
+// countGrabAt counts the grab of guid made at `at` into idx's ring and, when
+// it was new, projects the ring's count onto status.grabsInWindow. It returns
+// an error only for a failure worth retrying (the ring or the apply); the
+// download verb ignores it, the direct-grab reconciler requeues on it.
+func (s *Service) countGrabAt(
+	ctx context.Context, idx *indexv1alpha1.Indexer, guid string, at, now time.Time, log *slog.Logger,
+) error {
 	ctx, span := tracing.Start(ctx, "indexarr.download.count_grab")
 	defer span.End()
 	if s.Bus == nil {
-		return
+		return nil
 	}
-	n, counted, err := CountGrab(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, guid, s.now())
+	n, counted, err := CountGrabAt(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, guid, at, now)
 	if err != nil {
 		log.Warn("indexarr/download: grab accounting failed", "err", err)
 		metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, resultGrabFailed).Inc()
 		tracing.RecordError(span, err)
-		return
+		return err
 	}
 	if !counted {
-		// A redelivery. The count did not change, so there is nothing to
-		// apply -- and an apply that does not happen releases nothing, which
-		// is the one safe shortcut under this field manager.
+		// A redelivery, or a grab older than the window. The count did not
+		// change, so there is nothing to apply -- and an apply that does not
+		// happen releases nothing, which is the one safe shortcut under this
+		// field manager.
 		metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, resultGrabDuplicate).Inc()
-		return
+		return nil
 	}
 	metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, resultGrabCounted).Inc()
 
@@ -375,10 +389,10 @@ func (s *Service) countGrab(
 		log.Warn("indexarr/download: re-reading the indexer before the grab apply failed",
 			"err", err)
 		tracing.RecordError(span, err)
-		return
+		return err
 	}
 	if n == fresh.Status.GrabsInWindow {
-		return
+		return nil
 	}
 	if err := idxstatus.Patch(ctx, s.Client, k8s.ManagerIndexarrWorker, &fresh,
 		func(ac *indexac.IndexerStatusApplyConfiguration) {
@@ -406,7 +420,9 @@ func (s *Service) countGrab(
 			ac.WithGrabsInWindow(n)
 		}); err != nil {
 		log.Warn("indexarr/download: grabsInWindow apply failed", "err", err)
+		return err
 	}
+	return nil
 }
 
 // CountGrabForTest drives the accounting path directly. It exists so the SSA

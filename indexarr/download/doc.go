@@ -67,16 +67,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // One Get per download closes the window, as indexarr/worker/rss does for
 // its poll.
 //
-// # Grab accounting, and what it misses
+// # Grab accounting, both paths
 //
 // Ruling R3 puts grab counting here -- indexarr already holds the indexer's
 // session and passkey at this point, and no new CLUSTARR_EVENTS consumer is
-// needed. But a grab whose DownloadSource is torrentURL, magnetURL or nzbURL
-// never calls this verb at all
-// (api/download/v1alpha1/download_types.go:235), so those grabs go uncounted
-// and status.grabsInWindow UNDERCOUNTS for public indexers. That is
-// acceptable for M2 -- those grabs use no indexer credentials -- but
-// grab-limit ENFORCEMENT cannot be built on this counter alone.
+// needed. A grab whose DownloadSource is torrentURL, magnetURL or nzbURL
+// never calls this verb at all (grabarr fetches it directly; see
+// api/download/v1alpha1's DownloadSource), so [DirectGrabReconciler] counts
+// those from the Download's creation instead, into the same ring through the
+// same [CountGrabAt]. The ring is keyed by GUID, so the two paths cannot
+// double count one grab, and status.grabsInWindow is every grab the indexer
+// served rather than only the credentialled ones.
 //
 // # Redaction
 //
@@ -130,6 +131,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers/status,verbs=get;update;patch
+//
+// [DirectGrabReconciler] watches Downloads (read only) to count the grabs
+// that bypass this verb.
+// +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch
 //
 // secrets is get ONLY, not get;list;watch. indexarr.Options.ManagerOptions
 // disables the Secret cache (client.CacheOptions.DisableFor), so every Secret

@@ -96,8 +96,27 @@ func CountGrab(
 	guid string,
 	now time.Time,
 ) (int32, bool, error) {
+	return CountGrabAt(ctx, kv, idx, guid, now, now)
+}
+
+// CountGrabAt is CountGrab for a grab that happened at `at` rather than now:
+// the direct-grab reconciler counts a Download at its creation time, and
+// meets every existing Download again each time indexarr starts. A grab older
+// than the window is therefore not counted at all (counted false) -- it would
+// be pruned from the ring by the next count anyway, and counting it now would
+// report a grab the window no longer holds.
+func CountGrabAt(
+	ctx context.Context,
+	kv events.KV,
+	idx *indexv1alpha1.Indexer,
+	guid string,
+	at, now time.Time,
+) (int32, bool, error) {
 	key := GrabRingKey(string(idx.UID))
 	cutoff := now.Add(-grabWindow(idx))
+	if at.After(now) {
+		at = now // a creation stamp ahead of this clock is skew, not the future
+	}
 
 	var lastErr error
 	for range casAttempts {
@@ -130,7 +149,10 @@ func CountGrab(
 				return int32(len(ring)), false, nil
 			}
 		}
-		ring = pruneRing(append(ring, grabEntry{GUID: guid, At: now.Unix()}), cutoff, maxRingEntries)
+		if at.Before(cutoff) {
+			return int32(len(ring)), false, nil
+		}
+		ring = pruneRing(append(ring, grabEntry{GUID: guid, At: at.Unix()}), cutoff, maxRingEntries)
 
 		val, err := json.Marshal(ring)
 		if err != nil {
