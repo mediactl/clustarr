@@ -81,7 +81,14 @@ func NewRootCommand() *cobra.Command {
 		// controller-runtime's process-wide registry, which tolerates
 		// exactly one registration, and `clustarr all` starts seven
 		// services in one process.
+		//
+		// So does the umask (design §11): it is process state every
+		// service's file writes inherit, so it is set here, once, before
+		// any subcommand runs, rather than by each service.
 		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
+			if err := applyUmaskFromEnv(); err != nil {
+				return err
+			}
 			if err := registerMetrics(); err != nil {
 				return fmt.Errorf("metrics: %w", err)
 			}
