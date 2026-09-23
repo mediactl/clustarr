@@ -252,13 +252,23 @@ func TestWorkerBlocklistPredicateHonoursTheExpiryDeadline(t *testing.T) {
 		title: "The.Matrix.1999.720p.HDTV.x264-STALE", target: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
 		blocklisted: true, blocklistedUntil: &expired, phase: downloadv1alpha1.DownloadPhaseBlocklisted,
 	})
-	eventually(t, 10*time.Second, "both blocklist entries to reach the cache", func() bool {
+	// Both entries AND their status.blocklistedUntil: the blocklist is loaded
+	// once, when the search snapshots, so a cache that has seen the create
+	// but not yet the status patch would read the expired entry as
+	// blocklisted forever.
+	eventually(t, 10*time.Second, "both blocklist entries and their deadlines to reach the cache", func() bool {
 		var list downloadv1alpha1.DownloadList
 		if err := f.mgr.List(ctx, &list, client.InNamespace(f.ns),
-			client.MatchingFields{search.IndexBlocklistInfoHash: "2222222222222222222222222222222222222222"}); err != nil {
+			client.MatchingLabels{downloadv1alpha1.LabelBlocklisted: downloadv1alpha1.LabelBlocklistedValue}); err != nil {
 			return false
 		}
-		return len(list.Items) == 1
+		withDeadline := 0
+		for i := range list.Items {
+			if list.Items[i].Status.BlocklistedUntil != nil {
+				withDeadline++
+			}
+		}
+		return withDeadline == 2
 	})
 
 	capture := &targetCapture{}

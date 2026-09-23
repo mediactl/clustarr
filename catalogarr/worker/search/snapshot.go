@@ -20,7 +20,6 @@ package search
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -33,7 +32,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/quality"
-	"github.com/mediactl/clustarr/pkg/release"
 )
 
 // itemSnapshot is everything the worker reads off the cluster before it can
@@ -165,7 +163,11 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 		return snap, err
 	}
 	snap.Target.Queue = queue
-	snap.Target.Blocklist = w.blocklistPredicate(ctx, ns)
+	blocklist, err := LoadBlocklist(ctx, w.Client, ns, w.now())
+	if err != nil {
+		return snap, err
+	}
+	snap.Target.Blocklist = blocklist.Contains
 	return snap, nil
 }
 
@@ -250,44 +252,4 @@ func (w *Worker) queue(ctx context.Context, ns string, ref commonv1.MediaRef) ([
 		})
 	}
 	return out, nil
-}
-
-// blocklistPredicate returns decision.Target.Blocklist: true when a release's
-// info hash or normalized title is on the live blocklist for this namespace.
-//
-// It closes over ctx rather than taking one because that is the shape
-// decision.Target demands. A List failure is reported as "not blocklisted"
-// with a warning rather than failing the whole search: the alternative --
-// erroring out -- turns a transient cache read into a dead search, and the
-// grab path re-checks the blocklist under its own lease before anything is
-// actually downloaded.
-func (w *Worker) blocklistPredicate(ctx context.Context, ns string) func(infohash, title string) bool {
-	now := w.now()
-	return func(infohash, title string) bool {
-		if infohash != "" && w.blocklistHit(ctx, ns, IndexBlocklistInfoHash, normalizeInfoHash(infohash), now) {
-			return true
-		}
-		if t := release.CleanTitle(title); t != "" {
-			return w.blocklistHit(ctx, ns, IndexBlocklistTitle, t, now)
-		}
-		return false
-	}
-}
-
-func (w *Worker) blocklistHit(ctx context.Context, ns, index, value string, now time.Time) bool {
-	var list downloadv1alpha1.DownloadList
-	if err := w.Client.List(ctx, &list,
-		client.InNamespace(ns),
-		client.MatchingFields{index: value},
-	); err != nil {
-		w.log(ctx).Warn("search: blocklist lookup failed, treating the release as not blocklisted",
-			"index", strings.TrimPrefix(index, "search.clustarr.io/"), "err", err)
-		return false
-	}
-	for i := range list.Items {
-		if blocklistActive(&list.Items[i], now) {
-			return true
-		}
-	}
-	return false
 }

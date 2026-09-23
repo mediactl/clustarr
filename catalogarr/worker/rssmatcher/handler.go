@@ -31,6 +31,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/catalogarr/worker/grab"
+	"github.com/mediactl/clustarr/catalogarr/worker/search"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -185,9 +186,16 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	log.Debug("rssmatcher: release matched", "targets", len(targets))
 
 	now := h.Deps.now()
-	blocklist := blocklistFor(ctx, h.Deps.Client, ns, now)
+	// One List of the namespace's blocklist, shared by every matched item:
+	// the same loader the search worker uses, so the two paths agree on
+	// what is blocklisted. A failed read retries rather than deciding as if
+	// nothing were blocklisted -- nothing after this re-checks.
+	blocklist, err := search.LoadBlocklist(ctx, h.Deps.Client, ns, now)
+	if err != nil {
+		return events.Retry(matchRetry, err)
+	}
 	for _, ref := range targets {
-		if err := h.decideOne(ctx, ns, ref, rel, blocklist, now); err != nil {
+		if err := h.decideOne(ctx, ns, ref, rel, blocklist.Contains, now); err != nil {
 			return err
 		}
 	}

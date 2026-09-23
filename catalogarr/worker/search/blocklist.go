@@ -19,6 +19,7 @@ package search
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -36,6 +37,11 @@ import (
 const (
 	// IndexBlocklistInfoHash indexes blocklisted Downloads by
 	// spec.release.infoHash.
+	//
+	// Neither blocklist index is read by the decision paths any more: both
+	// load the whole namespace blocklist in one List (LoadBlocklist) instead
+	// of two indexed lookups per release. They stay registered because
+	// catalogarr's startup assertion (assertWorkerIndexes) names them.
 	IndexBlocklistInfoHash = "search.clustarr.io/blocklist-infohash"
 	// IndexBlocklistTitle indexes blocklisted Downloads by the normalized
 	// spec.release.title, which is how a usenet release -- one with no info
@@ -131,3 +137,80 @@ func isTerminal(p downloadv1alpha1.DownloadPhase) bool {
 		return false
 	}
 }
+
+// Blocklist is one namespace's live blocklist at one instant: the info hashes
+// and normalized titles of every Download grabarr has labelled blocklisted
+// whose status.blocklistedUntil has not passed. Contains is
+// decision.Target.Blocklist.
+//
+// It is loaded once per decision (LoadBlocklist) rather than looked up per
+// release. The per-release form cost two cache Lists for every candidate --
+// up to a thousand for one 500-release search -- where one List of the
+// labelled set answers all of them.
+type Blocklist struct {
+	hashes map[string]struct{}
+	titles map[string]struct{}
+}
+
+// LoadBlocklist reads the namespace's blocklisted Downloads in ONE List and
+// keeps those still blocklisted at now (a nil blocklistedUntil means forever:
+// grabarr sets one when it blocklists, and its absence is not a licence to
+// grab the release again). Expiry is applied here, at read time, for the same
+// reason RegisterDownloadIndexes leaves it out of the indexes: nothing writes
+// the object when its deadline passes.
+//
+// A List failure is returned, not swallowed. The per-release form treated a
+// failed lookup as "not blocklisted" with a warning, which turned a transient
+// cache error into a grab of a release an operator had blocklisted -- and
+// nothing downstream re-checks. Retrying the decision costs one redelivery.
+func LoadBlocklist(ctx context.Context, c client.Reader, ns string, now time.Time) (Blocklist, error) {
+	var list downloadv1alpha1.DownloadList
+	if err := c.List(ctx, &list,
+		client.InNamespace(ns),
+		client.MatchingLabels{downloadv1alpha1.LabelBlocklisted: downloadv1alpha1.LabelBlocklistedValue},
+	); err != nil {
+		return Blocklist{}, fmt.Errorf("list blocklisted Downloads in %s: %w", ns, err)
+	}
+	b := Blocklist{hashes: map[string]struct{}{}, titles: map[string]struct{}{}}
+	for i := range list.Items {
+		d := &list.Items[i]
+		if !isBlocklisted(d) || !blocklistActive(d, now) {
+			continue
+		}
+		if h := d.Spec.Release.InfoHash; h != "" {
+			b.hashes[normalizeInfoHash(h)] = struct{}{}
+		}
+		if t := blocklistTitleKey(d.Spec.Release.Title); t != "" {
+			b.titles[t] = struct{}{}
+		}
+	}
+	return b, nil
+}
+
+// Contains reports whether a release is blocklisted: its info hash (torrent)
+// or its normalized title (usenet, which has no hash) is on the list.
+func (b Blocklist) Contains(infohash, title string) bool {
+	if infohash != "" {
+		if _, ok := b.hashes[normalizeInfoHash(infohash)]; ok {
+			return true
+		}
+	}
+	if t := blocklistTitleKey(title); t != "" {
+		_, ok := b.titles[t]
+		return ok
+	}
+	return false
+}
+
+// Len is how many distinct keys the blocklist holds, for logging.
+func (b Blocklist) Len() int { return len(b.hashes) + len(b.titles) }
+
+// blocklistTitleKey normalizes a release title for blocklist equality. It is
+// release.TitleNorm, which keeps letters and digits in every script, rather
+// than release.CleanTitle, which keeps only ASCII: under CleanTitle a
+// non-Latin usenet title keyed as its ASCII residue, so "マトリックス.1999.
+// 1080p-GRP" and every other non-Latin release that year from that group
+// shared the key "1999 1080pgrp" -- blocklisting one blocklisted them all.
+// On printable ASCII the two agree (pkg/release pins it), so every Latin
+// title keys exactly as before.
+func blocklistTitleKey(title string) string { return release.TitleNorm(title) }

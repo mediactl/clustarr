@@ -20,7 +20,6 @@ package rssmatcher
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -38,7 +37,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
-	"github.com/mediactl/clustarr/pkg/release"
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 )
@@ -186,42 +184,6 @@ func queueFor(ctx context.Context, c client.Client, ns string, ref commonv1.Medi
 		out = append(out, quality.Candidate{Quality: r.Quality, Revision: r.Revision, FormatScore: int(r.FormatScore)})
 	}
 	return out
-}
-
-// blocklistFor builds decision.Target.Blocklist over the search worker's two
-// exported blocklist indexes. Expiry is applied at read time, against this
-// handler's clock, because a field index computed at write time would go
-// stale the moment a deadline passed with nothing touching the object.
-func blocklistFor(ctx context.Context, c client.Client, ns string, now time.Time) func(infohash, title string) bool {
-	hit := func(index, value string) bool {
-		if value == "" {
-			return false
-		}
-		var list downloadv1alpha1.DownloadList
-		if err := c.List(ctx, &list, client.InNamespace(ns), client.MatchingFields{index: value}); err != nil {
-			logging.FromContext(ctx).Warn("rssmatcher: blocklist lookup failed; treating the release as not blocklisted",
-				"index", index, "error", err)
-			return false
-		}
-		for i := range list.Items {
-			until := list.Items[i].Status.BlocklistedUntil
-			// A missing deadline means "forever": grabarr sets one when it
-			// blocklists, and its absence is not a licence to grab again.
-			if until == nil || until.After(now) {
-				return true
-			}
-		}
-		return false
-	}
-	return func(infohash, title string) bool {
-		// Lower-cased so a v1 hash written in upper case by one indexer
-		// still matches the same torrent reported in lower case by another,
-		// matching how the search worker builds the index key.
-		if hit(search.IndexBlocklistInfoHash, strings.ToLower(infohash)) {
-			return true
-		}
-		return hit(search.IndexBlocklistTitle, release.CleanTitle(title))
-	}
 }
 
 // decisionOptions folds the delay profile's protocol switches and the
