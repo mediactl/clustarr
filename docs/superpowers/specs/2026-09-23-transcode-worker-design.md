@@ -512,3 +512,62 @@ scheduler's gang gates) and `scheduling.k8s.io/v1alpha3`, for Phase H.
 - Chunked transcoding (ruling R-1), unchanged.
 - The scratch `media` image, artwork in the object store, and a JetStream
   release index (§2).
+
+## 17. Errata from planning (2026-09-23)
+
+Planning against the code found six places where this spec, as approved,
+would not work. Where a section above disagrees with this list, **this list
+wins.**
+
+1. **Results travel in a KV bucket, not a stream.** A results consumer inside
+   squasharr would be a second code path writing `TranscodeJob.status` under
+   the `squasharr` manager, beside the reconciler. That is CLAUDE.md's
+   lost-update and field-release hazard. So:
+   - The worker `Put`s its `Result` to a new bucket
+     `clustarr-transcode-results` (TTL 7 days, history 1) under
+     `result.<KVKeyToken(jobUID)>`, before it settles the task.
+   - The reconciler reads it with `Get` and is the only code that writes
+     status. It applies a result only when `result.attempt ==
+     status.attempts`, and deletes the key after a terminal apply.
+   - The stream carries tasks only. There is no `…result.>` subject and no
+     `squasharr-transcode-results` consumer.
+2. **One pool per profile *and hardware class*.** A job's class comes from
+   its plan's encoder (`hardwareForEncoder`): a remux takes a CPU slot today,
+   and `spec.hardware` overrides per job. So one profile's jobs can need two
+   classes, and one pool image cannot run a GPU task on a CPU node. The key
+   is (profile, class) throughout:
+   - Job `squasharr-pool-<profile>-<class>`;
+   - subject `clustarr.work.transcode.task.<profileUID>.<class>.<jobUID>`;
+   - consumer `squasharr-transcode-<profileUID>-<class>`;
+   - pool env `CLUSTARR_POOL_CLASS` beside `CLUSTARR_POOL_PROFILE_UID`.
+3. **The worker sends `InProgress` itself.** `natsbus` never extends an ack.
+   `Subscription.Heartbeat` is the broker's idle heartbeat
+   (`indexarr/worker/rss/worker.go:57`) and is not used here. The worker's
+   renewal loop sends `InProgress` every 20s beside the lease `Update`.
+4. **Two optional bus interfaces, not new `Bus` methods,** so no existing
+   fake breaks:
+   - `events.PullSubscriber.Pull` returns a `Puller` whose `Next` fetches
+     exactly one message when called. A worker never prefetches a second task
+     that would outlive its ack window.
+   - `events.StreamAdmin` has `DeleteSubscription(stream, durable)` (the
+     durable and its dead-letter watcher) and `PurgeSubject`.
+   - Both are implemented by `natsbus` and `membus`, under the contract
+     suite.
+   - Dispatch does not pre-create the consumer: work-queue retention keeps a
+     task until a consumer exists, and the worker's `Pull` creates it.
+5. **The task, result and lease types live in `squasharr/task`, not
+   `pkg/events/schema`.** The schema package imports nothing from `api/`,
+   and the task carries `TranscodeProfileSpec`.
+   - `worker.BuildTask` is the one builder. The controller dispatches with
+     it, so a source under no RootFolder now fails at dispatch as
+     `InvalidSource` rather than in a pod.
+   - Lease and result values carry the job's `schema.Ref`, so a KV watch
+     entry maps back to its TranscodeJob.
+   - `schema.TranscodeProgress` gains `bitrateKbps` (additive), so
+     `status.progress` loses nothing now that the controller renders it from
+     telemetry.
+6. **Status sources.** The reconciler reads lease, result and progress with
+   `Get`, and requeues a Queued or Running job every 10s
+   (`worker.DefaultProgressInterval`). Watches on the lease and result
+   buckets (a `source.Func` started with the controller) only wake it
+   sooner. There is no in-memory state that a restart could lose.
