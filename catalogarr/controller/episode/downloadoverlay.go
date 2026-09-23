@@ -32,8 +32,6 @@ import (
 func DownloadOverlay(dl *downloadv1alpha1.Download) (phase catalogv1alpha1.EpisodePhase, active bool) {
 	overlay, active := rollup.DownloadOverlay(dl)
 	switch overlay {
-	case rollup.OverlayDelayed:
-		return catalogv1alpha1.EpisodePhaseDelayed, active
 	case rollup.OverlayDownloading:
 		return catalogv1alpha1.EpisodePhaseDownloading, active
 	default:

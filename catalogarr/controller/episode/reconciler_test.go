@@ -43,6 +43,8 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/catalogarr/controller/episode"
+	"github.com/mediactl/clustarr/catalogarr/controller/wantedcron"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
@@ -471,16 +473,6 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 			return got.Status.Phase == catalogv1alpha1.EpisodePhaseDownloading
 		}, 5*time.Second, 20*time.Millisecond)
 
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC(dl, "ep-ns", downloadv1alpha1.DownloadPhaseSeeding))
-		require.NoError(t, err)
-		require.Eventually(t, func() bool {
-			if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "the-wire-s01e02"}, &got); err != nil {
-				return false
-			}
-			return got.Status.Phase != catalogv1alpha1.EpisodePhaseDownloading
-		}, 5*time.Second, 20*time.Millisecond)
-		require.NotNil(t, got.Status.ActiveDownloadRef, "a Seeding Download that is not imported yet is still the active download")
-
 		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC(dl, "ep-ns", downloadv1alpha1.DownloadPhaseImported))
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
@@ -489,6 +481,122 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 			}
 			return got.Status.ActiveDownloadRef == nil
 		}, 5*time.Second, 20*time.Millisecond, "an Imported Download must clear the ref")
+	})
+
+	// Gap-fix R-12: the phase for EVERY DownloadPhase value, on an Episode
+	// in its steady state (aired, monitored, no file: Wanted), and the
+	// wanted sweep's selection agreeing. See the movie package's identical
+	// subtest for why each step is driven from the opposite side.
+	t.Run("every DownloadPhase gives the phase the wanted sweep agrees with", func(t *testing.T) {
+		const name = "the-wire-s01e03"
+		require.NoError(t, c.Create(ctx, &catalogv1alpha1.Episode{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ep-ns"},
+			Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: "the-wire", SeasonNumber: 1, EpisodeNumber: 3},
+		}))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrSeries, catalogac.Episode(name, "ep-ns").WithStatus(
+			catalogac.EpisodeStatus().WithAirDate(metav1.NewTime(time.Now().Add(-48*time.Hour)))))
+		require.NoError(t, err)
+
+		settled := func(t *testing.T, step string, want catalogv1alpha1.EpisodePhase, dl string) {
+			t.Helper()
+			var got catalogv1alpha1.Episode
+			require.Eventually(t, func() bool {
+				if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: name}, &got); err != nil {
+					return false
+				}
+				hasRef := got.Status.ActiveDownloadRef != nil && *got.Status.ActiveDownloadRef == dl
+				return got.Status.Phase == want && hasRef == (want == catalogv1alpha1.EpisodePhaseDownloading)
+			}, 5*time.Second, 20*time.Millisecond, "%s: want phase %s", step, want)
+
+			cands, err := wantedcron.ListCandidates(ctx, c, func(k commonv1.MediaKind) bool { return k == commonv1.MediaKindEpisode },
+				time.Now(), client.InNamespace("ep-ns"))
+			require.NoError(t, err)
+			wantReason := schema.SearchReason("")
+			if want == catalogv1alpha1.EpisodePhaseWanted {
+				wantReason = schema.SearchReasonMissing
+			}
+			for _, cand := range cands {
+				if cand.Ref.Name == name {
+					assert.Equal(t, wantReason, cand.Reason, "%s: the wanted sweep must agree with phase %s", step, want)
+					return
+				}
+			}
+			t.Fatalf("%s: the sweep did not list the episode", step)
+		}
+		settled(t, "steady state", catalogv1alpha1.EpisodePhaseWanted, "")
+
+		live := waitForPhase(t, ctx, c, "ep-ns", name)
+		dl := grabPathDownload(t, ctx, c, &live, name+"-abc1234567", commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: name})
+		settled(t, "a Download with no phase yet", catalogv1alpha1.EpisodePhaseDownloading, dl)
+
+		set := func(p downloadv1alpha1.DownloadPhase) {
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC(dl, "ep-ns", p))
+			require.NoError(t, err)
+		}
+		for _, p := range []downloadv1alpha1.DownloadPhase{
+			downloadv1alpha1.DownloadPhasePending, downloadv1alpha1.DownloadPhaseAssigned,
+			downloadv1alpha1.DownloadPhaseQueued, downloadv1alpha1.DownloadPhaseDownloading,
+			downloadv1alpha1.DownloadPhasePaused, downloadv1alpha1.DownloadPhaseCompleted,
+			downloadv1alpha1.DownloadPhaseSeeding,
+		} {
+			set(downloadv1alpha1.DownloadPhaseFailed)
+			settled(t, "reset", catalogv1alpha1.EpisodePhaseWanted, "")
+			set(p)
+			settled(t, string(p), catalogv1alpha1.EpisodePhaseDownloading, dl)
+		}
+		for _, p := range []downloadv1alpha1.DownloadPhase{
+			downloadv1alpha1.DownloadPhaseImported, downloadv1alpha1.DownloadPhaseFailed,
+			downloadv1alpha1.DownloadPhaseBlocklisted, downloadv1alpha1.DownloadPhaseRemoving,
+		} {
+			set(downloadv1alpha1.DownloadPhaseDownloading)
+			settled(t, "reset", catalogv1alpha1.EpisodePhaseDownloading, dl)
+			set(p)
+			settled(t, string(p), catalogv1alpha1.EpisodePhaseWanted, "")
+		}
+	})
+
+	// A multi-episode file ("S02E01E02") is ONE MediaFile naming its first
+	// episode with every covered episode in spec.mediaRef.keys
+	// (importarr's fileimport.EpisodeFileRef). Both Episodes, already in
+	// their steady state, must take it as their file -- not only the first.
+	t.Run("a multi-episode MediaFile backs every episode it covers", func(t *testing.T) {
+		names := []string{"multi-show-s02e01", "multi-show-s02e02"}
+		for i, n := range names {
+			require.NoError(t, c.Create(ctx, &catalogv1alpha1.Episode{
+				ObjectMeta: metav1.ObjectMeta{Name: n, Namespace: "ep-ns"},
+				Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: "multi-show", SeasonNumber: 2, EpisodeNumber: int32(i + 1)},
+			}))
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrSeries, catalogac.Episode(n, "ep-ns").WithStatus(
+				catalogac.EpisodeStatus().WithAirDate(metav1.NewTime(time.Now().Add(-72*time.Hour)))))
+			require.NoError(t, err)
+		}
+		for _, n := range names {
+			require.Eventually(t, func() bool {
+				var got catalogv1alpha1.Episode
+				return c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: n}, &got) == nil &&
+					got.Status.Phase == catalogv1alpha1.EpisodePhaseWanted
+			}, 5*time.Second, 20*time.Millisecond, "setup: %s must reach its steady state, Wanted", n)
+		}
+
+		mf := &catalogv1alpha1.MediaFile{
+			ObjectMeta: metav1.ObjectMeta{Name: "multi-show-s02e01e02-abc1234567", Namespace: "ep-ns"},
+			Spec: catalogv1alpha1.MediaFileSpec{
+				MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: names[0], Keys: names},
+				Path:     "/data/media/tv/Multi Show/Season 02/Multi Show - S02E01-E02.mkv",
+				Quality:  commonv1.Quality{Name: "WEBDL-1080p", Resolution: 1080, Source: commonv1.SourceWebDL, Modifier: commonv1.ModifierNone},
+			},
+		}
+		require.NoError(t, c.Create(ctx, mf))
+
+		for _, n := range names {
+			var got catalogv1alpha1.Episode
+			require.Eventually(t, func() bool {
+				return c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: n}, &got) == nil && got.Status.HasFile
+			}, 5*time.Second, 20*time.Millisecond, "%s is covered by the file", n)
+			require.NotNil(t, got.Status.FileRef)
+			assert.Equal(t, mf.Name, *got.Status.FileRef)
+			assert.NotEqual(t, catalogv1alpha1.EpisodePhaseWanted, got.Status.Phase, "%s has a file now", n)
+		}
 	})
 
 	// A season pack names the Series as target and owner and lists the

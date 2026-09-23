@@ -42,13 +42,12 @@ func TestDownloadOverlay(t *testing.T) {
 		wantActive bool
 	}{
 		{"nil download, nothing to say", nil, "", false},
-		{"pending has no engine yet, closest fit is delayed", dl(downloadv1alpha1.DownloadPhasePending), catalogv1alpha1.MoviePhaseDelayed, true},
-		{"assigned is actively working", dl(downloadv1alpha1.DownloadPhaseAssigned), catalogv1alpha1.MoviePhaseDownloading, true},
+		{"pending is queued, not delayed", dl(downloadv1alpha1.DownloadPhasePending), catalogv1alpha1.MoviePhaseDownloading, true},
+		{"assigned", dl(downloadv1alpha1.DownloadPhaseAssigned), catalogv1alpha1.MoviePhaseDownloading, true},
 		{"downloading", dl(downloadv1alpha1.DownloadPhaseDownloading), catalogv1alpha1.MoviePhaseDownloading, true},
-		{"paused still counts as downloading", dl(downloadv1alpha1.DownloadPhasePaused), catalogv1alpha1.MoviePhaseDownloading, true},
-		{"completed clears the ref and defers", dl(downloadv1alpha1.DownloadPhaseCompleted), "", false},
-		{"failed clears the ref and defers", dl(downloadv1alpha1.DownloadPhaseFailed), "", false},
-		{"blocklisted clears the ref and defers", dl(downloadv1alpha1.DownloadPhaseBlocklisted), "", false},
+		{"completed is awaiting import, not missing", dl(downloadv1alpha1.DownloadPhaseCompleted), catalogv1alpha1.MoviePhaseDownloading, true},
+		{"imported defers to the file", dl(downloadv1alpha1.DownloadPhaseImported), "", false},
+		{"failed defers", dl(downloadv1alpha1.DownloadPhaseFailed), "", false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

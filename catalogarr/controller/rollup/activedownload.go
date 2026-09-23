@@ -39,9 +39,8 @@ import (
 // The set is the same one catalogarr/worker/search/blocklist.go's
 // isTerminal uses for the live queue, so the item's ref and the search
 // worker's "is this target already queued" can never disagree about one
-// Download. It is NOT DownloadOverlay's active flag: that flag predates
-// grabarr and treats Completed and Seeding as done; it still decides the
-// phase overlay, and nothing else.
+// Download. DownloadOverlay is built on it too, so the item's phase reads
+// Downloading exactly while this reports true.
 func DownloadNonTerminal(dl *downloadv1alpha1.Download) bool {
 	if dl == nil || dl.DeletionTimestamp != nil {
 		return false

@@ -34,41 +34,66 @@ const (
 	// computation decide".
 	OverlayNone Overlay = iota
 	// OverlayDelayed maps to the item's own Delayed phase constant.
+	//
+	// DownloadOverlay no longer returns it (gap-fix R-12, below): Delayed is
+	// spec §8.2's delay-profile hold, status.pendingGrab, which each item's
+	// Phase function reads directly, and it ends when the grab creates a
+	// Download. The value stays because the per-kind adapters name it.
 	OverlayDelayed
 	// OverlayDownloading maps to the item's own Downloading phase constant.
 	OverlayDownloading
 )
 
-// DownloadOverlay reads dl's phase and decides whether the item's Phase
-// should be overridden and whether ActiveDownloadRef should stay set. dl is
-// nil once the ref has been cleared or was never set; OverlayNone means "no
-// opinion, let the ordinary availability/file computation decide".
+// DownloadOverlay reads the Download an item's status.activeDownloadRef
+// names and decides whether the item's Phase is overridden, and whether the
+// ref stays set. dl is nil when the item has no such Download.
 //
-// The mapping is a judgment call, flagged in review: Movie/Episode's phase
-// enum was designed around the *arr search/grab/import lifecycle, not
-// Download's own phases, and the two do not line up one-to-one.
-// DownloadPhasePending has no engine assigned yet, so the closest existing
-// value is Delayed; Assigned/Queued/Downloading/Paused are all "actively
-// working on it" and map to Downloading; every terminal phase
-// (Completed/Seeding/Imported/Failed/Blocklisted/Removing) clears the ref
-// and returns no opinion, deferring to the MediaFile watch (which produces
-// Imported once the file actually lands) or the ordinary Wanted/Unavailable
-// computation. Nothing in Phase C ever drives a Download past
-// Pending/Assigned -- grabarr, the only writer past that point, is Phase D
-// -- so only the first two rows are exercised by anything real before then;
-// the rest are unit-tested against synthetic fixtures now and wired for
-// when grabarr lands.
+// # The mapping (gap-fix R-12, re-read once grabarr drove real Downloads)
+//
+// Every Download that is not terminal (DownloadNonTerminal) overlays
+// Downloading, and is active; every terminal one has no opinion, and is
+// not. Phase by phase:
+//
+//	""           Downloading  created by the grab; grabarr has not seen it yet
+//	Pending      Downloading  grabbed and queued; no client picked yet
+//	Assigned     Downloading  handed to a client
+//	Queued       Downloading  in the client's queue
+//	Downloading  Downloading  bytes moving
+//	Paused       Downloading  still the item's download, merely held
+//	Completed    Downloading  on disk, waiting for importarr
+//	Seeding      Downloading  on disk, not imported (Imported beats Seeding)
+//	Imported     none         the MediaFile rollup says Imported/CutoffUnmet
+//	Failed       none         Wanted again: §8.3 re-searches it
+//	Blocklisted  none         likewise
+//	Removing     none         on its way out
+//	(deleting)   none         likewise, whatever the phase
+//
+// The item phase enums (spec §4.2) have no Queued or Importing member:
+// Downloading is the one "a grab is in flight" state, spanning the whole
+// stretch from the grab to the import that sets Imported or CutoffUnmet
+// (§8.4). That matches Radarr, whose QueueSpecification treats every queue
+// entry except one in FailedPending -- ImportPending and Importing
+// included -- as the movie already being downloaded
+// (https://github.com/Radarr/Radarr/blob/develop/src/NzbDrone.Core/DecisionEngine/Specifications/QueueSpecification.cs).
+//
+// Two rows changed from the Phase C table, which was written before
+// anything drove a Download past Assigned:
+//
+//   - Completed and Seeding used to have no opinion, so an item whose file
+//     was one import away read Wanted -- and the wanted sweep, which selects
+//     Wanted and CutoffUnmet (catalogarr/controller/wantedcron), searched
+//     for it again. Now they are Downloading, which it skips.
+//   - Pending used to map to Delayed, "the closest existing value". But
+//     Delayed means a grab held back by a DelayProfile (§8.2, PendingGrab),
+//     which is over by the time a Download exists; a Pending Download is
+//     queued, not delayed.
+//
+// With every non-terminal phase overlaying and every terminal one not, the
+// overlay and the ref are now one test (DownloadNonTerminal), so an item
+// never shows Downloading without an activeDownloadRef or the reverse.
 func DownloadOverlay(dl *downloadv1alpha1.Download) (overlay Overlay, active bool) {
-	if dl == nil {
+	if !DownloadNonTerminal(dl) {
 		return OverlayNone, false
 	}
-	switch dl.Status.Phase {
-	case downloadv1alpha1.DownloadPhasePending:
-		return OverlayDelayed, true
-	case downloadv1alpha1.DownloadPhaseAssigned, downloadv1alpha1.DownloadPhaseQueued,
-		downloadv1alpha1.DownloadPhaseDownloading, downloadv1alpha1.DownloadPhasePaused:
-		return OverlayDownloading, true
-	default: // Completed, Seeding, Imported, Failed, Blocklisted, Removing
-		return OverlayNone, false
-	}
+	return OverlayDownloading, true
 }

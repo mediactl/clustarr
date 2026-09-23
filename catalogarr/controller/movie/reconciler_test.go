@@ -49,6 +49,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/catalogarr/controller/movie"
+	"github.com/mediactl/clustarr/catalogarr/controller/wantedcron"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -719,20 +720,6 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		require.NotNil(t, got.Status.ActiveDownloadRef)
 		assert.Equal(t, dl, *got.Status.ActiveDownloadRef)
 
-		// Completed is waiting for importarr, not done: the phase overlay lets
-		// go (DownloadOverlay has no opinion past the transfer), but the ref
-		// stays, so nothing reads the item as having no download at all.
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC(dl, "avail-ns", downloadv1alpha1.DownloadPhaseCompleted))
-		require.NoError(t, err)
-		require.Eventually(t, func() bool {
-			if err := c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: "arrival"}, &got); err != nil {
-				return false
-			}
-			return got.Status.Phase != catalogv1alpha1.MoviePhaseDownloading
-		}, 5*time.Second, 20*time.Millisecond)
-		require.NotNil(t, got.Status.ActiveDownloadRef, "a Completed Download is still the item's active download")
-		assert.Equal(t, dl, *got.Status.ActiveDownloadRef)
-
 		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC(dl, "avail-ns", downloadv1alpha1.DownloadPhaseImported))
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
@@ -747,6 +734,88 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		require.Eventually(t, func() bool {
 			return hasEvent(ctx, c, "avail-ns", "arrival", string(catalogv1alpha1.MoviePhaseDownloading))
 		}, 5*time.Second, 50*time.Millisecond, "the Downloading edge must be reported as an Event on the Movie")
+	})
+
+	// Gap-fix R-12: the phase for EVERY DownloadPhase value, on a Movie in
+	// its steady state (Wanted: metadata fresh, available, no file), and the
+	// wanted sweep's own selection (wantedcron.ListCandidates, which both
+	// halves of the sweep read) agreeing with it. Each phase is driven from
+	// the opposite side -- a terminal phase first for a non-terminal one,
+	// and the reverse -- so every step is an observable edge, not a state
+	// the previous step already satisfied.
+	t.Run("every DownloadPhase gives the phase the wanted sweep agrees with", func(t *testing.T) {
+		m := &catalogv1alpha1.Movie{
+			ObjectMeta: metav1.ObjectMeta{Name: "prisoners", Namespace: "avail-ns"},
+			Spec: catalogv1alpha1.MovieSpec{
+				TmdbID: 146233, QualityProfileRef: "none", RootFolderRef: "movies-root",
+				MinimumAvailability: catalogv1alpha1.MinimumAvailabilityTBA,
+			},
+		}
+		require.NoError(t, c.Create(ctx, m))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata,
+			catalogac.Movie(m.Name, m.Namespace).WithStatus(catalogac.MovieStatus().WithMetadata(
+				catalogac.MovieMetadata().WithTitle("Prisoners").WithYear(2013).
+					WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).WithRefreshedAt(metav1.Now()))))
+		require.NoError(t, err)
+
+		// settled waits for the Movie to read want (and to hold the ref or
+		// not), then asserts the sweep's reason for it.
+		settled := func(t *testing.T, step string, want catalogv1alpha1.MoviePhase, dl string) {
+			t.Helper()
+			var got catalogv1alpha1.Movie
+			require.Eventually(t, func() bool {
+				if err := c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: "prisoners"}, &got); err != nil {
+					return false
+				}
+				hasRef := got.Status.ActiveDownloadRef != nil && *got.Status.ActiveDownloadRef == dl
+				return got.Status.Phase == want && hasRef == (want == catalogv1alpha1.MoviePhaseDownloading)
+			}, 5*time.Second, 20*time.Millisecond, "%s: want phase %s", step, want)
+
+			cands, err := wantedcron.ListCandidates(ctx, c, func(k commonv1.MediaKind) bool { return k == commonv1.MediaKindMovie },
+				time.Now(), client.InNamespace("avail-ns"))
+			require.NoError(t, err)
+			wantReason := schema.SearchReason("")
+			if want == catalogv1alpha1.MoviePhaseWanted {
+				wantReason = schema.SearchReasonMissing
+			}
+			for _, cand := range cands {
+				if cand.Ref.Name == "prisoners" {
+					assert.Equal(t, wantReason, cand.Reason, "%s: the wanted sweep must agree with phase %s", step, want)
+					return
+				}
+			}
+			t.Fatalf("%s: the sweep did not list the movie", step)
+		}
+		settled(t, "steady state", catalogv1alpha1.MoviePhaseWanted, "")
+
+		live := waitForPhase(t, ctx, c, "avail-ns", "prisoners")
+		dl := grabPathDownload(t, ctx, c, &live, "prisoners-abc1234567")
+		settled(t, `a Download with no phase yet`, catalogv1alpha1.MoviePhaseDownloading, dl)
+
+		set := func(p downloadv1alpha1.DownloadPhase) {
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC(dl, "avail-ns", p))
+			require.NoError(t, err)
+		}
+		for _, p := range []downloadv1alpha1.DownloadPhase{
+			downloadv1alpha1.DownloadPhasePending, downloadv1alpha1.DownloadPhaseAssigned,
+			downloadv1alpha1.DownloadPhaseQueued, downloadv1alpha1.DownloadPhaseDownloading,
+			downloadv1alpha1.DownloadPhasePaused, downloadv1alpha1.DownloadPhaseCompleted,
+			downloadv1alpha1.DownloadPhaseSeeding,
+		} {
+			set(downloadv1alpha1.DownloadPhaseFailed)
+			settled(t, "reset", catalogv1alpha1.MoviePhaseWanted, "")
+			set(p)
+			settled(t, string(p), catalogv1alpha1.MoviePhaseDownloading, dl)
+		}
+		for _, p := range []downloadv1alpha1.DownloadPhase{
+			downloadv1alpha1.DownloadPhaseImported, downloadv1alpha1.DownloadPhaseFailed,
+			downloadv1alpha1.DownloadPhaseBlocklisted, downloadv1alpha1.DownloadPhaseRemoving,
+		} {
+			set(downloadv1alpha1.DownloadPhaseDownloading)
+			settled(t, "reset", catalogv1alpha1.MoviePhaseDownloading, dl)
+			set(p)
+			settled(t, string(p), catalogv1alpha1.MoviePhaseWanted, "")
+		}
 	})
 
 	// The two ways a Download must NOT become the ref: it belongs to a

@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -51,9 +52,10 @@ import (
 )
 
 const (
-	// mediaFileByEpisodeIndexKey indexes MediaFile by the Episode it backs,
-	// filtered to spec.mediaRef.kind=episode -- the same shape as the
-	// movie package's mediaFileByMovieIndexKey.
+	// mediaFileByEpisodeIndexKey indexes MediaFile by every Episode it
+	// backs, filtered to spec.mediaRef.kind=episode: the episode it names
+	// and, for a multi-episode file, each one in spec.mediaRef.keys
+	// (coveredEpisodes).
 	mediaFileByEpisodeIndexKey = ".spec.mediaRef.episode"
 
 	// downloadByEpisodeIndexKey indexes Download by every Episode its
@@ -126,10 +128,10 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 	if err := idx.IndexField(ctx, &catalogv1alpha1.MediaFile{}, mediaFileByEpisodeIndexKey,
 		func(o client.Object) []string {
 			mf, ok := o.(*catalogv1alpha1.MediaFile)
-			if !ok || mf.Spec.MediaRef.Kind != commonv1.MediaKindEpisode {
+			if !ok {
 				return nil
 			}
-			return []string{mf.Spec.MediaRef.Name}
+			return coveredEpisodes(mf.Spec.MediaRef)
 		}); err != nil {
 		return err
 	}
@@ -153,20 +155,38 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 		})
 }
 
-// coveredEpisodes names the Episodes a Download's target covers: the one
-// Episode of a single-episode grab, the keys of a season pack (the grab
-// path's StatusTargets expands a Series target the same way), nothing for
-// any other kind. A Series target with no keys covers no Episode that can
-// be named, so it names none rather than guessing at the whole series.
-func coveredEpisodes(target commonv1.MediaRef) []string {
-	switch target.Kind {
+// coveredEpisodes names every Episode a MediaRef covers, for both of the
+// references this controller follows to an Episode:
+//
+//   - a MediaFile's spec.mediaRef. A multi-episode file ("S01E01E02") is
+//     one MediaFile naming its first episode, with every episode it covers
+//     in keys (importarr's fileimport.EpisodeFileRef); each covered Episode
+//     must see that file as its own, not only the first.
+//   - a Download's spec.target. A single-episode grab names the Episode; a
+//     season pack names the Series and narrows to Episodes through keys,
+//     the way the grab path's StatusTargets expands it. A Series target
+//     with no keys covers no Episode that can be named, so it names none
+//     rather than guessing at the whole series.
+//
+// Any other kind covers no Episode. The result is deduplicated: an episode
+// reference lists its own name in keys as well.
+func coveredEpisodes(ref commonv1.MediaRef) []string {
+	var names []string
+	switch ref.Kind {
 	case commonv1.MediaKindEpisode:
-		return []string{target.Name}
+		names = append([]string{ref.Name}, ref.Keys...)
 	case commonv1.MediaKindSeries:
-		return target.Keys
+		names = ref.Keys
 	default:
 		return nil
 	}
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		if n != "" && !slices.Contains(out, n) {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // SetupWithManager registers the Episode controller: a predicate reacting
@@ -236,12 +256,19 @@ func downloadPredicate() predicate.Predicate {
 	)
 }
 
+// mapMediaFile wakes every Episode a MediaFile covers -- all of a
+// multi-episode file's episodes, not only the first it names.
 func (r *Reconciler) mapMediaFile(_ context.Context, o client.Object) []reconcile.Request {
 	mf, ok := o.(*catalogv1alpha1.MediaFile)
 	if !ok || mf.Spec.MediaRef.Kind != commonv1.MediaKindEpisode {
 		return nil
 	}
-	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: mf.Namespace, Name: mf.Spec.MediaRef.Name}}}
+	names := coveredEpisodes(mf.Spec.MediaRef)
+	reqs := make([]reconcile.Request, 0, len(names))
+	for _, n := range names {
+		reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: mf.Namespace, Name: n}})
+	}
+	return reqs
 }
 
 // mapDownload needs no List: a Download names what it covers in
