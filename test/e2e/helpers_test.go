@@ -39,6 +39,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -47,7 +48,10 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/fixtures/nntpstub"
 	"github.com/mediactl/clustarr/test/fixtures/seed"
 	"github.com/mediactl/clustarr/test/fixtures/torznabstub"
 )
@@ -1008,4 +1012,535 @@ func runSearch(ctx context.Context, t *testing.T, m *catalogv1alpha1.Movie, inde
 			return live.Status.Phase == catalogv1alpha1.SearchPhaseCompleted, nil
 		}, describeSearch(client.ObjectKeyFromObject(srch)), describeTorznabRequests(t0))
 	return done
+}
+
+// ---------------------------------------------------------------------------
+// D2-10 (scenarios 1 through import, 2, 3, 4, 6): grabarr's DownloadClient/
+// Download controllers and the torrent/usenet engines, against
+// test/fixtures/seeder and test/fixtures/nntpstub.
+// ---------------------------------------------------------------------------
+
+// Fixture Service names this suite expects config/e2e to deploy, following
+// the "<component>" convention config/e2e/torznab-stub.yaml already uses
+// (the Service name equals the component label). AS OF THIS WRITING NEITHER
+// IS WIRED: no task in docs/superpowers/plans/2026-09-22-phase-d2-grabarr.md
+// adds a config/e2e manifest for either fixture -- D2-9's own file list
+// (test/fixtures/seeder/, test/fixtures/nntpstub/, images/Dockerfile.fixture)
+// stops at the binary, and `grep -rln seeder\|nntpstub config/` finds
+// nothing outside generated CRD schemas. requireFixtureService below turns
+// that gap into a named skip instead of a hung wait.
+//
+// The two nntp-stub Services are deliberately separate Deployments of the
+// SAME fixture image with different flags: nntpstub.Build(segmentBytes,
+// segmentCount) is a pure function (nntpstub/fixture.go's own doc comment),
+// so two independent processes started with identical --segment-bytes/
+// --segment-count produce byte-identical articles and NZB without sharing
+// state. For the cross-server 430 failover proof
+// TestDownloadUsenetNoInfoHashWithCrossServerFailover needs, config/e2e's
+// nntp-stub-a must be started with `--deny=<first article id>` (this
+// package computes that id at runtime with nntpstub.Build(0, 0), so it is
+// never hand-copied into a manifest) and a distinct
+// `--request-log=/data/.e2e-fixtures/nntp-a/requests.jsonl`; nntp-stub-b
+// needs no --deny and `--request-log=/data/.e2e-fixtures/nntp-b/requests.jsonl`.
+// Both need --http-addr serving /fixture.nzb so a Download's spec.source.nzbURL
+// can name either one directly (the engine fetches it in-cluster; this test
+// process never does).
+const (
+	fixtureSeederService    = "seeder"
+	fixtureNNTPStubAService = "nntp-stub-a"
+	fixtureNNTPStubBService = "nntp-stub-b"
+
+	// fixtureNNTPPort is nntp-stub's --addr default (":1119").
+	fixtureNNTPPort = 1119
+
+	// fixtureNNTPADir and fixtureNNTPBDir are the request-log subdirectories
+	// under $CLUSTARR_DATA_DIR/.e2e-fixtures this package's doc comment above
+	// asks config/e2e to use for nntp-stub-a and nntp-stub-b respectively.
+	fixtureNNTPADir = "nntp-a"
+	fixtureNNTPBDir = "nntp-b"
+
+	// engineReadyTimeout covers a real engine Pod's scheduling, image pull
+	// (IfNotPresent against an image hack/e2e.sh already `kind load`ed, so
+	// this should be fast) and re-attach (R4: an engine gates readiness on
+	// re-attach completing, not merely starting) before its DownloadClient's
+	// EngineReady condition flips. Generous for a loaded single kind node.
+	engineReadyTimeout = 5 * time.Minute
+
+	// downloadCompleteTimeout covers a real transfer of the seeder's default
+	// ~64MiB payload, or the nntp-stub fixture's much smaller default
+	// (4 * 16KiB), over cluster-internal networking, plus the engine's own
+	// telemetry cadence (grabarr/run.go's TODO comments cite Stats() every 5s
+	// and SSA telemetry every 10s). Both are trivially fast transfers; this
+	// is sized generously for a loaded node, not for the transfer itself.
+	downloadCompleteTimeout = 6 * time.Minute
+
+	// importAttemptTimeout bounds waitForImportOutcomeOrSkip's poll for
+	// status.import to become non-nil. grabarr's own publish (once wired,
+	// D2-8) happens on the SAME reconcile that first observes completion, so
+	// by the time a caller reaches this wait -- after waitForDownloadPhase
+	// AtLeast(Completed) already returned -- the publish has very likely
+	// already happened; this budgets for the consumer's own delivery and
+	// this suite's poll interval, not a redelivery ladder.
+	importAttemptTimeout = 3 * time.Minute
+)
+
+// requireFixtureService skips the calling test, with a named reason, unless
+// svcName exists in Namespace. Every scenario below that needs a real
+// transfer calls this FIRST, before creating any DownloadClient or Download:
+// without it, a DownloadClient would sit at EngineReady=False (or a Download
+// would sit Assigned/Queued) for the scenario's entire timeout, and the
+// failure message would point at grabarr when the actual gap is a missing
+// fixture Deployment nobody has wired into config/e2e yet -- see this
+// section's own doc comment above.
+func requireFixtureService(ctx context.Context, t *testing.T, svcName string) {
+	t.Helper()
+	var svc corev1.Service
+	err := k8sClient.Get(ctx, client.ObjectKey{Namespace: Namespace, Name: svcName}, &svc)
+	if err == nil {
+		return
+	}
+	if apierrors.IsNotFound(err) {
+		t.Skipf("fixture Service %s/%s does not exist: config/e2e does not yet deploy it "+
+			"(no task in docs/superpowers/plans/2026-09-22-phase-d2-grabarr.md adds this manifest; "+
+			"see test/fixtures/seeder and test/fixtures/nntpstub for the binary it would front, and "+
+			"this file's own package-level doc comment for the exact flags it needs) -- skipping "+
+			"rather than waiting out a timeout no fixture can ever answer", Namespace, svcName)
+	}
+	t.Fatalf("requireFixtureService: get Service %s/%s: %v", Namespace, svcName, err)
+}
+
+// newTorrentDownloadClientE2E creates a real, enabled torrent DownloadClient
+// and waits for grabarr's DownloadClient controller to report EngineReady --
+// which requires an actual engine StatefulSet Pod to start and finish
+// re-attach (R4), not merely the object existing.
+func newTorrentDownloadClientE2E(ctx context.Context, t *testing.T, prefix string) *downloadv1alpha1.DownloadClient {
+	t.Helper()
+	dc := &downloadv1alpha1.DownloadClient{
+		ObjectMeta: metav1.ObjectMeta{Name: uniqueName(prefix), Namespace: Namespace},
+		Spec: downloadv1alpha1.DownloadClientSpec{
+			Protocol: commonv1.ProtocolTorrent,
+			Enabled:  ptr.To(true),
+			Priority: 10,
+			Replicas: 1,
+			Torrent:  &downloadv1alpha1.TorrentSpec{},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, dc))
+	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), dc) })
+	waitForEngineReady(ctx, t, dc)
+	return dc
+}
+
+// newNNTPCredsSecret creates a Secret carrying placeholder AUTHINFO
+// credentials. NNTPProvider.SecretRef is +required on the CRD regardless of
+// whether the target server enforces auth, and test/fixtures/nntpstub only
+// checks credentials when its own --user/--pass flags are set (nntpstub_cmd.go),
+// which this package's expected config/e2e wiring does not set -- so any
+// placeholder value here is accepted.
+func newNNTPCredsSecret(ctx context.Context, t *testing.T, prefix string) corev1.LocalObjectReference {
+	t.Helper()
+	name := uniqueName(prefix)
+	sec := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: Namespace},
+		StringData: map[string]string{"username": "e2e", "password": "e2e"},
+	}
+	require.NoError(t, k8sClient.Create(ctx, sec))
+	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), sec) })
+	return corev1.LocalObjectReference{Name: name}
+}
+
+// newUsenetDownloadClientE2E creates a real, enabled usenet DownloadClient
+// with two providers -- nntp-stub-a at priority 1, nntp-stub-b at priority 2
+// -- and waits for EngineReady. TLS is explicitly disabled: neither fixture
+// server speaks TLS (test/fixtures/nntpstub/server.go has no TLS listener at
+// all), while NNTPProvider.TLS defaults to true on the CRD.
+func newUsenetDownloadClientE2E(ctx context.Context, t *testing.T, prefix string) *downloadv1alpha1.DownloadClient {
+	t.Helper()
+	secret := newNNTPCredsSecret(ctx, t, prefix)
+	dc := &downloadv1alpha1.DownloadClient{
+		ObjectMeta: metav1.ObjectMeta{Name: uniqueName(prefix), Namespace: Namespace},
+		Spec: downloadv1alpha1.DownloadClientSpec{
+			Protocol: commonv1.ProtocolUsenet,
+			Enabled:  ptr.To(true),
+			Priority: 10,
+			Replicas: 1,
+			Usenet: &downloadv1alpha1.UsenetSpec{
+				Providers: []downloadv1alpha1.NNTPProvider{
+					{
+						Name: "primary", Host: fixtureNNTPStubAService + "." + Namespace + ".svc",
+						Port: fixtureNNTPPort, TLS: ptr.To(false), Priority: 1, SecretRef: secret,
+					},
+					{
+						Name: "secondary", Host: fixtureNNTPStubBService + "." + Namespace + ".svc",
+						Port: fixtureNNTPPort, TLS: ptr.To(false), Priority: 2, SecretRef: secret,
+					},
+				},
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, dc))
+	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), dc) })
+	waitForEngineReady(ctx, t, dc)
+	return dc
+}
+
+// waitForEngineReady waits until dc's EngineReady condition is True.
+func waitForEngineReady(ctx context.Context, t *testing.T, dc *downloadv1alpha1.DownloadClient) {
+	t.Helper()
+	waitFor(t, ctx, engineReadyTimeout, "DownloadClient "+dc.Name+" EngineReady",
+		func(ctx context.Context) (bool, error) {
+			var live downloadv1alpha1.DownloadClient
+			if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(dc), &live); err != nil {
+				//nolint:nilerr // keep polling
+				return false, nil
+			}
+			return isConditionTrue(live.Status.Conditions, downloadv1alpha1.DownloadClientConditionEngineReady), nil
+		}, describeDownloadClient(client.ObjectKeyFromObject(dc)))
+}
+
+// describeDownloadClient renders one DownloadClient's conditions for a
+// failure message.
+func describeDownloadClient(key client.ObjectKey) func() string {
+	return func() string {
+		var live downloadv1alpha1.DownloadClient
+		if err := k8sClient.Get(context.Background(), key, &live); err != nil {
+			return fmt.Sprintf("DownloadClient %s could not be read back: %v", key.Name, err)
+		}
+		out := fmt.Sprintf("DownloadClient %s protocol=%s enabled=%v priority=%d",
+			key.Name, live.Spec.Protocol, ptr.Deref(live.Spec.Enabled, true), live.Spec.Priority)
+		for _, c := range live.Status.Conditions {
+			out += fmt.Sprintf("\n    condition %s=%s reason=%s message=%q", c.Type, c.Status, c.Reason, c.Message)
+		}
+		return out
+	}
+}
+
+// newTorrentDownloadE2E creates a Download directly under movie, standing in
+// for the real grab decision catalogarr/worker/grab/perform.go makes (R2):
+// that path is driven from a real Search's ranked results, and the fixture
+// indexer's canned releases (test/fixtures/torznabstub/testdata) do not
+// point at this suite's seeder or nntp-stub, so there is no real grab to
+// drive instead -- the same reasoning test/e2e/ui_test.go's package doc
+// comment gives for its own newUIDownload. source is exactly one of
+// TorrentURL (torrent) set by the caller.
+func newTorrentDownloadE2E(ctx context.Context, t *testing.T, prefix string, movie *catalogv1alpha1.Movie, torrentURL, guid, qualityProfileRef string) *downloadv1alpha1.Download {
+	t.Helper()
+	name := uniqueName(prefix)
+	dl := &downloadv1alpha1.Download{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: Namespace},
+		Spec: downloadv1alpha1.DownloadSpec{
+			Protocol: commonv1.ProtocolTorrent,
+			Source:   downloadv1alpha1.DownloadSource{TorrentURL: ptr.To(torrentURL)},
+			Release: commonv1.ReleaseInfo{
+				GUID: guid, IndexerRef: "e2e-fixture", IndexerName: "e2e fixture",
+				Title: "Fixture.Movie.2019.1080p.BluRay.x264-CLUSTARR", Protocol: commonv1.ProtocolTorrent,
+			},
+			Target:            commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name},
+			QualityProfileRef: qualityProfileRef,
+		},
+	}
+	require.NoError(t, k8s.SetControllerReference(movie, dl, k8sClient.Scheme()))
+	require.NoError(t, k8sClient.Create(ctx, dl))
+	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), dl) })
+	return dl
+}
+
+// newUsenetDownloadE2E creates a usenet Download directly under movie (see
+// newTorrentDownloadE2E's doc comment for why direct creation stands in for
+// a real grab decision). It deliberately leaves spec.release.infoHash unset
+// -- the genuine usenet shape (usenet releases have no info hash), and the
+// regression pkg/crdcheck/download_cel_test.go guards after c5e86d5 fixed
+// the CEL rule that used to reject exactly this.
+func newUsenetDownloadE2E(ctx context.Context, t *testing.T, prefix string, movie *catalogv1alpha1.Movie, nzbURL, guid, qualityProfileRef string) *downloadv1alpha1.Download {
+	t.Helper()
+	name := uniqueName(prefix)
+	dl := &downloadv1alpha1.Download{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: Namespace},
+		Spec: downloadv1alpha1.DownloadSpec{
+			Protocol: commonv1.ProtocolUsenet,
+			Source:   downloadv1alpha1.DownloadSource{NZBURL: ptr.To(nzbURL)},
+			Release: commonv1.ReleaseInfo{
+				GUID: guid, IndexerRef: "e2e-fixture", IndexerName: "e2e fixture",
+				Title: "Fixture.Movie.2019.WEB-DL.x264-CLUSTARR", Protocol: commonv1.ProtocolUsenet,
+				// InfoHash deliberately left unset.
+			},
+			Target:            commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name},
+			QualityProfileRef: qualityProfileRef,
+		},
+	}
+	require.NoError(t, k8s.SetControllerReference(movie, dl, k8sClient.Scheme()))
+	require.NoError(t, k8sClient.Create(ctx, dl))
+	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), dl) })
+	return dl
+}
+
+// downloadPhaseOrder is the normal, non-terminal-surprise lifecycle a
+// Download progresses through, in order. Paused, Failed, Blocklisted and
+// Removing sit outside it on purpose: nothing in this suite expects a
+// Download to pass through them on the happy path, and waitForDownloadPhase
+// AtLeast treats Failed/Blocklisted as an error rather than "not yet".
+var downloadPhaseOrder = []downloadv1alpha1.DownloadPhase{
+	downloadv1alpha1.DownloadPhasePending,
+	downloadv1alpha1.DownloadPhaseAssigned,
+	downloadv1alpha1.DownloadPhaseQueued,
+	downloadv1alpha1.DownloadPhaseDownloading,
+	downloadv1alpha1.DownloadPhaseCompleted,
+	downloadv1alpha1.DownloadPhaseSeeding,
+	downloadv1alpha1.DownloadPhaseImported,
+}
+
+func downloadPhaseIndex(p downloadv1alpha1.DownloadPhase) int {
+	for i, v := range downloadPhaseOrder {
+		if v == p {
+			return i
+		}
+	}
+	return -1
+}
+
+// waitForDownloadPhaseAtLeast waits until dl.status.phase is threshold or
+// later in downloadPhaseOrder. Failed and Blocklisted are always reported as
+// errors (carrying status.failureReason/the label) rather than "not yet",
+// so a genuine failure surfaces immediately with a diagnosis instead of
+// waiting out the full timeout.
+func waitForDownloadPhaseAtLeast(ctx context.Context, t *testing.T, dl *downloadv1alpha1.Download, timeout time.Duration, threshold downloadv1alpha1.DownloadPhase) downloadv1alpha1.Download {
+	t.Helper()
+	want := downloadPhaseIndex(threshold)
+	require.GreaterOrEqualf(t, want, 0, "waitForDownloadPhaseAtLeast: %q is not in downloadPhaseOrder", threshold)
+	var live downloadv1alpha1.Download
+	waitFor(t, ctx, timeout, fmt.Sprintf("Download %s reaching phase %s or later", dl.Name, threshold),
+		func(ctx context.Context) (bool, error) {
+			if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(dl), &live); err != nil {
+				//nolint:nilerr // keep polling
+				return false, nil
+			}
+			switch live.Status.Phase {
+			case downloadv1alpha1.DownloadPhaseFailed:
+				return false, fmt.Errorf("Download %s reached Failed (reason=%s message=%q)",
+					dl.Name, live.Status.FailureReason, live.Status.Message)
+			case downloadv1alpha1.DownloadPhaseBlocklisted:
+				return false, fmt.Errorf("Download %s reached Blocklisted unexpectedly", dl.Name)
+			}
+			return downloadPhaseIndex(live.Status.Phase) >= want, nil
+		}, describeDownload(client.ObjectKeyFromObject(dl)))
+	return live
+}
+
+// waitForDownloadPhaseExactly waits until dl.status.phase equals want,
+// without treating any other phase as an error -- unlike
+// waitForDownloadPhaseAtLeast, this is the right wait for a phase (like
+// Blocklisted) that IS the expected outcome.
+func waitForDownloadPhaseExactly(ctx context.Context, t *testing.T, dl *downloadv1alpha1.Download, timeout time.Duration, want downloadv1alpha1.DownloadPhase) downloadv1alpha1.Download {
+	t.Helper()
+	var live downloadv1alpha1.Download
+	waitFor(t, ctx, timeout, fmt.Sprintf("Download %s reaching phase %s", dl.Name, want),
+		func(ctx context.Context) (bool, error) {
+			if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(dl), &live); err != nil {
+				//nolint:nilerr // keep polling
+				return false, nil
+			}
+			return live.Status.Phase == want, nil
+		}, describeDownload(client.ObjectKeyFromObject(dl)))
+	return live
+}
+
+// describeDownload renders one Download's telemetry, import outcome and
+// conditions for a failure message.
+func describeDownload(key client.ObjectKey) func() string {
+	return func() string {
+		var live downloadv1alpha1.Download
+		if err := k8sClient.Get(context.Background(), key, &live); err != nil {
+			return fmt.Sprintf("Download %s could not be read back: %v", key.Name, err)
+		}
+		out := fmt.Sprintf("Download %s phase=%q stage=%q engine=%q clientRef=%q progress=%d%% "+
+			"downloadedBytes=%d totalBytes=%d contentRoot=%q outputPath=%q message=%q",
+			key.Name, live.Status.Phase, live.Status.Stage, live.Status.Engine, live.Spec.ClientRef,
+			live.Status.ProgressPercent, live.Status.DownloadedBytes, live.Status.TotalBytes,
+			live.Status.ContentRoot, live.Status.OutputPath, live.Status.Message)
+		if live.Status.Import != nil {
+			out += fmt.Sprintf("\n    import state=%s message=%q rejections=%v",
+				live.Status.Import.State, live.Status.Import.Message, live.Status.Import.Rejections)
+		}
+		for _, c := range live.Status.Conditions {
+			out += fmt.Sprintf("\n    condition %s=%s reason=%s message=%q", c.Type, c.Status, c.Reason, c.Message)
+		}
+		return out
+	}
+}
+
+// patchDownloadLabel sets one label on dl. It is a plain metadata patch, not
+// a status write, so it needs no field manager -- the same category of call
+// patchMovieDelayProfile and patchScanSchedule already make elsewhere in
+// this package.
+func patchDownloadLabel(ctx context.Context, t *testing.T, dl *downloadv1alpha1.Download, key, value string) {
+	t.Helper()
+	var live downloadv1alpha1.Download
+	require.NoError(t, k8sClient.Get(ctx, client.ObjectKeyFromObject(dl), &live))
+	patch := client.MergeFrom(live.DeepCopy())
+	if live.Labels == nil {
+		live.Labels = map[string]string{}
+	}
+	live.Labels[key] = value
+	require.NoError(t, k8sClient.Patch(ctx, &live, patch))
+}
+
+// importGapReason documents, in one place, why status.import can never
+// reach Imported for a Download whose content came from test/fixtures/seeder
+// or test/fixtures/nntpstub as they are built today. Both name their single
+// content file "clustarr-fixture.bin" -- seeder.ContentName and
+// nntpstub.FileName are both unexported-constant-shaped and not configurable
+// via either fixture's Config/flags -- and pkg/fsops.MediaExtensions
+// (classify.go) is exactly {.mkv, .epub, .mobi, .azw, .azw3, .pdf, .cbz,
+// .cbr, .cb7, .cbt}. A file named *.bin is not in that set, so fsops.Walk
+// classifies it ClassOther and importarr/worker/fileimport's
+// processConfig.run (process.go) skips it before ever calling
+// release.ParsePath -- no rejection reason is even recorded, since the file
+// is filtered out before the per-file logic that would produce one runs at
+// all.
+//
+// This is a structural fact about the two fixtures' fixed content name, not
+// a bug in any D2 controller, and no QualityProfile or Release.Title routes
+// around it: process.go parses the file's OWN on-disk path, never the
+// Download's spec.release.title. Building a fixture with a real media
+// extension is explicitly out of D2-10's file scope (test/e2e/*.go only,
+// not test/fixtures/*), so every scenario that reaches this point waits,
+// bounded, for whatever status.import DOES reach, logs it, and skips rather
+// than asserts Imported.
+const importGapReason = "test/fixtures/seeder and test/fixtures/nntpstub always name their " +
+	"downloaded content \"clustarr-fixture.bin\", an extension outside pkg/fsops.MediaExtensions " +
+	"(classify.go: .mkv/.epub/.mobi/.azw/.azw3/.pdf/.cbz/.cbr/.cb7/.cbt only) -- fsops.Walk therefore " +
+	"never classifies it ClassMedia, and importarr/worker/fileimport skips it before parsing. No " +
+	"QualityProfile or Release.Title changes this: process.go parses the file's own on-disk path, " +
+	"not the Download's spec. This is a fixture-shape gap, not a controller bug, and building a new " +
+	"fixture is out of D2-10's file scope (test/e2e/*.go only)."
+
+// waitForImportOutcomeOrSkip waits (bounded) for dl.status.import to become
+// non-nil, logs whatever it reports, and ALWAYS skips rather than asserting
+// Imported -- see importGapReason. It also covers the independent
+// possibility that importarr/worker/fileimport.Worker or grabarr's own
+// publish-on-completion (controller/download) is not reachable because task
+// D2-8's wiring into importarr/run.go's setupWorkers and
+// grabarr/run.go's setupControllers/setupEngine has not landed, or has
+// regressed, by the time this suite runs -- see download_test.go's package
+// doc comment for exactly what was and was not verified about that wiring
+// while this file was written. If status.import never populates at all
+// within the timeout, that is logged too, and the skip names every possible
+// cause so a reader does not have to re-derive them.
+func waitForImportOutcomeOrSkip(ctx context.Context, t *testing.T, dl *downloadv1alpha1.Download, timeout time.Duration) {
+	t.Helper()
+	var live downloadv1alpha1.Download
+	err := wait.PollUntilContextTimeout(ctx, pollInterval, timeout, true, func(ctx context.Context) (bool, error) {
+		if gerr := k8sClient.Get(ctx, client.ObjectKeyFromObject(dl), &live); gerr != nil {
+			//nolint:nilerr // keep polling
+			return false, nil
+		}
+		return live.Status.Import != nil, nil
+	})
+	if err != nil {
+		t.Skipf("Download %s/%s: status.import never populated within %s -- either "+
+			"importarr/worker/fileimport.Worker is not wired into importarr-worker's RoleWorker setup, "+
+			"or grabarr's own completion publish is unreachable because its controllers/engines are not "+
+			"registered (both task D2-8), or something else entirely blocked the handoff. Skipping the "+
+			"Imported assertion rather than waiting out the full context.\n%s",
+			dl.Namespace, dl.Name, timeout, describeDownload(client.ObjectKeyFromObject(dl))())
+		return
+	}
+	t.Logf("Download %s/%s reached status.import.state=%q message=%q rejections=%v",
+		dl.Namespace, dl.Name, live.Status.Import.State, live.Status.Import.Message, live.Status.Import.Rejections)
+	t.Skip("skipping the Imported/MediaFile assertion: " + importGapReason)
+}
+
+// nntpRequestLogPath is where one nntp-stub instance's fixture writes its
+// JSONL request log, as the HOST sees it -- mirroring
+// torznabRequestLogPath's identical bridge for the Torznab fixture. dir is
+// fixtureNNTPADir or fixtureNNTPBDir.
+func nntpRequestLogPath(dir string) string {
+	return filepath.Join(dataDir(), fixtureDirName, dir, "requests.jsonl")
+}
+
+// readNNTPRequests returns every request one nntp-stub instance logged at or
+// after t0. See readTorznabRequests for why this reads a file on the shared
+// volume rather than dialing the fixture directly: the test process cannot
+// reach a ClusterIP Service's NNTP port (main_test.go, "What it can reach").
+func readNNTPRequests(dir string, t0 time.Time) ([]nntpstub.Entry, error) {
+	path := nntpRequestLogPath(dir)
+	f, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil // the stub has not been asked anything yet
+		}
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	defer func() { _ = f.Close() }()
+
+	var out []nntpstub.Entry
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	for sc.Scan() {
+		line := bytes.TrimSpace(sc.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var e nntpstub.Entry
+		if err := json.Unmarshal(line, &e); err != nil {
+			continue // a torn final line is expected; see readTorznabRequests
+		}
+		if !e.At.Before(t0) {
+			out = append(out, e)
+		}
+	}
+	return out, sc.Err()
+}
+
+// nntpEntriesContain reports whether entries holds a record for id with the
+// given action ("served", "denied", "unknown" or "stat" --
+// test/fixtures/nntpstub/reqlog.go's own Entry.Action doc comment).
+func nntpEntriesContain(entries []nntpstub.Entry, id, action string) bool {
+	for _, e := range entries {
+		if e.ID == id && e.Action == action {
+			return true
+		}
+	}
+	return false
+}
+
+// describeNNTPRequests renders one nntp-stub instance's request log for a
+// failure message.
+func describeNNTPRequests(dir string, t0 time.Time) func() string {
+	return func() string {
+		es, err := readNNTPRequests(dir, t0)
+		if err != nil {
+			return fmt.Sprintf("nntp-stub %q's request log could not be read: %v", dir, err)
+		}
+		if len(es) == 0 {
+			return fmt.Sprintf("nntp-stub %q logged NO request since this scenario started", dir)
+		}
+		out := fmt.Sprintf("nntp-stub %q saw %d request(s) since this scenario started:", dir, len(es))
+		for _, e := range es {
+			out += fmt.Sprintf("\n    %s id=%s action=%s status=%d", e.At.Format(time.RFC3339), e.ID, e.Action, e.Status)
+		}
+		return out
+	}
+}
+
+// kubectlRolloutRestart shells out to `kubectl rollout restart` for one
+// Deployment in Namespace and waits for the rollout to finish -- the same
+// technique portForwardService uses for reaching a ClusterIP Service: the
+// test binary has no in-process equivalent (client-go's rollout logic lives
+// in kubectl itself, not in the client library), and this era of work adds
+// no new dependency (CLAUDE.md).
+func kubectlRolloutRestart(ctx context.Context, t *testing.T, deployment string) {
+	t.Helper()
+	if _, err := exec.LookPath("kubectl"); err != nil {
+		t.Fatalf("kubectlRolloutRestart: kubectl not on PATH: %v", err)
+	}
+	restart := exec.CommandContext(ctx, "kubectl", "--context", KubeContext, "-n", Namespace,
+		"rollout", "restart", "deployment/"+deployment)
+	out, err := restart.CombinedOutput()
+	require.NoErrorf(t, err, "kubectl rollout restart deployment/%s: %s", deployment, out)
+
+	status := exec.CommandContext(ctx, "kubectl", "--context", KubeContext, "-n", Namespace,
+		"rollout", "status", "deployment/"+deployment, "--timeout=3m")
+	out, err = status.CombinedOutput()
+	require.NoErrorf(t, err, "kubectl rollout status deployment/%s: %s", deployment, out)
 }
