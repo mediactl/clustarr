@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	subtitleac "github.com/mediactl/clustarr/api/applyconfiguration/subtitle/subtitle/v1alpha1"
@@ -43,6 +44,7 @@ import (
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	"github.com/mediactl/clustarr/captionarr/datapath"
+	"github.com/mediactl/clustarr/captionarr/providerset"
 	"github.com/mediactl/clustarr/captionarr/status"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -134,6 +136,10 @@ type inputs struct {
 	mf       *catalogv1alpha1.MediaFile
 	profile  *subtitlev1alpha1.SubtitleProfile
 	dirNames []string
+	// extractors are the embedded SubtitleProviders the fetch worker would
+	// task with writing an embedded track out; read only while the
+	// profile's spec.embedded.extract is on ([extractableStreams]).
+	extractors []providerset.Entry
 }
 
 // task is one fetch task this reconcile decided to publish.
@@ -259,7 +265,15 @@ func (r *Reconciler) gather(ctx context.Context, sr *subtitlev1alpha1.SubtitleRe
 			message: fmt.Sprintf("%s is not in %s", base, dir),
 		}, nil
 	}
-	return &inputs{mf: &mf, profile: profile, dirNames: names}, nil, nil
+	in := &inputs{mf: &mf, profile: profile, dirNames: names}
+	if profile.Spec.Embedded.ExtractOrDefault() {
+		var providers subtitlev1alpha1.SubtitleProviderList
+		if err := r.Client.List(ctx, &providers, client.InNamespace(sr.Namespace)); err != nil {
+			return nil, nil, fmt.Errorf("subtitlerequest: list SubtitleProviders: %w", err)
+		}
+		in.extractors = extractors(providers.Items, profile.Spec.Providers)
+	}
+	return in, nil, nil
 }
 
 // resolveProfile returns spec.profileRef's SubtitleProfile, or the one
@@ -312,7 +326,8 @@ func (r *Reconciler) plan(ctx context.Context, sr *subtitlev1alpha1.SubtitleRequ
 	kind := mf.Spec.MediaRef.Kind
 
 	pp, unknownKeys, profileLangs := plannerProfile(profile.Spec, sr.Spec.Languages)
-	existing := buildExisting(mf.Status.MediaInfo, profile.Spec.Embedded, filepath.Base(mf.Spec.Path), in.dirNames, profileLangs)
+	extract := extractableStreams(ctx, mf.Status.MediaInfo, profile.Spec.Embedded, in.extractors)
+	existing := buildExisting(mf.Status.MediaInfo, profile.Spec.Embedded, filepath.Base(mf.Spec.Path), in.dirNames, profileLangs, extract)
 	wantedKeys, cutoffMet := subtitles.Plan(pp, audioLanguages(mf.Status.MediaInfo), existingKeys(existing))
 
 	wanted := make(map[string]bool, len(wantedKeys))
@@ -464,6 +479,9 @@ func (r *Reconciler) plan(ctx context.Context, sr *subtitlev1alpha1.SubtitleRequ
 	planned := fmt.Sprintf("planned with SubtitleProfile %s (generation %d)", profile.Name, profile.Generation)
 	if len(unknownKeys) > 0 {
 		planned += fmt.Sprintf("; spec.languages names keys the profile does not have, ignored: %s", strings.Join(unknownKeys, ", "))
+	}
+	if len(extract) > 0 {
+		planned += fmt.Sprintf("; spec.embedded.extract: %d embedded track(s) to write out as sidecars", len(extract))
 	}
 	k8s.MarkTrue(sr, &conds, subtitlev1alpha1.SubtitleRequestConditionPlanned, ReasonPlanned, "%s", planned)
 	if len(wantedKeys) == 0 {
@@ -692,6 +710,10 @@ func stringKeys(ks []subtitles.LangKey) []string {
 //   - a SubtitleProfile's generation or Invalid condition, fanned out to the
 //     requests that name it or resolve by selector.
 //
+// A fourth, rarer one: an embedded SubtitleProvider appearing, going or
+// changing spec, which decides whether spec.embedded.extract can take
+// effect ([extractableStreams]); every request in its namespace replans.
+//
 // Time-based work -- a search or an upgrade coming due -- is none of these,
 // and arrives through the RequeueAfter [requeueAfter] computes.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -703,7 +725,34 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(k8s.StatusFieldChanged(probeHashOf))).
 		Watches(&subtitlev1alpha1.SubtitleProfile{}, handler.EnqueueRequestsFromMapFunc(r.mapProfile),
 			builder.WithPredicates(k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(profileInvalidOf)))).
+		Watches(&subtitlev1alpha1.SubtitleProvider{}, handler.EnqueueRequestsFromMapFunc(r.mapProvider),
+			builder.WithPredicates(k8s.And(predicate.NewPredicateFuncs(isEmbeddedProvider), k8s.GenerationChanged()))).
 		Complete(r)
+}
+
+// isEmbeddedProvider reports whether o is an embedded SubtitleProvider: the
+// only type whose presence changes a plan ([extractableStreams]). The type
+// is immutable, so an object never moves in or out of this set.
+func isEmbeddedProvider(o client.Object) bool {
+	sp, ok := o.(*subtitlev1alpha1.SubtitleProvider)
+	return ok && sp.Spec.Type == subtitlev1alpha1.SubtitleProviderEmbedded
+}
+
+// mapProvider enqueues every request in an embedded SubtitleProvider's
+// namespace: creating, deleting, enabling, disabling or re-scoping one
+// decides whether spec.embedded.extract can take effect, for every file.
+func (r *Reconciler) mapProvider(ctx context.Context, o client.Object) []reconcile.Request {
+	var list subtitlev1alpha1.SubtitleRequestList
+	if err := r.Client.List(ctx, &list, client.InNamespace(o.GetNamespace())); err != nil {
+		logging.FromContext(ctx).Error("list SubtitleRequests for an embedded provider change",
+			"provider", client.ObjectKeyFromObject(o), "err", err)
+		return nil
+	}
+	out := make([]reconcile.Request, 0, len(list.Items))
+	for _, sr := range list.Items {
+		out = append(out, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&sr)})
+	}
+	return out
 }
 
 // workerSignal projects every captionarr-worker leaf of every item into one

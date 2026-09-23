@@ -87,7 +87,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // The embedded half comes from MediaFile.status.mediaInfo.subtitles, every
 // stream the profile's embedded policy does not ignore (ignorePGS,
-// ignoreVobSub, ignoreASS by codec; skipCommentary by title). The sidecar
+// ignoreVobSub, ignoreASS by codec; skipCommentary by title) -- except a text
+// track spec.embedded.extract turns into a want. §6.5 counts every embedded
+// text stream as existing, which gave extract no effect; with extract on
+// (its default) and an enabled embedded SubtitleProvider to do the work, an
+// extractable track does not count, its language stays wanted, and the fetch
+// worker writes it out as a sidecar before asking any remote provider. With
+// extract off, or nothing to extract with, §6.5 holds. extractableStreams
+// in existing.go carries the full ruling. The sidecar
 // half is subtitles.ParseSidecar over the media file's directory, which the
 // controller role mounts at /data (config/manager/captionarr.yaml, and
 // "data" true for captionarr in the chart). spec.path is a logical /data
@@ -153,4 +160,5 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitlerequests/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitleprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
+// +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitleproviders,verbs=get;list;watch
 package subtitlerequest

@@ -26,6 +26,7 @@ import (
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
+	"github.com/mediactl/clustarr/captionarr/providerset"
 	"github.com/mediactl/clustarr/pkg/subtitles"
 )
 
@@ -65,7 +66,7 @@ func TestISO6392StreamLanguagesCountAsExisting(t *testing.T) {
 
 	pp, unknown, langs := plannerProfile(spec, nil)
 	require.Empty(t, unknown)
-	existing := buildExisting(mi, subtitlev1alpha1.EmbeddedSpec{}, "Movie.mkv", names, langs)
+	existing := buildExisting(mi, subtitlev1alpha1.EmbeddedSpec{}, "Movie.mkv", names, langs, nil)
 	assert.Equal(t, []string{"en", "fr:forced", "it"}, keysOf(existing))
 
 	wanted, cutoffMet := subtitles.Plan(pp, audioLanguages(mi), existingKeys(existing))
@@ -138,7 +139,7 @@ func TestEmbeddedPolicy(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := embeddedExisting(mi, tc.policy, "Movie.mkv")
+			got := embeddedExisting(mi, tc.policy, "Movie.mkv", nil)
 			assert.Equal(t, tc.want, keysOf(got))
 			for _, e := range got {
 				assert.Equal(t, subtitlev1alpha1.SubtitleSourceEmbedded, e.Source)
@@ -179,7 +180,7 @@ func TestBuildExistingFiltersToTheProfileAndCaps(t *testing.T) {
 	mi := &commonv1alpha1.MediaInfo{Subtitles: streams}
 
 	got := buildExisting(mi, subtitlev1alpha1.EmbeddedSpec{}, "Movie.mkv",
-		[]string{"Movie.mkv", "Movie.ko.srt"}, map[string]bool{"en": true})
+		[]string{"Movie.mkv", "Movie.ko.srt"}, map[string]bool{"en": true}, nil)
 	require.Len(t, got, maxExisting, "status.existing has MaxItems=64; an over-long list would fail the whole apply")
 	for _, e := range got {
 		assert.Equal(t, "en", e.LangKey, "a language the profile does not want is not recorded")
@@ -217,4 +218,64 @@ func TestNormalizeKeyKeepsSuffixes(t *testing.T) {
 		assert.Equal(t, want != "", ok, "%q", in)
 		assert.Equal(t, want, got, "%q", in)
 	}
+}
+
+// extractableStreams is spec.embedded.extract's effect: the text tracks the
+// embedded provider itself would offer, whose language an extractor serves.
+// Bitmap tracks, ignored ASS, commentary and untagged tracks never are.
+func TestExtractableStreams(t *testing.T) {
+	mi := &commonv1alpha1.MediaInfo{Subtitles: []commonv1alpha1.SubtitleStream{
+		{Index: 2, Codec: "subrip", Language: "eng"},
+		{Index: 3, Codec: "hdmv_pgs_subtitle", Language: "eng", Bitmap: true},
+		{Index: 4, Codec: "ass", Language: "fre"},
+		{Index: 5, Codec: "subrip", Language: "eng", Title: "Director's Commentary"},
+		{Index: 6, Codec: "subrip", Language: "und"},
+		{Index: 7, Codec: "mov_text", Language: "ger", Forced: true},
+	}}
+	all := []providerset.Entry{{Name: "emb", Type: subtitlev1alpha1.SubtitleProviderEmbedded}}
+	frOnly := []providerset.Entry{{Name: "emb", Type: subtitlev1alpha1.SubtitleProviderEmbedded, Languages: []string{"fr"}}}
+	on := subtitlev1alpha1.EmbeddedSpec{}
+	ctx := t.Context()
+
+	assert.Equal(t, map[int32]bool{2: true, 4: true, 7: true}, extractableStreams(ctx, mi, on, all))
+	assert.Equal(t, map[int32]bool{4: true}, extractableStreams(ctx, mi, on, frOnly), "the extractor's spec.languages")
+	assert.Equal(t, map[int32]bool{2: true, 7: true},
+		extractableStreams(ctx, mi, subtitlev1alpha1.EmbeddedSpec{IgnoreASS: true}, all), "ignoreASS")
+	assert.Equal(t, map[int32]bool{2: true, 4: true, 5: true, 7: true},
+		extractableStreams(ctx, mi, subtitlev1alpha1.EmbeddedSpec{SkipCommentary: ptr.To(false)}, all), "skipCommentary off")
+	assert.Nil(t, extractableStreams(ctx, mi, subtitlev1alpha1.EmbeddedSpec{Extract: ptr.To(false)}, all), "extract off")
+	assert.Nil(t, extractableStreams(ctx, mi, on, nil), "nothing to extract with")
+	assert.Nil(t, extractableStreams(ctx, nil, on, all), "not probed")
+
+	got := buildExisting(mi, on, "Movie.mkv", nil, map[string]bool{"en": true, "fr": true, "de": true},
+		extractableStreams(ctx, mi, on, all))
+	assert.Equal(t, []string{"en"}, keysOf(got), "only the bitmap track still counts: it cannot be written out as text")
+	require.NotNil(t, got[0].StreamIndex)
+	assert.EqualValues(t, 3, *got[0].StreamIndex)
+}
+
+// extractors is the fetch worker's own narrowing: enabled embedded
+// providers, restricted and ordered by the profile's spec.providers.
+func TestExtractorsAreTheProvidersTheWorkerWouldTask(t *testing.T) {
+	sp := func(name string, typ subtitlev1alpha1.SubtitleProviderType, enabled bool) subtitlev1alpha1.SubtitleProvider {
+		var p subtitlev1alpha1.SubtitleProvider
+		p.Name, p.Spec.Type, p.Spec.Enabled = name, typ, ptr.To(enabled)
+		return p
+	}
+	providers := []subtitlev1alpha1.SubtitleProvider{
+		sp("os", subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, true),
+		sp("emb", subtitlev1alpha1.SubtitleProviderEmbedded, true),
+		sp("emb-off", subtitlev1alpha1.SubtitleProviderEmbedded, false),
+	}
+	names := func(es []providerset.Entry) []string {
+		var out []string
+		for _, e := range es {
+			out = append(out, e.Name)
+		}
+		return out
+	}
+	assert.Equal(t, []string{"emb"}, names(extractors(providers, nil)))
+	assert.Equal(t, []string{"emb"}, names(extractors(providers, []string{"os", "emb"})))
+	assert.Empty(t, extractors(providers, []string{"os"}), "a profile that names only remote providers never extracts")
+	assert.Empty(t, extractors(providers, []string{"emb-off"}), "a disabled provider is never tasked")
 }

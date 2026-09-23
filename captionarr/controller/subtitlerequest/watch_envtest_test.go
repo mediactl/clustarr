@@ -94,6 +94,15 @@ func TestWatchesWakeTheController(t *testing.T) {
 		return f.get("movie").Status.ProbeHash == "hash-2" && len(bus.stored()) == before+1
 	}, 20*time.Second, 100*time.Millisecond, "a new probeHash must wake the controller and search the new file")
 
+	// An embedded SubtitleProvider appearing is what lets
+	// spec.embedded.extract take effect: the English track stops counting
+	// and en is fetched (extracted), for every request in the namespace.
+	before = len(bus.stored())
+	f.embeddedProvider("embedded")
+	require.Eventually(t, func() bool {
+		return len(f.get("movie").Status.Existing) == 0 && len(bus.stored()) > before
+	}, 20*time.Second, 100*time.Millisecond, "an embedded provider's creation must replan the namespace's requests")
+
 	// The DLQ projector's annotation bumps no generation and touches no
 	// worker leaf; k8s.DeadLetteredAnnotationChanged is what lets it in.
 	f.annotate("movie", "clustarr.evt.subtitle.subtitle.failed.x@2026-09-23T10:00:00Z")

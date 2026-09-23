@@ -18,15 +18,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package subtitlerequest
 
 import (
+	"context"
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
+	"github.com/mediactl/clustarr/captionarr/providerset"
 	"github.com/mediactl/clustarr/pkg/lang"
 	"github.com/mediactl/clustarr/pkg/subtitles"
+	"github.com/mediactl/clustarr/pkg/subtitles/providers/embedded"
 )
 
 // maxExisting is status.existing's +kubebuilder:validation:MaxItems. A file
@@ -87,18 +91,95 @@ func ignoredByPolicy(s commonv1alpha1.SubtitleStream, p subtitlev1alpha1.Embedde
 	return p.SkipCommentaryOrDefault() && strings.Contains(strings.ToLower(s.Title), "commentary")
 }
 
+// extractors returns the SubtitleProviders the fetch worker would task with
+// extracting an embedded track for a profile: the enabled embedded ones,
+// narrowed and ordered by the profile's spec.providers exactly as the
+// worker narrows its own set (providerset.Order). Only what
+// [extractableStreams] reads -- name, type and spec.languages -- is filled.
+func extractors(providers []subtitlev1alpha1.SubtitleProvider, profileProviders []string) []providerset.Entry {
+	var out []providerset.Entry
+	for _, sp := range providers {
+		if sp.Spec.Type != subtitlev1alpha1.SubtitleProviderEmbedded || !sp.Spec.EnabledOrDefault() {
+			continue
+		}
+		out = append(out, providerset.Entry{
+			Name: sp.Name, Namespace: sp.Namespace, Type: sp.Spec.Type, Languages: slices.Clone(sp.Spec.Languages),
+		})
+	}
+	return providerset.Order(out, profileProviders)
+}
+
+// extractableStreams gives spec.embedded.extract its effect. It returns the
+// index of every embedded subtitle stream that is written out as a sidecar
+// rather than counted as existing: extract is on, the embedded provider
+// itself would offer the stream (a text codec, ignoreASS and skipCommentary
+// honoured -- asked of pkg/subtitles/providers/embedded's own Search, which
+// reads only the probe, so the planner and the extractor cannot disagree on
+// which codecs extract), and an extractor the fetch worker would task
+// serves its language. Such a stream's language stays wanted, the fetch
+// task goes out, and the worker's local tier writes the track out as a
+// sidecar before any remote provider is asked (captionarr/worker/fetch).
+//
+// Design spec §6.5 says "existing = embedded text streams", which left
+// extract no effect at all: an embedded track always counted, so its
+// language was never wanted and the embedded provider never tasked. The
+// SubtitleProfile API documents extract (default true) as "writes a
+// matching embedded track out as a sidecar instead of searching providers
+// for it", and gap-fix task X11b ruled for the API: with extract on, an
+// extractable text track is a want the embedded provider fills; with it off,
+// §6.5 holds and the track counts as existing. A bitmap track (PGS,
+// VobSub) cannot be extracted as text, so it follows §6.5 either way.
+//
+// With no extractor -- no enabled embedded SubtitleProvider, one the
+// profile's spec.providers leaves out, or one whose spec.languages excludes
+// the track's language -- extraction cannot happen, and the track counts as
+// existing as before. Treating it as wanted would send every such language
+// to the remote providers instead: downloads for subtitles the file already
+// carries, on every library that never configured an embedded provider.
+func extractableStreams(ctx context.Context, mi *commonv1alpha1.MediaInfo, policy subtitlev1alpha1.EmbeddedSpec,
+	extractors []providerset.Entry,
+) map[int32]bool {
+	if mi == nil || !policy.ExtractOrDefault() || len(extractors) == 0 {
+		return nil
+	}
+	cands, err := embedded.New(embedded.Config{
+		Info: *mi, IgnoreASS: policy.IgnoreASS, SkipCommentary: policy.SkipCommentaryOrDefault(),
+	}).Search(ctx, subtitles.Query{})
+	if err != nil {
+		return nil
+	}
+	out := map[int32]bool{}
+	for _, c := range cands {
+		idx, err := strconv.ParseInt(c.FetchID, 10, 32)
+		if err != nil {
+			continue
+		}
+		l, ok := normalizeLang(c.Language)
+		if !ok {
+			continue
+		}
+		if slices.ContainsFunc(extractors, func(e providerset.Entry) bool { return e.Serves([]string{l}) }) {
+			out[int32(idx)] = true
+		}
+	}
+	return out
+}
+
 // embeddedExisting is the embedded half of status.existing: every subtitle
 // stream the probe reported that the policy does not ignore and whose
-// language resolves. A stream tagged "und" or not tagged at all is left out
-// -- it satisfies no language this controller can name, and the scanner
+// language resolves, except one extract turns into a want (extract, from
+// [extractableStreams]). A stream tagged "und" or not tagged at all is left
+// out -- it satisfies no language this controller can name, and the scanner
 // never guesses.
-func embeddedExisting(mi *commonv1alpha1.MediaInfo, policy subtitlev1alpha1.EmbeddedSpec, mediaBase string) []subtitlev1alpha1.ExistingSub {
+func embeddedExisting(mi *commonv1alpha1.MediaInfo, policy subtitlev1alpha1.EmbeddedSpec, mediaBase string,
+	extract map[int32]bool,
+) []subtitlev1alpha1.ExistingSub {
 	if mi == nil {
 		return nil
 	}
 	var out []subtitlev1alpha1.ExistingSub
 	for _, s := range mi.Subtitles {
-		if ignoredByPolicy(s, policy) {
+		if ignoredByPolicy(s, policy) || extract[s.Index] {
 			continue
 		}
 		l, ok := normalizeLang(s.Language)
@@ -148,11 +229,12 @@ func sidecarExisting(names []string, videoBase string) []subtitlev1alpha1.Existi
 // buildExisting assembles status.existing: embedded streams first, in stream
 // order, then sidecars by filename, keeping only subtitles in one of the
 // profile's languages (ExistingSub.LangKey is "the profile language key this
-// subtitle satisfies") and capped at maxExisting.
+// subtitle satisfies") and capped at maxExisting. An embedded stream in
+// extract is left out: it satisfies nothing until it is written out.
 func buildExisting(mi *commonv1alpha1.MediaInfo, policy subtitlev1alpha1.EmbeddedSpec,
-	mediaBase string, dirNames []string, profileLangs map[string]bool,
+	mediaBase string, dirNames []string, profileLangs map[string]bool, extract map[int32]bool,
 ) []subtitlev1alpha1.ExistingSub {
-	emb := embeddedExisting(mi, policy, mediaBase)
+	emb := embeddedExisting(mi, policy, mediaBase, extract)
 	sort.SliceStable(emb, func(i, j int) bool { return *emb[i].StreamIndex < *emb[j].StreamIndex })
 	side := sidecarExisting(dirNames, mediaBase)
 	sort.SliceStable(side, func(i, j int) bool { return side[i].Path < side[j].Path })
