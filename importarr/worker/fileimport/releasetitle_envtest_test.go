@@ -154,4 +154,18 @@ func TestEpisodeImportScoresReleaseTitleFormats(t *testing.T) {
 		commonv1.MediaRef{Kind: commonv1.MediaKindSeries, Name: s2.series, Keys: []string{"breaking-bad-s01e03"}})
 	assertScored(t, s2.importedFiles(t, got)["Breaking.Bad.S01E03.1080p.BluRay.x264-GRP.mkv"], false,
 		"a full season's name, one file or not")
+
+	// Nor is a release name that is not a season's, when the download holds
+	// more than one video file: it cannot say which file it describes.
+	two := dataDir(t, "scratch")
+	mustWriteSparseFile(t, filepath.Join(two, "Breaking.Bad.S01E01.1080p.BluRay.x264-GRP.mkv"), sampleFloor)
+	mustWriteSparseFile(t, filepath.Join(two, "Breaking.Bad.S01E02.1080p.BluRay.x264-GRP.mkv"), sampleFloor)
+	got = s2.importTitled(t, "rt-two", "Breaking.Bad.S01E01E02.REPACK.1080p.BluRay.HDR.x264-GRP", two,
+		commonv1.MediaRef{
+			Kind: commonv1.MediaKindSeries, Name: s2.series,
+			Keys: []string{"breaking-bad-s01e01", "breaking-bad-s01e02"},
+		})
+	for name, mf := range s2.importedFiles(t, got) {
+		assertScored(t, mf, false, name+": one release name, two video files")
+	}
 }
