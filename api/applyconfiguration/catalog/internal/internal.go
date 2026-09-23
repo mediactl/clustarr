@@ -1801,6 +1801,9 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: associative
           keys:
           - type
+    - name: cutoffMet
+      type:
+        scalar: boolean
     - name: date
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time

@@ -31,6 +31,9 @@ const (
 	IssueConditionHasFile = "HasFile"
 	// IssueConditionReleased is True once the issue's cover date has passed.
 	IssueConditionReleased = "Released"
+	// IssueConditionCutoffMet is True when the imported file meets the
+	// quality cutoff of the owning Comic's profile.
+	IssueConditionCutoffMet = "CutoffMet"
 )
 
 // IssueState is the acquisition state of a single issue.
@@ -120,6 +123,11 @@ type IssueStatus struct {
 	// FileQuality is the quality of the imported file.
 	// +optional
 	FileQuality *commonv1.Quality `json:"fileQuality,omitempty"`
+
+	// CutoffMet is true when the imported file meets the cutoff of the owning
+	// Comic's quality profile, so the issue is no longer an upgrade candidate.
+	// +optional
+	CutoffMet bool `json:"cutoffMet,omitempty"`
 
 	// ActiveDownloadRef is the Download currently working on this issue.
 	// +optional

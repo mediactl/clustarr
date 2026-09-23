@@ -49,6 +49,9 @@ type IssueStatusApplyConfiguration struct {
 	FileRef *string `json:"fileRef,omitempty"`
 	// FileQuality is the quality of the imported file.
 	FileQuality *commonv1alpha1.Quality `json:"fileQuality,omitempty"`
+	// CutoffMet is true when the imported file meets the cutoff of the owning
+	// Comic's quality profile, so the issue is no longer an upgrade candidate.
+	CutoffMet *bool `json:"cutoffMet,omitempty"`
 	// ActiveDownloadRef is the Download currently working on this issue.
 	ActiveDownloadRef *string `json:"activeDownloadRef,omitempty"`
 	// LastSearchedAt is when the issue was last searched for.
@@ -137,6 +140,14 @@ func (b *IssueStatusApplyConfiguration) WithFileRef(value string) *IssueStatusAp
 // If called multiple times, the FileQuality field is set to the value of the last call.
 func (b *IssueStatusApplyConfiguration) WithFileQuality(value commonv1alpha1.Quality) *IssueStatusApplyConfiguration {
 	b.FileQuality = &value
+	return b
+}
+
+// WithCutoffMet sets the CutoffMet field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the CutoffMet field is set to the value of the last call.
+func (b *IssueStatusApplyConfiguration) WithCutoffMet(value bool) *IssueStatusApplyConfiguration {
+	b.CutoffMet = &value
 	return b
 }
 

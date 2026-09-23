@@ -177,6 +177,11 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              cutoffMet:
+                description: |-
+                  CutoffMet is true when the imported file meets the cutoff of the owning
+                  Comic's quality profile, so the issue is no longer an upgrade candidate.
+                type: boolean
               date:
                 description: Date is the issue's cover or store date.
                 format: date-time
