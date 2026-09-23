@@ -366,3 +366,35 @@ func TestSeriesMapsItsImageAndArtworksIntoImages(t *testing.T) {
 		{Type: metadata.ImageTypeBanner, URL: "https://artworks.thetvdb.com/banners/graphical/121361-g.jpg"},
 	}, s.Images, "an artwork of an unknown type is left out")
 }
+
+// TestSeriesMapsItsAliasesIntoAlternateTitles: TheTVDB's aliases become the
+// series' AlternateTitles, each with its language normalised to BCP 47 as
+// OriginalLanguage is, the series' own name and a case-only repeat dropped
+// (metadata.DistinctAltTitles), and no scene season. The fixture's aliases
+// follow SeriesExtendedRecord.aliases' documented shape
+// (docs/research/metadata.md §2.2); they are not a recorded live response.
+func TestSeriesMapsItsAliasesIntoAlternateTitles(t *testing.T) {
+	login, _ := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
+	series, err := os.ReadFile("../../../../testdata/metadata/tvdb/series_121361.json")
+	require.NoError(t, err)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/login":
+			_, _ = w.Write(login)
+		case "/series/121361/extended":
+			_, _ = w.Write(series)
+		default:
+			t.Errorf("unexpected request: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	c := tvdb.New("test-key", "test-pin", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+
+	s, err := c.Series(context.Background(), "121361")
+	require.NoError(t, err)
+	require.Equal(t, []metadata.AltTitle{
+		{Title: "GoT", Language: "en"},
+		{Title: "Juego de tronos", Language: "es"},
+		{Title: "Le Trône de fer", Language: "fr"},
+	}, s.AlternateTitles)
+}

@@ -90,9 +90,15 @@ func (c *Client) Capabilities() metadata.Capabilities {
 // seriesExtendedResponse is TheTVDB v4's SeriesExtendedRecord envelope.
 type seriesExtendedResponse struct {
 	Data struct {
-		ID         int64  `json:"id"`
-		Name       string `json:"name"`
-		Slug       string `json:"slug"`
+		ID   int64  `json:"id"`
+		Name string `json:"name"`
+		Slug string `json:"slug"`
+		// Aliases are the other names TheTVDB knows the series by, each
+		// with its ISO 639-2 language (SeriesExtendedRecord.aliases).
+		Aliases []struct {
+			Language string `json:"language"`
+			Name     string `json:"name"`
+		} `json:"aliases"`
 		Overview   string `json:"overview"`
 		FirstAired string `json:"firstAired"`
 		LastAired  string `json:"lastAired"`
@@ -165,6 +171,15 @@ func (c *Client) Series(ctx context.Context, tvdbID string) (*metadata.Series, e
 	for _, g := range raw.Data.Genres {
 		s.Genres = append(s.Genres, g.Name)
 	}
+	// TheTVDB's aliases are the series' alternate titles, their language
+	// normalised as OriginalLanguage is; DistinctAltTitles drops the
+	// series' own name and repeats. None carries a scene season: that
+	// numbering comes from scene mappings, not from TheTVDB.
+	aliases := make([]metadata.AltTitle, 0, len(raw.Data.Aliases))
+	for _, a := range raw.Data.Aliases {
+		aliases = append(aliases, metadata.AltTitle{Title: a.Name, Language: originalLanguage(a.Language)})
+	}
+	s.AlternateTitles = metadata.DistinctAltTitles(s.Title, aliases)
 	// The series' own image is its poster and comes first, so a consumer
 	// that takes the first poster (the library page) shows the one TheTVDB
 	// itself leads with; the artworks follow in the order published.

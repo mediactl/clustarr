@@ -169,8 +169,8 @@ func (c *Client) Capabilities() metadata.Capabilities {
 	}
 }
 
-// Movie fetches a single movie's details, release dates and external ids
-// from TMDB, and derives InCinemas/DigitalRelease/PhysicalRelease/Status
+// Movie fetches a single movie's details, release dates, external ids and
+// alternative titles from TMDB, and derives InCinemas/DigitalRelease/PhysicalRelease/Status
 // for region via metadata.DeriveRegionalReleases and
 // metadata.DeriveMovieStatus.
 func (c *Client) Movie(ctx context.Context, tmdbID string, region string) (*metadata.Movie, error) {
@@ -196,7 +196,7 @@ func (c *Client) Movie(ctx context.Context, tmdbID string, region string) (*meta
 
 	d, err := c.raw.GetMovieDetails(id, map[string]string{
 		"language":           languageFor(region),
-		"append_to_response": "release_dates,external_ids",
+		"append_to_response": "release_dates,external_ids,alternative_titles",
 	})
 	if err != nil {
 		mapped := c.mapError(err)
@@ -365,6 +365,7 @@ func mapMovie(d *rawtmdb.MovieDetails, region string) *metadata.Movie {
 		m.Year = year
 	}
 	m.SecondaryYear = metadata.DeriveSecondaryYear(releaseDates, m.Year)
+	m.AlternateTitles = mapAlternativeTitles(d)
 	if d.BelongsToCollection.ID != 0 {
 		m.Collection = &metadata.Collection{
 			IDs:   metadata.ExternalIDs{metadata.KeyTMDB: strconv.FormatInt(d.BelongsToCollection.ID, 10)},
@@ -382,6 +383,25 @@ func mapMovie(d *rawtmdb.MovieDetails, region string) *metadata.Movie {
 	}
 
 	return m
+}
+
+// mapAlternativeTitles maps TMDB's append_to_response alternative_titles
+// (/movie/{id}/alternative_titles: each title with its ISO 3166-1 country
+// and a free-text type such as "working title") into AlternateTitles,
+// filed by metadata.DistinctAltTitles: the movie's own title and repeats
+// dropped, as Radarr files the titles TMDB gives it. A response without the
+// append (an older cached body, a test fixture) maps to none.
+func mapAlternativeTitles(d *rawtmdb.MovieDetails) []metadata.AltTitle {
+	// d.AlternativeTitles is a promoted field reached through the embedded
+	// pointer, so the pointer itself is checked first, as in mapMovie.
+	if d.MovieAlternativeTitlesAppend == nil || d.AlternativeTitles == nil {
+		return nil
+	}
+	titles := make([]metadata.AltTitle, 0, len(d.AlternativeTitles.Titles))
+	for _, t := range d.AlternativeTitles.Titles {
+		titles = append(titles, metadata.AltTitle{Title: t.Title, Country: t.Iso3166_1, Type: t.Type})
+	}
+	return metadata.DistinctAltTitles(d.Title, titles)
 }
 
 // mapReleaseDates flattens TMDB's append_to_response release_dates

@@ -3,6 +3,13 @@
     "id": 121361,
     "name": "Game of Thrones",
     "slug": "game-of-thrones",
+    "aliases": [
+      {"language": "eng", "name": "GoT"},
+      {"language": "eng", "name": "Game of Thrones"},
+      {"language": "spa", "name": "Juego de tronos"},
+      {"language": "spa", "name": "Juego de Tronos"},
+      {"language": "fra", "name": "Le Trône de fer"}
+    ],
     "overview": "Seven noble families fight for control of the mythical land of Westeros.",
     "firstAired": "2011-04-17",
     "lastAired": "2019-05-19",

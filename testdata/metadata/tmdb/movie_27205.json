@@ -23,5 +23,16 @@
       }
     ]
   },
-  "external_ids": {"imdb_id": "tt1375666", "wikidata_id": "Q25188"}
+  "external_ids": {"imdb_id": "tt1375666", "wikidata_id": "Q25188"},
+  "alternative_titles": {
+    "titles": [
+      {"iso_3166_1": "BR", "title": "A Origem", "type": ""},
+      {"iso_3166_1": "PT", "title": "A Origem", "type": ""},
+      {"iso_3166_1": "ES", "title": "Origen", "type": ""},
+      {"iso_3166_1": "IT", "title": "Inception: Le Origini", "type": ""},
+      {"iso_3166_1": "US", "title": "Inception", "type": "working title"},
+      {"iso_3166_1": "CN", "title": "盗梦空间", "type": ""},
+      {"iso_3166_1": "RU", "title": "Начало", "type": ""}
+    ]
+  }
 }

@@ -131,6 +131,8 @@ func TestHandlerFetchesFromTheProviderAndPatchesOnlyStatusMetadata(t *testing.T)
 	require.Equal(t, "Inception", got.Status.Metadata.Title)
 	require.EqualValues(t, 148, got.Status.Metadata.RuntimeMinutes)
 	require.Equal(t, "tt1375666", got.Status.Metadata.ExternalIDs["imdb"])
+	require.Equal(t, []string{"A Origem", "Origen", "Inception: Le Origini", "盗梦空间", "Начало"}, got.Status.Metadata.AlternateTitles,
+		"TMDB's alternative titles reach status.metadata.alternateTitles, the movie's own title and repeats dropped")
 	require.Empty(t, got.Status.Phase, "the worker must never set phase; that is the movie controller's field")
 	require.Empty(t, got.Status.Conditions, "the worker must never set conditions")
 }

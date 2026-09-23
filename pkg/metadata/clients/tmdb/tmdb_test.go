@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -57,6 +58,40 @@ func TestMovieMapsTMDBFieldsIntoTheNormalizedModel(t *testing.T) {
 	require.EqualValues(t, 837, m.Ratings["tmdb"].ValueCentis, "8.369 * 100, rounded")
 	require.True(t, m.InCinemas.Equal(time.Date(2010, 7, 16, 0, 0, 0, 0, time.UTC)))
 	require.Equal(t, metadata.MovieStatusReleased, m.Status)
+}
+
+// TestMovieMapsAlternativeTitles: Movie asks TMDB to append the movie's
+// alternative_titles and files them into AlternateTitles -- the movie's own
+// title and a second country's identical title dropped, each kept title
+// with its country and type -- which is what the gateway writes into
+// MovieMetadata.alternateTitles for title matching. The fixture's titles
+// follow TMDB's documented shape (golang-tmdb's AlternativeTitle); they are
+// not a recorded live response.
+func TestMovieMapsAlternativeTitles(t *testing.T) {
+	body, err := os.ReadFile("../../../../testdata/metadata/tmdb/movie_27205.json")
+	require.NoError(t, err)
+	var appended string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		appended = r.URL.Query().Get("append_to_response")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+
+	c, err := tmdb.New("test-key", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+	require.NoError(t, err)
+
+	m, err := c.Movie(context.Background(), "27205", "US")
+	require.NoError(t, err)
+
+	require.Contains(t, strings.Split(appended, ","), "alternative_titles")
+	require.Equal(t, []metadata.AltTitle{
+		{Title: "A Origem", Country: "BR"},
+		{Title: "Origen", Country: "ES"},
+		{Title: "Inception: Le Origini", Country: "IT"},
+		{Title: "盗梦空间", Country: "CN"},
+		{Title: "Начало", Country: "RU"},
+	}, m.AlternateTitles)
 }
 
 func TestMovieMapsA404ToErrNotFound(t *testing.T) {
