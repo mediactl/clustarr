@@ -415,3 +415,56 @@ func ownsPath(fields map[string]any, parts []string) bool {
 	}
 	return ownsPath(child, parts[1:])
 }
+
+// The carried "no concurrency guard on the RootFolder schedule": an hourly
+// schedule over a three-hour walk started a new walk of the same tree every
+// hour. A due tick now waits while an earlier scan of the root folder is in
+// flight -- whoever created it -- and fires once that scan settles, collapsed
+// to the most recent due tick (CronJob's concurrencyPolicy: Forbid).
+func TestReconcileDefersADueTickWhileAScanIsInFlight(t *testing.T) {
+	ctx := context.Background()
+	c := requireEnvtest(t)
+	ns := createNamespace(t, ctx, c, "rfs-busy")
+	newRootFolder(t, ctx, c, ns, "0 * * * *",
+		map[string]string{rootfolderschedule.AnnotationLastTick: "2026-09-18T07:00:00Z"})
+
+	// A walk that started at 07:00 and is still running at 10:00; a person's
+	// own scan of the same root folder counts as much as a scheduled one.
+	running := &catalogv1alpha1.LibraryScan{
+		ObjectMeta: metav1.ObjectMeta{Name: "by-hand", Namespace: ns},
+		Spec:       catalogv1alpha1.LibraryScanSpec{RootFolderRef: "movies"},
+	}
+	require.NoError(t, c.Create(ctx, running))
+	running.Status.Phase = catalogv1alpha1.ScanPhaseRunning
+	//nolint:forbidigo // test fixture seeding a starting state, not a production status write
+	require.NoError(t, c.Status().Update(ctx, running))
+
+	now := time.Date(2026, 9, 18, 10, 0, 30, 0, time.UTC)
+	r := &rootfolderschedule.Reconciler{
+		Client: c, Recorder: events.NewFakeRecorder(10), Clock: func() time.Time { return now },
+	}
+	res, err := r.Reconcile(ctx, request(ns))
+	require.NoError(t, err)
+	assert.Positive(t, res.RequeueAfter, "the deferred tick is looked at again")
+	assert.Empty(t, listScans(t, ctx, c, ns), "no second walk of the same tree")
+	var rf catalogv1alpha1.RootFolder
+	require.NoError(t, c.Get(ctx, request(ns).NamespacedName, &rf))
+	assert.Equal(t, "2026-09-18T07:00:00Z", rf.Annotations[rootfolderschedule.AnnotationLastTick],
+		"a deferred tick is not consumed")
+
+	// A scan of another root folder does not hold this one back, and once
+	// the in-flight scan settles the most recent due tick fires.
+	running.Status.Phase = catalogv1alpha1.ScanPhaseCompleted
+	//nolint:forbidigo // test fixture moving the phase on, not a production status write
+	require.NoError(t, c.Status().Update(ctx, running))
+	other := &catalogv1alpha1.LibraryScan{
+		ObjectMeta: metav1.ObjectMeta{Name: "other-root", Namespace: ns},
+		Spec:       catalogv1alpha1.LibraryScanSpec{RootFolderRef: "shows"},
+	}
+	require.NoError(t, c.Create(ctx, other))
+	now = now.Add(20 * time.Minute)
+	require.NoError(t, errOf(r.Reconcile(ctx, request(ns))))
+	require.Len(t, listScans(t, ctx, c, ns), 1)
+	require.NoError(t, c.Get(ctx, request(ns).NamespacedName, &rf))
+	assert.Equal(t, "2026-09-18T10:00:00Z", rf.Annotations[rootfolderschedule.AnnotationLastTick])
+}

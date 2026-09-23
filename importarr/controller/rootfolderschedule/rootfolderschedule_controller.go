@@ -58,6 +58,11 @@ const (
 	// timer that long is a timer nobody can reason about.
 	maxRequeue = 12 * time.Hour
 
+	// deferRecheck is how often a due tick waiting on an earlier scan of the
+	// same root folder looks again. There is no watch on LibraryScan, so
+	// this is what notices the earlier scan settling.
+	deferRecheck = time.Minute
+
 	// maxCatchUp bounds how stale a recorded tick may be before the
 	// RootFolder is simply re-adopted.
 	//
@@ -143,7 +148,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		// Never seen before, unreadable, or so stale that which scheduled
 		// slot it named has stopped meaning anything: scan once and
 		// re-anchor. Everything after this is driven by the annotation.
-		return r.fire(ctx, &rf, now.Truncate(time.Minute))
+		return r.fireUnlessBusy(ctx, &rf, now.Truncate(time.Minute))
 	}
 
 	next := sched.Next(last)
@@ -178,7 +183,59 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		}
 		tick = following
 	}
-	return r.fire(ctx, &rf, tick)
+	return r.fireUnlessBusy(ctx, &rf, tick)
+}
+
+// fireUnlessBusy fires tick, unless an earlier scan of the same root folder
+// is still in flight -- Pending or Running, whoever created it. Two walks of
+// one tree at once do the same work twice and race each other's MediaFile
+// writes; an "@hourly" schedule over a three-hour walk used to start a new
+// one every hour regardless.
+//
+// The tick is not skipped, only deferred, which is Kubernetes CronJob's
+// concurrencyPolicy: Forbid: the annotation is not stamped, so once the
+// earlier scan settles the next look finds the tick still due and fires it
+// -- collapsed, as every late tick is, to the most recent one due. A
+// schedule shorter than a walk therefore walks back to back rather than on
+// top of itself.
+func (r *Reconciler) fireUnlessBusy(ctx context.Context, rf *catalogv1alpha1.RootFolder, tick time.Time) (ctrl.Result, error) {
+	busy, err := r.scanInFlight(ctx, rf, scanName(rf, tick))
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if busy != "" {
+		logging.FromContext(ctx).Info("deferring a due library scan until the one in flight settles",
+			"inFlight", busy, "tick", tick)
+		return ctrl.Result{RequeueAfter: deferRecheck}, nil
+	}
+	return r.fire(ctx, rf, tick)
+}
+
+// scanInFlight returns the name of a LibraryScan of rf that has not settled
+// yet, other than own (the scan this tick would create, which a retry
+// between fire's two writes finds already there), or "".
+func (r *Reconciler) scanInFlight(ctx context.Context, rf *catalogv1alpha1.RootFolder, own string) (string, error) {
+	var scans catalogv1alpha1.LibraryScanList
+	if err := r.Client.List(ctx, &scans, client.InNamespace(rf.Namespace)); err != nil {
+		return "", fmt.Errorf("rootfolderschedule: list library scans: %w", err)
+	}
+	for i := range scans.Items {
+		s := &scans.Items[i]
+		if s.Spec.RootFolderRef != rf.Name || s.Name == own || k8s.IsDeleting(s) {
+			continue
+		}
+		switch s.Status.Phase {
+		case "", catalogv1alpha1.ScanPhasePending, catalogv1alpha1.ScanPhaseRunning:
+			return s.Name, nil
+		}
+	}
+	return "", nil
+}
+
+// scanName is the LibraryScan a tick creates: derived from the tick, so a
+// retry re-applies the same object rather than creating a second.
+func scanName(rf *catalogv1alpha1.RootFolder, tick time.Time) string {
+	return k8s.ChildName(rf.Name, "scan", tick.UTC().Format(time.RFC3339))
 }
 
 // fire creates the LibraryScan for one tick and records the tick on the
@@ -189,7 +246,7 @@ func (r *Reconciler) fire(
 	rf *catalogv1alpha1.RootFolder,
 	tick time.Time,
 ) (ctrl.Result, error) {
-	name := k8s.ChildName(rf.Name, "scan", tick.UTC().Format(time.RFC3339))
+	name := scanName(rf, tick)
 
 	scan := catalogac.LibraryScan(name, rf.Namespace).
 		WithLabels(map[string]string{LabelRootFolder: rf.Name}).
@@ -268,8 +325,8 @@ func requeueFor(d time.Duration) time.Duration {
 // indexarr, grabarr, squasharr and captionarr as well -- none of which has any
 // business patching a RootFolder. Nothing here can narrow that: per-service
 // roles need per-service generator invocations and per-service bindings, which
-// is a manifest-layout change rather than a marker change. Until then the real
-// boundary is the field manager, not RBAC.
+// is a manifest-layout change rather than a marker change, which gap-fix W2
+// (X14) owns. Until then the real boundary is the field manager, not RBAC.
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=libraryscans,verbs=get;list;watch;create;update;patch
 // The Recorder is a k8s.io/client-go/tools/events.EventRecorder, handed in by

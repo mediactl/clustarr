@@ -44,6 +44,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // adoption and then stamped -- adding a root folder to the cluster is
 // precisely the moment an operator wants its contents indexed.
 //
+// # One walk at a time
+//
+// A due tick does not fire while an earlier LibraryScan of the same root
+// folder is still Pending or Running, whoever created it: two walks of one
+// tree do the same work twice and race each other's MediaFile writes. The
+// tick is deferred, not skipped -- Kubernetes CronJob's concurrencyPolicy:
+// Forbid -- so it fires once the earlier scan settles, collapsed like any
+// late tick to the most recent one due. A schedule shorter than a walk
+// walks back to back.
+//
 // # Registration
 //
 // Nothing here registers itself. Task C12 wires it into importarr's
