@@ -489,6 +489,12 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Aud
 			"qualityProfileRef", m.Spec.QualityProfileRef, "problem", profileProblem)
 	}
 	hasFile, fileRefs, fileQuality, cutoffMet := FileState(mfList.Items, profile)
+	// Announced before the apply that records the new fileRefs, so a failed
+	// apply re-announces the same edges under the same envelope ids
+	// (rollup.MediaFileEvent) rather than losing them.
+	for _, e := range FileTransitions(m.Status.FileRefs, fileRefs, mfList.Items) {
+		r.publishFile(ctx, m, e.Action, e.File, e.MediaFile, now)
+	}
 
 	dl, err := r.activeDownload(ctx, m)
 	if err != nil {

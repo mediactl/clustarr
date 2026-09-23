@@ -61,3 +61,25 @@ func (r *Reconciler) publishItem(ctx context.Context, iss *catalogv1alpha1.Issue
 		log.Warn("issue: could not publish a catalog item event", "action", action, "subject", subject, "error", err)
 	}
 }
+
+// publishFile publishes one MediaFileEvent for iss -- spec §5's
+// clustarr.evt.catalog.mediafile.<imported|replaced|deleted>.<uid>, where
+// <uid> is the issue's -- through rollup.MediaFileEvent, as the Movie and
+// Episode reconcilers do. It is best effort for the same reason publishItem
+// is, and a nil Bus publishes nothing.
+func (r *Reconciler) publishFile(ctx context.Context, iss *catalogv1alpha1.Issue, action, file string, mf *catalogv1alpha1.MediaFile, now time.Time) {
+	if r.Bus == nil {
+		return
+	}
+	log := logging.FromContext(ctx)
+	media := commonv1.MediaRef{Kind: commonv1.MediaKindIssue, Name: iss.Name}
+	subject, env, err := rollup.MediaFileEvent(iss, media, action, file, mf, now)
+	if err != nil {
+		log.Warn("issue: could not encode a media-file event", "action", action, "mediafile", file, "error", err)
+		return
+	}
+	tracing.Inject(ctx, env)
+	if _, err := r.Bus.Publish(ctx, subject, env); err != nil {
+		log.Warn("issue: could not publish a media-file event", "action", action, "mediafile", file, "subject", subject, "error", err)
+	}
+}

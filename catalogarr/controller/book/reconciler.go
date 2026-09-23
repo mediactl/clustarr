@@ -522,6 +522,12 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, bk *catalogv1alpha1.Bo
 			"book", bk.Name, "namespace", bk.Namespace, "problem", profileProblem)
 	}
 	hasFile, fileRef, fileFormat, cutoffMet := FileState(mf, profile)
+	// Announced before the apply that records the new fileRef, so a failed
+	// apply re-announces the same edge under the same envelope id
+	// (rollup.MediaFileEvent) rather than losing it.
+	if action, file := rollup.FileTransition(bk.Status.FileRef, mf); action != "" {
+		r.publishFile(ctx, bk, action, file, mf, now)
+	}
 
 	dl, err := r.activeDownload(ctx, bk)
 	if err != nil {

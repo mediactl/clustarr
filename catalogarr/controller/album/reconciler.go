@@ -578,6 +578,12 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 			"album", alb.Name, "namespace", alb.Namespace, "artistRef", alb.Spec.ArtistRef, "problem", profileProblem)
 	}
 	hasFile, fileQuality, fileFormatScore, cutoffMet := FileState(mfList.Items, profile)
+	// Announced before the apply that records the new track fileRefs, so a
+	// failed apply re-announces the same edges under the same envelope ids
+	// (rollup.MediaFileEvent) rather than losing them.
+	for _, e := range TrackFileTransitions(alb.Status.Tracks, ts.tracks, mfList.Items) {
+		r.publishFile(ctx, alb, e.Action, e.File, e.MediaFile, now)
+	}
 
 	dl, err := r.activeDownload(ctx, alb)
 	if err != nil {

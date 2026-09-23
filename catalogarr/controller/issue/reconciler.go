@@ -95,8 +95,9 @@ type Reconciler struct {
 	Scheme   *runtime.Scheme
 	Recorder k8sevents.EventRecorder
 
-	// Bus publishes this Issue's catalog item events (publishItem). Nil
-	// publishes nothing, so a caller that wires no bus loses only history.
+	// Bus publishes this Issue's catalog item and media-file events
+	// (publishItem, publishFile). Nil publishes nothing, so a caller that
+	// wires no bus loses only history.
 	Bus events.Publisher
 
 	// OnReconcile is a test-only hook, called at the top of every Reconcile.
@@ -369,6 +370,12 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, iss *catalogv1alpha1.I
 	// comic profile scores no custom formats anyway (pkg/quality.FromCRD
 	// gives a non-video profile an empty Scores).
 	hasFile, fileRef, fileQuality, _, cutoffMet := rollup.FileState(mf, profile)
+	// Announced before the apply that records the new fileRef, so a failed
+	// apply re-announces the same edge under the same envelope id
+	// (rollup.MediaFileEvent) rather than losing it.
+	if action, file := rollup.FileTransition(iss.Status.FileRef, mf); action != "" {
+		r.publishFile(ctx, iss, action, file, mf, now)
+	}
 
 	dl, err := r.activeDownload(ctx, iss)
 	if err != nil {
