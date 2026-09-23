@@ -13,14 +13,6 @@ rules:
   - list
   - watch
 - apiGroups:
-  - ""
-  - events.k8s.io
-  resources:
-  - events
-  verbs:
-  - create
-  - patch
-- apiGroups:
   - catalog.clustarr.io
   resources:
   - delayprofiles
@@ -123,6 +115,13 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
 - apiGroups:
   - index.clustarr.io
   resources:

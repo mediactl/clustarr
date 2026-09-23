@@ -293,10 +293,18 @@ func TestGeneratedRoleCoversEveryStatusWriter(t *testing.T) {
 				"Run `make manifests` and check the marker is package level.", want)
 	}
 
-	// Both Event API groups: the tree uses record.EventRecorder (core/v1) in
-	// some controllers and tools/events (events.k8s.io/v1) in others.
-	require.True(t, granted["/events"], "the core Events group is not granted")
+	// ONE Event API group. Every controller in this tree takes a
+	// k8s.io/client-go/tools/events.EventRecorder from mgr.GetEventRecorder
+	// and writes events.k8s.io/v1; the deprecated mgr.GetEventRecorderFor,
+	// which writes core/v1, is gone. The negative half is the real guard:
+	// the core rule reappearing means a controller went back to the old
+	// recorder, or a groups="" marker outlived the recorder it described.
 	require.True(t, granted["events.k8s.io/events"], "the events.k8s.io Events group is not granted")
+	require.False(t, granted["/events"],
+		"config/rbac/role.yaml grants events in the CORE group, but nothing in this tree writes "+
+			"core/v1 Events any more. Either a controller is back on the deprecated "+
+			`mgr.GetEventRecorderFor, or a stale groups="" events marker survived the migration. `+
+			"Neither shows up in any other test: envtest does not enforce RBAC.")
 }
 
 // statusGrantsInSource returns every "<group>/<resource>/status" an RBAC
