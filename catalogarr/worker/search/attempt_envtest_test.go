@@ -156,9 +156,9 @@ func TestWorkerRecordingAnAttemptLeavesTheGrabPathsFieldsIntact(t *testing.T) {
 		}
 		switch mf.Manager {
 		case string(k8s.ManagerCatalogarrGrab):
-			grabFields = string(mf.FieldsV1.Raw)
+			grabFields = mf.FieldsV1.GetRawString()
 		case string(k8s.ManagerCatalogarr):
-			reconcilerFields = string(mf.FieldsV1.Raw)
+			reconcilerFields = mf.FieldsV1.GetRawString()
 		}
 	}
 	require.Contains(t, grabFields, `"f:pendingGrab"`)

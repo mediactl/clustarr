@@ -121,9 +121,9 @@ func TestHandler_ApprovedReleaseTakesTheGrabPath(t *testing.T) {
 		"no reconciler runs here, and the grab path no longer writes activeDownloadRef (ruling R-5)")
 	for _, mf := range got.ManagedFields {
 		if mf.Manager == string(k8s.ManagerCatalogarrGrab) && mf.FieldsV1 != nil {
-			assert.NotContains(t, string(mf.FieldsV1.Raw), `"f:activeDownloadRef"`,
+			assert.NotContains(t, mf.FieldsV1.GetRawString(), `"f:activeDownloadRef"`,
 				"the grab manager must not claim activeDownloadRef")
-			assert.NotContains(t, string(mf.FieldsV1.Raw), `"f:phase"`, "the RSS path must never write Phase")
+			assert.NotContains(t, mf.FieldsV1.GetRawString(), `"f:phase"`, "the RSS path must never write Phase")
 		}
 	}
 	assert.Empty(t, got.Status.Phase, "the RSS path must never write Phase")
