@@ -620,11 +620,22 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 	// for a day so the takeover can never happen inside the test.
 	holdLease(t, env.Config, "default", importarr.LeaderElectionID)
 
+	// Every case runs its service as the identity it ships as, under only
+	// the RBAC its installers bind (X14): see identityKubeconfigs.
+	var identities []string
+	for _, tc := range cases {
+		identities = append(identities, caseIdentity(tc.name))
+	}
+	kubeconfigs := identityKubeconfigs(t, env, identities)
+
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.prepare != nil {
 				tc.prepare(t)
 			}
+			// After prepare, which (like every verify) acts as the
+			// cluster admin through env.Config.
+			t.Setenv("KUBECONFIG", kubeconfigs[caseIdentity(tc.name)])
 			probeAddr := freeAddress(t)
 
 			o := k8s.DefaultOptions()
