@@ -240,7 +240,7 @@ func (w *Worker) assignManually(
 			if v := st.manual.video; v != nil {
 				profile, language = v.QualityProfileRef, v.OriginalLanguage
 			}
-			fresh = w.freshVideoSpec(ctx, st, parsed, profile, language)
+			fresh = w.freshVideoSpec(ctx, st, path, parsed, profile, language)
 		}
 	}
 	fresh.importedFrom = catalogac.ImportSource().

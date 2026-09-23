@@ -199,6 +199,6 @@ func (w *Worker) handleEpisodeFile(ctx context.Context, st *scanState, path, rel
 		st.unmatched(rel, CodeNoChild, fmt.Sprintf("in series %s: %s", series.Name, reason), nil, now)
 		return nil
 	}
-	fresh := w.freshVideoSpec(ctx, st, parsed, series.QualityProfileRef, series.OriginalLanguage)
+	fresh := w.freshVideoSpec(ctx, st, path, parsed, series.QualityProfileRef, series.OriginalLanguage)
 	return w.recordAttribution(ctx, st, path, rel, info, nil, fileimport.EpisodeFileRef(eps), fresh)
 }

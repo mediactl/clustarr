@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -267,7 +268,7 @@ func (w *Worker) attributeMediaFile(ctx context.Context, st *scanState, path str
 
 	if !st.task.DryRun {
 		ref := commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movieName}
-		fresh := w.freshVideoSpec(ctx, st, parsed, profile, originalLanguage)
+		fresh := w.freshVideoSpec(ctx, st, path, parsed, profile, originalLanguage)
 		if err := w.applyObserved(ctx, st.scan.Namespace, nil, ref, path, info, fresh); err != nil {
 			return err
 		}
@@ -436,7 +437,7 @@ const maxMatchedFormats = 200
 // formatScore, matchedFormats and profileHash unsent -- and the empty
 // profileHash says so; the file is still fully tracked.
 func (w *Worker) freshVideoSpec(
-	ctx context.Context, st *scanState, parsed *release.ParsedRelease, profileRef, originalLanguage string,
+	ctx context.Context, st *scanState, path string, parsed *release.ParsedRelease, profileRef, originalLanguage string,
 ) frozenFields {
 	languageName := ""
 	if originalLanguage != "" {
@@ -458,7 +459,15 @@ func (w *Worker) freshVideoSpec(
 		return f
 	}
 	score, matched := profile.Score(ctx, w.catalogue(), parsed,
-		catalogue.ItemContext{OriginalLanguageName: languageName, ReleaseType: parsed.ReleaseType})
+		// ReleaseTitle custom formats read the release's name and the
+		// file's: Radarr's MovieFile input is the scene name, else the
+		// original path, else the relative path. A file the scan finds has
+		// no MediaFile yet, so no recorded release; its name is all there
+		// is, for both.
+		catalogue.ItemContext{
+			OriginalLanguageName: languageName, ReleaseType: parsed.ReleaseType,
+			ReleaseTitle: filepath.Base(path), Filename: filepath.Base(path),
+		})
 	f.formatScore = ptr.To(int32(score)) //nolint:gosec // a custom-format score is a small bounded sum
 	if len(matched) > maxMatchedFormats {
 		matched = matched[:maxMatchedFormats]

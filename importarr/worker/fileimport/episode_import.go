@@ -74,6 +74,10 @@ type episodePlan struct {
 	// named is the one episode the target names (an episode target, or a
 	// series target keyed to one episode); nil for a pack.
 	named *EpisodeCandidate
+
+	// sceneName is the Download's release title when it names the one
+	// episode file the download holds, else "": see runEpisodes.
+	sceneName string
 }
 
 // importEpisodes is Handle's path for an episode or series target: a single
@@ -237,15 +241,21 @@ func (w *Worker) runEpisodes(
 	)
 	root := dl.Status.ContentRoot
 	classifier := ClassifierFor(commonv1.MediaKindEpisode, root, w.SampleMaxBytes)
-	besideMedia := false
-	if manual {
-		n, err := countMedia(ctx, classifier, root, 1)
-		if err != nil {
-			return out, err
-		}
-		besideMedia = n > 0
+	videos, err := countMedia(ctx, classifier, root, 2)
+	if err != nil {
+		return out, err
 	}
-	err := classifier.Walk(ctx, root, func(srcPath string, info os.FileInfo, class fsops.FileClass) error {
+	besideMedia := manual && videos > 0
+	// The release title is the scene name of an episode file only when it
+	// is not a full season's and the download holds no other video file --
+	// Sonarr's SceneNameCalculator.GetSceneName: a pack's name says nothing
+	// about which of its episodes one file is, nor what that file is.
+	if videos == 1 {
+		if p, perr := release.Parse(dl.Spec.Release.Title, release.Options{Kind: commonv1.MediaKindEpisode}); perr == nil && !p.FullSeason {
+			plan.sceneName = dl.Spec.Release.Title
+		}
+	}
+	err = classifier.Walk(ctx, root, func(srcPath string, info os.FileInfo, class fsops.FileClass) error {
 		if err := w.beat(ctx, m, &lastHeartbeat); err != nil {
 			return err
 		}
@@ -300,7 +310,17 @@ func (w *Worker) importEpisodeFile(
 	if !plan.profile.Allowed(parsed.Quality) {
 		return nil, fmt.Sprintf("%s: quality %s is not allowed by the quality profile", rel, parsed.Quality.Name), nil
 	}
-	ic := catalogue.ItemContext{OriginalLanguageName: plan.originalLanguageName, ReleaseType: parsed.ReleaseType}
+	// ReleaseTitle custom formats read the scene name when the download
+	// has one for this file (runEpisodes), else the file name, and the file
+	// name as Filename: Sonarr's LocalEpisode input.
+	releaseTitle := plan.sceneName
+	if releaseTitle == "" {
+		releaseTitle = filepath.Base(srcPath)
+	}
+	ic := catalogue.ItemContext{
+		OriginalLanguageName: plan.originalLanguageName, ReleaseType: parsed.ReleaseType,
+		ReleaseTitle: releaseTitle, Filename: filepath.Base(srcPath),
+	}
 	score, matched := plan.profile.Score(ctx, w.Catalogue, parsed, ic)
 
 	existing, err := w.existingForEpisodes(ctx, plan.namespace, eps)

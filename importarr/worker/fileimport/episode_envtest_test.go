@@ -151,9 +151,9 @@ func TestHandleImportsASeasonPack(t *testing.T) {
 		Kind: commonv1.MediaKindEpisode, Name: "breaking-bad-s01e01",
 		Keys: []string{"breaking-bad-s01e01", "breaking-bad-s01e02"},
 	}, multi.Spec.MediaRef)
-	// The name pkg/naming renders for it (its episode presets carry only
-	// the first episode's number -- reported, not this worker's to fix).
-	assert.Contains(t, multi.Spec.Path, "Breaking Bad (2008) - S01E01")
+	// pkg/naming names every episode the file holds, in the root folder's
+	// multi-episode style (prefixedRange by default).
+	assert.Contains(t, multi.Spec.Path, "Breaking Bad (2008) - S01E01-E02 - Pilot")
 	waitFor(t, 5*time.Second, func() bool {
 		var list catalogv1alpha1.MediaFileList
 		return s.c.List(context.Background(), &list, client.InNamespace(s.ns)) == nil && len(list.Items) == 2

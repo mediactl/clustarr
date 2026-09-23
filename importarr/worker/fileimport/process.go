@@ -213,7 +213,18 @@ func (pc *processConfig) processFile(
 		return nil, fmt.Sprintf("%s: quality %s is not allowed by the quality profile", rel, parsed.Quality.Name), nil
 	}
 
-	ic := catalogue.ItemContext{OriginalLanguageName: pc.originalLanguageName, ReleaseType: parsed.ReleaseType}
+	// ReleaseTitle custom formats (repack/proper, HDR, codecs, streaming
+	// services) read the release's full name and the file's: Radarr's
+	// LocalMovie input, the scene name -- the Download's release title --
+	// else the file name, and the file name as Filename.
+	releaseTitle := pc.download.Spec.Release.Title
+	if releaseTitle == "" {
+		releaseTitle = filepath.Base(srcPath)
+	}
+	ic := catalogue.ItemContext{
+		OriginalLanguageName: pc.originalLanguageName, ReleaseType: parsed.ReleaseType,
+		ReleaseTitle: releaseTitle, Filename: filepath.Base(srcPath),
+	}
 	score, matched := pc.profile.Score(ctx, pc.worker.Catalogue, parsed, ic)
 
 	if pc.existing != nil && !pc.manual {

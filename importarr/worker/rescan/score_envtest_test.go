@@ -111,3 +111,30 @@ func TestHandleFreezesAProbedLossyTrack(t *testing.T) {
 	mf := mediaFilesIn(t, ctx, f.c, f.ns, 1)[0]
 	assert.Equal(t, "High", mf.Spec.Quality.Name)
 }
+
+// ReleaseTitle custom formats read a scanned file's name, as Radarr's
+// MovieFile input does for a file with no recorded release: a REPACK HDR
+// file scores repack-proper and hdr on top of its tier. Before X3's
+// catalogue fix they read the parsed movie title and never matched; after
+// it, a scan that passed no name still matched none.
+func TestHandleScoresReleaseTitleFormatsFromTheFileName(t *testing.T) {
+	ctx := context.Background()
+	c := requireEnvtest(t)
+	qp := scoringProfile(t, ctx, c, "qp-rw-release-title")
+	f := newFixture(t, ctx, "rw-release-title", catalogv1alpha1.RootFolderKindMovie, qp.Name, catalogv1alpha1.ScanModeFull)
+	mustWriteFile(t, filepath.Join(f.root, "Heat (1995) [tmdbid-949]",
+		"Heat.1995.REPACK.1080p.BluRay.HDR.x264-CtrlHD [tmdbid-949].mkv"), sampleFloor)
+
+	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+	require.Equal(t, int64(1), readProgress(t, ctx, f.bus, string(f.scan.UID)).FilesMatched)
+
+	resolved, errs := quality.FromCRD(qp, catalogue.LoadedCatalogue())
+	require.Empty(t, errs)
+	mf := mediaFilesIn(t, ctx, f.c, f.ns, 1)[0]
+	assert.Subset(t, mf.Spec.MatchedFormats, []string{"repack-proper", "hdr", "hd-bluray-tier-01"})
+	sum := 0
+	for _, slug := range mf.Spec.MatchedFormats {
+		sum += resolved.Scores[slug]
+	}
+	assert.Equal(t, int32(sum), mf.Spec.FormatScore, "the frozen score is the matched formats' sum")
+}
