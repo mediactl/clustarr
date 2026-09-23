@@ -14,6 +14,7 @@ resources:
 - ../default
 - tmdb-stub.yaml
 - tvdb-stub.yaml
+- torznab-stub.yaml
 - quality-profile.yaml
 - metadata-providers.yaml
 
@@ -21,3 +22,7 @@ patches:
 - target:
     kind: Deployment
   path: resources-patch.yaml
+- target:
+    kind: Deployment
+    name: indexarr
+  path: indexarr-e2e-patch.yaml

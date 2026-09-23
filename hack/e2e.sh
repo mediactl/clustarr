@@ -41,6 +41,7 @@ KUSTOMIZE="$(go env GOPATH)/bin/kustomize"
 WORKLOADS=(
   deployment/tmdb-stub
   deployment/tvdb-stub
+  deployment/torznab-stub
   deployment/catalogarr
   deployment/catalogarr-metadata
   deployment/importarr
@@ -157,6 +158,15 @@ if [[ "${status}" -ne 0 ]]; then
         >>"${ARTIFACTS_DIR}/resources.yaml" 2>&1
     fi
   done
+
+  # The fixture indexer's request log is the only record of what indexarr
+  # actually ASKED it. Without it, "the Search returned nothing" cannot be
+  # told apart from "indexarr never issued a query", and by the time anyone
+  # looks the cluster is usually gone.
+  if [[ -f "${CLUSTARR_DATA_DIR}/.e2e-fixtures/torznab/requests.jsonl" ]]; then
+    cp "${CLUSTARR_DATA_DIR}/.e2e-fixtures/torznab/requests.jsonl" \
+       "${ARTIFACTS_DIR}/torznab-requests.jsonl" 2>/dev/null || true
+  fi
 
   # NATS's monitor port is not published by kind, so reach /jsz through a
   # port-forward rather than assuming the host can route to the ClusterIP.

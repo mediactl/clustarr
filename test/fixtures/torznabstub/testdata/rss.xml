@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:torznab="http://torznab.com/schemas/2015/feed">
+  <channel>
+    <title>Clustarr E2E Fixture Indexer</title>
+    <item>
+      <title>Fixture.Firehose.Film.2019.1080p.WEB-DL.x264-CLUSTARR</title>
+      <guid>fixture-firehose-1080p</guid>
+      <link>http://torznab-stub.clustarr-system.svc/dl/fixture-firehose-1080p.torrent</link>
+      <comments>http://torznab-stub.clustarr-system.svc/details/fixture-firehose-1080p</comments>
+      <pubDate>Wed, 10 Sep 2025 12:00:00 +0000</pubDate>
+      <size>6442450944</size>
+      <category>2000</category>
+      <category>2040</category>
+      <enclosure url="http://torznab-stub.clustarr-system.svc/dl/fixture-firehose-1080p.torrent"
+                 length="6442450944" type="application/x-bittorrent"/>
+      <torznab:attr name="tmdbid" value="900101"/>
+      <torznab:attr name="imdbid" value="tt9000101"/>
+      <torznab:attr name="seeders" value="88"/>
+      <torznab:attr name="peers" value="95"/>
+      <torznab:attr name="infohash" value="4444444444444444444444444444444444444444"/>
+      <torznab:attr name="downloadvolumefactor" value="1"/>
+      <torznab:attr name="uploadvolumefactor" value="1"/>
+    </item>
+  </channel>
+</rss>

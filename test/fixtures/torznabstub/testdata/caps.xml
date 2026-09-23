@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<caps>
+  <server title="Clustarr E2E Fixture Indexer"/>
+  <limits default="50" max="100"/>
+  <searching>
+    <search available="yes" supportedParams="q" searchEngine="raw"/>
+    <tv-search available="yes" supportedParams="q,season,ep,tvdbid"/>
+    <movie-search available="yes" supportedParams="q,imdbid,tmdbid"/>
+    <music-search available="no" supportedParams=""/>
+    <audio-search available="no" supportedParams=""/>
+    <book-search available="no" supportedParams=""/>
+  </searching>
+  <categories>
+    <category id="2000" name="Movies">
+      <subcat id="2030" name="Movies/SD"/>
+      <subcat id="2040" name="Movies/HD"/>
+      <subcat id="2050" name="Movies/BluRay"/>
+    </category>
+    <category id="5000" name="TV">
+      <subcat id="5030" name="TV/SD"/>
+      <subcat id="5040" name="TV/HD"/>
+    </category>
+  </categories>
+  <tags>
+    <tag name="freeleech" description="Free download"/>
+  </tags>
+</caps>

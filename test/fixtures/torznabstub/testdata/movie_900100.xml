@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:torznab="http://torznab.com/schemas/2015/feed">
+  <channel>
+    <title>Clustarr E2E Fixture Indexer</title>
+    <item>
+      <title>Fixture.Search.Film.2019.480p.DVDRip.XviD-CLUSTARR</title>
+      <guid>fixture-search-480p</guid>
+      <link>http://torznab-stub.clustarr-system.svc/dl/fixture-search-480p.torrent</link>
+      <comments>http://torznab-stub.clustarr-system.svc/details/fixture-search-480p</comments>
+      <pubDate>Mon, 08 Sep 2025 09:00:00 +0000</pubDate>
+      <size>1073741824</size>
+      <category>2000</category>
+      <category>2030</category>
+      <enclosure url="http://torznab-stub.clustarr-system.svc/dl/fixture-search-480p.torrent"
+                 length="1073741824" type="application/x-bittorrent"/>
+      <torznab:attr name="tmdbid" value="900100"/>
+      <torznab:attr name="imdbid" value="tt9000100"/>
+      <torznab:attr name="seeders" value="3"/>
+      <torznab:attr name="peers" value="4"/>
+      <torznab:attr name="infohash" value="1111111111111111111111111111111111111111"/>
+      <torznab:attr name="downloadvolumefactor" value="1"/>
+      <torznab:attr name="uploadvolumefactor" value="1"/>
+    </item>
+    <item>
+      <title>Fixture.Search.Film.2019.720p.WEBRip.x264-CLUSTARR</title>
+      <guid>fixture-search-720p</guid>
+      <link>http://torznab-stub.clustarr-system.svc/dl/fixture-search-720p.torrent</link>
+      <comments>http://torznab-stub.clustarr-system.svc/details/fixture-search-720p</comments>
+      <pubDate>Tue, 09 Sep 2025 09:00:00 +0000</pubDate>
+      <size>4294967296</size>
+      <category>2000</category>
+      <category>2040</category>
+      <enclosure url="http://torznab-stub.clustarr-system.svc/dl/fixture-search-720p.torrent"
+                 length="4294967296" type="application/x-bittorrent"/>
+      <torznab:attr name="tmdbid" value="900100"/>
+      <torznab:attr name="imdbid" value="tt9000100"/>
+      <torznab:attr name="seeders" value="40"/>
+      <torznab:attr name="peers" value="45"/>
+      <torznab:attr name="infohash" value="2222222222222222222222222222222222222222"/>
+      <torznab:attr name="downloadvolumefactor" value="1"/>
+      <torznab:attr name="uploadvolumefactor" value="1"/>
+    </item>
+    <item>
+      <title>Fixture.Search.Film.2019.1080p.BluRay.x264-CLUSTARR</title>
+      <guid>fixture-search-1080p</guid>
+      <link>http://torznab-stub.clustarr-system.svc/dl/fixture-search-1080p.torrent</link>
+      <comments>http://torznab-stub.clustarr-system.svc/details/fixture-search-1080p</comments>
+      <pubDate>Wed, 10 Sep 2025 09:00:00 +0000</pubDate>
+      <size>8589934592</size>
+      <category>2000</category>
+      <category>2050</category>
+      <enclosure url="http://torznab-stub.clustarr-system.svc/dl/fixture-search-1080p.torrent"
+                 length="8589934592" type="application/x-bittorrent"/>
+      <torznab:attr name="tmdbid" value="900100"/>
+      <torznab:attr name="imdbid" value="tt9000100"/>
+      <torznab:attr name="seeders" value="120"/>
+      <torznab:attr name="peers" value="130"/>
+      <torznab:attr name="infohash" value="3333333333333333333333333333333333333333"/>
+      <torznab:attr name="downloadvolumefactor" value="1"/>
+      <torznab:attr name="uploadvolumefactor" value="1"/>
+    </item>
+  </channel>
+</rss>

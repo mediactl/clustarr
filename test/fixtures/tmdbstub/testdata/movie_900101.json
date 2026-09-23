@@ -1,0 +1,57 @@
+{
+  "id": 900101,
+  "title": "Fixture Firehose Film",
+  "original_title": "Fixture Firehose Film",
+  "original_language": "en",
+  "overview": "A second fixture-owned movie, used by the release-firehose scenario so its single RSS release can match only the Movie that scenario creates.",
+  "release_date": "2019-05-01",
+  "runtime": 148,
+  "status": "Released",
+  "vote_average": 8.369,
+  "vote_count": 36892,
+  "genres": [
+    {
+      "id": 28,
+      "name": "Action"
+    },
+    {
+      "id": 878,
+      "name": "Science Fiction"
+    }
+  ],
+  "belongs_to_collection": null,
+  "release_dates": {
+    "results": [
+      {
+        "iso_3166_1": "US",
+        "release_dates": [
+          {
+            "type": 3,
+            "release_date": "2019-05-01T00:00:00.000Z",
+            "certification": "PG-13",
+            "note": "",
+            "iso_639_1": "en"
+          },
+          {
+            "type": 4,
+            "release_date": "2019-07-01T00:00:00.000Z",
+            "certification": "PG-13",
+            "note": "",
+            "iso_639_1": "en"
+          },
+          {
+            "type": 5,
+            "release_date": "2019-07-01T00:00:00.000Z",
+            "certification": "PG-13",
+            "note": "",
+            "iso_639_1": "en"
+          }
+        ]
+      }
+    ]
+  },
+  "external_ids": {
+    "imdb_id": "tt9000101",
+    "wikidata_id": "Q25188"
+  }
+}

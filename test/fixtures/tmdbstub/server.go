@@ -26,11 +26,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package tmdbstub
 
 import (
+	_ "embed"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 )
+
+//go:embed testdata/movie_900100.json
+var movie900100 []byte
+
+//go:embed testdata/movie_900101.json
+var movie900101 []byte
 
 // NewHandler builds the stub. recordedDir holds TMDB's movie/find JSON
 // copied verbatim from testdata/metadata/tmdb (images/Dockerfile.e2e-fixtures
@@ -44,8 +51,23 @@ func NewHandler(recordedDir string, logger *slog.Logger) http.Handler {
 	// the real API reports "no such id" -- pkg/metadata maps it to
 	// metadata.ErrNotFound.
 	mux.HandleFunc("GET /find/{imdb}", serveFile(filepath.Join(recordedDir, "find_imdb_notfound.json"), logger))
+	// Fixture-owned movies: ids no recorded fixture uses, so a scenario can
+	// own a Movie outright instead of sharing Inception with every other
+	// scenario that plants tmdb-27205. They are embedded rather than read
+	// from recordedDir because they are this package's own data, exactly as
+	// tvdbstub's fixture-owned series 900001/900002 are.
+	mux.HandleFunc("GET /movie/900100", serveBytes(movie900100))
+	mux.HandleFunc("GET /movie/900101", serveBytes(movie900101))
 	mux.HandleFunc("/", notFound(logger))
 	return mux
+}
+
+// serveBytes answers with fixture bytes compiled into the binary.
+func serveBytes(b []byte) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(b)
+	}
 }
 
 // serveFile returns the recorded JSON at path, or 404 when the image was

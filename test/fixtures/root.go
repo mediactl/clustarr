@@ -20,9 +20,9 @@ package main
 import "github.com/spf13/cobra"
 
 // NewRootCommand wires one subcommand per fixture Deployment. Phase D adds
-// torznab-stub/seeder/nntp-stub here; Phase F adds opensubtitles-stub and
-// gestdown-stub. Each subcommand owns its own flags and never imports
-// another fixture's package.
+// seeder/nntp-stub here; Phase F adds opensubtitles-stub and gestdown-stub.
+// Each subcommand owns its own flags and never imports another fixture's
+// package.
 func NewRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "clustarr-e2e-fixtures",
@@ -32,6 +32,7 @@ func NewRootCommand() *cobra.Command {
 	}
 	root.AddCommand(newTMDBStubCommand())
 	root.AddCommand(newTVDBStubCommand())
+	root.AddCommand(newTorznabStubCommand())
 	root.AddCommand(newSeedCommand())
 	return root
 }

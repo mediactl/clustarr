@@ -1,0 +1,21 @@
+# indexarr/status.StartupGrace is 15 minutes from PROCESS START, and it
+# suppresses escalation for failures inside that window (ruling R17). `make
+# e2e` has a 30-minute budget, and how old indexarr's process is when
+# scenario 17 runs depends entirely on how long the scenarios before it took
+# -- so with the production grace the backoff assertions pass or fail for
+# reasons unrelated to the code under test. Zero here; 15m everywhere else.
+#
+# NOTE, and read it before deleting this as dead configuration: indexarr does
+# NOT read this variable yet. StartupGrace is a const in
+# indexarr/status/health.go and nothing in indexarr/run.go plumbs an override
+# (task D1-9 verified this against the tree; the D1-9 brief listed the
+# variable as an interface D1-8 would provide, and D1-8 did not). The
+# variable is declared here so the plumbing lands configured the day it
+# exists, and test/e2e's requireIndexarrEscalationObservable reads the
+# Deployment to decide whether it can skip waiting out the real grace. Delete
+# this block only together with that helper.
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: CLUSTARR_INDEXER_STARTUP_GRACE
+    value: "0s"

@@ -1,0 +1,118 @@
+# The in-cluster fixture indexer: a real Torznab upstream serving the XML
+# embedded in test/fixtures/torznabstub/testdata, and nothing else. The
+# readiness probe is a real caps fetch WITH the apikey, so a fixture image
+# built without the embedded XML -- or with a key that no longer matches the
+# Secret below -- never goes Ready instead of failing scenario 17 ten
+# minutes later.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: torznab-fixture-credentials
+  namespace: clustarr-system
+stringData:
+  # Must equal torznabstub.APIKey. The stub answers Newznab error 100 for
+  # anything else, so a mismatch surfaces as an Indexer that fails to
+  # authenticate and never becomes Ready -- which is the correct diagnosis.
+  apikey: e2e-fixture-key
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: torznab-stub
+  namespace: clustarr-system
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: torznab-stub
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: torznab-stub
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: clustarr
+        app.kubernetes.io/part-of: clustarr
+        app.kubernetes.io/component: torznab-stub
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        # 1000/1000, not the image's default 65532: this pod WRITES its
+        # request log onto the shared hostPath volume, and it must do so as
+        # the same identity every other Clustarr pod uses there
+        # (config/manager/importarr-worker.yaml, hack/kind.sh's
+        # ensure_data_dir). The fsGroup pair mirrors that file exactly, for
+        # the same volume; a hostPath mount ignores fsGroup, which is why
+        # `clustarr-e2e-fixtures seed` creates the request-log directory
+        # world-writable as the host user.
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: torznab-stub
+        image: ghcr.io/mediactl/clustarr-e2e-fixtures:dev
+        imagePullPolicy: IfNotPresent
+        args: ["torznab-stub", "--addr=:8080", "--request-log=/data/.e2e-fixtures/torznab/requests.jsonl"]
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /api?t=caps&apikey=e2e-fixture-key
+            port: http
+          initialDelaySeconds: 1
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /api?t=caps&apikey=e2e-fixture-key
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 20
+        # resources.requests must be present or config/e2e/resources-patch.yaml's
+        # `replace` operations fail on this Deployment -- that patch targets
+        # kind: Deployment with no name selector, so it lands here too.
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          # The same RWX hostPath claim importarr-worker mounts; it is the
+          # host directory the e2e test binary reads as $CLUSTARR_DATA_DIR.
+          claimName: clustarr-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: torznab-stub
+  namespace: clustarr-system
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: torznab-stub
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: torznab-stub
+  ports:
+  - name: http
+    port: 80
+    targetPort: http
+    protocol: TCP

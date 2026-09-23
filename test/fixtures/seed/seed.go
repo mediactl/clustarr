@@ -48,6 +48,16 @@ const BakedClipPath = "/fixtures/media/tiny.mkv"
 // ClipName is the basename Run writes under its destination directory.
 const ClipName = "tiny.mkv"
 
+// TorznabDirName is the subdirectory of the seed directory that the
+// torznab-stub appends its request log to. It is created world-writable
+// here, by the HOST user, because the stub pod runs as uid/gid 1000 and a
+// hostPath mount ignores fsGroup -- there is no other moment at which a
+// process with the right identity touches this path.
+const TorznabDirName = "torznab"
+
+// RequestLogName is the JSONL file inside it.
+const RequestLogName = "requests.jsonl"
+
 // MinMediaBytes is pkg/fsops's sampleMaxBytes: at or above it a .mkv is
 // ClassMedia, below it ClassSample. It is duplicated rather than imported
 // because this package is also the image's runtime entrypoint and must not
@@ -91,6 +101,16 @@ func Run(dir string) error {
 	}
 	if err := out.Close(); err != nil {
 		return fmt.Errorf("seed: close %s: %w", dst, err)
+	}
+
+	reqDir := filepath.Join(dir, TorznabDirName)
+	if err := os.MkdirAll(reqDir, 0o777); err != nil {
+		return fmt.Errorf("seed: mkdir %s: %w", reqDir, err)
+	}
+	// MkdirAll applies the process umask, which under §11's UMASK 002 clears
+	// the other-write bit that the stub pod depends on. Chmod does not.
+	if err := os.Chmod(reqDir, 0o777); err != nil {
+		return fmt.Errorf("seed: chmod %s: %w", reqDir, err)
 	}
 	return nil
 }
