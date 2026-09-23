@@ -216,6 +216,23 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   four places in the non-video rescan and import paths. Always
   `.UTC().Year()` (and `.UTC()` before any other calendar field), and test it
   with a Jan 1 date on a west-of-UTC location.
+- **A typed Go client cannot send a value the CRD default overrides.** The
+  apiserver defaults only an *absent* field, so what counts is what
+  `encoding/json` sends for the Go zero. A `bool,omitempty` with
+  `default=true` drops `false` and gets `true` back, so it can never be set
+  false; a struct-valued field (`metav1.Duration`, `resource.Quantity`, a
+  nested struct) or a scalar without `omitempty` is always sent, so its
+  default never reaches an object created from Go; and an `omitempty` scalar
+  whose zero means something ("0 disables") loses that zero to the default.
+  kubectl YAML sends every value, which is why it survives review: it hit
+  five times across Phases D-F before G4-0 swept it, the worst an `int32`
+  `maxOutputToSourcePercent` defaulted to `1.0` that would have failed every
+  real transcode. Fix with a pointer plus an accessor that applies the
+  default to nil (`squasharr/worker.ReplaceSource`,
+  `Revision.EffectiveVersion`), or a floor in code, documented on the field,
+  where zero means nothing (`Indexer.spec.timeout`). `pkg/crdcheck`'s
+  `TestNoCRDDefaultIsUnreachableFromGo` and `TestEveryStatusListIsCapped`
+  guard the sweep.
 - **Never run `go get` or `go mod tidy` from parallel agents.** They corrupt
   `go.mod`. Add every dependency serially up front, then tell workers not to touch
   it.
@@ -292,9 +309,12 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
 
 ## Status
 
-Pre-alpha, and it reconciles: `catalogarr` and `importarr` register every
-controller and worker behind their role flags, and `clustarr all` still stands
-every service up in one process.
+Pre-alpha, and it reconciles: every service — `catalogarr`, `importarr`,
+`indexarr`, `grabarr`, `squasharr`, `captionarr` and `ui` — registers every
+controller, worker and server behind its role flags, and `clustarr all` still
+stands every service up in one process (controller roles only for `grabarr`,
+`squasharr` and `captionarr`, so it never downloads, transcodes or fetches a
+subtitle).
 
 M0 (done): the 29 CRDs across five groups, `pkg/events` (NATS and in-memory
 behind one contract suite), `pkg/k8s`, the binary, manifests, chart and images.
@@ -351,8 +371,9 @@ owned set (`ControllerFields`/`WorkerFields`). E2E scenario 17
 `test/fixtures/torznabstub/`) is written — Indexer health and caps, ranked
 federated search, the release firehose, failure backoff — but has **never
 been executed against a kind cluster**; that and `make e2e` generally are
-deferred by explicit user instruction until D1–D3 implementation is complete,
-not by oversight. Reconciles against envtest; not proven end to end.
+deferred by explicit user instruction — first until D1–D3 were in, then
+through E–G to Phase H — not by oversight. Reconciles against envtest; not
+proven end to end.
 
 Phase D2 (done): M3 downloads and import — `grabarr` and `importarr`'s
 file-import worker. `pkg/download/torrent` over `anacrolix/torrent`
@@ -405,20 +426,21 @@ comparison with `has()`, with `pkg/crdcheck/download_cel_test.go` as the
 regression guard using a dynamic client so an absent `infoHash` stays absent
 on the wire. E2E scenarios (`test/e2e/download_test.go`,
 `test/e2e/import_test.go`: 1 through import, 2, 3, 4, 6) are **written and
-never executed**, deferred by user instruction until D1–D3 are all in.
+never executed**, deferred by user instruction to Phase H.
 Reconciles against envtest; not proven end to end.
 
 Phase D3 (done): the first UI slice — the pipeline and downloads pages over
 real cluster state, streamed. `ui/reader.go`'s `NewClusterReader` builds a
 standalone controller-runtime `cache.Cache` (no manager, no metrics or
-leader-election port); `Options.Reader` staying nil is still legal and
-renders empty pages. `/readyz` now gates on cache sync while `/healthz`
-stays unconditional, and `config/rbac/ui_role.yaml` is a hand-written
+leader-election port); `Options.Reader` staying nil is still legal and renders
+empty pages. `/readyz` now gates on cache sync while `/healthz` stays
+unconditional, and `config/rbac/ui_role.yaml` is a hand-written
 `get,list,watch`-only role (no `*/status`) bound to the previously-unbound
-`ServiceAccount ui`. `ui/projection`'s `Projection` replaces the old
-per-connection 5s poll with one process-wide tick that lists `Download`,
-`TranscodeJob`, `SubtitleRequest`, `Search` and `MediaFile`, indexes them by
-owner through `metav1.OwnerReference` UID, projects `pipeline.Entry` and
+`ServiceAccount ui` (at D3; Phase G adds exactly `ui/actions`' grants).
+`ui/projection`'s `Projection` replaces the old per-connection 5s poll with
+one process-wide tick that lists `Download`, `TranscodeJob`,
+`SubtitleRequest`, `Search` and `MediaFile`, indexes them by owner through
+`metav1.OwnerReference` UID, projects `pipeline.Entry` and
 `downloadv1.Download` rows, and fans both out through `Subscribe`/
 `SubscribeDownloads` to every open SSE connection. `ui/views/downloads.templ`
 renders all eleven `DownloadPhase` values plus a `DownloadClient` section
@@ -433,18 +455,168 @@ not type-checked, so it over-matches rather than tracing types back to
 controller-runtime's `client` package -- plus any import of `pkg/k8s`;
 `cmd/clustarr/ui_rbac_test.go`'s `TestUIRoleGrantsOnlyReadsAndActionWrites`
 (named `TestUIRoleGrantsOnlyReadVerbs` until Phase G ruling R2 narrowed both
-guards to admit `ui/actions`' writes) and `TestUIRoleChartMatchesConfig` assert
-`ui_role.yaml`'s verbs are a subset of `{get,list,watch}` with no `/status`
-resource, and hold the chart's copy byte-identical to it. E2E scenario 14
-(`test/e2e/ui_test.go`: the pipeline and downloads pages) is **written and
-never executed**, deferred the same way. Reconciles against envtest; not
-proven end to end.
+guards to admit `ui/actions`' writes) and `TestUIRoleChartMatchesConfig`
+asserted `ui_role.yaml`'s verbs were a subset of `{get,list,watch}` with no
+`/status` resource, and hold the chart's copy byte-identical to it (Phase G
+below narrows both). E2E scenario 14 (`test/e2e/ui_test.go`: the pipeline and
+downloads pages) is **written and never executed**, deferred the same way.
+Reconciles against envtest; not proven end to end.
 
-Next: Phase D is done (D1 indexers, D2 downloads and import, D3 the first UI
-slice) → **M4 transcode** (`squasharr`) is next → M5 subtitles → M6 parity,
-import lists and non-video inventory, then **Phase H: end-to-end proof on
-kind**. Phase detail, and the list Phase C, D1 and D2 carried forward, are in
-`docs/superpowers/plans/2026-09-18-remaining-work.md`; milestone detail is in
+Phase E (done): M4 transcode — `squasharr`. `squasharr/status` declares the
+disjoint sets on `TranscodeJob.status` — `ControllerFields`
+(`k8s.ManagerSquasharr`) and `WorkerFields` (`k8s.ManagerSquasharrWorker`:
+`progress`, `result`, `stderrTail`) — plus `ProfileFields`/`PatchProfile`, and
+`Patch` refuses any other manager. `squasharr/controller/transcodeprofile`
+computes `status.hash` through `squasharr/worker.ProfileSpec`, the same
+conversion the worker renders from
+(`TestStatusHashChangesWithEveryRenderField` fails if a render field stops
+moving it), marks the loser of two overlapping selectors with an `Overlap`
+condition, and creates one TranscodeJob per selected MediaFile not already
+tagged `CLUSTARR_PROFILE=<profile>@<hash>`, named `<mediafile>-<hash[:8]>` so
+a re-run creates nothing. `squasharr/controller/transcodejob` plans from the
+MediaFile's stored probe (a Dolby Vision `reject` or a container change lands
+as `Skipped` with a reason, rulings R1 and R8), creates a suspended `batch/v1`
+Job whose `podFailurePolicy` fails on exit codes 3 and 4 and ignores
+`DisruptionTarget`, unsuspends through the pure `Admit` slot scheduler, and
+owns the transcode metrics, observed once per terminal transition (R9).
+`squasharr/worker` runs in the Job pod: re-probe and refuse a changed source
+(exit 3), encode, verify (exit 4), then hard-link the original into the
+recycle bin (`fsops.RecycleLink`) and rename the output over the source, so
+the library path is never empty; a retry after a crash past the swap finds the
+`CLUSTARR_PROFILE` tag and exits 0.
+`TestSquasharrWorkerExitCodeReachesTheProcess` runs the real `main` to prove
+the exit codes survive; the Job runs as its own `squasharr-worker`
+ServiceAccount with a generated role
+(`config/rbac/squasharr_worker_role.yaml`); `--worker-image`,
+`--worker-image-cuda` and `--data-claim` are threaded through config and
+chart. Defects a future reader must know: `maxOutputToSourcePercent` was an
+`int32` defaulted to `1.0`, so **every real transcode would have exited 4**;
+`policy.replaceSource`/`recycleBin` could not be set false from Go and
+`activeDeadline`/`resources`/`scratch` never got their defaults from a Go
+client (the typed-client gotcha above); `replaceSource: false` is now rejected
+by CEL rather than silently ignored. E2E scenario 12
+(`test/e2e/transcode_test.go`, against an HDR10 clip generated in the fixture
+image; Dolby Vision skips with a named reason, since ffmpeg alone cannot
+synthesise an RPU) and scenario 1's transcode leg (skipped on the `.bin`
+fixture gap) are **written and never executed**, deferred by user instruction.
+Reconciles against envtest, real libx265 encodes included; not proven end to
+end.
+
+Phase F (done): M5 subtitles — `captionarr`. `captionarr/status` declares each
+manager's set: `RequestControllerFields`/`RequestWorkerFields` behind
+`PatchRequest`, `ProfileFields`, and `ProviderFields` behind a `PatchProvider`
+that refuses the worker's manager — the SubtitleProvider controller is the
+only writer of provider status (ruling R2), and workers record throttle, quota
+and auth into the `clustarr-provider-throttle` KV bucket instead
+(`captionarr/throttle`: a per-provider token bucket shared by every replica,
+keys through `events.KVKeyToken`, contract-tested against a real embedded NATS
+server). `SubtitleRequest.status.items` is split per leaf between the two
+managers (R4), and the split needed a liveness protocol to work at all: an
+item is live exactly when the controller has given it a `nextSearchAt`
+(`status.IsLive`, `LiveItemKeys`); the controller creates and withdraws items,
+the worker re-sends leaves only for live items and never creates one, and
+`items[].state` became optional. Before that the worker re-sent every item, so
+a withdrawn language could never be removed, and only `managedFields` caught
+the controller claiming the worker's `state`. `pkg/subtitles` gained the
+missing-subtitle `Plan` and right-to-left `SidecarName`/`ParseSidecar`;
+`pkg/lang.Normalize` maps ffprobe's ISO 639-2 onto the profiles' BCP-47 — the
+third instance of the language-vocabulary class, and it also fixed TVDB's
+original language. The three controllers
+(`captionarr/controller/subtitleprofile`, `subtitleprovider`,
+`subtitlerequest`) and the fetch worker (`captionarr/worker/fetch` over
+`captionarr/providerset`, never leader-elected) are registered behind
+`captionarr`'s role flags; one `providerset.Validate` now serves controller
+and worker (the two copies had drifted — a Gestdown provider with a missing
+Secret reported Ready), and `captionarr/datapath` gives both one `/data`
+mapping. Fixed along the way: the embedded provider claimed
+hash-verifiability, so embedded tracks scored 0-1 and were never taken;
+OpenSubtitles.com defaulted a private 5 req/s limiter and read JSON uncapped
+(R3); a forced search was absorbed by the JetStream dedup window for up to an
+hour until `events.MsgIDForForcedSubtitle` gave it an ID of its own — so fetch
+MsgIDs now extend spec §6.5's `<uid>/<langKey>/<probeHash>` as a prefix, a
+recorded deviation; and the `captionarr-worker` KEDA `ScaledObject` counted a
+consumer that does not exist, so it never scaled
+(`TestCaptionarrScaledObjectCountsTheRealFetchConsumers`). E2E scenario 13
+(`test/e2e/subtitle_test.go`, against `test/fixtures/opensubtitlesstub` and
+`gestdownstub`, both round-tripped through the real clients) and scenario 1's
+subtitle leg (skipped on the `.bin` gap) are **written and never executed**,
+deferred by user instruction. Reconciles against envtest; not proven end to
+end.
+
+Phase G (done): M6 parity, import lists, non-video inventory and the rest of
+the UI. **Indexers.** A Cardigann definition is one more `Client` behind
+`indexarr/controller/indexer`'s `ClientCache.For` (ruling R5), so it inherits
+the fan-out's dedupe, query-limit window and backoff; a `SearchBlock.Error`
+match is now a `*cardigann.SearchError` (`ErrSearchFailed`) that escalates the
+indexer instead of reading as "no results" (R6); sessions live in the
+`clustarr-indexer-sessions` KV bucket (`SessionKey`, real-NATS contract test)
+plus an owned `<indexer>-session` Secret; `IndexerProxy` http/socks5 is
+applied; `cardigann.Engine` takes an injected limiter. `indexarr/facade`
+serves the Torznab facade (`/{indexer}/api`, `/{indexer}/download`,
+`/search/api`) on `--facade-bind-address` (`:9696` under `clustarr all`) and
+**fails closed** without a key from `--facade-api-key-secret` (created with
+one random key if absent); a Search with `spec.query` runs through
+`rpc.indexarr.query`. Automatic search falls back to a title query:
+`BuildSearchRequest` fills `SearchRequest.Text` from the resolved title and
+`indexarr/search` uses it only for an indexer that supports none of the
+request's ids (`SearchOutcome.QueryMode` records which). That made live the
+absence of any release-identity check — a text fallback could approve the
+wrong film — so `pkg/decision/identity.go` now rejects `WrongItem` (ids decide
+when both sides carry one; otherwise titles plus year ±1, or
+season/episode/absolute/air-date) and `UnknownItem` when unevaluable, fed by
+`search.MovieIdentity`/`EpisodeIdentity` at both construction sites. **Lists
+and history.** `importarr` gains the ImportList controller and sync worker
+(Trakt device flow with a `SecretTokenStore`, `status.auth` for the UI,
+ImportExclusion respected); `catalogarr`'s `RoleHistory` starts the history
+`Sink` and the `DLQProjector`, which per R1 applies a
+`clustarr.io/dead-lettered` annotation under `clustarr-dlq-projector` and
+emits an Event rather than writing anyone's status. **Non-video catalog.** The
+metadata gateway is the sole writer of `status.metadata` on Artist, Album,
+Author, Book, Audiobook and Comic; the Artist→Album, Author→Book (standalone
+Book too), Comic→Issue and Audiobook controllers follow Series→Episode, and
+only Comic→Issue uses `ManagerCatalogarrFanout`, since Issue, like Episode,
+has no `status.metadata`. Rescan attributes non-video files to existing items
+only; manual import is the `catalog.clustarr.io/import-target` and
+`import-override` annotations on a Download (re-queued by
+`fileimport.Retrigger`) or on a LibraryScan whose `spec.subpath` names the
+file (manual assignment). **UI.** Every write lives in `ui/actions` — search
+now, rescan, monitor, manual assign and eight Settings patches — as merge
+patches of spec under `clustarr-ui`; `TestUINeverWrites` allows Create/Patch
+there and nowhere else and bans every status write everywhere, and the role
+guard holds `ui_role.yaml` to reads plus exactly `actions.Grants()`. The
+library, unmatched, import-lists and settings pages ride the one projection
+with no new ticker; Tailwind is a pinned standalone binary behind `make css`,
+with `ui/static/app.css` committed and htmx vendored.
+`TestBothUICommandsWireEveryUIOption` runs both ui commands and fails on any
+unset option — the text guard it replaced missed that `/library`, `/unmatched`
+and `/import-lists` rendered no rows in production. **G4-0** swept `api/` for
+the typed-client defaulting trap and uncapped status lists and left two guards
+behind (gotcha above). Defects found and fixed along the way: the non-video
+built-in profiles listed tiers worst-first, so PDF was the best ebook and
+every comic met cutoff; `pkg/fsops` knew only `.mkv` as video, so **every
+`.mp4` movie was skipped**, and applied the 50 MiB sample floor to every kind
+— classification is now per kind (`fsops.Classifier`), the floor is video-only
+and set by `--sample-max-bytes`, and a size-suspected sample goes to
+`status.unmatched` as `suspected_sample` instead of vanishing; every naming
+preset left dangling separators for an empty optional token
+(`"The Matrix (1999) - -RlsGrp"`, shipped in Phase C); ComicVine wants the
+`4050-N` guid for a volume but a bare `N` in the issues filter, which every
+fake accepted either way; Audiobook's region was hard-coded `us`; and a
+re-scan erased a MediaFile's frozen import fields by re-applying
+`MediaFileSpec` under the same manager. E2E scenarios 9, 10 and 11
+(`test/e2e/importlist_test.go`, `cardigann_test.go`, `nonvideo_test.go`,
+against `cardigannstub`, `httpproxystub`, `importliststub` and `nonvideostub`)
+and the rest of 14 (`TestUILibraryImportListsSettingsAndUnmatchedPages`) are
+**written and never executed**, deferred by user instruction; scenario 9 only
+checks that the Trakt and Plex CRs are accepted, since neither client takes a
+base-URL override. Reconciles against envtest; not proven end to end.
+
+Next: Phases D through G are done (M2-M6) → **Phase H: end-to-end proof on
+kind** is next. Only Phase C's scenarios (5, 7 and 8) have ever run on kind;
+every scenario written since — 1-4, 6, 9-14 and 17 — never has. Phase H runs
+them, writes 15 and 16 and the trace assertion in 1, and owns the list every
+phase carried forward, consolidated under "Carried defects" in
+`docs/superpowers/plans/2026-09-18-remaining-work.md`. Milestone detail is in
 the spec's §16 and amendment §A4.
 
 **Nothing is finished until it is proven end to end on a kind cluster.** Every
