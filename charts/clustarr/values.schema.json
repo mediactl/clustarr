@@ -49,7 +49,7 @@
 
     "keda": {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": ["enabled", "prometheusAddress"],
       "properties": {
         "enabled": { "type": "boolean" },
