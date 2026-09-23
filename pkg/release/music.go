@@ -134,7 +134,7 @@ var lidarrAlbumTitleRegexes = []*regexp2.Regexp{
 	mustCompile(`^(?:\(.+?\))(?:\W*(?:\[(?<source>.+?)\]))?\W*(?<artist>.+?)(?: - )(?<album>.+?)(?: - )(?<releaseyear>\d{4})`, regexp2.IgnoreCase),
 	// Artist-Album-Version-Source-Year, e.g. Imagine Dragons-Smoke And Mirrors-Deluxe Edition-2CD-FLAC-2015-JLM
 	mustCompile(`^(?<artist>.+?)[-](?<album>.+?)[-](?:[\(|\[]?)(?<version>.+?(?:Edition)?)(?:[\)|\]]?)[-](?<source>\d?CD|WEB).+?(?<releaseyear>\d{4})`, regexp2.IgnoreCase),
-	// Artist-Album-Source-Year, e.g. Dani_Sbert-Togheter-WEB-2017-FURY
+	// Artist-Album-Source-Year, e.g. Dani_Sbert-Together-WEB-2017-FURY
 	mustCompile(`^(?<artist>.+?)[-](?<album>.+?)[-](?<source>\d?CD|WEB).+?(?<releaseyear>\d{4})`, regexp2.IgnoreCase),
 	// Artist - Album (Year) Strict
 	mustCompile(`^(?:(?<artist>.+?)(?: - )+)(?<album>.+?)\W*\([^\[\]]*?(?<releaseyear>\d{4})`, regexp2.IgnoreCase),

@@ -73,7 +73,7 @@ func TestParseMusicSceneNames(t *testing.T) {
 		bits          int32
 	}{
 		{"Imagine_Dragons-Smoke_And_Mirrors-Deluxe_Edition-2CD-FLAC-2015-JLM", "Imagine Dragons", "Smoke And Mirrors", 2015, "FLAC", 0},
-		{"Dani_Sbert-Togheter-WEB-2017-FURY", "Dani Sbert", "Togheter", 2017, "", 0},
+		{"Dani_Sbert-Together-WEB-2017-FURY", "Dani Sbert", "Together", 2017, "", 0},
 		{"Artist-Album-WEB-FLAC-2016-GRP", "Artist", "Album", 2016, "FLAC", 0},
 		{"Radiohead-Kid_A-(CDNODATA123)-CD-FLAC-2000-GRP", "Radiohead", "Kid A", 2000, "FLAC", 0},
 		{"Radiohead-Kid_A-24BIT-WEB-FLAC-2000-GRP", "Radiohead", "Kid A", 2000, "FLAC", 24},
