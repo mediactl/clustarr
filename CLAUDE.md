@@ -90,6 +90,16 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
 
 ## Gotchas found the hard way
 
+- **`make test` cannot pass in a fresh clone or a new git worktree until
+  `helm dependency build` has run.** `charts/clustarr/charts/` holds three
+  vendored dependency tarballs (`nats`, `nack`, `keda`) and is gitignored by
+  `charts/clustarr/.gitignore`, so a clean checkout does not have them.
+  `TestChartAndKustomizeAgreePerComponent` shells out to real `helm template`,
+  which refuses with "found in Chart.yaml, but missing in charts/ directory"
+  — and it reads as a chart/kustomize *disagreement*, which is a code defect,
+  rather than as a missing local artifact. This cost a false red on a merge
+  gate run in a throwaway worktree; the branch was fine. Either run
+  `helm dependency build charts/clustarr` first or copy the `.tgz` files in.
 - **`go test ./...` passing does not mean the CRDs are valid.** `pkg/crdcheck`
   and the envtest suites skip silently when `KUBEBUILDER_ASSETS` is unset. Only
   `make test` (or exporting the assets path) compiles the CEL rules against a real
