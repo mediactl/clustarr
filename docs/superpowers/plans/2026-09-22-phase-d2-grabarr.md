@@ -108,17 +108,81 @@ Reconciles `DownloadClient` into the engine workload it describes: a StatefulSet
 
 Status writes go through `grabarr/status.Patch` (R3) — **every apply is a complete declaration of `ControllerFields`**. Note that a double-claim against the engine's manager will NOT surface as a conflict: `pkg/k8s` forces ownership unconditionally, so an over-claim is silent and visible only in `metadata.managedFields`. Assert there, not on values.
 ### D2-4 — `Download` controller (ClientRef pick, EngineReady wait, `status.engine` pin, finalizer)
+
+**Files:** create `grabarr/controller/download/`. **Field manager:** `ManagerGrabarr`, `ControllerFields` only.
+
+Owns the `Download` lifecycle: pick a `DownloadClient` matching `spec.protocol` and category, wait for that client's engine to report ready, pin the choice into `status.engine` so a later reconcile cannot silently migrate a running transfer, and run a finalizer honouring `spec.removeDataOnDelete`.
+
+**The phase set is closed and pinned (R1).** The eleven values are `Pending`, `Assigned`, `Queued`, `Downloading`, `Paused`, `Completed`, `Seeding`, `Imported`, `Failed`, `Blocklisted`, `Removing` (`api/download/v1alpha1/download_types.go:75-98`). `catalogarr/controller/rollup/downloadoverlay.go:66-76` already switches on all of them and its `default` branch silently means "no overlay" — so an unhandled or invented phase does not error, it makes the movie's rollup quietly wrong. Your transitions must match that switch exactly, and any change to either file belongs in **both, in one commit**.
+
+**R4 binds here:** wait for `EngineReady` before handing work over. An engine that reports ready before re-attach completes gets handed a transfer it is already running, and downloads it twice.
+
+Test against envtest with a fake `download.Client`. Prove: the engine pin survives a reconcile that would otherwise pick differently; a Download whose client disappears does not lose `status.engine`; and the finalizer path both with and without `removeDataOnDelete`.
+
 ### D2-5 — torrent engine (re-attach first, per-download dir, telemetry under `ManagerGrabarrEngine`)
+
+**Files:** create `grabarr/engine/torrent/`. **Field manager:** `ManagerGrabarrEngine` — **telemetry fields only**, and nothing the controller owns.
+
+Runs as the StatefulSet workload D2-3 creates. **Re-attach is the first thing it does and readiness gates on it** (R4). Consumes `pkg/download/torrent` from D2-1.
+
+Three traps, all already paid for once:
+- **`Files` and `Conditions` append.** `EngineFields` seeds `Files`, so a `mutate` needing a different list must **assign `ac.Files`**, never call `WithFiles` — D2-0 documented this on `Patch` after `MediaFileStatus` hit the identical bug in Phase C.
+- **Re-`Get` immediately before applying.** Any path that reads an object, does slow work, then applies a status seeded from that read will silently roll back whatever another writer did meanwhile. This is a *lost update*, not an SSA release: every field is declared, just with stale values, and **no release-regression test in this tree can see it**. `indexarr/worker/rss/worker.go` does the re-Get with the comment "the poll closes the window".
+- **An over-claim is silent**, because `pkg/k8s` forces ownership. Assert the controller/engine split on `metadata.managedFields`, never on object values — values catch under-declaration only.
+
+D2-1's carried notes land here: seed-criteria and `CanBeRemoved` are implemented but untested until a real controller loop drives them, and the `DownloadPriority` → anacrolix connection-budget mapping is an unsourced judgement call to confirm or correct.
+
 ### D2-6 — usenet engine (scratch, repair, extract, atomic rename into DataDir)
+
+**Files:** create `grabarr/engine/usenet/`. **Field manager:** `ManagerGrabarrEngine`, telemetry only. Consumes `pkg/download/usenet` from D2-2.
+
+Runs as the Deployment D2-3 creates — stateless fetchers, unlike torrent's StatefulSet, because a usenet transfer owns no long-lived on-disk identity. Downloads into a scratch area, PAR2-verifies and repairs, extracts, then **renames atomically into `DataDir`** so a partially-extracted release is never visible to the import worker. Use `pkg/fsops` (`MoveAtomic`, `AtomicWrite`, `EnsureFreeSpace`) — do not reimplement.
+
+The same three traps as D2-5 apply verbatim; re-read them there. `status.health` (`*UsenetHealth`) is this engine's to report.
+
 ### D2-7 — `importarr` file-import worker (`ConsumerImportFile`, `Download.status.import`, MediaFile)
-The only cross-group status write in the project. R6, R7, R8 all bind here.
+
+**Files:** create `importarr/worker/fileimport/`. **The only cross-group status write in the project** — R6, R7 and R8 all bind here.
+
+Consumes `ConsumerImportFile` (`"importarr-fileimport"`, `pkg/events/subjects.go:84`, durable pull consumer on `StreamWorkImportarr`, `topology.go:526`). Imports a completed download into its root folder and creates the `MediaFile`.
+
+**The MediaFile spec/status split is an invariant, not a convention** (CLAUDE.md): importarr creates the resource and owns `MediaFileSpec` — observed path, size, fingerprint, plus quality, revision, formatScore, matchedFormats and releaseType **frozen at import**; `catalogarr` is the sole writer of all of `MediaFileStatus`. Both use their own field manager so the apiserver enforces the split. Do not write any part of `MediaFileStatus`.
+
+**Settle the `status.import` ownership contradiction as part of this task.** Three comments disagree today: `ManagerImportarr`'s comment and this task say importarr; `ManagerCatalogarr`'s comment and `DownloadStatus`' own field doc say catalogarr. No writer exists, so nothing has decided it. Pick one, fix **all three** comments in one commit, and re-run `make manifests` — the field comment is CRD description text, so leaving it stale ships a lie in `kubectl explain`.
+
+`Envelope.Key` is `<namespace>/<name>`: `strings.Cut` on `/`, dead-letter on failure. **Never guess** — an unattributable file goes to `LibraryScan.status.unmatched` with a reason, never a speculative item.
 
 ### D2-8 — wiring, RBAC, readiness (SERIAL, after D2-1..D2-7)
-The D1 equivalent found both of its phase's Criticals *outside* the package it scoped itself to. Registration is where inert code hides.
+
+**Files:** `grabarr/run.go`, `cmd/clustarr/services.go`, `cmd/clustarr/all.go`, `Makefile` (`RBAC_DIRS`), `config/`, `charts/`.
+
+Registers every controller, worker and engine behind its role flag; adds `grabarr` to `RBAC_DIRS` and regenerates; per-service readiness that runs on **every replica, not only the leader**; `k8s.WithBusHooks(obs.BusHooks())` on `k8s.ConnectBus` (AST-guarded — the guard will tell you if you miss it).
+
+**The D1 equivalent of this task found both of its phase's Criticals *outside* the package it scoped itself to.** Registration is where inert code hides: a controller nobody registers passes every unit test it has. Explicitly verify each new runnable is actually reachable from `clustarr all` and from its own subcommand.
+
+D2-3 deliberately left its markers unregenerated and reported them; collect those. envtest does **not** enforce RBAC, so a missing marker passes every suite and fails only on a real cluster.
 
 ### D2-9 — fixtures: a BitTorrent seeder and an NNTP stub
-### D2-10 — e2e scenarios 1 (through import), 2, 3, 4, 6 — **written, not run** while the deferral stands
+
+**Files:** `test/fixtures/seeder/`, `test/fixtures/nntpstub/`, `images/Dockerfile.fixture`.
+
+Neither exists. Both run in-cluster with no Internet, mirroring `test/fixtures/torznabstub/`, which is the working pattern to copy. The seeder serves a known torrent over loopback/cluster networking; the NNTP stub serves a known NZB's articles and **must be able to refuse an article on one server and serve it on another**, so D2-10 can exercise 430 failover end to end rather than only in D2-2's unit tests.
+
+### D2-10 — e2e scenarios 1 (through import), 2, 3, 4, 6 — **written, not run**
+
+**Files:** `test/e2e/download_test.go`, `test/e2e/import_test.go`, build tag `e2e`.
+
+The phase gate: a wanted movie searched, a release grabbed, downloaded against a local fixture, imported into a root folder, with a `MediaFile` created.
+
+**Do not run these.** e2e execution is deferred by explicit user instruction until D1-D3 implementation is complete. Write them to be correct on first execution and state plainly in the report that they are unexecuted.
+
+Note that `test/e2e/helpers_test.go`'s `newRankedQualityProfile` is now back on CRD defaults (9f344d6) after its language workaround was retired — releases must genuinely pass the language checks rather than stepping around them.
+
 ### D2-11 — gate, CLAUDE.md Status, carried list
+
+Mirror what D1-10 did (commit 3038552): `make generate`, `make manifests`, `make build`, `make lint`, scoped `go test` with `KUBEBUILDER_ASSETS` exported — **a suite finishing in milliseconds skipped**. Then a Phase D2 paragraph in CLAUDE.md's `## Status`, in the same voice as the Phase B/C/D1 paragraphs: name the packages and what was proven, not adjectives, and **check every claim against source before writing it** — D1 caught nine phantom identifiers and four phantom behaviours in its own briefs.
+
+State plainly that the e2e scenarios are written and **never executed**, and do not write "proven end to end" for anything that has not run on kind.
 
 ## Waves
 0: D2-0 · 1: D2-1, D2-2, D2-3 · 2: D2-4, D2-7, D2-9 · 3: D2-5, D2-6 · 4: D2-8 · 5: D2-10 · 6: D2-11
