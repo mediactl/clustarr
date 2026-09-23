@@ -167,7 +167,7 @@ func definitionByID(ctx context.Context, c client.Client, id string) (*indexv1al
 		}
 	}
 	return nil, fmt.Errorf("%w: no IndexerDefinition provides id %q (none declares it, overrides it or replaces it); "+
-		"Clustarr ships no definition corpus", ErrDefinitionNotFound, id)
+		"neither the embedded corpus nor a --cardigann-definitions-dir bundle provides it", ErrDefinitionNotFound, id)
 }
 
 // truncateBytes shortens s to at most n bytes on a rune boundary.

@@ -58,10 +58,12 @@ const (
 )
 
 // licenceNotice is printed on every run and heads SOURCE.txt.
-const licenceNotice = `sync-cardigann: Prowlarr/Indexers carries no licence (its history is Jackett's
-GPL-2.0 tree, whose LICENSE was deleted in 2020). These definitions are fetched
-for your own cluster; they are not part of Clustarr and must not be committed
-to its source tree. See hack/sync-cardigann's package documentation.`
+const licenceNotice = `sync-cardigann: Prowlarr/Indexers carries no licence file (its history is
+Jackett's GPL-2.0 tree, whose LICENSE was deleted in 2020). Clustarr embeds a
+copy of Prowlarr's definitions that the project owner added on 2026-09-23
+(indexarr/bundle/embedded); this tool fetches a fresh set for a
+--cardigann-definitions-dir bundle. See hack/sync-cardigann's package
+documentation.`
 
 // options is one run's flags.
 type options struct {
