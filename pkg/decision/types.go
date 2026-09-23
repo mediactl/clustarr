@@ -133,6 +133,20 @@ type Identity struct {
 	// independently (SearchOutcome.QueryMode), so one search's releases can be
 	// part id-found and part text-found.
 	IDQueryIndexers map[string]bool
+	// SingleEpisodeSearch is true when the candidates answer a search for
+	// exactly one episode -- the search worker's episode search, automatic or
+	// interactive. A full-season pack of the right season is then rejected
+	// as ReasonFullSeason (ruling R-3, Sonarr's
+	// SingleEpisodeSearchMatchSpecification), because a whole season is not
+	// what was asked for. False for everything else: an RSS decision was not
+	// asked for anything, and keeps accepting a pack that covers the
+	// episodes it was matched to, as Sonarr's RSS path does.
+	//
+	// It is a property of the search, like IDQueryIndexers, so the caller
+	// that runs the search sets it; EpisodeIdentity cannot infer it from
+	// "one episode", because an RSS pack target can resolve to one episode
+	// too.
+	SingleEpisodeSearch bool
 }
 
 // Options carries the parts of a decision that come from something other

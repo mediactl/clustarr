@@ -52,9 +52,11 @@ const minPlausibleYear = 1800
 // checklist takes for granted: is this release FOR the target item at all?
 // It is Radarr's Search/MovieSpecification ("Wrong movie") and Sonarr's
 // SeriesSpecification / SingleEpisodeSearchMatchSpecification ("Wrong
-// series", "Wrong season", "Episode wasn't requested"), folded into one check
-// with two verdicts: ReasonWrongItem when the evidence names a different
-// item, ReasonUnknownItem when there is no evidence either way.
+// series", "Wrong season", "Episode wasn't requested", "Full season pack"),
+// folded into one check with two verdicts about the item -- ReasonWrongItem
+// when the evidence names a different item, ReasonUnknownItem when there is
+// no evidence either way -- and one about what was asked for,
+// ReasonFullSeason.
 //
 // Until G1-6 an automatic search was id-only, and an indexer answers an id
 // query by matching the id server-side, so the question never came up. G1-6
@@ -89,7 +91,8 @@ const minPlausibleYear = 1800
 //  4. Nothing to compare -- the unevaluable case -- is UnknownItem. See below.
 //
 // An episode or pack target then has to pass the numbering half too
-// (numberingRejection): the right series is not the right episode.
+// (numberingRejection): the right series is not the right episode. Last, a
+// single-episode search refuses a full-season pack (seasonPackRejection).
 //
 // # The unevaluable case fails closed
 //
@@ -127,7 +130,26 @@ func identityRejection(t Target, targetTitles map[string]struct{}, parsed *relea
 	if t.Kind == common.MediaKindMovie {
 		return nil
 	}
-	return numberingRejection(t.Identity, parsed)
+	if r := numberingRejection(t.Identity, parsed); r != nil {
+		return r
+	}
+	return seasonPackRejection(t.Identity, parsed)
+}
+
+// seasonPackRejection is ruling R-3: a single-episode search does not take a
+// full-season pack, even one that covers the episode. Sonarr's
+// SingleEpisodeSearchMatchSpecification rejects it "Full season pack" (for a
+// standard series whenever the release names no episode; for anime whenever
+// it is a FullSeason and the search is not a season search). The numbering
+// half has already passed by the time this runs, so the pack is of the right
+// season -- a pack of another season is WrongItem, not this.
+func seasonPackRejection(id Identity, p *release.ParsedRelease) *common.Rejection {
+	if !id.SingleEpisodeSearch || !p.FullSeason {
+		return nil
+	}
+	r := newRejection(ReasonFullSeason, "release is %s, and this is a search for the single episode %s",
+		describeRelease(p), describeTarget(id))
+	return &r
 }
 
 // itemRejection is identityRejection's item half: the movie, or the series.
@@ -362,10 +384,10 @@ func releaseTitleKeys(parsed *release.ParsedRelease) []string {
 // agreeing is WrongItem; none comparable at all is UnknownItem, failing
 // closed for the same reason identityRejection's unevaluable case does.
 //
-// A full-season pack of the right season covers every episode of it, so a
-// single-episode target accepts one. Whether a single-episode search SHOULD
-// take a whole season is a ranking and policy question (Sonarr answers it in
-// a separate specification), not an identity one.
+// A full-season pack of the right season covers every episode of it, so the
+// numbering half accepts one for any target. Whether a single-episode search
+// SHOULD take a whole season is the separate question seasonPackRejection
+// answers, as Sonarr answers it in a separate specification.
 func numberingRejection(id Identity, p *release.ParsedRelease) *common.Rejection {
 	var (
 		compared   bool

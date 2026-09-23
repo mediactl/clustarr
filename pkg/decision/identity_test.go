@@ -360,6 +360,62 @@ func TestIdentityEpisode(t *testing.T) {
 	}
 }
 
+// TestSingleEpisodeSearchRejectsASeasonPack is ruling R-3, after Sonarr's
+// SingleEpisodeSearchMatchSpecification: a search for ONE episode does not
+// take a full-season pack of its season, while the RSS path (no search) and a
+// pack target keep accepting one. The pack's numbering is right in every
+// case, so the only thing that can reject it is what was asked for.
+func TestSingleEpisodeSearchRejectsASeasonPack(t *testing.T) {
+	episode := func(single bool) decision.Target {
+		return decision.Target{Kind: common.MediaKindEpisode, Available: true, Identity: decision.Identity{
+			Titles: []string{"Breaking Bad"}, IDs: map[string]string{common.IDKeyTVDB: "81189"},
+			Season: 1, Episodes: []int{5}, SingleEpisodeSearch: single,
+		}}
+	}
+	fullSeason := func(d decision.Decision) []string {
+		var out []string
+		for _, r := range d.Rejections {
+			if strings.HasPrefix(r.Reason, decision.ReasonFullSeason.Code+":") {
+				out = append(out, r.Reason)
+			}
+		}
+		return out
+	}
+
+	for _, title := range []string{
+		"Breaking.Bad.S01.720p.BluRay.x264-GRP",
+		"Breaking.Bad.S01-S03.720p.BluRay.x264-GRP", // a multi-season pack is a FullSeason too
+	} {
+		t.Run("a single-episode search refuses "+title, func(t *testing.T) {
+			d := evaluateOne(t, episode(true), title, textIndexer, nil)
+			require.False(t, d.Approved)
+			require.Len(t, d.Rejections, 1, "the pack is the right season at the right quality; only R-3 may reject it: %+v", d.Rejections)
+			got := fullSeason(d)
+			require.Len(t, got, 1, "%+v", d.Rejections)
+			require.Contains(t, got[0], "this is a search for the single episode S01E05")
+			require.Equal(t, common.RejectionPermanent, d.Rejections[0].Type, "Permanent, so Search.spec.override can still take it")
+		})
+	}
+
+	t.Run("the same pack without a single-episode search (RSS) is accepted", func(t *testing.T) {
+		d := evaluateOne(t, episode(false), "Breaking.Bad.S01.720p.BluRay.x264-GRP", textIndexer, nil)
+		require.True(t, d.Approved, "%+v", d.Rejections)
+	})
+	t.Run("a single-episode search still takes the single episode", func(t *testing.T) {
+		d := evaluateOne(t, episode(true), "Breaking.Bad.S01E05.720p.HDTV.x264-GRP", textIndexer, nil)
+		require.True(t, d.Approved, "%+v", d.Rejections)
+	})
+	t.Run("and a multi-episode release covering it, as Sonarr does", func(t *testing.T) {
+		d := evaluateOne(t, episode(true), "Breaking.Bad.S01E05E06.720p.HDTV.x264-GRP", textIndexer, nil)
+		require.True(t, d.Approved, "%+v", d.Rejections)
+	})
+	t.Run("a pack of another season is the wrong item, not a pack rejection", func(t *testing.T) {
+		d := evaluateOne(t, episode(true), "Breaking.Bad.S02.720p.BluRay.x264-GRP", textIndexer, nil)
+		assertIdentity(t, d, "WrongItem", "release is S02 full season")
+		require.Empty(t, fullSeason(d))
+	})
+}
+
 // TestIdentityHasNoRuleForOtherKinds: no caller evaluates a non-video kind
 // today, and the first one to must bring an identity rule with it rather than
 // inherit "approve anything".

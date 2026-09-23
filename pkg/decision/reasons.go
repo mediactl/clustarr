@@ -68,6 +68,13 @@ var (
 	// still grab one through Search.spec.override.
 	ReasonWrongItem   = Reason{"WrongItem", common.RejectionPermanent}
 	ReasonUnknownItem = Reason{"UnknownItem", common.RejectionPermanent}
+
+	// ReasonFullSeason is Sonarr's DownloadRejectionReason.FullSeason ("Full
+	// season pack", Specifications/Search/SingleEpisodeSearchMatchSpecification.cs):
+	// a pack of the right season, offered to a search for ONE episode of it
+	// (Identity.SingleEpisodeSearch). It is Permanent there too, so an
+	// interactive user can still take the pack through Search.spec.override.
+	ReasonFullSeason = Reason{"FullSeason", common.RejectionPermanent}
 )
 
 // verdictReasons maps every non-Upgrade quality.Verdict to the Reason

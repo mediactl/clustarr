@@ -38,7 +38,7 @@ func TestEveryReasonIsPermanent(t *testing.T) {
 		decision.ReasonQueueHigherPreference, decision.ReasonExistingHigherPreference, decision.ReasonUpgradesNotAllowed,
 		decision.ReasonExistingHigherRevision, decision.ReasonExistingCutoffMet, decision.ReasonExistingFormatScore,
 		decision.ReasonExistingFormatCutoffMet, decision.ReasonExistingFormatScoreIncrement,
-		decision.ReasonWrongItem, decision.ReasonUnknownItem,
+		decision.ReasonWrongItem, decision.ReasonUnknownItem, decision.ReasonFullSeason,
 	} {
 		require.Equal(t, common.RejectionPermanent, r.Type, "reason %s", r.Code)
 	}
