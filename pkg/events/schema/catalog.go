@@ -252,19 +252,6 @@ type MetadataTask struct {
 // Schema implements Payload.
 func (MetadataTask) Schema() string { return "catalog.MetadataTask.v1" }
 
-// ImportListTask asks a worker to sync one import list.
-// Subject: clustarr.work.catalogarr.importlist.normal.<uid>.
-type ImportListTask struct {
-	// ListRef is the ImportList to sync.
-	ListRef Ref `json:"listRef"`
-
-	// Full forces a full sync instead of an incremental one.
-	Full bool `json:"full,omitempty"`
-}
-
-// Schema implements Payload.
-func (ImportListTask) Schema() string { return "catalog.ImportListTask.v1" }
-
 // WantedScan asks the search workers to sweep a namespace for missing and
 // cutoff-unmet items. Subject:
 // clustarr.work.catalogarr.wantedscan.low.<namespace>.

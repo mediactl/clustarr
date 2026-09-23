@@ -485,13 +485,6 @@ func defaultConsumers() []ConsumerSpec {
 			MaxAckPending: 32,
 		},
 		{
-			Name: ConsumerCatalogImportList, Stream: StreamWorkCatalogarr,
-			Filters: []string{FilterCatalogList},
-			AckWait: 300 * s, MaxDeliver: 4,
-			BackOff:       []time.Duration{5 * m, 30 * m, 2 * h},
-			MaxAckPending: 2, Heartbeat: 60 * s,
-		},
-		{
 			Name: ConsumerCatalogHistory, Stream: StreamEvents,
 			Filters: []string{FilterAllEvents},
 			AckWait: 30 * s, MaxDeliver: 3,

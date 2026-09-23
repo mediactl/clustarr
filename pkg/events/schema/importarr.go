@@ -55,15 +55,14 @@ func (ScanTask) Schema() string { return "importarr.ScanTask.v1" }
 // clustarr.work.importarr.list.<importlist>, built by events.WorkListSubject
 // and consumed by ConsumerImportList ("importarr-list", amendment §A1.6).
 //
-// This is deliberately not catalog.ImportListTask, the older struct in
-// catalog.go for clustarr.work.catalogarr.importlist.normal.<uid>. That
-// subject predates amendment-1, which moved ImportList's sole controller
-// from catalogarr to importarr (§A1.3); nothing in the topology ever wired
-// a consumer for it under its intended meaning, and ConsumerImportList /
-// FilterImportList / WorkListSubject (subjects.go, topology.go) are the
-// ones amendment §A1.6 actually names. ListTask follows ScanTask's
-// "importarr." schema prefix rather than catalog.go's "catalog." one for
-// the same reason: this payload belongs to importarr, not catalogarr.
+// It replaced catalog.ImportListTask and its subject,
+// clustarr.work.catalogarr.importlist.normal.<uid>, which predated
+// amendment-1's move of ImportList's sole controller from catalogarr to
+// importarr (§A1.3). Nothing ever published that subject, and it was pruned
+// with its consumer (catalogarr-importlist) in the gap-fix wave (X1).
+// ListTask follows ScanTask's "importarr." schema prefix rather than
+// catalog.go's "catalog." one for the same reason: this payload belongs to
+// importarr, not catalogarr.
 //
 // The ImportList controller is the sole writer of ImportList.status (see
 // k8s.ManagerImportarr's doc comment); the worker never patches it

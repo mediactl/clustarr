@@ -152,7 +152,6 @@ var resolvers = map[string]resolver{
 	schema.SearchTask{}.Schema():       resolveSearchTask,
 	schema.GrabTask{}.Schema():         resolveGrabTask,
 	schema.MetadataTask{}.Schema():     resolveMetadataTask,
-	schema.ImportListTask{}.Schema():   resolveImportListTask,
 	schema.WantedScan{}.Schema():       resolveWantedScan,
 	schema.ImportTask{}.Schema():       resolveImportTask,
 	schema.Release{}.Schema():          resolveRelease,
@@ -240,14 +239,6 @@ func resolveMetadataTask(key string, data []byte) Target {
 		return Target{Namespace: namespaceOf(key)}
 	}
 	return mediaTarget(namespaceOf(key), p.MediaRef.Name, p.MediaRef.Kind)
-}
-
-func resolveImportListTask(key string, data []byte) Target {
-	var p schema.ImportListTask
-	if err := schema.Decode(p.Schema(), data, &p); err != nil {
-		return Target{Namespace: namespaceOf(key)}
-	}
-	return refTarget(p.ListRef, catalogv1alpha1.GroupVersion.String(), "ImportList")
 }
 
 // resolveWantedScan deliberately never sets Name/Kind: a wanted-scan sweep

@@ -39,7 +39,6 @@ func allPayloads() []schema.Payload {
 		schema.GrabTask{},
 		schema.ImportTask{},
 		schema.MetadataTask{},
-		schema.ImportListTask{},
 		schema.WantedScan{},
 		schema.MetadataRequest{},
 		schema.MetadataResponse{},

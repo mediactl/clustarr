@@ -59,7 +59,6 @@ const (
 	FilterCatalogGrab     = "clustarr.work.catalogarr.grab.>"
 	FilterCatalogImport   = "clustarr.work.catalogarr.import.>"
 	FilterCatalogMetadata = "clustarr.work.catalogarr.metadata.>"
-	FilterCatalogList     = "clustarr.work.catalogarr.importlist.>"
 	FilterCatalogWanted   = "clustarr.work.catalogarr.wantedscan.>"
 	FilterImportScan      = "clustarr.work.importarr.scan.>"
 	FilterImportList      = "clustarr.work.importarr.list.>"
@@ -77,7 +76,6 @@ const (
 	ConsumerCatalogGrab        = "catalogarr-grab"
 	ConsumerCatalogImport      = "catalogarr-import"
 	ConsumerCatalogMetadata    = "catalogarr-metadata"
-	ConsumerCatalogImportList  = "catalogarr-importlist"
 	ConsumerCatalogHistory     = "catalogarr-history"
 	ConsumerImportScan         = "importarr-scan"
 	ConsumerImportList         = "importarr-list"
@@ -236,12 +234,6 @@ func WorkImportSubject(downloadUID string) string {
 // clustarr.work.catalogarr.metadata.<high|normal>.<mediaKey>.
 func WorkMetadataSubject(p Priority, mediaKey string) string {
 	return fmt.Sprintf("clustarr.work.catalogarr.metadata.%s.%s", tok(string(p)), tok(mediaKey))
-}
-
-// WorkImportListSubject builds
-// clustarr.work.catalogarr.importlist.normal.<uid>.
-func WorkImportListSubject(uid string) string {
-	return "clustarr.work.catalogarr.importlist.normal." + tok(uid)
 }
 
 // WorkWantedScanSubject builds

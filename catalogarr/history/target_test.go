@@ -125,14 +125,6 @@ func TestResolve_SelfContainedRefs(t *testing.T) {
 		}, got)
 	})
 
-	t.Run("ImportListTask", func(t *testing.T) {
-		env := envelopeFor(t, "", schema.ImportListTask{
-			ListRef: schema.Ref{Namespace: "default", Name: "trakt-watchlist"},
-		})
-		got := history.Resolve(env)
-		require.Equal(t, "ImportList", got.Kind)
-	})
-
 	t.Run("ImportTask resolves a Download, a different group than its own schema prefix", func(t *testing.T) {
 		env := envelopeFor(t, "", schema.ImportTask{
 			DownloadRef: schema.Ref{Namespace: "default", Name: "dl-abc123"},
