@@ -148,6 +148,24 @@ func createRootFolder(t *testing.T, ctx context.Context, c client.Client, ns, na
 	}, 5*time.Second, 10*time.Millisecond, "cache never observed the RootFolder Create")
 }
 
+// waitCached polls the cached client until it serves obj, which the test
+// has just created straight through the apiserver -- createRootFolder's
+// wait, for any object. A Reconcile driven by hand before the cache catches
+// up reads the object as NotFound and returns nil having done nothing (the
+// reconciler's right answer for a deleted object), which left
+// TestBookReconcilerOwnedInheritsAuthorRootFolderAndName's waitForPhase
+// spinning to a timeout 1 run in 5, more often under full-suite load. It
+// waits on c itself, not an uncached reader, because c is what the
+// reconciler under test reads through.
+func waitCached(t *testing.T, ctx context.Context, c client.Client, obj client.Object) {
+	t.Helper()
+	key := client.ObjectKeyFromObject(obj)
+	require.Eventually(t, func() bool {
+		probe, ok := obj.DeepCopyObject().(client.Object)
+		return ok && c.Get(ctx, key, probe) == nil
+	}, 10*time.Second, 10*time.Millisecond, "the cache never observed %T %s", obj, key)
+}
+
 // testQualityProfile mirrors movie/reconciler_test.go's identical helper,
 // adapted to mediaKind=book: a single "cutoff" tier holding every quality
 // name passed in, with that tier as both the only tier and the cutoff --
@@ -245,6 +263,7 @@ func TestBookReconcilerStandalone(t *testing.T) {
 		Spec:       catalogv1alpha1.BookSpec{WorkID: "OL45883W", RootFolderRef: &rootRef},
 	}
 	require.NoError(t, c.Create(ctx, bk))
+	waitCached(t, ctx, c, bk)
 
 	r := &book.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: fakePublisher{}}
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "book-standalone-ns", Name: "standalone-hobbit"}}
@@ -303,6 +322,7 @@ func TestBookReconcilerOwnedInheritsAuthorRootFolderAndName(t *testing.T) {
 		Spec:       catalogv1alpha1.BookSpec{WorkID: "OL45883W", AuthorRef: &authorRef},
 	}
 	require.NoError(t, c.Create(ctx, bk))
+	waitCached(t, ctx, c, bk)
 
 	r := &book.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: fakePublisher{}}
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "book-owned-ns", Name: "tolkien-hobbit"}}
@@ -329,6 +349,7 @@ func TestBookReconcilerStandaloneWithNoRootFolderRefIsUnresolved(t *testing.T) {
 		Spec:       catalogv1alpha1.BookSpec{WorkID: "OL1W"},
 	}
 	require.NoError(t, c.Create(ctx, bk))
+	waitCached(t, ctx, c, bk)
 
 	r := &book.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: fakePublisher{}}
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "book-unresolved-ns", Name: "orphan-book"}}
@@ -363,6 +384,7 @@ func TestBookReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		Spec:       catalogv1alpha1.BookSpec{WorkID: "OL1W", RootFolderRef: &rootRef},
 	}
 	require.NoError(t, c.Create(ctx, bk))
+	waitCached(t, ctx, c, bk)
 
 	r := &book.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: fakePublisher{}}
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "book-transient-ns", Name: "steady-book"}}
@@ -429,6 +451,7 @@ func TestBookReconcilerRealQualityCutoffEvaluation(t *testing.T) {
 			Spec:       catalogv1alpha1.BookSpec{WorkID: "OL1W", RootFolderRef: &rootRef, QualityProfileRef: &profileRef},
 		}
 		require.NoError(t, c.Create(ctx, bk))
+		waitCached(t, ctx, c, bk)
 		return bk
 	}
 	newMediaFile := func(name, bookName, qualityName string) {
@@ -441,6 +464,9 @@ func TestBookReconcilerRealQualityCutoffEvaluation(t *testing.T) {
 			},
 		}
 		require.NoError(t, c.Create(ctx, mf))
+		// The reconciler finds a book's files through a field index on
+		// this same cache, so an unobserved MediaFile reads as no file.
+		waitCached(t, ctx, c, mf)
 	}
 	r := &book.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: fakePublisher{}}
 
@@ -509,6 +535,7 @@ func TestBookReconcilerFieldManagerNeverIncludesFanout(t *testing.T) {
 		},
 	}
 	require.NoError(t, c.Create(ctx, a))
+	waitCached(t, ctx, c, a)
 
 	requester := authorFakeRequester{books: []metadata.Book{
 		{IDs: metadata.ExternalIDs{metadata.KeyOpenLibraryWork: "OL45883W"}, Title: "The Hobbit"},

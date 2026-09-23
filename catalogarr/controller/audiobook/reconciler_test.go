@@ -185,6 +185,24 @@ func waitForCachedMetadata(t *testing.T, ctx context.Context, c client.Client, n
 	}, 5*time.Second, 10*time.Millisecond)
 }
 
+// waitCached polls the cached client until it serves obj, which the test
+// has just created straight through the apiserver. The manager's cache is
+// only eventually consistent with that write, and a Reconcile driven by hand
+// before it catches up reads NotFound and returns nil having done nothing --
+// the reconciler's right answer for a deleted object, and a flake for a
+// test: TestAudiobookRegionReachesTheMetadataGateway failed 2 runs in 5 at
+// its "must publish exactly one MetadataTask" assertion that way. It waits
+// on c itself, not an uncached reader, because c is what the reconciler
+// under test reads through.
+func waitCached(t *testing.T, ctx context.Context, c client.Client, obj client.Object) {
+	t.Helper()
+	key := client.ObjectKeyFromObject(obj)
+	require.Eventually(t, func() bool {
+		probe, ok := obj.DeepCopyObject().(client.Object)
+		return ok && c.Get(ctx, key, probe) == nil
+	}, 10*time.Second, 10*time.Millisecond, "the cache never observed %T %s", obj, key)
+}
+
 func testNamespace(name string) *corev1.Namespace {
 	return &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}
 }
@@ -298,6 +316,7 @@ func TestAudiobookRegionReachesTheMetadataGateway(t *testing.T) {
 		},
 	}
 	require.NoError(t, c.Create(ctx, m))
+	waitCached(t, ctx, c, m)
 
 	pub := &capturingPublisher{}
 	r := &audiobook.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: pub}
@@ -379,6 +398,7 @@ func TestAudiobookRegionDefaultsToUSWhenUnset(t *testing.T) {
 		},
 	}
 	require.NoError(t, c.Create(ctx, m))
+	waitCached(t, ctx, c, m)
 
 	pub := &capturingPublisher{}
 	r := &audiobook.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: pub}
@@ -744,8 +764,12 @@ func TestAudiobookReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 	cfg := newTestConfig(t)
 	c := startCacheOnly(t, ctx, cfg)
 	require.NoError(t, c.Create(ctx, testNamespace("transient-ns")))
-	require.NoError(t, c.Create(ctx, testRootFolder("transient-ns", "audiobooks-root", "/data/media/audiobooks")))
-	require.NoError(t, c.Create(ctx, testQualityProfile("transient-ns", "cutoff-met-at-mp3", "MP3")))
+	rf := testRootFolder("transient-ns", "audiobooks-root", "/data/media/audiobooks")
+	require.NoError(t, c.Create(ctx, rf))
+	qp := testQualityProfile("transient-ns", "cutoff-met-at-mp3", "MP3")
+	require.NoError(t, c.Create(ctx, qp))
+	waitCached(t, ctx, c, rf)
+	waitCached(t, ctx, c, qp)
 
 	driveToImported := func(t *testing.T, name string) reconcile.Request {
 		t.Helper()
