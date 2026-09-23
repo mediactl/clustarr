@@ -424,11 +424,14 @@ func TestLibraryProjectionDerivesMonitoredPhaseAndHasFilePerKind(t *testing.T) {
 	defer cancel()
 	go func() { _ = proj.Run(ctx) }()
 
+	// Seven parents: the episode, the album and the issue are children of a
+	// series, an artist and a comic, and the library shows parents only;
+	// the book has no authorRef, so it stands alone and is its own parent.
 	var items []projection.LibraryItem
 	require.Eventually(t, func() bool {
 		items = proj.Library(ctx)
-		return len(items) == 10
-	}, 2*time.Second, 10*time.Millisecond, "projection never produced all ten library items")
+		return len(items) == 7
+	}, 2*time.Second, 10*time.Millisecond, "projection never produced all seven library items")
 
 	byName := map[string]projection.LibraryItem{}
 	for _, it := range items {
@@ -447,14 +450,8 @@ func TestLibraryProjectionDerivesMonitoredPhaseAndHasFilePerKind(t *testing.T) {
 	require.Equal(t, string(catalogv1.SeriesPhaseUnmonitored), s.Phase)
 	require.False(t, s.HasFile, "Series has no hasFile concept of its own")
 
-	e := byName["episode-1"]
-	require.True(t, e.Monitored)
-	require.Equal(t, "Downloading", e.Phase)
-	require.True(t, e.HasFile)
-
-	al := byName["album-1"]
-	require.Equal(t, string(catalogv1.AlbumPhaseDownloading), al.Phase)
-	require.True(t, al.HasFile, "trackFileCount > 0 must read as hasFile")
+	require.NotContains(t, byName, "episode-1", "an episode is a series' child, not a library card")
+	require.NotContains(t, byName, "album-1", "an album is an artist's child, not a library card")
 
 	ar := byName["artist-1"]
 	require.Empty(t, ar.Phase, "Artist is a collection parent with no phase concept")
@@ -478,9 +475,7 @@ func TestLibraryProjectionDerivesMonitoredPhaseAndHasFilePerKind(t *testing.T) {
 	require.Empty(t, cm.Phase, "Comic is a collection parent with no phase concept")
 	require.True(t, cm.HasFile, "issueFileCount > 0 must read as hasFile for a collection parent")
 
-	is := byName["issue-1"]
-	require.Empty(t, is.Phase, "Issue has no phase field at all")
-	require.True(t, is.HasFile)
+	require.NotContains(t, byName, "issue-1", "an issue is a comic's child, not a library card")
 }
 
 // TestUnmatchedProjectionFlattensAndSortsAcrossScans proves [Projection.

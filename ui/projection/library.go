@@ -68,6 +68,55 @@ type LibraryItem struct {
 	// field of its own (Artist, Author and Comic report it via their
 	// child-file counts instead -- see [describeLibraryItem]).
 	HasFile bool
+
+	// Tab is the library tab the item's kind belongs to; see [Tab].
+	Tab Tab
+	// Year is status.metadata.year where the kind has one, else 0.
+	Year int32
+	// Poster is the URL of the first status.metadata.images entry whose type
+	// is poster, or "" when metadata has not arrived or publishes no poster.
+	// The UI hotlinks it (spec 2026-09-23-library-page-design, decision 1).
+	Poster string
+	// QualityProfileRef is spec.qualityProfileRef, or "" for a kind that
+	// inherits one (a Book with no profile of its own).
+	QualityProfileRef string
+}
+
+// Tab is one of the library page's tabs. Every parent kind belongs to
+// exactly one; a child kind (Episode, Album, an Author's Book, Issue)
+// belongs to none and produces no card.
+type Tab string
+
+const (
+	TabMovies Tab = "movies"
+	TabTV     Tab = "tv"
+	TabMusic  Tab = "music"
+	TabBooks  Tab = "books"
+)
+
+// Tabs lists the tabs in the order the page shows them.
+func Tabs() []Tab { return []Tab{TabMovies, TabTV, TabMusic, TabBooks} }
+
+// ParseTab turns a URL path segment into a Tab, refusing anything that is
+// not exactly one of [Tabs].
+func ParseTab(s string) (Tab, bool) {
+	for _, tab := range Tabs() {
+		if s == string(tab) {
+			return tab, true
+		}
+	}
+	return "", false
+}
+
+// ForTab keeps the items whose Tab is tab, in their existing order.
+func ForTab(items []LibraryItem, tab Tab) []LibraryItem {
+	out := make([]LibraryItem, 0, len(items))
+	for _, item := range items {
+		if item.Tab == tab {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 // UnmatchedEntry is one row on the Unmatched page (amendment §A3.4): one file
@@ -109,14 +158,21 @@ type UnmatchedEntry struct {
 func buildLibraryItems(items []client.Object, entries []pipeline.Entry) []LibraryItem {
 	out := make([]LibraryItem, 0, len(items))
 	for i, item := range items {
-		monitored, phase, hasFile := describeLibraryItem(item)
+		card, ok := describeLibraryItem(item)
+		if !ok {
+			continue
+		}
 		out = append(out, LibraryItem{
-			Ref:       entries[i].Ref,
-			Kind:      entries[i].Kind,
-			Title:     entries[i].Title,
-			Monitored: monitored,
-			Phase:     phase,
-			HasFile:   hasFile,
+			Ref:               entries[i].Ref,
+			Kind:              entries[i].Kind,
+			Title:             entries[i].Title,
+			Monitored:         card.monitored,
+			Phase:             card.phase,
+			HasFile:           card.hasFile,
+			Tab:               card.tab,
+			Year:              card.year,
+			Poster:            card.poster,
+			QualityProfileRef: card.profile,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -128,38 +184,96 @@ func buildLibraryItems(items []client.Object, entries []pipeline.Entry) []Librar
 	return out
 }
 
-// describeLibraryItem reads the monitored/phase/hasFile shape of one catalog
-// item. Movie, Series, Episode, Album, Book and Audiobook each carry
-// status.phase directly; Issue carries hasFile but no phase at all; Artist,
-// Author and Comic are collection parents with neither -- they report
-// hasFile via whether any child has an imported file yet (AlbumFileCount,
-// BookFileCount, IssueFileCount), the closest reading of "this collection has
-// something on disk" their status offers.
-func describeLibraryItem(item client.Object) (monitored bool, phase string, hasFile bool) {
+// libraryCard is what a parent kind contributes to its card beyond the Ref,
+// Kind and Title the pipeline entry already carries.
+type libraryCard struct {
+	tab       Tab
+	monitored bool
+	phase     string
+	hasFile   bool
+	year      int32
+	poster    string
+	profile   string
+}
+
+// describeLibraryItem reads one catalog item's card, and false for a kind
+// that has no card: Episode, Album and Issue are children of a Series, an
+// Artist and a Comic, and so is a Book with an authorRef (one without is its
+// own parent). Movie, Series, Book and Audiobook carry status.phase
+// directly; Artist, Author and Comic are collection parents with none, and
+// report hasFile via whether any child has an imported file yet
+// (AlbumFileCount, BookFileCount, IssueFileCount), the closest reading of
+// "this collection has something on disk" their status offers.
+func describeLibraryItem(item client.Object) (libraryCard, bool) {
 	switch v := item.(type) {
 	case *catalogv1.Movie:
-		return monitoredOrDefault(v.Spec.Monitored), string(v.Status.Phase), v.Status.HasFile
+		c := libraryCard{tab: TabMovies, monitored: monitoredOrDefault(v.Spec.Monitored),
+			phase: string(v.Status.Phase), hasFile: v.Status.HasFile, profile: v.Spec.QualityProfileRef}
+		if md := v.Status.Metadata; md != nil {
+			c.year, c.poster = md.Year, posterOf(md.Images)
+		}
+		return c, true
 	case *catalogv1.Series:
-		return monitoredOrDefault(v.Spec.Monitored), string(v.Status.Phase), false
-	case *catalogv1.Episode:
-		return monitoredOrDefault(v.Spec.Monitored), string(v.Status.Phase), v.Status.HasFile
-	case *catalogv1.Album:
-		return monitoredOrDefault(v.Spec.Monitored), string(v.Status.Phase), v.Status.TrackFileCount > 0
+		c := libraryCard{tab: TabTV, monitored: monitoredOrDefault(v.Spec.Monitored),
+			phase: string(v.Status.Phase), profile: v.Spec.QualityProfileRef}
+		if md := v.Status.Metadata; md != nil {
+			c.year, c.poster = md.Year, posterOf(md.Images)
+		}
+		return c, true
 	case *catalogv1.Artist:
-		return monitoredOrDefault(v.Spec.Monitored), "", v.Status.AlbumFileCount > 0
+		c := libraryCard{tab: TabMusic, monitored: monitoredOrDefault(v.Spec.Monitored),
+			hasFile: v.Status.AlbumFileCount > 0, profile: v.Spec.QualityProfileRef}
+		if md := v.Status.Metadata; md != nil {
+			c.poster = posterOf(md.Images)
+		}
+		return c, true
 	case *catalogv1.Author:
-		return monitoredOrDefault(v.Spec.Monitored), "", v.Status.BookFileCount > 0
+		c := libraryCard{tab: TabBooks, monitored: monitoredOrDefault(v.Spec.Monitored),
+			hasFile: v.Status.BookFileCount > 0, profile: v.Spec.QualityProfileRef}
+		if md := v.Status.Metadata; md != nil {
+			c.poster = posterOf(md.Images)
+		}
+		return c, true
 	case *catalogv1.Book:
-		return monitoredOrDefault(v.Spec.Monitored), string(v.Status.Phase), v.Status.HasFile
+		if v.Spec.AuthorRef != nil && *v.Spec.AuthorRef != "" {
+			return libraryCard{}, false
+		}
+		c := libraryCard{tab: TabBooks, monitored: monitoredOrDefault(v.Spec.Monitored),
+			phase: string(v.Status.Phase), hasFile: v.Status.HasFile}
+		if v.Spec.QualityProfileRef != nil {
+			c.profile = *v.Spec.QualityProfileRef
+		}
+		if md := v.Status.Metadata; md != nil {
+			c.poster = posterOf(md.Images)
+		}
+		return c, true
 	case *catalogv1.Audiobook:
-		return monitoredOrDefault(v.Spec.Monitored), string(v.Status.Phase), v.Status.HasFile
+		c := libraryCard{tab: TabBooks, monitored: monitoredOrDefault(v.Spec.Monitored),
+			phase: string(v.Status.Phase), hasFile: v.Status.HasFile, profile: v.Spec.QualityProfileRef}
+		if md := v.Status.Metadata; md != nil {
+			c.poster = posterOf(md.Images)
+		}
+		return c, true
 	case *catalogv1.Comic:
-		return monitoredOrDefault(v.Spec.Monitored), "", v.Status.IssueFileCount > 0
-	case *catalogv1.Issue:
-		return monitoredOrDefault(v.Spec.Monitored), "", v.Status.HasFile
+		c := libraryCard{tab: TabBooks, monitored: monitoredOrDefault(v.Spec.Monitored),
+			hasFile: v.Status.IssueFileCount > 0, profile: v.Spec.QualityProfileRef}
+		if md := v.Status.Metadata; md != nil {
+			c.year, c.poster = md.Year, posterOf(md.Images)
+		}
+		return c, true
 	default:
-		return true, "", false
+		return libraryCard{}, false
 	}
+}
+
+// posterOf is the URL of the first poster among images, or "".
+func posterOf(images []catalogv1.Image) string {
+	for _, img := range images {
+		if img.Type == catalogv1.ImageTypePoster {
+			return img.URL
+		}
+	}
+	return ""
 }
 
 // monitoredOrDefault reads a spec.monitored pointer, defaulting a nil one to
