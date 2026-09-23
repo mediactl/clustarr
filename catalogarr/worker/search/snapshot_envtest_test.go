@@ -173,6 +173,16 @@ func TestWorkerSnapshotOfAnAnimeEpisodeWithAFile(t *testing.T) {
 	require.Equal(t, "cccccccccccccccccccccccccccccccccccccccc", target.Current.SourceHash,
 		"the info hash comes from the Download that produced the file, not from MediaFile")
 
+	// The identity the decision engine checks every release against. The
+	// series has no metadata in this fixture, so there is no title yet: the
+	// SERIES tvdb id and the episode's own numbering are what identify it.
+	airedOn := airDate.Time
+	require.Equal(t, decision.Identity{
+		IDs:    map[string]string{commonv1.IDKeyTVDB: "81797"},
+		Season: 1, Episodes: []int{37}, Absolute: []int{37}, AirDate: &airedOn,
+		IDQueryIndexers: map[string]bool{}, // the fake reply reports no id-mode outcome
+	}, target.Identity)
+
 	require.Len(t, target.Queue, 1, "a seeding Download still occupies the queue")
 	require.NotNil(t, target.Blocklist)
 	require.False(t, target.Blocklist("deadbeef", "Nothing.Blocklisted"), "nothing is blocklisted here")
@@ -218,6 +228,9 @@ func TestWorkerSnapshotOfAMovieWithNoFileHasNoCurrent(t *testing.T) {
 	require.Empty(t, target.Queue)
 	require.False(t, target.Available, "status.available is false until the Movie reconciler says otherwise")
 	require.True(t, target.Monitored)
+	require.Equal(t, map[string]string{commonv1.IDKeyTMDB: "603"}, target.Identity.IDs,
+		"with no metadata yet the movie is still identifiable by its spec tmdb id")
+	require.Empty(t, target.Identity.Titles)
 }
 
 func TestWorkerBlocklistPredicateHonoursTheExpiryDeadline(t *testing.T) {
@@ -336,5 +349,98 @@ func TestWorkerSearchAtCRDDefaultsApprovesAnEnglishRelease(t *testing.T) {
 		require.True(t, r.Approved,
 			"a profile at CRD defaults must approve an English release of an English movie; %s was rejected with %+v (score %d)",
 			r.GUID, r.Rejections, r.FormatScore)
+	}
+}
+
+// TestWorkerSearchRejectsAWrongFilmFromATextFallbackIndexer is G1-6b through
+// the worker, with the REAL pkg/decision.Evaluate: the identity the worker
+// assembles (titles and ids from the Movie, IDQueryIndexers from the reply's
+// per-indexer QueryMode) is what decides which releases are for this film.
+//
+// Two indexers answer. "text-idx" supported none of the movie's ids and fell
+// back to "The Matrix 1999"; "id-idx" answered a tmdbid query. The right film
+// is approved from the text indexer by its title and year; a different film
+// from the same keyword search is rejected as WrongItem; and a release titled
+// in another language, with no ids of its own, is approved from the id
+// indexer -- which matched the id server-side -- and rejected from the text
+// indexer, which only matched a keyword.
+func TestWorkerSearchRejectsAWrongFilmFromATextFallbackIndexer(t *testing.T) {
+	ctx := context.Background()
+	f := newWorkerFixture(t, "snapshot-identity")
+	f.worker.Evaluate = decision.Evaluate
+
+	_, err := k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalogarrMetadata,
+		catalogac.Movie("the-matrix", f.ns).WithStatus(
+			catalogac.MovieStatus().WithAvailable(true).WithMetadata(
+				catalogac.MovieMetadata().WithTitle("The Matrix").WithYear(1999).
+					WithRuntimeMinutes(136).
+					WithOriginalLanguage("en").
+					WithExternalIDs(map[string]string{commonv1.IDKeyIMDB: "tt0133093"}).
+					WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).
+					WithRefreshedAt(metav1.Now()))))
+	require.NoError(t, err)
+	eventually(t, 10*time.Second, "the cache to see the movie's metadata", func() bool {
+		var m catalogv1alpha1.Movie
+		if err := f.mgr.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: "the-matrix"}, &m); err != nil {
+			return false
+		}
+		return m.Status.Metadata != nil && m.Status.Metadata.Title == "The Matrix"
+	})
+
+	from := func(indexer, guid, title string) schema.Release {
+		r := rpcRelease(guid, title, 0)
+		r.Info.IndexerRef, r.Info.IndexerName = indexer, indexer
+		return r
+	}
+	f.rpc.Response = schema.SearchResponse{
+		Releases: []schema.Release{
+			from("text-idx", "right", "The.Matrix.1999.1080p.BluRay.x264-GRP"),
+			from("text-idx", "sequel", "The.Matrix.Reloaded.2003.1080p.BluRay.x264-GRP"),
+			from("text-idx", "foreign-by-text", "Matriks.1999.1080p.BluRay.x264-GRP"),
+			from("id-idx", "foreign-by-id", "Matriks.1999.1080p.BluRay.x264-GRP"),
+		},
+		Outcomes: []schema.SearchOutcome{
+			{IndexerRef: schema.Ref{Namespace: f.ns, Name: "text-idx"}, Status: schema.SearchOutcomeOK, Releases: 3, QueryMode: schema.SearchQueryModeText},
+			{IndexerRef: schema.Ref{Namespace: f.ns, Name: "id-idx"}, Status: schema.SearchOutcomeOK, Releases: 1, QueryMode: schema.SearchQueryModeID},
+		},
+	}
+
+	srch := &catalogv1alpha1.Search{
+		ObjectMeta: metav1.ObjectMeta{Name: "srch", Namespace: f.ns},
+		Spec: catalogv1alpha1.SearchSpec{
+			MediaRef: &commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
+			TTL:      metav1.Duration{Duration: time.Hour},
+		},
+	}
+	require.NoError(t, f.mgr.Create(ctx, srch))
+	waitCached(t, ctx, f.mgr, client.ObjectKey{Namespace: f.ns, Name: "srch"}, &catalogv1alpha1.Search{})
+	writeControllerStatus(t, ctx, f.mgr, f.ns, "srch")
+
+	// Interactive only so protocols open without a DownloadClient (see
+	// TestWorkerSearchAtCRDDefaultsApprovesAnEnglishRelease); identity is
+	// checked identically on both paths.
+	require.NoError(t, f.worker.Handle(ctx, testMessage{env: f.envelope(t, schema.SearchTask{
+		MediaRef:    commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
+		Reason:      schema.SearchReasonInteractive,
+		SearchRef:   &schema.Ref{Namespace: f.ns, Name: "srch"},
+		UserInvoked: true,
+	})}))
+
+	got := &catalogv1alpha1.Search{}
+	require.NoError(t, f.api.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: "srch"}, got))
+	byGUID := map[string]catalogv1alpha1.ReleaseDecision{}
+	for _, r := range got.Status.Results {
+		byGUID[r.GUID] = r
+	}
+	require.Len(t, byGUID, 4)
+
+	for _, guid := range []string{"right", "foreign-by-id"} {
+		require.True(t, byGUID[guid].Approved, "%s must be approved; rejected with %+v", guid, byGUID[guid].Rejections)
+	}
+	for _, guid := range []string{"sequel", "foreign-by-text"} {
+		r := byGUID[guid]
+		require.False(t, r.Approved, "%s is not this film and must not be approved", guid)
+		require.Len(t, r.Rejections, 1, "identity must be the only reason %s is rejected: %+v", guid, r.Rejections)
+		require.Contains(t, r.Rejections[0].Reason, decision.ReasonWrongItem.Code+":")
 	}
 }

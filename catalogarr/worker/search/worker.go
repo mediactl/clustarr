@@ -308,6 +308,12 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 		return err
 	}
 
+	// Which indexers answered with an id query is known only now. A release
+	// from one of them was matched to the item's id server-side; one from a
+	// text-fallback indexer was matched by keyword and has to prove its own
+	// identity (pkg/decision's identity check).
+	snap.Target.Identity.IDQueryIndexers = idQueryIndexers(resp.Outcomes)
+
 	rels := releaseInfos(resp.Releases)
 	decisions := w.evaluate()(ctx, snap.Target, profile, w.Catalogue, rels, opts)
 	recordDecisionMetrics(task.MediaRef.Kind, decisions)

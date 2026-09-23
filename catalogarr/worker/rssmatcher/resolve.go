@@ -65,6 +65,14 @@ type resolveState struct {
 	delayProfileRef     *string
 	tags                []string
 	currentFile         *decision.Current
+	// identity is built by catalogarr/worker/search's own MovieIdentity and
+	// EpisodeIdentity, so an RSS decision and a search decision agree on
+	// what the item is. The matcher already picked the item by id or by
+	// title and year; the decision engine checks the release against it
+	// anyway, because a title-and-year match is exactly the kind of guess
+	// that check exists to confirm -- and a release whose own id contradicts
+	// the item it was title-matched to must not be grabbed for it.
+	identity decision.Identity
 }
 
 // resolve fetches the item named by ref and reads off everything the decision
@@ -98,9 +106,11 @@ func resolve(ctx context.Context, c client.Client, ns string, ref commonv1.Media
 			st.originalLanguageTag = m.Status.Metadata.OriginalLanguage
 		}
 		st.currentFile = currentFrom(m.Status.HasFile, m.Status.FileQuality, m.Status.FileFormatScore)
+		st.identity = search.MovieIdentity(&m)
 
 	case commonv1.MediaKindEpisode, commonv1.MediaKindSeries:
 		seriesName := ref.Name
+		var eps []*catalogv1alpha1.Episode
 		if ref.Kind == commonv1.MediaKindEpisode {
 			var ep catalogv1alpha1.Episode
 			if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: ref.Name}, &ep); err != nil {
@@ -110,17 +120,30 @@ func resolve(ctx context.Context, c client.Client, ns string, ref commonv1.Media
 			st.monitored = ptr.Deref(ep.Spec.Monitored, true)
 			st.available = ep.Status.AirDate != nil && !now.Before(ep.Status.AirDate.Time)
 			st.currentFile = currentFrom(ep.Status.HasFile, ep.Status.FileQuality, ep.Status.FileFormatScore)
+			eps = append(eps, &ep)
 		} else {
 			// A pack has no single file or air date of its own. It is
 			// available because its episodes were matched, and its current
 			// file is per-episode -- the importer re-checks each one.
 			st.monitored = true
 			st.available = true
+			// Its numbering, though, is exactly the episodes the matcher
+			// resolved it to (packRef's Keys), and the decision engine's
+			// identity check needs them: without them a pack target has no
+			// numbering and every pack release fails closed as UnknownItem.
+			for _, name := range ref.Keys {
+				var ep catalogv1alpha1.Episode
+				if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &ep); err != nil {
+					return st, err
+				}
+				eps = append(eps, &ep)
+			}
 		}
 		var s catalogv1alpha1.Series
 		if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: seriesName}, &s); err != nil {
 			return st, fmt.Errorf("rssmatcher: get series %q: %w", seriesName, err)
 		}
+		st.identity = search.EpisodeIdentity(&s, eps...)
 		st.qualityProfile = s.Spec.QualityProfileRef
 		st.delayProfileRef = s.Spec.DelayProfileRef
 		st.tags = s.Spec.Tags

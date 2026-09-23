@@ -38,8 +38,10 @@ import (
 
 // itemSnapshot is everything the worker reads off the cluster before it can
 // decide anything: the catalog item's search identity, the QualityProfile to
-// resolve, and the decision engine's Target (current file, live queue and the
-// blocklist predicate included).
+// resolve, and the decision engine's Target (current file, live queue, the
+// blocklist predicate and the item's decision.Identity included -- all but
+// Identity.IDQueryIndexers, which only the search's reply can supply; Handle
+// fills it in once indexarr has answered).
 type itemSnapshot struct {
 	IDs               TargetIDs
 	QualityProfileRef string
@@ -86,6 +88,7 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 			snap.Target.RuntimeMinutes = int(md.RuntimeMinutes)
 			snap.Target.OriginalLanguageTag = md.OriginalLanguage
 		}
+		snap.Target.Identity = MovieIdentity(&m)
 		hasFile, fileRef = m.Status.HasFile, m.Status.FileRef
 
 	case commonv1.MediaKindEpisode:
@@ -142,6 +145,7 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 			snap.IDs.Title = md.Title
 			snap.Target.OriginalLanguageTag = md.OriginalLanguage
 		}
+		snap.Target.Identity = EpisodeIdentity(&s, &e)
 		hasFile, fileRef = e.Status.HasFile, e.Status.FileRef
 
 	default:

@@ -18,6 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package decision
 
 import (
+	"time"
+
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/release"
@@ -71,6 +73,60 @@ type Target struct {
 	// FreeBytes is carried per spec §7; unused by this task -- see
 	// Disagreement 5. A later task may wire up a free-space check against it.
 	FreeBytes int64
+	// Identity is WHICH item this is: what a candidate release has to be for
+	// before anything else about it matters (identity.go). The zero value
+	// identifies nothing, and every release evaluated against it is rejected
+	// as ReasonUnknownItem -- deliberately, so a construction site that
+	// forgets to fill it fails loudly (nothing is approved) instead of
+	// approving whatever an indexer happened to return.
+	Identity Identity
+}
+
+// Identity is what the identity check (identity.go) compares a candidate
+// release against. Every field comes from the catalog item's own spec and
+// status; nothing here is derived from a release.
+type Identity struct {
+	// Titles is every title the item is known by, primary first: for a movie
+	// status.metadata.title, originalTitle and alternateTitles; for an
+	// episode or a pack, the owning SERIES' title and alternate titles (an
+	// Episode has no title a release would carry). Empty until metadata
+	// lands.
+	Titles []string
+	// Year is status.metadata.year: a movie's release year, or a series'
+	// first-aired year. 0 means unknown. For a movie it bounds the release's
+	// parsed year (movieYearTolerance); for a series it is used only to
+	// recognise the "Doctor Who 2005" disambiguated-title form.
+	Year int
+	// IDs are the item's external ids, keyed by commonv1.IDKeyTMDB /
+	// IDKeyIMDB / IDKeyTVDB exactly as ReleaseInfo.IDs is: tmdb (spec) and
+	// imdb (status.metadata.externalIDs) for a movie; the SERIES' tvdb id for
+	// an episode or a pack. A key the item does not have is simply absent.
+	IDs map[string]string
+	// Season and Episodes are the in-season numbering the target covers: one
+	// episode for a single-episode search, every episode of a pack for an RSS
+	// pack target. Season is meaningful only when Episodes is non-empty
+	// (season 0 is a real season -- specials).
+	Season   int
+	Episodes []int
+	// Absolute is the anime absolute numbering of the same episodes, empty
+	// when the catalog has none.
+	Absolute []int
+	// AirDate is a single episode's air date, the only numbering a daily
+	// series' releases carry. Nil for a pack or when not yet known.
+	AirDate *time.Time
+	// IDQueryIndexers names (by ReleaseInfo.IndexerRef) the indexers whose
+	// query for THIS search was keyed by one of the item's ids
+	// (schema.SearchQueryModeID), i.e. the indexer matched the id server-side.
+	// A release from one of them that carries no ids of its own is treated as
+	// id-identified -- see identityRejection for why, and for the one check
+	// such a release still has to pass. Nil for an RSS decision: a firehose
+	// release was not found by any query at all.
+	//
+	// It is per indexer, not one flag for the Target, because a federated
+	// search mixes modes: each indexer falls back to a text query
+	// independently (SearchOutcome.QueryMode), so one search's releases can be
+	// part id-found and part text-found.
+	IDQueryIndexers map[string]bool
 }
 
 // Options carries the parts of a decision that come from something other

@@ -249,6 +249,9 @@ func (h *Handler) decideOne(
 		Current:             st.currentFile,
 		Queue:               queueFor(ctx, h.Deps.Client, ns, ref),
 		Blocklist:           blocklist,
+		// No IDQueryIndexers: a firehose release was not found by any query,
+		// so nothing vouches for it but its own ids and title.
+		Identity: st.identity,
 	}
 	opts := decisionOptions(ctx, h.Deps.Client, ns, delaySpec, rel)
 

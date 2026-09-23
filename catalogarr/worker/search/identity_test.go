@@ -1,0 +1,115 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package search
+
+import (
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
+
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/decision"
+	"github.com/mediactl/clustarr/pkg/events/schema"
+)
+
+func TestMovieIdentity(t *testing.T) {
+	t.Run("metadata supplies every title, the year and the imdb id", func(t *testing.T) {
+		m := &catalogv1alpha1.Movie{
+			Spec: catalogv1alpha1.MovieSpec{TmdbID: 438631},
+			Status: catalogv1alpha1.MovieStatus{Metadata: &catalogv1alpha1.MovieMetadata{
+				Title: "Dune", OriginalTitle: "Dune", Year: 2021,
+				AlternateTitles: []string{"Dune: Part One", "Duna", ""},
+				ExternalIDs:     map[string]string{commonv1.IDKeyIMDB: "tt1160419", commonv1.IDKeyTMDB: "ignored"},
+			}},
+		}
+		require.Equal(t, decision.Identity{
+			Titles: []string{"Dune", "Dune: Part One", "Duna"},
+			Year:   2021,
+			IDs:    map[string]string{commonv1.IDKeyTMDB: "438631", commonv1.IDKeyIMDB: "tt1160419"},
+		}, MovieIdentity(m), "the tmdb id comes from spec; duplicate and empty titles are dropped")
+	})
+
+	t.Run("no metadata yet still identifies by the spec tmdb id", func(t *testing.T) {
+		got := MovieIdentity(&catalogv1alpha1.Movie{Spec: catalogv1alpha1.MovieSpec{TmdbID: 603}})
+		require.Equal(t, decision.Identity{IDs: map[string]string{commonv1.IDKeyTMDB: "603"}}, got)
+	})
+}
+
+func TestEpisodeIdentity(t *testing.T) {
+	series := &catalogv1alpha1.Series{
+		Spec: catalogv1alpha1.SeriesSpec{TvdbID: 79126},
+		Status: catalogv1alpha1.SeriesStatus{Metadata: &catalogv1alpha1.SeriesMetadata{
+			Title: "The Wire", Year: 2002,
+			AlternateTitles: []catalogv1alpha1.AltTitle{{Title: "Wire"}, {Title: "The Wire"}},
+			ExternalIDs:     map[string]string{commonv1.IDKeyIMDB: "tt0306414"},
+		}},
+	}
+	aired := metav1.NewTime(time.Date(2002, 6, 2, 21, 0, 0, 0, time.UTC))
+	ep := func(season, number int32, absolute *int32, airDate *metav1.Time) *catalogv1alpha1.Episode {
+		return &catalogv1alpha1.Episode{
+			Spec:   catalogv1alpha1.EpisodeSpec{SeasonNumber: season, EpisodeNumber: number},
+			Status: catalogv1alpha1.EpisodeStatus{AbsoluteNumber: absolute, AirDate: airDate},
+		}
+	}
+
+	t.Run("one episode: series titles and tvdb id, its numbering and air date", func(t *testing.T) {
+		got := EpisodeIdentity(series, ep(1, 1, ptr.To[int32](1), &aired))
+		want := aired.Time
+		require.Equal(t, decision.Identity{
+			Titles: []string{"The Wire", "Wire"}, Year: 2002,
+			// Only tvdb: pkg/decision compares only tvdb for a series, and
+			// the series' imdb id is not the key a TV release carries.
+			IDs:    map[string]string{commonv1.IDKeyTVDB: "79126"},
+			Season: 1, Episodes: []int{1}, Absolute: []int{1}, AirDate: &want,
+		}, got)
+	})
+
+	t.Run("a pack: every episode, no single air date, no partial absolute list", func(t *testing.T) {
+		got := EpisodeIdentity(series, ep(1, 1, ptr.To[int32](1), &aired), ep(1, 2, nil, &aired), ep(1, 3, ptr.To[int32](3), nil))
+		require.Equal(t, 1, got.Season)
+		require.Equal(t, []int{1, 2, 3}, got.Episodes)
+		require.Nil(t, got.Absolute, "one episode without an absolute number means no absolute list at all")
+		require.Nil(t, got.AirDate, "a pack has no one air date")
+	})
+
+	t.Run("a set spanning seasons gets no in-season numbering rather than a wrong one", func(t *testing.T) {
+		got := EpisodeIdentity(series, ep(1, 13, nil, nil), ep(2, 1, nil, nil))
+		require.Nil(t, got.Episodes)
+	})
+
+	t.Run("no episodes: series identity only", func(t *testing.T) {
+		got := EpisodeIdentity(series)
+		require.Empty(t, got.Episodes)
+		require.Equal(t, map[string]string{commonv1.IDKeyTVDB: "79126"}, got.IDs)
+	})
+}
+
+func TestIDQueryIndexers(t *testing.T) {
+	got := idQueryIndexers([]schema.SearchOutcome{
+		{IndexerRef: schema.Ref{Name: "by-id"}, Status: schema.SearchOutcomeOK, QueryMode: schema.SearchQueryModeID},
+		{IndexerRef: schema.Ref{Name: "by-text"}, Status: schema.SearchOutcomeOK, QueryMode: schema.SearchQueryModeText},
+		{IndexerRef: schema.Ref{Name: "never-queried"}, Status: schema.SearchOutcomeSkipped},
+		{IndexerName: "nameless-ref", QueryMode: schema.SearchQueryModeID},
+	})
+	require.Equal(t, map[string]bool{"by-id": true}, got,
+		"only an indexer that actually ran an id query vouches for its releases, keyed by the name releases carry as IndexerRef")
+}

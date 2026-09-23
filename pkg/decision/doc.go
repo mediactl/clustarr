@@ -17,7 +17,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package decision is the pure release-decision engine every search, RSS and
 // grab path runs (spec §7, §8.2, §9). Evaluate runs the full §8.2 checklist
-// (protocol, availability, size, quality, MinFormatScore, language, sample,
+// (identity -- is the release for this item at all, identity.go -- then
+// protocol, availability, size, quality, MinFormatScore, language, sample,
 // blocklist, already-imported, queue preference, and the
 // UpgradableSpecification table via pkg/quality.Profile.UpgradeDecision)
 // against every candidate release for one Target, and Rank orders the

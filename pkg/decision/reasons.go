@@ -56,6 +56,18 @@ var (
 	ReasonExistingFormatScore          = Reason{"ExistingFormatScore", common.RejectionPermanent}
 	ReasonExistingFormatCutoffMet      = Reason{"ExistingFormatCutoffMet", common.RejectionPermanent}
 	ReasonExistingFormatScoreIncrement = Reason{"ExistingFormatScoreIncrement", common.RejectionPermanent}
+
+	// ReasonWrongItem and ReasonUnknownItem are the identity check's two
+	// verdicts (identity.go), generalised across kinds from Radarr's
+	// WrongMovie ("Wrong movie", Specifications/Search/MovieSpecification.cs)
+	// and UnknownMovie ("Unable to match to correct movie using release
+	// title", DownloadDecisionMaker.cs), and Sonarr's WrongSeries /
+	// WrongSeason / WrongEpisode. WrongItem means the evidence says the
+	// release is for a DIFFERENT item; UnknownItem means there is no evidence
+	// either way. Both are Permanent, as in *arr: an interactive user can
+	// still grab one through Search.spec.override.
+	ReasonWrongItem   = Reason{"WrongItem", common.RejectionPermanent}
+	ReasonUnknownItem = Reason{"UnknownItem", common.RejectionPermanent}
 )
 
 // verdictReasons maps every non-Upgrade quality.Verdict to the Reason

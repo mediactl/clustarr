@@ -65,6 +65,10 @@ func TestEvaluateFullPipeline(t *testing.T) {
 		Kind:                common.MediaKindMovie,
 		Available:           true,
 		OriginalLanguageTag: "en",
+		// Every fixture release is titled "Arrival.2016...", so identity is
+		// established by title and year; none carries an id and none came
+		// from an id query.
+		Identity: decision.Identity{Titles: []string{"Arrival"}, Year: 2016, IDs: map[string]string{common.IDKeyTMDB: "329865"}},
 	}
 	o := decision.Options{
 		UserInvoked:       true,

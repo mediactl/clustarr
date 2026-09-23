@@ -125,6 +125,17 @@ func defaultOptions() decision.Options {
 	}
 }
 
+// identifiedByIndexer is an Identity under which every release from
+// "tracker" -- englishBluray's indexer -- came back from an id query, so the
+// identity check is satisfied and stays out of the way of the language
+// verdicts these tests are about. Their release titles vary on purpose
+// ("Pelicula", "Movie", "Film"), and none of them would pass a title
+// comparison against one target; the identity check has its own tests in
+// identity_test.go.
+func identifiedByIndexer() decision.Identity {
+	return decision.Identity{IDQueryIndexers: map[string]bool{"tracker": true}}
+}
+
 // englishBluray is an ordinary English 1080p Bluray release. SizeBytes is 0
 // so the size model stays out of the way (sizeRejections: "a release with
 // unknown size (0) is never rejected"); every other check runs for real.
@@ -159,6 +170,7 @@ func TestEvaluateAtCRDDefaultsApprovesAnEnglishRelease(t *testing.T) {
 		Kind:                common.MediaKindMovie,
 		Available:           true,
 		OriginalLanguageTag: "en", // exactly what Movie.status.metadata.originalLanguage carries
+		Identity:            identifiedByIndexer(),
 	}
 
 	ds := decision.Evaluate(context.Background(), tg, p, cat, []common.ReleaseInfo{englishBluray()}, defaultOptions())
@@ -228,6 +240,7 @@ func TestEvaluateOriginalLanguageVocabulary(t *testing.T) {
 				Kind:                common.MediaKindMovie,
 				Available:           true,
 				OriginalLanguageTag: tc.tag,
+				Identity:            identifiedByIndexer(),
 			}
 			ds := decision.Evaluate(context.Background(), tg, p, cat, []common.ReleaseInfo{rel}, defaultOptions())
 			require.Len(t, ds, 1)
@@ -304,6 +317,7 @@ func TestEvaluateApprovesAReleaseInTheItemsOwnOriginalLanguage(t *testing.T) {
 				Kind:                common.MediaKindMovie,
 				Available:           true,
 				OriginalLanguageTag: tc.tag,
+				Identity:            identifiedByIndexer(),
 			}
 			ds := decision.Evaluate(context.Background(), tg, p, cat, []common.ReleaseInfo{rel}, defaultOptions())
 			require.Len(t, ds, 1)
@@ -395,6 +409,7 @@ func TestEvaluateISO6392And3TagsMatchISO6391(t *testing.T) {
 					Kind:                common.MediaKindMovie,
 					Available:           true,
 					OriginalLanguageTag: tag,
+					Identity:            identifiedByIndexer(),
 				}
 				return decision.Evaluate(context.Background(), tg, p, cat, []common.ReleaseInfo{rel}, defaultOptions())
 			}

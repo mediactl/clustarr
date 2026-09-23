@@ -19,6 +19,8 @@ package rssmatcher_test
 
 import (
 	"context"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,8 +33,11 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/catalogarr/worker/rssmatcher"
+	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
 
 // testMessage is the minimal events.Message Handle uses: it only reads
@@ -208,6 +213,150 @@ func TestHandler_BlocklistedReleaseIsRejected(t *testing.T) {
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(movie), &got))
 	assert.Nil(t, got.Status.PendingGrab)
 	assert.Nil(t, got.Status.ActiveDownloadRef)
+}
+
+// decisionCapture wraps the REAL decision.Evaluate and records what it was
+// given and what it decided, so a test can assert on the verdict itself
+// rather than infer it from a Download that did or did not appear. With
+// suppressGrab set it hands the handler back its decisions with Approved
+// cleared, so a test about the decision does not also exercise the grab path,
+// which the tests above cover.
+type decisionCapture struct {
+	mu           sync.Mutex
+	suppressGrab bool
+	target       decision.Target
+	decisions    []decision.Decision
+}
+
+func (c *decisionCapture) evaluate(ctx context.Context, t decision.Target, p quality.Profile, cat *catalogue.Catalogue, rels []commonv1.ReleaseInfo, o decision.Options) []decision.Decision {
+	ds := decision.Evaluate(ctx, t, p, cat, rels, o)
+	c.mu.Lock()
+	c.target, c.decisions = t, append([]decision.Decision(nil), ds...)
+	c.mu.Unlock()
+	if !c.suppressGrab {
+		return ds
+	}
+	out := append([]decision.Decision(nil), ds...)
+	for i := range out {
+		out[i].Approved = false
+	}
+	return out
+}
+
+func (c *decisionCapture) get() (decision.Target, []decision.Decision) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.target, c.decisions
+}
+
+// TestHandler_ConflictingIDIsRejectedEvenWhenTheTitleMatches is the RSS half
+// of G1-6b. The release names tmdb 841, which no catalog movie has, so the
+// matcher falls back to title and year and matches "The Thing (1982)" --
+// tmdb 1091. Before the identity check nothing compared the release's own id
+// with the item it had been title-matched to, and this release was grabbed
+// for the wrong film.
+func TestHandler_ConflictingIDIsRejectedEvenWhenTheTitleMatches(t *testing.T) {
+	ctx := context.Background()
+	mgr := newTestManager(t)
+	c := mgr.GetClient()
+	ns := newNamespace(t, ctx, c)
+
+	createMovie(t, ctx, c, ns, "the-thing-1982", 1091, "The Thing", 1982)
+	createQualityProfile(t, ctx, c)
+	createIndexer(t, ctx, c, ns, "my-indexer")
+	createDelayProfile(t, ctx, c, ns, 0, true) // no delay: an approval would grab at once
+
+	rel := blurayRelease("841")
+	// Gate on the title index, or "nothing was grabbed" could just mean
+	// "nothing was matched yet".
+	eventually(t, 15*time.Second, "the title-and-year index to match the release", func() bool {
+		refs, err := rssmatcher.Match(ctx, c, ns, rel)
+		return err == nil && len(refs) == 1 && refs[0].Name == "the-thing-1982"
+	})
+
+	capture := &decisionCapture{}
+	h := rssmatcher.NewHandler(rssmatcher.Deps{Client: c, Bus: newTestBus(t), Evaluate: capture.evaluate, Now: func() time.Time { return relNow }})
+	require.NoError(t, h.Handle(ctx, releaseMessage(t, ns, "my-indexer", rel)))
+
+	target, ds := capture.get()
+	require.Equal(t, "1091", target.Identity.IDs[commonv1.IDKeyTMDB], "the matched movie's identity reached the decision")
+	require.Len(t, ds, 1)
+	require.False(t, ds[0].Approved)
+	require.Len(t, ds[0].Rejections, 1, "identity is the only thing wrong with this release: %+v", ds[0].Rejections)
+	assert.True(t, strings.HasPrefix(ds[0].Rejections[0].Reason, decision.ReasonWrongItem.Code+":"), ds[0].Rejections[0].Reason)
+	assert.Contains(t, ds[0].Rejections[0].Reason, "release tmdb id 841 conflicts with the item's 1091")
+
+	var downloads downloadv1alpha1.DownloadList
+	require.NoError(t, mgr.GetAPIReader().List(ctx, &downloads, client.InNamespace(ns)))
+	assert.Empty(t, downloads.Items, "a release for another film must not be grabbed")
+}
+
+// TestHandler_EpisodeAndPackTargetsCarryTheirNumbering proves resolve hands
+// the decision engine an episode's numbering for BOTH target shapes the
+// matcher produces. The pack shape is the one that could silently break: its
+// numbering is not on the Series at all but on the Episodes named in Keys,
+// and a pack target without it fails closed as UnknownItem -- every RSS
+// season pack would stop being grabbed, with nothing louder than a metric.
+func TestHandler_EpisodeAndPackTargetsCarryTheirNumbering(t *testing.T) {
+	ctx := context.Background()
+	mgr := newTestManager(t)
+	c := mgr.GetClient()
+	ns := newNamespace(t, ctx, c)
+
+	createSeries(t, ctx, c, ns, "the-wire", 79126, "The Wire", 2002)
+	aired := relNow.Add(-30 * 24 * time.Hour)
+	for n := int32(1); n <= 3; n++ {
+		createEpisode(t, ctx, c, ns, "the-wire", 1, n, &aired)
+	}
+	createQualityProfile(t, ctx, c)
+	createIndexer(t, ctx, c, ns, "my-indexer")
+	createDelayProfile(t, ctx, c, ns, 0, true)
+
+	tvRelease := func(title string, kind commonv1.MediaKind, episodes []int32, fullSeason bool) schema.Release {
+		return schema.Release{
+			Info: commonv1.ReleaseInfo{
+				GUID: "guid-" + title, IndexerRef: "my-indexer", IndexerName: "my-indexer",
+				Protocol: commonv1.ProtocolTorrent, Title: title,
+				MagnetURL:   "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
+				PublishedAt: metaTime(relNow.Add(-time.Hour)),
+				IDs:         map[string]string{commonv1.IDKeyTVDB: "79126"},
+			},
+			ParsedTitle: "The Wire", Kind: kind, Seasons: []int32{1}, Episodes: episodes, FullSeason: fullSeason,
+			FetchedAt: relNow,
+		}
+	}
+
+	cases := []struct {
+		name         string
+		rel          schema.Release
+		wantKind     commonv1.MediaKind
+		wantEpisodes []int
+	}{
+		{"a single episode", tvRelease("The.Wire.S01E02.1080p.BluRay.x264-GROUP", commonv1.MediaKindEpisode, []int32{2}, false), commonv1.MediaKindEpisode, []int{2}},
+		{"a season pack", tvRelease("The.Wire.S01.1080p.BluRay.x264-GROUP", commonv1.MediaKindSeries, nil, true), commonv1.MediaKindSeries, []int{1, 2, 3}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			capture := &decisionCapture{suppressGrab: true}
+			h := rssmatcher.NewHandler(rssmatcher.Deps{Client: c, Bus: newTestBus(t), Evaluate: capture.evaluate, Now: func() time.Time { return relNow }})
+			eventually(t, 15*time.Second, "every episode to be matched and decided", func() bool {
+				if err := h.Handle(ctx, releaseMessage(t, ns, "my-indexer", tc.rel)); err != nil {
+					t.Fatalf("Handle: %v", err)
+				}
+				target, ds := capture.get()
+				return len(ds) == 1 && len(target.Identity.Episodes) == len(tc.wantEpisodes)
+			})
+
+			target, ds := capture.get()
+			assert.Equal(t, tc.wantKind, target.Kind)
+			assert.Equal(t, []string{"The Wire"}, target.Identity.Titles)
+			assert.Equal(t, "79126", target.Identity.IDs[commonv1.IDKeyTVDB])
+			assert.Equal(t, 1, target.Identity.Season)
+			assert.Equal(t, tc.wantEpisodes, target.Identity.Episodes)
+			assert.Nil(t, target.Identity.IDQueryIndexers, "a firehose release was found by no query")
+			require.True(t, ds[0].Approved, "the release covers its target and must be approved; rejected with %+v", ds[0].Rejections)
+		})
+	}
 }
 
 // TestHandler_UnmatchedReleaseIsAcknowledged: most of the firehose matches
