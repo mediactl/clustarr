@@ -25,6 +25,7 @@ resources:
 - nonvideo-stub.yaml
 - quality-profile.yaml
 - metadata-providers.yaml
+- metrics-reader.yaml
 
 patches:
 - target:
