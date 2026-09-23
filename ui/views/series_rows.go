@@ -84,3 +84,32 @@ type EpisodeRow struct {
 func (r EpisodeRow) MonitorURL() string {
 	return fmt.Sprintf("/library/%s/episode/%s/monitor", r.Namespace, r.Name)
 }
+
+// ChildRow is one child of an artist or an author -- an album or a book --
+// on the parent's children component: the episode row's shape for a kind
+// with a title and a year instead of a number.
+type ChildRow struct {
+	Namespace string
+	Name      string
+	Kind      string // "album" or "book", the per-item action's kind
+	Title     string
+	Year      int32
+	Monitored bool
+	HasFile   bool
+	// Quality is the album's quality name or the book's file format, ""
+	// without a file.
+	Quality string
+	Phase   string
+	Error   ActionFailure
+}
+
+// MonitorURL is the child's monitor action, the existing per-item route.
+func (r ChildRow) MonitorURL() string {
+	return fmt.Sprintf("/library/%s/%s/%s/monitor", r.Namespace, r.Kind, r.Name)
+}
+
+// ChildrenURL is a parent's children route: the children component to
+// htmx, a page to anyone else.
+func ChildrenURL(namespace, kind, name string) string {
+	return fmt.Sprintf("/library/%s/%s/%s/children", namespace, kind, name)
+}

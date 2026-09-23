@@ -53,6 +53,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /events/library/{tab}", s.handleLibraryEvents)
 	mux.HandleFunc("GET /library/{namespace}/{kind}/{name}", s.handleLibraryItem)
 	mux.HandleFunc("GET /library/{namespace}/series/{name}/seasons/{n}", s.handleSeason)
+	mux.HandleFunc("GET /library/{namespace}/{kind}/{name}/children", s.handleChildren)
 	mux.HandleFunc("POST /library/{namespace}/series/{name}/seasons/{n}/monitor", s.handleSetSeasonMonitored)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/monitor", s.handleSetMonitored)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/search", s.handleSearchNow)
@@ -242,6 +243,10 @@ func (s *Server) handleLibraryItem(w http.ResponseWriter, r *http.Request) {
 		s.renderSeriesPage(w, r, item)
 		return
 	}
+	if label, ok := childrenLabel(item.Kind); ok {
+		s.renderParentPage(w, r, item, label)
+		return
+	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.LibraryDetail(item).Render(r.Context(), w); err != nil {
@@ -280,10 +285,17 @@ func (s *Server) handleSetMonitored(w http.ResponseWriter, r *http.Request) {
 	kind := commonv1.MediaKind(r.PathValue("kind"))
 	patched, err := s.opts.Actions.SetMonitored(r.Context(),
 		r.PathValue("namespace"), kind, r.PathValue("name"), monitored)
-	if isHTMX(r) && kind == commonv1.MediaKindEpisode {
-		// An episode row's toggle swaps the row, not the page.
-		s.replyEpisodeRow(w, r, r.PathValue("namespace"), r.PathValue("name"), patched, err)
-		return
+	// A row's toggle on a series', an artist's or an author's page swaps
+	// the row, not the page.
+	if isHTMX(r) {
+		switch kind {
+		case commonv1.MediaKindEpisode:
+			s.replyEpisodeRow(w, r, r.PathValue("namespace"), r.PathValue("name"), patched, err)
+			return
+		case commonv1.MediaKindAlbum, commonv1.MediaKindBook:
+			s.replyChildRow(w, r, r.PathValue("namespace"), kind, r.PathValue("name"), patched, err)
+			return
+		}
 	}
 	s.finishAction(w, r, err)
 }
