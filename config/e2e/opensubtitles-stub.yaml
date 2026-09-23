@@ -1,0 +1,122 @@
+# The in-cluster fixture OpenSubtitles.com upstream: a real /login,
+# /subtitles and /download in the wire shapes
+# pkg/subtitles/providers/opensubtitlescom's client sends and parses, and
+# nothing else. The readiness probe is GET /__mode__, which always answers
+# 200 regardless of the fixture's current mode (test/fixtures/
+# opensubtitlesstub/server.go's own doc comment) -- a probe on /subtitles or
+# /login would flap Ready the moment scenario 13 asks this pod to start
+# answering 429/406 on purpose.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: opensubtitles-fixture-credentials
+  namespace: clustarr-system
+stringData:
+  # Must equal opensubtitlesstub.APIKey. Username/password are never
+  # validated by the stub beyond being present (providerset.requireKeys only
+  # checks the Secret carries non-empty values), so these are obviously fake.
+  apiKey: e2e-fixture-os-key
+  username: e2e-fixture-user
+  password: e2e-fixture-password
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opensubtitles-stub
+  namespace: clustarr-system
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: opensubtitles-stub
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: opensubtitles-stub
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: clustarr
+        app.kubernetes.io/part-of: clustarr
+        app.kubernetes.io/component: opensubtitles-stub
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        # 1000/1000, matching torznab-stub.yaml's identical reasoning: this
+        # pod writes its request log onto the shared hostPath volume as the
+        # same identity every other Clustarr pod uses there.
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: opensubtitles-stub
+          image: ghcr.io/mediactl/clustarr/e2e-fixtures:dev
+          imagePullPolicy: IfNotPresent
+          args:
+            [
+              "opensubtitles-stub",
+              "--addr=:8080",
+              "--request-log=/data/.e2e-fixtures/opensubtitles/requests.jsonl",
+            ]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /__mode__
+              port: http
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /__mode__
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          # resources.requests must be present or config/e2e/resources-patch.yaml's
+          # `replace` operations fail on this Deployment -- that patch targets
+          # kind: Deployment with no name selector, so it lands here too.
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            # The same RWX hostPath claim importarr-worker mounts; it is the
+            # host directory the e2e test binary reads as $CLUSTARR_DATA_DIR.
+            claimName: clustarr-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opensubtitles-stub
+  namespace: clustarr-system
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: opensubtitles-stub
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: opensubtitles-stub
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
