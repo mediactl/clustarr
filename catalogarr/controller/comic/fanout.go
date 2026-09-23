@@ -127,7 +127,7 @@ func DesiredIssues(
 		seen[iss.Number] = true
 
 		centis := CalculatedNumberCentis(iss.Number)
-		name := IssueName(c.Name, centis)
+		name := IssueName(c.Name, iss.Number)
 
 		var monitored *bool
 		if !existingNames[name] {

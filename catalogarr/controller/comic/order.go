@@ -24,6 +24,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
 // CalculatedNumberCentis derives IssueSpec's sortable numeric form of a
@@ -182,13 +184,96 @@ func pythonFloat(s string) (float64, bool) {
 	return f, true
 }
 
-// IssueName renders an Issue object's name per spec §4.2:
-// "<comic>-<calculatedNumber padded 5.1>" -- a printf width.precision pair
-// (width 5, one decimal digit), exactly like EpisodeName's %02d comment: a
-// long-running numbering (issue 1092.0) is never truncated, only ever padded
-// wider than 5 when the value itself needs more room. calculatedNumberCentis
-// is IssueSpec.CalculatedNumberCentis itself (hundredths), converted back to
-// the decimal the name renders.
-func IssueName(comicName string, calculatedNumberCentis int32) string {
-	return fmt.Sprintf("%s-%05.1f", comicName, float64(calculatedNumberCentis)/100.0)
+// IssueName renders the name of the Issue object for issue number (as the
+// provider prints it) of the Comic comicName.
+//
+// A plain number keeps spec §4.2's form, "<comic>-<calculatedNumber %05.1f>"
+// -- width 5, one decimal digit, padded wider when the value needs it, never
+// truncated -- so "12" is "<comic>-012.0" and "12.5" "<comic>-012.5". A
+// number is plain when it is the canonical spelling of a value with at most
+// one decimal (no leading zero, no ".0", not "-0") that CalculatedNumberCentis
+// holds without clamping; only then does "%05.1f" render it exactly.
+//
+// Every other number gets a suffix, because the 5.1 form alone collides:
+// Kapowarr reads "12a" as 12.01 and "12b" as 12.02, and both render 012.0.
+//
+//   - An integer followed by lower-case letters ("12a", "1au") appends the
+//     letters: "<comic>-012.0-a". This is injective by construction: the
+//     letters add less than 0.27 to the value (two-digit alphabet positions
+//     after the decimal point), so the rendered integer part is the integer
+//     the number starts with, and the letters are carried verbatim.
+//   - Anything else appends a readable part and the number's digest:
+//     "<comic>-012.1-hu-<k8s.HashSuffix(number)>" for "12.HU". The readable
+//     part is the text after the leading number, normalised to a DNS name
+//     (the whole number when that is empty, "x" when nothing survives), at
+//     most maxIssueSuffixReadable characters. The inner "-" before the digest
+//     is what keeps this form apart from the lettered one, whose suffix never
+//     contains one. Two such numbers share a name only on a 40-bit digest
+//     collision -- the same guarantee as every deterministic name
+//     (k8s.DeterministicName).
+//
+// A name past k8s.MaxNameLength drops the readable part, and past that falls
+// back to k8s.ChildName over the comic and the number, so it always fits.
+func IssueName(comicName, number string) string {
+	centis := CalculatedNumberCentis(number)
+	base := fmt.Sprintf("%s-%05.1f", comicName, float64(centis)/100.0)
+
+	var tail, readable string
+	switch {
+	case isPlainIssueNumber(number, centis):
+	case letteredIssueNumber.MatchString(number) && unclamped(centis):
+		tail = "-" + letteredIssueNumber.FindStringSubmatch(number)[2]
+	default:
+		readable = issueSuffixReadable(number)
+		tail = "-" + readable + "-" + k8s.HashSuffix(number)
+	}
+	if name := base + tail; len(name) <= k8s.MaxNameLength {
+		return name
+	}
+	if readable != "" {
+		if name := base + "-x-" + k8s.HashSuffix(number); len(name) <= k8s.MaxNameLength {
+			return name
+		}
+	}
+	return k8s.ChildName(base, comicName, number)
+}
+
+// maxIssueSuffixReadable bounds the readable part of an issue name's suffix.
+// It only makes `kubectl get` legible; the digest beside it is what keeps
+// the name unique.
+const maxIssueSuffixReadable = 20
+
+var (
+	// plainIssueNumberRegex is the canonical spelling of a value with at
+	// most one decimal: no leading zero, and no ".0".
+	plainIssueNumberRegex = regexp.MustCompile(`^-?(0|[1-9][0-9]*)(\.[1-9])?$`)
+	// letteredIssueNumber is a canonical non-negative integer followed by
+	// lower-case letters only, at most maxIssueSuffixReadable of them.
+	letteredIssueNumber = regexp.MustCompile(`^(0|[1-9][0-9]*)([a-z]{1,20})$`)
+	// leadingIssueNumber is the numeric part a number starts with.
+	leadingIssueNumber = regexp.MustCompile(`^-?[0-9]+(\.[0-9]+)?`)
+)
+
+func isPlainIssueNumber(number string, centis int32) bool {
+	return number != "-0" && plainIssueNumberRegex.MatchString(number) && unclamped(centis)
+}
+
+// unclamped reports that CalculatedNumberCentis did not clamp: only then is
+// the rendered value the number's own.
+func unclamped(centis int32) bool {
+	return centis > math.MinInt32 && centis < math.MaxInt32
+}
+
+func issueSuffixReadable(number string) string {
+	readable := k8s.NormalizeName(leadingIssueNumber.ReplaceAllString(number, ""))
+	if readable == "" {
+		readable = k8s.NormalizeName(number)
+	}
+	if len(readable) > maxIssueSuffixReadable {
+		readable = strings.Trim(readable[:maxIssueSuffixReadable], ".-")
+	}
+	if readable == "" {
+		readable = "x"
+	}
+	return readable
 }

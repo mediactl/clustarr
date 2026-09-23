@@ -23,6 +23,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -385,6 +386,10 @@ func TestComicReconcilerRealController(t *testing.T) {
 	})
 
 	t.Run("mangadex comic lists its issues by its mangadex id", func(t *testing.T) {
+		// The auto-wired controller also reconciles this Comic, through the
+		// shared requester: empty it, or it fans that fixture's issues into
+		// this namespace too.
+		requester.issues, requester.err = nil, nil
 		// A dedicated cache-only client (not the live-manager client `c`,
 		// which the real auto-wired controller also reconciles against
 		// asynchronously): calling r.Reconcile manually right after Create
@@ -439,7 +444,68 @@ func TestComicReconcilerRealController(t *testing.T) {
 		}
 	})
 
+	t.Run("lettered issue numbers fan out to one Issue each, and a re-fanout adds none", func(t *testing.T) {
+		// The auto-wired controller also reconciles this Comic, through the
+		// shared requester: empty it, or it fans that fixture's issues into
+		// this namespace too.
+		requester.issues, requester.err = nil, nil
+		nameClient := startCacheOnly(t, ctx, cfg)
+		const ns = "comic-names-ns"
+		require.NoError(t, nameClient.Create(ctx, testNamespace(ns)))
+		numbers := []string{"12", "12a", "12b", "12.HU"}
+		var fetched []metadata.ComicIssue
+		for i, n := range numbers {
+			fetched = append(fetched, metadata.ComicIssue{IDs: metadata.ExternalIDs{metadata.KeyComicVine: strconv.Itoa(9000 + i)}, Number: n, Title: "Issue " + n})
+		}
+		r := &comic.Reconciler{
+			Client: nameClient, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
+			Bus: combinedBus{Publisher: &fakePublisher{}, requester: &fakeIssueRPC{issues: fetched}},
+		}
+		cm := &catalogv1alpha1.Comic{
+			ObjectMeta: metav1.ObjectMeta{Name: "saga", Namespace: ns},
+			Spec: catalogv1alpha1.ComicSpec{
+				Source: catalogv1alpha1.ComicSourceComicVine, SourceID: "4050-12",
+				QualityProfileRef: "none", RootFolderRef: "comic-root",
+			},
+		}
+		require.NoError(t, nameClient.Create(ctx, cm))
+		req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: "saga"}}
+		require.Eventually(t, func() bool { return nameClient.Get(ctx, req.NamespacedName, &catalogv1alpha1.Comic{}) == nil },
+			5*time.Second, 10*time.Millisecond)
+
+		want := map[string]string{}
+		for _, n := range numbers {
+			want[comic.IssueName("saga", n)] = n
+		}
+		require.Len(t, want, len(numbers), "the four numbers must have four names")
+		listIssues := func() map[string]string {
+			var list catalogv1alpha1.IssueList
+			if err := nameClient.List(ctx, &list, client.InNamespace(ns)); err != nil {
+				return nil
+			}
+			got := map[string]string{}
+			for _, iss := range list.Items {
+				got[iss.Name] = iss.Spec.Number
+			}
+			return got
+		}
+
+		_, err := r.Reconcile(ctx, req)
+		require.NoError(t, err)
+		require.Eventually(t, func() bool { return len(listIssues()) == len(numbers) }, 5*time.Second, 10*time.Millisecond,
+			"12, 12a, 12b and 12.HU must each get an Issue")
+		_, err = r.Reconcile(ctx, req)
+		require.NoError(t, err)
+		require.Never(t, func() bool { return len(listIssues()) != len(numbers) }, 500*time.Millisecond, 20*time.Millisecond,
+			"a re-fanout must not add an Issue beside an existing one")
+		assert.Equal(t, want, listIssues(), "each Issue carries the number its name was made from")
+	})
+
 	t.Run("an answer without a source id keeps the id an Issue already has", func(t *testing.T) {
+		// The auto-wired controller also reconciles this Comic, through the
+		// shared requester: empty it, or it fans that fixture's issues into
+		// this namespace too.
+		requester.issues, requester.err = nil, nil
 		keepClient := startCacheOnly(t, ctx, cfg)
 		require.NoError(t, keepClient.Create(ctx, testNamespace("comic-keepid-ns")))
 		rq := &fakeIssueRPC{issues: []metadata.ComicIssue{
@@ -463,7 +529,7 @@ func TestComicReconcilerRealController(t *testing.T) {
 		_, err := r.Reconcile(ctx, req)
 		require.NoError(t, err)
 
-		issKey := types.NamespacedName{Namespace: "comic-keepid-ns", Name: comic.IssueName("saga", 100)}
+		issKey := types.NamespacedName{Namespace: "comic-keepid-ns", Name: comic.IssueName("saga", "1")}
 		require.Eventually(t, func() bool {
 			var iss catalogv1alpha1.Issue
 			return keepClient.Get(ctx, issKey, &iss) == nil && iss.Status.SourceID == "7001"
