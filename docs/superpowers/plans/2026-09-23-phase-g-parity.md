@@ -57,6 +57,9 @@ Every provider in `pkg/importlist` is built and none is reachable. An ImportList
 ### G1-4 — history sink and DLQ projector
 Fill `catalogarr/run.go`'s `RoleHistory` branch (`run.go:405-406`, a valid role that starts nothing today). Subscribe `ConsumerCatalogHistory` and project domain events to `events.k8s.io` Events on the owning CR. Subscribe `ConsumerDLQProjector` and apply **R1**. Both consumers exist server-side with nothing acking them, so messages accumulate until this lands. A `clustarr.io/replay` handler is in scope only if small; otherwise carry it.
 
+### G1-6 — title fallback for automatic search (parity with Radarr/Sonarr)
+Automatic search is **ids-only**: `catalogarr/worker/search.BuildSearchRequest` never sets `SearchRequest.Text`, and the frozen payload has no title field. So an indexer that advertises none of the request's id parameters — which describes many Cardigann-defined private trackers, now searchable after G1-1 — is **skipped for every automatic search** with "no supported id parameter", reachable only interactively. Radarr and Sonarr fall back to a title query. Add a new version of the search payload carrying the item's resolved title and year (find how `pkg/events/schema` versions payloads — `Clustarr-Schema` — and follow it exactly; a consumer on the old version must keep working), populate it from `status.metadata`, and in `indexarr/search`'s per-indexer query building use `t=search&q=<title> <year>` **only** when the indexer supports none of the request's id parameters. Ids stay preferred wherever they work — a title query is strictly less precise, and results still pass through `pkg/decision`, which rejects a wrong title. Test the fallback is taken exactly when it should be and never when an id works. Carried item it closes: remaining-work, Phase D1 block, "The federated search is ids-only".
+
 ### G1-5 — G1 wiring (SERIAL, after G1-1..G1-4)
 Reachability of every new runnable and server, RBAC markers + `make manifests` + chart sync, `runnable_registration_test.go`, `start_envtest_test.go` per role. **The facade must actually bind** — test it by dialling it, not by checking the flag parses.
 
@@ -103,4 +106,4 @@ The Cardigann tracker page, import-list stubs and non-video metadata stubs in `t
 Mirror D1-10. Phase G paragraph, identifiers grepped, scenarios stated as **never executed**.
 
 ## Waves
-0: G1-0 · 1: G1-1, G1-2, G1-3, G1-4, G2-1, G3-2 · 2: G2-2, G2-3, G3-1 · 3: G2-4, G3-3, G3-4 · 4: G1-5, G2-5, G3-5 (serial, one at a time) · 5: G4-1 · 6: G4-2
+0: G1-0 · 1: G1-1, G1-2, G1-3, G1-4, G2-1, G3-2 · G1-6 after G1-1/G1-2 · 2: G2-2, G2-3, G3-1 · 3: G2-4, G3-3, G3-4 · 4: G1-5, G2-5, G3-5 (serial, one at a time) · 5: G4-1 · 6: G4-2
