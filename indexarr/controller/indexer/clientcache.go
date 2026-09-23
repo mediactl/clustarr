@@ -29,6 +29,7 @@ import (
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/indexarr/download"
+	"github.com/mediactl/clustarr/indexarr/proxy"
 	"github.com/mediactl/clustarr/pkg/cardigann"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/ratelimit"
@@ -113,8 +114,16 @@ type ClientCache struct {
 }
 
 // clientEntry is one Indexer's built client and what it was built from.
+//
+// proxies is the fingerprint of the IndexerProxies that applied at build
+// time. The Indexer's resourceVersion cannot see a proxy change -- a proxy
+// edited, or a new one whose spec.selector starts matching -- and a client
+// kept past one would route a private tracker's searches around the proxy the
+// operator just added, for up to the TTL. The selection is re-read from the
+// informer on every For, which is a cached List, and a changed one rebuilds.
 type clientEntry struct {
 	resourceVersion string
+	proxies         string
 	client          Client
 	builtAt         time.Time
 }
@@ -154,7 +163,11 @@ func (cc *ClientCache) For(ctx context.Context, idx *indexv1alpha1.Indexer) (Cli
 	if idx == nil {
 		return nil, errors.New("indexer: no Indexer to build a client for")
 	}
-	if cached, ok := cc.lookup(idx); ok {
+	sel, err := proxy.Selected(ctx, cc.client, idx)
+	if err != nil {
+		return nil, err
+	}
+	if cached, ok := cc.lookup(idx, sel.Fingerprint()); ok {
 		return cached, nil
 	}
 
@@ -168,11 +181,11 @@ func (cc *ClientCache) For(ctx context.Context, idx *indexv1alpha1.Indexer) (Cli
 	if sessions == nil {
 		sessions = NewSessionStore(cc.client, nil)
 	}
-	built, err := buildWireClient(ctx, cc.client, idx, cc.limiters, sessions)
+	built, err := buildWireClientFor(ctx, cc.client, idx, sel, cc.limiters, sessions)
 	if err != nil {
 		return nil, err
 	}
-	cc.store(idx, built)
+	cc.store(idx, sel.Fingerprint(), built)
 	return built, nil
 }
 
@@ -206,6 +219,23 @@ func buildWireClient(
 	lim *ratelimit.Limiter,
 	sessions *SessionStore,
 ) (Client, error) {
+	sel, err := proxy.Selected(ctx, c, idx)
+	if err != nil {
+		return nil, err
+	}
+	return buildWireClientFor(ctx, c, idx, sel, lim, sessions)
+}
+
+// buildWireClientFor is buildWireClient for a proxy selection already made,
+// so ClientCache.For selects once and both caches and builds from it.
+func buildWireClientFor(
+	ctx context.Context,
+	c client.Client,
+	idx *indexv1alpha1.Indexer,
+	sel proxy.Selection,
+	lim *ratelimit.Limiter,
+	sessions *SessionStore,
+) (Client, error) {
 	kind, err := resolveSource(idx.Spec)
 	if err != nil {
 		return nil, err
@@ -214,7 +244,7 @@ func buildWireClient(
 	if err != nil {
 		return nil, err
 	}
-	transport, err := resolveProxy(ctx, c, idx)
+	transport, err := proxy.Build(ctx, c, sel)
 	if err != nil {
 		return nil, err
 	}
@@ -282,15 +312,15 @@ func reloginFunc(cg *cardigannClient, owner *indexv1alpha1.Indexer, sessions *Se
 }
 
 // lookup returns the cached client for idx when it was built from the same
-// resourceVersion and is still inside the TTL.
-func (cc *ClientCache) lookup(idx *indexv1alpha1.Indexer) (Client, bool) {
+// resourceVersion and the same proxy selection, and is still inside the TTL.
+func (cc *ClientCache) lookup(idx *indexv1alpha1.Indexer, proxies string) (Client, bool) {
 	if cc.ttl() < 0 {
 		return nil, false
 	}
 	cc.mu.Lock()
 	defer cc.mu.Unlock()
 	e, ok := cc.entries[idx.UID]
-	if !ok || e.resourceVersion != idx.ResourceVersion {
+	if !ok || e.resourceVersion != idx.ResourceVersion || e.proxies != proxies {
 		return nil, false
 	}
 	if cc.now().Sub(e.builtAt) >= cc.ttl() {
@@ -299,7 +329,7 @@ func (cc *ClientCache) lookup(idx *indexv1alpha1.Indexer) (Client, bool) {
 	return e.client, true
 }
 
-func (cc *ClientCache) store(idx *indexv1alpha1.Indexer, built Client) {
+func (cc *ClientCache) store(idx *indexv1alpha1.Indexer, proxies string, built Client) {
 	if cc.ttl() < 0 {
 		return
 	}
@@ -310,6 +340,7 @@ func (cc *ClientCache) store(idx *indexv1alpha1.Indexer, built Client) {
 	}
 	cc.entries[idx.UID] = clientEntry{
 		resourceVersion: idx.ResourceVersion,
+		proxies:         proxies,
 		client:          built,
 		builtAt:         cc.now(),
 	}

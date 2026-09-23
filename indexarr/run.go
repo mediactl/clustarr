@@ -524,10 +524,10 @@ func IndexReadyChecker(store relindex.Store) healthz.Checker {
 //
 // The Cardigann login and the owned session Secret (plan task G1-1) live
 // inside the Indexer reconciler, which NewReconciler wires to the bus's
-// clustarr-indexer-sessions bucket. Proxy routing for spec.proxyRef is
-// applied by the one client builder every path shares, not by the
-// IndexerProxy reconciler, which only probes reachability.
-// IndexerProxy.spec.selector matching is not implemented.
+// clustarr-indexer-sessions bucket. Proxy routing -- spec.proxyRef and every
+// IndexerProxy whose spec.selector matches the Indexer -- is indexarr/proxy's,
+// applied by the one client builder every path shares and by the download
+// fetcher, not by the IndexerProxy reconciler, which only probes reachability.
 func setupControllers(mgr ctrl.Manager, bus events.Bus, clients *indexer.ClientCache) error {
 	c := mgr.GetClient()
 

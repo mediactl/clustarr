@@ -350,3 +350,52 @@ func TestTheFetcherKeysItsLimiterWithRatelimitHostKey(t *testing.T) {
 	_, err = NewFetcherFor(c, nil)(context.Background(), idx)
 	require.ErrorContains(t, err, "unusable spec.baseURL")
 }
+
+// The generic fetcher routes through the Indexer's IndexerProxies like every
+// other path: an HTTP proxy receives the download in absolute form and the
+// tracker receives nothing -- the property an operator names a proxy for,
+// and the request that carries the passkey. A proxy that cannot be resolved
+// fails the fetch rather than going direct.
+func TestNewFetcherForRoutesThroughTheIndexersProxy(t *testing.T) {
+	var direct, proxied int
+	tracker := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { direct++ }))
+	defer tracker.Close()
+	proxySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxied++
+		w.Header().Set("Content-Type", "application/x-bittorrent")
+		_, _ = w.Write([]byte("d8:announce0:e"))
+	}))
+	defer proxySrv.Close()
+	pu, err := url.Parse(proxySrv.URL)
+	require.NoError(t, err)
+	port, err := strconv.Atoi(pu.Port())
+	require.NoError(t, err)
+
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(&indexv1alpha1.IndexerProxy{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "egress"},
+		Spec: indexv1alpha1.IndexerProxySpec{
+			Type: indexv1alpha1.IndexerProxyTypeHTTP, Host: pu.Hostname(), Port: int32(port),
+			Selector: metav1.LabelSelector{MatchLabels: map[string]string{"egress": "vpn"}},
+		},
+	}).Build()
+	idx := &indexv1alpha1.Indexer{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "tr", Labels: map[string]string{"egress": "vpn"}},
+		Spec:       indexv1alpha1.IndexerSpec{BaseURL: tracker.URL},
+	}
+
+	f, err := NewFetcherFor(c, nil)(context.Background(), idx)
+	require.NoError(t, err)
+	res, err := f.Fetch(context.Background(), tracker.URL+"/dl/1.torrent?passkey=x")
+	require.NoError(t, err)
+	if res.Body != nil {
+		_ = res.Body.Close()
+	}
+	require.Equal(t, 1, proxied, "the download did not go through the selected proxy")
+	require.Zero(t, direct, "the download reached the tracker directly, around the proxy")
+
+	idx.Spec.ProxyRef = ptrTo("absent")
+	_, err = NewFetcherFor(c, nil)(context.Background(), idx)
+	require.Error(t, err, "an unresolvable proxy must fail the fetch, not go direct")
+}
+
+func ptrTo[T any](v T) *T { return &v }

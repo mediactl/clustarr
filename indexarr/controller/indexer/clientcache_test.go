@@ -19,6 +19,9 @@ package indexer
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -34,6 +37,7 @@ import (
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/ratelimit"
+	"github.com/mediactl/clustarr/pkg/torznab"
 )
 
 // countingClient counts Secret GETs, which is the whole point of the cache:
@@ -195,4 +199,58 @@ func TestClientCacheRejectsANilIndexer(t *testing.T) {
 		_, err := cc.For(context.Background(), nil)
 		require.Error(t, err)
 	})
+}
+
+// A proxy that starts selecting an Indexer AFTER its client was cached must
+// reach the next search. The Indexer's resourceVersion does not move when a
+// proxy is created, so a cache keyed on it alone would keep routing a
+// private tracker's searches around the proxy the operator just added, for up
+// to the TTL. The cache also keys on the selection's fingerprint.
+func TestAProxyAddedAfterTheClientWasCachedReachesTheNextSearch(t *testing.T) {
+	var direct, proxied atomic.Int32
+	tracker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		direct.Add(1)
+		_, _ = io.WriteString(w, `<rss><channel></channel></rss>`)
+	}))
+	defer tracker.Close()
+	proxySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		proxied.Add(1)
+		_, _ = io.WriteString(w, `<rss><channel></channel></rss>`)
+	}))
+	defer proxySrv.Close()
+	host, port := splitHostPort(t, proxySrv.URL)
+
+	idx := &indexv1alpha1.Indexer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "tracker", Namespace: "media", UID: "uid-1", ResourceVersion: "100",
+			Labels: map[string]string{"egress": "vpn"},
+		},
+		Spec: indexv1alpha1.IndexerSpec{
+			BaseURL: tracker.URL,
+			Generic: &indexv1alpha1.GenericNewznab{Protocol: commonv1alpha1.ProtocolTorrent},
+		},
+	}
+	c := fakeClient(t)
+	cc := NewClientCache(c, nil)
+
+	search := func() {
+		t.Helper()
+		cli, err := cc.For(context.Background(), idx)
+		require.NoError(t, err)
+		_, err = cli.Search(context.Background(), torznab.Query{Type: torznab.ModeSearch})
+		require.NoError(t, err)
+	}
+	search()
+	require.Equal(t, int32(1), direct.Load())
+
+	require.NoError(t, c.Create(context.Background(), &indexv1alpha1.IndexerProxy{
+		ObjectMeta: metav1.ObjectMeta{Name: "egress", Namespace: "media"},
+		Spec: indexv1alpha1.IndexerProxySpec{
+			Type: indexv1alpha1.IndexerProxyTypeHTTP, Host: host, Port: port,
+			Selector: metav1.LabelSelector{MatchLabels: map[string]string{"egress": "vpn"}},
+		},
+	}))
+	search()
+	require.Equal(t, int32(1), proxied.Load(), "the cached client was reused around the new proxy")
+	require.Equal(t, int32(1), direct.Load(), "the search went direct after a proxy was added")
 }

@@ -49,9 +49,9 @@ var errResponseTooLarge = errors.New("indexerproxy: probe response too large")
 
 // Prober answers "is this proxy reachable, and what version answered".
 //
-// It is injected so a test never needs a real proxy, and so that M6 can
-// replace it with the real FlareSolverr client without touching the
-// reconciler.
+// It is injected so a test never needs a real proxy. The FlareSolverr client
+// that solves challenges is indexarr/proxy.FlareSolverr; this probe only asks
+// the service whether it is up.
 type Prober func(ctx context.Context, spec indexv1alpha1.IndexerProxySpec) (version string, err error)
 
 // NewProber builds the production probe. A nil httpClient means
@@ -61,7 +61,7 @@ type Prober func(ctx context.Context, spec indexv1alpha1.IndexerProxySpec) (vers
 // fields: a FlareSolverr is asked for its index document, which reports its
 // version, and an HTTP or SOCKS proxy is dialled. It never sends a request
 // THROUGH the proxy, never creates a FlareSolverr session and never uses
-// spec.secretRef's credentials -- all of that is M6.
+// spec.secretRef's credentials -- routing is indexarr/proxy's.
 func NewProber(httpClient *http.Client, dial func(ctx context.Context, network, address string) (net.Conn, error)) Prober {
 	if httpClient == nil {
 		httpClient = http.DefaultClient

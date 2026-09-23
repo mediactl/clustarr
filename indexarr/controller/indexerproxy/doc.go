@@ -26,14 +26,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // checks that the Secret exists), and does not evaluate spec.selector against
 // any Indexer. What happens here is a reachability probe and nothing else.
 //
-// Routing is not absent, it lives elsewhere: an Indexer's spec.proxyRef is
-// applied to every request that Indexer makes -- caps probe, search, RSS poll
-// and download -- by indexarr/controller/indexer's one shared client builder
-// (plan task G1-1), for http and socks5 proxies; socks4 and flaresolverr are
-// refused there rather than bypassed. What remains unbuilt is spec.selector
-// matching (a proxy an Indexer does not name reaches nothing), the "at most
-// one FlareSolverr matches, applied last" rule in the CRD, and the
-// FlareSolverr client itself.
+// Routing is not absent, it lives in indexarr/proxy: spec.proxyRef and
+// spec.selector are resolved there (at most one http/socks4/socks5 route and
+// at most one FlareSolverr, applied last), and the resulting transport is
+// applied to every request an Indexer makes -- caps probe, search, RSS poll
+// and both download fetchers. The FlareSolverr client, which solves a
+// Cloudflare or DDoS-Guard challenge as Prowlarr's does, is
+// indexarr/proxy.FlareSolverr.
 //
 // # Wiring (Task D1-8)
 //

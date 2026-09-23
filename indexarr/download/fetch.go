@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/indexarr/proxy"
 	"github.com/mediactl/clustarr/pkg/cardigann"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -262,12 +263,24 @@ func seedCookies(jar http.CookieJar, origin *url.URL, raw string) {
 //
 // The limiter is injected, never constructed: D1-3's reconciler is the only
 // writer of a key's Config, and this package only ever Waits on it.
+//
+// The Indexer's IndexerProxies apply here as they do to every other path
+// (indexarr/proxy.Resolve): the fetch goes through the route and the
+// FlareSolverr layer they select, and an unusable one fails the fetch rather
+// than falling back to a direct connection. Before, this fetcher used the
+// default transport whatever the Indexer named, so every .torrent grabbed
+// from a proxied private tracker was fetched from the cluster's own address
+// -- the one request carrying the passkey.
 func NewFetcherFor(c client.Client, lim *ratelimit.Limiter) FetcherFor {
 	return func(ctx context.Context, idx *indexv1alpha1.Indexer) (Fetcher, error) {
 		base, err := url.Parse(idx.Spec.BaseURL)
 		if err != nil || base.Host == "" || base.Scheme == "" {
 			return nil, fmt.Errorf("indexarr/download: indexer %s/%s has an unusable spec.baseURL",
 				idx.Namespace, idx.Name)
+		}
+		transport, err := proxy.Resolve(ctx, c, idx)
+		if err != nil {
+			return nil, fmt.Errorf("indexarr/download: indexer %s/%s: %w", idx.Namespace, idx.Name, err)
 		}
 		secret, err := readSecretData(ctx, c, idx.Namespace, idx.Spec.SecretRef)
 		if err != nil {
@@ -305,6 +318,9 @@ func NewFetcherFor(c client.Client, lim *ratelimit.Limiter) FetcherFor {
 			}),
 		}
 		f.hc = &http.Client{Timeout: timeout, Jar: jar, CheckRedirect: f.checkRedirect}
+		if transport != nil {
+			f.hc.Transport = transport
+		}
 		return f, nil
 	}
 }

@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	k8sevents "k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
@@ -548,6 +549,10 @@ func (r *Reconciler) patch(
 // definition appears. The watch passes a definition's creation, deletion and
 // spec edits, and a change of the status.id that spec.definition resolves
 // by; [indexersForDefinition] maps each onto the Indexers that name it.
+//
+// IndexerProxy is watched (spec edits only -- its own controller's status
+// writes are not a routing change) for the same reason, mapped by
+// [indexersForProxy] onto the Indexers it applies to.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("indexer").
@@ -557,11 +562,48 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.indexersForDefinition),
 			builder.WithPredicates(k8s.Or(k8s.GenerationChanged(),
 				k8s.StatusFieldChanged(definitionID)))).
+		Watches(&indexv1alpha1.IndexerProxy{},
+			handler.EnqueueRequestsFromMapFunc(r.indexersForProxy),
+			builder.WithPredicates(k8s.GenerationChanged())).
 		WithOptions(controller.Options{
 			ReconciliationTimeout: 5 * time.Minute,
 			RecoverPanic:          ptr.To(true),
 		}).
 		Complete(r)
+}
+
+// indexersForProxy maps an IndexerProxy onto the Indexers in its namespace
+// it applies to: spec.proxyRef naming it, or its spec.selector matching their
+// labels. controller-runtime maps an update's old AND new object, so an
+// Indexer a selector edit stops matching is reconciled too. The reconcile is
+// what moves the Ready/Authenticated conditions to ProxyUnavailable (or back)
+// at once; the search and poll clients notice the change on their own, from
+// the proxy fingerprint the client cache keys on.
+func (r *Reconciler) indexersForProxy(ctx context.Context, o client.Object) []reconcile.Request {
+	p, ok := o.(*indexv1alpha1.IndexerProxy)
+	if !ok {
+		return nil
+	}
+	var list indexv1alpha1.IndexerList
+	if err := r.Client.List(ctx, &list, client.InNamespace(p.Namespace)); err != nil {
+		logging.FromContext(ctx).Warn("indexer: listing Indexers for a proxy change failed",
+			"proxy", client.ObjectKeyFromObject(p), "error", err)
+		return nil
+	}
+	sel, err := metav1.LabelSelectorAsSelector(&p.Spec.Selector)
+	selects := err == nil && (len(p.Spec.Selector.MatchLabels) > 0 || len(p.Spec.Selector.MatchExpressions) > 0)
+	var out []reconcile.Request
+	for i := range list.Items {
+		idx := &list.Items[i]
+		named := idx.Spec.ProxyRef != nil && *idx.Spec.ProxyRef == p.Name
+		// An unparseable selector could have been meant for any Indexer
+		// here, and indexarr/proxy fails every one of them closed, so every
+		// one is reconciled to report it.
+		if named || err != nil || (selects && sel.Matches(labels.Set(idx.Labels))) {
+			out = append(out, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(idx)})
+		}
+	}
+	return out
 }
 
 // definitionID is the IndexerDefinition status field spec.definition

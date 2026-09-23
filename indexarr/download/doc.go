@@ -99,7 +99,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // token. Appending our own apikey can duplicate a parameter, break an HMAC or
 // produce a 403 that reads like an auth failure. Credentials are applied only
 // as cookies on a per-origin jar, plus spec.timeout, the per-host limiter and
-// the redirect policy.
+// the redirect policy -- and through the Indexer's IndexerProxies
+// (indexarr/proxy), like every other request it makes.
 //
 // One consequence: an empty DownloadRequest.URL is a hard Error.
 // relindex.Query has no GUID field and ADR-0003 fixes the Store at four

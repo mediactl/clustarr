@@ -162,3 +162,47 @@ func TestAnIndexerResolvesWhenItsDefinitionAppears(t *testing.T) {
 	}, 20*time.Second, 100*time.Millisecond,
 		"the Indexer did not notice its definition appear; without the watch it waits out definitionRetryInterval")
 }
+
+// IndexerProxy.spec.selector reaches an Indexer the moment a proxy is created
+// or deleted, through the IndexerProxy watch: two routes selecting one
+// Indexer is ambiguous and fails closed as ProxyUnavailable, and deleting one
+// of them restores it -- neither waiting for the 15-minute tick.
+func TestAProxySelectorChangeReachesTheIndexerAtOnce(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	ns := newNamespace(t, ctx, c, "idx-proxywatch")
+	srv := capsServer(t, readFixture(t, "testdata/caps.xml"), http.StatusOK)
+	startIndexerController(t)
+
+	name := types.NamespacedName{Namespace: ns, Name: "labelled"}
+	require.NoError(t, c.Create(ctx, &indexv1alpha1.Indexer{
+		ObjectMeta: metav1.ObjectMeta{Name: name.Name, Namespace: ns, Labels: map[string]string{"egress": "vpn"}},
+		Spec: indexv1alpha1.IndexerSpec{
+			BaseURL: srv.URL,
+			Generic: &indexv1alpha1.GenericNewznab{Protocol: commonv1alpha1.ProtocolTorrent, APIPath: "/api"},
+		},
+	}))
+	require.Eventually(t, hasCondition(c, name, indexv1alpha1.IndexerConditionReady, metav1.ConditionTrue),
+		30*time.Second, 100*time.Millisecond)
+
+	selector := metav1.LabelSelector{MatchLabels: map[string]string{"egress": "vpn"}}
+	for i, typ := range []indexv1alpha1.IndexerProxyType{
+		indexv1alpha1.IndexerProxyTypeHTTP, indexv1alpha1.IndexerProxyTypeSocks4,
+	} {
+		require.NoError(t, c.Create(ctx, &indexv1alpha1.IndexerProxy{
+			ObjectMeta: metav1.ObjectMeta{Name: []string{"egress-a", "egress-b"}[i], Namespace: ns},
+			Spec: indexv1alpha1.IndexerProxySpec{
+				Type: typ, Host: "127.0.0.1", Port: int32(i + 1), Selector: selector,
+			},
+		}))
+	}
+	require.Eventually(t, func() bool {
+		got := mustGet(t, c, name)
+		ready := k8s.FindCondition(got.Status.Conditions, indexv1alpha1.IndexerConditionReady)
+		return ready != nil && ready.Status == metav1.ConditionFalse && ready.Reason == indexer.ReasonProxyUnavailable
+	}, 20*time.Second, 100*time.Millisecond, "two routes selecting one Indexer must fail closed, and at once")
+
+	require.NoError(t, c.Delete(ctx, &indexv1alpha1.IndexerProxy{ObjectMeta: metav1.ObjectMeta{Name: "egress-b", Namespace: ns}}))
+	require.Eventually(t, hasCondition(c, name, indexv1alpha1.IndexerConditionReady, metav1.ConditionTrue),
+		20*time.Second, 100*time.Millisecond, "deleting the second route never reached the Indexer")
+}

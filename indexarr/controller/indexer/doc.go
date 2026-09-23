@@ -125,9 +125,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // through their existing seams (ruling R5), and a tracker's search.error
 // page is an error the fan-out escalates rather than zero results (R6).
 //
-// spec.proxyRef is applied, for http and socks5 proxies, by the one builder
-// every path shares; socks4 and flaresolverr are refused rather than
-// bypassed. IndexerProxy.spec.selector matching is NOT implemented.
+// The IndexerProxies that apply -- spec.proxyRef, then every proxy whose
+// spec.selector matches the Indexer's labels, at most one http/socks4/socks5
+// route and at most one FlareSolverr applied last -- are routed by
+// indexarr/proxy inside the one builder every path shares; an unresolvable
+// selection fails closed as ProxyUnavailable rather than going direct. The
+// client cache keys on the selection's fingerprint and this reconciler
+// watches IndexerProxy, so a proxy change reaches both at once.
 //
 // # What this controller does NOT do
 //

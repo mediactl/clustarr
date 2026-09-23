@@ -145,19 +145,25 @@ func TestResolveDefinition(t *testing.T) {
 	require.LessOrEqual(t, len(err.Error()), maxDefinitionErr+200, "a schema error must fit a condition message")
 }
 
-func TestProxyURL(t *testing.T) {
-	u, err := proxyURL(indexv1alpha1.IndexerProxySpec{Type: indexv1alpha1.IndexerProxyTypeHTTP, Host: "proxy.local", Port: 3128},
-		map[string][]byte{"username": []byte("u"), "password": []byte("p")})
-	require.NoError(t, err)
-	require.Equal(t, "http://u:p@proxy.local:3128", u.String())
-
-	u, err = proxyURL(indexv1alpha1.IndexerProxySpec{Type: indexv1alpha1.IndexerProxyTypeSocks5, Host: "10.0.0.1", Port: 1080}, nil)
-	require.NoError(t, err)
-	require.Equal(t, "socks5://10.0.0.1:1080", u.String())
-
-	for _, typ := range []indexv1alpha1.IndexerProxyType{indexv1alpha1.IndexerProxyTypeSocks4, indexv1alpha1.IndexerProxyTypeFlareSolverr} {
-		_, err = proxyURL(indexv1alpha1.IndexerProxySpec{Type: typ, Host: "h", Port: 1}, nil)
-		require.ErrorIs(t, err, ErrProxyUnavailable, "%s must be refused, never bypassed", typ)
+// Every IndexerProxy type now yields a route rather than a refusal: socks4
+// through indexarr/proxy's own dialer and flaresolverr as the outer
+// challenge-solving layer. Before, both were ErrProxyUnavailable.
+func TestEveryProxyTypeResolves(t *testing.T) {
+	for _, typ := range []indexv1alpha1.IndexerProxyType{
+		indexv1alpha1.IndexerProxyTypeHTTP, indexv1alpha1.IndexerProxyTypeSocks4,
+		indexv1alpha1.IndexerProxyTypeSocks5, indexv1alpha1.IndexerProxyTypeFlareSolverr,
+	} {
+		c := fakeClient(t, &indexv1alpha1.IndexerProxy{
+			ObjectMeta: metav1.ObjectMeta{Name: "egress", Namespace: "media"},
+			Spec:       indexv1alpha1.IndexerProxySpec{Type: typ, Host: "proxy.local", Port: 1080},
+		})
+		idx := &indexv1alpha1.Indexer{
+			ObjectMeta: metav1.ObjectMeta{Name: "t", Namespace: "media"},
+			Spec:       indexv1alpha1.IndexerSpec{ProxyRef: ptr.To("egress")},
+		}
+		rt, err := resolveProxy(context.Background(), c, idx)
+		require.NoError(t, err, "%s", typ)
+		require.NotNil(t, rt, "%s must route, never be bypassed", typ)
 	}
 }
 
