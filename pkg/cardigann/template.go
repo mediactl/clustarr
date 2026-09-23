@@ -57,8 +57,13 @@ type TemplateContext struct {
 
 	Result map[string]string
 
-	// DownloadURI is only set while evaluating the download block.
-	DownloadURI *url.URL
+	// DownloadUri is the link Engine.Download is resolving, as
+	// `.DownloadUri.*` (Prowlarr's AddTemplateVariablesFromUri(variables,
+	// link, ".DownloadUri")); zero outside Download. The corpus reads
+	// .DownloadUri.Query.id, .AbsoluteUri, .AbsolutePath and .PathAndQuery
+	// in download selectors and headers. (It was DownloadURI, a *url.URL
+	// nothing set, so the 13 definitions using it failed to render.)
+	DownloadUri URIVars
 
 	// True/False are sentinel strings for checkbox comparisons:
 	// True="true", False="".
@@ -76,6 +81,49 @@ type TemplateContext struct {
 	// request encoders, the response decoder and the urlencode/urldecode
 	// filters (see encoding.go).
 	enc encoding.Encoding
+}
+
+// URIVars is a URL as Cardigann templates see it: .NET System.Uri's
+// property names, and Query as a map, first value per key.
+type URIVars struct {
+	AbsoluteUri  string // .NET System.Uri spelling: the name templates use
+	AbsolutePath string
+	Scheme       string
+	Host         string
+	Port         string
+	PathAndQuery string
+	Query        map[string]string
+}
+
+// uriVars builds URIVars for u. Port is the scheme's default when u has
+// none, as System.Uri.Port reports it.
+func uriVars(u *url.URL) URIVars {
+	v := URIVars{
+		AbsoluteUri:  u.String(),
+		AbsolutePath: u.EscapedPath(),
+		Scheme:       u.Scheme,
+		Host:         u.Hostname(),
+		Port:         u.Port(),
+		PathAndQuery: u.RequestURI(),
+		Query:        map[string]string{},
+	}
+	if v.AbsolutePath == "" {
+		v.AbsolutePath = "/"
+	}
+	if v.Port == "" {
+		switch u.Scheme {
+		case "https":
+			v.Port = "443"
+		case "http":
+			v.Port = "80"
+		}
+	}
+	for k, vals := range u.Query() {
+		if len(vals) > 0 {
+			v.Query[k] = vals[0]
+		}
+	}
+	return v
 }
 
 // effectiveNow returns tc.Now, falling back to time.Now() for a

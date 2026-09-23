@@ -864,3 +864,37 @@ func TestLoginFormSendsLoginCookies(t *testing.T) {
 	assert.Equal(t, "JAVA=OK", landing)
 	assert.Equal(t, "JAVA=OK", submit)
 }
+
+// TestDownloadTemplatesSeeDownloadUri: 13 corpus definitions build their
+// download link from .DownloadUri (the details link being resolved) --
+// .DownloadUri.Query.id above all. The field was never set, and was spelt
+// DownloadURI, so each of those downloads failed to render.
+func TestDownloadTemplatesSeeDownloadUri(t *testing.T) {
+	var fetched string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/details.php", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `<a class="dl" href="/dl.php?id=OTHER">x</a><a class="dl" href="/dl.php?id=42">x</a>`)
+	})
+	mux.HandleFunc("/dl.php", func(w http.ResponseWriter, r *http.Request) {
+		fetched = r.URL.Query().Get("id")
+		_, _ = io.WriteString(w, fakeTorrent)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	def := loadFeature(t, `download:
+  selectors:
+    - selector: "a.dl[href$=\"id={{ .DownloadUri.Query.id }}\"]"
+      attribute: href
+search:
+  path: search
+  rows:
+    selector: tr
+`+htmlRowFields)
+	cfg, err := cardigann.NewConfig(def, srv.URL+"/", map[string]string{})
+	require.NoError(t, err)
+	rc, err := cardigann.Engine{HTTP: srv.Client()}.Download(context.Background(), def, cfg, "details.php?id=42")
+	require.NoError(t, err)
+	_ = rc.Close()
+	assert.Equal(t, "42", fetched)
+}

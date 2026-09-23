@@ -61,9 +61,16 @@ func (e Engine) Download(ctx context.Context, def *Definition, cfg Config, link 
 		return nil, ErrSessionRequired
 	}
 	tc := e.templateContext(def, cfg)
+	pageURL, err := resolveURL(cfg.BaseURL, link)
+	if err != nil {
+		return nil, err
+	}
+	if u, err := url.Parse(pageURL); err == nil {
+		tc.DownloadUri = uriVars(u)
+	}
 	headers := downloadHeaders(def)
 	if def.Download == nil {
-		body, err := e.fetch(ctx, def, cfg, tc, headers, link)
+		body, err := e.fetch(ctx, def, cfg, tc, headers, pageURL)
 		if err != nil {
 			return nil, err
 		}
@@ -71,10 +78,6 @@ func (e Engine) Download(ctx context.Context, def *Definition, cfg Config, link 
 	}
 
 	db := def.Download
-	pageURL, err := resolveURL(cfg.BaseURL, link)
-	if err != nil {
-		return nil, err
-	}
 
 	var page *Doc
 	loadPage := func() (Doc, error) {
