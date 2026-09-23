@@ -237,7 +237,9 @@ func stagePhaseBadgeClass(phase string) string {
 		// wrong with it that the user should look at, so it shares the
 		// warning colour rather than the neutral in-flight sky blue.
 		return base + "bg-amber-500/20 text-amber-300"
-	case "Imported":
+	case "Imported", "Transcoded":
+		// Transcoded (Movie, Episode) is a transcoded file, which is final:
+		// as settled as Imported, so it shares the "done" colour.
 		return base + "bg-emerald-500/20 text-emerald-300"
 	case "Unmonitored":
 		return base + "bg-slate-500/20 text-slate-300"

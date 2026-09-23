@@ -115,6 +115,28 @@ func TestLibraryPageShowsAnUnevaluatedCutoffAsAWarning(t *testing.T) {
 	}
 }
 
+// TestLibraryPageShowsTranscodedAsDone pins the badge colour of the
+// Transcoded phase (gap fix T1): a transcoded file is final, as settled as
+// Imported, so it takes the same emerald "done" badge rather than the
+// in-flight sky blue every phase the switch does not name gets.
+func TestLibraryPageShowsTranscodedAsDone(t *testing.T) {
+	for _, phase := range []string{"Transcoded", "Imported"} {
+		item := projection.LibraryItem{
+			Ref:  types.NamespacedName{Namespace: "default", Name: "arrival"},
+			Kind: commonv1.MediaKindMovie, Title: "Arrival", Monitored: true, Phase: phase, HasFile: true,
+		}
+		srv := ui.NewServer(t.Context(), ui.Options{
+			Library: func(context.Context) []projection.LibraryItem { return []projection.LibraryItem{item} },
+		})
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library", nil))
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.Contains(t, rec.Body.String(), `data-phase="`+phase+`"`)
+		require.Contains(t, rec.Body.String(), `bg-emerald-500/20 text-emerald-300">`+phase+`</span>`,
+			"phase %s is not shown with the emerald done badge", phase)
+	}
+}
+
 // TestLibraryPageRendersRescanToolbarPerRootFolder proves listRootFolders'
 // wiring: a RootFolder seeded into a fake, scheme-matched Reader shows up as
 // its own rescan form in the toolbar.
