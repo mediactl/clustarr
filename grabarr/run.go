@@ -41,6 +41,7 @@ import (
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/grabarr/controller/download"
 	"github.com/mediactl/clustarr/grabarr/controller/downloadclient"
+	"github.com/mediactl/clustarr/grabarr/engine"
 	"github.com/mediactl/clustarr/grabarr/engine/torrent"
 	"github.com/mediactl/clustarr/grabarr/engine/usenet"
 	dltorrent "github.com/mediactl/clustarr/pkg/download/torrent"
@@ -379,10 +380,10 @@ func engineRuntime(o Options) downloadclient.EngineRuntime {
 
 // setupEngine is the registration point for the transfer engines: it builds
 // this replica's embedded download.Client, registers the engine's Download
-// reconciler and its orphan [torrent.Reaper]/[usenet.Reaper] -- a
+// reconciler, its orphan [torrent.Reaper]/[usenet.Reaper] -- a
 // manager.Runnable that NOTHING else registers (plan task D2-8b, commit
-// d5c01d2) -- and returns the readyz checker and shutdown callback, if any,
-// for [Run] to wire in. (§6.3, §16 M3; plan tasks D2-5, D2-6, D2-8)
+// d5c01d2) -- and its [engine.ProgressPublisher], and returns the readyz
+// checker and shutdown callback, if any, for [Run] to wire in. (§6.3, §16 M3; plan tasks D2-5, D2-6, D2-8)
 func setupEngine(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (healthz.Checker, func() error, error) {
 	clientName, ok := splitEngineIdentity(o.Engine)
 	if !ok {
@@ -511,6 +512,19 @@ func setupTorrentEngine(
 		return nil, nil, fmt.Errorf("grabarr: torrent reaper: %w", err)
 	}
 
+	// Design spec §5's 1 Hz telemetry into clustarr-progress, gated on
+	// re-attach like everything else that reads the client.
+	if err := mgr.Add(&engine.ProgressPublisher{
+		Client:   mgr.GetClient(),
+		Download: rawClient,
+		EngineID: o.Engine,
+		KV:       bus.KV(events.BucketProgress),
+		Cache:    mgr.GetCache(),
+		Ready:    e.Ready,
+	}); err != nil {
+		return nil, nil, fmt.Errorf("grabarr: torrent progress publisher: %w", err)
+	}
+
 	return e.HealthzCheck, rawClient.Close, nil
 }
 
@@ -554,6 +568,18 @@ func setupUsenetEngine(
 	}
 	if err := mgr.Add(reaper); err != nil {
 		return nil, nil, fmt.Errorf("grabarr: usenet reaper: %w", err)
+	}
+
+	// Design spec §5's 1 Hz telemetry into clustarr-progress. BuildClient has
+	// already re-attached, so there is no readiness gate to wait for.
+	if err := mgr.Add(&engine.ProgressPublisher{
+		Client:   mgr.GetClient(),
+		Download: cl,
+		EngineID: o.Engine,
+		KV:       bus.KV(events.BucketProgress),
+		Cache:    mgr.GetCache(),
+	}); err != nil {
+		return nil, nil, fmt.Errorf("grabarr: usenet progress publisher: %w", err)
 	}
 
 	return nil, cl.Close, nil
