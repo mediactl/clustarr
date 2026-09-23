@@ -40,9 +40,7 @@ type admissionCase struct {
 	wantErr string
 }
 
-var (
-	gvrIndexerProxies = schema.GroupVersionResource{Group: "index.clustarr.io", Version: "v1alpha1", Resource: "indexerproxies"}
-)
+var gvrIndexerProxies = schema.GroupVersionResource{Group: "index.clustarr.io", Version: "v1alpha1", Resource: "indexerproxies"}
 
 // TestAdmission pins the API shape decisions of the gap-fix wave (X1) at the
 // one place a schema decision is actually enforced: a real apiserver

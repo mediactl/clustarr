@@ -35,7 +35,12 @@ type IndexerProxySpecApplyConfiguration struct {
 	Type *indexv1alpha1.IndexerProxyType `json:"type,omitempty"`
 	// Host is the proxy hostname or IP address.
 	Host *string `json:"host,omitempty"`
-	// Port is the proxy port.
+	// Port is the proxy port. It is required and has no default: a proxy is
+	// addressed as host:port, and the defensible values are per-type
+	// (flaresolverr 8191, http 3128/8080/8888, socks 1080), so any one
+	// default would probe an endpoint nobody configured and report it Ready.
+	// Before this was +required the CRD accepted a portless proxy that the
+	// controller then always refused as an invalid spec.
 	Port *int32 `json:"port,omitempty"`
 	// SecretRef names a Secret in the same namespace holding proxy credentials.
 	SecretRef *v1.LocalObjectReference `json:"secretRef,omitempty"`
