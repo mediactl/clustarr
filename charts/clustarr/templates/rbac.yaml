@@ -40,21 +40,20 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - configmaps
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resources:
   - persistentvolumeclaims
+  - secrets
   verbs:
   - create
   - get
   - list
   - patch
   - update
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - get
-  - list
   - watch
 - apiGroups:
   - apps
@@ -69,20 +68,65 @@ rules:
   - update
   - watch
 - apiGroups:
-  - catalog.clustarr.io
+  - batch
   resources:
-  - delayprofiles
-  - metadataproviders
+  - jobs
   verbs:
+  - create
   - get
   - list
+  - patch
   - watch
 - apiGroups:
   - catalog.clustarr.io
   resources:
+  - albums
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - artists
+  - comics
+  - libraryscans
+  - mediafiles
+  - movies
+  - searches
+  - series
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - artists/finalizers
+  - comics/finalizers
+  - episodes/finalizers
+  - importexclusions/finalizers
+  - issues/finalizers
+  - movies/finalizers
+  - series/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - artists/status
+  - comics/status
   - delayprofiles/status
   - episodes/status
   - importexclusions/status
+  - importlists/status
+  - issues/status
   - libraryscans/status
   - mediafiles/status
   - metadataproviders/status
@@ -98,7 +142,25 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
+  - audiobooks
+  - authors
+  - books
+  verbs:
+  - patch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - delayprofiles
+  - metadataproviders
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
   - episodes
+  - issues
   verbs:
   - create
   - get
@@ -106,15 +168,6 @@ rules:
   - patch
   - update
   - watch
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
-  - episodes/finalizers
-  - importexclusions/finalizers
-  - movies/finalizers
-  - series/finalizers
-  verbs:
-  - update
 - apiGroups:
   - catalog.clustarr.io
   resources:
@@ -129,18 +182,11 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
-  - libraryscans
-  - mediafiles
-  - movies
-  - searches
-  - series
+  - importlists
   verbs:
-  - create
-  - delete
   - get
   - list
   - patch
-  - update
   - watch
 - apiGroups:
   - catalog.clustarr.io
@@ -199,7 +245,6 @@ rules:
   resources:
   - indexerdefinitions
   - indexerproxies
-  - indexers
   verbs:
   - get
   - list
@@ -215,21 +260,33 @@ rules:
   - patch
   - update
 - apiGroups:
+  - index.clustarr.io
+  resources:
+  - indexers
+  verbs:
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
   - subtitle.clustarr.io
   resources:
   - subtitlerequests
   verbs:
   - get
   - list
+  - patch
   - watch
 - apiGroups:
   - transcode.clustarr.io
   resources:
   - transcodejobs
-  - transcodeprofiles
   verbs:
+  - create
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - transcode.clustarr.io
@@ -240,6 +297,14 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - transcode.clustarr.io
+  resources:
+  - transcodeprofiles
+  verbs:
+  - get
+  - list
+  - watch
 # END generated from config/rbac/role.yaml.
 #
 # Chart-only rules: controller-gen emits no marker for these.
