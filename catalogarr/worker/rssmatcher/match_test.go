@@ -94,10 +94,35 @@ func TestMovieTitleYearKeys(t *testing.T) {
 
 func TestSeriesTitleYearKeys(t *testing.T) {
 	assert.Nil(t, seriesTitleYearKeys(&catalogv1alpha1.Series{}))
-	assert.Equal(t, []string{TitleYearKey("The Wire", 2002)},
+	assert.Equal(t, []string{"wire", "wire 2002"},
 		seriesTitleYearKeys(&catalogv1alpha1.Series{Status: catalogv1alpha1.SeriesStatus{
 			Metadata: &catalogv1alpha1.SeriesMetadata{Title: "The Wire", Year: 2002},
-		}}))
+		}}), "a series answers to its title alone and to its title with its first-aired year")
+	assert.Equal(t, []string{"doctor who 2005", "doctor who 2005 2005"},
+		seriesTitleYearKeys(&catalogv1alpha1.Series{Status: catalogv1alpha1.SeriesStatus{
+			Metadata: &catalogv1alpha1.SeriesMetadata{Title: "Doctor Who (2005)", Year: 2005},
+		}}), "a title that already carries its year answers to that form")
+}
+
+// TestSeriesTitleKeyMatchesWhatTheParserProduces pins the lookup against
+// what pkg/release really yields for a TV release: the year, when a release
+// names one, stays INSIDE the parsed series title and Year is 0. Keying a
+// series by "<title>|<year>" is what made every yearless release
+// unmatchable by title.
+func TestSeriesTitleKeyMatchesWhatTheParserProduces(t *testing.T) {
+	for _, c := range []struct {
+		release string
+		want    string
+	}{
+		{"The.Wire.S01E02.720p.HDTV.x264-GRP", SeriesTitleKey("The Wire", 0)},
+		{"Doctor.Who.2005.S01E01.720p.HDTV.x264-GRP", SeriesTitleKey("Doctor Who", 2005)},
+		{"Doctor.Who.S01E01.720p.HDTV.x264-GRP", SeriesTitleKey("Doctor Who", 0)},
+	} {
+		p, err := release.Parse(c.release, release.Options{Kind: release.ClassifyKind(c.release)})
+		if assert.NoError(t, err, c.release) {
+			assert.Equal(t, c.want, SeriesTitleKey(p.Title, int32(p.Year)), c.release)
+		}
+	}
 }
 
 func TestSeasonKey(t *testing.T) {

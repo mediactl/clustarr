@@ -71,6 +71,10 @@ type resolveState struct {
 	// that check exists to confirm -- and a release whose own id contradicts
 	// the item it was title-matched to must not be grabbed for it.
 	identity decision.Identity
+	// episodes are the Episode objects a pack target covers (ref.Keys), for
+	// narrowing the grab to the ones that want the release (wantedKeys).
+	// Empty for a movie or a single episode.
+	episodes []*catalogv1alpha1.Episode
 }
 
 // resolve fetches the item named by ref and reads off everything the decision
@@ -87,7 +91,7 @@ type resolveState struct {
 // fuller snapshot would have rejected as already-imported, and the grab's own
 // lease plus its lookup of the item's live Downloads still stop a duplicate
 // Download.
-func resolve(ctx context.Context, c client.Client, ns string, ref commonv1.MediaRef, now time.Time) (resolveState, error) {
+func resolve(ctx context.Context, c client.Client, ns string, ref commonv1.MediaRef, now time.Time, scenes sceneLookup) (resolveState, error) {
 	var st resolveState
 	switch ref.Kind {
 	case commonv1.MediaKindMovie:
@@ -137,12 +141,19 @@ func resolve(ctx context.Context, c client.Client, ns string, ref commonv1.Media
 				}
 				eps = append(eps, &ep)
 			}
+			st.episodes = eps
 		}
 		var s catalogv1alpha1.Series
 		if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: seriesName}, &s); err != nil {
 			return st, fmt.Errorf("rssmatcher: get series %q: %w", seriesName, err)
 		}
 		st.identity = search.EpisodeIdentity(&s, eps...)
+		// The series' whole scene table, read by the same code as the
+		// search worker's (search.SceneMappings), so the two paths read a
+		// scene number the same way. SingleEpisodeSearch stays false: an
+		// RSS release was not asked for anything, and a pack that covers
+		// the episodes it was matched to is exactly what it may grab.
+		st.identity.SceneMappings = scenes.table(ctx, s.Spec.TvdbID)
 		st.qualityProfile = s.Spec.QualityProfileRef
 		st.delayProfileRef = s.Spec.DelayProfileRef
 		st.tags = s.Spec.Tags

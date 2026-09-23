@@ -28,6 +28,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/catalogarr/worker/grab"
@@ -36,6 +37,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/metadata/scenemap"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -81,6 +83,12 @@ type Deps struct {
 	// (k8s.Options.BusTopology()); Subscription looks the consumer up in it.
 	// Nil means events.Default().
 	Topology *events.Topology
+
+	// SceneMaps supplies TheXEM's scene-numbering table for a series, read
+	// through the same code the search worker uses (search.SceneMappings),
+	// so an RSS decision and a search decision read a scene number the same
+	// way. Nil reads every release number literally.
+	SceneMaps scenemap.Source
 
 	// Catalogue is the resolved TRaSH custom-format corpus. Nil means
 	// catalogue.LoadedCatalogue().
@@ -195,7 +203,10 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	ctx = logging.With(ctx, "kind", string(rel.Kind), "namespace", ns, "indexer", rel.Info.IndexerRef)
 	log := logging.FromContext(ctx)
 
-	targets, err := Match(ctx, h.Deps.Client, ns, rel)
+	// One scene-table read per series per message, shared by the match and
+	// by every decision it leads to.
+	scenes := h.sceneMemo()
+	targets, err := matchWith(ctx, h.Deps.Client, ns, rel, scenes)
 	if err != nil {
 		return events.Retry(matchRetry, err)
 	}
@@ -214,7 +225,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		return events.Retry(matchRetry, err)
 	}
 	for _, ref := range targets {
-		if err := h.decideOne(ctx, ns, ref, rel, blocklist.Contains, now); err != nil {
+		if err := h.decideOne(ctx, ns, ref, rel, blocklist.Contains, scenes, now); err != nil {
 			return err
 		}
 	}
@@ -231,11 +242,12 @@ func (h *Handler) decideOne(
 	ref commonv1.MediaRef,
 	rel schema.Release,
 	blocklist func(infohash, title string) bool,
+	scenes sceneLookup,
 	now time.Time,
 ) error {
 	log := logging.FromContext(ctx).With("item", ref.Name)
 
-	st, err := resolve(ctx, h.Deps.Client, ns, ref, now)
+	st, err := resolve(ctx, h.Deps.Client, ns, ref, now, scenes)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			// The item was deleted between the index lookup and this read.
@@ -289,6 +301,16 @@ func (h *Handler) decideOne(
 	}
 
 	approved := decisions[0]
+	keys := ref.Keys
+	if ref.Kind == commonv1.MediaKindSeries {
+		keys = wantedKeys(profile, approved.Release, st.episodes)
+		if len(keys) == 0 {
+			// Every episode the pack covers already has a file this release
+			// would not improve on: nothing here is wanted.
+			log.Debug("rssmatcher: pack approved, but no episode it covers wants it")
+			return nil
+		}
+	}
 	if err := grab.Decide(ctx,
 		grab.Deps{Client: h.Deps.Client, Reader: h.Deps.Reader, Bus: h.Deps.Bus, Now: h.Deps.Now},
 		profile,
@@ -296,7 +318,7 @@ func (h *Handler) decideOne(
 		grab.Approved{
 			Namespace: ns,
 			Target:    commonv1.MediaRef{Kind: ref.Kind, Name: ref.Name},
-			Keys:      ref.Keys,
+			Keys:      keys,
 			// Decision.Release already carries the resolved FormatScore and
 			// MatchedFormats -- pkg/decision.Evaluate writes both onto it
 			// before scoring -- so there is nothing to fold back on.
@@ -317,6 +339,51 @@ func (h *Handler) decideOne(
 		return events.Retry(grabRetry, err)
 	}
 	return nil
+}
+
+// sceneMemo returns a sceneLookup over Deps.SceneMaps that asks at most once
+// per series for the life of one message. Nil when no source is wired.
+func (h *Handler) sceneMemo() sceneLookup {
+	if h.Deps.SceneMaps == nil {
+		return nil
+	}
+	memo := map[int64][]decision.SceneMapping{}
+	return func(ctx context.Context, tvdbID int64) []decision.SceneMapping {
+		if rows, ok := memo[tvdbID]; ok {
+			return rows
+		}
+		rows := search.SceneMappings(ctx, h.Deps.SceneMaps, tvdbID)
+		memo[tvdbID] = rows
+		return rows
+	}
+}
+
+// wantedKeys narrows a pack's episodes to those that want the approved
+// release: an episode with no file, or whose file the release is an upgrade
+// of under profile (quality.Profile.UpgradeDecision, the rule the decision
+// engine applies to a single episode's current file).
+//
+// The matcher resolves a season pack to every monitored episode of the
+// season, including ones already at their cutoff, and grabarr downloads only
+// the files of the Download's spec.target.keys. Handing the grab every
+// episode made a pack for one missing episode download the whole season.
+// Sonarr, with no file selection, refuses such a pack outright
+// (UpgradeDiskSpecification rejects a release when any episode it covers
+// already has an equal or better file); Clustarr can take just the episodes
+// that want it, which is what the keys are for.
+func wantedKeys(profile quality.Profile, rel commonv1.ReleaseInfo, eps []*catalogv1alpha1.Episode) []string {
+	candidate := quality.Candidate{Quality: rel.Quality, Revision: rel.Revision, FormatScore: int(rel.FormatScore)}
+	keys := make([]string, 0, len(eps))
+	for _, ep := range eps {
+		if ep.Status.HasFile && ep.Status.FileQuality != nil {
+			current := quality.Candidate{Quality: *ep.Status.FileQuality, FormatScore: int(ep.Status.FileFormatScore)}
+			if profile.UpgradeDecision(current, candidate) != quality.Upgrade {
+				continue
+			}
+		}
+		keys = append(keys, ep.Name)
+	}
+	return keys
 }
 
 // recordRejections reports why a matched release was turned down. The labels

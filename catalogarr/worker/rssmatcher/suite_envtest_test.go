@@ -77,7 +77,7 @@ func requireEnvtest(t *testing.T) {
 	}
 }
 
-// newTestManager starts a manager with this package's five field indexes AND
+// newTestManager starts a manager with this package's six field indexes AND
 // the search worker's Download indexes -- the exact pair of registrations
 // Task C12 must perform, and the reason a real manager is required: a field
 // index is a cache feature, and client.List with MatchingFields fails outright

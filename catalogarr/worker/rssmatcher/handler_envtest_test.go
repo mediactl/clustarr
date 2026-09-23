@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
@@ -37,6 +38,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/metadata/scenemap"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
@@ -368,6 +370,191 @@ func TestHandler_EpisodeAndPackTargetsCarryTheirNumbering(t *testing.T) {
 			assert.Nil(t, target.Identity.IDQueryIndexers, "a firehose release was found by no query")
 			require.True(t, ds[0].Approved, "the release covers its target and must be approved; rejected with %+v", ds[0].Rejections)
 		})
+	}
+}
+
+// seasonPack is a full-season Bluray-1080p pack of The Wire season 1.
+func seasonPack() schema.Release {
+	return schema.Release{
+		Info: commonv1.ReleaseInfo{
+			GUID: "guid-pack", IndexerRef: "my-indexer", IndexerName: "my-indexer",
+			Protocol: commonv1.ProtocolTorrent, Title: "The.Wire.S01.1080p.BluRay.x264-GROUP",
+			MagnetURL:   "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
+			PublishedAt: metaTime(relNow.Add(-time.Hour)),
+			IDs:         map[string]string{commonv1.IDKeyTVDB: "79126"},
+			Quality:     commonv1.Quality{Name: "Bluray-1080p", Source: commonv1.SourceBluray, Resolution: 1080, Modifier: commonv1.ModifierNone},
+		},
+		ParsedTitle: "The Wire", Kind: commonv1.MediaKindSeries, Seasons: []int32{1}, FullSeason: true,
+		FetchedAt: relNow,
+	}
+}
+
+// setFile records an imported file of quality q on an episode, as the
+// episode reconciler's rollup would.
+func setFile(t *testing.T, ctx context.Context, c client.Client, ns, name string, q commonv1.Quality) {
+	t.Helper()
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Episode(name, ns).WithStatus(
+		catalogac.EpisodeStatus().WithHasFile(true).WithFileQuality(q)))
+	require.NoError(t, err)
+}
+
+// TestHandler_PackGrabNarrowsToTheEpisodesThatWantIt pins the X9 finding:
+// grabarr downloads only a pack's spec.target.keys, but the matcher put every
+// monitored episode of the season there -- including one already at its
+// cutoff -- so a pack for the episodes that were missing still downloaded the
+// whole season. Keys now name only the episodes the release is wanted for:
+// no file, or a file it upgrades.
+func TestHandler_PackGrabNarrowsToTheEpisodesThatWantIt(t *testing.T) {
+	ctx := context.Background()
+	mgr := newTestManager(t)
+	c := mgr.GetClient()
+	ns := newNamespace(t, ctx, c)
+
+	createSeries(t, ctx, c, ns, "the-wire", 79126, "The Wire", 2002)
+	aired := relNow.Add(-30 * 24 * time.Hour)
+	e1 := createEpisode(t, ctx, c, ns, "the-wire", 1, 1, &aired)
+	e2 := createEpisode(t, ctx, c, ns, "the-wire", 1, 2, &aired)
+	e3 := createEpisode(t, ctx, c, ns, "the-wire", 1, 3, &aired)
+	// e1 is at the cutoff already; e2 has nothing; e3 has a 720p WEB-DL the
+	// pack's Bluray-1080p upgrades.
+	setFile(t, ctx, c, ns, e1, commonv1.Quality{Name: "Bluray-1080p", Source: commonv1.SourceBluray, Resolution: 1080, Modifier: commonv1.ModifierNone})
+	setFile(t, ctx, c, ns, e3, commonv1.Quality{Name: "WEBDL-720p", Source: commonv1.SourceWebDL, Resolution: 720, Modifier: commonv1.ModifierNone})
+	createQualityProfile(t, ctx, c)
+	createIndexer(t, ctx, c, ns, "my-indexer")
+	createDelayProfile(t, ctx, c, ns, 0, true)
+	eventually(t, 10*time.Second, "both files to reach the cache", func() bool {
+		var list catalogv1alpha1.EpisodeList
+		if c.List(ctx, &list, client.InNamespace(ns)) != nil {
+			return false
+		}
+		n := 0
+		for i := range list.Items {
+			if list.Items[i].Status.HasFile {
+				n++
+			}
+		}
+		return n == 2
+	})
+
+	h := rssmatcher.NewHandler(rssmatcher.Deps{Client: c, Reader: mgr.GetAPIReader(), Bus: newTestBus(t), Now: func() time.Time { return relNow }})
+	eventually(t, 15*time.Second, "the pack to be grabbed", func() bool {
+		if err := h.Handle(ctx, releaseMessage(t, ns, "my-indexer", seasonPack())); err != nil {
+			t.Fatalf("Handle: %v", err)
+		}
+		var downloads downloadv1alpha1.DownloadList
+		return c.List(ctx, &downloads, client.InNamespace(ns)) == nil && len(downloads.Items) == 1
+	})
+
+	var downloads downloadv1alpha1.DownloadList
+	require.NoError(t, mgr.GetAPIReader().List(ctx, &downloads, client.InNamespace(ns)))
+	require.Len(t, downloads.Items, 1)
+	target := downloads.Items[0].Spec.Target
+	assert.Equal(t, commonv1.MediaKindSeries, target.Kind)
+	assert.Equal(t, []string{e2, e3}, target.Keys,
+		"the episode at its cutoff is left out, so grabarr fetches only the files that are wanted")
+}
+
+// TestHandler_PackNobodyWantsIsNotGrabbed: every episode the pack covers
+// already has a file it does not improve on, so there is nothing to grab.
+func TestHandler_PackNobodyWantsIsNotGrabbed(t *testing.T) {
+	ctx := context.Background()
+	mgr := newTestManager(t)
+	c := mgr.GetClient()
+	ns := newNamespace(t, ctx, c)
+
+	createSeries(t, ctx, c, ns, "the-wire", 79126, "The Wire", 2002)
+	aired := relNow.Add(-30 * 24 * time.Hour)
+	for n := int32(1); n <= 2; n++ {
+		name := createEpisode(t, ctx, c, ns, "the-wire", 1, n, &aired)
+		setFile(t, ctx, c, ns, name, commonv1.Quality{Name: "Bluray-1080p", Source: commonv1.SourceBluray, Resolution: 1080, Modifier: commonv1.ModifierNone})
+	}
+	createQualityProfile(t, ctx, c)
+	createIndexer(t, ctx, c, ns, "my-indexer")
+	createDelayProfile(t, ctx, c, ns, 0, true)
+
+	capture := &decisionCapture{}
+	h := rssmatcher.NewHandler(rssmatcher.Deps{Client: c, Bus: newTestBus(t), Evaluate: capture.evaluate, Now: func() time.Time { return relNow }})
+	eventually(t, 15*time.Second, "the pack to be matched to both episodes and approved", func() bool {
+		var list catalogv1alpha1.EpisodeList
+		if c.List(ctx, &list, client.InNamespace(ns)) != nil || len(list.Items) != 2 || !list.Items[0].Status.HasFile || !list.Items[1].Status.HasFile {
+			return false
+		}
+		if err := h.Handle(ctx, releaseMessage(t, ns, "my-indexer", seasonPack())); err != nil {
+			t.Fatalf("Handle: %v", err)
+		}
+		target, ds := capture.get()
+		return len(ds) == 1 && ds[0].Approved && len(target.Identity.Episodes) == 2
+	})
+
+	var downloads downloadv1alpha1.DownloadList
+	require.NoError(t, mgr.GetAPIReader().List(ctx, &downloads, client.InNamespace(ns)))
+	assert.Empty(t, downloads.Items, "an approved pack no episode wants is not grabbed")
+}
+
+// fakeSceneSource is a scenemap.Source over literal tables.
+type fakeSceneSource map[int64]*scenemap.Map
+
+func (f fakeSceneSource) SceneMap(_ context.Context, tvdbID int64) (*scenemap.Map, error) {
+	if m, ok := f[tvdbID]; ok {
+		return m, nil
+	}
+	return &scenemap.Map{TVDBID: tvdbID}, nil
+}
+
+// TestHandler_SceneTableReachesTheIdentity: the RSS decision reads a release
+// through the series' whole TheXEM table, the same one the search worker
+// hands its decision, and it is never a single-episode search (ruling R-3
+// binds the search path only).
+func TestHandler_SceneTableReachesTheIdentity(t *testing.T) {
+	ctx := context.Background()
+	mgr := newTestManager(t)
+	c := mgr.GetClient()
+	ns := newNamespace(t, ctx, c)
+
+	createSeries(t, ctx, c, ns, "the-wire", 79126, "The Wire", 2002)
+	aired := relNow.Add(-30 * 24 * time.Hour)
+	createEpisode(t, ctx, c, ns, "the-wire", 1, 2, &aired)
+	createQualityProfile(t, ctx, c)
+	createIndexer(t, ctx, c, ns, "my-indexer")
+	createDelayProfile(t, ctx, c, ns, 0, true)
+
+	xem := &scenemap.Map{TVDBID: 79126, Mappings: []scenemap.Mapping{
+		{Scene: scenemap.Numbering{Season: 1, Episode: 2}, TVDB: scenemap.Numbering{Season: 1, Episode: 2}},
+		{Scene: scenemap.Numbering{Season: 2, Episode: 1}, TVDB: scenemap.Numbering{Season: 1, Episode: 13}},
+	}}
+	capture := &decisionCapture{suppressGrab: true}
+	h := rssmatcher.NewHandler(rssmatcher.Deps{
+		Client: c, Bus: newTestBus(t), Evaluate: capture.evaluate, SceneMaps: fakeSceneSource{79126: xem},
+		Now: func() time.Time { return relNow },
+	})
+	rel := blurayEpisode()
+	eventually(t, 15*time.Second, "the episode to be matched and decided", func() bool {
+		if err := h.Handle(ctx, releaseMessage(t, ns, "my-indexer", rel)); err != nil {
+			t.Fatalf("Handle: %v", err)
+		}
+		_, ds := capture.get()
+		return len(ds) == 1
+	})
+	target, _ := capture.get()
+	assert.Equal(t, []decision.SceneMapping{
+		{Scene: decision.EpisodeNumbering{Season: 1, Episode: 2}, TVDB: decision.EpisodeNumbering{Season: 1, Episode: 2}},
+		{Scene: decision.EpisodeNumbering{Season: 2, Episode: 1}, TVDB: decision.EpisodeNumbering{Season: 1, Episode: 13}},
+	}, target.Identity.SceneMappings, "the whole table, not only the matched episode's row")
+	assert.False(t, target.Identity.SingleEpisodeSearch)
+}
+
+// blurayEpisode is The Wire S01E02 in Bluray-1080p.
+func blurayEpisode() schema.Release {
+	return schema.Release{
+		Info: commonv1.ReleaseInfo{
+			GUID: "guid-e02", IndexerRef: "my-indexer", IndexerName: "my-indexer",
+			Protocol: commonv1.ProtocolTorrent, Title: "The.Wire.S01E02.1080p.BluRay.x264-GROUP",
+			MagnetURL:   "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
+			PublishedAt: metaTime(relNow.Add(-time.Hour)),
+			IDs:         map[string]string{commonv1.IDKeyTVDB: "79126"},
+		},
+		ParsedTitle: "The Wire", Kind: commonv1.MediaKindEpisode, Seasons: []int32{1}, Episodes: []int32{2},
+		FetchedAt: relNow,
 	}
 }
 

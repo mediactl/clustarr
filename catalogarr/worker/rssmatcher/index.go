@@ -43,15 +43,23 @@ const (
 	// use either).
 	IndexMovieTitleYear = "rssmatcher.clustarr.io/movie-title-year"
 
-	// IndexSeriesTitleYear indexes Series by "<cleanTitle>|<year>".
+	// IndexSeriesTitleYear indexes Series by SeriesTitleKey: its clean title
+	// alone, and its clean title with its first-aired year appended. The
+	// name keeps "year" because the year is still part of one of the two
+	// keys; see SeriesTitleKey for why a series is not keyed like a movie.
 	IndexSeriesTitleYear = "rssmatcher.clustarr.io/series-title-year"
 
 	// IndexEpisodeSeriesSeason indexes Episode by "<seriesRef>/<season>", so
 	// one List resolves a whole season pack and a single episode alike.
 	IndexEpisodeSeriesSeason = "rssmatcher.clustarr.io/episode-series-season"
+
+	// IndexEpisodeSeriesAbsolute indexes Episode by
+	// "<seriesRef>#<absoluteNumber>", for an anime release numbered only
+	// absolutely ("Show - 18"), which names no season to look up by.
+	IndexEpisodeSeriesAbsolute = "rssmatcher.clustarr.io/episode-series-absolute"
 )
 
-// IndexFields registers the five indexes Match needs. Call it once per
+// IndexFields registers the six indexes Match needs. Call it once per
 // manager, before the cache starts.
 //
 // It takes a client.FieldIndexer rather than a ctrl.Manager so a test can
@@ -82,12 +90,21 @@ func IndexFields(ctx context.Context, idx client.FieldIndexer) error {
 	if err := idx.IndexField(ctx, &catalogv1alpha1.Series{}, IndexSeriesTitleYear, seriesTitleYearKeys); err != nil {
 		return err
 	}
-	return idx.IndexField(ctx, &catalogv1alpha1.Episode{}, IndexEpisodeSeriesSeason, func(o client.Object) []string {
+	if err := idx.IndexField(ctx, &catalogv1alpha1.Episode{}, IndexEpisodeSeriesSeason, func(o client.Object) []string {
 		ep, ok := o.(*catalogv1alpha1.Episode)
 		if !ok || ep.Spec.SeriesRef == "" {
 			return nil
 		}
 		return []string{seasonKey(ep.Spec.SeriesRef, ep.Spec.SeasonNumber)}
+	}); err != nil {
+		return err
+	}
+	return idx.IndexField(ctx, &catalogv1alpha1.Episode{}, IndexEpisodeSeriesAbsolute, func(o client.Object) []string {
+		ep, ok := o.(*catalogv1alpha1.Episode)
+		if !ok || ep.Spec.SeriesRef == "" || ep.Status.AbsoluteNumber == nil {
+			return nil
+		}
+		return []string{absoluteKey(ep.Spec.SeriesRef, *ep.Status.AbsoluteNumber)}
 	})
 }
 
@@ -123,16 +140,48 @@ func movieTitleYearKeys(o client.Object) []string {
 	)
 }
 
+// SeriesTitleKey is the IndexSeriesTitleYear value a series title is
+// looked up by: release.CleanTitle of the title, with year appended when it
+// is non-zero. It is NOT TitleYearKey's "<title>|<year>".
+//
+// A TV release rarely carries a year, and when it does the parser leaves it
+// inside the series title ("Doctor.Who.2005.S01E01" parses as title "Doctor
+// Who 2005", year 0) -- exactly Sonarr's SeriesTitle. Keying a series by
+// "<title>|<first-aired year>" therefore matched no yearless release at all:
+// the lookup was "<title>|0", which nothing is indexed under, so every
+// release without a tvdb id went unmatched. Sonarr instead looks a series up
+// by its clean title, the year included wherever the release named one
+// (ParsingService.GetSeries -> SeriesService.FindByTitle(SeriesTitle), then
+// FindByTitle(TitleWithoutYear, Year); Sonarr develop). Indexing each series
+// under both its clean title and its title plus first-aired year answers
+// both of those lookups with the one key a release produces.
+func SeriesTitleKey(title string, year int32) string {
+	if year > 0 {
+		title += " " + strconv.Itoa(int(year))
+	}
+	return release.CleanTitle(title)
+}
+
+// seriesTitleYearKeys indexes a Series under SeriesTitleKey of its title,
+// yearless and with its first-aired year: "Doctor Who" (2005) answers both
+// "Doctor.Who.S01E01" and "Doctor.Who.2005.S01E01". A series titled with its
+// year already ("Doctor Who (2005)") answers only the second, as in Sonarr,
+// whose clean title for it includes the year.
 func seriesTitleYearKeys(o client.Object) []string {
 	s, ok := o.(*catalogv1alpha1.Series)
 	if !ok || s.Status.Metadata == nil {
 		return nil
 	}
-	return dedupeNonEmpty(TitleYearKey(s.Status.Metadata.Title, s.Status.Metadata.Year))
+	md := s.Status.Metadata
+	return dedupeNonEmpty(SeriesTitleKey(md.Title, 0), SeriesTitleKey(md.Title, md.Year))
 }
 
 func seasonKey(seriesRef string, season int32) string {
 	return seriesRef + "/" + strconv.Itoa(int(season))
+}
+
+func absoluteKey(seriesRef string, absolute int32) string {
+	return seriesRef + "#" + strconv.Itoa(int(absolute))
 }
 
 func dedupeNonEmpty(keys ...string) []string {

@@ -31,7 +31,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // normalizedTitle+year -> monitored items". A controller-runtime field index
 // IS that map: the manager's informers maintain it, lookups are in-memory, and
 // it needs no second cache layer, no invalidation and no code of its own
-// beyond the extractor functions. IndexFields builds five of them.
+// beyond the extractor functions. IndexFields builds six of them.
 //
 // # Approved releases take the same path as a search's
 //
@@ -44,11 +44,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # Registration
 //
 // Nothing registers itself. catalogarr's setupQueueWorkers registers this
-// package's five indexes and catalogarr/worker/search's three Download indexes
+// package's six indexes and catalogarr/worker/search's three Download indexes
 // together, from one call (registerWorkerIndexes), and then:
 //
 //	h := rssmatcher.NewHandler(rssmatcher.Deps{
-//		Client: mgr.GetClient(), Bus: bus, Catalogue: catalogue.LoadedCatalogue(),
+//		Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Bus: bus,
+//		Catalogue: catalogue.LoadedCatalogue(), Topology: &topology,
+//		SceneMaps: sceneMaps,
 //	})
 //	if err := h.SetupWithManager(mgr, bus); err != nil {
 //		return fmt.Errorf("catalogarr: subscribe rss-matcher: %w", err)
@@ -57,12 +59,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // The three Download indexes are NOT registered by the search worker. They
 // used to be -- search.Worker.SetupWithManager called RegisterDownloadIndexes
 // itself -- which made them a side effect of whichever worker happened to be
-// enabled, while this package reads the blocklist and the live queue through
-// them and, when they are absent, degrades to "not blocklisted, empty queue"
-// with a WARNING rather than an error. A wiring mistake therefore did not
-// break anything visibly; it just started grabbing releases an operator had
-// blocklisted. Task C12a moved the registration into one deterministic call
-// and added a startup assertion (assertWorkerIndexes) that fails the manager
-// when any of the eight is missing, so the degraded path is now unreachable
-// rather than merely unlikely.
+// enabled, while this package read the blocklist and the live queue through
+// them and, when they were absent, degraded to "not blocklisted, empty queue"
+// with a WARNING rather than an error. Task C12a moved the registration into
+// one deterministic call and added a startup assertion (assertWorkerIndexes)
+// that fails the manager when any index it names is missing. The blocklist
+// is now read with one labelled List per release (search.LoadBlocklist), and
+// a failed read retries instead of deciding as if nothing were blocklisted;
+// only the queue still reads an index.
 package rssmatcher
