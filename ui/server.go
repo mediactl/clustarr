@@ -34,6 +34,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/pipeline"
 	"github.com/mediactl/clustarr/ui/actions"
+	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // DefaultBindAddress is what [Run] listens on when Options.BindAddress is
@@ -130,6 +131,34 @@ type Options struct {
 	// before this field existed.
 	SubscribeDownloads func() (<-chan []downloadv1.Download, func())
 
+	// Library returns the current library projection for the Library page
+	// (Task G3-3) and its SSE stream, mirroring Entries: production wiring
+	// backs this with the shared ui/projection.Projection (ruling R4 --
+	// Library reuses the same list round Entries already triggers, no
+	// separate cluster read of its own), tests inject a fixture directly. A
+	// nil Library behaves as if it always returned no rows.
+	Library func(context.Context) []projection.LibraryItem
+
+	// SubscribeLibrary is Subscribe's Library-page counterpart: a channel
+	// that receives the current library projection immediately upon
+	// subscribing, and again whenever it changes, plus a func that
+	// unsubscribes. A nil SubscribeLibrary -- every test in this package
+	// that sets only Library, and any `clustarr ui` process too short-lived
+	// to have wired one -- defaults in [NewServer] to a per-connection poll
+	// of Library, exactly as Subscribe's own nil fallback does for Entries.
+	SubscribeLibrary func() (<-chan []projection.LibraryItem, func())
+
+	// Unmatched returns the current unmatched-files projection for the
+	// Unmatched page (Task G3-3, amendment §A3.4) and its SSE stream:
+	// LibraryScan.status.unmatched flattened across every current scan. A
+	// nil Unmatched behaves as if it always returned no rows.
+	Unmatched func(context.Context) []projection.UnmatchedEntry
+
+	// SubscribeUnmatched is Subscribe's Unmatched-page counterpart, with the
+	// same nil-defaults-to-a-per-connection-poll fallback as
+	// SubscribeLibrary.
+	SubscribeUnmatched func() (<-chan []projection.UnmatchedEntry, func())
+
 	// WaitForSync reports whether Reader's cache has completed its initial
 	// sync -- typically [NewClusterReader]'s own WaitForCacheSync. The
 	// /readyz handler polls it: 503 while it returns false, 200 once it
@@ -200,6 +229,20 @@ func NewServer(ctx context.Context, opts Options) *Server {
 		// the poller behind it treat that exactly like Entries returning no
 		// rows -- see pollDownloadsOnly's own doc comment.
 		opts.SubscribeDownloads = defaultSubscribeDownloads(opts.Reader)
+	}
+	if opts.Library == nil {
+		opts.Library = func(context.Context) []projection.LibraryItem { return nil }
+	}
+	if opts.SubscribeLibrary == nil {
+		// Defaulted from the already-defaulted Library above, mirroring
+		// Subscribe's own fallback for Entries.
+		opts.SubscribeLibrary = defaultSubscribeLibrary(opts.Library)
+	}
+	if opts.Unmatched == nil {
+		opts.Unmatched = func(context.Context) []projection.UnmatchedEntry { return nil }
+	}
+	if opts.SubscribeUnmatched == nil {
+		opts.SubscribeUnmatched = defaultSubscribeUnmatched(opts.Unmatched)
 	}
 	if opts.WaitForSync == nil {
 		opts.WaitForSync = func(context.Context) bool { return true }

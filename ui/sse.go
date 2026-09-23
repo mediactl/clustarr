@@ -29,6 +29,7 @@ import (
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/pipeline"
+	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/views"
 )
 
@@ -44,6 +45,16 @@ const pipelinePushInterval = 5 * time.Second
 // Options.SubscribeDownloads is left nil, i.e. when nothing has wired a
 // shared ui/projection.Projection.
 const downloadsPushInterval = 5 * time.Second
+
+// libraryPushInterval is [defaultSubscribeLibrary]'s analogue of
+// pipelinePushInterval: how often it polls Options.Library when
+// Options.SubscribeLibrary is left nil.
+const libraryPushInterval = 5 * time.Second
+
+// unmatchedPushInterval is [defaultSubscribeUnmatched]'s analogue of
+// pipelinePushInterval: how often it polls Options.Unmatched when
+// Options.SubscribeUnmatched is left nil.
+const unmatchedPushInterval = 5 * time.Second
 
 // handlePipelineEvents streams the pipeline projection as Server-Sent
 // Events. Each event's data is the same HTML fragment views.PipelineRows
@@ -204,6 +215,139 @@ func writeDownloadsEvent(w http.ResponseWriter, ctx context.Context, downloads [
 	return true
 }
 
+// handleLibraryEvents streams the Library page's projection as Server-Sent
+// Events, the Library page's counterpart to handlePipelineEvents and
+// handleDownloadsEvents. Each event's data is the same HTML fragment
+// views.LibraryRows renders for the initial GET /library inside
+// #library-rows; the Library page wires hx-ext="sse"
+// sse-connect="/events/library" sse-swap="library" onto that element, and
+// htmx's SSE extension swaps its innerHTML with the named event's data
+// verbatim, so the payload must already be rendered markup.
+//
+// Like handlePipelineEvents, this subscribes once via Options.SubscribeLibrary
+// and relays whatever arrives until the client goes away. In production
+// Options.SubscribeLibrary is backed by the same *projection.Projection as
+// Subscribe and SubscribeDownloads -- one list round feeding every stream
+// (design plan ruling R4, Task G3-3); a nil Options.SubscribeLibrary falls
+// back to [defaultSubscribeLibrary], a per-connection poll of Options.Library.
+func (s *Server) handleLibraryEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+
+	ctx := r.Context()
+	ch, unsubscribe := s.opts.SubscribeLibrary()
+	defer unsubscribe()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case items := <-ch:
+			if !writeLibraryEvent(w, ctx, items) {
+				return
+			}
+			flusher.Flush()
+		}
+	}
+}
+
+// writeLibraryEvent writes one "library" SSE event for items and reports
+// whether the write succeeded; a false return means the client is gone and
+// the caller should stop. Its framing is writePipelineEvent's, unchanged.
+func writeLibraryEvent(w http.ResponseWriter, ctx context.Context, items []projection.LibraryItem) bool {
+	if items == nil {
+		items = []projection.LibraryItem{}
+	}
+
+	var fragment bytes.Buffer
+	if err := views.LibraryRows(items).Render(ctx, &fragment); err != nil {
+		logging.FromContext(ctx).Error("render library rows for sse", "error", err)
+		return false
+	}
+
+	var buf bytes.Buffer
+	buf.WriteString("event: library\n")
+	for _, line := range bytes.Split(fragment.Bytes(), []byte{'\n'}) {
+		buf.WriteString("data: ")
+		buf.Write(line)
+		buf.WriteByte('\n')
+	}
+	buf.WriteByte('\n')
+
+	if _, err := w.Write(buf.Bytes()); err != nil {
+		return false
+	}
+	return true
+}
+
+// handleUnmatchedEvents streams the Unmatched page's projection as
+// Server-Sent Events, mirroring handleLibraryEvents for the
+// LibraryScan.status.unmatched data (amendment §A3.4: "SSE on scan").
+func (s *Server) handleUnmatchedEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+
+	ctx := r.Context()
+	ch, unsubscribe := s.opts.SubscribeUnmatched()
+	defer unsubscribe()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case entries := <-ch:
+			if !writeUnmatchedEvent(w, ctx, entries) {
+				return
+			}
+			flusher.Flush()
+		}
+	}
+}
+
+// writeUnmatchedEvent writes one "unmatched" SSE event for entries and
+// reports whether the write succeeded, mirroring writeLibraryEvent.
+func writeUnmatchedEvent(w http.ResponseWriter, ctx context.Context, entries []projection.UnmatchedEntry) bool {
+	if entries == nil {
+		entries = []projection.UnmatchedEntry{}
+	}
+
+	var fragment bytes.Buffer
+	if err := views.UnmatchedRows(entries).Render(ctx, &fragment); err != nil {
+		logging.FromContext(ctx).Error("render unmatched rows for sse", "error", err)
+		return false
+	}
+
+	var buf bytes.Buffer
+	buf.WriteString("event: unmatched\n")
+	for _, line := range bytes.Split(fragment.Bytes(), []byte{'\n'}) {
+		buf.WriteString("data: ")
+		buf.Write(line)
+		buf.WriteByte('\n')
+	}
+	buf.WriteByte('\n')
+
+	if _, err := w.Write(buf.Bytes()); err != nil {
+		return false
+	}
+	return true
+}
+
 // defaultSubscribe adapts entries -- a plain poll function, i.e.
 // Options.Entries -- to the Subscribe shape /events/pipeline now consumes,
 // by polling it on pipelinePushInterval from a goroutine private to each
@@ -242,6 +386,27 @@ func defaultSubscribeDownloads(reader client.Reader) func() (<-chan []downloadv1
 // "nothing to show" rather than a failure, since this is a best-effort
 // fallback poller, not a request handler with a caller to report an error
 // to.
+// defaultSubscribeLibrary is [defaultSubscribe]'s Library-page counterpart
+// (Task G3-3): it adapts Options.Library, a plain poll function, to the
+// SubscribeLibrary shape /events/library consumes, by polling it on
+// libraryPushInterval from a goroutine private to each subscription. Unlike
+// [defaultSubscribeDownloads], there is no separate direct-Reader path to
+// fall back to: Library's per-kind monitored/phase/hasFile derivation lives
+// in ui/projection (describeLibraryItem), unexported, so the only thing this
+// package can poll is the Library func itself -- exactly [defaultSubscribe]'s
+// shape for Entries.
+func defaultSubscribeLibrary(library func(context.Context) []projection.LibraryItem) func() (<-chan []projection.LibraryItem, func()) {
+	return pollingSubscribe(libraryPushInterval, library)
+}
+
+// defaultSubscribeUnmatched is [defaultSubscribeLibrary]'s Unmatched-page
+// analogue, polling Options.Unmatched for the same reason: the
+// LibraryScan-flattening logic lives in ui/projection, unexported, so
+// Options.Unmatched itself is the only thing to poll.
+func defaultSubscribeUnmatched(unmatched func(context.Context) []projection.UnmatchedEntry) func() (<-chan []projection.UnmatchedEntry, func()) {
+	return pollingSubscribe(unmatchedPushInterval, unmatched)
+}
+
 func pollDownloadsOnly(ctx context.Context, reader client.Reader) []downloadv1.Download {
 	if reader == nil {
 		return nil

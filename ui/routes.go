@@ -19,11 +19,16 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sort"
 
+	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/ui/actions"
+	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/views"
 )
 
@@ -39,6 +44,14 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /events/pipeline", s.handlePipelineEvents)
 	mux.HandleFunc("GET /downloads", s.handleDownloads)
 	mux.HandleFunc("GET /events/downloads", s.handleDownloadsEvents)
+	mux.HandleFunc("GET /library", s.handleLibrary)
+	mux.HandleFunc("GET /events/library", s.handleLibraryEvents)
+	mux.HandleFunc("GET /library/{namespace}/{kind}/{name}", s.handleLibraryItem)
+	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/monitor", s.handleSetMonitored)
+	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/search", s.handleSearchNow)
+	mux.HandleFunc("POST /library/rescan", s.handleRescan)
+	mux.HandleFunc("GET /unmatched", s.handleUnmatched)
+	mux.HandleFunc("GET /events/unmatched", s.handleUnmatchedEvents)
 	mux.HandleFunc("GET /{$}", s.handleIndex)
 
 	return mux
@@ -141,4 +154,165 @@ func (s *Server) listDownloads(ctx context.Context) ([]downloadv1.Download, []do
 	sort.Slice(clients, func(i, j int) bool { return clients[i].Name < clients[j].Name })
 
 	return downloads, clients
+}
+
+// handleLibrary renders the Library page (amendment §A3.4, Task G3-3) from
+// the current library projection returned by Options.Library, plus a
+// "Rescan" toolbar built from every known RootFolder (listRootFolders,
+// mirroring listDownloads' own direct-Reader reads for config-like data).
+func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
+	items := s.opts.Library(r.Context())
+	rootFolders := s.listRootFolders(r.Context())
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := views.Library(items, rootFolders).Render(r.Context(), w); err != nil {
+		logging.FromContext(r.Context()).Error("render library page", "error", err)
+	}
+}
+
+// listRootFolders lists every RootFolder through Options.Reader, sorted by
+// name for a stable render -- listDownloads' own pattern for config-like
+// data that does not need to ride the shared projection's live stream.
+func (s *Server) listRootFolders(ctx context.Context) []catalogv1.RootFolder {
+	if s.opts.Reader == nil {
+		return nil
+	}
+
+	var list catalogv1.RootFolderList
+	if err := s.opts.Reader.List(ctx, &list); err != nil {
+		logging.FromContext(ctx).Error("list root folders", "error", err)
+		return nil
+	}
+	rootFolders := list.Items
+	sort.Slice(rootFolders, func(i, j int) bool { return rootFolders[i].Name < rootFolders[j].Name })
+	return rootFolders
+}
+
+// handleLibraryItem renders one catalog item's detail view (§A3.4's "detail
+// modal", Task G3-3). It looks the item up in the current library
+// projection rather than reading the cluster directly a second time, so the
+// detail view and the grid it was reached from always agree -- and so this
+// handler needs no per-kind Get, which ui/projection's describeLibraryItem
+// already solves once for the whole package.
+func (s *Server) handleLibraryItem(w http.ResponseWriter, r *http.Request) {
+	item, ok := findLibraryItem(s.opts.Library(r.Context()),
+		r.PathValue("namespace"), r.PathValue("kind"), r.PathValue("name"))
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := views.LibraryDetail(item).Render(r.Context(), w); err != nil {
+		logging.FromContext(r.Context()).Error("render library detail page", "error", err)
+	}
+}
+
+// findLibraryItem finds the item in items matching namespace, kind and name
+// -- kind compared as a plain string against LibraryItem.Kind, since the URL
+// path value is untyped input and any string a caller sends is a legal
+// (if non-matching) MediaKind to compare against.
+func findLibraryItem(items []projection.LibraryItem, namespace, kind, name string) (projection.LibraryItem, bool) {
+	for _, item := range items {
+		if item.Ref.Namespace == namespace && string(item.Kind) == kind && item.Ref.Name == name {
+			return item, true
+		}
+	}
+	return projection.LibraryItem{}, false
+}
+
+// handleSetMonitored is the "monitor"/"unmonitor" action (§A3.2) reached
+// from the Library detail page's own form: POST
+// /library/{namespace}/{kind}/{name}/monitor with a "monitored" field of
+// "true" or "false". It calls Options.Actions.SetMonitored -- and nothing
+// else in ui/ ever calls actions.Writer's Create or Patch, per ui/guard_test.go
+// -- and, since Options.Actions is not wired in production until Task G3-5,
+// renders actions.ErrNoWriter visibly through finishAction rather than
+// silently doing nothing.
+func (s *Server) handleSetMonitored(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	monitored := r.FormValue("monitored") == "true"
+
+	_, err := s.opts.Actions.SetMonitored(r.Context(),
+		r.PathValue("namespace"), commonv1.MediaKind(r.PathValue("kind")), r.PathValue("name"), monitored)
+	s.finishAction(w, r, err)
+}
+
+// handleSearchNow is the "search now" action (§A3.2): POST
+// /library/{namespace}/{kind}/{name}/search, calling Options.Actions.SearchNow.
+func (s *Server) handleSearchNow(w http.ResponseWriter, r *http.Request) {
+	_, err := s.opts.Actions.SearchNow(r.Context(),
+		r.PathValue("namespace"), commonv1.MediaKind(r.PathValue("kind")), r.PathValue("name"))
+	s.finishAction(w, r, err)
+}
+
+// handleRescan is the "rescan" action (§A3.2): POST /library/rescan with
+// "namespace" and "rootFolder" form fields, one submitted by each button in
+// the Library page's own rescan toolbar (views.rescanToolbar), calling
+// Options.Actions.Rescan.
+func (s *Server) handleRescan(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+
+	_, err := s.opts.Actions.Rescan(r.Context(), r.FormValue("namespace"), r.FormValue("rootFolder"))
+	s.finishAction(w, r, err)
+}
+
+// finishAction is the shared tail of every Library-page write action: on
+// success it redirects (303) back to the form's "return" field (defaulting
+// to /library so a malformed or missing field still goes somewhere useful),
+// and on failure it renders views.ActionError directly in the response
+// (no redirect) with a status that reflects the failure -- 503 for
+// actions.ErrNoWriter, 400 for actions.ErrInvalid, 500 otherwise -- so the
+// error is visible to whatever submitted the form, per this task's own
+// instruction to "handle actions.ErrNoWriter visibly" now that
+// Options.Actions is not wired in production until Task G3-5.
+func (s *Server) finishAction(w http.ResponseWriter, r *http.Request, err error) {
+	if err != nil {
+		code, status := actionErrorCode(err)
+		logging.FromContext(r.Context()).Error("ui action failed", "error", err, "code", code)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(status)
+		if renderErr := views.ActionError(code, err.Error()).Render(r.Context(), w); renderErr != nil {
+			logging.FromContext(r.Context()).Error("render action error", "error", renderErr)
+		}
+		return
+	}
+
+	returnTo := r.FormValue("return")
+	if returnTo == "" || returnTo[0] != '/' {
+		returnTo = "/library"
+	}
+	http.Redirect(w, r, returnTo, http.StatusSeeOther)
+}
+
+// actionErrorCode maps an ui/actions error to the stable machine-readable
+// code views.ActionError renders on data-action-error (ruling R8) and to the
+// HTTP status finishAction answers with.
+func actionErrorCode(err error) (code string, status int) {
+	switch {
+	case errors.Is(err, actions.ErrNoWriter):
+		return "no-writer", http.StatusServiceUnavailable
+	case errors.Is(err, actions.ErrInvalid):
+		return "invalid", http.StatusBadRequest
+	default:
+		return "failed", http.StatusInternalServerError
+	}
+}
+
+// handleUnmatched renders the Unmatched page (amendment §A3.4, Task G3-3)
+// from the current unmatched-files projection returned by Options.Unmatched.
+// Read-only in this task: no action handler here reaches
+// Options.Actions -- the manual-assign action's mechanism is being defined
+// by G2-4 in importarr, and G3-4 adds it once that lands.
+func (s *Server) handleUnmatched(w http.ResponseWriter, r *http.Request) {
+	entries := s.opts.Unmatched(r.Context())
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := views.Unmatched(entries).Render(r.Context(), w); err != nil {
+		logging.FromContext(r.Context()).Error("render unmatched page", "error", err)
+	}
 }

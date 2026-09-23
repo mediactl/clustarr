@@ -86,3 +86,22 @@ func TestGeneratedCSSCoversTemplateOnlyClasses(t *testing.T) {
 			"regressed) -- see TestGeneratedCSSCoversTemplateOnlyClasses's doc comment for how this was "+
 			"falsified")
 }
+
+// TestGeneratedCSSCoversLibraryPageClasses is Task G3-3's own addition to
+// TestGeneratedCSSCoversTemplateOnlyClasses' guard: border-red-900 is a
+// class ui/views/library.templ's ActionError component uses (the visible
+// actions.ErrNoWriter failure state this task's routes.go handlers render),
+// added new by this task rather than inherited from an earlier one, so its
+// presence in the committed app.css specifically proves the new .templ file
+// was included in the `make css` build that produced it.
+func TestGeneratedCSSCoversLibraryPageClasses(t *testing.T) {
+	srv := ui.NewServer(t.Context(), ui.Options{})
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/app.css", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	require.True(t, strings.Contains(rec.Body.String(), "border-red-900"),
+		"ui/static/app.css is missing .border-red-900, a class ui/views/library.templ's ActionError "+
+			"component uses; this means the committed app.css was not rebuilt with `make css` after "+
+			"library.templ was added")
+}

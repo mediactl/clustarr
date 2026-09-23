@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -71,8 +72,10 @@ func (r *countingReader) List(ctx context.Context, list client.ObjectList, opts 
 // Download, Search, TranscodeJob, SubtitleRequest) plus listItems' ten
 // (Movie, Series, Episode, Album, Artist, Author, Book, Audiobook, Comic,
 // Issue) -- pkg/pipeline/project.go's own describeItem type-switch names
-// exactly those ten catalog kinds.
-const listCallsPerTick = 5 + 10
+// exactly those ten catalog kinds -- plus one more: project's own
+// listLibraryScans call (Task G3-3), the one new List the Unmatched stream
+// adds to the shared round rather than running a ticker of its own.
+const listCallsPerTick = 5 + 10 + 1
 
 // ownerRef builds a controlling OwnerReference to owner, the same shape
 // catalogarr/worker/grab/perform.go's k8s.OwnerReferenceAC produces for a
@@ -318,4 +321,284 @@ func TestOwnershipIndexingPutsADownloadUnderTheRightMovie(t *testing.T) {
 	require.True(t, ok, "movie-b must have a pipeline entry")
 	require.NotEqual(t, pipeline.StageDownloading, b.Stage,
 		"movie-b owns no Download and must not inherit movie-a's stage")
+}
+
+// TestLibraryProjectionDerivesMonitoredPhaseAndHasFilePerKind is Task G3-3's
+// own per-kind coverage of describeLibraryItem, exercised the same way every
+// other test in this file exercises unexported logic: through the exported
+// surface ([Projection.Library]) over a fake client, never by importing an
+// internal function directly (mirroring pkg/pipeline/project_test.go's own
+// external-package convention).
+//
+// It covers every catalog kind the shared listItems call lists: the six with
+// their own status.phase (Movie, Series, Episode, Album, Book, Audiobook),
+// Issue (hasFile but no phase at all), and the three collection parents with
+// neither (Artist, Author, Comic) -- whose hasFile instead reads their
+// child-file count, per describeLibraryItem's own doc comment.
+func TestLibraryProjectionDerivesMonitoredPhaseAndHasFilePerKind(t *testing.T) {
+	unmonitored := false
+
+	movie := &catalogv1.Movie{
+		ObjectMeta: metav1.ObjectMeta{Name: "movie-1", Namespace: "default", UID: "movie-1-uid"},
+		Spec:       catalogv1.MovieSpec{Monitored: ptr.To(true)},
+		Status: catalogv1.MovieStatus{
+			Metadata: &catalogv1.MovieMetadata{Title: "Movie One"},
+			Phase:    catalogv1.MoviePhase("Wanted"),
+			HasFile:  true,
+		},
+	}
+	series := &catalogv1.Series{
+		ObjectMeta: metav1.ObjectMeta{Name: "series-1", Namespace: "default", UID: "series-1-uid"},
+		Spec:       catalogv1.SeriesSpec{Monitored: &unmonitored},
+		Status: catalogv1.SeriesStatus{
+			Metadata: &catalogv1.SeriesMetadata{Title: "Series One"},
+			Phase:    catalogv1.SeriesPhaseUnmonitored,
+		},
+	}
+	episode := &catalogv1.Episode{
+		ObjectMeta: metav1.ObjectMeta{Name: "episode-1", Namespace: "default", UID: "episode-1-uid"},
+		Spec:       catalogv1.EpisodeSpec{Monitored: ptr.To(true)},
+		Status:     catalogv1.EpisodeStatus{Title: "Episode One", Phase: catalogv1.EpisodePhase("Downloading"), HasFile: true},
+	}
+	album := &catalogv1.Album{
+		ObjectMeta: metav1.ObjectMeta{Name: "album-1", Namespace: "default", UID: "album-1-uid"},
+		Spec:       catalogv1.AlbumSpec{Monitored: ptr.To(true)},
+		Status: catalogv1.AlbumStatus{
+			Metadata:       &catalogv1.AlbumMetadata{Title: "Album One"},
+			Phase:          catalogv1.AlbumPhaseDownloading,
+			TrackFileCount: 3,
+		},
+	}
+	artist := &catalogv1.Artist{
+		ObjectMeta: metav1.ObjectMeta{Name: "artist-1", Namespace: "default", UID: "artist-1-uid"},
+		Spec:       catalogv1.ArtistSpec{Monitored: ptr.To(true)},
+		Status: catalogv1.ArtistStatus{
+			Metadata:       &catalogv1.ArtistMetadata{Name: "Artist One"},
+			AlbumFileCount: 2,
+		},
+	}
+	author := &catalogv1.Author{
+		ObjectMeta: metav1.ObjectMeta{Name: "author-1", Namespace: "default", UID: "author-1-uid"},
+		Spec:       catalogv1.AuthorSpec{Monitored: nil},
+		Status:     catalogv1.AuthorStatus{Metadata: &catalogv1.AuthorMetadata{Name: "Author One"}, BookFileCount: 0},
+	}
+	book := &catalogv1.Book{
+		ObjectMeta: metav1.ObjectMeta{Name: "book-1", Namespace: "default", UID: "book-1-uid"},
+		Spec:       catalogv1.BookSpec{Monitored: ptr.To(true)},
+		Status: catalogv1.BookStatus{
+			Metadata: &catalogv1.BookMetadata{Title: "Book One"},
+			Phase:    catalogv1.BookPhaseCutoffUnmet,
+			HasFile:  true,
+		},
+	}
+	audiobook := &catalogv1.Audiobook{
+		ObjectMeta: metav1.ObjectMeta{Name: "audiobook-1", Namespace: "default", UID: "audiobook-1-uid"},
+		Spec:       catalogv1.AudiobookSpec{Monitored: &unmonitored},
+		Status: catalogv1.AudiobookStatus{
+			Metadata: &catalogv1.AudiobookMetadata{Title: "Audiobook One"},
+			Phase:    catalogv1.AudiobookPhaseUnmonitored,
+			HasFile:  false,
+		},
+	}
+	comic := &catalogv1.Comic{
+		ObjectMeta: metav1.ObjectMeta{Name: "comic-1", Namespace: "default", UID: "comic-1-uid"},
+		Spec:       catalogv1.ComicSpec{Monitored: ptr.To(true)},
+		Status: catalogv1.ComicStatus{
+			Metadata:       &catalogv1.ComicMetadata{Title: "Comic One"},
+			IssueFileCount: 1,
+		},
+	}
+	issue := &catalogv1.Issue{
+		ObjectMeta: metav1.ObjectMeta{Name: "issue-1", Namespace: "default", UID: "issue-1-uid"},
+		Spec:       catalogv1.IssueSpec{Monitored: ptr.To(true)},
+		Status:     catalogv1.IssueStatus{Title: "Issue One", HasFile: true},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(testScheme(t)).
+		WithObjects(movie, series, episode, album, artist, author, book, audiobook, comic, issue).Build()
+
+	proj := projection.New(fakeClient, time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = proj.Run(ctx) }()
+
+	var items []projection.LibraryItem
+	require.Eventually(t, func() bool {
+		items = proj.Library(ctx)
+		return len(items) == 10
+	}, 2*time.Second, 10*time.Millisecond, "projection never produced all ten library items")
+
+	byName := map[string]projection.LibraryItem{}
+	for _, it := range items {
+		byName[it.Ref.Name] = it
+	}
+
+	m := byName["movie-1"]
+	require.Equal(t, commonv1.MediaKindMovie, m.Kind)
+	require.Equal(t, "Movie One", m.Title)
+	require.True(t, m.Monitored)
+	require.Equal(t, "Wanted", m.Phase)
+	require.True(t, m.HasFile)
+
+	s := byName["series-1"]
+	require.False(t, s.Monitored, "series-1 has spec.monitored=false")
+	require.Equal(t, string(catalogv1.SeriesPhaseUnmonitored), s.Phase)
+	require.False(t, s.HasFile, "Series has no hasFile concept of its own")
+
+	e := byName["episode-1"]
+	require.True(t, e.Monitored)
+	require.Equal(t, "Downloading", e.Phase)
+	require.True(t, e.HasFile)
+
+	al := byName["album-1"]
+	require.Equal(t, string(catalogv1.AlbumPhaseDownloading), al.Phase)
+	require.True(t, al.HasFile, "trackFileCount > 0 must read as hasFile")
+
+	ar := byName["artist-1"]
+	require.Empty(t, ar.Phase, "Artist is a collection parent with no phase concept")
+	require.True(t, ar.HasFile, "albumFileCount > 0 must read as hasFile for a collection parent")
+
+	au := byName["author-1"]
+	require.True(t, au.Monitored, "a nil spec.monitored must default to true")
+	require.Empty(t, au.Phase)
+	require.False(t, au.HasFile, "bookFileCount == 0 must read as no file")
+
+	bk := byName["book-1"]
+	require.Equal(t, string(catalogv1.BookPhaseCutoffUnmet), bk.Phase)
+	require.True(t, bk.HasFile)
+
+	ab := byName["audiobook-1"]
+	require.False(t, ab.Monitored)
+	require.Equal(t, string(catalogv1.AudiobookPhaseUnmonitored), ab.Phase)
+	require.False(t, ab.HasFile)
+
+	cm := byName["comic-1"]
+	require.Empty(t, cm.Phase, "Comic is a collection parent with no phase concept")
+	require.True(t, cm.HasFile, "issueFileCount > 0 must read as hasFile for a collection parent")
+
+	is := byName["issue-1"]
+	require.Empty(t, is.Phase, "Issue has no phase field at all")
+	require.True(t, is.HasFile)
+}
+
+// TestUnmatchedProjectionFlattensAndSortsAcrossScans proves [Projection.
+// Unmatched] merges status.unmatched across every current LibraryScan
+// (rather than only the most recent one) and re-sorts the merged result
+// newest-first by SeenAt, since concatenating separate scans' already
+// newest-first lists in List order would not itself be sorted.
+func TestUnmatchedProjectionFlattensAndSortsAcrossScans(t *testing.T) {
+	older := metav1.NewTime(time.Now().Add(-time.Hour))
+	newer := metav1.NewTime(time.Now())
+
+	scanA := &catalogv1.LibraryScan{
+		ObjectMeta: metav1.ObjectMeta{Name: "scan-a", Namespace: "default", UID: "scan-a-uid"},
+		Spec:       catalogv1.LibraryScanSpec{RootFolderRef: "movies"},
+		Status: catalogv1.LibraryScanStatus{
+			Unmatched: []catalogv1.UnmatchedFile{
+				{Path: "old-file.mkv", Reason: "no embedded id", SeenAt: older},
+			},
+		},
+	}
+	scanB := &catalogv1.LibraryScan{
+		ObjectMeta: metav1.ObjectMeta{Name: "scan-b", Namespace: "default", UID: "scan-b-uid"},
+		Spec:       catalogv1.LibraryScanSpec{RootFolderRef: "tv"},
+		Status: catalogv1.LibraryScanStatus{
+			Unmatched: []catalogv1.UnmatchedFile{
+				{Path: "new-file.mkv", Reason: "ambiguous title", Candidates: []string{"movie-a", "movie-b"}, SeenAt: newer},
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(scanA, scanB).Build()
+
+	proj := projection.New(fakeClient, time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = proj.Run(ctx) }()
+
+	var entries []projection.UnmatchedEntry
+	require.Eventually(t, func() bool {
+		entries = proj.Unmatched(ctx)
+		return len(entries) == 2
+	}, 2*time.Second, 10*time.Millisecond, "projection never produced both unmatched files")
+
+	require.Equal(t, "new-file.mkv", entries[0].Path, "the newer file (scan-b) must sort first")
+	require.Equal(t, "tv", entries[0].RootFolder)
+	require.Equal(t, types.NamespacedName{Namespace: "default", Name: "scan-b"}, entries[0].ScanRef)
+	require.Equal(t, []string{"movie-a", "movie-b"}, entries[0].Candidates)
+
+	require.Equal(t, "old-file.mkv", entries[1].Path)
+	require.Equal(t, "movies", entries[1].RootFolder)
+	require.Equal(t, "no embedded id", entries[1].Reason)
+}
+
+// TestLibraryAndUnmatchedSubscribersShareThePipelineListRound is Task
+// G3-3's own generalisation of TestDownloadsSubscribersShareThePipelineListRound
+// (ruling R4): a SubscribeLibrary or SubscribeUnmatched subscriber must not
+// add a List call of its own beyond the one shared round listCallsPerTick
+// already accounts for -- Library reuses listItems' ten List calls, and
+// Unmatched adds exactly the one LibraryScan List call folded into
+// listCallsPerTick above.
+func TestLibraryAndUnmatchedSubscribersShareThePipelineListRound(t *testing.T) {
+	movie := &catalogv1.Movie{
+		ObjectMeta: metav1.ObjectMeta{Name: "shawshank-redemption", Namespace: "default", UID: "movie-uid"},
+		Status:     catalogv1.MovieStatus{Metadata: &catalogv1.MovieMetadata{Title: "The Shawshank Redemption"}},
+	}
+	scan := &catalogv1.LibraryScan{
+		ObjectMeta: metav1.ObjectMeta{Name: "scan-a", Namespace: "default", UID: "scan-a-uid"},
+		Spec:       catalogv1.LibraryScanSpec{RootFolderRef: "movies"},
+		Status: catalogv1.LibraryScanStatus{
+			Unmatched: []catalogv1.UnmatchedFile{{Path: "x.mkv", Reason: "no id", SeenAt: metav1.Now()}},
+		},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(movie, scan).Build()
+
+	var calls atomic.Int64
+	reader := &countingReader{Reader: fakeClient, calls: &calls}
+
+	proj := projection.New(reader, time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = proj.Run(ctx) }()
+
+	entriesCh, unsubEntries := proj.Subscribe()
+	defer unsubEntries()
+	libraryCh, unsubLibrary := proj.SubscribeLibrary()
+	defer unsubLibrary()
+	unmatchedCh, unsubUnmatched := proj.SubscribeUnmatched()
+	defer unsubUnmatched()
+
+	gotEntries := receiveNonEmpty(t, entriesCh, 2*time.Second)
+	require.Len(t, gotEntries, 1)
+
+	deadline := time.After(2 * time.Second)
+	var gotLibrary []projection.LibraryItem
+	for len(gotLibrary) == 0 {
+		select {
+		case gotLibrary = <-libraryCh:
+		case <-deadline:
+			t.Fatal("timed out waiting for a non-empty library projection")
+		}
+	}
+	require.Len(t, gotLibrary, 1)
+	require.Equal(t, "shawshank-redemption", gotLibrary[0].Ref.Name)
+
+	deadline = time.After(2 * time.Second)
+	var gotUnmatched []projection.UnmatchedEntry
+	for len(gotUnmatched) == 0 {
+		select {
+		case gotUnmatched = <-unmatchedCh:
+		case <-deadline:
+			t.Fatal("timed out waiting for a non-empty unmatched projection")
+		}
+	}
+	require.Len(t, gotUnmatched, 1)
+	require.Equal(t, "x.mkv", gotUnmatched[0].Path)
+
+	// Give any errant extra tick or extra List a moment to happen before
+	// asserting the call count, exactly as the downloads-stream analogue
+	// above does: interval is an hour, so nothing further should arrive.
+	time.Sleep(50 * time.Millisecond)
+	require.EqualValues(t, listCallsPerTick, calls.Load(),
+		"library and unmatched subscribers must add no List call beyond the one shared round")
 }

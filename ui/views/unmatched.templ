@@ -1,0 +1,94 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"strings"
+
+	"github.com/mediactl/clustarr/ui/projection"
+)
+
+// Unmatched renders the Unmatched page (amendment §A3.4, Task G3-3):
+// LibraryScan.status.unmatched -- files the scanner could not attribute to a
+// catalog item (A1.5's never-guess rule) -- flattened across every current
+// scan, with the reason and any candidates the scanner considered. It is
+// read-only in this task: the manual-assign action's mechanism is being
+// defined by G2-4 in importarr, and G3-4 adds the action once it lands.
+//
+// #unmatched-rows is the sse-swap target, mirroring every other live page:
+// htmx's SSE extension replaces that element's innerHTML with the named
+// event's data, so everything inside it (and only what's inside it) must be
+// exactly what UnmatchedRows renders.
+templ Unmatched(entries []projection.UnmatchedEntry) {
+	@Layout("Unmatched") {
+		<h1 class="mb-4 text-2xl font-bold">Unmatched</h1>
+		<div
+			id="unmatched-rows"
+			hx-ext="sse"
+			sse-connect="/events/unmatched"
+			sse-swap="unmatched"
+			class="space-y-4"
+		>
+			@UnmatchedRows(entries)
+		</div>
+	}
+}
+
+// UnmatchedRows renders the dynamic part of the Unmatched page: the "nothing
+// unmatched" placeholder or the row list. This is also what /events/unmatched
+// renders into each SSE event's data, so the initial page render and every
+// live update produce byte-for-byte the same markup for #unmatched-rows's
+// contents.
+templ UnmatchedRows(entries []projection.UnmatchedEntry) {
+	if len(entries) == 0 {
+		<p class="text-slate-400">Nothing unmatched.</p>
+	}
+	<div class="grid gap-3">
+		for _, e := range entries {
+			@unmatchedRow(e)
+		}
+	</div>
+}
+
+// unmatchedRow renders one UnmatchedEntry: its path, the scanner's reason,
+// and any candidates it considered but would not guess between. Every row
+// carries data-scan, data-root-folder, data-path, data-reason and
+// data-candidates (ruling R8): the UI tests assert on these attributes, not
+// on visible copy, so a wording change does not break a test and a markup
+// change does not pass one.
+templ unmatchedRow(e projection.UnmatchedEntry) {
+	<div
+		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
+		data-scan={ e.ScanRef.String() }
+		data-root-folder={ e.RootFolder }
+		data-path={ e.Path }
+		data-reason={ e.Reason }
+		data-candidates={ strings.Join(e.Candidates, ",") }
+	>
+		<div class="flex items-center justify-between gap-4">
+			<span class="font-medium">{ e.Path }</span>
+			<span class="rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-400">{ e.RootFolder }</span>
+		</div>
+		<div class="mt-1 text-sm text-amber-300">{ e.Reason }</div>
+		if len(e.Candidates) > 0 {
+			<div class="mt-2 text-xs text-slate-400">
+				Candidates: { strings.Join(e.Candidates, ", ") }
+			</div>
+		}
+	</div>
+}
