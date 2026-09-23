@@ -329,9 +329,17 @@ func TestMatch_SeriesTitleFallbackFollowsSonarr(t *testing.T) {
 			ParsedTitle: title, Kind: commonv1.MediaKindEpisode, Seasons: []int32{1}, Episodes: []int32{1}, FetchedAt: relNow,
 		}
 	}
+	// Every series and episode must be in the cache before any assertion:
+	// the bare-title case below reads "matches neither" only once BOTH
+	// Doctor Who series are indexed.
 	eventually(t, 10*time.Second, "the title index and the episodes to populate", func() bool {
-		refs, err := rssmatcher.Match(ctx, c, ns, rel("Doctor Who 2005"))
-		return err == nil && len(refs) == 1
+		for _, title := range []string{"Doctor Who 2005", "Doctor Who 1963", "The Office US"} {
+			refs, err := rssmatcher.Match(ctx, c, ns, rel(title))
+			if err != nil || len(refs) != 1 {
+				return false
+			}
+		}
+		return true
 	})
 
 	refs, err := rssmatcher.Match(ctx, c, ns, rel("Doctor Who 2005"))
@@ -401,9 +409,11 @@ func TestMatch_AnimeAbsoluteAndSceneNumbering(t *testing.T) {
 		}
 	}
 	eventually(t, 10*time.Second, "the absolute index and every episode to populate", func() bool {
-		abs, err := rssmatcher.Match(ctx, c, ns, anime(nil, nil, []int32{14}, false))
-		if err != nil || len(abs) != 1 {
-			return false
+		for _, a := range []int32{1, 2, 3, 13, 14} {
+			abs, err := rssmatcher.Match(ctx, c, ns, anime(nil, nil, []int32{a}, false))
+			if err != nil || len(abs) != 1 {
+				return false
+			}
 		}
 		s2, err := rssmatcher.Match(ctx, c, ns, anime([]int32{2}, []int32{1}, nil, false))
 		return err == nil && len(s2) == 1

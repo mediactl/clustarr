@@ -422,18 +422,24 @@ func TestHandler_PackGrabNarrowsToTheEpisodesThatWantIt(t *testing.T) {
 	createQualityProfile(t, ctx, c)
 	createIndexer(t, ctx, c, ns, "my-indexer")
 	createDelayProfile(t, ctx, c, ns, 0, true)
-	eventually(t, 10*time.Second, "both files to reach the cache", func() bool {
+	// All three episodes, with their air dates and both files, must be in
+	// the cache before the first Handle: a pack matched against a partial
+	// season would be grabbed with the wrong keys and never re-matched.
+	eventually(t, 10*time.Second, "every episode and both files to reach the cache", func() bool {
 		var list catalogv1alpha1.EpisodeList
-		if c.List(ctx, &list, client.InNamespace(ns)) != nil {
+		if c.List(ctx, &list, client.InNamespace(ns)) != nil || len(list.Items) != 3 {
 			return false
 		}
-		n := 0
+		files := 0
 		for i := range list.Items {
+			if list.Items[i].Status.AirDate == nil {
+				return false
+			}
 			if list.Items[i].Status.HasFile {
-				n++
+				files++
 			}
 		}
-		return n == 2
+		return files == 2
 	})
 
 	h := rssmatcher.NewHandler(rssmatcher.Deps{Client: c, Reader: mgr.GetAPIReader(), Bus: newTestBus(t), Now: func() time.Time { return relNow }})

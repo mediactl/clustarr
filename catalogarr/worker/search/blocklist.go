@@ -27,6 +27,7 @@ import (
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/catalogarr/controller/rollup"
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
@@ -48,7 +49,13 @@ const (
 	// hash -- is recognised again.
 	IndexBlocklistTitle = "search.clustarr.io/blocklist-title"
 	// IndexDownloadTarget indexes non-terminal Downloads by their target
-	// catalog item: the live queue for one media key.
+	// catalog item: the live queue for one media key. "Non-terminal" is
+	// rollup.DownloadNonTerminal, the set the item reconcilers derive
+	// status.activeDownloadRef from and the grab path's double-grab guard
+	// reads, so the three can never disagree about one Download: a Seeding
+	// torrent still occupies the queue (its content is one import away),
+	// Imported, Failed, Blocklisted and Removing do not, and neither does a
+	// Download already being deleted.
 	IndexDownloadTarget = "search.clustarr.io/download-target"
 )
 
@@ -86,7 +93,7 @@ func RegisterDownloadIndexes(ctx context.Context, idx client.FieldIndexer) error
 	}
 	return idx.IndexField(ctx, &downloadv1alpha1.Download{}, IndexDownloadTarget, func(o client.Object) []string {
 		d, ok := o.(*downloadv1alpha1.Download)
-		if !ok || isTerminal(d.Status.Phase) {
+		if !ok || !rollup.DownloadNonTerminal(d) {
 			return nil
 		}
 		return []string{TargetIndexValue(d.Spec.Target)}
@@ -119,23 +126,6 @@ func blocklistActive(d *downloadv1alpha1.Download, now time.Time) bool {
 		return true
 	}
 	return d.Status.BlocklistedUntil.After(now)
-}
-
-// isTerminal reports whether a Download can no longer occupy the queue. A
-// Seeding torrent is NOT terminal: its content is on disk and a second grab
-// for the same item would be a duplicate. Blocklisted and Removing are
-// terminal for queue purposes -- the first is why the blocklist indexes
-// exist, the second is on its way out.
-func isTerminal(p downloadv1alpha1.DownloadPhase) bool {
-	switch p {
-	case downloadv1alpha1.DownloadPhaseImported,
-		downloadv1alpha1.DownloadPhaseFailed,
-		downloadv1alpha1.DownloadPhaseBlocklisted,
-		downloadv1alpha1.DownloadPhaseRemoving:
-		return true
-	default:
-		return false
-	}
 }
 
 // Blocklist is one namespace's live blocklist at one instant: the info hashes
