@@ -28,7 +28,8 @@ albums, books and issues beyond the monitor toggle.
    never learns the UI's address. The UI itself still never calls a provider.
 2. **Tabs show parents only.** Movie → Movies; Series → TV; Artist → Music;
    Author, Comic and Audiobook → Books (Comic and Audiobook have no parent
-   kind of their own). Episode, Album, Book and Issue produce no card; they
+   kind of their own), and so does a Book with no `authorRef`, which stands
+   alone. Episode, Album, Issue and an author's Book produce no card; they
    still feed the pipeline page.
 3. **Children load lazily, per season.** A series page renders one season
    component per season with a collapsed episodes area that `hx-get`s its
