@@ -37,9 +37,10 @@ import (
 )
 
 // definitionRetryInterval is how soon a definition-backed Indexer whose
-// definition is missing is looked at again. There is no watch on
-// IndexerDefinition from here, and "I created the Indexer first and the
-// definition second" is the ordinary kubectl apply -f dir/ race.
+// definition is missing is looked at again. The IndexerDefinition watch
+// (SetupWithManager) already wakes the Indexer when its definition appears --
+// "I created the Indexer first and the definition second" is the ordinary
+// kubectl apply -f dir/ race -- so this is the backstop for a missed event.
 const definitionRetryInterval = time.Minute
 
 // reconcileDefinition is Reconcile for spec.definition and spec.definitionRef.

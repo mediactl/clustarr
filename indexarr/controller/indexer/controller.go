@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/index/v1alpha1"
@@ -511,6 +512,11 @@ func (r *Reconciler) patch(
 	conditions []metav1.Condition,
 	result ctrl.Result,
 ) (ctrl.Result, error) {
+	// The DLQ projector's annotation becomes the DeadLettered condition here,
+	// the one place every apply's conditions are declared, so it is part of
+	// this manager's complete set on every path -- early returns included --
+	// and is removed once an operator deletes the annotation.
+	k8s.MarkDeadLettered(idx, &conditions)
 	err := idxstatus.Patch(ctx, r.Client, k8s.ManagerIndexarr, idx,
 		func(ac *indexac.IndexerStatusApplyConfiguration) {
 			ac.WithConditions(k8s.ConditionACs(conditions)...)
@@ -531,13 +537,75 @@ func (r *Reconciler) patch(
 
 // SetupWithManager registers the Indexer controller. Task D1-8 calls
 // NewReconciler(...).SetupWithManager(mgr); see doc.go.
+//
+// The For() predicate is generation-filtered -- worker-owned status churn
+// must not re-run a caps probe -- with the DLQ projector's annotation OR-ed
+// in, or an annotation-only change would never reach the DeadLettered fold.
+//
+// IndexerDefinition is watched so a definition edit reaches the Indexers that
+// use it at once rather than at their next reprobe tick (up to 15 minutes),
+// and so an Indexer created before its definition resolves the moment the
+// definition appears. The watch passes a definition's creation, deletion and
+// spec edits, and a change of the status.id that spec.definition resolves
+// by; [indexersForDefinition] maps each onto the Indexers that name it.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("indexer").
-		For(&indexv1alpha1.Indexer{}, builder.WithPredicates(k8s.GenerationChanged())).
+		For(&indexv1alpha1.Indexer{}, builder.WithPredicates(
+			k8s.Or(k8s.GenerationChanged(), k8s.DeadLetteredAnnotationChanged()))).
+		Watches(&indexv1alpha1.IndexerDefinition{},
+			handler.EnqueueRequestsFromMapFunc(r.indexersForDefinition),
+			builder.WithPredicates(k8s.Or(k8s.GenerationChanged(),
+				k8s.StatusFieldChanged(definitionID)))).
 		WithOptions(controller.Options{
 			ReconciliationTimeout: 5 * time.Minute,
 			RecoverPanic:          ptr.To(true),
 		}).
 		Complete(r)
+}
+
+// definitionID is the IndexerDefinition status field spec.definition
+// resolves by, for the watch predicate.
+func definitionID(o client.Object) string {
+	d, ok := o.(*indexv1alpha1.IndexerDefinition)
+	if !ok {
+		return ""
+	}
+	return d.Status.ID
+}
+
+// indexersForDefinition maps an IndexerDefinition onto every Indexer that
+// resolves through it: spec.definitionRef naming it, or spec.definition
+// naming the id it provides (spec.replaces or status.id, the two keys
+// definitionByID resolves by). IndexerDefinition is cluster-scoped and an
+// Indexer in any namespace may name it, so the list is cluster-wide -- from
+// the manager's cache, not the apiserver.
+func (r *Reconciler) indexersForDefinition(ctx context.Context, o client.Object) []reconcile.Request {
+	d, ok := o.(*indexv1alpha1.IndexerDefinition)
+	if !ok {
+		return nil
+	}
+	var list indexv1alpha1.IndexerList
+	if err := r.Client.List(ctx, &list); err != nil {
+		logging.FromContext(ctx).Warn("indexer: listing Indexers for a definition change failed",
+			"definition", d.Name, "error", err)
+		return nil
+	}
+	ids := map[string]bool{}
+	if d.Spec.Replaces != nil && *d.Spec.Replaces != "" {
+		ids[*d.Spec.Replaces] = true
+	}
+	if d.Status.ID != "" {
+		ids[d.Status.ID] = true
+	}
+	var out []reconcile.Request
+	for i := range list.Items {
+		spec := list.Items[i].Spec
+		switch {
+		case spec.DefinitionRef != nil && *spec.DefinitionRef == d.Name,
+			spec.Definition != nil && ids[*spec.Definition]:
+			out = append(out, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
+		}
+	}
+	return out
 }
