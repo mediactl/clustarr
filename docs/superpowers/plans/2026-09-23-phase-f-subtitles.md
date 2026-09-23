@@ -91,6 +91,13 @@ Consume the two fetch consumers. For a task: build a `subtitles.Query` from the 
 
 ### F-6 — wiring, RBAC, readiness (SERIAL, after F-0..F-5)
 
+**Duties accumulated from F-0..F-5 — each is required:**
+- **Register everything.** F-3: both controllers (see their commit `bd9deea`). F-4 (`7d4b431`): `&subtitlerequest.Reconciler{Client: mgr.GetClient(), Bus: bus}` then `SetupWithManager` — the bus must be non-nil or every reconcile errors. F-5 (`eae4bdf`): `providers := providerset.NewBuilder(mgr.GetClient(), mgr.GetAPIReader())`, `fetch.NewWorker(mgr.GetClient(), mgr.GetAPIReader(), bus, providers, o.DataDir)`, `worker.SetupWithManager(mgr, o.BusTopology())` — per replica, never leader-elected.
+- **Add `captionarr` to the Makefile's `RBAC_DIRS`** (`TestEveryDirectoryWithRBACMarkersIsGenerated`), regenerate in a clean worktree, sync the chart. This clears the long-standing red `TestEveryCRDKindAControllerTouchesHasAnRBACMarker`.
+- **`forceSearch` is silently absorbed within an hour** (F-4 concern 7): `MsgIDForSubtitle(requestUID, langKey, probeHash)` carries no attempt counter, so a user-forced search within the JetStream dedup window after that language's last dispatch goes nowhere — the UI's "search now" appears to do nothing. Make a forced search produce a distinct MsgID (the request's `metadata.generation` at the time `forceSearch` was set is a natural discriminator) while keeping ordinary level-driven repeats deduplicated. Test both. The same absorption silently raises any `search.interval` below an hour to an hour — document that, or fix it with the same discriminator.
+- **`--data-dir` is ignored by the request controller** (F-4 concern 3): it reads `spec.path` literally while F-5's worker maps `/data` onto its data dir. Give the controller the same mapping, so a non-default data dir works for both.
+- **One provider validator, not two** (F-5 concern 7): F-3's `subtitleprovider/provider.go` re-implements type and secret-key checks that `providerset.Entry` already has. Make F-3 use `providerset` so they cannot drift.
+
 Register every reconciler and both workers. RBAC markers for the three subtitle kinds incl. `/status`, Secrets read, MediaFiles read; `make manifests`; **sync the chart's RBAC between its BEGIN/END sentinels**. Add captionarr to `cmd/clustarr/runnable_registration_test.go` and prove each role reaches `/readyz` in `start_envtest_test.go` — the D2 equivalent found three components registered nowhere.
 
 ### F-7 — fixtures and e2e scenario 13 (written, not run)
@@ -98,6 +105,7 @@ Register every reconciler and both workers. RBAC markers for the three subtitle 
 Mock OpenSubtitles and Gestdown in `test/fixtures/`, following `torznabstub`'s pattern, deployed from `config/e2e`. Scenario 13, and scenario 1 extended through the SubtitleRequest. **Do not run.**
 
 ### F-8 — gate, CLAUDE.md Status, carried list
+**Carried into F-8's list:** `Embedded.Extract` has no effect under the §6.5 planner (an embedded track already counts as existing, so its language is never wanted and the embedded provider is never tasked — a spec-level conflict); OpenSubtitles ignores `parent_imdb`/`parent_tmdb` (episodes searched only by moviehash); no token injection, so `throttle.SetAuth` goes unused; first provider with an acceptable candidate wins rather than Bazarr's pooling; two providers of one type → only the higher-priority is searched; sidecars always mode 0664; `subdl`/`subsource`/`whisper` have no client. `FetchTaskSubject` in this plan was a phantom (real: `events.WorkFetchSubject`).
 
 Mirror D1-10. Phase F paragraph with every identifier grepped; scenario 13 stated as **never executed**. File `subdl`/`subsource`/`whisper` having no client.
 
