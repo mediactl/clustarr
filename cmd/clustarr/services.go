@@ -379,13 +379,14 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 		reader, waitForSync := buildUIReader(ctx)
 		proj := buildUIProjection(ctx, reader)
 		return runUI(ctx, ui.Options{
-			BindAddress: bindAddress,
-			Reader:      reader,
-			WaitForSync: waitForSync,
-			Entries:     proj.Entries,
-			Subscribe:   proj.Subscribe,
-			Logging:     *lo,
-			Tracing:     tracingFor(to, "ui"),
+			BindAddress:        bindAddress,
+			Reader:             reader,
+			WaitForSync:        waitForSync,
+			Entries:            proj.Entries,
+			Subscribe:          proj.Subscribe,
+			SubscribeDownloads: proj.SubscribeDownloads,
+			Logging:            *lo,
+			Tracing:            tracingFor(to, "ui"),
 		})
 	}
 	return cmd

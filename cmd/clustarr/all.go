@@ -156,7 +156,8 @@ func allServices(lo *logging.Options, to *tracing.Options) []struct {
 			return runUI(ctx, ui.Options{
 				Reader: reader, WaitForSync: waitForSync,
 				Entries: proj.Entries, Subscribe: proj.Subscribe,
-				Logging: *lo, Tracing: tr,
+				SubscribeDownloads: proj.SubscribeDownloads,
+				Logging:            *lo, Tracing: tr,
 			})
 		}},
 	}
