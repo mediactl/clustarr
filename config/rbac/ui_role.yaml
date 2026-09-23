@@ -4,21 +4,30 @@
 # Two reasons, and the second is the real one. A +kubebuilder:rbac marker in
 # ui/ would merge into clustarr-manager-role and hand every controller the
 # UI's grants -- and a marker can only ADD verbs; there is no marker that
-# expresses "and never write". The never-writes invariant CLAUDE.md promises
-# ("The UI never writes status and owns no CRD") is therefore a property of
-# THIS document, not of controller-gen's output, and Task D3-4's
-# cmd/clustarr/ui_rbac_test.go parses it to assert that property holds: every
-# verb here is a subset of {get, list, watch}, and no resource ends in
-# "/status" -- not even to read it.
+# expresses "and never write status". The UI's write limits (CLAUDE.md: "The
+# UI never writes status and owns no CRD") are therefore a property of THIS
+# document, not of controller-gen's output, and cmd/clustarr/ui_rbac_test.go
+# parses it to assert they hold.
 #
-# Scope is the catalog, download, transcode and subtitle groups -- every
-# resource in each, not only the ones the pipeline and downloads pages (the
-# only pages Phase D3 builds) read today, because re-deriving this file's
-# scope every time a later page needs one more kind is exactly the kind of
-# drift a hand-written, rarely-touched file invites. index.clustarr.io is
-# deliberately absent: nothing under ui/ reads an Indexer today, and adding
-# it is a one-line, reviewable change for whichever future phase needs it,
-# not a default to grant early.
+# Reads: get/list/watch over the catalog, download, transcode and subtitle
+# groups -- every resource in each, not only the ones today's pages read,
+# because re-deriving this file's scope every time a later page needs one
+# more kind is exactly the kind of drift a hand-written, rarely-touched file
+# invites. index.clustarr.io is deliberately absent: nothing under ui/ reads
+# an Indexer today, and adding it is a one-line, reviewable change for
+# whichever future phase needs it, not a default to grant early.
+#
+# Writes (Phase G ruling R2, docs/superpowers/plans/2026-09-23-phase-g-parity.md;
+# amendment §A3.2): exactly what ui/actions' three actions need and nothing
+# else -- create on searches ("search now") and libraryscans ("rescan"), and
+# patch on the ten catalog kinds that have a spec.monitored ("monitor
+# this"), which ui/actions sends as a JSON merge patch of that one field
+# under field manager clustarr-ui. ui/actions.Grants() declares the same set;
+# the RBAC guard holds this file's write verbs to exactly it.
+#
+# Never: any resource ending in "/status" (not even to read it), update,
+# delete or deletecollection, a wildcard, or a write verb on any resource
+# outside that set. The UI edits spec; the controllers own status.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -78,3 +87,25 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - libraryscans
+  - searches
+  verbs:
+  - create
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - albums
+  - artists
+  - audiobooks
+  - authors
+  - books
+  - comics
+  - episodes
+  - issues
+  - movies
+  - series
+  verbs:
+  - patch

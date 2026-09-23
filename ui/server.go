@@ -16,9 +16,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package ui is the server-rendered web UI (§A3): templ for markup, htmx and
-// SSE for live updates, never a field manager and never a CRD of its own.
-// Every user action either patches a spec field or creates a short-lived
-// resource (a Search, a LibraryScan, ...), so anything this service does,
+// SSE for live updates, never a status field manager and never a CRD of its
+// own. Every user action either patches a spec field or creates a
+// short-lived resource (a Search, a LibraryScan, ...), all of it in
+// ui/actions and nothing of it anywhere else, so anything this service does,
 // kubectl can do too.
 package ui
 
@@ -32,6 +33,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/pipeline"
+	"github.com/mediactl/clustarr/ui/actions"
 )
 
 // DefaultBindAddress is what [Run] listens on when Options.BindAddress is
@@ -76,6 +78,20 @@ type Options struct {
 	// can hand it to a later projection (Task D3-1) without changing this
 	// struct again.
 	Reader client.Reader
+
+	// Actions is ui's one write seam, and deliberately a separate field from
+	// Reader: Reader stays a client.Reader, so every read path is read-only
+	// by type, and the only writes ui can make are the three §A3.2 actions
+	// behind this value -- create a Search, create a LibraryScan, patch a
+	// catalog item's spec.monitored (ui/actions' package doc). An
+	// *actions.Actions exposes those three methods and holds its writer
+	// unexported, so nothing here can reach Create or Patch for anything
+	// else; ui/guard_test.go bans those calls outside ui/actions and bans
+	// every status write everywhere in ui/, ui/actions included.
+	//
+	// A nil Actions is legal -- no cluster configured, or a test that only
+	// reads -- and every method on it returns actions.ErrNoWriter.
+	Actions *actions.Actions
 
 	// Subscribe returns a channel that receives the current pipeline
 	// projection immediately upon subscribing, and again whenever it
@@ -149,7 +165,8 @@ type Options struct {
 func (o Options) Validate() error { return nil }
 
 // Server is the ui service's whole surface: an HTTP handler and nothing
-// else. It holds no client, no cache and no field manager of its own --
+// else. It holds no client, no cache and no field manager of its own (its
+// only writes are Options.Actions', made in ui/actions) --
 // Options.Entries is the only way it ever sees cluster state for the
 // Pipeline page, and Options.WaitForSync is the only way /readyz does. Both
 // are deliberately just functions, not interfaces, so a test can supply

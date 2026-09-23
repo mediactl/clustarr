@@ -251,11 +251,13 @@ rules:
 {{- if .Values.ui.enabled }}
 ---
 {{/* ui's ClusterRole is hand-written and stays hand-written (design plan
-     ruling R3): get/list/watch only, over the catalog, download, transcode
-     and subtitle groups, no write verb and no resource whose name ends in
-     "status" anywhere in it. This is a byte-for-byte copy of
-     config/rbac/ui_role.yaml's rules -- see the note at the top of that
-     file for why ui never shares clustarr-manager-role. */}}
+     ruling R3): get/list/watch over the catalog, download, transcode and
+     subtitle groups, plus exactly the writes ui/actions' three actions make
+     (Phase G ruling R2) -- create on searches and libraryscans, patch on the
+     ten catalog kinds with a spec.monitored -- and no update, no delete and
+     no resource whose name ends in "status" anywhere in it. This is a
+     byte-for-byte copy of config/rbac/ui_role.yaml's rules -- see the note
+     at the top of that file for why ui never shares clustarr-manager-role. */}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -317,6 +319,28 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - libraryscans
+  - searches
+  verbs:
+  - create
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - albums
+  - artists
+  - audiobooks
+  - authors
+  - books
+  - comics
+  - episodes
+  - issues
+  - movies
+  - series
+  verbs:
+  - patch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
