@@ -21,6 +21,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,11 +30,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/ui"
+	"github.com/mediactl/clustarr/ui/actions"
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
@@ -161,4 +165,117 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+// seriesActionFixture is seriesFixture with a writer, so the toggles have
+// somewhere to write; writer doubles as the reader.
+func seriesActionFixture(t *testing.T, withActions bool) (*ui.Server, client.Client) {
+	t.Helper()
+	aired := metav1.NewTime(time.Date(2022, time.September, 21, 0, 0, 0, 0, time.UTC))
+	series := &catalogv1.Series{
+		ObjectMeta: metav1.ObjectMeta{Name: "andor", Namespace: "default"},
+		Spec: catalogv1.SeriesSpec{
+			TvdbID: 393189, QualityProfileRef: "web-1080p", RootFolderRef: "tv",
+			Seasons: []catalogv1.SeasonSpec{{Number: 2, Monitored: ptr.To(false)}},
+		},
+		Status: catalogv1.SeriesStatus{Seasons: []catalogv1.SeasonStatus{
+			{Number: 1, Monitored: true, EpisodeCount: 12, EpisodeFileCount: 8},
+			{Number: 2, Monitored: true, EpisodeCount: 12, NextAiring: &aired},
+		}},
+	}
+	episode := &catalogv1.Episode{
+		ObjectMeta: metav1.ObjectMeta{Name: "andor-s01e01", Namespace: "default"},
+		Spec:       catalogv1.EpisodeSpec{SeriesRef: "andor", SeasonNumber: 1, EpisodeNumber: 1, Monitored: ptr.To(true)},
+		Status:     catalogv1.EpisodeStatus{Title: "Kassa", HasFile: true, FileQuality: &commonv1.Quality{Name: "WEBDL-1080p"}},
+	}
+	c := fake.NewClientBuilder().WithScheme(libraryTestScheme(t)).WithObjects(series, episode).Build()
+	item := projection.LibraryItem{
+		Ref: types.NamespacedName{Namespace: "default", Name: "andor"}, Kind: commonv1.MediaKindSeries,
+		Tab: projection.TabTV, Title: "Andor", QualityProfileRef: "web-1080p", Monitored: true,
+	}
+	opts := ui.Options{
+		Reader:  c,
+		Library: func(context.Context) []projection.LibraryItem { return []projection.LibraryItem{item} },
+	}
+	if withActions {
+		opts.Actions = actions.New(c)
+	}
+	return ui.NewServer(t.Context(), opts), c
+}
+
+func postForm(t *testing.T, srv *ui.Server, path string, form url.Values, htmx bool) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if htmx {
+		req.Header.Set("HX-Request", "true")
+	}
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	return rec
+}
+
+// A season toggle from htmx replies with the re-rendered season component
+// carrying the value just written; a plain form post redirects as every
+// other action does. Either way spec.seasons holds the new entry.
+func TestSeasonMonitorToggleRepliesWithTheComponentToHTMX(t *testing.T) {
+	srv, c := seriesActionFixture(t, true)
+	rec := postForm(t, srv, "/library/default/series/andor/seasons/2/monitor", url.Values{"monitored": {"true"}}, true)
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	require.NotContains(t, body, "<html")
+	require.Contains(t, body, `data-season="2" data-monitored="true"`)
+	require.NotContains(t, body, `data-action-error`)
+
+	var got catalogv1.Series
+	require.NoError(t, c.Get(t.Context(), types.NamespacedName{Namespace: "default", Name: "andor"}, &got))
+	require.Equal(t, []catalogv1.SeasonSpec{{Number: 2, Monitored: ptr.To(true)}}, got.Spec.Seasons)
+
+	rec = postForm(t, srv, "/library/default/series/andor/seasons/1/monitor",
+		url.Values{"monitored": {"false"}, "return": {"/library/default/series/andor"}}, false)
+	require.Equal(t, http.StatusSeeOther, rec.Code)
+	require.Equal(t, "/library/default/series/andor", rec.Header().Get("Location"))
+	require.NoError(t, c.Get(t.Context(), types.NamespacedName{Namespace: "default", Name: "andor"}, &got))
+	require.Equal(t, map[int32]bool{1: false, 2: true}, func() map[int32]bool {
+		m := map[int32]bool{}
+		for _, s := range got.Spec.Seasons {
+			m[s.Number] = *s.Monitored
+		}
+		return m
+	}())
+}
+
+// An episode toggle from htmx replies with the re-rendered row.
+func TestEpisodeMonitorToggleRepliesWithTheRowToHTMX(t *testing.T) {
+	srv, c := seriesActionFixture(t, true)
+	rec := postForm(t, srv, "/library/default/episode/andor-s01e01/monitor", url.Values{"monitored": {"false"}}, true)
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	require.NotContains(t, body, "<html")
+	require.Contains(t, body, `data-episode="1" data-monitored="false" data-hasfile="true" data-quality="WEBDL-1080p"`)
+	require.Contains(t, body, "Kassa")
+	var got catalogv1.Episode
+	require.NoError(t, c.Get(t.Context(), types.NamespacedName{Namespace: "default", Name: "andor-s01e01"}, &got))
+	require.False(t, *got.Spec.Monitored)
+}
+
+// A toggle that fails from htmx gets its component back with the error in
+// it -- swapped in, so the page stays usable and the failure is visible
+// where it happened -- rather than the bare error page a form post gets.
+func TestFailedToggleFromHTMXRepliesWithTheComponentAndAnInlineError(t *testing.T) {
+	srv, _ := seriesActionFixture(t, false) // no writer: every action is ErrNoWriter
+	rec := postForm(t, srv, "/library/default/series/andor/seasons/2/monitor", url.Values{"monitored": {"true"}}, true)
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	require.Contains(t, body, `data-season="2" data-monitored="false"`, "the component shows the value that still stands")
+	require.Contains(t, body, `data-action-error="no-writer"`)
+
+	rec = postForm(t, srv, "/library/default/episode/andor-s01e01/monitor", url.Values{"monitored": {"false"}}, true)
+	require.Equal(t, http.StatusOK, rec.Code)
+	body = rec.Body.String()
+	require.Contains(t, body, `data-episode="1" data-monitored="true"`)
+	require.Contains(t, body, `data-action-error="no-writer"`)
+
+	rec = postForm(t, srv, "/library/default/series/andor/seasons/2/monitor", url.Values{"monitored": {"true"}}, false)
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code, "a form post keeps the error page")
 }

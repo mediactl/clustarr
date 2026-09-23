@@ -100,6 +100,84 @@ func (s *Server) handleSeason(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleSetSeasonMonitored is the season toggle: POST
+// /library/{namespace}/series/{name}/seasons/{n}/monitor with a "monitored"
+// field. It calls Options.Actions.SetSeasonMonitored -- the one place a
+// season's override is written -- and replies to htmx with the season's
+// re-rendered header, from the Series the patch returned; to a form post it
+// redirects like every other action. A failure from htmx is rendered inside
+// the header, from the Series as it still stands.
+func (s *Server) handleSetSeasonMonitored(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	ns, name := r.PathValue("namespace"), r.PathValue("name")
+	n, perr := strconv.ParseInt(r.PathValue("n"), 10, 32)
+	if perr != nil || n < 0 {
+		http.NotFound(w, r)
+		return
+	}
+	monitored := r.FormValue("monitored") == "true"
+
+	series, err := s.opts.Actions.SetSeasonMonitored(r.Context(), ns, name, int32(n), monitored)
+	if !isHTMX(r) {
+		s.finishAction(w, r, err)
+		return
+	}
+	var row views.SeasonRow
+	if err == nil {
+		row = seasonRow(series, int32(n))
+	} else {
+		current, ok := s.getSeries(r.Context(), types.NamespacedName{Namespace: ns, Name: name})
+		if !ok {
+			current = &catalogv1.Series{}
+			current.Namespace, current.Name = ns, name
+		}
+		row = seasonRow(current, int32(n))
+		row.Error = failureOf(r, err)
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if rerr := views.SeasonHeader(row).Render(r.Context(), w); rerr != nil {
+		logging.FromContext(r.Context()).Error("render season header", "error", rerr)
+	}
+}
+
+// replyEpisodeRow answers an htmx episode toggle with the row re-rendered:
+// from the Episode the patch returned on success, or from the Episode as it
+// still stands with the failure inside it.
+func (s *Server) replyEpisodeRow(w http.ResponseWriter, r *http.Request, ns, name string, patched client.Object, err error) {
+	var ep *catalogv1.Episode
+	if got, ok := patched.(*catalogv1.Episode); ok && err == nil {
+		ep = got
+	} else if s.opts.Reader != nil {
+		var current catalogv1.Episode
+		if gerr := s.opts.Reader.Get(r.Context(), types.NamespacedName{Namespace: ns, Name: name}, &current); gerr == nil {
+			ep = &current
+		}
+	}
+	if ep == nil {
+		ep = &catalogv1.Episode{}
+		ep.Namespace, ep.Name = ns, name
+	}
+	row := episodeRows([]catalogv1.Episode{*ep}, ep.Spec.SeriesRef, ep.Spec.SeasonNumber)[0]
+	if err != nil {
+		row.Error = failureOf(r, err)
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if rerr := views.EpisodeRowView(row).Render(r.Context(), w); rerr != nil {
+		logging.FromContext(r.Context()).Error("render episode row", "error", rerr)
+	}
+}
+
+// failureOf is an action's error as the component renders it, logged the
+// way finishAction logs one.
+func failureOf(r *http.Request, err error) views.ActionFailure {
+	code, _ := actionErrorCode(err)
+	logging.FromContext(r.Context()).Error("ui action failed", "error", err, "code", code)
+	return views.ActionFailure{Code: code, Message: err.Error()}
+}
+
 // getSeries reads one Series through the reader; false when there is no
 // reader or no such series.
 func (s *Server) getSeries(ctx context.Context, ref types.NamespacedName) (*catalogv1.Series, bool) {

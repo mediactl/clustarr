@@ -32,7 +32,22 @@ type SeasonRow struct {
 	Files     int32
 	// NextAiring is the next air date as YYYY-MM-DD, or "".
 	NextAiring string
+	// Error is set on a component rendered as the reply to a toggle that
+	// failed: the stable code (data-action-error) and the detail.
+	Error ActionFailure
 }
+
+// ActionFailure is an action's failure rendered inside the component it
+// was meant to change, so the page stays usable and the failure is visible
+// where it happened. Code is the stable reason ("no-writer", "invalid",
+// "failed"); Message the detail. A zero value is no failure.
+type ActionFailure struct {
+	Code    string
+	Message string
+}
+
+// MonitorURL is the season's monitor action.
+func (r SeasonRow) MonitorURL() string { return r.URL() + "/monitor" }
 
 // URL is the season's own route, which serves the episodes component to
 // htmx and a page to anyone else.
@@ -61,6 +76,8 @@ type EpisodeRow struct {
 	// Quality is the file's quality name, "" without a file.
 	Quality string
 	Phase   string
+	// Error is set on a row rendered as the reply to a toggle that failed.
+	Error ActionFailure
 }
 
 // MonitorURL is the episode's monitor action, the existing per-item route.

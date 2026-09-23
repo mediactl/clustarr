@@ -95,48 +95,79 @@ templ itemHeader(item projection.LibraryItem) {
 	</div>
 }
 
-// SeasonComponent is one season: a <details> whose first open fetches the
-// season's episodes into its body (hx-trigger "toggle once"), and whose
-// heading links to the season's own page, so a browser without JavaScript
-// still gets there. Its data attributes carry the counts and the effective
-// monitored flag for the tests.
+// SeasonComponent is one season: its header, and a <details> whose first
+// open fetches the season's episodes into its body (hx-trigger "toggle
+// once"). The header links to the season's own page, so a browser without
+// JavaScript still gets there.
 templ SeasonComponent(season SeasonRow) {
-	<details
-		class="rounded-lg border border-slate-800 bg-slate-900"
-		id={ fmt.Sprintf("season-%d", season.Number) }
+	<div class="rounded-lg border border-slate-800 bg-slate-900" id={ fmt.Sprintf("season-%d", season.Number) }>
+		@SeasonHeader(season)
+		<details
+			class="border-t border-slate-800"
+			hx-get={ season.URL() }
+			hx-trigger="toggle once"
+			hx-target="find .episodes"
+			hx-swap="innerHTML"
+		>
+			<summary class="cursor-pointer px-4 py-2 text-sm text-slate-400">Episodes</summary>
+			<div class="episodes px-4 py-3 text-sm text-slate-400">Loading…</div>
+		</details>
+	</div>
+}
+
+// SeasonHeader is the season's heading row, and what its monitor toggle
+// swaps in place -- the header alone, so an expanded episode list below it
+// stays put. Its data attributes carry the counts and the effective
+// monitored flag for the tests; a failed toggle renders its error here.
+templ SeasonHeader(season SeasonRow) {
+	<div
+		class="season-header px-4 py-3"
 		data-season={ fmt.Sprint(season.Number) }
 		data-monitored={ fmt.Sprintf("%t", season.Monitored) }
 		data-episodes={ fmt.Sprint(season.Episodes) }
 		data-files={ fmt.Sprint(season.Files) }
-		hx-get={ season.URL() }
-		hx-trigger="toggle once"
-		hx-target="find .episodes"
-		hx-swap="innerHTML"
 	>
-		<summary class="flex cursor-pointer items-center justify-between gap-4 px-4 py-3">
-			<span class="flex items-center gap-3">
+		<div class="flex items-center justify-between gap-4">
+			<span class="flex flex-wrap items-center gap-3">
 				<a href={ templ.URL(season.URL()) } class="font-medium hover:underline">{ season.Label() }</a>
 				<span class="text-xs text-slate-400">{ fmt.Sprintf("%d of %d on disk", season.Files, season.Episodes) }</span>
 				if season.NextAiring != "" {
 					<span class="text-xs text-slate-400">next { season.NextAiring }</span>
 				}
 			</span>
-			<span class={ monitoredBadgeClass(season.Monitored) }>{ monitoredLabel(season.Monitored) }</span>
-		</summary>
-		<div class="episodes border-t border-slate-800 px-4 py-3 text-sm text-slate-400">Loading…</div>
-	</details>
+			<form
+				hx-post={ season.MonitorURL() }
+				hx-target="closest .season-header"
+				hx-swap="outerHTML"
+				method="post"
+				action={ templ.URL(season.MonitorURL()) }
+			>
+				<input type="hidden" name="monitored" value={ fmt.Sprintf("%t", !season.Monitored) }/>
+				<button type="submit" data-action="set-season-monitored" class={ monitoredBadgeClass(season.Monitored) }>{ monitoredLabel(season.Monitored) }</button>
+			</form>
+		</div>
+		@actionFailure(season.Error)
+	</div>
 }
 
-// SeasonPage is a season on its own: the series header, then its episodes.
+// actionFailure renders a failed toggle's error inside its component;
+// nothing for a zero value.
+templ actionFailure(f ActionFailure) {
+	if f.Code != "" {
+		<p data-action-error={ f.Code } class="mt-2 rounded-md border border-red-900 bg-red-950/50 px-3 py-2 text-xs text-red-300">
+			Action failed: { f.Message }
+		</p>
+	}
+}
+
+// SeasonPage is a season on its own: the series header, the season's
+// header, then its episodes.
 templ SeasonPage(item projection.LibraryItem, season SeasonRow, episodes []EpisodeRow) {
 	@Layout(fmt.Sprintf("%s · %s", item.Title, season.Label())) {
 		<a href={ libraryItemURL(item) } class="text-sm text-slate-400 hover:text-slate-100">&larr; { item.Title }</a>
 		@itemHeader(item)
-		<div class="mt-6 rounded-lg border border-slate-800 bg-slate-900" data-season={ fmt.Sprint(season.Number) }>
-			<div class="flex items-center justify-between gap-4 px-4 py-3">
-				<h2 class="font-medium">{ season.Label() }</h2>
-				<span class={ monitoredBadgeClass(season.Monitored) }>{ monitoredLabel(season.Monitored) }</span>
-			</div>
+		<div class="mt-6 rounded-lg border border-slate-800 bg-slate-900">
+			@SeasonHeader(season)
 			<div class="episodes border-t border-slate-800">
 				@EpisodeRows(episodes)
 			</div>
@@ -187,6 +218,7 @@ templ EpisodeRowView(ep EpisodeRow) {
 				<input type="hidden" name="monitored" value={ fmt.Sprintf("%t", !ep.Monitored) }/>
 				<button type="submit" data-action="set-monitored" class={ monitoredBadgeClass(ep.Monitored) }>{ monitoredLabel(ep.Monitored) }</button>
 			</form>
+			@actionFailure(ep.Error)
 		</td>
 	</tr>
 }

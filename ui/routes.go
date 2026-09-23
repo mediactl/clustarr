@@ -53,6 +53,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /events/library/{tab}", s.handleLibraryEvents)
 	mux.HandleFunc("GET /library/{namespace}/{kind}/{name}", s.handleLibraryItem)
 	mux.HandleFunc("GET /library/{namespace}/series/{name}/seasons/{n}", s.handleSeason)
+	mux.HandleFunc("POST /library/{namespace}/series/{name}/seasons/{n}/monitor", s.handleSetSeasonMonitored)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/monitor", s.handleSetMonitored)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/search", s.handleSearchNow)
 	mux.HandleFunc("POST /library/rescan", s.handleRescan)
@@ -276,8 +277,14 @@ func (s *Server) handleSetMonitored(w http.ResponseWriter, r *http.Request) {
 	}
 	monitored := r.FormValue("monitored") == "true"
 
-	_, err := s.opts.Actions.SetMonitored(r.Context(),
-		r.PathValue("namespace"), commonv1.MediaKind(r.PathValue("kind")), r.PathValue("name"), monitored)
+	kind := commonv1.MediaKind(r.PathValue("kind"))
+	patched, err := s.opts.Actions.SetMonitored(r.Context(),
+		r.PathValue("namespace"), kind, r.PathValue("name"), monitored)
+	if isHTMX(r) && kind == commonv1.MediaKindEpisode {
+		// An episode row's toggle swaps the row, not the page.
+		s.replyEpisodeRow(w, r, r.PathValue("namespace"), r.PathValue("name"), patched, err)
+		return
+	}
 	s.finishAction(w, r, err)
 }
 
