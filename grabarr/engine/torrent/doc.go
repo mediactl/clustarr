@@ -47,6 +47,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // the magnet URI lives in the sidecar instead -- because a magnet's info
 // dict may not have arrived by the time a crash truncates it.
 //
+// The sidecar also carries spec §6.3's "persisted cumulative counters": the
+// upload, the seed time and whether the seed goal was met ([seedRecord],
+// refreshed at most once a minute, a met goal at once), handed back on
+// re-attach as download.AddRequest.SeedHistory so a restarted engine counts
+// on from them and keeps a met goal met.
+//
 // # Field manager: telemetry only
 //
 // This package applies Download.status exclusively under

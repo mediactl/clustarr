@@ -93,7 +93,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // reason. Y2 gave the engines two fields of their own --
 // status.engineFailureReason and status.seedGoalReached -- and derivePhase
 // now reads every DownloadFailureReason: the engines report missingArticles,
-// diskFull, writeError, timeout, encrypted and stalled; importRejected is
+// diskFull, writeError, timeout, encrypted, stalled and payloadMismatch
+// (Z1); importRejected is
 // read from importarr's status.import; manual is an operator's hand-set
 // blocklist label. A failure is terminal once recorded. A release fault
 // (DownloadFailureReason.IsReleaseFault) goes on to Blocklisted in the same
@@ -103,10 +104,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // transfer, and its data, once the phase says Failed or Blocklisted; the
 // Download itself stays as the record (and, blocklisted, as the blocklist
 // entry the sweeper deletes at blocklistedUntil). The first
-// status.seedGoalReached becomes seedGoalMetAt and SeedGoalMet=True, which
-// stay recorded when an engine restart forgets the goal; a torrent's
-// removal still waits for the import too (the engine's CanBeRemoved and
-// spec.removeOnImport, unchanged).
+// status.seedGoalReached becomes seedGoalMetAt and SeedGoalMet=True; the
+// torrent engine persists the met goal and its seed counters with its
+// re-attach state (Z1), so a restart no longer forgets it. A torrent's
+// removal still waits for the import too (the engine's CanBeRemoved,
+// spec.removeOnImport and the client's spec.torrent.removeCompleted). The
+// usenet engine's status.healthPaused -- healthAction pause holding a job
+// for an operator (Z1) -- reads as phase Paused.
 //
 // advancePhase also now publishes schema.ImportTask to
 // events.WorkFileImportSubject(<download-uid>) the first reconcile that
@@ -131,9 +135,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // or not -- catalogarr's redownload search consumes it), blocklisted, and
 // removed from the finalizer. Each is published by the reconcile that
 // observes the edge, before the apply that records it, with a per-action
-// Envelope id; see events.go. schema.DownloadProgress, the 1 Hz core-NATS stream, is still
-// unpublished -- it belongs to the engines, which own the telemetry -- and
-// "delete the grab lease" is catalogarr/worker/grab's KV state, out of this
+// Envelope id; see events.go. schema.DownloadProgress, the 1 Hz telemetry,
+// is not this controller's: the engines own the telemetry, and each runs a
+// grabarr/engine.ProgressPublisher into the clustarr-progress bucket (Z1).
+// "Delete the grab lease" is catalogarr/worker/grab's KV state, out of this
 // directory regardless.
 //
 // # The finalizer needs no live engine -- but waits for one that is there

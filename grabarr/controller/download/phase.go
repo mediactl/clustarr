@@ -62,8 +62,9 @@ type phaseResult struct {
 //
 // status.failureReason, once recorded, is carried forward on every later
 // reconcile (failureOf reads it first). The engine's report can go away --
-// a torrent engine keeps a transfer's failure in memory, so a restart
-// re-attaches it as though nothing happened -- but catalogarr has already
+// a torrent engine keeps a transfer's failure in memory (only the seed
+// counters and goal are persisted), so a restart re-attaches it as though
+// nothing happened -- but catalogarr has already
 // read the Download as terminal and the redownload search (§8.3) may
 // already have grabbed a replacement; letting the old Download come back to
 // life would be a second grab of the same item. The engines remove a failed
