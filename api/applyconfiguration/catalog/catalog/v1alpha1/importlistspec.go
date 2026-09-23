@@ -29,6 +29,12 @@ import (
 // with apply.
 //
 // ImportListSpec defines the desired state of ImportList.
+//
+// A list may name only kinds its provider can yield (gap-fix ruling R-10):
+// such a list is refused at admission, not skipped at sync time. The table
+// is importarr/worker/importlist.YieldableKinds', and
+// importarr/controller/importlist's TestAdmissionMatchesYieldableKinds holds
+// the admission rules to it for every provider and kind.
 type ImportListSpecApplyConfiguration struct {
 	// Kinds are the catalog kinds this list may add.
 	Kinds []string `json:"kinds,omitempty"`

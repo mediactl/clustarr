@@ -27,10 +27,11 @@ import (
 
 // ErrKindNotYieldable is a spec.kinds entry the list's provider cannot
 // produce at all: a Trakt list asked for albums, a StevenLu feed asked for
-// series. Gap-fix ruling R-10 makes this an admission failure; until the CEL
-// rule that enforces it exists, the ImportList controller reports it as
-// Ready=False and schedules nothing, and a stale task that reaches the worker
-// anyway fails that kind with this error rather than skipping it.
+// series. Gap-fix ruling R-10 makes this an admission failure (ImportListSpec's
+// CEL rules, since X14); for a list admitted before them the ImportList
+// controller reports it as Ready=False and schedules nothing, and a stale task
+// that reaches the worker anyway fails that kind with this error rather than
+// skipping it.
 var ErrKindNotYieldable = errors.New("importlist: the list's provider cannot yield this kind")
 
 // ErrNoCatalogWriter is a kind the provider can yield but this worker has no
@@ -62,8 +63,9 @@ var videoKinds = []commonv1.MediaKind{commonv1.MediaKindMovie, commonv1.MediaKin
 //     or the other), and another Clustarr any kind.
 //   - custom is an arbitrary feed with no fixed schema, so any kind.
 //
-// The CEL rule gap-fix ruling R-10 asks for encodes this same table; see the
-// ImportList controller's doc comment.
+// ImportListSpec's R-10 CEL rules encode this same table, and
+// importarr/controller/importlist's TestAdmissionMatchesYieldableKinds holds
+// the two to each other for every provider and kind.
 func YieldableKinds(spec catalogv1alpha1.ImportListSpec) []commonv1.MediaKind {
 	switch {
 	case spec.Trakt != nil, spec.Plex != nil, spec.Tmdb != nil, spec.Mdblist != nil, spec.ImdbCSV != nil:

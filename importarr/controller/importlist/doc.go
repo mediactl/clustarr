@@ -57,15 +57,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // worker.YieldableKinds is the table: trakt, plex, tmdb, mdblist and imdbCSV
 // yield movie and series; stevenLu movie; arr its instance's kinds (radarr
 // movie, sonarr series, lidarr album, readarr book or audiobook, clustarr
-// any); custom any. R-10 rejects every other combination at admission. The
-// CEL rules that do it belong on ImportListSpec, which this task does not
-// own; they are, verbatim:
+// any); custom any. R-10 rejects every other combination at admission,
+// through three CEL rules on ImportListSpec (task X14 applied them);
+// TestAdmissionMatchesYieldableKinds holds them to the table for every
+// provider and kind.
 //
-//	!(has(self.trakt) || has(self.plex) || has(self.tmdb) || has(self.mdblist) || has(self.imdbCSV)) || self.kinds.all(k, k == 'movie' || k == 'series')
-//	!has(self.stevenLu) || self.kinds.all(k, k == 'movie')
-//	!has(self.arr) || self.kinds.all(k, self.arr.kind == 'clustarr' || (self.arr.kind == 'radarr' && k == 'movie') || (self.arr.kind == 'sonarr' && k == 'series') || (self.arr.kind == 'lidarr' && k == 'album') || (self.arr.kind == 'readarr' && (k == 'book' || k == 'audiobook')))
-//
-// This controller reaches the same verdict for any list admitted without
+// This controller reaches the same verdict for any list admitted before
 // them: Ready=False, ReasonUnsupportedKind, naming the kinds, and nothing
 // scheduled.
 //

@@ -252,6 +252,16 @@ type DeviceAuth struct {
 // ImportListSpec defines the desired state of ImportList.
 //
 // +kubebuilder:validation:XValidation:rule="(has(self.trakt) ? 1 : 0) + (has(self.plex) ? 1 : 0) + (has(self.tmdb) ? 1 : 0) + (has(self.mdblist) ? 1 : 0) + (has(self.stevenLu) ? 1 : 0) + (has(self.imdbCSV) ? 1 : 0) + (has(self.custom) ? 1 : 0) + (has(self.arr) ? 1 : 0) == 1",message="exactly one of trakt, plex, tmdb, mdblist, stevenLu, imdbCSV, custom or arr must be set"
+//
+// A list may name only kinds its provider can yield (gap-fix ruling R-10):
+// such a list is refused at admission, not skipped at sync time. The table
+// is importarr/worker/importlist.YieldableKinds', and
+// importarr/controller/importlist's TestAdmissionMatchesYieldableKinds holds
+// the admission rules to it for every provider and kind.
+//
+// +kubebuilder:validation:XValidation:rule="!(has(self.trakt) || has(self.plex) || has(self.tmdb) || has(self.mdblist) || has(self.imdbCSV)) || self.kinds.all(k, k == 'movie' || k == 'series')",message="trakt, plex, tmdb, mdblist and imdbCSV lists yield only movie and series"
+// +kubebuilder:validation:XValidation:rule="!has(self.stevenLu) || self.kinds.all(k, k == 'movie')",message="a stevenLu list yields only movie"
+// +kubebuilder:validation:XValidation:rule="!has(self.arr) || self.kinds.all(k, self.arr.kind == 'clustarr' || (self.arr.kind == 'radarr' && k == 'movie') || (self.arr.kind == 'sonarr' && k == 'series') || (self.arr.kind == 'lidarr' && k == 'album') || (self.arr.kind == 'readarr' && (k == 'book' || k == 'audiobook')))",message="an arr list yields only its instance's kinds: radarr movie, sonarr series, lidarr album, readarr book or audiobook, clustarr any"
 type ImportListSpec struct {
 	// Kinds are the catalog kinds this list may add.
 	// +required

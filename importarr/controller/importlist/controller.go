@@ -139,9 +139,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	}
 
 	// Gap-fix ruling R-10: a kind the provider cannot yield is an
-	// admission failure. Until the ImportList CRD carries the CEL rule
-	// (see this package's doc comment), and for any list admitted before
-	// it did, this is the same verdict, reported: Ready=False naming the
+	// admission failure (ImportListSpec's CEL rules; see this package's
+	// doc comment). For any list admitted before the CRD carried them,
+	// this is the same verdict, reported: Ready=False naming the
 	// kinds, and no sync scheduled, auth included -- a rejected object
 	// would do nothing at all. Every other status field is re-asserted.
 	if bad := worker.UnyieldableKinds(il.Spec); len(bad) > 0 {

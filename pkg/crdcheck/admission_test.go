@@ -45,6 +45,7 @@ var (
 	gvrArtists        = schema.GroupVersionResource{Group: "catalog.clustarr.io", Version: "v1alpha1", Resource: "artists"}
 	gvrMediaFiles     = schema.GroupVersionResource{Group: "catalog.clustarr.io", Version: "v1alpha1", Resource: "mediafiles"}
 	gvrTranscodeProfs = schema.GroupVersionResource{Group: "transcode.clustarr.io", Version: "v1alpha1", Resource: "transcodeprofiles"}
+	gvrImportLists    = schema.GroupVersionResource{Group: "catalog.clustarr.io", Version: "v1alpha1", Resource: "importlists"}
 
 	// clusterScoped lists the kinds created without a namespace.
 	clusterScoped = map[schema.GroupVersionResource]bool{gvrTranscodeProfs: true}
@@ -79,6 +80,7 @@ func TestAdmission(t *testing.T) {
 	cases = append(cases, artistSecondaryTypeCases()...)
 	cases = append(cases, mediaRefTrackCases()...)
 	cases = append(cases, transcodeProfileCases()...)
+	cases = append(cases, importListKindCases()...)
 
 	ctx := context.Background()
 	for _, c := range cases {
@@ -219,5 +221,37 @@ func transcodeProfileCases() []admissionCase {
 			"TranscodeProfile with chunking enabled is still refused", gvrTranscodeProfs,
 			transcodeProfile(map[string]any{"chunking": map[string]any{"enabled": true}}), "chunking is not supported",
 		},
+	}
+}
+
+// importListKindCases: an ImportList may name only the kinds its provider
+// can yield (gap-fix ruling R-10; task X14 applied the rules). Before, a
+// Trakt list asking for albums was admitted and then skipped with a log
+// line. importarr/controller/importlist's TestAdmissionMatchesYieldableKinds
+// holds every provider and kind to the worker's own table; these pin the
+// shape here, with the rest of the gap-fix API decisions.
+func importListKindCases() []admissionCase {
+	list := func(provider string, body map[string]any, kinds ...any) map[string]any {
+		return map[string]any{
+			"apiVersion": "catalog.clustarr.io/v1alpha1",
+			"kind":       "ImportList",
+			"metadata":   map[string]any{"name": "l", "namespace": "default"},
+			"spec": map[string]any{
+				"kinds":    kinds,
+				provider:   body,
+				"defaults": map[string]any{"qualityProfileRef": "q", "rootFolderRef": "r"},
+			},
+		}
+	}
+	trakt := map[string]any{"listType": "watchlist", "username": "u"}
+	arr := func(kind string) map[string]any { return map[string]any{"baseURL": "http://arr", "kind": kind} }
+	return []admissionCase{
+		{"a Trakt list of movies and series is admitted", gvrImportLists, list("trakt", trakt, "movie", "series"), ""},
+		{"a Trakt list of albums is refused", gvrImportLists, list("trakt", trakt, "movie", "album"), "yield only movie and series"},
+		{"a stevenLu list of series is refused", gvrImportLists, list("stevenLu", map[string]any{}, "series"), "yields only movie"},
+		{"a Readarr list of audiobooks is admitted", gvrImportLists, list("arr", arr("readarr"), "audiobook"), ""},
+		{"a Lidarr list of books is refused", gvrImportLists, list("arr", arr("lidarr"), "book"), "only its instance's kinds"},
+		{"a Clustarr list of comics is admitted", gvrImportLists, list("arr", arr("clustarr"), "comic"), ""},
+		{"a custom list of anything is admitted", gvrImportLists, list("custom", map[string]any{"url": "http://c"}, "comic", "book"), ""},
 	}
 }

@@ -66,7 +66,14 @@ spec:
           metadata:
             type: object
           spec:
-            description: ImportListSpec defines the desired state of ImportList.
+            description: |-
+              ImportListSpec defines the desired state of ImportList.
+
+              A list may name only kinds its provider can yield (gap-fix ruling R-10):
+              such a list is refused at admission, not skipped at sync time. The table
+              is importarr/worker/importlist.YieldableKinds', and
+              importarr/controller/importlist's TestAdmissionMatchesYieldableKinds holds
+              the admission rules to it for every provider and kind.
             properties:
               arr:
                 description: Arr follows the library of another *arr instance.
@@ -311,6 +318,20 @@ spec:
                 ? 1 : 0) + (has(self.mdblist) ? 1 : 0) + (has(self.stevenLu) ? 1 :
                 0) + (has(self.imdbCSV) ? 1 : 0) + (has(self.custom) ? 1 : 0) + (has(self.arr)
                 ? 1 : 0) == 1'
+            - message: trakt, plex, tmdb, mdblist and imdbCSV lists yield only movie
+                and series
+              rule: '!(has(self.trakt) || has(self.plex) || has(self.tmdb) || has(self.mdblist)
+                || has(self.imdbCSV)) || self.kinds.all(k, k == ''movie'' || k ==
+                ''series'')'
+            - message: a stevenLu list yields only movie
+              rule: '!has(self.stevenLu) || self.kinds.all(k, k == ''movie'')'
+            - message: 'an arr list yields only its instance''s kinds: radarr movie,
+                sonarr series, lidarr album, readarr book or audiobook, clustarr any'
+              rule: '!has(self.arr) || self.kinds.all(k, self.arr.kind == ''clustarr''
+                || (self.arr.kind == ''radarr'' && k == ''movie'') || (self.arr.kind
+                == ''sonarr'' && k == ''series'') || (self.arr.kind == ''lidarr''
+                && k == ''album'') || (self.arr.kind == ''readarr'' && (k == ''book''
+                || k == ''audiobook'')))'
           status:
             description: |-
               ImportListStatus describes the observed state of ImportList. The list's own
