@@ -9,11 +9,16 @@
 # NOT read this variable yet. StartupGrace is a const in
 # indexarr/status/health.go and nothing in indexarr/run.go plumbs an override
 # (task D1-9 verified this against the tree; the D1-9 brief listed the
-# variable as an interface D1-8 would provide, and D1-8 did not). The
-# variable is declared here so the plumbing lands configured the day it
-# exists, and test/e2e's requireIndexarrEscalationObservable reads the
-# Deployment to decide whether it can skip waiting out the real grace. Delete
-# this block only together with that helper.
+# variable as an interface D1-8 would provide, and D1-8 did not). It is
+# declared here so the plumbing lands configured the day it exists.
+#
+# test/e2e does NOT trust its presence -- whether the deployed image honours
+# it cannot be observed from outside the process, so scenario 17's
+# indexarrStartupGraceEndsAt always allows for the real 15-minute grace on the
+# escalation wait's DEADLINE and simply returns early when the ladder moves
+# sooner. Plumb the variable and that worst case disappears; until then this
+# block only has to stay correct, not effective. The one thing test/e2e does
+# assert about it is that, when declared, the value is 0s.
 - op: add
   path: /spec/template/spec/containers/0/env/-
   value:
