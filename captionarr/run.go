@@ -71,22 +71,29 @@ const (
 	// RoleWorker consumes work.captionarr.fetch.>: it scores and downloads
 	// candidates, post-processes them and writes the sidecar.
 	RoleWorker Role = "worker"
+
+	// RoleAll runs the controllers and the fetch worker in one process, for
+	// `clustarr all`, kind and development -- the shape catalogarr's and
+	// importarr's own "all" roles have. Without it `clustarr all` could run
+	// only the controller role, which plans and publishes fetch tasks that
+	// nothing in the process consumes: it never fetched a subtitle.
+	RoleAll Role = "all"
 )
 
 // Roles lists the valid --role values in spec order.
-func Roles() []Role { return []Role{RoleController, RoleWorker} }
+func Roles() []Role { return []Role{RoleController, RoleWorker, RoleAll} }
 
 // String returns the flag value.
 func (r Role) String() string { return string(r) }
 
 // Valid reports whether r is one of [Roles].
-func (r Role) Valid() bool { return r == RoleController || r == RoleWorker }
+func (r Role) Valid() bool { return r == RoleController || r == RoleWorker || r == RoleAll }
 
 // RunsControllers reports whether this role reconciles custom resources.
-func (r Role) RunsControllers() bool { return r == RoleController }
+func (r Role) RunsControllers() bool { return r == RoleController || r == RoleAll }
 
 // RunsWorkers reports whether this role consumes queue work.
-func (r Role) RunsWorkers() bool { return r == RoleWorker }
+func (r Role) RunsWorkers() bool { return r == RoleWorker || r == RoleAll }
 
 // Options is everything `clustarr captionarr` needs.
 type Options struct {

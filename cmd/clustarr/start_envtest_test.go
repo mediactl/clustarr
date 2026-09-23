@@ -128,10 +128,6 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 	// verify reads it back once /readyz has answered.
 	var uiAddr atomic.Value
 
-	// allUI is `clustarr all`'s own ui closure, looked up here rather than
-	// inside run, which executes on a goroutine where t.Fatalf is illegal.
-	allUI := allServiceRun(t, "ui")
-
 	// captionData is captionarr's --data-dir in both of its cases: the one
 	// media volume the controller role lists and the worker role reads, as
 	// the two Deployments share one claim. Every MediaFile path stays a
@@ -564,10 +560,10 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		// running process.
 		//
 		// The first case executes the real `clustarr ui` command line; the
-		// second runs `clustarr all`'s own ui closure, changing only the
-		// address it binds (all binds ui's fixed default :8080, which this
-		// machine may already be using). Two cases because the two commands
-		// build ui.Options separately.
+		// second runs `clustarr all`'s own ui closure, bound through
+		// --ui-bind-address (allServices' uiAddr) to a free port rather than
+		// ui's default :8080, which this machine may already be using. Two
+		// cases because the two commands build ui.Options separately.
 		{
 			name: "ui (as `clustarr ui` builds it)",
 			run: func(ctx context.Context, o k8s.Options) error {
@@ -582,13 +578,16 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 			name: "ui (as `clustarr all` builds it)",
 			run: func(ctx context.Context, o k8s.Options) error {
 				uiAddr.Store(o.HealthProbeBindAddress)
-				run := runUI
-				defer func() { runUI = run }()
-				runUI = func(ctx context.Context, uo ui.Options) error {
-					uo.BindAddress = o.HealthProbeBindAddress
-					return run(ctx, uo)
+				// --ui-bind-address, the flag `clustarr all` binds ui with,
+				// is allServices' third argument.
+				var lo logging.Options
+				var to tracing.Options
+				for _, svc := range allServices(&lo, &to, o.HealthProbeBindAddress) {
+					if svc.name == "ui" {
+						return svc.run(ctx, o)
+					}
 				}
-				return allUI(ctx, o)
+				return errors.New("`clustarr all` has no ui service")
 			},
 			verify: func(t *testing.T) { verifyUI(t, env.Config, uiAddr.Load().(string), "all") },
 		},
@@ -801,7 +800,7 @@ func allServiceRun(t *testing.T, name string) func(ctx context.Context, o k8s.Op
 	t.Helper()
 	var lo logging.Options
 	var to tracing.Options
-	for _, svc := range allServices(&lo, &to) {
+	for _, svc := range allServices(&lo, &to, ui.DefaultBindAddress) {
 		if svc.name == name {
 			return svc.run
 		}

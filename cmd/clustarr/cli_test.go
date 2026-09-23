@@ -591,7 +591,11 @@ func TestAllGivesEachServiceItsOwnPorts(t *testing.T) {
 		record("squasharr", o.Options, o.Logging, o.Tracing, o.Validate)
 		return nil
 	}
+	var captionRole captionarr.Role
 	runCaptionarr = func(_ context.Context, o captionarr.Options) error {
+		mu.Lock()
+		captionRole = o.Role
+		mu.Unlock()
 		record("captionarr", o.Options, o.Logging, o.Tracing, o.Validate)
 		return nil
 	}
@@ -618,8 +622,19 @@ func TestAllGivesEachServiceItsOwnPorts(t *testing.T) {
 		"--log-level", "warn",
 		"--tracing-enabled",
 		"--tracing-sample-ratio", "0.5",
+		"--ui-bind-address", "127.0.0.1:18080",
 	); err != nil {
 		t.Fatalf("clustarr all: %v", err)
+	}
+	// captionarr runs its fetch worker too (X14): with the controller role
+	// alone, `clustarr all` published fetch tasks nothing consumed.
+	if !captionRole.RunsControllers() || !captionRole.RunsWorkers() {
+		t.Errorf("captionarr: Role = %q, want one that runs the controllers and the fetch worker", captionRole)
+	}
+	// ui binds --ui-bind-address (X14); before it, `clustarr all`'s ui
+	// always bound :8080, with no flag.
+	if uiOpts.BindAddress != "127.0.0.1:18080" {
+		t.Errorf("ui: BindAddress = %q, want --ui-bind-address's 127.0.0.1:18080", uiOpts.BindAddress)
 	}
 
 	// ui is recorded too (for Validate below) but owns no metrics or probe

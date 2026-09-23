@@ -70,16 +70,17 @@ const devFacadeBindAddress = ":9696"
 // Each entry gets its own port offset because seven managers in one process
 // would otherwise race for one metrics port and one probe port -- ui is the
 // exception: it has no controller-runtime manager and so no metrics or
-// health port to offset, and keeps its default :8080. grabarr, squasharr and
-// captionarr run their controller role only: the engines and the transcode
-// worker are separate pods in a real deployment, and running them here would
-// need volumes this mode does not have.
+// health port to offset, and binds --ui-bind-address. grabarr and squasharr
+// run their controller role only: the engines and the transcode worker are
+// separate pods in a real deployment, and running them here would need
+// volumes and images this mode does not have. captionarr runs its controllers
+// and its fetch worker (RoleAll), so subtitles are fetched here too.
 //
 // lo and to are the root command's shared --log-*/--tracing-* options
 // (see bindObservabilityFlags): every service gets the same lo, and the same
 // to except for ServiceName, which is forced to allProcessServiceName for
-// the reason given on that constant.
-func allServices(lo *logging.Options, to *tracing.Options) []struct {
+// the reason given on that constant. uiAddr is --ui-bind-address.
+func allServices(lo *logging.Options, to *tracing.Options, uiAddr string) []struct {
 	name string
 	run  func(ctx context.Context, o k8s.Options) error
 } {
@@ -190,14 +191,22 @@ func allServices(lo *logging.Options, to *tracing.Options) []struct {
 		{"captionarr", func(ctx context.Context, o k8s.Options) error {
 			d := captionarr.DefaultOptions()
 			d.Options = o
+			// Controllers AND the fetch worker: the controller role alone
+			// plans each SubtitleRequest and publishes its fetch tasks to a
+			// queue nothing in this process consumes, so `clustarr all`
+			// never fetched a subtitle. RoleAll runs setupWorkers too, which
+			// gives the provider builder the shared throttle KV, so the
+			// OpenSubtitles login is shared exactly as across worker pods.
+			d.Role = captionarr.RoleAll
 			d.Logging = *lo
 			d.Tracing = tr
 			return runCaptionarr(ctx, d)
 		}},
 		{"ui", func(ctx context.Context, _ k8s.Options) error {
 			// ui has no k8s.Options of its own -- no manager, no CRD, no
-			// ports to offset -- so it runs with its default BindAddress
-			// (design spec §2: `clustarr all` runs every service). It still
+			// ports to offset -- so it binds --ui-bind-address rather than
+			// an offset of the probe port (design spec §2: `clustarr all`
+			// runs every service). It still
 			// takes the real ctx: runAll cancels ctx on any other service's
 			// failure, and ui.Run's own shutdown depends on that
 			// cancellation to stop its HTTP server. The same ctx bounds the
@@ -211,6 +220,7 @@ func allServices(lo *logging.Options, to *tracing.Options) []struct {
 			reader, waitForSync, acts := buildUICluster(ctx)
 			proj := buildUIProjection(ctx, reader)
 			return runUI(ctx, ui.Options{
+				BindAddress:          uiAddr,
 				Reader:               reader,
 				WaitForSync:          waitForSync,
 				Actions:              acts,
@@ -239,8 +249,8 @@ func newAllCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 			"cluster: §3 gives each service its own Deployment, RBAC and leader election, and\n" +
 			"the engines and transcode workers that run as separate pods are not started here.\n\n" +
 			"Each service's metrics and probe listeners are offset by one port from the\n" +
-			"addresses given, in the order above; ui has none of its own to offset and always\n" +
-			"binds its default address. Every service shares the root command's --log-* and\n" +
+			"addresses given, in the order above; ui has none of its own to offset and binds\n" +
+			"--ui-bind-address. Every service shares the root command's --log-* and\n" +
 			"--tracing-* flags, and every span is recorded under the single service name\n" +
 			"\"clustarr\": one process has one OpenTelemetry TracerProvider, so a per-service\n" +
 			"name here would just be whichever service happened to start first. Run services\n" +
@@ -249,6 +259,10 @@ func newAllCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 		SilenceUsage: true,
 	}
 	common := bindCommonFlags(cmd.Flags())
+	var uiAddr string
+	cmd.Flags().StringVar(&uiAddr, "ui-bind-address", ui.DefaultBindAddress,
+		"Address ui's HTTP server listens on. It is not offset like the managers' ports: ui has one "+
+			"listener, serving its pages, /healthz and /readyz together.")
 
 	// Leader election buys nothing in a single process that already runs one
 	// of each controller, and would only add a Lease per service to clean up.
@@ -261,7 +275,7 @@ func newAllCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 		base.LeaderElect = false
 		base.BusSingleNode = true
 
-		services := allServices(lo, to)
+		services := allServices(lo, to, uiAddr)
 		optionsFor := make([]k8s.Options, len(services))
 		for i, svc := range services {
 			o := base
