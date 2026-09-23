@@ -52,7 +52,7 @@ ARG PAR2_SOURCE=turbo
 ARG PAR2_SHA256=""
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl xz-utils \
+ && apt-get install -y --no-install-recommends ca-certificates curl xz-utils unzip \
  && rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \
@@ -81,12 +81,13 @@ RUN set -eux; \
         arm64) p2_arch=arm64 ;; \
         *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
       esac; \
-      url="https://github.com/animetosho/par2cmdline-turbo/releases/download/${PAR2_VERSION}/par2cmdline-turbo-${PAR2_VERSION}-linux-${p2_arch}.xz"; \
-      curl -fsSL -o /tmp/par2.xz "${url}"; \
-      if [ -n "${PAR2_SHA256}" ]; then echo "${PAR2_SHA256}  /tmp/par2.xz" | sha256sum -c -; fi; \
-      xz -dc /tmp/par2.xz > /out/bin/par2; \
+      p2_ver="${PAR2_VERSION#v}"; \
+      url="https://github.com/animetosho/par2cmdline-turbo/releases/download/${PAR2_VERSION}/par2cmdline-turbo-${p2_ver}-linux-${p2_arch}.zip"; \
+      curl -fsSL -o /tmp/par2.zip "${url}"; \
+      if [ -n "${PAR2_SHA256}" ]; then echo "${PAR2_SHA256}  /tmp/par2.zip" | sha256sum -c -; fi; \
+      unzip -p /tmp/par2.zip par2 > /out/bin/par2; \
       chmod 0755 /out/bin/par2; \
-      rm -f /tmp/par2.xz; \
+      rm -f /tmp/par2.zip; \
     fi; \
     /out/bin/par2 --version
 
