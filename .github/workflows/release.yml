@@ -1,0 +1,274 @@
+# Builds the container images and the Helm chart, and publishes them to the
+# repository's GitHub Container Registry namespace.
+#
+#   ghcr.io/<owner>/<repo>                  controller (images/Dockerfile.controller)
+#   ghcr.io/<owner>/<repo>/media            media      (images/Dockerfile.media)
+#   ghcr.io/<owner>/<repo>/media-cuda       media-cuda (images/Dockerfile.media-cuda, amd64 only)
+#   ghcr.io/<owner>/<repo>/e2e-fixtures     e2e fixture services (images/Dockerfile.e2e-fixtures)
+#   oci://ghcr.io/<owner>/<repo>/charts     the clustarr Helm chart
+#
+# Pull requests build every image and lint the chart, and publish nothing.
+# A push to main publishes the images as :main and :sha-<short>. A tag
+# vX.Y.Z publishes the images as :X.Y.Z, :X.Y and :X (and :latest, unless it
+# is a prerelease), then packages the chart at version X.Y.Z with appVersion
+# X.Y.Z -- the chart's default image tag -- pushes it, and creates the GitHub
+# Release with the chart archive attached.
+#
+# Each image is built natively per architecture (the media images compile
+# with cgo, so emulating arm64 under QEMU would be very slow), pushed by
+# digest, and then joined into one multi-arch tag by the merge job -- Docker's
+# documented pattern for multi-platform builds on native runners.
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  pull_request:
+    branches: [main]
+    paths-ignore: ["docs/**", "**/*.md"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  HELM_VERSION: v4.2.2
+
+jobs:
+  images:
+    name: image ${{ matrix.image }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { image: controller, suffix: "", dockerfile: images/Dockerfile.controller, arch: amd64, runner: ubuntu-24.04 }
+          - { image: controller, suffix: "", dockerfile: images/Dockerfile.controller, arch: arm64, runner: ubuntu-24.04-arm }
+          - { image: media, suffix: /media, dockerfile: images/Dockerfile.media, arch: amd64, runner: ubuntu-24.04 }
+          - { image: media, suffix: /media, dockerfile: images/Dockerfile.media, arch: arm64, runner: ubuntu-24.04-arm }
+          - { image: media-cuda, suffix: /media-cuda, dockerfile: images/Dockerfile.media-cuda, arch: amd64, runner: ubuntu-24.04 }
+          - { image: e2e-fixtures, suffix: /e2e-fixtures, dockerfile: images/Dockerfile.e2e-fixtures, arch: amd64, runner: ubuntu-24.04 }
+          - { image: e2e-fixtures, suffix: /e2e-fixtures, dockerfile: images/Dockerfile.e2e-fixtures, arch: arm64, runner: ubuntu-24.04-arm }
+    env:
+      PUSH: ${{ github.event_name != 'pull_request' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Resolve image name and version
+        env:
+          SUFFIX: ${{ matrix.suffix }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          # OCI references must be lowercase; a fork's owner may not be.
+          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}${SUFFIX}" >> "$GITHUB_ENV"
+          if [ "$REF_TYPE" = tag ]; then
+            echo "VERSION=${REF_NAME#v}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=dev-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        if: env.PUSH == 'true'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+
+      - name: Build (and push by digest outside pull requests)
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/${{ matrix.arch }}
+          build-args: VERSION=${{ env.VERSION }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: ${{ env.PUSH == 'true' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', env.IMAGE) || 'type=cacheonly' }}
+          provenance: ${{ env.PUSH == 'true' && 'mode=max' || 'false' }}
+          sbom: ${{ env.PUSH == 'true' }}
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.arch }}
+
+      - name: Export digest
+        if: env.PUSH == 'true'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/digests"
+          touch "${RUNNER_TEMP}/digests/${DIGEST#sha256:}"
+
+      - name: Upload digest
+        if: env.PUSH == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digests-${{ matrix.image }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: publish ${{ matrix.image }}
+    if: github.event_name != 'pull_request'
+    needs: images
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { image: controller, suffix: "" }
+          - { image: media, suffix: /media }
+          - { image: media-cuda, suffix: /media-cuda }
+          - { image: e2e-fixtures, suffix: /e2e-fixtures }
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-${{ matrix.image }}-*
+          merge-multiple: true
+
+      - name: Resolve image name
+        env:
+          SUFFIX: ${{ matrix.suffix }}
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}${SUFFIX}" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tags
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=auto
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
+            type=ref,event=branch
+            type=sha,prefix=sha-,format=short,enable=${{ github.ref_type == 'branch' }}
+
+      - name: Create the multi-arch manifest list
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          # shellcheck disable=SC2046
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "${IMAGE}@sha256:%s " *)
+
+      - name: Inspect
+        env:
+          TAG: ${{ steps.meta.outputs.version }}
+        run: docker buildx imagetools inspect "${IMAGE}:${TAG}"
+
+  chart-lint:
+    name: chart lint
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Fetch chart dependencies
+        run: |
+          helm repo add nats https://nats-io.github.io/k8s/helm/charts/
+          helm repo add kedacore https://kedacore.github.io/charts
+          helm dependency build charts/clustarr
+
+      - name: Lint and render
+        run: |
+          helm lint charts/clustarr
+          helm template clustarr charts/clustarr > /dev/null
+
+  chart-release:
+    name: chart release
+    if: github.ref_type == 'tag'
+    needs: [merge, chart-lint]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Package
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          version="${REF_NAME#v}"
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
+          helm repo add nats https://nats-io.github.io/k8s/helm/charts/
+          helm repo add kedacore https://kedacore.github.io/charts
+          helm dependency build charts/clustarr
+          # appVersion is the chart's default image tag, so it must be the
+          # tag the merge job just published.
+          helm package charts/clustarr --version "${version}" --app-version "${version}" -d dist
+
+      - name: Push to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          echo "${GHCR_TOKEN}" | helm registry login ghcr.io -u "${ACTOR}" --password-stdin
+          helm push "dist/clustarr-${VERSION}.tgz" "oci://ghcr.io/${GITHUB_REPOSITORY,,}/charts"
+
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          prerelease=()
+          case "${VERSION}" in *-*) prerelease=(--prerelease) ;; esac
+          if gh release view "${REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${REF_NAME}" dist/*.tgz --clobber
+          else
+            gh release create "${REF_NAME}" dist/*.tgz --verify-tag --generate-notes "${prerelease[@]}"
+          fi

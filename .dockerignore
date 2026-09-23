@@ -1,0 +1,11 @@
+# Build context for images/Dockerfile.*: the Go module plus the fixture
+# sources. Keep VCS metadata, local tooling state and build output out, so
+# they neither bloat the context nor invalidate the `COPY . .` layer cache.
+.git
+.github
+.superpowers
+.worktrees
+.claude
+bin/
+/clustarr
+charts/clustarr/charts/*.tgz
