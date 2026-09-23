@@ -48,11 +48,22 @@ type IndexerClient interface {
 }
 
 // ClientFor returns the wire client for one Indexer, ALREADY carrying that
-// host's injected ratelimit.Limiter, its timeout and its proxy.
+// host's injected ratelimit.Limiter and its timeout.
 //
-// The Indexer reconciler owns the limiter cache -- one bucket per host,
-// keyed by ratelimit.HostKey -- and supplies this function. This package
-// never constructs a ratelimit.Limiter and never calls torznab.NewClient: two
+// In production it is indexarr/controller/indexer.ClientCache.For, and that
+// is load-bearing rather than incidental: it shares the reconciler's own
+// buildClient, so the caps probe and every search use one construction. The
+// proxy is the reason to care. IndexerSpec.ProxyRef and torznab.WithProxy
+// both exist and NEITHER is applied yet (M6); when M6 adds it, one shared
+// builder means the probe and the fan-out gain it together. A second copy
+// here would let the probe honour the operator's proxy while every search
+// bypassed it -- leaking the real IP to a private tracker while status
+// reported the proxy healthy.
+//
+// This package never constructs a ratelimit.Limiter, never calls
+// torznab.NewClient and never writes a limiter Config. The Limiter is built
+// by indexarr/run.go and each host's Config is written by the Indexer
+// reconciler alone, since it is the only reader of spec.requestDelay; two
 // spellings of a host key are not "paced twice as fast", they are completely
 // unpaced.
 type ClientFor func(ctx context.Context, idx *indexv1alpha1.Indexer) (IndexerClient, error)

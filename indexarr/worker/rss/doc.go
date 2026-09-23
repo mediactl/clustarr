@@ -59,13 +59,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Registration
 //
-// The wiring task (D1-8) constructs a Worker with a client, the bus, the
-// release index and a SearcherFor that hands back the per-indexer
-// *torznab.Client the Indexer reconciler built -- already carrying that
-// host's single injected rate limiter -- and calls SetupWithManager. This
-// package never constructs a limiter and never lists Indexers: one message
-// is one indexer, which is what keeps a broken indexer from starving the
-// rest.
+// indexarr/run.go constructs a Worker with a client, the bus, the release
+// index and a SearcherFor that is
+// indexarr/controller/indexer.ClientCache.For -- the same builder the caps
+// probe uses, so this poll and that probe cannot disagree about an indexer's
+// endpoint, timeout, bucket or (from M6) proxy -- and calls SetupWithManager.
+//
+// The limiter that client carries is built by run.go and each host's Config
+// is written by the Indexer reconciler alone; this package never constructs a
+// limiter, never writes one's Config and never lists Indexers. One message is
+// one indexer, which is what keeps a broken indexer from starving the rest.
 //
 // The markers below are package-level on purpose: controller-gen collects
 // RBAC only from package-level comments and silently ignores one attached to

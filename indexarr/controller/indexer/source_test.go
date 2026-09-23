@@ -128,18 +128,28 @@ func TestRpsFor(t *testing.T) {
 // ratelimit.HostKey so neither can drift on its own (ruling R38).
 //
 // This reconciler is the only writer of a key's Config and the download verb
-// only Waits on it. If the two spelled the key differently the Wait would
-// land on a key with NO Config, ratelimit would fall back to the Limiter's
-// defaults, and D1-8 builds the Limiter as ratelimit.New(ratelimit.Config{})
-// -- whose RPS of 0 is rate.Inf. The download verb would be completely
-// unpaced against a private tracker, which is a ban, not a slowdown.
+// only Waits on it. If the two spelled the key differently the Wait would land
+// on a key with NO Config and ratelimit would fall back to the Limiter's
+// defaults.
+//
+// # The canary is quieter than it used to be, on purpose
+//
+// This comment used to say "and D1-8 builds the Limiter as
+// ratelimit.New(ratelimit.Config{})", so a divergent key meant a COMPLETELY
+// unpaced download verb. It no longer does: indexarr.defaultLimiterConfig
+// paces an unknown host at spec.requestDelay's CRD default, precisely so a
+// host nobody has reconciled yet is not hammered. The trade is deliberate and
+// worth naming -- a divergent key is now silently paced at 2s instead of
+// loudly unpaced, so the deliberately-unlimited Limiter constructed HERE is
+// the only place the divergence is still detectable. Do not "fix" this test
+// by switching it to the production default.
 //
 // The helper's own table (host[:port] only, "" on a malformed URL) moved to
 // pkg/ratelimit's TestHostKey with the function.
 func TestTheLimiterKeyIsRatelimitHostKey(t *testing.T) {
-	// An unlimited default, exactly as D1-8 builds it: a divergent key is
-	// then unpaced rather than merely differently paced, so this test fails
-	// loudly instead of subtly.
+	// An unlimited default, so a divergent key is unpaced rather than merely
+	// differently paced and this test fails loudly instead of subtly. See the
+	// note above: production's default is finite.
 	lim := ratelimit.New(ratelimit.Config{})
 	spec := indexv1alpha1.IndexerSpec{
 		// A port and a path, because both are places a hand-rolled key
@@ -148,13 +158,12 @@ func TestTheLimiterKeyIsRatelimitHostKey(t *testing.T) {
 		Generic:      &indexv1alpha1.GenericNewznab{},
 		RequestDelay: metav1.Duration{Duration: time.Hour},
 	}
-	_, _, err := buildClient(spec, nil, lim)
-	require.NoError(t, err)
+	applyRateLimit(spec, lim)
 
 	key := ratelimit.HostKey(spec.BaseURL)
 	require.True(t, lim.Allow(key))
 	require.False(t, lim.Allow(key),
-		"buildClient configured some OTHER key, so ratelimit.HostKey names an unconfigured -- and therefore unlimited -- bucket")
+		"applyRateLimit configured some OTHER key, so ratelimit.HostKey names an unconfigured bucket")
 }
 
 func TestBuildClient(t *testing.T) {
@@ -195,7 +204,32 @@ func TestBuildClient(t *testing.T) {
 	}
 }
 
-func TestBuildClientConfiguresOneBucketPerHost(t *testing.T) {
+func TestApplyRateLimitConfiguresOneBucketPerHost(t *testing.T) {
+	lim := ratelimit.New(ratelimit.Config{})
+	spec := indexv1alpha1.IndexerSpec{
+		BaseURL:      "https://tracker.invalid/api",
+		Generic:      &indexv1alpha1.GenericNewznab{},
+		RequestDelay: metav1.Duration{Duration: time.Hour},
+	}
+	applyRateLimit(spec, lim)
+
+	// One token per hour with a burst of 1: the first Allow drains the
+	// bucket and the second is refused. That is what proves SetConfig was
+	// keyed on the host and actually applied.
+	require.True(t, lim.Allow("tracker.invalid"))
+	require.False(t, lim.Allow("tracker.invalid"))
+	require.True(t, lim.Allow("other.invalid"), "an unrelated host draws from its own bucket")
+}
+
+// TestBuildClientWritesNoLimiterConfig is the other half of the split, and it
+// is the half that protects an operator's edit.
+//
+// buildClient is shared with ClientCache, which the search fan-out and the RSS
+// poll call on every query. If it still wrote SetConfig, both would become
+// writers of limiter config and would re-apply spec.requestDelay from their
+// own possibly-stale cached Indexer -- so lowering the delay would be silently
+// reverted by the next search. Only Reconcile writes, through applyRateLimit.
+func TestBuildClientWritesNoLimiterConfig(t *testing.T) {
 	lim := ratelimit.New(ratelimit.Config{})
 	spec := indexv1alpha1.IndexerSpec{
 		BaseURL:      "https://tracker.invalid/api",
@@ -205,12 +239,12 @@ func TestBuildClientConfiguresOneBucketPerHost(t *testing.T) {
 	_, _, err := buildClient(spec, nil, lim)
 	require.NoError(t, err)
 
-	// One token per hour with a burst of 1: the first Allow drains the
-	// bucket and the second is refused. That is what proves SetConfig was
-	// keyed on the host and actually applied.
+	// The Limiter's default here is unlimited, so if buildClient had written
+	// the one-per-hour Config the second Allow would be refused.
 	require.True(t, lim.Allow("tracker.invalid"))
-	require.False(t, lim.Allow("tracker.invalid"))
-	require.True(t, lim.Allow("other.invalid"), "an unrelated host draws from its own bucket")
+	require.True(t, lim.Allow("tracker.invalid"),
+		"buildClient wrote a limiter Config; it is shared with ClientCache, so the search "+
+			"fan-out and the RSS poll would each re-apply a possibly-stale spec.requestDelay")
 }
 
 func TestClassify(t *testing.T) {

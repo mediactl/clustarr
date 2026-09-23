@@ -52,6 +52,7 @@ import (
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/indexarr/controller/indexer"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -126,6 +127,11 @@ func TestMain(m *testing.M) {
 //  4. Anything M6 has not written yet -- the Cardigann engine and the Torznab
 //     facade have no code, so there is nothing to discover and nothing to
 //     forget.
+//  5. Which VALUE a resolved local actually holds. Pass 1 below maps a local
+//     variable to the package its initialiser came from by name, so two
+//     variables from one package are indistinguishable -- registering the
+//     same reconciler twice and never the other would satisfy this. The
+//     envtest is again the backstop.
 func TestEveryIndexarrRunnableIsRegistered(t *testing.T) {
 	root, err := filepath.Abs(".")
 	require.NoError(t, err)
@@ -324,6 +330,7 @@ func parseWiringSource(t *testing.T, serviceDir string) wiring {
 
 	w := wiring{setupRoots: map[string]bool{}, serveRoots: map[string]bool{}}
 	var b strings.Builder
+	var files []*ast.File
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
@@ -337,6 +344,39 @@ func parseWiringSource(t *testing.T, serviceDir string) wiring {
 		fset := token.NewFileSet()
 		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
 		require.NoError(t, err)
+		files = append(files, file)
+	}
+	require.NotEmpty(t, b.String(), "no wiring source found in %s", serviceDir)
+	w.text = b.String()
+
+	// Pass 1: local variables and what package they came from, so a
+	// registration held in a variable still counts.
+	//
+	// `r := indexer.NewReconciler(...); r.Clients = c; r.SetupWithManager(mgr)`
+	// registers exactly as much as the one-line chain does, and a guard that
+	// rejected it would be dictating a coding style rather than checking a
+	// property -- which is how a guard gets worked around instead of fixed.
+	// It did reject it, once, which is why this exists.
+	locals := map[string]string{}
+	for _, file := range files {
+		ast.Inspect(file, func(n ast.Node) bool {
+			assign, ok := n.(*ast.AssignStmt)
+			if !ok || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
+				return true
+			}
+			lhs, ok := assign.Lhs[0].(*ast.Ident)
+			if !ok {
+				return true
+			}
+			if root := rootIdent(assign.Rhs[0]); root != "" && root != lhs.Name {
+				locals[lhs.Name] = root
+			}
+			return true
+		})
+	}
+
+	// Pass 2: the registration calls themselves.
+	for _, file := range files {
 		ast.Inspect(file, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
 			if !ok {
@@ -346,7 +386,7 @@ func parseWiringSource(t *testing.T, serviceDir string) wiring {
 			if !ok {
 				return true
 			}
-			root := rootIdent(sel.X)
+			root := resolveRoot(rootIdent(sel.X), locals)
 			if root == "" {
 				return true
 			}
@@ -359,9 +399,20 @@ func parseWiringSource(t *testing.T, serviceDir string) wiring {
 			return true
 		})
 	}
-	require.NotEmpty(t, b.String(), "no wiring source found in %s", serviceDir)
-	w.text = b.String()
 	return w
+}
+
+// resolveRoot follows a local variable back to the package its value came
+// from, bounded so a cycle cannot hang the test.
+func resolveRoot(root string, locals map[string]string) string {
+	for range 8 {
+		next, ok := locals[root]
+		if !ok || next == root {
+			return root
+		}
+		root = next
+	}
+	return root
 }
 
 // rootIdent walks a call chain back to the identifier it starts at, so that
@@ -397,14 +448,16 @@ func rootIdent(expr ast.Expr) string {
 // The limiter default, and the CRD it is derived from.
 // ---------------------------------------------------------------------------
 
-// TestIndexerSpecDefaultsMatchTheCRD pins run.go's two mirrors of Indexer.spec
-// defaults against the generated schema, so the limiter's fallback and the
-// client's timeout cannot drift away from what an operator actually gets.
+// TestIndexerSpecDefaultsMatchTheCRD pins run.go's mirror of
+// spec.requestDelay's default against the generated schema, so the limiter's
+// fallback for an unknown host cannot drift away from what an operator
+// actually gets.
 //
 // It is the same shape as indexarr/controller/indexer's
-// TestSpecDefaultsMatchTheGeneratedCRD, deliberately: two places mirror these
-// defaults today (see indexerClientFor's note on the duplication), and both
-// are anchored on the same generated file rather than on each other.
+// TestSpecDefaultsMatchTheGeneratedCRD, deliberately: both are anchored on
+// the same generated file rather than on each other. (spec.timeout is pinned
+// only there now -- the client construction this file used to duplicate moved
+// into indexer.ClientCache.)
 func TestIndexerSpecDefaultsMatchTheCRD(t *testing.T) {
 	raw, err := os.ReadFile("../config/crd/bases/index.clustarr.io_indexers.yaml")
 	require.NoError(t, err)
@@ -430,8 +483,6 @@ func TestIndexerSpecDefaultsMatchTheCRD(t *testing.T) {
 	require.NotEmpty(t, crd.Spec.Versions, "the CRD was not parsed; run `make manifests`")
 
 	props := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties.Spec.Properties
-	require.Equal(t, DefaultIndexerTimeout.String(), props["timeout"].Default,
-		"run.go's DefaultIndexerTimeout no longer mirrors spec.timeout's +kubebuilder:default")
 	require.Equal(t, DefaultIndexerRequestDelay.String(), props["requestDelay"].Default,
 		"run.go's DefaultIndexerRequestDelay no longer mirrors spec.requestDelay's "+
 			"+kubebuilder:default, so the limiter paces an unknown host at a rate no Indexer asks for")
@@ -616,7 +667,7 @@ func TestIndexarrWiringRegistersEveryComponent(t *testing.T) {
 
 	nc, bus := newJetStreamBus(t)
 	store := openTestIndex(t)
-	limiters := ratelimit.New(defaultLimiterConfig())
+	clients := indexer.NewClientCache(c, ratelimit.New(defaultLimiterConfig()))
 
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
@@ -625,8 +676,8 @@ func TestIndexarrWiringRegistersEveryComponent(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, setupControllers(mgr, bus, limiters))
-	require.NoError(t, setupWorkers(mgr, bus, store, limiters))
+	require.NoError(t, setupControllers(mgr, bus, clients))
+	require.NoError(t, setupWorkers(mgr, bus, store, clients))
 	startManager(t, mgr)
 
 	t.Run("the Indexer reconciler runs and seeds the RSS chain with a REAL bus", func(t *testing.T) {

@@ -96,6 +96,16 @@ type Reconciler struct {
 	// a handful of bytes bounded by the size of the cluster's indexer set.
 	Limiters *ratelimit.Limiter
 
+	// Clients is the process-wide [ClientCache] the search fan-out and the
+	// RSS poll read through. This reconciler does not BUILD clients with it
+	// -- it has the fresh spec and the fresh Secret in hand and calls
+	// buildClient directly -- it only evicts, so a deleted Indexer does not
+	// leave its client (and that client's idle connections) behind.
+	//
+	// Optional: a nil Clients evicts nothing, which is correct for a unit
+	// test and merely wasteful in a process that somehow had no cache.
+	Clients *ClientCache
+
 	// Bus seeds the RSS poll chain (ruling R36). Nothing else in this
 	// reconciler publishes.
 	//
@@ -184,10 +194,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return ctrl.Result{}, err
 	}
 	if !idx.DeletionTimestamp.IsZero() {
-		// The caps memo is keyed by UID and is safe to prune. The
-		// limiter bucket is keyed by HOST and is not -- see the Limiters
-		// field's comment.
+		// The caps memo and the client cache are both keyed by UID and are
+		// safe to prune. The limiter bucket is keyed by HOST and is not --
+		// see the Limiters field's comment.
 		r.forget(idx.UID)
+		if r.Clients != nil {
+			r.Clients.Forget(idx.UID)
+		}
 		return ctrl.Result{}, nil
 	}
 
@@ -268,6 +281,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	}
 	idx.Status.Protocol = protocolFor(kind, idx.Spec)
 	idx.Status.Privacy = privacyFor(kind, secret)
+
+	// The bucket config for this host, written here and nowhere else: this
+	// reconciler is the only reader of spec.requestDelay, and the search
+	// fan-out, the RSS poll and the download verb only Wait on the same
+	// *ratelimit.Limiter. It used to live inside buildClient, which
+	// ClientCache now shares -- see applyRateLimit.
+	applyRateLimit(idx.Spec, r.Limiters)
 
 	tc, endpoint, err := buildClient(idx.Spec, secret, r.Limiters)
 	if err != nil {

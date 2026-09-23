@@ -29,11 +29,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -53,7 +51,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/ratelimit"
 	"github.com/mediactl/clustarr/pkg/relindex"
-	"github.com/mediactl/clustarr/pkg/torznab"
 )
 
 // Service identity, from §2 and §6.2.
@@ -100,18 +97,13 @@ const (
 	indexProbeTimeout = 5 * time.Second
 )
 
-// CRD defaults for Indexer.spec, restated here because an apiserver default
+// A CRD default for Indexer.spec, restated here because an apiserver default
 // fills a field that is ABSENT FROM THE SUBMITTED JSON, and metav1.Duration is
 // a struct that `omitempty` does not elide -- so a typed Go client always
 // sends "0s" and is never defaulted. TestIndexerSpecDefaultsMatchTheCRD reads
-// the generated schema and fails if either drifts, so these are mirrors rather
-// than a second source of truth. indexarr/controller/indexer/source.go carries
-// the same pair, pinned by the same shape of test, for the caps probe.
+// the generated schema and fails if it drifts, so this is a mirror rather than
+// a second source of truth.
 const (
-	// DefaultIndexerTimeout mirrors Indexer spec.timeout's
-	// +kubebuilder:default="30s".
-	DefaultIndexerTimeout = 30 * time.Second
-
 	// DefaultIndexerRequestDelay mirrors Indexer spec.requestDelay's
 	// +kubebuilder:default="2s". It is what [defaultLimiterConfig] paces an
 	// UNKNOWN host at; see that function for why the fallback must not be
@@ -227,17 +219,32 @@ func (o Options) Validate() error {
 //     watch and no other namespace's Secret is ever resident here; a selector
 //     still watches cluster-wide and merely filters what it keeps.
 //
-//  3. The informer buys nothing measurable. indexarr reads a Secret on the
-//     15-minute reprobe tick per Indexer, on the 5-minute IndexerProxy
-//     recheck, and once per grab. Nothing WATCHES Secrets -- no controller
-//     re-reconciles when one changes -- so the cache is pure overhead, and a
-//     live Get is strictly fresher, which is what a rotated passkey wants.
+//  3. Nothing WATCHES Secrets -- no controller re-reconciles when one
+//     changes -- so the informer would be a cache with no invalidation
+//     consumer, and a live Get is strictly fresher, which is what a rotated
+//     passkey wants.
 //
-// The cost is one apiserver GET per read on a service that makes a handful an
-// hour. The consequence for RBAC is that `secrets list;watch` are now granted
-// and unused; the markers live in the three component packages that declare
-// them and narrowing those to `get` is follow-up work, not a change this file
-// can make.
+// # The cost, enumerated honestly, and what it forced
+//
+// The low-frequency readers are the 15-minute reprobe tick per Indexer, the
+// 5-minute IndexerProxy recheck and one Get per grab. The HIGH-frequency ones
+// are the two this wiring created: indexer.ClientCache.For is the search
+// fan-out's ClientFor, called once per candidate indexer per SEARCH, and the
+// RSS poll's SearcherFor. A wanted-cron sweep of 200 items across 20 indexers
+// is 4,000 live Gets against controller-runtime's default 20 QPS client.
+//
+// That is not merely slow, and the sharp edge is worth stating: the Get
+// happens inside the per-indexer search timeout, and a ClientFor error is a
+// named failure outcome, which runs RecordFailure -- escalationLevel, then
+// disabledUntil. An apiserver blip or a throttled REST client could therefore
+// escalate a perfectly healthy indexer toward disabled, which an informer read
+// makes impossible. [indexer.ClientCache] is what closes it: keyed by UID plus
+// resourceVersion with a TTL, a fan-out costs one Get per indexer per CHANGE
+// rather than per query.
+//
+// The consequence for RBAC is that `secrets watch` is no longer used; the
+// three component packages that declare the marker now ask for `get;list`
+// only.
 func (o Options) ManagerOptions() ctrl.Options {
 	opts := o.Options.ManagerOptions(LeaderElectionID, false)
 	opts.Client.Cache = &client.CacheOptions{
@@ -303,7 +310,12 @@ func Run(ctx context.Context, o Options) error {
 		}
 	}()
 
-	limiters := ratelimit.New(defaultLimiterConfig())
+	// One Limiter for the whole process, behind one ClientCache: the caps
+	// probe, the search fan-out, the RSS poll and the download verb all pace
+	// against the same bucket per host, and every Torznab client any of them
+	// uses comes out of indexer.buildClient, so M6's proxy option cannot
+	// reach one path and miss another.
+	clients := indexer.NewClientCache(mgr.GetClient(), ratelimit.New(defaultLimiterConfig()))
 
 	ready, err := readinessChecks(mgr, store, k8s.BusReadyChecker(nc, bus))
 	if err != nil {
@@ -314,12 +326,12 @@ func Run(ctx context.Context, o Options) error {
 	}
 
 	if o.Role.RunsControllers() {
-		if err := setupControllers(mgr, bus, limiters); err != nil {
+		if err := setupControllers(mgr, bus, clients); err != nil {
 			return err
 		}
 	}
 	if o.Role.RunsWorkers() {
-		if err := setupWorkers(mgr, bus, store, limiters); err != nil {
+		if err := setupWorkers(mgr, bus, store, clients); err != nil {
 			return err
 		}
 	}
@@ -447,15 +459,19 @@ func IndexReadyChecker(store relindex.Store) healthz.Checker {
 //
 // TODO(M6): the Cardigann login test and the owned session Secret for
 // indexer, and proxy routing for indexerproxy. (§6.2, §16 M6)
-func setupControllers(mgr ctrl.Manager, bus events.Bus, limiters *ratelimit.Limiter) error {
+func setupControllers(mgr ctrl.Manager, bus events.Bus, clients *indexer.ClientCache) error {
 	c := mgr.GetClient()
 
-	if err := indexer.NewReconciler(
+	idxReconciler := indexer.NewReconciler(
 		c,
 		mgr.GetEventRecorderFor("indexer"), //nolint:staticcheck // record.EventRecorder; see the note above
-		limiters,
+		clients.Limiters(),
 		bus,
-	).SetupWithManager(mgr); err != nil {
+	)
+	// So a deleted Indexer does not leave its built client, and that
+	// client's idle connections, in the cache forever.
+	idxReconciler.Clients = clients
+	if err := idxReconciler.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("indexarr: indexer: %w", err)
 	}
 
@@ -495,23 +511,22 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, limiters *ratelimit.Limi
 //
 // TODO(M6): the Cardigann engine and the Torznab facade on
 // o.FacadeBindAddress. (§6.2, §16 M6)
-func setupWorkers(mgr ctrl.Manager, bus events.Bus, store relindex.Store, limiters *ratelimit.Limiter) error {
+func setupWorkers(mgr ctrl.Manager, bus events.Bus, store relindex.Store, clients *indexer.ClientCache) error {
 	c := mgr.GetClient()
-	build := indexerClientFor(c, limiters)
 
 	// indexarr/download's doc.go documents this construction verbatim.
 	dl := &download.Service{
 		Client: c,
 		Bus:    bus,
-		Fetch:  download.NewFetcherFor(c, limiters),
+		Fetch:  download.NewFetcherFor(c, clients.Limiters()),
 	}
 	q := &query.Service{Store: store}
 	svc := &search.Service{
 		Client: c,
 		ClientFor: func(ctx context.Context, idx *indexv1alpha1.Indexer) (search.IndexerClient, error) {
-			cli, err := build(ctx, idx)
+			cli, err := clients.For(ctx, idx)
 			if err != nil {
-				// Returning `build(...)` directly would hand back a
+				// Returning `clients.For(...)` directly would hand back a
 				// non-nil interface wrapping a nil *torznab.Client on the
 				// error path, which is a nil dereference one call later.
 				return nil, err
@@ -545,7 +560,7 @@ func setupWorkers(mgr ctrl.Manager, bus events.Bus, store relindex.Store, limite
 		Bus:    bus,
 		Index:  store,
 		SearcherFor: func(ctx context.Context, idx *indexv1alpha1.Indexer) (rss.Searcher, error) {
-			cli, err := build(ctx, idx)
+			cli, err := clients.For(ctx, idx)
 			if err != nil {
 				return nil, err
 			}
@@ -611,98 +626,4 @@ func pruneOnce(ctx context.Context, store relindex.Store) {
 		log.Info("indexarr: pruned the release index",
 			"deleted", deleted, "retention", IndexRetention.String())
 	}
-}
-
-// indexerClientFor builds the Torznab/Newznab client for one Indexer: the
-// search fan-out's [search.ClientFor] and the RSS poll's SearcherFor are both
-// this function, so the two cannot disagree about an indexer's endpoint,
-// timeout or bucket.
-//
-// # This duplicates indexarr/controller/indexer's buildClient, and that is a
-// carried item
-//
-// Both indexarr/search/doc.go ("The Indexer reconciler owns the limiter cache
-// ... and supplies this function") and indexarr/worker/rss/doc.go ("a
-// SearcherFor that hands back the per-indexer *torznab.Client the Indexer
-// reconciler built") describe a factory the reconciler exports. It exports
-// none: indexarr/controller/indexer's entire exported surface is Reconciler
-// and NewReconciler, and buildClient is unexported. Something has to build the
-// client, so this does, and the endpoint and timeout rules are mirrored from
-// source.go rather than reinvented. Exporting buildClient and deleting this is
-// the right fix and belongs to a task that owns that package.
-//
-// The limiter is injected and never configured here. The Indexer reconciler is
-// the only reader of spec.requestDelay and therefore the only writer of a
-// key's Config; torznab.WithRateLimit keys on the client's own baseURL host,
-// which is the string ratelimit.HostKey returns for the same URL, so the
-// reconciler's bucket and this client's bucket are one bucket (ruling R38).
-func indexerClientFor(
-	c client.Client, limiters *ratelimit.Limiter,
-) func(context.Context, *indexv1alpha1.Indexer) (*torznab.Client, error) {
-	return func(ctx context.Context, idx *indexv1alpha1.Indexer) (*torznab.Client, error) {
-		if idx == nil {
-			return nil, errors.New("indexarr: no Indexer to build a client for")
-		}
-		secret, err := indexerSecret(ctx, c, idx)
-		if err != nil {
-			return nil, err
-		}
-
-		base, err := url.Parse(idx.Spec.BaseURL)
-		if err != nil {
-			return nil, fmt.Errorf("indexarr: parse spec.baseURL %q: %w", idx.Spec.BaseURL, err)
-		}
-		if base.Scheme == "" || base.Host == "" {
-			return nil, fmt.Errorf("indexarr: spec.baseURL %q must be absolute", idx.Spec.BaseURL)
-		}
-		// JoinPath on a URL with an EMPTY path yields "api" rather than
-		// "/api"; normalising first keeps the endpoint and the *url.URL
-		// consistent, as source.go's buildClient does.
-		if base.Path == "" {
-			base.Path = "/"
-		}
-		apiPath := "/api"
-		if idx.Spec.Generic != nil && idx.Spec.Generic.APIPath != "" {
-			apiPath = idx.Spec.Generic.APIPath
-		}
-
-		// torznab.NewClient seeds its own 30s default and THEN applies the
-		// options, so WithTimeout(0) would OVERWRITE that with "no timeout".
-		// A typed client always marshals metav1.Duration, so "0s" reaches
-		// here routinely and the CRD's default never did.
-		timeout := idx.Spec.Timeout.Duration
-		if timeout <= 0 {
-			timeout = DefaultIndexerTimeout
-		}
-
-		return torznab.NewClient(
-			base.JoinPath(apiPath).String(),
-			string(secret["apikey"]),
-			torznab.WithTimeout(timeout),
-			torznab.WithRateLimit(limiters),
-		)
-	}
-}
-
-// indexerSecret reads spec.secretRef. The recognised keys are apikey,
-// username, password, cookie, passkey and rss_key (indexer_types.go); only
-// apikey is used on the Torznab wire, the rest are the download verb's and
-// M6's.
-//
-// A missing reference is not an error: a public indexer has no Secret. A
-// reference that names a Secret which is not there IS one, and it names the
-// Secret rather than anything inside it.
-func indexerSecret(
-	ctx context.Context, c client.Client, idx *indexv1alpha1.Indexer,
-) (map[string][]byte, error) {
-	ref := idx.Spec.SecretRef
-	if ref == nil || ref.Name == "" {
-		return nil, nil
-	}
-	var s corev1.Secret
-	key := types.NamespacedName{Namespace: idx.Namespace, Name: ref.Name}
-	if err := c.Get(ctx, key, &s); err != nil {
-		return nil, fmt.Errorf("indexarr: read secret %s: %w", key, err)
-	}
-	return s.Data, nil
 }

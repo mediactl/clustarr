@@ -232,15 +232,50 @@ func rpsFor(delay metav1.Duration) float64 {
 	return 1 / delay.Seconds()
 }
 
+// applyRateLimit installs spec.requestDelay as this indexer HOST's bucket
+// config. It is called from Reconcile and from nowhere else.
+//
+// It is deliberately NOT part of [buildClient]. buildClient is shared with
+// [ClientCache], which the search fan-out and the RSS poll call on every
+// query; folding the write in there would make both of them WRITERS of
+// limiter config, breaking "this reconciler is the only writer of a key's
+// Config" -- and worse, each would re-apply spec.requestDelay from its own,
+// possibly stale, cached Indexer, so an operator lowering the delay would see
+// it silently reverted by the next search.
+//
+// The key is the indexer HOST, not the object name, and it is spelled by
+// ratelimit.HostKey rather than by reaching for u.Host (ruling R38). A second
+// spelling would not pace a caller twice as fast -- it would land on a key
+// with no Config at all, which falls back to the Limiter's *default*.
+//
+// A nil limiter disables pacing rather than panicking, the same way a nil
+// Recorder disables events: it is what lets a unit test build a Reconciler
+// with nothing but a client.
+func applyRateLimit(spec indexv1alpha1.IndexerSpec, lim *ratelimit.Limiter) {
+	if lim == nil {
+		return
+	}
+	lim.SetConfig(ratelimit.HostKey(spec.BaseURL), ratelimit.Config{RPS: rpsFor(spec.RequestDelay), Burst: 1})
+}
+
 // buildClient assembles the Torznab client for one Indexer and returns the
 // resolved API endpoint alongside it.
+//
+// It is the ONE place a Torznab client for an Indexer is constructed --
+// the caps probe here, and the search fan-out and RSS poll through
+// [ClientCache]. That is not tidiness. IndexerSpec.ProxyRef and
+// torznab.WithProxy both exist and NEITHER is applied yet (M6). When M6 adds
+// the proxy option it lands here, so the caps probe and every search and poll
+// gain it together. Had the fan-out kept its own copy of this function, the
+// probe would honour the operator's proxy while every search bypassed it --
+// leaking the real IP to a private tracker while status reported the proxy
+// healthy.
 //
 // The limiter is injected, never defaulted: pkg/torznab's package doc makes
 // the caller the owner of pacing, and a library-side default would sit in
 // series underneath this one and silently change the effective rate. This
-// reconciler is the only writer of a key's Config because it is the only
-// reader of spec.requestDelay; the search fan-out and the RSS poll share the
-// same *ratelimit.Limiter instance and only Wait on it.
+// function only READS it onto the client; [applyRateLimit] is the only writer
+// of a key's Config.
 func buildClient(spec indexv1alpha1.IndexerSpec, secret map[string][]byte, lim *ratelimit.Limiter) (*torznab.Client, *url.URL, error) {
 	u, err := url.Parse(spec.BaseURL)
 	if err != nil {
@@ -263,22 +298,6 @@ func buildClient(spec indexv1alpha1.IndexerSpec, secret map[string][]byte, lim *
 		base.Path = "/"
 	}
 	endpoint := base.JoinPath(apiPath)
-
-	// A nil limiter disables pacing rather than panicking, the same way a
-	// nil Recorder disables events: it is what lets a unit test build a
-	// Reconciler with nothing but a client. D1-8 always supplies one.
-	//
-	// The key is the indexer HOST, not the object name, and it is spelled by
-	// ratelimit.HostKey rather than reaching for u.Host here (ruling R38).
-	// This reconciler is the only writer of a key's Config; indexarr's search,
-	// RSS and download paths only Wait on it, and the download verb spells its
-	// key with the same function. A second spelling would not pace that verb
-	// twice as fast -- it would leave it entirely unpaced, because an unknown
-	// key falls back to the Limiter's defaults and D1-8 builds it with
-	// ratelimit.New(ratelimit.Config{}).
-	if lim != nil {
-		lim.SetConfig(ratelimit.HostKey(spec.BaseURL), ratelimit.Config{RPS: rpsFor(spec.RequestDelay), Burst: 1})
-	}
 
 	opts := []torznab.ClientOption{torznab.WithTimeout(timeoutFor(spec.Timeout))}
 	if lim != nil {
