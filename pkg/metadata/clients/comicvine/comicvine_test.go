@@ -42,8 +42,8 @@ import (
 func strictVolumeServer(t *testing.T, body []byte) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/volume/4050-18257" {
-			t.Fatalf("volume endpoint got path %q, want the full \"4050-18257\" guid", r.URL.Path)
+		if r.URL.Path != "/volume/4050-18257/" {
+			t.Fatalf("volume endpoint got path %q, want the full \"4050-18257\" guid with ComicVine's trailing slash", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(body)
@@ -78,7 +78,9 @@ func TestVolumeMapsComicVineFieldsIntoTheNormalizedModel(t *testing.T) {
 	body, err := os.ReadFile("../../../../testdata/metadata/comicvine/volume_18257.json")
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/volume/4050-18257", r.URL.Path)
+		// The trailing slash is the canonical form; without it ComicVine
+		// answers 301, one extra round trip per volume.
+		require.Equal(t, "/volume/4050-18257/", r.URL.Path)
 		require.NotEmpty(t, r.Header.Get("User-Agent"), "ComicVine blocks the Go default User-Agent")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(body)
@@ -432,7 +434,7 @@ func volumeStatusServer(t *testing.T, storeDate string, issueStatus int, issueRe
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/volume/4050-18257":
+		case "/volume/4050-18257/":
 			_, _ = w.Write(volume)
 		case "/issue/4000-279013/":
 			*issueRequests++

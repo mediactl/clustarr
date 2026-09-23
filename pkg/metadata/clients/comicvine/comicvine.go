@@ -249,7 +249,7 @@ type issueDatesResponse struct {
 
 // Volume fetches a single comic volume by its ComicVine id
 // (ids[metadata.KeyComicVine], normalized by normalizeVolumeID -- see its
-// doc comment for the accepted shapes and why. The GET /volume/{guid}
+// doc comment for the accepted shapes and why. The GET /volume/{guid}/
 // endpoint always receives the full "4050-<num>" guid regardless of which
 // form arrived, and the returned ComicVolume.IDs carries that same
 // canonical guid back, so a caller that started from a bare numeric id
@@ -276,7 +276,10 @@ func (c *Client) Volume(ctx context.Context, ids metadata.ExternalIDs) (*metadat
 
 	var raw volumeResponse
 	query := url.Values{"field_list": {"id,name,start_year,publisher,count_of_issues,description,site_detail_url,last_issue"}}
-	if err := c.doGet(ctx, "/volume/"+guid, query, &raw); err != nil {
+	// The trailing slash is ComicVine's canonical resource path, as on
+	// /issue/{guid}/, /issues/ and /search/: without it the API answers 301
+	// to the slashed form, an extra round trip per volume (X6a).
+	if err := c.doGet(ctx, "/volume/"+guid+"/", query, &raw); err != nil {
 		tracing.RecordError(span, err)
 		logger.ErrorContext(ctx, "comicvine: volume fetch failed", "id", guid, "error", err)
 		return nil, err
