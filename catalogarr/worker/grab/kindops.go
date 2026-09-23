@@ -87,6 +87,11 @@ type kindOps interface {
 	// kind is the media kind this implementation serves.
 	kind() commonv1.MediaKind
 
+	// recordsPendingGrab reports whether the kind's status has a
+	// pendingGrab field for Decide to record a delayed grab in. Every kind
+	// but Issue does.
+	recordsPendingGrab() bool
+
 	// get fetches the object, typed.
 	get(ctx context.Context, c client.Client, ns, name string) (client.Object, error)
 
@@ -105,16 +110,26 @@ type kindOps interface {
 	applyWorkerStatus(ctx context.Context, c client.Client, ns, name, resourceVersion string, ws workerStatus) error
 }
 
-// kindOpsFor returns the operations for a status-target kind. Only movie and
-// episode have a PendingGrab status to write, which is what
-// bounds M1's scope; a Series is a grab TARGET but never a status target, so
-// it is not here (see StatusTargets).
+// kindOpsFor returns the operations for a status-target kind: every kind
+// that is one release's worth of content and carries the grab path's status
+// fields -- movie, episode, album, book, audiobook and issue. A Series is a
+// grab TARGET but never a status target, and Artist, Author and Comic are
+// containers that are never grabbed at all, so none of them is here (see
+// StatusTargets).
 func kindOpsFor(kind commonv1.MediaKind) (kindOps, error) {
 	switch kind {
 	case commonv1.MediaKindMovie:
 		return movieOps{}, nil
 	case commonv1.MediaKindEpisode:
 		return episodeOps{}, nil
+	case commonv1.MediaKindAlbum:
+		return albumOps{}, nil
+	case commonv1.MediaKindBook:
+		return bookOps{}, nil
+	case commonv1.MediaKindAudiobook:
+		return audiobookOps{}, nil
+	case commonv1.MediaKindIssue:
+		return issueOps{}, nil
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedKind, kind)
 	}
@@ -123,6 +138,7 @@ func kindOpsFor(kind commonv1.MediaKind) (kindOps, error) {
 type movieOps struct{}
 
 func (movieOps) kind() commonv1.MediaKind { return commonv1.MediaKindMovie }
+func (movieOps) recordsPendingGrab() bool { return true }
 
 func (movieOps) get(ctx context.Context, c client.Client, ns, name string) (client.Object, error) {
 	var m catalogv1alpha1.Movie
@@ -175,6 +191,7 @@ func (movieOps) applyWorkerStatus(ctx context.Context, c client.Client, ns, name
 type episodeOps struct{}
 
 func (episodeOps) kind() commonv1.MediaKind { return commonv1.MediaKindEpisode }
+func (episodeOps) recordsPendingGrab() bool { return true }
 
 func (episodeOps) get(ctx context.Context, c client.Client, ns, name string) (client.Object, error) {
 	var ep catalogv1alpha1.Episode
@@ -253,10 +270,6 @@ func isZeroAttempts(a commonv1.Attempts) bool {
 // ownerReference and the subject of the release.grabbed event.
 func getTarget(ctx context.Context, c client.Client, ns string, ref commonv1.MediaRef) (client.Object, error) {
 	switch ref.Kind {
-	case commonv1.MediaKindMovie:
-		return movieOps{}.get(ctx, c, ns, ref.Name)
-	case commonv1.MediaKindEpisode:
-		return episodeOps{}.get(ctx, c, ns, ref.Name)
 	case commonv1.MediaKindSeries:
 		var s catalogv1alpha1.Series
 		if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: ref.Name}, &s); err != nil {
@@ -264,7 +277,12 @@ func getTarget(ctx context.Context, c client.Client, ns string, ref commonv1.Med
 		}
 		return &s, nil
 	default:
-		return nil, fmt.Errorf("%w: %s", ErrUnsupportedKind, ref.Kind)
+		// Every other grab target is its own status target.
+		ops, err := kindOpsFor(ref.Kind)
+		if err != nil {
+			return nil, err
+		}
+		return ops.get(ctx, c, ns, ref.Name)
 	}
 }
 
@@ -331,7 +349,8 @@ func updateWorkerStatus(ctx context.Context, c client.Client, ns string, st comm
 // six-hour floor, so every twelve-hourly sweep re-searches every still-wanted
 // item rather than following the documented 6h*2^n ladder.
 //
-// ref is the catalog item searched for -- movie or episode. A Series pack ref
+// ref is the catalog item searched for -- movie, episode, album, book,
+// audiobook or issue. A Series pack ref
 // is expanded to its Keys, so one interactive pack search stamps every episode
 // it covered. A missing object is not an error: it was deleted between the
 // search and this write, and there is nothing left to record against.

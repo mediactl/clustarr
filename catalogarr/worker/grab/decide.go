@@ -76,9 +76,8 @@ func Decide(
 		return performGrab(ctx, d, a.Namespace, a.Target, a.Keys, a.Release, a.GrabbedBy)
 	}
 
-	// Reject an unrepresentable target before touching the KV bucket: a kind
-	// with no PendingGrab status field cannot be delayed, and writing a
-	// pending entry nothing will ever read back is worse than refusing.
+	// Reject an ungrabbable target before touching the KV bucket: writing a
+	// pending entry nothing will ever grab is worse than refusing.
 	statusTargets, err := StatusTargets(a.Target, a.Keys)
 	if err != nil {
 		return err
@@ -125,10 +124,20 @@ func Decide(
 		GrabAt:       metav1.NewTime(grabAt),
 	}
 	for _, st := range statusTargets {
+		ops, err := kindOpsFor(st.Kind)
+		if err != nil {
+			return err
+		}
+		if !ops.recordsPendingGrab() {
+			// An Issue has nowhere to show the wait. The grab is still
+			// scheduled above and still happens; only the object's view
+			// of it is missing.
+			continue
+		}
 		// The whole worker-owned status set is re-declared, not just
 		// pendingGrab, and only if nothing wrote the object since it was
 		// read: see workerStatus and updateWorkerStatus.
-		err := updateWorkerStatus(ctx, d.Client, a.Namespace, st, func(ws *workerStatus) bool {
+		err = updateWorkerStatus(ctx, d.Client, a.Namespace, st, func(ws *workerStatus) bool {
 			ws.PendingGrab = pg
 			return true
 		})

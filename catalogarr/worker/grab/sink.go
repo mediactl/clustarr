@@ -119,7 +119,17 @@ func (s Sink) Deliver(
 
 	cfg, err := ResolveConfig(ctx, s.Deps.Client, ns, target)
 	if err != nil {
-		if apierrors.IsNotFound(err) || errors.Is(err, ErrUnsupportedKind) {
+		// Neither is worth a redelivery -- another search would get the
+		// same answer -- but neither is silent: an approved release is
+		// being dropped, and the log is the only place that says so.
+		switch {
+		case errors.Is(err, ErrUnsupportedKind):
+			log.Warn("grab: dropping an approved release; the grab path cannot grab this kind",
+				"kind", target.Kind, "release", best.Title, "error", err)
+			return nil
+		case apierrors.IsNotFound(err):
+			log.Warn("grab: dropping an approved release; the item or the container it inherits its profiles from is gone",
+				"kind", target.Kind, "release", best.Title, "error", err)
 			return nil
 		}
 		return err

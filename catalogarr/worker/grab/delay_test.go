@@ -84,8 +84,40 @@ func TestStatusTargets(t *testing.T) {
 			wantErr: ErrUnsupportedKind,
 		},
 		{
-			name:    "issue is out of M1 scope: IssueStatus has no PendingGrab",
-			target:  commonv1.MediaRef{Kind: commonv1.MediaKindIssue, Name: "x"},
+			name:   "album singleton",
+			target: commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: "radiohead-kid-a"},
+			want:   []commonv1.MediaRef{{Kind: commonv1.MediaKindAlbum, Name: "radiohead-kid-a"}},
+		},
+		{
+			name:   "book singleton",
+			target: commonv1.MediaRef{Kind: commonv1.MediaKindBook, Name: "dune"},
+			want:   []commonv1.MediaRef{{Kind: commonv1.MediaKindBook, Name: "dune"}},
+		},
+		{
+			name:   "audiobook singleton",
+			target: commonv1.MediaRef{Kind: commonv1.MediaKindAudiobook, Name: "guards-guards"},
+			want:   []commonv1.MediaRef{{Kind: commonv1.MediaKindAudiobook, Name: "guards-guards"}},
+		},
+		{
+			name:   "issue singleton, although IssueStatus has no pendingGrab",
+			target: commonv1.MediaRef{Kind: commonv1.MediaKindIssue, Name: "saga-00001.0"},
+			want:   []commonv1.MediaRef{{Kind: commonv1.MediaKindIssue, Name: "saga-00001.0"}},
+		},
+		{
+			name:    "an album with keys is not a pack shape",
+			target:  commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: "radiohead-kid-a"},
+			keys:    []string{"x"},
+			wantErr: ErrUnsupportedKind,
+		},
+		{
+			name:    "an artist is a container, never grabbed",
+			target:  commonv1.MediaRef{Kind: commonv1.MediaKindArtist, Name: "radiohead"},
+			wantErr: ErrUnsupportedKind,
+		},
+		{
+			name:    "a comic is a container, never grabbed",
+			target:  commonv1.MediaRef{Kind: commonv1.MediaKindComic, Name: "saga"},
+			keys:    []string{"saga-00001.0"},
 			wantErr: ErrUnsupportedKind,
 		},
 	}

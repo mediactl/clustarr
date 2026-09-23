@@ -28,11 +28,11 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 )
 
-// ErrUnsupportedKind is returned for a media kind this package cannot hold a
-// delayed grab for. M1's scope is movie plus episode/series: those are the
-// only kinds whose status carries a PendingGrab field, so a comic Issue or an
-// Album has nowhere to record "chosen, waiting out a delay" and is rejected
-// rather than silently grabbed without its delay profile.
+// ErrUnsupportedKind is returned for a grab target this package cannot grab
+// for: a container (Artist, Author, Comic) whose files belong to one of its
+// children, a Series with no episode keys, or keys on a kind that is not a
+// pack. Every kind that is one release's worth of content -- movie, episode,
+// album, book, audiobook, issue -- is supported.
 var ErrUnsupportedKind = errors.New("grab: unsupported media kind")
 
 // MediaKey is the <mediaKey> token for one catalog item: a thin adapter over
@@ -84,7 +84,8 @@ const packKeyHashLen = 10
 // StatusTargets expands a grab target into the catalog objects whose status
 // this grab touches.
 //
-// A movie or a single episode is its own status target. A season (or
+// A movie, a single episode, an album, a book, an audiobook or a comic issue
+// is its own status target and takes no keys. A season (or
 // multi-season) pack names the Series as its target and narrows to specific
 // episodes through keys, and every one of those episodes gets its own lease
 // and its own pendingGrab -- the Series itself has neither, so it is never a
@@ -95,7 +96,8 @@ const packKeyHashLen = 10
 // leases at all, defeating the double-grab guard entirely.
 func StatusTargets(target commonv1.MediaRef, keys []string) ([]commonv1.MediaRef, error) {
 	switch target.Kind {
-	case commonv1.MediaKindMovie, commonv1.MediaKindEpisode:
+	case commonv1.MediaKindMovie, commonv1.MediaKindEpisode,
+		commonv1.MediaKindAlbum, commonv1.MediaKindBook, commonv1.MediaKindAudiobook, commonv1.MediaKindIssue:
 		if len(keys) != 0 {
 			return nil, ErrUnsupportedKind
 		}
