@@ -1,0 +1,43 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+/* Input for `make css` (Makefile's css target). This file is NOT served --
+   the standalone tailwindcss CLI compiles it into ui/static/app.css, which
+   is what ui/views/layout.templ links and what ui/static.go embeds.
+
+   `source(none)` turns off Tailwind v4's automatic whole-project content
+   detection so the build stays scoped and deterministic instead of scanning
+   every .go file in the module (the vendored TRaSH corpus alone would make
+   that slow and would let classes from unrelated packages leak in). The
+   `@source` lines below are the explicit content paths, relative to this
+   file (their glob syntax is not spelled out literally in this comment: a
+   double-star-slash-star sequence would close this very comment block early,
+   the way it almost did here once already):
+
+     - every .templ file under ui/views, recursively -- the templates
+       themselves.
+     - every .go file under ui/views, recursively -- ui/views/helpers.go
+       builds some class strings by concatenation (stageBadgeClass's
+       "bg-red-500/20 text-red-300" and friends) rather than writing them as
+       templ attribute literals; the Tailwind scanner only sees literal
+       substrings, so those helper files must be a content path too or their
+       classes silently do not exist in app.css. This also re-scans the
+       generated _templ.go files, which is redundant with their .templ
+       source but harmless. */
+@import "tailwindcss" source(none);
+@source "../views/**/*.templ";
+@source "../views/**/*.go";

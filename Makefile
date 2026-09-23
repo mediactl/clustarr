@@ -48,6 +48,55 @@ generate: ## Generate DeepCopy and apply-configuration code.
 templ: ## Regenerate ui/views/*_templ.go from their .templ sources.
 	go run github.com/a-h/templ/cmd/templ@v0.3.1020 generate
 
+# Tailwind's standalone CLI is a platform binary, not a Go module -- Phase G
+# ruling R4 (docs/superpowers/plans/2026-09-23-phase-g-parity.md) is no Node
+# and no new Go dependency for a CSS build step. Pinned to v4.3.3 (the
+# standalone CLI's latest release as of 2026-09-23; there is no older LTS
+# line to track) with a sha256 recorded per asset below, verified against
+# that release's sha256sums.txt, so a corrupted or substituted download
+# fails loudly instead of silently changing the CSS that ui/static.go later
+# embeds. Like `templ`, this is a standalone target: `make build` never
+# invokes it, and the output (ui/static/app.css) is committed so a build
+# never needs the tailwindcss binary at all.
+TAILWINDCSS_VERSION ?= 4.3.3
+TAILWINDCSS ?= $(GOBIN)/tailwindcss-$(TAILWINDCSS_VERSION)
+TAILWINDCSS_OS := $(shell go env GOOS)
+TAILWINDCSS_ARCH := $(shell go env GOARCH)
+
+# Maps GOOS/GOARCH to the asset name tailwindlabs/tailwindcss publishes at
+# https://github.com/tailwindlabs/tailwindcss/releases/download/v$(TAILWINDCSS_VERSION)/<asset>
+# and to that asset's sha256. Only the platforms this project is built and
+# developed on are listed; an unlisted GOOS/GOARCH fails the target rather
+# than fetching an unverified binary.
+ifeq ($(TAILWINDCSS_OS)_$(TAILWINDCSS_ARCH),linux_amd64)
+TAILWINDCSS_ASSET := tailwindcss-linux-x64
+TAILWINDCSS_SHA256 := dc61b3ac6b8c9ca874c0cc4c57b2409791a64c5540404ca5f5367360babc313a
+else ifeq ($(TAILWINDCSS_OS)_$(TAILWINDCSS_ARCH),linux_arm64)
+TAILWINDCSS_ASSET := tailwindcss-linux-arm64
+TAILWINDCSS_SHA256 := 55fd0b241214eff3de1e8ee4f22796662f2d2e7a49bcfca7477cfd0bac398195
+else ifeq ($(TAILWINDCSS_OS)_$(TAILWINDCSS_ARCH),darwin_amd64)
+TAILWINDCSS_ASSET := tailwindcss-macos-x64
+TAILWINDCSS_SHA256 := 7922e0953f2110c05976e3bf58f14e643d90427575e766b7d433f5f80cbee7e1
+else ifeq ($(TAILWINDCSS_OS)_$(TAILWINDCSS_ARCH),darwin_arm64)
+TAILWINDCSS_ASSET := tailwindcss-macos-arm64
+TAILWINDCSS_SHA256 := cdf646702987a743464dff4d9c60fd4480d1c1e73dd819a9a67f1078815dce9d
+endif
+
+.PHONY: css
+css: ## Build ui/static/app.css with the standalone Tailwind CLI (downloads it into GOBIN if absent).
+	@if [ -z "$(TAILWINDCSS_ASSET)" ]; then \
+		echo "no pinned tailwindcss release asset for GOOS=$(TAILWINDCSS_OS) GOARCH=$(TAILWINDCSS_ARCH); add one to the Makefile"; \
+		exit 1; \
+	fi
+	@if [ ! -x "$(TAILWINDCSS)" ]; then \
+		echo "downloading tailwindcss v$(TAILWINDCSS_VERSION) ($(TAILWINDCSS_ASSET)) into $(TAILWINDCSS)"; \
+		curl -fsSL -o "$(TAILWINDCSS).tmp" "https://github.com/tailwindlabs/tailwindcss/releases/download/v$(TAILWINDCSS_VERSION)/$(TAILWINDCSS_ASSET)"; \
+		echo "$(TAILWINDCSS_SHA256)  $(TAILWINDCSS).tmp" | sha256sum -c -; \
+		chmod +x "$(TAILWINDCSS).tmp"; \
+		mv "$(TAILWINDCSS).tmp" "$(TAILWINDCSS)"; \
+	fi
+	$(TAILWINDCSS) -i ui/static/input.css -o ui/static/app.css -m
+
 # The service packages the RBAC role is derived from are scaffolded incrementally,
 # so the recipe only feeds controller-gen the RBAC_DIRS that exist; with none of
 # them present the rbac generator is skipped rather than failing the target.

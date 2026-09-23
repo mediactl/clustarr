@@ -50,9 +50,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package views holds the ui service's templ templates. Styling is Tailwind
 
-// utility classes loaded from the CDN for now; a bundled asset pipeline is
+// utility classes, compiled ahead of time by the standalone tailwindcss CLI
 
-// Phase G's job, not this skeleton's.
+// (Makefile's `css` target, Phase G ruling R4) into ui/static/app.css, which
+
+// is committed and served by ui.staticHandler via go:embed -- there is no
+
+// CDN and no Node involved at request time or at build time.
 
 package views
 
@@ -61,11 +65,14 @@ package views
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-// Layout is the page chrome every ui page renders inside: the Tailwind and
+// Layout is the page chrome every ui page renders inside: the stylesheet and
 // htmx script tags, a minimal header, and a <main> slot for the page's own
-// content. htmx and its SSE extension are loaded so a page can opt into live
-// updates (e.g. the Pipeline page's /events/pipeline stream) with plain
-// attributes and no page-specific JavaScript.
+// content. htmx and its SSE extension are vendored into ui/static/ (Phase G
+// ruling R4's implementer choice: it removes the UI's last external runtime
+// dependency, which matters for a cluster that may run without Internet
+// egress) and loaded from there so a page can opt into live updates (e.g.
+// the Pipeline page's /events/pipeline stream) with plain attributes and no
+// page-specific JavaScript.
 func Layout(title string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -94,13 +101,13 @@ func Layout(title string) templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 34, Col: 17}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 39, Col: 17}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " · Clustarr</title><script src=\"https://cdn.tailwindcss.com\"></script><script src=\"https://unpkg.com/htmx.org@2.0.4\"></script><script src=\"https://unpkg.com/htmx-ext-sse@2.2.2/sse.js\"></script></head><body class=\"min-h-screen bg-slate-950 text-slate-100\"><header class=\"flex items-center gap-6 border-b border-slate-800 px-6 py-4\"><a href=\"/pipeline\" class=\"text-lg font-semibold\">Clustarr</a><nav class=\"flex gap-4 text-sm text-slate-300\"><a href=\"/pipeline\" class=\"hover:text-slate-100\">Pipeline</a> <a href=\"/downloads\" class=\"hover:text-slate-100\">Downloads</a></nav></header><main class=\"p-6\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " · Clustarr</title><link rel=\"stylesheet\" href=\"/static/app.css\"><script src=\"/static/htmx.min.js\"></script><script src=\"/static/htmx-ext-sse.js\"></script></head><body class=\"min-h-screen bg-slate-950 text-slate-100\"><header class=\"flex items-center gap-6 border-b border-slate-800 px-6 py-4\"><a href=\"/pipeline\" class=\"text-lg font-semibold\">Clustarr</a><nav class=\"flex gap-4 text-sm text-slate-300\"><a href=\"/pipeline\" class=\"hover:text-slate-100\">Pipeline</a> <a href=\"/downloads\" class=\"hover:text-slate-100\">Downloads</a></nav></header><main class=\"p-6\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
