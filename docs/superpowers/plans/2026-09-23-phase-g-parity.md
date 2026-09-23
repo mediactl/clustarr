@@ -79,6 +79,13 @@ Audiobook (ASIN + region via Audnexus, optional `bookRef`) and a Book with no `a
 `importarr/worker/rescan/mediafile.go:86-88` refuses every RootFolder kind but movie with `unsupported_root_kind`. Extend attribution to the non-video kinds using `pkg/release`'s per-kind parsers and `pkg/naming`'s per-kind layouts (both already cover them), **under the never-guess rule** — unattributable files go to `LibraryScan.status.unmatched` with a reason. Manual import: the `catalog.clustarr.io/import-target` and `import-override` annotations from design §779, named there and implemented nowhere. Per **R3**, report whether non-video grab works with existing quality data.
 
 ### G2-5 — G2 wiring (SERIAL)
+
+**Duties accumulated for G2-5 — each required:**
+- **Register** the seven non-video reconcilers (album, artist, audiobook, author, book, comic, issue) and `importarr/worker/fileimport.Retrigger`, and **delete their eight `pendingWiring` lines** in `cmd/clustarr`'s registration test — each line *fails* the guard once its component is wired. Prove each does real work in `start_envtest_test.go`.
+- **Regenerate RBAC in a clean worktree** and sync the chart. G2-4's rescan and fileimport markers grant read on the seven non-video kinds; until regenerated, non-video rescan and import are **Forbidden on a real cluster**, which envtest cannot show.
+- **Thread `SampleMaxBytes`** (Q-2, `80e79da`): a field on `importarr.Options` defaulting to `fsops.DefaultSampleMaxBytes`; a `--sample-max-bytes` flag whose default is `defaults.SampleMaxBytes`, passed **explicitly** into the bare `importarr.Options{...}` literal in `services.go` RunE — unthreaded, the field is 0 and the rule is **silently off**; then `worker.SampleMaxBytes = o.SampleMaxBytes` after each `NewWorker` in `setupWorkers`. **Do not set it to 0 in `config/e2e`**: the fixtures are deliberately ≥50 MiB (`tiny.mkv` is ~57 MiB, asserted in the Dockerfile), so no scenario needs it, and 0 would mean e2e never exercises the default.
+- Fix `ManagerCatalogarrFanout`'s doc comment in `pkg/k8s/fieldmanager.go`, which still says Artist, Author and Comic fan out onto Album, Book and Issue — only Comic→Issue uses it (settled by G2-1, `f665aa9`).
+- Doc fixes G2-4 found: `DownloadSpec.Manual`'s comment describes monitored/minimum-availability checks the importer never had; `LibraryScanSpec.Subpath` says "one directory" but manual assignment uses it for a file. Both are CRD description text — regenerate after editing.
 As G1-5, for every new catalogarr controller.
 
 ## G3 — UI
