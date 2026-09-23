@@ -24,25 +24,42 @@ import (
 )
 
 // PickMediaFile chooses the MediaFile a catalog item's status should
-// reflect, out of every MediaFile whose spec.mediaRef points at it: the one
-// flagged Original, else the most recently created, else nil. Movie and
+// reflect, out of every MediaFile whose spec.mediaRef points at it: the most
+// recently created of those flagged Original, else the most recently created
+// of all, else nil; a creation-time tie goes to the greater name. Movie and
 // Episode both call this on the result of their own field-indexed List --
 // per the C6 controller amendment, the selection logic lives once here
 // rather than as two verbatim copies.
+//
+// The choice must not depend on list order. spec.original defaults to true,
+// so two freshly imported files for one item -- an upgrade whose importer
+// has not yet removed the file it replaces -- are both flagged, and this
+// used to return whichever the cache listed first. The item's fileRef then
+// flapped between the two from one reconcile to the next, and since the
+// gap-fix wave each flap is a mediafile.replaced event in the item's history.
 func PickMediaFile(items []catalogv1alpha1.MediaFile) *catalogv1alpha1.MediaFile {
-	if len(items) == 0 {
-		return nil
-	}
+	var best, bestOriginal *catalogv1alpha1.MediaFile
 	for i := range items {
-		if ptr.Deref(items[i].Spec.Original, false) {
-			return &items[i]
+		mf := &items[i]
+		if newer(mf, best) {
+			best = mf
+		}
+		if ptr.Deref(mf.Spec.Original, false) && newer(mf, bestOriginal) {
+			bestOriginal = mf
 		}
 	}
-	best := &items[0]
-	for i := 1; i < len(items); i++ {
-		if items[i].CreationTimestamp.After(best.CreationTimestamp.Time) {
-			best = &items[i]
-		}
+	if bestOriginal != nil {
+		return bestOriginal
 	}
 	return best
+}
+
+func newer(a, b *catalogv1alpha1.MediaFile) bool {
+	if b == nil {
+		return true
+	}
+	if !a.CreationTimestamp.Equal(&b.CreationTimestamp) {
+		return a.CreationTimestamp.After(b.CreationTimestamp.Time)
+	}
+	return a.Name > b.Name
 }

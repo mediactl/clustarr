@@ -58,4 +58,31 @@ func TestPickMediaFile(t *testing.T) {
 		require.NotNil(t, got)
 		assert.Equal(t, "newer", got.Name)
 	})
+
+	// spec.original defaults to true, so two freshly imported files are both
+	// flagged. The pick must not follow list order, or the item's fileRef
+	// flaps between them from one reconcile (and one cache listing) to the
+	// next.
+	t.Run("two files flagged Original: the newest, whatever the list order", func(t *testing.T) {
+		older := metav1.NewTime(time.Now().Add(-time.Hour))
+		newer := metav1.NewTime(time.Now())
+		a := catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "older", CreationTimestamp: older}, Spec: catalogv1alpha1.MediaFileSpec{Original: ptr.To(true)}}
+		b := catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "newer", CreationTimestamp: newer}, Spec: catalogv1alpha1.MediaFileSpec{Original: ptr.To(true)}}
+		for _, items := range [][]catalogv1alpha1.MediaFile{{a, b}, {b, a}} {
+			got := rollup.PickMediaFile(items)
+			require.NotNil(t, got)
+			assert.Equal(t, "newer", got.Name)
+		}
+	})
+
+	t.Run("a creation-time tie goes to the greater name, whatever the list order", func(t *testing.T) {
+		at := metav1.NewTime(time.Now())
+		a := catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "a", CreationTimestamp: at}}
+		b := catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "b", CreationTimestamp: at}}
+		for _, items := range [][]catalogv1alpha1.MediaFile{{a, b}, {b, a}} {
+			got := rollup.PickMediaFile(items)
+			require.NotNil(t, got)
+			assert.Equal(t, "b", got.Name)
+		}
+	})
 }

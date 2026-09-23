@@ -19,9 +19,12 @@ package movie_test
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"os"
+	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -29,6 +32,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
@@ -138,9 +142,8 @@ func startManager(t *testing.T, ctx context.Context, cfg *rest.Config, bus event
 // mixing a manually invoked Reconcile with an auto-wired controller racing
 // the SAME newly-created (finalizer-less) object is a genuine hazard -- both
 // would call k8s.EnsureFinalizer's plain, optimistic-concurrency Update
-// concurrently, and the loser gets a 409 conflict. The two field indices
-// registered here must stay in sync with movie.Reconciler.SetupWithManager's
-// own registration.
+// concurrently, and the loser gets a 409 conflict. The field indices come
+// from movie.RegisterIndexes, the same call SetupWithManager makes.
 func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.Client {
 	t.Helper()
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
@@ -150,22 +153,7 @@ func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &catalogv1alpha1.MediaFile{}, ".spec.mediaRef.movie",
-		func(o client.Object) []string {
-			mf, ok := o.(*catalogv1alpha1.MediaFile)
-			if !ok || mf.Spec.MediaRef.Kind != commonv1.MediaKindMovie {
-				return nil
-			}
-			return []string{mf.Spec.MediaRef.Name}
-		}))
-	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &catalogv1alpha1.Movie{}, ".status.activeDownloadRef",
-		func(o client.Object) []string {
-			m, ok := o.(*catalogv1alpha1.Movie)
-			if !ok || m.Status.ActiveDownloadRef == nil {
-				return nil
-			}
-			return []string{*m.Status.ActiveDownloadRef}
-		}))
+	require.NoError(t, movie.RegisterIndexes(ctx, mgr.GetFieldIndexer()))
 
 	go func() { _ = mgr.Start(ctx) }()
 	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))
@@ -240,8 +228,6 @@ func testQualityProfile(ns, name string, tierQualities ...string) *catalogv1alph
 func downloadStatusAC(name, ns string, phase downloadv1alpha1.DownloadPhase) *downloadac.DownloadApplyConfiguration {
 	return downloadac.Download(name, ns).WithStatus(downloadac.DownloadStatus().WithPhase(phase))
 }
-
-func strPtr(s string) *string { return &s }
 
 // fakePublisher is a tiny local Publisher that always returns err, used to
 // prove the QueueFull path without spinning up a DiscardNew membus stream.
@@ -688,9 +674,16 @@ func TestMovieReconcilerRealController(t *testing.T) {
 			"the phase column must not read CutoffUnmet for a file never ranked against a cutoff")
 	})
 
-	// A watched Download rolls up Phase=Downloading and clears
-	// ActiveDownloadRef on a terminal phase (§Step 22).
-	t.Run("Download watch rolls up Downloading and clears the ref on a terminal phase", func(t *testing.T) {
+	// Ruling R-5: this reconciler is the only writer of
+	// status.activeDownloadRef, deriving it from the Movie's own non-terminal
+	// Download. The Download is created the way the grab path creates one --
+	// a server-side apply under k8s.ManagerCatalogarrGrab carrying an
+	// ownerReference to the Movie -- and NOTHING writes the ref: the grab
+	// worker's old write is gone, so the ref can only come from the Download
+	// watch and the derivation. managedFields then proves the handover, not
+	// just the value: a stray co-owner would leave every value assertion
+	// passing (CLAUDE.md, "A double-claim is silent").
+	t.Run("an owned Download sets and clears activeDownloadRef with no grab-worker write, and only catalogarr owns it", func(t *testing.T) {
 		m := &catalogv1alpha1.Movie{
 			ObjectMeta: metav1.ObjectMeta{Name: "arrival", Namespace: "avail-ns"},
 			Spec: catalogv1alpha1.MovieSpec{
@@ -699,46 +692,24 @@ func TestMovieReconcilerRealController(t *testing.T) {
 			},
 		}
 		require.NoError(t, c.Create(ctx, m))
-		waitForPhase(t, ctx, c, "avail-ns", "arrival")
+		live := waitForPhase(t, ctx, c, "avail-ns", "arrival")
+		require.Nil(t, live.Status.ActiveDownloadRef, "setup: no Download exists yet")
 
-		dl := &downloadv1alpha1.Download{
-			ObjectMeta: metav1.ObjectMeta{Name: "arrival-abc1234567", Namespace: "avail-ns"},
-			Spec: downloadv1alpha1.DownloadSpec{
-				Protocol: commonv1.ProtocolTorrent,
-				Source:   downloadv1alpha1.DownloadSource{MagnetURL: strPtr("magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567")},
-				Release: commonv1.ReleaseInfo{
-					GUID: "https://indexer.example/1", IndexerRef: "example", IndexerName: "Example",
-					Title: "Arrival.2016.1080p", Protocol: commonv1.ProtocolTorrent,
-					InfoHash: "0123456789abcdef0123456789abcdef01234567",
-				},
-				Target: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "arrival"},
-			},
-		}
-		require.NoError(t, c.Create(ctx, dl))
+		dl := grabPathDownload(t, ctx, c, &live, "arrival-abc1234567")
 
-		refAC := catalogac.Movie(m.Name, m.Namespace).WithStatus(
-			catalogac.MovieStatus().WithActiveDownloadRef(dl.Name),
-		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, refAC)
-		require.NoError(t, err)
-		// mapDownload's reverse lookup depends on the movieByActiveDownloadRef
-		// field index, which is populated from the CACHE's view of
-		// status.activeDownloadRef; wait for the cache to observe this write
-		// before changing the Download's phase, or the Download's watch event
-		// can fire before the index knows to map it back to "arrival" at all.
+		var got catalogv1alpha1.Movie
 		require.Eventually(t, func() bool {
-			var got catalogv1alpha1.Movie
 			if err := c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: "arrival"}, &got); err != nil {
 				return false
 			}
-			return got.Status.ActiveDownloadRef != nil && *got.Status.ActiveDownloadRef == dl.Name
-		}, 5*time.Second, 10*time.Millisecond)
+			return got.Status.ActiveDownloadRef != nil
+		}, 5*time.Second, 20*time.Millisecond, "a new owned Download must reach the ref through the Download watch alone")
+		assert.Equal(t, dl, *got.Status.ActiveDownloadRef)
+		assert.Equal(t, []string{k8s.ManagerCatalogarr.String()}, statusFieldOwners(t, &got, "activeDownloadRef"),
+			"status.activeDownloadRef must have exactly one owner, the Movie reconciler")
 
-		dlAC := downloadStatusAC(dl.Name, dl.Namespace, downloadv1alpha1.DownloadPhaseAssigned)
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, dlAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC(dl, "avail-ns", downloadv1alpha1.DownloadPhaseAssigned))
 		require.NoError(t, err)
-
-		var got catalogv1alpha1.Movie
 		require.Eventually(t, func() bool {
 			if err := c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: "arrival"}, &got); err != nil {
 				return false
@@ -746,19 +717,105 @@ func TestMovieReconcilerRealController(t *testing.T) {
 			return got.Status.Phase == catalogv1alpha1.MoviePhaseDownloading
 		}, 5*time.Second, 20*time.Millisecond)
 		require.NotNil(t, got.Status.ActiveDownloadRef)
-		assert.Equal(t, dl.Name, *got.Status.ActiveDownloadRef)
+		assert.Equal(t, dl, *got.Status.ActiveDownloadRef)
 
-		dlAC = downloadStatusAC(dl.Name, dl.Namespace, downloadv1alpha1.DownloadPhaseCompleted)
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, dlAC)
+		// Completed is waiting for importarr, not done: the phase overlay lets
+		// go (DownloadOverlay has no opinion past the transfer), but the ref
+		// stays, so nothing reads the item as having no download at all.
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC(dl, "avail-ns", downloadv1alpha1.DownloadPhaseCompleted))
 		require.NoError(t, err)
-
 		require.Eventually(t, func() bool {
 			if err := c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: "arrival"}, &got); err != nil {
 				return false
 			}
 			return got.Status.Phase != catalogv1alpha1.MoviePhaseDownloading
 		}, 5*time.Second, 20*time.Millisecond)
-		assert.Nil(t, got.Status.ActiveDownloadRef, "a terminal Download phase must clear the ref")
+		require.NotNil(t, got.Status.ActiveDownloadRef, "a Completed Download is still the item's active download")
+		assert.Equal(t, dl, *got.Status.ActiveDownloadRef)
+
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC(dl, "avail-ns", downloadv1alpha1.DownloadPhaseImported))
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: "arrival"}, &got); err != nil {
+				return false
+			}
+			return got.Status.ActiveDownloadRef == nil
+		}, 5*time.Second, 20*time.Millisecond, "an Imported Download must clear the ref")
+		assert.Empty(t, statusFieldOwners(t, &got, "activeDownloadRef"), "a cleared ref leaves no owner behind")
+
+		// The phase edges were reported as Events through the real recorder.
+		require.Eventually(t, func() bool {
+			return hasEvent(ctx, c, "avail-ns", "arrival", string(catalogv1alpha1.MoviePhaseDownloading))
+		}, 5*time.Second, 50*time.Millisecond, "the Downloading edge must be reported as an Event on the Movie")
+	})
+
+	// The two ways a Download must NOT become the ref: it belongs to a
+	// different Movie of the same name (a deleted predecessor the garbage
+	// collector has not reached), or it is terminal from the start.
+	t.Run("a Download owned by another object, or already terminal, never sets the ref", func(t *testing.T) {
+		m := &catalogv1alpha1.Movie{
+			ObjectMeta: metav1.ObjectMeta{Name: "sicario", Namespace: "avail-ns"},
+			Spec: catalogv1alpha1.MovieSpec{
+				TmdbID: 273481, QualityProfileRef: "none", RootFolderRef: "movies-root",
+				MinimumAvailability: catalogv1alpha1.MinimumAvailabilityTBA,
+			},
+		}
+		require.NoError(t, c.Create(ctx, m))
+		live := waitForPhase(t, ctx, c, "avail-ns", "sicario")
+
+		// A stranger: same target name, owner UID of some other object.
+		stranger := live.DeepCopy()
+		stranger.UID = "00000000-0000-0000-0000-000000000000"
+		grabPathDownload(t, ctx, c, stranger, "sicario-stranger01")
+
+		terminal := grabPathDownload(t, ctx, c, &live, "sicario-failed0001")
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC(terminal, "avail-ns", downloadv1alpha1.DownloadPhaseFailed))
+		require.NoError(t, err)
+
+		require.Never(t, func() bool {
+			var got catalogv1alpha1.Movie
+			if err := c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: "sicario"}, &got); err != nil {
+				return false
+			}
+			return got.Status.ActiveDownloadRef != nil
+		}, time.Second, 50*time.Millisecond)
+	})
+
+	// The DLQ projector's annotation is folded into a DeadLettered
+	// condition, on an object already in its steady state, and removing the
+	// annotation removes the condition -- without releasing anything else
+	// this manager owns.
+	t.Run("the dead-lettered annotation folds into a DeadLettered condition and back out", func(t *testing.T) {
+		before := waitForPhase(t, ctx, c, "avail-ns", "arrival")
+		require.NotEmpty(t, before.Status.Phase)
+
+		patch := client.MergeFrom(before.DeepCopy())
+		if before.Annotations == nil {
+			before.Annotations = map[string]string{}
+		}
+		before.Annotations[k8s.AnnotationDeadLettered] = "clustarr.work.catalogarr.search.high.x@2026-09-23T12:00:00Z"
+		require.NoError(t, c.Patch(ctx, &before, patch))
+
+		var got catalogv1alpha1.Movie
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: "arrival"}, &got); err != nil {
+				return false
+			}
+			return k8s.IsConditionTrue(got.Status.Conditions, k8s.ConditionDeadLettered)
+		}, 5*time.Second, 20*time.Millisecond, "an annotation-only change must reach the reconcile and become a condition")
+		assert.Equal(t, before.Status.Phase, got.Status.Phase, "folding the condition must not release the phase")
+		assert.Equal(t, before.Status.ObservedGeneration, got.Status.ObservedGeneration)
+		assert.True(t, got.Status.AddOptionsApplied)
+
+		patch = client.MergeFrom(got.DeepCopy())
+		delete(got.Annotations, k8s.AnnotationDeadLettered)
+		require.NoError(t, c.Patch(ctx, &got, patch))
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: "arrival"}, &got); err != nil {
+				return false
+			}
+			return k8s.FindCondition(got.Status.Conditions, k8s.ConditionDeadLettered) == nil
+		}, 5*time.Second, 20*time.Millisecond, "removing the annotation must remove the condition")
 	})
 
 	// This is the concrete proof that the Movie predicate (GenerationChanged
@@ -828,6 +885,73 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		}, 500*time.Millisecond, 20*time.Millisecond,
 			"this controller's own status patch must not re-trigger itself")
 	})
+}
+
+// grabPathDownload creates a Download for owner the way the grab path does:
+// one server-side apply under k8s.ManagerCatalogarrGrab, carrying an
+// ownerReference to the Movie and nothing on the Movie itself. It returns
+// the Download's name.
+func grabPathDownload(t *testing.T, ctx context.Context, c client.Client, owner *catalogv1alpha1.Movie, name string) string {
+	t.Helper()
+	ref, err := k8s.OwnerReferenceAC(owner, k8s.MustNewScheme())
+	require.NoError(t, err)
+	dl := downloadac.Download(name, owner.Namespace).
+		WithOwnerReferences(ref).
+		WithSpec(downloadac.DownloadSpec().
+			WithProtocol(commonv1.ProtocolTorrent).
+			WithSource(downloadac.DownloadSource().WithMagnetURL("magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567")).
+			WithRelease(commonv1.ReleaseInfo{
+				GUID: "https://indexer.example/" + name, IndexerRef: "example", IndexerName: "Example",
+				Title: "Fixture.2016.1080p", Protocol: commonv1.ProtocolTorrent,
+				InfoHash: "0123456789abcdef0123456789abcdef01234567",
+			}).
+			WithTarget(commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: owner.Name}))
+	_, err = k8s.Apply(ctx, c, k8s.ManagerCatalogarrGrab, dl)
+	require.NoError(t, err)
+	return name
+}
+
+// statusFieldOwners returns the field managers whose status-subresource
+// managedFields entry claims f:status.f:<field> on obj, sorted. This is the
+// one place an over-claim is visible at all: pkg/k8s forces ownership, so a
+// second writer never raises a conflict (CLAUDE.md, "A double-claim is
+// silent").
+func statusFieldOwners(t *testing.T, obj client.Object, field string) []string {
+	t.Helper()
+	var owners []string
+	for _, e := range obj.GetManagedFields() {
+		if e.FieldsV1 == nil {
+			continue
+		}
+		var fields map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(e.FieldsV1.GetRawBytes(), &fields))
+		raw, ok := fields["f:status"]
+		if !ok {
+			continue
+		}
+		var status map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(raw, &status))
+		if _, ok := status["f:"+field]; ok {
+			owners = append(owners, e.Manager)
+		}
+	}
+	sort.Strings(owners)
+	return owners
+}
+
+// hasEvent reports whether an events.k8s.io/v1 Event with reason regards
+// the named Movie -- what `kubectl describe movie` shows.
+func hasEvent(ctx context.Context, c client.Client, ns, name, reason string) bool {
+	var list eventsv1.EventList
+	if err := c.List(ctx, &list, client.InNamespace(ns)); err != nil {
+		return false
+	}
+	for _, e := range list.Items {
+		if e.Regarding.Kind == "Movie" && e.Regarding.Name == name && e.Reason == reason {
+			return true
+		}
+	}
+	return false
 }
 
 // newBareTestClient starts its own envtest apiserver and returns a plain
@@ -1206,4 +1330,158 @@ func TestMovieReconcilerAvailabilityAndPath(t *testing.T) {
 		assert.False(t, got.Status.Available)
 		assert.Equal(t, catalogv1alpha1.MoviePhaseUnavailable, got.Status.Phase)
 	})
+}
+
+// recordingPublisher records every subject and envelope id it is asked to
+// publish, in order.
+type recordingPublisher struct {
+	mu       sync.Mutex
+	subjects []string
+	ids      []string
+}
+
+func (p *recordingPublisher) Publish(_ context.Context, subject string, e *events.Envelope, _ ...events.PublishOption) (events.Receipt, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.subjects = append(p.subjects, subject)
+	p.ids = append(p.ids, e.ID)
+	return events.Receipt{}, nil
+}
+
+// catalogSubjects returns the recorded clustarr.evt.catalog.* subjects with
+// the trailing uid token cut off, in order, so a test can compare them
+// without knowing the Movie's UID -- one per distinct envelope id, which is
+// what the EVENTS stream keeps: a reconcile reading a cache that has not yet
+// seen its own last apply re-observes the same edge and republishes the
+// same id, and the stream's duplicate window drops the copy.
+func (p *recordingPublisher) catalogSubjects() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var out []string
+	seen := map[string]bool{}
+	for i, s := range p.subjects {
+		if !strings.HasPrefix(s, "clustarr.evt.catalog.") || seen[p.ids[i]] {
+			continue
+		}
+		seen[p.ids[i]] = true
+		out = append(out, s[:strings.LastIndex(s, ".")])
+	}
+	return out
+}
+
+// TestMovieReconcilerPublishesCatalogEvents drives one Movie through its
+// whole life by direct Reconcile calls and asserts the catalog domain events
+// it publishes, in order: added on the first reconcile, the file imported,
+// updated on a spec edit, the file replaced by a newer one, the file
+// deleted, and the Movie deleted. Each is published under one envelope id
+// however many times the reconcile runs between edges, because the id is a
+// function of the edge, not of the reconcile that saw it.
+func TestMovieReconcilerPublishesCatalogEvents(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfg := newTestConfig(t)
+	c := startCacheOnly(t, ctx, cfg)
+	const ns = "events-ns"
+	require.NoError(t, c.Create(ctx, testNamespace(ns)))
+	require.NoError(t, c.Create(ctx, testRootFolder(ns, "movies-root", "/data/media/movies")))
+	require.NoError(t, c.Create(ctx, testQualityProfile(ns, "events-1080p", "Bluray-1080p")))
+
+	pub := &recordingPublisher{}
+	rec := k8sevents.NewFakeRecorder(64)
+	r := &movie.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: rec, Bus: pub}
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: "heat"}}
+
+	m := &catalogv1alpha1.Movie{
+		ObjectMeta: metav1.ObjectMeta{Name: "heat", Namespace: ns},
+		Spec: catalogv1alpha1.MovieSpec{
+			TmdbID: 949, QualityProfileRef: "events-1080p", RootFolderRef: "movies-root",
+			MinimumAvailability: catalogv1alpha1.MinimumAvailabilityTBA,
+		},
+	}
+	require.NoError(t, c.Create(ctx, m))
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Movie(m.Name, ns).WithStatus(
+		catalogac.MovieStatus().WithMetadata(catalogac.MovieMetadata().WithTitle("Heat").WithYear(1995).
+			WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).WithRefreshedAt(metav1.Now()))))
+	require.NoError(t, err)
+	waitForCachedMetadata(t, ctx, c, ns, "heat")
+
+	reconcileUntil := func(what string, cond func(catalogv1alpha1.Movie) bool) {
+		t.Helper()
+		require.Eventually(t, func() bool {
+			if _, err := r.Reconcile(ctx, req); err != nil {
+				return false
+			}
+			var got catalogv1alpha1.Movie
+			return c.Get(ctx, req.NamespacedName, &got) == nil && cond(got)
+		}, 10*time.Second, 50*time.Millisecond, what)
+	}
+
+	reconcileUntil("first reconcile", func(got catalogv1alpha1.Movie) bool { return got.Status.AddOptionsApplied })
+	// A second pass over the same state announces nothing new.
+	_, err = r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"clustarr.evt.catalog.movie.added"}, pub.catalogSubjects())
+
+	bluray := commonv1.Quality{Name: "Bluray-1080p", Resolution: 1080, Source: commonv1.SourceBluray, Modifier: commonv1.ModifierNone}
+	first := &catalogv1alpha1.MediaFile{
+		ObjectMeta: metav1.ObjectMeta{Name: "heat-first00001", Namespace: ns},
+		Spec: catalogv1alpha1.MediaFileSpec{
+			MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "heat"},
+			Path:     "/data/media/movies/Heat (1995)/Heat.mkv", Quality: bluray,
+		},
+	}
+	require.NoError(t, c.Create(ctx, first))
+	reconcileUntil("the first file", func(got catalogv1alpha1.Movie) bool {
+		return got.Status.FileRef != nil && *got.Status.FileRef == first.Name
+	})
+
+	var live catalogv1alpha1.Movie
+	require.NoError(t, c.Get(ctx, req.NamespacedName, &live))
+	patch := client.MergeFrom(live.DeepCopy())
+	live.Spec.Tags = []string{"edited"}
+	require.NoError(t, c.Patch(ctx, &live, patch))
+	reconcileUntil("the spec edit", func(got catalogv1alpha1.Movie) bool {
+		return got.Generation > 1 && got.Status.ObservedGeneration == got.Generation
+	})
+
+	// PickMediaFile takes the newest of the files flagged Original (both
+	// are: spec.original defaults to true); creation timestamps have
+	// one-second resolution, so wait one out.
+	time.Sleep(1100 * time.Millisecond)
+	second := first.DeepCopy()
+	second.ObjectMeta = metav1.ObjectMeta{Name: "heat-second0001", Namespace: ns}
+	second.Spec.Path = "/data/media/movies/Heat (1995)/Heat.2160p.mkv"
+	require.NoError(t, c.Create(ctx, second))
+	reconcileUntil("the replacement", func(got catalogv1alpha1.Movie) bool {
+		return got.Status.FileRef != nil && *got.Status.FileRef == second.Name
+	})
+
+	require.NoError(t, c.Delete(ctx, first))
+	require.NoError(t, c.Delete(ctx, second))
+	reconcileUntil("the file removal", func(got catalogv1alpha1.Movie) bool { return got.Status.FileRef == nil })
+
+	require.NoError(t, c.Delete(ctx, &catalogv1alpha1.Movie{ObjectMeta: metav1.ObjectMeta{Name: "heat", Namespace: ns}}))
+	require.Eventually(t, func() bool {
+		var got catalogv1alpha1.Movie
+		return c.Get(ctx, req.NamespacedName, &got) == nil && k8s.IsDeleting(&got)
+	}, 5*time.Second, 20*time.Millisecond)
+	_, err = r.Reconcile(ctx, req)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{
+		"clustarr.evt.catalog.movie.added",
+		"clustarr.evt.catalog.mediafile.imported",
+		"clustarr.evt.catalog.movie.updated",
+		"clustarr.evt.catalog.mediafile.replaced",
+		"clustarr.evt.catalog.mediafile.deleted",
+		"clustarr.evt.catalog.movie.deleted",
+	}, pub.catalogSubjects())
+
+	// The recorder saw the phase edges, Wanted -> Imported and back.
+	var notes []string
+	for len(rec.Events) > 0 {
+		notes = append(notes, <-rec.Events)
+	}
+	assert.Contains(t, notes, "Normal Imported phase Wanted -> Imported")
+	assert.Contains(t, notes, "Normal Wanted phase Imported -> Wanted")
 }

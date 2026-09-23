@@ -22,7 +22,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // Movie is the sole writer of status.phase, status.hasFile, status.fileRef,
 // status.fileQuality, status.fileFormatScore, status.cutoffMet and
-// status.activeDownloadRef (§3's single-writer rule); status.metadata
-// belongs to the metadata gateway (Task C5, field manager
-// k8s.ManagerCatalogarrMetadata) and this package never writes it.
+// status.activeDownloadRef (§3's single-writer rule; for the ref, gap-fix
+// ruling R-5, derived from the Movie's own non-terminal Downloads);
+// status.metadata belongs to the metadata gateway (Task C5, field manager
+// k8s.ManagerCatalogarrMetadata) and this package never writes it. It folds
+// the DLQ projector's clustarr.io/dead-lettered annotation into a
+// DeadLettered condition, emits Kubernetes Events on phase and failure
+// edges, and publishes the catalog item and media-file domain events the
+// history sink records (report.go).
 package movie
