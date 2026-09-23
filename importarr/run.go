@@ -169,6 +169,18 @@ type Options struct {
 	// cmd/clustarr's --sample-max-bytes does.
 	SampleMaxBytes int64
 
+	// TraktBaseURL and PlexBaseURL point the import lists' Trakt and Plex
+	// providers somewhere other than their public APIs (--trakt-base-url,
+	// --plex-base-url). Empty is each provider's own default
+	// (trakt.DefaultBaseURL, Plex Discover). The Trakt one reaches BOTH
+	// halves that talk to Trakt -- the ImportList controller's device-code
+	// flow and the list worker's watchlist sync and token refresh -- so a
+	// device authorization and the syncs it authorizes always name the
+	// same host. They exist for the in-cluster fixture config/e2e deploys
+	// (a cluster with no egress) and for an operator behind a mirror.
+	TraktBaseURL string
+	PlexBaseURL  string
+
 	// Logging configures this process's root logger. The zero value is a
 	// reasonable default: JSON to stderr at info level.
 	Logging logging.Options
@@ -346,8 +358,6 @@ func DataReadyChecker(path string) healthz.Checker {
 // (amendment §A1.2, §A1.3, §A1.6; §16 M1). Each call is the one its package's
 // doc.go prescribes.
 func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
-	_ = o
-
 	if err := (&libraryscan.Reconciler{
 		Client: mgr.GetClient(),
 		Bus:    bus,
@@ -381,12 +391,8 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	// Trakt's device-code flow, and is the sole writer of ImportList.status,
 	// which it projects from the list worker's clustarr-progress checkpoint
 	// below. HTTPClient and Clock are left nil on purpose: both default
-	// (http.DefaultClient, bounded by the reconcile context; time.Now), and
-	// TraktBaseURL is a test seam.
-	if err := (&importlistctrl.Reconciler{
-		Client: mgr.GetClient(),
-		Bus:    bus,
-	}).SetupWithManager(mgr); err != nil {
+	// (http.DefaultClient, bounded by the reconcile context; time.Now).
+	if err := newImportListReconciler(mgr.GetClient(), bus, o).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("importarr: importlist: %w", err)
 	}
 
@@ -410,10 +416,9 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 // scan, fileimport and list.
 //
 // The list worker creates Movie and Series only today; a spec.kinds entry
-// naming a non-video kind is skipped with a logged reason (see
-// importarr/worker/importlist's syncKind). G2's non-video controllers are
-// registered in catalogarr now, so that skip is the list worker's own
-// unbuilt path, not a missing controller.
+// naming a kind its provider cannot yield is refused at admission (R-10),
+// and one it can yield but no catalog writer exists for fails on status
+// (importarr/worker/importlist's syncKind), rather than being skipped.
 //
 // Both file-reading workers get o.SampleMaxBytes through [newScanWorker] and
 // [newImportWorker]; see Options.SampleMaxBytes.
@@ -488,7 +493,7 @@ func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if !ok {
 		return fmt.Errorf("importarr: consumer %s missing from topology", events.ConsumerImportList)
 	}
-	listWorker := importlist.NewWorker(mgr.GetClient(), bus)
+	listWorker := newListWorker(mgr.GetClient(), bus, o)
 	listSub := listSpec.Subscription()
 	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		stop, err := bus.Subscribe(ctx, listSub, listWorker.Handle)
@@ -502,6 +507,18 @@ func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		return fmt.Errorf("importarr: add %s consumer: %w", events.ConsumerImportList, err)
 	}
 
+	// The recycle-bin sweeper (task X7a built it, X14 wires it): the one
+	// consumer of RootFolder.spec.recycleBin.cleanupDays, emptying each bin
+	// of the dated folders past retention. It reads and deletes under /data,
+	// so it runs here on the worker role -- the importarr controller
+	// Deployment mounts no /data -- and on every replica: a sweep only
+	// removes date-named folders past retention, so two replicas racing on
+	// one folder cost a harmless second RemoveAll, and a leader lease would
+	// buy nothing but a replica that never sweeps.
+	if err := mgr.Add(k8s.EveryReplica(fileimport.NewRecycleSweeper(mgr.GetClient()).Run)); err != nil {
+		return fmt.Errorf("importarr: add the recycle-bin sweeper: %w", err)
+	}
+
 	return nil
 }
 
@@ -513,6 +530,22 @@ func newScanWorker(c client.Client, bus events.Bus, o Options) *rescan.Worker {
 	w := rescan.NewWorker(c, bus)
 	w.SampleMaxBytes = o.SampleMaxBytes
 	return w
+}
+
+// newListWorker builds the work.importarr.list handler with o's Trakt and
+// Plex base URLs; see Options.TraktBaseURL.
+func newListWorker(c client.Client, bus events.Bus, o Options) *importlist.Worker {
+	w := importlist.NewWorker(c, bus)
+	w.TraktBaseURL = o.TraktBaseURL
+	w.PlexBaseURL = o.PlexBaseURL
+	return w
+}
+
+// newImportListReconciler builds the ImportList controller with o's Trakt
+// base URL, the same host newListWorker gives the list worker, so the
+// device-code flow it drives authorizes the host the syncs then reach.
+func newImportListReconciler(c client.Client, bus events.Bus, o Options) *importlistctrl.Reconciler {
+	return &importlistctrl.Reconciler{Client: c, Bus: bus, TraktBaseURL: o.TraktBaseURL}
 }
 
 // newImportWorker builds the work.importarr.fileimport handler with o's

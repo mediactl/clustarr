@@ -59,3 +59,26 @@ func TestWorkersGetTheSampleSizeFloor(t *testing.T) {
 func TestDefaultOptionsTurnTheSampleSizeFloorOn(t *testing.T) {
 	require.Equal(t, fsops.DefaultSampleMaxBytes, DefaultOptions().SampleMaxBytes)
 }
+
+// TestImportListsGetTheirBaseURLs holds the second link of the
+// --trakt-base-url/--plex-base-url wiring: Options reach the list worker
+// (watchlist syncs and token refresh) and the ImportList controller (the
+// device-code flow), and the Trakt host is the same one in both, so a
+// device authorization and the syncs it authorizes name one host.
+// cmd/clustarr's TestImportarrListBaseURLsReachTheOptions holds the first,
+// the flag to Options. Unset is the providers' own public default.
+func TestImportListsGetTheirBaseURLs(t *testing.T) {
+	o := Options{TraktBaseURL: "http://trakt.fixture:8080", PlexBaseURL: "http://plex.fixture:8080"}
+
+	w := newListWorker(nil, nil, o)
+	require.Equal(t, o.TraktBaseURL, w.TraktBaseURL, "the list worker did not get Options.TraktBaseURL")
+	require.Equal(t, o.PlexBaseURL, w.PlexBaseURL, "the list worker did not get Options.PlexBaseURL")
+
+	r := newImportListReconciler(nil, nil, o)
+	require.Equal(t, o.TraktBaseURL, r.TraktBaseURL,
+		"the ImportList controller's device flow did not get Options.TraktBaseURL")
+
+	d := newListWorker(nil, nil, DefaultOptions())
+	require.Empty(t, d.TraktBaseURL, "an unset Trakt base URL must leave the provider's own default")
+	require.Empty(t, d.PlexBaseURL, "an unset Plex base URL must leave the provider's own default")
+}
