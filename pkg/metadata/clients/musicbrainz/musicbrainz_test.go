@@ -382,3 +382,33 @@ func TestArtistRejectsMalformedResponseBodies(t *testing.T) {
 		})
 	}
 }
+
+// TestAlbumStopsAfterASinglePageThatHoldsEveryRelease: release-count equal
+// to what one page returned ends the browse. The fixture is also the one a
+// stub server can answer any release browse with (the paging pair above
+// needs offset routing).
+func TestAlbumStopsAfterASinglePageThatHoldsEveryRelease(t *testing.T) {
+	rg, err := os.ReadFile("../../../../testdata/metadata/musicbrainz/releasegroup_the_bends.json")
+	require.NoError(t, err)
+	page, err := os.ReadFile("../../../../testdata/metadata/musicbrainz/browse_releases_the_bends.json")
+	require.NoError(t, err)
+	var browses int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/release/" {
+			browses++
+			_, _ = w.Write(page)
+			return
+		}
+		_, _ = w.Write(rg)
+	}))
+	defer srv.Close()
+	c, err := musicbrainz.New("Clustarr/0.1 (https://github.com/mediactl/clustarr)", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+	require.NoError(t, err)
+
+	album, err := c.Album(context.Background(), theBendsMBID)
+
+	require.NoError(t, err)
+	require.Equal(t, 1, browses)
+	require.Len(t, album.Releases, 3)
+}
