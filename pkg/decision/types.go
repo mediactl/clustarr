@@ -34,7 +34,7 @@ import (
 // exists -- see Disagreement 3.
 //
 // Transcoded is true when the file is transcoded
-// (catalogarr/controller/rollup.Transcoded, the one place the rule lives): a
+// (catalogv1alpha1.(*MediaFile).Transcoded, the one place the rule lives): a
 // transcoded file is final, so Evaluate rejects every candidate of an
 // automatic decision against it (ReasonTranscodedFinal) and leaves only a
 // user-invoked one to the ordinary checks.

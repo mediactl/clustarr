@@ -204,7 +204,8 @@ func episodeAvailable(e *catalogv1alpha1.Episode, now time.Time) bool {
 // engine's Current. Quality, revision, format score and matched formats are
 // read from MediaFileSpec, not status: spec §8.4 freezes the decided fields on
 // spec at import time and MediaFileStatus carries none of them. Transcoded
-// is rollup.Transcoded's verdict, the one place that rule lives.
+// is rollup.Transcoded's verdict (catalogv1alpha1.(*MediaFile).Transcoded,
+// the one place that rule lives).
 //
 // SourceHash has no MediaFile-side source -- a torrent's info hash lives on
 // the Download that produced the file -- so it is resolved from

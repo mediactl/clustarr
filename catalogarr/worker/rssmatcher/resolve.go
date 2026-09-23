@@ -91,9 +91,9 @@ type resolveState struct {
 // (hasFile/fileQuality/fileFormatScore) rather than from the MediaFile, and
 // the already-imported source hash and title are not resolved. The one fact
 // read from the MediaFile itself is whether it is transcoded, because
-// rollup.Transcoded is the one place that rule lives and it reads the file:
-// a transcoded file is final, and the RSS path is the likeliest automatic
-// grab of all.
+// that rule (rollup.Transcoded, over catalogv1alpha1.(*MediaFile).Transcoded)
+// reads the file: a transcoded file is final, and the RSS path is the
+// likeliest automatic grab of all.
 // (reconciled by controller -- Task C12): once
 // catalogarr/worker/search exports its snapshot builder, this should call it
 // instead, so an RSS decision and a search decision see byte-identical input.

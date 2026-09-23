@@ -28,43 +28,16 @@ import (
 // file is final and so counts as meeting any cutoff.
 const ReasonTranscoded = "Transcoded"
 
-// Transcoded reports whether mf is a transcoded file. This is the one place
-// the rule lives; the Movie and Episode phases, the cutoff, the search
-// worker's and the RSS matcher's decision input all read it from here.
-//
-// The owner's rule (CLAUDE.md, "Transcoding"): a transcoded media file is the
-// final destination. Its item reads Transcoded, never CutoffUnmet; it counts
-// as meeting the cutoff; the wanted sweep never selects it; and the decision
-// engine rejects every automatic upgrade of it (decision.ReasonTranscodedFinal),
-// leaving only a user's interactive grab.
-//
-// A file is transcoded when either holds:
-//
-//   - spec.original is false: catalogarr incorporated a transcode swap and
-//     took the file over (spec §8.5). It stays false for good, so a re-mux
-//     that later strips the tag does not make the file upgradeable again.
-//   - status.mediaInfo.transcodeProfile is set: the file carries squasharr's
-//     CLUSTARR_PROFILE container tag, read by the probe. This is what
-//     recognises a library file an earlier install transcoded, found by a
-//     rescan, whose MediaFile starts life with spec.original true.
-//
-// status.transcode.profileTag deliberately does not count. A
-// replaceSource=false transcode records it on the SOURCE's MediaFile (so
-// squasharr does not plan the same derived copy again) while this MediaFile's
-// own bytes stay the untouched original, which is still upgradeable.
-//
-// A nil mf is not transcoded. Only video kinds are ever transcoded (squasharr
-// selects movie and episode MediaFiles), so for every other kind this is
-// false in practice; it does not test the kind, because a tag on a file is
-// evidence whatever kind it backs.
+// Transcoded reports whether mf is a transcoded file: catalogarr's name for
+// catalogv1alpha1.(*MediaFile).Transcoded, where the rule itself lives, beside
+// the type, so importarr's completed-download import reads the same predicate
+// without importing catalogarr. The Movie and Episode phases, the cutoff, the
+// search worker's and the RSS matcher's decision input all read it through
+// here; that method's doc comment is the rule (CLAUDE.md, "Transcoding"):
+// spec.original false, or the probe's status.mediaInfo.transcodeProfile, and
+// never status.transcode.profileTag. A nil mf is not transcoded.
 func Transcoded(mf *catalogv1alpha1.MediaFile) bool {
-	if mf == nil {
-		return false
-	}
-	if mf.Spec.Original != nil && !*mf.Spec.Original {
-		return true
-	}
-	return mf.Status.MediaInfo != nil && mf.Status.MediaInfo.TranscodeProfile != ""
+	return mf.Transcoded()
 }
 
 // TranscodedObject is [Transcoded] over a client.Object, for a watch
