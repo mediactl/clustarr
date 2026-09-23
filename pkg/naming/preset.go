@@ -24,19 +24,27 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
-const movieFileTemplate = "{Movie CleanTitle} ({Release Year}) - {[Quality Full]}{-Release Group}"
+// Every optional token in a preset carries its own separator or brackets
+// inside its braces, so an empty one takes them with it (render.go's
+// splitWrapper; TRaSH's own formats write "{Movie CleanTitle} {(Release
+// Year)}" for the same reason). Identity tokens -- titles, names, provider
+// ids, season/episode/track/issue numbers -- stay literal: the CRDs require
+// the provider ids, and a controller renders a path only once the metadata
+// carrying the rest is in. pkg/naming's emptytoken_test.go holds every
+// preset to this in all four dialects.
+const movieFileTemplate = "{Movie CleanTitle}{ (Release Year)}{ - [Quality Full]}{-Release Group}"
 
 // movieFolderTemplate is the per-dialect default for MovieFolder.
 func movieFolderTemplate(d Dialect) string {
 	switch d {
 	case DialectPlex:
-		return "{Movie CleanTitle} ({Release Year}) {tmdb-{TmdbId}}"
+		return "{Movie CleanTitle}{ (Release Year)} {tmdb-{TmdbId}}"
 	case DialectEmby:
-		return "{Movie CleanTitle} ({Release Year}) [tmdb-{TmdbId}]"
+		return "{Movie CleanTitle}{ (Release Year)} [tmdb-{TmdbId}]"
 	case DialectKodi:
-		return "{Movie CleanTitle} ({Release Year})"
+		return "{Movie CleanTitle}{ (Release Year)}"
 	default: // Jellyfin
-		return "{Movie CleanTitle} ({Release Year}) [tmdbid-{TmdbId}]"
+		return "{Movie CleanTitle}{ (Release Year)} [tmdbid-{TmdbId}]"
 	}
 }
 
@@ -51,7 +59,9 @@ func (e Engine) MovieFile(c Context) (string, error) {
 	return e.Render(e.overrideOr(TokenMovieFile, movieFileTemplate), c)
 }
 
-const audiobookFolderTemplate = "{Author Name}/{Book Series}/{Book SeriesPosition} - {Release Year} - {Book Title}{ Narrator}"
+// audiobookFolderTemplate's "{Book Series}" segment is optional too: an
+// empty one is dropped as a path segment (render.go's dropEmptySegments).
+const audiobookFolderTemplate = "{Author Name}/{Book Series}/{Book SeriesPosition - }{Release Year - }{Book Title}{ Narrator}"
 
 // BuildFolder is the generic, MediaKind-dispatching entry point covering
 // every commonv1.MediaKind, additive to the nine spec-named Engine methods
@@ -79,7 +89,7 @@ func (e Engine) BuildFolder(kind commonv1.MediaKind, c Context) (string, error) 
 		if err != nil {
 			return "", err
 		}
-		album, err := e.Render(e.overrideOr(TokenAlbumFolder, "{Album Title} ({Release Year})"), c)
+		album, err := e.Render(e.overrideOr(TokenAlbumFolder, "{Album Title}{ (Release Year)}"), c)
 		if err != nil {
 			return "", err
 		}

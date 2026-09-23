@@ -67,6 +67,7 @@ func (e Engine) Render(tmpl string, c Context) (string, error) {
 	if errOut != nil {
 		return "", errOut
 	}
+	out = dropEmptySegments(out)
 	// Lidarr/Readarr-style global post-processing: replaceSpaces/separator,
 	// then an overall case transform, both applied to the fully rendered
 	// path, not per-token.
@@ -82,21 +83,56 @@ func (e Engine) Render(tmpl string, c Context) (string, error) {
 	return out, nil
 }
 
+// Wrapper characters. docs/research/naming.md §A2 documents the rule -- "a
+// token wrapped in extra characters is emitted only when non-empty" -- but
+// not the character set; this one is Radarr's and Lidarr's FileNameBuilder
+// TitleRegex (prefix [- ._[(]*, suffix [- ._)\]]*), as DeepWiki reads their
+// source, unverified by a research note. A token may carry a run of them on
+// either side of its name, and the whole run is emitted only when the token
+// renders non-empty. That is how an optional token takes its separator or brackets
+// with it: "{ (Release Year)}", "{ - Episode CleanTitle:90}",
+// "{Release Year - }", "{-Release Group}".
+const (
+	wrapperPrefixChars = "- ._[("
+	wrapperSuffixChars = "- ._)]"
+)
+
 func splitWrapper(spec string) (prefix, name, suffix string) {
 	name = spec
-	if len(name) > 0 {
-		switch name[0] {
-		case '-', '[', '(', ' ':
-			prefix, name = string(name[0]), name[1:]
-		}
+	i := 0
+	for i < len(name) && strings.IndexByte(wrapperPrefixChars, name[i]) >= 0 {
+		i++
 	}
-	if len(name) > 0 {
-		switch name[len(name)-1] {
-		case ']', ')':
-			suffix, name = string(name[len(name)-1]), name[:len(name)-1]
-		}
+	prefix, name = name[:i], name[i:]
+	j := len(name)
+	for j > 0 && strings.IndexByte(wrapperSuffixChars, name[j-1]) >= 0 {
+		j--
 	}
+	suffix, name = name[j:], name[:j]
 	return prefix, name, suffix
+}
+
+// dropEmptySegments removes every empty (or blank) '/'-segment from a
+// rendered path, keeping a leading '/' if there was one. A multi-segment
+// template whose middle segment is an optional token --
+// "{Author Name}/{Book Series}/..." with no series -- otherwise renders
+// "Author//...", which is no folder at all.
+func dropEmptySegments(s string) string {
+	if !strings.Contains(s, "/") {
+		return s
+	}
+	parts := strings.Split(s, "/")
+	kept := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if strings.TrimSpace(p) != "" {
+			kept = append(kept, p)
+		}
+	}
+	out := strings.Join(kept, "/")
+	if strings.HasPrefix(s, "/") {
+		out = "/" + out
+	}
+	return out
 }
 
 func splitModifier(name string) (base string, pad, trunc int) {

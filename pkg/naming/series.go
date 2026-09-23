@@ -23,9 +23,9 @@ import (
 )
 
 const (
-	episodeFileStandardTemplate = "{Series CleanTitleWithoutYear} ({Series Year}) - S{season:00}E{episode:00} - {Episode CleanTitle:90} {[Quality Full]}{-Release Group}"
-	episodeFileAnimeTemplate    = "{Series CleanTitleWithoutYear} ({Series Year}) - S{season:00}E{episode:00} - {absolute:000} - {Episode CleanTitle:90} {[Quality Full]}{-Release Group}"
-	episodeFileDailyTemplate    = "{Series CleanTitleWithoutYear} ({Series Year}) - {Air-Date} - {Episode CleanTitle:90} {[Quality Full]}{-Release Group}"
+	episodeFileStandardTemplate = "{Series CleanTitleWithoutYear}{ (Series Year)} - S{season:00}E{episode:00}{ - Episode CleanTitle:90}{ [Quality Full]}{-Release Group}"
+	episodeFileAnimeTemplate    = "{Series CleanTitleWithoutYear}{ (Series Year)} - S{season:00}E{episode:00} - {absolute:000}{ - Episode CleanTitle:90}{ [Quality Full]}{-Release Group}"
+	episodeFileDailyTemplate    = "{Series CleanTitleWithoutYear}{ (Series Year)} - {Air-Date}{ - Episode CleanTitle:90}{ [Quality Full]}{-Release Group}"
 )
 
 // formatAbsoluteRange joins anime absolute episode numbers, following the
@@ -143,12 +143,12 @@ func (e Engine) SeriesFolder(c Context) (string, error) {
 func seriesFolderTemplate(d Dialect) string {
 	switch d {
 	case DialectPlex:
-		return "{Series CleanTitleWithoutYear} ({Series Year}) {tvdb-{TvdbId}}"
+		return "{Series CleanTitleWithoutYear}{ (Series Year)} {tvdb-{TvdbId}}"
 	case DialectEmby:
-		return "{Series CleanTitleWithoutYear} ({Series Year}) [tvdb-{TvdbId}]"
+		return "{Series CleanTitleWithoutYear}{ (Series Year)} [tvdb-{TvdbId}]"
 	case DialectKodi:
-		return "{Series CleanTitleWithoutYear} ({Series Year})"
+		return "{Series CleanTitleWithoutYear}{ (Series Year)}"
 	default: // Jellyfin
-		return "{Series CleanTitleWithoutYear} ({Series Year}) [tvdbid-{TvdbId}]"
+		return "{Series CleanTitleWithoutYear}{ (Series Year)} [tvdbid-{TvdbId}]"
 	}
 }

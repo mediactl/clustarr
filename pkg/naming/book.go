@@ -19,7 +19,7 @@ package naming
 
 const (
 	bookFileTemplate      = "{Book Title}/{Author Name}"
-	audiobookFileTemplate = "{Author Name}/{Book Series}/{Book SeriesPosition} - {Release Year} - {Book Title}{ Narrator}"
+	audiobookFileTemplate = "{Author Name}/{Book Series}/{Book SeriesPosition - }{Release Year - }{Book Title}{ Narrator}"
 )
 
 // BookFile renders the book file path, including the book-title segment

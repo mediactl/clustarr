@@ -178,3 +178,28 @@ func TestRenderMalformedInput(t *testing.T) {
 		})
 	}
 }
+
+// TestRenderWrapperTakesARunOfSeparatorCharacters: a wrapper is a run of
+// the *arr grammar's prefix characters ([- ._[(]) and suffix characters
+// ([- ._)\]]), not one character, so an optional token can carry " - " or
+// " (" and drop it with itself.
+func TestRenderWrapperTakesARunOfSeparatorCharacters(t *testing.T) {
+	e := naming.NewEngine(naming.Config{})
+	for _, tc := range []struct {
+		tmpl string
+		c    naming.Context
+		want string
+	}{
+		{"{Movie Title}{ - Release Group}", naming.Context{Title: "Heat", ReleaseGroup: "RlsGrp"}, "Heat - RlsGrp"},
+		{"{Movie Title}{ - Release Group}", naming.Context{Title: "Heat"}, "Heat"},
+		{"{Movie Title}{ (Release Year)}", naming.Context{Title: "Heat", Year: 1995}, "Heat (1995)"},
+		{"{Movie Title}{ (Release Year)}", naming.Context{Title: "Heat"}, "Heat"},
+		{"{Release Year - }{Movie Title}", naming.Context{Title: "Heat", Year: 1995}, "1995 - Heat"},
+		{"{Release Year - }{Movie Title}", naming.Context{Title: "Heat"}, "Heat"},
+		{"{Movie Title}/{Edition Tags}/x", naming.Context{Title: "Heat"}, "Heat/x"},
+	} {
+		got, err := e.Render(tc.tmpl, tc.c)
+		require.NoError(t, err, tc.tmpl)
+		require.Equal(t, tc.want, got, tc.tmpl)
+	}
+}

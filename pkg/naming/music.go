@@ -20,7 +20,7 @@ package naming
 // trackFileTemplate includes the album-folder segment: Lidarr's own
 // convention is that the track format is album-relative, so TrackFile
 // returns a path, not a bare filename.
-const trackFileTemplate = "{Album Title} ({Release Year})/{Artist Name} - {Album Title} - {track:00} - {Track Title}"
+const trackFileTemplate = "{Album Title}{ (Release Year)}/{Artist Name} - {Album Title} - {track:00}{ - Track Title}"
 
 // TrackFile renders an album-relative track path (Lidarr convention).
 func (e Engine) TrackFile(c Context) (string, error) {
