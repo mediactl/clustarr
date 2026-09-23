@@ -470,7 +470,9 @@ func TestArgsGoldenHDR10PlusDroppedCPU(t *testing.T) {
 
 // TestArgsGoldenRemuxContainerMKVToMP4: note §6, remuxing an already
 // compliant video/audio pair from mkv into mp4 tags the hevc stream hvc1,
-// sets +faststart, and drops the bitmap (PGS) subtitle mp4 cannot carry.
+// sets +faststart and +use_metadata_tags in one -movflags (without the
+// second, the mp4 muxer drops the CLUSTARR_PROFILE tag), and drops the
+// bitmap (PGS) subtitle mp4 cannot carry.
 func TestArgsGoldenRemuxContainerMKVToMP4(t *testing.T) {
 	profile := defaultProfile()
 	profile.Container = transcode.ContainerMP4
@@ -494,5 +496,14 @@ func TestArgsGoldenRemuxContainerMKVToMP4(t *testing.T) {
 	require.Empty(t, plan.Subtitles, "mp4 cannot carry PGS subtitles")
 	require.Equal(t, "/media/movies/Example (2019)/Example (2019).part.mp4", plan.Output)
 
-	assertGolden(t, "remux_container_mkv_to_mp4", transcode.Args(plan))
+	args := transcode.Args(plan)
+	assertGolden(t, "remux_container_mkv_to_mp4", args)
+	var movflags []string
+	for i, a := range args {
+		if a == "-movflags" && i+1 < len(args) {
+			movflags = append(movflags, args[i+1])
+		}
+	}
+	require.Equal(t, []string{"+faststart+use_metadata_tags"}, movflags,
+		"one -movflags, both flags joined: use_metadata_tags is what keeps CLUSTARR_PROFILE in an mp4")
 }

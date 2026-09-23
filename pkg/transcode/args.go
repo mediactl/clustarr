@@ -36,8 +36,8 @@ func ArgsHash(plan *PlanResult) string {
 // Args renders plan into the exact, deterministic ffmpeg argv (global
 // flags, HWInit, -i, Maps, Filters, VideoArgs, one -c:a:N/-metadata:s:a:N
 // block per Audio entry, subtitle/attachment codec flags, the
-// CLUSTARR_PROFILE tag, -f <container> <Output>). A Skip or Reject
-// decision returns nil (no ffmpeg invocation).
+// CLUSTARR_PROFILE tag, -movflags for mp4, -f <container> <Output>). A
+// Skip or Reject decision returns nil (no ffmpeg invocation).
 func Args(plan *PlanResult) []string {
 	if plan == nil || plan.Decision == DecisionSkip || plan.Decision == DecisionReject {
 		return nil
@@ -81,10 +81,32 @@ func Args(plan *PlanResult) []string {
 		args = append(args, "-metadata", "CLUSTARR_PROFILE="+tag)
 	}
 
-	if plan.Container == ContainerMP4 {
-		args = append(args, "-movflags", "+faststart")
+	if flags := movFlags(plan.Container); flags != "" {
+		args = append(args, "-movflags", flags)
 	}
 
 	args = append(args, "-f", containerFormatName(plan.Container), plan.Output)
 	return args
+}
+
+// movFlags is the one -movflags value an output container gets: every mp4
+// muxer flag "+"-joined into a single option, so the argv (and its golden)
+// states the muxer's whole flag set in one place. Empty for a container that
+// is not mp4.
+//
+//   - +faststart moves the moov atom to the front, so a player can start
+//     before the whole file is read.
+//   - +use_metadata_tags makes the mp4 muxer write arbitrary global tags.
+//     Without it the muxer keeps only the iTunes-style keys it knows and
+//     drops CLUSTARR_PROFILE without a word, so a rescan could never
+//     recognise the file as transcoded -- the tag is how the probe
+//     (pkg/mediainfo, status.mediaInfo.transcodeProfile) and squasharr's
+//     already-tagged check see an earlier transcode. The cost: the muxer
+//     then writes every global tag as an mdta key, the title included,
+//     rather than as an iTunes atom (©nam).
+func movFlags(c Container) string {
+	if c != ContainerMP4 {
+		return ""
+	}
+	return "+faststart+use_metadata_tags"
 }

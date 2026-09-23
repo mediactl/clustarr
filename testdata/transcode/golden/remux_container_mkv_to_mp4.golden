@@ -37,7 +37,7 @@ copy
 -metadata
 CLUSTARR_PROFILE=hevc10-aac-space@abc12345
 -movflags
-+faststart
++faststart+use_metadata_tags
 -f
 mp4
 /media/movies/Example (2019)/Example (2019).part.mp4
