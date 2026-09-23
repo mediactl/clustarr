@@ -74,3 +74,26 @@ func TestScanTaskRejectsAForeignSchemaHeader(t *testing.T) {
 	var out schema.ScanTask
 	assert.Error(t, schema.Decode("importarr.ScanTask.v2", data, &out))
 }
+
+func TestListTaskEncodeDecodeRoundTrip(t *testing.T) {
+	in := schema.ListTask{
+		ListRef: schema.Ref{Namespace: "media", Name: "trakt-watchlist", UID: "u1"},
+	}
+	name, data, err := schema.Encode(in)
+	require.NoError(t, err)
+	assert.Equal(t, "importarr.ListTask.v1", name)
+
+	var out schema.ListTask
+	require.NoError(t, schema.Decode(name, data, &out))
+	assert.Equal(t, in, out)
+}
+
+// A ListTask must never be decoded from a message carrying another payload's
+// schema header, same as ScanTask above.
+func TestListTaskRejectsAForeignSchemaHeader(t *testing.T) {
+	_, data, err := schema.Encode(schema.ListTask{ListRef: schema.Ref{Name: "trakt-watchlist"}})
+	require.NoError(t, err)
+
+	var out schema.ListTask
+	assert.Error(t, schema.Decode("importarr.ListTask.v2", data, &out))
+}

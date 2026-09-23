@@ -60,6 +60,7 @@ func allPayloads() []schema.Payload {
 		schema.SubtitleEvent{},
 		schema.FetchTask{},
 		schema.ScanTask{},
+		schema.ListTask{},
 	}
 }
 

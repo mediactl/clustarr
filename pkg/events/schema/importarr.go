@@ -50,3 +50,33 @@ type ScanTask struct {
 
 // Schema implements Payload.
 func (ScanTask) Schema() string { return "importarr.ScanTask.v1" }
+
+// ListTask asks the import-list worker to sync one ImportList. Subject:
+// clustarr.work.importarr.list.<importlist>, built by events.WorkListSubject
+// and consumed by ConsumerImportList ("importarr-list", amendment §A1.6).
+//
+// This is deliberately not catalog.ImportListTask, the older struct in
+// catalog.go for clustarr.work.catalogarr.importlist.normal.<uid>. That
+// subject predates amendment-1, which moved ImportList's sole controller
+// from catalogarr to importarr (§A1.3); nothing in the topology ever wired
+// a consumer for it under its intended meaning, and ConsumerImportList /
+// FilterImportList / WorkListSubject (subjects.go, topology.go) are the
+// ones amendment §A1.6 actually names. ListTask follows ScanTask's
+// "importarr." schema prefix rather than catalog.go's "catalog." one for
+// the same reason: this payload belongs to importarr, not catalogarr.
+//
+// The ImportList controller is the sole writer of ImportList.status (see
+// k8s.ManagerImportarr's doc comment); the worker never patches it
+// directly. Like LibraryScan/ScanTask, the worker instead checkpoints its
+// result to a clustarr-progress key (see the importlist worker package's
+// Result type) that the controller polls and projects into status -- so a
+// task carries only the reference the worker needs to look the object back
+// up, nothing the worker would otherwise have to report back through the
+// apiserver.
+type ListTask struct {
+	// ListRef is the ImportList to sync.
+	ListRef Ref `json:"listRef"`
+}
+
+// Schema implements Payload.
+func (ListTask) Schema() string { return "importarr.ListTask.v1" }
