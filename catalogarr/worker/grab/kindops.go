@@ -24,6 +24,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
@@ -33,30 +34,41 @@ import (
 )
 
 // workerStatus is the COMPLETE set of status fields
-// k8s.ManagerCatalogarrGrab owns on a Movie or an Episode: spec §2's
-// field-manager table assigns the grab path activeDownloadRef, pendingGrab,
-// lastSearchedAt and searchAttempts, and nothing else on those kinds. It
-// never carries status.phase, which is the Movie/Episode reconciler's under
+// k8s.ManagerCatalogarrGrab owns on a Movie or an Episode: pendingGrab,
+// lastSearchedAt and searchAttempts, and nothing else on those kinds. It never
+// carries status.phase, which is the Movie/Episode reconciler's under
 // k8s.ManagerCatalogarr, or status.metadata, which is the gateway's under
 // k8s.ManagerCatalogarrMetadata.
 //
-// It is a value type rather than four separate patch methods because
-// server-side apply replaces a field manager's ownership set on every apply
-// instead of merging it. A patch that sent only pendingGrab would RELEASE
-// activeDownloadRef, lastSearchedAt and searchAttempts -- which reads as
-// "reset to zero" on the object. The only safe shape is: read the live
-// object, take the whole owned set off it, change the one thing this call
-// means to change, and re-declare all four.
+// Nor does it carry status.activeDownloadRef. Spec §2's field-manager table
+// once gave that field to this manager too, while the reconcilers also wrote
+// it; under ForceOwnership its ownership migrated to whichever applied last,
+// and the reconciler's "omit to clear on a terminal Download" only worked
+// while it happened to hold the field. Gap-fix ruling R-5 gives it one writer,
+// the reconciler, deriving it from the item's non-terminal Download. This
+// package no longer sends it -- so its first apply after that change releases
+// whatever this manager still owned of it, and the reconciler re-derives it --
+// and its double-grab guard looks the Downloads up itself (see
+// guardExistingDownloads) instead of reading the ref.
+//
+// It is a value type rather than separate patch methods because server-side
+// apply replaces a field manager's ownership set on every apply instead of
+// merging it. A patch that sent only pendingGrab would RELEASE lastSearchedAt
+// and searchAttempts -- which reads as "reset to zero" on the object. The
+// only safe shape is updateWorkerStatus's: read the live object, take the
+// whole owned set off it, change the one thing this call means to change, and
+// re-declare all of it, conditional on nothing having written the object in
+// between.
 //
 // Anything else writing these fields under k8s.ManagerCatalogarrGrab must go
-// through the same read-modify-declare cycle. Sending a subset is a data-loss
-// bug that no test on a freshly created object can observe, because a blank
-// object has nothing to release.
+// through updateWorkerStatus. Sending a subset is a data-loss bug that no test
+// on a freshly created object can observe, because a blank object has nothing
+// to release; declaring the set from a stale read is a lost update that no
+// release test can observe either.
 type workerStatus struct {
-	ActiveDownloadRef *string
-	PendingGrab       *catalogv1alpha1.PendingGrab
-	LastSearchedAt    *metav1.Time
-	SearchAttempts    commonv1.Attempts
+	PendingGrab    *catalogv1alpha1.PendingGrab
+	LastSearchedAt *metav1.Time
+	SearchAttempts commonv1.Attempts
 }
 
 // grabContext is the configuration governing a grab for one catalog item.
@@ -86,14 +98,15 @@ type kindOps interface {
 	workerStatus(obj client.Object) workerStatus
 
 	// applyWorkerStatus declares the whole worker-owned set under
-	// k8s.ManagerCatalogarrGrab. It never sends status.phase: Phase is
+	// k8s.ManagerCatalogarrGrab, conditional on the object still being at
+	// resourceVersion. It never sends status.phase: Phase is
 	// k8s.ManagerCatalogarr's, recomputed by the Movie/Episode reconciler
-	// from the fields written here.
-	applyWorkerStatus(ctx context.Context, c client.Client, ns, name string, ws workerStatus) error
+	// from the fields written here. Only updateWorkerStatus calls it.
+	applyWorkerStatus(ctx context.Context, c client.Client, ns, name, resourceVersion string, ws workerStatus) error
 }
 
 // kindOpsFor returns the operations for a status-target kind. Only movie and
-// episode have a PendingGrab/ActiveDownloadRef status to write, which is what
+// episode have a PendingGrab status to write, which is what
 // bounds M1's scope; a Series is a grab TARGET but never a status target, so
 // it is not here (see StatusTargets).
 func kindOpsFor(kind commonv1.MediaKind) (kindOps, error) {
@@ -137,18 +150,14 @@ func (movieOps) workerStatus(obj client.Object) workerStatus {
 		return workerStatus{}
 	}
 	return workerStatus{
-		ActiveDownloadRef: m.Status.ActiveDownloadRef,
-		PendingGrab:       m.Status.PendingGrab,
-		LastSearchedAt:    m.Status.LastSearchedAt,
-		SearchAttempts:    m.Status.SearchAttempts,
+		PendingGrab:    m.Status.PendingGrab,
+		LastSearchedAt: m.Status.LastSearchedAt,
+		SearchAttempts: m.Status.SearchAttempts,
 	}
 }
 
-func (movieOps) applyWorkerStatus(ctx context.Context, c client.Client, ns, name string, ws workerStatus) error {
+func (movieOps) applyWorkerStatus(ctx context.Context, c client.Client, ns, name, resourceVersion string, ws workerStatus) error {
 	status := catalogac.MovieStatus()
-	if ws.ActiveDownloadRef != nil {
-		status = status.WithActiveDownloadRef(*ws.ActiveDownloadRef)
-	}
 	if ws.PendingGrab != nil {
 		status = status.WithPendingGrab(pendingGrabAC(ws.PendingGrab))
 	}
@@ -159,7 +168,7 @@ func (movieOps) applyWorkerStatus(ctx context.Context, c client.Client, ns, name
 		status = status.WithSearchAttempts(ws.SearchAttempts)
 	}
 	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab,
-		catalogac.Movie(name, ns).WithStatus(status))
+		catalogac.Movie(name, ns).WithResourceVersion(resourceVersion).WithStatus(status))
 	return err
 }
 
@@ -202,18 +211,14 @@ func (episodeOps) workerStatus(obj client.Object) workerStatus {
 		return workerStatus{}
 	}
 	return workerStatus{
-		ActiveDownloadRef: ep.Status.ActiveDownloadRef,
-		PendingGrab:       ep.Status.PendingGrab,
-		LastSearchedAt:    ep.Status.LastSearchedAt,
-		SearchAttempts:    ep.Status.SearchAttempts,
+		PendingGrab:    ep.Status.PendingGrab,
+		LastSearchedAt: ep.Status.LastSearchedAt,
+		SearchAttempts: ep.Status.SearchAttempts,
 	}
 }
 
-func (episodeOps) applyWorkerStatus(ctx context.Context, c client.Client, ns, name string, ws workerStatus) error {
+func (episodeOps) applyWorkerStatus(ctx context.Context, c client.Client, ns, name, resourceVersion string, ws workerStatus) error {
 	status := catalogac.EpisodeStatus()
-	if ws.ActiveDownloadRef != nil {
-		status = status.WithActiveDownloadRef(*ws.ActiveDownloadRef)
-	}
 	if ws.PendingGrab != nil {
 		status = status.WithPendingGrab(pendingGrabAC(ws.PendingGrab))
 	}
@@ -224,7 +229,7 @@ func (episodeOps) applyWorkerStatus(ctx context.Context, c client.Client, ns, na
 		status = status.WithSearchAttempts(ws.SearchAttempts)
 	}
 	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab,
-		catalogac.Episode(name, ns).WithStatus(status))
+		catalogac.Episode(name, ns).WithResourceVersion(resourceVersion).WithStatus(status))
 	return err
 }
 
@@ -263,17 +268,64 @@ func getTarget(ctx context.Context, c client.Client, ns string, ref commonv1.Med
 	}
 }
 
+// workerStatusBackoff paces updateWorkerStatus's retries after a Conflict.
+// It is client-go's DefaultBackoff (10ms growing fivefold, four steps, about
+// 1.5s in all), which is long enough for an informer cache to deliver the
+// write that caused the conflict, so the re-read sees it.
+var workerStatusBackoff = retry.DefaultBackoff
+
+// updateWorkerStatus is the only way this package writes status: a
+// compare-and-swap over the whole k8s.ManagerCatalogarrGrab-owned set.
+//
+// It reads st, hands mutate the owned set as read, and -- when mutate reports
+// a change -- declares the whole set with the read's resourceVersion as a
+// precondition. If anything wrote the object in between (another replica's
+// grab, a concurrent RecordSearchAttempt, the item's reconciler), the
+// apiserver answers Conflict and the cycle re-reads and re-decides, so mutate
+// may run more than once and must derive its change from the ws it is given.
+//
+// The precondition is what makes read-modify-declare safe across replicas.
+// Every replica runs the search, grab and RSS consumers, and each read is a
+// cache read: a search worker on one replica could read a Movie from before
+// another replica's grab, then declare that pre-grab pendingGrab under this
+// manager with ForceOwnership -- resurrecting a pending grab the other
+// replica had just consumed, and with it Phase=Delayed. Re-reading
+// "immediately before" the declare narrows that window and closes nothing; a
+// read stale by a millisecond loses the same way. A conditional write cannot
+// lose it, because the apiserver refuses the declare instead of applying it.
+//
+// A missing object comes back as the Get's NotFound, wrapped; callers decide
+// whether that is an error.
+func updateWorkerStatus(ctx context.Context, c client.Client, ns string, st commonv1.MediaRef, mutate func(*workerStatus) bool) error {
+	ops, err := kindOpsFor(st.Kind)
+	if err != nil {
+		return err
+	}
+	return retry.RetryOnConflict(workerStatusBackoff, func() error {
+		obj, err := ops.get(ctx, c, ns, st.Name)
+		if err != nil {
+			return err
+		}
+		ws := ops.workerStatus(obj)
+		if !mutate(&ws) {
+			return nil
+		}
+		return ops.applyWorkerStatus(ctx, c, ns, st.Name, obj.GetResourceVersion(), ws)
+	})
+}
+
 // RecordSearchAttempt stamps status.lastSearchedAt and advances
 // status.searchAttempts on one catalog item, under k8s.ManagerCatalogarrGrab.
 //
 // It exists so the search worker does not have to reimplement the
 // read-modify-declare cycle workerStatus documents. Server-side apply replaces
 // a manager's whole ownership set on every apply, so a second package sending
-// only these two fields would release status.activeDownloadRef and
-// status.pendingGrab -- stranding an item at Delayed with nothing to clear it,
-// or orphaning a running Download. This helper reads the live object, changes
-// only the search bookkeeping and re-declares all four fields, exactly as the
-// grab path's own writes do.
+// only these two fields would release status.pendingGrab -- stranding an item
+// at Delayed with nothing to clear it, or dropping a scheduled grab's record.
+// This helper goes through updateWorkerStatus like every other write here, so
+// it re-declares the whole set and does so conditionally: a grab or a
+// Decide that lands between its read and its write makes it re-read rather
+// than roll that write back.
 //
 // Without a writer for these fields wantedcron.Backoff never grows past its
 // six-hour floor, so every twelve-hourly sweep re-searches every still-wanted
@@ -293,25 +345,19 @@ func RecordSearchAttempt(ctx context.Context, c client.Client, ns string, ref co
 	}
 	stamp := metav1.NewTime(at)
 	for _, st := range statusTargets {
-		ops, err := kindOpsFor(st.Kind)
-		if err != nil {
-			return err
-		}
-		obj, err := ops.get(ctx, c, ns, st.Name)
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				continue
+		err := updateWorkerStatus(ctx, c, ns, st, func(ws *workerStatus) bool {
+			ws.LastSearchedAt = &stamp
+			if ws.SearchAttempts.Initial == nil {
+				ws.SearchAttempts.Initial = &stamp
 			}
-			return fmt.Errorf("grab: read %s/%s to record a search attempt: %w", st.Kind, st.Name, err)
-		}
-		ws := ops.workerStatus(obj)
-		ws.LastSearchedAt = &stamp
-		if ws.SearchAttempts.Initial == nil {
-			ws.SearchAttempts.Initial = &stamp
-		}
-		ws.SearchAttempts.Latest = &stamp
-		ws.SearchAttempts.Count++
-		if err := ops.applyWorkerStatus(ctx, c, ns, st.Name, ws); err != nil {
+			ws.SearchAttempts.Latest = &stamp
+			ws.SearchAttempts.Count++
+			return true
+		})
+		switch {
+		case apierrors.IsNotFound(err):
+			continue
+		case err != nil:
 			return fmt.Errorf("grab: record a search attempt on %s/%s: %w", st.Kind, st.Name, err)
 		}
 	}

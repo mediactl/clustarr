@@ -33,8 +33,10 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/catalogarr/worker/grab"
+	"github.com/mediactl/clustarr/catalogarr/worker/grab/downloads"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
 // testMessage is the minimal events.Message Handle uses: it only reads
@@ -99,16 +101,15 @@ func TestHandler_GrabsThePendingCandidateAndConsumesIt(t *testing.T) {
 	h := grab.NewHandler(grab.Deps{Client: c, Bus: bus, Now: fixedNow(testNow)})
 	require.NoError(t, h.Handle(ctx, grabTaskMessage(t, ns, target, nil)))
 
-	var downloads downloadv1alpha1.DownloadList
-	require.NoError(t, c.List(ctx, &downloads, client.InNamespace(ns)))
-	require.Len(t, downloads.Items, 1)
-	assert.Equal(t, downloadv1alpha1.GrabSourceRSS, downloads.Items[0].Spec.GrabbedBy,
+	var downloadList downloadv1alpha1.DownloadList
+	require.NoError(t, c.List(ctx, &downloadList, client.InNamespace(ns)))
+	require.Len(t, downloadList.Items, 1)
+	assert.Equal(t, downloadv1alpha1.GrabSourceRSS, downloadList.Items[0].Spec.GrabbedBy,
 		"grabbedBy comes off the pending entry, not a hardcoded default")
 
 	var got catalogv1alpha1.Movie
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(movie), &got))
-	require.NotNil(t, got.Status.ActiveDownloadRef)
-	assert.Equal(t, downloads.Items[0].Name, *got.Status.ActiveDownloadRef)
+	assert.Nil(t, got.Status.ActiveDownloadRef, "the reconciler derives activeDownloadRef from the Download (R-5), not the grab")
 	assert.Nil(t, got.Status.PendingGrab, "a completed grab clears pendingGrab, or the item sits at Delayed forever")
 	assert.Empty(t, got.Status.Phase)
 
@@ -137,9 +138,9 @@ func TestHandler_RedeliveryAfterTheEntryIsConsumedIsAnAck(t *testing.T) {
 	require.NoError(t, h.Handle(ctx, msg))
 	require.NoError(t, h.Handle(ctx, msg), "a redelivery must ack, not retry")
 
-	var downloads downloadv1alpha1.DownloadList
-	require.NoError(t, c.List(ctx, &downloads, client.InNamespace(ns)))
-	assert.Len(t, downloads.Items, 1, "a redelivery must not create a second Download")
+	var downloadList downloadv1alpha1.DownloadList
+	require.NoError(t, c.List(ctx, &downloadList, client.InNamespace(ns)))
+	assert.Len(t, downloadList.Items, 1, "a redelivery must not create a second Download")
 }
 
 // TestHandler_DuplicateGrabAcksAndClearsThePendingEntry: the lease is already
@@ -162,9 +163,9 @@ func TestHandler_DuplicateGrabAcksAndClearsThePendingEntry(t *testing.T) {
 	h := grab.NewHandler(grab.Deps{Client: c, Bus: bus, Now: fixedNow(testNow)})
 	require.NoError(t, h.Handle(ctx, grabTaskMessage(t, ns, target, nil)), "a duplicate grab acks")
 
-	var downloads downloadv1alpha1.DownloadList
-	require.NoError(t, c.List(ctx, &downloads, client.InNamespace(ns)))
-	assert.Empty(t, downloads.Items)
+	var downloadList downloadv1alpha1.DownloadList
+	require.NoError(t, c.List(ctx, &downloadList, client.InNamespace(ns)))
+	assert.Empty(t, downloadList.Items)
 
 	_, err = bus.KV(events.BucketPending).Get(ctx, pendingKey)
 	assert.ErrorIs(t, err, events.ErrKeyNotFound)
@@ -255,33 +256,105 @@ func TestHandler_DuplicateGrabClearsPendingGrab(t *testing.T) {
 	assert.ErrorIs(t, err, events.ErrKeyNotFound)
 }
 
-// TestPerformGrab_OptimisticReReadDuplicateClearsPendingGrab is the same
+// TestPerformGrab_ExistingDownloadDuplicateClearsPendingGrab is the same
 // guarantee on the OTHER duplicate exit: the lease was free, but a
 // non-lease-mediated path already put a Download on the item.
-func TestPerformGrab_OptimisticReReadDuplicateClearsPendingGrab(t *testing.T) {
+func TestPerformGrab_ExistingDownloadDuplicateClearsPendingGrab(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
 	ns := newNamespace(t, ctx, c)
 
 	movie := newMovie(t, ctx, c, ns, "the-thing-1982")
-	seedWorkerStatus(t, ctx, c, movie, "someone-elses-download", &catalogv1alpha1.PendingGrab{
+	profile := hdBlurayWeb(t)
+	target := commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name}
+	picked := torrentRelease("guid-user-picked", "my-indexer", profile.Tiers[1][0].Quality, 0)
+	src, err := downloads.ResolveSource(picked)
+	require.NoError(t, err)
+	existing := interactiveDownload(t, ctx, c, movie, target, picked, src)
+	seedWorkerStatus(t, ctx, c, movie, existing.Name, &catalogv1alpha1.PendingGrab{
 		ReleaseTitle: "The.Thing.1982.1080p.BluRay.x264-GROUP",
 		Protocol:     commonv1.ProtocolTorrent,
 		GrabAt:       metav1.NewTime(testNow.Add(45 * time.Minute)),
 	})
 
-	profile := hdBlurayWeb(t)
-	target := commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name}
 	deps := grab.Deps{Client: c, Bus: newTestBus(t, nil), Now: fixedNow(testNow)}
-	err := grab.PerformGrabForTest(ctx, deps, ns, target, nil,
+	err = grab.PerformGrabForTest(ctx, deps, ns, target, nil,
 		torrentRelease("guid-1", "my-indexer", profile.Tiers[0][0].Quality, 0), downloadv1alpha1.GrabSourceSearch)
 	require.ErrorIs(t, err, grab.ErrDuplicateGrab)
 
 	var got catalogv1alpha1.Movie
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(movie), &got))
 	assert.Nil(t, got.Status.PendingGrab, "the duplicate exit must clear pendingGrab")
-	// The rest of the owned set survives: the clear is a full re-declaration,
-	// not a partial apply.
+	// The reconciler's field is untouched: the clear re-declares only the
+	// grab manager's own set.
 	require.NotNil(t, got.Status.ActiveDownloadRef)
-	assert.Equal(t, "someone-elses-download", *got.Status.ActiveDownloadRef)
+	assert.Equal(t, existing.Name, *got.Status.ActiveDownloadRef)
+}
+
+// TestHandler_InteractiveGrabOfTheSameReleaseDoesNotStrandDelayed is the
+// carried failure end to end. A delayed grab is waiting; meanwhile the user
+// grabs the very same release from a Search CR's status.results. Both paths
+// name the Download k8s.ChildName(target, guid), so when the scheduled grab
+// fires the Download already exists -- made by the other path, with that
+// path's source.
+//
+// The grab used to re-apply over it. spec.source is `self == oldSelf`, the
+// two paths mapped a release differently, so the apiserver rejected the apply
+// ("source is immutable"); performGrab returned before clearPendingGrab, the
+// task retried into a dead letter, and the movie sat at Phase=Delayed with
+// nothing left to move it. The pre-existing Download here deliberately
+// carries a source the grab path would NOT produce for this release (the
+// Search controller's old mapping, with no expectedInfoHash), so the test
+// proves the guard alone is enough, whatever built the other Download.
+func TestHandler_InteractiveGrabOfTheSameReleaseDoesNotStrandDelayed(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	ns := newNamespace(t, ctx, c)
+
+	movie := newMovie(t, ctx, c, ns, "the-thing-1982")
+	newIndexer(t, ctx, c, ns, "my-indexer", nil)
+	profile := hdBlurayWeb(t)
+	bus := newTestBus(t, nil)
+	target := commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name}
+	release := torrentRelease("guid-1", "my-indexer", profile.Tiers[0][0].Quality, 0)
+	release.InfoHash = "0123456789abcdef0123456789abcdef01234567"
+
+	// The delayed steady state.
+	seedWorkerStatus(t, ctx, c, movie, "", &catalogv1alpha1.PendingGrab{
+		ReleaseTitle: release.Title,
+		Protocol:     commonv1.ProtocolTorrent,
+		GrabAt:       metav1.NewTime(testNow.Add(45 * time.Minute)),
+	})
+	pendingKey := seedPending(t, ctx, bus, ns, target, nil, release, downloadv1alpha1.GrabSourceRSS)
+
+	// The user's interactive grab of the same release, as the Search
+	// controller built it before the two mappings were one.
+	magnet := release.MagnetURL
+	existing := interactiveDownload(t, ctx, c, movie, target, release, downloadv1alpha1.DownloadSource{MagnetURL: &magnet})
+	resolved, err := downloads.ResolveSource(release)
+	require.NoError(t, err)
+	require.NotEqual(t, resolved, existing.Spec.Source, "the fixture must reproduce a source the grab path would not produce")
+
+	h := grab.NewHandler(grab.Deps{Client: c, Bus: bus, Now: fixedNow(testNow)})
+	require.NoError(t, h.Handle(ctx, grabTaskMessage(t, ns, target, nil)),
+		"the scheduled grab of a release the user already grabbed is a duplicate to ack, not an apply to retry")
+
+	var got catalogv1alpha1.Movie
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(movie), &got))
+	assert.Nilf(t, got.Status.PendingGrab, "status.pendingGrab survived: the movie is stranded at Phase=Delayed")
+	_, err = bus.KV(events.BucketPending).Get(ctx, pendingKey)
+	assert.ErrorIs(t, err, events.ErrKeyNotFound, "the consumed pending entry is deleted")
+
+	// The user's Download is exactly as the user's grab left it.
+	var dl downloadv1alpha1.Download
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(existing), &dl))
+	assert.Equal(t, downloadv1alpha1.GrabSourceInteractive, dl.Spec.GrabbedBy, "the grab path overwrote the user's provenance")
+	assert.True(t, dl.Spec.Manual)
+	assert.Equal(t, existing.Spec.Source, dl.Spec.Source)
+	for _, mf := range dl.ManagedFields {
+		assert.NotEqual(t, k8s.ManagerCatalogarrGrab.String(), mf.Manager, "the grab path applied over the user's Download")
+	}
+	var list downloadv1alpha1.DownloadList
+	require.NoError(t, c.List(ctx, &list, client.InNamespace(ns)))
+	assert.Len(t, list.Items, 1)
 }

@@ -28,6 +28,10 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 )
 
+// allHoldersActive is the holder check for tests about contention alone:
+// every existing lease is someone else's live grab.
+func allHoldersActive(context.Context, events.Entry) (holderState, error) { return holderActive, nil }
+
 func packLeaseKeys(names ...string) []string {
 	out := make([]string, 0, len(names))
 	for _, n := range names {
@@ -45,7 +49,7 @@ func TestAcquireLeases_AllOrNothingAcrossPackEpisodes(t *testing.T) {
 	_, err := kv.Create(ctx, keys[1], []byte("some-other-download"))
 	require.NoError(t, err)
 
-	acquired, err := acquireLeases(ctx, kv, keys, "download-a")
+	acquired, err := acquireLeases(ctx, kv, keys, "download-a", allHoldersActive)
 	require.ErrorIs(t, err, ErrDuplicateGrab)
 	assert.Empty(t, acquired, "acquireLeases must return nothing on partial failure")
 
@@ -77,7 +81,7 @@ func TestAcquireLeases_TwoWorkersOneDownload(t *testing.T) {
 		go func(downloadName string) {
 			defer wg.Done()
 			<-start
-			_, err := acquireLeases(ctx, kv, keys, downloadName)
+			_, err := acquireLeases(ctx, kv, keys, downloadName, allHoldersActive)
 			results <- err
 		}(name)
 	}
@@ -115,11 +119,87 @@ func TestReleaseLeases_IsBestEffortAndIdempotent(t *testing.T) {
 	kv := newTestBus(t).KV(events.BucketLeases)
 	keys := packLeaseKeys("the-wire-s01e01")
 
-	acquired, err := acquireLeases(ctx, kv, keys, "download-a")
+	acquired, err := acquireLeases(ctx, kv, keys, "download-a", allHoldersActive)
 	require.NoError(t, err)
 	releaseLeases(ctx, kv, acquired)
 	releaseLeases(ctx, kv, acquired) // deleting an absent key is not an error
 
 	_, err = kv.Get(ctx, keys[0])
 	assert.ErrorIs(t, err, events.ErrKeyNotFound)
+}
+
+// TestAcquireLeases_ReentersItsOwnLease is the redelivery of a grab that
+// created its Download and then failed before publishing: the lease already
+// names this Download, so the grab must re-enter it rather than report itself
+// as its own duplicate. A re-entered lease is not "taken" -- a rollback of
+// this call must leave it where the earlier delivery put it.
+func TestAcquireLeases_ReentersItsOwnLease(t *testing.T) {
+	ctx := context.Background()
+	kv := newTestBus(t).KV(events.BucketLeases)
+	keys := packLeaseKeys("the-wire-s01e01", "the-wire-s01e02")
+	_, err := kv.Create(ctx, keys[0], []byte("download-a"))
+	require.NoError(t, err)
+
+	holderAsked := false
+	taken, err := acquireLeases(ctx, kv, keys, "download-a", func(context.Context, events.Entry) (holderState, error) {
+		holderAsked = true
+		return holderActive, nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{keys[1]}, taken, "only the key this call created is its to roll back")
+	assert.False(t, holderAsked, "a lease held under this grab's own name needs no holder check")
+}
+
+// TestAcquireLeases_ReclaimsAStaleLease is what lets an item be grabbed a
+// second time at all. Nothing deletes a lease when its Download finishes, so
+// without a takeover the first grab's lease blocked every later one -- the
+// retry after a failed download, the upgrade -- as a "duplicate" forever.
+func TestAcquireLeases_ReclaimsAStaleLease(t *testing.T) {
+	ctx := context.Background()
+	kv := newTestBus(t).KV(events.BucketLeases)
+	keys := packLeaseKeys("the-wire-s01e01")
+	_, err := kv.Create(ctx, keys[0], []byte("old-imported-download"))
+	require.NoError(t, err)
+
+	var asked string
+	taken, err := acquireLeases(ctx, kv, keys, "download-b", func(_ context.Context, e events.Entry) (holderState, error) {
+		asked = string(e.Value)
+		return holderStale, nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "old-imported-download", asked, "the holder check is asked about the Download the lease names")
+	assert.Equal(t, keys, taken, "a reclaimed lease is this call's to roll back")
+
+	entry, err := kv.Get(ctx, keys[0])
+	require.NoError(t, err)
+	assert.Equal(t, "download-b", string(entry.Value))
+}
+
+// TestAcquireLeases_ActiveHolderIsADuplicateAndRollsBack: a live holder on any
+// key of a pack refuses the whole pack, and the keys this call had already
+// taken -- created or reclaimed -- are rolled back.
+func TestAcquireLeases_ActiveHolderIsADuplicateAndRollsBack(t *testing.T) {
+	ctx := context.Background()
+	kv := newTestBus(t).KV(events.BucketLeases)
+	keys := packLeaseKeys("the-wire-s01e01", "the-wire-s01e02", "the-wire-s01e03")
+	_, err := kv.Create(ctx, keys[0], []byte("stale-download"))
+	require.NoError(t, err)
+	_, err = kv.Create(ctx, keys[2], []byte("live-download"))
+	require.NoError(t, err)
+
+	_, err = acquireLeases(ctx, kv, keys, "download-c", func(_ context.Context, e events.Entry) (holderState, error) {
+		if string(e.Value) == "live-download" {
+			return holderActive, nil
+		}
+		return holderStale, nil
+	})
+	require.ErrorIs(t, err, ErrDuplicateGrab)
+
+	_, err = kv.Get(ctx, keys[0])
+	assert.ErrorIs(t, err, events.ErrKeyNotFound, "the reclaimed lease is rolled back with the rest")
+	_, err = kv.Get(ctx, keys[1])
+	assert.ErrorIs(t, err, events.ErrKeyNotFound, "the created lease is rolled back")
+	entry, err := kv.Get(ctx, keys[2])
+	require.NoError(t, err)
+	assert.Equal(t, "live-download", string(entry.Value), "the live holder's lease is untouched")
 }

@@ -125,20 +125,14 @@ func Decide(
 		GrabAt:       metav1.NewTime(grabAt),
 	}
 	for _, st := range statusTargets {
-		ops, err := kindOpsFor(st.Kind)
-		if err != nil {
-			return err
-		}
-		obj, err := ops.get(ctx, d.Client, a.Namespace, st.Name)
-		if err != nil {
-			return fmt.Errorf("grab: read %s/%s before recording pendingGrab: %w", st.Kind, st.Name, err)
-		}
 		// The whole worker-owned status set is re-declared, not just
-		// pendingGrab: server-side apply releases every field this manager
-		// owns and this apply omits. See workerStatus's doc comment.
-		ws := ops.workerStatus(obj)
-		ws.PendingGrab = pg
-		if err := ops.applyWorkerStatus(ctx, d.Client, a.Namespace, st.Name, ws); err != nil {
+		// pendingGrab, and only if nothing wrote the object since it was
+		// read: see workerStatus and updateWorkerStatus.
+		err := updateWorkerStatus(ctx, d.Client, a.Namespace, st, func(ws *workerStatus) bool {
+			ws.PendingGrab = pg
+			return true
+		})
+		if err != nil {
 			return fmt.Errorf("grab: record pendingGrab on %s/%s: %w", st.Kind, st.Name, err)
 		}
 	}

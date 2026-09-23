@@ -30,13 +30,17 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
+	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/download/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/catalogarr/worker/grab/downloads"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -50,6 +54,7 @@ import (
 var (
 	sharedEnvOnce sync.Once
 	sharedClient  client.Client
+	sharedCfg     *rest.Config
 	sharedEnvErr  error
 	sharedEnvStop func()
 )
@@ -72,10 +77,22 @@ func newTestClient(t *testing.T) client.Client {
 			return
 		}
 		sharedEnvStop = func() { _ = env.Stop() }
+		sharedCfg = cfg
 		sharedClient, sharedEnvErr = client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
 	})
 	require.NoError(t, sharedEnvErr)
 	return sharedClient
+}
+
+// newWatchClient is a second client onto the shared apiserver, of the type
+// interceptor.NewClient wraps, for tests that interleave a real writer into
+// the middle of a read-modify-write.
+func newWatchClient(t *testing.T) client.WithWatch {
+	t.Helper()
+	newTestClient(t)
+	wc, err := client.NewWithWatch(sharedCfg, client.Options{Scheme: k8s.MustNewScheme()})
+	require.NoError(t, err)
+	return wc
 }
 
 func TestMain(m *testing.M) {
@@ -197,21 +214,87 @@ func torrentRelease(guid, indexerRef string, q commonv1.Quality, score int32) co
 
 func fixedNow(t time.Time) func() time.Time { return func() time.Time { return t } }
 
-// seedWorkerStatus drives a Movie to a realistic steady state under the SAME
-// field manager the code under test writes with (k8s.ManagerCatalogarrGrab). It matters: a test that
-// creates a blank object cannot observe a server-side-apply release, because
-// there is nothing on the object to release.
+// seedWorkerStatus drives a Movie to a realistic steady state. It matters: a
+// test that creates a blank object cannot observe a server-side-apply
+// release, because there is nothing on the object to release.
+//
+// pendingGrab is written under the grab path's own manager
+// (k8s.ManagerCatalogarrGrab), as Decide writes it. The reconciler's share is
+// written under k8s.ManagerCatalogarr, as it is in production before any
+// search can happen: status.phase (Delayed while a grab is pending, Wanted
+// otherwise) and, when non-empty, activeDownloadRef -- since gap-fix ruling
+// R-5 the reconciler is that field's only writer. The phase is not decoration:
+// a status whose only fields are the grab path's becomes empty when the grab
+// clears them, and the Movie CRD rejects an empty status outright, which no
+// real object -- one its reconciler has written -- ever hits.
 func seedWorkerStatus(t *testing.T, ctx context.Context, c client.Client, m *catalogv1alpha1.Movie, activeDownloadRef string, pg *catalogv1alpha1.PendingGrab) {
 	t.Helper()
-	status := catalogac.MovieStatus().WithActiveDownloadRef(activeDownloadRef)
 	if pg != nil {
-		status = status.WithPendingGrab(catalogac.PendingGrab().
-			WithReleaseTitle(pg.ReleaseTitle).
-			WithProtocol(pg.Protocol).
-			WithGrabAt(pg.GrabAt))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab, catalogac.Movie(m.Name, m.Namespace).WithStatus(
+			catalogac.MovieStatus().WithPendingGrab(catalogac.PendingGrab().
+				WithReleaseTitle(pg.ReleaseTitle).
+				WithProtocol(pg.Protocol).
+				WithGrabAt(pg.GrabAt))))
+		require.NoError(t, err)
 	}
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab, catalogac.Movie(m.Name, m.Namespace).WithStatus(status))
+	reconciler := catalogac.MovieStatus().WithPhase(catalogv1alpha1.MoviePhaseWanted)
+	if pg != nil {
+		reconciler = reconciler.WithPhase(catalogv1alpha1.MoviePhaseDelayed)
+	}
+	if activeDownloadRef != "" {
+		reconciler = reconciler.WithActiveDownloadRef(activeDownloadRef)
+	}
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Movie(m.Name, m.Namespace).WithStatus(reconciler))
 	require.NoError(t, err)
+}
+
+// interactiveDownload applies a Download for rel exactly the way the Search
+// controller's spec.grab does (catalogarr/controller/search handleGrabs):
+// the deterministic name, the target as owner, grabbedBy=interactive,
+// manual=true, under k8s.ManagerCatalogarr. src is passed in rather than
+// resolved so a test can reproduce a Download whose source another build
+// mapped differently.
+func interactiveDownload(t *testing.T, ctx context.Context, c client.Client, owner client.Object, target commonv1.MediaRef, rel commonv1.ReleaseInfo, src downloadv1alpha1.DownloadSource) *downloadv1alpha1.Download {
+	t.Helper()
+	ownerRef, err := k8s.OwnerReferenceAC(owner, c.Scheme())
+	require.NoError(t, err)
+	name := k8s.ChildName(target.Name, rel.GUID)
+	_, err = k8s.Apply(ctx, c, k8s.ManagerCatalogarr, downloadac.Download(name, owner.GetNamespace()).
+		WithOwnerReferences(ownerRef).
+		WithSpec(downloadac.DownloadSpec().
+			WithProtocol(rel.Protocol).
+			WithSource(downloads.SourceApplyConfiguration(src)).
+			WithRelease(rel).
+			WithTarget(target).
+			WithQualityProfileRef("hd-bluray-web").
+			WithGrabbedBy(downloadv1alpha1.GrabSourceInteractive).
+			WithManual(true)))
+	require.NoError(t, err)
+	var dl downloadv1alpha1.Download
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: owner.GetNamespace(), Name: name}, &dl))
+	return &dl
+}
+
+// setDownloadPhase writes status.phase the way grabarr's controller does,
+// under k8s.ManagerGrabarr.
+func setDownloadPhase(t *testing.T, ctx context.Context, c client.Client, ns, name string, phase downloadv1alpha1.DownloadPhase) {
+	t.Helper()
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr,
+		downloadac.Download(name, ns).WithStatus(downloadac.DownloadStatus().WithPhase(phase)))
+	require.NoError(t, err)
+}
+
+// managerStatusFields returns the raw fieldsV1 of fm's status entry on obj,
+// or "" when fm owns nothing there. An over-claim is invisible to every
+// value assertion -- pkg/k8s forces ownership -- so this is where a test that
+// means to see one has to look.
+func managerStatusFields(obj client.Object, fm k8s.FieldManager) string {
+	for _, e := range obj.GetManagedFields() {
+		if e.Manager == fm.String() && e.Subresource == "status" && e.FieldsV1 != nil {
+			return e.FieldsV1.GetRawString()
+		}
+	}
+	return ""
 }
 
 // seedGatewayMetadata writes status.metadata exactly as catalogarr/metadata's

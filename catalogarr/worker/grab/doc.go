@@ -38,26 +38,35 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # Field-manager split
 //
 // This package writes status under k8s.ManagerCatalogarrGrab and applies
-// exactly four fields: status.activeDownloadRef, status.pendingGrab,
-// status.lastSearchedAt and status.searchAttempts. It never writes
-// status.phase. Recomputing Phase=Delayed/Downloading from those fields
-// belongs to the Movie and Episode reconcilers under k8s.ManagerCatalogarr;
-// this package's writes are what wake them, via the status.pendingGrab arm of
-// their own-object predicates.
+// exactly three fields: status.pendingGrab, status.lastSearchedAt and
+// status.searchAttempts. It never writes status.phase. Recomputing
+// Phase=Delayed/Downloading from those fields belongs to the Movie and Episode
+// reconcilers under k8s.ManagerCatalogarr; this package's writes are what wake
+// them, via the status.pendingGrab arm of their own-object predicates.
+//
+// It does not write status.activeDownloadRef either (gap-fix ruling R-5).
+// That field has one writer, the item's reconciler, which derives it from the
+// item's non-terminal Download; the Download this package creates is what the
+// reconciler finds. The double-grab guard does not read the ref: it lists the
+// Downloads covering the item itself (package downloads holds the notion of
+// "covering" and "terminal" that both sides use).
 //
 // The manager name is its own rather than the shared catalogarr-worker
 // precisely because server-side apply replaces a manager's whole ownership
 // set on every apply. While this path and the metadata gateway shared one
 // name, each one's apply deleted the other's fields: a grab dropped the
 // movie's cached metadata, and a metadata refresh dropped
-// status.activeDownloadRef and status.pendingGrab, taking a delayed item out
-// of Phase=Delayed back to Wanted.
+// status.pendingGrab, taking a delayed item out of Phase=Delayed back to
+// Wanted.
 //
-// Within this package the same rule still applies to its own four fields, so
-// every PatchStatus here is a complete declaration of what this manager owns
-// on that object. applyWorkerStatus is the single place that assembles it,
-// and every caller goes through it precisely so a failure path cannot build a
-// partial status and release the rest.
+// Within this package the same rule still applies to its own three fields,
+// so every PatchStatus here is a complete declaration of what this manager
+// owns on that object. updateWorkerStatus is the single place that assembles
+// it, and every caller goes through it, so a failure path cannot build a
+// partial status and release the rest. It is also a compare-and-swap -- the
+// declare is conditional on the resourceVersion it was read at -- because
+// every replica runs these consumers, and a declaration built from a stale
+// read would roll back another replica's write rather than release it.
 //
 // # Registration (Task C12)
 //

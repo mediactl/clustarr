@@ -30,6 +30,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/catalogarr/worker/grab/downloads"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -75,55 +76,21 @@ func (d Deps) now() time.Time {
 	return time.Now()
 }
 
-// chooseSource picks the DownloadSource variant for a release, honouring the
-// CRD's "exactly one of magnetURL, torrentURL, nzbURL or indexerDownload"
-// rule.
-//
-// The order is magnet, then a direct URL when the indexer needs no
-// credentials, then indexerDownload. §8.2's parenthetical is "source
-// (indexerDownload when the indexer is authenticated)": a .torrent or .nzb URL
-// from an authenticated indexer is useless to a download engine, which holds
-// no indexer session, so it must be resolved through indexarr instead.
-//
-// indexerRequiresAuth is deliberately fail-safe at every call site: an Indexer
-// that cannot be read is treated as authenticated, which routes the grab
-// through indexarr rather than handing an engine a URL that will 401.
-//
-// ExpectedInfoHash is set whenever the release carries one, on every branch.
-// It is the guard that stops an indexer swapping content out from under a
-// decision, and it is orthogonal to how the payload is addressed.
-func chooseSource(release commonv1.ReleaseInfo, indexerRequiresAuth bool) *downloadac.DownloadSourceApplyConfiguration {
-	src := downloadac.DownloadSource()
-	switch {
-	case release.MagnetURL != "":
-		src = src.WithMagnetURL(release.MagnetURL)
-	case !indexerRequiresAuth && release.DownloadURL != "" && release.Protocol == commonv1.ProtocolTorrent:
-		src = src.WithTorrentURL(release.DownloadURL)
-	case !indexerRequiresAuth && release.DownloadURL != "" && release.Protocol == commonv1.ProtocolUsenet:
-		src = src.WithNZBURL(release.DownloadURL)
-	default:
-		src = src.WithIndexerDownload(downloadac.IndexerDownload().
-			WithIndexerRef(release.IndexerRef).
-			WithGUID(release.GUID).
-			WithURL(release.DownloadURL))
-	}
-	if release.Protocol == commonv1.ProtocolTorrent && release.InfoHash != "" {
-		src = src.WithExpectedInfoHash(release.InfoHash)
-	}
-	return src
-}
-
 // performGrab is spec §8.2's grab step, in order: take every lease
-// all-or-nothing, re-read each item's activeDownloadRef under an optimistic
-// lock, create the deterministically named Download with an ownerRef, set
-// activeDownloadRef, publish release.grabbed.
+// all-or-nothing, look up the Downloads already working on each item, create
+// the deterministically named Download with an ownerRef, clear the consumed
+// pendingGrab, publish release.grabbed.
 //
 // It returns ErrDuplicateGrab -- which callers acknowledge rather than retry
-// -- from both guards: the lease (another worker got here first) and the
-// re-read (a path that does not go through the lease at all, such as a Search
-// CR's manual grab, already claimed the item). Both of those exits clear
-// status.pendingGrab first: see clearPendingGrab for why an ack that leaves it
-// set takes the item out of automation permanently.
+// -- from both guards: the lease (another automatic grab holds the item) and
+// the Download lookup (a path that takes no lease, such as a Search CR's
+// interactive grab, already put a Download on the item). Both of those exits
+// clear status.pendingGrab first: see clearPendingGrab for why an ack that
+// leaves it set takes the item out of automation permanently.
+//
+// It does not write status.activeDownloadRef. Gap-fix ruling R-5 gives that
+// field one writer, the item's reconciler, which derives it from the item's
+// non-terminal Download -- the Download this creates.
 func performGrab(
 	ctx context.Context,
 	d Deps,
@@ -140,10 +107,18 @@ func performGrab(
 	if err != nil {
 		return err
 	}
+	source, err := downloads.ResolveSource(release)
+	if err != nil {
+		// The release snapshot is immutable, so no retry can give it a
+		// source. Clear pendingGrab before giving up, or the discard strands
+		// the item at Phase=Delayed exactly as a dead letter would.
+		return clearPendingGrab(ctx, d, ns, statusTargets,
+			events.Discard("grab: release has nothing to download it by", err))
+	}
 	downloadName := k8s.ChildName(target.Name, release.GUID)
 	kv := d.Bus.KV(events.BucketLeases)
 
-	acquired, err := acquireLeases(ctx, kv, leaseKeys(ns, statusTargets), downloadName)
+	acquired, err := acquireLeases(ctx, kv, leaseKeys(ns, statusTargets), downloadName, d.leaseHolder(ns))
 	if err != nil {
 		if errors.Is(err, ErrDuplicateGrab) {
 			metrics.SearchDecisionsTotal.WithLabelValues(string(target.Kind), "duplicate", "leaseHeld").Inc()
@@ -152,20 +127,16 @@ func performGrab(
 		return err
 	}
 
-	// From here on, every failure exit must release the leases it took:
-	// a lease left behind by a grab that never created a Download blocks
-	// the item for the ten minutes it takes the sweeper to notice.
-	ops := make([]kindOps, len(statusTargets))
-	statuses := make([]workerStatus, len(statusTargets))
-	var firstObj client.Object
+	// From here on, every failure exit before the Download exists must
+	// release the leases it took: a lease left behind by a grab that never
+	// created a Download blocks the item until leaseOrphanGrace passes.
+	items := make([]client.Object, len(statusTargets))
 	for i, st := range statusTargets {
 		o, opErr := kindOpsFor(st.Kind)
 		if opErr != nil {
 			releaseLeases(ctx, kv, acquired)
 			return opErr
 		}
-		ops[i] = o
-
 		obj, getErr := o.get(ctx, d.Client, ns, st.Name)
 		if getErr != nil {
 			releaseLeases(ctx, kv, acquired)
@@ -174,20 +145,17 @@ func performGrab(
 			}
 			return fmt.Errorf("grab: re-read %s/%s: %w", st.Kind, st.Name, getErr)
 		}
-		if i == 0 {
-			firstObj = obj
-		}
-		ws := o.workerStatus(obj)
-		if ws.ActiveDownloadRef != nil && *ws.ActiveDownloadRef != downloadName {
-			// The optimistic-lock half of the double-grab guard: the lease
-			// was free, but something that does not take leases (a Search
-			// CR's manual grab) already put a Download on this item.
-			releaseLeases(ctx, kv, acquired)
+		items[i] = obj
+	}
+
+	resume, err := guardExistingDownloads(ctx, d.Client, ns, downloadName, statusTargets, items)
+	if err != nil {
+		releaseLeases(ctx, kv, acquired)
+		if errors.Is(err, ErrDuplicateGrab) {
 			metrics.SearchDecisionsTotal.WithLabelValues(string(target.Kind), "duplicate", "activeDownload").Inc()
-			return clearPendingGrab(ctx, d, ns, statusTargets,
-				fmt.Errorf("%w: %s/%s already has download %q", ErrDuplicateGrab, st.Kind, st.Name, *ws.ActiveDownloadRef))
+			return clearPendingGrab(ctx, d, ns, statusTargets, err)
 		}
-		statuses[i] = ws
+		return err
 	}
 
 	owner, err := getTarget(ctx, d.Client, ns, target)
@@ -198,35 +166,79 @@ func performGrab(
 		}
 		return fmt.Errorf("grab: get target %s/%s: %w", target.Kind, target.Name, err)
 	}
+
+	if !resume {
+		if err := createDownload(ctx, d, ns, downloadName, owner, target, keys, release, source, grabbedBy, statusTargets, items); err != nil {
+			releaseLeases(ctx, kv, acquired)
+			return err
+		}
+	}
+
+	// Past this point the leases are NOT released on failure. The Download
+	// exists; releasing the lease would let a redelivery grab the same item a
+	// second time. The redelivery instead re-enters its own lease, finds its
+	// own Download (resume) and finishes from here.
+	for _, st := range statusTargets {
+		// The pending candidate has been consumed: leaving it set would keep
+		// the item at Phase=Delayed for the whole seven-day bucket TTL even
+		// though its Download is already running.
+		err := updateWorkerStatus(ctx, d.Client, ns, st, func(ws *workerStatus) bool {
+			if ws.PendingGrab == nil {
+				return false
+			}
+			ws.PendingGrab = nil
+			return true
+		})
+		if err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("grab: clear pendingGrab on %s/%s: %w", st.Kind, st.Name, err)
+		}
+	}
+
+	metrics.SearchDecisionsTotal.WithLabelValues(string(target.Kind), "grabbed", string(grabbedBy)).Inc()
+	return publishGrabbed(ctx, d, ns, target, owner, downloadName, release)
+}
+
+// createDownload applies the grab's Download. Its spec.source comes from
+// downloads.ResolveSource, the one mapping the Search controller's
+// interactive grabs use as well.
+func createDownload(
+	ctx context.Context,
+	d Deps,
+	ns, downloadName string,
+	owner client.Object,
+	target commonv1.MediaRef,
+	keys []string,
+	release commonv1.ReleaseInfo,
+	source downloadv1alpha1.DownloadSource,
+	grabbedBy downloadv1alpha1.GrabSource,
+	statusTargets []commonv1.MediaRef,
+	items []client.Object,
+) error {
 	ownerRef, err := k8s.OwnerReferenceAC(owner, d.Client.Scheme())
 	if err != nil {
-		releaseLeases(ctx, kv, acquired)
 		return fmt.Errorf("grab: owner reference for %s/%s: %w", target.Kind, target.Name, err)
 	}
 
 	// The grab configuration comes from the first status target: a movie's
 	// own spec, or -- for a single episode and for every episode of a pack --
 	// the owning Series, which every episode of one pack shares.
-	gctx, err := ops[0].grabContext(ctx, d.Client, firstObj)
+	ops, err := kindOpsFor(statusTargets[0].Kind)
 	if err != nil {
-		releaseLeases(ctx, kv, acquired)
+		return err
+	}
+	gctx, err := ops.grabContext(ctx, d.Client, items[0])
+	if err != nil {
 		return err
 	}
 
-	indexer, indexerErr := getIndexer(ctx, d.Client, ns, release.IndexerRef)
-	if indexerErr != nil && !apierrors.IsNotFound(indexerErr) {
-		releaseLeases(ctx, kv, acquired)
-		return fmt.Errorf("grab: get indexer %q: %w", release.IndexerRef, indexerErr)
+	indexer, err := getIndexer(ctx, d.Client, ns, release.IndexerRef)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("grab: get indexer %q: %w", release.IndexerRef, err)
 	}
-	// A missing Indexer is treated as authenticated rather than as an error:
-	// routing through indexarr is the safe branch, and failing the whole grab
-	// because an Indexer object was renamed would be worse than grabbing it
-	// the slow way.
-	requiresAuth := indexer == nil || indexer.Spec.SecretRef != nil
 
 	spec := downloadac.DownloadSpec().
 		WithProtocol(release.Protocol).
-		WithSource(chooseSource(release, requiresAuth)).
+		WithSource(downloads.SourceApplyConfiguration(source)).
 		WithRelease(release).
 		WithTarget(commonv1.MediaRef{Kind: target.Kind, Name: target.Name, Keys: keys}).
 		WithGrabbedBy(grabbedBy)
@@ -235,7 +247,8 @@ func performGrab(
 	}
 	// SeedCriteria comes from the Indexer when it sets one -- indexer_types.go
 	// says it "overrides the download client's seeding limits" -- and is left
-	// unset otherwise so the DownloadClient's own default applies.
+	// unset otherwise so the DownloadClient's own default applies. A missing
+	// Indexer only loses that override; it does not stop the grab.
 	if indexer != nil && indexer.Spec.SeedCriteria != nil {
 		spec = spec.WithSeedCriteria(*indexer.Spec.SeedCriteria)
 	}
@@ -244,28 +257,125 @@ func performGrab(
 		WithOwnerReferences(ownerRef).
 		WithSpec(spec)
 	if _, err := k8s.Apply(ctx, d.Client, k8s.ManagerCatalogarrGrab, dl); err != nil {
-		releaseLeases(ctx, kv, acquired)
 		return fmt.Errorf("grab: create download %q: %w", downloadName, err)
 	}
+	return nil
+}
 
-	// Past this point the leases are NOT released on failure. The Download
-	// exists; releasing the lease would let a redelivery grab the same item a
-	// second time, and the grab is idempotent from here (server-side apply on
-	// a deterministic name, then a status apply) so a retry converges.
-	for i, st := range statusTargets {
-		ws := statuses[i]
-		ws.ActiveDownloadRef = &downloadName
-		// The pending candidate has been consumed: leaving it set would keep
-		// the item at Phase=Delayed for the whole seven-day bucket TTL even
-		// though its Download is already running.
-		ws.PendingGrab = nil
-		if err := ops[i].applyWorkerStatus(ctx, d.Client, ns, st.Name, ws); err != nil {
-			return fmt.Errorf("grab: set activeDownloadRef on %s/%s: %w", st.Kind, st.Name, err)
+// guardExistingDownloads is the half of the double-grab guard that no lease
+// can provide: it asks the apiserver which Downloads are already working on
+// the grab's items (downloads.Covers, downloads.IsActive -- the same notion
+// the reconcilers derive status.activeDownloadRef from).
+//
+// It replaces a re-read of status.activeDownloadRef that could never fire:
+// nothing on the interactive path set that ref, and under ruling R-5 this
+// package no longer reads or writes it. A lease stops two automatic grabs; a
+// Search CR's spec.grab takes no lease, so only the Downloads themselves show
+// that it got there first.
+//
+// resume is true when the one Download that exists is this grab's own -- the
+// deterministic name, applied by k8s.ManagerCatalogarrGrab, still active --
+// left by an earlier delivery that failed after creating it. The caller then
+// skips the apply and finishes the grab.
+//
+// Everything else that covers an item is ErrDuplicateGrab:
+//
+//   - another active Download, whoever made it;
+//   - a Download with this grab's own name that another path applied -- the
+//     Search controller's grab of the same release. Re-applying over it is
+//     what used to happen, and it could only go wrong: its source, and before
+//     that its grabbedBy and manual flag, are that path's, and
+//     DownloadSpec.Source is immutable, so the apply was rejected, the task
+//     dead-lettered before clearPendingGrab ran, and the item sat at
+//     Phase=Delayed for good;
+//   - a Download with this grab's own name that is already terminal. The
+//     name is deterministic, so the same release cannot be grabbed for the
+//     same item twice while the old object exists: applying onto it would
+//     report a grab and download nothing.
+//
+// Terminal Downloads under other names are history, not occupants: a failed
+// or imported download does not stop the next grab.
+func guardExistingDownloads(
+	ctx context.Context,
+	c client.Client,
+	ns, downloadName string,
+	statusTargets []commonv1.MediaRef,
+	items []client.Object,
+) (resume bool, err error) {
+	var list downloadv1alpha1.DownloadList
+	if err := c.List(ctx, &list, client.InNamespace(ns)); err != nil {
+		return false, fmt.Errorf("grab: list downloads for the double-grab guard: %w", err)
+	}
+	var blockers []string
+	for i := range list.Items {
+		dl := &list.Items[i]
+		if dl.Name == downloadName {
+			if downloads.IsActive(dl) && appliedByGrabPath(dl) {
+				resume = true
+				continue
+			}
+			blockers = append(blockers, dl.Name)
+			continue
+		}
+		if !downloads.IsActive(dl) {
+			continue
+		}
+		for j, st := range statusTargets {
+			if downloads.Covers(dl, st.Kind, st.Name, items[j].GetUID()) {
+				blockers = append(blockers, dl.Name)
+				break
+			}
 		}
 	}
+	if resume {
+		// This grab already happened; whatever else is on the item is a
+		// problem for the next decision, not a reason to abandon this one
+		// half-finished.
+		return true, nil
+	}
+	if len(blockers) > 0 {
+		return false, fmt.Errorf("%w: already has download %v", ErrDuplicateGrab, blockers)
+	}
+	return false, nil
+}
 
-	metrics.SearchDecisionsTotal.WithLabelValues(string(target.Kind), "grabbed", string(grabbedBy)).Inc()
-	return publishGrabbed(ctx, d, ns, target, owner, downloadName, release)
+// appliedByGrabPath reports whether this package created dl: the main
+// resource carries a field-manager entry for k8s.ManagerCatalogarrGrab. The
+// Search controller applies its Downloads as k8s.ManagerCatalogarr, so a
+// Download of the same release made by a user's spec.grab is never mistaken
+// for this path's own.
+func appliedByGrabPath(dl *downloadv1alpha1.Download) bool {
+	for _, mf := range dl.ManagedFields {
+		if mf.Manager == k8s.ManagerCatalogarrGrab.String() && mf.Subresource == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// leaseHolder answers acquireLeases' question about a lease someone else
+// holds: does the Download it names still occupy the item?
+func (d Deps) leaseHolder(ns string) holderFunc {
+	return func(ctx context.Context, entry events.Entry) (holderState, error) {
+		var dl downloadv1alpha1.Download
+		err := d.Client.Get(ctx, client.ObjectKey{Namespace: ns, Name: string(entry.Value)}, &dl)
+		switch {
+		case apierrors.IsNotFound(err):
+			// Either a grab that took the lease and has not created its
+			// Download yet, or one whose Download is gone. Only age can
+			// tell them apart.
+			if d.now().Sub(entry.Created) < leaseOrphanGrace {
+				return holderActive, nil
+			}
+			return holderStale, nil
+		case err != nil:
+			return holderActive, err
+		case downloads.IsActive(&dl):
+			return holderActive, nil
+		default:
+			return holderStale, nil
+		}
+	}
 }
 
 // clearPendingGrab drops status.pendingGrab from every status target and then
@@ -281,29 +391,24 @@ func performGrab(
 // A failed clear is NOT wrapped in ErrDuplicateGrab: the caller must retry
 // rather than ack, because acking is precisely what strands the item. The
 // retry re-runs performGrab, hits the same guard and tries the clear again.
-// Every apply carries the whole k8s.ManagerCatalogarrGrab-owned set, read
-// fresh, so a retry cannot release anything either.
+// Every write goes through updateWorkerStatus, so it carries the whole
+// k8s.ManagerCatalogarrGrab-owned set, read fresh, and cannot release or roll
+// back anything either.
 func clearPendingGrab(ctx context.Context, d Deps, ns string, statusTargets []commonv1.MediaRef, dup error) error {
 	for _, st := range statusTargets {
-		ops, err := kindOpsFor(st.Kind)
-		if err != nil {
-			return err
-		}
-		obj, err := ops.get(ctx, d.Client, ns, st.Name)
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				// Nothing to strand.
-				continue
+		err := updateWorkerStatus(ctx, d.Client, ns, st, func(ws *workerStatus) bool {
+			if ws.PendingGrab == nil {
+				return false
 			}
-			return fmt.Errorf("grab: read %s/%s to clear pendingGrab: %w", st.Kind, st.Name, err)
-		}
-		ws := ops.workerStatus(obj)
-		if ws.PendingGrab == nil {
+			ws.PendingGrab = nil
+			return true
+		})
+		switch {
+		case apierrors.IsNotFound(err):
+			// Nothing to strand.
 			continue
-		}
-		ws.PendingGrab = nil
-		if err := ops.applyWorkerStatus(ctx, d.Client, ns, st.Name, ws); err != nil {
-			return fmt.Errorf("grab: clear pendingGrab on %s/%s after a duplicate grab: %w", st.Kind, st.Name, err)
+		case err != nil:
+			return fmt.Errorf("grab: clear pendingGrab on %s/%s: %w", st.Kind, st.Name, err)
 		}
 	}
 	return dup

@@ -189,15 +189,23 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		}
 		var discard *events.DiscardError
 		if errors.As(err, &discard) {
+			// A discarded grab will never be retried, so its candidate must
+			// not stay the incumbent either: casKeepBest would keep
+			// comparing every later release against it, and schedule it
+			// again whenever nothing better arrived. performGrab has
+			// already cleared status.pendingGrab where it can.
+			if delErr := kv.Delete(ctx, pendingKey); delErr != nil {
+				log.Warn("grab: deleting a discarded pending candidate failed", "error", delErr)
+			}
 			return err
 		}
 		return events.Retry(grabRetry, err)
 	}
 
 	// Deleted only after a successful grab: if the delete fails the next
-	// redelivery re-runs performGrab, which is idempotent (the lease is held
-	// by this Download's own name, so the re-read guard passes, and the
-	// Download apply converges on the same deterministic name).
+	// redelivery re-runs performGrab, which is idempotent -- it re-enters the
+	// lease its own Download name holds, finds its own Download and resumes
+	// after the apply rather than creating a second one.
 	if err := kv.Delete(ctx, pendingKey); err != nil {
 		log.Warn("grab: deleting the consumed pending candidate failed", "error", err)
 	}

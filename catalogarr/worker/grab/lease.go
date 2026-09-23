@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -32,8 +33,41 @@ import (
 // so a work handler must acknowledge it rather than nak.
 var ErrDuplicateGrab = errors.New("grab: lease already held")
 
+// leaseOrphanGrace is how old a lease whose Download does not exist must be
+// before a grab may take it over. It is spec §5's clustarr-leases sweeper
+// period: a key "whose Download no longer exists" is reclaimed after ten
+// minutes. The grace is what keeps an in-flight grab safe -- performGrab takes
+// its leases before it creates the Download, so for that window a lease with
+// no Download is live, not orphaned.
+const leaseOrphanGrace = 10 * time.Minute
+
+// leaseReclaimAttempts bounds the Create/Get/Update loop for one key. Every
+// iteration is a lost race over that key; losing this many means another grab
+// is actively taking it, which is exactly a duplicate.
+const leaseReclaimAttempts = 3
+
+// holderState is what a lease's holder -- the Download named by its value --
+// says about the lease.
+type holderState int
+
+const (
+	// holderActive: the holder Download still occupies the item, or may be
+	// about to (it does not exist yet, inside leaseOrphanGrace). The lease
+	// is held.
+	holderActive holderState = iota
+	// holderStale: the holder Download is terminal, being deleted, or has
+	// been missing for longer than leaseOrphanGrace. The lease guards
+	// nothing and may be taken over.
+	holderStale
+)
+
+// holderFunc reports the state of the Download a lease names. entry is the
+// lease itself, so the caller can age it.
+type holderFunc func(ctx context.Context, entry events.Entry) (holderState, error)
+
 // acquireLeases takes the clustarr-leases key for every status target of one
-// grab, all or nothing.
+// grab, all or nothing, and returns the keys this call changed -- the ones a
+// rollback may delete.
 //
 // All-or-nothing is what makes a season pack safe. A pack covering episodes
 // 1-10 where episode 4 is already downloading must not half-grab: spec §8.2
@@ -44,37 +78,100 @@ var ErrDuplicateGrab = errors.New("grab: lease already held")
 // The primitive is Create-fails-if-exists, which is atomic at the broker, so
 // two workers racing over the same key cannot both win. The value is the
 // Download name, so an operator reading the bucket can see which grab holds
-// what, and so grabarr can match the lease to the Download it releases.
+// what, and so the next grab can ask that Download whether the lease still
+// means anything.
+//
+// A key that already exists is not automatically a duplicate:
+//
+//   - Held by downloadName itself, it is this grab's own lease from an earlier
+//     delivery -- one that created the Download and then failed to clear
+//     pendingGrab or to publish release.grabbed. The key is re-entered, not
+//     refused, which is what makes the redelivery the idempotent retry the
+//     handler relies on; refusing it acknowledged the task as a duplicate and
+//     lost the release.grabbed event (and with it indexarr's grab count).
+//   - Held by a Download that is terminal, being deleted, or missing past
+//     leaseOrphanGrace, it guards nothing and is taken over with a
+//     revision-checked Update, so two grabs reclaiming it at once cannot both
+//     win. Spec §5 has the Download controller delete the key on a terminal
+//     phase and a sweeper delete keys whose Download is gone; neither
+//     exists, so without this every item kept its first grab's lease forever
+//     and could never be grabbed again -- not after a failed download, not
+//     for an upgrade. Reclaiming at the point of contention needs no sweeper
+//     and cannot race one.
+//   - Held by an active Download, it is ErrDuplicateGrab.
 //
 // Leases taken by a winning grab are deliberately NOT released here on
-// success. They outlive this function: grabarr deletes them when the Download
-// reaches a terminal phase, and a 10-minute sweeper reclaims a key whose
-// Download no longer exists (spec §5's clustarr-leases row).
-func acquireLeases(ctx context.Context, kv events.KV, keys []string, downloadName string) ([]string, error) {
-	acquired := make([]string, 0, len(keys))
+// success. They outlive this function until the next grab of the item finds
+// its holder stale.
+func acquireLeases(ctx context.Context, kv events.KV, keys []string, downloadName string, holder holderFunc) ([]string, error) {
+	taken := make([]string, 0, len(keys))
 	for _, key := range keys {
-		if _, err := kv.Create(ctx, key, []byte(downloadName)); err != nil {
-			releaseLeases(ctx, kv, acquired)
-			if errors.Is(err, events.ErrKeyExists) {
-				return nil, fmt.Errorf("%w: %s", ErrDuplicateGrab, key)
-			}
-			return nil, fmt.Errorf("grab: take lease %q: %w", key, err)
+		changed, err := acquireLease(ctx, kv, key, downloadName, holder)
+		if err != nil {
+			releaseLeases(ctx, kv, taken)
+			return nil, err
 		}
-		acquired = append(acquired, key)
+		if changed {
+			taken = append(taken, key)
+		}
 	}
-	return acquired, nil
+	return taken, nil
+}
+
+// acquireLease takes one key. changed is false when the key was already held
+// by downloadName: a rollback must not delete a lease this call did not take.
+func acquireLease(ctx context.Context, kv events.KV, key, downloadName string, holder holderFunc) (changed bool, err error) {
+	for range leaseReclaimAttempts {
+		_, err := kv.Create(ctx, key, []byte(downloadName))
+		if err == nil {
+			return true, nil
+		}
+		if !errors.Is(err, events.ErrKeyExists) {
+			return false, fmt.Errorf("grab: take lease %q: %w", key, err)
+		}
+
+		entry, err := kv.Get(ctx, key)
+		switch {
+		case errors.Is(err, events.ErrKeyNotFound):
+			// Deleted between the Create and the Get: try again.
+			continue
+		case err != nil:
+			return false, fmt.Errorf("grab: read lease %q: %w", key, err)
+		}
+		if string(entry.Value) == downloadName {
+			return false, nil
+		}
+
+		state, err := holder(ctx, entry)
+		if err != nil {
+			return false, fmt.Errorf("grab: check holder %q of lease %q: %w", entry.Value, key, err)
+		}
+		if state != holderStale {
+			return false, fmt.Errorf("%w: %s held by %s", ErrDuplicateGrab, key, entry.Value)
+		}
+		if _, err := kv.Update(ctx, key, []byte(downloadName), entry.Revision); err != nil {
+			if errors.Is(err, events.ErrRevisionMismatch) || errors.Is(err, events.ErrKeyNotFound) {
+				continue
+			}
+			return false, fmt.Errorf("grab: reclaim lease %q from %s: %w", key, entry.Value, err)
+		}
+		logging.FromContext(ctx).Info("grab: reclaimed a stale lease",
+			"key", key, "from", string(entry.Value), "to", downloadName)
+		return true, nil
+	}
+	return false, fmt.Errorf("%w: %s contended for %d attempts", ErrDuplicateGrab, key, leaseReclaimAttempts)
 }
 
 // releaseLeases deletes every key in acquired, best effort. A failed delete is
 // logged and skipped rather than returned: this runs on the rollback path of a
 // grab that is already failing, and turning a cleanup error into the caller's
 // error would mask the real cause. A lease left behind by a failed delete is
-// not permanent either -- §5's 10-minute sweeper reclaims a key whose Download
-// does not exist.
+// not permanent either: it names a Download that was never created, so the
+// next grab of the item takes it over once leaseOrphanGrace has passed.
 func releaseLeases(ctx context.Context, kv events.KV, acquired []string) {
 	for _, key := range acquired {
 		if err := kv.Delete(ctx, key); err != nil {
-			logging.FromContext(ctx).Warn("grab: releasing lease failed; the sweeper will reclaim it",
+			logging.FromContext(ctx).Warn("grab: releasing lease failed; the next grab reclaims it after the orphan grace",
 				"key", key, "error", err)
 		}
 	}

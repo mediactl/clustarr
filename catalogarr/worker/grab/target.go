@@ -86,9 +86,9 @@ const packKeyHashLen = 10
 //
 // A movie or a single episode is its own status target. A season (or
 // multi-season) pack names the Series as its target and narrows to specific
-// episodes through keys, and every one of those episodes gets its own lease,
-// its own pendingGrab and its own activeDownloadRef -- the Series itself has
-// none of those fields, so it is never a status target in its own right.
+// episodes through keys, and every one of those episodes gets its own lease
+// and its own pendingGrab -- the Series itself has neither, so it is never a
+// status target in its own right.
 //
 // A Series target with no keys is rejected: spec §8.2's lease step is
 // "for every key (episodes of a pack)", and a pack with no keys would take no
