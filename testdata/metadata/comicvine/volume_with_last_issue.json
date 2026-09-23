@@ -1,0 +1,23 @@
+{
+  "error": "OK",
+  "limit": 1,
+  "offset": 0,
+  "number_of_page_results": 1,
+  "number_of_total_results": 1,
+  "status_code": 1,
+  "results": {
+    "id": 18257,
+    "name": "Batman",
+    "start_year": "1940",
+    "publisher": {"id": 10, "name": "DC Comics"},
+    "count_of_issues": 716,
+    "description": "<p>Batman is a costumed crime-fighter and vigilante.</p>",
+    "site_detail_url": "https://comicvine.gamespot.com/batman/4050-18257/",
+    "last_issue": {
+      "api_detail_url": "https://comicvine.gamespot.com/api/issue/4000-279013/",
+      "id": 279013,
+      "name": "Nights Of Darkness: Part 4",
+      "issue_number": "713"
+    }
+  }
+}

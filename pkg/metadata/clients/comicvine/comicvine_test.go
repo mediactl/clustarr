@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package comicvine_test
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -343,4 +344,163 @@ func TestVolumeRejectsMalformedResponseBodies(t *testing.T) {
 			require.ErrorIs(t, err, metadata.ErrDecode)
 		})
 	}
+}
+
+// TestAnEnvelopeStatusCodeIsNotAValidResult is the regression for the
+// unmapped body-level status_code: ComicVine can answer 200 with a failure
+// in its envelope, which used to decode as a valid, empty result list.
+func TestAnEnvelopeStatusCodeIsNotAValidResult(t *testing.T) {
+	tests := []struct {
+		name       string
+		httpStatus int
+		body       string
+		is         error
+	}{
+		{"invalid api key on a 200", http.StatusOK, `{"error":"Invalid API Key","status_code":100,"results":[]}`, metadata.ErrAuth},
+		{"invalid api key on the real 401", http.StatusUnauthorized, `{"error":"Invalid API Key","limit":0,"offset":0,"number_of_page_results":0,"number_of_total_results":0,"status_code":100,"results":[]}`, metadata.ErrAuth},
+		{"object not found", http.StatusOK, `{"error":"Object Not Found","status_code":101,"results":[]}`, metadata.ErrNotFound},
+		{"subscriber only", http.StatusOK, `{"error":"Subscriber only video is for subscribers only","status_code":105,"results":[]}`, metadata.ErrAuth},
+		{"rate limit", http.StatusOK, `{"error":"Rate limit exceeded","status_code":107,"results":[]}`, metadata.ErrRateLimited},
+		{"filter error", http.StatusOK, `{"error":"Filter Error","status_code":104,"results":[]}`, nil},
+		{"no envelope at all", http.StatusOK, `{"results":[]}`, metadata.ErrDecode},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.httpStatus)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer srv.Close()
+			c := comicvine.New("test-key", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 3))
+
+			issues, err := c.Issues(context.Background(), "18257")
+
+			require.Error(t, err, "a non-1 status_code must never read as an empty issue list")
+			require.Nil(t, issues)
+			if tt.is != nil {
+				require.ErrorIs(t, err, tt.is)
+			}
+		})
+	}
+}
+
+func TestA420IsRateLimited(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(420)
+	}))
+	defer srv.Close()
+	c := comicvine.New("test-key", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 3))
+
+	_, err := c.SearchVolumes(context.Background(), "batman")
+	require.ErrorIs(t, err, metadata.ErrRateLimited)
+}
+
+func TestVolumeRejectsAnOversizedBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status_code":1,"results":{"name":"`))
+		_, _ = w.Write(bytes.Repeat([]byte("x"), int(metadata.MaxResponseBytes)))
+		_, _ = w.Write([]byte(`"}}`))
+	}))
+	defer srv.Close()
+	c := comicvine.New("test-key", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 3))
+
+	_, err := c.Volume(context.Background(), metadata.ExternalIDs{metadata.KeyComicVine: "4050-18257"})
+
+	require.ErrorIs(t, err, metadata.ErrResponseTooLarge)
+	require.NotErrorIs(t, err, metadata.ErrDecode)
+}
+
+func TestErrorsNeverCarryTheAPIKey(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	c := comicvine.New("secret-key-123", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 3))
+	srv.Close() // every round trip is refused
+
+	_, err := c.Volume(context.Background(), metadata.ExternalIDs{metadata.KeyComicVine: "4050-18257"})
+
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "secret-key-123", "net/http's *url.Error message is the whole URL, api_key included")
+}
+
+// volumeStatusServer serves the volume fixture that names a last issue,
+// and answers that issue with storeDate (or statusCode when non-zero).
+func volumeStatusServer(t *testing.T, storeDate string, issueStatus int, issueRequests *int) *httptest.Server {
+	t.Helper()
+	volume, err := os.ReadFile("../../../../testdata/metadata/comicvine/volume_with_last_issue.json")
+	require.NoError(t, err)
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/volume/4050-18257":
+			_, _ = w.Write(volume)
+		case "/issue/4000-279013/":
+			*issueRequests++
+			require.Equal(t, "cover_date,store_date", r.URL.Query().Get("field_list"))
+			if issueStatus != 0 {
+				w.WriteHeader(issueStatus)
+				return
+			}
+			_, _ = w.Write([]byte(`{"error":"OK","status_code":1,"results":{"cover_date":"` + storeDate + `","store_date":"` + storeDate + `"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+}
+
+// TestVolumeDerivesStatusFromTheLatestIssue is the regression for Volume
+// never filling ComicVolume.Status, which left every comic on the gateway's
+// daily refresh however long it had been finished.
+func TestVolumeDerivesStatusFromTheLatestIssue(t *testing.T) {
+	recent := time.Now().UTC().AddDate(0, 0, -20).Format("2006-01-02")
+	upcoming := time.Now().UTC().AddDate(0, 0, 14).Format("2006-01-02")
+	tests := []struct {
+		name      string
+		storeDate string
+		want      string
+	}{
+		{"latest issue 20 days ago", recent, "continuing"},
+		{"latest issue on sale in two weeks", upcoming, "continuing"},
+		{"latest issue years ago", "2011-08-24", "ended"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var issueRequests int
+			srv := volumeStatusServer(t, tt.storeDate, 0, &issueRequests)
+			defer srv.Close()
+			c := comicvine.New("test-key", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 3))
+
+			v, err := c.Volume(context.Background(), metadata.ExternalIDs{metadata.KeyComicVine: "4050-18257"})
+
+			require.NoError(t, err)
+			require.Equal(t, tt.want, v.Status)
+			require.Equal(t, 1, issueRequests)
+		})
+	}
+}
+
+func TestVolumeStatusIsUnknownWhenTheLatestIssueFetchFails(t *testing.T) {
+	var issueRequests int
+	srv := volumeStatusServer(t, "", http.StatusInternalServerError, &issueRequests)
+	defer srv.Close()
+	c := comicvine.New("test-key", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 3))
+
+	v, err := c.Volume(context.Background(), metadata.ExternalIDs{metadata.KeyComicVine: "4050-18257"})
+
+	require.NoError(t, err, "a derived status must not cost the caller the volume it asked for")
+	require.Equal(t, "Batman", v.Title)
+	require.Empty(t, v.Status)
+}
+
+func TestVolumeWithNoLastIssueMakesNoIssueRequest(t *testing.T) {
+	body, err := os.ReadFile("../../../../testdata/metadata/comicvine/volume_18257.json")
+	require.NoError(t, err)
+	srv := strictVolumeServer(t, body)
+	defer srv.Close()
+	c := comicvine.New("test-key", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 3))
+
+	v, err := c.Volume(context.Background(), metadata.ExternalIDs{metadata.KeyComicVine: "4050-18257"})
+
+	require.NoError(t, err)
+	require.Empty(t, v.Status)
 }
