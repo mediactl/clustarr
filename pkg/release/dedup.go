@@ -25,16 +25,21 @@ import (
 )
 
 // Fingerprint is a deterministic 16-hex-char sha256 prefix of
-// CleanTitle+Year+Seasons+Episodes+Quality.Name+Group, stable across two
+// TitleNorm+Year+Seasons+Episodes+Quality.Name+Group, stable across two
 // indexers describing the same content. It is a content-level dedup key,
 // distinct from indexarr's own sha1(indexer:guid) Msg-Id (spec §8.7): that
 // one dedupes repeat sightings of the *same* indexer/guid pair; this one
 // dedupes the *same release* seen through two different indexers, which
 // neither guid nor infohash can do when only one of the two carries an
 // infohash (a usenet mirror of a scene release, for example).
+//
+// The title half is TitleNorm, not CleanTitle: CleanTitle reduces every
+// wholly non-Latin title to "", so two different films released the same
+// year at the same quality by the same group would share one fingerprint
+// and one would be deduplicated away as a copy of the other.
 func (p *ParsedRelease) Fingerprint() string {
 	var b strings.Builder
-	b.WriteString(CleanTitle(p.Title))
+	b.WriteString(TitleNorm(p.Title))
 	fmt.Fprintf(&b, "|%d", p.Year)
 	fmt.Fprintf(&b, "|%v|%v", p.Seasons, p.Episodes)
 	b.WriteString("|")

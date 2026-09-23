@@ -39,3 +39,11 @@ func TestFingerprintIsStableAndDistinguishesQuality(t *testing.T) {
 	assert.NotEqual(t, a.Fingerprint(), c.Fingerprint(), "different quality must not collide")
 	assert.Len(t, a.Fingerprint(), 16)
 }
+
+func TestFingerprintDistinguishesNonLatinTitles(t *testing.T) {
+	a, err := release.ParseKind("Матрица.1999.1080p.BluRay.x264-GROUP", commonv1.MediaKindMovie)
+	require.NoError(t, err)
+	b, err := release.ParseKind("Дюна.1999.1080p.BluRay.x264-GROUP", commonv1.MediaKindMovie)
+	require.NoError(t, err)
+	assert.NotEqual(t, a.Fingerprint(), b.Fingerprint(), "two different non-Latin titles must not collide")
+}
