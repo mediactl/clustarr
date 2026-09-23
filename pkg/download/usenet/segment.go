@@ -188,10 +188,11 @@ func (j *job) transfer(ctx context.Context) error {
 
 	log := logging.FromContext(ctx)
 
-	// Honour a pause before the first article, not only between batches: a
-	// transfer added paused must move no bytes at all, and fetchFirstArticles
-	// runs ahead of the worker loop that does the per-batch check.
-	if err := j.waitWhilePaused(ctx); err != nil {
+	// Honour a pause -- or a higher-priority transfer (priority.go) --
+	// before the first article, not only between batches: a transfer added
+	// paused must move no bytes at all, and fetchFirstArticles runs ahead of
+	// the worker loop that does the per-batch check.
+	if err := j.waitForTurn(ctx); err != nil {
 		return err
 	}
 
@@ -242,7 +243,7 @@ func (j *job) transfer(ctx context.Context) error {
 		go func() {
 			defer wg.Done()
 			for b := range work {
-				if err := j.waitWhilePaused(workerCtx); err != nil {
+				if err := j.waitForTurn(workerCtx); err != nil {
 					return
 				}
 				if err := j.runBatch(workerCtx, targets, b); err != nil {
@@ -418,20 +419,6 @@ func (j *job) healthGate() error {
 	}
 	return fmt.Errorf("%w: health %d%% is below the floor (abort %d%%, critical %d%%)",
 		ErrUnrecoverable, health, j.abortHealth, j.nzb.criticalHealthPercent())
-}
-
-// waitWhilePaused blocks while the transfer is paused. Partial files stay on
-// disk, which is what makes a pause cheap: resuming re-fetches only the
-// articles the bitsets still show missing.
-func (j *job) waitWhilePaused(ctx context.Context) error {
-	for j.paused.Load() {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(250 * time.Millisecond):
-		}
-	}
-	return ctx.Err()
 }
 
 // startCheckpoint persists the bitsets on a timer and returns a stop func.

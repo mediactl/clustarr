@@ -52,6 +52,13 @@ type fileSpec struct {
 // hiding it in testdata.
 func buildNZB(t *testing.T, srv *stubServer, title string, files []fileSpec) []byte {
 	t.Helper()
+	return buildNZBWithPrefix(t, srv, title, "", files)
+}
+
+// buildNZBWithPrefix is buildNZB with every message-id prefixed, so two NZBs
+// registered on one stubServer do not overwrite each other's articles.
+func buildNZBWithPrefix(t *testing.T, srv *stubServer, title, idPrefix string, files []fileSpec) []byte {
+	t.Helper()
 
 	type seg struct {
 		Bytes  int    `xml:"bytes,attr"`
@@ -94,7 +101,7 @@ func buildNZB(t *testing.T, srv *stubServer, title string, files []fileSpec) []b
 		}
 		var offset int64
 		for pi, payload := range f.parts {
-			id := fmt.Sprintf("f%d-p%d@clustarr.test", fi, pi)
+			id := fmt.Sprintf("%sf%d-p%d@clustarr.test", idPrefix, fi, pi)
 			art := stubArticle{data: payload, meta: rapidyenc.Meta{
 				FileName: f.name, FileSize: size, PartNumber: int64(pi + 1),
 				TotalParts: int64(len(f.parts)), Offset: offset, PartSize: int64(len(payload)),

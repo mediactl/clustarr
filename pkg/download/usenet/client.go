@@ -221,19 +221,25 @@ func New(cfg Config) (download.Client, error) {
 // one that must be either wholly the old version or wholly the new: a torn
 // manifest would lose every id the client had issued.
 type manifest struct {
-	ID         string   `json:"id"`
-	Name       string   `json:"name"`
-	Category   string   `json:"category"`
-	Status     string   `json:"status"`
-	Stage      string   `json:"stage"`
-	Reason     string   `json:"reason,omitempty"`
-	Message    string   `json:"message,omitempty"`
-	OutputPath string   `json:"outputPath,omitempty"`
-	Imported   bool     `json:"imported,omitempty"`
-	Encrypted  bool     `json:"encrypted,omitempty"`
-	Paused     bool     `json:"paused,omitempty"`
-	Done       []bitset `json:"done,omitempty"`
-	Failed     []bitset `json:"failed,omitempty"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Category   string `json:"category"`
+	Status     string `json:"status"`
+	Stage      string `json:"stage"`
+	Reason     string `json:"reason,omitempty"`
+	Message    string `json:"message,omitempty"`
+	OutputPath string `json:"outputPath,omitempty"`
+	Imported   bool   `json:"imported,omitempty"`
+	Encrypted  bool   `json:"encrypted,omitempty"`
+	Paused     bool   `json:"paused,omitempty"`
+	// Priority is the job's spec.priority class; see [job.priority].
+	Priority string `json:"priority,omitempty"`
+	// AddedAt is when the job was first added -- [download.Item.AddedAt],
+	// which an orphan reaper ages the transfer by. A manifest written before
+	// it existed decodes to zero, which the reaper reads as "unknown".
+	AddedAt time.Time `json:"addedAt,omitzero"`
+	Done    []bitset  `json:"done,omitempty"`
+	Failed  []bitset  `json:"failed,omitempty"`
 }
 
 const (
@@ -254,6 +260,15 @@ type job struct {
 	payload []byte
 
 	abortHealth int32
+
+	// priority is fixed for the job's lifetime: [Client.Add] is idempotent
+	// and changes nothing about an existing job, so it is read without mu.
+	// See [Client.outranked] for what it does.
+	priority downloadv1alpha1.DownloadPriority
+
+	// addedAt is fixed at the first Add and restored from the manifest on
+	// re-attach, so it is read without mu too.
+	addedAt time.Time
 
 	mu             sync.Mutex
 	status         download.Status
@@ -339,6 +354,8 @@ func (j *job) checkpoint() error {
 		Imported:   j.imported,
 		Encrypted:  j.encrypted,
 		Paused:     j.paused.Load(),
+		Priority:   string(j.priority),
+		AddedAt:    j.addedAt,
 		Done:       cloneBitsets(j.done),
 		Failed:     cloneBitsets(j.failedSegs),
 	}
@@ -420,6 +437,8 @@ func (c *Client) loadJob(dir string) (*job, error) {
 	j.imported = m.Imported
 	j.encrypted = m.Encrypted
 	j.paused.Store(m.Paused)
+	j.priority = downloadv1alpha1.DownloadPriority(m.Priority)
+	j.addedAt = m.AddedAt
 	restoreBitsets(j.done, m.Done)
 	restoreBitsets(j.failedSegs, m.Failed)
 	for i := range j.done {
@@ -565,6 +584,11 @@ func (c *Client) Add(ctx context.Context, req download.AddRequest) (string, erro
 
 	j := c.newJob(parsed.ID, req.Name, category, dir, parsed, req.Payload)
 	j.paused.Store(req.Paused)
+	j.priority = req.Priority
+	j.addedAt = req.AddedAt
+	if j.addedAt.IsZero() {
+		j.addedAt = time.Now()
+	}
 	if err := j.checkpoint(); err != nil {
 		return "", err
 	}
@@ -883,6 +907,10 @@ func (j *job) snapshotOutputPath() string {
 
 // item renders the transfer as the engine's view of it.
 func (j *job) item() download.Item {
+	// Before j.mu: outranked takes the client lock and then every other
+	// job's lock, and nothing may take the client lock while holding a job's.
+	outranked := j.client.outranked(j)
+
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
@@ -891,8 +919,16 @@ func (j *job) item() download.Item {
 	remaining := total - downloaded
 
 	status := j.status
-	if j.paused.Load() && status == download.StatusDownloading {
+	message := j.message
+	switch {
+	case j.paused.Load() && status == download.StatusDownloading:
 		status = download.StatusPaused
+	case outranked && status == download.StatusDownloading:
+		// Waiting its turn behind a higher-priority transfer: it moves no
+		// bytes, which is what Queued means. Stage stays where the pipeline
+		// is, since a transfer that already started keeps its partial files.
+		status = download.StatusQueued
+		message = "waiting for higher-priority transfers to finish"
 	}
 
 	var progress int32
@@ -921,7 +957,8 @@ func (j *job) item() download.Item {
 		ProgressPercent: progress,
 		OutputPath:      j.outputPath,
 		IsEncrypted:     j.encrypted,
-		Message:         j.message,
+		Message:         message,
+		AddedAt:         j.addedAt,
 		Health: &downloadv1alpha1.UsenetHealth{
 			HealthPercent:         health,
 			CriticalHealthPercent: j.nzb.criticalHealthPercent(),
@@ -1079,6 +1116,15 @@ func (j *job) cleanScratch(ctx context.Context) error {
 
 // Remove stops a transfer and forgets it.
 //
+// Forgetting is durable: the job's scratch directory -- manifest, stored
+// NZB and any partial content -- goes on every Remove, deleteData or not
+// ([download.Client.Remove]). Keeping the manifest would let the next
+// restart re-attach the job this call forgot, which is how a reaped orphan
+// (the reapers always pass deleteData=false) came back after every restart.
+// The scratch area is this engine's private working space, not the
+// downloaded data; deleteData governs only the published content in
+// DataDir.
+//
 // Removing an unknown id reports [download.ErrNotFound], which a finalizer
 // treats as success -- that is what makes Remove idempotent.
 func (c *Client) Remove(ctx context.Context, id string, deleteData bool) error {
@@ -1100,11 +1146,11 @@ func (c *Client) Remove(ctx context.Context, id string, deleteData bool) error {
 
 	c.forget(id)
 
-	if !deleteData {
-		return nil
-	}
 	if err := fsops.SafeRemove(ctx, c.cfg.ScratchDir, j.dir); err != nil {
 		return err
+	}
+	if !deleteData {
+		return nil
 	}
 	out := j.snapshotOutputPath()
 	if out == "" {
