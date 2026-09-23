@@ -87,6 +87,7 @@ name: Synthetic Tracker
 description: "test fixture"
 language: en-US
 type: semi-private
+replaces: [synthetic-old, synthetic-older]
 encoding: UTF-8
 links: ["https://example.invalid/"]
 caps:
@@ -147,6 +148,8 @@ func TestIndexerDefinitionReportsValidAndSummary(t *testing.T) {
 		"the Valid condition does not carry the generation it was decided from")
 
 	assert.Equal(t, "synthetic-tracker", got.Status.ID)
+	assert.Equal(t, []string{"synthetic-old", "synthetic-older"}, got.Status.Replaces,
+		"status.replaces carries the definition's replaces ids, the aliases an Indexer may name")
 	assert.Equal(t, "Synthetic Tracker", got.Status.Name)
 	assert.Equal(t, "en-US", got.Status.Language)
 	assert.Equal(t, indexv1alpha1.DefinitionTypeSemiPrivate, got.Status.Type,
@@ -212,6 +215,8 @@ func TestInvalidYAMLDoesNotReleaseTheValidatedSummary(t *testing.T) {
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: name}, &after))
 
 	assert.Equal(t, "synthetic-tracker", after.Status.ID, "a transient failure released status.id")
+	assert.Equal(t, []string{"synthetic-old", "synthetic-older"}, after.Status.Replaces,
+		"a transient failure released status.replaces")
 	assert.Equal(t, "Synthetic Tracker", after.Status.Name, "a transient failure released status.name")
 	assert.Equal(t, "en-US", after.Status.Language, "a transient failure released status.language")
 	assert.Equal(t, indexv1alpha1.DefinitionTypeSemiPrivate, after.Status.Type, "a transient failure released status.type")

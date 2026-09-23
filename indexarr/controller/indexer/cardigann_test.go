@@ -145,6 +145,66 @@ func TestResolveDefinition(t *testing.T) {
 	require.LessOrEqual(t, len(err.Error()), maxDefinitionErr+200, "a schema error must fit a condition message")
 }
 
+// X15: a definition's Cardigann `replaces` ids (status.replaces) are aliases.
+// An Indexer written against a tracker's retired id resolves to the
+// definition that replaced it, as Jackett's GetIndexer resolves a renamed
+// indexer -- and only as a last resort: a definition whose own id or
+// spec.replaces claims the id keeps it, and between two alias claims the
+// first by name wins, on every replica.
+func TestResolveDefinitionThroughReplacedIDs(t *testing.T) {
+	yaml := cardigannFixture(t, "search-error.yml")
+	renamed := idxDefinition("b-renamed", yaml, nil, "synthetic-search-error")
+	renamed.Status.Replaces = []string{"old-tracker", "older-tracker"}
+	second := idxDefinition("c-also-claims", "id: nope\n", nil, "another-id")
+	second.Status.Replaces = []string{"old-tracker"}
+	ctx := context.Background()
+
+	c := fakeClient(t, renamed, second)
+	for _, old := range []string{"old-tracker", "older-tracker"} {
+		def, err := resolveDefinition(ctx, c, indexv1alpha1.IndexerSpec{Definition: ptr.To(old)})
+		require.NoError(t, err, "the retired id %q must resolve", old)
+		require.Equal(t, "synthetic-search-error", def.ID, "%q resolved to the wrong definition", old)
+	}
+
+	// A definition that IS the id outranks one that claims to replace it.
+	live := idxDefinition("z-live", "id: nope\n", nil, "old-tracker")
+	d, err := definitionByID(ctx, fakeClient(t, renamed, live), "old-tracker")
+	require.NoError(t, err)
+	require.Equal(t, "z-live", d.Name, "status.id must win over status.replaces")
+
+	// So does an explicit override.
+	override := idxDefinition("z-override", "id: nope\n", ptr.To("older-tracker"), "x")
+	d, err = definitionByID(ctx, fakeClient(t, renamed, override), "older-tracker")
+	require.NoError(t, err)
+	require.Equal(t, "z-override", d.Name, "spec.replaces must win over status.replaces")
+}
+
+// The watch must carry an alias too: an Indexer naming a retired id is
+// re-reconciled when the definition that replaces it changes, not only on
+// the one-minute DefinitionNotFound retry.
+func TestIndexersForDefinitionFollowsReplacedIDs(t *testing.T) {
+	def := idxDefinition("renamed", "", nil, "new-tracker")
+	def.Status.Replaces = []string{"old-tracker"}
+	byID := func(name, id string) *indexv1alpha1.Indexer {
+		return &indexv1alpha1.Indexer{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "media"},
+			Spec:       indexv1alpha1.IndexerSpec{Definition: ptr.To(id)},
+		}
+	}
+	c := fakeClient(t, byID("by-old", "old-tracker"), byID("by-new", "new-tracker"), byID("unrelated", "other"))
+	r := &Reconciler{Client: c}
+	var names []string
+	for _, req := range r.indexersForDefinition(context.Background(), def) {
+		names = append(names, req.Name)
+	}
+	require.ElementsMatch(t, []string{"by-old", "by-new"}, names)
+
+	// And the predicate sees a status.replaces change as a change.
+	moved := def.DeepCopy()
+	moved.Status.Replaces = []string{"old-tracker", "oldest-tracker"}
+	require.NotEqual(t, definitionIDs(def), definitionIDs(moved))
+}
+
 // Every IndexerProxy type now yields a route rather than a refusal: socks4
 // through indexarr/proxy's own dialer and flaresolverr as the outer
 // challenge-solving layer. Before, both were ErrProxyUnavailable.

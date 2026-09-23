@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package indexerdefinition
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -126,7 +127,7 @@ func TestTruncateKeepsRuneBoundaries(t *testing.T) {
 // that cannot recompute the summary: it re-sends what is already there.
 func TestSummaryFromSeedsEveryOwnedField(t *testing.T) {
 	st := indexv1alpha1.IndexerDefinitionStatus{
-		ID: "id", Name: "name", Language: "en-US",
+		ID: "id", Replaces: []string{"old-id"}, Name: "name", Language: "en-US",
 		Type: indexv1alpha1.DefinitionTypePrivate, Protocol: "torrent", Sha256: "deadbeef",
 		Caps: indexv1alpha1.CapsSummary{
 			Modes:      map[string][]string{"search": {"q"}},
@@ -135,9 +136,25 @@ func TestSummaryFromSeedsEveryOwnedField(t *testing.T) {
 	}
 	got := summaryFrom(st)
 	assert.Equal(t, summary{
-		ID: "id", Name: "name", Language: "en-US",
+		ID: "id", Replaces: []string{"old-id"}, Name: "name", Language: "en-US",
 		Type: indexv1alpha1.DefinitionTypePrivate, Protocol: "torrent", Sha256: "deadbeef",
 		Modes:      map[string][]string{"search": {"q"}},
 		Categories: []int32{2000},
 	}, got, "a field missing here is a field the failure path releases")
+}
+
+// status.replaces keeps the declared order and drops what would say nothing
+// (a blank, a repeat, the definition's own id), and is capped at the CRD's
+// MaxItems, which would otherwise reject the whole status apply.
+func TestReplacedIDs(t *testing.T) {
+	assert.Nil(t, replacedIDs("x", nil))
+	assert.Equal(t, []string{"b", "a"}, replacedIDs("x", []string{"b", "", "x", "a", "b"}))
+
+	many := make([]string, 0, maxReplaces+5)
+	for i := range maxReplaces + 5 {
+		many = append(many, fmt.Sprintf("old-%d", i))
+	}
+	got := replacedIDs("x", many)
+	assert.Len(t, got, maxReplaces)
+	assert.Equal(t, "old-0", got[0])
 }

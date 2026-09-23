@@ -20,6 +20,7 @@ package indexer
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -547,8 +548,8 @@ func (r *Reconciler) patch(
 // use it at once rather than at their next reprobe tick (up to 15 minutes),
 // and so an Indexer created before its definition resolves the moment the
 // definition appears. The watch passes a definition's creation, deletion and
-// spec edits, and a change of the status.id that spec.definition resolves
-// by; [indexersForDefinition] maps each onto the Indexers that name it.
+// spec edits, and a change of the status.id or status.replaces that
+// spec.definition resolves by; [indexersForDefinition] maps each onto the Indexers that name it.
 //
 // IndexerProxy is watched (spec edits only -- its own controller's status
 // writes are not a routing change) for the same reason, mapped by
@@ -561,7 +562,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&indexv1alpha1.IndexerDefinition{},
 			handler.EnqueueRequestsFromMapFunc(r.indexersForDefinition),
 			builder.WithPredicates(k8s.Or(k8s.GenerationChanged(),
-				k8s.StatusFieldChanged(definitionID)))).
+				k8s.StatusFieldChanged(definitionIDs)))).
 		Watches(&indexv1alpha1.IndexerProxy{},
 			handler.EnqueueRequestsFromMapFunc(r.indexersForProxy),
 			builder.WithPredicates(k8s.GenerationChanged())).
@@ -606,20 +607,22 @@ func (r *Reconciler) indexersForProxy(ctx context.Context, o client.Object) []re
 	return out
 }
 
-// definitionID is the IndexerDefinition status field spec.definition
-// resolves by, for the watch predicate.
-func definitionID(o client.Object) string {
+// definitionIDs is the IndexerDefinition status fields spec.definition
+// resolves by -- status.id and status.replaces -- as one comparable value,
+// for the watch predicate. Both are written by the IndexerDefinition
+// controller's status apply, which bumps no generation.
+func definitionIDs(o client.Object) string {
 	d, ok := o.(*indexv1alpha1.IndexerDefinition)
 	if !ok {
 		return ""
 	}
-	return d.Status.ID
+	return strings.Join(append([]string{d.Status.ID}, d.Status.Replaces...), "\x00")
 }
 
 // indexersForDefinition maps an IndexerDefinition onto every Indexer that
 // resolves through it: spec.definitionRef naming it, or spec.definition
-// naming the id it provides (spec.replaces or status.id, the two keys
-// definitionByID resolves by). IndexerDefinition is cluster-scoped and an
+// naming an id it provides (spec.replaces, status.id or status.replaces, the
+// three keys definitionByID resolves by). IndexerDefinition is cluster-scoped and an
 // Indexer in any namespace may name it, so the list is cluster-wide -- from
 // the manager's cache, not the apiserver.
 func (r *Reconciler) indexersForDefinition(ctx context.Context, o client.Object) []reconcile.Request {
@@ -639,6 +642,9 @@ func (r *Reconciler) indexersForDefinition(ctx context.Context, o client.Object)
 	}
 	if d.Status.ID != "" {
 		ids[d.Status.ID] = true
+	}
+	for _, old := range d.Status.Replaces {
+		ids[old] = true
 	}
 	var out []reconcile.Request
 	for i := range list.Items {

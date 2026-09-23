@@ -83,12 +83,13 @@ const maxDefinitionErr = 800
 // resolveDefinition loads the Cardigann definition an Indexer names.
 //
 // spec.definitionRef is an IndexerDefinition's name. spec.definition is a
-// bundled id, and the bundled corpus is NOT shipped yet (the remaining-work
-// list carries sourcing it as unbuilt work) -- so an id resolves only
-// through an IndexerDefinition that declares it, by spec.replaces first and
-// its parsed status.id second. That is exactly how an override would
-// resolve once a corpus exists, so the lookup order does not change when it
-// lands; the corpus becomes the final fallback.
+// definition id, and Clustarr ships no corpus (ruling R-13): an id resolves
+// only through an IndexerDefinition that provides it -- operator-applied, or
+// loaded from a mounted bundle (indexarr/bundle) -- by spec.replaces first,
+// its parsed status.id second, and last the retired ids its spec.yaml says
+// it replaces (status.replaces), so an Indexer written against a tracker's
+// old id keeps working after the definition is renamed. See
+// [definitionByID].
 //
 // A missing definition is ErrDefinitionNotFound and an unloadable one is
 // errDefinitionInvalid: both are the operator's to fix, neither is a
@@ -122,7 +123,27 @@ func resolveDefinition(ctx context.Context, c client.Client, spec indexv1alpha1.
 
 // definitionByID finds the IndexerDefinition that provides id. Candidates
 // are ordered by name so two definitions claiming one id resolve the same
-// way on every replica and every reconcile.
+// way on every replica and every reconcile, and the three keys are tried in
+// order of how directly a definition claims the id:
+//
+//  1. spec.replaces -- an override: this object stands in for that id.
+//  2. status.id -- the definition IS that id.
+//  3. status.replaces -- the definition supersedes that retired id, from the
+//     Cardigann `replaces` key (pkg/cardigann.Definition.Replaces).
+//
+// The third is Jackett's rename handling, where the `replaces` key and the
+// format come from: IndexerManagerService.MigrateRenamedIndexers builds an
+// old-id -> new-id map from every indexer's Replaces, keeping the first
+// claimant and warning on a second, and GetIndexer resolves an old id
+// through it "to maintain backward compatibility"
+// (github.com/Jackett/Jackett, src/Jackett.Common/Services/
+// IndexerManagerService.cs at abd180d3417e21329f0ef3ce277e6657d40a68bb).
+// Prowlarr does not: its CardigannMetaDefinition has no Replaces property
+// and nothing in NzbDrone.Core reads the key (Prowlarr/Prowlarr at
+// 12c327808314a7cae1b7301935ee10cabc19609f). Jackett consults the alias
+// before the live id; here it comes last, because definitions are
+// operator-supplied, and one that declares an id itself must not lose it to
+// another that only claims to have replaced it.
 func definitionByID(ctx context.Context, c client.Client, id string) (*indexv1alpha1.IndexerDefinition, error) {
 	var list indexv1alpha1.IndexerDefinitionList
 	if err := c.List(ctx, &list); err != nil {
@@ -140,8 +161,13 @@ func definitionByID(ctx context.Context, c client.Client, id string) (*indexv1al
 			return &items[i], nil
 		}
 	}
-	return nil, fmt.Errorf("%w: no IndexerDefinition provides id %q, and the bundled definition corpus is not shipped",
-		ErrDefinitionNotFound, id)
+	for i := range items {
+		if slices.Contains(items[i].Status.Replaces, id) {
+			return &items[i], nil
+		}
+	}
+	return nil, fmt.Errorf("%w: no IndexerDefinition provides id %q (none declares it, overrides it or replaces it); "+
+		"Clustarr ships no definition corpus", ErrDefinitionNotFound, id)
 }
 
 // truncateBytes shortens s to at most n bytes on a rune boundary.

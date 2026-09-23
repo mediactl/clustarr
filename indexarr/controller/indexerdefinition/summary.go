@@ -40,6 +40,11 @@ import (
 // bundled definition comes close: the largest maps a few dozen.
 const maxCategories = 200
 
+// maxReplaces is the CRD's +kubebuilder:validation:MaxItems on
+// status.replaces, enforced here for the same reason as maxCategories. The
+// upstream corpus's longest replaces list is a handful of ids.
+const maxReplaces = 32
+
 // cardigannModes maps Cardigann's own mode names onto the Torznab wire values
 // that pkg/torznab implements and torznab.Caps.Supports compares against.
 //
@@ -82,6 +87,7 @@ var cardigannPrivacy = map[cardigann.DefinitionType]indexv1alpha1.DefinitionType
 // path is where that bites, because it is the transient one.
 type summary struct {
 	ID         string
+	Replaces   []string
 	Name       string
 	Language   string
 	Type       indexv1alpha1.DefinitionType
@@ -97,6 +103,7 @@ type summary struct {
 func summaryFrom(st indexv1alpha1.IndexerDefinitionStatus) summary {
 	return summary{
 		ID:         st.ID,
+		Replaces:   st.Replaces,
 		Name:       st.Name,
 		Language:   st.Language,
 		Type:       st.Type,
@@ -121,6 +128,7 @@ func summarise(def *cardigann.Definition, yaml string) summary {
 	caps := def.Capabilities()
 	return summary{
 		ID:         def.ID,
+		Replaces:   replacedIDs(def.ID, def.Replaces),
 		Name:       def.Name,
 		Language:   def.Language,
 		Type:       cardigannPrivacy[def.Type],
@@ -129,6 +137,23 @@ func summarise(def *cardigann.Definition, yaml string) summary {
 		Modes:      torznabModes(caps.Modes),
 		Categories: categoryIDs(caps.Categories),
 	}
+}
+
+// replacedIDs is status.replaces: the definition's own replaces list, in its
+// declared order, without blanks, repeats or its own id (an alias for itself
+// would say nothing), capped at the CRD's MaxItems.
+func replacedIDs(id string, replaces []string) []string {
+	var out []string
+	for _, old := range replaces {
+		if old == "" || old == id || slices.Contains(out, old) {
+			continue
+		}
+		out = append(out, old)
+		if len(out) == maxReplaces {
+			break
+		}
+	}
+	return out
 }
 
 // digest is status.sha256: the hex digest of spec.yaml as last validated.
@@ -187,6 +212,7 @@ func statusFor(generation int64, s summary, conditions []metav1.Condition) *inde
 		WithObservedGeneration(generation).
 		WithConditions(k8s.ConditionACs(conditions)...).
 		WithID(s.ID).
+		WithReplaces(s.Replaces...).
 		WithName(s.Name).
 		WithLanguage(s.Language).
 		WithSha256(s.Sha256).
