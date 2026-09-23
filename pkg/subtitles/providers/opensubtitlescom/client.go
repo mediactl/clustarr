@@ -86,16 +86,23 @@ type Config struct {
 	Endpoint                              string        // default "https://api.opensubtitles.com/api/v1"
 	HTTPClient                            *http.Client  // default http.DefaultClient
 	Limiter                               *rate.Limiter // default nil — no client-side pacing; see New's doc comment (ruling R3)
+
+	// TokenCache, if set, shares this account's login token with every
+	// other Provider (and every other replica) wired to the same cache. A
+	// Provider adopts a still-fresh token from it before logging in, and
+	// stores every token it obtains. Nil keeps the token in this Provider
+	// alone -- the behaviour before the cache existed. See [TokenCache].
+	TokenCache TokenCache
 }
 
 // Provider implements subtitles.Provider against OpenSubtitles.com.
 type Provider struct {
 	cfg Config
 
-	mu      sync.Mutex
-	token   string
-	baseURL string
-	tokenAt time.Time
+	mu        sync.Mutex
+	token     string
+	baseURL   string
+	expiresAt time.Time // token's expiry: its JWT exp claim, else login time + tokenLifetime
 }
 
 // New builds a Provider from cfg, applying defaults for any zero field.
@@ -147,16 +154,47 @@ type loginResponse struct {
 	} `json:"user"`
 }
 
-// EnsureLoggedIn logs in if there is no cached token, or the cached one is
-// older than 12h (Bazarr's TOKEN_EXPIRATION_TIME, half the real 24h JWT
-// life — research note §4.3).
-func (p *Provider) EnsureLoggedIn(ctx context.Context) error {
+// EnsureLoggedIn makes sure the Provider holds a token fresh enough to use
+// (see tokenFresh): the one it already has, else a fresh one from
+// Config.TokenCache, else a new login.
+func (p *Provider) EnsureLoggedIn(ctx context.Context) error { return p.ensureToken(ctx, "") }
+
+// ensureToken is EnsureLoggedIn with one addition: rejected, when non-empty,
+// is a token the API has just refused with 401, which is reused from
+// neither this Provider nor the cache. Two requests refused with the same
+// token therefore cost one login: the first replaces p.token, and the
+// second finds p.token no longer equal to what it was refused with and
+// uses the replacement.
+func (p *Provider) ensureToken(ctx context.Context, rejected string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.token != "" && time.Since(p.tokenAt) < 12*time.Hour {
+	now := time.Now()
+	if rejected != "" && p.token == rejected {
+		p.token, p.expiresAt = "", time.Time{}
+	}
+	if p.token != "" && tokenFresh(p.token, p.expiresAt, now) {
 		return nil
 	}
+	if p.cfg.TokenCache != nil {
+		tok, exp, err := p.cfg.TokenCache.LoadToken(ctx)
+		switch {
+		case err != nil:
+			// The cache is an optimisation: an unreadable one costs a
+			// login, not the search.
+			logging.FromContext(ctx).Warn("opensubtitlescom: token cache unreadable; logging in", "err", err)
+		case tok != "" && tok != rejected && tokenFresh(tok, exp, now):
+			p.token, p.expiresAt = tok, exp
+			return nil
+		}
+	}
+	return p.loginLocked(ctx, now)
+}
 
+// loginLocked performs POST /login and stores the token in p and in
+// Config.TokenCache. Callers hold p.mu, so concurrent callers queue behind
+// one login rather than each spending the account's login allowance
+// (1 req/s, research note §4.3).
+func (p *Provider) loginLocked(ctx context.Context, now time.Time) error {
 	ctx, span := tracing.Start(ctx, "subtitles.opensubtitlescom.login")
 	defer span.End()
 
@@ -168,6 +206,7 @@ func (p *Provider) EnsureLoggedIn(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	p.token = "" // a login request carries no bearer token
 	p.setCommonHeadersLocked(req)
 
 	if err := p.wait(ctx); err != nil {
@@ -190,9 +229,23 @@ func (p *Provider) EnsureLoggedIn(ctx context.Context) error {
 	if err := decodeJSON(resp.Body, &lr); err != nil {
 		return fmt.Errorf("subtitles: opensubtitlescom login: decode: %w", err)
 	}
+	if lr.Token == "" {
+		// Bazarr: "Cannot get token from provider login response".
+		err := &subtitles.ProviderError{Provider: p.Name(), Kind: subtitles.KindParse, Err: errors.New("login response carries no token")}
+		tracing.RecordError(span, err)
+		return err
+	}
 	p.token = lr.Token
-	p.tokenAt = time.Now()
-	logging.FromContext(ctx).Debug("opensubtitlescom login ok", "vip", lr.User.VIP)
+	p.expiresAt = tokenExpiry(lr.Token, now)
+	logging.FromContext(ctx).Debug("opensubtitlescom login ok", "vip", lr.User.VIP, "expiresAt", p.expiresAt)
+
+	if p.cfg.TokenCache != nil {
+		if err := p.cfg.TokenCache.StoreToken(ctx, p.token, p.expiresAt); err != nil {
+			// This Provider has its token; the other replicas will log in
+			// themselves. Worth a warning, not a failed search.
+			logging.FromContext(ctx).Warn("opensubtitlescom: could not share the login token", "err", err)
+		}
+	}
 	return nil
 }
 
@@ -214,11 +267,47 @@ func (p *Provider) setCommonHeadersLocked(req *http.Request) {
 
 // setAuthHeaders sets the same headers as setCommonHeadersLocked but takes
 // its own lock — used by Search/Download, which call it after
-// EnsureLoggedIn has already returned (so no login is in flight).
-func (p *Provider) setAuthHeaders(req *http.Request) {
+// EnsureLoggedIn has already returned. It returns the bearer token it set,
+// so a 401 can name the token that was refused (see doAuthed).
+func (p *Provider) setAuthHeaders(req *http.Request) string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.setCommonHeadersLocked(req)
+	return p.token
+}
+
+// doAuthed sends the request newReq builds, with the account's token. On a
+// 401 it logs in again -- the token was revoked or expired early -- and
+// retries once with a request newReq builds afresh (a POST body cannot be
+// replayed); a second 401 is returned as the KindAuth error it maps to.
+// That is Bazarr's checked(): "401: reset token, re-login once".
+func (p *Provider) doAuthed(ctx context.Context, newReq func() (*http.Request, error)) (*http.Response, error) {
+	if err := p.EnsureLoggedIn(ctx); err != nil {
+		return nil, err
+	}
+	for attempt := 0; ; attempt++ {
+		req, err := newReq()
+		if err != nil {
+			return nil, err
+		}
+		used := p.setAuthHeaders(req)
+		if err := p.wait(ctx); err != nil {
+			return nil, err
+		}
+		resp, err := p.cfg.HTTPClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode != http.StatusUnauthorized || attempt > 0 {
+			return resp, nil
+		}
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxErrorBodyBytes))
+		_ = resp.Body.Close()
+		logging.FromContext(ctx).Debug("opensubtitlescom: token refused; logging in again")
+		if err := p.ensureToken(ctx, used); err != nil {
+			return nil, err
+		}
+	}
 }
 
 // quotaBody is the OpenSubtitles.com 406 (download limit exceeded) body

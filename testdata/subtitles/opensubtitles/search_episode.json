@@ -1,0 +1,47 @@
+{
+  "total_pages": 1, "total_count": 2, "per_page": 50, "page": 1,
+  "data": [
+    {
+      "id": "7654321", "type": "subtitle",
+      "attributes": {
+        "subtitle_id": "7654321", "language": "en",
+        "download_count": 90000, "new_download_count": 300,
+        "hearing_impaired": false, "hd": true, "fps": 23.976, "votes": 1, "points": 0, "ratings": 7.0,
+        "from_trusted": false, "foreign_parts_only": false, "ai_translated": false, "machine_translated": false,
+        "upload_date": "2008-01-21T00:00:00Z", "release": "Breaking.Bad.S01E01.720p.BluRay.x264-DEMAND",
+        "comments": "", "legacy_subtitle_id": 3301000,
+        "uploader": { "uploader_id": 2, "name": "tv-user", "rank": "member" },
+        "feature_details": {
+          "feature_id": 101, "feature_type": "Episode", "year": 2008, "title": "Pilot",
+          "movie_name": "Breaking Bad - S01E01  Pilot", "imdb_id": 959621, "tmdb_id": 62085,
+          "season_number": 1, "episode_number": 1,
+          "parent_imdb_id": 903747, "parent_title": "Breaking Bad", "parent_tmdb_id": 1396, "parent_feature_id": 100
+        },
+        "url": "https://www.opensubtitles.com/en/subtitles/7654321",
+        "files": [ { "file_id": 112233, "cd_number": 1, "file_name": "Breaking.Bad.S01E01.720p.BluRay.x264-DEMAND.srt" } ],
+        "moviehash_match": false
+      }
+    },
+    {
+      "id": "7654322", "type": "subtitle",
+      "attributes": {
+        "subtitle_id": "7654322", "language": "en",
+        "download_count": 80000, "new_download_count": 200,
+        "hearing_impaired": true, "hd": true, "fps": 23.976, "votes": 0, "points": 0, "ratings": 0,
+        "from_trusted": false, "foreign_parts_only": false, "ai_translated": false, "machine_translated": false,
+        "upload_date": "2008-01-28T00:00:00Z", "release": "Breaking.Bad.S01E02.720p.BluRay.x264-DEMAND",
+        "comments": "", "legacy_subtitle_id": 3301001,
+        "uploader": { "uploader_id": 2, "name": "tv-user", "rank": "member" },
+        "feature_details": {
+          "feature_id": 102, "feature_type": "Episode", "year": 2008, "title": "Cat's in the Bag...",
+          "movie_name": "Breaking Bad - S01E02  Cat's in the Bag...", "imdb_id": 1054724, "tmdb_id": 62086,
+          "season_number": 1, "episode_number": 2,
+          "parent_imdb_id": 903747, "parent_title": "Breaking Bad", "parent_tmdb_id": 1396, "parent_feature_id": 100
+        },
+        "url": "https://www.opensubtitles.com/en/subtitles/7654322",
+        "files": [ { "file_id": 112234, "cd_number": 1, "file_name": "Breaking.Bad.S01E02.720p.BluRay.x264-DEMAND.srt" } ],
+        "moviehash_match": false
+      }
+    }
+  ]
+}
