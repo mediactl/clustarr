@@ -15,13 +15,15 @@ ARG GO_VERSION=1.27
 # A plain apt ffmpeg is enough -- this is a structural probe target for
 # pkg/mediainfo, not a codec/HDR fixture (those come with Phase E's clips).
 #
-# The bitrate is not an accident. pkg/fsops.IsSample classifies ANY file with
-# a MediaExtensions extension under 50 MiB as a promotional sample, and the
-# rescan worker only attributes files fsops calls ClassMedia -- so a genuinely
-# tiny clip would be skipped by every scenario and no MediaFile would ever be
-# created. Forcing x264 into CBR at 48 Mbit for ten seconds lands the file at
-# roughly 57 MiB, comfortably over that threshold and still a few seconds to
-# encode. test/fixtures/seed.MinMediaBytes asserts the result at seed time.
+# The bitrate is not an accident. pkg/fsops.IsSuspectedSample classifies ANY
+# video file under SampleMaxBytes (50 MiB by default) as ClassSuspectedSample,
+# and the rescan worker records that in LibraryScan.status.unmatched with
+# reason suspected_sample instead of attributing it to a MediaFile -- so a
+# genuinely tiny clip would land unmatched, under the wrong reason, in every
+# scenario and no MediaFile would ever be created. Forcing x264 into CBR at
+# 48 Mbit for ten seconds lands the file at roughly 57 MiB, comfortably over
+# that threshold and still a few seconds to encode.
+# test/fixtures/seed.MinMediaBytes asserts the result at seed time.
 # ---------------------------------------------------------------------------
 FROM debian:bookworm-slim AS clipgen
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \

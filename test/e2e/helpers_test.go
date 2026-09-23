@@ -175,10 +175,13 @@ func plantMedia(t *testing.T, hostAbsPath string) {
 // real video for a file the scanner is supposed to refuse is wasted I/O, and
 // a sparse file makes the same point in a few microseconds.
 //
-// It deliberately does NOT use a small file. pkg/fsops.IsSample flags any
-// media-extension file under 50 MiB as a promotional sample, and the rescan
-// worker skips samples before matching ever runs -- so a small "unmatchable"
-// file would prove nothing at all.
+// It deliberately does NOT use a small file. pkg/fsops.IsSuspectedSample
+// flags any video file under SampleMaxBytes (fsops.DefaultSampleMaxBytes,
+// 50 MiB) as ClassSuspectedSample, and the rescan worker now records that in
+// LibraryScan.status.unmatched with reason suspected_sample rather than
+// skipping it silently -- so a small "unmatchable" file would still show up
+// in status.unmatched, but under the wrong reason code, and would prove
+// nothing about unmatchable-file handling.
 func plantFiller(t *testing.T, hostAbsPath string) {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(filepath.Dir(hostAbsPath), 0o775),
@@ -1407,8 +1410,9 @@ func patchDownloadLabel(ctx context.Context, t *testing.T, dl *downloadv1alpha1.
 // bounded, for whatever status.import DOES reach, logs it, and skips rather
 // than asserts Imported.
 const importGapReason = "test/fixtures/seeder and test/fixtures/nntpstub always name their " +
-	"downloaded content \"clustarr-fixture.bin\", an extension outside pkg/fsops.MediaExtensions " +
-	"(classify.go: .mkv/.epub/.mobi/.azw/.azw3/.pdf/.cbz/.cbr/.cb7/.cbt only) -- fsops.Walk therefore " +
+	"downloaded content \"clustarr-fixture.bin\" -- .bin is in none of pkg/fsops.MediaExtensions's " +
+	"per-kind lists (classify.go), video, music, audiobook, book or comic, even after Q-1 (de4891f) " +
+	"broadened that map to every video container and audio format -- so a Classifier therefore " +
 	"never classifies it ClassMedia, and importarr/worker/fileimport skips it before parsing. No " +
 	"QualityProfile or Release.Title changes this: process.go parses the file's own on-disk path, " +
 	"not the Download's spec. This is a fixture-shape gap, not a controller bug, and building a new " +

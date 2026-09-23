@@ -52,13 +52,14 @@ import (
 )
 
 const (
-	// DefaultContentBytes clears pkg/fsops.IsSample's 50MiB "promotional
-	// sample" floor with roughly the same margin
+	// DefaultContentBytes clears pkg/fsops.IsSuspectedSample's 50MiB video
+	// size floor (fsops.DefaultSampleMaxBytes) with roughly the same margin
 	// images/Dockerfile.e2e-fixtures' clipgen stage uses for its own baked
 	// clip, so a transfer completed against this seeder's default content is
-	// classifiable as real media downstream rather than skipped as a sample.
-	// A caller that only needs to prove the transfer mechanics -- this
-	// package's own tests -- sets Config.ContentBytes much smaller.
+	// classifiable as ClassMedia downstream rather than landing in
+	// status.unmatched as a suspected sample. A caller that only needs to
+	// prove the transfer mechanics -- this package's own tests -- sets
+	// Config.ContentBytes much smaller.
 	DefaultContentBytes int64 = 64 << 20
 
 	// ContentName is the single file inside the fixture's torrent.

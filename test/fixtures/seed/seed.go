@@ -24,14 +24,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Why the clip is not tiny
 //
-// pkg/fsops.IsSample flags any file with a MediaExtensions extension under
-// 50 MiB as a promotional sample, and the rescan worker skips everything
-// fsops does not classify as ClassMedia. A genuinely tiny clip would
-// therefore never become a MediaFile, so the baked clip is deliberately
-// encoded CBR to land just over that threshold. MinMediaBytes records the
-// contract; [Run] refuses to seed a clip that would be classified as a
-// sample rather than letting every scenario fail later with an empty
-// catalog.
+// pkg/fsops.IsSuspectedSample flags any video file under SampleMaxBytes
+// (fsops.DefaultSampleMaxBytes, 50 MiB) as ClassSuspectedSample, and the
+// rescan worker records that in LibraryScan.status.unmatched with reason
+// suspected_sample rather than attributing it to a MediaFile. A genuinely
+// tiny clip would therefore never become a MediaFile, so the baked clip is
+// deliberately encoded CBR to land just over that threshold. MinMediaBytes
+// records the contract; [Run] refuses to seed a clip that would be
+// classified as a suspected sample rather than letting every scenario fail
+// later with an empty catalog.
 package seed
 
 import (
@@ -101,7 +102,8 @@ func Run(dir string) error {
 	if info.Size() < MinMediaBytes {
 		return fmt.Errorf(
 			"seed: baked clip is %d bytes, under pkg/fsops's %d-byte sample threshold; "+
-				"every planted file would be classified as a sample and skipped",
+				"every planted file would be classified as a suspected sample and land in "+
+				"status.unmatched instead of becoming a MediaFile",
 			info.Size(), MinMediaBytes)
 	}
 

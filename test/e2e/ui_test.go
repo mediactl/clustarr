@@ -257,24 +257,31 @@ func TestUIPipelineAndDownloadsPages(t *testing.T) {
 	})
 }
 
-// requireNoUIManager asserts obj's managedFields carry no field manager
-// whose name contains "ui" (case-insensitively) -- the machine-checkable
-// form of CLAUDE.md's "the UI never writes status and owns no CRD".
+// requireNoUIManager asserts obj's managedFields carry no clustarr-ui entry
+// on the status subresource -- the machine-checkable form of CLAUDE.md's "the
+// UI never writes status", narrowed by ruling R2.
 //
-// Every field manager this tree actually uses (pkg/k8s.FieldManagers:
-// catalogarr, catalogarr-series, catalogarr-worker, catalogarr-metadata,
-// catalogarr-grab, importarr, importarr-worker, indexarr, indexarr-worker,
-// grabarr, grabarr-engine, squasharr, squasharr-worker, captionarr,
-// captionarr-worker -- verified against pkg/k8s/fieldmanager.go) contains no
-// "ui" substring, and ui/guard_test.go's AST guard (Task D3-4) already
-// proves ui/ imports no pkg/k8s and calls no client.Writer method in
-// production code. So a match here would mean one of those two guards
-// regressed, or a write reached the object some other way outside both.
+// Before R2, this rejected any manager whose name merely contained "ui"
+// anywhere on the whole object. R2 gave the UI a real field manager,
+// pkg/k8s.ManagerUI ("clustarr-ui", restated in ui/actions.FieldManager
+// because ui/ never imports pkg/k8s -- see that package's doc comment), that
+// legitimately owns spec.monitored on the catalog kinds, spec on a created
+// Search and spec on a created LibraryScan. Keeping the old "contains ui"
+// check would fail the first e2e scenario that exercises a UI action,
+// spuriously: clustarr-ui owning spec is exactly what R2 intends. The actual
+// invariant -- "the UI never writes status and owns no CRD" -- is that
+// clustarr-ui never appears on the status subresource, which is the same
+// assertion ui/actions.TestUIManagerNeverOwnsStatus makes in envtest
+// (requireNeverOnStatus there).
 func requireNoUIManager(t *testing.T, kind string, obj client.Object) {
 	t.Helper()
 	for _, e := range obj.GetManagedFields() {
-		require.NotContains(t, strings.ToLower(e.Manager), "ui",
-			"%s %s/%s carries a field manager %q -- the UI must never write to a CRD", kind, obj.GetNamespace(), obj.GetName(), e.Manager)
+		if e.Manager != string(k8s.ManagerUI) {
+			continue
+		}
+		require.NotEqual(t, "status", e.Subresource,
+			"%s %s/%s: field manager %s has a managedFields entry on the status subresource -- the UI never "+
+				"writes status (amendment A3.2, ruling R2)", kind, obj.GetNamespace(), obj.GetName(), e.Manager)
 	}
 }
 

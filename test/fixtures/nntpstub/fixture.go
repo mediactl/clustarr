@@ -33,8 +33,8 @@ const (
 	// DefaultSegmentBytes is one article's DECODED size. Real posts run
 	// 512KiB-768KiB (pkg/download/usenet/conn.go's own comment); this
 	// fixture defaults much smaller so `go test` stays fast. A caller
-	// wanting a release that clears pkg/fsops.IsSample's 50MiB "sample"
-	// floor builds a bigger one with [Build].
+	// wanting a release that clears pkg/fsops.IsSuspectedSample's 50MiB
+	// video size floor builds a bigger one with [Build].
 	DefaultSegmentBytes = 16 * 1024
 
 	// DefaultSegmentCount is how many articles the fixture's one file is
