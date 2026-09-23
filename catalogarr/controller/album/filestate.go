@@ -24,18 +24,92 @@ import (
 	"github.com/mediactl/clustarr/pkg/quality"
 )
 
-// FileState is rollup.FileState, re-exported so the reconciler and this
-// package's own tests read as album.FileState(...), matching the movie and
-// episode packages' identical re-export.
+// FileState derives an Album's file-related status fields from every
+// MediaFile backing it (spec.mediaRef {kind: album, name: <this Album>},
+// with or without a track): AlbumStatus.Quality is "the lowest quality
+// across the album's imported tracks", and CutoffMet is "true when the
+// imported tracks meet the profile cutoff". This is Lidarr's rule
+// (develop da7b4dfb): CutoffSpecification collects every track file's
+// quality (`trackFiles.Select(c => c.Quality).Distinct()`), and
+// UpgradableSpecification.CutoffNotMet reports the cutoff unmet as soon as
+// ANY one of them is below it -- so one lossy track in a lossless album
+// keeps the album wanted, where picking a single representative file let
+// that track hide behind a better one.
 //
-// mf is the single MediaFile rollup.PickMediaFile selects across every
-// MediaFile referencing this Album (kind=album, name=<this Album>), with or
-// without a track: a coarse, Movie-like "does a file back this album"
-// signal that phase, quality and cutoff are decided from. The per-track
-// picture is FilesByRecording's: status.tracks[].fileRef and
-// status.trackFileCount come from it.
-func FileState(mf *catalogv1alpha1.MediaFile, profile *quality.Profile) (hasFile bool, fileRef *string, fileQuality *commonv1.Quality, fileFormatScore int32, cutoffMet bool) {
-	return rollup.FileState(mf, profile)
+//   - hasFile is whether any file backs the album; with none, every return
+//     value is the zero value, as rollup.FileState(nil, ...) gives.
+//   - cutoffMet is true only when every file meets the cutoff: a transcoded
+//     file always does (rollup.Transcoded, the rule rollup.FileState applies
+//     to one file), any other file when profile ranks its quality at or
+//     above the cutoff tier. An unresolved profile (nil) meets nothing, as
+//     rollup.FileState's does.
+//   - fileQuality is the lowest-ranked file's quality under profile: the
+//     greatest tier index, and a quality the profile does not list below
+//     every quality it does (profile.CutoffMet treats it as unmet too).
+//     Files tied at the lowest rank are chosen between by
+//     rollup.PickMediaFile, so the answer never depends on list order.
+//     Without a profile there is no ranking to find a lowest by, so it is
+//     the quality of the file rollup.PickMediaFile selects.
+//   - formatScore is the lowest file's custom-format score, by the same
+//     "every file must measure up" reading. A music profile scores no custom
+//     formats (quality.FromCRD), so for a real album it is 0.
+//
+// Deviation: Lidarr also counts the cutoff unmet while any track of the
+// monitored release has no file (TracksWithoutFiles). Clustarr cannot tell
+// which tracks a file holds unless the importer attributes it
+// (commonv1.MediaRef.Track, today only a one-track album's lone file), so
+// that clause would hold every multi-track album below the cutoff forever;
+// it is left out until track attribution exists.
+func FileState(mfs []catalogv1alpha1.MediaFile, profile *quality.Profile) (hasFile bool, fileQuality *commonv1.Quality, formatScore int32, cutoffMet bool) {
+	files := make([]catalogv1alpha1.MediaFile, 0, len(mfs))
+	for _, mf := range mfs {
+		if mf.Spec.MediaRef.Kind == commonv1.MediaKindAlbum {
+			files = append(files, mf)
+		}
+	}
+	if len(files) == 0 {
+		return false, nil, 0, false
+	}
+
+	cutoffMet = true
+	formatScore = files[0].Spec.FormatScore
+	for i := range files {
+		mf := &files[i]
+		if !rollup.Transcoded(mf) && (profile == nil || !profile.CutoffMet(mf.Spec.Quality)) {
+			cutoffMet = false
+		}
+		formatScore = min(formatScore, mf.Spec.FormatScore)
+	}
+
+	lowest := rollup.PickMediaFile(files)
+	if profile != nil {
+		lowest = rollup.PickMediaFile(lowestRanked(files, *profile))
+	}
+	q := lowest.Spec.Quality
+	return true, &q, formatScore, cutoffMet
+}
+
+// lowestRanked returns the files whose quality ranks lowest under profile:
+// the greatest tier index, with a quality the profile does not list ranking
+// below all of them. files is non-empty.
+func lowestRanked(files []catalogv1alpha1.MediaFile, profile quality.Profile) []catalogv1alpha1.MediaFile {
+	rank := func(q commonv1.Quality) int {
+		if idx, ok := profile.Index(q); ok {
+			return idx
+		}
+		return len(profile.Tiers) // below every tier the profile lists
+	}
+	worst := -1
+	var out []catalogv1alpha1.MediaFile
+	for _, mf := range files {
+		switch r := rank(mf.Spec.Quality); {
+		case r > worst:
+			worst, out = r, []catalogv1alpha1.MediaFile{mf}
+		case r == worst:
+			out = append(out, mf)
+		}
+	}
+	return out
 }
 
 // FilesByRecording maps each recording MBID to the MediaFile holding it,

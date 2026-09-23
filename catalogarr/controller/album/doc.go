@@ -54,10 +54,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // nonVideoDefinitions carries a real music ladder (Trash..WAV, spec §9),
 // seeded into QualityProfile objects by the Bootstrap runnable
 // (pkg/quality/catalogue/data/profiles/music-lossless.json,
-// music-standard.json). resolveProfile/FileState/rollup.PickMediaFile below
-// wire this exactly as movie.Reconciler and audiobook.Reconciler do --
-// catalogarr/controller/audiobook is the sibling precedent this package's
-// reconciler.go follows for that half.
+// music-standard.json). resolveProfile and FileState wire this the way
+// movie.Reconciler and audiobook.Reconciler do, except that an album is
+// ranked by EVERY file backing it, not one representative: status.quality
+// is the lowest file's quality and status.cutoffMet needs every file to
+// meet the cutoff, Lidarr's CutoffSpecification (FileState's doc comment).
 //
 // Track listing: status.tracks comes from the pkg/metadata.Album the
 // gateway also fetches for status.metadata -- fetched independently here,

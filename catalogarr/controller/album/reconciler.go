@@ -566,10 +566,9 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 		statusAC = statusAC.WithMetadata(md)
 	}
 
-	// File/download rollup (last step): a coarse, whole-album signal -- see
-	// filestate.go's FileState for why phase and quality stay whole-album.
-	mf := rollup.PickMediaFile(mfList.Items)
-
+	// File/download rollup (last step): phase, quality and cutoff from every
+	// file of the album, its lowest quality deciding (FileState, Lidarr's
+	// CutoffSpecification).
 	profile, profileProblem, err := r.resolveProfile(ctx, alb, &artistObj)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -578,7 +577,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 		logging.FromContext(ctx).Warn("quality profile unresolved; cutoff not evaluated",
 			"album", alb.Name, "namespace", alb.Namespace, "artistRef", alb.Spec.ArtistRef, "problem", profileProblem)
 	}
-	hasFile, _, fileQuality, fileFormatScore, cutoffMet := FileState(mf, profile)
+	hasFile, fileQuality, fileFormatScore, cutoffMet := FileState(mfList.Items, profile)
 
 	dl, err := r.activeDownload(ctx, alb)
 	if err != nil {
