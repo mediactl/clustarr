@@ -19,6 +19,7 @@ package transcodejob
 
 import (
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -169,6 +170,59 @@ func TestBuildJobKeepsSetSchedulingFields(t *testing.T) {
 	_, hasCPU := ctr.Resources.Limits[corev1.ResourceCPU]
 	assert.False(t, hasCPU, "a set resources block is not merged with the default")
 	assert.Equal(t, "5Gi", job.Spec.Template.Spec.Volumes[1].EmptyDir.SizeLimit.String())
+}
+
+// A Job's CLUSTARR_CPU_LIMIT is the pool size its plan was made with: the
+// Downward API's limits.cpu (rounded up) when the container has a CPU limit,
+// and otherwise a literal -- the CPU request rounded up, else the default
+// profile's 8 cores -- never the node's allocatable CPU, which the Downward
+// API would report and no plan can know.
+func TestJobCPULimitEnvIsThePlannedThreads(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		resources corev1.ResourceRequirements
+		threads   int32
+		literal   bool
+	}{
+		{name: "no resources: the floored default limit", threads: 8},
+		{name: "a fractional limit rounds up", resources: corev1.ResourceRequirements{
+			Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2500m")},
+		}, threads: 3},
+		{name: "a memory-only limit takes the default", resources: corev1.ResourceRequirements{
+			Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("2Gi")},
+		}, threads: 8, literal: true},
+		{name: "a request without a limit takes the request", resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1500m")},
+			Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("2Gi")},
+		}, threads: 2, literal: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &transcodev1alpha1.TranscodeProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: "p"},
+				Spec:       transcodev1alpha1.TranscodeProfileSpec{Resources: tc.resources},
+			}
+			require.Equal(t, tc.threads, threadsFor(p))
+			ctr := buildJob(testTJ(), p, transcodev1alpha1.HardwareCPU, JobConfig{Image: "cpu:1"}).Spec.Template.Spec.Containers[0]
+			var env *corev1.EnvVar
+			for i := range ctr.Env {
+				if ctr.Env[i].Name == worker.CPULimitEnv {
+					env = &ctr.Env[i]
+				}
+			}
+			require.NotNil(t, env)
+			if tc.literal {
+				assert.Nil(t, env.ValueFrom, "no CPU limit: the Downward API would report the node's CPUs")
+				assert.Equal(t, strconv.Itoa(int(tc.threads)), env.Value)
+				return
+			}
+			require.NotNil(t, env.ValueFrom)
+			require.NotNil(t, env.ValueFrom.ResourceFieldRef)
+			assert.Equal(t, "limits.cpu", env.ValueFrom.ResourceFieldRef.Resource)
+			assert.Equal(t, "1", env.ValueFrom.ResourceFieldRef.Divisor.String())
+			cpu := ctr.Resources.Limits[corev1.ResourceCPU]
+			assert.Equal(t, int64(tc.threads), (cpu.MilliValue()+999)/1000, "the Downward API renders the planned threads")
+		})
+	}
 }
 
 // The floors restate three +kubebuilder:default values. Read the generated

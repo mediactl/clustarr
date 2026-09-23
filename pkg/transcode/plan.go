@@ -24,6 +24,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/mediactl/clustarr/pkg/mediainfo"
 )
 
 // Decision is Plan's top-level verdict for one source file.
@@ -135,6 +137,35 @@ type PlanMeta struct {
 	OutputPath string
 }
 
+// MaxStreamsPerKind is the audio, and the subtitle, stream count at which
+// Plan rejects a source: pkg/mediainfo.MaxStreamsPerKind, the cap on the
+// probe summary catalogarr stores (MediaInfo.Audio and .Subtitles,
+// MaxItems=64). The TranscodeJob controller plans from that summary and the
+// worker from a live probe of every stream, so past the cap the two would
+// plan different streams, and a summary at the cap cannot say whether any
+// were cut. A count of MaxStreamsPerKind or more reads the same in both --
+// the summary holds min(n, 64), which reaches 64 exactly when n does -- so
+// rejecting there is one decision, with one reason, on both sides, where
+// dropping the streams past the cap would lose them without a word.
+const MaxStreamsPerKind = mediainfo.MaxStreamsPerKind
+
+// tooManyStreams is Plan's reject reason for a source at or past
+// [MaxStreamsPerKind] of a kind, "" otherwise. It names the cap rather than
+// the count, which the summary does not know past the cap, so the
+// controller and the worker give the same reason.
+func tooManyStreams(info MediaInfo) string {
+	for _, k := range []struct {
+		kind string
+		n    int
+	}{{"audio", len(info.Audio)}, {"subtitle", len(info.Subtitles)}} {
+		if k.n >= MaxStreamsPerKind {
+			return fmt.Sprintf("source has %d or more %s streams, more than the stored probe summary can hold, "+
+				"so the plan could not be the worker's", MaxStreamsPerKind, k.kind)
+		}
+	}
+	return ""
+}
+
 // containerFromExt maps a lowercased file extension (without the leading
 // dot) to a Container, reporting false when it is not one we recognise.
 func containerFromExt(ext string) (Container, bool) {
@@ -206,6 +237,14 @@ func Plan(info MediaInfo, profile ProfileSpec, caps Capabilities, meta PlanMeta)
 	container, hasContainer := containerFromExt(filepath.Ext(info.Path))
 
 	plan := &PlanResult{Container: profile.Container, Input: info.Path}
+
+	// First, so a file past the summary's cap gets this one answer from the
+	// summary and from a live probe alike, whatever else it is.
+	if why := tooManyStreams(info); why != "" {
+		plan.Decision = DecisionReject
+		plan.Reason = why
+		return plan, nil
+	}
 
 	tagged := meta.ProfileName != "" && info.Tags != nil &&
 		info.Tags["CLUSTARR_PROFILE"] == meta.ProfileName+"@"+meta.ProfileHash

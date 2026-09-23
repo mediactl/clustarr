@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package transcode_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -261,4 +262,69 @@ func TestPlanOnlyAppendsTheDV7DowngradeReasonWhenTheActiveModeActuallyDowngrades
 	require.Equal(t, transcode.DecisionEncode, p.Decision)
 	require.NotContains(t, p.Reason, "downgraded to HDR10",
 		"a profile-7 source under a passthrough policy never downgrades anything")
+}
+
+// The TranscodeJob controller plans from the stored probe summary, which
+// holds at most 64 audio and 64 subtitle streams, and the worker from a live
+// probe of every stream. A source at or past that cap is rejected -- by the
+// summary and by the live probe alike, with the same reason -- rather than
+// planned from two different stream lists; one under it is planned as usual.
+func TestPlanRejectsASourceAtTheSummarysStreamCap(t *testing.T) {
+	require.Equal(t, mediainfo.MaxStreamsPerKind, transcode.MaxStreamsPerKind)
+	caps := transcode.Capabilities{Encoders: map[transcode.Tier]bool{transcode.TierCPUx265: true}}
+	meta := transcode.PlanMeta{ProfileName: "hevc", ProfileHash: "deadbeef", Threads: 8}
+
+	// summary is what catalogarr stores for a file with n streams of the
+	// kind: the first min(n, 64). live is what the worker's probe reads.
+	build := func(t *testing.T, kind string, n int) (summary, live transcode.MediaInfo) {
+		t.Helper()
+		mi := &commonv1.MediaInfo{
+			Container: "matroska", VideoCodec: "h264", VideoProfile: "High", PixelFormat: "yuv420p",
+			VideoBitDepth: 8, Width: 1920, Height: 1080, FpsMilli: 24000, RuntimeMillis: 2 * 60 * 60 * 1000,
+		}
+		for i := range n {
+			if kind == "audio" {
+				mi.Audio = append(mi.Audio, commonv1.AudioStream{Index: int32(i + 1), Codec: "ac3", Channels: 6, Language: "eng"})
+			} else {
+				mi.Subtitles = append(mi.Subtitles, commonv1.SubtitleStream{Index: int32(i + 1), Codec: "subrip", Language: "eng"})
+			}
+		}
+		var err error
+		live, err = transcode.FromSummary("/data/media/movies/X (2020)/X (2020).mkv", mi)
+		require.NoError(t, err)
+		mi.Audio = mi.Audio[:min(len(mi.Audio), mediainfo.MaxStreamsPerKind)]
+		mi.Subtitles = mi.Subtitles[:min(len(mi.Subtitles), mediainfo.MaxStreamsPerKind)]
+		summary, err = transcode.FromSummary("/data/media/movies/X (2020)/X (2020).mkv", mi)
+		require.NoError(t, err)
+		return summary, live
+	}
+	for _, tc := range []struct {
+		kind     string
+		n        int
+		rejected bool
+	}{
+		{"audio", 63, false},
+		{"audio", 64, true},
+		{"audio", 70, true},
+		{"subtitle", 63, false},
+		{"subtitle", 64, true},
+		{"subtitle", 200, true},
+	} {
+		t.Run(fmt.Sprintf("%d %s", tc.n, tc.kind), func(t *testing.T) {
+			summary, live := build(t, tc.kind, tc.n)
+			fromSummary, err := transcode.Plan(summary, defaultProfile(), caps, meta)
+			require.NoError(t, err)
+			fromLive, err := transcode.Plan(live, defaultProfile(), caps, meta)
+			require.NoError(t, err)
+			require.Equal(t, fromSummary.Decision, fromLive.Decision, "the controller and the worker decide alike")
+			require.Equal(t, fromSummary.Reason, fromLive.Reason)
+			if !tc.rejected {
+				require.Equal(t, transcode.DecisionEncode, fromLive.Decision)
+				require.Equal(t, transcode.ArgsHash(fromSummary), transcode.ArgsHash(fromLive))
+				return
+			}
+			require.Equal(t, transcode.DecisionReject, fromLive.Decision)
+			require.Contains(t, fromLive.Reason, "64 or more "+tc.kind+" streams")
+		})
+	}
 }

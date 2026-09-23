@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package transcodejob
 
 import (
+	"strconv"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -109,6 +110,38 @@ func defaultResources() corev1.ResourceRequirements {
 		corev1.ResourceCPU:    resource.MustParse("8"),
 		corev1.ResourceMemory: resource.MustParse("4Gi"),
 	}}
+}
+
+// defaultThreads is x265's pools= for a Job whose container has neither a
+// CPU limit nor a CPU request: the 8 cores of the CPU limit a profile with
+// no resources at all runs with (defaultResources).
+var defaultThreads = wholeCores(defaultResources().Limits[corev1.ResourceCPU])
+
+// wholeCores rounds a CPU quantity up to whole cores, as the Downward API
+// renders limits.cpu with divisor 1.
+func wholeCores(q resource.Quantity) int32 {
+	return int32((q.MilliValue() + 999) / 1000) //nolint:gosec // a pod's CPU count, far below int32's range
+}
+
+// threadsFromResources is x265's pools= size for a Job container with
+// resources r, and whether it comes from a CPU limit.
+//
+// With a CPU limit it is the limit rounded up to whole cores: exactly what
+// the Downward API renders into worker.CPULimitEnv, which buildJob then
+// wires from limits.cpu (§6.4). With no limit the Downward API would render
+// the NODE's allocatable CPU, which the controller planning the job cannot
+// know, so status.plan's pools= would differ from the worker's argv. Such a
+// Job is given a stated default instead, as a literal CLUSTARR_CPU_LIMIT
+// value the planner uses too: the CPU request rounded up (the share the
+// scheduler guarantees), else [defaultThreads].
+func threadsFromResources(r corev1.ResourceRequirements) (threads int32, fromLimit bool) {
+	if cpu, ok := r.Limits[corev1.ResourceCPU]; ok && cpu.Sign() > 0 {
+		return wholeCores(cpu), true
+	}
+	if cpu, ok := r.Requests[corev1.ResourceCPU]; ok && cpu.Sign() > 0 {
+		return wholeCores(cpu), false
+	}
+	return defaultThreads, false
 }
 
 // activeDeadlineFor floors spec.activeDeadline at the CRD default.
@@ -243,14 +276,22 @@ func buildJob(tj *transcodev1alpha1.TranscodeJob, profile *transcodev1alpha1.Tra
 	args := []string{"squasharr", "--role", "worker", "--job", tj.Name, "--data-dir", dataDir}
 	args = append(args, cfg.ExtraArgs...)
 
+	resources := resourcesFor(profile)
+
+	// §6.4: x265 reads the host's CPU count, not the cgroup quota, so the
+	// worker sizes its thread pools from CLUSTARR_CPU_LIMIT: the Downward
+	// API's limits.cpu when the container has a CPU limit, else the stated
+	// default the planner used (threadsFromResources), never the node's CPUs.
+	cpuEnv := corev1.EnvVar{Name: worker.CPULimitEnv, ValueFrom: &corev1.EnvVarSource{ResourceFieldRef: &corev1.ResourceFieldSelector{
+		ContainerName: containerName, Resource: "limits.cpu", Divisor: resource.MustParse("1"),
+	}}}
+	if threads, fromLimit := threadsFromResources(resources); !fromLimit {
+		cpuEnv = corev1.EnvVar{Name: worker.CPULimitEnv, Value: strconv.Itoa(int(threads))}
+	}
 	env := []corev1.EnvVar{
 		{Name: "POD_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"}}},
 		{Name: "POD_NAMESPACE", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"}}},
-		// §6.4: x265 reads the host's CPU count, not the cgroup quota, so
-		// the worker sizes its thread pools from this.
-		{Name: worker.CPULimitEnv, ValueFrom: &corev1.EnvVarSource{ResourceFieldRef: &corev1.ResourceFieldSelector{
-			ContainerName: containerName, Resource: "limits.cpu", Divisor: resource.MustParse("1"),
-		}}},
+		cpuEnv,
 	}
 	if cfg.NATSURL != "" {
 		env = append(env, corev1.EnvVar{Name: "NATS_URL", Value: cfg.NATSURL})
@@ -262,7 +303,6 @@ func buildJob(tj *transcodev1alpha1.TranscodeJob, profile *transcodev1alpha1.Tra
 		env = append(env, corev1.EnvVar{Name: worker.TraceParentEnv, Value: cfg.TraceParent})
 	}
 
-	resources := resourcesFor(profile)
 	gpuCount := int64(1)
 	if g := profile.Spec.GPU; g != nil && g.Count > 0 {
 		gpuCount = int64(g.Count)

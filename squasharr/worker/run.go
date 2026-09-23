@@ -91,9 +91,12 @@ func TraceParent(ctx context.Context) string {
 	return carrier.Get("traceparent")
 }
 
-// CPULimitEnv is the Downward API variable carrying the pod's limits.cpu
-// (§6.4), which becomes x265's pools= size: x265 otherwise sizes its pool
-// from the host's CPU count, not the cgroup quota (note §3.7).
+// CPULimitEnv carries x265's pools= size (§6.4): x265 otherwise sizes its
+// pool from the host's CPU count, not the cgroup quota (note §3.7). The
+// TranscodeJob controller wires it from the Downward API's limits.cpu when
+// the Job's container has a CPU limit, and otherwise writes the stated
+// default it planned with (its threadsFromResources) as a literal, because
+// the Downward API would then report the node's CPUs.
 const CPULimitEnv = "CLUSTARR_CPU_LIMIT"
 
 // Verifier is what the worker needs from transcode.Verifier; an interface
@@ -134,8 +137,8 @@ type Options struct {
 }
 
 // ThreadsFromEnv reads [CPULimitEnv]. The Downward API renders limits.cpu
-// as a whole number of cores (rounded up) with the default divisor; an
-// unset or unparseable value yields 0.
+// as a whole number of cores (rounded up) with divisor 1, and a literal is
+// already one; an unset or unparseable value yields 0.
 func ThreadsFromEnv() int32 {
 	n, err := strconv.ParseInt(os.Getenv(CPULimitEnv), 10, 32)
 	if err != nil || n < 0 {
@@ -567,11 +570,12 @@ func (r *runner) finishElsewhere(ctx context.Context, sw swap, plannedHash strin
 
 // compareWithRecordedPlan checks the argv about to run against the
 // controller's status.plan.argsHash. They are built by the same renderer
-// from the same bytes (transcode.FromSummary/FromProbe), so a difference
-// means the two were given different inputs -- a profile with no CPU limit
-// (pools=), a /data mounted elsewhere, an image with a different ffprobe --
-// and is logged, never fatal: the worker's own plan, from the live file, is
-// the one that runs.
+// from the same bytes (transcode.FromSummary/FromProbe) with the same
+// thread count ([CPULimitEnv]), so a difference means the two were given
+// different inputs -- a /data mounted elsewhere, an image with a different
+// ffprobe, a LimitRange that changed the pod's CPU limit -- and is logged,
+// never fatal: the worker's own plan, from the live file, is the one that
+// runs.
 func (r *runner) compareWithRecordedPlan(ctx context.Context, recorded *transcodev1alpha1.Plan, plan *transcode.PlanResult) {
 	if recorded == nil || recorded.ArgsHash == "" {
 		return

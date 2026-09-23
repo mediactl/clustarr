@@ -21,8 +21,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	corev1 "k8s.io/api/core/v1"
-
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/transcode"
@@ -69,20 +67,15 @@ func mediaInfoFromFile(path string, mf *catalogv1alpha1.MediaFile) (transcode.Me
 }
 
 // threadsFor is the x265 pools= size the worker will render for a Job built
-// from profile: the Downward API hands it limits.cpu with divisor 1, which
-// the kubelet rounds UP to whole cores (worker.ThreadsFromEnv). The same
-// floored resources buildJob stamps on the container are read, so the two
-// agree. A profile that sets resources but no CPU limit gets the NODE's
-// allocatable CPU from the Downward API, which this controller cannot know;
-// it plans with 0 there, and that job's status.plan differs from its argv in
-// pools= alone (the worker logs the mismatch).
+// from profile: threadsFromResources of the same floored resources buildJob
+// stamps on the container, which is also what buildJob hands the worker as
+// CLUSTARR_CPU_LIMIT (worker.ThreadsFromEnv) -- the Downward API's
+// limits.cpu, rounded up to whole cores, when there is a CPU limit, else a
+// stated default rather than the node's CPUs. So status.plan's pools= is the
+// worker's.
 func threadsFor(profile *transcodev1alpha1.TranscodeProfile) int32 {
-	limits := resourcesFor(profile).Limits
-	cpu, ok := limits[corev1.ResourceCPU]
-	if !ok || cpu.Sign() <= 0 {
-		return 0
-	}
-	return int32((cpu.MilliValue() + 999) / 1000)
+	threads, _ := threadsFromResources(resourcesFor(profile))
+	return threads
 }
 
 // containerChange reports whether planning source under a profile that

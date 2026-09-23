@@ -22,11 +22,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
@@ -62,10 +66,15 @@ func TestStatusPlanIsTheArgvTheWorkerRenders(t *testing.T) {
 	for name, tc := range map[string]struct {
 		src  string
 		keep bool // policy.replaceSource=false
+		// memoryOnly sets resources with no CPU limit: the Downward API
+		// would report the node's CPUs, so the Job carries the stated
+		// default the planner used instead.
+		memoryOnly bool
 	}{
 		"in-place":         {src: filepath.Join(dir, "Film (2020).mkv")},
 		"container-change": {src: filepath.Join(dir, "Other (2020).mp4")},
 		"kept-source":      {src: filepath.Join(dir, "Kept (2020).mkv"), keep: true},
+		"no-cpu-limit":     {src: filepath.Join(dir, "Unlimited (2020).mkv"), memoryOnly: true},
 	} {
 		src := tc.src
 		t.Run(name, func(t *testing.T) {
@@ -93,6 +102,11 @@ func TestStatusPlanIsTheArgvTheWorkerRenders(t *testing.T) {
 				if tc.keep {
 					p.Spec.Policy.ReplaceSource = ptr.To(false)
 				}
+				if tc.memoryOnly {
+					p.Spec.Resources = corev1.ResourceRequirements{Limits: corev1.ResourceList{
+						corev1.ResourceMemory: resource.MustParse("2Gi"),
+					}}
+				}
 			})
 			mf := newMediaFile(t, c, ns, mfName, "probe-"+name, mi) // catalogarr's stored summary
 			newTJ(t, c, ns, mfName, mf.Name, profile, "probe-"+name, func(tj *transcodev1alpha1.TranscodeJob) {
@@ -103,10 +117,9 @@ func TestStatusPlanIsTheArgvTheWorkerRenders(t *testing.T) {
 			require.NotNil(t, tj.Status.Plan, "message: %s", tj.Status.Message)
 			assert.Equal(t, "hdr10", tj.Status.Plan.HDRMode)
 
-			// The worker's own path, as squasharr/worker.Run takes it. The
-			// Downward API renders the Job's limits.cpu (the floored default,
-			// 8) as "8".
-			t.Setenv(worker.CPULimitEnv, "8")
+			// The worker's own path, as squasharr/worker.Run takes it, with
+			// CLUSTARR_CPU_LIMIT as the Job the controller created delivers it.
+			t.Setenv(worker.CPULimitEnv, cpuLimitEnv(t, getJob(t, c, ns, *tj.Status.JobRef)))
 			info, err := transcode.FromProbe(mi, raw)
 			require.NoError(t, err)
 			info.Path = src
@@ -125,4 +138,29 @@ func TestStatusPlanIsTheArgvTheWorkerRenders(t *testing.T) {
 			assert.Contains(t, strings.Join(plan.VideoArgs, " "), "hdr10=1")
 		})
 	}
+}
+
+// cpuLimitEnv is worker.CPULimitEnv as the kubelet hands it to job's
+// container: a literal value as written, or the Downward API's limits.cpu
+// with divisor 1, which rounds up to whole cores. With no CPU limit the
+// Downward API would report the node's allocatable CPU, which no plan can
+// know -- so a Job without one must carry a literal.
+func cpuLimitEnv(t *testing.T, job *batchv1.Job) string {
+	t.Helper()
+	ctr := job.Spec.Template.Spec.Containers[0]
+	for _, e := range ctr.Env {
+		if e.Name != worker.CPULimitEnv {
+			continue
+		}
+		if e.ValueFrom == nil {
+			return e.Value
+		}
+		require.NotNil(t, e.ValueFrom.ResourceFieldRef)
+		require.Equal(t, "limits.cpu", e.ValueFrom.ResourceFieldRef.Resource)
+		cpu, ok := ctr.Resources.Limits[corev1.ResourceCPU]
+		require.True(t, ok, "the Downward API is wired only when the container has a CPU limit")
+		return strconv.FormatInt((cpu.MilliValue()+999)/1000, 10)
+	}
+	t.Fatalf("job %s has no %s", job.Name, worker.CPULimitEnv)
+	return ""
 }

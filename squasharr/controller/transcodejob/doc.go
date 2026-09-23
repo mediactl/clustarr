@@ -43,8 +43,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // The plan is made through pkg/transcode.FromSummary from the stored probe,
 // with the profile converted by squasharr/worker.ProfileSpec, the worker's
-// own converter, the thread count the Job's Downward API will hand the
-// worker, and the worker's output path -- so status.plan, HDR arguments
+// own converter, the thread count the Job's CLUSTARR_CPU_LIMIT will hand
+// the worker (the Downward API's limits.cpu, or a stated default when the
+// profile sets no CPU limit), and the worker's output path, and a source
+// with 64 or more audio or subtitle streams is rejected in both places
+// (pkg/transcode.MaxStreamsPerKind) -- so status.plan, HDR arguments
 // included, is the argv the worker renders from its live probe of the same
 // bytes, and status.plan.argsHash is that argv's hash
 // (TestStatusPlanIsTheArgvTheWorkerRenders).
