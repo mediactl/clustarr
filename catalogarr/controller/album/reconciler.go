@@ -84,9 +84,8 @@ const (
 	albumByActiveDownloadIndexKey = ".status.activeDownloadRef"
 
 	// albumByQualityProfileIndexKey indexes Album by its OWN
-	// spec.qualityProfileRef override (nil/empty excluded -- see
-	// mapQualityProfile's own doc comment for why the indirect,
-	// inherited-from-Artist case is not covered by this index).
+	// spec.qualityProfileRef override (nil/empty excluded); mapQualityProfile
+	// reaches the Albums inheriting a profile through their Artist instead.
 	albumByQualityProfileIndexKey = ".spec.qualityProfileRef"
 )
 
@@ -105,7 +104,7 @@ type bus interface {
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=albums,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=albums/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=albums/finalizers,verbs=update
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists,verbs=get
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch
@@ -141,26 +140,19 @@ type Reconciler struct {
 // audiobook is this package's sibling precedent for the quality-evaluation
 // half -- see this package's doc.go).
 //
-// The QualityProfile watch (mapQualityProfile) covers only an Album's OWN
-// spec.qualityProfileRef override, not the indirect case of inheriting the
-// owning Artist's profile. Covering that indirect case would need a second
-// hop through an index on Album's spec.artistRef -- but that exact (type,
-// field) index is already registered by artist.Reconciler.SetupWithManager
-// (albumByArtistRefIndexKey, same manager cache once G2-5 wires both
-// controllers into one process), and a second IndexField call for the same
-// (type, field) pair is a hard "indexer conflict" error at startup
-// (episode.Reconciler's own documented gotcha). Rather than couple this
-// package's setup to artist's registration having already run, an Album
-// that inherits its profile picks up an edit on its own next reconcile
-// (bounded by this Album's RefreshTTL-driven staleness cycle) instead of
-// reactively -- a deliberate, narrower simplification than "no watch at
-// all", not a consequence of pkg/quality lacking non-video support (it does
-// not lack it; see doc.go).
-//
-// There is also no watch on the owning Artist itself (for its path or
-// metadata changing): the same staleness-driven reconciles already revisit
-// the Artist on every pass, so a propagation delay there is bounded the
-// same way.
+// The QualityProfile watch (mapQualityProfile) reaches every Album ranked
+// against the edited profile: those that name it through their own
+// spec.qualityProfileRef override, and those that inherit it from an Artist
+// that names it. The Artist watch (mapArtist) covers the other way an
+// inherited profile changes -- the Artist pointing spec.qualityProfileRef
+// elsewhere -- along with every other Artist spec edit this reconciler reads
+// (its metadata profile's releaseStatuses, which decide the release
+// selection). Neither second hop uses the (Album, spec.artistRef) index:
+// artist.Reconciler.SetupWithManager registers it (albumByArtistRefIndexKey),
+// and a second IndexField call for the same (type, field) on one manager
+// cache is a hard "indexer conflict" error at startup (episode.Reconciler's
+// own documented gotcha), so both filter a namespaced List in Go -- a cold
+// path, since profiles and Artists are edited by hand.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &catalogv1alpha1.MediaFile{}, mediaFileByAlbumIndexKey,
 		func(o client.Object) []string {
@@ -199,6 +191,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&catalogv1alpha1.MediaFile{}, handler.EnqueueRequestsFromMapFunc(r.mapMediaFile), builder.WithPredicates(k8s.GenerationChanged())).
 		Watches(&downloadv1alpha1.Download{}, handler.EnqueueRequestsFromMapFunc(r.mapDownload), builder.WithPredicates(downloadPredicate())).
 		Watches(&catalogv1alpha1.QualityProfile{}, handler.EnqueueRequestsFromMapFunc(r.mapQualityProfile), builder.WithPredicates(k8s.GenerationChanged())).
+		Watches(&catalogv1alpha1.Artist{}, handler.EnqueueRequestsFromMapFunc(r.mapArtist), builder.WithPredicates(k8s.GenerationChanged())).
 		WithOptions(controller.Options{RecoverPanic: ptr.To(true), ReconciliationTimeout: 5 * time.Minute}).
 		Complete(r)
 }
@@ -262,28 +255,84 @@ func (r *Reconciler) mapDownload(ctx context.Context, o client.Object) []reconci
 }
 
 // mapQualityProfile is the reverse direction from an edited QualityProfile
-// to every Album that pins it directly via its own spec.qualityProfileRef
-// override. It deliberately does NOT reach Albums that inherit their
-// profile from the owning Artist -- see SetupWithManager's own doc comment
-// for why that second hop is left out (an indexer-conflict risk, not a
-// belief that the indirect case does not matter). QualityProfile is
-// CLUSTER-scoped while Album is namespaced, so the List below deliberately
-// carries no client.InNamespace, the same shape as
-// episode.mapQualityProfile's own first hop.
+// to every Album ranked against it: those naming it through their own
+// spec.qualityProfileRef override (albumByQualityProfileIndexKey), and those
+// without an override whose Artist names it -- AlbumSpec.QualityProfileRef
+// "overrides the Artist's QualityProfile", so an Album with an override of
+// its own is ranked against that, whatever its Artist names. QualityProfile
+// is CLUSTER-scoped while Album and Artist are namespaced, so neither List
+// carries client.InNamespace, the same shape as episode.mapQualityProfile's
+// own first hop.
 func (r *Reconciler) mapQualityProfile(ctx context.Context, o client.Object) []reconcile.Request {
 	qp, ok := o.(*catalogv1alpha1.QualityProfile)
 	if !ok {
 		return nil
 	}
-	var albums catalogv1alpha1.AlbumList
-	if err := r.List(ctx, &albums, client.MatchingFields{albumByQualityProfileIndexKey: qp.Name}); err != nil {
+	seen := map[types.NamespacedName]bool{}
+	var reqs []reconcile.Request
+	add := func(alb catalogv1alpha1.Album) {
+		key := types.NamespacedName{Namespace: alb.Namespace, Name: alb.Name}
+		if !seen[key] {
+			seen[key] = true
+			reqs = append(reqs, reconcile.Request{NamespacedName: key})
+		}
+	}
+
+	var overriding catalogv1alpha1.AlbumList
+	if err := r.List(ctx, &overriding, client.MatchingFields{albumByQualityProfileIndexKey: qp.Name}); err == nil {
+		for _, alb := range overriding.Items {
+			add(alb)
+		}
+	}
+
+	var artists catalogv1alpha1.ArtistList
+	if err := r.List(ctx, &artists); err != nil {
+		return reqs
+	}
+	for _, a := range artists.Items {
+		if a.Spec.QualityProfileRef != qp.Name {
+			continue
+		}
+		for _, alb := range r.albumsOf(ctx, &a) {
+			if ptr.Deref(alb.Spec.QualityProfileRef, "") == "" {
+				add(alb)
+			}
+		}
+	}
+	return reqs
+}
+
+// mapArtist wakes every Album of an Artist whose spec changed: an Album
+// inherits its quality profile from the Artist when it has no override, and
+// always takes its release selection's accepted statuses from the Artist's
+// metadata profile.
+func (r *Reconciler) mapArtist(ctx context.Context, o client.Object) []reconcile.Request {
+	a, ok := o.(*catalogv1alpha1.Artist)
+	if !ok {
 		return nil
 	}
-	reqs := make([]reconcile.Request, 0, len(albums.Items))
-	for _, alb := range albums.Items {
+	albums := r.albumsOf(ctx, a)
+	reqs := make([]reconcile.Request, 0, len(albums))
+	for _, alb := range albums {
 		reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: alb.Namespace, Name: alb.Name}})
 	}
 	return reqs
+}
+
+// albumsOf lists a's Albums by filtering a namespaced List on spec.artistRef
+// in Go -- see SetupWithManager for why not through an index.
+func (r *Reconciler) albumsOf(ctx context.Context, a *catalogv1alpha1.Artist) []catalogv1alpha1.Album {
+	var albums catalogv1alpha1.AlbumList
+	if err := r.List(ctx, &albums, client.InNamespace(a.Namespace)); err != nil {
+		return nil
+	}
+	var out []catalogv1alpha1.Album
+	for _, alb := range albums.Items {
+		if alb.Spec.ArtistRef == a.Name {
+			out = append(out, alb)
+		}
+	}
+	return out
 }
 
 // Reconcile implements the §8.8 skeleton: get, split on deletion, ensure the

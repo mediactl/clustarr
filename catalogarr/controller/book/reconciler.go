@@ -68,10 +68,8 @@ const (
 	// bookByQualityProfileIndexKey indexes Book by its OWN direct
 	// spec.qualityProfileRef override only -- not the profile it effectively
 	// resolves to via an owning Author (BookSpec.QualityProfileRef's own doc
-	// comment: "overrides the Author's QualityProfile"). A Book that
-	// inherits its profile from its Author is not reachable through this
-	// index; mapQualityProfile's own doc comment records this as a known,
-	// deliberate scope limit rather than a silent gap.
+	// comment: "overrides the Author's QualityProfile"). mapQualityProfile
+	// reaches the Books inheriting a profile through their Author instead.
 	bookByQualityProfileIndexKey = ".spec.qualityProfileRef"
 )
 
@@ -129,11 +127,12 @@ type Reconciler struct {
 
 // SetupWithManager registers the Book controller: the finalizer/metadata-
 // refresh/pendingGrab predicate on Book itself, the MediaFile/Download
-// watches mirroring Movie/Episode, and a watch on Author (mapAuthor) so an
-// owning Author's own metadata refresh (which changes the AuthorName this
-// reconciler's Path depends on) re-triggers every Book it owns without
-// waiting for an unrelated poll. A standalone Book has no owning Author, so
-// mapAuthor simply never enqueues one.
+// watches mirroring Movie/Episode, a watch on Author (mapAuthor) and one on
+// QualityProfile (mapQualityProfile). The Author watch fires on the owning
+// Author's own metadata refresh (which changes the AuthorName this
+// reconciler's Path depends on) and on its spec changes (the QualityProfile
+// or RootFolder a Book without an override inherits). A standalone Book has
+// no owning Author, so mapAuthor simply never enqueues one.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &catalogv1alpha1.MediaFile{}, mediaFileByBookIndexKey,
 		func(o client.Object) []string {
@@ -171,7 +170,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&catalogv1alpha1.Book{}, builder.WithPredicates(bookPredicate())).
 		Watches(&catalogv1alpha1.MediaFile{}, handler.EnqueueRequestsFromMapFunc(r.mapMediaFile), builder.WithPredicates(k8s.GenerationChanged())).
 		Watches(&downloadv1alpha1.Download{}, handler.EnqueueRequestsFromMapFunc(r.mapDownload), builder.WithPredicates(downloadPredicate())).
-		Watches(&catalogv1alpha1.Author{}, handler.EnqueueRequestsFromMapFunc(r.mapAuthor), builder.WithPredicates(authorMetadataPredicate())).
+		Watches(&catalogv1alpha1.Author{}, handler.EnqueueRequestsFromMapFunc(r.mapAuthor), builder.WithPredicates(authorPredicate())).
 		Watches(&catalogv1alpha1.QualityProfile{}, handler.EnqueueRequestsFromMapFunc(r.mapQualityProfile), builder.WithPredicates(k8s.GenerationChanged())).
 		WithOptions(controller.Options{RecoverPanic: ptr.To(true), ReconciliationTimeout: 5 * time.Minute}).
 		Complete(r)
@@ -215,22 +214,22 @@ func downloadPredicate() predicate.Predicate {
 	)
 }
 
-// authorMetadataPredicate wakes the Author watch only when the referenced
-// Author's own status.metadata.refreshedAt changes -- an Author's spec edit
-// (RootFolderRef, Folder, ...) already reaches its owned Books through a
-// different route (an operator editing an Author's root folder is expected
-// to reconcile eventually via the normal poll; this watch exists
-// specifically so a freshly-resolved AuthorName reaches Path promptly,
-// mirroring episode.mapQualityProfile's "wake on the thing this
-// reconciler's own computation actually reads" scoping).
-func authorMetadataPredicate() predicate.Predicate {
-	return k8s.StatusFieldChanged(func(o client.Object) metav1.Time {
-		a, ok := o.(*catalogv1alpha1.Author)
-		if !ok || a.Status.Metadata == nil {
-			return metav1.Time{}
-		}
-		return a.Status.Metadata.RefreshedAt
-	})
+// authorPredicate wakes the Author watch when the referenced Author's spec
+// changes (GenerationChanged: a new qualityProfileRef or rootFolderRef,
+// which a Book without its own override inherits) or its own
+// status.metadata.refreshedAt does (a freshly-resolved AuthorName, which
+// Path reads) -- the two things about an Author this reconciler reads.
+func authorPredicate() predicate.Predicate {
+	return k8s.Or(
+		k8s.GenerationChanged(),
+		k8s.StatusFieldChanged(func(o client.Object) metav1.Time {
+			a, ok := o.(*catalogv1alpha1.Author)
+			if !ok || a.Status.Metadata == nil {
+				return metav1.Time{}
+			}
+			return a.Status.Metadata.RefreshedAt
+		}),
+	)
 }
 
 func (r *Reconciler) mapMediaFile(_ context.Context, o client.Object) []reconcile.Request {
@@ -271,41 +270,72 @@ func (r *Reconciler) mapAuthor(ctx context.Context, o client.Object) []reconcile
 	if !ok {
 		return nil
 	}
-	var books catalogv1alpha1.BookList
-	if err := r.List(ctx, &books, client.InNamespace(a.Namespace)); err != nil {
-		return nil
-	}
-	var reqs []reconcile.Request
-	for _, bk := range books.Items {
-		if bk.Spec.AuthorRef == nil || *bk.Spec.AuthorRef != a.Name {
-			continue
-		}
+	books := r.booksOf(ctx, a)
+	reqs := make([]reconcile.Request, 0, len(books))
+	for _, bk := range books {
 		reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: bk.Namespace, Name: bk.Name}})
 	}
 	return reqs
 }
 
+// booksOf lists a's Books by filtering a namespaced List on spec.authorRef
+// in Go -- see mapAuthor for why not through an index.
+func (r *Reconciler) booksOf(ctx context.Context, a *catalogv1alpha1.Author) []catalogv1alpha1.Book {
+	var books catalogv1alpha1.BookList
+	if err := r.List(ctx, &books, client.InNamespace(a.Namespace)); err != nil {
+		return nil
+	}
+	var out []catalogv1alpha1.Book
+	for _, bk := range books.Items {
+		if bk.Spec.AuthorRef != nil && *bk.Spec.AuthorRef == a.Name {
+			out = append(out, bk)
+		}
+	}
+	return out
+}
+
 // mapQualityProfile is the reverse direction from an edited QualityProfile
-// to every Book directly ranked against it (bookByQualityProfileIndexKey's
-// own doc comment records the scope limit: a Book that inherits its profile
-// from an owning Author, rather than overriding it directly, is not woken
-// by this watch -- it picks the change up on its next reconcile for any
-// other reason, such as its own periodic requeue or its Author's own
-// metadata refresh). QualityProfile is CLUSTER-scoped while Book is
-// namespaced, so this List deliberately carries no client.InNamespace,
-// mirroring movie.mapQualityProfile exactly.
+// to every Book ranked against it: those naming it through their own
+// spec.qualityProfileRef override (bookByQualityProfileIndexKey), and those
+// without an override whose Author names it (resolveProfile's own order: an
+// override, else the Author's). QualityProfile is CLUSTER-scoped while Book
+// and Author are namespaced, so neither List carries client.InNamespace,
+// mirroring movie.mapQualityProfile.
 func (r *Reconciler) mapQualityProfile(ctx context.Context, o client.Object) []reconcile.Request {
 	qp, ok := o.(*catalogv1alpha1.QualityProfile)
 	if !ok {
 		return nil
 	}
-	var books catalogv1alpha1.BookList
-	if err := r.List(ctx, &books, client.MatchingFields{bookByQualityProfileIndexKey: qp.Name}); err != nil {
-		return nil
+	seen := map[types.NamespacedName]bool{}
+	var reqs []reconcile.Request
+	add := func(bk catalogv1alpha1.Book) {
+		key := types.NamespacedName{Namespace: bk.Namespace, Name: bk.Name}
+		if !seen[key] {
+			seen[key] = true
+			reqs = append(reqs, reconcile.Request{NamespacedName: key})
+		}
 	}
-	reqs := make([]reconcile.Request, 0, len(books.Items))
-	for _, bk := range books.Items {
-		reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: bk.Namespace, Name: bk.Name}})
+
+	var overriding catalogv1alpha1.BookList
+	if err := r.List(ctx, &overriding, client.MatchingFields{bookByQualityProfileIndexKey: qp.Name}); err == nil {
+		for _, bk := range overriding.Items {
+			add(bk)
+		}
+	}
+
+	var authors catalogv1alpha1.AuthorList
+	if err := r.List(ctx, &authors); err != nil {
+		return reqs
+	}
+	for _, a := range authors.Items {
+		if a.Spec.QualityProfileRef != qp.Name {
+			continue
+		}
+		for _, bk := range r.booksOf(ctx, &a) {
+			if ptr.Deref(bk.Spec.QualityProfileRef, "") == "" {
+				add(bk)
+			}
+		}
 	}
 	return reqs
 }

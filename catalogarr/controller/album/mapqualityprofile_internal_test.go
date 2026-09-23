@@ -53,37 +53,76 @@ func TestMapQualityProfileWrongTypeReturnsNil(t *testing.T) {
 	assert.Nil(t, r.mapQualityProfile(t.Context(), other), "wrong type returns nil, never panics")
 }
 
-// TestMapQualityProfileReachesOnlyAlbumsWithTheirOwnOverride pins
-// mapQualityProfile's documented scope: it wakes an Album that pins the
-// edited QualityProfile directly via its own spec.qualityProfileRef, and
-// leaves an Album with no override (or an override pointing elsewhere)
-// alone -- the indirect, inherited-from-Artist case is deliberately not
-// covered (see SetupWithManager's own doc comment for why).
-func TestMapQualityProfileReachesOnlyAlbumsWithTheirOwnOverride(t *testing.T) {
+// TestMapQualityProfileReachesOverridesAndInheritors pins mapQualityProfile's
+// scope: an edited profile wakes the Albums that name it through their own
+// override and the Albums with no override whose Artist names it, and no
+// Album ranked against anything else.
+func TestMapQualityProfileReachesOverridesAndInheritors(t *testing.T) {
 	c := newIndexedFakeClient(t)
 
 	profileA := "profile-a"
 	profileB := "profile-b"
-	overriding := &catalogv1alpha1.Album{
-		ObjectMeta: metav1.ObjectMeta{Name: "overriding", Namespace: "media"},
-		Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: "radiohead", ReleaseGroupID: "rg-1", QualityProfileRef: &profileA},
+	objs := []client.Object{
+		&catalogv1alpha1.Artist{
+			ObjectMeta: metav1.ObjectMeta{Name: "radiohead", Namespace: "media"},
+			Spec:       catalogv1alpha1.ArtistSpec{MusicBrainzID: "mb-1", QualityProfileRef: profileA, RootFolderRef: "music"},
+		},
+		&catalogv1alpha1.Artist{
+			ObjectMeta: metav1.ObjectMeta{Name: "blur", Namespace: "media"},
+			Spec:       catalogv1alpha1.ArtistSpec{MusicBrainzID: "mb-2", QualityProfileRef: profileB, RootFolderRef: "music"},
+		},
+		// Same Artist name in another namespace, naming another profile.
+		&catalogv1alpha1.Artist{
+			ObjectMeta: metav1.ObjectMeta{Name: "radiohead", Namespace: "other"},
+			Spec:       catalogv1alpha1.ArtistSpec{MusicBrainzID: "mb-1", QualityProfileRef: profileB, RootFolderRef: "music"},
+		},
+		&catalogv1alpha1.Album{
+			ObjectMeta: metav1.ObjectMeta{Name: "overriding", Namespace: "media"},
+			Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: "blur", ReleaseGroupID: "rg-1", QualityProfileRef: &profileA},
+		},
+		&catalogv1alpha1.Album{
+			ObjectMeta: metav1.ObjectMeta{Name: "inheriting", Namespace: "media"},
+			Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: "radiohead", ReleaseGroupID: "rg-2"},
+		},
+		&catalogv1alpha1.Album{
+			ObjectMeta: metav1.ObjectMeta{Name: "overridden-elsewhere", Namespace: "media"},
+			Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: "radiohead", ReleaseGroupID: "rg-3", QualityProfileRef: &profileB},
+		},
+		&catalogv1alpha1.Album{
+			ObjectMeta: metav1.ObjectMeta{Name: "other-artist", Namespace: "media"},
+			Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: "blur", ReleaseGroupID: "rg-4"},
+		},
+		&catalogv1alpha1.Album{
+			ObjectMeta: metav1.ObjectMeta{Name: "inheriting", Namespace: "other"},
+			Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: "radiohead", ReleaseGroupID: "rg-2"},
+		},
 	}
-	notOverriding := &catalogv1alpha1.Album{
-		ObjectMeta: metav1.ObjectMeta{Name: "not-overriding", Namespace: "media"},
-		Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: "radiohead", ReleaseGroupID: "rg-2"},
+	for _, o := range objs {
+		require.NoError(t, c.Create(t.Context(), o))
 	}
-	elsewhere := &catalogv1alpha1.Album{
-		ObjectMeta: metav1.ObjectMeta{Name: "elsewhere", Namespace: "media"},
-		Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: "radiohead", ReleaseGroupID: "rg-3", QualityProfileRef: &profileB},
-	}
-	require.NoError(t, c.Create(t.Context(), overriding))
-	require.NoError(t, c.Create(t.Context(), notOverriding))
-	require.NoError(t, c.Create(t.Context(), elsewhere))
 
 	r := &Reconciler{Client: c}
 	reqs := r.mapQualityProfile(t.Context(), &catalogv1alpha1.QualityProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile-a"}})
+	got := map[string]bool{}
+	for _, req := range reqs {
+		got[req.Namespace+"/"+req.Name] = true
+	}
+	assert.Equal(t, map[string]bool{"media/overriding": true, "media/inheriting": true}, got)
+}
+
+func TestMapArtistWakesItsAlbums(t *testing.T) {
+	c := newIndexedFakeClient(t)
+	for _, o := range []client.Object{
+		&catalogv1alpha1.Album{ObjectMeta: metav1.ObjectMeta{Name: "mine", Namespace: "media"}, Spec: catalogv1alpha1.AlbumSpec{ArtistRef: "radiohead", ReleaseGroupID: "rg-1"}},
+		&catalogv1alpha1.Album{ObjectMeta: metav1.ObjectMeta{Name: "theirs", Namespace: "media"}, Spec: catalogv1alpha1.AlbumSpec{ArtistRef: "blur", ReleaseGroupID: "rg-2"}},
+		&catalogv1alpha1.Album{ObjectMeta: metav1.ObjectMeta{Name: "elsewhere", Namespace: "other"}, Spec: catalogv1alpha1.AlbumSpec{ArtistRef: "radiohead", ReleaseGroupID: "rg-3"}},
+	} {
+		require.NoError(t, c.Create(t.Context(), o))
+	}
+	r := &Reconciler{Client: c}
+	reqs := r.mapArtist(t.Context(), &catalogv1alpha1.Artist{ObjectMeta: metav1.ObjectMeta{Name: "radiohead", Namespace: "media"}})
 	require.Len(t, reqs, 1)
-	assert.Equal(t, "overriding", reqs[0].Name)
+	assert.Equal(t, "mine", reqs[0].Name)
 }
 
 func TestMapQualityProfileNoMatchesReturnsEmpty(t *testing.T) {
