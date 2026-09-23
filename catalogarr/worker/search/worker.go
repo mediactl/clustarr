@@ -273,6 +273,20 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 			fmt.Errorf("search one of its items instead: kind=%s", task.MediaRef.Kind))
 	}
 
+	if srch == nil && !grabbable(grabTarget(task)) {
+		// An automatic search exists to grab, and the grab path cannot grab
+		// for this kind yet: its per-kind status writers cover movie and
+		// episode only (grab.StatusTargets refuses the rest), and its sink
+		// drops such a result without a word. Searching anyway would spend
+		// an indexer query -- against each indexer's query limit -- on a
+		// result nothing can use. The gate lifts by itself once the grab
+		// path supports the kind; an interactive search is never gated,
+		// because its output is a list a human reads and grabs from through
+		// the Search object.
+		w.log(ctx).Debug("search: the grab path cannot grab this kind yet; skipping an automatic search")
+		return nil
+	}
+
 	snap, err := w.snapshot(ctx, ns, task.MediaRef)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -387,6 +401,13 @@ func (w *Worker) recordAttempt(ctx context.Context, ns string, ref commonv1.Medi
 		w.log(ctx).Warn("search: could not record the search attempt; the per-item backoff will not advance",
 			"kind", ref.Kind, "item", ref.Name, "err", err)
 	}
+}
+
+// grabbable reports whether the grab path can grab for ref: whether
+// grab.StatusTargets, the first thing a grab does, accepts it.
+func grabbable(ref commonv1.MediaRef) bool {
+	_, err := grab.StatusTargets(ref, ref.Keys)
+	return !errors.Is(err, grab.ErrUnsupportedKind)
 }
 
 // grabTarget folds SearchTask.Keys onto the MediaRef the Sink receives. The

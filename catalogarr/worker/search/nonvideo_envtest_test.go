@@ -32,6 +32,8 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/catalogarr/controller/wantedcron"
+	"github.com/mediactl/clustarr/catalogarr/worker/grab"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -228,6 +230,51 @@ func TestWorkerWantedScanIncludesNonVideoItems(t *testing.T) {
 		got = append(got, string(task.MediaRef.Kind)+"/"+task.MediaRef.Name)
 	}
 	sort.Strings(got)
-	require.Equal(t, []string{"album/radiohead-kid-a", "issue/saga-050"}, got,
-		"the wanted album and the released issue; not the fixture's phaseless movie, not the unreleased issue")
+	// The wanted album and the released issue -- not the fixture's
+	// phaseless movie, not the unreleased issue -- each as soon as the grab
+	// path can grab its kind. Until then the sweep holds it back rather than
+	// spend an indexer query on a result nothing can grab (the worker's
+	// grabbable gate), which this expectation follows so the test needs no
+	// edit when the grab path grows the kind.
+	var want []string
+	for _, ref := range []commonv1.MediaRef{
+		{Kind: commonv1.MediaKindAlbum, Name: "radiohead-kid-a"},
+		{Kind: commonv1.MediaKindIssue, Name: "saga-050"},
+	} {
+		if _, err := grab.StatusTargets(ref, nil); err == nil {
+			want = append(want, string(ref.Kind)+"/"+ref.Name)
+		}
+	}
+	require.Equal(t, want, got)
+
+	// And the candidate half is live regardless: wantedcron lists both.
+	cands, err := wantedcron.ListCandidates(ctx, f.mgr, func(commonv1.MediaKind) bool { return true }, testNow, client.InNamespace(f.ns))
+	require.NoError(t, err)
+	var due []string
+	for _, c := range cands {
+		if c.Due(testNow, true) {
+			due = append(due, string(c.Ref.Kind)+"/"+c.Ref.Name)
+		}
+	}
+	sort.Strings(due)
+	require.Equal(t, []string{"album/radiohead-kid-a", "issue/saga-050"}, due)
+}
+
+// TestWorkerSkipsAnAutomaticSearchTheGrabPathCannotGrab: an automatic
+// search of a kind the grab path cannot grab yet costs no indexer query --
+// its result would be dropped at the sink -- while an interactive one of the
+// same item runs (TestWorkerSearchesAnAlbumAndDecidesItByName).
+func TestWorkerSkipsAnAutomaticSearchTheGrabPathCannotGrab(t *testing.T) {
+	ctx := context.Background()
+	f := newWorkerFixture(t, "worker-album-automatic")
+	createKidA(t, ctx, f.mgr, f.ns, "music-anything")
+
+	ref := commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: "radiohead-kid-a"}
+	err := f.worker.Handle(ctx, testMessage{env: f.envelope(t, schema.SearchTask{MediaRef: ref, Reason: schema.SearchReasonMissing})})
+
+	if _, gerr := grab.StatusTargets(ref, nil); gerr == nil {
+		t.Skip("the grab path grabs albums now; the gate is lifted and the ordinary search tests cover the path")
+	}
+	require.NoError(t, err, "acked, not retried: no redelivery makes the kind grabbable")
+	require.Empty(t, f.rpc.Requests(), "no indexer query for a result nothing can grab")
 }

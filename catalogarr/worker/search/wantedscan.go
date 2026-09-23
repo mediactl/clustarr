@@ -139,11 +139,21 @@ func (w *Worker) wantedItems(ctx context.Context, ns string, scan schema.WantedS
 		return nil, fmt.Errorf("list wanted items in %s: %w", ns, err)
 	}
 	var out []wantedItem
+	ungrabbable := map[commonv1.MediaKind]int{}
 	for _, c := range cands {
 		if !Searchable(c.Ref.Kind) || !c.Due(now, scan.CutoffUnmet) {
 			continue
 		}
+		if !grabbable(c.Ref) {
+			// A sweep's searches exist to grab; see handleSearchTask's gate.
+			ungrabbable[c.Ref.Kind]++
+			continue
+		}
 		out = append(out, wantedItem{Ref: c.Ref, Reason: c.Reason, UID: c.UID})
+	}
+	for kind, n := range ungrabbable {
+		w.log(ctx).Warn("search: wanted items of a kind the grab path cannot grab yet were not searched",
+			"kind", string(kind), "items", n)
 	}
 	return out, nil
 }
