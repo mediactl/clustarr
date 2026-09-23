@@ -295,14 +295,14 @@ type PageTestBlock struct {
 // SelectorBlock is a single extraction rule: a selector plus the
 // case/remove/default/text/filters pipeline SelectorBlock.Extract applies.
 type SelectorBlock struct {
-	Selector  string            `yaml:"selector"`
-	Attribute string            `yaml:"attribute"`
-	Optional  bool              `yaml:"optional"`
-	Default   *Scalar           `yaml:"default"` // requires Optional per schema dependentRequired
-	Case      CaseBlock         `yaml:"case"`
-	Remove    string            `yaml:"remove"` // a nested selector to strip before reading text
-	Text      *Scalar           `yaml:"text"`   // literal or template, replaces Selector entirely
-	Filters   []FilterBlock     `yaml:"filters"`
+	Selector  string        `yaml:"selector"`
+	Attribute string        `yaml:"attribute"`
+	Optional  bool          `yaml:"optional"`
+	Default   *Scalar       `yaml:"default"` // requires Optional per schema dependentRequired
+	Case      CaseBlock     `yaml:"case"`
+	Remove    string        `yaml:"remove"` // a nested selector to strip before reading text
+	Text      *Scalar       `yaml:"text"`   // literal or template, replaces Selector entirely
+	Filters   []FilterBlock `yaml:"filters"`
 }
 
 // SearchBlock describes how Engine.Search builds and fans out requests, and
