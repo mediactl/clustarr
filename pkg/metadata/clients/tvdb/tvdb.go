@@ -32,6 +32,7 @@ import (
 
 	"golang.org/x/time/rate"
 
+	"github.com/mediactl/clustarr/pkg/lang"
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -133,7 +134,7 @@ func (c *Client) Series(ctx context.Context, tvdbID string) (*metadata.Series, e
 		Title:            raw.Data.Name,
 		Overview:         raw.Data.Overview,
 		Status:           mapSeriesStatus(raw.Data.Status.Name),
-		OriginalLanguage: raw.Data.OriginalLanguage,
+		OriginalLanguage: originalLanguage(raw.Data.OriginalLanguage),
 		AirTime:          raw.Data.AirsTime,
 		Runtime:          raw.Data.AverageRuntime,
 	}
@@ -347,4 +348,21 @@ func parseRetryAfter(v string) time.Duration {
 		return 0
 	}
 	return time.Duration(seconds) * time.Second
+}
+
+// originalLanguage converts TVDB's original-language code to BCP-47 at the
+// provider boundary, where every other metadata client already speaks it.
+//
+// TVDB reports ISO 639-3 ("eng", "jpn") and this used to pass it through
+// verbatim into Series.status.metadata.originalLanguage, a field every
+// consumer reads as BCP-47 ("en", "ja"). pkg/decision failed open on the
+// mismatch, so nothing was wrongly rejected -- but every TVDB-sourced series
+// logged a warning per evaluation and its language conditions were inert.
+// A code pkg/lang cannot normalise is passed through unchanged rather than
+// dropped, so downstream keeps its existing fail-open handling of the unknown.
+func originalLanguage(code string) string {
+	if tag, ok := lang.Normalize(code); ok {
+		return string(tag)
+	}
+	return code
 }

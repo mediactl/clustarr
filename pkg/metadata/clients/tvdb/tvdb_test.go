@@ -153,3 +153,32 @@ func TestSeriesRejectsMalformedResponseBodies(t *testing.T) {
 		})
 	}
 }
+
+// TVDB reports a series' original language as ISO 639-3 -- the real fixture
+// says "eng" -- and every consumer of Series.OriginalLanguage reads BCP-47. The
+// client used to pass "eng" straight through, so pkg/decision could not match
+// it against a release's language and failed open with a warning on every
+// evaluation: language conditions were silently inert for every TVDB series.
+func TestSeriesOriginalLanguageIsBCP47(t *testing.T) {
+	login, _ := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
+	series, _ := os.ReadFile("../../../../testdata/metadata/tvdb/series_121361.json")
+	require.Contains(t, string(series), `"originalLanguage": "eng"`,
+		"the fixture must carry TVDB's real ISO 639-3 form, or this test proves nothing")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/login":
+			_, _ = w.Write(login)
+		case r.URL.Path == "/series/121361/extended":
+			_, _ = w.Write(series)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	c := tvdb.New("test-key", "test-pin", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+	s, err := c.Series(context.Background(), "121361")
+	require.NoError(t, err)
+	require.Equal(t, "en", s.OriginalLanguage)
+}
