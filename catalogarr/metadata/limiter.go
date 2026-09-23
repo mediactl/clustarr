@@ -53,10 +53,11 @@ func resolveLimiter(t catalogv1alpha1.MetadataProviderType, spec *catalogv1alpha
 		return pkgmetadata.NewLimiter(d.Audnexus, d.AudnexusBurst)
 	default:
 		// coverart, fanart, hardcover, metron, mangadex, anilist, kitsu,
-		// animelists: registry.go's supplementaryLimiter gives each its own
-		// client package's DefaultRate/DefaultBurst when spec.rateLimit is
-		// unset, and reaches here only when it is set. One request per
-		// second is the conservative fallback for a type with neither.
+		// animelists never get here: registry.go's supplementaryLimiter
+		// calls resolveLimiter only when spec.rateLimit sets a rate (the
+		// early return above) and otherwise uses the client package's own
+		// DefaultRate/DefaultBurst. One request per second is the
+		// conservative fallback for a type with neither.
 		return pkgmetadata.NewLimiter(rate.Limit(1), 1)
 	}
 }
