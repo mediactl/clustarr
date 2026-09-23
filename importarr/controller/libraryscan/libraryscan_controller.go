@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"sync"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -61,11 +62,16 @@ const (
 	// nothing when the first publish did get through.
 	queueFullRetry = time.Minute
 
-	// noProgressTimeout fails a scan whose worker never reported anything.
-	// ConsumerImportScan retries a task four times over roughly thirteen
-	// minutes before dead-lettering it; without this a scan whose task
-	// ended in the DLQ would sit in Running forever with nothing polling
-	// it but this controller.
+	// noProgressTimeout fails a scan whose worker has stopped reporting:
+	// no new checkpoint for this long -- measured from the LAST checkpoint
+	// this controller saw, or from startedAt when there has been none, so
+	// a three-hour walk that checkpoints every few seconds is never failed
+	// for its length, and one that stops is failed half an hour after it
+	// stopped rather than half an hour after it started. ConsumerImportScan
+	// redelivers a task after at most ten minutes of backoff, and a
+	// redelivery resumes and checkpoints again, so half an hour of silence
+	// means no worker is coming back. (A task that ended in the DLQ is
+	// failed sooner: the DeadLettered fold.)
 	noProgressTimeout = 30 * time.Minute
 
 	// defaultTTLSeconds matches the CRD's own default for
@@ -99,6 +105,68 @@ type Reconciler struct {
 
 	// Clock is the time source, injected so tests are deterministic.
 	Clock func() time.Time
+
+	// marks remembers, per Running scan, the last checkpoint revision this
+	// controller saw and when it saw it: the clock noProgressTimeout runs
+	// from. It has to live here, because the clustarr-progress bucket's
+	// TTL (ten minutes) is shorter than the timeout, so the checkpoint
+	// itself is gone by the time the timeout matters, and LibraryScan.status
+	// has no field for it. It is per process: a controller that restarts
+	// counts from startedAt, or from the first checkpoint it then sees,
+	// which only ever gives a scan longer, never shorter.
+	mu    sync.Mutex
+	marks map[types.NamespacedName]progressMark
+}
+
+// progressMark is the newest checkpoint of one scan the controller has seen.
+type progressMark struct {
+	uid types.UID
+	rev uint64
+	at  time.Time
+}
+
+// lastProgress records entry (nil when there is no checkpoint) as seen now
+// when it is a revision this controller has not seen for this scan, and
+// returns when the scan last made progress: the newest of its startedAt and
+// the time its newest checkpoint was first seen.
+func (r *Reconciler) lastProgress(scan *catalogv1alpha1.LibraryScan, entry *events.Entry, now time.Time) time.Time {
+	key := types.NamespacedName{Namespace: scan.Namespace, Name: scan.Name}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.marks == nil {
+		r.marks = map[types.NamespacedName]progressMark{}
+	}
+	m, ok := r.marks[key]
+	if ok && m.uid != scan.UID {
+		ok = false
+	}
+	if entry != nil && (!ok || m.rev != entry.Revision) {
+		m, ok = progressMark{uid: scan.UID, rev: entry.Revision, at: now}, true
+		r.marks[key] = m
+	}
+	var last time.Time
+	if scan.Status.StartedAt != nil {
+		last = scan.Status.StartedAt.Time
+	}
+	if ok && m.at.After(last) {
+		last = m.at
+	}
+	return last
+}
+
+// forget drops a scan's mark once it has settled or gone.
+func (r *Reconciler) forget(key types.NamespacedName) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.marks, key)
+}
+
+// conditions is the scan's live conditions with the DeadLettered annotation
+// folded in (k8s.MarkDeadLettered): the one place every status apply of
+// this controller builds its conditions from.
+func conditions(scan *catalogv1alpha1.LibraryScan) (out []metav1.Condition, changed bool) {
+	out = append([]metav1.Condition(nil), scan.Status.Conditions...)
+	return out, k8s.MarkDeadLettered(scan, &out)
 }
 
 func (r *Reconciler) now() time.Time {
@@ -115,6 +183,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 
 	var scan catalogv1alpha1.LibraryScan
 	if err := r.Client.Get(ctx, req.NamespacedName, &scan); err != nil {
+		if apierrors.IsNotFound(err) {
+			r.forget(req.NamespacedName)
+		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -137,7 +208,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 // start resolves the RootFolder and hands the walk to the work queue.
 func (r *Reconciler) start(ctx context.Context, scan *catalogv1alpha1.LibraryScan) (ctrl.Result, error) {
 	now := r.now()
-	conditions := append([]metav1.Condition(nil), scan.Status.Conditions...)
+	conditions, _ := conditions(scan)
 
 	var root catalogv1alpha1.RootFolder
 	key := types.NamespacedName{Namespace: scan.Namespace, Name: scan.Spec.RootFolderRef}
@@ -226,28 +297,44 @@ func (r *Reconciler) pending(
 }
 
 // poll reads the worker's checkpoint and aggregates it into status.
+//
+// The aggregate never moves a counter backwards. A redelivered task resumes
+// its tally from the checkpoint, but when the checkpoint has outlived the
+// bucket's TTL the redelivery starts from zero, and copying its first
+// checkpoints straight into status would show a scan un-seeing files it has
+// already reported. Each counter is therefore the higher of what status
+// holds and what the worker reports, and status.unmatched keeps an entry
+// until the worker reports the same path again.
+//
+// A Running scan fails, instead of polling forever, when its task has been
+// dead-lettered (the DeadLettered fold: no delivery is coming) or when no
+// new checkpoint has arrived for noProgressTimeout.
 func (r *Reconciler) poll(ctx context.Context, scan *catalogv1alpha1.LibraryScan) (ctrl.Result, error) {
 	now := r.now()
-	conditions := append([]metav1.Condition(nil), scan.Status.Conditions...)
+	key := types.NamespacedName{Namespace: scan.Namespace, Name: scan.Name}
+	conditions, folded := conditions(scan)
+	deadLettered := k8s.IsConditionTrue(conditions, k8s.ConditionDeadLettered)
 
 	entry, err := r.Bus.KV(events.BucketProgress).Get(ctx, rescan.ProgressKey(string(scan.UID)))
 	if err != nil {
 		if !errors.Is(err, events.ErrKeyNotFound) {
 			return ctrl.Result{}, err
 		}
-		// No worker has checkpointed yet. Nothing is applied here on
-		// purpose: an apply that omitted the counters would release them.
-		if started := scan.Status.StartedAt; started != nil && now.Sub(started.Time) > noProgressTimeout {
-			k8s.MarkReady(scan, &conditions, false, ReasonNoProgress,
-				"no worker reported progress within %s", noProgressTimeout)
-			ac := baseStatus(scan).
-				WithPhase(catalogv1alpha1.ScanPhaseFailed).
-				WithFinishedAt(metav1.NewTime(now)).
-				WithConditions(k8s.ConditionACs(conditions)...)
-			if err := r.apply(ctx, scan, ac); err != nil {
+		// No checkpoint: none yet, or the bucket's TTL took it. The status
+		// is re-asserted whole whenever anything is applied, so the
+		// counters an earlier poll set survive.
+		last := r.lastProgress(scan, nil, now)
+		switch {
+		case deadLettered:
+			return r.fail(ctx, scan, baseStatus(scan), conditions, k8s.ReasonDeadLettered,
+				"the scan task was dead-lettered, so no worker will finish the walk")
+		case now.Sub(last) > noProgressTimeout:
+			return r.fail(ctx, scan, baseStatus(scan), conditions, ReasonNoProgress,
+				"no worker reported progress since %s (%s)", last.UTC().Format(time.RFC3339), noProgressTimeout)
+		case folded:
+			if err := r.apply(ctx, scan, baseStatus(scan).WithConditions(k8s.ConditionACs(conditions)...)); err != nil {
 				return ctrl.Result{}, err
 			}
-			return ctrl.Result{RequeueAfter: ttl(scan)}, nil
 		}
 		return ctrl.Result{RequeueAfter: pollInterval}, nil
 	}
@@ -256,42 +343,83 @@ func (r *Reconciler) poll(ctx context.Context, scan *catalogv1alpha1.LibraryScan
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	last := r.lastProgress(scan, &entry, now)
+	ac := aggregate(scan, progress)
 
-	ac := catalogac.LibraryScanStatus().
-		WithFilesSeen(progress.FilesSeen).
-		WithFilesMatched(progress.FilesMatched).
-		WithItemsCreated(progress.ItemsCreated).
-		WithItemsUpdated(progress.ItemsUpdated).
-		WithFilesSkipped(progress.FilesSkipped)
-	if scan.Status.StartedAt != nil {
-		ac = ac.WithStartedAt(*scan.Status.StartedAt)
-	}
-	if unmatched := unmatchedACs(progress.Unmatched); len(unmatched) > 0 {
-		ac = ac.WithUnmatched(unmatched...)
-	}
-
-	result := ctrl.Result{RequeueAfter: pollInterval}
 	switch {
+	case !progress.Done && deadLettered:
+		return r.fail(ctx, scan, ac, conditions, k8s.ReasonDeadLettered,
+			"the scan task was dead-lettered, so no worker will finish the walk: %s", progress.Summary())
+	case !progress.Done && now.Sub(last) > noProgressTimeout:
+		return r.fail(ctx, scan, ac, conditions, ReasonNoProgress,
+			"no worker reported progress since %s (%s): %s", last.UTC().Format(time.RFC3339), noProgressTimeout,
+			progress.Summary())
 	case !progress.Done:
-		k8s.MarkReady(scan, &conditions, false, ReasonScanning,
-			"%d files seen, %d matched", progress.FilesSeen, progress.FilesMatched)
+		k8s.MarkReady(scan, &conditions, false, ReasonScanning, "%s", progress.Summary())
 		ac = ac.WithPhase(catalogv1alpha1.ScanPhaseRunning)
+		if err := r.apply(ctx, scan, ac.WithConditions(k8s.ConditionACs(conditions)...)); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: pollInterval}, nil
 	case progress.Error != "":
-		k8s.MarkReady(scan, &conditions, false, k8s.ReasonFailed, "%s", progress.Error)
-		ac = ac.WithPhase(catalogv1alpha1.ScanPhaseFailed).WithFinishedAt(metav1.NewTime(now))
-		result = ctrl.Result{RequeueAfter: ttl(scan)}
-	default:
-		k8s.MarkReady(scan, &conditions, true, k8s.ReasonSucceeded,
-			"%d files seen, %d matched, %d unmatched",
-			progress.FilesSeen, progress.FilesMatched, len(progress.Unmatched))
-		ac = ac.WithPhase(catalogv1alpha1.ScanPhaseCompleted).WithFinishedAt(metav1.NewTime(now))
-		result = ctrl.Result{RequeueAfter: ttl(scan)}
+		return r.fail(ctx, scan, ac, conditions, k8s.ReasonFailed, "%s", progress.Error)
 	}
-
+	k8s.MarkReady(scan, &conditions, true, k8s.ReasonSucceeded, "%s", progress.Summary())
+	ac = ac.WithPhase(catalogv1alpha1.ScanPhaseCompleted).WithFinishedAt(metav1.NewTime(now))
 	if err := r.apply(ctx, scan, ac.WithConditions(k8s.ConditionACs(conditions)...)); err != nil {
 		return ctrl.Result{}, err
 	}
-	return result, nil
+	r.forget(key)
+	return ctrl.Result{RequeueAfter: ttl(scan)}, nil
+}
+
+// fail settles a Running scan as Failed: ac (every other field this manager
+// owns already on it) with the Failed phase, a finish time and a False Ready
+// condition carrying reason and the message.
+func (r *Reconciler) fail(
+	ctx context.Context, scan *catalogv1alpha1.LibraryScan, ac *catalogac.LibraryScanStatusApplyConfiguration,
+	conditions []metav1.Condition, reason, format string, args ...any,
+) (ctrl.Result, error) {
+	k8s.MarkReady(scan, &conditions, false, reason, format, args...)
+	ac = ac.WithPhase(catalogv1alpha1.ScanPhaseFailed).
+		WithFinishedAt(metav1.NewTime(r.now())).
+		WithConditions(k8s.ConditionACs(conditions)...)
+	if err := r.apply(ctx, scan, ac); err != nil {
+		return ctrl.Result{}, err
+	}
+	r.forget(types.NamespacedName{Namespace: scan.Namespace, Name: scan.Name})
+	return ctrl.Result{RequeueAfter: ttl(scan)}, nil
+}
+
+// aggregate folds a checkpoint into the scan's status, never lowering a
+// counter status already reports (see poll): every field this manager owns
+// except the phase, finishedAt and the conditions, which the caller sets.
+func aggregate(scan *catalogv1alpha1.LibraryScan, p rescan.Progress) *catalogac.LibraryScanStatusApplyConfiguration {
+	s := scan.Status
+	ac := catalogac.LibraryScanStatus().
+		WithFilesSeen(max(s.FilesSeen, p.FilesSeen)).
+		WithFilesMatched(max(s.FilesMatched, p.FilesMatched)).
+		WithItemsCreated(max(s.ItemsCreated, p.ItemsCreated)).
+		WithItemsUpdated(max(s.ItemsUpdated, p.ItemsUpdated)).
+		WithFilesSkipped(max(s.FilesSkipped, p.FilesSkipped))
+	if s.StartedAt != nil {
+		ac = ac.WithStartedAt(*s.StartedAt)
+	}
+	byPath := make(map[string]rescan.UnmatchedFile, len(s.Unmatched)+len(p.Unmatched))
+	for _, u := range s.Unmatched {
+		byPath[u.Path] = rescan.UnmatchedFile{Path: u.Path, Reason: u.Reason, Candidates: u.Candidates, SeenAt: u.SeenAt.Time}
+	}
+	for _, u := range p.Unmatched {
+		byPath[u.Path] = u // the worker's own report of a path is the freshest
+	}
+	merged := make([]rescan.UnmatchedFile, 0, len(byPath))
+	for _, u := range byPath {
+		merged = append(merged, u)
+	}
+	if unmatched := unmatchedACs(merged); len(unmatched) > 0 {
+		ac = ac.WithUnmatched(unmatched...)
+	}
+	return ac
 }
 
 // maybeExpire deletes a settled scan once its TTL has elapsed. A LibraryScan
@@ -299,6 +427,7 @@ func (r *Reconciler) poll(ctx context.Context, scan *catalogv1alpha1.LibraryScan
 // and then it goes away on its own.
 func (r *Reconciler) maybeExpire(ctx context.Context, scan *catalogv1alpha1.LibraryScan) (ctrl.Result, error) {
 	now := r.now()
+	conditions, folded := conditions(scan)
 	finished := scan.Status.FinishedAt
 	if finished == nil {
 		// Settled without a finish time (an older object, or a status
@@ -306,11 +435,19 @@ func (r *Reconciler) maybeExpire(ctx context.Context, scan *catalogv1alpha1.Libr
 		// has something to count from, re-asserting everything else.
 		ac := baseStatus(scan).
 			WithFinishedAt(metav1.NewTime(now)).
-			WithConditions(k8s.ConditionACs(scan.Status.Conditions)...)
+			WithConditions(k8s.ConditionACs(conditions)...)
 		if err := r.apply(ctx, scan, ac); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{RequeueAfter: ttl(scan)}, nil
+	}
+	if folded {
+		// A dead letter that arrives after the scan settled -- the final
+		// delivery reported Failed, then its message went to the DLQ -- is
+		// still shown, as is its removal.
+		if err := r.apply(ctx, scan, baseStatus(scan).WithConditions(k8s.ConditionACs(conditions)...)); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	expiry := finished.Add(ttl(scan))
@@ -432,9 +569,13 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.Bus == nil {
 		return fmt.Errorf("libraryscan: a bus is required")
 	}
+	// DeadLetteredAnnotationChanged is the DLQ fold's: the projector's
+	// annotation bumps no generation, and without it the fold would wait
+	// for the next poll -- or, on a settled scan, never run.
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("libraryscan").
-		For(&catalogv1alpha1.LibraryScan{}, builder.WithPredicates(k8s.GenerationChanged())).
+		For(&catalogv1alpha1.LibraryScan{}, builder.WithPredicates(
+			k8s.Or(k8s.GenerationChanged(), k8s.DeadLetteredAnnotationChanged()))).
 		WithOptions(controller.Options{RecoverPanic: ptr.To(true), ReconciliationTimeout: 5 * time.Minute}).
 		Complete(r)
 }

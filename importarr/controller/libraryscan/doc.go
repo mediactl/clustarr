@@ -24,7 +24,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //   - start: resolve the RootFolder, publish exactly one schema.ScanTask on
 //     clustarr.work.importarr.scan.<rootfolder>, and record Running;
 //   - poll: read the rescan worker's clustarr-progress checkpoint and
-//     aggregate it into status, capping unmatched at the CRD's 200 newest;
+//     aggregate it into status, capping unmatched at the CRD's 200 newest.
+//     The aggregate never lowers a counter (a redelivery whose checkpoint
+//     expired restarts its tally), the Ready message carries the worker's
+//     full breakdown (rescan.Progress.Summary), and a Running scan fails
+//     when its task is dead-lettered or no checkpoint has arrived for
+//     noProgressTimeout since the last one;
 //   - expire: delete the scan once spec.ttlSecondsAfterFinished has elapsed
 //     since it settled.
 //
