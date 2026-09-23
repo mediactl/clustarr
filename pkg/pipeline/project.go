@@ -412,10 +412,20 @@ func downloadedDownload(related Related) *downloadv1.Download {
 	return nil
 }
 
+// downloadingDownload is the item's in-flight Download: every phase before
+// Completed, and the empty phase of a Download the grab has just created and
+// grabarr has not yet reconciled -- the grab has happened, so the item is
+// downloading, not still at ReleaseSelected. This is the same reading as
+// catalogarr's rollup.DownloadNonTerminal (gap-fix ruling R-12, re-read
+// against every DownloadPhase by task X14); the pipeline only splits the
+// finished half finer (Downloaded, Importing, Imported). Removing, and any
+// phase added later, show no Download stage until someone decides one:
+// TestProjectMapsEveryDownloadPhase fails for a phase with no row.
 func downloadingDownload(related Related) *downloadv1.Download {
 	for i := range related.Downloads {
 		switch related.Downloads[i].Status.Phase {
-		case downloadv1.DownloadPhasePending,
+		case "",
+			downloadv1.DownloadPhasePending,
 			downloadv1.DownloadPhaseAssigned,
 			downloadv1.DownloadPhaseQueued,
 			downloadv1.DownloadPhaseDownloading,

@@ -18,11 +18,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package pipeline_test
 
 import (
+	"encoding/json"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/yaml"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
@@ -366,4 +370,57 @@ func TestProjectFillsInTheCommonFields(t *testing.T) {
 	require.Equal(t, "The Shawshank Redemption", entry.Title)
 	require.Equal(t, pipeline.StageDownloading, entry.Stage)
 	require.EqualValues(t, 42, entry.Percent)
+}
+
+// TestProjectMapsEveryDownloadPhase is gap-fix ruling R-12's re-read of the
+// pipeline's Download mapping against every real DownloadPhase (task X14),
+// with rows read from the generated CRD's enum so a phase added later
+// without a decision fails here. An imported Download is decided by its
+// status.import (or its MediaFile), not its phase, so an Imported phase
+// with neither shows no Download stage of its own.
+func TestProjectMapsEveryDownloadPhase(t *testing.T) {
+	item := movieWith(t, ready(catalogv1.MovieConditionMetadataReady))
+	// What the item shows with no Download at all: a phase with no Download
+	// stage falls through to it.
+	fallback := pipeline.Project(item, pipeline.Related{}).Stage
+	want := map[downloadv1.DownloadPhase]pipeline.Stage{
+		// The grab created it and grabarr has not reconciled it yet: the
+		// item is downloading, not still at ReleaseSelected.
+		"":                                  pipeline.StageDownloading,
+		downloadv1.DownloadPhasePending:     pipeline.StageDownloading,
+		downloadv1.DownloadPhaseAssigned:    pipeline.StageDownloading,
+		downloadv1.DownloadPhaseQueued:      pipeline.StageDownloading,
+		downloadv1.DownloadPhaseDownloading: pipeline.StageDownloading,
+		downloadv1.DownloadPhasePaused:      pipeline.StageDownloading,
+		downloadv1.DownloadPhaseCompleted:   pipeline.StageDownloaded,
+		downloadv1.DownloadPhaseSeeding:     pipeline.StageDownloaded,
+		downloadv1.DownloadPhaseImported:    fallback,
+		downloadv1.DownloadPhaseFailed:      pipeline.StageFailed,
+		downloadv1.DownloadPhaseBlocklisted: pipeline.StageBlocked,
+		// Being torn down: no Download stage; the item's own state shows.
+		downloadv1.DownloadPhaseRemoving: fallback,
+	}
+	for phase, stage := range want {
+		t.Run(string(phase), func(t *testing.T) {
+			entry := pipeline.Project(item, pipeline.Related{
+				Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{Phase: phase}}},
+			})
+			require.Equal(t, stage, entry.Stage)
+		})
+	}
+
+	// Every phase the CRD admits has a row above.
+	raw, err := os.ReadFile("../../config/crd/bases/download.clustarr.io_downloads.yaml")
+	require.NoError(t, err)
+	var crd apiextensionsv1.CustomResourceDefinition
+	require.NoError(t, yaml.Unmarshal(raw, &crd))
+	require.NotEmpty(t, crd.Spec.Versions)
+	enum := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["status"].Properties["phase"].Enum
+	require.NotEmpty(t, enum)
+	for _, v := range enum {
+		var p string
+		require.NoError(t, json.Unmarshal(v.Raw, &p))
+		_, ok := want[downloadv1.DownloadPhase(p)]
+		require.True(t, ok, "DownloadPhase %q has no row: decide which pipeline stage it shows", p)
+	}
 }
