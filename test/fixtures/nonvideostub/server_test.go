@@ -138,6 +138,23 @@ func TestComicVineRequiresTheAPIKey(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestComicVineIssuesRejectsThePrefixedGuidFilter proves the fixture
+// enforces ComicVine's real filter=volume:{id} shape -- the bare numeric
+// id, never the prefixed guid -- rather than accepting either, which is
+// the exact blind spot that let G2-5's Comic->Issue shape defect ship: a
+// fake that accepts both a resource's own id form and its filter form
+// cannot distinguish "the caller sent the right shape" from "the caller
+// sent the shape the OTHER endpoint wants."
+func TestComicVineIssuesRejectsThePrefixedGuidFilter(t *testing.T) {
+	srv := httptest.NewServer(NewHandler(recordedDir, discardLogger()))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/comicvine/issues/?api_key=" + ComicVineAPIKey + "&filter=volume:4050-18257") //nolint:noctx,gosec
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
 // TestUnrecordedRouteFourOhFours proves an id this fixture never recorded
 // 404s loudly rather than hanging a caller.
 func TestUnrecordedRouteFourOhFours(t *testing.T) {

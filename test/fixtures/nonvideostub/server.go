@@ -92,11 +92,33 @@ func NewHandler(recordedDir string, logger *slog.Logger) http.Handler {
 	// against comicvine.go's doGet, which always appends it -- so a missing
 	// or wrong key surfaces spec.secretRef plumbing bugs the same way
 	// torznabstub's APIKey check does for Torznab.
+	//
+	// The volume route's pattern is deliberately the exact, literal path
+	// "/comicvine/volume/4050-18257" -- net/http's ServeMux matches it only
+	// when the request carries the full, prefixed guid, exactly as
+	// ComicVine's real GET /volume/{guid} endpoint requires (docs/research/
+	// metadata.md §2.5). A request for the bare numeric id
+	// ("/comicvine/volume/18257") falls through to notFound below instead
+	// of matching here -- do not widen this to a wildcard pattern that
+	// would accept both shapes; that is exactly the blind spot G2-5's fake
+	// provider had (comicvine.go's Volume/Issues shape defect) that let
+	// Comic->Issue ship broken against the real API.
 	mux.HandleFunc("GET /comicvine/volume/4050-18257", comicVineGated(
 		filepath.Join(recordedDir, "comicvine", "volume_18257.json"), logger))
 	mux.HandleFunc("GET /comicvine/search/", comicVineGated(
 		filepath.Join(recordedDir, "comicvine", "search_batman.json"), logger))
-	mux.HandleFunc("GET /comicvine/issues/", comicVineGated(
+	// The issues route cannot enforce its id shape via the mux pattern the
+	// way the volume route does above -- filter=volume:{id} is a query
+	// parameter, not part of the path -- so comicVineIssues checks it
+	// explicitly: ComicVine's filter=volume:{id} syntax wants the bare
+	// numeric id ("volume:18257"), never the prefixed guid
+	// ("volume:4050-18257") the volume route above requires. A stub that
+	// served this route for either shape would accept exactly the
+	// mismatched pair G2-5's fake provider did, which is how "Comic.spec.
+	// sourceID sent unchanged to both Volume and Issues" survived: one of
+	// the two real ComicVine endpoints must reject that value, and a fixture
+	// that ignores the filter's shape can never catch it.
+	mux.HandleFunc("GET /comicvine/issues/", comicVineIssues(
 		filepath.Join(recordedDir, "comicvine", "issues_volume_18257.json"), logger))
 
 	mux.HandleFunc("/", notFound(logger))
@@ -128,6 +150,41 @@ func comicVineGated(path string, logger *slog.Logger) http.HandlerFunc {
 		if r.URL.Query().Get("api_key") != ComicVineAPIKey {
 			logger.Warn("nonvideostub: comicvine request with a missing or wrong api_key", "path", r.URL.Path)
 			http.Error(w, `{"error":"Invalid API Key","status_code":100}`, http.StatusUnauthorized)
+			return
+		}
+		serveFile(path, logger)(w, r)
+	}
+}
+
+// comicVineIssuesFilter is the only filter value this stub has recorded
+// data for: the bare numeric volume id, matching ComicVine's real
+// filter=volume:{id} syntax (see NewHandler's comment on the issues route
+// for why the mux pattern alone cannot enforce this the way the volume
+// route's literal path does).
+const comicVineIssuesFilter = "volume:18257"
+
+// comicVineIssues gates on api_key like comicVineGated, then additionally
+// rejects any filter value other than comicVineIssuesFilter -- most
+// notably the prefixed guid form ("volume:4050-18257") a client that still
+// had G2-5's shape defect would send. ComicVine's own filter parser reports
+// a malformed filter as an HTTP 200 with a non-1 status_code rather than an
+// HTTP error status (docs/research/metadata.md §2.5's status-envelope
+// note), but this stub answers 400 instead: doGet only maps HTTP status
+// today (the TODO on Client.Volume), so a 200-with-bad-body would be
+// decoded as if it were a valid, empty issue list and the caller would
+// never see a failure -- a 400 makes the shape mismatch loud instead of
+// silently returning zero issues.
+func comicVineIssues(path string, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("api_key") != ComicVineAPIKey {
+			logger.Warn("nonvideostub: comicvine request with a missing or wrong api_key", "path", r.URL.Path)
+			http.Error(w, `{"error":"Invalid API Key","status_code":100}`, http.StatusUnauthorized)
+			return
+		}
+		if filter := r.URL.Query().Get("filter"); filter != comicVineIssuesFilter {
+			logger.Warn("nonvideostub: comicvine issues request with the wrong filter shape",
+				"filter", filter, "want", comicVineIssuesFilter)
+			http.Error(w, `{"error":"Filter Error","status_code":102}`, http.StatusBadRequest)
 			return
 		}
 		serveFile(path, logger)(w, r)
