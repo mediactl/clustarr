@@ -692,8 +692,8 @@ func defaultConsumers() []ConsumerSpec {
 		{
 			Name: ConsumerSquasharrResults, Stream: StreamWorkSquasharr,
 			Description: "Worker status events: squasharr sets TranscodeJob status and decides the next step.",
-			Filters: []string{FilterTranscodeResults},
-			AckWait: 30 * s, MaxDeliver: 10,
+			Filters:     []string{FilterTranscodeResults},
+			AckWait:     30 * s, MaxDeliver: 10,
 			BackOff:       []time.Duration{5 * s, 30 * s, 2 * m},
 			MaxAckPending: 1,
 		},
@@ -725,9 +725,9 @@ func defaultBuckets() []BucketSpec {
 		b(BucketProviderThrottle, 24*time.Hour, "Subtitle provider throttle table."),
 		b(BucketMetadataCache, 30*24*time.Hour, "L2 metadata cache."),
 		b(BucketProgress, 10*time.Minute, "1 Hz download and transcode telemetry."),
-		b(BucketImportList, 7*24*time.Hour, "Import list items, kept out of status."),
-		b(BucketDedup, 24*time.Hour, "Import fingerprints for re-import no-ops."),
 		b(BucketTranscodeLeases, TranscodeLeaseTTL,
 			"Transcode task leases: created by the claiming worker, renewed with Update, expired by the server; squasharr writes cancel markers."),
+		b(BucketImportList, 7*24*time.Hour, "Import list items, kept out of status."),
+		b(BucketDedup, 24*time.Hour, "Import fingerprints for re-import no-ops."),
 	}
 }
