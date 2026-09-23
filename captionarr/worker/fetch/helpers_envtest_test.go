@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
+	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	subtitleac "github.com/mediactl/clustarr/api/applyconfiguration/subtitle/subtitle/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -92,7 +93,9 @@ func TestMain(m *testing.M) {
 var now = time.Now().UTC().Truncate(time.Second)
 
 const (
-	mediaLogical = "/data/movies/Film (2010)/Film (2010).mkv"
+	// mediaLogical sits under /data/media/movies, a legal RootFolder path
+	// (RootFolderSpec.Path's CEL rule), so a test can put it in one.
+	mediaLogical = "/data/media/movies/Film (2010)/Film (2010).mkv"
 	sidecarName  = "Film (2010).en.srt"
 	releaseTitle = "Film.2010.1080p.BluRay.x264-GRP"
 )
@@ -283,6 +286,27 @@ func (f *fixture) entry(name string, typ subtitlev1alpha1.SubtitleProviderType, 
 	return e
 }
 
+// localEntry registers a local-provider entry (the embedded provider's
+// shape: a constructor per file rather than a client) backed by p.
+func (f *fixture) localEntry(name string, p *fakeProvider) providerset.Entry {
+	e := providerset.Entry{
+		Name: name, Namespace: f.ns, UID: f.ns + "-" + name, Type: subtitlev1alpha1.SubtitleProviderEmbedded,
+		Priority: int32(len(f.source.entries) + 1),
+		ForFile:  func(providerset.FileSource) subtitles.Provider { return p },
+	}
+	f.source.entries = append(f.source.entries, e)
+	return e
+}
+
+// probed stands in for catalogarr's probe write: the embedded provider is
+// eligible only for a MediaFile whose status.mediaInfo exists.
+func (f *fixture) probed(t *testing.T, mi commonv1.MediaInfo) {
+	t.Helper()
+	_, err := k8s.PatchStatus(f.ctx, f.c, k8s.ManagerCatalogarr,
+		catalogac.MediaFile("film", f.ns).WithStatus(catalogac.MediaFileStatus().WithProbeHash(f.probe).WithMediaInfo(mi)))
+	require.NoError(t, err)
+}
+
 // fakeSource is a fixed provider set.
 type fakeSource struct{ entries []providerset.Entry }
 
@@ -330,9 +354,16 @@ func (p *fakeProvider) Download(_ context.Context, c subtitles.Candidate) ([]byt
 	return p.files[c.FetchID], c.FetchID + ".srt", nil
 }
 
-// candidate is an English candidate whose release_info is release.
+// candidate is an English candidate whose release_info is release, carrying
+// the identity matches the real OpenSubtitles.com client reports for a movie
+// it searched by id (title always, year on the id match; its
+// featureMatches): the fixture's Movie has a TMDB id, and every fake here is
+// registered as an opensubtitlescom provider.
 func candidate(id, release string) subtitles.Candidate {
-	return subtitles.Candidate{ID: id, FetchID: id, Language: "en", ReleaseInfo: release}
+	return subtitles.Candidate{
+		ID: id, FetchID: id, Language: "en", ReleaseInfo: release,
+		Matches: map[string]bool{subtitles.MatchTitle: true, subtitles.MatchYear: true},
+	}
 }
 
 // fakeMessage is a minimal events.Message, mirroring

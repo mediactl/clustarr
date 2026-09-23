@@ -75,6 +75,9 @@ func TestFetchWritesTheBestAcceptableSubtitleAndRecordsIt(t *testing.T) {
 	written, err := os.ReadFile(f.local(filepath.Join(filepath.Dir(mediaLogical), sidecarName)))
 	require.NoError(t, err, "the sidecar must sit beside the video under SidecarName")
 	assert.Contains(t, string(written), "Hello there.")
+	st, err := os.Stat(f.local(filepath.Join(filepath.Dir(mediaLogical), sidecarName)))
+	require.NoError(t, err)
+	assert.Equal(t, fetch.DefaultSidecarMode, st.Mode().Perm(), "no RootFolder holds the file: the default mode")
 	assert.NotContains(t, string(written), "MUSIC", "the profile's removeHI mod ran")
 
 	it := f.item(t, "en")

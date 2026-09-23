@@ -27,16 +27,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Episode and its Series) for ids, title, year, season and episode; checks
 // that the file on disk is still the one the request was planned against
 // (path, size and mtime hash to the planned probeHash -- spec §6.5, else
-// Retry(5m)); computes the OpenSubtitles moviehash; and walks the
-// namespace's enabled SubtitleProviders in priority order (or the profile's
-// spec.providers order). For each it skips an active throttle window, takes
-// a token from the provider's shared bucket (captionarr/throttle), searches,
-// scores every candidate Bazarr's way (pkg/subtitles CandidateMatches and
-// Score), drops those below the profile's minimum (or the upgrade's
-// score+1), and downloads the best, falling through to the next candidate
-// and then the next provider. The winner is post-processed with the
-// profile's mods, written atomically next to the video under
-// pkg/subtitles.SidecarName, and recorded.
+// Retry(5m)); computes the OpenSubtitles moviehash; and pools the
+// namespace's enabled SubtitleProviders the way Bazarr does (gap-fix ruling
+// R-4, [Worker.search]): every eligible provider is searched -- each
+// skipping an active throttle window and taking a token from its shared
+// bucket (captionarr/throttle) first -- every candidate is scored Bazarr's
+// way (pkg/subtitles CandidateMatches and Score), those below the profile's
+// minimum (or the upgrade's score+1) are dropped, and the rest are ranked
+// together, priority (or the profile's spec.providers order) breaking ties.
+// The best is downloaded, falling through the pool in rank order. Local
+// providers (embedded, when spec.embedded.extract is on) are a tier of their
+// own and go first, so an extractable track is written out without asking a
+// remote provider. The winner is post-processed with the profile's mods,
+// written atomically next to the video under pkg/subtitles.SidecarName with
+// the file mode of the RootFolder the video lies under, and recorded.
 //
 // # What it writes
 //
@@ -94,7 +98,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // The RBAC below is package-level so controller-gen collects it; the
 // provider builder's own (SubtitleProviders, Secrets) is on
-// captionarr/providerset.
+// captionarr/providerset. rootfolders is read for the sidecar's file mode
+// ([Worker.sidecarModeFor]) through the manager's cached client, hence
+// list and watch.
 //
 // +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitlerequests,verbs=get;list;watch
 // +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitlerequests/status,verbs=get;patch
@@ -103,4 +109,5 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=series,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
 package fetch

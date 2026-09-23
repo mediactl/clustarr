@@ -19,13 +19,16 @@ package fetch
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"math"
 	"net"
 	"net/url"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -53,7 +56,8 @@ type searchPlan struct {
 	mods      []string
 	toSRT     bool
 	hiExt     string
-	mediaPath string // logical /data path of the video
+	mediaPath string      // logical /data path of the video
+	mode      os.FileMode // the sidecar's file mode ([Worker.sidecarModeFor])
 }
 
 // chosen is the candidate that was downloaded and written.
@@ -97,18 +101,37 @@ type writeError struct{ err error }
 func (e *writeError) Error() string { return "write sidecar: " + e.err.Error() }
 func (e *writeError) Unwrap() error { return e.err }
 
-// search is spec §6.5's provider walk: "iterate providers by priority
+// search is spec §6.5's provider walk -- "iterate providers by priority
 // skipping throttled ... score with Bazarr weights; filter must/mustNot;
-// download with fall-through; post-process ... write".
+// download with fall-through" -- done Bazarr's way (gap-fix ruling R-4):
+// every eligible provider is searched, all their candidates are scored and
+// ranked together as one pool, and the best is downloaded, falling through
+// the pool in rank order until one downloads, post-processes and writes
+// cleanly. This is subliminal_patch's list_all_subtitles followed by
+// download_best_subtitles (research note §5); until gap-fix X11b the first
+// provider with an acceptable candidate won, so a better subtitle from a
+// lower-priority provider was never even seen.
 //
-// Providers are asked in order and the first one that yields an acceptable
-// candidate that downloads, post-processes and writes cleanly wins. Priority
-// therefore decides which provider is SPENT first, not only ties: a
-// lower-priority provider is never searched while a higher one answers with
-// something good enough, which is what keeps OpenSubtitles' daily download
-// quota for the files that need it. The upgrade pass later replaces a
-// merely-acceptable subtitle with a better one from any provider, since its
-// threshold is the current score plus one.
+// Priority -- or the profile's spec.providers order -- breaks score ties,
+// as the provider order does in Bazarr's stable sort; it no longer decides
+// which provider is searched. A search is cheap and paced by the shared
+// token bucket; the scarce thing, a provider's daily DOWNLOAD quota, is still
+// spent on exactly one candidate per task, the pool's best.
+//
+// Each SubtitleProvider is its own provider here, so two of one type -- two
+// accounts -- are both searched. Their answers may overlap; that is how the
+// second account's quota backs the first's: when a download fails at the
+// provider level the provider is benched for the rest of the task (and in
+// the shared throttle), and the pool falls through to the same subtitle
+// from the other account.
+//
+// Local providers (embedded) form a tier of their own and go first. They
+// cost no upstream request, and they are only eligible when the profile's
+// spec.embedded.extract is on -- whose documented meaning is "writes a
+// matching embedded track out as a sidecar INSTEAD OF searching providers
+// for it" -- so when an extractable track reaches the threshold and writes,
+// no remote provider is asked at all. Only when the local tier writes
+// nothing are the remote providers searched and pooled.
 //
 // Only errors the task cannot settle as a result are returned: a cancelled
 // context, an unreadable throttle KV, and a [writeError].
@@ -118,8 +141,12 @@ func (w *Worker) search(ctx context.Context, m events.Message, p searchPlan) (se
 		lastBeat time.Time
 	)
 	kv := w.Bus.KV(events.BucketProviderThrottle)
-	for _, ep := range p.providers {
-		c, err := w.tryProvider(ctx, m, kv, ep, p, &out, &lastBeat)
+	for _, tier := range tiers(p.providers) {
+		pool, err := w.gather(ctx, m, kv, p, tier, &out, &lastBeat)
+		if err != nil {
+			return out, err
+		}
+		c, err := w.fetchBest(ctx, m, kv, p, pool, &out, &lastBeat)
 		if err != nil {
 			return out, err
 		}
@@ -131,13 +158,79 @@ func (w *Worker) search(ctx context.Context, m events.Message, p searchPlan) (se
 	return out, nil
 }
 
-// tryProvider searches one provider and downloads its best acceptable
-// candidate, falling through its candidates in score order.
-func (w *Worker) tryProvider(ctx context.Context, m events.Message, kv events.KV, ep eligibleProvider,
+// pooled is one acceptable candidate in a tier's pool.
+type pooled struct {
+	// provider indexes searchPlan.providers: the provider that offered the
+	// candidate, and its rank in the priority order that breaks ties.
+	provider int
+	r        ranked
+}
+
+// tiers splits the plan's providers into the local tier and the remote
+// tier, in that order, each keeping the plan's priority order. An empty
+// tier is left out.
+func tiers(ps []eligibleProvider) [][]int {
+	var local, remote []int
+	for i, ep := range ps {
+		if ep.entry.Local() {
+			local = append(local, i)
+		} else {
+			remote = append(remote, i)
+		}
+	}
+	var out [][]int
+	for _, t := range [][]int{local, remote} {
+		if len(t) > 0 {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// gather searches every provider in tier and pools their acceptable
+// candidates, best first ([rankPool]).
+func (w *Worker) gather(ctx context.Context, m events.Message, kv events.KV, p searchPlan, tier []int,
+	out *searchOutcome, lastBeat *time.Time,
+) ([]pooled, error) {
+	var pool []pooled
+	for _, i := range tier {
+		accepted, err := w.searchProvider(ctx, m, kv, p.providers[i], p, out, lastBeat)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range accepted {
+			pool = append(pool, pooled{provider: i, r: r})
+		}
+	}
+	rankPool(pool)
+	return pool, nil
+}
+
+// rankPool orders a pool the way Bazarr's download_best_subtitles does:
+// score, then score without the hash, descending -- a stable sort over the
+// providers' own order, so priority breaks what is left -- then the
+// candidate's download count and id, so the order is deterministic.
+func rankPool(pool []pooled) {
+	slices.SortStableFunc(pool, func(a, b pooled) int {
+		return cmp.Or(
+			cmp.Compare(b.r.score, a.r.score),
+			cmp.Compare(b.r.without, a.r.without),
+			cmp.Compare(a.provider, b.provider),
+			cmp.Compare(b.r.c.Downloads, a.r.c.Downloads),
+			cmp.Compare(subtitleID(a.r.c), subtitleID(b.r.c)),
+		)
+	})
+}
+
+// searchProvider asks one provider and returns its candidates at or above
+// the threshold, scored. A throttled provider is skipped before a token is
+// spent on it; a provider error is recorded in the shared throttle and
+// settles as "nothing from this provider".
+func (w *Worker) searchProvider(ctx context.Context, m events.Message, kv events.KV, ep eligibleProvider,
 	p searchPlan, out *searchOutcome, lastBeat *time.Time,
-) (*chosen, error) {
+) ([]ranked, error) {
 	e := ep.entry
-	ctx, span := tracing.Start(ctx, "fetch.Worker.provider", trace.WithAttributes(
+	ctx, span := tracing.Start(ctx, "fetch.Worker.search", trace.WithAttributes(
 		attribute.String("provider", e.Name), attribute.String("provider.type", string(e.Type))))
 	defer span.End()
 	log := logging.FromContext(ctx).With("provider", e.Name)
@@ -205,44 +298,79 @@ func (w *Worker) tryProvider(ctx context.Context, m events.Message, kv events.KV
 	out.acceptable += len(rr.accepted)
 	log.Debug("fetch: provider answered", "candidates", len(cands), "filtered", rr.filtered,
 		"accepted", len(rr.accepted), "threshold", p.threshold)
+	return rr.accepted, nil
+}
 
-	for _, r := range rr.accepted {
-		if err := w.beat(ctx, m, lastBeat); err != nil {
-			return nil, err
-		}
-		if err := w.pace(ctx, kv, e.Local(), e.UID, e.RateMilli); err != nil {
-			return nil, err
-		}
-		raw, name, err := ep.client.Download(ctx, r.c)
-		if err != nil {
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
-			}
-			out.fetchErrors = append(out.fetchErrors, fmt.Sprintf("%s: download %s: %v", e.Name, subtitleID(r.c), err))
-			if !e.Local() && providerLevel(err) {
-				// Quota, rate limit, auth, an unreachable host: every other
-				// candidate from this provider would fail the same way, and
-				// the recorded throttle now benches it for everyone.
-				w.recordProviderError(ctx, kv, false, string(e.Type), e.UID, err)
-				return nil, nil
-			}
+// fetchBest downloads the pool's best candidate, falling through in rank
+// order: a candidate that fails to download or to post-process is that
+// candidate's defect and the next one is tried; a provider-level failure
+// (quota, rate limit, auth, an unreachable host) benches that provider for
+// the rest of the pool, since every other candidate from it would fail the
+// same way -- and the recorded throttle benches it for every worker.
+func (w *Worker) fetchBest(ctx context.Context, m events.Message, kv events.KV, p searchPlan, pool []pooled,
+	out *searchOutcome, lastBeat *time.Time,
+) (*chosen, error) {
+	benched := map[int]bool{}
+	for _, pc := range pool {
+		if benched[pc.provider] {
 			continue
 		}
-		content, err := subtitles.PostProcess(raw, p.want.lang, p.mods, p.toSRT)
-		if err != nil {
-			// A subtitle file that does not decode or parse is that
-			// candidate's defect; the next one may be fine.
-			out.fetchErrors = append(out.fetchErrors, fmt.Sprintf("%s: %s (%s): %v", e.Name, subtitleID(r.c), name, err))
-			continue
+		ep := p.providers[pc.provider]
+		c, benchedNow, err := w.fetchOne(ctx, m, kv, p, ep, pc.r, out, lastBeat)
+		if err != nil || c != nil {
+			return c, err
 		}
-		logical, rel, err := w.writeSidecar(ctx, p, content)
-		if err != nil {
-			return nil, &writeError{err: err}
+		if benchedNow {
+			benched[pc.provider] = true
 		}
-		log.Info("fetch: subtitle written", "subtitleID", subtitleID(r.c), "score", r.score, "path", logical)
-		return &chosen{entry: ep, r: r, logicalPath: logical, relPath: rel}, nil
 	}
 	return nil, nil
+}
+
+// fetchOne downloads, post-processes and writes one candidate. It returns
+// the written sidecar, or whether the provider is now benched, or an error
+// the task cannot settle as a result.
+func (w *Worker) fetchOne(ctx context.Context, m events.Message, kv events.KV, p searchPlan, ep eligibleProvider,
+	r ranked, out *searchOutcome, lastBeat *time.Time,
+) (*chosen, bool, error) {
+	e := ep.entry
+	ctx, span := tracing.Start(ctx, "fetch.Worker.download", trace.WithAttributes(
+		attribute.String("provider", e.Name), attribute.String("provider.type", string(e.Type))))
+	defer span.End()
+
+	if err := w.beat(ctx, m, lastBeat); err != nil {
+		return nil, false, err
+	}
+	if err := w.pace(ctx, kv, e.Local(), e.UID, e.RateMilli); err != nil {
+		return nil, false, err
+	}
+	raw, name, err := ep.client.Download(ctx, r.c)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, false, ctx.Err()
+		}
+		tracing.RecordError(span, err)
+		out.fetchErrors = append(out.fetchErrors, fmt.Sprintf("%s: download %s: %v", e.Name, subtitleID(r.c), err))
+		if !e.Local() && providerLevel(err) {
+			w.recordProviderError(ctx, kv, false, string(e.Type), e.UID, err)
+			return nil, true, nil
+		}
+		return nil, false, nil
+	}
+	content, err := subtitles.PostProcess(raw, p.want.lang, p.mods, p.toSRT)
+	if err != nil {
+		// A subtitle file that does not decode or parse is that
+		// candidate's defect; the next one may be fine.
+		out.fetchErrors = append(out.fetchErrors, fmt.Sprintf("%s: %s (%s): %v", e.Name, subtitleID(r.c), name, err))
+		return nil, false, nil
+	}
+	logical, rel, err := w.writeSidecar(ctx, p, content)
+	if err != nil {
+		return nil, false, &writeError{err: err}
+	}
+	logging.FromContext(ctx).Info("fetch: subtitle written", "provider", e.Name,
+		"subtitleID", subtitleID(r.c), "score", r.score, "path", logical)
+	return &chosen{entry: ep, r: r, logicalPath: logical, relPath: rel}, false, nil
 }
 
 // pace takes one token from the provider's shared bucket before a request.
@@ -323,7 +451,7 @@ func (w *Worker) writeSidecar(ctx context.Context, p searchPlan, content []byte)
 	if err != nil {
 		return "", "", err
 	}
-	if err := subtitles.NewWriter().Write(ctx, local, content, w.sidecarMode()); err != nil {
+	if err := subtitles.NewWriter().Write(ctx, local, content, cmp.Or(p.mode, DefaultSidecarMode)); err != nil {
 		return "", "", err
 	}
 	return logical, filepath.Base(logical), nil

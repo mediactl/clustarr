@@ -203,31 +203,25 @@ func reject(c subtitles.Candidate, w want, f filters, hiVerifiable bool) string 
 
 // identityMatches are the matches a provider's search establishes by
 // construction, because it searched by the item's own external id rather
-// than by text. Bazarr's providers add exactly these in get_matches -- the
-// OpenSubtitles.com provider adds title/year when the imdb id matched, the
-// Gestdown provider series/season/episode for the show it resolved -- and
-// without them no non-hash candidate could ever reach the default minimum
-// score (70% of a movie is 126 points; source, edition and release group
-// together are 75).
+// than by text, and that the provider's client does not already put on its
+// candidates. Bazarr's providers add these in get_matches, and without them
+// no non-hash candidate could ever reach the default minimum score (70% of
+// a movie is 126 points; source, edition and release group together are
+// 75).
 //
-// They are granted only where this codebase's provider really does search by
-// the id, never on a provider's say-so and never from the release string:
+// Most clients now report their own (Candidate.Matches, which [rank]
+// OR-merges in): opensubtitlescom from each result's feature_details (series,
+// season, episode, title and year, since gap-fix X11a), subdl and subsource
+// from how the title was found. None of those gets a rule here: a rule keyed
+// on the query alone would over-claim -- for a film-name or text-search
+// result, or a result whose ids disagree with the query's. What is left is
+// the one client that reports none:
 //
-//   - opensubtitlescom, movie: the client sends imdb_id/tmdb_id when the
-//     query carries them, so results are for this movie: title and year.
-//   - opensubtitlescom, episode: nothing. The client reads only IDs["imdb"]
-//     and IDs["tmdb"] -- an episode's own ids, which the catalog does not
-//     have -- and ignores parent_imdb/parent_tmdb, so an episode search is
-//     not pinned to the series and only a hash match identifies a result.
 //   - gestdown, episode: the client resolves the TVDB id to its show and
 //     asks for that season and episode: series, year, season, episode.
 //   - embedded: nothing extra; its own hash match already says "this file".
 func identityMatches(t subtitlev1alpha1.SubtitleProviderType, kind commonv1.MediaKind, q subtitles.Query) map[string]bool {
-	switch {
-	case t == subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom && kind == commonv1.MediaKindMovie &&
-		(q.IDs["imdb"] != "" || q.IDs["tmdb"] != ""):
-		return map[string]bool{subtitles.MatchTitle: true, subtitles.MatchYear: true}
-	case t == subtitlev1alpha1.SubtitleProviderGestdown && kind == commonv1.MediaKindEpisode && q.IDs["tvdb"] != "":
+	if t == subtitlev1alpha1.SubtitleProviderGestdown && kind == commonv1.MediaKindEpisode && q.IDs["tvdb"] != "" {
 		return map[string]bool{
 			subtitles.MatchSeries: true, subtitles.MatchYear: true,
 			subtitles.MatchSeason: true, subtitles.MatchEpisode: true,
@@ -237,18 +231,41 @@ func identityMatches(t subtitlev1alpha1.SubtitleProviderType, kind commonv1.Medi
 }
 
 // searchable reports whether a provider of type t can identify this item at
-// all. A search that cannot be pinned to the item returns other titles'
-// subtitles -- an OpenSubtitles.com query with neither an id nor a hash is a
-// bare language filter -- so it is skipped rather than made and scored.
+// all, from what its client really searches on. A search that cannot be
+// pinned to the item returns other titles' subtitles -- an OpenSubtitles.com
+// query with neither an id nor a hash is a bare language filter -- so it is
+// skipped rather than made and scored.
+//
+//   - opensubtitlescom: a movie by its moviehash, imdb or tmdb id; an
+//     episode by its moviehash or its SHOW's ids, parent_imdb/parent_tmdb
+//     (the catalog has no episode ids; the client sends the show's as
+//     parent_imdb_id/parent_tmdb_id with the season and episode numbers).
+//   - gestdown: episodes only, by the show's TVDB id.
+//   - subdl: a movie by imdb, tmdb or title (film_name); an episode by the
+//     show's parent_imdb or its title.
+//   - subsource: a movie by imdb; an episode by the show's parent_imdb. The
+//     client looks titles up only from an IMDb id.
+//   - embedded: always; it reads the file itself.
 func searchable(t subtitlev1alpha1.SubtitleProviderType, kind commonv1.MediaKind, q subtitles.Query) bool {
+	movie := kind == commonv1.MediaKindMovie
 	switch t {
 	case subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom:
-		if kind == commonv1.MediaKindMovie {
+		if movie {
 			return q.Hash != "" || q.IDs["imdb"] != "" || q.IDs["tmdb"] != ""
 		}
-		return q.Hash != ""
+		return q.Hash != "" || q.IDs["parent_imdb"] != "" || q.IDs["parent_tmdb"] != ""
 	case subtitlev1alpha1.SubtitleProviderGestdown:
 		return kind == commonv1.MediaKindEpisode && q.IDs["tvdb"] != ""
+	case subtitlev1alpha1.SubtitleProviderSubDL:
+		if movie {
+			return q.IDs["imdb"] != "" || q.IDs["tmdb"] != "" || q.Title != ""
+		}
+		return q.IDs["parent_imdb"] != "" || q.Title != ""
+	case subtitlev1alpha1.SubtitleProviderSubSource:
+		if movie {
+			return q.IDs["imdb"] != ""
+		}
+		return q.IDs["parent_imdb"] != ""
 	}
 	return true
 }

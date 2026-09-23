@@ -117,31 +117,65 @@ func TestReject(t *testing.T) {
 
 func TestIdentityMatchesAndSearchable(t *testing.T) {
 	os, gd := subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, subtitlev1alpha1.SubtitleProviderGestdown
+	sd, ss := subtitlev1alpha1.SubtitleProviderSubDL, subtitlev1alpha1.SubtitleProviderSubSource
 	movieByID := subtitles.Query{IDs: map[string]string{"imdb": "133093"}}
+	movieByTMDB := subtitles.Query{IDs: map[string]string{"tmdb": "603"}}
+	movieByTitle := subtitles.Query{IDs: map[string]string{}, Title: "The Matrix"}
 	hashOnly := subtitles.Query{IDs: map[string]string{}, Hash: "8e245d9679d31e12"}
 	bare := subtitles.Query{IDs: map[string]string{}}
-	episodeByTVDB := subtitles.Query{IDs: map[string]string{"tvdb": "81189", "parent_imdb": "903747"}}
+	episodeByTVDB := subtitles.Query{IDs: map[string]string{"tvdb": "81189"}}
+	episodeByShow := subtitles.Query{IDs: map[string]string{"tvdb": "81189", "parent_imdb": "903747", "parent_tmdb": "1396"}}
+	episodeByShowTMDB := subtitles.Query{IDs: map[string]string{"parent_tmdb": "1396"}}
+	episodeByTitle := subtitles.Query{IDs: map[string]string{}, Title: "Breaking Bad"}
 
-	assert.Equal(t, map[string]bool{subtitles.MatchTitle: true, subtitles.MatchYear: true},
-		identityMatches(os, commonv1.MediaKindMovie, movieByID))
-	assert.Nil(t, identityMatches(os, commonv1.MediaKindEpisode, episodeByTVDB),
-		"the OpenSubtitles client ignores parent ids, so an episode search is not pinned to the show")
+	assert.Nil(t, identityMatches(os, commonv1.MediaKindMovie, movieByID),
+		"the OpenSubtitles.com client reports title/year from feature_details itself; a query-keyed rule would over-claim")
+	assert.Nil(t, identityMatches(os, commonv1.MediaKindEpisode, episodeByShow))
+	assert.Nil(t, identityMatches(sd, commonv1.MediaKindMovie, movieByID), "subdl reports its own, from how it found the title")
+	assert.Nil(t, identityMatches(ss, commonv1.MediaKindEpisode, episodeByShow), "subsource reports its own")
 	assert.Len(t, identityMatches(gd, commonv1.MediaKindEpisode, episodeByTVDB), 4)
 	assert.Nil(t, identityMatches(gd, commonv1.MediaKindEpisode, bare))
 
-	assert.True(t, searchable(os, commonv1.MediaKindMovie, movieByID))
-	assert.True(t, searchable(os, commonv1.MediaKindMovie, hashOnly))
-	assert.False(t, searchable(os, commonv1.MediaKindMovie, bare), "a bare language filter returns other titles")
-	assert.False(t, searchable(os, commonv1.MediaKindEpisode, episodeByTVDB))
-	assert.True(t, searchable(os, commonv1.MediaKindEpisode, hashOnly))
-	assert.True(t, searchable(gd, commonv1.MediaKindEpisode, episodeByTVDB))
-	assert.False(t, searchable(gd, commonv1.MediaKindEpisode, hashOnly))
-	assert.True(t, searchable(subtitlev1alpha1.SubtitleProviderEmbedded, commonv1.MediaKindMovie, bare))
+	for _, tc := range []struct {
+		name string
+		typ  subtitlev1alpha1.SubtitleProviderType
+		kind commonv1.MediaKind
+		q    subtitles.Query
+		want bool
+	}{
+		{"os movie by imdb", os, commonv1.MediaKindMovie, movieByID, true},
+		{"os movie by hash", os, commonv1.MediaKindMovie, hashOnly, true},
+		{"os movie, a bare language filter returns other titles", os, commonv1.MediaKindMovie, bare, false},
+		{"os episode by the show's ids", os, commonv1.MediaKindEpisode, episodeByShow, true},
+		{"os episode by the show's tmdb id", os, commonv1.MediaKindEpisode, episodeByShowTMDB, true},
+		{"os episode by hash", os, commonv1.MediaKindEpisode, hashOnly, true},
+		{"os episode by tvdb alone: the client does not send it", os, commonv1.MediaKindEpisode, episodeByTVDB, false},
+		{"gestdown episode by tvdb", gd, commonv1.MediaKindEpisode, episodeByTVDB, true},
+		{"gestdown episode by hash", gd, commonv1.MediaKindEpisode, hashOnly, false},
+		{"subdl movie by imdb", sd, commonv1.MediaKindMovie, movieByID, true},
+		{"subdl movie by tmdb", sd, commonv1.MediaKindMovie, movieByTMDB, true},
+		{"subdl movie by film name", sd, commonv1.MediaKindMovie, movieByTitle, true},
+		{"subdl movie by hash: it has none", sd, commonv1.MediaKindMovie, hashOnly, false},
+		{"subdl episode by the show's imdb id", sd, commonv1.MediaKindEpisode, episodeByShow, true},
+		{"subdl episode by title", sd, commonv1.MediaKindEpisode, episodeByTitle, true},
+		{"subdl episode by the show's tmdb id: not sent for tv", sd, commonv1.MediaKindEpisode, episodeByShowTMDB, false},
+		{"subsource movie by imdb", ss, commonv1.MediaKindMovie, movieByID, true},
+		{"subsource movie by tmdb: titles are looked up by imdb only", ss, commonv1.MediaKindMovie, movieByTMDB, false},
+		{"subsource movie by title", ss, commonv1.MediaKindMovie, movieByTitle, false},
+		{"subsource episode by the show's imdb id", ss, commonv1.MediaKindEpisode, episodeByShow, true},
+		{"subsource episode by title", ss, commonv1.MediaKindEpisode, episodeByTitle, false},
+		{"embedded reads the file", subtitlev1alpha1.SubtitleProviderEmbedded, commonv1.MediaKindMovie, bare, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, searchable(tc.typ, tc.kind, tc.q))
+		})
+	}
 }
 
 // rank must reproduce Bazarr's numbers: an OpenSubtitles movie searched by
-// imdb id gets title+year (100) and the release-derived matches on top; a
-// hash match survives only when the release corroborates it.
+// imdb id carries title+year (100) from the client's own feature_details
+// matches, and gets the release-derived matches on top; a hash match
+// survives only when the release corroborates it.
 func TestRankScoresFiltersAndOrders(t *testing.T) {
 	target, err := release.Parse("Film.2010.1080p.BluRay.x264-GRP", release.Options{Kind: commonv1.MediaKindMovie})
 	require.NoError(t, err)
@@ -154,13 +188,20 @@ func TestRankScoresFiltersAndOrders(t *testing.T) {
 		want:           want{lang: "en", hi: subtitlev1alpha1.HIPolicyPrefer, accept: map[string]bool{"en": true}},
 		threshold:      subtitles.MinScore(commonv1.MediaKindMovie, 70), // 126
 	}
+	id := func(extra ...string) map[string]bool {
+		m := map[string]bool{subtitles.MatchTitle: true, subtitles.MatchYear: true}
+		for _, k := range extra {
+			m[k] = true
+		}
+		return m
+	}
 	cands := []subtitles.Candidate{
-		{ID: "web", Language: "en", ReleaseInfo: "Film.2010.720p.WEB-DL.x264-OTHER"},  // 100+1 codec
-		{ID: "exact", Language: "en", ReleaseInfo: "Film.2010.1080p.BluRay.x264-GRP"}, // 100+30+15+1+1
+		{ID: "web", Language: "en", ReleaseInfo: "Film.2010.720p.WEB-DL.x264-OTHER", Matches: id()},  // 100+1 codec
+		{ID: "exact", Language: "en", ReleaseInfo: "Film.2010.1080p.BluRay.x264-GRP", Matches: id()}, // 100+30+15+1+1
 		{ID: "hash", Language: "en", ReleaseInfo: "Film.2010.1080p.BluRay.x264-GRP", Downloads: 1, // hash corroborated
-			Matches: map[string]bool{subtitles.MatchHash: true}},
-		{ID: "badhash", Language: "en", ReleaseInfo: "Film.2010.HDTV", Matches: map[string]bool{subtitles.MatchHash: true}},
-		{ID: "french", Language: "fr", ReleaseInfo: "Film.2010.1080p.BluRay.x264-GRP"},
+			Matches: id(subtitles.MatchHash)},
+		{ID: "badhash", Language: "en", ReleaseInfo: "Film.2010.HDTV", Matches: id(subtitles.MatchHash)},
+		{ID: "french", Language: "fr", ReleaseInfo: "Film.2010.1080p.BluRay.x264-GRP", Matches: id()},
 	}
 
 	rr := rank(in, cands)

@@ -69,8 +69,10 @@ const (
 	// upgrading, so it is recorded downloaded rather than upgradable.
 	upgradeMargin = 3
 
-	// DefaultSidecarMode is RootFolderSpec.Perms.FileMode's default, 0664:
-	// sidecars sit beside the video in a group-shared library.
+	// DefaultSidecarMode is RootFolderSpec.Permissions.FileMode's default,
+	// 0664: sidecars sit beside the video in a group-shared library. It is
+	// the mode of a sidecar whose video lies under no RootFolder, or under
+	// one whose fileMode does not parse ([Worker.sidecarModeFor]).
 	DefaultSidecarMode os.FileMode = 0o664
 
 	// maxLastError and maxSubtitleID are the CRD's own limits on
@@ -111,8 +113,10 @@ type Worker struct {
 	// means /data itself (captionarr/datapath.Local).
 	DataDir string
 
-	// SidecarMode is the file mode sidecars are written with. Zero means
-	// [DefaultSidecarMode].
+	// SidecarMode is the file mode of a sidecar whose video lies under no
+	// RootFolder. Zero means [DefaultSidecarMode]. A video under a
+	// RootFolder gets that folder's spec.permissions.fileMode instead
+	// ([Worker.sidecarModeFor]).
 	SidecarMode os.FileMode
 
 	// MaxDeliver is the fetch consumers' MaxDeliver, for recognising the
@@ -141,8 +145,6 @@ func (w *Worker) reader() client.Reader {
 	}
 	return w.Client
 }
-
-func (w *Worker) sidecarMode() os.FileMode { return cmp.Or(w.SidecarMode, DefaultSidecarMode) }
 
 // SetupWithManager subscribes the worker to both fetch consumers,
 // captionarr-fetch-high and captionarr-fetch-normal, as
@@ -310,6 +312,10 @@ func (w *Worker) handle(ctx context.Context, m events.Message, t task) error {
 	if err != nil {
 		return fmt.Errorf("fetch: %w", err)
 	}
+	mode, err := w.sidecarModeFor(ctx, &mf)
+	if err != nil {
+		return fmt.Errorf("fetch: %w", err)
+	}
 
 	entries, err := w.Providers.Build(ctx, req.Namespace)
 	if err != nil {
@@ -342,6 +348,7 @@ func (w *Worker) handle(ctx context.Context, m events.Message, t task) error {
 		toSRT:     !profile.Spec.OriginalFormat,
 		hiExt:     string(profile.Spec.HIExtension),
 		mediaPath: mf.Spec.Path,
+		mode:      mode,
 	}
 	out, err := w.search(ctx, m, plan)
 	if err != nil {
@@ -413,18 +420,21 @@ type eligibleProvider struct {
 }
 
 // eligible narrows the priority-ordered provider set to those that can serve
-// this task, keeping the order: Registry.For(kind) for the media kind, then
-// forced-search support, the provider's own language restriction, and
-// whether it can identify the item at all ([searchable]). The registry is
-// keyed by provider type, so a second SubtitleProvider of a type already
-// registered is skipped -- Bazarr's own model, one account per provider --
-// and reported in skipped.
+// this task, keeping the order: embedded extraction switched on for a local
+// provider, the provider's own spec.languages, whether it can identify the
+// item at all ([searchable]), and then its client's capabilities -- the
+// media kind, forced-search support and the languages it has codes for.
+// Every SubtitleProvider is judged on its own: two of one type -- two
+// accounts -- are both eligible and both searched ([Worker.search]). Until
+// gap-fix X11b a pkg/subtitles.Registry keyed by provider type skipped the
+// second, so a second account never answered and never lent its quota.
 func eligible(entries []providerset.Entry, src providerset.FileSource, kind commonv1.MediaKind, w want,
 	q subtitles.Query, extract bool,
 ) ([]eligibleProvider, []string) {
-	var skipped []string
-	reg := subtitles.NewRegistry()
-	byName := map[string]eligibleProvider{}
+	var (
+		out     []eligibleProvider
+		skipped []string
+	)
 	for _, e := range entries {
 		switch {
 		case e.Local() && !extract:
@@ -438,32 +448,17 @@ func eligible(entries []providerset.Entry, src providerset.FileSource, kind comm
 			continue
 		}
 		c := e.Provider(src)
-		if err := reg.Register(c); err != nil {
-			skipped = append(skipped, e.Name+": another "+string(e.Type)+" provider has priority")
-			continue
-		}
-		byName[c.Name()] = eligibleProvider{entry: e, client: c}
-	}
-
-	var out []eligibleProvider
-	forKind := map[string]bool{}
-	for _, c := range reg.For(kind) {
-		forKind[c.Name()] = true
-		ep := byName[c.Name()]
 		caps := c.Capabilities()
-		if w.forced && !caps.ForcedSearch {
-			skipped = append(skipped, ep.entry.Name+": cannot search forced subtitles")
-			continue
-		}
-		if caps.Languages != nil && !anyLang(caps.Languages, w.tags()) {
-			skipped = append(skipped, ep.entry.Name+": does not serve "+w.lang)
-			continue
-		}
-		out = append(out, ep)
-	}
-	for _, c := range reg.All() {
-		if !forKind[c.Name()] {
-			skipped = append(skipped, byName[c.Name()].entry.Name+": does not serve "+string(kind)+" subtitles")
+		servesKind := (kind == commonv1.MediaKindMovie && caps.Movies) || (kind == commonv1.MediaKindEpisode && caps.Episodes)
+		switch {
+		case !servesKind:
+			skipped = append(skipped, e.Name+": does not serve "+string(kind)+" subtitles")
+		case w.forced && !caps.ForcedSearch:
+			skipped = append(skipped, e.Name+": cannot search forced subtitles")
+		case caps.Languages != nil && !anyLang(caps.Languages, w.tags()):
+			skipped = append(skipped, e.Name+": does not serve "+w.lang)
+		default:
+			out = append(out, eligibleProvider{entry: e, client: c})
 		}
 	}
 	return out, skipped
