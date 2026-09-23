@@ -217,6 +217,16 @@ func TestResolve_SelfContainedRefs(t *testing.T) {
 	})
 }
 
+// TestResolve_ListTask: an import-list sync that dead-letters names its
+// ImportList, so the ImportList is annotated and folds DeadLettered.
+func TestResolve_ListTask(t *testing.T) {
+	env := envelopeFor(t, "media/", schema.ListTask{ListRef: schema.Ref{Namespace: "media", Name: "trakt-popular"}})
+	require.Equal(t, history.Target{
+		Namespace: "media", Name: "trakt-popular",
+		Kind: "ImportList", APIVersion: "catalog.clustarr.io/v1alpha1",
+	}, history.Resolve(env))
+}
+
 func TestResolve_NamespaceOnlyAndUnresolvable(t *testing.T) {
 	t.Run("WantedScan is a namespace sweep, never a single object", func(t *testing.T) {
 		env := envelopeFor(t, "should-be-ignored/too", schema.WantedScan{Namespace: "default"})

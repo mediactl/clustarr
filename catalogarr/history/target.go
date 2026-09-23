@@ -162,6 +162,7 @@ var resolvers = map[string]resolver{
 	schema.SubtitleEvent{}.Schema():    resolveSubtitleEvent,
 	schema.FetchTask{}.Schema():        resolveFetchTask,
 	schema.ScanTask{}.Schema():         resolveScanTask,
+	schema.ListTask{}.Schema():         resolveListTask,
 }
 
 // Resolve establishes the CR a domain event or dead-lettered envelope
@@ -331,4 +332,16 @@ func resolveScanTask(key string, data []byte) Target {
 		return Target{Namespace: namespaceOf(key)}
 	}
 	return refTarget(p.LibraryScanRef, catalogv1alpha1.GroupVersion.String(), "LibraryScan")
+}
+
+// resolveListTask is importarr's import-list sync task. Since the pruned
+// catalog.ImportListTask went (X1 item 14), this is the only task that names
+// an ImportList, so without it a sync that dead-lettered reached nothing but
+// a namespace Event, and the ImportList never showed DeadLettered.
+func resolveListTask(key string, data []byte) Target {
+	var p schema.ListTask
+	if err := schema.Decode(p.Schema(), data, &p); err != nil {
+		return Target{Namespace: namespaceOf(key)}
+	}
+	return refTarget(p.ListRef, catalogv1alpha1.GroupVersion.String(), "ImportList")
 }

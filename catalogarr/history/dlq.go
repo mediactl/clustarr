@@ -21,6 +21,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -39,8 +41,18 @@ import (
 
 // AnnotationDeadLettered is the metadata annotation [DLQProjector] applies,
 // per ruling R1, instead of the DeadLettered status condition design spec §5
-// originally asked for. Its value is "<original-subject>@<RFC3339>".
-const AnnotationDeadLettered = "clustarr.io/dead-lettered"
+// originally asked for. Its value is "<original-subject>@<RFC3339>". It IS
+// k8s.AnnotationDeadLettered -- the key every owning controller folds into
+// its DeadLettered condition -- restated by reference so the two can never
+// drift.
+const AnnotationDeadLettered = k8s.AnnotationDeadLettered
+
+// AnnotationDeadLetterSeq is the CLUSTARR_DLQ stream sequence of the dead
+// letter [AnnotationDeadLettered] describes: the value an operator gives
+// [AnnotationReplay] to replay it. [DLQProjector] applies it beside
+// AnnotationDeadLettered, in the same apply, when its DLQ reader can name
+// the sequence; without one (the in-memory bus) it is omitted.
+const AnnotationDeadLetterSeq = "clustarr.io/dead-letter-seq"
 
 // dlqRetry is how long Handle waits before retrying a failed annotation
 // apply. It is short: the apiserver call it retries is a single PATCH, and a
@@ -55,6 +67,11 @@ type DLQDeps struct {
 
 	// Recorder writes events.k8s.io/v1 Events.
 	Recorder k8sevents.EventRecorder
+
+	// DLQ, when set, names the stream sequence of each dead letter, so the
+	// annotation and the Event can say what to replay. Optional: nil (the
+	// in-memory bus has no stream to read) just leaves the sequence out.
+	DLQ DLQReader
 
 	// Now is a seam for tests; nil means time.Now.
 	Now func() time.Time
@@ -85,13 +102,16 @@ func (d DLQDeps) now() time.Time {
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get
 
 // DLQProjector is the clustarr-dlq-projector consumer. Per ruling R1 it
-// applies exactly one metadata annotation -- [AnnotationDeadLettered] -- to
-// the CR a dead letter concerns, under k8s.ManagerDLQProjector, and emits a
-// Warning Event. It never patches a status subresource: every RBAC grant on
-// a CR above is the main resource only, with the "patch" verb and nothing else --
-// no get, no list, no watch, because a blind server-side-apply PATCH needs
-// none of them. dlq_envtest_test.go asserts both halves of that against a
-// real apiserver's managedFields, not just this comment.
+// applies one metadata annotation -- [AnnotationDeadLettered] -- to the CR a
+// dead letter concerns, plus [AnnotationDeadLetterSeq] when its DLQ reader
+// can name the message's stream sequence, under k8s.ManagerDLQProjector,
+// and emits a Warning Event saying how to replay it. It never patches a
+// status subresource: every RBAC grant on a CR above is the main resource
+// only, with the "patch" verb and nothing else -- no get, no list, no watch,
+// because a blind server-side-apply PATCH needs none of them (the
+// get/list/watch the replay handler needs are its own, in replay.go).
+// dlq_envtest_test.go and replay_envtest_test.go assert both halves of that
+// against a real apiserver's managedFields, not just this comment.
 type DLQProjector struct {
 	Deps DLQDeps
 }
@@ -133,6 +153,29 @@ func (p *DLQProjector) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error 
 // schema, a namespace-wide task with no single object (WantedScan), or a
 // fully global one with no namespace either (DefinitionsSync).
 func (p *DLQProjector) Handle(ctx context.Context, m events.Message) error {
+	return p.handle(ctx, m)
+}
+
+// sequenceOf names the CLUSTARR_DLQ sequence of the dead letter just
+// delivered on dlqSubject, or 0 when there is no reader or it cannot say.
+// The delivered message does not carry its own sequence (events.Message has
+// no such accessor), so this asks the stream for the newest message on the
+// subject -- which ends in the envelope id, so it is this dead letter or a
+// copy of the same message dead-lettered again. A failure here costs only
+// the replay hint, never the annotation.
+func (p *DLQProjector) sequenceOf(ctx context.Context, dlqSubject string) uint64 {
+	if p.Deps.DLQ == nil || dlqSubject == "" {
+		return 0
+	}
+	seq, err := p.Deps.DLQ.LastDeadLetterSeq(ctx, dlqSubject)
+	if err != nil {
+		logging.FromContext(ctx).Warn("dlqprojector: could not name the dead letter's sequence", "subject", dlqSubject, "error", err)
+		return 0
+	}
+	return seq
+}
+
+func (p *DLQProjector) handle(ctx context.Context, m events.Message) error {
 	env := m.Envelope()
 	ctx = tracing.Extract(ctx, env)
 	ctx, span := tracing.Start(ctx, "history.DLQProjector.Handle")
@@ -157,22 +200,38 @@ func (p *DLQProjector) Handle(ctx context.Context, m events.Message) error {
 	}
 	value += "@" + p.Deps.now().UTC().Format(time.RFC3339)
 	note := fmt.Sprintf("dead-lettered by %s after %s attempts: %s", consumer, attempts, reason)
+	seq := p.sequenceOf(ctx, m.Subject())
 
 	switch {
 	case target.KindKnown():
-		applied, err := p.applyAnnotation(ctx, target, value)
+		applied, err := p.applyAnnotation(ctx, target, value, seq)
 		if err != nil {
 			log.Error("dlqprojector: apply dead-letter annotation", "error", err)
 			return events.Retry(dlqRetry, err)
+		}
+		if seq != 0 {
+			note += fmt.Sprintf("; replay it with: kubectl annotate %s %s -n %s %s=%d",
+				strings.ToLower(target.Kind), target.Name, target.Namespace, AnnotationReplay, seq)
 		}
 		p.Deps.Recorder.Eventf(applied, nil, corev1.EventTypeWarning, "DeadLettered", origSubject, note)
 
 	case target.HasNamespace():
 		log.Warn("dlqprojector: could not resolve a specific object kind for this dead letter; " +
 			"emitting a namespace-level event instead of guessing")
+		// The Namespace object carries ITS OWN name as its namespace. A
+		// Namespace is cluster-scoped, and the events.k8s.io recorder files
+		// an Event about an object with no namespace under "default" -- so
+		// every namespace-level dead letter used to land in default, not in
+		// the namespace it was about. With the namespace set, the Event is
+		// created in that namespace (`kubectl get events -n <ns>` shows it),
+		// which the apiserver accepts because the Event's namespace and its
+		// regarding.namespace agree.
 		ns := &corev1.Namespace{
 			TypeMeta:   metav1.TypeMeta{Kind: "Namespace", APIVersion: "v1"},
-			ObjectMeta: metav1.ObjectMeta{Name: target.Namespace},
+			ObjectMeta: metav1.ObjectMeta{Name: target.Namespace, Namespace: target.Namespace},
+		}
+		if seq != 0 {
+			note += fmt.Sprintf("; CLUSTARR_DLQ sequence %d", seq)
 		}
 		p.Deps.Recorder.Eventf(ns, nil, corev1.EventTypeWarning, "DeadLettered", origSubject,
 			note+" (object kind unresolved; see Clustarr-DLQ-Subject on the CLUSTARR_DLQ entry for the original subject)")
@@ -183,14 +242,17 @@ func (p *DLQProjector) Handle(ctx context.Context, m events.Message) error {
 	return nil
 }
 
-// applyAnnotation declares exactly one leaf, metadata.annotations[
-// AnnotationDeadLettered], under k8s.ManagerDLQProjector. It builds the
-// apply body from target.object() -- apiVersion, kind, namespace and name
-// only -- and adds nothing else, so server-side apply's per-leaf ownership
-// tracking (see CLAUDE.md) means this call can never claim, and therefore
-// can never release, any other field on the object: not another annotation,
-// not a label, and structurally not spec or status, since those subtrees
-// never appear in the patch body at all.
+// applyAnnotation declares metadata.annotations[AnnotationDeadLettered] --
+// and, when seq is known, metadata.annotations[AnnotationDeadLetterSeq] --
+// under k8s.ManagerDLQProjector, and nothing else. It builds the apply body
+// from target.object() -- apiVersion, kind, namespace and name only -- so
+// server-side apply's per-leaf ownership tracking (see CLAUDE.md) means
+// this call can never claim, and therefore can never release, any other
+// field on the object: not another annotation, not a label, and
+// structurally not spec or status, since those subtrees never appear in the
+// patch body at all. Each apply is this manager's complete declaration, so
+// a dead letter whose sequence cannot be named releases (removes) an older
+// one's sequence rather than leaving it to describe the wrong message.
 //
 // pkg/k8s.Apply is not used here: its generic constraint requires the
 // generated api/applyconfiguration type for the target Kind, chosen at
@@ -206,12 +268,16 @@ func (p *DLQProjector) Handle(ctx context.Context, m events.Message) error {
 // client.Client.Apply(), which -- per the paragraph above -- cannot take an
 // unstructured object at all, so there is no non-deprecated replacement to
 // migrate to here.
-func (p *DLQProjector) applyAnnotation(ctx context.Context, t Target, value string) (*unstructured.Unstructured, error) {
+func (p *DLQProjector) applyAnnotation(ctx context.Context, t Target, value string, seq uint64) (*unstructured.Unstructured, error) {
 	if err := k8s.ManagerDLQProjector.Validate(); err != nil {
 		return nil, err
 	}
 	u := t.object()
-	u.SetAnnotations(map[string]string{AnnotationDeadLettered: value})
+	annotations := map[string]string{AnnotationDeadLettered: value}
+	if seq != 0 {
+		annotations[AnnotationDeadLetterSeq] = strconv.FormatUint(seq, 10)
+	}
+	u.SetAnnotations(annotations)
 	data, err := json.Marshal(u)
 	if err != nil {
 		return nil, fmt.Errorf("dlqprojector: marshal apply body for %s %s/%s: %w", t.Kind, t.Namespace, t.Name, err)

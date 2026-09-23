@@ -47,8 +47,8 @@ type SinkDeps struct {
 // Sink is the catalogarr-history consumer: it projects each domain event on
 // clustarr.evt.> onto an events.k8s.io/v1 Event regarding the CR the event
 // concerns. It never writes spec, status or an annotation -- see
-// [DLQProjector] for the one write this package makes, and ruling R1 for why
-// that write is not here either.
+// [DLQProjector] and [Replayer] for the writes this package makes (both
+// annotations only), and ruling R1 for why they are not here either.
 type Sink struct {
 	Deps SinkDeps
 }

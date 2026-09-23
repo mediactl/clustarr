@@ -50,8 +50,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // k8s.ManagerDLQProjector -- a manager that NEVER appears on a status
 // subresource, proved in dlq_envtest_test.go by a managedFields assertion,
 // not by trusting this comment. [DLQProjector] also emits a Warning Event on
-// the same object. Folding the annotation into a condition is left to each
-// owning controller to do later; it is not built here.
+// the same object. Each owning controller folds the annotation into a
+// DeadLettered condition in its own status apply (pkg/k8s.MarkDeadLettered);
+// this package never does.
 //
 // [DLQProjector] resolves which object a dead letter concerns from the
 // envelope it was published with -- Clustarr-Key for the namespace, plus
@@ -66,16 +67,30 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // applied in that case, because there is nothing correctly-typed to apply it
 // to.
 //
-// # clustarr.io/replay is not handled here
+// # clustarr.io/replay: the replay handler
 //
-// The design spec also gives operators a "clustarr.io/replay" annotation to
-// re-publish a dead letter's original message. That is not small -- it needs
-// to decide whether to replay to the original subject or a fresh one, guard
-// against replaying something already fixed forward, and interact with
-// JetStream's own deduplication window on Nats-Msg-Id -- so per this task's
-// scope it is carried rather than built. An operator today replays by hand:
-// read the envelope off CLUSTARR_DLQ (Clustarr-DLQ-Subject header has the
-// original subject) and Publish it back.
+// Design spec §5: `kubectl annotate <cr> clustarr.io/replay=<dlq-seq>`
+// republishes a dead letter with a fresh Msg-Id. [Replayer] is that
+// handler: a metadata-only controller per annotatable kind that reads the
+// dead letter at the sequence back off CLUSTARR_DLQ ([DLQReader]; the
+// in-memory bus has no stream, so there is no replay without NATS), accepts
+// it only if it resolves to the annotated object, publishes it to its
+// original subject (Clustarr-DLQ-Subject) without the Clustarr-DLQ-* headers
+// under the id "replay:<seq>:<uid>", and consumes the annotation -- and the
+// dead-lettered marker too, when the replayed sequence is the one the
+// projector recorded in clustarr.io/dead-letter-seq. The operator learns
+// the sequence from that annotation or from the projector's Event, which
+// spells out the kubectl command. A request that can never succeed gets a
+// Warning Event and is consumed rather than retried.
+//
+// The decisions the carried note listed, as built: a replay goes to the
+// ORIGINAL subject (the handlers are what failed, and they are keyed by
+// it); it is not refused as "already fixed forward" -- the handlers are
+// idempotent by design, since delivery is at-least-once, so replaying a
+// task whose effect already happened is a no-op, not a hazard; and the
+// fresh id is deterministic in (sequence, object), so JetStream's duplicate
+// window (an hour on the work streams) drops a retry of the same replay but
+// never mistakes it for the original.
 //
 // # Registration
 //
@@ -86,9 +101,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //	sink := history.NewSink(history.SinkDeps{Recorder: mgr.GetEventRecorder("catalogarr-history")})
 //	if err := sink.SetupWithManager(mgr, bus); err != nil { ... }
 //
+//	reader, _ := history.DLQReaderFor(bus) // nil on the in-memory bus
 //	dlq := history.NewDLQProjector(history.DLQDeps{
 //		Client:   mgr.GetClient(),
 //		Recorder: mgr.GetEventRecorder("clustarr-dlq-projector"),
+//		DLQ:      reader,
 //	})
 //	if err := dlq.SetupWithManager(mgr, bus); err != nil { ... }
+//
+//	if reader != nil {
+//		replay := history.NewReplayer(history.ReplayDeps{
+//			Client: mgr.GetClient(), Bus: bus, DLQ: reader,
+//			Recorder: mgr.GetEventRecorder("clustarr-replay"),
+//		})
+//		if err := replay.SetupWithManager(mgr); err != nil { ... }
+//	}
 package history
