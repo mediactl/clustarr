@@ -56,6 +56,8 @@ func TestComicRefreshState(t *testing.T) {
 	require.Equal(t, pkgmetadata.RefreshStateCompleted, comicRefreshState(&pkgmetadata.ComicVolume{Status: "ended"}))
 	require.Equal(t, pkgmetadata.RefreshStateCompleted, comicRefreshState(&pkgmetadata.ComicVolume{Status: "completed"}))
 	require.Equal(t, pkgmetadata.RefreshStateOngoing, comicRefreshState(&pkgmetadata.ComicVolume{Status: "ongoing"}))
+	require.Equal(t, pkgmetadata.RefreshStateOngoing, comicRefreshState(&pkgmetadata.ComicVolume{Status: "continuing"}),
+		"comicvine.Client.Volume's derived vocabulary is continuing/ended")
 	require.Equal(t, pkgmetadata.RefreshStateOngoing, comicRefreshState(&pkgmetadata.ComicVolume{}),
-		"comicvine.Client.Volume does not map ComicVine's status field yet, so this is the honest default today")
+		"an unknown status (the client's latest-issue lookup failed) keeps the conservative daily cadence")
 }

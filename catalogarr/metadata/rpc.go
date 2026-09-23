@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -325,66 +326,79 @@ func lookupBooks(ctx context.Context, reg *pkgmetadata.Registry, req schema.Meta
 // exposes SearchArtists (by text) and Albums(mbArtistID) (list, not search,
 // of a known artist's albums) but no SearchAlbums -- the brief's original
 // draft assumed one; there is no provider surface to route an album search
-// to, so it falls through to the unsupported-kind response below exactly
-// like series. audiobook and author have none either (Audnexus/Open Library
-// search is out of scope).
+// to, so it is reported as an unsupported kind exactly like series.
+// audiobook and author have none either (Audnexus/Open Library search is out
+// of scope).
+//
+// Three failures are told apart, because they send an operator to three
+// different places: a kind no provider interface can search (a caller
+// bug), a searchable kind with no provider of it configured (a missing
+// MetadataProvider), and a searchable kind whose every configured provider
+// failed (an outage) -- the last carrying each provider's own error, by
+// name. The second and third used to fall through to the first, so a
+// provider outage read as "search does not support kind".
 func search(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataRequest) schema.MetadataResponse {
 	ctx, span := tracing.Start(ctx, "metadata.rpc.search")
 	defer span.End()
 
+	var resp schema.MetadataResponse
 	switch req.Kind {
 	case commonv1.MediaKindMovie:
-		for _, p := range reg.Movies {
-			pCtx, pSpan := tracing.Start(ctx, "metadata.MovieProvider.SearchMovies")
-			hits, err := p.SearchMovies(pCtx, req.Text, int(req.Year))
-			if err != nil {
-				tracing.RecordError(pSpan, err)
-				pSpan.End()
-				continue
-			}
-			pSpan.End()
-			return schema.MetadataResponse{Kind: req.Kind, Provider: p.Name(), Results: marshalAll(hits)}
-		}
+		resp = searchFirst(ctx, req.Kind, "metadata.MovieProvider.SearchMovies", reg.Movies,
+			func(ctx context.Context, p pkgmetadata.MovieProvider) ([]pkgmetadata.MovieHit, error) {
+				return p.SearchMovies(ctx, req.Text, int(req.Year))
+			})
 	case commonv1.MediaKindArtist:
-		for _, p := range reg.Artists {
-			pCtx, pSpan := tracing.Start(ctx, "metadata.ArtistProvider.SearchArtists")
-			hits, err := p.SearchArtists(pCtx, req.Text)
-			if err != nil {
-				tracing.RecordError(pSpan, err)
-				pSpan.End()
-				continue
-			}
-			pSpan.End()
-			return schema.MetadataResponse{Kind: req.Kind, Provider: p.Name(), Results: marshalAll(hits)}
-		}
+		resp = searchFirst(ctx, req.Kind, "metadata.ArtistProvider.SearchArtists", reg.Artists,
+			func(ctx context.Context, p pkgmetadata.ArtistProvider) ([]pkgmetadata.SearchHit, error) {
+				return p.SearchArtists(ctx, req.Text)
+			})
 	case commonv1.MediaKindBook:
-		for _, p := range reg.Books {
-			pCtx, pSpan := tracing.Start(ctx, "metadata.BookProvider.SearchBooks")
-			hits, err := p.SearchBooks(pCtx, req.Text)
-			if err != nil {
-				tracing.RecordError(pSpan, err)
-				pSpan.End()
-				continue
-			}
-			pSpan.End()
-			return schema.MetadataResponse{Kind: req.Kind, Provider: p.Name(), Results: marshalAll(hits)}
-		}
+		resp = searchFirst(ctx, req.Kind, "metadata.BookProvider.SearchBooks", reg.Books,
+			func(ctx context.Context, p pkgmetadata.BookProvider) ([]pkgmetadata.SearchHit, error) {
+				return p.SearchBooks(ctx, req.Text)
+			})
 	case commonv1.MediaKindComic:
-		for _, p := range reg.Comics {
-			pCtx, pSpan := tracing.Start(ctx, "metadata.ComicProvider.SearchVolumes")
-			hits, err := p.SearchVolumes(pCtx, req.Text)
-			if err != nil {
-				tracing.RecordError(pSpan, err)
-				pSpan.End()
-				continue
-			}
-			pSpan.End()
-			return schema.MetadataResponse{Kind: req.Kind, Provider: p.Name(), Results: marshalAll(hits)}
-		}
+		resp = searchFirst(ctx, req.Kind, "metadata.ComicProvider.SearchVolumes", reg.Comics,
+			func(ctx context.Context, p pkgmetadata.ComicProvider) ([]pkgmetadata.SearchHit, error) {
+				return p.SearchVolumes(ctx, req.Text)
+			})
+	default:
+		resp = schema.MetadataResponse{Kind: req.Kind, Error: fmt.Sprintf("metadata: search does not support kind %q", req.Kind)}
 	}
-	err := fmt.Errorf("metadata: search does not support kind %q", req.Kind)
-	tracing.RecordError(span, err)
-	return schema.MetadataResponse{Kind: req.Kind, Error: err.Error()}
+	if resp.Error != "" {
+		tracing.RecordError(span, errors.New(resp.Error))
+	}
+	return resp
+}
+
+// searchFirst answers with the first provider, in priority order, whose
+// search succeeds. With none configured it says so; when every one fails it
+// joins their errors, each prefixed with the provider's Name(), so the
+// response names what failed and why rather than only that something did.
+func searchFirst[P pkgmetadata.Provider, H any](
+	ctx context.Context, kind commonv1.MediaKind, spanName string, providers []P,
+	call func(context.Context, P) ([]H, error),
+) schema.MetadataResponse {
+	if len(providers) == 0 {
+		return schema.MetadataResponse{Kind: kind, Error: fmt.Sprintf("metadata: no %s metadata provider is configured to search", kind)}
+	}
+	failures := make([]string, 0, len(providers))
+	for _, p := range providers {
+		pCtx, pSpan := tracing.Start(ctx, spanName)
+		hits, err := call(pCtx, p)
+		if err != nil {
+			tracing.RecordError(pSpan, err)
+			pSpan.End()
+			failures = append(failures, p.Name()+": "+err.Error())
+			continue
+		}
+		pSpan.End()
+		return schema.MetadataResponse{Kind: kind, Provider: p.Name(), Results: marshalAll(hits)}
+	}
+	// One line, "; "-separated: the string travels in a MetadataResponse and
+	// on into logs and conditions, where errors.Join's newlines do not read.
+	return schema.MetadataResponse{Kind: kind, Error: fmt.Sprintf("metadata: every %s search provider failed: %s", kind, strings.Join(failures, "; "))}
 }
 
 // resolve merges the ids every registered IDResolver adds for req.Kind on

@@ -133,6 +133,73 @@ func TestServeRPCSearchReportsUnsupportedKinds(t *testing.T) {
 	req := schema.MetadataRequest{Kind: commonv1.MediaKindSeries, Text: "anything"}
 	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataSearch, req, &resp))
 	require.NotEmpty(t, resp.Error, "SeriesProvider has no search method (spec-pinned; see pkg/metadata go doc)")
+	require.Contains(t, resp.Error, "does not support kind")
+}
+
+// TestServeRPCSearchSaysWhenNoProviderIsConfigured: a searchable kind with
+// no provider of it is a configuration gap, not an unsupported kind.
+func TestServeRPCSearchSaysWhenNoProviderIsConfigured(t *testing.T) {
+	bus := newTestBus(t)
+	require.NoError(t, ServeRPC(bus, &pkgmetadata.Registry{}))
+
+	var resp schema.MetadataResponse
+	req := schema.MetadataRequest{Kind: commonv1.MediaKindMovie, Text: "Inception"}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataSearch, req, &resp))
+
+	require.Contains(t, resp.Error, "no movie metadata provider is configured")
+	require.NotContains(t, resp.Error, "does not support kind")
+}
+
+type failingSearchArtistProvider struct {
+	stubArtistProvider
+	name string
+	err  error
+}
+
+func (p failingSearchArtistProvider) Name() string { return p.name }
+func (p failingSearchArtistProvider) SearchArtists(context.Context, string) ([]pkgmetadata.SearchHit, error) {
+	return nil, p.err
+}
+
+// TestServeRPCSearchSurfacesEveryProviderFailure is the regression for a
+// provider outage reading as "search does not support kind": when every
+// configured provider fails, the response says so and carries each
+// provider's own error, by name.
+func TestServeRPCSearchSurfacesEveryProviderFailure(t *testing.T) {
+	reg := &pkgmetadata.Registry{Artists: []pkgmetadata.ArtistProvider{
+		failingSearchArtistProvider{name: "musicbrainz", err: &pkgmetadata.RateLimitedError{Provider: "musicbrainz"}},
+		failingSearchArtistProvider{name: "mirror", err: fmt.Errorf("dial tcp: connection refused")},
+	}}
+	bus := newTestBus(t)
+	require.NoError(t, ServeRPC(bus, reg))
+
+	var resp schema.MetadataResponse
+	req := schema.MetadataRequest{Kind: commonv1.MediaKindArtist, Text: "Radiohead"}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataSearch, req, &resp))
+
+	require.NotContains(t, resp.Error, "does not support kind")
+	require.Contains(t, resp.Error, "every artist search provider failed")
+	require.Contains(t, resp.Error, "musicbrainz: metadata: musicbrainz: rate limited")
+	require.Contains(t, resp.Error, "mirror: dial tcp: connection refused")
+	require.NotContains(t, resp.Error, "\n", "one line: it travels into logs and conditions")
+	require.Empty(t, resp.Results)
+}
+
+func TestServeRPCSearchFallsThroughAFailingProviderToTheNext(t *testing.T) {
+	reg := &pkgmetadata.Registry{Artists: []pkgmetadata.ArtistProvider{
+		failingSearchArtistProvider{name: "down", err: pkgmetadata.ErrAuth},
+		stubArtistProvider{hit: pkgmetadata.SearchHit{Title: "Radiohead"}},
+	}}
+	bus := newTestBus(t)
+	require.NoError(t, ServeRPC(bus, reg))
+
+	var resp schema.MetadataResponse
+	req := schema.MetadataRequest{Kind: commonv1.MediaKindArtist, Text: "Radiohead"}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataSearch, req, &resp))
+
+	require.Empty(t, resp.Error)
+	require.Equal(t, "musicbrainz", resp.Provider)
+	require.Len(t, resp.Results, 1)
 }
 
 // TestServeRPCSearchReportsAlbumAsUnsupported: unlike the brief's original

@@ -77,13 +77,12 @@ func seriesRefreshState(s *pkgmetadata.Series, now time.Time) string {
 // unlike Movie and Series, it does not branch further by state, so no
 // "recent" distinction is needed here.
 //
-// pkg/metadata/clients/comicvine.Client.Volume does not map ComicVine's
-// status field yet (see the TODO on Volume in that file), so v.Status is
-// always "" against the real provider today and this always answers
-// RefreshStateOngoing. That is an honest reflection of the data actually
-// available, not a bug in this function -- it starts giving completed
-// volumes their slower cadence the day that TODO is picked up, with no
-// change needed here.
+// ComicVine has no volume status of its own; pkg/metadata/clients/comicvine
+// derives one from the latest issue's date (Mylar3's 55-day rule) as
+// "continuing" or "ended", and leaves it "" when that lookup fails. "ended"
+// (and "completed", for a provider that says so directly) earns the slower
+// cadence; anything else, "" included, stays on the daily one -- the
+// conservative answer when the status is unknown.
 func comicRefreshState(v *pkgmetadata.ComicVolume) string {
 	switch v.Status {
 	case "ended", "completed":
