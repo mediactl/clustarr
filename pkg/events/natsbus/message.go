@@ -33,13 +33,17 @@ type message struct {
 	env     *events.Envelope
 	attempt uint64
 
+	// backoff is the consumer's BackOff, which changes what a delayed
+	// negative acknowledgement asks the server for; see nakDelay.
+	backoff []time.Duration
+
 	mu      sync.Mutex
 	settled bool
 }
 
 var _ events.Message = (*message)(nil)
 
-func newMessage(jm jetstream.Msg) *message {
+func newMessage(jm jetstream.Msg, backoff []time.Duration) *message {
 	h := make(map[string]string, len(jm.Headers()))
 	for k := range jm.Headers() {
 		h[k] = jm.Headers().Get(k)
@@ -48,6 +52,7 @@ func newMessage(jm jetstream.Msg) *message {
 		jm:      jm,
 		env:     events.EnvelopeFromHeaders(h, jm.Data()),
 		attempt: 1,
+		backoff: backoff,
 	}
 	if md, err := jm.Metadata(); err == nil && md.NumDelivered > 0 {
 		m.attempt = md.NumDelivered
@@ -81,7 +86,40 @@ func (m *message) Nak(_ context.Context, delay time.Duration) error {
 	if delay <= 0 {
 		return m.jm.Nak()
 	}
-	return m.jm.NakWithDelay(delay)
+	return m.jm.NakWithDelay(nakDelay(delay, m.backoff, m.attempt))
+}
+
+// nakDelay is the delay to put in a negative acknowledgement of delivery
+// attempt so that JetStream redelivers the message want after the nak, on a
+// consumer whose BackOff is backoff.
+//
+// Without BackOff it is want. With it, the server does not wait want. It
+// sets the pending entry's timestamp to now - AckWait + want (nats-server
+// v2.15.0 server/consumer.go:3302, processNak), then redelivers once the
+// entry is BackOff[attempt-1] old, the last entry past the end
+// (consumer.go:6169-6180, checkPending, dc = redeliveries so far), and AckWait
+// is BackOff[0] because BackOff overrides it (consumer.go:682). The actual
+// wait is want + BackOff[attempt-1] - BackOff[0], so every backoff step past
+// the first came out close to doubled: catalogarr-search-normal
+// ([30s 2m 10m 1h]) waited nearly two hours, not one, after its fourth
+// attempt. Subtracting the server's addition asks for exactly want.
+//
+// When want is shorter than the addition, the server cannot redeliver that
+// soon after a delayed nak, and a plain nak would redeliver at once, sooner
+// than asked. A retry delay is a floor (a backing-off indexer, a rate limit),
+// so the result is floored at the smallest delay that is still a delayed
+// nak, and the wait is the addition: the nearest the server allows without
+// being early. events.Settle never asks for less: its want is
+// BackOff[attempt-1] itself, which comes out as BackOff[0] here.
+func nakDelay(want time.Duration, backoff []time.Duration, attempt uint64) time.Duration {
+	if len(backoff) == 0 {
+		return want
+	}
+	i := 0
+	if attempt > 1 {
+		i = int(min(attempt-1, uint64(len(backoff)-1)))
+	}
+	return max(want-(backoff[i]-backoff[0]), time.Nanosecond)
 }
 
 // Term stops redelivery and records reason in the server advisory.

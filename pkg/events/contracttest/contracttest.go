@@ -70,6 +70,9 @@ func RunBusContract(t *testing.T, newBus func() events.Bus) {
 	t.Run("WorkQueueLapseWhileUnwatchedToDLQ", func(t *testing.T) {
 		testLapseWhileUnwatchedToDLQ(t, newBus)
 	})
+	t.Run("WorkQueueNakRedeliveryFollowsBackoff", func(t *testing.T) {
+		testNakRedeliveryFollowsBackoff(t, newBus)
+	})
 	t.Run("WorkQueueHungRedeliveryFollowsBackoff", func(t *testing.T) {
 		testHungRedeliveryFollowsBackoff(t, newBus)
 	})
@@ -741,6 +744,71 @@ func testLapseWhileUnwatchedToDLQ(t *testing.T, newBus func() events.Bus) {
 	defer mu.Unlock()
 	if redelivered != 0 {
 		t.Errorf("the returning replica was handed the spent message %d times, want 0", redelivered)
+	}
+}
+
+// testNakRedeliveryFollowsBackoff pins the retry schedule a failing handler
+// actually gets: after attempt n fails, the next delivery comes Backoff[n-1]
+// later (the last entry past the end), as events.Settle asks. JetStream adds
+// Backoff[n-1] - Backoff[0] to a delayed nak on a consumer with BackOff, so
+// natsbus once waited close to twice each step past the first. The entries
+// differ widely so that addition cannot hide inside the tolerance.
+func testNakRedeliveryFollowsBackoff(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+
+	const (
+		maxDeliver = 4
+		first      = 100 * time.Millisecond
+		later      = 2 * time.Second
+		// slack absorbs the gap between the broker making a delivery and
+		// the handler recording it. The doubled schedule would be
+		// later + later - first, far outside it.
+		slack = 300 * time.Millisecond
+	)
+	var mu sync.Mutex
+	var at []time.Time
+	done := make(chan struct{})
+	stop, err := bus.Subscribe(ctx, events.Subscription{
+		Stream:      events.StreamWorkIndexarr,
+		Durable:     "ct-nak-backoff",
+		Filters:     []string{events.FilterIndexRSS},
+		AckWait:     20 * time.Second,
+		MaxDeliver:  maxDeliver,
+		Backoff:     []time.Duration{first, later},
+		MaxInFlight: 1,
+	}, func(context.Context, events.Message) error {
+		mu.Lock()
+		defer mu.Unlock()
+		at = append(at, time.Now())
+		if len(at) < maxDeliver {
+			return errors.New("indexer unreachable")
+		}
+		close(done)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	defer stop()
+
+	if _, err := bus.Publish(ctx, events.WorkRSSSubject("idx-nak"),
+		envelope("task-nak", "index.RssTask.v1", 0)); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(Timeout):
+		t.Fatal("the failing task never reached its last delivery")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	for n, want := range []time.Duration{first, later, later} {
+		gap := at[n+1].Sub(at[n])
+		if gap < want-slack/3 || gap > want+slack {
+			t.Errorf("delivery %d came %v after delivery %d failed, want Backoff = %v",
+				n+2, gap, n+1, want)
+		}
 	}
 }
 

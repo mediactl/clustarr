@@ -342,7 +342,7 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 func (b *Bus) handle(ctx context.Context, sub events.Subscription,
 	h events.Handler, jm jetstream.Msg,
 ) {
-	msg := newMessage(jm)
+	msg := newMessage(jm, sub.Backoff)
 	hctx := b.opts.hooks.RunAfterReceive(ctx, msg.Envelope())
 	var err error
 	func() {
