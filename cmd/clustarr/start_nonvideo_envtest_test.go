@@ -341,18 +341,21 @@ func verifyNonVideoCatalog(t *testing.T, cfg *rest.Config, fake *fakeMetadataPro
 
 	// Comic -> Issue: two managers on one Issue's status.
 	var iss catalogv1alpha1.Issue
-	waitForLong(t, "the Comic controller to fan out an Issue and the Issue controller to set its state", func() bool {
+	waitForLong(t, "the Comic controller to fan out an Issue and write its provider fields", func() bool {
 		var list catalogv1alpha1.IssueList
 		if c.List(ctx, &list, client.InNamespace("default")) != nil {
 			return false
 		}
 		for _, i := range list.Items {
-			if i.Spec.ComicRef == comic.Name && i.Status.Title == "Batman #1" && i.Status.State != "" {
+			if i.Spec.ComicRef == comic.Name && i.Status.Title == "Batman #1" {
 				iss = i
 				return true
 			}
 		}
 		return false
+	})
+	waitForLong(t, "the Issue controller to set the fanned-out Issue's state", func() bool {
+		return c.Get(ctx, client.ObjectKeyFromObject(&iss), &iss) == nil && iss.Status.State != ""
 	})
 	if got := statusManagers(iss.ManagedFields); !got[string(k8s.ManagerCatalogarrFanout)] || !got[string(k8s.ManagerCatalogarr)] {
 		t.Errorf("Issue %s status is applied by %v, want both %s (Comic's fan-out) and %s (the Issue controller)",
