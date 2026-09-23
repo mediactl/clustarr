@@ -36,9 +36,12 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
+	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
 
 const (
@@ -87,6 +90,17 @@ type Worker struct {
 	// defaultMetadataTimeout.
 	MetadataTimeout time.Duration
 
+	// ProbeAudio reads a music file's codec and bitrate, so a lossy track
+	// freezes the tier its bitrate puts it on
+	// (fileimport.FrozenFileQuality). NewWorker sets mediainfo.ProbeAudio;
+	// nil freezes by extension alone.
+	ProbeAudio fileimport.AudioProber
+
+	// Catalogue is the TRaSH custom-format corpus a scanned movie file is
+	// scored against, as the file-import worker scores an imported one.
+	// NewWorker sets catalogue.LoadedCatalogue(); nil means the same.
+	Catalogue *catalogue.Catalogue
+
 	// SampleMaxBytes is the video size floor (fsops.IsSuspectedSample): a
 	// video file smaller than this whose name does not mark it a sample is
 	// a SUSPECTED sample. The walk records it in LibraryScan.status.unmatched
@@ -102,19 +116,24 @@ type Worker struct {
 // The rescan worker's RBAC. It is the sole writer of MediaFileSpec (spec §8.4)
 // and creates the Movie a scanned file is attributed to; it never writes
 // MediaFileStatus or LibraryScan.status, both of which have their own single
-// writer, so neither /status subresource appears here.
+// writer, so neither /status subresource appears here. It reads
+// QualityProfiles to score a scanned movie file, and patches one annotation
+// on a post-transcode MediaFile (AnnotationObservedFingerprint), which the
+// mediafiles patch verb already covers.
 //
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists;albums;authors;books;audiobooks;comics;issues,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=libraryscans,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
 
 // NewWorker builds a Worker with the production clock, timeout and sample
 // threshold.
 func NewWorker(c client.Client, bus events.Bus) *Worker {
 	return &Worker{
 		Client: c, Bus: bus, Clock: time.Now, MetadataTimeout: defaultMetadataTimeout,
+		Catalogue: catalogue.LoadedCatalogue(), ProbeAudio: mediainfo.ProbeAudio,
 		SampleMaxBytes: fsops.DefaultSampleMaxBytes,
 	}
 }
@@ -149,6 +168,19 @@ type scanState struct {
 	// manual is the scan's import-target annotation, resolved; nil unless
 	// the scan is a manual assignment.
 	manual *manualAssign
+
+	// manualHasMedia is true when a manual assignment's walk holds at least
+	// one plain media file, which makes any suspected sample beside it a
+	// promo clip to leave behind (walkHoldsMedia).
+	manualHasMedia bool
+
+	// resumeAfter is a resumed tally's Resume path: the walk passes over
+	// every file up to and including it, whose outcome is already counted.
+	resumeAfter string
+
+	// profiles caches the QualityProfiles a movie walk scores files with,
+	// by name; a nil entry is a profile that could not be used.
+	profiles map[string]*quality.Profile
 
 	// lastCheckpoint is when the running tally last reached the KV bucket.
 	lastCheckpoint time.Time
@@ -235,6 +267,28 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	}
 	st.scan = &scan
 
+	switch scan.Status.Phase {
+	case catalogv1alpha1.ScanPhaseCompleted, catalogv1alpha1.ScanPhaseFailed:
+		// The controller has settled the scan -- finished, or failed for
+		// want of progress or because this very task was dead-lettered. A
+		// late delivery walking now would change the library with nobody
+		// left to report it to.
+		return events.Discard("library scan already settled", fmt.Errorf(
+			"rescan: library scan %s is %s", scanKey, scan.Status.Phase))
+	}
+
+	done, err := w.resume(ctx, st)
+	if err != nil {
+		return w.abort(ctx, m, st, err)
+	}
+	if done {
+		// A redelivery of a walk that already reported its final tally
+		// (the ack was lost): walking again would overwrite that tally
+		// with a partial one, driving the counters backwards.
+		log.Debug("library scan already reported done; redelivery is a no-op")
+		return nil
+	}
+
 	var root catalogv1alpha1.RootFolder
 	rootKey := types.NamespacedName{Namespace: task.RootFolderRef.Namespace, Name: task.RootFolderRef.Name}
 	if err := w.Client.Get(ctx, rootKey, &root); err != nil {
@@ -259,6 +313,13 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		return w.abort(ctx, m, st, err)
 	}
 	st.manual = manual
+	if manual != nil {
+		hasMedia, err := w.walkHoldsMedia(ctx, st)
+		if err != nil {
+			return w.abort(ctx, m, st, err)
+		}
+		st.manualHasMedia = hasMedia
+	}
 
 	switch {
 	case st.manual != nil:
@@ -280,9 +341,11 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	}
 
 	st.progress.Done = true
+	st.progress.Resume = ""
 	if err := w.checkpoint(ctx, st, true); err != nil {
 		// The walk itself succeeded; only the final report failed. Retry
 		// so the controller is not left polling a Running scan forever.
+		// The retry resumes from the last checkpoint, past every file.
 		return events.Retry(checkpointInterval, err)
 	}
 	log.Info("library scan finished",
@@ -291,8 +354,74 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		"filesSkipped", st.progress.FilesSkipped,
 		"itemsCreated", st.progress.ItemsCreated,
 		"itemsUpdated", st.progress.ItemsUpdated,
-		"unmatched", len(st.progress.Unmatched))
+		"unmatched", len(st.progress.Unmatched),
+		"summary", st.progress.Summary())
 	return nil
+}
+
+// resume seeds st.progress from this scan's own checkpoint, when one
+// survives, so a redelivered task carries on from where the last delivery
+// got to rather than starting the tally over. done is true when that
+// checkpoint is the final one: the walk finished and only its ack was lost.
+//
+// A redelivery without a checkpoint -- the clustarr-progress bucket's TTL
+// outlived the gap -- walks from the top; the LibraryScan controller never
+// lets that restarted tally lower a counter it has already reported.
+func (w *Worker) resume(ctx context.Context, st *scanState) (done bool, err error) {
+	entry, err := w.Bus.KV(events.BucketProgress).Get(ctx, ProgressKey(w.scanUID(st)))
+	switch {
+	case errors.Is(err, events.ErrKeyNotFound):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("rescan: read progress checkpoint: %w", err)
+	}
+	prev, err := DecodeProgress(entry.Value)
+	if err != nil {
+		// An undecodable checkpoint cannot be resumed from; a fresh walk
+		// overwrites it.
+		logging.FromContext(ctx).Warn("ignoring an undecodable progress checkpoint", "error", err)
+		return false, nil
+	}
+	if prev.Done {
+		return true, nil
+	}
+	st.progress = prev
+	st.resumeAfter = prev.Resume
+	if prev.Resume != "" {
+		logging.FromContext(ctx).Info("resuming a library scan after a redelivery", "after", prev.Resume,
+			"filesSeen", prev.FilesSeen)
+	}
+	return false, nil
+}
+
+// resuming reports whether path's outcome is already in a resumed tally:
+// it is at or before the checkpoint's Resume path in walk order. Once the
+// walk passes that path it stops asking.
+func (st *scanState) resuming(path string) bool {
+	if st.resumeAfter == "" {
+		return false
+	}
+	if walkOrderLess(st.resumeAfter, path) {
+		st.resumeAfter = ""
+		return false
+	}
+	return true
+}
+
+// walkOrderLess reports whether a comes before b in the order
+// filepath.WalkDir visits them: directory entries sorted by name, each
+// directory before everything beneath it -- which is a component-wise
+// comparison, not a plain string one ("a/b" is visited before "a-c",
+// although "a-c" < "a/b" as strings).
+func walkOrderLess(a, b string) bool {
+	as := strings.Split(filepath.Clean(a), string(filepath.Separator))
+	bs := strings.Split(filepath.Clean(b), string(filepath.Separator))
+	for i := 0; i < len(as) && i < len(bs); i++ {
+		if as[i] != bs[i] {
+			return as[i] < bs[i]
+		}
+	}
+	return len(as) < len(bs)
 }
 
 // walk is the classify-and-dispatch loop. Every file is classified as its
@@ -301,42 +430,96 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 // classifies a file exactly as a full scan would.
 //
 // A part, an extras-folder file, a file whose NAME marks it a sample, and a
-// non-media file are skipped before matching and counted in FilesSkipped:
-// the first three are a release's own packaging, and a "-sample" file
-// accompanies nearly every scene release, so listing each in the capped
-// unmatched list would evict the genuinely unattributable files the list
-// exists for. A SUSPECTED sample -- a video file only the size floor flags
-// -- is never skipped; see suspectedSample.
+// non-media file are not considered: each is counted by what it is
+// (Progress.NotMedia and friends) and matched against nothing. The first
+// three are a release's own packaging, and a "-sample" file accompanies
+// nearly every scene release, so listing each in the capped unmatched list
+// would evict the genuinely unattributable files the list exists for. A
+// SUSPECTED sample -- a video file only the size floor flags -- is never
+// passed over; see suspectedSample.
+//
+// An entry the walk cannot read is listed as unmatched ([CodeUnreadable])
+// and the walk carries on. After each file the tally's Resume marker moves
+// to it, so a redelivery picks up after the last file checkpointed.
 func (w *Worker) walk(ctx context.Context, m events.Message, st *scanState) error {
 	classifier := fileimport.ClassifierFor(fileKindForRoot(st.root.Spec.Kind), st.root.Spec.Path, w.SampleMaxBytes)
 	return classifier.Walk(ctx, st.task.Path, func(path string, info os.FileInfo, class fsops.FileClass) error {
 		if err := w.beat(ctx, m, st); err != nil {
 			return err
 		}
-
-		switch class {
-		case fsops.ClassMedia:
-		case fsops.ClassSuspectedSample:
-			surfaced, err := w.suspectedSample(ctx, st, path, info)
-			if err != nil {
-				return err
-			}
-			if surfaced {
-				return w.checkpoint(ctx, st, false)
-			}
-		default:
-			st.progress.FilesSkipped++
-			logging.FromContext(ctx).Debug("skipped a walked file",
-				"path", relPath(st.root.Spec.Path, path), "class", class.String())
-			return w.checkpoint(ctx, st, false)
+		if st.resuming(path) {
+			return nil
 		}
-		st.progress.FilesSeen++
-
-		if err := w.handleMediaFile(ctx, st, path, info); err != nil {
+		if err := w.visit(ctx, st, path, info, class); err != nil {
 			return err
 		}
+		st.progress.Resume = path
+		return w.checkpoint(ctx, st, false)
+	}, func(path string, err error) error {
+		if berr := w.beat(ctx, m, st); berr != nil {
+			return berr
+		}
+		if st.resuming(path) {
+			return nil
+		}
+		st.progress.Unreadable++
+		st.unmatched(relPath(st.root.Spec.Path, path), CodeUnreadable, fmt.Sprintf(
+			"could not be read, so the scan went on without it (and anything beneath it): %v", err), nil, w.now())
+		st.progress.Resume = path
 		return w.checkpoint(ctx, st, false)
 	})
+}
+
+// visit is one walked file's outcome, by its class.
+func (w *Worker) visit(ctx context.Context, st *scanState, path string, info os.FileInfo, class fsops.FileClass) error {
+	switch class {
+	case fsops.ClassMedia:
+	case fsops.ClassSuspectedSample:
+		surfaced, err := w.suspectedSample(ctx, st, path, info)
+		if err != nil || surfaced {
+			return err
+		}
+	default:
+		switch class {
+		case fsops.ClassPart:
+			st.progress.Parts++
+		case fsops.ClassExtra:
+			st.progress.Extras++
+		case fsops.ClassSample:
+			st.progress.Samples++
+		default:
+			st.progress.NotMedia++
+		}
+		logging.FromContext(ctx).Debug("did not consider a walked file",
+			"path", relPath(st.root.Spec.Path, path), "class", class.String())
+		return nil
+	}
+	st.progress.FilesSeen++
+	return w.handleMediaFile(ctx, st, path, info)
+}
+
+// walkHoldsMedia reports whether the walk of a manual assignment will visit
+// at least one plain media file (fsops.ClassMedia). A person who assigns a
+// FOLDER assigns the release in it, and a suspected sample beside real media
+// there is the promo clip that ships with it: it is left behind, reported as
+// unmatched, rather than swept into the item. A suspected sample that is the
+// folder's only video -- or a file subpath naming it -- is what the person
+// assigned, and is taken (see suspectedSample). It is a classification-only
+// pass, with no side effect, so a redelivery repeating it is harmless.
+func (w *Worker) walkHoldsMedia(ctx context.Context, st *scanState) (bool, error) {
+	classifier := fileimport.ClassifierFor(fileKindForRoot(st.root.Spec.Kind), st.root.Spec.Path, w.SampleMaxBytes)
+	found := false
+	err := classifier.Walk(ctx, st.task.Path, func(_ string, _ os.FileInfo, class fsops.FileClass) error {
+		if class == fsops.ClassMedia {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	}, func(string, error) error { return nil })
+	if err != nil {
+		return false, fmt.Errorf("rescan: look for media under %s: %w", st.task.Path, err)
+	}
+	return found, nil
 }
 
 // suspectedSample decides a file only the size floor flags as a sample
@@ -349,32 +532,45 @@ func (w *Worker) walk(ctx context.Context, m events.Message, st *scanState) erro
 // Two cases are not a guess, and surfaced is false so the walk attributes
 // the file like any other media file:
 //
-//   - a manual assignment: a person named this file's item, and a size
-//     does not overrule them. Without this, the unmatched page's assign
-//     action could never assign the very file this reports.
 //   - a path a MediaFile already records: the MediaFile is its
 //     attribution (see handleMediaFile), however it was made -- a manual
 //     assignment, or an import under a lower threshold -- and reporting it
 //     unmatched on every later scan would list a file that is in the
 //     catalog.
+//   - a manual assignment whose walk holds no other media file: a person
+//     named this file's item -- by a subpath naming the file, or a folder
+//     whose only video it is -- and a size does not overrule them. Without
+//     this, the unmatched page's assign action could never assign the very
+//     file this reports.
+//
+// A manual assignment of a folder that ALSO holds real media is the other
+// way round: the small file beside the release is its promo clip, and is
+// left behind -- surfaced as unmatched with the remedy -- rather than swept
+// into the item with the real file (walkHoldsMedia).
 //
 // A series root is left to handleMediaFile too, which reports every file
 // there as unsupported_root_kind -- the more fundamental reason, and one an
 // assignment could not resolve.
 func (w *Worker) suspectedSample(ctx context.Context, st *scanState, path string, info os.FileInfo) (surfaced bool, err error) {
-	if st.manual != nil || fileKindForRoot(st.root.Spec.Kind) == "" {
+	if fileKindForRoot(st.root.Spec.Kind) == "" {
 		return false, nil
 	}
 	existing, err := w.existingMediaFile(ctx, st.scan.Namespace, path)
 	if err != nil || existing != nil {
 		return false, err
 	}
+	remedy := "; if it is real media, assign it by hand (the unmatched page's assign action, or a LibraryScan " +
+		"annotated " + fileimport.AnnotationImportTarget + " whose subpath names this file)"
+	if st.manual != nil {
+		if !st.manualHasMedia {
+			return false, nil
+		}
+		remedy = "; left behind by this manual assignment, because the folder it assigns also holds real media " +
+			"and this is the promo clip beside it -- if it is real media, assign it with a subpath naming this file"
+	}
 	st.progress.FilesSeen++
 	st.unmatched(relPath(st.root.Spec.Path, path), CodeSuspectedSample,
-		fileimport.SuspectedSampleReason(info.Size(), w.SampleMaxBytes)+
-			"; if it is real media, assign it by hand (the unmatched page's assign action, or a LibraryScan "+
-			"annotated "+fileimport.AnnotationImportTarget+" whose subpath names this file)",
-		nil, w.now())
+		fileimport.SuspectedSampleReason(info.Size(), w.SampleMaxBytes)+remedy, nil, w.now())
 	return true, nil
 }
 
@@ -486,10 +682,11 @@ func (w *Worker) loadMovies(ctx context.Context, out *[]MovieCandidate, namespac
 // from status.metadata, which the metadata gateway fills in; a movie the
 // gateway has not reached yet still matches by tmdb id, just not by title.
 func candidateFor(m *catalogv1alpha1.Movie) MovieCandidate {
-	c := MovieCandidate{Name: m.Name, TmdbID: m.Spec.TmdbID}
+	c := MovieCandidate{Name: m.Name, TmdbID: m.Spec.TmdbID, QualityProfileRef: m.Spec.QualityProfileRef}
 	if m.Status.Metadata != nil {
 		c.Title = m.Status.Metadata.Title
 		c.Year = int(m.Status.Metadata.Year)
+		c.OriginalLanguage = m.Status.Metadata.OriginalLanguage
 	}
 	return c
 }

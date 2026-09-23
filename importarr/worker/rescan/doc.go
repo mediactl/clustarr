@@ -31,11 +31,26 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Classification is fsops', as the root folder's kind
 // (fileimport.ClassifierFor), and happens before matching. A part, a file
 // in a video extras folder beneath the root folder, a file whose name marks
-// it a sample, and a non-media file are skipped and counted in
-// filesSkipped. A video file only the size floor ([Worker.SampleMaxBytes])
-// flags is not skipped: a size is a guess, so it is recorded as unmatched
-// with [CodeSuspectedSample] and its size, unless a MediaFile already
-// records it or a person is assigning it.
+// it a sample, and a non-media file are not considered, and each is counted
+// by what it is (Progress.Parts, Extras, Samples, NotMedia) -- not as a
+// skipped media file, which filesSkipped once conflated them with. A video
+// file only the size floor ([Worker.SampleMaxBytes]) flags is not passed
+// over: a size is a guess, so it is recorded as unmatched with
+// [CodeSuspectedSample] and its size, unless a MediaFile already records it
+// or a person is assigning it. An entry the walk cannot read is recorded as
+// unmatched with [CodeUnreadable], and the walk carries on.
+//
+// [Progress] documents where every walked file lands; its Summary is the
+// breakdown LibraryScan.status has no counters for.
+//
+// # Redelivery
+//
+// A walk checkpoints its tally, with the last file it has counted
+// (Progress.Resume), to the clustarr-progress bucket. A redelivered task
+// reads that checkpoint back and resumes after that file, so a redelivery
+// neither counts a file twice nor drives the scan's counters backwards; a
+// redelivery of a walk that already wrote its final tally is a no-op; and a
+// task for a scan the controller has already settled is discarded.
 //
 // A path that already has a MediaFile is never attributed again: the
 // MediaFile is its attribution (spec.mediaRef is immutable), so a rescan
@@ -50,8 +65,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     Audiobook or Issue only (nonvideo.go explains why nothing on disk can
 //     honestly yield the provider id creating one would need). Files are
 //     classified as their own kind -- no video size floor, no video
-//     extras folders -- and freeze only the quality their extension
-//     determines exactly (fileimport.FrozenQuality).
+//     extras folders -- and freeze only the quality the file determines
+//     exactly (fileimport.FrozenFileQuality: a probe for music, the
+//     extension otherwise).
 //   - series: reported as unsupported_root_kind; episode attribution is not
 //     built.
 //
@@ -93,8 +109,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // The walk then records every file it visits against the target without
 // matching -- a person made the attribution, which is the one way the
 // never-guess rule admits an unmatchable file -- with
-// spec.importedFrom.manual=true. That includes a suspected_sample file: the
-// size floor does not overrule a person. It does not include a part, an
+// spec.importedFrom.manual=true. That includes a suspected_sample file that
+// is the only video the subpath holds: the size floor does not overrule a
+// person. A suspected sample BESIDE real media in an assigned folder is the
+// release's promo clip, and is left behind as unmatched with the remedy (a
+// subpath naming the file itself). It does not include a part, an
 // extras-folder file or a file whose name marks it a sample, which a
 // directory subpath would otherwise sweep into the item. It does not bypass the MediaFile rules: a
 // path already recorded against a different item is reported as unmatched
@@ -120,10 +139,22 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // (spec §8.5), and it never re-applies a MediaFile whose spec.original is
 // already false -- catalogarr has taken spec.sizeBytes, spec.modTime and
 // spec.original over after a transcode swap, and k8s.Apply's force-ownership
-// would silently reclaim them. Every write is made under [FieldManager],
-// which is k8s.ManagerImportarrWorker -- see that constant's doc comment for
-// why this worker does not share importarr's controller manager name even
-// though it runs in the same process.
+// would silently reclaim them. When such a file's bytes have changed on disk
+// it tells catalogarr instead, with one annotation
+// ([AnnotationObservedFingerprint]) under k8s.ManagerImportarr, which owns
+// nothing else on a MediaFile. And every apply to an existing MediaFile
+// carries the resourceVersion the walk read, so a takeover landing between
+// the read and the write is refused rather than reverted (handleMediaFile).
+// Every spec write is made under [FieldManager], which is
+// k8s.ManagerImportarrWorker -- see that constant's doc comment for why this
+// worker does not share importarr's controller manager name even though it
+// runs in the same process.
+//
+// A scanned movie file is scored against its movie's QualityProfile, as an
+// imported one is, so the two compare on the same terms: the formatScore,
+// matchedFormats and profileHash it freezes are the file-import worker's
+// (freshMovieSpec). A music file's quality is read from the file by a probe
+// (fileimport.FrozenFileQuality).
 //
 // The worker also never writes LibraryScan.status: the LibraryScan
 // controller is its single writer. Progress instead flows through a
@@ -166,8 +197,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // spec.path field index the incremental fingerprint check reads.
 //
 // Non-video attribution needs no new registration, but the walk now lists
-// Artists, Albums, Authors, Books, Audiobooks, Comics and Issues through the
-// manager's cache, so importarr's role needs get/list/watch on them: the
-// package-level +kubebuilder:rbac marker in worker.go says so, and takes
-// effect at the next `make manifests` plus chart sync.
+// Artists, Albums, Authors, Books, Audiobooks, Comics and Issues, and reads
+// QualityProfiles, through the manager's cache, so importarr's role needs
+// get/list/watch on them: the package-level +kubebuilder:rbac marker in
+// worker.go says so, and takes effect at the next `make manifests` plus
+// chart sync.
 package rescan

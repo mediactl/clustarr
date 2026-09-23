@@ -35,7 +35,6 @@ import (
 	"github.com/mediactl/clustarr/importarr/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
-	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
 // fixture is one namespace with a RootFolder, a LibraryScan and a planted
@@ -120,9 +119,17 @@ func TestHandleSkipsPartExtraAndSampleFiles(t *testing.T) {
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	assert.True(t, got.Done)
 	assert.Empty(t, got.Error)
-	assert.Equal(t, int64(4), got.FilesSkipped, "part, extra, sample and non-media are all skipped")
+	// Each is counted by what it is, and none of them as a skipped media
+	// file: FilesSkipped is the CRD's "an unchanged fingerprint", and these
+	// are not media at all.
+	assert.Equal(t, int64(1), got.Parts)
+	assert.Equal(t, int64(1), got.Extras)
+	assert.Equal(t, int64(1), got.Samples)
+	assert.Equal(t, int64(1), got.NotMedia)
+	assert.Zero(t, got.FilesSkipped, "no media file was skipped")
 	assert.Zero(t, got.FilesSeen, "nothing was classified as media")
-	assert.Empty(t, got.Unmatched, "a skipped file is not an unmatched file")
+	assert.Empty(t, got.Unmatched, "a file not considered is not an unmatched file")
+	assert.Contains(t, got.Summary(), "4 other files not considered (1 not media, 1 samples, 1 extras, 1 partial downloads)")
 
 	var movies catalogv1alpha1.MovieList
 	require.NoError(t, f.c.List(ctx, &movies, client.InNamespace(f.ns)))
@@ -192,61 +199,14 @@ func TestHandleCreatesMovieAndMediaFileSpecForAConfidentMatch(t *testing.T) {
 	assert.Empty(t, mf.Status.ProbeHash)
 	assert.Nil(t, mf.Status.MediaInfo)
 
-	// formatScore/matchedFormats/profileHash are importarr's fields but are
-	// deliberately unscored by library rescan: scoring needs the item's
-	// QualityProfile and pkg/quality/catalogue, which this path does not
-	// integrate yet.
+	// This fixture's "hd-bluray-web" names no QualityProfile that exists
+	// in the cluster, so the file is recorded unscored: no formatScore,
+	// matchedFormats or profileHash, and the empty profileHash says so.
+	// TestHandleScoresAScannedMovieFileAgainstItsProfile covers scoring.
 	assert.Zero(t, mf.Spec.FormatScore)
 	assert.Empty(t, mf.Spec.MatchedFormats)
 	assert.Empty(t, mf.Spec.ProfileHash)
 	assert.Empty(t, managerFor(t, mf.ManagedFields, "", "spec.formatScore"))
-}
-
-// Once catalogarr has flipped original=false it owns sizeBytes, modTime and
-// original. k8s.Apply forces ownership, so a re-walk that re-applied them
-// would silently reclaim them; the worker must leave the file alone.
-func TestHandleDoesNotReclaimFieldsCatalogarrOwnsPostTranscode(t *testing.T) {
-	ctx := context.Background()
-	f := newFixture(t, ctx, "rw-post-transcode", catalogv1alpha1.RootFolderKindMovie, "hd-bluray-web", catalogv1alpha1.ScanModeFull)
-
-	path := filepath.Join(f.root, "Heat (1995) [tmdbid-949]", "Heat (1995) [tmdbid-949] - Bluray-1080p.mkv")
-	mustWriteFile(t, path, sampleFloor)
-
-	movie := &catalogv1alpha1.Movie{
-		ObjectMeta: metav1.ObjectMeta{Name: "heat-949", Namespace: f.ns},
-		Spec:       catalogv1alpha1.MovieSpec{TmdbID: 949, QualityProfileRef: "hd-bluray-web", RootFolderRef: "movies"},
-	}
-	require.NoError(t, f.c.Create(ctx, movie))
-
-	notOriginal := false
-	mf := &catalogv1alpha1.MediaFile{
-		ObjectMeta: metav1.ObjectMeta{Name: k8s.ChildName(movie.Name, "mediafile", path), Namespace: f.ns},
-		Spec: catalogv1alpha1.MediaFileSpec{
-			MediaRef:  commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name},
-			Path:      path,
-			SizeBytes: 999, // deliberately stale against the real file
-			Original:  &notOriginal,
-		},
-	}
-	require.NoError(t, f.c.Create(ctx, mf))
-	waitFor(t, 10*time.Second, func() bool {
-		var list catalogv1alpha1.MediaFileList
-		return f.c.List(ctx, &list, client.InNamespace(f.ns),
-			client.MatchingFields{rescan.MediaFilePathIndexKey: path}) == nil && len(list.Items) == 1
-	})
-
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
-
-	var after catalogv1alpha1.MediaFile
-	require.NoError(t, f.c.Get(ctx, types.NamespacedName{Namespace: f.ns, Name: mf.Name}, &after))
-	assert.Equal(t, int64(999), after.Spec.SizeBytes, "catalogarr owns sizeBytes post-transcode")
-	assert.NotEqual(t, string(rescan.FieldManager), managerFor(t, after.ManagedFields, "", "spec.sizeBytes"),
-		"importarr must not have claimed sizeBytes on a file catalogarr took over")
-	assert.NotEqual(t, string(rescan.FieldManager), managerFor(t, after.ManagedFields, "", "spec.original"))
-
-	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
-	assert.Equal(t, int64(1), got.FilesSkipped)
-	assert.Zero(t, got.FilesMatched)
 }
 
 // An incremental scan skips a file whose size and mtime still match what the
@@ -269,10 +229,33 @@ func TestHandleIncrementalSkipsAnUnchangedFingerprint(t *testing.T) {
 			client.MatchingFields{rescan.MediaFilePathIndexKey: path}) == nil && len(list.Items) == 1
 	})
 
-	require.NoError(t, w.Handle(ctx, newFakeMessage(t, f.task(false))))
-	second := readProgress(t, ctx, f.bus, string(f.scan.UID))
+	next, msg := f.nextScan(t, ctx, "tick-2")
+	require.NoError(t, w.Handle(ctx, msg))
+	second := readProgress(t, ctx, f.bus, string(next.UID))
 	assert.Equal(t, int64(1), second.FilesSkipped, "the unchanged fingerprint is skipped")
+	assert.Equal(t, int64(1), second.Unchanged, "and counted as unchanged")
 	assert.Zero(t, second.FilesMatched)
+}
+
+// nextScan creates another LibraryScan of the fixture's root folder, as the
+// schedule's next tick would, and returns it with the task the controller
+// would publish for it. A second walk is a second scan: a second delivery of
+// the FIRST scan's task is a redelivery, which resumes that scan's tally
+// rather than walking again.
+func (f *fixture) nextScan(t *testing.T, ctx context.Context, name string) (*catalogv1alpha1.LibraryScan, *fakeMessage) {
+	t.Helper()
+	scan := &catalogv1alpha1.LibraryScan{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: f.ns},
+		Spec:       catalogv1alpha1.LibraryScanSpec{RootFolderRef: f.rf.Name, Mode: f.scan.Spec.Mode},
+	}
+	require.NoError(t, f.c.Create(ctx, scan))
+	waitFor(t, 10*time.Second, func() bool {
+		var got catalogv1alpha1.LibraryScan
+		return f.c.Get(ctx, types.NamespacedName{Namespace: f.ns, Name: name}, &got) == nil
+	})
+	task := f.task(false)
+	task.LibraryScanRef.Name, task.LibraryScanRef.UID = scan.Name, string(scan.UID)
+	return scan, newFakeMessage(t, task)
 }
 
 // The never-guess rule: a file with no provider id and no title match becomes

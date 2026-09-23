@@ -45,6 +45,10 @@ import (
 type manualAssign struct {
 	target fileimport.ImportTarget
 	ref    commonv1.MediaRef
+
+	// movie is the target Movie's scoring context -- its QualityProfile
+	// and original language -- when the target is a movie.
+	movie *MovieCandidate
 }
 
 // errScanRefused marks a LibraryScan the worker will not walk as asked: a
@@ -80,7 +84,7 @@ func (w *Worker) resolveManualAssign(
 			fileimport.AnnotationImportTarget, raw, root.Name, root.Spec.Kind)
 	}
 
-	itemRoot, err := w.itemRootFolder(ctx, scan.Namespace, t)
+	itemRoot, movie, err := w.itemRootFolder(ctx, scan.Namespace, t)
 	if err != nil {
 		return nil, err
 	}
@@ -88,12 +92,31 @@ func (w *Worker) resolveManualAssign(
 		return nil, refuse("%s %q names an item stored under root folder %q, not %q",
 			fileimport.AnnotationImportTarget, raw, itemRoot, root.Name)
 	}
-	return &manualAssign{target: t, ref: ref}, nil
+	return &manualAssign{target: t, ref: ref, movie: movie}, nil
 }
 
-// itemRootFolder reads the target and whatever parent names its root folder.
-// A NotFound anywhere refuses the scan; any other read error is transient.
-func (w *Worker) itemRootFolder(ctx context.Context, ns string, t fileimport.ImportTarget) (string, error) {
+// itemRootFolder reads the target and whatever parent names its root folder,
+// and, for a movie, the scoring context a file assigned to it freezes. A
+// NotFound anywhere refuses the scan; any other read error is transient.
+func (w *Worker) itemRootFolder(ctx context.Context, ns string, t fileimport.ImportTarget) (string, *MovieCandidate, error) {
+	if ref := t.FileRef(); ref.Kind == commonv1.MediaKindMovie {
+		var m catalogv1alpha1.Movie
+		if err := w.Client.Get(ctx, types.NamespacedName{Namespace: ns, Name: ref.Name}, &m); err != nil {
+			if apierrors.IsNotFound(err) {
+				return "", nil, refuse("%s %q names movie %q, which does not exist",
+					fileimport.AnnotationImportTarget, t.String(), ref.Name)
+			}
+			return "", nil, fmt.Errorf("rescan: get movie %s/%s: %w", ns, ref.Name, err)
+		}
+		c := candidateFor(&m)
+		return m.Spec.RootFolderRef, &c, nil
+	}
+	root, err := w.nonMovieRootFolder(ctx, ns, t)
+	return root, nil, err
+}
+
+// nonMovieRootFolder is itemRootFolder for every kind but a movie.
+func (w *Worker) nonMovieRootFolder(ctx context.Context, ns string, t fileimport.ImportTarget) (string, error) {
 	get := func(kind, name string, obj client.Object) error {
 		if err := w.Client.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, obj); err != nil {
 			if apierrors.IsNotFound(err) {
@@ -106,12 +129,6 @@ func (w *Worker) itemRootFolder(ctx context.Context, ns string, t fileimport.Imp
 	}
 	ref := t.FileRef()
 	switch ref.Kind {
-	case commonv1.MediaKindMovie:
-		var m catalogv1alpha1.Movie
-		if err := get("movie", ref.Name, &m); err != nil {
-			return "", err
-		}
-		return m.Spec.RootFolderRef, nil
 	case commonv1.MediaKindAlbum:
 		var al catalogv1alpha1.Album
 		if err := get("album", ref.Name, &al); err != nil {
@@ -173,13 +190,18 @@ func (w *Worker) assignManually(
 	ctx context.Context, st *scanState, path, rel string, info os.FileInfo, existing *catalogv1alpha1.MediaFile,
 ) error {
 	ref := st.manual.ref
-	fresh := freshNonVideoSpec(ref.Kind, path, rel)
+	fresh := w.freshNonVideoSpec(ctx, ref.Kind, path, rel)
 	if ref.Kind == commonv1.MediaKindMovie {
 		// A movie file's release identity still comes from its name when
-		// the name parses; an unparseable one is recorded without it.
+		// the name parses, scored like any scanned file; an unparseable one
+		// is recorded without it.
 		fresh = frozenFields{}
 		if parsed, err := release.ParsePath(path, release.Options{Kind: commonv1.MediaKindMovie}); err == nil {
-			fresh = freshMovieSpec(parsed)
+			var profile, language string
+			if m := st.manual.movie; m != nil {
+				profile, language = m.QualityProfileRef, m.OriginalLanguage
+			}
+			fresh = w.freshMovieSpec(ctx, st, parsed, profile, language)
 		}
 	}
 	fresh.importedFrom = catalogac.ImportSource().

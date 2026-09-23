@@ -19,6 +19,8 @@ package fsops_test
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -200,6 +202,37 @@ func TestSizeRuleIsVideoOnly(t *testing.T) {
 	assert.True(t, fsops.IsSuspectedSample(fsops.KindVideo, "Movie.mkv", mib, fsops.DefaultSampleMaxBytes), "video keeps the floor")
 }
 
+// TestIsSampleIsAMarkerNotAWordSearch pins the "Free Samples" fix: the
+// name rule matches "sample" where a releaser puts the marker, never as a
+// word of the title, which used to drop the real file as its own sample.
+func TestIsSampleIsAMarkerNotAWordSearch(t *testing.T) {
+	for name, want := range map[string]bool{
+		// Titles that contain the word.
+		"Free Samples (2012).mkv":                     false,
+		"Free Samples (2012)/Free Samples (2012).mkv": false,
+		"Free.Samples.2012.1080p.BluRay.x264-GRP.mkv": false,
+		"Sample (2020).mkv":                           false,
+		"Sample.2020.1080p.WEB-DL.mkv":                false,
+		"The Sample Room (1999).mkv":                  false,
+		"sampler.mkv":                                 false,
+		"Movie.Title.2024.Resampled.mkv":              false,
+		// The markers releases use.
+		"free.samples.2012.1080p.bluray.x264-grp-sample.mkv": true,
+		"Free.Samples.2012.1080p.BluRay.x264-GRP.Sample.mkv": true,
+		"Free Samples (2012) - Sample.mkv":                   true,
+		"sample-free.samples.2012.mkv":                       true,
+		"sample_heat.mkv":                                    true,
+		"Heat [sample].mkv":                                  true,
+		"heat_SAMPLE.mkv":                                    true,
+		"SAMPLE.mkv":                                         true,
+		"samples.mkv":                                        true,
+	} {
+		assert.Equalf(t, want, fsops.IsSample(fsops.KindVideo, "/lib/"+name), "%s", name)
+	}
+	assert.False(t, fsops.IsSample(fsops.KindBook, "/lib/Author/The Sample/The Sample.epub"), "a book called The Sample")
+	assert.True(t, fsops.IsSample(fsops.KindBook, "/lib/Author/The Sample/The Sample (Sample).epub"))
+}
+
 func TestIsSampleNameRuleByKind(t *testing.T) {
 	assert.True(t, fsops.IsSample(fsops.KindVideo, "Movie.Title.2024.Sample.mkv"))
 	assert.True(t, fsops.IsSample(fsops.KindBook, "Book (Sample).epub"))
@@ -236,9 +269,84 @@ func walk(t *testing.T, c fsops.Classifier, dir string) map[string]fsops.FileCla
 		require.NoError(t, err)
 		got[filepath.ToSlash(rel)] = class
 		return nil
+	}, func(path string, err error) error {
+		t.Fatalf("no entry of this tree is unreadable, got %s: %v", path, err)
+		return nil
 	})
 	require.NoError(t, err)
 	return got
+}
+
+// unreadableTree plants a tree whose middle directory cannot be listed
+// (mode 0), between readable files in walk order, and restores the mode on
+// cleanup so t.TempDir can remove it.
+func unreadableTree(t *testing.T) (root, locked string) {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a mode-0 directory anyway")
+	}
+	root = sparseTree(t, map[string]int64{
+		"a/Alpha (2001).mkv":       2 * gib,
+		"b-locked/Beta (2002).mkv": 2 * gib,
+		"c/Gamma (2003).mkv":       2 * gib,
+		"d/Delta (2004)/Delta.mkv": 2 * gib,
+	})
+	locked = filepath.Join(root, "b-locked")
+	require.NoError(t, os.Chmod(locked, 0))
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+	return root, locked
+}
+
+// TestWalkCarriesOnPastAnUnreadableDirectory is the carried "fsops.Walk
+// aborts the whole walk on one unreadable file" fix: the directory that
+// cannot be listed goes to unreadable, with the filesystem's error, and
+// every readable file before AND after it in walk order still reaches fn.
+func TestWalkCarriesOnPastAnUnreadableDirectory(t *testing.T) {
+	root, locked := unreadableTree(t)
+	c := fsops.Classifier{Kind: fsops.KindVideo, Root: root, SampleMaxBytes: fsops.DefaultSampleMaxBytes}
+
+	var seen []string
+	unreadable := map[string]error{}
+	err := c.Walk(context.Background(), root, func(path string, _ os.FileInfo, _ fsops.FileClass) error {
+		rel, _ := filepath.Rel(root, path)
+		seen = append(seen, filepath.ToSlash(rel))
+		return nil
+	}, func(path string, err error) error {
+		unreadable[path] = err
+		return nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a/Alpha (2001).mkv", "c/Gamma (2003).mkv", "d/Delta (2004)/Delta.mkv"}, seen)
+	require.Len(t, unreadable, 1)
+	require.ErrorIs(t, unreadable[locked], fs.ErrPermission)
+}
+
+// TestWalkWithoutAnUnreadableFuncStopsAtTheFirstUnreadableEntry keeps
+// filepath.WalkDir's behaviour for a caller that opts out, and an error from
+// unreadable ends the walk with that error.
+func TestWalkWithoutAnUnreadableFuncStopsAtTheFirstUnreadableEntry(t *testing.T) {
+	root, _ := unreadableTree(t)
+	c := fsops.Classifier{Kind: fsops.KindVideo, Root: root}
+	noop := func(string, os.FileInfo, fsops.FileClass) error { return nil }
+
+	require.ErrorIs(t, c.Walk(context.Background(), root, noop, nil), fs.ErrPermission)
+
+	stop := errors.New("stop")
+	require.ErrorIs(t, c.Walk(context.Background(), root, noop, func(string, error) error { return stop }), stop)
+}
+
+// TestWalkOfAnUnreadableDirReturnsTheError: when the walked directory
+// itself cannot be listed there is nothing to walk, so it is the walk's
+// error, not an unreadable entry.
+func TestWalkOfAnUnreadableDirReturnsTheError(t *testing.T) {
+	_, locked := unreadableTree(t)
+	c := fsops.Classifier{Kind: fsops.KindVideo, Root: filepath.Dir(locked)}
+	err := c.Walk(context.Background(), locked, func(string, os.FileInfo, fsops.FileClass) error { return nil },
+		func(path string, err error) error {
+			t.Fatalf("the walked dir itself is not an unreadable entry: %s: %v", path, err)
+			return nil
+		})
+	require.ErrorIs(t, err, fs.ErrPermission)
 }
 
 // TestWalkClassifiesByKind walks one real tree per kind, with real sizes
@@ -318,6 +426,6 @@ func TestWalkStopsOnCancellation(t *testing.T) {
 	err := c.Walk(ctx, fixtureRoot, func(string, os.FileInfo, fsops.FileClass) error {
 		t.Fatal("fn must not be called once ctx is already cancelled")
 		return nil
-	})
+	}, nil)
 	require.ErrorIs(t, err, context.Canceled)
 }

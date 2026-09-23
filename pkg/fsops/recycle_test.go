@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 
 	"github.com/mediactl/clustarr/pkg/fsops"
 )
@@ -180,4 +181,35 @@ func TestRecycleLinkKeepsTheSourceAndLinksItIntoTheBin(t *testing.T) {
 	dest2, err := fsops.RecycleLink(root, src)
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(root, day, "Film.2020-2.mkv"), dest2)
+}
+
+// TestDefaultRecycleBinIsTheCRDs pins DefaultRecycleBin to the generated
+// RootFolder CRD's default for spec.recycleBin.path, so the two cannot drift.
+func TestDefaultRecycleBinIsTheCRDs(t *testing.T) {
+	raw, err := os.ReadFile("../../config/crd/bases/catalog.clustarr.io_rootfolders.yaml")
+	require.NoError(t, err)
+	var crd struct {
+		Spec struct {
+			Versions []struct {
+				Schema struct {
+					OpenAPIV3Schema struct {
+						Properties map[string]struct {
+							Properties map[string]struct {
+								Properties map[string]struct {
+									Default any `json:"default"`
+								} `json:"properties"`
+							} `json:"properties"`
+						} `json:"properties"`
+					} `json:"openAPIV3Schema"`
+				} `json:"schema"`
+			} `json:"versions"`
+		} `json:"spec"`
+	}
+	require.NoError(t, yaml.Unmarshal(raw, &crd))
+	require.NotEmpty(t, crd.Spec.Versions)
+	got := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"].Properties["recycleBin"].Properties["path"].Default
+	require.Equal(t, fsops.DefaultRecycleBin, got)
+
+	require.Equal(t, fsops.DefaultRecycleBin, fsops.RecycleBinPath(""))
+	require.Equal(t, "/data/elsewhere", fsops.RecycleBinPath("/data/elsewhere"))
 }

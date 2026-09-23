@@ -19,6 +19,7 @@ package fileimport_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -87,4 +88,33 @@ func TestAnUntaggedImportTakesTheMoviesOriginalLanguage(t *testing.T) {
 	untagged := f.importOne(t, "lang-dl", "The.Matrix.1999.1080p.BluRay.x264-SPARKS.mkv")
 	require.Equal(t, []string{"Japanese"}, untagged.Spec.Languages,
 		"an untagged file takes the item's original language, not the parser's English default")
+}
+
+// TestAnUnreadableFolderInADownloadIsARejectionNotAnAbort: a folder of the
+// download the walk cannot list is reported on status.import and the rest
+// of the download is still imported. It sorts before the movie file, so a
+// walk that aborted on it would import nothing.
+func TestAnUnreadableFolderInADownloadIsARejectionNotAnAbort(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a mode-0 directory anyway")
+	}
+	ctx := context.Background()
+	f := newFixture(t, "fi-unreadable")
+	contentRoot := dataDir(t, "scratch")
+	mustWriteSparseFile(t, filepath.Join(contentRoot, "Movie", "The.Matrix.1999.1080p.BluRay.x264-SPARKS.mkv"), sampleFloor)
+	locked := filepath.Join(contentRoot, "Extras-locked")
+	mustWriteSparseFile(t, filepath.Join(locked, "bonus.mkv"), sampleFloor)
+	require.NoError(t, os.Chmod(locked, 0))
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+
+	dl := f.createDownload(t, "unreadable-dl", contentRoot, commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: f.movieName})
+	require.NoError(t, f.worker.Handle(ctx, newImportTaskMessage(t, f.ns, dl.Name, "")))
+
+	var got downloadv1alpha1.Download
+	require.NoError(t, f.api.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: dl.Name}, &got))
+	require.NotNil(t, got.Status.Import)
+	require.Equal(t, downloadv1alpha1.ImportPhaseImported, got.Status.Import.State, "message: %s", got.Status.Import.Message)
+	require.Len(t, got.Status.Import.Imported, 1)
+	require.Len(t, got.Status.Import.Rejections, 1)
+	require.Contains(t, got.Status.Import.Rejections[0], "Extras-locked: could not be read")
 }

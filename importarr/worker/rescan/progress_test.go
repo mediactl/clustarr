@@ -18,6 +18,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package rescan_test
 
 import (
+	"io/fs"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -53,6 +56,14 @@ func TestProgressEncodeDecodeRoundTrip(t *testing.T) {
 					Candidates: []string{"movie-a", "movie-b"},
 					SeenAt:     seenAt,
 				}},
+			},
+		},
+		{
+			name: "resumable checkpoint with the breakdown",
+			in: rescan.Progress{
+				FilesSeen: 12, FilesMatched: 7, FilesSkipped: 4, Unchanged: 2, Transcoded: 1, Deferred: 1,
+				HandedOver: 1, NotMedia: 5, Parts: 1, Extras: 2, Samples: 3, Unreadable: 1,
+				Resume: "/data/media/movies/Heat (1995)/Heat (1995).mkv",
 			},
 		},
 		{
@@ -95,4 +106,48 @@ func TestProgressKeyIsNamespacedUnderScan(t *testing.T) {
 	assert.True(t, events.ValidKVKey(rescan.ProgressKey("")),
 		"an empty UID must still produce a legal key, not a trailing dot")
 	assert.NotEqual(t, rescan.ProgressKey(""), rescan.ProgressKey("\x00"))
+}
+
+// walkOrderLess must agree with the order filepath.WalkDir really visits a
+// tree in, or a resumed walk would pass over files it never counted (or
+// count some twice). It is checked against a real walk, including the case
+// a plain string comparison gets wrong: "a/b" is visited before "a-c".
+func TestWalkOrderLessMatchesWalkDir(t *testing.T) {
+	root := t.TempDir()
+	for _, rel := range []string{"a/b", "a-c", "a/b/z.mkv", "a/c.mkv", "a-c/x.mkv", "B.mkv", "a.mkv", "a/b.mkv", "ab/y.mkv"} {
+		p := filepath.Join(root, rel)
+		if filepath.Ext(rel) == "" {
+			require.NoError(t, os.MkdirAll(p, 0o755))
+			continue
+		}
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		require.NoError(t, os.WriteFile(p, nil, 0o600))
+	}
+	var visited []string
+	require.NoError(t, filepath.WalkDir(root, func(p string, _ fs.DirEntry, err error) error {
+		visited = append(visited, p)
+		return err
+	}))
+	for i := range visited {
+		for j := range visited {
+			assert.Equalf(t, i < j, rescan.WalkOrderLess(visited[i], visited[j]),
+				"%s before %s", visited[i], visited[j])
+		}
+	}
+	assert.False(t, "a/b" < "a-c", "setup: the plain string order disagrees here")
+}
+
+// Summary is the Ready condition's message: the counters the status has,
+// then the breakdown it has no field for, zero clauses left out.
+func TestProgressSummary(t *testing.T) {
+	assert.Equal(t, "0 files seen, 0 matched, 0 unmatched", rescan.Progress{}.Summary())
+	assert.Equal(t,
+		"12 files seen, 7 matched, 4 skipped (2 unchanged, 1 transcoded, left to catalogarr, 1 changed during the scan, left to the next), "+
+			"1 unmatched; 1 transcoded files changed on disk, handed to catalogarr; 2 could not be read; "+
+			"9 other files not considered (5 not media, 3 samples, 1 partial downloads)",
+		rescan.Progress{
+			FilesSeen: 12, FilesMatched: 7, FilesSkipped: 4, Unchanged: 2, Transcoded: 1, Deferred: 1,
+			HandedOver: 1, Unreadable: 2, NotMedia: 5, Samples: 3, Parts: 1,
+			Unmatched: []rescan.UnmatchedFile{{Path: "x.mkv"}},
+		}.Summary())
 }

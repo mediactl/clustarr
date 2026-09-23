@@ -40,6 +40,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/naming"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -92,6 +93,11 @@ type Worker struct {
 	// Clock is the time source, injected so tests are deterministic.
 	Clock func() time.Time
 
+	// ProbeAudio reads a music file's codec and bitrate, the only way to
+	// freeze a lossy track's quality (FrozenFileQuality). NewWorker sets
+	// mediainfo.ProbeAudio; nil freezes by extension alone, as before.
+	ProbeAudio AudioProber
+
 	// SampleMaxBytes is the video size floor (fsops.IsSuspectedSample): a
 	// video file smaller than this whose name does not mark it a sample is
 	// a SUSPECTED sample, recorded as a rejection on status.import rather
@@ -110,7 +116,7 @@ type Worker struct {
 func NewWorker(c client.Client, bus events.Bus) *Worker {
 	return &Worker{
 		Client: c, Bus: bus, Catalogue: catalogue.LoadedCatalogue(), Clock: time.Now,
-		SampleMaxBytes: fsops.DefaultSampleMaxBytes,
+		ProbeAudio: mediainfo.ProbeAudio, SampleMaxBytes: fsops.DefaultSampleMaxBytes,
 	}
 }
 

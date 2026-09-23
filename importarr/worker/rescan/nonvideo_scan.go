@@ -255,18 +255,19 @@ func (w *Worker) handleNonVideoFile(ctx context.Context, st *scanState, path, re
 		st.unmatched(rel, m.Code, m.Reason, m.Candidates, now)
 		return nil
 	}
-	return w.recordAttribution(ctx, st, path, rel, info, existing, m.Ref, freshNonVideoSpec(m.Ref.Kind, path, rel))
+	return w.recordAttribution(ctx, st, path, rel, info, existing, m.Ref, w.freshNonVideoSpec(ctx, m.Ref.Kind, path, rel))
 }
 
 // freshNonVideoSpec is what a first sighting of a non-video file freezes:
-// the quality its extension settles (none when it does not; see
-// fileimport.FrozenQuality, which also reads a 24-bit marker in the path
-// relative to the root, rel) and the kind's release type. There is no
-// revision, group, edition or language to parse from a track, part, ebook or
-// issue file name, and no custom-format score, which is TRaSH video data.
-func freshNonVideoSpec(kind commonv1.MediaKind, path, rel string) frozenFields {
+// the quality the file settles (fileimport.FrozenFileQuality: a music file
+// is probed for its codec and bitrate, anything else goes by its extension,
+// and a 24-bit marker in rel counts where the probe cannot say) and the
+// kind's release type. There is no revision, group, edition or language to
+// parse from a track, part, ebook or issue file name, and no custom-format
+// score, which is TRaSH video data.
+func (w *Worker) freshNonVideoSpec(ctx context.Context, kind commonv1.MediaKind, path, rel string) frozenFields {
 	f := frozenFields{releaseType: fileimport.ReleaseTypeFor(kind)}
-	if q, ok := fileimport.FrozenQuality(kind, path, rel); ok {
+	if q, ok := fileimport.FrozenFileQuality(ctx, w.ProbeAudio, kind, path, rel); ok {
 		f.quality = &q
 	}
 	return f

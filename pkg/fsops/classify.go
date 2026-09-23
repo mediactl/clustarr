@@ -19,6 +19,7 @@ package fsops
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -137,7 +138,14 @@ func IsExtra(kind Kind, root, path string) bool {
 	return false
 }
 
-var sampleRE = regexp.MustCompile(`(?i)(^|[^a-zA-Z0-9])sample(s)?([^a-zA-Z0-9]|$)`)
+// sampleRE is the sample marker in a file's stem (its name without the
+// extension): the word "sample" (or "samples") where a release puts the
+// marker -- the whole stem ("sample.mkv"), the last token after a scene
+// separator or a " - " ("heat-sample", "Movie.2024.Sample", "Book - Sample"),
+// the same in brackets ("Book (Sample)", "Movie [sample]"), or the first
+// token before a "-" or "_" ("sample-heat"). See IsSample for what it
+// deliberately does not match.
+var sampleRE = regexp.MustCompile(`(?i)^(?:samples?|samples?[-_].*|.*(?:[-._(\[]|\s-\s)samples?[)\]]?)$`)
 
 // DefaultSampleMaxBytes is the video size floor's default: a video file
 // smaller than this, whose name does not say it is a sample, is
@@ -145,13 +153,26 @@ var sampleRE = regexp.MustCompile(`(?i)(^|[^a-zA-Z0-9])sample(s)?([^a-zA-Z0-9]|$
 const DefaultSampleMaxBytes int64 = 50 * 1024 * 1024 // 50 MiB
 
 // IsSample reports whether path's NAME marks it as a promotional sample
-// bundled in a release of kind rather than the release itself: the
-// filename signature \bsample(s)?\b, case-insensitive. That label is the
-// release author's own declaration, which is why a caller may act on it
-// (skip the file) where it must not act on the size heuristic
-// (IsSuspectedSample). The rule depends on kind:
+// bundled in a release of kind rather than the release itself: "sample"
+// (or "samples") as the marker a releaser appends or prepends -- the whole
+// file stem, its last token after "-", ".", "_" or " - " or in brackets,
+// or its first token before "-" or "_" (sampleRE), case-insensitive. That
+// label is the release author's own declaration, which is why a caller may
+// act on it (skip the file) where it must not act on the size heuristic
+// (IsSuspectedSample).
 //
-//   - video, audiobook, book, comic: the filename signature.
+// It is a marker, not a word search. "Sample" anywhere else in a name is
+// part of a title -- "Free Samples (2012).mkv", "Free.Samples.2012.1080p.
+// BluRay.x264-GRP.mkv", a book called "The Sample" -- and matching it
+// there dropped the real file as its own sample. A title word never sits
+// where the marker does in a scene or *arr name: a year, a quality or a
+// group follows the title, and a space (not a separator) sits before a
+// title's last word. "Sample.2020.1080p.mkv" is therefore NOT a sample
+// either: a leading marker needs "-" or "_" after it.
+//
+// The rule depends on kind:
+//
+//   - video, audiobook, book, comic: the marker.
 //   - music: never. Per Radarr's and Lidarr's source as DeepWiki summarises
 //     it -- unverified here, since no research note covers sample
 //     detection (docs/research/naming.md §A4 and §A6 name the "sample"
@@ -166,7 +187,8 @@ const DefaultSampleMaxBytes int64 = 50 * 1024 * 1024 // 50 MiB
 func IsSample(kind Kind, path string) bool {
 	switch kind {
 	case KindVideo, KindAudiobook, KindBook, KindComic:
-		return sampleRE.MatchString(filepath.Base(path))
+		base := filepath.Base(path)
+		return sampleRE.MatchString(strings.TrimSuffix(base, filepath.Ext(base)))
 	default:
 		return false
 	}
@@ -278,26 +300,66 @@ func (c Classifier) Classify(path string, size int64) FileClass {
 	}
 }
 
+// UnreadableFunc is told about an entry beneath a walked directory that
+// [Classifier.Walk] could not read: a directory it could not list, or a file
+// it could not stat. err is the filesystem's error. Returning nil carries on
+// with the rest of the walk; a non-nil error ends it, and Walk returns it
+// unwrapped.
+type UnreadableFunc func(path string, err error) error
+
 // Walk walks dir -- c.Root or a directory (or single file) beneath it -- in
 // lexical order and calls fn for every regular file with its c.Classify
 // class. It never drops a file silently: every regular file under dir
 // reaches fn exactly once, and what a class means is the caller's decision.
-// Walk returns ctx.Err() as soon as ctx is cancelled between files, and
-// returns fn's first non-nil error unwrapped.
-func (c Classifier) Walk(ctx context.Context, dir string, fn func(path string, info os.FileInfo, class FileClass) error) error {
-	return filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
+//
+// One unreadable entry does not end the walk. A directory beneath dir that
+// cannot be listed, or a file that cannot be stat'ed, goes to unreadable
+// instead, and the walk carries on with everything else; a directory that
+// failed part-way is still walked for the entries it did list. What an
+// unreadable entry means -- a line in LibraryScan.status.unmatched, a
+// rejection on Download.status.import -- is the caller's decision too, which
+// is why unreadable is a parameter rather than something a caller can
+// forget: a nil unreadable ends the walk on the first such entry, as
+// filepath.WalkDir itself would. Two cases are not reported:
+//
+//   - dir itself cannot be read: there is nothing to walk at all, so Walk
+//     returns that error.
+//   - an entry that no longer exists (fs.ErrNotExist) by the time it is
+//     read -- a partial file the download client renamed, a file a person
+//     moved mid-walk -- is gone rather than unreadable, and is passed over.
+//
+// Walk returns ctx.Err() as soon as ctx is cancelled between entries, and
+// returns fn's or unreadable's first non-nil error unwrapped.
+func (c Classifier) Walk(
+	ctx context.Context, dir string, fn func(path string, info os.FileInfo, class FileClass) error, unreadable UnreadableFunc,
+) error {
+	failed := func(p string, err error) error {
+		switch {
+		case p == dir || unreadable == nil:
 			return err
+		case errors.Is(err, fs.ErrNotExist):
+			return nil
+		default:
+			return unreadable(p, err)
 		}
+	}
+	return filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
+		}
+		if err != nil {
+			// A directory WalkDir could not list (the second call it makes
+			// for it) or an entry it could not Lstat. Returning nil from
+			// the second call for a directory walks the entries its
+			// ReadDir did return.
+			return failed(p, err)
 		}
 		if d.IsDir() {
 			return nil
 		}
 		info, infoErr := d.Info()
 		if infoErr != nil {
-			return infoErr
+			return failed(p, infoErr)
 		}
 		return fn(p, info, c.Classify(p, info.Size()))
 	})

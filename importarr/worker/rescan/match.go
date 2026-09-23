@@ -67,6 +67,11 @@ const (
 	// does not mark it a sample: it may be a promo clip, or a real short
 	// film, and a size cannot say which.
 	CodeSuspectedSample = "suspected_sample"
+
+	// CodeUnreadable is an entry the walk could not read -- a folder it
+	// could not list, a file it could not stat. The walk goes on without
+	// it; the reason carries the filesystem's error.
+	CodeUnreadable = "unreadable"
 )
 
 // MovieCandidate is one existing Movie, reduced to what matching needs. The
@@ -87,6 +92,16 @@ type MovieCandidate struct {
 	// Year is the movie's release year, from status.metadata; zero when
 	// unknown.
 	Year int
+
+	// QualityProfileRef is Movie.spec.qualityProfileRef: the profile a
+	// file attributed to this movie is scored against. MatchMovie does not
+	// read it.
+	QualityProfileRef string
+
+	// OriginalLanguage is status.metadata.originalLanguage (a BCP-47 tag):
+	// the language an untagged file of this movie takes, and the one
+	// custom-format scoring compares against. MatchMovie does not read it.
+	OriginalLanguage string
 }
 
 // ResolveIMDb turns an IMDb id into a TMDB id, normally by asking the

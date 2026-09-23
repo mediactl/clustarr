@@ -60,6 +60,10 @@ const sampleFloor = 60 << 20
 // MatchingFields lookup the worker makes on every file.
 var testClient client.Client
 
+// testAPI reads straight from the apiserver, past the cache, for a test that
+// must see the object as stored rather than as last delivered.
+var testAPI client.Reader
+
 func TestMain(m *testing.M) {
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
 		os.Exit(m.Run()) // every envtest below skips itself
@@ -97,6 +101,7 @@ func TestMain(m *testing.M) {
 			return 1
 		}
 		testClient = mgr.GetClient()
+		testAPI = mgr.GetAPIReader()
 		return m.Run()
 	}()
 
@@ -104,6 +109,13 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "stop envtest: %v\n", err)
 	}
 	os.Exit(code)
+}
+
+// api is the uncached reader; see testAPI.
+func (f *fixture) api(t *testing.T) client.Reader {
+	t.Helper()
+	require.NotNil(t, testAPI)
+	return testAPI
 }
 
 // requireEnvtest skips a test when the apiserver assets are absent. A suite
@@ -252,7 +264,13 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
 // honour.
 func managerFor(t *testing.T, entries []metav1.ManagedFieldsEntry, subresource, jsonPath string) string {
 	t.Helper()
-	parts := splitPath(jsonPath)
+	return managerForParts(t, entries, subresource, splitPath(jsonPath)...)
+}
+
+// managerForParts is managerFor over explicit path segments, for a key that
+// itself contains dots (an annotation such as catalog.clustarr.io/...).
+func managerForParts(t *testing.T, entries []metav1.ManagedFieldsEntry, subresource string, parts ...string) string {
+	t.Helper()
 	for _, e := range entries {
 		if e.Subresource != subresource || e.FieldsV1 == nil {
 			continue

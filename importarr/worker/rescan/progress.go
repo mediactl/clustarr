@@ -20,6 +20,7 @@ package rescan
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/mediactl/clustarr/pkg/events"
@@ -56,6 +57,28 @@ type UnmatchedFile struct {
 // aggregates it into status, because the controller is the single writer of
 // LibraryScan.status and the single-writer rule has no worker exception
 // here.
+//
+// # What the counters mean
+//
+// Every regular file the walk visits lands in exactly one place:
+//
+//   - a media file of the root folder's kind (or a suspected sample) is
+//     SEEN, and then matched (FilesMatched), skipped (FilesSkipped, and one
+//     of Unchanged, Transcoded or Deferred says why) or unmatched (an entry
+//     in Unmatched, which is capped, so the count is not derivable from
+//     the list);
+//   - anything else is NOT CONSIDERED, and one of NotMedia, Parts, Extras
+//     or Samples counts it. Those never reach LibraryScan.status's
+//     counters: they are not media, so they are neither matched nor
+//     skipped media -- which is what FilesSkipped used to conflate them
+//     with, alongside unchanged and transcoded files;
+//   - an entry the walk could not read is counted in Unreadable and listed
+//     in Unmatched with [CodeUnreadable].
+//
+// LibraryScanStatus has one skip counter and no field for the rest, so the
+// controller writes FilesSkipped (the CRD's own "an incremental scan
+// skipping an unchanged fingerprint") and renders the whole breakdown,
+// [Progress.Summary], into the Ready condition's message.
 type Progress struct {
 	// Done is true once the walk has finished, successfully or not. Until
 	// then the controller keeps the scan in the Running phase.
@@ -65,11 +88,13 @@ type Progress struct {
 	// the Failed phase and a False Ready condition.
 	Error string `json:"error,omitempty"`
 
-	// FilesSeen counts files classified as media and therefore considered
-	// for attribution.
+	// FilesSeen counts files classified as media (a suspected sample
+	// included) and therefore considered for attribution.
 	FilesSeen int64 `json:"filesSeen"`
 
-	// FilesMatched counts files attributed to a catalog item.
+	// FilesMatched counts files attributed to a catalog item and recorded:
+	// a MediaFile created or refreshed, or a post-transcode file's change
+	// handed to catalogarr (HandedOver).
 	FilesMatched int64 `json:"filesMatched"`
 
 	// ItemsCreated counts catalog items the walk created.
@@ -78,15 +103,93 @@ type Progress struct {
 	// ItemsUpdated counts catalog items the walk updated.
 	ItemsUpdated int64 `json:"itemsUpdated"`
 
-	// FilesSkipped counts files the walk deliberately did not consider: a
-	// file whose name marks it a sample, an extra, a part or a non-media
-	// file, an unchanged incremental fingerprint, or a file catalogarr owns
-	// post-transcode. A suspected sample (size alone) is not skipped: it is
-	// seen and unmatched.
+	// FilesSkipped counts media files already in the catalog that the walk
+	// deliberately wrote nothing for: Unchanged + Transcoded + Deferred.
 	FilesSkipped int64 `json:"filesSkipped"`
+
+	// Unchanged counts files an incremental scan found at the size and
+	// mtime their MediaFile records.
+	Unchanged int64 `json:"unchanged,omitempty"`
+
+	// Transcoded counts post-transcode files (spec.original false, so
+	// catalogarr owns their fingerprint) found unchanged on disk.
+	Transcoded int64 `json:"transcoded,omitempty"`
+
+	// Deferred counts files whose MediaFile changed between the walk
+	// reading it and writing it, twice over; the next scan picks them up.
+	Deferred int64 `json:"deferred,omitempty"`
+
+	// HandedOver counts post-transcode files whose bytes changed on disk:
+	// the walk told catalogarr (AnnotationObservedFingerprint) instead of
+	// writing the fields it owns. Also counted in FilesMatched.
+	HandedOver int64 `json:"handedOver,omitempty"`
+
+	// NotMedia, Parts, Extras and Samples count the files the walk did not
+	// consider at all: a non-media extension, a partial download, a file in
+	// a video extras folder, and a file whose name marks it a sample.
+	NotMedia int64 `json:"notMedia,omitempty"`
+	Parts    int64 `json:"parts,omitempty"`
+	Extras   int64 `json:"extras,omitempty"`
+	Samples  int64 `json:"samples,omitempty"`
+
+	// Unreadable counts entries the walk could not read (each is also in
+	// Unmatched, with [CodeUnreadable]).
+	Unreadable int64 `json:"unreadable,omitempty"`
 
 	// Unmatched lists the files that could not be attributed.
 	Unmatched []UnmatchedFile `json:"unmatched,omitempty"`
+
+	// Resume is the last path whose outcome is in this tally, in walk
+	// order. A redelivered task resumes after it rather than walking from
+	// the top, so a redelivery neither counts a file twice nor drives the
+	// counters backwards. Empty once Done.
+	Resume string `json:"resume,omitempty"`
+}
+
+// Summary renders p as the sentence the LibraryScan controller puts in the
+// Ready condition's message: the status counters, then the breakdown the
+// CRD has no field for. Zero clauses are left out.
+func (p Progress) Summary() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d files seen, %d matched", p.FilesSeen, p.FilesMatched)
+	if p.FilesSkipped > 0 {
+		fmt.Fprintf(&b, ", %d skipped (%s)", p.FilesSkipped, clauses(
+			clause{p.Unchanged, "unchanged"},
+			clause{p.Transcoded, "transcoded, left to catalogarr"},
+			clause{p.Deferred, "changed during the scan, left to the next"},
+		))
+	}
+	fmt.Fprintf(&b, ", %d unmatched", len(p.Unmatched))
+	if p.HandedOver > 0 {
+		fmt.Fprintf(&b, "; %d transcoded files changed on disk, handed to catalogarr", p.HandedOver)
+	}
+	if p.Unreadable > 0 {
+		fmt.Fprintf(&b, "; %d could not be read", p.Unreadable)
+	}
+	if ignored := p.NotMedia + p.Parts + p.Extras + p.Samples; ignored > 0 {
+		fmt.Fprintf(&b, "; %d other files not considered (%s)", ignored, clauses(
+			clause{p.NotMedia, "not media"},
+			clause{p.Samples, "samples"},
+			clause{p.Extras, "extras"},
+			clause{p.Parts, "partial downloads"},
+		))
+	}
+	return b.String()
+}
+
+type clause struct {
+	n    int64
+	what string
+}
+
+func clauses(cs ...clause) string {
+	parts := make([]string, 0, len(cs))
+	for _, c := range cs {
+		if c.n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", c.n, c.what))
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 // Encode marshals p for a KV Put.

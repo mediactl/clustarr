@@ -29,8 +29,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // quality, revision, format score, matched formats and release type frozen
 // at import (spec §8.4, CLAUDE.md's invariant). It never writes any part of
 // MediaFileStatus, which catalogarr owns in full and populates by probing
-// (spec §8.5) -- this worker does not call pkg/mediainfo at all, on
-// purpose.
+// (spec §8.5). The one probe this worker makes is for a field it does own:
+// a music file's frozen quality, which is its codec and bitrate
+// (FrozenFileQuality, mediainfo.ProbeAudio) -- the result goes into
+// spec.quality and nowhere else.
 //
 // It is also, uniquely, a cross-group status writer: it applies
 // Download.status.import under k8s.ManagerImportarr, the one field manager
@@ -71,15 +73,22 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // honest ways. Its files are classified by their own kind ([ClassifierFor]):
 // classified as video, a .flac would not be media, a 1 MiB ebook would be
 // under the video sample floor, and a book in a folder named "Extras" would
-// be a video extra. Its quality
-// is frozen only where the extension determines it exactly
-// ([FrozenQuality]); a file whose quality is undeterminable without a probe
-// is imported only by a manual import. And it is never scored: the custom-
-// format corpus is TRaSH video data, so formatScore, matchedFormats and
-// profileHash stay unset. An album's or audiobook's existing files are left
-// in place by a manual import that adds to it (which old track a new one
-// replaces is not knowable without probing both); a book's or issue's single
-// file is replaced by an upgrade exactly as a movie's is.
+// be a video extra. Its quality is frozen only where the file determines it
+// exactly ([FrozenFileQuality]): a music file by a probe of its codec and
+// bitrate, anything else by its extension; a file whose quality is still
+// undeterminable is imported only by a manual import. And it is never
+// scored: the custom-format corpus is TRaSH video data, so formatScore,
+// matchedFormats and profileHash stay unset. A book's or issue's single file
+// is replaced by an upgrade exactly as a movie's is. An album's or
+// audiobook's files are replaced as a set: a manual import that brings the
+// whole of a release supersedes the item's earlier files (which old track a
+// new one replaces is not knowable without probing both, so it is all or
+// nothing), and one with any file rejected keeps them and says so. A lone
+// file imported to an album whose release has one track names that track
+// (MediaRef.Track).
+//
+// No import renames a file over one already at its destination without
+// linking the old one into the recycle bin first (placeFile).
 //
 // # Manual import
 //

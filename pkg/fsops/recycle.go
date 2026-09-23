@@ -26,6 +26,22 @@ import (
 	"time"
 )
 
+// DefaultRecycleBin is RootFolderSpec.RecycleBin.Path's +kubebuilder:default,
+// restated for an object that never went through the apiserver's defaulting
+// (one built in Go). TestDefaultRecycleBinIsTheCRDs pins the two together.
+const DefaultRecycleBin = "/data/.recycle"
+
+// RecycleBinPath is a RootFolder's recycle-bin path with the CRD default
+// applied: path, or [DefaultRecycleBin] when it is empty. Recycling into an
+// empty root would put the bin's dated folders in the process's working
+// directory.
+func RecycleBinPath(path string) string {
+	if path == "" {
+		return DefaultRecycleBin
+	}
+	return path
+}
+
 // Recycle moves path into root/<yyyy-mm-dd>/ (spec §11's recycle-bin
 // layout), creating that directory if needed, and disambiguates a name
 // collision by appending "-2", "-3", ... before the extension. It returns

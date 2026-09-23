@@ -19,6 +19,7 @@ package fileimport
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -93,11 +94,19 @@ func (pc *processConfig) run(ctx context.Context) (importOutcome, error) {
 
 	root := pc.download.Status.ContentRoot
 	classifier := ClassifierFor(commonv1.MediaKindMovie, root, pc.worker.SampleMaxBytes)
+	besideMedia := false
+	if pc.manual {
+		n, err := countMedia(ctx, classifier, root, 1)
+		if err != nil {
+			return out, err
+		}
+		besideMedia = n > 0
+	}
 	err := classifier.Walk(ctx, root, func(srcPath string, info os.FileInfo, class fsops.FileClass) error {
 		if err := pc.worker.beat(ctx, pc.message, &lastHeartbeat); err != nil {
 			return err
 		}
-		if rejection, candidate := pc.worker.admit(root, srcPath, info, class, pc.manual); !candidate {
+		if rejection, candidate := pc.worker.admit(root, srcPath, info, class, pc.manual, besideMedia); !candidate {
 			if rejection != "" {
 				out.rejections = append(out.rejections, rejection)
 			}
@@ -114,11 +123,25 @@ func (pc *processConfig) run(ctx context.Context) (importOutcome, error) {
 		}
 		out.imported = append(out.imported, imported)
 		return nil
-	})
+	}, out.unreadable(root))
 	if err != nil {
 		return out, err
 	}
 	return out, nil
+}
+
+// unreadable is the fsops.UnreadableFunc both import walks use: an entry of
+// the download the walk could not read is a rejection naming it, and the
+// walk carries on with the rest -- one unreadable folder in a release (a
+// permissions slip on an extras folder) must not keep its readable files
+// out of the library. The content root itself failing is still the walk's
+// error, which a redelivery retries.
+func (o *importOutcome) unreadable(root string) fsops.UnreadableFunc {
+	return func(path string, err error) error {
+		o.rejections = append(o.rejections, fmt.Sprintf("%s: could not be read, so nothing in it was imported: %v",
+			relPath(root, path), err))
+		return nil
+	}
 }
 
 // admit decides what one walked file's class means for an import, for the
@@ -132,20 +155,30 @@ func (pc *processConfig) run(ctx context.Context) (importOutcome, error) {
 //     size and the threshold, so status.import says why the file was left
 //     behind -- and a candidate under a manual import, a person's
 //     instruction to import this download's files, exactly as a manual
-//     import accepts a non-video quality this worker cannot determine.
+//     import accepts a non-video quality this worker cannot determine. But
+//     not when the download also holds real media (besideMedia): a person
+//     importing a release imports the release, and the small video beside
+//     it is its promo clip, which a manual import used to take along. It
+//     stays a rejection then, saying so.
 //   - a part, an extra, a name-marked sample or a non-media file: neither a
 //     candidate nor reported. Those are the release's own packaging -- a
 //     "-sample" file ships in nearly every scene release beside the real
 //     one, and its name is the releaser's declaration, not this worker's
 //     inference -- and listing each would bury the rejections a person has
 //     to act on.
-func (w *Worker) admit(root, path string, info os.FileInfo, class fsops.FileClass, manual bool) (rejection string, candidate bool) {
+func (w *Worker) admit(
+	root, path string, info os.FileInfo, class fsops.FileClass, manual, besideMedia bool,
+) (rejection string, candidate bool) {
 	switch class {
 	case fsops.ClassMedia:
 		return "", true
 	case fsops.ClassSuspectedSample:
-		if manual {
+		switch {
+		case manual && !besideMedia:
 			return "", true
+		case manual:
+			return fmt.Sprintf("%s: %s; left behind by this manual import because the download also holds real "+
+				"media, and this is the promo clip beside it", relPath(root, path), SuspectedSampleReason(info.Size(), w.SampleMaxBytes)), false
 		}
 		return fmt.Sprintf("%s: %s; only a manual import (spec.manual, or %s=true) imports it",
 			relPath(root, path), SuspectedSampleReason(info.Size(), w.SampleMaxBytes), AnnotationImportOverride), false
@@ -216,8 +249,11 @@ func (pc *processConfig) processFile(
 	if pc.download.Status.CanMoveFiles {
 		mode = fsops.ImportMove
 	}
-	if err := fsops.Import(ctx, srcPath, dest, mode); err != nil {
-		return nil, "", fmt.Errorf("fileimport: import %s: %w", rel, err)
+	if err := placeFile(ctx, pc.rootFolder.Spec.RecycleBin.Path, srcPath, info, dest, mode); err != nil {
+		if errors.Is(err, errWouldOverwrite) {
+			return nil, fmt.Sprintf("%s: %v", rel, err), nil
+		}
+		return nil, "", err
 	}
 
 	destInfo, serr := os.Stat(dest)
@@ -258,7 +294,7 @@ func (pc *processConfig) processFile(
 	}
 
 	if pc.existing != nil && !*recycledOld && pc.existing.Spec.Path != dest {
-		if _, err := fsops.Recycle(pc.rootFolder.Spec.RecycleBin.Path, pc.existing.Spec.Path); err != nil {
+		if _, err := fsops.Recycle(fsops.RecycleBinPath(pc.rootFolder.Spec.RecycleBin.Path), pc.existing.Spec.Path); err != nil {
 			log.Warn("fileimport: could not recycle the replaced file; leaving it in place",
 				"path", pc.existing.Spec.Path, "error", err)
 		} else if err := pc.worker.Client.Delete(ctx, pc.existing); err != nil {

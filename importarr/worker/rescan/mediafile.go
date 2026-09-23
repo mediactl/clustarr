@@ -19,12 +19,15 @@ package rescan
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -35,6 +38,8 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
@@ -65,7 +70,104 @@ import (
 // Worker.
 const FieldManager = k8s.ManagerImportarrWorker
 
-// handleMediaFile attributes one walked media file and records the result.
+// AnnotationObservedFingerprint is how a rescan tells catalogarr that a
+// post-transcode file changed on disk. Its value is the file's size and
+// mtime as the walk found them, "<sizeBytes>@<RFC 3339 mtime, UTC, whole
+// seconds>".
+//
+// Once catalogarr incorporates a transcode swap (spec.original false) it
+// owns spec.sizeBytes, spec.modTime and spec.original, and k8s.Apply forces
+// ownership, so a rescan re-applying them would silently take them back.
+// A rescan therefore never writes them. When the bytes have changed -- a
+// re-transcode, a person replacing the file in place -- it applies this one
+// annotation instead, under k8s.ManagerImportarr, which owns nothing else
+// on any MediaFile, so the apply releases nothing. catalogarr's MediaFile
+// controller wakes on the annotation's change, re-stats and re-probes the
+// file and records the new size and mtime under its own manager. The
+// contract, agreed with the catalogarr side in gap-fix X7a/X5a, is
+// catalogarr's to act on; importarr only observes.
+const AnnotationObservedFingerprint = "catalog.clustarr.io/observed-fingerprint"
+
+// ObservedFingerprint renders [AnnotationObservedFingerprint]'s value for a
+// file of size bytes last modified at modTime.
+func ObservedFingerprint(size int64, modTime time.Time) string {
+	return strconv.FormatInt(size, 10) + "@" + modTime.UTC().Truncate(time.Second).Format(time.RFC3339)
+}
+
+const (
+	// maxConflictRetries is how many more times one file is tried after
+	// its MediaFile changed between the walk reading it and applying it.
+	maxConflictRetries = 2
+
+	// cacheCatchUp bounds the wait for the cache to deliver the newer copy
+	// a conflict proved exists.
+	cacheCatchUp = 2 * time.Second
+)
+
+// staleReadError is an apply to an existing MediaFile that the apiserver
+// refused because the object changed after the walk read it: the
+// resourceVersion precondition failed.
+type staleReadError struct {
+	key types.NamespacedName
+	rv  string
+	err error
+}
+
+func (e *staleReadError) Error() string { return e.err.Error() }
+func (e *staleReadError) Unwrap() error { return e.err }
+
+// handleMediaFile attributes one walked media file and records the result,
+// retrying when the MediaFile it read changed before it could write.
+//
+// Every apply to an existing MediaFile carries the resourceVersion the walk
+// read. Without that precondition a transcode swap landing between the read
+// (from a cache that may already be behind) and the apply was simply
+// overwritten -- forced ownership put the pre-transcode size back and flipped
+// spec.original to true again. With it, the apiserver refuses the apply, the
+// walk waits for its cache to deliver the newer copy and decides again (a
+// swapped file is then left to catalogarr). A file still conflicting after
+// maxConflictRetries is left to the next scan, and counted in Deferred.
+func (w *Worker) handleMediaFile(ctx context.Context, st *scanState, path string, info os.FileInfo) error {
+	for attempt := 0; ; attempt++ {
+		err := w.attributeMediaFile(ctx, st, path, info)
+		var stale *staleReadError
+		if !errors.As(err, &stale) {
+			return err
+		}
+		if attempt < maxConflictRetries && w.awaitNewerCopy(ctx, stale) {
+			continue
+		}
+		st.progress.Deferred++
+		st.progress.FilesSkipped++
+		logging.FromContext(ctx).Info("a MediaFile kept changing while the scan wrote it; the next scan picks it up",
+			"mediaFile", stale.key.Name, "path", relPath(st.root.Spec.Path, path))
+		return nil
+	}
+}
+
+// awaitNewerCopy waits, briefly, for the cache to hold a newer copy of the
+// MediaFile a conflict proved has moved on. It reports whether it arrived.
+func (w *Worker) awaitNewerCopy(ctx context.Context, stale *staleReadError) bool {
+	deadline := w.now().Add(cacheCatchUp)
+	for {
+		var mf catalogv1alpha1.MediaFile
+		if err := w.Client.Get(ctx, stale.key, &mf); err == nil && mf.ResourceVersion != stale.rv {
+			return true
+		} else if apierrors.IsNotFound(err) {
+			return true // deleted: the retry records the file afresh
+		}
+		if ctx.Err() != nil || !w.now().Before(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
+// attributeMediaFile attributes one walked media file and records it.
 //
 // The write it performs is deliberately narrow. importarr creates the
 // MediaFile and owns MediaFileSpec -- what it observed on disk plus the
@@ -79,7 +181,7 @@ const FieldManager = k8s.ManagerImportarrWorker
 // only refreshes what it observes (size and mtime) and re-asserts every
 // frozen field verbatim; re-running the matcher could only agree, or list a
 // file that is already in the catalog as unmatched.
-func (w *Worker) handleMediaFile(ctx context.Context, st *scanState, path string, info os.FileInfo) error {
+func (w *Worker) attributeMediaFile(ctx context.Context, st *scanState, path string, info os.FileInfo) error {
 	now := w.now()
 	// Relative to the ROOT FOLDER, which is what
 	// catalogv1alpha1.UnmatchedFile.Path documents -- not to the walked
@@ -87,17 +189,17 @@ func (w *Worker) handleMediaFile(ctx context.Context, st *scanState, path string
 	// drop that prefix from every recorded entry.
 	rel := relPath(st.root.Spec.Path, path)
 
-	// Library rescan attributes movie, music, book, audiobook and comic
-	// root folders. A file under a series root is reported honestly rather
-	// than guessed at: episode attribution is not built.
+	// Library rescan attributes movie, series, music, book, audiobook and
+	// comic root folders. Any other kind is reported honestly rather than
+	// guessed at.
 	if fileKindForRoot(st.root.Spec.Kind) == "" {
 		st.unmatched(rel, CodeUnsupportedKind, fmt.Sprintf(
 			"root folder kind %q is not supported by library rescan yet", st.root.Spec.Kind), nil, now)
 		return nil
 	}
 
-	existing, skip, err := w.existingForRescan(ctx, st, path, info)
-	if err != nil || skip {
+	existing, handled, err := w.existingForRescan(ctx, st, path, info)
+	if err != nil || handled {
 		return err
 	}
 	switch {
@@ -130,8 +232,8 @@ func (w *Worker) handleMediaFile(ctx context.Context, st *scanState, path string
 
 	movieName := result.ExistingName
 	created := movieName == ""
+	profile, originalLanguage := st.root.Spec.Defaults.QualityProfileRef, ""
 	if created {
-		profile := st.root.Spec.Defaults.QualityProfileRef
 		if profile == "" {
 			// Movie.spec.qualityProfileRef is required, so a movie cannot
 			// be created without one. Saying so beats applying an object
@@ -151,15 +253,20 @@ func (w *Worker) handleMediaFile(ctx context.Context, st *scanState, path string
 		// counts as an update rather than another creation.
 		st.movies = append(st.movies, MovieCandidate{
 			Name: movieName, TmdbID: result.TmdbID, Title: parsed.Title, Year: parsed.Year,
+			QualityProfileRef: profile,
 		})
 		st.progress.ItemsCreated++
 	} else {
+		if c := st.movie(movieName); c != nil {
+			profile, originalLanguage = c.QualityProfileRef, c.OriginalLanguage
+		}
 		st.progress.ItemsUpdated++
 	}
 
 	if !st.task.DryRun {
 		ref := commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movieName}
-		if err := w.applyObserved(ctx, st.scan.Namespace, nil, ref, path, info, freshMovieSpec(parsed)); err != nil {
+		fresh := w.freshMovieSpec(ctx, st, parsed, profile, originalLanguage)
+		if err := w.applyObserved(ctx, st.scan.Namespace, nil, ref, path, info, fresh); err != nil {
 			return err
 		}
 	}
@@ -169,33 +276,74 @@ func (w *Worker) handleMediaFile(ctx context.Context, st *scanState, path string
 	return nil
 }
 
+// movie is the walk's candidate named name, or nil.
+func (st *scanState) movie(name string) *MovieCandidate {
+	for i := range st.movies {
+		if st.movies[i].Name == name {
+			return &st.movies[i]
+		}
+	}
+	return nil
+}
+
 // existingForRescan looks the path's MediaFile up and decides whether the
-// walk leaves it alone entirely. skip is true (and counted) for a file
-// catalogarr has taken over post-transcode and, on an incremental scan, for
-// an unchanged fingerprint.
+// walk is done with the file. handled is true, and the outcome counted, for:
+//
+//   - a post-transcode file (spec.original false). catalogarr owns its
+//     size, mtime and original flag, so nothing here writes them: an
+//     unchanged one is counted in Transcoded, and a changed one is handed
+//     to catalogarr through [AnnotationObservedFingerprint] (HandedOver).
+//   - on an incremental scan, a file whose size and mtime are unchanged
+//     (Unchanged).
 func (w *Worker) existingForRescan(
 	ctx context.Context, st *scanState, path string, info os.FileInfo,
-) (existing *catalogv1alpha1.MediaFile, skip bool, err error) {
+) (existing *catalogv1alpha1.MediaFile, handled bool, err error) {
 	existing, err = w.existingMediaFile(ctx, st.scan.Namespace, path)
 	if err != nil || existing == nil {
 		return existing, false, err
 	}
-	// catalogarr takes spec.sizeBytes, spec.modTime and spec.original
-	// over once it incorporates a transcode swap (spec §8.5). k8s.Apply
-	// forces ownership, so re-applying those fields here would silently
-	// reclaim them and break the split; leave the file alone entirely.
 	if existing.Spec.Original != nil && !*existing.Spec.Original {
-		st.progress.FilesSkipped++
+		if sameFingerprint(existing, info) {
+			st.progress.Transcoded++
+			st.progress.FilesSkipped++
+			return existing, true, nil
+		}
+		if err := w.handOver(ctx, st, existing, info); err != nil {
+			return existing, false, err
+		}
 		return existing, true, nil
 	}
 	// The incremental fingerprint is spec.sizeBytes plus spec.modTime
 	// directly: a file whose size and mtime are unchanged has nothing
 	// new to record.
 	if st.incremental() && sameFingerprint(existing, info) {
+		st.progress.Unchanged++
 		st.progress.FilesSkipped++
 		return existing, true, nil
 	}
 	return existing, false, nil
+}
+
+// handOver tells catalogarr that a post-transcode file changed on disk: one
+// [AnnotationObservedFingerprint] apply under k8s.ManagerImportarr, skipped
+// when the annotation already records what the walk found (or on a dry
+// run). It is counted as matched: the file is attributed, and its change is
+// recorded -- by the writer that owns the fields it changes.
+func (w *Worker) handOver(ctx context.Context, st *scanState, existing *catalogv1alpha1.MediaFile, info os.FileInfo) error {
+	fp := ObservedFingerprint(info.Size(), info.ModTime())
+	if !st.task.DryRun && existing.Annotations[AnnotationObservedFingerprint] != fp {
+		ac := catalogac.MediaFile(existing.Name, existing.Namespace).
+			WithAnnotations(map[string]string{AnnotationObservedFingerprint: fp})
+		if _, err := k8s.Apply(ctx, w.Client, k8s.ManagerImportarr, ac); err != nil {
+			return fmt.Errorf("rescan: hand media file %s over to catalogarr: %w", existing.Name, err)
+		}
+	}
+	st.progress.HandedOver++
+	st.progress.FilesMatched++
+	st.progress.ItemsUpdated++
+	logging.FromContext(ctx).Info("a transcoded file changed on disk; handed to catalogarr",
+		"mediaFile", existing.Name, "observed", fp)
+	return nil
 }
 
 // existingMediaFile looks a walked path up through the spec.path field index.
@@ -253,26 +401,48 @@ func (w *Worker) applyMovie(ctx context.Context, st *scanState, name string, tmd
 // or empty field is not sent, so this manager never claims a field it has
 // nothing to say about.
 type frozenFields struct {
-	quality      *commonv1.Quality
-	revision     *commonv1.Revision
-	releaseType  commonv1.ReleaseType
-	releaseGroup *string
-	edition      *string
-	languages    []string
-	importedFrom *catalogac.ImportSourceApplyConfiguration
+	quality        *commonv1.Quality
+	revision       *commonv1.Revision
+	releaseType    commonv1.ReleaseType
+	releaseGroup   *string
+	edition        *string
+	languages      []string
+	importedFrom   *catalogac.ImportSourceApplyConfiguration
+	formatScore    *int32
+	matchedFormats []string
+	profileHash    string
+	original       *bool
+	// track narrows an album MediaRef to one recording; see
+	// commonv1.MediaRef.Track.
+	track string
 }
 
+// maxMatchedFormats is MediaFileSpec.MatchedFormats' MaxItems.
+const maxMatchedFormats = 200
+
 // freshMovieSpec is what a scanned movie file freezes: the release identity
-// pkg/release parsed. releaseGroup and edition are sent even when empty, as
-// they always have been on this path.
+// pkg/release parsed, with an untagged file taking the movie's original
+// language (Radarr's AggregateLanguages), and the custom-format score of
+// that release against the movie's QualityProfile -- the same scoring the
+// file-import worker freezes, so a file that was scanned into the library
+// and one that was imported compare on the same terms when an upgrade is
+// decided. releaseGroup and edition are sent even when empty, as they always
+// have been on this path.
 //
-// formatScore, matchedFormats and profileHash are deliberately left at their
-// zero values. They are importarr's fields, but scoring them needs the item's
-// QualityProfile and pkg/quality/catalogue's custom-format evaluation, which
-// this path does not integrate yet. An unscored file is still fully tracked;
-// the score only affects later upgrade decisions.
-func freshMovieSpec(parsed *release.ParsedRelease) frozenFields {
-	return frozenFields{
+// A profile that cannot be read or resolved leaves the file unscored --
+// formatScore, matchedFormats and profileHash unsent -- and the empty
+// profileHash says so; the file is still fully tracked.
+func (w *Worker) freshMovieSpec(
+	ctx context.Context, st *scanState, parsed *release.ParsedRelease, profileRef, originalLanguage string,
+) frozenFields {
+	languageName := ""
+	if originalLanguage != "" {
+		if n, ok := catalogue.LanguageName(originalLanguage); ok {
+			languageName = n
+		}
+	}
+	parsed.Languages = parsed.LanguagesFor(languageName)
+	f := frozenFields{
 		quality:      &parsed.Quality,
 		revision:     &parsed.Revision,
 		releaseType:  parsed.ReleaseType,
@@ -280,6 +450,58 @@ func freshMovieSpec(parsed *release.ParsedRelease) frozenFields {
 		edition:      ptr.To(parsed.Edition),
 		languages:    parsed.Languages,
 	}
+	profile := w.profile(ctx, st, profileRef)
+	if profile == nil {
+		return f
+	}
+	score, matched := profile.Score(ctx, w.catalogue(), parsed,
+		catalogue.ItemContext{OriginalLanguageName: languageName, ReleaseType: parsed.ReleaseType})
+	f.formatScore = ptr.To(int32(score)) //nolint:gosec // a custom-format score is a small bounded sum
+	if len(matched) > maxMatchedFormats {
+		matched = matched[:maxMatchedFormats]
+	}
+	f.matchedFormats = matched
+	f.profileHash = profile.Hash
+	return f
+}
+
+// profile resolves a QualityProfile by name for scoring, once per walk. It
+// returns nil -- and the walk scores nothing against it -- when the name is
+// empty, the profile does not exist, or it does not resolve.
+func (w *Worker) profile(ctx context.Context, st *scanState, name string) *quality.Profile {
+	if name == "" {
+		return nil
+	}
+	if p, ok := st.profiles[name]; ok {
+		return p
+	}
+	if st.profiles == nil {
+		st.profiles = map[string]*quality.Profile{}
+	}
+	var qp catalogv1alpha1.QualityProfile
+	if err := w.Client.Get(ctx, client.ObjectKey{Name: name}, &qp); err != nil {
+		logging.FromContext(ctx).Info("cannot score scanned files against a quality profile; leaving them unscored",
+			"qualityProfile", name, "error", err)
+		st.profiles[name] = nil
+		return nil
+	}
+	resolved, errs := quality.FromCRD(&qp, w.catalogue())
+	if len(errs) > 0 {
+		logging.FromContext(ctx).Info("quality profile does not resolve; leaving scanned files unscored",
+			"qualityProfile", name, "error", errors.Join(errs...))
+		st.profiles[name] = nil
+		return nil
+	}
+	st.profiles[name] = &resolved
+	return &resolved
+}
+
+// catalogue is the custom-format corpus scoring runs against.
+func (w *Worker) catalogue() *catalogue.Catalogue {
+	if w.Catalogue != nil {
+		return w.Catalogue
+	}
+	return catalogue.LoadedCatalogue()
 }
 
 // applyObserved applies a MediaFile's spec under [FieldManager].
@@ -294,6 +516,10 @@ func freshMovieSpec(parsed *release.ParsedRelease) frozenFields {
 // wipe its import score and provenance. Re-parsing instead of re-asserting
 // would be worse: the importer renames files, and a renamed file can parse
 // to a different quality than the release it was frozen from.
+//
+// An apply to an existing MediaFile carries the resourceVersion it was read
+// at, and a refusal for that reason comes back as a *staleReadError; see
+// handleMediaFile.
 func (w *Worker) applyObserved(
 	ctx context.Context, namespace string, existing *catalogv1alpha1.MediaFile,
 	ref commonv1.MediaRef, path string, info os.FileInfo, fresh frozenFields,
@@ -303,6 +529,8 @@ func (w *Worker) applyObserved(
 		name = existing.Name
 		ref = existing.Spec.MediaRef
 		fresh = reassertFrozen(&existing.Spec)
+	} else if fresh.track != "" {
+		ref.Track = fresh.track
 	}
 	spec := catalogac.MediaFileSpec().
 		WithMediaRef(ref).
@@ -330,31 +558,37 @@ func (w *Worker) applyObserved(
 	if fresh.importedFrom != nil {
 		spec = spec.WithImportedFrom(fresh.importedFrom)
 	}
-	if existing != nil {
-		s := &existing.Spec
-		if s.FormatScore != 0 {
-			spec = spec.WithFormatScore(s.FormatScore)
-		}
-		if len(s.MatchedFormats) > 0 {
-			spec = spec.WithMatchedFormats(s.MatchedFormats...)
-		}
-		if s.ProfileHash != "" {
-			spec = spec.WithProfileHash(s.ProfileHash)
-		}
-		if s.Original != nil {
-			spec = spec.WithOriginal(*s.Original)
-		}
+	if fresh.formatScore != nil {
+		spec = spec.WithFormatScore(*fresh.formatScore)
+	}
+	if len(fresh.matchedFormats) > 0 {
+		spec = spec.WithMatchedFormats(fresh.matchedFormats...)
+	}
+	if fresh.profileHash != "" {
+		spec = spec.WithProfileHash(fresh.profileHash)
+	}
+	if fresh.original != nil {
+		spec = spec.WithOriginal(*fresh.original)
 	}
 
-	if _, err := k8s.Apply(ctx, w.Client, FieldManager,
-		catalogac.MediaFile(name, namespace).WithSpec(spec)); err != nil {
+	ac := catalogac.MediaFile(name, namespace).WithSpec(spec)
+	if existing != nil {
+		ac = ac.WithResourceVersion(existing.ResourceVersion)
+	}
+	if _, err := k8s.Apply(ctx, w.Client, FieldManager, ac); err != nil {
+		if existing != nil && apierrors.IsConflict(err) {
+			return &staleReadError{
+				key: types.NamespacedName{Namespace: namespace, Name: name}, rv: existing.ResourceVersion,
+				err: fmt.Errorf("rescan: apply media file %s: %w", name, err),
+			}
+		}
 		return fmt.Errorf("rescan: apply media file %s: %w", name, err)
 	}
 	return nil
 }
 
-// reassertFrozen reads the frozen fields back off an existing spec, sending
-// only what is set.
+// reassertFrozen reads every field this manager owns back off an existing
+// spec, sending only what is set.
 func reassertFrozen(s *catalogv1alpha1.MediaFileSpec) frozenFields {
 	var f frozenFields
 	if s.Quality != (commonv1.Quality{}) {
@@ -371,6 +605,12 @@ func reassertFrozen(s *catalogv1alpha1.MediaFileSpec) frozenFields {
 		f.edition = &s.Edition
 	}
 	f.languages = s.Languages
+	if s.FormatScore != 0 {
+		f.formatScore = &s.FormatScore
+	}
+	f.matchedFormats = s.MatchedFormats
+	f.profileHash = s.ProfileHash
+	f.original = s.Original
 	if src := s.ImportedFrom; src != nil {
 		ac := catalogac.ImportSource()
 		if src.DownloadRef != "" {

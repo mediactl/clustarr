@@ -79,7 +79,8 @@ func TestHandleRecordsASuspectedSampleAsUnmatched(t *testing.T) {
 	assert.Len(t, got.Unmatched, 1)
 
 	assert.Equal(t, int64(1), got.FilesSeen, "the suspected sample was considered, as every unmatched file is")
-	assert.Equal(t, int64(1), got.FilesSkipped, "only the name-marked sample was skipped")
+	assert.Equal(t, int64(1), got.Samples, "only the name-marked sample was passed over")
+	assert.Zero(t, got.FilesSkipped, "a name-marked sample is not a skipped media file")
 	assert.Zero(t, got.FilesMatched, "a size-suspected file is never attributed")
 	assert.Zero(t, got.ItemsCreated, "not even with a tmdb id in its name")
 }
@@ -102,7 +103,7 @@ func TestHandleSampleMaxBytesZeroDisablesTheSizeRule(t *testing.T) {
 	assert.Equal(t, int64(1), got.FilesSeen)
 	assert.Equal(t, int64(1), got.FilesMatched)
 	assert.Equal(t, int64(1), got.ItemsCreated)
-	assert.Equal(t, int64(1), got.FilesSkipped, "the name rule is not the size rule")
+	assert.Equal(t, int64(1), got.Samples, "the name rule is not the size rule")
 
 	mf := mediaFilesIn(t, ctx, f.c, f.ns, 1)[0]
 	assert.Equal(t, filepath.Join(f.root, film), mf.Spec.Path)
@@ -145,8 +146,9 @@ func TestHandleSuspectedSampleCanBeAssignedByHand(t *testing.T) {
 	assert.True(t, mf.Spec.ImportedFrom.Manual)
 
 	// The next scheduled scan: the MediaFile is the file's attribution.
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
-	again := readProgress(t, ctx, f.bus, string(f.scan.UID))
+	next, nextMsg := f.nextScan(t, ctx, "tick-2")
+	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, nextMsg))
+	again := readProgress(t, ctx, f.bus, string(next.UID))
 	require.Empty(t, again.Error)
 	assert.Empty(t, again.Unmatched, "an attributed file is not a suspected sample")
 	assert.Equal(t, int64(1), again.FilesMatched)

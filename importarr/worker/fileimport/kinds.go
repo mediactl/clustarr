@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package fileimport
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -27,7 +28,9 @@ import (
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/fsops"
+	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/release"
 )
 
 // What this file knows about non-video files, shared with
@@ -49,10 +52,11 @@ import (
 //     Lidarr's Lossless group is FLAC=ALAC=APE=WavPack
 //     (docs/research/quality.md §music) -- promoted to "24bit Lossless" only
 //     where a 24-bit marker is declared (see [FrozenQuality]); .wav is WAV.
-//     Lossy files are NOT mapped: their tiers are bitrate bands, the
-//     bitrate needs a probe, and pkg/quality's collapsed ladder puts
-//     "MP3-192" above "Mid" where Lidarr's puts MP3-192 in "Low", so even a
-//     declared bitrate has no agreed tier. .m4a is ALAC or AAC; unknown.
+//     Lossy files are NOT mapped by extension: their tier is a bitrate
+//     band (MP3-192 is Low, MP3-256 Mid, MP3-320 High, as in Lidarr), and
+//     the bitrate is the file's, which only a probe reads --
+//     [FrozenFileQuality] does, and this table is its fallback. .m4a is
+//     ALAC or AAC; unknown without a probe.
 //   - audiobook: the ladder is per format; .m4a is an audio format outside
 //     it, which is what the ladder's own "Unknown Audio" tier is for.
 //   - book: .azw is not AZW3 and has no tier.
@@ -151,6 +155,39 @@ func FrozenQuality(fileKind commonv1.MediaKind, path string, declared ...string)
 		return commonv1.Quality{}, false
 	}
 	return def.Quality, true
+}
+
+// AudioProber reads the codec, stream bitrate and sample size of an audio
+// file: mediainfo.ProbeAudio in production, a stub in a test.
+type AudioProber func(ctx context.Context, path string) (mediainfo.AudioProbe, error)
+
+// FrozenFileQuality is the quality a non-video file of fileKind is frozen
+// with, reading a music file itself when probe is non-nil.
+//
+// A music file's tier is its codec and bitrate -- Lidarr's
+// QualityParser.FindQuality, which pkg/release.AudioFileQuality ports --
+// and neither is in its name: a probe settles a lossy file (MP3-320 is
+// High), and a lossless one's sample size (a 24-bit FLAC is "24bit
+// Lossless" whatever its name says). The probe's answer is taken only where
+// it names a tier of pkg/quality's music ladder; a probe that fails, or a
+// codec Lidarr calls "Unknown" (a VBR MP3, whose average bitrate is no
+// Lidarr value), falls back to [FrozenQuality]'s extension rule -- and so,
+// for a lossy file, to unknown, which only a manual import accepts.
+//
+// Every other kind is [FrozenQuality]: an audiobook's ladder is per
+// format, and a book's or an issue's is its extension.
+func FrozenFileQuality(
+	ctx context.Context, probe AudioProber, fileKind commonv1.MediaKind, path string, declared ...string,
+) (commonv1.Quality, bool) {
+	if fileKind == commonv1.MediaKindAlbum && probe != nil {
+		if ap, err := probe(ctx, path); err == nil {
+			name := release.AudioFileQuality(ap.Codec, ap.BitrateKbps, ap.SampleBits).Name
+			if def, ok := quality.Lookup(ProfileKindFor(fileKind), name); ok {
+				return def.Quality, true
+			}
+		}
+	}
+	return FrozenQuality(fileKind, path, declared...)
 }
 
 // ReleaseYear is the calendar year of a provider release date, read in UTC,
