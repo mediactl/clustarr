@@ -154,6 +154,36 @@ type Subscriber interface {
 	Subscribe(ctx context.Context, s Subscription, h Handler) (stop func(), err error)
 }
 
+// Puller hands out one message per Next call from a durable pull consumer.
+// Nothing is fetched ahead, so a caller that works on a message for hours
+// never holds a second, prefetched one past its ack window. The caller
+// settles each message itself (Ack, Nak, Term); nothing settles it for them.
+type Puller interface {
+	// Next blocks until the consumer delivers a message to this caller or
+	// ctx ends. The returned context carries Hooks.AfterReceive's result.
+	Next(ctx context.Context) (context.Context, Message, error)
+	// Stop releases the puller. It never deletes the durable.
+	Stop()
+}
+
+// PullSubscriber is a bus that can pull one message at a time. Pull creates
+// or updates the durable s describes; s.MaxInFlight is the durable's
+// MaxAckPending across every puller that shares it.
+type PullSubscriber interface {
+	Pull(ctx context.Context, s Subscription) (Puller, error)
+}
+
+// StreamAdmin removes queue state whose owner is gone.
+type StreamAdmin interface {
+	// DeleteSubscription deletes the durable and its dead-letter watcher.
+	// A missing one is not an error.
+	DeleteSubscription(ctx context.Context, stream, durable string) error
+	// PurgeSubject removes every stored message on subject.
+	PurgeSubject(ctx context.Context, stream, subject string) error
+	// Subjects lists the subjects under filter that hold stored messages.
+	Subjects(ctx context.Context, stream, filter string) ([]string, error)
+}
+
 // Requester is the micro-style request/reply half of the bus: a single reply
 // per request, load-balanced across a queue group.
 type Requester interface {

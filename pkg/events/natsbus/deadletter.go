@@ -72,12 +72,20 @@ type maxDeliveriesAdvisory struct {
 	Deliveries uint64 `json:"deliveries"`
 }
 
+// dlqWatchName is the durable name of the watcher that dead-letters stream's
+// durable's lapsed final deliveries. It carries the stream as well as the
+// durable, so two subscriptions that reuse a durable name on different
+// streams do not share, and fight over, one watcher's filter. It is a plain
+// function of strings, not events.Subscription, because StreamAdmin deletes a
+// watcher by stream and durable alone, with no live Subscription value to
+// hand it.
+func dlqWatchName(stream, durable string) string {
+	return deadLetterWatchPrefix + stream + "-" + durable
+}
+
 // watcherName is the durable name of sub's watcher on events.StreamAdvisories.
-// It carries the stream as well as the durable, so two subscriptions that
-// reuse a durable name on different streams do not share, and fight over, one
-// watcher's filter.
 func watcherName(sub events.Subscription) string {
-	return deadLetterWatchPrefix + sub.Stream + "-" + sub.Durable
+	return dlqWatchName(sub.Stream, sub.Durable)
 }
 
 // watchMaxDeliveries starts sub's MAX_DELIVERIES watcher and dead-letters

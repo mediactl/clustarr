@@ -31,6 +31,10 @@ func TestBusContract(t *testing.T) {
 	contracttest.RunBusContract(t, func() events.Bus { return membus.New(nil) })
 }
 
+func TestPullContract(t *testing.T) {
+	contracttest.RunPullContract(t, func() events.Bus { return membus.New(nil) })
+}
+
 func TestHooksContract(t *testing.T) {
 	contracttest.RunHooksContract(t,
 		func() events.Bus { return membus.New(nil) },

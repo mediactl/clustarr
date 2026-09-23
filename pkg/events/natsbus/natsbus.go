@@ -339,11 +339,28 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 	}, nil
 }
 
+// receive wraps one delivery the way every consumer path must: decode the
+// envelope, run Hooks.AfterReceive, and bind the message to its subscription.
+// Subscribe's handle and Pull's Next share it, so a message looks identical
+// whether a handler or a caller settles it.
+func (b *Bus) receive(ctx context.Context, jm jetstream.Msg, sub events.Subscription) (context.Context, *message, error) {
+	msg := newMessage(jm, sub.Backoff)
+	hctx := b.opts.hooks.RunAfterReceive(ctx, msg.Envelope())
+	return hctx, msg, nil
+}
+
 func (b *Bus) handle(ctx context.Context, sub events.Subscription,
 	h events.Handler, jm jetstream.Msg,
 ) {
-	msg := newMessage(jm, sub.Backoff)
-	hctx := b.opts.hooks.RunAfterReceive(ctx, msg.Envelope())
+	hctx, msg, rerr := b.receive(ctx, jm, sub)
+	if rerr != nil {
+		// receive cannot fail today (see its doc comment); if a future step
+		// inside it can, leave the delivery unsettled for redelivery rather
+		// than losing it or panicking the dispatch goroutine.
+		logging.FromContext(ctx).Error("bus: receive failed; message left for redelivery",
+			"durable", sub.Durable, "error", rerr)
+		return
+	}
 	var err error
 	func() {
 		defer func() {

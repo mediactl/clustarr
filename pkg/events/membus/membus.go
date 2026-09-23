@@ -265,8 +265,7 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 				return
 			default:
 			}
-			b.deadLetterLapsed(loopCtx, st, sub, ackWait)
-			m := st.claim(sub.Durable, sub.Filters, b.clock.Now(), ackWait, sub.MaxDeliver)
+			m := b.claimNext(loopCtx, st, sub, ackWait)
 			if m == nil {
 				select {
 				case <-loopCtx.Done():
@@ -334,6 +333,17 @@ func ackWaitFor(sub events.Subscription, attempt uint64) time.Duration {
 		return sub.AckWait
 	}
 	return defaultAckWait
+}
+
+// claimNext sweeps st for sub's lapsed final deliveries and then claims the
+// next deliverable message, if any. Subscribe's delivery loop and Pull's Next
+// (pull.go) share this so a claim behaves identically whether a handler or a
+// caller settles the result; do not copy the two calls separately.
+func (b *Bus) claimNext(ctx context.Context, st *stream, sub events.Subscription,
+	ackWait func(attempt uint64) time.Duration,
+) *memMsg {
+	b.deadLetterLapsed(ctx, st, sub, ackWait)
+	return st.claim(sub.Durable, sub.Filters, b.clock.Now(), ackWait, sub.MaxDeliver)
 }
 
 // deadLetterLapsed copies every message whose final delivery to sub has

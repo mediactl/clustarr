@@ -81,6 +81,16 @@ func TestBusContract(t *testing.T) {
 	})
 }
 
+func TestPullContract(t *testing.T) {
+	contracttest.RunPullContract(t, func() events.Bus {
+		bus, err := natsbus.New(connect(t))
+		if err != nil {
+			t.Fatalf("natsbus.New: %v", err)
+		}
+		return bus
+	})
+}
+
 func TestHooksContract(t *testing.T) {
 	contracttest.RunHooksContract(t,
 		func() events.Bus {

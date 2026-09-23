@@ -19,6 +19,7 @@ package membus
 
 import (
 	"context"
+	"sort"
 	"sync"
 	"time"
 
@@ -293,6 +294,56 @@ func (s *stream) inProgress(m *memMsg, durable string, now time.Time,
 	defer s.mu.Unlock()
 	cs := m.stateFor(durable)
 	cs.ackDeadline = now.Add(ackWait(cs.attempts))
+}
+
+// forgetDurable drops every claim and delivery record durable holds on this
+// stream: events.StreamAdmin.DeleteSubscription's membus half. A durable that
+// never claimed anything is a no-op, matching natsbus deleting an absent
+// consumer.
+func (s *stream) forgetDurable(durable string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, m := range s.msgs {
+		if m.claim == durable {
+			m.claim = ""
+		}
+		delete(m.state, durable)
+	}
+}
+
+// purgeSubject removes every stored message whose subject equals subject.
+func (s *stream) purgeSubject(subject string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	keep := s.msgs[:0]
+	for _, m := range s.msgs {
+		if !m.removed && m.subject == subject {
+			m.removed = true
+			s.bytes -= m.size
+			continue
+		}
+		keep = append(keep, m)
+	}
+	s.msgs = keep
+}
+
+// subjects returns the sorted distinct stored subjects matching filter.
+func (s *stream) subjects(filter string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seen := map[string]struct{}{}
+	for _, m := range s.msgs {
+		if m.removed || !events.SubjectMatches(filter, m.subject) {
+			continue
+		}
+		seen[m.subject] = struct{}{}
+	}
+	out := make([]string, 0, len(seen))
+	for subj := range seen {
+		out = append(out, subj)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func matchAny(filters []string, subject string) bool {
