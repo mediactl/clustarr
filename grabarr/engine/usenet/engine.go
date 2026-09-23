@@ -33,6 +33,7 @@ import (
 	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/download/v1alpha1"
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/grabarr/engine"
 	grabarrstatus "github.com/mediactl/clustarr/grabarr/status"
 	"github.com/mediactl/clustarr/pkg/download"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -72,9 +73,8 @@ const DefaultResolveTimeout = 60 * time.Second
 // -- so a replica never sees a sibling's work. Field manager:
 // k8s.ManagerGrabarrEngine, the telemetry subset only (grabarr/status.go);
 // this reconciler never sets status.phase, status.conditions, status.engine
-// or status.import, and never touches metadata.finalizers -- see doc.go for
-// why the last one is a real, unresolved seam with the Download controller
-// (D2-4), not an oversight.
+// or status.import. The one metadata it writes is grabarr/engine's
+// [engine.Finalizer] -- see doc.go's "The engine finalizer".
 type Reconciler struct {
 	Client   client.Client
 	Download download.Client
@@ -179,6 +179,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 
 	if k8s.IsDeleting(&dl) {
 		return r.reconcileDeleting(ctx, log, &dl)
+	}
+
+	// The engine finalizer goes on before the transfer does (ruling R-6;
+	// grabarr/engine's package doc). A write here does not end the
+	// reconcile -- pkg/k8s.EnsureFinalizer's "finalizer without early
+	// return".
+	if _, err := k8s.EnsureFinalizer(ctx, r.Client, &dl, engine.Finalizer); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	if imported(&dl) {
@@ -331,21 +339,28 @@ func (r *Reconciler) reconcileImported(ctx context.Context, dl *downloadv1alpha1
 	return ctrl.Result{}, nil
 }
 
-// reconcileDeleting removes dl's transfer from the client, honouring
-// spec.removeDataOnDelete. See doc.go's "What this reconciler does not do"
-// section: it never touches metadata.finalizers, so this call alone does not
-// let the apiserver finish deleting dl -- that coordination belongs to the
-// Download controller (D2-4), which does not exist in this tree yet.
+// reconcileDeleting is this engine's half of the teardown protocol (ruling
+// R-6, grabarr/engine's package doc): remove dl's transfer from the client
+// -- stopping its fetch goroutines and discarding its scratch job, and
+// honouring spec.removeDataOnDelete for the published content -- then drop
+// [engine.Finalizer]. The Download controller's removeDataOnDelete
+// finalizer waits for this one, so it never removes files a running job
+// still has open.
+//
+// A Download with no status.downloadID never had a transfer recorded; the
+// finalizer still goes, since it was added before any Add and holding the
+// object for a transfer that never existed would wedge its deletion.
 func (r *Reconciler) reconcileDeleting(ctx context.Context, log *slog.Logger, dl *downloadv1alpha1.Download) (ctrl.Result, error) {
-	id := dl.Status.DownloadID
-	if id == "" {
-		return ctrl.Result{}, nil
+	if id := dl.Status.DownloadID; id != "" {
+		deleteData := removeDataOnDelete(dl)
+		if err := r.Download.Remove(ctx, id, deleteData); err != nil && !errors.Is(err, download.ErrNotFound) {
+			return ctrl.Result{}, err
+		}
+		log.Info("usenet engine: removed transfer for a deleting Download", "id", id, "deleteData", deleteData)
 	}
-	deleteData := removeDataOnDelete(dl)
-	if err := r.Download.Remove(ctx, id, deleteData); err != nil && !errors.Is(err, download.ErrNotFound) {
+	if _, err := k8s.RemoveFinalizer(ctx, r.Client, dl, engine.Finalizer); err != nil {
 		return ctrl.Result{}, err
 	}
-	log.Info("usenet engine: removed transfer for a deleting Download", "id", id, "deleteData", deleteData)
 	return ctrl.Result{}, nil
 }
 

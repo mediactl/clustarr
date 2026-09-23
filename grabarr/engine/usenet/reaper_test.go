@@ -85,12 +85,11 @@ func TestReaperReapsOrphanAfterDeleteWithNoWatchEvent(t *testing.T) {
 	_, err := fc.Get(ctx, "live-orphan")
 	require.NoError(t, err, "a matched transfer must never be removed")
 
-	// Delete the Download directly. No finalizer is set (newUsenetDownload
-	// adds none, and this package never claims one -- see doc.go), so it is
-	// gone from the apiserver immediately, exactly as it would be once
-	// grabarr/controller/download's finalizer has already run
-	// fsops.SafeRemove and dropped its own finalizer without waiting for
-	// this engine.
+	// Delete the Download directly. No finalizer is set -- newUsenetDownload
+	// adds none and this test never lets Reconcile add the engine's -- so it
+	// is gone from the apiserver immediately, exactly as it would be once
+	// the Download controller has stopped waiting for an engine that was
+	// gone and dropped the engine finalizer on its behalf (ruling R-6).
 	require.NoError(t, c.Get(ctx, key, dl))
 	require.NoError(t, c.Delete(ctx, dl))
 	err = c.Get(ctx, key, &downloadv1alpha1.Download{})

@@ -52,6 +52,7 @@ type fakeDownloadClient struct {
 	resumeCalls      []string
 	markImportedIDs  []string
 	removeCalls      []removeCall
+	removeErr        error
 	nextIDCallsCount int
 }
 
@@ -152,6 +153,9 @@ func (f *fakeDownloadClient) Remove(_ context.Context, id string, deleteData boo
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.removeCalls = append(f.removeCalls, removeCall{id: id, deleteData: deleteData})
+	if f.removeErr != nil {
+		return f.removeErr
+	}
 	if _, ok := f.items[id]; !ok {
 		return download.ErrNotFound
 	}

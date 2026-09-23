@@ -42,31 +42,31 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // removes the transfer from the client once importarr finishes with it or
 // the Download is deleted.
 //
-// # Wiring (task D2-8's job, not this one's)
+// # Wiring
 //
-//	dc := "<the DownloadClient this replica's --engine identity names>"
-//	cl, _, err := usenetengine.BuildClient(ctx, mgr.GetClient(), o.Namespace, dc, o.DataDir, o.ScratchDir)
+// grabarr/run.go's setupUsenetEngine is the real wiring; in outline:
+//
+//	// A direct (uncached) client: this runs before mgr.Start, and BuildClient
+//	// also reads the providers' Secrets through it.
+//	cl, dc, err := usenetengine.BuildClient(ctx, direct, o.Namespace, clientName, o.DataDir, o.ScratchDir)
 //	if err != nil {
 //	    return err
 //	}
 //	// cl is re-attached at this point (see above) -- only now is it safe to
-//	// let the readiness probe report healthy. defer cl.Close() belongs
-//	// wherever the process's shutdown path already lives.
-//	categories, err := usenetengine.LoadDownloadClient(ctx, mgr.GetClient(), o.Namespace, dc)
-//	if err != nil {
-//	    return err
-//	}
+//	// let the readiness probe report healthy.
 //	r := &usenetengine.Reconciler{
-//	    Client:   mgr.GetClient(),
-//	    Download: cl,
-//	    Resolver: &usenetengine.Resolver{RPC: bus},
-//	    Recorder: mgr.GetEventRecorderFor("usenet-engine"),
-//	    Engine:   o.Engine,
-//	    Categories: categories.Spec.Categories,
+//	    Client:     mgr.GetClient(),
+//	    Download:   cl,
+//	    Resolver:   &usenetengine.Resolver{RPC: bus},
+//	    Recorder:   mgr.GetEventRecorder("usenet-engine"),
+//	    Engine:     o.Engine,
+//	    Categories: dc.Spec.Categories,
 //	}
 //	if err := r.SetupWithManager(mgr); err != nil {
 //	    return err
 //	}
+//	// plus a usenetengine.Reaper registered with mgr.Add, and cl.Close on
+//	// the process's shutdown path.
 //
 // # The PostProcess defaulting hazard (D2-2's carried finding)
 //
@@ -82,35 +82,26 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // config_test.go proves both the nil and all-nil-pointer cases land on the
 // CRD's true/true/true, and that an explicit false is honoured.
 //
+// # The engine finalizer (ruling R-6)
+//
+// [Reconciler] adds grabarr/engine's [engine.Finalizer] to every Download
+// labelled for this replica before it adds the transfer, and on deletion
+// removes the transfer ([download.Client.Remove] stops the job's fetch
+// goroutines, discards its scratch job and, per spec.removeDataOnDelete,
+// the published content) and only then drops the finalizer. The Download
+// controller's own removeDataOnDelete finalizer waits for this one, which
+// closes the ordering race Phase D2 carried: the controller no longer
+// removes files a job still has open. grabarr/engine's package doc has the
+// whole protocol, including the bounded timeout after which the controller
+// stops waiting for an engine that is gone.
+//
+// [Reaper] (reaper.go) is the backstop for exactly that timeout: a transfer
+// this client re-attaches after the controller dropped the finalizer on its
+// behalf has no Download left, and the reaper -- a level-driven pass that
+// lists this replica's client transfers against its Downloads -- removes it
+// once it is older than the grace period, by the job's own persisted age.
+//
 // # What this package deliberately does not do
-//
-// It never touches metadata.finalizers. [Reconciler.reconcileDeleting] calls
-// [download.Client.Remove] once a Download carries a deletionTimestamp, but
-// does not remove any finalizer -- finalizer bookkeeping is
-// k8s.ManagerGrabarr's, on the Download controller (plan task D2-4, now
-// landed: grabarr/controller/download/controller.go's reconcileDelete). That
-// controller's own doc.go confirms the seam this paragraph originally
-// predicted rather than resolving it: reconcileDelete calls
-// fsops.SafeRemove against the shared DataDir and drops the finalizer
-// WITHOUT waiting for this engine's Remove to run first ("the finalizer
-// needs no live engine" -- true for disk, not for client state). So a
-// Download can still be, and regularly will be, fully deleted from the
-// apiserver before this engine's watch ever delivers the deletionTimestamp
-// -- this engine was down, the deletion landed during re-attach, or the
-// watch event was simply missed -- and reconcileDeleting above never runs
-// for it.
-//
-// [Reaper] (reaper.go, plan task D2-8b) is the recovery for exactly that:
-// a level-driven pass, independent of any watch event, that lists this
-// replica's client transfers against its Downloads and removes whatever
-// has had no matching Download for a full grace period. It does not
-// resolve the narrower ordering question this paragraph used to leave open
-// (Remove finishing before the controller tears down scratch files it
-// still has open) -- that would need the controller to wait on the engine,
-// which is explicitly out of D2-8b's scope (grabarr/controller/download is
-// owned by a different task). What it does guarantee is the outer bound:
-// no transfer is left running in this client forever just because the
-// delete event never reached it.
 //
 // It never writes status.phase, status.conditions, status.engine or
 // status.import -- see grabarr/status.go for the full field-manager split.
@@ -135,9 +126,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     visible at all (CLAUDE.md; grabarr/controller/downloadclient's own
 //     managedfields_envtest_test.go is the pattern this package's copies).
 //
+// The engine finalizer (above) is why this package updates Downloads and
+// their finalizers subresource.
+//
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloadclients,verbs=get;list;watch
-// +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch
+// +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 package usenet
