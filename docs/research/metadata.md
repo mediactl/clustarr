@@ -353,6 +353,11 @@ knowledge that I could not confirm because the site was behind bot protection.
   anime-list-full.json` = anime-offline-database (manami) ⨝ Anime-Lists by AniDB id, plus TMDB lookups.
   Fields: `type, anidb_id, anilist_id, animecountdown_id, animenewsnetwork_id, anime-planet_id,
   anisearch_id, imdb_id, kitsu_id, livechart_id, mal_id, simkl_id, themoviedb_id, thetvdb_id (+season)`.
+  *Out of date (found at gap fix X6b against the live file on 2026-09-23):* the file now carries
+  `tvdb_id` (not `thetvdb_id`), `imdb_id` as a list, `themoviedb_id` as an object (`{"tv": n}` or
+  `{"movie": [n...]}`), and `season`/`episode_offset` objects keyed `tvdb`/`tmdb`, every field
+  optional. `pkg/metadata/clients/animelists` reads that shape and uses it as a series-level id
+  resolver only; see its package doc for the first-season-TV-entry rule.
 - **Kometa-Team/Anime-IDs** (JSON, daily 00:00 UTC): `https://raw.githubusercontent.com/Kometa-Team/
   Anime-IDs/master/anime_ids.json`, keyed by AniDB id → `tvdb_id, tvdb_season, tvdb_epoffset,
   tmdb_show_id, tmdb_movie_id, imdb_id, mal_id, anilist_id`.
