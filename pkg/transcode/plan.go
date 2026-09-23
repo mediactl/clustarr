@@ -71,10 +71,14 @@ type AudioTrackPlan struct {
 }
 
 // HDRParams is the CRD status mirror of the HDR handling Plan chose.
+// MasterDisplay and MaxCLL describe the source's static metadata in x265
+// syntax, "" when the input model carries none (FromSummary never does).
+// They are informational: the argv never renders them, because FFmpeg's
+// libx265 wrapper carries both from the source's side data (X265Params).
 type HDRParams struct {
 	Mode               string // "none" | "hdr10" | "hlg" | "dolbyVision"
-	MasterDisplay      string // rendered x265 master-display= value, "" if absent
-	MaxCLL             string // rendered x265 max-cll= value, "" if absent
+	MasterDisplay      string // the source's mastering display, x265 master-display= syntax
+	MaxCLL             string // the source's content light level, x265 max-cll= syntax
 	DolbyVisionProfile int32  // 0 when not DV
 	RequiresVBV        bool
 }
