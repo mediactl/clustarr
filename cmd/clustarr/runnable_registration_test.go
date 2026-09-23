@@ -62,18 +62,14 @@ var runnableServices = []string{"catalogarr", "importarr", "indexarr", "grabarr"
 // turn their own commits red. It will turn G2-5's red until G2-5 deletes
 // the lines -- which is the point.
 var pendingWiring = map[string]string{
-	"catalogarr/controller/album.Reconciler":            "G2-5",
-	"catalogarr/controller/artist.Reconciler":           "G2-5",
-	"catalogarr/controller/audiobook.Reconciler":        "G2-5",
-	"catalogarr/controller/author.Reconciler":           "G2-5",
-	"catalogarr/controller/book.Reconciler":             "G2-5",
-	"catalogarr/controller/comic.Reconciler":            "G2-5",
-	"catalogarr/controller/issue.Reconciler":            "G2-5",
-	"importarr/worker/fileimport.Retrigger":             "G2-5",
-	"captionarr/controller/subtitleprofile.Reconciler":  "F-6",
-	"captionarr/controller/subtitleprovider.Reconciler": "F-6",
-	"captionarr/controller/subtitlerequest.Reconciler":  "F-6",
-	"captionarr/worker/fetch.Worker":                    "F-6",
+	"catalogarr/controller/album.Reconciler":     "G2-5",
+	"catalogarr/controller/artist.Reconciler":    "G2-5",
+	"catalogarr/controller/audiobook.Reconciler": "G2-5",
+	"catalogarr/controller/author.Reconciler":    "G2-5",
+	"catalogarr/controller/book.Reconciler":      "G2-5",
+	"catalogarr/controller/comic.Reconciler":     "G2-5",
+	"catalogarr/controller/issue.Reconciler":     "G2-5",
+	"importarr/worker/fileimport.Retrigger":      "G2-5",
 }
 
 // TestEveryManagerRunnableIsRegistered catches a whole class of wiring

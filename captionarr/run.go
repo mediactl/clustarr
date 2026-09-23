@@ -31,6 +31,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
+	"github.com/mediactl/clustarr/captionarr/controller/subtitleprofile"
+	"github.com/mediactl/clustarr/captionarr/controller/subtitleprovider"
+	"github.com/mediactl/clustarr/captionarr/controller/subtitlerequest"
+	"github.com/mediactl/clustarr/captionarr/providerset"
+	"github.com/mediactl/clustarr/captionarr/worker/fetch"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs"
@@ -90,7 +95,9 @@ type Options struct {
 	// Role is the --role value.
 	Role Role
 
-	// DataDir is the RWX media volume.
+	// DataDir is where the RWX media volume is mounted in this process
+	// (--data-dir). Every path in a CRD is a logical /data path; both roles
+	// map it through this with captionarr/datapath.
 	DataDir string
 
 	// Logging configures this process's root logger. The zero value is a
@@ -177,14 +184,23 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 
+	// Readiness on every replica, leader or not (the cache check is an
+	// EveryReplica runnable), and on the caches as well as the bus: every
+	// reconciler and the fetch worker read through the manager's cache, and
+	// an unsynced cache does not fail -- it reports an empty cluster.
+	cacheReady, err := k8s.CacheSyncChecker(mgr)
+	if err != nil {
+		return err
+	}
 	if err := k8s.AddProbes(mgr, map[string]healthz.Checker{
 		"jetstream": k8s.BusReadyChecker(nc, bus),
+		"cache":     cacheReady,
 	}); err != nil {
 		return err
 	}
 
 	if o.Role.RunsControllers() {
-		if err := setupControllers(mgr, o); err != nil {
+		if err := setupControllers(mgr, bus, o); err != nil {
 			return err
 		}
 	}
@@ -201,29 +217,62 @@ func Run(ctx context.Context, o Options) error {
 	return nil
 }
 
-// setupControllers is the registration point for the subtitle reconcilers. It
-// registers nothing yet.
+// setupControllers registers captionarr's three reconcilers (§6.5, §16 M5):
 //
-// TODO(M5): subtitleprofile -- Watches MediaFiles of a video kind with
-// k8s.StatusFieldChanged on status.probeHash per §10, ensuring one
-// SubtitleRequest per file; subtitlerequest -- replan when profileGeneration
-// or probeHash goes stale, publish fetch tasks for items whose nextSearchAt
-// has passed, and run the adaptive and 12h upgrade cadences;
-// subtitleprovider -- mirror the KV throttle and quota into status. (§6.5,
-// §16 M5)
-func setupControllers(mgr ctrl.Manager, o Options) error {
-	_, _ = mgr, o
+//   - subtitleprofile validates each SubtitleProfile and ensures one
+//     SubtitleRequest per video-kind MediaFile the profile wins, woken by
+//     MediaFile.status.probeHash (task F-3);
+//   - subtitleprovider validates each SubtitleProvider through
+//     captionarr/providerset.Validate and projects the shared
+//     clustarr-provider-throttle KV state into its status -- ruling R2 makes
+//     it that status's only writer (task F-3);
+//   - subtitlerequest plans each request, publishes a fetch task for every
+//     language that is due, and runs the adaptive and upgrade cadences
+//     (task F-4). It needs the bus -- a nil Bus fails every reconcile that
+//     has a task to send -- and --data-dir, through which it reads the media
+//     file's directory exactly as the fetch worker does.
+//
+// Secrets are read through the API reader, never the cache: a cached Get
+// would start a cluster-wide Secret informer.
+func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
+	c := mgr.GetClient()
+	if err := subtitleprofile.NewReconciler(
+		c, mgr.GetScheme(), mgr.GetEventRecorder("subtitleprofile"),
+	).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("captionarr: subtitleprofile: %w", err)
+	}
+
+	provider := subtitleprovider.NewReconciler(c, bus.KV(events.BucketProviderThrottle), mgr.GetEventRecorder("subtitleprovider"))
+	provider.Secrets = mgr.GetAPIReader()
+	if err := provider.SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("captionarr: subtitleprovider: %w", err)
+	}
+
+	if err := (&subtitlerequest.Reconciler{
+		Client:  c,
+		Bus:     bus,
+		DataDir: o.DataDir,
+	}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("captionarr: subtitlerequest: %w", err)
+	}
 	return nil
 }
 
-// setupWorkers is the registration point for the fetch consumers.
+// setupWorkers registers the fetch worker (task F-5) on both fetch
+// consumers, captionarr-fetch-high and captionarr-fetch-normal. The worker's
+// runnables are k8s.EveryReplica: fetch workers are never leader-elected
+// (§6.5), so every replica consumes, bounded by the shared KV token bucket
+// rather than by how many pods run.
 //
-// TODO(M5): consume work.captionarr.fetch.>, verify the file still matches its
-// probeHash, iterate providers by priority under the shared KV token bucket,
-// score with the Bazarr weights, post-process to UTF-8 SRT, write the sidecar
-// through temp+rename, and apply status.items[langKey] under
-// k8s.ManagerCaptionarrWorker. (§6.5, §16 M5)
+// The provider builder lives as long as the process: its client cache is
+// what keeps an OpenSubtitles login across fetch tasks. It reads Secrets,
+// and the worker re-reads each SubtitleRequest before its status apply,
+// through the API reader.
 func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
-	_, _, _ = mgr, bus, o
+	providers := providerset.NewBuilder(mgr.GetClient(), mgr.GetAPIReader())
+	worker := fetch.NewWorker(mgr.GetClient(), mgr.GetAPIReader(), bus, providers, o.DataDir)
+	if err := worker.SetupWithManager(mgr, o.BusTopology()); err != nil {
+		return fmt.Errorf("captionarr: fetch worker: %w", err)
+	}
 	return nil
 }

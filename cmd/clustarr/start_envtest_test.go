@@ -44,11 +44,14 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/captionarr"
 	"github.com/mediactl/clustarr/catalogarr"
 	"github.com/mediactl/clustarr/catalogarr/history"
 	"github.com/mediactl/clustarr/grabarr"
@@ -58,6 +61,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/squasharr"
@@ -110,6 +114,12 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 	// facadeAddr is where the indexarr case's facade listens; its prepare
 	// picks it, its verify dials it.
 	var facadeAddr string
+
+	// captionData is captionarr's --data-dir in both of its cases: the one
+	// media volume the controller role lists and the worker role reads, as
+	// the two Deployments share one claim. Every MediaFile path stays a
+	// logical /data path that maps into it.
+	captionData := t.TempDir()
 
 	// One case per role that is worth standing up, in an order that respects
 	// a constraint controller-runtime imposes on the whole PROCESS:
@@ -397,6 +407,38 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 						got.Status.Phase == transcodev1alpha1.TranscodeJobPhasePending
 				})
 			},
+		},
+		// captionarr had no presence in this table before plan task F-6:
+		// setupControllers and setupWorkers were literal no-ops while the
+		// SubtitleProfile, SubtitleProvider and SubtitleRequest reconcilers
+		// and the fetch worker sat in their own packages, fully tested and
+		// reachable from nowhere. Each verify watches every piece do its
+		// first observable work, and the two cases are one pipeline: the
+		// controller case plans a request and publishes its fetch task to
+		// the real JetStream stream, where it waits -- the controller role
+		// consumes nothing -- until the worker case's consumer picks it up.
+		// So the worker case depends on the controller case before it, which
+		// is also what proves the subject, the consumer filter and the task
+		// schema line up across the two roles.
+		{
+			name: "captionarr/controller",
+			run: func(ctx context.Context, o k8s.Options) error {
+				d := captionarr.DefaultOptions()
+				d.Options, d.Role = o, captionarr.RoleController
+				d.DataDir = captionData
+				return captionarr.Run(ctx, d)
+			},
+			verify: func(t *testing.T) { verifyCaptionarrController(t, env.Config, captionData) },
+		},
+		{
+			name: "captionarr/worker",
+			run: func(ctx context.Context, o k8s.Options) error {
+				d := captionarr.DefaultOptions()
+				d.Options, d.Role = o, captionarr.RoleWorker
+				d.DataDir = captionData
+				return captionarr.Run(ctx, d)
+			},
+			verify: func(t *testing.T) { verifyCaptionarrWorker(t, env.Config) },
 		},
 		// The three "all" cases come last and are each the superset of
 		// their service's roles: controllers, workers and (for catalogarr)
@@ -920,4 +962,170 @@ func waitForLong(t *testing.T, what string, cond func() bool) {
 		time.Sleep(200 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for %s", what)
+}
+
+// captionProbe names every object the captionarr cases create: the
+// SubtitleProfile (cluster-scoped), and in "default" the SubtitleProvider,
+// the MediaFile, and the SubtitleRequest the profile controller ensures for
+// it, which shares the MediaFile's name.
+const (
+	captionProbe        = "captionarr-probe"
+	captionProbeLogical = "/data/movies/Captionarr Probe (2020)/Captionarr Probe (2020).mkv"
+)
+
+// verifyCaptionarrController gives each of the controller role's three
+// reconcilers its first piece of work and waits for it: the SubtitleProvider
+// controller projecting a status (through providerset.Validate), the
+// SubtitleProfile controller ensuring a SubtitleRequest for a probed video
+// MediaFile, and the SubtitleRequest controller planning that request --
+// which needs the bus (a fetch task is published and its dispatch stamped)
+// and --data-dir (the file exists only under dataDir, at the logical path's
+// place, so reading spec.path literally leaves the request Blocked).
+func verifyCaptionarrController(t *testing.T, cfg *rest.Config, dataDir string) {
+	t.Helper()
+	ctx := context.Background()
+	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	if err != nil {
+		t.Fatalf("build client: %v", err)
+	}
+
+	// The provider: gestdown needs no credentials, so its first reconcile
+	// projects Ready=True -- and, being TV-only, it is skipped for the movie
+	// below, which the worker case reports.
+	provider := &subtitlev1alpha1.SubtitleProvider{
+		ObjectMeta: metav1.ObjectMeta{Name: captionProbe, Namespace: "default"},
+		Spec:       subtitlev1alpha1.SubtitleProviderSpec{Type: subtitlev1alpha1.SubtitleProviderGestdown, Enabled: true},
+	}
+	if err := c.Create(ctx, provider); err != nil {
+		t.Fatalf("create SubtitleProvider: %v", err)
+	}
+	profile := &subtitlev1alpha1.SubtitleProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: captionProbe},
+		Spec: subtitlev1alpha1.SubtitleProfileSpec{
+			Default:   true,
+			Languages: []subtitlev1alpha1.LanguageItem{{Key: "de", Language: "de"}},
+		},
+	}
+	if err := c.Create(ctx, profile); err != nil {
+		t.Fatalf("create SubtitleProfile: %v", err)
+	}
+
+	local := filepath.Join(dataDir, strings.TrimPrefix(captionProbeLogical, "/data"))
+	if err := os.MkdirAll(filepath.Dir(local), 0o750); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(local, []byte("not really a movie"), 0o600); err != nil {
+		t.Fatalf("write the video: %v", err)
+	}
+	st, err := os.Stat(local)
+	if err != nil {
+		t.Fatalf("stat the video: %v", err)
+	}
+	mf := &catalogv1alpha1.MediaFile{
+		ObjectMeta: metav1.ObjectMeta{Name: captionProbe, Namespace: "default"},
+		Spec: catalogv1alpha1.MediaFileSpec{
+			MediaRef:  commonv1alpha1.MediaRef{Kind: commonv1alpha1.MediaKindMovie, Name: captionProbe},
+			Path:      captionProbeLogical,
+			SizeBytes: st.Size(),
+			ModTime:   metav1.NewTime(st.ModTime()),
+		},
+	}
+	if err := c.Create(ctx, mf); err != nil {
+		t.Fatalf("create MediaFile: %v", err)
+	}
+	// catalogarr's probe, standing in: the hash the fetch worker will
+	// recompute from the file on disk, and an English audio track with no
+	// embedded subtitle, so German is the one wanted language.
+	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.MediaFile(captionProbe, "default").
+		WithStatus(catalogac.MediaFileStatus().
+			WithProbeHash(mediainfo.ProbeHash(captionProbeLogical, st.Size(), st.ModTime())).
+			WithMediaInfo(commonv1alpha1.MediaInfo{
+				Container: "mkv",
+				Audio:     []commonv1alpha1.AudioStream{{Index: 1, Codec: "aac", Language: "eng"}},
+			}))); err != nil {
+		t.Fatalf("probe the MediaFile: %v", err)
+	}
+
+	waitFor(t, "the SubtitleProvider controller to project a Ready status", func() bool {
+		var got subtitlev1alpha1.SubtitleProvider
+		return c.Get(ctx, client.ObjectKeyFromObject(provider), &got) == nil &&
+			got.Status.ObservedGeneration == got.Generation &&
+			k8s.IsConditionTrue(got.Status.Conditions, k8s.ConditionReady)
+	})
+	waitFor(t, "the SubtitleProfile controller to ensure a SubtitleRequest for the video", func() bool {
+		var got subtitlev1alpha1.SubtitleRequest
+		return c.Get(ctx, types.NamespacedName{Namespace: "default", Name: captionProbe}, &got) == nil &&
+			got.Spec.ProfileRef == captionProbe && got.Spec.MediaFileRef == captionProbe
+	})
+	var sr subtitlev1alpha1.SubtitleRequest
+	waitFor(t, "the SubtitleRequest controller to plan the request and dispatch German", func() bool {
+		if c.Get(ctx, types.NamespacedName{Namespace: "default", Name: captionProbe}, &sr) != nil {
+			return false
+		}
+		for _, it := range sr.Status.Items {
+			if it.LangKey == "de" && it.Attempts.Count == 1 && it.NextSearchAt != nil {
+				return true
+			}
+		}
+		return false
+	})
+	if sr.Status.Phase != subtitlev1alpha1.SubtitleRequestPhaseSearching {
+		planned := k8s.FindCondition(sr.Status.Conditions, subtitlev1alpha1.SubtitleRequestConditionPlanned)
+		t.Errorf("SubtitleRequest phase = %q (Planned: %+v), want Searching", sr.Status.Phase, planned)
+	}
+	var sp subtitlev1alpha1.SubtitleProfile
+	if err := c.Get(ctx, client.ObjectKeyFromObject(profile), &sp); err != nil {
+		t.Fatalf("get SubtitleProfile: %v", err)
+	}
+	if sp.Status.MatchingFiles != 1 {
+		t.Errorf("SubtitleProfile status.matchingFiles = %d, want 1", sp.Status.MatchingFiles)
+	}
+}
+
+// verifyCaptionarrWorker waits for the fetch worker to consume the task the
+// controller case published and record its first result on the item. No
+// enabled provider can search a movie here (gestdown is TV-only), so the
+// result is "unavailable", naming the provider it skipped -- which is the
+// proof the worker's providerset builder listed it. Then it removes every
+// object the two captionarr cases made.
+func verifyCaptionarrWorker(t *testing.T, cfg *rest.Config) {
+	t.Helper()
+	ctx := context.Background()
+	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	if err != nil {
+		t.Fatalf("build client: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx := context.Background()
+		for _, o := range []client.Object{
+			&subtitlev1alpha1.SubtitleRequest{ObjectMeta: metav1.ObjectMeta{Name: captionProbe, Namespace: "default"}},
+			&catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: captionProbe, Namespace: "default"}},
+			&subtitlev1alpha1.SubtitleProvider{ObjectMeta: metav1.ObjectMeta{Name: captionProbe, Namespace: "default"}},
+			&subtitlev1alpha1.SubtitleProfile{ObjectMeta: metav1.ObjectMeta{Name: captionProbe}},
+		} {
+			_ = c.Delete(ctx, o)
+		}
+	})
+
+	var item subtitlev1alpha1.SubtitleItem
+	waitFor(t, "the fetch worker to consume the controller's task and record German's result", func() bool {
+		var sr subtitlev1alpha1.SubtitleRequest
+		if c.Get(ctx, types.NamespacedName{Namespace: "default", Name: captionProbe}, &sr) != nil {
+			return false
+		}
+		for _, it := range sr.Status.Items {
+			if it.LangKey == "de" && it.State != "" {
+				item = it
+				return true
+			}
+		}
+		return false
+	})
+	if item.State != subtitlev1alpha1.SubtitleItemUnavailable {
+		t.Errorf("item de state = %q (lastError %q), want %q", item.State, item.LastError, subtitlev1alpha1.SubtitleItemUnavailable)
+	}
+	if !strings.Contains(item.LastError, captionProbe) {
+		t.Errorf("item de lastError = %q, want it to name the skipped provider %q -- "+
+			"the worker's providerset builder never listed it", item.LastError, captionProbe)
+	}
 }
