@@ -1,0 +1,3 @@
+{"count":3,"next":null,"previous":"https://metron.cloud/api/series/1/issue_list/","results":[
+ {"id":3617,"series":{"id":1,"name":"Death of the Inhumans","volume":1,"year_began":2018},"number":"2.5","issue":"Death of the Inhumans (2018) #2.5","cover_date":"2018-11-01","store_date":"2018-09-05","foc_date":null,"image":null,"cover_hash":"","modified":"2019-06-23T15:13:19.432378-04:00"}
+]}

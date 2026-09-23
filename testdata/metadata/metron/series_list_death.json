@@ -1,0 +1,4 @@
+{"count":2,"next":null,"previous":null,"results":[
+ {"id":1,"series":"Death of the Inhumans (2018)","year_began":2018,"year_end":2018,"volume":1,"issue_count":5,"publisher":{"id":1,"name":"Marvel"},"series_type":{"id":11,"name":"Limited Series"},"cv_id":111265,"gcd_id":null,"modified":"2019-06-23T15:13:19.432378-04:00"},
+ {"id":2311,"series":"Absolute Carnage (2019)","year_began":2019,"year_end":null,"volume":1,"issue_count":5,"publisher":{"id":1,"name":"Marvel"},"series_type":{"id":11,"name":"Limited Series"},"cv_id":null,"gcd_id":null,"modified":"2019-06-23T15:13:19.432378-04:00"}
+]}
