@@ -18,15 +18,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package download
 
 import (
-	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
@@ -130,7 +125,7 @@ func derivePhaseCases(t *testing.T) []derivePhaseCase {
 	rejected.Status.Stage = downloadv1alpha1.DownloadStageDone
 	rejected.Status.Import = &downloadv1alpha1.ImportState{
 		State:      downloadv1alpha1.ImportPhaseBlocked,
-		Message:    importRejectedMessage,
+		Message:    downloadv1alpha1.ImportMessageEveryFileRejected,
 		Rejections: []string{"movie.mkv: quality SDTV is not in the profile"},
 	}
 
@@ -266,33 +261,6 @@ func TestIsContentComplete(t *testing.T) {
 	for _, p := range notComplete {
 		assert.False(t, isContentComplete(p), "%s must not be content-complete", p)
 	}
-}
-
-// importRejectedMessage is a contract with importarr's file-import worker,
-// which this package cannot import. Until importarr exports it (or
-// status.import grows a machine-readable reason), this reads importarr's
-// source and insists the exact literal is still there, so a rewording fails
-// here rather than silently turning every import rejection back into a
-// Download that sits Completed forever.
-func TestImportRejectedMessageIsImportarrs(t *testing.T) {
-	dir := filepath.Join("..", "..", "..", "importarr", "worker", "fileimport")
-	entries, err := os.ReadDir(dir)
-	require.NoError(t, err)
-
-	quoted := strconv.Quote(importRejectedMessage)
-	found := false
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
-			continue
-		}
-		src, err := os.ReadFile(filepath.Join(dir, e.Name()))
-		require.NoError(t, err)
-		if strings.Contains(string(src), quoted) {
-			found = true
-		}
-	}
-	assert.Truef(t, found, "importarr/worker/fileimport no longer writes %s; "+
-		"update importRejectedMessage or importRejected() reads no rejection as importRejected", quoted)
 }
 
 // The failure-reason ruling (DownloadFailureReason.IsReleaseFault), pinned

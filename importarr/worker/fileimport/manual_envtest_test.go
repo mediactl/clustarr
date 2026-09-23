@@ -198,7 +198,7 @@ func TestHandleReportsAMalformedImportAnnotationOnStatus(t *testing.T) {
 		// The Download already has an import state from an earlier attempt.
 		_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerImportarr, downloadac.Download(dl.Name, f.ns).WithStatus(
 			downloadac.DownloadStatus().WithImport(downloadac.ImportState().
-				WithState(downloadv1alpha1.ImportPhaseBlocked).WithMessage("every candidate file was rejected"))))
+				WithState(downloadv1alpha1.ImportPhaseBlocked).WithMessage(downloadv1alpha1.ImportMessageEveryFileRejected))))
 		require.NoError(t, err)
 
 		require.NoError(t, f.worker.Handle(ctx, newImportTaskMessage(t, f.ns, dl.Name, "")))

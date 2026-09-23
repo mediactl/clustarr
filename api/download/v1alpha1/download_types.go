@@ -235,6 +235,20 @@ const (
 	ImportPhaseIgnored ImportPhase = "ignored"
 )
 
+// ImportMessageEveryFileRejected is the status.import.message importarr's
+// file-import worker writes when it walked the download and refused every
+// candidate file (state blocked, nothing imported, at least one rejection).
+// grabarr reads that outcome as DownloadFailureImportRejected, a release
+// fault it blocklists. It is the only blocked import that is the release's
+// fault: the others -- an invalid import annotation, a target that holds no
+// files, a missing item, an unreadable content root, a walk error on the
+// final attempt such as a full library disk -- are local or operator faults,
+// and the walk error can also carry rejections and no imported file, so the
+// message is what tells them apart. It lives in the API package both
+// services import, so the writer and the reader name one constant rather
+// than keeping two literals in step.
+const ImportMessageEveryFileRejected = "every candidate file was rejected"
+
 // IndexerDownload points at a release on an indexer. grabarr resolves it
 // through indexarr at grab time to obtain the actual .torrent or .nzb bytes;
 // those bytes are deliberately never stored on the Download object, which

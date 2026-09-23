@@ -305,7 +305,7 @@ func TestImportRejectedBlocklists(t *testing.T) {
 	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerImportarr, downloadac.Download("rej-dl", ns).WithStatus(
 		downloadac.DownloadStatus().WithImport(downloadac.ImportState().
 			WithState(downloadv1alpha1.ImportPhaseBlocked).
-			WithMessage("every candidate file was rejected").
+			WithMessage(downloadv1alpha1.ImportMessageEveryFileRejected).
 			WithRejections("movie.mkv: quality SDTV is not in the profile"))))
 	require.NoError(t, err)
 	reconcileOK(t, r, ns, "rej-dl")

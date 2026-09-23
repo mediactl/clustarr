@@ -130,7 +130,7 @@ func (w *Worker) importNonVideo(
 	if len(outcome.imported) == 0 {
 		msg := fmt.Sprintf("no %s files found", plan.ref.Kind)
 		if len(outcome.rejections) > 0 {
-			msg = "every candidate file was rejected"
+			msg = downloadv1alpha1.ImportMessageEveryFileRejected
 		}
 		return w.finishBlocked(ctx, dl, outcome.imported, outcome.rejections, msg)
 	}

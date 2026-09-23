@@ -123,7 +123,7 @@ func (w *Worker) importEpisodes(
 	if len(outcome.imported) == 0 {
 		msg := "no episode files found"
 		if len(outcome.rejections) > 0 {
-			msg = "every candidate file was rejected"
+			msg = downloadv1alpha1.ImportMessageEveryFileRejected
 		}
 		return w.finishBlocked(ctx, dl, outcome.imported, outcome.rejections, msg)
 	}

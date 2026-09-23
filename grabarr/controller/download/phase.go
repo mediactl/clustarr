@@ -21,24 +21,6 @@ import (
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 )
 
-// importRejectedMessage is the status.import.message importarr's file-import
-// worker writes when it walked the download and refused every candidate file
-// (importarr/worker/fileimport.Worker.Handle). It is the one thing that tells
-// that outcome -- DownloadFailureImportRejected, "catalogarr refused every
-// file" -- apart from the other blocked imports, all of which are local or
-// operator faults a release must not be blocklisted for: an invalid import
-// annotation, a target that holds no files, a missing Movie, an unreadable
-// content root, and a walk error such as a full library disk. The last can
-// also carry rejections and no imported file, so "blocked, nothing imported,
-// some rejections" is not enough on its own.
-//
-// Matching a message is the weakest contract in this package, and it fails
-// safe: if importarr rewords it, a rejected download stays Completed with a
-// blocked import, which is what it did before gap fix Y2. The guard that
-// keeps the two in step is TestImportRejectedMessageIsImportarrs, which reads
-// importarr's source.
-const importRejectedMessage = "every candidate file was rejected"
-
 // phaseResult is what derivePhase computes.
 type phaseResult struct {
 	phase downloadv1alpha1.DownloadPhase
@@ -210,14 +192,16 @@ func failureOf(dl *downloadv1alpha1.Download, labelled bool) downloadv1alpha1.Do
 
 // importRejected reports whether importarr's last word on dl is that it
 // refused every file: status.import blocked, nothing imported, at least one
-// rejection, and importRejectedMessage -- see that constant for why all four.
+// rejection, and downloadv1alpha1.ImportMessageEveryFileRejected -- see that
+// constant for why all four. importarr's file-import worker writes the same
+// constant, so a rewording changes both sides at once.
 func importRejected(dl *downloadv1alpha1.Download) bool {
 	imp := dl.Status.Import
 	return imp != nil &&
 		imp.State == downloadv1alpha1.ImportPhaseBlocked &&
 		len(imp.Imported) == 0 &&
 		len(imp.Rejections) > 0 &&
-		imp.Message == importRejectedMessage
+		imp.Message == downloadv1alpha1.ImportMessageEveryFileRejected
 }
 
 // isBlocklistLabelled reports whether dl carries the blocklist label.
