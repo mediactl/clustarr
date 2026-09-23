@@ -33,6 +33,17 @@ const (
 	AudiobookConditionHasFile = "HasFile"
 	// AudiobookConditionCutoffMet is True when the imported files meet the profile cutoff.
 	AudiobookConditionCutoffMet = "CutoffMet"
+	// AudiobookConditionQueueFull is True while metadata-refresh publishes are
+	// being throttled. Controller-introduced, not spec-listed -- mirrors
+	// MovieConditionQueueFull (movie_types.go), added by a later task there
+	// for the same reason: it lets a full work queue be told apart from an
+	// ordinary "refreshing" MetadataReady=false.
+	AudiobookConditionQueueFull = "QueueFull"
+	// AudiobookConditionBookRefResolved is True when spec.bookRef is unset or
+	// names a Book that exists, False when it names one that does not. A
+	// dangling bookRef never fails reconciliation (§8.1's Want flow does not
+	// depend on it); this condition is the only place the problem surfaces.
+	AudiobookConditionBookRefResolved = "BookRefResolved"
 )
 
 // AudiobookRegion is the Audible marketplace an ASIN belongs to.
