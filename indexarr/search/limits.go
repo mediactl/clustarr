@@ -43,14 +43,12 @@ import (
 // status.queriesInWindow is its projection, exactly as the grab ring and
 // status.grabsInWindow relate.
 //
-// WHAT IT DOES NOT COUNT, deliberately and as a carried item: an RSS poll
-// makes up to four Torznab requests and counts none of them
-// (indexarr/worker/rss), so the window under-reports real traffic against an
-// indexer that is polled as well as searched. Closing that needs the RSS
-// worker to call this too, which is D1-7's file, not this one. Counting a
-// search here is strictly better than the previous state of nothing being
-// counted at all, and the direction of the error is the safe one: the limit
-// is reached later than it should be, never earlier.
+// Both of an indexer's query paths count here: the search fan-out, and the
+// RSS poll, which makes up to four Torznab requests per poll. Prowlarr counts
+// IndexerQuery and IndexerRss together against QueryLimit. The poll cannot
+// import this package (this package imports indexarr/worker/rss for
+// ProjectRelease), so indexarr/run.go hands it [CountQuery] through
+// rss.Deps.CountQuery -- one ring, one key, one window for both.
 const (
 	// maxQueryRingEntries caps the ring so a busy indexer cannot turn a KV
 	// value into a megabyte. At this size the JSON is roughly 45KB.
@@ -108,6 +106,14 @@ func pruneQueryRing(ring []int64, cutoff time.Time, maxEntries int) []int64 {
 		out = out[len(out)-maxEntries:]
 	}
 	return out
+}
+
+// CountQuery records one query against idx in kv (the
+// clustarr-indexer-limits bucket) and returns how many are in the current
+// window. It is the RSS poll's entry point to the ring the search fan-out
+// counts into; see the note above maxQueryRingEntries.
+func CountQuery(ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexer, now time.Time) (int32, error) {
+	return countQuery(ctx, kv, idx, now)
 }
 
 // countQuery records one query against idx and returns how many are in the

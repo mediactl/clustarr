@@ -125,6 +125,15 @@ type Deps struct {
 	// SearcherFor returns the search client for one indexer.
 	SearcherFor func(ctx context.Context, idx *indexv1alpha1.Indexer) (Searcher, error)
 
+	// CountQuery records one query against idx in the query ring and
+	// returns the window's count -- indexarr/search.CountQuery over the
+	// clustarr-indexer-limits bucket, the same ring the search fan-out
+	// counts into, so status.queriesInWindow is every request the indexer
+	// saw rather than only the searches. indexarr/run.go wires it. nil
+	// disables accounting (a unit test), and an error is non-fatal: the
+	// poll leaves queriesInWindow as it is, exactly as the fan-out does.
+	CountQuery func(ctx context.Context, idx *indexv1alpha1.Indexer, now time.Time) (int32, error)
+
 	// Clock is a seam for tests; nil means time.Now.
 	Clock func() time.Time
 }
@@ -240,7 +249,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		return nil
 	}
 
-	fetched, pollErr := w.pollOnce(ctx, m, &idx, task, now)
+	fetched, queries, pollErr := w.pollOnce(ctx, m, &idx, task, now)
 
 	if pollErr != nil && (errors.Is(pollErr, context.Canceled) || errors.Is(pollErr, context.DeadlineExceeded)) {
 		// The pod is going away mid-poll. This is our shutdown, not the
@@ -282,6 +291,11 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	if pollErr != nil {
 		esc = idxstatus.RecordFailure(idx.Status, now, pollErr.Error())
 		mutate = func(ac *indexac.IndexerStatusApplyConfiguration) {
+			// A failed request still reached the indexer and still spends
+			// its query budget.
+			if queries != nil {
+				ac.WithQueriesInWindow(*queries)
+			}
 			idxstatus.ApplyEscalation(ac, esc, idx.Status)
 		}
 	} else {
@@ -308,6 +322,9 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 				// poll's inserted count and it self-corrects at the next
 				// poll.
 				WithIndexedReleases(idx.Status.IndexedReleases + int64(inserted))
+			if queries != nil {
+				ac.WithQueriesInWindow(*queries)
+			}
 			idxstatus.ApplyEscalation(ac, esc, idx.Status)
 		}
 	}
@@ -351,19 +368,26 @@ func retryAfterFailure(esc idxstatus.Escalation, now time.Time) time.Duration {
 // around the whole call: one Search is one HTTP request bounded by
 // spec.timeout (default 30s), so the only way a poll outlives a 60s AckWait
 // is by making several of them.
+//
+// queries is the query ring's window count after the last page this poll
+// counted, or nil when nothing was counted (no CountQuery wired, or every
+// count failed). Each page is counted BEFORE its request, as the search
+// fan-out counts, because a request that fails or times out still reached
+// the indexer and still spends its budget.
 func (w *Worker) pollOnce(
 	ctx context.Context,
 	m events.Message,
 	idx *indexv1alpha1.Indexer,
 	task schema.RssTask,
 	now time.Time,
-) ([]torznab.Release, error) {
+) (fetched []torznab.Release, queries *int32, err error) {
 	if w.Deps.SearcherFor == nil {
-		return nil, errors.New("rss: no SearcherFor was wired")
+		return nil, nil, errors.New("rss: no SearcherFor was wired")
 	}
 	s, err := w.Deps.SearcherFor(ctx, idx)
 	if err != nil {
-		return nil, fmt.Errorf("rss: build search client: %w", err)
+		// No request reached the indexer, so no query is counted.
+		return nil, nil, fmt.Errorf("rss: build search client: %w", err)
 	}
 
 	cats := categoryIDsFor(idx, task)
@@ -376,13 +400,16 @@ func (w *Worker) pollOnce(
 	start := now
 	for page := range maxPages {
 		if ctx.Err() != nil {
-			return all, ctx.Err()
+			return all, queries, ctx.Err()
 		}
 		if beat := w.now(); last.IsZero() || beat.Sub(last) >= heartbeatInterval {
 			last = beat
 			if err := m.InProgress(ctx); err != nil {
-				return all, fmt.Errorf("rss: heartbeat: %w", err)
+				return all, queries, fmt.Errorf("rss: heartbeat: %w", err)
 			}
+		}
+		if n, ok := w.countQuery(ctx, idx); ok {
+			queries = &n
 		}
 		// t=search with an empty q is the RSS call: the indexer's newest
 		// rows, unfiltered.
@@ -395,7 +422,7 @@ func (w *Worker) pollOnce(
 		w.recordQuery(idx.Name, start, err)
 		start = w.now()
 		if err != nil {
-			return all, err
+			return all, queries, err
 		}
 		// One page is one query, which is the unit this histogram documents.
 		metrics.IndexerReleasesReturned.WithLabelValues(idx.Name).Observe(float64(len(batch)))
@@ -406,7 +433,23 @@ func (w *Worker) pollOnce(
 			break
 		}
 	}
-	return all, nil
+	return all, queries, nil
+}
+
+// countQuery counts one page request into the query ring. It never fails the
+// poll: an accounting outage must not turn a feed the indexer served into a
+// failure the escalation ladder would punish, so an error is logged and the
+// page goes ahead uncounted.
+func (w *Worker) countQuery(ctx context.Context, idx *indexv1alpha1.Indexer) (int32, bool) {
+	if w.Deps.CountQuery == nil {
+		return 0, false
+	}
+	n, err := w.Deps.CountQuery(ctx, idx, w.now())
+	if err != nil {
+		logging.FromContext(ctx).Warn("rss: query accounting failed", "err", err)
+		return 0, false
+	}
+	return n, true
 }
 
 // recordQuery emits the two per-query metrics. Both are labelled by the

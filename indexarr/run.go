@@ -634,7 +634,28 @@ func setupWorkers(
 		return verbs{}, fmt.Errorf("indexarr: add the RPC responder: %w", err)
 	}
 
-	if err := rss.NewWorker(rss.Deps{
+	if err := rss.NewWorker(rssDeps(c, bus, store, clients)).SetupWithManager(mgr, bus); err != nil {
+		return verbs{}, fmt.Errorf("indexarr: subscribe rss: %w", err)
+	}
+
+	if err := mgr.Add(k8s.EveryReplica(sweepReleaseIndex(store))); err != nil {
+		return verbs{}, fmt.Errorf("indexarr: add the release-index sweep: %w", err)
+	}
+
+	return verbs{search: svc, query: q, download: dl}, nil
+}
+
+// rssDeps is the RSS poll's wiring. It is a function so a test can assert
+// what production hands the worker rather than a copy of it.
+//
+// CountQuery is not optional in production: it is what puts the poll's up to
+// four requests per poll into the same query ring the search fan-out counts
+// into (spec §5's <indexer-uid>.query in clustarr-indexer-limits), so
+// status.queriesInWindow -- and the RateLimited condition and
+// spec.limits.queryLimit read from it -- see the indexer's whole traffic.
+func rssDeps(c client.Client, bus events.Bus, store relindex.Store, clients *indexer.ClientCache) rss.Deps {
+	limits := bus.KV(events.BucketIndexerLimits)
+	return rss.Deps{
 		Client: c,
 		Bus:    bus,
 		Index:  store,
@@ -645,15 +666,10 @@ func setupWorkers(
 			}
 			return cli, nil
 		},
-	}).SetupWithManager(mgr, bus); err != nil {
-		return verbs{}, fmt.Errorf("indexarr: subscribe rss: %w", err)
+		CountQuery: func(ctx context.Context, idx *indexv1alpha1.Indexer, now time.Time) (int32, error) {
+			return search.CountQuery(ctx, limits, idx, now)
+		},
 	}
-
-	if err := mgr.Add(k8s.EveryReplica(sweepReleaseIndex(store))); err != nil {
-		return verbs{}, fmt.Errorf("indexarr: add the release-index sweep: %w", err)
-	}
-
-	return verbs{search: svc, query: q, download: dl}, nil
 }
 
 // verbs are the bodies of clustarr.rpc.indexarr.search, .query and
