@@ -186,8 +186,13 @@ func (f *FlareSolverr) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 	challenged, err := IsChallenge(resp)
-	if err != nil || !challenged {
-		return resp, err
+	if err != nil {
+		// A RoundTripper returns a response or an error, never both.
+		_ = resp.Body.Close()
+		return nil, err
+	}
+	if !challenged {
+		return resp, nil
 	}
 	_ = resp.Body.Close()
 
