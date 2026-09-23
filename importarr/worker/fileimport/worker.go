@@ -391,7 +391,7 @@ func (w *Worker) finalAttempt(m events.Message) bool {
 func (w *Worker) finishIgnored(ctx context.Context, dl *downloadv1alpha1.Download, message string) error {
 	ac := downloadac.ImportState().
 		WithState(downloadv1alpha1.ImportPhaseIgnored).
-		WithMessage(message)
+		WithMessage(truncateChars(message, maxImportMessage))
 	return w.patchImport(ctx, dl, ac, nil)
 }
 
@@ -403,14 +403,15 @@ func (w *Worker) finishBlocked(
 	ctx context.Context, dl *downloadv1alpha1.Download, imported []*downloadac.ImportedFileApplyConfiguration,
 	rejections []string, message string,
 ) error {
+	listed, _ := capImported(imported)
 	ac := downloadac.ImportState().
 		WithState(downloadv1alpha1.ImportPhaseBlocked).
-		WithMessage(message)
-	if len(imported) > 0 {
-		ac = ac.WithImported(imported...)
+		WithMessage(truncateChars(message, maxImportMessage))
+	if len(listed) > 0 {
+		ac = ac.WithImported(listed...)
 	}
 	if len(rejections) > 0 {
-		ac = ac.WithRejections(rejections...)
+		ac = ac.WithRejections(capRejections(rejections)...)
 	}
 	return w.patchImport(ctx, dl, ac, nil)
 }
@@ -421,13 +422,18 @@ func (w *Worker) finishImported(
 	ctx context.Context, dl *downloadv1alpha1.Download, imported []*downloadac.ImportedFileApplyConfiguration,
 	rejections []string,
 ) error {
+	listed, unlisted := capImported(imported)
 	ac := downloadac.ImportState().
 		WithState(downloadv1alpha1.ImportPhaseImported).
 		WithImportedAt(metav1.NewTime(w.now())).
-		WithImported(imported...)
-	if len(rejections) > 0 {
-		ac = ac.WithRejections(rejections...)
+		WithImported(listed...)
+	if unlisted > 0 {
+		ac = ac.WithMessage(fmt.Sprintf("imported %d files; status lists the first %d", len(imported), len(listed)))
 	}
+	if len(rejections) > 0 {
+		ac = ac.WithRejections(capRejections(rejections)...)
+	}
+	// The fingerprint covers every imported file, not only the listed ones.
 	refs := make([]string, 0, len(imported))
 	for _, i := range imported {
 		if i.MediaFileRef != nil {

@@ -20,6 +20,7 @@ package download_test
 import (
 	"encoding/json"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -174,6 +175,19 @@ func TestApplyStatusClampsToTheCRDsBounds(t *testing.T) {
 	require.NotNil(t, got.Health)
 	assert.EqualValues(t, 100, got.Health.HealthPercent)
 	assert.EqualValues(t, 0, got.Health.CriticalHealthPercent)
+}
+
+// status.files carries MaxItems=200 and a discography or full-series pack
+// lists more; the apiserver would reject the whole telemetry apply, not just
+// the excess, so ApplyStatus renders the first MaxStatusFiles.
+func TestApplyStatusCapsFilesAtTheCRDsMaxItems(t *testing.T) {
+	files := make([]download.File, download.MaxStatusFiles+37)
+	for i := range files {
+		files[i] = download.File{Path: "disc/" + strconv.Itoa(i) + ".flac", SizeBytes: 1}
+	}
+	got := statusFromAC(t, download.ApplyStatus(download.Item{Files: files}))
+	require.Len(t, got.Files, download.MaxStatusFiles)
+	assert.Equal(t, "disc/0.flac", got.Files[0].Path, "the first files are kept, in order")
 }
 
 // ItemFromStatus must not be able to widen the engine's claim: it reads only

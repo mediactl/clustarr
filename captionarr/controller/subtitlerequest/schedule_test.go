@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -38,7 +39,7 @@ const day = 24 * time.Hour
 
 // defaultCadence is the CRD's defaults, as the apiserver fills them.
 var defaultCadence = cadenceFor(subtitlev1alpha1.SubtitleProfileSpec{
-	Upgrade: subtitlev1alpha1.UpgradeSpec{Enabled: true, LookbackDays: 7, MinDeltaPoints: 3},
+	Upgrade: subtitlev1alpha1.UpgradeSpec{Enabled: ptr.To(true), LookbackDays: 7, MinDeltaPoints: 3},
 })
 
 func TestCadenceDefaultsAZeroDuration(t *testing.T) {

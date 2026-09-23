@@ -110,6 +110,16 @@ func TestUpgradeDecisionMatchesIsUpgradableTable(t *testing.T) {
 		require.Equal(t, quality.FormatIncrementTooSmall, p.UpgradeDecision(current, candidate))
 	})
 
+	// Revision.Version has no omitempty, so its CRD default of 1 never
+	// reaches a Revision written from Go: an unparsed one arrives as 0. It
+	// must read as the original, or a plain original of the same quality
+	// would look like a proper of it and be grabbed as an upgrade.
+	t.Run("same quality, current revision unset (0) vs an original (1) -> not an upgrade", func(t *testing.T) {
+		current := quality.Candidate{Quality: bluray1080.Quality, Revision: common.Revision{}, FormatScore: 100}
+		candidate := quality.Candidate{Quality: bluray1080.Quality, Revision: common.Revision{Version: 1}, FormatScore: 100}
+		require.Equal(t, quality.FormatScoreNotHigher, base.UpgradeDecision(current, candidate))
+	})
+
 	t.Run("candidate score clears the minimum increment -> Upgrade", func(t *testing.T) {
 		p := base
 		p.MinUpgradeFormatScore = 5

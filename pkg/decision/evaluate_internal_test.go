@@ -75,3 +75,26 @@ func TestBuildRankKeyThroughSeriesSizeTable(t *testing.T) {
 	require.Equal(t, rel.SizeBytes, key.SizeBytes)
 	require.Zero(t, key.SizeDeltaBucket, "SizeDeltaBucket is unused once PreferLargestSize is true")
 }
+
+// Revision.Version has no omitempty, so its CRD default of 1 never reaches a
+// Revision written from Go; an unparsed one arrives as 0 and must rank as the
+// original, not below it.
+func TestCompareRevisionFloorsVersionAtOne(t *testing.T) {
+	require.Zero(t, compareRevision(common.Revision{}, common.Revision{Version: 1}))
+	require.Equal(t, 1, compareRevision(common.Revision{Version: 2}, common.Revision{}))
+	require.Equal(t, -1, compareRevision(common.Revision{}, common.Revision{Version: 2}))
+}
+
+// Decision.Release lands in Search.status.results and Download.spec.release,
+// where ReleaseInfo.MatchedFormats carries MaxItems=200: one release over it
+// would get the whole apply rejected. This pins the helper evaluateOne
+// applies to the Release's copy; Decision.Matched keeps every match.
+func TestCapMatchedFormatsTruncatesToTheMaxItems(t *testing.T) {
+	many := make([]string, maxMatchedFormats+5)
+	for i := range many {
+		many[i] = "f"
+	}
+	require.Len(t, capMatchedFormats(many), maxMatchedFormats)
+	require.Equal(t, []string{"a", "b"}, capMatchedFormats([]string{"a", "b"}))
+	require.Nil(t, capMatchedFormats(nil))
+}

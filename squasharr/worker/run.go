@@ -376,7 +376,7 @@ func (r *runner) run(ctx context.Context) error {
 		removePart(ctx, plan.Output)
 		return verifyFailed("squasharr worker: output failed verification: %v", report.Problems)
 	}
-	if limit := tp.Spec.Policy.MaxOutputToSourcePercent; limit > 0 && report.SizeBytes*100 > st.Size()*int64(limit) {
+	if limit := MaxOutputToSourcePercent(tp.Spec.Policy); limit > 0 && report.SizeBytes*100 > st.Size()*int64(limit) {
 		removePart(ctx, plan.Output)
 		return verifyFailed("squasharr worker: output is %d%% of the source, above policy.maxOutputToSourcePercent %d",
 			sizePercent(report.SizeBytes, st.Size()), limit)

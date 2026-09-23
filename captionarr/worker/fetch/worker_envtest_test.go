@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -286,7 +287,7 @@ func TestProviderErrorsGoToTheSharedThrottleNeverToSubtitleProviderStatus(t *tes
 
 	sp := &subtitlev1alpha1.SubtitleProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: "os", Namespace: f.ns},
-		Spec:       subtitlev1alpha1.SubtitleProviderSpec{Type: os1, Enabled: true, Priority: 1},
+		Spec:       subtitlev1alpha1.SubtitleProviderSpec{Type: os1, Enabled: ptr.To(true), Priority: 1},
 	}
 	require.NoError(t, f.c.Create(f.ctx, sp))
 	p := newFakeProvider("fake")

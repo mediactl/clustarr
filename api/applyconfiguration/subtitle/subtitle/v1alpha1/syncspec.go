@@ -39,9 +39,11 @@ type SyncSpecApplyConfiguration struct {
 	// MaxOffsetSeconds is the largest shift, in seconds, that may be applied
 	// before the result is rejected as a mismatch.
 	MaxOffsetSeconds *int32 `json:"maxOffsetSeconds,omitempty"`
-	// GSS uses golden-section search when aligning (ffsubsync).
+	// GSS uses golden-section search when aligning (ffsubsync). A pointer so a
+	// Go client can send an explicit false; unset means true.
 	GSS *bool `json:"gss,omitempty"`
 	// NoFixFramerate disables framerate-ratio correction during alignment.
+	// A pointer so a Go client can send an explicit false; unset means true.
 	NoFixFramerate *bool `json:"noFixFramerate,omitempty"`
 }
 

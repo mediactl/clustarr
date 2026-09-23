@@ -202,14 +202,14 @@ func newFixtureWith(t *testing.T, c client.Client, fo fixtureOptions) *fixture {
 			Spec: transcodev1alpha1.TranscodeProfileSpec{
 				Video: transcodev1alpha1.VideoSpec{Preset: "ultrafast"},
 				Policy: transcodev1alpha1.PolicySpec{
-					MinDuration: metav1.Duration{Duration: 0},
+					MinDuration: &metav1.Duration{Duration: 0},
 					// The default clip is already an efficient x264 encode
 					// of a synthetic source, and x265 ultrafast re-encodes
 					// it LARGER (about 160%), so the limit is lifted here.
 					// The CRD default (100) is exercised by
 					// TestRunUnderTheCRDDefaultOutputLimitSwapsANormalTranscode,
 					// against a source as bloated as a real remux.
-					MaxOutputToSourcePercent: 10_000,
+					MaxOutputToSourcePercent: ptr.To[int32](10_000),
 				},
 			},
 		}))
@@ -521,7 +521,7 @@ func TestRunClassifiesInputFailures(t *testing.T) {
 		f := newFixture(t, c)
 		var tp transcodev1alpha1.TranscodeProfile
 		require.NoError(t, c.Get(ctx, client.ObjectKey{Name: f.profileName}, &tp))
-		tp.Spec.Policy.MaxOutputToSourcePercent = 1
+		tp.Spec.Policy.MaxOutputToSourcePercent = ptr.To[int32](1)
 		require.NoError(t, c.Update(ctx, &tp))
 		code, err := Run(ctx, c, f.options())
 		assert.Equal(t, ExitVerifyFailed, code)
@@ -570,7 +570,7 @@ func TestRunUnderTheCRDDefaultOutputLimitSwapsANormalTranscode(t *testing.T) {
 
 	var tp transcodev1alpha1.TranscodeProfile
 	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: f.profileName}, &tp))
-	require.Equal(t, int32(100), tp.Spec.Policy.MaxOutputToSourcePercent,
+	require.Equal(t, ptr.To[int32](100), tp.Spec.Policy.MaxOutputToSourcePercent,
 		"the apiserver's default for policy.maxOutputToSourcePercent: an output no bigger than its source")
 	require.True(t, ReplaceSource(tp.Spec.Policy))
 	require.True(t, RecycleBin(tp.Spec.Policy))

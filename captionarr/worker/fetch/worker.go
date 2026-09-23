@@ -326,9 +326,9 @@ func (w *Worker) handle(ctx context.Context, m events.Message, t task) error {
 	}
 	src := providerset.FileSource{
 		Path: local, Info: info,
-		IgnoreASS: profile.Spec.Embedded.IgnoreASS, SkipCommentary: profile.Spec.Embedded.SkipCommentary,
+		IgnoreASS: profile.Spec.Embedded.IgnoreASS, SkipCommentary: profile.Spec.Embedded.SkipCommentaryOrDefault(),
 	}
-	provs, skipped := eligible(entries, src, kind, wnt, q, profile.Spec.Embedded.Extract && mf.Status.MediaInfo != nil)
+	provs, skipped := eligible(entries, src, kind, wnt, q, profile.Spec.Embedded.ExtractOrDefault() && mf.Status.MediaInfo != nil)
 
 	plan := searchPlan{
 		kind:      kind,
@@ -352,7 +352,7 @@ func (w *Worker) handle(ctx context.Context, m events.Message, t task) error {
 		return fmt.Errorf("fetch: %w", err)
 	}
 
-	return w.finish(ctx, &req, t.LangKey, plan, out, onDisk, cur, outOf, profile.Spec.Upgrade.Enabled)
+	return w.finish(ctx, &req, t.LangKey, plan, out, onDisk, cur, outOf, profile.Spec.Upgrade.EnabledOrDefault())
 }
 
 // findItem returns a copy of items' entry for langKey, or nil.

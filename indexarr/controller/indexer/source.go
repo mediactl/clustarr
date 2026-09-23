@@ -160,8 +160,8 @@ const (
 	defaultTimeout = 30 * time.Second
 
 	// defaultRequestDelay mirrors spec.requestDelay's
-	// +kubebuilder:default="2s". It is documentation and a test anchor
-	// only: see rpsFor for why requestDelay is NOT floored.
+	// +kubebuilder:default="2s": what an UNSET (nil) requestDelay reads as,
+	// in [requestDelayFor]. An explicit 0s is not floored to it; see rpsFor.
 	defaultRequestDelay = 2 * time.Second
 )
 
@@ -183,7 +183,9 @@ const (
 // 30s. Verified against a real apiserver: an unstructured create yields
 // timeout=30s, requestDelay=2s, rssInterval=15m, and a typed create yields
 // 0s/0s/0s. Every envtest in this package is a typed create, and so is any
-// future in-cluster creator.
+// future in-cluster creator. (requestDelay has since become a pointer, so a
+// typed create that leaves it unset now gets its 2s; timeout and rssInterval
+// stay values, floored where they are read.)
 func timeoutFor(timeout metav1.Duration) time.Duration {
 	if timeout.Duration <= 0 {
 		return defaultTimeout
@@ -201,31 +203,12 @@ func timeoutFor(timeout metav1.Duration) time.Duration {
 // silently overrule the operator. The zero timeout has no such reading:
 // nobody wants a probe that never returns.
 //
-// # Known limitation: "0s" is ambiguous on the wire, and it is not fixable here
-//
-// Exactly the same `"requestDelay":"0s"` arrives from two producers that
-// mean incompatible things, and nothing downstream can tell them apart:
-//
-//	an operator writing requestDelay: 0s   -> "do not pace this indexer"
-//	a Go client leaving the field at zero  -> "I did not specify one"
-//
-// The second is the more common producer inside this codebase, because
-// metav1.Duration is a struct and `omitempty` does nothing to a struct
-// field, so client-go always marshals the key (see timeoutFor). The live
-// consequence is that an Indexer created IN-CLUSTER by a typed client is
-// silently UNPACED, against §6.2's 2s-per-host intent -- while the same
-// Indexer applied as YAML gets its 2s.
-//
-// This is latent today: nothing creates Indexers in-cluster yet. M6's
-// definition ingestion and any UI create path will hit it.
-//
-// It cannot be fixed in this package. Distinguishing absent from
-// explicit-zero needs *metav1.Duration in IndexerSpec or a defaulting
-// webhook, both of which live in api/index/**, which Phase D1 task D1-3
-// does not own. Filed as a carry-forward. Do NOT "fix" it here by
-// flooring: that trades a latent unpaced indexer for an operator whose
-// explicit choice is ignored, which is worse because it is unfixable from
-// the outside.
+// "0s" used to be ambiguous on the wire: spec.requestDelay was a plain
+// metav1.Duration, which a typed Go client always marshals, so an Indexer
+// created from Go sent "0s" and was silently unpaced while the same Indexer
+// applied as YAML got its 2s. It is now a *metav1.Duration (G4-0), so a Go
+// client leaving it unset sends nothing and [requestDelayFor] reads nil as
+// the default; only an explicit zero reaches this function as zero.
 func rpsFor(delay metav1.Duration) float64 {
 	if delay.Duration <= 0 {
 		return 0
@@ -261,11 +244,21 @@ func applyRateLimit(spec indexv1alpha1.IndexerSpec, lim *ratelimit.Limiter, floo
 	if lim == nil {
 		return
 	}
-	delay := spec.RequestDelay
+	delay := requestDelayFor(spec)
 	if floor > delay.Duration {
 		delay = metav1.Duration{Duration: floor}
 	}
 	lim.SetConfig(ratelimit.HostKey(spec.BaseURL), ratelimit.Config{RPS: rpsFor(delay), Burst: 1})
+}
+
+// requestDelayFor is spec.requestDelay with its CRD default applied to an
+// unset field: nil means [defaultRequestDelay], an explicit value (0s
+// included) is kept as it is.
+func requestDelayFor(spec indexv1alpha1.IndexerSpec) metav1.Duration {
+	if spec.RequestDelay == nil {
+		return metav1.Duration{Duration: defaultRequestDelay}
+	}
+	return *spec.RequestDelay
 }
 
 // definitionDelay converts a definition's requestDelay (seconds, a float in

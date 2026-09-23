@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -40,7 +41,7 @@ func provider(name string, typ subtitlev1alpha1.SubtitleProviderType, prio int32
 	sp := &subtitlev1alpha1.SubtitleProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, UID: types.UID("uid-" + name), Generation: 1},
 		Spec: subtitlev1alpha1.SubtitleProviderSpec{
-			Type: typ, Enabled: true, Priority: prio, RequestsPerSecondMilli: 5000,
+			Type: typ, Enabled: ptr.To(true), Priority: prio, RequestsPerSecondMilli: 5000,
 		},
 	}
 	if secret != "" {
@@ -74,7 +75,7 @@ func names(es []providerset.Entry) []string {
 
 func TestBuildOrdersByPriorityThenNameAndSkipsWhatItCannotBuild(t *testing.T) {
 	disabled := provider("off", subtitlev1alpha1.SubtitleProviderGestdown, 1, "")
-	disabled.Spec.Enabled = false
+	disabled.Spec.Enabled = ptr.To(false)
 	c := newClient(t,
 		provider("zeta", subtitlev1alpha1.SubtitleProviderGestdown, 20, ""),
 		provider("alpha", subtitlev1alpha1.SubtitleProviderGestdown, 20, ""),

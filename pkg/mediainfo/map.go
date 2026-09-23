@@ -32,6 +32,15 @@ var bitmapSubtitleCodecs = map[string]bool{
 	"dvb_subtitle":      true,
 }
 
+// MaxStreamsPerKind is MediaInfo.Audio's and MediaInfo.Subtitles'
+// +kubebuilder:validation:MaxItems. The apiserver rejects a status apply
+// carrying more WHOLE, so a file with one stream too many would never be
+// probed at all; [toMediaInfo] keeps the first MaxStreamsPerKind instead.
+// That is well past what disc authoring produces, and it loses nothing a
+// transcode needs: the worker renders its argv from Raw's full stream list
+// (pkg/transcode.FromProbe), never from this summary.
+const MaxStreamsPerKind = 64
+
 // toMediaInfo maps raw onto the api/common/v1alpha1.MediaInfo the
 // MediaFile status carries. Fields the CRD type has no room for (level,
 // colour primaries/transfer/matrix, master-display/max-cll, channel
@@ -61,9 +70,13 @@ func toMediaInfo(raw *Raw) *commonv1.MediaInfo {
 	for _, s := range raw.Streams {
 		switch s.CodecType {
 		case string(ffprobe.StreamAudio):
-			mi.Audio = append(mi.Audio, toAudioStream(s))
+			if len(mi.Audio) < MaxStreamsPerKind {
+				mi.Audio = append(mi.Audio, toAudioStream(s))
+			}
 		case string(ffprobe.StreamSubtitle):
-			mi.Subtitles = append(mi.Subtitles, toSubtitleStream(s))
+			if len(mi.Subtitles) < MaxStreamsPerKind {
+				mi.Subtitles = append(mi.Subtitles, toSubtitleStream(s))
+			}
 		case string(ffprobe.StreamAttachment):
 			mi.Attachments++
 		}

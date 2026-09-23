@@ -135,7 +135,8 @@ func seedersOrAgeScore(rel common.ReleaseInfo) float64 {
 }
 
 // compareRevision orders by Real, then Version -- Revision.CompareTo,
-// docs/research/quality.md §7.1.
+// docs/research/quality.md §7.1. Version is floored at 1, as in
+// pkg/quality's copy: see common.Revision.EffectiveVersion.
 func compareRevision(x, y common.Revision) int {
 	if x.Real != y.Real {
 		if x.Real > y.Real {
@@ -143,8 +144,8 @@ func compareRevision(x, y common.Revision) int {
 		}
 		return -1
 	}
-	if x.Version != y.Version {
-		if x.Version > y.Version {
+	if xv, yv := x.EffectiveVersion(), y.EffectiveVersion(); xv != yv {
+		if xv > yv {
 			return 1
 		}
 		return -1

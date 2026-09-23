@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
@@ -52,19 +53,20 @@ func (r *recordingPatcher) Patch(ctx context.Context, obj client.Object, patch c
 // TestSetSubtitleProviderSettingsReallyDisablesAgainstARealAPIServer is the
 // coordinator's own falsification requirement for this task: settings.go's
 // patch bodies are hand-written structs with no `omitempty` tag (unlike the
-// generated subtitlev1alpha1.SubtitleProviderSpec, whose Enabled field is
-// `bool json:"enabled,omitempty"`), precisely so that setting enabled=false
-// is not silently dropped from the merge patch's JSON the way it would be if
-// this action marshalled the generated spec type directly. This test proves
+// generated subtitlev1alpha1.SubtitleProviderSpec as it was then, whose
+// Enabled field was `bool json:"enabled,omitempty"` until G4-0 made it a
+// *bool), precisely so that setting enabled=false is not silently dropped
+// from the merge patch's JSON the way it would be if this action marshalled
+// the generated spec type directly. This test proves
 // two things together: the bytes actually sent to Patch carry
 // "enabled":false, and a real apiserver applies that merge patch and leaves
 // the field false -- not re-defaulted back to true by CRD defaulting, and
 // not dropped by any strategic-merge behaviour SubtitleProvider does not
 // even opt into (it carries no patchStrategy on spec.enabled).
 //
-// Falsified directly: temporarily marshalling the generated
-// subtitlev1alpha1.SubtitleProviderSpec (which carries `omitempty`) as the
-// patch body instead of the hand-written enabledPriorityPatch reproduces
+// Falsified directly (while Enabled was still a plain bool): temporarily
+// marshalling the generated subtitlev1alpha1.SubtitleProviderSpec as the
+// patch body instead of the hand-written enabledPriorityPatch reproduced
 // exactly the bug this test exists to catch -- the merge patch's JSON
 // silently loses "enabled":false, the object re-reads as enabled=true, and
 // both assertions below fail. Confirmed by editing settings.go's
@@ -94,7 +96,7 @@ func TestSetSubtitleProviderSettingsReallyDisablesAgainstARealAPIServer(t *testi
 		ObjectMeta: metav1.ObjectMeta{Name: "opensubtitlescom", Namespace: ns},
 		Spec: subtitlev1alpha1.SubtitleProviderSpec{
 			Type:     subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom,
-			Enabled:  true,
+			Enabled:  ptr.To(true),
 			Priority: 50,
 		},
 	}
@@ -115,7 +117,8 @@ func TestSetSubtitleProviderSettingsReallyDisablesAgainstARealAPIServer(t *testi
 	// true.
 	var got subtitlev1alpha1.SubtitleProvider
 	require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: ns, Name: provider.Name}, &got))
-	require.False(t, got.Spec.Enabled,
+	require.NotNil(t, got.Spec.Enabled)
+	require.False(t, *got.Spec.Enabled,
 		"spec.enabled must really be false after the merge patch, not silently re-defaulted or dropped "+
 			"back to the CRD's enabled=true default -- see this test's own doc comment for how a "+
 			"typed-struct-with-omitempty patch body would fail it")

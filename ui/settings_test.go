@@ -99,7 +99,7 @@ func TestSettingsPageRendersEachKindWithDataAttributes(t *testing.T) {
 	}
 	subtitleProvider := &subtitlev1.SubtitleProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: "opensubtitlescom", Namespace: "default"},
-		Spec:       subtitlev1.SubtitleProviderSpec{Type: subtitlev1.SubtitleProviderOpenSubtitlesCom, Enabled: true, Priority: 50},
+		Spec:       subtitlev1.SubtitleProviderSpec{Type: subtitlev1.SubtitleProviderOpenSubtitlesCom, Enabled: ptr.To(true), Priority: 50},
 	}
 	subtitleProfile := &subtitlev1.SubtitleProfile{
 		ObjectMeta: metav1.ObjectMeta{Name: "english"},
@@ -182,7 +182,7 @@ func TestSettingsActionHandlersSucceedAndRedirect(t *testing.T) {
 	}
 	subtitleProvider := &subtitlev1.SubtitleProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: "opensubtitlescom", Namespace: "default"},
-		Spec:       subtitlev1.SubtitleProviderSpec{Type: subtitlev1.SubtitleProviderOpenSubtitlesCom, Enabled: true, Priority: 50},
+		Spec:       subtitlev1.SubtitleProviderSpec{Type: subtitlev1.SubtitleProviderOpenSubtitlesCom, Enabled: ptr.To(true), Priority: 50},
 	}
 	subtitleProfile := &subtitlev1.SubtitleProfile{
 		ObjectMeta: metav1.ObjectMeta{Name: "english"},
@@ -264,7 +264,8 @@ func TestSettingsActionHandlersSucceedAndRedirect(t *testing.T) {
 			url.Values{"enabled": {"false"}, "priority": {"75"}, "return": {"/settings"}})
 		var got subtitlev1.SubtitleProvider
 		require.NoError(t, writer.Get(t.Context(), types.NamespacedName{Namespace: "default", Name: "opensubtitlescom"}, &got))
-		require.False(t, got.Spec.Enabled,
+		require.NotNil(t, got.Spec.Enabled)
+		require.False(t, *got.Spec.Enabled,
 			"spec.enabled must really be false -- the merge patch body has no omitempty tag, "+
 				"see ui/actions/settings.go's own doc comment")
 		require.EqualValues(t, 75, got.Spec.Priority)

@@ -156,7 +156,7 @@ func TestTheLimiterKeyIsRatelimitHostKey(t *testing.T) {
 		// drifts: u.Hostname() drops the port, u.String() keeps the path.
 		BaseURL:      "https://tracker.invalid:8443/prowlarr/1",
 		Generic:      &indexv1alpha1.GenericNewznab{},
-		RequestDelay: metav1.Duration{Duration: time.Hour},
+		RequestDelay: &metav1.Duration{Duration: time.Hour},
 	}
 	applyRateLimit(spec, lim, 0)
 
@@ -187,7 +187,7 @@ func TestBuildClient(t *testing.T) {
 			spec := indexv1alpha1.IndexerSpec{
 				BaseURL:      tc.baseURL,
 				Generic:      &indexv1alpha1.GenericNewznab{APIPath: tc.apiPath},
-				RequestDelay: metav1.Duration{Duration: 2 * time.Second},
+				RequestDelay: &metav1.Duration{Duration: 2 * time.Second},
 				Timeout:      metav1.Duration{Duration: 5 * time.Second},
 			}
 			c, endpoint, err := buildClient(spec, nil, lim, nil)
@@ -209,7 +209,7 @@ func TestApplyRateLimitConfiguresOneBucketPerHost(t *testing.T) {
 	spec := indexv1alpha1.IndexerSpec{
 		BaseURL:      "https://tracker.invalid/api",
 		Generic:      &indexv1alpha1.GenericNewznab{},
-		RequestDelay: metav1.Duration{Duration: time.Hour},
+		RequestDelay: &metav1.Duration{Duration: time.Hour},
 	}
 	applyRateLimit(spec, lim, 0)
 
@@ -234,7 +234,7 @@ func TestBuildClientWritesNoLimiterConfig(t *testing.T) {
 	spec := indexv1alpha1.IndexerSpec{
 		BaseURL:      "https://tracker.invalid/api",
 		Generic:      &indexv1alpha1.GenericNewznab{},
-		RequestDelay: metav1.Duration{Duration: time.Hour},
+		RequestDelay: &metav1.Duration{Duration: time.Hour},
 	}
 	_, _, err := buildClient(spec, nil, lim, nil)
 	require.NoError(t, err)
@@ -351,13 +351,25 @@ func TestRpsForDoesNotFloorAtTheCRDDefault(t *testing.T) {
 	require.InDelta(t, 1/defaultRequestDelay.Seconds(), rpsFor(metav1.Duration{Duration: defaultRequestDelay}), 1e-9)
 }
 
+// spec.requestDelay is a pointer so the two meanings of "0s" come apart: an
+// unset field (what a Go client that never set it sends) is the CRD default,
+// and only an explicit zero reaches rpsFor as the operator's "do not pace".
+func TestRequestDelayForDefaultsOnlyAnUnsetField(t *testing.T) {
+	require.Equal(t, defaultRequestDelay, requestDelayFor(indexv1alpha1.IndexerSpec{}).Duration,
+		"an unset requestDelay must be paced at the CRD default, not left unpaced")
+	require.Equal(t, time.Duration(0), requestDelayFor(indexv1alpha1.IndexerSpec{RequestDelay: &metav1.Duration{}}).Duration,
+		"an explicit requestDelay of 0s must survive: it is a supported \"do not pace this indexer\"")
+	require.Equal(t, 5*time.Second,
+		requestDelayFor(indexv1alpha1.IndexerSpec{RequestDelay: &metav1.Duration{Duration: 5 * time.Second}}).Duration)
+}
+
 // A nil limiter disables pacing rather than panicking, the same way a nil
 // Recorder disables events. D1-8 always supplies one; a unit test need not.
 func TestBuildClientToleratesANilLimiter(t *testing.T) {
 	spec := indexv1alpha1.IndexerSpec{
 		BaseURL:      "https://tracker.invalid",
 		Generic:      &indexv1alpha1.GenericNewznab{},
-		RequestDelay: metav1.Duration{Duration: 2 * time.Second},
+		RequestDelay: &metav1.Duration{Duration: 2 * time.Second},
 	}
 	require.NotPanics(t, func() {
 		c, endpoint, err := buildClient(spec, nil, nil, nil)

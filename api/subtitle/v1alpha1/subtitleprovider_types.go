@@ -98,10 +98,11 @@ type SubtitleProviderSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="type is immutable"
 	Type SubtitleProviderType `json:"type"`
 
-	// Enabled allows searches against this provider.
+	// Enabled allows searches against this provider. A pointer so a Go client
+	// can send an explicit false; unset means true.
 	// +optional
 	// +kubebuilder:default=true
-	Enabled bool `json:"enabled,omitempty"`
+	Enabled *bool `json:"enabled,omitempty"`
 
 	// Priority orders providers when a profile does not list them explicitly;
 	// lower is searched first.
@@ -189,6 +190,7 @@ type SubtitleProviderStatus struct {
 	// +listMapKey=type
 	// +patchStrategy=merge
 	// +patchMergeKey=type
+	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 

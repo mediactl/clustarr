@@ -26,7 +26,8 @@ package v1alpha1
 // treated when deciding whether a language is satisfied.
 type EmbeddedSpecApplyConfiguration struct {
 	// Extract writes a matching embedded track out as a sidecar instead of
-	// searching providers for it.
+	// searching providers for it. A pointer so a Go client can send an explicit
+	// false; unset means true.
 	Extract *bool `json:"extract,omitempty"`
 	// IgnorePGS ignores image-based PGS tracks when matching embedded subtitles.
 	IgnorePGS *bool `json:"ignorePGS,omitempty"`
@@ -35,6 +36,7 @@ type EmbeddedSpecApplyConfiguration struct {
 	// IgnoreASS ignores ASS/SSA tracks when matching embedded subtitles.
 	IgnoreASS *bool `json:"ignoreASS,omitempty"`
 	// SkipCommentary ignores tracks whose title marks them as commentary.
+	// A pointer so a Go client can send an explicit false; unset means true.
 	SkipCommentary *bool `json:"skipCommentary,omitempty"`
 }
 

@@ -67,8 +67,11 @@ spec:
                 type: integer
               requestTimeout:
                 default: 60s
-                description: RequestTimeout is how long a request through the proxy
-                  may take.
+                description: |-
+                  RequestTimeout is how long a request through the proxy may take. A Go
+                  client always sends a Duration, so the prober floors a zero (or
+                  negative) one to this default: a probe that may never return is never
+                  meant.
                 type: string
               secretRef:
                 description: SecretRef names a Secret in the same namespace holding
@@ -205,6 +208,7 @@ spec:
                   - status
                   - type
                   type: object
+                maxItems: 8
                 type: array
                 x-kubernetes-list-map-keys:
                 - type

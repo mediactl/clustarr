@@ -75,7 +75,7 @@ func cadenceFor(spec subtitlev1alpha1.SubtitleProfileSpec) cadence {
 		interval:        orDefault(spec.Search.Interval, defaultSearchInterval),
 		delay:           orDefault(spec.Search.AdaptiveDelay, defaultAdaptiveDelay),
 		delta:           orDefault(spec.Search.AdaptiveDelta, defaultAdaptiveDelta),
-		upgradeEnabled:  spec.Upgrade.Enabled,
+		upgradeEnabled:  spec.Upgrade.EnabledOrDefault(),
 		upgradeInterval: orDefault(spec.Upgrade.Interval, defaultUpgradeInterval),
 		lookback:        time.Duration(spec.Upgrade.LookbackDays) * 24 * time.Hour,
 		minDelta:        spec.Upgrade.MinDeltaPoints,

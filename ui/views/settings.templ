@@ -303,25 +303,24 @@ func metadataProviderEnabled(mp catalogv1.MetadataProvider) bool {
 }
 
 // subtitleProviderCard renders one SubtitleProvider with the same
-// enabled/priority edit form. Unlike the other three, SubtitleProviderSpec's
-// Enabled is a plain bool (no pointer, CRD default true), so there is no nil
-// case to default here.
+// enabled/priority edit form as the other three; a nil spec.enabled reads as
+// its CRD default, true.
 templ subtitleProviderCard(sp subtitlev1.SubtitleProvider) {
 	<div
 		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
 		data-subtitle-provider={ sp.Namespace + "/" + sp.Name }
-		data-enabled={ fmt.Sprintf("%t", sp.Spec.Enabled) }
+		data-enabled={ fmt.Sprintf("%t", sp.Spec.EnabledOrDefault()) }
 		data-priority={ fmt.Sprintf("%d", sp.Spec.Priority) }
 	>
 		<div class="flex items-center justify-between gap-4">
 			<span class="font-medium">{ sp.Name }</span>
-			<span class={ enabledBadgeClass(sp.Spec.Enabled) }>{ enabledLabel(sp.Spec.Enabled) }</span>
+			<span class={ enabledBadgeClass(sp.Spec.EnabledOrDefault()) }>{ enabledLabel(sp.Spec.EnabledOrDefault()) }</span>
 		</div>
 		<p class="mt-1 text-xs text-slate-400">{ string(sp.Spec.Type) }</p>
 		if sp.Spec.SecretRef != nil {
 			<p class="mt-1 text-xs text-slate-500">credentials: Secret/{ sp.Spec.SecretRef.Name }</p>
 		}
-		@enabledPriorityForm(fmt.Sprintf("/settings/subtitleproviders/%s/%s", sp.Namespace, sp.Name), sp.Spec.Enabled, sp.Spec.Priority, "subtitleprovider-"+sp.Name)
+		@enabledPriorityForm(fmt.Sprintf("/settings/subtitleproviders/%s/%s", sp.Namespace, sp.Name), sp.Spec.EnabledOrDefault(), sp.Spec.Priority, "subtitleprovider-"+sp.Name)
 	</div>
 }
 

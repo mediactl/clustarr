@@ -37,7 +37,8 @@ type AudioSpecApplyConfiguration struct {
 	KeepOriginal *transcodev1alpha1.KeepOriginalPolicy `json:"keepOriginal,omitempty"`
 	// Languages restricts which audio languages are kept; empty keeps all.
 	Languages []string `json:"languages,omitempty"`
-	// DropCommentary drops tracks flagged as commentary.
+	// DropCommentary drops tracks flagged as commentary. A pointer so a Go
+	// client can send an explicit false; unset means true.
 	DropCommentary *bool `json:"dropCommentary,omitempty"`
 	// StereoCompatTrack adds a stereo downmix track for compatibility.
 	StereoCompatTrack *bool `json:"stereoCompatTrack,omitempty"`

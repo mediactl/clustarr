@@ -24,7 +24,8 @@ package v1alpha1
 //
 // VerifySpec describes post-encode verification.
 type VerifySpecApplyConfiguration struct {
-	// PacketCount compares packet counts between source and output.
+	// PacketCount compares packet counts between source and output. A pointer so
+	// a Go client can send an explicit false; unset means true.
 	PacketCount *bool `json:"packetCount,omitempty"`
 	// FullDecode fully decodes the output to check for corruption.
 	FullDecode *bool `json:"fullDecode,omitempty"`

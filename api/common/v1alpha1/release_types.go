@@ -132,13 +132,20 @@ type ReleaseInfo struct {
 	// +optional
 	Leechers *int32 `json:"leechers,omitempty"`
 
-	// IndexerFlags lists indexer-specific flags on the release.
+	// IndexerFlags lists indexer-specific flags on the release, each at most
+	// once: the cap is the enum's seven values, and the one writer
+	// (indexarr/worker/rss.indexerFlags) deduplicates.
 	// +optional
+	// +kubebuilder:validation:MaxItems=7
 	// +kubebuilder:validation:items:Enum=freeleech;halfleech;neutralleech;doubleupload;internal;exclusive;scene
 	IndexerFlags []string `json:"indexerFlags,omitempty"`
 
-	// Categories lists the Newznab/Torznab category IDs of the release.
+	// Categories lists the Newznab/Torznab category IDs of the release. A
+	// release sits in a category and its parent, so a handful is normal; the
+	// list is indexer-supplied, and indexarr/worker/rss.ProjectRelease keeps
+	// the first 50 rather than let one tracker's output fail a whole Search.
 	// +optional
+	// +kubebuilder:validation:MaxItems=50
 	Categories []int32 `json:"categories,omitempty"`
 
 	// Quality is the quality parsed from the release title.
@@ -157,8 +164,10 @@ type ReleaseInfo struct {
 	// +optional
 	Edition string `json:"edition,omitempty"`
 
-	// Languages lists the languages parsed from the release title.
+	// Languages lists the languages parsed from the release title. The cap
+	// matches MediaFileSpec.Languages, which is this list frozen at import.
 	// +optional
+	// +kubebuilder:validation:MaxItems=64
 	Languages []string `json:"languages,omitempty"`
 
 	// ReleaseType classifies how many catalog items the release covers.
@@ -169,8 +178,11 @@ type ReleaseInfo struct {
 	// +optional
 	FormatScore int32 `json:"formatScore,omitempty"`
 
-	// MatchedFormats lists the names of the custom formats that matched.
+	// MatchedFormats lists the names of the custom formats that matched. The
+	// cap matches MediaFileSpec.MatchedFormats, which is this list frozen at
+	// import; pkg/decision truncates to it.
 	// +optional
+	// +kubebuilder:validation:MaxItems=200
 	MatchedFormats []string `json:"matchedFormats,omitempty"`
 
 	// IDs maps external ID providers (tmdb, imdb, tvdb, ...) to the ID the

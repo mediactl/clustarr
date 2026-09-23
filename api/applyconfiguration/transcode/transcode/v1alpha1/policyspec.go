@@ -28,21 +28,28 @@ import (
 //
 // PolicySpec decides which files are transcoded and what happens afterwards.
 type PolicySpecApplyConfiguration struct {
-	// SkipIfCompliant skips files that already satisfy the profile.
+	// SkipIfCompliant skips files that already satisfy the profile. A pointer so
+	// a Go client can send an explicit false; unset means true.
 	SkipIfCompliant *bool `json:"skipIfCompliant,omitempty"`
-	// RemuxOnlyWhenVideoCompliant only remuxes (no video encode) when the
-	// video stream already satisfies the profile.
+	// RemuxOnlyWhenVideoCompliant only remuxes (no video encode) when the video
+	// stream already satisfies the profile. A pointer so a Go client can send an
+	// explicit false; unset means true.
 	RemuxOnlyWhenVideoCompliant *bool `json:"remuxOnlyWhenVideoCompliant,omitempty"`
 	// NeverTranscodeModifiers lists quality modifiers (see common Modifier)
 	// whose files are never transcoded.
 	NeverTranscodeModifiers []string `json:"neverTranscodeModifiers,omitempty"`
-	// MinDuration is the shortest source runtime considered for transcoding.
+	// MinDuration is the shortest source runtime considered for transcoding;
+	// "0s" considers every file. A pointer because zero is meaningful: a Go
+	// client always sends a non-pointer Duration, so the 1m default would
+	// never reach a profile created from Go. Unset means 1m.
 	MinDuration *v1.Duration `json:"minDuration,omitempty"`
 	// MaxOutputToSourcePercent fails a job whose output is larger than this
 	// percentage of the source size: 100 (the default) refuses any output
 	// bigger than the file it replaces, 150 allows half as large again. It is
 	// the design spec's MaxOutputToSourceRatio 1.0 as a scaled integer, since
-	// the API carries no floats. 0 disables the check.
+	// the API carries no floats. 0 disables the check. A pointer so a Go
+	// client can send that 0: with omitempty it would be dropped and
+	// defaulted back to 100. Unset means 100.
 	MaxOutputToSourcePercent *int32 `json:"maxOutputToSourcePercent,omitempty"`
 	// ReplaceSource replaces the source file with the output on success. A
 	// pointer so a Go client can send an explicit false; unset means true.

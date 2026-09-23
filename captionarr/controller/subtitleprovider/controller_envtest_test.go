@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	k8sevents "k8s.io/client-go/tools/events"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -109,7 +110,7 @@ func TestReconcileEmbeddedProviderIsReadyWithNoCredentials(t *testing.T) {
 	ensureNamespace(t, ctx, c, ns)
 
 	sp := createProvider(t, ctx, c, ns, "embedded", subtitlev1alpha1.SubtitleProviderSpec{
-		Type: subtitlev1alpha1.SubtitleProviderEmbedded, Enabled: true,
+		Type: subtitlev1alpha1.SubtitleProviderEmbedded, Enabled: ptr.To(true),
 	})
 
 	r := subtitleprovider.NewReconciler(c, kv, k8sevents.NewFakeRecorder(10))
@@ -148,7 +149,7 @@ func TestReconcileOpenSubtitlesComWithoutASecretIsNotAuthenticated(t *testing.T)
 	ensureNamespace(t, ctx, c, ns)
 
 	sp := createProvider(t, ctx, c, ns, "opensubtitles", subtitlev1alpha1.SubtitleProviderSpec{
-		Type: subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, Enabled: true,
+		Type: subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, Enabled: ptr.To(true),
 	})
 
 	r := subtitleprovider.NewReconciler(c, kv, k8sevents.NewFakeRecorder(10))
@@ -176,7 +177,7 @@ func TestReconcileOpenSubtitlesComWithAValidSecretIsReady(t *testing.T) {
 
 	createSecret(t, ctx, c, ns, "os-creds", map[string]string{"apiKey": "k", "username": "u", "password": "p"})
 	sp := createProvider(t, ctx, c, ns, "opensubtitles", subtitlev1alpha1.SubtitleProviderSpec{
-		Type: subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, Enabled: true,
+		Type: subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, Enabled: ptr.To(true),
 		SecretRef: &corev1.LocalObjectReference{Name: "os-creds"},
 	})
 
@@ -199,20 +200,17 @@ func TestReconcileDisabledProviderIsNotReadyEvenWhenAuthenticated(t *testing.T) 
 	const ns = "subtitleprovider-disabled"
 	ensureNamespace(t, ctx, c, ns)
 
+	// A typed create with an explicit false. Until G4-0 spec.enabled was a
+	// `bool` with omitempty and a CRD default of true, so a typed client
+	// dropped false and the apiserver re-defaulted it -- this fixture had to
+	// send a raw merge patch instead. It is a *bool now, and the re-Get below
+	// is what proves a Go client can disable a provider.
 	sp := createProvider(t, ctx, c, ns, "embedded", subtitlev1alpha1.SubtitleProviderSpec{
-		Type: subtitlev1alpha1.SubtitleProviderEmbedded, Enabled: true,
+		Type: subtitlev1alpha1.SubtitleProviderEmbedded, Enabled: ptr.To(false),
 	})
-	// Enabled is `bool` with `json:"enabled,omitempty"` and a
-	// +kubebuilder:default=true CRD default (matching TranscodeProfileSpec's
-	// identical Default field elsewhere in this tree). A typed client.Create
-	// or client.Update carrying Enabled: false marshals it as an ABSENT key
-	// (omitempty drops a bool zero value), so the apiserver's own default
-	// silently coerces it back to true -- a real Kubernetes/codegen gotcha,
-	// not a bug in the controller under test. A hand-built JSON merge patch
-	// bypasses Go's typed marshalling and sends the literal false.
-	require.NoError(t, c.Patch(ctx, sp, client.RawPatch(types.MergePatchType, []byte(`{"spec":{"enabled":false}}`))))
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: sp.Name, Namespace: ns}, sp))
-	require.False(t, sp.Spec.Enabled, "test fixture setup must actually persist enabled:false before reconciling")
+	require.NotNil(t, sp.Spec.Enabled)
+	require.False(t, *sp.Spec.Enabled, "a typed create must persist enabled:false, not have it re-defaulted to true")
 
 	r := subtitleprovider.NewReconciler(c, kv, k8sevents.NewFakeRecorder(10))
 	res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: sp.Name, Namespace: ns}})
@@ -240,7 +238,7 @@ func TestReconcileUnsupportedProviderTypeNeverErrorsOrAuthenticates(t *testing.T
 	ensureNamespace(t, ctx, c, ns)
 
 	sp := createProvider(t, ctx, c, ns, "subdl", subtitlev1alpha1.SubtitleProviderSpec{
-		Type: subtitlev1alpha1.SubtitleProviderSubDL, Enabled: true,
+		Type: subtitlev1alpha1.SubtitleProviderSubDL, Enabled: ptr.To(true),
 	})
 
 	r := subtitleprovider.NewReconciler(c, kv, k8sevents.NewFakeRecorder(10))
@@ -287,7 +285,7 @@ func TestReadyAgreesWithTheFetchWorkersBuilder(t *testing.T) {
 	}
 	r := subtitleprovider.NewReconciler(c, kv, k8sevents.NewFakeRecorder(100))
 	for name, spec := range specs {
-		spec.Enabled = true
+		spec.Enabled = ptr.To(true)
 		createProvider(t, ctx, c, ns, name, spec)
 		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: name, Namespace: ns}})
 		require.NoError(t, err, name)
@@ -327,7 +325,7 @@ func TestReconcileProjectsThrottleStateFromKV(t *testing.T) {
 	ensureNamespace(t, ctx, c, ns)
 
 	sp := createProvider(t, ctx, c, ns, "embedded", subtitlev1alpha1.SubtitleProviderSpec{
-		Type: subtitlev1alpha1.SubtitleProviderEmbedded, Enabled: true,
+		Type: subtitlev1alpha1.SubtitleProviderEmbedded, Enabled: ptr.To(true),
 	})
 
 	now := time.Now().UTC()
@@ -367,7 +365,7 @@ func TestReconcileNeverWritesJWTIntoStatus(t *testing.T) {
 	ensureNamespace(t, ctx, c, ns)
 
 	sp := createProvider(t, ctx, c, ns, "opensubtitles", subtitlev1alpha1.SubtitleProviderSpec{
-		Type: subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, Enabled: true,
+		Type: subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, Enabled: ptr.To(true),
 	})
 
 	const secretJWT = "eyJ-totally-secret-token-value"

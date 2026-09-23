@@ -736,8 +736,10 @@ func (r *Reconciler) resolveTarget(ctx context.Context, s *catalogv1alpha1.Searc
 func (r *Reconciler) ttlDeadline(s *catalogv1alpha1.Search) time.Time {
 	ttl := s.Spec.TTL.Duration
 	if ttl <= 0 {
-		// The CRD defaults spec.ttl to 1h; a zero here means an object
-		// created before the default applied, not "delete immediately".
+		// The CRD defaults spec.ttl to 1h, but only when the field is
+		// absent: a Search created by a Go client (the UI's "search now"
+		// included) always sends "0s", so a zero here is the default
+		// unapplied, not "delete immediately".
 		ttl = time.Hour
 	}
 	switch {

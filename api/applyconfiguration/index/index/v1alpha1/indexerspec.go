@@ -53,14 +53,21 @@ type IndexerSpecApplyConfiguration struct {
 	EnableAutomaticSearch *bool `json:"enableAutomaticSearch,omitempty"`
 	// EnableInteractiveSearch allows the indexer to be used by interactive searches.
 	EnableInteractiveSearch *bool `json:"enableInteractiveSearch,omitempty"`
-	// RssInterval is how often the RSS feed is polled.
+	// RssInterval is how often the RSS feed is polled. A Go client always
+	// sends a Duration, so the RSS worker floors a zero (or negative) one to
+	// this default: nobody means to poll an indexer infinitely often.
 	RssInterval *metav1.Duration `json:"rssInterval,omitempty"`
 	// Limits caps queries and grabs per window.
 	Limits *LimitsApplyConfiguration `json:"limits,omitempty"`
 	// RequestDelay is the minimum delay between requests to the indexer. It
-	// is raised to the definition's requestDelay when that is larger.
+	// is raised to the definition's requestDelay when that is larger. "0s"
+	// is a supported "do not pace this indexer", so this is a pointer rather
+	// than floored: a Go client always sends a non-pointer Duration, and the
+	// 2s default would never reach an Indexer created from Go. Unset means 2s.
 	RequestDelay *metav1.Duration `json:"requestDelay,omitempty"`
-	// Timeout is the per-request HTTP timeout.
+	// Timeout is the per-request HTTP timeout. A Go client always sends a
+	// Duration, so every consumer floors a zero (or negative) one to this
+	// default: a request that may never time out is never meant.
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
 	// ProxyRef names an IndexerProxy in the same namespace to route requests through.
 	ProxyRef *string `json:"proxyRef,omitempty"`

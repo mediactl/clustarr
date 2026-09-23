@@ -119,9 +119,15 @@ func (p Profile) UpgradeDecision(current, candidate Candidate) Verdict {
 // compareRevision orders by Real first, then Version, matching
 // Revision.CompareTo (docs/research/quality.md §6.1): positive means a is
 // the better (more-upgraded) revision.
+//
+// Version is floored at 1 (common.Revision.EffectiveVersion): the field has
+// no omitempty, so its CRD default of 1 never reaches a Revision written
+// from Go, and an unparsed revision arrives as 0. Unfloored, a plain
+// original of the same quality would read as a proper of that file and be
+// grabbed as an upgrade.
 func compareRevision(a, b common.Revision) int {
 	if a.Real != b.Real {
 		return int(a.Real - b.Real)
 	}
-	return int(a.Version - b.Version)
+	return int(a.EffectiveVersion() - b.EffectiveVersion())
 }

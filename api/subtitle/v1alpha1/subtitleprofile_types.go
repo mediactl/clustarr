@@ -162,10 +162,11 @@ type ScorePct struct {
 // treated when deciding whether a language is satisfied.
 type EmbeddedSpec struct {
 	// Extract writes a matching embedded track out as a sidecar instead of
-	// searching providers for it.
+	// searching providers for it. A pointer so a Go client can send an explicit
+	// false; unset means true.
 	// +optional
 	// +kubebuilder:default=true
-	Extract bool `json:"extract,omitempty"`
+	Extract *bool `json:"extract,omitempty"`
 
 	// IgnorePGS ignores image-based PGS tracks when matching embedded subtitles.
 	// +optional
@@ -183,25 +184,33 @@ type EmbeddedSpec struct {
 	IgnoreASS bool `json:"ignoreASS,omitempty"`
 
 	// SkipCommentary ignores tracks whose title marks them as commentary.
+	// A pointer so a Go client can send an explicit false; unset means true.
 	// +optional
 	// +kubebuilder:default=true
-	SkipCommentary bool `json:"skipCommentary,omitempty"`
+	SkipCommentary *bool `json:"skipCommentary,omitempty"`
 }
 
 // SearchSpec paces provider searches for languages that are still wanted.
 type SearchSpec struct {
-	// Interval is the base delay between searches for a wanted language.
+	// Interval is the base delay between searches for a wanted language. A Go
+	// client always sends a Duration, so captionarr floors a zero (or negative)
+	// one to this default rather than treat it as a request to search
+	// continuously.
 	// +optional
 	// +kubebuilder:default="6h"
 	Interval metav1.Duration `json:"interval,omitempty"`
 
 	// AdaptiveDelay is how long after a media file's release date searches keep
-	// running at the base interval before backing off.
+	// running at the base interval before backing off. A Go client always sends
+	// a Duration, so captionarr floors a zero (or negative) one to this default
+	// rather than treat it as a request; "1s" backs off after the first search.
 	// +optional
 	// +kubebuilder:default="504h"
 	AdaptiveDelay metav1.Duration `json:"adaptiveDelay,omitempty"`
 
-	// AdaptiveDelta is the interval used once adaptiveDelay has elapsed.
+	// AdaptiveDelta is the interval used once adaptiveDelay has elapsed. A Go
+	// client always sends a Duration, so captionarr floors a zero (or negative)
+	// one to this default rather than treat it as a request.
 	// +optional
 	// +kubebuilder:default="168h"
 	AdaptiveDelta metav1.Duration `json:"adaptiveDelta,omitempty"`
@@ -210,12 +219,16 @@ type SearchSpec struct {
 // UpgradeSpec controls re-searching languages that are already downloaded but
 // scored below the cutoff.
 type UpgradeSpec struct {
-	// Enabled turns upgrade searches on.
+	// Enabled turns upgrade searches on. A pointer so a Go client can send an
+	// explicit false; unset means true.
 	// +optional
 	// +kubebuilder:default=true
-	Enabled bool `json:"enabled,omitempty"`
+	Enabled *bool `json:"enabled,omitempty"`
 
-	// Interval is the delay between upgrade searches for one language.
+	// Interval is the delay between upgrade searches for one language. A Go
+	// client always sends a Duration, so captionarr floors a zero (or negative)
+	// one to this default rather than treat it as a request to search
+	// continuously.
 	// +optional
 	// +kubebuilder:default="12h"
 	Interval metav1.Duration `json:"interval,omitempty"`
@@ -262,15 +275,17 @@ type SyncSpec struct {
 	// +kubebuilder:validation:Minimum=0
 	MaxOffsetSeconds int32 `json:"maxOffsetSeconds,omitempty"`
 
-	// GSS uses golden-section search when aligning (ffsubsync).
+	// GSS uses golden-section search when aligning (ffsubsync). A pointer so a
+	// Go client can send an explicit false; unset means true.
 	// +optional
 	// +kubebuilder:default=true
-	GSS bool `json:"gss,omitempty"`
+	GSS *bool `json:"gss,omitempty"`
 
 	// NoFixFramerate disables framerate-ratio correction during alignment.
+	// A pointer so a Go client can send an explicit false; unset means true.
 	// +optional
 	// +kubebuilder:default=true
-	NoFixFramerate bool `json:"noFixFramerate,omitempty"`
+	NoFixFramerate *bool `json:"noFixFramerate,omitempty"`
 }
 
 // WhisperSpec configures speech-to-text subtitle generation as a last resort.
@@ -420,6 +435,7 @@ type SubtitleProfileStatus struct {
 	// +listMapKey=type
 	// +patchStrategy=merge
 	// +patchMergeKey=type
+	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 

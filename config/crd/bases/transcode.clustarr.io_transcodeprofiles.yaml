@@ -91,7 +91,9 @@ spec:
                     type: string
                   dropCommentary:
                     default: true
-                    description: DropCommentary drops tracks flagged as commentary.
+                    description: |-
+                      DropCommentary drops tracks flagged as commentary. A pointer so a Go
+                      client can send an explicit false; unset means true.
                     type: boolean
                   keepOriginal:
                     default: atmos
@@ -240,14 +242,19 @@ spec:
                       percentage of the source size: 100 (the default) refuses any output
                       bigger than the file it replaces, 150 allows half as large again. It is
                       the design spec's MaxOutputToSourceRatio 1.0 as a scaled integer, since
-                      the API carries no floats. 0 disables the check.
+                      the API carries no floats. 0 disables the check. A pointer so a Go
+                      client can send that 0: with omitempty it would be dropped and
+                      defaulted back to 100. Unset means 100.
                     format: int32
                     minimum: 0
                     type: integer
                   minDuration:
                     default: 1m
-                    description: MinDuration is the shortest source runtime considered
-                      for transcoding.
+                    description: |-
+                      MinDuration is the shortest source runtime considered for transcoding;
+                      "0s" considers every file. A pointer because zero is meaningful: a Go
+                      client always sends a non-pointer Duration, so the 1m default would
+                      never reach a profile created from Go. Unset means 1m.
                     type: string
                   neverTranscodeModifiers:
                     default:
@@ -270,8 +277,9 @@ spec:
                   remuxOnlyWhenVideoCompliant:
                     default: true
                     description: |-
-                      RemuxOnlyWhenVideoCompliant only remuxes (no video encode) when the
-                      video stream already satisfies the profile.
+                      RemuxOnlyWhenVideoCompliant only remuxes (no video encode) when the video
+                      stream already satisfies the profile. A pointer so a Go client can send an
+                      explicit false; unset means true.
                     type: boolean
                   replaceSource:
                     default: true
@@ -288,8 +296,9 @@ spec:
                       rule: self
                   skipIfCompliant:
                     default: true
-                    description: SkipIfCompliant skips files that already satisfy
-                      the profile.
+                    description: |-
+                      SkipIfCompliant skips files that already satisfy the profile. A pointer so
+                      a Go client can send an explicit false; unset means true.
                     type: boolean
                 type: object
               priority:
@@ -433,16 +442,21 @@ spec:
                 properties:
                   copyAttachments:
                     default: true
-                    description: CopyAttachments copies container attachments such
-                      as fonts.
+                    description: |-
+                      CopyAttachments copies container attachments such as fonts. A pointer so a
+                      Go client can send an explicit false; unset means true.
                     type: boolean
                   copyBitmap:
                     default: true
-                    description: CopyBitmap copies bitmap (PGS/VobSub) subtitle tracks.
+                    description: |-
+                      CopyBitmap copies bitmap (PGS/VobSub) subtitle tracks. A pointer so a Go
+                      client can send an explicit false; unset means true.
                     type: boolean
                   copyText:
                     default: true
-                    description: CopyText copies text-based subtitle tracks.
+                    description: |-
+                      CopyText copies text-based subtitle tracks. A pointer so a Go client can
+                      send an explicit false; unset means true.
                     type: boolean
                 type: object
               ttlSecondsAfterFinished:
@@ -461,8 +475,9 @@ spec:
                     type: boolean
                   packetCount:
                     default: true
-                    description: PacketCount compares packet counts between source
-                      and output.
+                    description: |-
+                      PacketCount compares packet counts between source and output. A pointer so
+                      a Go client can send an explicit false; unset means true.
                     type: boolean
                   vmafMinCentis:
                     description: VMAFMin fails the job when the VMAF score falls below

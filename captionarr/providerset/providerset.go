@@ -258,7 +258,7 @@ func (b *Builder) Build(ctx context.Context, namespace string) ([]Entry, error) 
 	for i := range items {
 		sp := &items[i]
 		live[sp.UID] = true
-		if !sp.Spec.Enabled {
+		if !sp.Spec.EnabledOrDefault() {
 			continue
 		}
 		e, err := b.Entry(ctx, sp)

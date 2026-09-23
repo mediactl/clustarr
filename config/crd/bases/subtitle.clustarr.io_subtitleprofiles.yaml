@@ -85,7 +85,8 @@ spec:
                     default: true
                     description: |-
                       Extract writes a matching embedded track out as a sidecar instead of
-                      searching providers for it.
+                      searching providers for it. A pointer so a Go client can send an explicit
+                      false; unset means true.
                     type: boolean
                   ignoreASS:
                     default: false
@@ -104,8 +105,9 @@ spec:
                     type: boolean
                   skipCommentary:
                     default: true
-                    description: SkipCommentary ignores tracks whose title marks them
-                      as commentary.
+                    description: |-
+                      SkipCommentary ignores tracks whose title marks them as commentary.
+                      A pointer so a Go client can send an explicit false; unset means true.
                     type: boolean
                 type: object
               hiExtension:
@@ -276,17 +278,24 @@ spec:
                     default: 504h
                     description: |-
                       AdaptiveDelay is how long after a media file's release date searches keep
-                      running at the base interval before backing off.
+                      running at the base interval before backing off. A Go client always sends
+                      a Duration, so captionarr floors a zero (or negative) one to this default
+                      rather than treat it as a request; "1s" backs off after the first search.
                     type: string
                   adaptiveDelta:
                     default: 168h
-                    description: AdaptiveDelta is the interval used once adaptiveDelay
-                      has elapsed.
+                    description: |-
+                      AdaptiveDelta is the interval used once adaptiveDelay has elapsed. A Go
+                      client always sends a Duration, so captionarr floors a zero (or negative)
+                      one to this default rather than treat it as a request.
                     type: string
                   interval:
                     default: 6h
-                    description: Interval is the base delay between searches for a
-                      wanted language.
+                    description: |-
+                      Interval is the base delay between searches for a wanted language. A Go
+                      client always sends a Duration, so captionarr floors a zero (or negative)
+                      one to this default rather than treat it as a request to search
+                      continuously.
                     type: string
                 type: object
               selector:
@@ -346,7 +355,9 @@ spec:
                     type: boolean
                   gss:
                     default: true
-                    description: GSS uses golden-section search when aligning (ffsubsync).
+                    description: |-
+                      GSS uses golden-section search when aligning (ffsubsync). A pointer so a
+                      Go client can send an explicit false; unset means true.
                     type: boolean
                   maxOffsetSeconds:
                     default: 60
@@ -358,8 +369,9 @@ spec:
                     type: integer
                   noFixFramerate:
                     default: true
-                    description: NoFixFramerate disables framerate-ratio correction
-                      during alignment.
+                    description: |-
+                      NoFixFramerate disables framerate-ratio correction during alignment.
+                      A pointer so a Go client can send an explicit false; unset means true.
                     type: boolean
                   thresholdPercent:
                     default: {}
@@ -401,12 +413,17 @@ spec:
                 properties:
                   enabled:
                     default: true
-                    description: Enabled turns upgrade searches on.
+                    description: |-
+                      Enabled turns upgrade searches on. A pointer so a Go client can send an
+                      explicit false; unset means true.
                     type: boolean
                   interval:
                     default: 12h
-                    description: Interval is the delay between upgrade searches for
-                      one language.
+                    description: |-
+                      Interval is the delay between upgrade searches for one language. A Go
+                      client always sends a Duration, so captionarr floors a zero (or negative)
+                      one to this default rather than treat it as a request to search
+                      continuously.
                     type: string
                   lookbackDays:
                     default: 7
@@ -510,6 +527,7 @@ spec:
                   - status
                   - type
                   type: object
+                maxItems: 8
                 type: array
                 x-kubernetes-list-map-keys:
                 - type

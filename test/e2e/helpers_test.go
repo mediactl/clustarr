@@ -738,7 +738,7 @@ func newIndexer(ctx context.Context, t *testing.T, prefix, apiPath string, rssIn
 			RssInterval: metav1.Duration{Duration: rssInterval},
 			// 2s is the CRD default and would pace three fan-out requests
 			// across six seconds for no reason against a local fixture.
-			RequestDelay: metav1.Duration{Duration: 100 * time.Millisecond},
+			RequestDelay: &metav1.Duration{Duration: 100 * time.Millisecond},
 			Priority:     25,
 		},
 	}

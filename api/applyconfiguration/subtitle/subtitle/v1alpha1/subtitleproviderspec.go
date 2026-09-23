@@ -32,7 +32,8 @@ type SubtitleProviderSpecApplyConfiguration struct {
 	// Type is the upstream subtitle source. It is immutable: point a new
 	// SubtitleProvider at a different source instead.
 	Type *subtitlev1alpha1.SubtitleProviderType `json:"type,omitempty"`
-	// Enabled allows searches against this provider.
+	// Enabled allows searches against this provider. A pointer so a Go client
+	// can send an explicit false; unset means true.
 	Enabled *bool `json:"enabled,omitempty"`
 	// Priority orders providers when a profile does not list them explicitly;
 	// lower is searched first.

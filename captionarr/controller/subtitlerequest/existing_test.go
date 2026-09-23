@@ -110,22 +110,29 @@ func TestEmbeddedPolicy(t *testing.T) {
 		want   []string
 	}{
 		{
-			name: "nothing ignored: every resolvable stream counts, bitmap included",
-			want: []string{"en", "fr", "de", "es", "it", "ja:forced", "pt:hi"},
+			// skipCommentary defaults to true when unset, as the apiserver
+			// would default it, so "nothing ignored" has to say false.
+			name:   "nothing ignored: every resolvable stream counts, bitmap included",
+			policy: subtitlev1alpha1.EmbeddedSpec{SkipCommentary: ptr.To(false)},
+			want:   []string{"en", "fr", "de", "es", "it", "ja:forced", "pt:hi"},
+		},
+		{
+			name: "unset skipCommentary is its CRD default, true",
+			want: []string{"en", "fr", "de", "es", "ja:forced", "pt:hi"},
 		},
 		{
 			name:   "every knob on",
-			policy: subtitlev1alpha1.EmbeddedSpec{IgnorePGS: true, IgnoreVobSub: true, IgnoreASS: true, SkipCommentary: true},
+			policy: subtitlev1alpha1.EmbeddedSpec{IgnorePGS: true, IgnoreVobSub: true, IgnoreASS: true, SkipCommentary: ptr.To(true)},
 			want:   []string{"ja:forced", "pt:hi"},
 		},
 		{
 			name:   "ignorePGS is by codec, not by the bitmap flag",
-			policy: subtitlev1alpha1.EmbeddedSpec{IgnorePGS: true},
+			policy: subtitlev1alpha1.EmbeddedSpec{IgnorePGS: true, SkipCommentary: ptr.To(false)},
 			want:   []string{"fr", "de", "es", "it", "ja:forced", "pt:hi"},
 		},
 		{
 			name:   "ignoreASS covers ssa",
-			policy: subtitlev1alpha1.EmbeddedSpec{IgnoreASS: true},
+			policy: subtitlev1alpha1.EmbeddedSpec{IgnoreASS: true, SkipCommentary: ptr.To(false)},
 			want:   []string{"en", "fr", "it", "ja:forced", "pt:hi"},
 		},
 	}

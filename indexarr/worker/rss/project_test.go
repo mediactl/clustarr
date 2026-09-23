@@ -327,3 +327,16 @@ func TestProjectReleasePinningTheKindIsNeverWorseThanAutoDetecting(t *testing.T)
 	require.Error(t, autoErr, "premise changed: auto-detection now handles a leading id token")
 	require.NotEmpty(t, rss.ProjectRelease(torznab.Release{Title: leading, GUID: "g"}, "idx", "torrent").ParsedTitle)
 }
+
+// ReleaseInfo.Categories carries MaxItems=50 and is indexer-supplied: one
+// tracker listing more would get a whole Search.status (or a grab's
+// Download) rejected, so projection keeps the first 50.
+func TestProjectReleaseCapsCategoriesAtTheCRDsMaxItems(t *testing.T) {
+	cats := make([]newznab.CategoryID, 75)
+	for i := range cats {
+		cats[i] = newznab.CategoryID(2000 + i)
+	}
+	got := rss.ProjectRelease(torznab.Release{Title: "Some Movie 2020 1080p WEB-DL", GUID: "g", Categories: cats}, "idx", "torrent")
+	require.Len(t, got.Info.Categories, 50)
+	require.Equal(t, int32(2000), got.Info.Categories[0])
+}

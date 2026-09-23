@@ -84,7 +84,7 @@ func ignoredByPolicy(s commonv1alpha1.SubtitleStream, p subtitlev1alpha1.Embedde
 	case p.IgnoreASS && (codec == codecASS || codec == codecSSA):
 		return true
 	}
-	return p.SkipCommentary && strings.Contains(strings.ToLower(s.Title), "commentary")
+	return p.SkipCommentaryOrDefault() && strings.Contains(strings.ToLower(s.Title), "commentary")
 }
 
 // embeddedExisting is the embedded half of status.existing: every subtitle

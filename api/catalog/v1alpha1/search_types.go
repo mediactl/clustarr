@@ -167,7 +167,10 @@ type SearchSpec struct {
 	// +optional
 	Override bool `json:"override,omitempty"`
 
-	// TTL is how long the Search object lives after it completes.
+	// TTL is how long the Search object lives after it completes. A Go
+	// client (the UI's "search now" among them) always sends a Duration, so
+	// the Search controller floors a zero (or negative) one to this default
+	// rather than delete a Search the moment it answers.
 	// +optional
 	// +kubebuilder:default="1h"
 	TTL metav1.Duration `json:"ttl,omitempty"`

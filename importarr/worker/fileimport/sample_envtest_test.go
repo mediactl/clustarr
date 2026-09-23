@@ -19,6 +19,7 @@ package fileimport_test
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -79,6 +80,31 @@ func TestHandleRejectsASuspectedSampleAndSaysWhy(t *testing.T) {
 	var files catalogv1alpha1.MediaFileList
 	require.NoError(t, f.api.List(ctx, &files, client.InNamespace(f.ns)))
 	assert.Empty(t, files.Items, "a size-suspected file is never imported speculatively")
+}
+
+// status.import.rejections carries MaxItems=200, and an apply over it is
+// rejected WHOLE: before G4-0 a pack with more than 200 rejected files
+// recorded its outcome nowhere, and Handle failed on every redelivery. The
+// list must land capped, its last entry counting what did not fit.
+func TestHandleCapsRejectionsAtTheCRDsMaxItems(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t, "fi-many-rejections")
+
+	const planted = 230
+	contentRoot := dataDir(t, "scratch")
+	for i := range planted {
+		mustWriteSparseFile(t, filepath.Join(contentRoot, fmt.Sprintf("The.Matrix.1999.1080p.BluRay.x264-SPARKS.part%03d.mkv", i)), shortFilmBytes)
+	}
+	dl := f.createDownload(t, "many-rejections-dl", contentRoot,
+		commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: f.movieName})
+	require.NoError(t, f.worker.Handle(ctx, newImportTaskMessage(t, f.ns, dl.Name, "")),
+		"a status.import over its MaxItems is rejected by the apiserver, and Handle fails")
+
+	got := f.importState(t, dl).Status.Import
+	assert.Equal(t, downloadv1alpha1.ImportPhaseBlocked, got.State)
+	require.Len(t, got.Rejections, 200)
+	assert.Contains(t, got.Rejections[0], "suspected sample")
+	assert.Equal(t, fmt.Sprintf("... and %d more rejections not listed", planted-199), got.Rejections[199])
 }
 
 // The same release imports under a manual import -- a person's instruction

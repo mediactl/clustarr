@@ -345,7 +345,7 @@ func TestSubtitleRequestSidecarPipelineAndLanguageRemoval(t *testing.T) {
 	provider := &subtitlev1alpha1.SubtitleProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: uniqueName("e2e-sub13-os"), Namespace: Namespace},
 		Spec: subtitlev1alpha1.SubtitleProviderSpec{
-			Type: subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, Enabled: true, Priority: 10,
+			Type: subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, Enabled: ptr.To(true), Priority: 10,
 			SecretRef: &corev1.LocalObjectReference{Name: "opensubtitles-fixture-credentials"},
 			Endpoint:  ptr.To("http://opensubtitles-stub." + Namespace + ".svc"),
 		},
@@ -575,7 +575,7 @@ func TestSubtitleThrottleFallsThroughToGestdown(t *testing.T) {
 	osProvider := &subtitlev1alpha1.SubtitleProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: uniqueName("e2e-sub13-thr-os"), Namespace: Namespace},
 		Spec: subtitlev1alpha1.SubtitleProviderSpec{
-			Type: subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, Enabled: true, Priority: 10,
+			Type: subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, Enabled: ptr.To(true), Priority: 10,
 			SecretRef: &corev1.LocalObjectReference{Name: "opensubtitles-fixture-credentials"},
 			Endpoint:  ptr.To("http://opensubtitles-stub." + Namespace + ".svc"),
 		},
@@ -586,7 +586,7 @@ func TestSubtitleThrottleFallsThroughToGestdown(t *testing.T) {
 	gdProvider := &subtitlev1alpha1.SubtitleProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: uniqueName("e2e-sub13-thr-gd"), Namespace: Namespace},
 		Spec: subtitlev1alpha1.SubtitleProviderSpec{
-			Type: subtitlev1alpha1.SubtitleProviderGestdown, Enabled: true, Priority: 20,
+			Type: subtitlev1alpha1.SubtitleProviderGestdown, Enabled: ptr.To(true), Priority: 20,
 			Endpoint: ptr.To("http://gestdown-stub." + Namespace + ".svc"),
 		},
 	}

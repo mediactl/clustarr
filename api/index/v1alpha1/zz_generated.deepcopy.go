@@ -461,7 +461,11 @@ func (in *IndexerSpec) DeepCopyInto(out *IndexerSpec) {
 		*out = new(Limits)
 		(*in).DeepCopyInto(*out)
 	}
-	out.RequestDelay = in.RequestDelay
+	if in.RequestDelay != nil {
+		in, out := &in.RequestDelay, &out.RequestDelay
+		*out = new(metav1.Duration)
+		**out = **in
+	}
 	out.Timeout = in.Timeout
 	if in.ProxyRef != nil {
 		in, out := &in.ProxyRef, &out.ProxyRef

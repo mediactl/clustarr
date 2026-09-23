@@ -151,9 +151,18 @@ func ProjectRelease(r torznab.Release, indexerName, protocol string) schema.Rele
 
 // categoryIDs widens newznab ids to the []int32 the CRD carries. A nil slice
 // stays nil so the omitempty tag drops the field rather than encoding [].
+// maxReleaseCategories is ReleaseInfo.Categories' +kubebuilder:validation:MaxItems.
+// The list is indexer-supplied, so it is truncated here, where it enters the
+// system: a Search.status or Download.spec carrying a longer one is rejected
+// whole by the apiserver.
+const maxReleaseCategories = 50
+
 func categoryIDs(cats []newznab.CategoryID) []int32 {
 	if len(cats) == 0 {
 		return nil
+	}
+	if len(cats) > maxReleaseCategories {
+		cats = cats[:maxReleaseCategories]
 	}
 	out := make([]int32, len(cats))
 	for i, c := range cats {

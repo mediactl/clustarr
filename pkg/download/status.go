@@ -26,6 +26,10 @@ import (
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 )
 
+// MaxStatusFiles is DownloadStatus.Files' +kubebuilder:validation:MaxItems;
+// [ApplyStatus] never renders more.
+const MaxStatusFiles = 200
+
 // ApplyStatus renders item as the COMPLETE set of Download.status fields that
 // k8s.ManagerGrabarrEngine owns -- every one of them, zero values included --
 // and nothing outside that set.
@@ -116,7 +120,18 @@ func ApplyStatus(item Item) *downloadac.DownloadStatusApplyConfiguration {
 	// apply configuration. A caller that seeds from [ItemFromStatus] and then
 	// calls WithFiles again gets duplicate entries, which is why
 	// grabarr/status.Patch tells its callers to assign ac.Files instead.
-	for _, f := range item.Files {
+	//
+	// The list is capped at [MaxStatusFiles], the CRD's MaxItems: a
+	// discography or a full-series pack easily lists more, and the apiserver
+	// rejects the WHOLE apply, not the excess -- phase, progress and every
+	// other engine field would freeze with it. Nothing reads status.files
+	// to decide anything (the importer walks the content root), so the
+	// first MaxStatusFiles entries are an honest sample, not a loss.
+	files := item.Files
+	if len(files) > MaxStatusFiles {
+		files = files[:MaxStatusFiles]
+	}
+	for _, f := range files {
 		ac = ac.WithFiles(downloadac.DownloadFile().
 			WithPath(f.Path).
 			WithSizeBytes(f.SizeBytes).

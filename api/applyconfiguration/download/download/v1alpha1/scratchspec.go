@@ -29,7 +29,9 @@ import (
 // ScratchSpec sizes the working area each usenet engine replica uses while
 // downloading, repairing and unpacking.
 type ScratchSpecApplyConfiguration struct {
-	// SizeLimit is the capacity of the scratch volume.
+	// SizeLimit is the capacity of the scratch volume. A Go client always
+	// sends a Quantity, so the DownloadClient controller floors a zero one to
+	// this default: a zero-byte scratch volume has no coherent meaning.
 	SizeLimit *resource.Quantity `json:"sizeLimit,omitempty"`
 	// StorageClassName selects the StorageClass of the scratch volume. Unset
 	// means an emptyDir backed by node storage is used instead of a PVC.

@@ -266,8 +266,12 @@ spec:
                     type: boolean
                   version:
                     default: 1
-                    description: Version is the release version; 1 is the original,
-                      2+ are propers.
+                    description: |-
+                      Version is the release version; 1 is the original, 2+ are propers.
+                      It has no omitempty, so a Go client always sends it and the default
+                      never applies; 0 has no meaning, and every comparison (pkg/quality,
+                      pkg/decision) floors it to 1, so an unparsed revision reads as the
+                      original rather than as older than one.
                     format: int32
                     type: integer
                 type: object

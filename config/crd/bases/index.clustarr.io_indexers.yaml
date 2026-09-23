@@ -172,11 +172,17 @@ spec:
                 default: 2s
                 description: |-
                   RequestDelay is the minimum delay between requests to the indexer. It
-                  is raised to the definition's requestDelay when that is larger.
+                  is raised to the definition's requestDelay when that is larger. "0s"
+                  is a supported "do not pace this indexer", so this is a pointer rather
+                  than floored: a Go client always sends a non-pointer Duration, and the
+                  2s default would never reach an Indexer created from Go. Unset means 2s.
                 type: string
               rssInterval:
                 default: 15m
-                description: RssInterval is how often the RSS feed is polled.
+                description: |-
+                  RssInterval is how often the RSS feed is polled. A Go client always
+                  sends a Duration, so the RSS worker floors a zero (or negative) one to
+                  this default: nobody means to poll an indexer infinitely often.
                 type: string
               secretRef:
                 description: |-
@@ -235,7 +241,10 @@ spec:
                 type: array
               timeout:
                 default: 30s
-                description: Timeout is the per-request HTTP timeout.
+                description: |-
+                  Timeout is the per-request HTTP timeout. A Go client always sends a
+                  Duration, so every consumer floors a zero (or negative) one to this
+                  default: a request that may never time out is never meant.
                 type: string
             required:
             - baseURL
@@ -378,6 +387,7 @@ spec:
                   - status
                   - type
                   type: object
+                maxItems: 8
                 type: array
                 x-kubernetes-list-map-keys:
                 - type

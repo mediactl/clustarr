@@ -1072,7 +1072,7 @@ func verifyCaptionarrController(t *testing.T, cfg *rest.Config, dataDir string) 
 	// below, which the worker case reports.
 	provider := &subtitlev1alpha1.SubtitleProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: captionProbe, Namespace: "default"},
-		Spec:       subtitlev1alpha1.SubtitleProviderSpec{Type: subtitlev1alpha1.SubtitleProviderGestdown, Enabled: true},
+		Spec:       subtitlev1alpha1.SubtitleProviderSpec{Type: subtitlev1alpha1.SubtitleProviderGestdown, Enabled: ptr.To(true)},
 	}
 	if err := c.Create(ctx, provider); err != nil {
 		t.Fatalf("create SubtitleProvider: %v", err)

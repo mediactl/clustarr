@@ -78,3 +78,19 @@ func TestToMediaInfo(t *testing.T) {
 	assert.Equal(t, int32(1), mi.Attachments)
 	assert.Equal(t, int32(2), mi.Chapters)
 }
+
+// MediaInfo.Audio and .Subtitles carry MaxItems=64; the apiserver rejects a
+// MediaFile status apply over either WHOLE, so the file would never probe.
+func TestToMediaInfoCapsStreamListsAtTheCRDsMaxItems(t *testing.T) {
+	raw := &Raw{Format: &ffprobe.Format{Filename: "many.mkv"}}
+	raw.Streams = append(raw.Streams, &ffprobe.Stream{Index: 0, CodecType: "video", CodecName: "hevc"})
+	for i := range MaxStreamsPerKind + 6 {
+		raw.Streams = append(raw.Streams,
+			&ffprobe.Stream{Index: 1 + 2*i, CodecType: "audio", CodecName: "aac"},
+			&ffprobe.Stream{Index: 2 + 2*i, CodecType: "subtitle", CodecName: "subrip"})
+	}
+	mi := toMediaInfo(raw)
+	require.Len(t, mi.Audio, MaxStreamsPerKind)
+	require.Len(t, mi.Subtitles, MaxStreamsPerKind)
+	assert.Equal(t, int32(1), mi.Audio[0].Index, "the first streams are kept, in order")
+}

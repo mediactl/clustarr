@@ -74,7 +74,7 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, targetT
 	ic := catalogue.ItemContext{OriginalLanguageName: originalLanguage, IndexerFlags: rel.IndexerFlags, ReleaseType: parsed.ReleaseType}
 	score, matched := p.Score(ctx, cat, parsed, ic)
 	rel.FormatScore = int32(score)
-	rel.MatchedFormats = matched
+	rel.MatchedFormats = capMatchedFormats(matched)
 
 	var rejections []common.Rejection
 	add := func(r *common.Rejection) {
@@ -109,6 +109,20 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, targetT
 		d.Rank = buildRankKey(p, o, t, parsed, rel, score)
 	}
 	return d
+}
+
+// maxMatchedFormats is ReleaseInfo.MatchedFormats' +kubebuilder:validation:MaxItems.
+// Decision.Release is what lands in Search.status.results and
+// Download.spec.release, and an apply carrying a longer list is rejected
+// whole -- one over-matching release would fail the entire Search. Only
+// the copy on the Release is capped; Decision.Matched keeps every match.
+const maxMatchedFormats = 200
+
+func capMatchedFormats(matched []string) []string {
+	if len(matched) > maxMatchedFormats {
+		return matched[:maxMatchedFormats]
+	}
+	return matched
 }
 
 func allTemporary(rejections []common.Rejection) bool {

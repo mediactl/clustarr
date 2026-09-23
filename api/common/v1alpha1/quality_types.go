@@ -89,6 +89,10 @@ type Quality struct {
 // Revision records the proper/repack revision of a release.
 type Revision struct {
 	// Version is the release version; 1 is the original, 2+ are propers.
+	// It has no omitempty, so a Go client always sends it and the default
+	// never applies; 0 has no meaning, and every comparison (pkg/quality,
+	// pkg/decision) floors it to 1, so an unparsed revision reads as the
+	// original rather than as older than one.
 	// +optional
 	// +kubebuilder:default=1
 	Version int32 `json:"version"`
@@ -102,4 +106,11 @@ type Revision struct {
 	// +optional
 	// +kubebuilder:default=false
 	Repack bool `json:"repack"`
+}
+
+// EffectiveVersion is Version floored at 1, the value its CRD default would
+// have supplied: see Version's doc comment. It is a plain Go method, not
+// part of the API surface, and generates nothing.
+func (r Revision) EffectiveVersion() int32 {
+	return max(r.Version, 1)
 }

@@ -57,8 +57,9 @@ const (
 
 	// defaultScratchSize backs an emptyDir when UsenetSpec.Scratch is unset;
 	// ScratchSpec.SizeLimit's own kubebuilder default is "50Gi", restated here
-	// only for the in-memory objects a unit test builds directly, which never
-	// see apiserver structural defaulting.
+	// because that default fills only an ABSENT field: a DownloadClient
+	// created by a Go client always carries sizeLimit "0", so the apiserver
+	// never defaults it, and neither does an in-memory object in a unit test.
 	defaultScratchSize = "50Gi"
 
 	// defaultListenPort mirrors TorrentSpec.ListenPort's kubebuilder default,

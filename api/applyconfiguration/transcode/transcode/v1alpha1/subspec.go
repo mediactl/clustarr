@@ -24,11 +24,14 @@ package v1alpha1
 //
 // SubSpec describes how subtitle tracks and attachments are handled.
 type SubSpecApplyConfiguration struct {
-	// CopyText copies text-based subtitle tracks.
+	// CopyText copies text-based subtitle tracks. A pointer so a Go client can
+	// send an explicit false; unset means true.
 	CopyText *bool `json:"copyText,omitempty"`
-	// CopyBitmap copies bitmap (PGS/VobSub) subtitle tracks.
+	// CopyBitmap copies bitmap (PGS/VobSub) subtitle tracks. A pointer so a Go
+	// client can send an explicit false; unset means true.
 	CopyBitmap *bool `json:"copyBitmap,omitempty"`
-	// CopyAttachments copies container attachments such as fonts.
+	// CopyAttachments copies container attachments such as fonts. A pointer so a
+	// Go client can send an explicit false; unset means true.
 	CopyAttachments *bool `json:"copyAttachments,omitempty"`
 }
 

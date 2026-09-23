@@ -204,7 +204,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 			k8s.MarkFalse(&fresh, &conditions, subtitlev1alpha1.SubtitleProviderConditionThrottled, ReasonNotThrottled, "not throttled")
 		}
 		switch {
-		case !sp.Spec.Enabled:
+		case !sp.Spec.EnabledOrDefault():
 			k8s.MarkReady(&fresh, &conditions, false, k8s.ReasonDisabled, "spec.enabled is false")
 		case !auth.authenticated:
 			k8s.MarkReady(&fresh, &conditions, false, k8s.ReasonDependencyNotReady, "not authenticated: %s", auth.message)
@@ -225,7 +225,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	}
 
 	result := ctrl.Result{}
-	if impl && sp.Spec.Enabled {
+	if impl && sp.Spec.EnabledOrDefault() {
 		result.RequeueAfter = nextRequeue(now, state)
 	}
 	log.Debug("reconciled", "ready", k8s.IsConditionTrue(conditions, k8s.ConditionReady), "requeueAfter", result.RequeueAfter)

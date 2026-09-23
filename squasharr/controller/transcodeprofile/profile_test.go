@@ -55,18 +55,18 @@ func renderSpec() transcodev1alpha1.TranscodeProfileSpec {
 		},
 		Audio: transcodev1alpha1.AudioSpec{
 			Codec: "aac", BitratePerChannelKbps: 64, KeepOriginal: transcodev1alpha1.KeepOriginalAtmos,
-			Languages: []string{"eng"}, DropCommentary: true, StereoCompatTrack: true,
+			Languages: []string{"eng"}, DropCommentary: ptr.To(true), StereoCompatTrack: true,
 		},
-		Subtitles: transcodev1alpha1.SubSpec{CopyText: true, CopyBitmap: true, CopyAttachments: true},
+		Subtitles: transcodev1alpha1.SubSpec{CopyText: ptr.To(true), CopyBitmap: ptr.To(true), CopyAttachments: ptr.To(true)},
 		HDR:       transcodev1alpha1.HDRSpec{HDR10Plus: transcodev1alpha1.HDR10PlusDrop, DolbyVision: transcodev1alpha1.DolbyVisionPassthrough},
 		Policy: transcodev1alpha1.PolicySpec{
-			SkipIfCompliant: true, RemuxOnlyWhenVideoCompliant: true,
+			SkipIfCompliant: ptr.To(true), RemuxOnlyWhenVideoCompliant: ptr.To(true),
 			NeverTranscodeModifiers:  []string{"remux", "brdisk"},
-			MinDuration:              metav1.Duration{Duration: time.Minute},
-			MaxOutputToSourcePercent: 100,
+			MinDuration:              &metav1.Duration{Duration: time.Minute},
+			MaxOutputToSourcePercent: ptr.To[int32](100),
 			ReplaceSource:            ptr.To(true), RecycleBin: ptr.To(true),
 		},
-		Verify: transcodev1alpha1.VerifySpec{PacketCount: true, FullDecode: true, VMAFMinCentis: ptr.To[int32](9000)},
+		Verify: transcodev1alpha1.VerifySpec{PacketCount: ptr.To(true), FullDecode: true, VMAFMinCentis: ptr.To[int32](9000)},
 	}
 }
 
@@ -139,17 +139,27 @@ func TestStatusHashChangesWithEveryRenderField(t *testing.T) {
 
 // Unset and the CRD default are the same policy, so they are the same hash:
 // a profile created by a Go client (nil) and one the apiserver defaulted
-// (true) must not be told apart, or every Go-created profile would
-// re-transcode the moment kubectl touched it.
+// must not be told apart, or every Go-created profile would re-transcode the
+// moment kubectl touched it. renderSpec sets every one of these pointers to
+// its CRD default, so clearing them all must leave the hash unchanged.
 func TestStatusHashTreatsUnsetPolicyPointersAsTheirDefault(t *testing.T) {
 	defaulted := renderSpec()
 	unset := renderSpec()
+	unset.Audio.DropCommentary = nil
+	unset.Subtitles.CopyText, unset.Subtitles.CopyBitmap, unset.Subtitles.CopyAttachments = nil, nil, nil
+	unset.Policy.SkipIfCompliant, unset.Policy.RemuxOnlyWhenVideoCompliant = nil, nil
+	unset.Policy.MinDuration, unset.Policy.MaxOutputToSourcePercent = nil, nil
 	unset.Policy.ReplaceSource, unset.Policy.RecycleBin = nil, nil
+	unset.Verify.PacketCount = nil
 	assert.Equal(t, profileHash(defaulted), profileHash(unset))
 
 	off := renderSpec()
 	off.Policy.RecycleBin = ptr.To(false)
 	assert.NotEqual(t, profileHash(defaulted), profileHash(off))
+
+	zero := renderSpec()
+	zero.Policy.MaxOutputToSourcePercent = ptr.To[int32](0)
+	assert.NotEqual(t, profileHash(defaulted), profileHash(zero), "an explicit 0 disables the size check; it is not the default")
 }
 
 type leaf struct {
@@ -199,6 +209,10 @@ func mutate(t *testing.T, v reflect.Value, name string) {
 		v.Set(m)
 	case reflect.Slice:
 		v.Set(reflect.Append(v, reflect.ValueOf("changed").Convert(v.Type().Elem())))
+	case reflect.Struct:
+		// Reached only through a pointer (leafPaths walks into a struct
+		// value): *metav1.Duration. Changing its first field changes it.
+		mutate(t, v.Field(0), name+"."+v.Type().Field(0).Name)
 	default:
 		t.Fatalf("%s has kind %s, which this test does not know how to change; teach mutate", name, v.Kind())
 	}

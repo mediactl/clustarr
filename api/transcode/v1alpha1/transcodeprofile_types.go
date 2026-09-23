@@ -264,10 +264,11 @@ type AudioSpec struct {
 	// +optional
 	Languages []string `json:"languages,omitempty"`
 
-	// DropCommentary drops tracks flagged as commentary.
+	// DropCommentary drops tracks flagged as commentary. A pointer so a Go
+	// client can send an explicit false; unset means true.
 	// +optional
 	// +kubebuilder:default=true
-	DropCommentary bool `json:"dropCommentary,omitempty"`
+	DropCommentary *bool `json:"dropCommentary,omitempty"`
 
 	// StereoCompatTrack adds a stereo downmix track for compatibility.
 	// +optional
@@ -277,20 +278,23 @@ type AudioSpec struct {
 
 // SubSpec describes how subtitle tracks and attachments are handled.
 type SubSpec struct {
-	// CopyText copies text-based subtitle tracks.
+	// CopyText copies text-based subtitle tracks. A pointer so a Go client can
+	// send an explicit false; unset means true.
 	// +optional
 	// +kubebuilder:default=true
-	CopyText bool `json:"copyText,omitempty"`
+	CopyText *bool `json:"copyText,omitempty"`
 
-	// CopyBitmap copies bitmap (PGS/VobSub) subtitle tracks.
+	// CopyBitmap copies bitmap (PGS/VobSub) subtitle tracks. A pointer so a Go
+	// client can send an explicit false; unset means true.
 	// +optional
 	// +kubebuilder:default=true
-	CopyBitmap bool `json:"copyBitmap,omitempty"`
+	CopyBitmap *bool `json:"copyBitmap,omitempty"`
 
-	// CopyAttachments copies container attachments such as fonts.
+	// CopyAttachments copies container attachments such as fonts. A pointer so a
+	// Go client can send an explicit false; unset means true.
 	// +optional
 	// +kubebuilder:default=true
-	CopyAttachments bool `json:"copyAttachments,omitempty"`
+	CopyAttachments *bool `json:"copyAttachments,omitempty"`
 }
 
 // HDRSpec describes how high-dynamic-range metadata is handled.
@@ -308,16 +312,18 @@ type HDRSpec struct {
 
 // PolicySpec decides which files are transcoded and what happens afterwards.
 type PolicySpec struct {
-	// SkipIfCompliant skips files that already satisfy the profile.
+	// SkipIfCompliant skips files that already satisfy the profile. A pointer so
+	// a Go client can send an explicit false; unset means true.
 	// +optional
 	// +kubebuilder:default=true
-	SkipIfCompliant bool `json:"skipIfCompliant,omitempty"`
+	SkipIfCompliant *bool `json:"skipIfCompliant,omitempty"`
 
-	// RemuxOnlyWhenVideoCompliant only remuxes (no video encode) when the
-	// video stream already satisfies the profile.
+	// RemuxOnlyWhenVideoCompliant only remuxes (no video encode) when the video
+	// stream already satisfies the profile. A pointer so a Go client can send an
+	// explicit false; unset means true.
 	// +optional
 	// +kubebuilder:default=true
-	RemuxOnlyWhenVideoCompliant bool `json:"remuxOnlyWhenVideoCompliant,omitempty"`
+	RemuxOnlyWhenVideoCompliant *bool `json:"remuxOnlyWhenVideoCompliant,omitempty"`
 
 	// NeverTranscodeModifiers lists quality modifiers (see common Modifier)
 	// whose files are never transcoded.
@@ -325,20 +331,25 @@ type PolicySpec struct {
 	// +kubebuilder:default={"remux","brdisk"}
 	NeverTranscodeModifiers []string `json:"neverTranscodeModifiers,omitempty"`
 
-	// MinDuration is the shortest source runtime considered for transcoding.
+	// MinDuration is the shortest source runtime considered for transcoding;
+	// "0s" considers every file. A pointer because zero is meaningful: a Go
+	// client always sends a non-pointer Duration, so the 1m default would
+	// never reach a profile created from Go. Unset means 1m.
 	// +optional
 	// +kubebuilder:default="1m"
-	MinDuration metav1.Duration `json:"minDuration,omitempty"`
+	MinDuration *metav1.Duration `json:"minDuration,omitempty"`
 
 	// MaxOutputToSourcePercent fails a job whose output is larger than this
 	// percentage of the source size: 100 (the default) refuses any output
 	// bigger than the file it replaces, 150 allows half as large again. It is
 	// the design spec's MaxOutputToSourceRatio 1.0 as a scaled integer, since
-	// the API carries no floats. 0 disables the check.
+	// the API carries no floats. 0 disables the check. A pointer so a Go
+	// client can send that 0: with omitempty it would be dropped and
+	// defaulted back to 100. Unset means 100.
 	// +optional
 	// +kubebuilder:default=100
 	// +kubebuilder:validation:Minimum=0
-	MaxOutputToSourcePercent int32 `json:"maxOutputToSourcePercent,omitempty"`
+	MaxOutputToSourcePercent *int32 `json:"maxOutputToSourcePercent,omitempty"`
 
 	// ReplaceSource replaces the source file with the output on success. A
 	// pointer so a Go client can send an explicit false; unset means true.
@@ -361,10 +372,11 @@ type PolicySpec struct {
 
 // VerifySpec describes post-encode verification.
 type VerifySpec struct {
-	// PacketCount compares packet counts between source and output.
+	// PacketCount compares packet counts between source and output. A pointer so
+	// a Go client can send an explicit false; unset means true.
 	// +optional
 	// +kubebuilder:default=true
-	PacketCount bool `json:"packetCount,omitempty"`
+	PacketCount *bool `json:"packetCount,omitempty"`
 
 	// FullDecode fully decodes the output to check for corruption.
 	// +optional

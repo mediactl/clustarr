@@ -15,6 +15,9 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package crdcheck holds the install-time regression guard for the generated
-// CustomResourceDefinitions. Nothing imports it; it exists only for its test.
+// Package crdcheck holds the regression guards for the CustomResourceDefinitions:
+// the install-time check that the generated CRDs load into a real apiserver,
+// and two source walkers over api/ (G4-0) -- one for +kubebuilder:default
+// markers a typed Go client can never reach, one for status lists without a
+// MaxItems. Nothing imports it; it exists only for its tests.
 package crdcheck

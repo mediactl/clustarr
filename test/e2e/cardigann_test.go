@@ -182,7 +182,7 @@ func TestCardigannIndexerLoginSearchFacadeAndProxy(t *testing.T) {
 			BaseURL:       "http://" + fixtureCardigannStubService + "." + Namespace + ".svc",
 			SecretRef:     &corev1.LocalObjectReference{Name: sec.Name},
 			ProxyRef:      ptr.To(proxy.Name),
-			RequestDelay:  metav1.Duration{Duration: 100 * time.Millisecond},
+			RequestDelay:  &metav1.Duration{Duration: 100 * time.Millisecond},
 			Priority:      25,
 		},
 	}

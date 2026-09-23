@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"sync"
 	"testing"
@@ -31,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/yaml"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
@@ -112,16 +114,16 @@ func TestProfileSpecCarriesEveryField(t *testing.T) {
 		},
 		Audio: transcodev1alpha1.AudioSpec{
 			Codec: "aac", BitratePerChannelKbps: 64, KeepOriginal: transcodev1alpha1.KeepOriginalAtmos,
-			Languages: []string{"en"}, DropCommentary: true, StereoCompatTrack: true,
+			Languages: []string{"en"}, DropCommentary: ptr.To(true), StereoCompatTrack: true,
 		},
-		Subtitles: transcodev1alpha1.SubSpec{CopyText: true, CopyBitmap: true, CopyAttachments: true},
+		Subtitles: transcodev1alpha1.SubSpec{CopyText: ptr.To(true), CopyBitmap: ptr.To(true), CopyAttachments: ptr.To(true)},
 		HDR:       transcodev1alpha1.HDRSpec{HDR10Plus: transcodev1alpha1.HDR10PlusDrop, DolbyVision: transcodev1alpha1.DolbyVisionReject},
 		Policy: transcodev1alpha1.PolicySpec{
-			SkipIfCompliant: true, RemuxOnlyWhenVideoCompliant: true, NeverTranscodeModifiers: []string{"remux"},
-			MinDuration: metav1.Duration{Duration: time.Minute}, MaxOutputToSourcePercent: 100,
+			SkipIfCompliant: ptr.To(true), RemuxOnlyWhenVideoCompliant: ptr.To(true), NeverTranscodeModifiers: []string{"remux"},
+			MinDuration: &metav1.Duration{Duration: time.Minute}, MaxOutputToSourcePercent: ptr.To[int32](100),
 			ReplaceSource: ptr.To(true), RecycleBin: ptr.To(true),
 		},
-		Verify:  transcodev1alpha1.VerifySpec{PacketCount: true, FullDecode: true, VMAFMinCentis: ptr.To[int32](9000)},
+		Verify:  transcodev1alpha1.VerifySpec{PacketCount: ptr.To(true), FullDecode: true, VMAFMinCentis: ptr.To[int32](9000)},
 		Scratch: resource.MustParse("1Gi"),
 	}
 	got := ProfileSpec(spec, nil)
@@ -146,6 +148,79 @@ func TestPolicyPointersDefaultToTrue(t *testing.T) {
 	assert.False(t, ReplaceSource(off))
 	assert.False(t, RecycleBin(off))
 	assert.False(t, ProfileSpec(transcodev1alpha1.TranscodeProfileSpec{Policy: off}, nil).Policy.RecycleBin)
+}
+
+// The defaults ProfileSpec applies to a nil pointer restate the CRD's; this
+// holds each to the generated schema, so a changed +kubebuilder:default
+// cannot leave a Go-created profile on the old value.
+func TestPointerDefaultsMatchTheGeneratedCRD(t *testing.T) {
+	raw, err := os.ReadFile("../../config/crd/bases/transcode.clustarr.io_transcodeprofiles.yaml")
+	require.NoError(t, err)
+	var crd map[string]any
+	require.NoError(t, yaml.Unmarshal(raw, &crd))
+	defaultAt := func(path ...string) any {
+		t.Helper()
+		node := crd["spec"].(map[string]any)["versions"].([]any)[0].(map[string]any)["schema"].(map[string]any)["openAPIV3Schema"]
+		for _, p := range append([]string{"spec"}, path...) {
+			node = node.(map[string]any)["properties"].(map[string]any)[p]
+			require.NotNilf(t, node, "spec.%v is not in the generated CRD", path)
+		}
+		return node.(map[string]any)["default"]
+	}
+	for _, path := range [][]string{
+		{"audio", "dropCommentary"},
+		{"subtitles", "copyText"},
+		{"subtitles", "copyBitmap"},
+		{"subtitles", "copyAttachments"},
+		{"policy", "skipIfCompliant"},
+		{"policy", "remuxOnlyWhenVideoCompliant"},
+		{"policy", "replaceSource"},
+		{"policy", "recycleBin"},
+		{"verify", "packetCount"},
+	} {
+		assert.Equalf(t, true, defaultAt(path...), "ProfileSpec reads a nil spec.%v as true", path)
+	}
+	d, err := time.ParseDuration(defaultAt("policy", "minDuration").(string))
+	require.NoError(t, err)
+	assert.Equal(t, DefaultMinDuration, d)
+	assert.EqualValues(t, DefaultMaxOutputToSourcePercent, defaultAt("policy", "maxOutputToSourcePercent"))
+}
+
+// G4-0 made every other defaulted-true bool in the spec a pointer, plus
+// policy.minDuration and policy.maxOutputToSourcePercent, whose zero means
+// something ("consider every file", "no size check") that a Go client could
+// not otherwise send. Unset must convert to the CRD default and an explicit
+// zero to zero, through the one converter every consumer uses.
+func TestProfileSpecAppliesPointerDefaults(t *testing.T) {
+	unset := ProfileSpec(transcodev1alpha1.TranscodeProfileSpec{}, nil)
+	assert.True(t, unset.Audio.DropCommentary)
+	assert.True(t, unset.Subtitles.CopyText)
+	assert.True(t, unset.Subtitles.CopyBitmap)
+	assert.True(t, unset.Subtitles.CopyAttachments)
+	assert.True(t, unset.Policy.SkipIfCompliant)
+	assert.True(t, unset.Policy.RemuxOnlyWhenVideoCompliant)
+	assert.True(t, unset.Verify.PacketCount)
+	assert.Equal(t, time.Minute, unset.Policy.MinDuration)
+	assert.Equal(t, int32(100), unset.Policy.MaxOutputToSourcePercent)
+
+	off := ProfileSpec(transcodev1alpha1.TranscodeProfileSpec{
+		Audio:     transcodev1alpha1.AudioSpec{DropCommentary: ptr.To(false)},
+		Subtitles: transcodev1alpha1.SubSpec{CopyText: ptr.To(false), CopyBitmap: ptr.To(false), CopyAttachments: ptr.To(false)},
+		Policy: transcodev1alpha1.PolicySpec{
+			SkipIfCompliant: ptr.To(false), RemuxOnlyWhenVideoCompliant: ptr.To(false),
+			MinDuration: &metav1.Duration{}, MaxOutputToSourcePercent: ptr.To[int32](0),
+		},
+		Verify: transcodev1alpha1.VerifySpec{PacketCount: ptr.To(false)},
+	}, nil)
+	assert.False(t, off.Audio.DropCommentary)
+	assert.False(t, off.Subtitles.CopyText)
+	assert.False(t, off.Subtitles.CopyBitmap)
+	assert.False(t, off.Subtitles.CopyAttachments)
+	assert.False(t, off.Policy.SkipIfCompliant)
+	assert.False(t, off.Policy.RemuxOnlyWhenVideoCompliant)
+	assert.False(t, off.Verify.PacketCount)
+	assert.Zero(t, off.Policy.MinDuration)
+	assert.Zero(t, off.Policy.MaxOutputToSourcePercent)
 }
 
 func assertNoZeroLeaf(t *testing.T, v reflect.Value, path string) {

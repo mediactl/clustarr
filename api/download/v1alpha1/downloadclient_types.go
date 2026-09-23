@@ -199,7 +199,9 @@ type PostProcessSpec struct {
 // ScratchSpec sizes the working area each usenet engine replica uses while
 // downloading, repairing and unpacking.
 type ScratchSpec struct {
-	// SizeLimit is the capacity of the scratch volume.
+	// SizeLimit is the capacity of the scratch volume. A Go client always
+	// sends a Quantity, so the DownloadClient controller floors a zero one to
+	// this default: a zero-byte scratch volume has no coherent meaning.
 	// +optional
 	// +kubebuilder:default="50Gi"
 	SizeLimit resource.Quantity `json:"sizeLimit,omitempty"`
@@ -374,6 +376,7 @@ type DownloadClientStatus struct {
 	// +listMapKey=type
 	// +patchStrategy=merge
 	// +patchMergeKey=type
+	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 

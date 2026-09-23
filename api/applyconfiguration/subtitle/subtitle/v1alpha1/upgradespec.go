@@ -29,9 +29,13 @@ import (
 // UpgradeSpec controls re-searching languages that are already downloaded but
 // scored below the cutoff.
 type UpgradeSpecApplyConfiguration struct {
-	// Enabled turns upgrade searches on.
+	// Enabled turns upgrade searches on. A pointer so a Go client can send an
+	// explicit false; unset means true.
 	Enabled *bool `json:"enabled,omitempty"`
-	// Interval is the delay between upgrade searches for one language.
+	// Interval is the delay between upgrade searches for one language. A Go
+	// client always sends a Duration, so captionarr floors a zero (or negative)
+	// one to this default rather than treat it as a request to search
+	// continuously.
 	Interval *v1.Duration `json:"interval,omitempty"`
 	// LookbackDays is how many days after the original download upgrades are
 	// still attempted.

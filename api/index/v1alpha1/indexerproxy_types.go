@@ -59,7 +59,10 @@ type IndexerProxySpec struct {
 	// +optional
 	SecretRef *corev1.LocalObjectReference `json:"secretRef,omitempty"`
 
-	// RequestTimeout is how long a request through the proxy may take.
+	// RequestTimeout is how long a request through the proxy may take. A Go
+	// client always sends a Duration, so the prober floors a zero (or
+	// negative) one to this default: a probe that may never return is never
+	// meant.
 	// +optional
 	// +kubebuilder:default="60s"
 	RequestTimeout metav1.Duration `json:"requestTimeout,omitempty"`
@@ -82,6 +85,7 @@ type IndexerProxyStatus struct {
 	// +listMapKey=type
 	// +patchStrategy=merge
 	// +patchMergeKey=type
+	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 
 	// LastCheckedAt is when the proxy was last probed.

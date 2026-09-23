@@ -18,6 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package worker
 
 import (
+	"time"
+
 	"k8s.io/utils/ptr"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
@@ -78,29 +80,29 @@ func ProfileSpec(spec transcodev1alpha1.TranscodeProfileSpec, hardware *transcod
 			BitratePerChannelKbps: spec.Audio.BitratePerChannelKbps,
 			KeepOriginal:          transcode.KeepOriginalPolicy(spec.Audio.KeepOriginal),
 			Languages:             spec.Audio.Languages,
-			DropCommentary:        spec.Audio.DropCommentary,
+			DropCommentary:        ptr.Deref(spec.Audio.DropCommentary, true),
 			StereoCompatTrack:     spec.Audio.StereoCompatTrack,
 		},
 		Subtitles: transcode.SubSpec{
-			CopyText:        spec.Subtitles.CopyText,
-			CopyBitmap:      spec.Subtitles.CopyBitmap,
-			CopyAttachments: spec.Subtitles.CopyAttachments,
+			CopyText:        ptr.Deref(spec.Subtitles.CopyText, true),
+			CopyBitmap:      ptr.Deref(spec.Subtitles.CopyBitmap, true),
+			CopyAttachments: ptr.Deref(spec.Subtitles.CopyAttachments, true),
 		},
 		HDR: transcode.HDRSpec{
 			HDR10Plus:   transcode.HDR10PlusMode(spec.HDR.HDR10Plus),
 			DolbyVision: transcode.DolbyVisionMode(spec.HDR.DolbyVision),
 		},
 		Policy: transcode.PolicySpec{
-			SkipIfCompliant:             spec.Policy.SkipIfCompliant,
-			RemuxOnlyWhenVideoCompliant: spec.Policy.RemuxOnlyWhenVideoCompliant,
+			SkipIfCompliant:             ptr.Deref(spec.Policy.SkipIfCompliant, true),
+			RemuxOnlyWhenVideoCompliant: ptr.Deref(spec.Policy.RemuxOnlyWhenVideoCompliant, true),
 			NeverTranscodeModifiers:     spec.Policy.NeverTranscodeModifiers,
-			MinDuration:                 spec.Policy.MinDuration.Duration,
-			MaxOutputToSourcePercent:    spec.Policy.MaxOutputToSourcePercent,
+			MinDuration:                 MinDuration(spec.Policy),
+			MaxOutputToSourcePercent:    MaxOutputToSourcePercent(spec.Policy),
 			ReplaceSource:               ReplaceSource(spec.Policy),
 			RecycleBin:                  RecycleBin(spec.Policy),
 		},
 		Verify: transcode.VerifySpec{
-			PacketCount:   spec.Verify.PacketCount,
+			PacketCount:   ptr.Deref(spec.Verify.PacketCount, true),
 			FullDecode:    spec.Verify.FullDecode,
 			VMAFMinCentis: spec.Verify.VMAFMinCentis,
 		},
@@ -117,3 +119,25 @@ func ReplaceSource(p transcodev1alpha1.PolicySpec) bool { return ptr.Deref(p.Rep
 // RecycleBin is policy.recycleBin with its CRD default applied: unset
 // means true.
 func RecycleBin(p transcodev1alpha1.PolicySpec) bool { return ptr.Deref(p.RecycleBin, true) }
+
+// DefaultMinDuration mirrors policy.minDuration's +kubebuilder:default="1m".
+const DefaultMinDuration = time.Minute
+
+// MinDuration is policy.minDuration with its CRD default applied: unset
+// means [DefaultMinDuration], an explicit 0s considers every file.
+func MinDuration(p transcodev1alpha1.PolicySpec) time.Duration {
+	if p.MinDuration == nil {
+		return DefaultMinDuration
+	}
+	return p.MinDuration.Duration
+}
+
+// DefaultMaxOutputToSourcePercent mirrors policy.maxOutputToSourcePercent's
+// +kubebuilder:default=100.
+const DefaultMaxOutputToSourcePercent = 100
+
+// MaxOutputToSourcePercent is policy.maxOutputToSourcePercent with its CRD
+// default applied: unset means 100, an explicit 0 disables the check.
+func MaxOutputToSourcePercent(p transcodev1alpha1.PolicySpec) int32 {
+	return ptr.Deref(p.MaxOutputToSourcePercent, DefaultMaxOutputToSourcePercent)
+}

@@ -263,7 +263,7 @@ func TestTheEngineWaitsOnTheReconcilersBucket(t *testing.T) {
 
 func TestApplyRateLimitIsRaisedToTheDefinitionsDelay(t *testing.T) {
 	lim := ratelimit.New(ratelimit.Config{})
-	spec := indexv1alpha1.IndexerSpec{BaseURL: "https://t.example", RequestDelay: metav1.Duration{Duration: 0}}
+	spec := indexv1alpha1.IndexerSpec{BaseURL: "https://t.example", RequestDelay: &metav1.Duration{Duration: 0}}
 	applyRateLimit(spec, lim, definitionDelay(5))
 	key := ratelimit.HostKey(spec.BaseURL)
 	require.True(t, lim.Allow(key))

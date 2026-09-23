@@ -39,7 +39,10 @@ type IndexerProxySpecApplyConfiguration struct {
 	Port *int32 `json:"port,omitempty"`
 	// SecretRef names a Secret in the same namespace holding proxy credentials.
 	SecretRef *v1.LocalObjectReference `json:"secretRef,omitempty"`
-	// RequestTimeout is how long a request through the proxy may take.
+	// RequestTimeout is how long a request through the proxy may take. A Go
+	// client always sends a Duration, so the prober floors a zero (or
+	// negative) one to this default: a probe that may never return is never
+	// meant.
 	RequestTimeout *metav1.Duration `json:"requestTimeout,omitempty"`
 	// Selector matches the Indexers (by label) that use this proxy. At most
 	// one FlareSolverr proxy may match an Indexer; it is applied last.

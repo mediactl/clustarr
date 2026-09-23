@@ -28,12 +28,19 @@ import (
 //
 // SearchSpec paces provider searches for languages that are still wanted.
 type SearchSpecApplyConfiguration struct {
-	// Interval is the base delay between searches for a wanted language.
+	// Interval is the base delay between searches for a wanted language. A Go
+	// client always sends a Duration, so captionarr floors a zero (or negative)
+	// one to this default rather than treat it as a request to search
+	// continuously.
 	Interval *v1.Duration `json:"interval,omitempty"`
 	// AdaptiveDelay is how long after a media file's release date searches keep
-	// running at the base interval before backing off.
+	// running at the base interval before backing off. A Go client always sends
+	// a Duration, so captionarr floors a zero (or negative) one to this default
+	// rather than treat it as a request; "1s" backs off after the first search.
 	AdaptiveDelay *v1.Duration `json:"adaptiveDelay,omitempty"`
-	// AdaptiveDelta is the interval used once adaptiveDelay has elapsed.
+	// AdaptiveDelta is the interval used once adaptiveDelay has elapsed. A Go
+	// client always sends a Duration, so captionarr floors a zero (or negative)
+	// one to this default rather than treat it as a request.
 	AdaptiveDelta *v1.Duration `json:"adaptiveDelta,omitempty"`
 }
 

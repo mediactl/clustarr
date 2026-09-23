@@ -1278,9 +1278,8 @@ func metadataProviderEnabled(mp catalogv1.MetadataProvider) bool {
 }
 
 // subtitleProviderCard renders one SubtitleProvider with the same
-// enabled/priority edit form. Unlike the other three, SubtitleProviderSpec's
-// Enabled is a plain bool (no pointer, CRD default true), so there is no nil
-// case to default here.
+// enabled/priority edit form as the other three; a nil spec.enabled reads as
+// its CRD default, true.
 func subtitleProviderCard(sp subtitlev1.SubtitleProvider) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -1309,7 +1308,7 @@ func subtitleProviderCard(sp subtitlev1.SubtitleProvider) templ.Component {
 		var templ_7745c5c3_Var64 string
 		templ_7745c5c3_Var64, templ_7745c5c3_Err = templ.ResolveAttributeValue(sp.Namespace + "/" + sp.Name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 312, Col: 55}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 311, Col: 55}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var64)
 		if templ_7745c5c3_Err != nil {
@@ -1320,9 +1319,9 @@ func subtitleProviderCard(sp subtitlev1.SubtitleProvider) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var65 string
-		templ_7745c5c3_Var65, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("%t", sp.Spec.Enabled))
+		templ_7745c5c3_Var65, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("%t", sp.Spec.EnabledOrDefault()))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 313, Col: 51}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 312, Col: 62}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var65)
 		if templ_7745c5c3_Err != nil {
@@ -1335,7 +1334,7 @@ func subtitleProviderCard(sp subtitlev1.SubtitleProvider) templ.Component {
 		var templ_7745c5c3_Var66 string
 		templ_7745c5c3_Var66, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("%d", sp.Spec.Priority))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 314, Col: 53}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 313, Col: 53}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var66)
 		if templ_7745c5c3_Err != nil {
@@ -1348,7 +1347,7 @@ func subtitleProviderCard(sp subtitlev1.SubtitleProvider) templ.Component {
 		var templ_7745c5c3_Var67 string
 		templ_7745c5c3_Var67, templ_7745c5c3_Err = templ.JoinStringErrs(sp.Name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 317, Col: 38}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 316, Col: 38}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var67))
 		if templ_7745c5c3_Err != nil {
@@ -1358,7 +1357,7 @@ func subtitleProviderCard(sp subtitlev1.SubtitleProvider) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var68 = []any{enabledBadgeClass(sp.Spec.Enabled)}
+		var templ_7745c5c3_Var68 = []any{enabledBadgeClass(sp.Spec.EnabledOrDefault())}
 		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var68...)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -1381,9 +1380,9 @@ func subtitleProviderCard(sp subtitlev1.SubtitleProvider) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var70 string
-		templ_7745c5c3_Var70, templ_7745c5c3_Err = templ.JoinStringErrs(enabledLabel(sp.Spec.Enabled))
+		templ_7745c5c3_Var70, templ_7745c5c3_Err = templ.JoinStringErrs(enabledLabel(sp.Spec.EnabledOrDefault()))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 318, Col: 85}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 317, Col: 107}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var70))
 		if templ_7745c5c3_Err != nil {
@@ -1396,7 +1395,7 @@ func subtitleProviderCard(sp subtitlev1.SubtitleProvider) templ.Component {
 		var templ_7745c5c3_Var71 string
 		templ_7745c5c3_Var71, templ_7745c5c3_Err = templ.JoinStringErrs(string(sp.Spec.Type))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 320, Col: 63}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 319, Col: 63}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var71))
 		if templ_7745c5c3_Err != nil {
@@ -1414,7 +1413,7 @@ func subtitleProviderCard(sp subtitlev1.SubtitleProvider) templ.Component {
 			var templ_7745c5c3_Var72 string
 			templ_7745c5c3_Var72, templ_7745c5c3_Err = templ.JoinStringErrs(sp.Spec.SecretRef.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 322, Col: 86}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 321, Col: 86}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var72))
 			if templ_7745c5c3_Err != nil {
@@ -1425,7 +1424,7 @@ func subtitleProviderCard(sp subtitlev1.SubtitleProvider) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = enabledPriorityForm(fmt.Sprintf("/settings/subtitleproviders/%s/%s", sp.Namespace, sp.Name), sp.Spec.Enabled, sp.Spec.Priority, "subtitleprovider-"+sp.Name).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = enabledPriorityForm(fmt.Sprintf("/settings/subtitleproviders/%s/%s", sp.Namespace, sp.Name), sp.Spec.EnabledOrDefault(), sp.Spec.Priority, "subtitleprovider-"+sp.Name).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1467,7 +1466,7 @@ func subtitleProfileCard(sp subtitlev1.SubtitleProfile) templ.Component {
 		var templ_7745c5c3_Var74 string
 		templ_7745c5c3_Var74, templ_7745c5c3_Err = templ.ResolveAttributeValue(sp.Name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 333, Col: 33}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 332, Col: 33}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var74)
 		if templ_7745c5c3_Err != nil {
@@ -1480,7 +1479,7 @@ func subtitleProfileCard(sp subtitlev1.SubtitleProfile) templ.Component {
 		var templ_7745c5c3_Var75 string
 		templ_7745c5c3_Var75, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("%t", sp.Spec.Default))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 334, Col: 51}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 333, Col: 51}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var75)
 		if templ_7745c5c3_Err != nil {
@@ -1493,7 +1492,7 @@ func subtitleProfileCard(sp subtitlev1.SubtitleProfile) templ.Component {
 		var templ_7745c5c3_Var76 string
 		templ_7745c5c3_Var76, templ_7745c5c3_Err = templ.JoinStringErrs(sp.Name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 337, Col: 38}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 336, Col: 38}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var76))
 		if templ_7745c5c3_Err != nil {
@@ -1516,7 +1515,7 @@ func subtitleProfileCard(sp subtitlev1.SubtitleProfile) templ.Component {
 		var templ_7745c5c3_Var77 templ.SafeURL
 		templ_7745c5c3_Var77, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(fmt.Sprintf("/settings/subtitleprofiles/%s", sp.Name)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 344, Col: 76}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 343, Col: 76}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var77))
 		if templ_7745c5c3_Err != nil {
@@ -1529,7 +1528,7 @@ func subtitleProfileCard(sp subtitlev1.SubtitleProfile) templ.Component {
 		var templ_7745c5c3_Var78 string
 		templ_7745c5c3_Var78, templ_7745c5c3_Err = templ.ResolveAttributeValue(settingsReturnPath)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 347, Col: 64}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 346, Col: 64}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var78)
 		if templ_7745c5c3_Err != nil {
@@ -1542,7 +1541,7 @@ func subtitleProfileCard(sp subtitlev1.SubtitleProfile) templ.Component {
 		var templ_7745c5c3_Var79 string
 		templ_7745c5c3_Var79, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("%t", !sp.Spec.Default))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 351, Col: 47}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 350, Col: 47}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var79)
 		if templ_7745c5c3_Err != nil {
@@ -1601,7 +1600,7 @@ func transcodeProfileCard(tp transcodev1.TranscodeProfile) templ.Component {
 		var templ_7745c5c3_Var81 string
 		templ_7745c5c3_Var81, templ_7745c5c3_Err = templ.ResolveAttributeValue(tp.Name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 370, Col: 34}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 369, Col: 34}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var81)
 		if templ_7745c5c3_Err != nil {
@@ -1614,7 +1613,7 @@ func transcodeProfileCard(tp transcodev1.TranscodeProfile) templ.Component {
 		var templ_7745c5c3_Var82 string
 		templ_7745c5c3_Var82, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("%d", tp.Spec.Priority))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 371, Col: 53}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 370, Col: 53}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var82)
 		if templ_7745c5c3_Err != nil {
@@ -1627,7 +1626,7 @@ func transcodeProfileCard(tp transcodev1.TranscodeProfile) templ.Component {
 		var templ_7745c5c3_Var83 string
 		templ_7745c5c3_Var83, templ_7745c5c3_Err = templ.JoinStringErrs(tp.Name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 374, Col: 38}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 373, Col: 38}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var83))
 		if templ_7745c5c3_Err != nil {
@@ -1650,7 +1649,7 @@ func transcodeProfileCard(tp transcodev1.TranscodeProfile) templ.Component {
 		var templ_7745c5c3_Var84 string
 		templ_7745c5c3_Var84, templ_7745c5c3_Err = templ.JoinStringErrs(string(tp.Spec.Hardware))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 379, Col: 67}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 378, Col: 67}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var84))
 		if templ_7745c5c3_Err != nil {
@@ -1663,7 +1662,7 @@ func transcodeProfileCard(tp transcodev1.TranscodeProfile) templ.Component {
 		var templ_7745c5c3_Var85 string
 		templ_7745c5c3_Var85, templ_7745c5c3_Err = templ.JoinStringErrs(string(tp.Spec.Container))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 379, Col: 100}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 378, Col: 100}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var85))
 		if templ_7745c5c3_Err != nil {
@@ -1676,7 +1675,7 @@ func transcodeProfileCard(tp transcodev1.TranscodeProfile) templ.Component {
 		var templ_7745c5c3_Var86 templ.SafeURL
 		templ_7745c5c3_Var86, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(fmt.Sprintf("/settings/transcodeprofiles/%s", tp.Name)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 382, Col: 77}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 381, Col: 77}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var86))
 		if templ_7745c5c3_Err != nil {
@@ -1689,7 +1688,7 @@ func transcodeProfileCard(tp transcodev1.TranscodeProfile) templ.Component {
 		var templ_7745c5c3_Var87 string
 		templ_7745c5c3_Var87, templ_7745c5c3_Err = templ.ResolveAttributeValue(settingsReturnPath)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 385, Col: 64}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 384, Col: 64}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var87)
 		if templ_7745c5c3_Err != nil {
@@ -1702,7 +1701,7 @@ func transcodeProfileCard(tp transcodev1.TranscodeProfile) templ.Component {
 		var templ_7745c5c3_Var88 string
 		templ_7745c5c3_Var88, templ_7745c5c3_Err = templ.ResolveAttributeValue("priority-" + tp.Name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 386, Col: 68}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 385, Col: 68}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var88)
 		if templ_7745c5c3_Err != nil {
@@ -1715,7 +1714,7 @@ func transcodeProfileCard(tp transcodev1.TranscodeProfile) templ.Component {
 		var templ_7745c5c3_Var89 string
 		templ_7745c5c3_Var89, templ_7745c5c3_Err = templ.ResolveAttributeValue("priority-" + tp.Name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 389, Col: 30}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 388, Col: 30}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var89)
 		if templ_7745c5c3_Err != nil {
@@ -1728,7 +1727,7 @@ func transcodeProfileCard(tp transcodev1.TranscodeProfile) templ.Component {
 		var templ_7745c5c3_Var90 string
 		templ_7745c5c3_Var90, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("%d", tp.Spec.Priority))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 391, Col: 47}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 390, Col: 47}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var90)
 		if templ_7745c5c3_Err != nil {
@@ -1777,7 +1776,7 @@ func enabledPriorityForm(action string, enabled bool, priority int32, idPrefix s
 		var templ_7745c5c3_Var92 templ.SafeURL
 		templ_7745c5c3_Var92, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(action))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 413, Col: 47}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 412, Col: 47}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var92))
 		if templ_7745c5c3_Err != nil {
@@ -1790,7 +1789,7 @@ func enabledPriorityForm(action string, enabled bool, priority int32, idPrefix s
 		var templ_7745c5c3_Var93 string
 		templ_7745c5c3_Var93, templ_7745c5c3_Err = templ.ResolveAttributeValue(settingsReturnPath)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 414, Col: 63}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 413, Col: 63}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var93)
 		if templ_7745c5c3_Err != nil {
@@ -1803,7 +1802,7 @@ func enabledPriorityForm(action string, enabled bool, priority int32, idPrefix s
 		var templ_7745c5c3_Var94 string
 		templ_7745c5c3_Var94, templ_7745c5c3_Err = templ.ResolveAttributeValue("priority-" + idPrefix)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 415, Col: 68}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 414, Col: 68}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var94)
 		if templ_7745c5c3_Err != nil {
@@ -1816,7 +1815,7 @@ func enabledPriorityForm(action string, enabled bool, priority int32, idPrefix s
 		var templ_7745c5c3_Var95 string
 		templ_7745c5c3_Var95, templ_7745c5c3_Err = templ.ResolveAttributeValue("priority-" + idPrefix)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 418, Col: 30}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 417, Col: 30}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var95)
 		if templ_7745c5c3_Err != nil {
@@ -1829,7 +1828,7 @@ func enabledPriorityForm(action string, enabled bool, priority int32, idPrefix s
 		var templ_7745c5c3_Var96 string
 		templ_7745c5c3_Var96, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("%d", priority))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 420, Col: 38}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 419, Col: 38}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var96)
 		if templ_7745c5c3_Err != nil {
@@ -1857,7 +1856,7 @@ func enabledPriorityForm(action string, enabled bool, priority int32, idPrefix s
 		var templ_7745c5c3_Var97 string
 		templ_7745c5c3_Var97, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("%t", enabled))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 447, Col: 37}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings.templ`, Line: 446, Col: 37}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var97)
 		if templ_7745c5c3_Err != nil {
