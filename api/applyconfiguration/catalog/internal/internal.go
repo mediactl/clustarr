@@ -1822,6 +1822,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: observedGeneration
       type:
         scalar: numeric
+    - name: pendingGrab
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PendingGrab
     - name: searchAttempts
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Attempts

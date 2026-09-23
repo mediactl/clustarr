@@ -253,6 +253,11 @@ func (in *IndexerDefinitionStatus) DeepCopyInto(out *IndexerDefinitionStatus) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.Replaces != nil {
+		in, out := &in.Replaces, &out.Replaces
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	in.Caps.DeepCopyInto(&out.Caps)
 }
 

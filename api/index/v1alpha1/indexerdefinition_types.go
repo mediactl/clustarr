@@ -95,6 +95,15 @@ type IndexerDefinitionStatus struct {
 	// +optional
 	ID string `json:"id,omitempty"`
 
+	// Replaces is the list of older definition ids spec.yaml's own
+	// `replaces` key says this definition supersedes (a renamed tracker).
+	// An Indexer whose spec.definition names one of them resolves to this
+	// definition. Not spec.replaces, which overrides an id rather than
+	// aliasing a retired one.
+	// +optional
+	// +kubebuilder:validation:MaxItems=32
+	Replaces []string `json:"replaces,omitempty"`
+
 	// Name is the human-readable indexer name parsed from spec.yaml.
 	// +optional
 	Name string `json:"name,omitempty"`

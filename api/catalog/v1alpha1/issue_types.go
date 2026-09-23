@@ -38,12 +38,18 @@ const (
 
 // IssueState is the acquisition state of a single issue.
 //
-// +kubebuilder:validation:Enum=wanted;skipped;snatched;downloaded;archived;ignored;failed
+// delayed is the one value the design's list (spec §4.2, Mylar's states)
+// does not have: a chosen release waiting out a DelayProfile delay
+// (status.pendingGrab), the state every other kind's Phase already calls
+// Delayed. Without it an Issue read "wanted" while its grab was scheduled.
+//
+// +kubebuilder:validation:Enum=wanted;delayed;skipped;snatched;downloaded;archived;ignored;failed
 type IssueState string
 
 // Issue states.
 const (
 	IssueStateWanted     IssueState = "wanted"
+	IssueStateDelayed    IssueState = "delayed"
 	IssueStateSkipped    IssueState = "skipped"
 	IssueStateSnatched   IssueState = "snatched"
 	IssueStateDownloaded IssueState = "downloaded"
@@ -132,6 +138,10 @@ type IssueStatus struct {
 	// ActiveDownloadRef is the Download currently working on this issue.
 	// +optional
 	ActiveDownloadRef *string `json:"activeDownloadRef,omitempty"`
+
+	// PendingGrab is a chosen release waiting out a DelayProfile delay.
+	// +optional
+	PendingGrab *PendingGrab `json:"pendingGrab,omitempty"`
 
 	// LastSearchedAt is when the issue was last searched for.
 	// +optional

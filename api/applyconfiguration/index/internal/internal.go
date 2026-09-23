@@ -219,6 +219,12 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: protocol
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Protocol
+    - name: replaces
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
     - name: sha256
       type:
         scalar: string

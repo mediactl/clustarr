@@ -36,6 +36,12 @@ type IndexerDefinitionStatusApplyConfiguration struct {
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 	// ID is the Cardigann definition id parsed from spec.yaml.
 	ID *string `json:"id,omitempty"`
+	// Replaces is the list of older definition ids spec.yaml's own
+	// `replaces` key says this definition supersedes (a renamed tracker).
+	// An Indexer whose spec.definition names one of them resolves to this
+	// definition. Not spec.replaces, which overrides an id rather than
+	// aliasing a retired one.
+	Replaces []string `json:"replaces,omitempty"`
 	// Name is the human-readable indexer name parsed from spec.yaml.
 	Name *string `json:"name,omitempty"`
 	// Language is the definition's primary language (e.g. en-US).
@@ -82,6 +88,16 @@ func (b *IndexerDefinitionStatusApplyConfiguration) WithConditions(values ...*v1
 // If called multiple times, the ID field is set to the value of the last call.
 func (b *IndexerDefinitionStatusApplyConfiguration) WithID(value string) *IndexerDefinitionStatusApplyConfiguration {
 	b.ID = &value
+	return b
+}
+
+// WithReplaces adds the given value to the Replaces field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Replaces field.
+func (b *IndexerDefinitionStatusApplyConfiguration) WithReplaces(values ...string) *IndexerDefinitionStatusApplyConfiguration {
+	for i := range values {
+		b.Replaces = append(b.Replaces, values[i])
+	}
 	return b
 }
 

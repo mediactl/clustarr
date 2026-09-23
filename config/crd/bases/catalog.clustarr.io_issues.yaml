@@ -248,6 +248,30 @@ spec:
                   status reflects.
                 format: int64
                 type: integer
+              pendingGrab:
+                description: PendingGrab is a chosen release waiting out a DelayProfile
+                  delay.
+                properties:
+                  grabAt:
+                    description: GrabAt is when the delay expires and the grab will
+                      be issued.
+                    format: date-time
+                    type: string
+                  protocol:
+                    description: Protocol is the transfer protocol of the pending
+                      release.
+                    enum:
+                    - torrent
+                    - usenet
+                    type: string
+                  releaseTitle:
+                    description: ReleaseTitle is the raw title of the release that
+                      will be grabbed.
+                    type: string
+                required:
+                - grabAt
+                - releaseTitle
+                type: object
               searchAttempts:
                 description: SearchAttempts counts the searches made for this issue.
                 properties:
@@ -271,6 +295,7 @@ spec:
                 description: State is the acquisition state of the issue.
                 enum:
                 - wanted
+                - delayed
                 - skipped
                 - snatched
                 - downloaded

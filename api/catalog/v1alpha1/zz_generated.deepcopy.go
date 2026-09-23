@@ -2099,6 +2099,11 @@ func (in *IssueStatus) DeepCopyInto(out *IssueStatus) {
 		*out = new(string)
 		**out = **in
 	}
+	if in.PendingGrab != nil {
+		in, out := &in.PendingGrab, &out.PendingGrab
+		*out = new(PendingGrab)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.LastSearchedAt != nil {
 		in, out := &in.LastSearchedAt, &out.LastSearchedAt
 		*out = (*in).DeepCopy()

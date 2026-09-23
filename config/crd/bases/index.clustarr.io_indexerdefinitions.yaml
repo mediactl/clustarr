@@ -189,6 +189,17 @@ spec:
                 - torrent
                 - usenet
                 type: string
+              replaces:
+                description: |-
+                  Replaces is the list of older definition ids spec.yaml's own
+                  `replaces` key says this definition supersedes (a renamed tracker).
+                  An Indexer whose spec.definition names one of them resolves to this
+                  definition. Not spec.replaces, which overrides an id rather than
+                  aliasing a retired one.
+                items:
+                  type: string
+                maxItems: 32
+                type: array
               sha256:
                 description: Sha256 is the hex digest of spec.yaml as last validated.
                 type: string

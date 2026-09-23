@@ -54,6 +54,8 @@ type IssueStatusApplyConfiguration struct {
 	CutoffMet *bool `json:"cutoffMet,omitempty"`
 	// ActiveDownloadRef is the Download currently working on this issue.
 	ActiveDownloadRef *string `json:"activeDownloadRef,omitempty"`
+	// PendingGrab is a chosen release waiting out a DelayProfile delay.
+	PendingGrab *PendingGrabApplyConfiguration `json:"pendingGrab,omitempty"`
 	// LastSearchedAt is when the issue was last searched for.
 	LastSearchedAt *metav1.Time `json:"lastSearchedAt,omitempty"`
 	// SearchAttempts counts the searches made for this issue.
@@ -156,6 +158,14 @@ func (b *IssueStatusApplyConfiguration) WithCutoffMet(value bool) *IssueStatusAp
 // If called multiple times, the ActiveDownloadRef field is set to the value of the last call.
 func (b *IssueStatusApplyConfiguration) WithActiveDownloadRef(value string) *IssueStatusApplyConfiguration {
 	b.ActiveDownloadRef = &value
+	return b
+}
+
+// WithPendingGrab sets the PendingGrab field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PendingGrab field is set to the value of the last call.
+func (b *IssueStatusApplyConfiguration) WithPendingGrab(value *PendingGrabApplyConfiguration) *IssueStatusApplyConfiguration {
+	b.PendingGrab = value
 	return b
 }
 
