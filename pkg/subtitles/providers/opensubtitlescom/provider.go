@@ -125,7 +125,7 @@ func (p *Provider) Search(ctx context.Context, q subtitles.Query) ([]subtitles.C
 	}
 
 	var sr searchResponse
-	if err := json.NewDecoder(resp.Body).Decode(&sr); err != nil {
+	if err := decodeJSON(resp.Body, &sr); err != nil {
 		return nil, fmt.Errorf("subtitles: opensubtitlescom search: decode: %w", err)
 	}
 
@@ -202,7 +202,7 @@ func (p *Provider) Download(ctx context.Context, c subtitles.Candidate) ([]byte,
 	}
 
 	var dr downloadResponse
-	if err := json.NewDecoder(resp.Body).Decode(&dr); err != nil {
+	if err := decodeJSON(resp.Body, &dr); err != nil {
 		return nil, "", fmt.Errorf("subtitles: opensubtitlescom download: decode: %w", err)
 	}
 

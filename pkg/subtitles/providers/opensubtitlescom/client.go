@@ -53,9 +53,32 @@ const maxSubtitleBytes = 8 << 20 // 8 MiB
 // the status it arrived with.
 const maxErrorBodyBytes = 4 << 10 // 4 KiB
 
-// ErrResponseTooLarge is returned by Download when a subtitle body exceeds
-// maxSubtitleBytes.
+// maxJSONBytes bounds a JSON API response -- /login, a /subtitles search
+// page, the /download link -- which is read whole before it is decoded. A
+// real search page is tens of kilobytes; the cap only has to stop a
+// misbehaving (or hostile) endpoint from exhausting the worker's memory,
+// the same job maxSubtitleBytes does for the subtitle file itself.
+const maxJSONBytes = 4 << 20 // 4 MiB
+
+// ErrResponseTooLarge is returned when a response body exceeds its cap: a
+// subtitle download past maxSubtitleBytes, or a JSON API response past
+// maxJSONBytes.
 var ErrResponseTooLarge = errors.New("subtitles: opensubtitlescom: response body exceeds size limit")
+
+// decodeJSON reads body through maxJSONBytes and decodes it into v. It
+// reads one byte past the cap, so a body exactly at the cap is accepted
+// and anything larger is ErrResponseTooLarge -- never truncated JSON handed
+// to the decoder, and never more than maxJSONBytes+1 bytes buffered.
+func decodeJSON(body io.Reader, v any) error {
+	raw, err := io.ReadAll(io.LimitReader(body, maxJSONBytes+1))
+	if err != nil {
+		return err
+	}
+	if len(raw) > maxJSONBytes {
+		return fmt.Errorf("%w: at least %d bytes", ErrResponseTooLarge, len(raw))
+	}
+	return json.Unmarshal(raw, v)
+}
 
 // Config configures a Provider.
 type Config struct {
@@ -164,7 +187,7 @@ func (p *Provider) EnsureLoggedIn(ctx context.Context) error {
 	}
 
 	var lr loginResponse
-	if err := json.NewDecoder(resp.Body).Decode(&lr); err != nil {
+	if err := decodeJSON(resp.Body, &lr); err != nil {
 		return fmt.Errorf("subtitles: opensubtitlescom login: decode: %w", err)
 	}
 	p.token = lr.Token
