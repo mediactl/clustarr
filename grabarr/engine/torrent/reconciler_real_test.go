@@ -18,12 +18,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package torrent
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
+	"net/netip"
 	"testing"
 	"time"
 
+	"github.com/anacrolix/generics"
+	"github.com/anacrolix/torrent/bencode"
+	"github.com/anacrolix/torrent/metainfo"
+	httpTrackerServer "github.com/anacrolix/torrent/tracker/http/server"
+	trackerServer "github.com/anacrolix/torrent/tracker/server"
+	"github.com/anacrolix/torrent/tracker/udp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -68,13 +77,82 @@ func newRealSeeder(t *testing.T, contentBytes int64) *seeder.Server {
 	return srv
 }
 
+// redialTracker answers every announce the way the fixture seeder's own
+// tracker does -- the seeder as the only peer -- but with a one-second
+// re-announce interval instead of the HTTP tracker server's default of five
+// minutes.
+//
+// That interval is what made TestRealLoopCompletesSeedsAndRemovesOnPolicy
+// flaky under load (X9: stalled at 49152/65536 bytes for the whole 20s
+// window). anacrolix takes a peer address out of its candidate set when it
+// dials it and never puts it back when the connection drops
+// (Torrent.openNewConns pops, Torrent.deletePeerConn does not re-add), so
+// with one seeder and no DHT or PEX, the only way back to the seeder after a
+// dropped connection is the next announce -- regularTrackerAnnounceDispatcher
+// schedules it at the last announce plus the tracker's interval. A single
+// connection dropped by a loaded machine therefore stalled the transfer for
+// five minutes. With this tracker the redial happens within a second, so
+// the transfer completes whether or not a connection drops on the way.
+type redialTracker struct{ peer netip.AddrPort }
+
+func (redialTracker) TrackAnnounce(context.Context, udp.AnnounceRequest, trackerServer.AnnounceAddr) error {
+	return nil
+}
+
+func (redialTracker) Scrape(_ context.Context, ihs []trackerServer.InfoHash) ([]udp.ScrapeInfohashResult, error) {
+	return make([]udp.ScrapeInfohashResult, len(ihs)), nil
+}
+
+func (r redialTracker) GetPeers(
+	context.Context, trackerServer.InfoHash, trackerServer.GetPeersOpts, trackerServer.AnnounceAddr,
+) trackerServer.ServerAnnounceResult {
+	return trackerServer.ServerAnnounceResult{
+		Peers:    []trackerServer.PeerInfo{{AnnounceAddr: r.peer}},
+		Interval: generics.Some(int32(1)),
+		Seeders:  generics.Some(int32(1)),
+	}
+}
+
+// serveThroughRedialTracker serves srv's own .torrent -- the same info dict,
+// so the same info hash -- with its announce URL pointed at a
+// [redialTracker], and returns the URL to fetch it from. Discovery is still a
+// real tracker announce and the payload is still a real HTTP fetch; only the
+// re-announce interval differs from the fixture's.
+func serveThroughRedialTracker(t *testing.T, srv *seeder.Server) string {
+	t.Helper()
+	peer, err := netip.ParseAddrPort(srv.BTAddr())
+	require.NoError(t, err)
+
+	mi, err := metainfo.Load(bytes.NewReader(srv.TorrentBytes()))
+	require.NoError(t, err)
+
+	var torrentBytes []byte
+	mux := http.NewServeMux()
+	mux.Handle("/announce", httpTrackerServer.Handler{
+		Announce: &trackerServer.AnnounceHandler{AnnounceTracker: redialTracker{peer: peer}},
+	})
+	mux.HandleFunc("GET /fixture.torrent", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/x-bittorrent")
+		_, _ = w.Write(torrentBytes)
+	})
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+
+	mi.Announce = ts.URL + "/announce"
+	mi.AnnounceList = nil
+	torrentBytes, err = bencode.Marshal(mi)
+	require.NoError(t, err)
+	return ts.URL + "/fixture.torrent"
+}
+
 // TestRealLoopCompletesSeedsAndRemovesOnPolicy is D2-1's own carried item,
 // settled: seed-criteria and CanBeRemoved are implemented in
 // pkg/download/torrent but were untested because nothing drove a real
 // controller loop against them. This is that loop -- a real anacrolix
 // client (dltorrent.New), a real fixture seeder (no mocks, no manual peer
-// wiring: discovery is through the seeder's own tracker, exactly like
-// TestRealClientCompletesATransferThroughTheTrackerAlone), and this
+// wiring: discovery is through a real tracker announce, as in
+// TestRealClientCompletesATransferThroughTheTrackerAlone, though through
+// [redialTracker] rather than the seeder's own -- see it for why), and this
 // package's own Reconciler driving Add, telemetry, MarkImported and the
 // seed-goal-triggered Remove end to end against a real envtest apiserver.
 //
@@ -112,7 +190,7 @@ func TestRealLoopCompletesSeedsAndRemovesOnPolicy(t *testing.T) {
 		HTTPClient: &http.Client{Timeout: 10 * time.Second},
 	}
 
-	torrentURL := "http://" + srv.HTTPAddr() + "/fixture.torrent"
+	torrentURL := serveThroughRedialTracker(t, srv)
 	// A short SeedTime so the test does not sit through a real seed window;
 	// Ratio is left unset so only SeedTime gates the goal (session.go's own
 	// seedGoalMetLocked prefers SeedTime over PackSeedTime when both are
@@ -137,8 +215,13 @@ func TestRealLoopCompletesSeedsAndRemovesOnPolicy(t *testing.T) {
 
 	// Drive Reconcile in a tight loop (bypassing the real 5s RequeueAfter,
 	// which a real manager would honour but a test should not sit through)
-	// until the transfer completes.
-	deadline := time.Now().Add(20 * time.Second)
+	// until the transfer completes. The window is for a hang, not a speed
+	// test, so it restarts on every byte of progress: a loaded machine may be
+	// slow, and a dropped connection costs a re-announce (redialTracker), but
+	// thirty seconds with nothing moving is a real stall.
+	const noProgressWindow = 30 * time.Second
+	deadline := time.Now().Add(noProgressWindow)
+	var lastBytes int64
 	for {
 		_, err := r.Reconcile(ctx, req)
 		require.NoError(t, err)
@@ -146,8 +229,13 @@ func TestRealLoopCompletesSeedsAndRemovesOnPolicy(t *testing.T) {
 		if got.Status.DownloadedBytes == contentBytes {
 			break
 		}
+		if got.Status.DownloadedBytes > lastBytes {
+			lastBytes = got.Status.DownloadedBytes
+			deadline = time.Now().Add(noProgressWindow)
+		}
 		if time.Now().After(deadline) {
-			t.Fatalf("transfer never completed via the real loop; last downloadedBytes=%d/%d", got.Status.DownloadedBytes, contentBytes)
+			t.Fatalf("transfer made no progress for %s via the real loop; last downloadedBytes=%d/%d",
+				noProgressWindow, got.Status.DownloadedBytes, contentBytes)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -162,8 +250,10 @@ func TestRealLoopCompletesSeedsAndRemovesOnPolicy(t *testing.T) {
 	require.NoError(t, err)
 
 	// Drive Reconcile until the seed goal is met and this engine removes the
-	// transfer on policy (RemoveOnImport defaults true).
-	deadline = time.Now().Add(10 * time.Second)
+	// transfer on policy (RemoveOnImport defaults true). No network is
+	// involved here -- a 300ms seed time on a torrent already complete -- so
+	// the window only has to outlast a loaded scheduler.
+	deadline = time.Now().Add(30 * time.Second)
 	for {
 		_, err := r.Reconcile(ctx, req)
 		require.NoError(t, err)
