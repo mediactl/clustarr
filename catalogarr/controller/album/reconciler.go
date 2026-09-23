@@ -1,0 +1,649 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package album
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	k8sevents "k8s.io/client-go/tools/events"
+	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/catalogarr/controller/rollup"
+	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/k8s"
+	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/naming"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/quality/catalogue"
+	"github.com/mediactl/clustarr/pkg/version"
+)
+
+// conditionQueueFull mirrors series.conditionQueueFull's name and semantics;
+// album_types.go declares no AlbumConditionQueueFull constant of its own
+// (unlike Album's Ready/MetadataReady/Invalid, which it does declare), so
+// this is a local, package-scoped equivalent rather than an invented API
+// constant.
+const conditionQueueFull = "QueueFull"
+
+// conditionTracksSynced is likewise a local, non-API condition type: album's
+// own status.tracks has no dedicated CRD condition of its own (Invalid
+// covers only the >200-tracks case), so this reconciler reports the
+// track-listing RPC's own success/failure the same way series reports
+// conditionQueueFull -- a real signal, just not one album_types.go names.
+const conditionTracksSynced = "TracksSynced"
+
+const (
+	// mediaFileByAlbumIndexKey indexes MediaFile by the Album it backs,
+	// filtered to spec.mediaRef.kind=album -- the same shape as
+	// episode.mediaFileByEpisodeIndexKey. See filestate.go's own doc
+	// comment for why this is a coarse, whole-album signal rather than a
+	// per-track one.
+	mediaFileByAlbumIndexKey = ".spec.mediaRef.album"
+
+	// albumByActiveDownloadIndexKey indexes Album by its
+	// status.activeDownloadRef, the reverse direction from a watched
+	// Download back to the Album holding the reference -- the same shape
+	// as episode.episodeByActiveDownloadIndexKey.
+	albumByActiveDownloadIndexKey = ".status.activeDownloadRef"
+
+	// albumByQualityProfileIndexKey indexes Album by its OWN
+	// spec.qualityProfileRef override (nil/empty excluded -- see
+	// mapQualityProfile's own doc comment for why the indirect,
+	// inherited-from-Artist case is not covered by this index).
+	albumByQualityProfileIndexKey = ".spec.qualityProfileRef"
+)
+
+// metadataSyncRPCBackoff is the RequeueAfter used when the track-listing RPC
+// fails, mirroring series.episodeSyncRPCBackoff.
+const metadataSyncRPCBackoff = 30 * time.Second
+
+// bus is the subset of events.Bus this reconciler actually calls: Publish
+// for the metadata-staleness task and Request for the track-listing RPC.
+// Mirrors series.bus/artist.bus's own narrowing rationale.
+type bus interface {
+	events.Publisher
+	Request(ctx context.Context, subject string, in, out any) error
+}
+
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=albums,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=albums/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=albums/finalizers,verbs=update
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists,verbs=get
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
+// +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
+// The Recorder is a k8s.io/client-go/tools/events.EventRecorder, handed in by
+// mgr.GetEventRecorder, and it writes events.k8s.io/v1 -- so events.k8s.io is
+// the group to grant and the core group is not; see series/reconciler.go's
+// identical marker for the occasion this repo learned it.
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
+
+// Reconciler reconciles an Album: metadata staleness (publishing its own
+// MetadataTask, exactly like Movie/Series/Artist -- Album is a first-class
+// metadata target, not a fan-out child like Episode), path (via the owning
+// Artist's own resolved path), the track-listing RPC sync, and the
+// file/download rollup from a watched MediaFile and Download. See this
+// package's doc.go for the full field-manager and track-listing-gap
+// rationale.
+type Reconciler struct {
+	client.Client
+	Scheme   *runtime.Scheme
+	Recorder k8sevents.EventRecorder
+	Bus      bus
+
+	// OnReconcile is a test-only hook, called at the top of every Reconcile.
+	// It is nil-checked so production callers never need to set it.
+	OnReconcile func()
+}
+
+// SetupWithManager registers the Album controller, including
+// Download/QualityProfile/MediaFile watches so an imported file, a grab and
+// a quality-profile edit each wake the right Albums, mirroring
+// audiobook.Reconciler.SetupWithManager's shape (catalogarr/controller/
+// audiobook is this package's sibling precedent for the quality-evaluation
+// half -- see this package's doc.go).
+//
+// The QualityProfile watch (mapQualityProfile) covers only an Album's OWN
+// spec.qualityProfileRef override, not the indirect case of inheriting the
+// owning Artist's profile. Covering that indirect case would need a second
+// hop through an index on Album's spec.artistRef -- but that exact (type,
+// field) index is already registered by artist.Reconciler.SetupWithManager
+// (albumByArtistRefIndexKey, same manager cache once G2-5 wires both
+// controllers into one process), and a second IndexField call for the same
+// (type, field) pair is a hard "indexer conflict" error at startup
+// (episode.Reconciler's own documented gotcha). Rather than couple this
+// package's setup to artist's registration having already run, an Album
+// that inherits its profile picks up an edit on its own next reconcile
+// (bounded by this Album's RefreshTTL-driven staleness cycle) instead of
+// reactively -- a deliberate, narrower simplification than "no watch at
+// all", not a consequence of pkg/quality lacking non-video support (it does
+// not lack it; see doc.go).
+//
+// There is also no watch on the owning Artist itself (for its path or
+// metadata changing): the same staleness-driven reconciles already revisit
+// the Artist on every pass, so a propagation delay there is bounded the
+// same way.
+func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &catalogv1alpha1.MediaFile{}, mediaFileByAlbumIndexKey,
+		func(o client.Object) []string {
+			mf, ok := o.(*catalogv1alpha1.MediaFile)
+			if !ok || mf.Spec.MediaRef.Kind != commonv1.MediaKindAlbum {
+				return nil
+			}
+			return []string{mf.Spec.MediaRef.Name}
+		}); err != nil {
+		return err
+	}
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &catalogv1alpha1.Album{}, albumByActiveDownloadIndexKey,
+		func(o client.Object) []string {
+			alb, ok := o.(*catalogv1alpha1.Album)
+			if !ok || alb.Status.ActiveDownloadRef == nil {
+				return nil
+			}
+			return []string{*alb.Status.ActiveDownloadRef}
+		}); err != nil {
+		return err
+	}
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &catalogv1alpha1.Album{}, albumByQualityProfileIndexKey,
+		func(o client.Object) []string {
+			alb, ok := o.(*catalogv1alpha1.Album)
+			if !ok || alb.Spec.QualityProfileRef == nil || *alb.Spec.QualityProfileRef == "" {
+				return nil
+			}
+			return []string{*alb.Spec.QualityProfileRef}
+		}); err != nil {
+		return err
+	}
+
+	return ctrl.NewControllerManagedBy(mgr).
+		Named("album").
+		For(&catalogv1alpha1.Album{}, builder.WithPredicates(albumPredicate())).
+		Watches(&catalogv1alpha1.MediaFile{}, handler.EnqueueRequestsFromMapFunc(r.mapMediaFile), builder.WithPredicates(k8s.GenerationChanged())).
+		Watches(&downloadv1alpha1.Download{}, handler.EnqueueRequestsFromMapFunc(r.mapDownload), builder.WithPredicates(downloadPredicate())).
+		Watches(&catalogv1alpha1.QualityProfile{}, handler.EnqueueRequestsFromMapFunc(r.mapQualityProfile), builder.WithPredicates(k8s.GenerationChanged())).
+		WithOptions(controller.Options{RecoverPanic: ptr.To(true), ReconciliationTimeout: 5 * time.Minute}).
+		Complete(r)
+}
+
+// albumPredicate wakes this controller on a spec change (GenerationChanged,
+// e.g. a user editing spec.monitored or pinning spec.releaseID) or on the
+// metadata gateway's own write (StatusFieldChanged scoped to
+// status.metadata.refreshedAt) -- the same self-loop-avoidance shape as the
+// Movie/Series/Artist predicates.
+func albumPredicate() predicate.Predicate {
+	return k8s.Or(
+		k8s.GenerationChanged(),
+		k8s.StatusFieldChanged(func(o client.Object) metav1.Time {
+			alb, ok := o.(*catalogv1alpha1.Album)
+			if !ok || alb.Status.Metadata == nil {
+				return metav1.Time{}
+			}
+			return alb.Status.Metadata.RefreshedAt
+		}),
+	)
+}
+
+// downloadPredicate is the same shape as the movie/episode packages' own: a
+// status-only phase transition never bumps generation, so GenerationChanged
+// alone would never fire on it.
+func downloadPredicate() predicate.Predicate {
+	return k8s.Or(
+		k8s.GenerationChanged(),
+		k8s.StatusFieldChanged(func(o client.Object) downloadv1alpha1.DownloadPhase {
+			dl, ok := o.(*downloadv1alpha1.Download)
+			if !ok {
+				return ""
+			}
+			return dl.Status.Phase
+		}),
+	)
+}
+
+func (r *Reconciler) mapMediaFile(_ context.Context, o client.Object) []reconcile.Request {
+	mf, ok := o.(*catalogv1alpha1.MediaFile)
+	if !ok || mf.Spec.MediaRef.Kind != commonv1.MediaKindAlbum {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: mf.Namespace, Name: mf.Spec.MediaRef.Name}}}
+}
+
+func (r *Reconciler) mapDownload(ctx context.Context, o client.Object) []reconcile.Request {
+	dl, ok := o.(*downloadv1alpha1.Download)
+	if !ok {
+		return nil
+	}
+	var albums catalogv1alpha1.AlbumList
+	if err := r.List(ctx, &albums, client.InNamespace(dl.Namespace), client.MatchingFields{albumByActiveDownloadIndexKey: dl.Name}); err != nil {
+		return nil
+	}
+	reqs := make([]reconcile.Request, 0, len(albums.Items))
+	for _, alb := range albums.Items {
+		reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: alb.Namespace, Name: alb.Name}})
+	}
+	return reqs
+}
+
+// mapQualityProfile is the reverse direction from an edited QualityProfile
+// to every Album that pins it directly via its own spec.qualityProfileRef
+// override. It deliberately does NOT reach Albums that inherit their
+// profile from the owning Artist -- see SetupWithManager's own doc comment
+// for why that second hop is left out (an indexer-conflict risk, not a
+// belief that the indirect case does not matter). QualityProfile is
+// CLUSTER-scoped while Album is namespaced, so the List below deliberately
+// carries no client.InNamespace, the same shape as
+// episode.mapQualityProfile's own first hop.
+func (r *Reconciler) mapQualityProfile(ctx context.Context, o client.Object) []reconcile.Request {
+	qp, ok := o.(*catalogv1alpha1.QualityProfile)
+	if !ok {
+		return nil
+	}
+	var albums catalogv1alpha1.AlbumList
+	if err := r.List(ctx, &albums, client.MatchingFields{albumByQualityProfileIndexKey: qp.Name}); err != nil {
+		return nil
+	}
+	reqs := make([]reconcile.Request, 0, len(albums.Items))
+	for _, alb := range albums.Items {
+		reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: alb.Namespace, Name: alb.Name}})
+	}
+	return reqs
+}
+
+// Reconcile implements the §8.8 skeleton: get, split on deletion, ensure the
+// finalizer WITHOUT an early return, then reconcileNormal.
+func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	ctx, span := tracing.Start(ctx, "album.Reconcile")
+	defer span.End()
+	if r.OnReconcile != nil {
+		r.OnReconcile()
+	}
+	var alb catalogv1alpha1.Album
+	if err := r.Get(ctx, req.NamespacedName, &alb); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	if k8s.IsDeleting(&alb) {
+		return r.reconcileDelete(ctx, &alb)
+	}
+	name, err := k8s.FinalizerFor(&alb, r.Scheme)
+	if err != nil {
+		return ctrl.Result{}, reconcile.TerminalError(err)
+	}
+	if _, err := k8s.EnsureFinalizer(ctx, r.Client, &alb, name); err != nil {
+		return ctrl.Result{}, err
+	}
+	return r.reconcileNormal(ctx, &alb)
+}
+
+func (r *Reconciler) reconcileDelete(ctx context.Context, alb *catalogv1alpha1.Album) (ctrl.Result, error) {
+	name, err := k8s.FinalizerFor(alb, r.Scheme)
+	if err != nil {
+		return ctrl.Result{}, reconcile.TerminalError(err)
+	}
+	if _, err := k8s.RemoveFinalizer(ctx, r.Client, alb, name); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, nil
+}
+
+// reconcileNormal: metadata staleness first (own MetadataTask, movie/series/
+// artist shape), then the owning Artist and its RootFolder for path
+// (series shape, one hop further), then the track-listing RPC sync and the
+// file/download rollup (episode shape) last -- an RPC or lookup failure in
+// either of those last two surfaces on a condition without blocking the
+// rest of this same status patch, per §8.1's ordering.
+func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.Album) (ctrl.Result, error) {
+	now := time.Now().UTC()
+	monitored := ptr.Deref(alb.Spec.Monitored, true)
+	conditions := append([]metav1.Condition(nil), alb.Status.Conditions...)
+
+	statusAC := catalogac.AlbumStatus().WithObservedGeneration(alb.Generation)
+
+	stale := alb.Status.Metadata == nil
+	if !stale {
+		ttl := pkgmetadata.RefreshTTL(commonv1.MediaKindAlbum, pkgmetadata.RefreshStateActive, alb.Status.Metadata.RefreshedAt.Time)
+		stale = now.Sub(alb.Status.Metadata.RefreshedAt.Time) >= ttl
+	}
+	metaReady := !stale
+
+	if stale {
+		envKey := alb.Namespace + "/" + alb.Name
+		mediaKey := events.MediaKey(string(commonv1.MediaKindAlbum), alb.Namespace, alb.Name)
+		schemaName, data, err := schema.Encode(schema.MetadataTask{
+			MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: alb.Name},
+		})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		env := &events.Envelope{
+			ID:     events.MsgIDForObject(string(alb.UID), alb.Generation, "metadata"),
+			Type:   "catalog.MetadataTask",
+			Schema: schemaName,
+			Source: "catalogarr@" + version.String(),
+			Key:    envKey,
+			Time:   now,
+			Data:   data,
+		}
+		_, pubErr := r.Bus.Publish(ctx, events.WorkMetadataSubject(events.PriorityNormal, mediaKey), env)
+		if pubErr != nil {
+			if errors.Is(pubErr, events.ErrQueueFull) {
+				k8s.MarkTrue(alb, &conditions, conditionQueueFull, "QueueFull", "metadata work queue is full")
+				statusAC = reassertKnownStatus(statusAC, alb)
+				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
+				if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Album(alb.Name, alb.Namespace).WithStatus(statusAC)); err != nil {
+					return ctrl.Result{}, err
+				}
+				return ctrl.Result{RequeueAfter: time.Minute}, nil
+			}
+			return ctrl.Result{}, pubErr
+		}
+		k8s.MarkFalse(alb, &conditions, conditionQueueFull, "Published", "metadata task published")
+		k8s.MarkFalse(alb, &conditions, catalogv1alpha1.AlbumConditionMetadataReady, "Refreshing", "metadata refresh requested")
+	} else {
+		k8s.MarkTrue(alb, &conditions, catalogv1alpha1.AlbumConditionMetadataReady, k8s.ReasonReconciled, "metadata is fresh")
+	}
+
+	var artistObj catalogv1alpha1.Artist
+	if err := r.Get(ctx, types.NamespacedName{Namespace: alb.Namespace, Name: alb.Spec.ArtistRef}, &artistObj); err != nil {
+		if apierrors.IsNotFound(err) {
+			k8s.MarkFalse(alb, &conditions, k8s.ConditionReady, "ArtistNotFound", "artist %q not found", alb.Spec.ArtistRef)
+			statusAC = reassertKnownStatus(statusAC, alb)
+			statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
+			if _, perr := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Album(alb.Name, alb.Namespace).WithStatus(statusAC)); perr != nil {
+				return ctrl.Result{}, perr
+			}
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
+		}
+		return ctrl.Result{}, err
+	}
+
+	if alb.Status.Metadata != nil && artistObj.Status.Metadata != nil && artistObj.Status.Path != "" {
+		var rf catalogv1alpha1.RootFolder
+		if err := r.Get(ctx, types.NamespacedName{Namespace: alb.Namespace, Name: artistObj.Spec.RootFolderRef}, &rf); err != nil {
+			if apierrors.IsNotFound(err) {
+				k8s.MarkFalse(alb, &conditions, k8s.ConditionReady, "RootFolderNotFound", "rootFolder %q not found", artistObj.Spec.RootFolderRef)
+				statusAC = reassertKnownStatus(statusAC, alb)
+				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
+				if _, perr := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Album(alb.Name, alb.Namespace).WithStatus(statusAC)); perr != nil {
+					return ctrl.Result{}, perr
+				}
+				return ctrl.Result{RequeueAfter: time.Minute}, nil
+			}
+			return ctrl.Result{}, err
+		}
+
+		eng := naming.NewEngine(naming.Config{
+			Dialect:          naming.Dialect(rf.Spec.Naming.Dialect),
+			ColonReplacement: naming.ColonReplacement(rf.Spec.Naming.ColonReplacement),
+			Overrides:        rf.Spec.Naming.Overrides,
+		})
+		nctx := naming.Context{
+			Kind:       commonv1.MediaKindAlbum,
+			ArtistName: artistObj.Status.Metadata.Name,
+			ArtistMbID: artistObj.Spec.MusicBrainzID,
+			AlbumTitle: alb.Status.Metadata.Title,
+			AlbumMbID:  alb.Spec.ReleaseGroupID,
+			Year:       ReleaseYear(alb.Status.Metadata.ReleaseDate),
+		}
+		pth, err := Path(artistObj.Status.Path, eng, nctx)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		statusAC = statusAC.WithPath(pth)
+	}
+
+	// Track-listing RPC sync (last-but-one step, per §8.1's ordering): a
+	// failure surfaces on conditionTracksSynced without blocking the patch.
+	tracksSynced, tracks, truncated, syncErr := r.syncTracks(ctx, alb)
+	if syncErr != nil {
+		k8s.MarkFalse(alb, &conditions, conditionTracksSynced, "RPCError", "track listing RPC failed: %s", syncErr.Error())
+	} else {
+		k8s.MarkTrue(alb, &conditions, conditionTracksSynced, k8s.ReasonReconciled, "tracks synced")
+	}
+	if truncated {
+		k8s.MarkTrue(alb, &conditions, catalogv1alpha1.AlbumConditionInvalid, "TooManyTracks", "the selected release has more than %d tracks", maxTracks)
+	} else {
+		k8s.MarkFalse(alb, &conditions, catalogv1alpha1.AlbumConditionInvalid, k8s.ReasonReconciled, "track count within limits")
+	}
+	statusAC = statusAC.WithTracks(tracks...)
+	statusAC = statusAC.WithTrackFileCount(countTracksWithFile(tracks))
+
+	// File/download rollup (last step): a coarse, whole-album signal -- see
+	// filestate.go's own doc comment for why there is no per-track
+	// attribution yet.
+	var mfList catalogv1alpha1.MediaFileList
+	if err := r.List(ctx, &mfList, client.InNamespace(alb.Namespace), client.MatchingFields{mediaFileByAlbumIndexKey: alb.Name}); err != nil {
+		return ctrl.Result{}, err
+	}
+	mf := rollup.PickMediaFile(mfList.Items)
+
+	profile, profileProblem, err := r.resolveProfile(ctx, alb, &artistObj)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if profileProblem != "" {
+		logging.FromContext(ctx).Warn("quality profile unresolved; cutoff not evaluated",
+			"album", alb.Name, "namespace", alb.Namespace, "artistRef", alb.Spec.ArtistRef, "problem", profileProblem)
+	}
+	hasFile, _, fileQuality, fileFormatScore, cutoffMet := FileState(mf, profile)
+
+	var dl *downloadv1alpha1.Download
+	if alb.Status.ActiveDownloadRef != nil {
+		var d downloadv1alpha1.Download
+		if err := r.Get(ctx, types.NamespacedName{Namespace: alb.Namespace, Name: *alb.Status.ActiveDownloadRef}, &d); err != nil {
+			if !apierrors.IsNotFound(err) {
+				return ctrl.Result{}, err
+			}
+		} else {
+			dl = &d
+		}
+	}
+	overlay, active := rollup.DownloadOverlay(dl)
+
+	phase := Phase(monitored, hasFile, cutoffMet, alb.Status.PendingGrab != nil)
+	switch overlay {
+	case rollup.OverlayDelayed:
+		phase = catalogv1alpha1.AlbumPhaseDelayed
+	case rollup.OverlayDownloading:
+		phase = catalogv1alpha1.AlbumPhaseDownloading
+	}
+	statusAC = statusAC.WithPhase(phase)
+	statusAC = statusAC.WithCutoffMet(cutoffMet)
+	statusAC = statusAC.WithFormatScore(fileFormatScore)
+	if fileQuality != nil {
+		statusAC = statusAC.WithQuality(*fileQuality)
+	}
+	if active && alb.Status.ActiveDownloadRef != nil {
+		statusAC = statusAC.WithActiveDownloadRef(*alb.Status.ActiveDownloadRef)
+	}
+	// When !active and a ref was set, WithActiveDownloadRef is deliberately
+	// not called -- the same clear-by-omission convention as movie/episode's
+	// reconcilers, including the caveat that the grab path (not yet built
+	// for non-video kinds, R3) would share this field under
+	// k8s.ManagerCatalogarrGrab once it exists.
+
+	k8s.MarkReady(alb, &conditions, metaReady && tracksSynced, k8s.ReasonReconciled, "phase=%s", phase)
+	statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
+
+	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Album(alb.Name, alb.Namespace).WithStatus(statusAC)); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if syncErr != nil {
+		return ctrl.Result{RequeueAfter: metadataSyncRPCBackoff}, nil
+	}
+	return ctrl.Result{}, nil
+}
+
+// reassertKnownStatus re-adds every field this manager owns besides
+// ObservedGeneration/Conditions to statusAC, sourced from alb's current
+// (pre-reconcile) status. Used on the three early-return paths (QueueFull,
+// ArtistNotFound, RootFolderNotFound): all three are transient failures,
+// and without this, PatchStatus's apply would omit every field it does not
+// mention, releasing (zeroing) a healthy Album's Tracks/Phase/Path/
+// TrackFileCount/Quality/FormatScore/CutoffMet/ActiveDownloadRef the next
+// time any of them blips. Mirrors series.reassertKnownStatus, with one
+// addition: Tracks is a list whose generated WithTracks APPENDS (CLAUDE.md's
+// reassertKnownStatus exception, the same shape as MediaFileStatus's
+// Conditions/Sidecars), so this seeds the AC's Tracks field exactly once
+// here, from alb's existing status.tracks -- the happy path in
+// reconcileNormal never calls both reassertKnownStatus and its own
+// WithTracks on the same statusAC, so no apply ever calls WithTracks twice.
+func reassertKnownStatus(statusAC *catalogac.AlbumStatusApplyConfiguration, alb *catalogv1alpha1.Album) *catalogac.AlbumStatusApplyConfiguration {
+	if len(alb.Status.Tracks) > 0 {
+		tracks := make([]*catalogac.TrackApplyConfiguration, 0, len(alb.Status.Tracks))
+		for _, tr := range alb.Status.Tracks {
+			tc := catalogac.Track().
+				WithRecordingID(tr.RecordingID).
+				WithMedium(tr.Medium).
+				WithNumber(tr.Number).
+				WithAbsoluteNumber(tr.AbsoluteNumber).
+				WithTitle(tr.Title).
+				WithDurationMs(tr.DurationMs).
+				WithExplicit(tr.Explicit)
+			if tr.FileRef != nil {
+				tc = tc.WithFileRef(*tr.FileRef)
+			}
+			tracks = append(tracks, tc)
+		}
+		statusAC = statusAC.WithTracks(tracks...)
+	}
+	if alb.Status.Phase != "" {
+		statusAC = statusAC.WithPhase(alb.Status.Phase)
+	}
+	if alb.Status.Path != "" {
+		statusAC = statusAC.WithPath(alb.Status.Path)
+	}
+	statusAC = statusAC.WithTrackFileCount(alb.Status.TrackFileCount)
+	if alb.Status.Quality != nil {
+		statusAC = statusAC.WithQuality(*alb.Status.Quality)
+	}
+	statusAC = statusAC.WithFormatScore(alb.Status.FormatScore)
+	statusAC = statusAC.WithCutoffMet(alb.Status.CutoffMet)
+	if alb.Status.ActiveDownloadRef != nil {
+		statusAC = statusAC.WithActiveDownloadRef(*alb.Status.ActiveDownloadRef)
+	}
+	return statusAC
+}
+
+// syncTracks fetches alb's release group via the metadata gateway's
+// EXISTING single-entity lookup (rpc.catalogarr.metadata.lookup, kind=album,
+// keyed by pkgmetadata.KeyMBReleaseGroup -- the same call
+// Registry.Lookup(kind=album) serves for the gateway's own status.metadata
+// fetch; no new RPC verb needed, unlike artist.Reconciler's syncAlbums),
+// selects a release per SelectRelease, and flattens it via BuildTracks.
+//
+// synced=true with a nil/empty tracks result is a valid, non-error outcome
+// (nothing fetched yet, or no release to take tracks from) -- only an RPC
+// transport failure or a gateway-reported error counts as sync failure.
+func (r *Reconciler) syncTracks(ctx context.Context, alb *catalogv1alpha1.Album) (synced bool, tracks []*catalogac.TrackApplyConfiguration, truncated bool, err error) {
+	req := schema.MetadataRequest{
+		Kind: commonv1.MediaKindAlbum,
+		IDs:  map[string]string{pkgmetadata.KeyMBReleaseGroup: alb.Spec.ReleaseGroupID},
+	}
+	rpcCtx, cancel := context.WithTimeout(ctx, metadataSyncRPCBackoff)
+	defer cancel()
+
+	var resp schema.MetadataResponse
+	if rpcErr := r.Bus.Request(rpcCtx, events.RPCMetadataLookup, req, &resp); rpcErr != nil {
+		return false, nil, false, rpcErr
+	}
+	if resp.Error != "" {
+		return false, nil, false, fmt.Errorf("metadata gateway: %s", resp.Error)
+	}
+	if len(resp.Result) == 0 {
+		return true, nil, false, nil
+	}
+
+	var fetched pkgmetadata.Album
+	if err := json.Unmarshal(resp.Result, &fetched); err != nil {
+		return false, nil, false, fmt.Errorf("decode album: %w", err)
+	}
+
+	release, ok := SelectRelease(alb.Spec, fetched.Releases)
+	if !ok {
+		return true, nil, false, nil
+	}
+	built, truncatedResult := BuildTracks(release)
+	return true, built, truncatedResult, nil
+}
+
+// countTracksWithFile is status.trackFileCount's definition: the number of
+// tracks whose FileRef is set. BuildTracks never sets FileRef (no per-track
+// import attribution exists yet -- see this package's doc.go), so this is
+// always 0 against real data today; the computation is correct and ready
+// for whenever that gap closes.
+func countTracksWithFile(tracks []*catalogac.TrackApplyConfiguration) int32 {
+	var n int32
+	for _, t := range tracks {
+		if t.FileRef != nil {
+			n++
+		}
+	}
+	return n
+}
+
+// resolveProfile fetches the QualityProfile albums are ranked against:
+// alb.Spec.QualityProfileRef when set, otherwise artistObj's own
+// QualityProfileRef -- AlbumSpec.QualityProfileRef's own doc comment
+// ("overrides the Artist's QualityProfile"). Mirrors
+// episode.Reconciler.resolveProfile's degrade-rather-than-fail contract
+// exactly: only a non-NotFound API error is fatal, every other outcome
+// degrades to (nil, problem, nil) rather than failing the whole reconcile.
+func (r *Reconciler) resolveProfile(ctx context.Context, alb *catalogv1alpha1.Album, artistObj *catalogv1alpha1.Artist) (*quality.Profile, string, error) {
+	ref := ptr.Deref(alb.Spec.QualityProfileRef, "")
+	if ref == "" {
+		ref = artistObj.Spec.QualityProfileRef
+	}
+	if ref == "" {
+		return nil, "no qualityProfileRef resolved (neither the album nor its artist set one)", nil
+	}
+	var qp catalogv1alpha1.QualityProfile
+	if err := r.Get(ctx, types.NamespacedName{Name: ref}, &qp); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, fmt.Sprintf("qualityProfile %q not found", ref), nil
+		}
+		return nil, "", err
+	}
+	p, errs := quality.FromCRD(&qp, catalogue.LoadedCatalogue())
+	if len(errs) > 0 {
+		return nil, fmt.Sprintf("qualityProfile %q does not parse: %s", qp.Name, errors.Join(errs...)), nil
+	}
+	return &p, "", nil
+}
