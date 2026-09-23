@@ -10,6 +10,30 @@
 # and no GPU contention: drop the slot budget, let queue depth create pods.
 # The two are mutually exclusive -- running both double-schedules transcodes.
 # Adapt the podTemplate to your profile before using this.
+#
+# What a worker pod needs, and why each line below is there (the same
+# contract squasharr/controller/transcodejob/job.go renders for its own
+# Jobs; test/e2e's TestKEDATranscodeScaledJobRenders holds the first two):
+#
+#   * serviceAccountName squasharr-worker. The worker's RBAC is its own
+#     ClusterRole (config/rbac/squasharr_worker_role.yaml, generated from
+#     squasharr/worker's markers) bound to that account only; the controller's
+#     `squasharr` account holds none of it.
+#   * --job <TranscodeJob name>. `squasharr --role worker` refuses to start
+#     without it (squasharr.Options.Validate): a worker transcodes exactly the
+#     one TranscodeJob it is named for, and POD_NAMESPACE names that job's
+#     namespace. KEDA starts identical pods and cannot hand each one a
+#     different TranscodeJob, so CLUSTARR_TRANSCODE_JOB below is where YOUR
+#     adaptation supplies the name -- this is the part that makes this file a
+#     template rather than a working autoscaler, and why ruling R7 keeps it
+#     an example.
+#   * The trigger's query is also yours to supply: squasharr exports no
+#     queue-depth metric (pkg/obs/metrics has clustarr_transcode_jobs_active
+#     and the duration/speed/size series only; the clustarr_transcode_slots
+#     series this file used to query never existed), so
+#     your_transcode_queue_depth below is a placeholder for a metric you
+#     provide, for example kube-state-metrics' custom-resource state over
+#     TranscodeProfile.status.pendingJobs.
 apiVersion: keda.sh/v1alpha1
 kind: ScaledJob
 metadata:
@@ -41,7 +65,7 @@ spec:
           app.kubernetes.io/component: squasharr-worker
       spec:
         restartPolicy: Never
-        serviceAccountName: squasharr
+        serviceAccountName: squasharr-worker
         securityContext:
           runAsNonRoot: true
           runAsUser: 1000
@@ -53,10 +77,23 @@ spec:
         containers:
           - name: worker
             image: ghcr.io/mediactl/clustarr/media:dev
-            args: ["squasharr", "--role", "worker"]
+            args:
+              - squasharr
+              - --role
+              - worker
+              - --job
+              - $(CLUSTARR_TRANSCODE_JOB)
+              - --data-dir
+              - /data
             env:
-              - name: NATS_URL
-                value: nats://nats.clustarr-system.svc:4222
+              # The worker never uses the bus (Phase E ruling R6), so no
+              # NATS_URL.
+              - name: POD_NAMESPACE
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.namespace
+              - name: CLUSTARR_TRANSCODE_JOB
+                value: "set-by-your-adaptation"
               - name: UMASK
                 value: "002"
               # §6.4: ffmpeg gets `pools=<cpu limit>` from the Downward API.
@@ -82,16 +119,20 @@ spec:
                 mountPath: /data
               - name: scratch
                 mountPath: /scratch
+              - name: tmp
+                mountPath: /tmp
         volumes:
           - name: data
             persistentVolumeClaim:
               claimName: clustarr-data
           - name: scratch
             emptyDir: {}
+          - name: tmp
+            emptyDir: {}
   triggers:
     - type: prometheus
       metadata:
         serverAddress: http://prometheus-operated.monitoring.svc:9090
         query: |-
-          sum(clustarr_transcode_slots{state="waiting"})
+          sum(your_transcode_queue_depth)
         threshold: "1"
