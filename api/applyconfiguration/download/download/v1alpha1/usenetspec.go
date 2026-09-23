@@ -48,6 +48,13 @@ type UsenetSpecApplyConfiguration struct {
 	HealthAction *downloadv1alpha1.HealthAction `json:"healthAction,omitempty"`
 	// Scratch sizes the per-replica working area.
 	Scratch *ScratchSpecApplyConfiguration `json:"scratch,omitempty"`
+	// DownloadTimeout is how long a usenet download may take, from when it
+	// was first added -- propagation wait, transfer, repair and unpack all
+	// count, and so does time spent paused -- before the engine fails it
+	// with reason timeout, which blocklists the release. Unset or "0s" means
+	// no deadline, which is the default: neither SABnzbd nor NZBGet bounds a
+	// whole job. The engine reads it at start.
+	DownloadTimeout *v1.Duration `json:"downloadTimeout,omitempty"`
 }
 
 // UsenetSpecApplyConfiguration constructs a declarative configuration of the UsenetSpec type for use with
@@ -114,5 +121,13 @@ func (b *UsenetSpecApplyConfiguration) WithHealthAction(value downloadv1alpha1.H
 // If called multiple times, the Scratch field is set to the value of the last call.
 func (b *UsenetSpecApplyConfiguration) WithScratch(value *ScratchSpecApplyConfiguration) *UsenetSpecApplyConfiguration {
 	b.Scratch = value
+	return b
+}
+
+// WithDownloadTimeout sets the DownloadTimeout field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DownloadTimeout field is set to the value of the last call.
+func (b *UsenetSpecApplyConfiguration) WithDownloadTimeout(value v1.Duration) *UsenetSpecApplyConfiguration {
+	b.DownloadTimeout = &value
 	return b
 }

@@ -676,6 +676,25 @@ spec:
                   It is set once, when the Download is assigned, and the label
                   download.clustarr.io/engine mirrors it so replicas can select their work.
                 type: string
+              engineFailureReason:
+                description: |-
+                  EngineFailureReason is the failure the engine observed on the transfer,
+                  written by grabarr-engine. It is the engine's report, not the
+                  Download's verdict: the grabarr controller reads it and records
+                  status.failureReason and the phase (Failed, or Blocklisted for a
+                  release fault) in one apply under its own field manager. Absent while
+                  the transfer has not failed.
+                enum:
+                - none
+                - missingArticles
+                - diskFull
+                - encrypted
+                - stalled
+                - writeError
+                - timeout
+                - importRejected
+                - manual
+                type: string
               etaSeconds:
                 description: |-
                   ETASeconds is the estimated number of seconds until the transfer
@@ -883,6 +902,13 @@ spec:
                   criteria.
                 format: date-time
                 type: string
+              seedGoalReached:
+                description: |-
+                  SeedGoalReached is true once the torrent has satisfied its seed
+                  criteria, whether or not it has been imported yet. Written by
+                  grabarr-engine; the grabarr controller turns the first true into
+                  status.seedGoalMetAt and the SeedGoalMet condition. Torrent only.
+                type: boolean
               seedTimeSeconds:
                 description: SeedTimeSeconds is how long the torrent has been seeding.
                 format: int64

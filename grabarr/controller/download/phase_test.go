@@ -18,9 +18,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package download
 
 import (
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 )
@@ -107,11 +114,112 @@ func derivePhaseCases(t *testing.T) []derivePhaseCase {
 	done := base()
 	done.Status.Stage = downloadv1alpha1.DownloadStageDone
 
+	engineFailed := func(r downloadv1alpha1.DownloadFailureReason) *downloadv1alpha1.Download {
+		dl := base()
+		dl.Status.Stage = downloadv1alpha1.DownloadStageTransferring
+		dl.Status.EngineFailureReason = r
+		return dl
+	}
+
+	importedOverFailure := engineFailed(downloadv1alpha1.DownloadFailureStalled)
+	importedOverFailure.Status.Import = &downloadv1alpha1.ImportState{State: downloadv1alpha1.ImportPhaseImported}
+
+	noneIsNotAFailure := engineFailed(downloadv1alpha1.DownloadFailureNone)
+
+	rejected := base()
+	rejected.Status.Stage = downloadv1alpha1.DownloadStageDone
+	rejected.Status.Import = &downloadv1alpha1.ImportState{
+		State:      downloadv1alpha1.ImportPhaseBlocked,
+		Message:    importRejectedMessage,
+		Rejections: []string{"movie.mkv: quality SDTV is not in the profile"},
+	}
+
+	// A walk error on importarr's final attempt (a full library disk, say)
+	// is blocked with rejections and nothing imported too; only the message
+	// tells it apart, and it is not the release's fault.
+	walkError := base()
+	walkError.Status.Stage = downloadv1alpha1.DownloadStageDone
+	walkError.Status.Import = &downloadv1alpha1.ImportState{
+		State:      downloadv1alpha1.ImportPhaseBlocked,
+		Message:    "fileimport: fsops: insufficient free space",
+		Rejections: []string{"sample.mkv: sample"},
+	}
+
+	until := metav1.NewTime(time.Now().Add(time.Hour))
+
+	// grabarr blocklisted it earlier; the engine's report has since gone (a
+	// torrent engine restart forgets it), and the verdict must not.
+	stillBlocklisted := base()
+	stillBlocklisted.Labels = map[string]string{downloadv1alpha1.LabelBlocklisted: downloadv1alpha1.LabelBlocklistedValue}
+	stillBlocklisted.Status.Stage = downloadv1alpha1.DownloadStageTransferring
+	stillBlocklisted.Status.FailureReason = downloadv1alpha1.DownloadFailureStalled
+	stillBlocklisted.Status.BlocklistedUntil = &until
+
+	// An operator removed the label grabarr put on.
+	lifted := base()
+	lifted.Status.Stage = downloadv1alpha1.DownloadStageTransferring
+	lifted.Status.FailureReason = downloadv1alpha1.DownloadFailureStalled
+	lifted.Status.BlocklistedUntil = &until
+
+	// A local fault recorded earlier stays Failed after the engine forgets it.
+	stillFailed := base()
+	stillFailed.Status.Stage = downloadv1alpha1.DownloadStageTransferring
+	stillFailed.Status.FailureReason = downloadv1alpha1.DownloadFailureDiskFull
+
+	// An operator blocklisted a Download that had failed for a local fault:
+	// their call, and the recorded reason stands.
+	labelledLocal := base()
+	labelledLocal.Labels = map[string]string{downloadv1alpha1.LabelBlocklisted: downloadv1alpha1.LabelBlocklistedValue}
+	labelledLocal.Status.FailureReason = downloadv1alpha1.DownloadFailureWriteError
+
+	blocklistNow := func(r downloadv1alpha1.DownloadFailureReason) phaseResult {
+		return phaseResult{phase: downloadv1alpha1.DownloadPhaseBlocklisted, failureReason: r, blocklist: true}
+	}
+	failed := func(r downloadv1alpha1.DownloadFailureReason) phaseResult {
+		return phaseResult{phase: downloadv1alpha1.DownloadPhaseFailed, failureReason: r}
+	}
+
 	return []derivePhaseCase{
 		{"imported is sticky over encrypted", imported, phaseResult{phase: downloadv1alpha1.DownloadPhaseImported}},
-		{"blocklist label overrides stage", blocklisted, phaseResult{phase: downloadv1alpha1.DownloadPhaseBlocklisted}},
-		{"isEncrypted fails with reason", encrypted, phaseResult{
-			phase: downloadv1alpha1.DownloadPhaseFailed, failureReason: downloadv1alpha1.DownloadFailureEncrypted,
+		{"imported is sticky over an engine failure", importedOverFailure, phaseResult{phase: downloadv1alpha1.DownloadPhaseImported}},
+		{"a hand-set blocklist label is a manual failure", blocklisted, phaseResult{
+			phase: downloadv1alpha1.DownloadPhaseBlocklisted, failureReason: downloadv1alpha1.DownloadFailureManual,
+		}},
+		{"isEncrypted blocklists", encrypted, blocklistNow(downloadv1alpha1.DownloadFailureEncrypted)},
+		{
+			"missingArticles blocklists", engineFailed(downloadv1alpha1.DownloadFailureMissingArticles),
+			blocklistNow(downloadv1alpha1.DownloadFailureMissingArticles),
+		},
+		{
+			"stalled blocklists", engineFailed(downloadv1alpha1.DownloadFailureStalled),
+			blocklistNow(downloadv1alpha1.DownloadFailureStalled),
+		},
+		{
+			"timeout blocklists", engineFailed(downloadv1alpha1.DownloadFailureTimeout),
+			blocklistNow(downloadv1alpha1.DownloadFailureTimeout),
+		},
+		{
+			"encrypted from the engine blocklists", engineFailed(downloadv1alpha1.DownloadFailureEncrypted),
+			blocklistNow(downloadv1alpha1.DownloadFailureEncrypted),
+		},
+		{
+			"diskFull fails without blocklisting", engineFailed(downloadv1alpha1.DownloadFailureDiskFull),
+			failed(downloadv1alpha1.DownloadFailureDiskFull),
+		},
+		{
+			"writeError fails without blocklisting", engineFailed(downloadv1alpha1.DownloadFailureWriteError),
+			failed(downloadv1alpha1.DownloadFailureWriteError),
+		},
+		{"an engine reason of none is not a failure", noneIsNotAFailure, phaseResult{phase: downloadv1alpha1.DownloadPhaseDownloading}},
+		{"every file rejected blocklists", rejected, blocklistNow(downloadv1alpha1.DownloadFailureImportRejected)},
+		{"a blocked walk error is not importRejected", walkError, phaseResult{phase: downloadv1alpha1.DownloadPhaseCompleted}},
+		{"a recorded blocklisting outlives the engine's report", stillBlocklisted, phaseResult{
+			phase: downloadv1alpha1.DownloadPhaseBlocklisted, failureReason: downloadv1alpha1.DownloadFailureStalled,
+		}},
+		{"a lifted blocklist is not re-applied", lifted, failed(downloadv1alpha1.DownloadFailureStalled)},
+		{"a recorded local fault is terminal", stillFailed, failed(downloadv1alpha1.DownloadFailureDiskFull)},
+		{"a hand-set label keeps the recorded reason", labelledLocal, phaseResult{
+			phase: downloadv1alpha1.DownloadPhaseBlocklisted, failureReason: downloadv1alpha1.DownloadFailureWriteError,
 		}},
 		{"spec.paused pauses", paused, phaseResult{phase: downloadv1alpha1.DownloadPhasePaused}},
 		{"no telemetry yet stays assigned", noTelemetry, phaseResult{phase: downloadv1alpha1.DownloadPhaseAssigned}},
@@ -157,5 +265,52 @@ func TestIsContentComplete(t *testing.T) {
 	}
 	for _, p := range notComplete {
 		assert.False(t, isContentComplete(p), "%s must not be content-complete", p)
+	}
+}
+
+// importRejectedMessage is a contract with importarr's file-import worker,
+// which this package cannot import. Until importarr exports it (or
+// status.import grows a machine-readable reason), this reads importarr's
+// source and insists the exact literal is still there, so a rewording fails
+// here rather than silently turning every import rejection back into a
+// Download that sits Completed forever.
+func TestImportRejectedMessageIsImportarrs(t *testing.T) {
+	dir := filepath.Join("..", "..", "..", "importarr", "worker", "fileimport")
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+
+	quoted := strconv.Quote(importRejectedMessage)
+	found := false
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		require.NoError(t, err)
+		if strings.Contains(string(src), quoted) {
+			found = true
+		}
+	}
+	assert.Truef(t, found, "importarr/worker/fileimport no longer writes %s; "+
+		"update importRejectedMessage or importRejected() reads no rejection as importRejected", quoted)
+}
+
+// The failure-reason ruling (DownloadFailureReason.IsReleaseFault), pinned
+// here because it is what decides whether derivePhase blocklists.
+func TestOnlyReleaseFaultsBlocklist(t *testing.T) {
+	release := []downloadv1alpha1.DownloadFailureReason{
+		downloadv1alpha1.DownloadFailureMissingArticles, downloadv1alpha1.DownloadFailureEncrypted,
+		downloadv1alpha1.DownloadFailureStalled, downloadv1alpha1.DownloadFailureTimeout,
+		downloadv1alpha1.DownloadFailureImportRejected, downloadv1alpha1.DownloadFailureManual,
+	}
+	for _, r := range release {
+		assert.Truef(t, r.IsReleaseFault(), "%s is the release's fault", r)
+	}
+	local := []downloadv1alpha1.DownloadFailureReason{
+		downloadv1alpha1.DownloadFailureDiskFull, downloadv1alpha1.DownloadFailureWriteError,
+		downloadv1alpha1.DownloadFailureNone, "",
+	}
+	for _, r := range local {
+		assert.Falsef(t, r.IsReleaseFault(), "%q is not the release's fault", r)
 	}
 }

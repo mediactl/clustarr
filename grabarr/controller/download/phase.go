@@ -21,102 +21,107 @@ import (
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 )
 
-// phaseResult is what derivePhase computes from a Download's own history
-// (spec.paused, the blocklist label, status.import) and its engine-owned
-// telemetry (status.stage, status.isEncrypted). failureReason is meaningful
-// only when phase is DownloadPhaseFailed.
+// importRejectedMessage is the status.import.message importarr's file-import
+// worker writes when it walked the download and refused every candidate file
+// (importarr/worker/fileimport.Worker.Handle). It is the one thing that tells
+// that outcome -- DownloadFailureImportRejected, "catalogarr refused every
+// file" -- apart from the other blocked imports, all of which are local or
+// operator faults a release must not be blocklisted for: an invalid import
+// annotation, a target that holds no files, a missing Movie, an unreadable
+// content root, and a walk error such as a full library disk. The last can
+// also carry rejections and no imported file, so "blocked, nothing imported,
+// some rejections" is not enough on its own.
+//
+// Matching a message is the weakest contract in this package, and it fails
+// safe: if importarr rewords it, a rejected download stays Completed with a
+// blocked import, which is what it did before gap fix Y2. The guard that
+// keeps the two in step is TestImportRejectedMessageIsImportarrs, which reads
+// importarr's source.
+const importRejectedMessage = "every candidate file was rejected"
+
+// phaseResult is what derivePhase computes.
 type phaseResult struct {
-	phase         downloadv1alpha1.DownloadPhase
+	phase downloadv1alpha1.DownloadPhase
+
+	// failureReason is why the Download failed. It is set for Failed and
+	// Blocklisted and empty otherwise.
 	failureReason downloadv1alpha1.DownloadFailureReason
+
+	// blocklist is true when this reconcile must blocklist the release
+	// itself: apply the blocklist label and record status.blocklistedUntil.
+	// It is false for a Download already labelled, by grabarr or by hand.
+	blocklist bool
 }
 
-// derivePhase computes dl's lifecycle phase (task D2-8a). It is called only
-// once status.engine is pinned (controller.go's "one-way door"), so
-// DownloadPhaseAssigned is always a legal answer, never a regression, for a
-// Download this function has not seen telemetry for yet.
+// derivePhase computes dl's lifecycle phase from its own history
+// (status.failureReason, status.blocklistedUntil, the blocklist label,
+// spec.paused, status.import) and from what its engine reports
+// (status.stage, status.engineFailureReason, status.isEncrypted). It is
+// called only once status.engine is pinned (controller.go's "one-way door"),
+// so Assigned is always a legal answer for a Download no telemetry has
+// reached yet.
 //
-// # Why this is a strict subset of DownloadOverlay's switch
+// # The order, and why each step is where it is
 //
-// Every value derivePhase can produce -- Assigned, Queued, Downloading,
-// Paused, Completed, Seeding, Imported, Failed, Blocklisted -- already has a
-// case in catalogarr/controller/rollup/downloadoverlay.go's DownloadOverlay
-// switch, verified against that source rather than assumed: Pending and
-// Assigned/Queued/Downloading/Paused are named explicitly there, and
-// Completed, Seeding, Imported, Failed, Blocklisted and Removing all fall
-// through its default branch ("no opinion"). derivePhase never returns
-// Pending (that stays controller.go's pre-assignment applyStatus calls) or
-// Removing (the finalizer does not set it -- see doc.go's "The finalizer
-// needs no live engine", unchanged by this task), so the mapping cannot
-// diverge from that switch by construction. Plan ruling R1 is satisfied
-// without any change to downloadoverlay.go itself.
+//  1. Imported is sticky and first: once importarr has reported success,
+//     nothing the transfer does afterwards -- its own cleanup, a stale flag
+//     -- revisits that verdict.
+//  2. A failure. [failureOf] finds it, and the result is terminal:
+//     Blocklisted when the label is on (whoever put it there); Blocklisted,
+//     with blocklist set, for a release fault grabarr has not blocklisted
+//     yet (design spec §8.3's "Failed -> Blocklisted", ruling in
+//     DownloadFailureReason.IsReleaseFault); Failed otherwise -- a local
+//     fault, or a release fault whose label an operator has since removed.
+//  3. spec.paused.
+//  4. The engine's stage.
 //
-// # What "the item's reported status" (plan task text, spec §7) means here
+// # Why Failed is terminal
 //
-// pkg/download.Item.Status -- the engine's own six-way
-// Queued/Paused/Downloading/Completed/Failed/Warning view of a transfer --
-// is deliberately never persisted to Download.status: pkg/download/status.go's
-// ApplyStatus omits it on purpose, because status.phase is
-// k8s.ManagerGrabarr's alone to write and an engine that could report a
-// ready-made phase could move the object through the pinned enum from
-// inside a transfer loop. This controller also holds no live
-// download.Client of its own -- doc.go's "The finalizer needs no live
-// engine" says the same thing about the finalizer, and grabarr/run.go's
-// role split is why: engine roles hold the Client, the controller role does
-// not. So derivePhase approximates "the item's reported status" from what
-// IS persisted -- status.stage, status.isEncrypted, status.import and the
-// blocklist label -- rather than from a live Client.Get.
+// status.failureReason, once recorded, is carried forward on every later
+// reconcile (failureOf reads it first). The engine's report can go away --
+// a torrent engine keeps a transfer's failure in memory, so a restart
+// re-attaches it as though nothing happened -- but catalogarr has already
+// read the Download as terminal and the redownload search (§8.3) may
+// already have grabbed a replacement; letting the old Download come back to
+// life would be a second grab of the same item. The engines remove a failed
+// transfer once the phase says so, which is what makes the verdict stick on
+// their side too.
 //
-// That is a narrower signal than a live Item.Status/Item.FailureReason
-// would give, and the gap is deliberate rather than an oversight:
-// DownloadFailureReason's diskFull, writeError, timeout, missingArticles and
-// manual members have no telemetry-only proxy here and are NOT produced by
-// this function -- only encrypted is, because status.isEncrypted is an
-// unambiguous persisted boolean. stalled is not attempted either: deriving
-// it would mean picking an inactivity threshold with no source in the spec
-// or an existing constant (SeedCriteria.InactiveTime governs when a torrent
-// stops SEEDING for lack of peers -- a different concept from a stalled
-// in-progress transfer), which is exactly the kind of unsourced judgment
-// call the plan's own carried notes ask to flag rather than guess at. A
-// future task extending this reconciler, or one that gives it a live
-// Client, owns the remaining failure reasons.
+// # Why un-blocklisting is removing the label
+//
+// grabarr applies the label only in the reconcile that also records
+// blocklistedUntil, and asks for it again (blocklist=true) only while
+// blocklistedUntil is unset. An operator who removes the label from a
+// Download grabarr blocklisted therefore gets a Failed Download that stays
+// un-blocklisted, rather than a label grabarr puts straight back. Deleting
+// the Download works too; it is the blocklist entry.
+//
+// # What stays a strict subset of the rollup's switch
+//
+// Every value this function can produce -- Assigned, Queued, Downloading,
+// Paused, Completed, Seeding, Imported, Failed, Blocklisted -- has a case in
+// catalogarr/controller/rollup/downloadoverlay.go's DownloadOverlay switch
+// (plan ruling R1). It never returns Pending (controller.go's pre-assignment
+// applies) or Removing (the finalizer does not set it; doc.go).
 //
 // # progressPercent
 //
-// status.progressPercent does not appear below even though the plan task
-// text names it as an input. It does not discriminate between any two phase
-// values in the closed enum -- DownloadPhaseDownloading covers the whole
-// 1-99% range as one phase -- so branching on it would not change any
-// answer this function gives. It stays purely informational (already its
-// own printer column on the CRD) rather than a phase input.
+// status.progressPercent does not appear below: Downloading covers the whole
+// 1-99% range as one phase, so it discriminates between no two answers.
 func derivePhase(dl *downloadv1alpha1.Download) phaseResult {
-	// Imported is sticky and checked first: once importarr's file-import
-	// worker (a different service, a different field manager,
-	// k8s.ManagerImportarr) has reported success, nothing engine-telemetry
-	// shaped may revisit that verdict -- not a stale isEncrypted flag, not a
-	// later blocklist label, not the engine's own cleanup after
-	// MarkImported changes its stage.
 	if dl.Status.Import != nil && dl.Status.Import.State == downloadv1alpha1.ImportPhaseImported {
 		return phaseResult{phase: downloadv1alpha1.DownloadPhaseImported}
 	}
 
-	// Blocklisting is an external policy decision -- download_types.go's own
-	// LabelBlocklisted doc comment: "the blocklist IS the set of Downloads
-	// carrying this label" -- not a transfer outcome, so it overrides
-	// telemetry the same way Imported does. Nothing in the tree sets this
-	// label yet (grep finds only readers: downloadclient.BlocklistSweeper
-	// and catalogarr/worker/search/blocklist.go), so this branch is
-	// currently unreached in production; it is implemented because the
-	// label and the BlocklistedUntil sweep machinery already exist and cost
-	// nothing extra to honour correctly once a future writer lands.
-	if dl.Labels[downloadv1alpha1.LabelBlocklisted] == downloadv1alpha1.LabelBlocklistedValue {
-		return phaseResult{phase: downloadv1alpha1.DownloadPhaseBlocklisted}
-	}
-
-	if dl.Status.IsEncrypted {
-		return phaseResult{
-			phase:         downloadv1alpha1.DownloadPhaseFailed,
-			failureReason: downloadv1alpha1.DownloadFailureEncrypted,
-		}
+	labelled := isBlocklistLabelled(dl)
+	reason := failureOf(dl, labelled)
+	switch {
+	case labelled:
+		return phaseResult{phase: downloadv1alpha1.DownloadPhaseBlocklisted, failureReason: reason}
+	case reason.IsFailure() && reason.IsReleaseFault() && dl.Status.BlocklistedUntil == nil:
+		return phaseResult{phase: downloadv1alpha1.DownloadPhaseBlocklisted, failureReason: reason, blocklist: true}
+	case reason.IsFailure():
+		return phaseResult{phase: downloadv1alpha1.DownloadPhaseFailed, failureReason: reason}
 	}
 
 	// Paused: "by spec.paused or by a health action" (DownloadPhasePaused's
@@ -154,12 +159,11 @@ func derivePhase(dl *downloadv1alpha1.Download) phaseResult {
 		return phaseResult{phase: downloadv1alpha1.DownloadPhaseSeeding}
 	case downloadv1alpha1.DownloadStageDone:
 		// "The engine has nothing left to do." For usenet (no seeding stage
-		// exists) this is the first point content is on disk. For a torrent
-		// whose engine reaches Done without ever reporting Seeding, mapping
-		// it here too is conservative rather than an arbitrary choice:
-		// Completed and Seeding are both "ready to import" to importarr's
-		// consumer (importarr/worker/fileimport/worker.go's own phase
-		// switch), so which of the two this function picks changes no
+		// exists) this is the first point content is on disk. A torrent
+		// reaches it once it stops seeding -- its seed goal met -- or when
+		// it never seeded. Completed and Seeding are both "ready to import"
+		// to importarr's consumer (importarr/worker/fileimport/worker.go's
+		// own phase switch), so which of the two this picks changes no
 		// downstream behaviour.
 		return phaseResult{phase: downloadv1alpha1.DownloadPhaseCompleted}
 	default:
@@ -170,6 +174,55 @@ func derivePhase(dl *downloadv1alpha1.Download) phaseResult {
 		// panic.
 		return phaseResult{phase: downloadv1alpha1.DownloadPhaseAssigned}
 	}
+}
+
+// failureOf is why dl failed, or "" if it has not. In order:
+//
+//   - status.failureReason, the verdict this controller already recorded. It
+//     comes first so a failure is terminal (see derivePhase).
+//   - status.engineFailureReason, the engine's report: missingArticles,
+//     diskFull, writeError, timeout and encrypted from usenet; stalled,
+//     diskFull and writeError from a torrent.
+//   - status.isEncrypted, the engine's older signal for encrypted, kept so a
+//     Download an engine flagged before engineFailureReason existed still
+//     reads as encrypted.
+//   - importRejected, read from importarr's status.import (never written
+//     here): importarr refused every file.
+//   - manual, for a Download an operator labelled blocklisted by hand while
+//     nothing else had failed it -- the one user action there is for
+//     failing a Download (the UI has none).
+func failureOf(dl *downloadv1alpha1.Download, labelled bool) downloadv1alpha1.DownloadFailureReason {
+	switch {
+	case dl.Status.FailureReason.IsFailure():
+		return dl.Status.FailureReason
+	case dl.Status.EngineFailureReason.IsFailure():
+		return dl.Status.EngineFailureReason
+	case dl.Status.IsEncrypted:
+		return downloadv1alpha1.DownloadFailureEncrypted
+	case importRejected(dl):
+		return downloadv1alpha1.DownloadFailureImportRejected
+	case labelled:
+		return downloadv1alpha1.DownloadFailureManual
+	default:
+		return ""
+	}
+}
+
+// importRejected reports whether importarr's last word on dl is that it
+// refused every file: status.import blocked, nothing imported, at least one
+// rejection, and importRejectedMessage -- see that constant for why all four.
+func importRejected(dl *downloadv1alpha1.Download) bool {
+	imp := dl.Status.Import
+	return imp != nil &&
+		imp.State == downloadv1alpha1.ImportPhaseBlocked &&
+		len(imp.Imported) == 0 &&
+		len(imp.Rejections) > 0 &&
+		imp.Message == importRejectedMessage
+}
+
+// isBlocklistLabelled reports whether dl carries the blocklist label.
+func isBlocklistLabelled(dl *downloadv1alpha1.Download) bool {
+	return dl.Labels[downloadv1alpha1.LabelBlocklisted] == downloadv1alpha1.LabelBlocklistedValue
 }
 
 // isContentComplete reports whether phase means the content is complete on

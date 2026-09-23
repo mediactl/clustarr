@@ -18,6 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package v1alpha1
 
 import (
+	"time"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -109,7 +111,32 @@ type TorrentSpec struct {
 	// +optional
 	// +kubebuilder:default=true
 	RemoveCompleted *bool `json:"removeCompleted,omitempty"`
+
+	// StallTimeout is how long an unfinished, unpaused torrent may go without
+	// downloading a byte before the engine fails it as stalled -- which
+	// blocklists the release, so the redownload search looks elsewhere. It
+	// is qBittorrent's stalledDL state ("no data is being received"; Sonarr
+	// reports it as a Warning, "The download is stalled with no
+	// connections") held for the whole window, and it covers a magnet whose
+	// metadata never arrives. The clock restarts when the engine re-attaches
+	// the torrent and when it is resumed, so neither a restart nor a pause is
+	// counted against it. "0s" disables stall detection. The engine reads it
+	// at start.
+	// +optional
+	// +kubebuilder:default="24h"
+	StallTimeout *metav1.Duration `json:"stallTimeout,omitempty"`
 }
+
+// DefaultStallTimeout is TorrentSpec.StallTimeout's default, restated for a
+// DownloadClient built in Go that never saw the apiserver's defaulting.
+//
+// No *arr fails a stalled torrent by itself -- Sonarr and Radarr only warn,
+// and the cleaners that do act (Decluttarr, Cleanuparr) count strikes over
+// tens of minutes -- so the default is deliberately long: a day without a
+// byte, the same span as the client's default seed inactiveTime. A false
+// positive here blocklists a release for DefaultBlocklistTTL, which costs far
+// more than waiting.
+const DefaultStallTimeout = 24 * time.Hour
 
 // NNTPProvider is one upstream usenet server. Providers are tried in priority
 // order; backup providers are only used to repair missing articles.
@@ -254,6 +281,15 @@ type UsenetSpec struct {
 	// Scratch sizes the per-replica working area.
 	// +optional
 	Scratch *ScratchSpec `json:"scratch,omitempty"`
+
+	// DownloadTimeout is how long a usenet download may take, from when it
+	// was first added -- propagation wait, transfer, repair and unpack all
+	// count, and so does time spent paused -- before the engine fails it
+	// with reason timeout, which blocklists the release. Unset or "0s" means
+	// no deadline, which is the default: neither SABnzbd nor NZBGet bounds a
+	// whole job. The engine reads it at start.
+	// +optional
+	DownloadTimeout *metav1.Duration `json:"downloadTimeout,omitempty"`
 }
 
 // DownloadClientSpec defines the desired state of DownloadClient. Exactly one

@@ -479,6 +479,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: engine
       type:
         scalar: string
+    - name: engineFailureReason
+      type:
+        namedType: com.github.mediactl.clustarr.api.download.v1alpha1.DownloadFailureReason
     - name: etaSeconds
       type:
         scalar: numeric
@@ -532,6 +535,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: seedGoalMetAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: seedGoalReached
+      type:
+        scalar: boolean
     - name: seedTimeSeconds
       type:
         scalar: numeric
@@ -725,6 +731,10 @@ var schemaYAML = typed.YAMLObject(`types:
         packSeedTime: 336h
         ratio: "1"
         seedTime: 168h
+    - name: stallTimeout
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Duration
+      default: 24h
     - name: uploadLimitBps
       type:
         scalar: numeric
@@ -750,6 +760,9 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: numeric
       default: 90
+    - name: downloadTimeout
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Duration
     - name: healthAction
       type:
         namedType: com.github.mediactl.clustarr.api.download.v1alpha1.HealthAction

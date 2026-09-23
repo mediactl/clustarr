@@ -69,11 +69,13 @@ func populatedStatus() downloadv1alpha1.DownloadStatus {
 		Health: &downloadv1alpha1.UsenetHealth{
 			HealthPercent: 99, CriticalHealthPercent: 91, FailedArticles: 3, TotalArticles: 4096,
 		},
-		IsEncrypted:    true,
-		CanMoveFiles:   true,
-		CanBeRemoved:   true,
-		Message:        "transferring",
-		LastProgressAt: &at,
+		IsEncrypted:         true,
+		CanMoveFiles:        true,
+		CanBeRemoved:        true,
+		Message:             "transferring",
+		LastProgressAt:      &at,
+		EngineFailureReason: downloadv1alpha1.DownloadFailureMissingArticles,
+		SeedGoalReached:     true,
 	}
 }
 
@@ -139,7 +141,10 @@ func TestApplyStatusSendsZeroValues(t *testing.T) {
 
 	// The three pointer fields that are legitimately absent from an empty
 	// observation, plus files, which is an empty list rather than a leaf.
-	absent := map[string]bool{"Stage": true, "ETASeconds": true, "Health": true, "LastProgressAt": true, "Files": true}
+	absent := map[string]bool{
+		"Stage": true, "ETASeconds": true, "Health": true, "LastProgressAt": true, "Files": true,
+		"EngineFailureReason": true,
+	}
 	notOwned := map[string]bool{}
 	for _, n := range notEngineOwned {
 		notOwned[n] = true
@@ -212,4 +217,21 @@ func TestItemFromStatusIgnoresFieldsTheEngineDoesNotOwn(t *testing.T) {
 
 	assert.Equal(t, downloadv1alpha1.DownloadStatus{}, got,
 		"ItemFromStatus carried a field outside the engine's owned set")
+}
+
+// A transfer that has not failed must not report a failure. Usenet starts
+// every job at DownloadFailureNone, so an ApplyStatus that emitted any
+// non-empty reason would tell the controller every usenet download had
+// failed with a reason called "none" (gap fix Y2).
+func TestApplyStatusReportsAFailureOnlyWhenThereIsOne(t *testing.T) {
+	for _, reason := range []downloadv1alpha1.DownloadFailureReason{"", downloadv1alpha1.DownloadFailureNone} {
+		got := statusFromAC(t, download.ApplyStatus(download.Item{FailureReason: reason}))
+		assert.Emptyf(t, got.EngineFailureReason, "reason %q was reported as a failure", reason)
+	}
+
+	got := statusFromAC(t, download.ApplyStatus(download.Item{
+		Status:        download.StatusFailed,
+		FailureReason: downloadv1alpha1.DownloadFailureDiskFull,
+	}))
+	assert.Equal(t, downloadv1alpha1.DownloadFailureDiskFull, got.EngineFailureReason)
 }

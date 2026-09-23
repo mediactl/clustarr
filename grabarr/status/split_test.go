@@ -44,6 +44,7 @@ var (
 		"DownloadRateBps", "UploadRateBps", "ETASeconds", "ProgressPercent",
 		"Seeders", "Peers", "RatioMilli", "SeedTimeSeconds", "Health",
 		"IsEncrypted", "CanMoveFiles", "CanBeRemoved", "Message", "LastProgressAt",
+		"EngineFailureReason", "SeedGoalReached",
 	}
 	// Written by importarr's file-import worker under k8s.ManagerImportarr.
 	// Listed so that "owned by nobody in grabarr" is an assertion rather than
@@ -63,39 +64,41 @@ func fullStatus() downloadv1alpha1.DownloadStatus {
 	eta := int32(90)
 	at := metav1.NewTime(time.Now().UTC().Truncate(time.Second))
 	return downloadv1alpha1.DownloadStatus{
-		ObservedGeneration: 4,
-		Phase:              downloadv1alpha1.DownloadPhaseSeeding,
-		Engine:             "torrents-0",
-		FailureReason:      downloadv1alpha1.DownloadFailureStalled,
-		BlocklistedUntil:   &at,
-		StartedAt:          &at,
-		CompletedAt:        &at,
-		SeedGoalMetAt:      &at,
-		Stage:              downloadv1alpha1.DownloadStageSeeding,
-		DownloadID:         "0123456789abcdef0123456789abcdef01234567",
-		OutputPath:         "/data/torrents/movies/example",
-		ContentRoot:        "/data/torrents/movies/example",
-		Files:              []downloadv1alpha1.DownloadFile{{Path: "example.mkv", SizeBytes: 7 << 30}},
-		TotalBytes:         8 << 30,
-		RemainingBytes:     1 << 30,
-		DownloadedBytes:    7 << 30,
-		UploadedBytes:      3 << 30,
-		DownloadRateBps:    12_000_000,
-		UploadRateBps:      3_000_000,
-		ETASeconds:         &eta,
-		ProgressPercent:    87,
-		Seeders:            42,
-		Peers:              17,
-		RatioMilli:         1500,
-		SeedTimeSeconds:    7200,
-		Health:             &downloadv1alpha1.UsenetHealth{HealthPercent: 99, CriticalHealthPercent: 91, FailedArticles: 3, TotalArticles: 4096},
-		IsEncrypted:        true,
-		CanMoveFiles:       true,
-		CanBeRemoved:       true,
-		Message:            "seeding",
-		LastProgressAt:     &at,
-		Import:             &downloadv1alpha1.ImportState{State: downloadv1alpha1.ImportPhaseImported},
-		Conditions:         []metav1.Condition{{Type: downloadv1alpha1.DownloadConditionAssigned}},
+		ObservedGeneration:  4,
+		Phase:               downloadv1alpha1.DownloadPhaseSeeding,
+		Engine:              "torrents-0",
+		FailureReason:       downloadv1alpha1.DownloadFailureStalled,
+		BlocklistedUntil:    &at,
+		StartedAt:           &at,
+		CompletedAt:         &at,
+		SeedGoalMetAt:       &at,
+		Stage:               downloadv1alpha1.DownloadStageSeeding,
+		DownloadID:          "0123456789abcdef0123456789abcdef01234567",
+		OutputPath:          "/data/torrents/movies/example",
+		ContentRoot:         "/data/torrents/movies/example",
+		Files:               []downloadv1alpha1.DownloadFile{{Path: "example.mkv", SizeBytes: 7 << 30}},
+		TotalBytes:          8 << 30,
+		RemainingBytes:      1 << 30,
+		DownloadedBytes:     7 << 30,
+		UploadedBytes:       3 << 30,
+		DownloadRateBps:     12_000_000,
+		UploadRateBps:       3_000_000,
+		ETASeconds:          &eta,
+		ProgressPercent:     87,
+		Seeders:             42,
+		Peers:               17,
+		RatioMilli:          1500,
+		SeedTimeSeconds:     7200,
+		Health:              &downloadv1alpha1.UsenetHealth{HealthPercent: 99, CriticalHealthPercent: 91, FailedArticles: 3, TotalArticles: 4096},
+		IsEncrypted:         true,
+		CanMoveFiles:        true,
+		CanBeRemoved:        true,
+		Message:             "seeding",
+		LastProgressAt:      &at,
+		EngineFailureReason: downloadv1alpha1.DownloadFailureStalled,
+		SeedGoalReached:     true,
+		Import:              &downloadv1alpha1.ImportState{State: downloadv1alpha1.ImportPhaseImported},
+		Conditions:          []metav1.Condition{{Type: downloadv1alpha1.DownloadConditionAssigned}},
 	}
 }
 
@@ -141,7 +144,7 @@ func TestEveryDownloadStatusFieldIsAccountedFor(t *testing.T) {
 		assert.Truef(t, ok, "%s is claimed by the split but is not a field of DownloadStatus", name)
 	}
 	require.Len(t, controllerOwned, 9)
-	require.Len(t, engineOwned, 23)
+	require.Len(t, engineOwned, 25)
 	assert.Equal(t, typ.NumField(), len(controllerOwned)+len(engineOwned)+len(foreignOwned))
 }
 

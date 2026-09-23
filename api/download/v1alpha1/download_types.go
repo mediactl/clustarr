@@ -149,6 +149,39 @@ const (
 	DownloadFailureManual DownloadFailureReason = "manual"
 )
 
+// IsReleaseFault reports whether a failure for reason r is the RELEASE's
+// fault, which is what decides whether grabarr blocklists it (design spec
+// §8.3, "Failed -> Blocklisted").
+//
+// The ruling (gap fix Y2): missingArticles, encrypted, stalled, timeout,
+// importRejected and manual blocklist; diskFull and writeError do not, and
+// neither do none or an empty or unknown reason. A local fault is not
+// evidence against the release -- the same release grabbed onto a disk with
+// room would have succeeded -- so blocklisting it would discard a good
+// release and send the redownload search to a worse one. Sonarr draws the
+// same line: its SABnzbd client reports "Unpacking failed, write error or
+// disk is full?" as a Warning rather than a Failed item, and NZBGet's
+// UnpackStatus=SPACE likewise, while every other client-reported failure is
+// Failed, which Sonarr's FailedDownloadService blocklists.
+//
+// manual counts as the release's fault because it is an operator saying so:
+// it is recorded when someone labels a Download blocklisted by hand.
+func (r DownloadFailureReason) IsReleaseFault() bool {
+	switch r {
+	case DownloadFailureMissingArticles, DownloadFailureEncrypted, DownloadFailureStalled,
+		DownloadFailureTimeout, DownloadFailureImportRejected, DownloadFailureManual:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsFailure reports whether r names an actual failure: set, and not
+// DownloadFailureNone.
+func (r DownloadFailureReason) IsFailure() bool {
+	return r != "" && r != DownloadFailureNone
+}
+
 // DownloadPriority orders Downloads within an engine's queue.
 //
 // +kubebuilder:validation:Enum=high;normal;low
@@ -614,6 +647,22 @@ type DownloadStatus struct {
 	// works from it.
 	// +optional
 	LastProgressAt *metav1.Time `json:"lastProgressAt,omitempty"`
+
+	// EngineFailureReason is the failure the engine observed on the transfer,
+	// written by grabarr-engine. It is the engine's report, not the
+	// Download's verdict: the grabarr controller reads it and records
+	// status.failureReason and the phase (Failed, or Blocklisted for a
+	// release fault) in one apply under its own field manager. Absent while
+	// the transfer has not failed.
+	// +optional
+	EngineFailureReason DownloadFailureReason `json:"engineFailureReason,omitempty"`
+
+	// SeedGoalReached is true once the torrent has satisfied its seed
+	// criteria, whether or not it has been imported yet. Written by
+	// grabarr-engine; the grabarr controller turns the first true into
+	// status.seedGoalMetAt and the SeedGoalMet condition. Torrent only.
+	// +optional
+	SeedGoalReached bool `json:"seedGoalReached,omitempty"`
 
 	// Import is the import outcome. It is the one cross-service field on this
 	// object: importarr's file-import worker, not grabarr, writes it,

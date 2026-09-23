@@ -49,9 +49,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     move a Movie between phases from inside a transfer loop.
 //   - engine: the assignment itself. The controller chooses the ordinal from
 //     spec.replicas; an engine writing it would be claiming its own work.
-//   - failureReason: the justification for phase=Failed, and it must be
-//     written in the same apply as the phase it explains. The engine REPORTS
-//     the reason on download.Item.FailureReason and the controller writes it.
+//   - failureReason: the justification for phase=Failed (or Blocklisted),
+//     and it must be written in the same apply as the phase it explains. The
+//     engine REPORTS the reason as status.engineFailureReason, one of its own
+//     fields, and the controller copies it here.
 //   - blocklistedUntil: a policy decision with a default TTL, swept by the
 //     controller.
 //   - startedAt, completedAt, seedGoalMetAt: transition timestamps. They are
@@ -61,15 +62,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     the five are about the object's relationship to other objects, not to
 //     the transfer.
 //
-// [EngineFields], k8s.ManagerGrabarrEngine -- twenty-three fields: stage,
+// [EngineFields], k8s.ManagerGrabarrEngine -- twenty-five fields: stage,
 // downloadID, outputPath, contentRoot, files, the byte counters, the rates,
 // etaSeconds, progressPercent, seeders, peers, ratioMilli, seedTimeSeconds,
-// health, isEncrypted, canMoveFiles, canBeRemoved, message and
-// lastProgressAt. Each is an observation of the TRANSFER, and the controller
-// has no way to produce any of them: it cannot know the info hash the payload
-// resolved to, the directory the engine published into, or how many articles
-// were missing. downloadID, outputPath and contentRoot are here for that
-// reason rather than because they read like telemetry.
+// health, isEncrypted, canMoveFiles, canBeRemoved, message, lastProgressAt,
+// engineFailureReason and seedGoalReached. Each is an observation of the
+// TRANSFER, and the controller has no way to produce any of them: it cannot
+// know the info hash the payload resolved to, the directory the engine
+// published into, how many articles were missing, or whether a disk write
+// failed. downloadID, outputPath and contentRoot are here for that reason
+// rather than because they read like telemetry; engineFailureReason and
+// seedGoalReached (gap fix Y2) are the engine's reports behind the
+// controller's failureReason and seedGoalMetAt, split so that neither field
+// has two writers.
 //
 // status.import belongs to NEITHER, and is named here so that it cannot be
 // claimed by accident. It is the project's only cross-group status write:
@@ -86,7 +91,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // [ControllerFields] and [EngineFields] are complete declarations seeded from
 // the live status, so an apply that changes one field still re-sends the other
-// eight or twenty-two. Callers mutate the seeded configuration rather than
+// eight or twenty-four. Callers mutate the seeded configuration rather than
 // building one, which is what makes the complete-declaration rule enforceable
 // in a single place: two callers hand-building their own apply configurations
 // for one manager is precisely how each deletes the other's fields.

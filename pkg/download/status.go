@@ -65,9 +65,10 @@ const MaxStatusFiles = 200
 // Nine fields belong to k8s.ManagerGrabarr -- observedGeneration, phase,
 // engine, failureReason, blocklistedUntil, startedAt, completedAt,
 // seedGoalMetAt and conditions -- and one, import, belongs to
-// k8s.ManagerImportarr. None of them is emitted here even though [Item]
-// carries the raw material for two of them ([Item.Status], [Item.FailureReason]);
-// the controller reads those from the Item and writes the fields itself.
+// k8s.ManagerImportarr. None of them is emitted here. [Item.FailureReason]
+// and [Item.SeedGoalMet] are the raw material for two of them, and are
+// emitted as the engine's own reports (engineFailureReason,
+// seedGoalReached), which the controller reads and turns into its verdicts.
 //
 // Three pointer fields are omitted when nil, and that is a property of the
 // SHAPE of the observation rather than of its outcome: etaSeconds is absent
@@ -96,6 +97,7 @@ func ApplyStatus(item Item) *downloadac.DownloadStatusApplyConfiguration {
 		WithIsEncrypted(item.IsEncrypted).
 		WithCanMoveFiles(item.CanMoveFiles).
 		WithCanBeRemoved(item.CanBeRemoved).
+		WithSeedGoalReached(item.SeedGoalMet).
 		WithMessage(item.Message)
 
 	// Stage is an enum whose generated CRD does not admit "". An engine that
@@ -105,6 +107,13 @@ func ApplyStatus(item Item) *downloadac.DownloadStatusApplyConfiguration {
 	// indexarr/status makes for Indexer.status.protocol.
 	if item.Stage != "" {
 		ac = ac.WithStage(item.Stage)
+	}
+	// engineFailureReason is absent while the transfer has not failed: a
+	// shape, like stage above, not an outcome. A client reports "not failed"
+	// as either "" or DownloadFailureNone (usenet starts every job at none),
+	// and sending none would read as a failure named "none".
+	if item.FailureReason.IsFailure() {
+		ac = ac.WithEngineFailureReason(item.FailureReason)
 	}
 	if item.ETA != nil {
 		ac = ac.WithETASeconds(clampNonNegative32(int64(*item.ETA / time.Second)))
@@ -175,7 +184,15 @@ func ItemFromStatus(st downloadv1alpha1.DownloadStatus) Item {
 		CanMoveFiles:    st.CanMoveFiles,
 		CanBeRemoved:    st.CanBeRemoved,
 		IsEncrypted:     st.IsEncrypted,
+		SeedGoalMet:     st.SeedGoalReached,
+		FailureReason:   st.EngineFailureReason,
 		Message:         st.Message,
+	}
+	if st.EngineFailureReason.IsFailure() {
+		// The only status a failure reason is ever reported with. Nothing
+		// renders Status, so this is for a caller's benefit, not the round
+		// trip's.
+		item.Status = StatusFailed
 	}
 	if st.ETASeconds != nil {
 		eta := time.Duration(*st.ETASeconds) * time.Second

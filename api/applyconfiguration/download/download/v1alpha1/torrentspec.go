@@ -21,6 +21,7 @@ package v1alpha1
 
 import (
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // TorrentSpecApplyConfiguration represents a declarative configuration of the TorrentSpec type for use
@@ -54,6 +55,17 @@ type TorrentSpecApplyConfiguration struct {
 	Seed *commonv1alpha1.SeedCriteria `json:"seed,omitempty"`
 	// RemoveCompleted removes a torrent from the engine once its seed goal is met.
 	RemoveCompleted *bool `json:"removeCompleted,omitempty"`
+	// StallTimeout is how long an unfinished, unpaused torrent may go without
+	// downloading a byte before the engine fails it as stalled -- which
+	// blocklists the release, so the redownload search looks elsewhere. It
+	// is qBittorrent's stalledDL state ("no data is being received"; Sonarr
+	// reports it as a Warning, "The download is stalled with no
+	// connections") held for the whole window, and it covers a magnet whose
+	// metadata never arrives. The clock restarts when the engine re-attaches
+	// the torrent and when it is resumed, so neither a restart nor a pause is
+	// counted against it. "0s" disables stall detection. The engine reads it
+	// at start.
+	StallTimeout *v1.Duration `json:"stallTimeout,omitempty"`
 }
 
 // TorrentSpecApplyConfiguration constructs a declarative configuration of the TorrentSpec type for use with
@@ -139,5 +151,13 @@ func (b *TorrentSpecApplyConfiguration) WithSeed(value commonv1alpha1.SeedCriter
 // If called multiple times, the RemoveCompleted field is set to the value of the last call.
 func (b *TorrentSpecApplyConfiguration) WithRemoveCompleted(value bool) *TorrentSpecApplyConfiguration {
 	b.RemoveCompleted = &value
+	return b
+}
+
+// WithStallTimeout sets the StallTimeout field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the StallTimeout field is set to the value of the last call.
+func (b *TorrentSpecApplyConfiguration) WithStallTimeout(value v1.Duration) *TorrentSpecApplyConfiguration {
+	b.StallTimeout = &value
 	return b
 }

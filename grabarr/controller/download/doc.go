@@ -76,27 +76,37 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // untestable against fields nothing populated.
 //
 // D2-8a is that further task. [derivePhase] (phase.go) reads status.stage,
-// status.isEncrypted, status.import and the blocklist label, and
-// advancePhase (controller.go) drives status.phase through
+// status.isEncrypted, status.import and the blocklist label (and, since Y2,
+// the engine's failure and seed-goal reports), and advancePhase
+// (controller.go) drives status.phase through
 // Assigned -> Queued -> Downloading -> Completed/Seeding -> Imported, plus
-// Paused and Failed. It remains a strict subset of the closed set and
+// Paused, Failed and Blocklisted. It remains a strict subset of the closed set and
 // cannot diverge from the rollup switch by construction -- phase.go's own
 // doc comment gives the full accounting, verified against
 // downloadoverlay.go's source. Removing is still never written, by the
 // finalizer or anywhere else (see below, unchanged from D2-4).
 //
-// derivePhase does not reach every DownloadFailureReason: only encrypted is
-// telemetry-derivable without a live download.Client, which this package
-// still does not hold (see "The finalizer needs no live engine" below).
-// stalled, diskFull, writeError, timeout, missingArticles and manual remain
-// unimplemented -- phase.go explains why each would need either a live
-// Client or an unsourced inactivity-threshold judgment call, which this
-// task declined to make up rather than guess at. SeedGoalMet is the one
-// condition grabarr/status.ControllerFields lists (its own doc comment:
-// "the reconciler derives all five on every pass") that advancePhase does
-// not compute, for the same reason: status.canBeRemoved conflates "seed
-// goal met" with "import finished" and nothing else in the available
-// telemetry distinguishes the two.
+// # Failures, the blocklist and the seed goal (gap fix Y2)
+//
+// D2-8a reached only encrypted, because the controller holds no live
+// download.Client and the engine had no persisted channel for any other
+// reason. Y2 gave the engines two fields of their own --
+// status.engineFailureReason and status.seedGoalReached -- and derivePhase
+// now reads every DownloadFailureReason: the engines report missingArticles,
+// diskFull, writeError, timeout, encrypted and stalled; importRejected is
+// read from importarr's status.import; manual is an operator's hand-set
+// blocklist label. A failure is terminal once recorded. A release fault
+// (DownloadFailureReason.IsReleaseFault) goes on to Blocklisted in the same
+// reconcile -- the label through applyObject, then blocklistedUntil,
+// DefaultBlocklistTTL out -- while a local fault (diskFull, writeError)
+// stays Failed and the release stays grabbable. The engines remove a failed
+// transfer, and its data, once the phase says Failed or Blocklisted; the
+// Download itself stays as the record (and, blocklisted, as the blocklist
+// entry the sweeper deletes at blocklistedUntil). The first
+// status.seedGoalReached becomes seedGoalMetAt and SeedGoalMet=True, which
+// stay recorded when an engine restart forgets the goal; a torrent's
+// removal still waits for the import too (the engine's CanBeRemoved and
+// spec.removeOnImport, unchanged).
 //
 // advancePhase also now publishes schema.ImportTask to
 // events.WorkFileImportSubject(<download-uid>) the first reconcile that
@@ -117,11 +127,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // clustarr.evt.download.download.<action>.<uid> (schema.DownloadEvent),
 // which the history sink turns into Events on the Download: queued on the
 // engine pin (§6.3's "evt.download.queued"), started, completed, imported,
-// failed, blocklisted, and removed from the finalizer. Each is published by
-// the reconcile that observes the edge, before the apply that records it,
-// with a per-action Envelope id; see events.go. seedGoalMet is not
-// produced, for the same reason the SeedGoalMet condition is not derived
-// (above). schema.DownloadProgress, the 1 Hz core-NATS stream, is still
+// seedGoalMet, failed (once, when a failure is first recorded, blocklisted
+// or not -- catalogarr's redownload search consumes it), blocklisted, and
+// removed from the finalizer. Each is published by the reconcile that
+// observes the edge, before the apply that records it, with a per-action
+// Envelope id; see events.go. schema.DownloadProgress, the 1 Hz core-NATS stream, is still
 // unpublished -- it belongs to the engines, which own the telemetry -- and
 // "delete the grab lease" is catalogarr/worker/grab's KV state, out of this
 // directory regardless.

@@ -308,6 +308,20 @@ spec:
                           seed before removal.
                         type: string
                     type: object
+                  stallTimeout:
+                    default: 24h
+                    description: |-
+                      StallTimeout is how long an unfinished, unpaused torrent may go without
+                      downloading a byte before the engine fails it as stalled -- which
+                      blocklists the release, so the redownload search looks elsewhere. It
+                      is qBittorrent's stalledDL state ("no data is being received"; Sonarr
+                      reports it as a Warning, "The download is stalled with no
+                      connections") held for the whole window, and it covers a magnet whose
+                      metadata never arrives. The clock restarts when the engine re-attaches
+                      the torrent and when it is resumed, so neither a restart nor a pause is
+                      counted against it. "0s" disables stall detection. The engine reads it
+                      at start.
+                    type: string
                   uploadLimitBps:
                     description: |-
                       UploadLimitBps caps the aggregate upload rate in bytes per second.
@@ -329,6 +343,15 @@ spec:
                     maximum: 100
                     minimum: 0
                     type: integer
+                  downloadTimeout:
+                    description: |-
+                      DownloadTimeout is how long a usenet download may take, from when it
+                      was first added -- propagation wait, transfer, repair and unpack all
+                      count, and so does time spent paused -- before the engine fails it
+                      with reason timeout, which blocklists the release. Unset or "0s" means
+                      no deadline, which is the default: neither SABnzbd nor NZBGet bounds a
+                      whole job. The engine reads it at start.
+                    type: string
                   healthAction:
                     default: pause
                     description: HealthAction is what happens when abortHealthPercent

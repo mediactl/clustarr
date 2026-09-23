@@ -112,6 +112,18 @@ type DownloadStatusApplyConfiguration struct {
 	// LastProgressAt is when downloadedBytes last increased; the stall detector
 	// works from it.
 	LastProgressAt *v1.Time `json:"lastProgressAt,omitempty"`
+	// EngineFailureReason is the failure the engine observed on the transfer,
+	// written by grabarr-engine. It is the engine's report, not the
+	// Download's verdict: the grabarr controller reads it and records
+	// status.failureReason and the phase (Failed, or Blocklisted for a
+	// release fault) in one apply under its own field manager. Absent while
+	// the transfer has not failed.
+	EngineFailureReason *downloadv1alpha1.DownloadFailureReason `json:"engineFailureReason,omitempty"`
+	// SeedGoalReached is true once the torrent has satisfied its seed
+	// criteria, whether or not it has been imported yet. Written by
+	// grabarr-engine; the grabarr controller turns the first true into
+	// status.seedGoalMetAt and the SeedGoalMet condition. Torrent only.
+	SeedGoalReached *bool `json:"seedGoalReached,omitempty"`
 	// Import is the import outcome. It is the one cross-service field on this
 	// object: importarr's file-import worker, not grabarr, writes it,
 	// through server-side apply with its own field manager (k8s.ManagerImportarr),
@@ -378,6 +390,22 @@ func (b *DownloadStatusApplyConfiguration) WithMessage(value string) *DownloadSt
 // If called multiple times, the LastProgressAt field is set to the value of the last call.
 func (b *DownloadStatusApplyConfiguration) WithLastProgressAt(value v1.Time) *DownloadStatusApplyConfiguration {
 	b.LastProgressAt = &value
+	return b
+}
+
+// WithEngineFailureReason sets the EngineFailureReason field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the EngineFailureReason field is set to the value of the last call.
+func (b *DownloadStatusApplyConfiguration) WithEngineFailureReason(value downloadv1alpha1.DownloadFailureReason) *DownloadStatusApplyConfiguration {
+	b.EngineFailureReason = &value
+	return b
+}
+
+// WithSeedGoalReached sets the SeedGoalReached field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SeedGoalReached field is set to the value of the last call.
+func (b *DownloadStatusApplyConfiguration) WithSeedGoalReached(value bool) *DownloadStatusApplyConfiguration {
+	b.SeedGoalReached = &value
 	return b
 }
 

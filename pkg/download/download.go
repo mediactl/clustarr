@@ -144,14 +144,19 @@ type File struct {
 // a slow status apply without racing the engine.
 //
 // Every field here maps onto a Download.status field that
-// k8s.ManagerGrabarrEngine owns, with four exceptions. Three the controller
-// consumes directly and writes under its own manager: [Item.Status] becomes
-// status.phase, [Item.FailureReason] becomes status.failureReason, and the
-// transition timestamps (startedAt, completedAt, seedGoalMetAt) are derived by
-// the controller from those two. An engine that wrote them itself would be a
-// second writer of the controller's owned set. The fourth, [Item.AddedAt], is
-// never persisted to status at all: it is the engine's own bookkeeping, read
-// by its orphan reaper.
+// k8s.ManagerGrabarrEngine owns, with two exceptions. [Item.Status] is never
+// persisted: the controller derives status.phase from the persisted
+// telemetry instead, and an engine that wrote a phase would be a second
+// writer of the controller's owned set. [Item.AddedAt] is never persisted
+// either: it is the engine's own bookkeeping, read by its orphan reaper.
+//
+// Two fields are reports the controller turns into verdicts. [Item.FailureReason]
+// is persisted as status.engineFailureReason and [Item.SeedGoalMet] as
+// status.seedGoalReached; the controller reads those and writes
+// status.failureReason, status.seedGoalMetAt, the phase and the conditions
+// under its own manager (gap fix Y2). Before that the engine had no channel
+// for either, so the controller could see no failure but encrypted and never
+// set SeedGoalMet at all.
 //
 // # Torrent-only and usenet-only fields
 //
@@ -173,11 +178,13 @@ type Item struct {
 	// apply failure into a compile error.
 	Stage downloadv1alpha1.DownloadStage
 
-	// FailureReason is why the transfer failed, machine-readable. It is
-	// meaningful only with Status == [StatusFailed]. The CONTROLLER writes it
-	// to status.failureReason; [ApplyStatus] does not, because
-	// status.failureReason sits in the controller's owned set alongside the
-	// phase it justifies.
+	// FailureReason is why the transfer failed, machine-readable. A client
+	// sets it only together with Status == [StatusFailed], and keeps it
+	// there: a failed transfer stays failed. [ApplyStatus] persists it as
+	// status.engineFailureReason, the engine's report; the CONTROLLER turns
+	// that into status.failureReason, which sits in its owned set alongside
+	// the phase it justifies. Empty and DownloadFailureNone both mean "not
+	// failed".
 	FailureReason downloadv1alpha1.DownloadFailureReason
 
 	// TotalBytes is the size of the wanted content -- the selected files, not
@@ -274,6 +281,14 @@ type Item struct {
 	// CanBeRemoved is true when the engine has no reason to keep the
 	// transfer: the import finished and, for a torrent, the seed goal is met.
 	CanBeRemoved bool
+
+	// SeedGoalMet is true once a torrent has satisfied its seed criteria
+	// (ratio, seed time or inactive seeding time -- the three limits Sonarr's
+	// qBittorrent client checks), whether or not it has been imported. Unlike
+	// CanBeRemoved it says nothing about the import, which is what lets the
+	// controller record the goal on its own. Always false for usenet, which
+	// never seeds.
+	SeedGoalMet bool
 
 	// IsEncrypted is true when the content turned out to be password
 	// protected. Usenet sets it when extraction hits an encrypted archive.

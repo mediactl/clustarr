@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -71,15 +72,28 @@ const requeueWaiting = 15 * time.Second
 const (
 	// ReasonNoEnabledClient means no enabled DownloadClient matches spec.protocol.
 	ReasonNoEnabledClient = "NoEnabledClient"
+	// ReasonBlocklisted is the Warning Event recorded when grabarr
+	// blocklists a release that failed through its own fault.
+	ReasonBlocklisted = "Blocklisted"
 	// ReasonEngineNotReady means the assigned DownloadClient's EngineReady
 	// condition is not True.
 	ReasonEngineNotReady = "EngineNotReady"
-	// ReasonEncrypted is the Failed condition's reason when status.isEncrypted
-	// is true -- see phase.go's derivePhase for why this is currently the
-	// only failure signal this package can read without a live
-	// download.Client.
+	// ReasonEncrypted is the Failed condition's reason for an encrypted
+	// release. Every failure reason has one, from [failureConditionReason];
+	// this one is named because it predates the rest.
 	ReasonEncrypted = "Encrypted"
 )
+
+// failureConditionReason is the Failed condition's reason for a failure:
+// the DownloadFailureReason with its first letter upper-cased
+// (missingArticles -> MissingArticles), the CamelCase shape every other
+// condition reason in the project has.
+func failureConditionReason(r downloadv1alpha1.DownloadFailureReason) string {
+	if r == "" {
+		return k8s.ReasonFailed
+	}
+	return strings.ToUpper(string(r[:1])) + string(r[1:])
+}
 
 // Reconciler picks a DownloadClient for a Download, waits for its engine, pins
 // the assignment, advances status.phase from engine-owned telemetry once
@@ -197,10 +211,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, dl *downloadv1alpha1.D
 		dc = *chosen
 		clientName = dc.Name
 
-		acDL := downloadac.Download(dl.Name, dl.Namespace).
-			WithSpec(downloadac.DownloadSpec().WithClientRef(clientName)).
-			WithLabels(map[string]string{downloadv1alpha1.LabelClient: clientName})
-		if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerGrabarr, acDL); err != nil {
+		if err := r.applyObject(ctx, dl, clientName, "", false); err != nil {
 			return ctrl.Result{}, fmt.Errorf("download: pin clientRef: %w", err)
 		}
 		dl.Spec.ClientRef = clientName
@@ -233,26 +244,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, dl *downloadv1alpha1.D
 	ordinal := k8s.HashOrdinal(dc.Spec.Replicas, dl.Spec.Release.InfoHash, dl.Spec.Release.GUID)
 	engine := fmt.Sprintf("%s-%d", clientName, ordinal)
 
-	// This apply must restate spec.clientRef even though it is already set:
-	// server-side apply replaces a manager's whole ownership set on every
-	// apply rather than merging into it, so an apply from ManagerGrabarr that
-	// omitted clientRef here would RELEASE it (nothing else owns it), and the
-	// "release is per-leaf" hazard makes that release invisible until the
-	// very next write -- which is exactly what happened here: the merged
-	// object's clientRef went absent and "release identity is immutable"-
-	// style CEL rule on clientRef rejected the write with "clientRef is
-	// immutable once set", because a since-cleared field cannot equal its
-	// former self. Every apply this manager sends against Download's main
-	// resource must therefore be a complete declaration of everything it
-	// owns there (clientRef, LabelClient, LabelEngine), the same discipline
-	// grabarr/status applies to the status subresource.
-	acLabels := downloadac.Download(dl.Name, dl.Namespace).
-		WithSpec(downloadac.DownloadSpec().WithClientRef(clientName)).
-		WithLabels(map[string]string{
-			downloadv1alpha1.LabelClient: clientName,
-			downloadv1alpha1.LabelEngine: engine,
-		})
-	if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerGrabarr, acLabels); err != nil {
+	if err := r.applyObject(ctx, dl, clientName, engine, false); err != nil {
 		return ctrl.Result{}, fmt.Errorf("download: label engine assignment: %w", err)
 	}
 
@@ -269,6 +261,43 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, dl *downloadv1alpha1.D
 	}
 	log.Info("assigned", "clientRef", clientName, "engine", engine)
 	return ctrl.Result{}, nil
+}
+
+// applyObject is the ONE function that writes Download's main resource
+// under k8s.ManagerGrabarr: spec.clientRef, LabelClient, LabelEngine (once
+// engine is known) and LabelBlocklisted (once grabarr blocklists).
+//
+// Every apply must restate spec.clientRef even though it is already set:
+// server-side apply replaces a manager's whole ownership set on every apply
+// rather than merging into it, so an apply from ManagerGrabarr that omitted
+// clientRef would RELEASE it (nothing else owns it), and the "release is
+// per-leaf" hazard makes that release invisible until the very next write --
+// which is exactly what happened in D2-4: the merged object's clientRef went
+// absent and the CEL rule on clientRef rejected the write with "clientRef is
+// immutable once set", because a since-cleared field cannot equal its former
+// self. So every call site renders the complete set through here rather
+// than building its own narrower apply (CLAUDE.md: "Route every write from a
+// manager through the one function that renders that manager's complete
+// set").
+//
+// The three call sites are ordered in a Download's life -- pin the client,
+// then label the engine, then (only after the engine pin) blocklist -- so
+// each passes everything grabarr owns at that point: no earlier site can
+// run once a later one has, because reconcileNormal hands a pinned Download
+// straight to advancePhase.
+func (r *Reconciler) applyObject(ctx context.Context, dl *downloadv1alpha1.Download, clientRef, engine string, blocklisted bool) error {
+	labels := map[string]string{downloadv1alpha1.LabelClient: clientRef}
+	if engine != "" {
+		labels[downloadv1alpha1.LabelEngine] = engine
+	}
+	if blocklisted {
+		labels[downloadv1alpha1.LabelBlocklisted] = downloadv1alpha1.LabelBlocklistedValue
+	}
+	ac := downloadac.Download(dl.Name, dl.Namespace).
+		WithSpec(downloadac.DownloadSpec().WithClientRef(clientRef)).
+		WithLabels(labels)
+	_, err := k8s.Apply(ctx, r.Client, k8s.ManagerGrabarr, ac)
+	return err
 }
 
 // applyStatus sends a complete k8s.ManagerGrabarr declaration: phase, engine
@@ -343,27 +372,65 @@ func (r *Reconciler) advancePhase(ctx context.Context, dl *downloadv1alpha1.Down
 	if nowComplete && !wasComplete {
 		r.publishDownloadEvent(ctx, dl, events.ActionCompleted, "")
 	}
+	if seedGoalEdge(dl) {
+		r.publishDownloadEvent(ctx, dl, events.ActionSeedGoalMet, "")
+	}
+	// failed fires once, when the failure is first recorded -- for EVERY
+	// failure, including the release faults that go straight on to
+	// Blocklisted in this same reconcile. It is the event catalogarr's
+	// redownload search consumes (design spec §8.3), so it must not depend
+	// on the phase ever reading Failed.
+	if res.failureReason.IsFailure() && !dl.Status.FailureReason.IsFailure() {
+		r.publishDownloadEvent(ctx, dl, events.ActionFailed, string(res.failureReason))
+		log.Info("download failed", "reason", res.failureReason, "releaseFault", res.failureReason.IsReleaseFault())
+	}
 	if action, ok := phaseActions[res.phase]; ok && res.phase != dl.Status.Phase {
 		r.publishDownloadEvent(ctx, dl, action, string(res.failureReason))
+	}
+
+	// The label goes on BEFORE the status apply that records
+	// blocklistedUntil, never after. derivePhase reads "blocklistedUntil set,
+	// label absent" as an operator having lifted the blocklist, so a crash
+	// between a status-first pair would leave a release fault that is
+	// silently never blocklisted. Label-first, the crash leaves a labelled
+	// Download without a deadline, which the next reconcile completes.
+	if res.blocklist {
+		if err := r.applyObject(ctx, dl, dl.Spec.ClientRef, dl.Status.Engine, true); err != nil {
+			return ctrl.Result{}, fmt.Errorf("download: blocklist %s/%s: %w", dl.Namespace, dl.Name, err)
+		}
+		log.Info("blocklisted the release", "reason", res.failureReason)
 	}
 
 	if err := r.applyAdvancedStatus(ctx, dl, res, wasComplete || nowComplete); err != nil {
 		return ctrl.Result{}, err
 	}
+	if res.blocklist && r.Recorder != nil {
+		r.Recorder.Eventf(dl, nil, "Warning", ReasonBlocklisted, "Blocklist",
+			"release %q failed (%s) and is blocklisted", dl.Spec.Release.Title, res.failureReason)
+	}
 	return ctrl.Result{}, nil
 }
 
+// seedGoalEdge reports whether this reconcile is the first to see the
+// engine report dl's seed goal met: the engine says so and the controller
+// has not recorded it yet.
+func seedGoalEdge(dl *downloadv1alpha1.Download) bool {
+	return dl.Status.SeedGoalReached && dl.Status.SeedGoalMetAt == nil
+}
+
 // applyAdvancedStatus sends the complete k8s.ManagerGrabarr declaration for
-// res: phase, failureReason (set only for Failed and explicitly cleared
-// otherwise -- grabarr/status.ControllerFields' "to CLEAR a field" note),
-// the startedAt/completedAt transition timestamps derived from this same
-// phase edge, and every condition this task computes, derived fresh rather
-// than carried forward (grabarr/status.ControllerFields' own doc comment:
-// "the reconciler derives all five on every pass" -- SeedGoalMet is the one
-// exception, deliberately not computed here; see phase.go). downloaded is
-// passed in rather than recomputed so advancePhase's publish gate and the
-// Downloaded condition this method sets can never disagree about whether
-// content is complete.
+// res: phase; failureReason (set for Failed and Blocklisted, explicitly
+// cleared otherwise -- grabarr/status.ControllerFields' "to CLEAR a field"
+// note); blocklistedUntil, recorded once when the Download first becomes
+// Blocklisted (DefaultBlocklistTTL from now: the design spec's default, and
+// the one an operator labelling by hand gets too, since the status
+// subresource is not something they set); the startedAt, completedAt and
+// seedGoalMetAt transition timestamps; and every condition, derived fresh
+// rather than carried forward (grabarr/status.ControllerFields: "the
+// reconciler derives all five on every pass"). downloaded is passed in
+// rather than recomputed so advancePhase's publish gate and the Downloaded
+// condition this method sets can never disagree about whether content is
+// complete.
 func (r *Reconciler) applyAdvancedStatus(
 	ctx context.Context,
 	dl *downloadv1alpha1.Download,
@@ -371,18 +438,22 @@ func (r *Reconciler) applyAdvancedStatus(
 	downloaded bool,
 ) error {
 	now := metav1.NewTime(r.now())
+	terminal := res.phase == downloadv1alpha1.DownloadPhaseFailed || res.phase == downloadv1alpha1.DownloadPhaseBlocklisted
 	return grabarrstatus.Patch(ctx, r.Client, k8s.ManagerGrabarr, dl, func(ac *downloadac.DownloadStatusApplyConfiguration) {
 		ac.WithPhase(res.phase)
 		ac.WithEngine(dl.Status.Engine)
 
-		if res.phase == downloadv1alpha1.DownloadPhaseFailed {
+		if terminal && res.failureReason.IsFailure() {
 			ac.WithFailureReason(res.failureReason)
 		} else {
 			// Clear rather than carry forward: ControllerFields seeds
 			// FailureReason from the live status, and a Download that is no
-			// longer Failed must not keep explaining a failure that is no
+			// longer failed must not keep explaining a failure that is no
 			// longer true.
 			ac.FailureReason = nil
+		}
+		if res.phase == downloadv1alpha1.DownloadPhaseBlocklisted && dl.Status.BlocklistedUntil == nil {
+			ac.WithBlocklistedUntil(metav1.NewTime(now.Add(downloadv1alpha1.DefaultBlocklistTTL)))
 		}
 
 		if dl.Status.StartedAt == nil && dl.Status.Stage != "" {
@@ -390,6 +461,11 @@ func (r *Reconciler) applyAdvancedStatus(
 		}
 		if dl.Status.CompletedAt == nil && downloaded {
 			ac.WithCompletedAt(now)
+		}
+		seedGoalMetAt := dl.Status.SeedGoalMetAt
+		if seedGoalEdge(dl) {
+			seedGoalMetAt = &now
+			ac.WithSeedGoalMetAt(now)
 		}
 
 		conditions := append([]metav1.Condition(nil), dl.Status.Conditions...)
@@ -402,12 +478,24 @@ func (r *Reconciler) applyAdvancedStatus(
 			k8s.MarkFalse(dl, &conditions, downloadv1alpha1.DownloadConditionDownloaded, k8s.ReasonReconciling,
 				"transfer in progress (stage=%s)", dl.Status.Stage)
 		}
-		if res.phase == downloadv1alpha1.DownloadPhaseFailed {
-			// ReasonEncrypted today: it is the only failure this function
-			// can reach. See phase.go for why the others are not attempted.
-			k8s.MarkTrue(dl, &conditions, downloadv1alpha1.DownloadConditionFailed, ReasonEncrypted, "%s", res.failureReason)
+		if terminal {
+			k8s.MarkTrue(dl, &conditions, downloadv1alpha1.DownloadConditionFailed,
+				failureConditionReason(res.failureReason), "%s", failureMessage(dl, res))
 		} else {
 			k8s.MarkFalse(dl, &conditions, downloadv1alpha1.DownloadConditionFailed, k8s.ReasonSucceeded, "no failure observed")
+		}
+		// SeedGoalMet is a torrent's: a usenet transfer never seeds, so the
+		// condition is not set on one at all rather than set True
+		// vacuously -- "the torrent satisfied its seed criteria" is not a
+		// statement about a usenet download.
+		if dl.Spec.Protocol == commonv1alpha1.ProtocolTorrent {
+			if seedGoalMetAt != nil {
+				k8s.MarkTrue(dl, &conditions, downloadv1alpha1.DownloadConditionSeedGoalMet, k8s.ReasonSucceeded,
+					"seed goal met at %s", seedGoalMetAt.UTC().Format(time.RFC3339))
+			} else {
+				k8s.MarkFalse(dl, &conditions, downloadv1alpha1.DownloadConditionSeedGoalMet, k8s.ReasonReconciling,
+					"seed goal not met yet")
+			}
 		}
 		if res.phase == downloadv1alpha1.DownloadPhaseImported {
 			k8s.MarkTrue(dl, &conditions, downloadv1alpha1.DownloadConditionImported, k8s.ReasonSucceeded, "import finished")
@@ -417,6 +505,24 @@ func (r *Reconciler) applyAdvancedStatus(
 		k8s.MarkDeadLettered(dl, &conditions)
 		ac.WithConditions(k8s.ConditionACs(conditions)...)
 	})
+}
+
+// failureMessage is the Failed condition's message: the reason, whether the
+// release is blocklisted for it, and the engine's own note when it left one.
+func failureMessage(dl *downloadv1alpha1.Download, res phaseResult) string {
+	msg := string(res.failureReason)
+	switch {
+	case res.phase == downloadv1alpha1.DownloadPhaseBlocklisted:
+		msg += "; the release is blocklisted"
+	case res.failureReason.IsReleaseFault():
+		msg += "; the release was blocklisted and the label has since been removed"
+	default:
+		msg += "; a local fault, so the release is not blocklisted"
+	}
+	if dl.Status.Message != "" {
+		msg += ": " + dl.Status.Message
+	}
+	return msg
 }
 
 // publishImportTask publishes schema.ImportTask so importarr's
@@ -606,8 +712,9 @@ func engineReadyStatus(o client.Object) metav1.ConditionStatus {
 // phaseSignal projects the Download fields [derivePhase] reads that are NOT
 // covered by metadata.generation, for k8s.StatusFieldChanged on the
 // controller's own watch of Download. Without this, D2-8a's phase
-// advancement would never fire: status.stage and status.isEncrypted are
-// written by k8s.ManagerGrabarrEngine and status.import by
+// advancement would never fire: status.stage, status.isEncrypted,
+// status.engineFailureReason and status.seedGoalReached are written by
+// k8s.ManagerGrabarrEngine and status.import by
 // k8s.ManagerImportarr, on the SAME object this controller already watches,
 // but neither write bumps metadata.generation (only a spec change does),
 // and a label add/change -- the blocklist path -- bumps neither generation
@@ -623,10 +730,13 @@ func engineReadyStatus(o client.Object) metav1.ConditionStatus {
 // continuously-reconciling hot loop predicates.go's own package comment
 // warns against ("a metadata refresh ... must not wake squasharr").
 type downloadPhaseSignal struct {
-	stage       downloadv1alpha1.DownloadStage
-	encrypted   bool
-	importDone  bool
-	blocklisted bool
+	stage          downloadv1alpha1.DownloadStage
+	encrypted      bool
+	engineFailure  downloadv1alpha1.DownloadFailureReason
+	seedGoal       bool
+	importDone     bool
+	importRejected bool
+	blocklisted    bool
 }
 
 func phaseSignal(o client.Object) downloadPhaseSignal {
@@ -635,10 +745,13 @@ func phaseSignal(o client.Object) downloadPhaseSignal {
 		return downloadPhaseSignal{}
 	}
 	return downloadPhaseSignal{
-		stage:       dl.Status.Stage,
-		encrypted:   dl.Status.IsEncrypted,
-		importDone:  dl.Status.Import != nil && dl.Status.Import.State == downloadv1alpha1.ImportPhaseImported,
-		blocklisted: dl.Labels[downloadv1alpha1.LabelBlocklisted] == downloadv1alpha1.LabelBlocklistedValue,
+		stage:          dl.Status.Stage,
+		encrypted:      dl.Status.IsEncrypted,
+		engineFailure:  dl.Status.EngineFailureReason,
+		seedGoal:       dl.Status.SeedGoalReached,
+		importDone:     dl.Status.Import != nil && dl.Status.Import.State == downloadv1alpha1.ImportPhaseImported,
+		importRejected: importRejected(dl),
+		blocklisted:    isBlocklistLabelled(dl),
 	}
 }
 

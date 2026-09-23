@@ -46,11 +46,12 @@ import (
 // Download's phase back. A nil Bus (a test that exercises nothing past
 // assignment) publishes nothing.
 //
-// The actions this controller can observe are queued (the engine pin),
-// started, completed, imported, failed, blocklisted and removed.
-// seedGoalMet is the one §5 action it does not produce: it needs the
-// SeedGoalMet condition, which nothing derives yet (see phase.go and doc.go
-// -- status.canBeRemoved conflates "seed goal met" with "import finished").
+// It produces every §5 action: queued (the engine pin), started,
+// completed, seedGoalMet (the engine's status.seedGoalReached, first seen),
+// failed (a failure first recorded, whatever its reason), blocklisted,
+// imported and removed. seedGoalMet had no producer until gap fix Y2 gave
+// the engine a way to report the goal apart from status.canBeRemoved, which
+// also waits for the import.
 func (r *Reconciler) publishDownloadEvent(ctx context.Context, dl *downloadv1alpha1.Download, action, reason string) {
 	if r.Bus == nil {
 		return
@@ -101,8 +102,13 @@ func (r *Reconciler) publishDownloadEvent(ctx context.Context, dl *downloadv1alp
 // §5 action announcing it. Only the phases that are events in their own
 // right appear; Queued/Downloading/Paused are progress, and Completed and
 // Seeding are both announced once, as "completed", by the Downloaded edge.
+//
+// Failed is deliberately absent. failed is announced when a failure is
+// first RECORDED, not when the phase reads Failed: a release fault goes
+// straight to Blocklisted and never reads Failed at all, and a Download
+// whose blocklist label an operator removes reads Failed again without
+// having failed again. See advancePhase.
 var phaseActions = map[downloadv1alpha1.DownloadPhase]string{
 	downloadv1alpha1.DownloadPhaseImported:    events.ActionImported,
-	downloadv1alpha1.DownloadPhaseFailed:      events.ActionFailed,
 	downloadv1alpha1.DownloadPhaseBlocklisted: events.ActionBlocklisted,
 }

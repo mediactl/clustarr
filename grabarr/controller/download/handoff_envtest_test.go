@@ -191,7 +191,10 @@ func TestUsenetHealthDoesNotBlockPhaseAdvancement(t *testing.T) {
 	assert.Len(t, captured(), 1)
 }
 
-func TestIsEncryptedFailsTheDownloadWithoutPublishing(t *testing.T) {
+// An encrypted release is the release's fault (gap fix Y2), so it is
+// blocklisted rather than merely failed -- and either way it is never
+// handed to the importer.
+func TestIsEncryptedBlocklistsTheDownloadWithoutPublishing(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
 	ns := "default"
@@ -213,8 +216,10 @@ func TestIsEncryptedFailsTheDownloadWithoutPublishing(t *testing.T) {
 	reconcileOK(t, r, ns, dl.Name)
 
 	got := getDownload(t, ctx, c, ns, dl.Name)
-	assert.Equal(t, downloadv1alpha1.DownloadPhaseFailed, got.Status.Phase)
+	assert.Equal(t, downloadv1alpha1.DownloadPhaseBlocklisted, got.Status.Phase)
 	assert.Equal(t, downloadv1alpha1.DownloadFailureEncrypted, got.Status.FailureReason)
+	assert.Equal(t, downloadv1alpha1.LabelBlocklistedValue, got.Labels[downloadv1alpha1.LabelBlocklisted])
+	assert.NotNil(t, got.Status.BlocklistedUntil)
 	assert.True(t, k8s.IsConditionTrue(got.Status.Conditions, downloadv1alpha1.DownloadConditionFailed))
 	assert.False(t, k8s.IsConditionTrue(got.Status.Conditions, downloadv1alpha1.DownloadConditionDownloaded))
 
