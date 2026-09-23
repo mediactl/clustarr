@@ -43,6 +43,32 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // via RequeueAfter, the same self-timed mechanism
 // importarr/controller/rootfolderschedule uses for LibraryScan ticks.
 //
+// # Projecting a finished sync
+//
+// The worker's checkpoint lives in NATS KV, which no informer watches, so
+// the worker also stamps worker.AnnotationSyncedAt on the ImportList when a
+// sync finishes. SyncCompleted, ORed into the For() predicate, turns that
+// stamp into a reconcile, which reads the checkpoint and projects it. The
+// status therefore follows the worker within one reconcile, not one
+// refresh interval later.
+//
+// # Kinds a provider cannot yield (gap-fix ruling R-10)
+//
+// worker.YieldableKinds is the table: trakt, plex, tmdb, mdblist and imdbCSV
+// yield movie and series; stevenLu movie; arr its instance's kinds (radarr
+// movie, sonarr series, lidarr album, readarr book or audiobook, clustarr
+// any); custom any. R-10 rejects every other combination at admission. The
+// CEL rules that do it belong on ImportListSpec, which this task does not
+// own; they are, verbatim:
+//
+//	!(has(self.trakt) || has(self.plex) || has(self.tmdb) || has(self.mdblist) || has(self.imdbCSV)) || self.kinds.all(k, k == 'movie' || k == 'series')
+//	!has(self.stevenLu) || self.kinds.all(k, k == 'movie')
+//	!has(self.arr) || self.kinds.all(k, self.arr.kind == 'clustarr' || (self.arr.kind == 'radarr' && k == 'movie') || (self.arr.kind == 'sonarr' && k == 'series') || (self.arr.kind == 'lidarr' && k == 'album') || (self.arr.kind == 'readarr' && (k == 'book' || k == 'audiobook')))
+//
+// This controller reaches the same verdict for any list admitted without
+// them: Ready=False, ReasonUnsupportedKind, naming the kinds, and nothing
+// scheduled.
+//
 // # Trakt device-code flow
 //
 // spec.trakt requires spec.secretRef to hold the Trakt application's
@@ -69,7 +95,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // Nothing here registers itself. importarr/run.go's setupControllers does
 // (task G1-5), alongside libraryscan, rootfolderschedule and
-// importexclusion, with exactly the shape those three use:
+// importexclusion, with exactly the shape those three use (plus, when set,
+// TraktBaseURL for the device-code flow, which should name the same host as
+// the worker's own TraktBaseURL):
 //
 //	if err := (&importlist.Reconciler{
 //	        Client: mgr.GetClient(),

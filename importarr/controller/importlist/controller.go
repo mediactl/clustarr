@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -31,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
@@ -49,6 +51,11 @@ import (
 const (
 	ReasonNotAuthenticated = "NotAuthenticated"
 	ReasonQueueFull        = "QueueFull"
+
+	// ReasonUnsupportedKind is Ready=False on a list whose spec.kinds names
+	// a kind its provider cannot yield (gap-fix ruling R-10): a list
+	// admission should have rejected. Nothing is scheduled for it.
+	ReasonUnsupportedKind = "UnsupportedKind"
 )
 
 // Reconciler schedules ImportList syncs and drives the Trakt device-code
@@ -121,12 +128,30 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	// Adopt whatever the worker has checkpointed since the last reconcile,
 	// before deciding whether a new sync is due. The worker never writes
 	// ImportList.status itself (see k8s.ManagerImportarr's doc comment);
-	// this is the poll half of that split, the same one
+	// this is the read half of that split, the same one
 	// importarr/controller/libraryscan runs against
-	// importarr/worker/rescan's Progress checkpoint.
+	// importarr/worker/rescan's Progress checkpoint. The worker's
+	// AnnotationSyncedAt stamp is what brings a finished sync here.
 	checkpoint, hasCheckpoint, err := r.pollResult(ctx, &il)
 	if err != nil {
 		return ctrl.Result{}, err
+	}
+
+	// Gap-fix ruling R-10: a kind the provider cannot yield is an
+	// admission failure. Until the ImportList CRD carries the CEL rule
+	// (see this package's doc comment), and for any list admitted before
+	// it did, this is the same verdict, reported: Ready=False naming the
+	// kinds, and no sync scheduled, auth included -- a rejected object
+	// would do nothing at all. Every other status field is re-asserted.
+	if bad := worker.UnyieldableKinds(il.Spec); len(bad) > 0 {
+		markSynced(&il, &conditions, checkpoint, hasCheckpoint)
+		k8s.MarkReady(&il, &conditions, false, ReasonUnsupportedKind,
+			"a %s list yields only %v; spec.kinds also names %s, which it cannot yield, so nothing is synced until spec.kinds is corrected",
+			worker.ProviderName(il.Spec), worker.YieldableKinds(il.Spec), strings.Join(bad, ", "))
+		if err := r.applyStatus(ctx, &il, conditions, checkpointOrNil(checkpoint, hasCheckpoint), il.Status.Auth); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	authenticated := true
@@ -182,24 +207,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		logging.FromContext(ctx).Info("importlist: sync scheduled", "nextSyncAt", nextSyncAt)
 	}
 
-	// Synced reflects the worker's own report, not merely that a task was
-	// published this reconcile: a task can sit queued or fail long after
-	// this reconcile returns, and Ready below is about the ImportList's
-	// configuration being valid and schedulable, which is a different
-	// claim from "the last sync actually succeeded".
-	switch {
-	case !hasCheckpoint:
-		k8s.MarkUnknown(&il, &conditions, catalogv1alpha1.ImportListConditionSynced,
-			k8s.ReasonPending, "no sync has completed yet")
-	case checkpoint.Error == "":
-		k8s.MarkTrue(&il, &conditions, catalogv1alpha1.ImportListConditionSynced,
-			k8s.ReasonSucceeded, "last sync at %s: %d fetched, %d added, %d excluded, %d removed",
-			checkpoint.SyncedAt.Format(time.RFC3339), checkpoint.Fetched, checkpoint.Added,
-			checkpoint.Excluded, checkpoint.Removed)
-	default:
-		k8s.MarkFalse(&il, &conditions, catalogv1alpha1.ImportListConditionSynced,
-			k8s.ReasonFailed, "%s", checkpoint.Error)
-	}
+	markSynced(&il, &conditions, checkpoint, hasCheckpoint)
 	k8s.MarkReady(&il, &conditions, true, k8s.ReasonReconciled, "scheduled")
 	nextSyncAtMeta := metav1.NewTime(nextSyncAt)
 	if err := r.applyStatusFull(ctx, &il, conditions, checkpointOrNil(checkpoint, hasCheckpoint), authState, &nextSyncAtMeta); err != nil {
@@ -210,6 +218,27 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		requeue = until
 	}
 	return ctrl.Result{RequeueAfter: requeueFor(requeue)}, nil
+}
+
+// markSynced sets Synced from the worker's own report, not merely from a
+// task having been published: a task can sit queued or fail long after a
+// reconcile returns, and Ready is about the ImportList's configuration being
+// valid and schedulable, which is a different claim from "the last sync
+// actually succeeded".
+func markSynced(il *catalogv1alpha1.ImportList, conditions *[]metav1.Condition, checkpoint worker.Result, ok bool) {
+	switch {
+	case !ok:
+		k8s.MarkUnknown(il, conditions, catalogv1alpha1.ImportListConditionSynced,
+			k8s.ReasonPending, "no sync has completed yet")
+	case checkpoint.Error == "":
+		k8s.MarkTrue(il, conditions, catalogv1alpha1.ImportListConditionSynced,
+			k8s.ReasonSucceeded, "last sync at %s: %d fetched, %d added, %d excluded, %d removed",
+			checkpoint.SyncedAt.UTC().Format(time.RFC3339), checkpoint.Fetched, checkpoint.Added,
+			checkpoint.Excluded, checkpoint.Removed)
+	default:
+		k8s.MarkFalse(il, conditions, catalogv1alpha1.ImportListConditionSynced,
+			k8s.ReasonFailed, "%s", checkpoint.Error)
+	}
 }
 
 // reconcileAuth builds the Trakt credentials and device flow and drives one
@@ -335,6 +364,11 @@ func (r *Reconciler) applyStatusFull(
 	ctx context.Context, il *catalogv1alpha1.ImportList, conditions []metav1.Condition,
 	checkpoint *worker.Result, auth *catalogv1alpha1.DeviceAuth, nextSyncAt *metav1.Time,
 ) error {
+	// DeadLettered is folded here, the one place every path's conditions
+	// are rendered, so no early return can leave it out of the declaration.
+	conditions = append([]metav1.Condition(nil), conditions...)
+	k8s.MarkDeadLettered(il, &conditions)
+
 	status := catalogac.ImportListStatus().
 		WithObservedGeneration(il.Generation).
 		WithConditions(k8s.ConditionACs(conditions)...).
@@ -389,14 +423,20 @@ func (r *Reconciler) applyStatusFull(
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=importlists/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;create;update;patch
 
-// SetupWithManager registers the ImportList controller. GenerationChanged
-// alone would miss the flag on a spec.enabled toggle with an unrelated field
-// unchanged (enabled is +optional with no CEL immutability, so a toggle
-// always bumps the generation the same way any other spec edit does, and so
-// does nothing else here); the predicate is exactly GenerationChanged
-// because this controller's own status writes never touch spec and
-// therefore never bump it either, so nothing it does can loop itself. The
-// schedule and the Trakt poll cadence are both driven by RequeueAfter
+// SetupWithManager registers the ImportList controller. Its For()
+// predicate passes three changes and nothing else:
+//
+//   - the generation, i.e. any spec edit, spec.enabled included. This
+//     controller's own status writes never bump it, so it cannot loop
+//     itself.
+//   - the worker's [worker.AnnotationSyncedAt] stamp, so a finished sync's
+//     Result is projected into status as soon as it lands. Without it the
+//     only other wake-up is the RequeueAfter at nextSyncAt, and status lags
+//     a whole refresh interval (up to 24h for stevenLu) behind the worker.
+//   - the DLQ projector's k8s.AnnotationDeadLettered, which applyStatusFull
+//     folds into the DeadLettered condition.
+//
+// The schedule and the Trakt poll cadence are driven by RequeueAfter
 // instead of a watch, the same way rootfolderschedule's cron and
 // libraryscan's checkpoint poll are.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -408,9 +448,21 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("importlist").
-		For(&catalogv1alpha1.ImportList{}, builder.WithPredicates(k8s.GenerationChanged())).
+		For(&catalogv1alpha1.ImportList{}, builder.WithPredicates(k8s.Or(
+			k8s.GenerationChanged(),
+			SyncCompleted(),
+			k8s.DeadLetteredAnnotationChanged(),
+		))).
 		WithOptions(controller.Options{RecoverPanic: ptr.To(true), ReconciliationTimeout: 5 * time.Minute}).
 		Complete(r)
+}
+
+// SyncCompleted passes an update whose [worker.AnnotationSyncedAt] value
+// changed: the worker finished a sync. Creates and deletes pass too.
+func SyncCompleted() predicate.Predicate {
+	return k8s.StatusFieldChanged(func(o client.Object) string {
+		return o.GetAnnotations()[worker.AnnotationSyncedAt]
+	})
 }
 
 var _ reconcile.Reconciler = (*Reconciler)(nil)
