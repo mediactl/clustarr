@@ -18,9 +18,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package downloadclient
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strconv"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
@@ -308,10 +312,71 @@ func podSpecAC(dc *downloadv1alpha1.DownloadClient, container *corev1ac.Containe
 	return spec
 }
 
-func podTemplateAC(labels map[string]string, spec *corev1ac.PodSpecApplyConfiguration) *corev1ac.PodTemplateSpecApplyConfiguration {
+func podTemplateAC(dc *downloadv1alpha1.DownloadClient, labels map[string]string, spec *corev1ac.PodSpecApplyConfiguration) *corev1ac.PodTemplateSpecApplyConfiguration {
 	return corev1ac.PodTemplateSpec().
 		WithLabels(labels).
+		WithAnnotations(map[string]string{EngineConfigHashAnnotation: engineConfigHash(dc)}).
 		WithSpec(spec)
+}
+
+// EngineConfigHashAnnotation is the engine pod template's annotation holding
+// [engineConfigHash]: a hash of every DownloadClient setting an engine reads
+// once, at start. Changing one of those settings changes the pod template,
+// so the StatefulSet or Deployment rolls its pods and each engine starts
+// again with the new value -- the Deployment-annotation idiom for "restart
+// on a config change". Before it, stallTimeout, downloadTimeout, the usenet
+// providers and the rest took effect only when an engine happened to restart.
+const EngineConfigHashAnnotation = "download.clustarr.io/engine-config-hash"
+
+// engineConfigHash hashes what the engine for dc reads at start
+// ([engineStartConfig]). JSON is a stable encoding here: struct fields render
+// in declaration order and map keys sorted.
+func engineConfigHash(dc *downloadv1alpha1.DownloadClient) string {
+	raw, err := json.Marshal(engineStartConfig(dc))
+	if err != nil {
+		// Every type in it is a plain API type, which always marshals.
+		panic(fmt.Sprintf("downloadclient: marshal engine config: %v", err))
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:8])
+}
+
+// engineStartConfig is what the engine for dc reads once, at start
+// (grabarr/run.go's setupTorrentEngine and grabarr/engine/usenet.BuildClient):
+//
+//   - torrent: spec.torrent, less seed and removeCompleted. The engine reads
+//     those two on every reconcile, so a change to them applies without a
+//     restart, and restarting every ordinal for one would cost each torrent
+//     its peers for nothing. Everything else in TorrentSpec is start-time --
+//     listenPort, enableDHT, stallTimeout -- or not read yet, and a field
+//     added later rolls the engine until someone decides otherwise, which is
+//     the safe default.
+//   - usenet: all of spec.usenet (providers, post-processing, pre-check, the
+//     health floor and action, propagationDelay, downloadTimeout) and
+//     spec.categories, which the usenet engine resolves once at construction.
+//
+// It deliberately leaves out what already changes the pod template on its
+// own (resources, nodeSelector, tolerations) and what no engine reads
+// (enabled, priority, replicas). The providers' Secrets are read at start
+// too, but only their names are here: a rotated password is not a spec
+// change, and restarting the engine picks it up.
+func engineStartConfig(dc *downloadv1alpha1.DownloadClient) any {
+	switch {
+	case dc.Spec.Torrent != nil:
+		t := dc.Spec.Torrent.DeepCopy()
+		t.Seed = nil
+		t.RemoveCompleted = nil
+		return struct {
+			Torrent *downloadv1alpha1.TorrentSpec `json:"torrent"`
+		}{t}
+	case dc.Spec.Usenet != nil:
+		return struct {
+			Usenet     *downloadv1alpha1.UsenetSpec `json:"usenet"`
+			Categories map[string]string            `json:"categories,omitempty"`
+		}{dc.Spec.Usenet, dc.Spec.Categories}
+	default:
+		return struct{}{}
+	}
 }
 
 // torrentContainer builds the torrent engine's container.
@@ -459,7 +524,7 @@ func buildStatefulSet(dc *downloadv1alpha1.DownloadClient, name, image, dataDir,
 	spec := appsv1ac.StatefulSetSpec().
 		WithReplicas(torrentReplicas(dc)).
 		WithSelector(metav1ac.LabelSelector().WithMatchLabels(labels)).
-		WithTemplate(podTemplateAC(labels, podSpecAC(dc, container, dataClaimName, rt)))
+		WithTemplate(podTemplateAC(dc, labels, podSpecAC(dc, container, dataClaimName, rt)))
 
 	return appsv1ac.StatefulSet(name, dc.Namespace).
 		WithLabels(labels).
@@ -470,13 +535,23 @@ func buildStatefulSet(dc *downloadv1alpha1.DownloadClient, name, image, dataDir,
 // buildDeployment renders the usenet engine's Deployment: always one replica
 // (DownloadClientSpec's CEL rule enforces spec.replicas==1 for usenet), mounting
 // /data and a scratch volume, running [usenetContainer].
+//
+// Its strategy is Recreate. The default RollingUpdate surges a second pod
+// before stopping the first, and two usenet engines under one --engine
+// identity would both reconcile the same Downloads -- each re-adding every
+// job to its own scratch area, fetching the same articles twice against the
+// providers' connection limits and quotas -- while a scratch PVC, which is
+// ReadWriteOnce, leaves the surge pod unschedulable on another node and the
+// rollout stuck. A roll is routine now that a config change triggers one
+// ([EngineConfigHashAnnotation]), so the old engine stops first.
 func buildDeployment(dc *downloadv1alpha1.DownloadClient, name, image, dataDir, scratchDir, dataClaimName string, rt EngineRuntime, owner *metav1ac.OwnerReferenceApplyConfiguration) *appsv1ac.DeploymentApplyConfiguration {
 	labels := selectorLabels(dc)
 	container := usenetContainer(dc, image, dataDir, scratchDir, rt)
 	spec := appsv1ac.DeploymentSpec().
 		WithReplicas(1).
+		WithStrategy(appsv1ac.DeploymentStrategy().WithType(appsv1.RecreateDeploymentStrategyType)).
 		WithSelector(metav1ac.LabelSelector().WithMatchLabels(labels)).
-		WithTemplate(podTemplateAC(labels, podSpecAC(dc, container, dataClaimName, rt, scratchVolume(dc))))
+		WithTemplate(podTemplateAC(dc, labels, podSpecAC(dc, container, dataClaimName, rt, scratchVolume(dc))))
 
 	return appsv1ac.Deployment(name, dc.Namespace).
 		WithLabels(labels).

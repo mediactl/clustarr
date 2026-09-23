@@ -217,6 +217,37 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	return ctrl.Result{RequeueAfter: recheckInterval}, nil
 }
 
+// recreateStrategyPatch moves a Deployment to the Recreate strategy and drops
+// the rollingUpdate block with it -- see [Reconciler.migrateToRecreate].
+var recreateStrategyPatch = []byte(`{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}`)
+
+// migrateToRecreate moves a usenet engine Deployment created before
+// buildDeployment set the Recreate strategy onto it, once, ahead of the
+// apply. Server-side apply cannot do this itself: the old Deployment carries
+// the apiserver's defaulted rollingUpdate block, which no field manager owns
+// and an apply therefore never removes, and the apiserver rejects a Recreate
+// Deployment that still has one -- so the apply would fail on every reconcile
+// from then on. A merge patch can say "rollingUpdate: null"; an apply
+// configuration cannot. A Deployment that is absent or already Recreate is
+// left alone, so this costs one cached Get in the steady state.
+func (r *Reconciler) migrateToRecreate(ctx context.Context, namespace, name string) error {
+	var live appsv1.Deployment
+	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &live); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("downloadclient: get Deployment %s: %w", name, err)
+	}
+	if live.Spec.Strategy.Type == appsv1.RecreateDeploymentStrategyType {
+		return nil
+	}
+	if err := r.Client.Patch(ctx, &live, client.RawPatch(types.MergePatchType, recreateStrategyPatch),
+		client.FieldOwner(string(k8s.ManagerGrabarr))); err != nil {
+		return fmt.Errorf("downloadclient: move Deployment %s to the Recreate strategy: %w", name, err)
+	}
+	return nil
+}
+
 // reconcileWorkload applies the StatefulSet (torrent) or Deployment (usenet)
 // the DownloadClient describes and reads back its live replica counts. It
 // returns the desired replica count alongside the two observed ones so the
@@ -248,6 +279,9 @@ func (r *Reconciler) reconcileWorkload(
 			if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerGrabarr, pvc); err != nil {
 				return 0, 0, 0, fmt.Errorf("downloadclient: apply scratch PVC for %s: %w", dc.Name, err)
 			}
+		}
+		if err := r.migrateToRecreate(ctx, dc.Namespace, workloadName); err != nil {
+			return 0, 0, 0, err
 		}
 		dep := buildDeployment(dc, workloadName, r.EngineImage, r.DataDir, r.ScratchDir, r.DataClaimName, r.Engine, ownerRef)
 		if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerGrabarr, dep); err != nil {
