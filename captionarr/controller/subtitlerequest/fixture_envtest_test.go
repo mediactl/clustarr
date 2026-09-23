@@ -47,6 +47,7 @@ import (
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	"github.com/mediactl/clustarr/captionarr/controller/subtitlerequest"
+	"github.com/mediactl/clustarr/captionarr/datapath"
 	"github.com/mediactl/clustarr/captionarr/status"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
@@ -171,10 +172,14 @@ func newFixture(t *testing.T, ns string) *fixture {
 	require.NoError(t, mb.Ensure(ctx, events.Default().ForSingleNode()))
 	t.Cleanup(func() { _ = mb.Close() })
 	bus := &recordingBus{inner: mb}
+	// dir stands in for the media volume: it is the reconciler's --data-dir,
+	// and every MediaFile path is the logical /data path that maps into it,
+	// exactly as in a Deployment. A path read literally would not exist.
+	dir := t.TempDir()
 
 	return &fixture{
-		t: t, ctx: ctx, c: testClient, ns: ns, dir: t.TempDir(), clock: clock, bus: bus,
-		r: &subtitlerequest.Reconciler{Client: testClient, Bus: bus, Now: clock.Now},
+		t: t, ctx: ctx, c: testClient, ns: ns, dir: dir, clock: clock, bus: bus,
+		r: &subtitlerequest.Reconciler{Client: testClient, Bus: bus, Now: clock.Now, DataDir: dir},
 	}
 }
 
@@ -211,7 +216,9 @@ func englishTrack() *commonv1alpha1.MediaInfo {
 }
 
 // mediaFile writes <name>.mkv plus any sidecars into the fixture's directory
-// and creates the MediaFile, probed (as catalogarr would) when mi is non-nil.
+// and creates the MediaFile -- at the logical /data/<name>.mkv, which the
+// reconciler's DataDir maps onto that directory -- probed (as catalogarr
+// would) when mi is non-nil.
 func (f *fixture) mediaFile(name string, mi *commonv1alpha1.MediaInfo, sidecars ...string) *catalogv1alpha1.MediaFile {
 	f.t.Helper()
 	for _, s := range append([]string{name + ".mkv"}, sidecars...) {
@@ -221,7 +228,7 @@ func (f *fixture) mediaFile(name string, mi *commonv1alpha1.MediaInfo, sidecars 
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: f.ns},
 		Spec: catalogv1alpha1.MediaFileSpec{
 			MediaRef:  commonv1alpha1.MediaRef{Kind: commonv1alpha1.MediaKindMovie, Name: name},
-			Path:      filepath.Join(f.dir, name+".mkv"),
+			Path:      filepath.Join(datapath.Root, name+".mkv"),
 			SizeBytes: 4 << 30,
 			ModTime:   metav1.NewTime(testStart.Add(-48 * time.Hour)),
 		},
@@ -249,6 +256,17 @@ func (f *fixture) request(name string) *subtitlev1alpha1.SubtitleRequest {
 	}
 	require.NoError(f.t, f.c.Create(f.ctx, sr))
 	return sr
+}
+
+// forceSearch sets spec.forceSearch as a user (or the UI) would, and returns
+// the generation the edit produced.
+func (f *fixture) forceSearch(name string) int64 {
+	f.t.Helper()
+	sr := f.get(name)
+	patch := client.MergeFrom(sr.DeepCopy())
+	sr.Spec.ForceSearch = true
+	require.NoError(f.t, f.c.Patch(f.ctx, sr, patch))
+	return sr.Generation
 }
 
 func (f *fixture) reconcile(name string) ctrl.Result {

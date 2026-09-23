@@ -115,7 +115,7 @@ func TestFirstPlanCreatesTheItemAndPublishesOnlyWhatNothingCovers(t *testing.T) 
 	require.Len(t, calls, 1, "only German is missing")
 	c := calls[0]
 	assert.Equal(t, events.WorkFetchSubject(events.PriorityNormal, string(got.UID), "de"), c.subject)
-	assert.Equal(t, events.MsgIDForSubtitle(string(got.UID), "de", probeHash1), c.msgID, "R6")
+	assert.Equal(t, events.MsgIDForSubtitle(string(got.UID), "de", probeHash1, 1), c.msgID, "R6, attempt 1")
 	assert.Equal(t, "de", c.task.LangKey)
 	assert.Equal(t, movieThreshold, c.task.MinScore)
 	assert.Equal(t, probeHash1, c.task.ProbeHash)
@@ -156,7 +156,7 @@ func TestR6DedupAbsorbsTheRepublishAfterAFailedApply(t *testing.T) {
 			return c.SubResource(sub).Apply(ctx, obj, opts...)
 		},
 	})
-	r := &subtitlerequest.Reconciler{Client: flaky, Bus: f.bus, Now: f.clock.Now}
+	r := &subtitlerequest.Reconciler{Client: flaky, Bus: f.bus, Now: f.clock.Now, DataDir: f.dir}
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: f.ns, Name: "movie"}}
 
 	_, err = r.Reconcile(f.ctx, req)
@@ -536,7 +536,7 @@ func TestNewProbeHashResetsTheSchedule(t *testing.T) {
 	assert.Equal(t, "hash-2", got.Status.ProbeHash)
 	stored := f.bus.stored()
 	require.Len(t, stored, 2, "the new file's task must not be absorbed by the old file's")
-	assert.Equal(t, events.MsgIDForSubtitle(string(got.UID), "de", "hash-2"), stored[1].msgID)
+	assert.Equal(t, events.MsgIDForSubtitle(string(got.UID), "de", "hash-2", 1), stored[1].msgID)
 	de := item(t, got, "de")
 	assert.EqualValues(t, 1, de.Attempts.Count, "the old file's history is gone")
 	assert.Equal(t, testStart.Add(30*time.Minute), timeOf(t, de.Attempts.Initial))
@@ -544,39 +544,40 @@ func TestNewProbeHashResetsTheSchedule(t *testing.T) {
 }
 
 // TestForceSearch: spec.forceSearch sends every unsatisfied language now, at
-// high priority, and is reset. Inside the dedup window the forced task is
-// absorbed and the attempt is not counted twice.
+// high priority, under a message ID of its own, and is reset. A second
+// "search now" ten minutes later is a new generation and goes out too:
+// under the three-part ID of spec §6.5 the stream's one-hour dedup window
+// absorbed it, and the UI's search button appeared to do nothing (plan task
+// F-6).
 func TestForceSearch(t *testing.T) {
 	f := newFixture(t, "sr-force")
 	steadyState(t, f)
 
-	force := func() {
-		t.Helper()
-		sr := f.get("movie")
-		patch := client.MergeFrom(sr.DeepCopy())
-		sr.Spec.ForceSearch = true
-		require.NoError(t, f.c.Patch(f.ctx, sr, patch))
-	}
-
 	f.clock.Advance(2 * time.Hour) // de is not due until +6h
-	force()
+	gen := f.forceSearch("movie")
 	f.reconcile("movie")
 	got := f.get("movie")
 	stored := f.bus.stored()
 	require.Len(t, stored, 2)
 	assert.Equal(t, events.WorkFetchSubject(events.PriorityHigh, string(got.UID), "de"), stored[1].subject)
+	assert.Equal(t, events.MsgIDForForcedSubtitle(string(got.UID), "de", probeHash1, gen), stored[1].msgID)
 	assert.False(t, got.Spec.ForceSearch, "forceSearch is one-shot")
 	de := item(t, got, "de")
 	assert.EqualValues(t, 2, de.Attempts.Count)
 	assert.Equal(t, testStart.Add(8*time.Hour), timeOf(t, de.NextSearchAt))
 
 	f.clock.Advance(10 * time.Minute)
-	force()
+	gen2 := f.forceSearch("movie")
+	require.NotEqual(t, gen, gen2, "setup: setting forceSearch again must be a new generation")
 	f.reconcile("movie")
 	got = f.get("movie")
-	calls := f.bus.calls()
-	assert.True(t, calls[len(calls)-1].dup, "a forced search inside the window is absorbed")
-	assert.EqualValues(t, 2, item(t, got, "de").Attempts.Count, "and is not counted twice")
+	stored = f.bus.stored()
+	require.Len(t, stored, 3, "a second forced search inside the dedup window must go out, not be absorbed")
+	assert.Equal(t, events.MsgIDForForcedSubtitle(string(got.UID), "de", probeHash1, gen2), stored[2].msgID)
+	assert.Equal(t, events.WorkFetchSubject(events.PriorityHigh, string(got.UID), "de"), stored[2].subject)
+	de = item(t, got, "de")
+	assert.EqualValues(t, 3, de.Attempts.Count, "and it counts as the attempt it is")
+	assert.Equal(t, testStart.Add(2*time.Hour+10*time.Minute+6*time.Hour), timeOf(t, de.NextSearchAt))
 	assert.False(t, got.Spec.ForceSearch)
 
 	// The reset is an Update-operation patch in its own managedFields
@@ -587,6 +588,84 @@ func TestForceSearch(t *testing.T) {
 			assert.Equal(t, metav1.ManagedFieldsOperationUpdate, e.Operation)
 		}
 	}
+}
+
+// TestForcedSearchRepeatIsAbsorbed is the other half of the forced message
+// ID: the task goes out and its dispatch is recorded, but the reset of
+// spec.forceSearch fails, so the retry reconciles the SAME forced generation.
+// It must publish under the same ID -- absorbed, one task -- and must not
+// count the attempt twice. A discriminator that changed on every reconcile
+// (a clock, a counter) would send a second search here.
+func TestForcedSearchRepeatIsAbsorbed(t *testing.T) {
+	f := newFixture(t, "sr-force-retry")
+	steadyState(t, f)
+	f.clock.Advance(2 * time.Hour)
+	gen := f.forceSearch("movie")
+
+	wc, err := client.NewWithWatch(testCfg, client.Options{Scheme: k8s.MustNewScheme()})
+	require.NoError(t, err)
+	failed := false
+	flaky := interceptor.NewClient(wc, interceptor.Funcs{
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			if !failed {
+				failed = true
+				return errors.New("injected: the forceSearch reset went nowhere")
+			}
+			return c.Patch(ctx, obj, patch, opts...)
+		},
+	})
+	r := &subtitlerequest.Reconciler{Client: flaky, Bus: f.bus, Now: f.clock.Now, DataDir: f.dir}
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: f.ns, Name: "movie"}}
+
+	_, err = r.Reconcile(f.ctx, req)
+	require.Error(t, err, "the injected reset failure must surface")
+	require.Len(t, f.bus.stored(), 2, "setup: the forced task went out")
+	got := f.get("movie")
+	require.True(t, got.Spec.ForceSearch, "setup: the reset failed")
+	require.Equal(t, gen, got.Generation, "setup: still the forced generation")
+	require.EqualValues(t, 2, item(t, got, "de").Attempts.Count, "setup: the dispatch was recorded")
+
+	f.clock.Advance(time.Minute)
+	_, err = r.Reconcile(f.ctx, req)
+	require.NoError(t, err)
+	calls := f.bus.calls()
+	last := calls[len(calls)-1]
+	assert.True(t, last.dup, "the retry of one forced search must be absorbed by the dedup window")
+	assert.Equal(t, events.MsgIDForForcedSubtitle(string(got.UID), "de", probeHash1, gen), last.msgID)
+	assert.Len(t, f.bus.stored(), 2, "one forced task, not two")
+	got = f.get("movie")
+	assert.EqualValues(t, 2, item(t, got, "de").Attempts.Count, "the absorbed repeat is not counted")
+	assert.False(t, got.Spec.ForceSearch, "the retry's reset went through")
+}
+
+// TestSubHourIntervalIsNotAbsorbed: a search.interval shorter than the work
+// stream's one-hour dedup window. Each scheduled search is a new attempt
+// with an ID of its own, so the second search goes out at +30m. Under the
+// three-part ID it was absorbed, recorded as dispatched anyway, and the
+// interval silently became an hour.
+func TestSubHourIntervalIsNotAbsorbed(t *testing.T) {
+	f := newFixture(t, "sr-interval")
+	f.profile(func(s *subtitlev1alpha1.SubtitleProfileSpec) {
+		s.Search.Interval = metav1.Duration{Duration: 30 * time.Minute}
+	})
+	f.mediaFile("movie", englishTrack())
+	f.request("movie")
+	res := f.reconcile("movie")
+	assert.Equal(t, 30*time.Minute, res.RequeueAfter)
+	f.report("movie", "de", func(it *subtitlev1alpha1.SubtitleItem) {
+		it.State, it.ScoreOutOf, it.LastError = subtitlev1alpha1.SubtitleItemUnavailable, 180, "no candidate"
+	})
+
+	f.clock.Advance(30 * time.Minute)
+	f.reconcile("movie")
+	got := f.get("movie")
+	stored := f.bus.stored()
+	require.Len(t, stored, 2, "the +30m search must be a new task, not absorbed by the +0 one")
+	assert.Equal(t, events.MsgIDForSubtitle(string(got.UID), "de", probeHash1, 1), stored[0].msgID)
+	assert.Equal(t, events.MsgIDForSubtitle(string(got.UID), "de", probeHash1, 2), stored[1].msgID)
+	de := item(t, got, "de")
+	assert.EqualValues(t, 2, de.Attempts.Count)
+	assert.Equal(t, testStart.Add(time.Hour), timeOf(t, de.NextSearchAt))
 }
 
 func TestBlocksBeforePlanning(t *testing.T) {
@@ -615,6 +694,19 @@ func TestBlocksBeforePlanning(t *testing.T) {
 	require.NoError(t, f.c.Create(f.ctx, sr))
 	f.reconcile("orphan")
 	assert.Equal(t, subtitlerequest.ReasonProfileNotFound, cond(f.get("orphan"), subtitlev1alpha1.SubtitleRequestConditionPlanned).Reason)
+
+	// A path off the data volume: neither this controller nor the fetch
+	// worker can ever map it through --data-dir (captionarr/datapath), so
+	// it is its own block, not an unreadable directory.
+	off := f.mediaFile("offvolume", englishTrack())
+	patch := client.MergeFrom(off.DeepCopy())
+	off.Spec.Path = filepath.Join(f.dir, "offvolume.mkv")
+	require.NoError(t, f.c.Patch(f.ctx, off, patch))
+	f.request("offvolume")
+	f.reconcile("offvolume")
+	planned := cond(f.get("offvolume"), subtitlev1alpha1.SubtitleRequestConditionPlanned)
+	assert.Equal(t, subtitlerequest.ReasonNotOnDataVolume, planned.Reason)
+	assert.Contains(t, planned.Message, "outside /data")
 
 	assert.Empty(t, f.bus.calls())
 }

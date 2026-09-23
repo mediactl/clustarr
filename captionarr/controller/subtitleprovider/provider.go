@@ -18,12 +18,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package subtitleprovider
 
 import (
+	"errors"
 	"fmt"
-	"strings"
-
-	corev1 "k8s.io/api/core/v1"
 
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
+	"github.com/mediactl/clustarr/captionarr/providerset"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -34,13 +33,13 @@ const (
 	// ReasonNotImplemented is Ready's (and, via k8s.MarkUnknown,
 	// Authenticated's and Throttled's) reason for a SubtitleProviderType
 	// ruling R5 names as having no client in this phase: subdl, subsource and
-	// whisper. "SubtitleProviderStatus mirrors KV throttle/quota into status"
-	// only makes sense for a type something actually authenticates and
-	// searches against -- see [implementedTypes].
+	// whisper (providerset.ErrNoClient). "SubtitleProviderStatus mirrors KV
+	// throttle/quota into status" only makes sense for a type something
+	// actually authenticates and searches against.
 	ReasonNotImplemented = "NotImplemented"
 
 	// ReasonNoCredentialsRequired is Authenticated=True's reason for a
-	// provider type [requiredSecretKeys] reports needs none (gestdown,
+	// provider type providerset.NeedsSecrets reports needs none (gestdown,
 	// embedded).
 	ReasonNoCredentialsRequired = "NoCredentialsRequired"
 
@@ -54,50 +53,11 @@ const (
 	ReasonNotThrottled = "NotThrottled"
 )
 
-// implementedTypes lists the SubtitleProviderTypes captionarr has an
-// in-process client for, mirroring the packages actually shipped under
-// pkg/subtitles/providers/. Ruling R5: subdl, subsource and whisper are real
-// SubtitleProviderType enum values (the CRD accepts them) with no client
-// behind them yet -- a SubtitleProvider of one of those types must report
-// Ready=False with a clear reason, never loop retrying an auth check or a
-// search that can never succeed.
-var implementedTypes = map[subtitlev1alpha1.SubtitleProviderType]bool{
-	subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom: true,
-	subtitlev1alpha1.SubtitleProviderGestdown:         true,
-	subtitlev1alpha1.SubtitleProviderEmbedded:         true,
-}
-
-// implemented reports whether t is one of [implementedTypes].
-func implemented(t subtitlev1alpha1.SubtitleProviderType) bool {
-	return implementedTypes[t]
-}
-
-// requiredSecretKeys lists the Secret keys t's real provider needs, mirroring
-// its Capabilities().NeedsSecrets (pkg/subtitles/providers/opensubtitlescom
-// /client.go's Capabilities: NeedsSecrets: []string{"apiKey", "username",
-// "password"}; gestdown and embedded declare none). This package
-// deliberately does not import pkg/subtitles/providers/* or construct a
-// client to get this list -- task F-3 "validates and reports only"; F-5
-// owns turning a SubtitleProvider + Secret into a real pkg/subtitles.Provider.
-func requiredSecretKeys(t subtitlev1alpha1.SubtitleProviderType) []string {
-	switch t {
-	case subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom:
-		return []string{
-			subtitlev1alpha1.ProviderSecretKeyAPIKey,
-			subtitlev1alpha1.ProviderSecretKeyUsername,
-			subtitlev1alpha1.ProviderSecretKeyPassword,
-		}
-	default:
-		return nil
-	}
-}
-
 // hiVerifiable reports the static HIVerifiable() value t's real provider
 // returns (pkg/subtitles/providers/{opensubtitlescom,gestdown,embedded}
 // /provider.go all currently return true, each citing research note §4.1).
 // It is a fact about the provider TYPE, not a per-object computation, so it
-// is looked up here rather than by constructing a client -- see
-// [requiredSecretKeys]'s identical reasoning.
+// is looked up here rather than by constructing a client.
 func hiVerifiable(t subtitlev1alpha1.SubtitleProviderType) bool {
 	switch t {
 	case subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, subtitlev1alpha1.SubtitleProviderGestdown, subtitlev1alpha1.SubtitleProviderEmbedded:
@@ -107,61 +67,49 @@ func hiVerifiable(t subtitlev1alpha1.SubtitleProviderType) bool {
 	}
 }
 
-// authResult is [checkAuthentication]'s verdict: whether spec.secretRef
-// names a Secret carrying every key t's real provider needs, and the
-// condition reason/message to report either way.
+// authResult is [judge]'s verdict: whether captionarr has a client for the
+// provider's type, whether its credentials are complete, and the condition
+// reason and message to report either way.
 type authResult struct {
+	implemented   bool
 	authenticated bool
 	reason        string
 	message       string
 }
 
-// checkAuthentication validates -- it never authenticates against the real
-// upstream provider, which would mean building the client task F-3
-// explicitly does not own. secret is the already-fetched Secret spec.secretRef
-// names, or nil; secretErr is the error from fetching it (apierrors.IsNotFound
-// for a missing Secret; any other error is the caller's to treat as a real
-// reconcile failure rather than passed here).
-func checkAuthentication(t subtitlev1alpha1.SubtitleProviderType, secretRef *corev1.LocalObjectReference, secret *corev1.Secret, secretErr error) authResult {
-	required := requiredSecretKeys(t)
-	if len(required) == 0 {
+// judge turns captionarr/providerset.Validate's verdict on a provider into
+// this controller's conditions. It validates nothing itself: providerset is
+// the one validator, shared with the fetch worker's builder, so a provider
+// this controller calls Authenticated is exactly one the worker will search
+// (plan task F-6 -- the controller once had its own type table and Secret
+// check, and they had drifted).
+//
+// err is Validate's result. Any error wrapping neither
+// providerset.ErrNoClient nor providerset.ErrMissingSecret is a failure to
+// read the Secret, which the caller returns as a reconcile error instead of
+// passing here.
+func judge(t subtitlev1alpha1.SubtitleProviderType, err error) authResult {
+	switch {
+	case errors.Is(err, providerset.ErrNoClient):
 		return authResult{
-			authenticated: true, reason: ReasonNoCredentialsRequired,
+			reason:  ReasonNotImplemented,
+			message: fmt.Sprintf("captionarr has no client for provider type %q yet", t),
+		}
+	case err != nil:
+		return authResult{
+			implemented: true,
+			reason:      k8s.ReasonDependencyNotReady,
+			message:     err.Error(),
+		}
+	case len(providerset.NeedsSecrets(t)) == 0:
+		return authResult{
+			implemented: true, authenticated: true, reason: ReasonNoCredentialsRequired,
 			message: fmt.Sprintf("provider type %q needs no credentials", t),
 		}
-	}
-	if secretRef == nil {
+	default:
 		return authResult{
-			reason:  k8s.ReasonDependencyNotReady,
-			message: fmt.Sprintf("provider type %q requires a Secret (spec.secretRef is unset)", t),
+			implemented: true, authenticated: true, reason: ReasonCredentialsPresent,
+			message: fmt.Sprintf("spec.secretRef carries every key provider type %q needs", t),
 		}
-	}
-	if secretErr != nil {
-		return authResult{
-			reason:  k8s.ReasonDependencyNotReady,
-			message: fmt.Sprintf("secret %q: %s", secretRef.Name, secretErr),
-		}
-	}
-	if secret == nil {
-		return authResult{
-			reason:  k8s.ReasonDependencyNotReady,
-			message: fmt.Sprintf("secret %q: not fetched", secretRef.Name),
-		}
-	}
-	var missing []string
-	for _, key := range required {
-		if len(secret.Data[key]) == 0 {
-			missing = append(missing, key)
-		}
-	}
-	if len(missing) > 0 {
-		return authResult{
-			reason:  k8s.ReasonDependencyNotReady,
-			message: fmt.Sprintf("secret %q is missing key(s): %s", secretRef.Name, strings.Join(missing, ", ")),
-		}
-	}
-	return authResult{
-		authenticated: true, reason: ReasonCredentialsPresent,
-		message: fmt.Sprintf("secret %q carries every required key", secretRef.Name),
 	}
 }

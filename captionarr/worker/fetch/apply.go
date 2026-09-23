@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
+	"github.com/mediactl/clustarr/captionarr/datapath"
 	"github.com/mediactl/clustarr/captionarr/status"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -329,7 +330,7 @@ func (w *Worker) removeReplaced(ctx context.Context, mediaPath, oldRel, newRel s
 	if oldRel == "" || oldRel == newRel || filepath.Base(oldRel) != oldRel || oldRel == "." || oldRel == ".." {
 		return
 	}
-	local, err := localPath(w.dataDir(), filepath.Join(filepath.Dir(mediaPath), oldRel))
+	local, err := datapath.Local(w.DataDir, filepath.Join(filepath.Dir(mediaPath), oldRel))
 	if err != nil {
 		return
 	}

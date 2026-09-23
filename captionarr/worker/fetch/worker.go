@@ -34,6 +34,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
+	"github.com/mediactl/clustarr/captionarr/datapath"
 	"github.com/mediactl/clustarr/captionarr/providerset"
 	"github.com/mediactl/clustarr/captionarr/status"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -106,7 +107,8 @@ type Worker struct {
 	// Providers builds the provider set per task.
 	Providers ProviderSource
 
-	// DataDir is where the /data volume is mounted in this process.
+	// DataDir is where the /data volume is mounted in this process. Empty
+	// means /data itself (captionarr/datapath.Local).
 	DataDir string
 
 	// SidecarMode is the file mode sidecars are written with. Zero means
@@ -139,8 +141,6 @@ func (w *Worker) reader() client.Reader {
 	}
 	return w.Client
 }
-
-func (w *Worker) dataDir() string { return cmp.Or(w.DataDir, LogicalDataRoot) }
 
 func (w *Worker) sidecarMode() os.FileMode { return cmp.Or(w.SidecarMode, DefaultSidecarMode) }
 
@@ -288,7 +288,7 @@ func (w *Worker) handle(ctx context.Context, m events.Message, t task) error {
 		return w.recordFailure(ctx, &req, t.LangKey, outOf, msg)
 	}
 
-	local, err := localPath(w.dataDir(), mf.Spec.Path)
+	local, err := datapath.Local(w.DataDir, mf.Spec.Path)
 	if err != nil {
 		return events.Discard("fetch: media file path is not on the data volume", err)
 	}

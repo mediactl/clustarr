@@ -378,11 +378,36 @@ func MsgIDForRelease(indexerName, guid string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// MsgIDForSubtitle builds the deduplication ID for a subtitle fetch task:
-// "<request-uid>/<langKey>/<probeHash>". A re-probe that yields the same hash
-// does not re-enqueue the fetch.
-func MsgIDForSubtitle(requestUID, langKey, probeHash string) string {
-	return fmt.Sprintf("%s/%s/%s", requestUID, langKey, probeHash)
+// MsgIDForSubtitle builds the deduplication ID for a scheduled subtitle
+// fetch task: "<request-uid>/<langKey>/<probeHash>/<attempt>", where attempt
+// is the number the dispatch is recorded as in the item's attempts.count.
+//
+// Spec §6.5 names only "<uid>/<langKey>/<probeHash>". The attempt was added
+// by plan task F-6: without it every dispatch of one language for one file
+// shared one ID, so the work stream's one-hour deduplication window absorbed
+// every search that came due within an hour of the previous one -- a
+// search.interval under an hour silently became an hour. What the
+// deterministic ID exists for still holds: a republish of the SAME attempt
+// (a status apply that failed after the publish, a reconcile from a lagging
+// cache) is absorbed, and a re-probe that yields the same hash does not
+// re-enqueue the fetch. Only the next scheduled search, which is a new
+// attempt, gets a new ID.
+func MsgIDForSubtitle(requestUID, langKey, probeHash string, attempt int32) string {
+	return fmt.Sprintf("%s/%s/%s/%d", requestUID, langKey, probeHash, attempt)
+}
+
+// MsgIDForForcedSubtitle builds the deduplication ID for a fetch task sent
+// because SubtitleRequest.spec.forceSearch was set:
+// "<request-uid>/<langKey>/<probeHash>/force-<generation>", where
+// generation is the request's metadata.generation while forceSearch is true.
+//
+// Setting forceSearch bumps the generation and the controller's reset bumps
+// it again, so every user-forced search has an ID of its own and is never
+// absorbed by the dispatch before it -- the "search now" that under the
+// three-part ID did nothing for an hour. Repeats of one forced search (a
+// reset that failed and was retried) share the generation and are absorbed.
+func MsgIDForForcedSubtitle(requestUID, langKey, probeHash string, generation int64) string {
+	return fmt.Sprintf("%s/%s/%s/force-%d", requestUID, langKey, probeHash, generation)
 }
 
 // SubjectMatches reports whether subject matches a NATS subject filter, with

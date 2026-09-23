@@ -278,10 +278,67 @@ func (b *Builder) Build(ctx context.Context, namespace string) ([]Entry, error) 
 	return out, nil
 }
 
+// Validate reports whether sp can be built into an [Entry], by running
+// exactly the checks [Builder.Entry] runs -- the type has a client (ruling
+// R5), and spec.secretRef names a Secret carrying every key that client
+// needs -- without building one. It returns nil; an error wrapping
+// [ErrNoClient]; one wrapping [ErrMissingSecret] (no secretRef, no such
+// Secret, or a key absent or empty); or a failure to read the Secret.
+//
+// It is the SubtitleProvider controller's validator, and it is this function
+// rather than a copy of it so that the controller's Ready and Authenticated
+// cannot disagree with what the fetch worker will actually search: until
+// plan task F-6 the controller had a second type table and secret check of
+// its own, and they had already drifted (a gestdown provider whose
+// secretRef named a missing Secret was Authenticated=True there and skipped
+// here). secrets should be the manager's API reader, for the reason the
+// package doc gives.
+func Validate(ctx context.Context, secrets client.Reader, sp *subtitlev1alpha1.SubtitleProvider) error {
+	_, _, err := resolve(ctx, secrets, sp)
+	return err
+}
+
+// NeedsSecrets returns the Secret keys t's client needs, from that client's
+// own Capabilities().NeedsSecrets; nil for a type that needs none or has no
+// client.
+func NeedsSecrets(t subtitlev1alpha1.SubtitleProviderType) []string {
+	switch t {
+	case subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom:
+		return opensubtitlescom.New(opensubtitlescom.Config{}).Capabilities().NeedsSecrets
+	case subtitlev1alpha1.SubtitleProviderGestdown:
+		return gestdown.New(gestdown.Config{}).Capabilities().NeedsSecrets
+	default:
+		return nil
+	}
+}
+
+// resolve is the one place a SubtitleProvider's type and credentials are
+// checked, for [Validate] and [Builder.Entry] alike. For a remote type it
+// returns the Secret's data and a version that changes whenever the Secret
+// does; a local type (embedded) reads no Secret at all.
+func resolve(ctx context.Context, secrets client.Reader, sp *subtitlev1alpha1.SubtitleProvider) (map[string][]byte, string, error) {
+	switch sp.Spec.Type {
+	case subtitlev1alpha1.SubtitleProviderEmbedded:
+		return nil, "", nil
+	case subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, subtitlev1alpha1.SubtitleProviderGestdown:
+	default:
+		return nil, "", fmt.Errorf("%w: %s", ErrNoClient, sp.Spec.Type)
+	}
+	data, version, err := readSecret(ctx, secrets, sp)
+	if err != nil {
+		return nil, "", err
+	}
+	if err := requireKeys(sp, data, NeedsSecrets(sp.Spec.Type)); err != nil {
+		return nil, "", err
+	}
+	return data, version, nil
+}
+
 // Entry builds (or reuses) the [Entry] for one SubtitleProvider. It returns
 // [ErrNoClient] for a type with no client and wraps [ErrMissingSecret] for
-// absent credentials, so the SubtitleProvider controller can surface either
-// as a Ready=False reason instead of an error loop (ruling R5).
+// absent credentials -- [Validate]'s verdicts, from the same checks -- so
+// the SubtitleProvider controller can surface either as a Ready=False
+// reason instead of an error loop (ruling R5).
 func (b *Builder) Entry(ctx context.Context, sp *subtitlev1alpha1.SubtitleProvider) (Entry, error) {
 	e := Entry{
 		Name:      sp.Name,
@@ -294,8 +351,11 @@ func (b *Builder) Entry(ctx context.Context, sp *subtitlev1alpha1.SubtitleProvid
 		Options:   cloneMap(sp.Spec.Options),
 	}
 
-	switch sp.Spec.Type {
-	case subtitlev1alpha1.SubtitleProviderEmbedded:
+	secret, secretVersion, err := resolve(ctx, b.SecretReader, sp)
+	if err != nil {
+		return Entry{}, err
+	}
+	if sp.Spec.Type == subtitlev1alpha1.SubtitleProviderEmbedded {
 		ffmpeg := b.FFmpeg
 		e.ForFile = func(f FileSource) subtitles.Provider {
 			return embedded.New(embedded.Config{
@@ -304,14 +364,6 @@ func (b *Builder) Entry(ctx context.Context, sp *subtitlev1alpha1.SubtitleProvid
 			})
 		}
 		return e, nil
-	case subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, subtitlev1alpha1.SubtitleProviderGestdown:
-	default:
-		return Entry{}, fmt.Errorf("%w: %s", ErrNoClient, sp.Spec.Type)
-	}
-
-	secret, secretVersion, err := b.readSecret(ctx, sp)
-	if err != nil {
-		return Entry{}, err
 	}
 	fp := strconv.FormatInt(sp.Generation, 10) + "/" + secretVersion
 
@@ -325,9 +377,6 @@ func (b *Builder) Entry(ctx context.Context, sp *subtitlev1alpha1.SubtitleProvid
 	var pc subtitles.Provider
 	switch sp.Spec.Type {
 	case subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom:
-		if err := requireKeys(sp, secret, opensubtitlescom.New(opensubtitlescom.Config{}).Capabilities().NeedsSecrets); err != nil {
-			return Entry{}, err
-		}
 		pc = opensubtitlescom.New(opensubtitlescom.Config{
 			APIKey:     string(secret[subtitlev1alpha1.ProviderSecretKeyAPIKey]),
 			Username:   string(secret[subtitlev1alpha1.ProviderSecretKeyUsername]),
@@ -353,13 +402,13 @@ func (b *Builder) Entry(ctx context.Context, sp *subtitlev1alpha1.SubtitleProvid
 // readSecret returns spec.secretRef's data and a version string that changes
 // whenever the Secret does. A provider with no secretRef has no data and a
 // constant version.
-func (b *Builder) readSecret(ctx context.Context, sp *subtitlev1alpha1.SubtitleProvider) (map[string][]byte, string, error) {
+func readSecret(ctx context.Context, secrets client.Reader, sp *subtitlev1alpha1.SubtitleProvider) (map[string][]byte, string, error) {
 	if sp.Spec.SecretRef == nil || sp.Spec.SecretRef.Name == "" {
 		return nil, "-", nil
 	}
 	var s corev1.Secret
 	key := types.NamespacedName{Namespace: sp.Namespace, Name: sp.Spec.SecretRef.Name}
-	if err := b.SecretReader.Get(ctx, key, &s); err != nil {
+	if err := secrets.Get(ctx, key, &s); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, "", fmt.Errorf("%w: secret %s not found", ErrMissingSecret, key)
 		}

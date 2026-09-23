@@ -79,8 +79,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Registration
 //
-// Nothing here registers itself. Task F-6 wires it into captionarr's
-// setupWorkers with exactly:
+// Nothing here registers itself. captionarr's setupWorkers (plan task F-6)
+// wires it for the worker role with:
 //
 //	providers := providerset.NewBuilder(mgr.GetClient(), mgr.GetAPIReader())
 //	worker := fetch.NewWorker(mgr.GetClient(), mgr.GetAPIReader(), bus, providers, o.DataDir)

@@ -19,7 +19,6 @@ package providerset_test
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -108,27 +107,63 @@ func TestBuildOrdersByPriorityThenNameAndSkipsWhatItCannotBuild(t *testing.T) {
 	}
 }
 
-func TestEntryReportsWhyAProviderCannotBeBuilt(t *testing.T) {
-	c := newClient(t, osSecret("partial", map[string]string{"apiKey": "k", "username": "u"}))
+// TestValidateAndEntryAgree holds the one-validator rule: Validate -- the
+// SubtitleProvider controller's check -- and Entry -- the fetch worker's
+// builder -- must reach the same verdict on every provider, so a provider the
+// controller reports Authenticated is one the worker will actually search.
+func TestValidateAndEntryAgree(t *testing.T) {
+	c := newClient(t,
+		osSecret("partial", map[string]string{"apiKey": "k", "username": "u"}),
+		osSecret("blank", map[string]string{"apiKey": "k", "username": "u", "password": ""}),
+		osSecret("full", fullOSCreds),
+	)
 	b := providerset.NewBuilder(c, c)
 	ctx := context.Background()
 
 	for _, tc := range []struct {
 		name string
 		sp   *subtitlev1alpha1.SubtitleProvider
-		want error
+		want error // nil: buildable
 	}{
 		{"subsource has no client", provider("a", subtitlev1alpha1.SubtitleProviderSubSource, 1, ""), providerset.ErrNoClient},
+		{"subdl has no client", provider("a2", subtitlev1alpha1.SubtitleProviderSubDL, 1, ""), providerset.ErrNoClient},
+		{"whisper has no client", provider("a3", subtitlev1alpha1.SubtitleProviderWhisper, 1, ""), providerset.ErrNoClient},
 		{"opensubtitles without a secretRef", provider("b", subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, 1, ""), providerset.ErrMissingSecret},
 		{"opensubtitles with a missing secret", provider("c", subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, 1, "nope"), providerset.ErrMissingSecret},
 		{"opensubtitles without a password", provider("d", subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, 1, "partial"), providerset.ErrMissingSecret},
+		{"opensubtitles with an empty password", provider("e", subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, 1, "blank"), providerset.ErrMissingSecret},
+		{"opensubtitles with every key", provider("f", subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, 1, "full"), nil},
+		{"gestdown needs no secret", provider("g", subtitlev1alpha1.SubtitleProviderGestdown, 1, ""), nil},
+		// The drift one validator closed: F-3's own check called this
+		// Authenticated (gestdown needs no credentials) while the builder
+		// skipped it for the dangling reference.
+		{"gestdown naming a missing secret", provider("h", subtitlev1alpha1.SubtitleProviderGestdown, 1, "nope"), providerset.ErrMissingSecret},
+		{"embedded needs no secret", provider("i", subtitlev1alpha1.SubtitleProviderEmbedded, 1, ""), nil},
+		{"embedded never reads one", provider("j", subtitlev1alpha1.SubtitleProviderEmbedded, 1, "nope"), nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := b.Entry(ctx, tc.sp)
-			require.Error(t, err)
-			assert.True(t, errors.Is(err, tc.want), "got %v", err)
+			verr := providerset.Validate(ctx, c, tc.sp)
+			_, eerr := b.Entry(ctx, tc.sp)
+			if tc.want == nil {
+				assert.NoError(t, verr, "Validate")
+				assert.NoError(t, eerr, "Entry")
+				return
+			}
+			assert.ErrorIs(t, verr, tc.want, "Validate")
+			assert.ErrorIs(t, eerr, tc.want, "Entry")
 		})
 	}
+}
+
+func TestNeedsSecretsIsEachClientsOwnList(t *testing.T) {
+	assert.ElementsMatch(t, []string{
+		subtitlev1alpha1.ProviderSecretKeyAPIKey,
+		subtitlev1alpha1.ProviderSecretKeyUsername,
+		subtitlev1alpha1.ProviderSecretKeyPassword,
+	}, providerset.NeedsSecrets(subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom))
+	assert.Empty(t, providerset.NeedsSecrets(subtitlev1alpha1.SubtitleProviderGestdown))
+	assert.Empty(t, providerset.NeedsSecrets(subtitlev1alpha1.SubtitleProviderEmbedded))
+	assert.Empty(t, providerset.NeedsSecrets(subtitlev1alpha1.SubtitleProviderSubDL))
 }
 
 // The cache exists so the OpenSubtitles client -- which holds its login

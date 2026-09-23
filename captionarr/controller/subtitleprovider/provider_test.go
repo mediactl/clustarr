@@ -18,44 +18,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package subtitleprovider
 
 import (
-	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
+	"github.com/mediactl/clustarr/captionarr/providerset"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
-
-func TestImplementedTypesPerRulingR5(t *testing.T) {
-	assert.True(t, implemented(subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom))
-	assert.True(t, implemented(subtitlev1alpha1.SubtitleProviderGestdown))
-	assert.True(t, implemented(subtitlev1alpha1.SubtitleProviderEmbedded))
-
-	// R5: no client behind these three -- Ready=False with a clear reason,
-	// never an error loop.
-	assert.False(t, implemented(subtitlev1alpha1.SubtitleProviderSubDL))
-	assert.False(t, implemented(subtitlev1alpha1.SubtitleProviderSubSource))
-	assert.False(t, implemented(subtitlev1alpha1.SubtitleProviderWhisper))
-}
-
-func TestRequiredSecretKeysMatchesEachProvidersCapabilities(t *testing.T) {
-	// pkg/subtitles/providers/opensubtitlescom/client.go's Capabilities:
-	// NeedsSecrets: []string{"apiKey", "username", "password"}.
-	assert.ElementsMatch(t, []string{
-		subtitlev1alpha1.ProviderSecretKeyAPIKey,
-		subtitlev1alpha1.ProviderSecretKeyUsername,
-		subtitlev1alpha1.ProviderSecretKeyPassword,
-	}, requiredSecretKeys(subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom))
-
-	assert.Empty(t, requiredSecretKeys(subtitlev1alpha1.SubtitleProviderGestdown))
-	assert.Empty(t, requiredSecretKeys(subtitlev1alpha1.SubtitleProviderEmbedded))
-}
 
 func TestHIVerifiableMatchesEachShippedProvider(t *testing.T) {
 	assert.True(t, hiVerifiable(subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom))
@@ -64,81 +35,48 @@ func TestHIVerifiableMatchesEachShippedProvider(t *testing.T) {
 	assert.False(t, hiVerifiable(subtitlev1alpha1.SubtitleProviderSubDL))
 }
 
-func secretRef(name string) *corev1.LocalObjectReference {
-	return &corev1.LocalObjectReference{Name: name}
-}
-
-func TestCheckAuthenticationNoCredentialsRequired(t *testing.T) {
-	res := checkAuthentication(subtitlev1alpha1.SubtitleProviderGestdown, nil, nil, nil)
-	assert.True(t, res.authenticated)
-	assert.Equal(t, ReasonNoCredentialsRequired, res.reason)
-}
-
-func TestCheckAuthenticationNoSecretRef(t *testing.T) {
-	res := checkAuthentication(subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, nil, nil, nil)
-	assert.False(t, res.authenticated)
-	assert.Equal(t, k8s.ReasonDependencyNotReady, res.reason)
-	assert.Contains(t, res.message, "secretRef")
-}
-
-func TestCheckAuthenticationSecretNotFound(t *testing.T) {
-	notFound := apierrors.NewNotFound(schema.GroupResource{Resource: "secrets"}, "creds")
-	res := checkAuthentication(subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, secretRef("creds"), nil, notFound)
-	assert.False(t, res.authenticated)
-	assert.Equal(t, k8s.ReasonDependencyNotReady, res.reason)
-	assert.Contains(t, res.message, "creds")
-}
-
-func TestCheckAuthenticationMissingKeys(t *testing.T) {
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "creds"},
-		Data:       map[string][]byte{"apiKey": []byte("k")}, // username, password missing
-	}
-	res := checkAuthentication(subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, secretRef("creds"), secret, nil)
-	assert.False(t, res.authenticated)
-	assert.Equal(t, k8s.ReasonDependencyNotReady, res.reason)
-	assert.Contains(t, res.message, "username")
-	assert.Contains(t, res.message, "password")
-	assert.NotContains(t, res.message, "apiKey,")
-}
-
-func TestCheckAuthenticationEveryKeyPresent(t *testing.T) {
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "creds"},
-		Data: map[string][]byte{
-			"apiKey":   []byte("k"),
-			"username": []byte("u"),
-			"password": []byte("p"),
+// TestJudge maps every verdict providerset.Validate can return onto the
+// conditions this controller reports. The checks themselves are
+// providerset's, and TestValidateAndEntryAgree there holds them to the
+// fetch worker's builder.
+func TestJudge(t *testing.T) {
+	missing := fmt.Errorf("%w: secret media/creds has no [password]", providerset.ErrMissingSecret)
+	for _, tc := range []struct {
+		name          string
+		typ           subtitlev1alpha1.SubtitleProviderType
+		err           error
+		implemented   bool
+		authenticated bool
+		reason        string
+		message       string
+	}{
+		{
+			"R5: no client", subtitlev1alpha1.SubtitleProviderSubDL, fmt.Errorf("%w: subdl", providerset.ErrNoClient),
+			false, false, ReasonNotImplemented, `no client for provider type "subdl"`,
 		},
-	}
-	res := checkAuthentication(subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, secretRef("creds"), secret, nil)
-	require.True(t, res.authenticated)
-	assert.Equal(t, ReasonCredentialsPresent, res.reason)
-}
-
-func TestCheckAuthenticationRejectsEmptyValue(t *testing.T) {
-	// An explicitly present but empty-valued key must not count as present --
-	// len(secret.Data[key]) == 0 catches both "absent" and "zero bytes".
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "creds"},
-		Data: map[string][]byte{
-			"apiKey":   []byte("k"),
-			"username": []byte("u"),
-			"password": []byte(""),
+		{
+			"missing credentials", subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, missing,
+			true, false, k8s.ReasonDependencyNotReady, "password",
 		},
+		{
+			"credentials present", subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, nil,
+			true, true, ReasonCredentialsPresent, "opensubtitlescom",
+		},
+		{
+			"gestdown needs none", subtitlev1alpha1.SubtitleProviderGestdown, nil,
+			true, true, ReasonNoCredentialsRequired, "needs no credentials",
+		},
+		{
+			"embedded needs none", subtitlev1alpha1.SubtitleProviderEmbedded, nil,
+			true, true, ReasonNoCredentialsRequired, "needs no credentials",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := judge(tc.typ, tc.err)
+			assert.Equal(t, tc.implemented, got.implemented, "implemented")
+			assert.Equal(t, tc.authenticated, got.authenticated, "authenticated")
+			assert.Equal(t, tc.reason, got.reason)
+			assert.Contains(t, got.message, tc.message)
+		})
 	}
-	res := checkAuthentication(subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, secretRef("creds"), secret, nil)
-	assert.False(t, res.authenticated)
-	assert.Contains(t, res.message, "password")
-}
-
-func TestCheckAuthenticationOtherErrorStillReportsDependencyNotReady(t *testing.T) {
-	// checkAuthentication itself never distinguishes NotFound from any other
-	// pre-fetched error -- that split is the caller's (Reconcile treats a
-	// non-NotFound error as a hard reconcile failure and never reaches this
-	// function with one). This just proves the function does not panic or
-	// misreport when handed an arbitrary error.
-	res := checkAuthentication(subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, secretRef("creds"), nil, errors.New("boom"))
-	assert.False(t, res.authenticated)
-	assert.Contains(t, res.message, "boom")
 }

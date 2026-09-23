@@ -292,9 +292,8 @@ func (r *Reconciler) mapMediaFileToProfiles(ctx context.Context, o client.Object
 	return reqs
 }
 
-// SetupWithManager registers the SubtitleProfile controller. captionarr's
-// run.go setupControllers wires this in as task F-6 (out of this task's
-// scope; this package is not imported from run.go yet).
+// SetupWithManager registers the SubtitleProfile controller; captionarr's
+// run.go setupControllers calls it for the controller role.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("subtitleprofile").

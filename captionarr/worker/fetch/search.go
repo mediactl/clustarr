@@ -33,6 +33,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/captionarr/datapath"
 	"github.com/mediactl/clustarr/captionarr/throttle"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -318,7 +319,7 @@ func (w *Worker) writeSidecar(ctx context.Context, p searchPlan, content []byte)
 	if !p.toSRT && isASS(content) {
 		logical = strings.TrimSuffix(logical, ".srt") + ".ass"
 	}
-	local, err := localPath(w.dataDir(), logical)
+	local, err := datapath.Local(w.DataDir, logical)
 	if err != nil {
 		return "", "", err
 	}

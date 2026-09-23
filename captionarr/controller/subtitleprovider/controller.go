@@ -23,21 +23,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // every field manager except k8s.ManagerCaptionarr, which is R2 enforced in
 // code, not just documented.
 //
-// This package validates and reports; it never builds a real
-// pkg/subtitles.Provider client or calls an upstream API. Task F-5 owns the
-// builder that turns a SubtitleProvider + Secret into one.
+// This package reports; it never builds a real pkg/subtitles.Provider client
+// or calls an upstream API. Validation is captionarr/providerset.Validate,
+// the same checks the fetch worker's builder runs before it builds a client,
+// so Ready here means "the worker will search this provider".
 package subtitleprovider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/jonboulle/clockwork"
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	k8sevents "k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -48,6 +47,7 @@ import (
 
 	subtitleac "github.com/mediactl/clustarr/api/applyconfiguration/subtitle/subtitle/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
+	"github.com/mediactl/clustarr/captionarr/providerset"
 	captionarrstatus "github.com/mediactl/clustarr/captionarr/status"
 	"github.com/mediactl/clustarr/captionarr/throttle"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -67,9 +67,10 @@ import (
 const kvPollInterval = 15 * time.Minute
 
 // This controller's own RBAC. SubtitleProvider is namespaced. secrets is
-// read-only and get;list;watch, matching
-// catalogarr/controller/metadataprovider/controller.go's identical marker
-// for the identical shape (reading a provider's credential Secret by name).
+// get only: the Secret is read by name through [Reconciler.Secrets], the
+// manager's API reader, never the cache -- a cached Get would start a
+// cluster-wide Secret informer, which needs list and watch on every Secret
+// and holds them all in memory (captionarr/providerset's package doc).
 //
 // The blank line below is load-bearing -- see
 // cmd/clustarr.TestRBACMarkersArePackageLevel: controller-gen only collects
@@ -79,7 +80,7 @@ const kvPollInterval = 15 * time.Minute
 //
 // +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitleproviders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitleproviders/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconciler owns SubtitleProvider.status (under k8s.ManagerCaptionarr, via
@@ -95,6 +96,10 @@ type Reconciler struct {
 	// --nats-url precisely because this bucket is load-bearing.
 	KV events.KV
 
+	// Secrets reads the Secret spec.secretRef names. It should be the
+	// manager's API reader (mgr.GetAPIReader()); nil falls back to Client.
+	Secrets client.Reader
+
 	Recorder k8sevents.EventRecorder
 	Clock    clockwork.Clock
 }
@@ -104,6 +109,13 @@ func NewReconciler(c client.Client, kv events.KV, recorder k8sevents.EventRecord
 	return &Reconciler{Client: c, KV: kv, Recorder: recorder, Clock: clockwork.NewRealClock()}
 }
 
+func (r *Reconciler) secrets() client.Reader {
+	if r.Secrets != nil {
+		return r.Secrets
+	}
+	return r.Client
+}
+
 func (r *Reconciler) now() time.Time {
 	if r.Clock == nil {
 		return time.Now().UTC()
@@ -111,8 +123,9 @@ func (r *Reconciler) now() time.Time {
 	return r.Clock.Now().UTC()
 }
 
-// Reconcile validates sp's credentials (for an implemented provider type;
-// see ruling R5), projects the shared KV throttle state into
+// Reconcile validates sp through captionarr/providerset.Validate (the fetch
+// worker's own checks: a client for the type, per ruling R5, and complete
+// credentials), projects the shared KV throttle state into
 // status.throttledUntil/throttleReason/quota/tokenExpiresAt/lastSuccessAt
 // /errorsLast120s, and derives Ready/Authenticated/Throttled. It never
 // writes state.JWT anywhere in status -- SubtitleProviderStatus has no field
@@ -131,29 +144,20 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return ctrl.Result{}, nil
 	}
 
-	impl := implemented(sp.Spec.Type)
+	verdict := providerset.Validate(ctx, r.secrets(), &sp)
+	if verdict != nil && !errors.Is(verdict, providerset.ErrNoClient) && !errors.Is(verdict, providerset.ErrMissingSecret) {
+		// Not a verdict about the provider: the Secret could not be read.
+		return ctrl.Result{}, fmt.Errorf("subtitleprovider: validate %s/%s: %w", sp.Namespace, sp.Name, verdict)
+	}
+	auth := judge(sp.Spec.Type, verdict)
+	impl := auth.implemented
 
-	var (
-		auth  authResult
-		state throttle.State
-	)
+	var state throttle.State
 	if impl {
-		secret, err := r.getSecret(ctx, sp.Namespace, sp.Spec.SecretRef)
-		var secretErr error
-		switch {
-		case err == nil:
-			// secret is either populated (SecretRef set and found) or nil
-			// (SecretRef unset); checkAuthentication tells those apart.
-		case apierrors.IsNotFound(err):
-			secretErr = err
-		default:
-			return ctrl.Result{}, fmt.Errorf("subtitleprovider: get secret %s/%s: %w", sp.Namespace, sp.Spec.SecretRef.Name, err)
-		}
-		auth = checkAuthentication(sp.Spec.Type, sp.Spec.SecretRef, secret, secretErr)
-
 		if r.KV == nil {
 			return ctrl.Result{}, fmt.Errorf("subtitleprovider: nil KV; captionarr must be started with --nats-url")
 		}
+		var err error
 		state, err = throttle.Get(ctx, r.KV, string(sp.UID))
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("subtitleprovider: read throttle state for %s/%s: %w", sp.Namespace, sp.Name, err)
@@ -167,7 +171,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		r.Recorder.Eventf(&sp, nil, "Warning", auth.reason, "Reconcile", auth.message)
 	}
 
-	// Re-Get immediately before the status apply: the Secret Get and the KV
+	// Re-Get immediately before the status apply: the Secret read and the KV
 	// Get above are exactly the read-then-work-then-apply shape CLAUDE.md's
 	// "lost update" hazard describes. sp is seeded fresh so the apply
 	// carries forward whatever concurrent state landed since the Get at the
@@ -180,10 +184,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	conditions := append([]metav1.Condition(nil), fresh.Status.Conditions...)
 	switch {
 	case !impl:
-		message := fmt.Sprintf("captionarr has no client for provider type %q yet", sp.Spec.Type)
-		k8s.MarkUnknown(&fresh, &conditions, subtitlev1alpha1.SubtitleProviderConditionAuthenticated, ReasonNotImplemented, "%s", message)
-		k8s.MarkUnknown(&fresh, &conditions, subtitlev1alpha1.SubtitleProviderConditionThrottled, ReasonNotImplemented, "%s", message)
-		k8s.MarkReady(&fresh, &conditions, false, ReasonNotImplemented, "%s", message)
+		k8s.MarkUnknown(&fresh, &conditions, subtitlev1alpha1.SubtitleProviderConditionAuthenticated, auth.reason, "%s", auth.message)
+		k8s.MarkUnknown(&fresh, &conditions, subtitlev1alpha1.SubtitleProviderConditionThrottled, auth.reason, "%s", auth.message)
+		k8s.MarkReady(&fresh, &conditions, false, auth.reason, "%s", auth.message)
 	default:
 		if auth.authenticated {
 			k8s.MarkTrue(&fresh, &conditions, subtitlev1alpha1.SubtitleProviderConditionAuthenticated, auth.reason, "%s", auth.message)
@@ -227,23 +230,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	}
 	log.Debug("reconciled", "ready", k8s.IsConditionTrue(conditions, k8s.ConditionReady), "requeueAfter", result.RequeueAfter)
 	return result, nil
-}
-
-// getSecret fetches the Secret ref names in namespace ns, returning
-// (secret, nil) on success or (nil, err) otherwise -- err may be a NotFound
-// (apierrors.IsNotFound), which the caller treats as a reportable condition
-// rather than a reconcile failure, or any other error, which it does not.
-// ref == nil returns (nil, nil): checkAuthentication interprets a nil secret
-// with a nil error as "no Secret named at all" itself.
-func (r *Reconciler) getSecret(ctx context.Context, ns string, ref *corev1.LocalObjectReference) (*corev1.Secret, error) {
-	if ref == nil {
-		return nil, nil
-	}
-	var s corev1.Secret
-	if err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: ref.Name}, &s); err != nil {
-		return nil, err
-	}
-	return &s, nil
 }
 
 // applyThrottleState renders every leaf ProviderFields' caller must declare,
@@ -307,9 +293,8 @@ func nextRequeue(now time.Time, state throttle.State) time.Duration {
 	return d
 }
 
-// SetupWithManager registers the SubtitleProvider controller. captionarr's
-// run.go setupControllers wires this in as task F-6 (out of this task's
-// scope; this package is not imported from run.go yet).
+// SetupWithManager registers the SubtitleProvider controller; captionarr's
+// run.go setupControllers calls it for the controller role.
 //
 // There is deliberately no Watches on corev1.Secret, matching
 // catalogarr/controller/metadataprovider's identical choice for the

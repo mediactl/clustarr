@@ -88,9 +88,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // ignoreVobSub, ignoreASS by codec; skipCommentary by title). The sidecar
 // half is subtitles.ParseSidecar over the media file's directory, which the
 // controller role mounts at /data (config/manager/captionarr.yaml, and
-// "data" true for captionarr in the chart). A directory that cannot be read,
-// or that does not contain the video, is a Blocked request -- never "no
-// sidecars", which would re-download every subtitle placed there by hand.
+// "data" true for captionarr in the chart). spec.path is a logical /data
+// path, mapped through --data-dir by captionarr/datapath -- the one mapping
+// the fetch worker uses too. A directory that cannot be read, or that does
+// not contain the video, is a Blocked request -- never "no sidecars", which
+// would re-download every subtitle placed there by hand.
 //
 // Every language -- stream, audio track, sidecar segment and profile entry --
 // goes through pkg/lang.Normalize before the planner compares them. ffprobe
@@ -119,11 +121,26 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Dedup and forceSearch
 //
-// The message ID has no attempt component, so two publishes of one language
-// for one file inside the dedup window are one task. That is what makes a
-// level-driven planner safe, and it has one visible consequence: a
-// spec.forceSearch within an hour of that language's last dispatch is
-// absorbed. The receipt says so and the attempt is not counted twice.
+// Two publishes of one DISPATCH inside the work stream's one-hour dedup
+// window are one task, which is what makes a level-driven planner safe: a
+// reconcile that publishes and then fails to record the dispatch, or runs
+// from a lagging cache, republishes the same task and the stream absorbs it.
+// The message ID therefore names the dispatch, not only the language:
+//
+//   - a scheduled search is events.MsgIDForSubtitle with the attempt number
+//     it is recorded as (attempts.count+1), so the next scheduled search is
+//     a new task even inside the hour -- a search.interval under an hour is
+//     honoured, not silently rounded up to one;
+//   - a forced search is events.MsgIDForForcedSubtitle with the request's
+//     metadata.generation while spec.forceSearch is true. Setting it bumps
+//     the generation, so every "search now" is a new task however soon after
+//     the last one; a retry of one forced search (the reset failed) reuses
+//     the generation and is absorbed.
+//
+// Spec §6.5 names the ID "<uid>/<langKey>/<probeHash>". With only those
+// three parts, a forced search within an hour of that language's last
+// dispatch was absorbed and appeared to do nothing, and so was every
+// scheduled search under an hour apart; plan task F-6 added the fourth.
 //
 // The +kubebuilder:rbac markers below are package-level on purpose:
 // controller-gen ignores a marker attached to a declaration, and envtest does

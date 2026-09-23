@@ -42,6 +42,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
+	"github.com/mediactl/clustarr/captionarr/datapath"
 	"github.com/mediactl/clustarr/captionarr/status"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -64,6 +65,7 @@ const (
 	ReasonNoProfile          = "NoProfile"
 	ReasonMediaDirUnreadable = "MediaDirUnreadable"
 	ReasonNotOnDisk          = "MediaFileNotOnDisk"
+	ReasonNotOnDataVolume    = "MediaFileNotOnDataVolume"
 	ReasonAllPresent         = "AllPresent"
 	ReasonMissing            = "Missing"
 	ReasonCutoffMet          = "CutoffMet"
@@ -101,6 +103,12 @@ type Reconciler struct {
 	// surfaces as a reconcile error the first time a task is due, not as a
 	// silently idle planner.
 	Bus events.Publisher
+
+	// DataDir is where the /data volume is mounted in this process
+	// (--data-dir). Every MediaFile path is a logical /data path, mapped
+	// through captionarr/datapath exactly as the fetch worker maps it. Empty
+	// means /data itself.
+	DataDir string
 
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
@@ -211,7 +219,20 @@ func (r *Reconciler) gather(ctx context.Context, sr *subtitlev1alpha1.SubtitleRe
 	// the chart's "data" true), so the directory is read, never assumed. A
 	// directory that cannot be read is a block: treating it as "no sidecars"
 	// would re-download every subtitle a user placed there by hand.
-	dir := filepath.Dir(mf.Spec.Path)
+	//
+	// spec.path is a logical /data path; --data-dir says where that volume
+	// is mounted here, through the same mapping the fetch worker uses. A
+	// path off the volume can never be listed, by this controller or by the
+	// worker, so it is a block of its own rather than an unreadable
+	// directory.
+	local, err := datapath.Local(r.DataDir, mf.Spec.Path)
+	if err != nil {
+		return nil, &blocked{
+			reason:  ReasonNotOnDataVolume,
+			message: fmt.Sprintf("MediaFile %q: %v", mf.Name, err),
+		}, nil
+	}
+	dir := filepath.Dir(local)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, &blocked{
@@ -361,7 +382,12 @@ func (r *Reconciler) plan(ctx context.Context, sr *subtitlev1alpha1.SubtitleRequ
 		case t.upgrade:
 			prio = events.PriorityLow
 		}
-		rcpt, err := r.publish(ctx, sr, mf.Status.ProbeHash, t, prio, now)
+		it := &next.Items[t.item]
+		msgID := events.MsgIDForSubtitle(string(sr.UID), t.langKey, mf.Status.ProbeHash, it.Attempts.Count+1)
+		if force {
+			msgID = events.MsgIDForForcedSubtitle(string(sr.UID), t.langKey, mf.Status.ProbeHash, sr.Generation)
+		}
+		rcpt, err := r.publish(ctx, sr, mf.Status.ProbeHash, msgID, t, prio, now)
 		if err != nil {
 			pubErr = err
 			break
@@ -369,15 +395,15 @@ func (r *Reconciler) plan(ctx context.Context, sr *subtitlev1alpha1.SubtitleRequ
 		if !rcpt.Duplicate {
 			dispatched++
 		} else {
-			log.Debug("fetch task absorbed by the dedup window", "langKey", t.langKey, "upgrade", t.upgrade)
+			log.Debug("fetch task absorbed by the dedup window", "langKey", t.langKey, "upgrade", t.upgrade, "msgID", msgID)
 		}
-		it := &next.Items[t.item]
-		// A duplicate receipt means an identical task was accepted inside
-		// the window. When the language was due, that dispatch was never
+		// A duplicate receipt means this very dispatch -- the same attempt
+		// number, or the same forced generation -- was accepted inside the
+		// window. When the language was due, that dispatch was never
 		// recorded (an apply that failed after the publish), so record it
-		// now. When only forceSearch sent it, it is the dispatch the current
-		// stamp already describes: counting it again would inflate
-		// attempts.count and push nextSearchAt out.
+		// now. When only forceSearch sent it, the likelier cause is a reset
+		// that failed after an apply that did record it: counting it again
+		// would inflate attempts.count and push nextSearchAt out.
 		if !rcpt.Duplicate || t.due || it.Attempts.Latest == nil {
 			it.Attempts = stamp(it.Attempts, now)
 		}
@@ -532,11 +558,12 @@ func (r *Reconciler) apply(ctx context.Context, sr *subtitlev1alpha1.SubtitleReq
 		})
 }
 
-// publish sends one schema.FetchTask. The message ID is
-// events.MsgIDForSubtitle (ruling R6): a level-driven reconciler publishes on
-// every eligible pass, and the work stream's deduplication window is what
-// turns those repeats into one task.
-func (r *Reconciler) publish(ctx context.Context, sr *subtitlev1alpha1.SubtitleRequest, probeHash string,
+// publish sends one schema.FetchTask under msgID -- events.MsgIDForSubtitle
+// for a scheduled search, events.MsgIDForForcedSubtitle for a forced one
+// (ruling R6, and doc.go's "Dedup and forceSearch"): a level-driven
+// reconciler publishes on every eligible pass, and the work stream's
+// deduplication window is what turns those repeats into one task.
+func (r *Reconciler) publish(ctx context.Context, sr *subtitlev1alpha1.SubtitleRequest, probeHash, msgID string,
 	t task, prio events.Priority, now time.Time,
 ) (events.Receipt, error) {
 	ctx, span := tracing.Start(ctx, "subtitlerequest.publishFetchTask")
@@ -554,7 +581,6 @@ func (r *Reconciler) publish(ctx context.Context, sr *subtitlev1alpha1.SubtitleR
 	if err != nil {
 		return events.Receipt{}, err
 	}
-	msgID := events.MsgIDForSubtitle(string(sr.UID), t.langKey, probeHash)
 	env := &events.Envelope{
 		ID:     msgID,
 		Type:   FetchTaskType,

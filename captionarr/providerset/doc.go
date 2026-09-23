@@ -19,9 +19,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Secrets they reference, into pkg/subtitles.Provider clients.
 //
 // It is a separate package from captionarr/worker/fetch so that the
-// SubtitleProvider controller (F-3) can validate a provider with exactly the
-// construction the fetch worker will later use -- one switch over
-// SubtitleProviderType, not two that drift.
+// SubtitleProvider controller can validate a provider ([Validate]) with
+// exactly the checks the fetch worker's [Builder.Entry] runs before building
+// a client -- one switch over SubtitleProviderType, not two that drift.
 //
 // # What it builds
 //

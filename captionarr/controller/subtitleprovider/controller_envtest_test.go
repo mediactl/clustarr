@@ -37,6 +37,7 @@ import (
 
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	"github.com/mediactl/clustarr/captionarr/controller/subtitleprovider"
+	"github.com/mediactl/clustarr/captionarr/providerset"
 	"github.com/mediactl/clustarr/captionarr/throttle"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
@@ -258,6 +259,60 @@ func TestReconcileUnsupportedProviderTypeNeverErrorsOrAuthenticates(t *testing.T
 	require.NotNil(t, authCond)
 	assert.Equal(t, metav1.ConditionUnknown, authCond.Status)
 	assert.False(t, got.Status.HIVerifiable)
+}
+
+// TestReadyAgreesWithTheFetchWorkersBuilder is plan task F-6's one-validator
+// rule at the controller: for every provider, Ready=True exactly when the
+// fetch worker's builder (captionarr/providerset.Builder.Build) would search
+// it. The gestdown provider whose secretRef names a missing Secret is the
+// case the controller's former, separate check got wrong: gestdown needs no
+// credentials, so it reported Authenticated and Ready, while the builder
+// skipped the provider for the dangling reference.
+func TestReadyAgreesWithTheFetchWorkersBuilder(t *testing.T) {
+	c := newTestClient(t)
+	kv := testKV(t)
+	ctx := context.Background()
+	const ns = "subtitleprovider-agree"
+	ensureNamespace(t, ctx, c, ns)
+
+	createSecret(t, ctx, c, ns, "full", map[string]string{"apiKey": "k", "username": "u", "password": "p"})
+	createSecret(t, ctx, c, ns, "partial", map[string]string{"apiKey": "k", "username": "u"})
+	specs := map[string]subtitlev1alpha1.SubtitleProviderSpec{
+		"os-full":         {Type: subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, SecretRef: &corev1.LocalObjectReference{Name: "full"}},
+		"os-partial":      {Type: subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, SecretRef: &corev1.LocalObjectReference{Name: "partial"}},
+		"gestdown":        {Type: subtitlev1alpha1.SubtitleProviderGestdown},
+		"gestdown-orphan": {Type: subtitlev1alpha1.SubtitleProviderGestdown, SecretRef: &corev1.LocalObjectReference{Name: "nope"}},
+		"embedded":        {Type: subtitlev1alpha1.SubtitleProviderEmbedded},
+		"subdl":           {Type: subtitlev1alpha1.SubtitleProviderSubDL},
+	}
+	r := subtitleprovider.NewReconciler(c, kv, k8sevents.NewFakeRecorder(100))
+	for name, spec := range specs {
+		spec.Enabled = true
+		createProvider(t, ctx, c, ns, name, spec)
+		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: name, Namespace: ns}})
+		require.NoError(t, err, name)
+	}
+
+	entries, err := providerset.NewBuilder(c, c).Build(ctx, ns)
+	require.NoError(t, err)
+	searched := map[string]bool{}
+	for _, e := range entries {
+		searched[e.Name] = true
+	}
+	require.Len(t, searched, 3, "setup: os-full, gestdown and embedded are buildable")
+
+	for name := range specs {
+		var got subtitlev1alpha1.SubtitleProvider
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Name: name, Namespace: ns}, &got))
+		assert.Equal(t, searched[name], k8s.IsConditionTrue(got.Status.Conditions, k8s.ConditionReady),
+			"%s: Ready must be true exactly when the fetch worker would search it", name)
+	}
+	var orphan subtitlev1alpha1.SubtitleProvider
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "gestdown-orphan", Namespace: ns}, &orphan))
+	auth := k8s.FindCondition(orphan.Status.Conditions, subtitlev1alpha1.SubtitleProviderConditionAuthenticated)
+	require.NotNil(t, auth)
+	assert.Equal(t, metav1.ConditionFalse, auth.Status)
+	assert.Contains(t, auth.Message, "not found")
 }
 
 // TestReconcileProjectsThrottleStateFromKV proves the load-bearing half of

@@ -67,7 +67,7 @@ func TestWatchesWakeTheController(t *testing.T) {
 	require.NoError(t, mb.Ensure(ctx, events.Default().ForSingleNode()))
 	t.Cleanup(func() { _ = mb.Close() })
 	bus := &recordingBus{inner: mb}
-	r := &subtitlerequest.Reconciler{Client: mgr.GetClient(), Bus: bus}
+	r := &subtitlerequest.Reconciler{Client: mgr.GetClient(), Bus: bus, DataDir: f.dir}
 	require.NoError(t, r.SetupWithManager(mgr))
 	go func() { _ = mgr.Start(ctx) }()
 

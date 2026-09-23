@@ -239,15 +239,7 @@ func TestChooseProfile(t *testing.T) {
 	assert.Nil(t, chooseProfile(profiles[2:3], nil), "no match and no default: none applies")
 }
 
-func TestLocalPathAndIMDbNumber(t *testing.T) {
-	got, err := localPath("/mnt/media", "/data/movies/Film (2010)/Film.mkv")
-	require.NoError(t, err)
-	assert.Equal(t, "/mnt/media/movies/Film (2010)/Film.mkv", got)
-	_, err = localPath("/mnt/media", "/data/../etc/passwd")
-	assert.Error(t, err)
-	_, err = localPath("/mnt/media", "movies/x.mkv")
-	assert.Error(t, err)
-
+func TestIMDbNumber(t *testing.T) {
 	assert.Equal(t, "133093", imdbNumber("tt0133093"))
 	assert.Equal(t, "", imdbNumber("nm0000206x"))
 	assert.Equal(t, "", imdbNumber(""))

@@ -372,8 +372,16 @@ func TestMsgIDsAreDeterministic(t *testing.T) {
 	if a == events.MsgIDForRelease("nzb.su", "guid-2") {
 		t.Error("MsgIDForRelease collided on different GUIDs")
 	}
-	if got := events.MsgIDForSubtitle("r1", "en:hi", "h9"); got != "r1/en:hi/h9" {
+	if got := events.MsgIDForSubtitle("r1", "en:hi", "h9", 3); got != "r1/en:hi/h9/3" {
 		t.Errorf("MsgIDForSubtitle = %q", got)
+	}
+	if got := events.MsgIDForForcedSubtitle("r1", "en:hi", "h9", 3); got != "r1/en:hi/h9/force-3" {
+		t.Errorf("MsgIDForForcedSubtitle = %q", got)
+	}
+	// A scheduled attempt and a forced search at the same number must never
+	// share an ID: either would absorb the other.
+	if events.MsgIDForSubtitle("r1", "en", "h9", 3) == events.MsgIDForForcedSubtitle("r1", "en", "h9", 3) {
+		t.Error("a scheduled and a forced subtitle task collided")
 	}
 }
 
