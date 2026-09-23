@@ -240,14 +240,17 @@ func (f fakePublisher) Publish(_ context.Context, _ string, _ *events.Envelope, 
 	return events.Receipt{}, f.err
 }
 
-// capturingPublisher records every envelope Publish is given, so a test can
-// hand the reconciler's own real publish -- not a hand-typed stand-in -- to
-// the real metadata gateway Handler. Used by
+// capturingPublisher records every MetadataTask envelope Publish is given,
+// so a test can hand the reconciler's own real publish -- not a hand-typed
+// stand-in -- to the real metadata gateway Handler. The catalog item event
+// the same reconcile announces is accepted and not kept. Used by
 // TestAudiobookRegionReachesTheMetadataGateway.
 type capturingPublisher struct{ envelopes []*events.Envelope }
 
 func (p *capturingPublisher) Publish(_ context.Context, _ string, e *events.Envelope, _ ...events.PublishOption) (events.Receipt, error) {
-	p.envelopes = append(p.envelopes, e)
+	if e.Type == "catalog.MetadataTask" {
+		p.envelopes = append(p.envelopes, e)
+	}
 	return events.Receipt{}, nil
 }
 

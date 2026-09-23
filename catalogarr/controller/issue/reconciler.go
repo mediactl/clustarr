@@ -27,12 +27,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/events"
+	k8sevents "k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -42,6 +43,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/catalogarr/controller/rollup"
+	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/quality"
@@ -89,7 +91,11 @@ const (
 type Reconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
-	Recorder events.EventRecorder
+	Recorder k8sevents.EventRecorder
+
+	// Bus publishes this Issue's catalog item events (publishItem). Nil
+	// publishes nothing, so a caller that wires no bus loses only history.
+	Bus events.Publisher
 
 	// OnReconcile is a test-only hook, called at the top of every Reconcile.
 	// It is nil-checked so production callers never need to set it.
@@ -290,6 +296,12 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, iss *catalogv1alpha1.I
 	if err != nil {
 		return ctrl.Result{}, reconcile.TerminalError(err)
 	}
+	// The deleted event goes out before the finalizer comes off, so a failed
+	// removal re-announces it under the same envelope id rather than losing
+	// it; an object that never held the finalizer never reaches here.
+	if controllerutil.ContainsFinalizer(iss, name) {
+		r.publishItem(ctx, iss, events.ActionDeleted, time.Now().UTC())
+	}
 	if _, err := k8s.RemoveFinalizer(ctx, r.Client, iss, name); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -308,6 +320,12 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, iss *catalogv1alpha1.I
 	// DeadLettered condition here, on the one slice every status apply below
 	// declares -- early returns included -- so no apply releases it.
 	k8s.MarkDeadLettered(iss, &conditions)
+
+	// Announced before any apply, because the first apply records
+	// observedGeneration and so consumes the edge (rollup.ItemAction).
+	if action := rollup.ItemAction(iss.Generation, iss.Status.ObservedGeneration, iss.Status.ObservedGeneration != 0); action != "" {
+		r.publishItem(ctx, iss, action, now)
+	}
 
 	var mfList catalogv1alpha1.MediaFileList
 	if err := r.List(ctx, &mfList, client.InNamespace(iss.Namespace), client.MatchingFields{mediaFileByIssueIndexKey: iss.Name}); err != nil {

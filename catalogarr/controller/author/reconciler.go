@@ -34,12 +34,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/catalogarr/controller/rollup"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -199,6 +201,12 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, a *catalogv1alpha1.Aut
 	if err != nil {
 		return ctrl.Result{}, reconcile.TerminalError(err)
 	}
+	// The deleted event goes out before the finalizer comes off, so a failed
+	// removal re-announces it under the same envelope id rather than losing
+	// it; an object that never held the finalizer never reaches here.
+	if controllerutil.ContainsFinalizer(a, name) {
+		r.publishItem(ctx, a, events.ActionDeleted, time.Now().UTC())
+	}
 	if _, err := k8s.RemoveFinalizer(ctx, r.Client, a, name); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -218,6 +226,12 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, a *catalogv1alpha1.Aut
 	// DeadLettered condition here, on the one slice every status apply below
 	// declares -- early returns included -- so no apply releases it.
 	k8s.MarkDeadLettered(a, &conditions)
+
+	// Announced before any apply, because the first apply records
+	// addOptionsApplied and so consumes the edge (rollup.ItemAction).
+	if action := rollup.ItemAction(a.Generation, a.Status.ObservedGeneration, a.Status.AddOptionsApplied); action != "" {
+		r.publishItem(ctx, a, action, now)
+	}
 
 	statusAC := catalogac.AuthorStatus().WithObservedGeneration(a.Generation)
 	// Sent on every reconcile once the decision point is reached, not just

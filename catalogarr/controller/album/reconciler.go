@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -367,6 +368,12 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, alb *catalogv1alpha1.A
 	if err != nil {
 		return ctrl.Result{}, reconcile.TerminalError(err)
 	}
+	// The deleted event goes out before the finalizer comes off, so a failed
+	// removal re-announces it under the same envelope id rather than losing
+	// it; an object that never held the finalizer never reaches here.
+	if controllerutil.ContainsFinalizer(alb, name) {
+		r.publishItem(ctx, alb, events.ActionDeleted, time.Now().UTC())
+	}
 	if _, err := k8s.RemoveFinalizer(ctx, r.Client, alb, name); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -387,6 +394,12 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 	// DeadLettered condition here, on the one slice every status apply below
 	// declares -- early returns included -- so no apply releases it.
 	k8s.MarkDeadLettered(alb, &conditions)
+
+	// Announced before any apply, because the first apply records
+	// observedGeneration and so consumes the edge (rollup.ItemAction).
+	if action := rollup.ItemAction(alb.Generation, alb.Status.ObservedGeneration, alb.Status.ObservedGeneration != 0); action != "" {
+		r.publishItem(ctx, alb, action, now)
+	}
 
 	statusAC := catalogac.AlbumStatus().WithObservedGeneration(alb.Generation)
 
