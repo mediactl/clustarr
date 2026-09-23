@@ -312,7 +312,13 @@ spec:
                           enum:
                           - poster
                           - fanart
+                          - banner
                           - logo
+                          - clearart
+                          - thumb
+                          - screenshot
+                          - disc
+                          - headshot
                           type: string
                         url:
                           description: URL is where the image can be fetched.

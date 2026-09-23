@@ -46,16 +46,24 @@ const (
 // to "now".
 const AnnotationSearchNow = "catalog.clustarr.io/search"
 
-// ImageType classifies a metadata image.
+// ImageType classifies a metadata image. The values are exactly
+// pkg/metadata.ImageType's nine roles, so a provider image never has to be
+// dropped for want of a CRD token.
 //
-// +kubebuilder:validation:Enum=poster;fanart;logo
+// +kubebuilder:validation:Enum=poster;fanart;banner;logo;clearart;thumb;screenshot;disc;headshot
 type ImageType string
 
 // Image types.
 const (
-	ImageTypePoster ImageType = "poster"
-	ImageTypeFanart ImageType = "fanart"
-	ImageTypeLogo   ImageType = "logo"
+	ImageTypePoster     ImageType = "poster"
+	ImageTypeFanart     ImageType = "fanart"
+	ImageTypeBanner     ImageType = "banner"
+	ImageTypeLogo       ImageType = "logo"
+	ImageTypeClearart   ImageType = "clearart"
+	ImageTypeThumb      ImageType = "thumb"
+	ImageTypeScreenshot ImageType = "screenshot"
+	ImageTypeDisc       ImageType = "disc"
+	ImageTypeHeadshot   ImageType = "headshot"
 )
 
 // Image is one artwork URL published by a metadata provider.
