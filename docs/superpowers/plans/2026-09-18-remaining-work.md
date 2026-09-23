@@ -86,6 +86,9 @@ func BusReadyChecker(nc *nats.Conn, bus *natsbus.Bus) healthz.Checker
 
 ## Current state, verified 2026-09-18 04:20
 
+> Historical snapshot from before Phase A. The current state is `CLAUDE.md`'s
+> Status section; what is still open is under "Carried defects" below.
+
 Commit `61449f8`. Build, vet and the full suite pass with envtest assets set.
 
 | Area | State |
@@ -983,17 +986,37 @@ wired yet".
 
 **E2E (Phase H rule):** lands scenario 12 and extends scenario 1 through the TranscodeJob; adds the HDR10 and Dolby Vision clips to the fixture image.
 
+> **E done (2026-09-23).** Plan `docs/superpowers/plans/2026-09-23-phase-e-transcode.md`,
+> E-0 through E-5; `CLAUDE.md`'s Status has the verified detail. Scenario 12
+> and scenario 1's transcode leg are written and **never executed**; the
+> Dolby Vision clip could not be made with ffmpeg alone, so that case skips
+> with a named reason. Carried items are in the E/F/G block under "Carried
+> defects".
+
 ### Phase F: M5 subtitles
 
 `captionarr` profiles, providers and requests; the planner; fetch workers; OpenSubtitles, embedded and Gestdown providers; Bazarr scoring and post-processing; throttles and the upgrade cron.
 
 **E2E (Phase H rule):** lands scenario 13 and extends scenario 1 through the SubtitleRequest; adds the mock OpenSubtitles and Gestdown fixtures.
 
+> **F done (2026-09-23).** Plan `docs/superpowers/plans/2026-09-23-phase-f-subtitles.md`,
+> F-0 through F-7; `CLAUDE.md`'s Status has the verified detail. Scenario 13
+> and scenario 1's subtitle leg are written and **never executed**. Carried
+> items are in the E/F/G block under "Carried defects".
+
 ### Phase G: M6 parity, lists and non-video inventory
 
 `pkg/cardigann` wired into `IndexerDefinition` and `IndexerProxy`; the Torznab facade; ImportList Trakt and Plex moved into `importarr`; the history sink and dead-letter projector; Artist, Album, Author, Book, Audiobook, Comic and Issue controllers with their metadata providers and manual import. The remaining UI pages: library, import lists, settings and unmatched. A real Tailwind asset pipeline.
 
 **E2E (Phase H rule):** lands scenarios 9, 10 and 11 and the remaining pages of 14; adds the Cardigann tracker page, the import-list stubs and the non-video metadata stubs.
+
+> **G done (2026-09-23).** Plan `docs/superpowers/plans/2026-09-23-phase-g-parity.md`,
+> G1-0 through G4-1 plus the Q-1..Q-3 library fixes; `CLAUDE.md`'s Status has
+> the verified detail. Scenarios 9, 10, 11 and the rest of 14 are written and
+> **never executed**; scenario 9 only checks that Trakt and Plex ImportLists
+> are accepted, because neither client takes a base-URL override. E-6, F-8 and
+> G4-2 ran as one final gate. Carried items are in the E/F/G block under
+> "Carried defects".
 
 ### Phase H: end-to-end proof on a kind cluster (after G — the project is not done until this is green)
 
@@ -1140,14 +1163,23 @@ other phase.
 
 ---
 
-## Carried defects to fix along the way
+## Carried defects — the list Phase H inherits
+
+> **Consolidated 2026-09-23 at the Phase E/F/G final gate.** This section is
+> the whole of what Phase H inherits: every unchecked item in it is open, and
+> nothing open lives anywhere else in this plan. The blocks keep the phase
+> that found each item. The last block, *Carried out of Phases E, F and G*,
+> was verified item by item at HEAD. The older blocks were not re-verified
+> wholesale; they were spot-checked wherever E, F or G touched the same code,
+> and the items that check found already fixed are ticked in place with the
+> commit that fixed them.
 
 - [ ] `go mod tidy` to fix the `mousetrap` `go.sum` entry (Windows builds only) **and the three direct/indirect misclassifications Phase C's new tests introduced** — see "Build and test hygiene" under *Carried out of Phase C*. One serial run fixes both; never from a parallel agent.
 - [ ] Pick a real `clustarr-data` PVC size and require a storage class when no existing claim is set.
 - [ ] Set `GOMEMLIMIT` to 80% of the memory limit for torrent engines (§12); the Downward API only gives 100%, so compute it in the chart.
 - [ ] Confirm or change the KEDA version, which an agent picked rather than chose.
 - [x] Replace `config/rbac/role.yaml` from `make manifests` once controllers exist, and stop the chart's copy from drifting. **Done in Phase C:** the role generates from `+kubebuilder:rbac` markers, and `TestChartRBACMatchesTheGeneratedRole` compares the chart's copy byte-for-byte between sentinel comments, so drift in either direction fails the build.
-- [ ] Add per-service readiness beyond the JetStream ping. **Phase C did `catalogarr` (informer caches synced) and `importarr` (`/data` present and writable)**, and made every readiness runnable non-leader-elected so a non-leader replica can reach Ready. Still outstanding: the release index for `indexarr` (Phase D) and torrent re-attach for `grabarr` (Phase D) — **reporting ready early lets the controller hand an engine work it would double-download.**
+- [x] **Done in Phase D:** `indexarr/run.go`'s `readinessChecks` gates on the release index, and grabarr's engines gate readiness on re-attach (ruling R4). Original entry: Add per-service readiness beyond the JetStream ping. **Phase C did `catalogarr` (informer caches synced) and `importarr` (`/data` present and writable)**, and made every readiness runnable non-leader-elected so a non-leader replica can reach Ready. Still outstanding: the release index for `indexarr` (Phase D) and torrent re-attach for `grabarr` (Phase D) — **reporting ready early lets the controller hand an engine work it would double-download.**
 - [ ] Add `charts/clustarr/README.md` and `values.schema.json` so bad values fail at install rather than at render.
 - [ ] Add `docs/adr/README.md` with the ADR index and supersede lifecycle when ADR-0009 appears.
 - [ ] Task G1-0 added three field managers to `pkg/k8s/fieldmanager.go` and `FieldManagers()` -- `catalogarr-fanout` (Artist/Author/Comic fanning out onto Album/Book/Issue, the role `catalogarr-series` plays for Series/Episode), `clustarr-dlq-projector` (R1) and `clustarr-ui` (R2) -- but did **not** update `docs/superpowers/specs/2026-09-18-clustarr-design.md`'s field-manager table (§2, the `| Field managers (SSA) | ... |` row) to match. That file had another session's uncommitted markdown reflow sitting in the working tree at the time, and any commit touching it would have swept that reflow in. Add the three rows once the reflow lands and the file is clean.
@@ -1157,8 +1189,8 @@ other phase.
 
 - [ ] Phase C: `hack/gen-catalogue` generates `pkg/quality/catalogue/data` from `testdata/trash` (the parity test already proves equivalence); `pkg/decision` proper on top of `quality.Profile.UpgradeDecision`; `quality.Condition.ExceptLanguage` evaluation.
 - [ ] Phase D: map Torznab `DownloadVolumeFactor`/`UploadVolumeFactor` to `ReleaseInfo.IndexerFlags` (freeleech, halfleech, doubleupload) so TRaSH `IndexerFlag` conditions fire; `torznab.wireCaps.Limits` stays typed (a malformed caps doc is a typed error).
-- [ ] Phase F: `subtitles.Plan`, `SidecarName`, `ParseSidecar` (deferred from B8); Bazarr `fix_uppercase` port; Gestdown show-id cache single-flight (duplicate lookups on a cold cache are harmless).
-- [ ] Phase G: extend `torznab.Release` with non-video fields (artist, album, author, publisher) now carried in `Attrs`; convert `importlist.ExternalIDs` (struct) ↔ `metadata.ExternalIDs` (map) in the ImportList controller.
+- [ ] ~~Phase F: `subtitles.Plan`, `SidecarName`, `ParseSidecar` (deferred from B8)~~ (done at F-2, `d84cde6`); Bazarr `fix_uppercase` port; Gestdown show-id cache single-flight (duplicate lookups on a cold cache are harmless).
+- [ ] Phase G: extend `torznab.Release` with non-video fields (artist, album, author, publisher) now carried in `Attrs`; ~~convert `importlist.ExternalIDs` (struct) ↔ `metadata.ExternalIDs` (map) in the ImportList controller~~ (done at G1-3: `importarr/worker/importlist/externalids.go`).
 - [ ] Minor debt: `metadata/clients/musicbrainz` maps `ClientError{StatusCode:0}` (transport or decode) to `ErrDecode`; `transcode.Runner.Run` reports only `waitErr` when both wait and scan fail; `golang-tmdb.SetCustomBaseURL` is process-global (one TMDB base URL per process).
 - [ ] Phase C: `pkg/release.parseLanguages` cannot detect Chinese, so the anime dual-audio Language group only fires for Japanese/Korean tags today.
 - [ ] `hack/deps/deps.go` still keeps `mimetype`, `sprig/v3` and `x/net/proxy` alive (no importer yet); prune each when its phase lands.
@@ -1178,15 +1210,15 @@ here is a regression introduced by Phase C unless it says so.
 - [ ] **The two grab paths already disagree, and the guard between them is dead code.** Filed originally as a DRY item; the whole-branch review found it is a live failure, not a risk. `search/grab.go`'s `BuildDownloadSource` — documented as "exported because the automatic-grab path needs the identical mapping" — and `grab/perform.go`'s `chooseSource` build `spec.source` differently, and both paths produce the **identical** deterministic Download name, while `DownloadSpec.Source` carries `self == oldSelf`. The second guard at `grab/perform.go:181` can never fire, because **nothing sets `status.activeDownloadRef` on the interactive path** — `perform.go:257` is its only writer, and the reconcilers merely re-assert an existing value. So: a user grabs from `status.results`, the RSS matcher approves the same release, the apiserver rejects with "source is immutable", `performGrab` returns *before* `clearPendingGrab`, the task dead-letters, and the item is stranded at `Phase=Delayed` forever — the exact failure `clearPendingGrab` exists to prevent. Export one resolver implementation, call it from both, and either make the guard's precondition real or delete it.
 - [ ] `rpc.go`'s `search()` falls through to "search does not support kind %q" when the kind *is* supported but every registered provider for it failed. An operator debugging a provider outage is told the kind is unsupported. Distinguish "no provider for this kind" from "every provider failed", and surface the underlying errors.
 - [ ] ~~`mediaKey` has no cross-kind collision guard~~ (shipped as `events.MediaKey`, 49961d2) and ~~`PendingGrab`/`Delayed` has no owner~~ (C9); `DownloadOverlay`'s phase mapping is a documented judgment call worth re-reading once real Downloads exist.
-- [ ] Neither the Movie nor the Episode reconciler watches `QualityProfile`, so **a cutoff change does not re-evaluate `cutoffMet`** until some other event wakes the item. The episode watch test works around it by bumping the MediaFile's `spec.path` — a workaround that masks the gap, so remove it with the fix.
+- [x] **Done in Phase C (`c0aeee4`):** both reconcilers watch `QualityProfile` through `mapQualityProfile`, and the episode test's `spec.path` bump is gone. Original entry: Neither the Movie nor the Episode reconciler watches `QualityProfile`, so **a cutoff change does not re-evaluate `cutoffMet`** until some other event wakes the item. The episode watch test works around it by bumping the MediaFile's `spec.path` — a workaround that masks the gap, so remove it with the fix.
 - [ ] The per-release N+1 in `blocklistPredicate`: up to 400 cache round-trips per search.
 - [ ] `Search` carries `ac:generate=false` and a **hand-written apply configuration**, because controller-tools v0.22.0 panics on the embedded `commonv1.ReleaseInfo`. Restructure the embedding so the generator works, then delete the hand-written file; a test already fails if controller-gen ever starts generating one, so the two cannot silently coexist.
 - [ ] `series/reconciler.go` computes the episode rollup from the **pre-fan-out** episode list. Harmless on the normal path; wrong if the episode RPC retries while the metadata refresh lands first.
 - [ ] The blocklist path is **warn-and-degrade**: a missing field index yields "nothing is blocklisted, empty queue" plus a warning. C12a guaranteed `RegisterDownloadIndexes` runs once on the right manager (`catalogarr/wiring.go`, asserted in `wiring_envtest_test.go`), but nothing yet proves in a real cluster that the path is **live rather than degraded**. Add that e2e assertion with M3's download scenarios.
 - [ ] Neither `MoviePhase` nor `EpisodePhase` has a value meaning **"cutoff not evaluated"**, so `kubectl get`'s phase column shows the misleading `CutoffUnmet` for an item whose quality profile could not be resolved. Only the condition carries the distinction. Adding a phase value is an API change — take it with the next API break.
 - [ ] `importarr` needs `update;patch` on `rootfolders` for its last-tick annotation, and **the single shared Role grants that to every service.** SSA scopes ownership per annotation key, so the practical blast radius is one key, but RBAC has no sub-object granularity. Split the Role per service, or keep it and document the grant where it is granted.
-- [ ] `mgr.GetEventRecorderFor` is deprecated and **six controllers pin it with `//nolint:staticcheck`**. Migrating to `mgr.GetEventRecorder` retires all six and leaves one Events group (`events.k8s.io/v1`) instead of today's mix with core/v1 — Phase C settled which controllers are on which, so the migration is now mechanical.
-- [ ] Rescan-worker minors from C10's review: no concurrency guard on the RootFolder schedule (an `@hourly` schedule over a 3-hour walk overlaps); `FilesSkipped` conflates four causes; `fsops.IsSample` flags any media file under 50 MiB (the e2e fixture clip is 56.7 MiB *because* of this); `noProgressTimeout` is measured from `startedAt` rather than the last checkpoint; redelivery drives counters backwards; `fsops.Walk` aborts the whole walk on one unreadable file.
+- [x] **Done (9189f37..39a4e03):** no call to `mgr.GetEventRecorderFor` remains; one stale doc example survives in `grabarr/engine/usenet/doc.go`. Original entry: `mgr.GetEventRecorderFor` is deprecated and **six controllers pin it with `//nolint:staticcheck`**. Migrating to `mgr.GetEventRecorder` retires all six and leaves one Events group (`events.k8s.io/v1`) instead of today's mix with core/v1 — Phase C settled which controllers are on which, so the migration is now mechanical.
+- [ ] Rescan-worker minors from C10's review: no concurrency guard on the RootFolder schedule (an `@hourly` schedule over a 3-hour walk overlaps); `FilesSkipped` still conflates transcoded files, files unchanged on an incremental scan, and every non-media, part, extra or name-matched sample file; ~~`fsops.IsSample` flags any media file under 50 MiB~~ — since Q-2 (`80e79da`) the size floor is `fsops.Classifier.SampleMaxBytes` (`--sample-max-bytes`, default 50 MiB), video-only, and a size-suspected file goes to `status.unmatched` as `suspected_sample` instead of being skipped (the e2e fixture clip stays ≥50 MiB on purpose, so e2e exercises the default); `noProgressTimeout` is measured from `startedAt` rather than the last checkpoint; redelivery drives counters backwards; `fsops.Walk` aborts the whole walk on one unreadable file.
 
 - [x] ~~The Movie, Series and Episode reconcilers have no spans.~~ **Done in Phase C (41a68d4).** It was filed for Phase D, which was the wrong phase: `CLAUDE.md` requires spans on every `Reconcile`, and amendment §A4 promises the first end-to-end trace at **M1**, which is Phase C. With the bus propagating a trace end to end, the three busiest reconcile loops were the hole it fell into. Still outstanding: span `ffmpeg` runs when Phase E lands.
 
@@ -1207,9 +1239,9 @@ here is a regression introduced by Phase C unless it says so.
 **Found while researching D1 (2026-09-19), owned elsewhere.**
 
 - [ ] **Every `pkg/metadata` client decodes straight off the socket with no response cap**, in all five clients. CLAUDE.md states the convention plainly — "Every HTTP response body is read through a cap: a package-level max, an `io.LimitReader(body, max+1)` and an `ErrResponseTooLarge` sentinel" — and `pkg/torznab` and `pkg/cardigann` do implement it at 8 MiB. The metadata clients simply do not. A hostile or broken provider can exhaust the gateway's memory. The convention exists, is documented, and was never applied to half the code it names.
-- [ ] **`pkg/cardigann` has eight undocumented unimplemented features**, on top of the three its docs admit (`rows.after`, `rows.dateheaders`, `|append`). All eight are decoded, schema-validated and exposed on public structs, then never read: `SearchBlock.Error`, `PreprocessingFilters`, `ResponseBlock.NoResultsMessage`, `Definition.Encoding`, `RequestDelay`, `FollowRedirect`, `Certificates`, and the `TestLinkTorrent`/`LegacyLinks`/`Replaces`/`RowsBlock.Multiple`/`LoginBlock.GetSelectorInputs` group. **`search.error` is the dangerous one**: a tracker's error or rate-limit page parses as zero rows and reads to the caller as "no results", so an indexer that is failing looks like an indexer with nothing to offer. Phase G owns wiring Cardigann; it inherits this list.
+- [ ] **Partly done at G1-1 (`a7dd0cd`): `SearchBlock.Error` is now a `*cardigann.SearchError` (`ErrSearchFailed`) that escalates the indexer, and the definition's `RequestDelay` raises the indexer's pacing (`indexarr/controller/indexer/controller_definition.go`). Still never read at HEAD: `PreprocessingFilters`, `ResponseBlock.NoResultsMessage`, `Definition.Encoding`, `FollowRedirect`, `Certificates`, `TestLinkTorrent`, `LegacyLinks`, `RowsBlock.Multiple`, `LoginBlock.GetSelectorInputs`.** Original entry: **`pkg/cardigann` has eight undocumented unimplemented features**, on top of the three its docs admit (`rows.after`, `rows.dateheaders`, `|append`). All eight are decoded, schema-validated and exposed on public structs, then never read: `SearchBlock.Error`, `PreprocessingFilters`, `ResponseBlock.NoResultsMessage`, `Definition.Encoding`, `RequestDelay`, `FollowRedirect`, `Certificates`, and the `TestLinkTorrent`/`LegacyLinks`/`Replaces`/`RowsBlock.Multiple`/`LoginBlock.GetSelectorInputs` group. **`search.error` is the dangerous one**: a tracker's error or rate-limit page parses as zero rows and reads to the caller as "no results", so an indexer that is failing looks like an indexer with nothing to offer. Phase G owns wiring Cardigann; it inherits this list.
 - [ ] `pkg/cardigann` embeds only `schema.json`. The `.yml` files under `testdata/` are fixtures, not a shipped corpus — **sourcing and vendoring the definition corpus is unbuilt work**, not a wiring task. Size it before Phase G plans around it.
-- [ ] `torznab.WithRateLimit(rate.Limit, int)` constructs a private `*rate.Limiter` internally, so it **cannot accept the injected `ratelimit.Limiter`** the project convention requires ("the caller owns rate limiting; a library package accepts an injected limiter and never defaults one on"). `cardigann.Engine` has no limiter at all. Also stale: the `torznab` package doc cites `Indexer.spec.rateLimit`, a field that does not exist — the CRD has `spec.requestDelay` and `spec.limits`.
+- [x] **Done:** `torznab.WithRateLimit` now takes the injected `*ratelimit.Limiter`, `cardigann.Engine` has an injectable `Limiter` (G1-1, `a7dd0cd`), and the `torznab` package doc no longer cites `spec.rateLimit`. Original entry: `torznab.WithRateLimit(rate.Limit, int)` constructs a private `*rate.Limiter` internally, so it **cannot accept the injected `ratelimit.Limiter`** the project convention requires ("the caller owns rate limiting; a library package accepts an injected limiter and never defaults one on"). `cardigann.Engine` has no limiter at all. Also stale: the `torznab` package doc cites `Indexer.spec.rateLimit`, a field that does not exist — the CRD has `spec.requestDelay` and `spec.limits`.
 - [ ] `catalogarr/worker/search` sets `DeadlineMillis: 45000` on the indexer RPC but **never wraps the call in a `context.WithTimeout`**, so the real outer bound is the consumer's `AckWait: 120s`. Either honour the deadline caller-side or stop advertising it.
 - [ ] The search RPC's `IndexerOutcome` handling **silently drops nameless outcomes** and only logs `Truncated`. An indexer that fails before it is named contributes nothing an operator can see.
 
@@ -1217,7 +1249,7 @@ here is a regression introduced by Phase C unless it says so.
 
 - [ ] **`pkg/cardigann` schema errors leak the process working directory and can exceed Kubernetes' condition-message cap.** `schema.go:45,48` registers the embedded schema as the bare name `schema-v11.json`, so jsonschema/v6 resolves it against the process CWD and a validation failure renders as `file:///<workdir>/schema-v11.json#…` — the binary's working directory, in `kubectl describe`, for a file that is `//go:embed`-ed and not on disk at all. Worse, the message is unbounded: a 73 KB definition (7% of the field's 1 MiB limit) produced a **105,599-byte** error, 3.2× the `maxLength: 32768` on `conditions[].message`. Over that limit the apply is **rejected**, not truncated — so the report explaining why a definition is invalid would itself fail to write, and the reconcile would error-loop on a terminal condition. D1-4 truncates at 800 bytes at its own call site, which makes that controller safe; M6's bundled-definition load at startup and the admission fast-path `Validate`'s doc advertises both still inherit it. Fix `AddResource` to use an absolute non-file URL, and keep the truncation regardless.
 - [ ] **`IndexerProxy.spec.port` is a constraint the schema does not express.** It is optional with no default, but `net.JoinHostPort(host, "0")` is meaningless and the three defensible values are per-type (flaresolverr 8191, http 3128, socks 1080), so no single default works and guessing would probe an endpoint nobody configured and report it Ready. The controller therefore rejects an empty port as an invalid spec — which means `kubectl apply` accepts an object the controller will always refuse. Make it `+required`, or add per-type CEL.
-- [ ] **A typed Go client is never defaulted, so `spec.requestDelay: 0s` and `spec.rssInterval: 0s` are indistinguishable from "unset".** `omitempty` has no effect on a struct field, so `metav1.Duration` is **always** marshalled: a typed client sends `{"rssInterval":"0s","requestDelay":"0s","timeout":"0s"}` and a kubebuilder default fills only a genuinely *absent* field. Verified against a real apiserver — an unstructured create gets `requestDelay=2s timeout=30s rssInterval=15m`, a typed create gets `0s` for all three. The consequence is that `"0s"` on the wire carries two incompatible meanings nothing downstream can separate: an operator writing `requestDelay: 0s` means "do not pace me" (`ratelimit.Config` documents `RPS <= 0` as unlimited), while a Go client leaving the field zero means "I did not specify". The more common producer in this codebase is the typed client, so an Indexer created in-cluster is silently **unpaced**, against the design's 2s-per-host intent. Latent today — nothing creates Indexers in-cluster yet — but M6's definition ingestion and any UI create path hit it, and it is already live in every envtest fixture. `spec.timeout` and `spec.rssInterval` are floored in code because zero has no coherent meaning for either; `requestDelay` deliberately is **not**, because flooring it would overrule an operator who meant it. The real fix is a pointer type in `api/index/**` or a defaulting webhook, so that absent and explicit-zero stop colliding. Neither belongs to a D1 task.
+- [x] **Resolved at G4-0 (`5ef8c56`):** `IndexerSpec.RequestDelay` is a `*metav1.Duration` — unset means 2s, an explicit `0s` means unpaced — while `timeout` and `rssInterval` stay floored in code; the whole class is now guarded by `pkg/crdcheck`'s `TestNoCRDDefaultIsUnreachableFromGo` (see `CLAUDE.md`'s typed-client gotcha). Original entry: **A typed Go client is never defaulted, so `spec.requestDelay: 0s` and `spec.rssInterval: 0s` are indistinguishable from "unset".** `omitempty` has no effect on a struct field, so `metav1.Duration` is **always** marshalled: a typed client sends `{"rssInterval":"0s","requestDelay":"0s","timeout":"0s"}` and a kubebuilder default fills only a genuinely *absent* field. Verified against a real apiserver — an unstructured create gets `requestDelay=2s timeout=30s rssInterval=15m`, a typed create gets `0s` for all three. The consequence is that `"0s"` on the wire carries two incompatible meanings nothing downstream can separate: an operator writing `requestDelay: 0s` means "do not pace me" (`ratelimit.Config` documents `RPS <= 0` as unlimited), while a Go client leaving the field zero means "I did not specify". The more common producer in this codebase is the typed client, so an Indexer created in-cluster is silently **unpaced**, against the design's 2s-per-host intent. Latent today — nothing creates Indexers in-cluster yet — but M6's definition ingestion and any UI create path hit it, and it is already live in every envtest fixture. `spec.timeout` and `spec.rssInterval` are floored in code because zero has no coherent meaning for either; `requestDelay` deliberately is **not**, because flooring it would overrule an operator who meant it. The real fix is a pointer type in `api/index/**` or a defaulting webhook, so that absent and explicit-zero stop colliding. Neither belongs to a D1 task.
 - [ ] **Any `{...}` token in a title classifies it as an audiobook, so an id-carrying release can end up with no parsed fields at all.** `audiobookMarkerRegex` (`pkg/release/classify.go:36`) is `\[ASIN\s[A-Z0-9]{10}\]|\(Unabridged\)|\{[^}]+\}` — the last alternative matches *any* braced token. Verified directly: `"Some Show S01E01 {tvdbid-121361}"` and `"{imdbid-tt0133093} The Matrix 1999 1080p"` both classify as `audiobook`, while the bracket form `"[tmdbid-603] Show - 12 [1080p].mkv"` correctly classifies as `episode`. `Parse` then refuses with "does not match any book title pattern" and the release ships with **no parsed fields whatsoever** — failing closed, so nothing matches rather than the wrong thing matching. Stripping the id first does not help: `extractIDs` removes the id's *value* but leaves the braces, so the stripped title still carries `{tvdbid-}` and the same marker fires (measured by D1-7 against both code paths). **Two earlier versions of this entry named the wrong cause** — first D1-7's classify-once workaround, then "`extractIDs` does not recognise the brace form". Neither is right, and a `Kind` field on `ParsedRelease` would fix none of it: the two real fixes are narrowing `audiobookMarkerRegex`'s brace alternative to actual audiobook markers, and having `extractIDs` remove the delimiters along with the value. `pkg/release` change, no D1 task owns it.
 - [ ] **`release.CleanTitle` is ASCII-only, so a non-Latin release is findable only by its metadata — and a non-Latin query degrades into a very broad match.** `CleanTitle` keeps only `[a-z0-9 ]`, and *both* the indexed `TitleNorm` column and `Query.Text` go through it, so the two sides agree and nothing errors. Measured against a real `relindex` store: a release is indexed **iff its name carries at least one ASCII alphanumeric**, which real release names almost always do — `"Матрица.1999.1080p.BluRay"` indexes fine as `"1999 1080p bluray"`. Only a wholly non-Latin name (`"Матрица"`, `"日本語のタイトル"`, `"마마마"`, `"Ω"`) is refused outright by `relindex.Upsert` with `TitleNorm is empty`. **The severity is not in the dropped case, which is now visible** — D1-7 publishes such a release to the firehose when it still carries matchable ids, and `metrics.IndexerReleasesDropped` counts it. The severity is in the *indexed* case: the row loses its non-Latin title tokens, so it cannot be found by its own title, while a query like `"日本語のタイトル 2026"` normalises to `"2026"` and silently matches **every release published that year**. `indexarr/query`'s `errUnmatchable` guard does not fire, because `q.Text` is non-empty — it only catches a query that normalises to nothing at all. Fix: a normaliser in `pkg/release` that keeps non-ASCII letters, applied to both sides in the same change. That same change retires the NUL-welding limitation noted in `indexarr/query/doc.go` (`CleanTitle` strips control runes before `pkg/relindex/fts.go` can map them to spaces, so `"dune\x00matrix"` becomes the single term `"dunematrix"`). `pkg/release` change, no D1 task owns it.
 
@@ -1244,7 +1276,7 @@ here is a regression introduced by Phase C unless it says so.
 
 **Found during the D2/D3 gate (2026-09-23) — both block the first kind run of scenarios 1, 2 and 6.**
 
-- [ ] **Both download fixtures name their served content `clustarr-fixture.bin`, which is not in `pkg/fsops.MediaExtensions`, so the file-import worker will skip it as unattributable and the `MediaFile` tail of scenarios 1, 2 and 6 is permanently blocked until a fixture serves a real media extension.** Verified directly: `test/fixtures/seeder/seeder.go` and `test/fixtures/nntpstub/fixture.go` both name the payload `clustarr-fixture.bin`, and `pkg/fsops/classify.go:36`'s `MediaExtensions` is `{.mkv, .epub, .mobi, .azw, .azw3, .pdf, .cbz, .cbr, .cb7, .cbt}` — no `.bin` entry, by design (the set is "deliberately narrow, grounded only in what docs/research/naming.md verifies"). `importarr/worker/fileimport` never guesses (CLAUDE.md's never-guess rule), so an unattributable file goes to `LibraryScan.status.unmatched` rather than becoming a `MediaFile`. The download and import halves of D2-10's scenarios can still run to completion; only the `MediaFile`-creation assertion at the end of scenarios 1, 2 and 6 is blocked. Fix is one field on each fixture's served filename (e.g. `clustarr-fixture.mkv`), not a code change — owned by whoever runs D2-10's scenarios against kind first.
+- [ ] **Both download fixtures name their served content `clustarr-fixture.bin`, which is not in `pkg/fsops.MediaExtensions`, so the file-import worker will skip it as unattributable and the `MediaFile` tail of scenarios 1, 2 and 6 is permanently blocked until a fixture serves a real media extension.** Verified directly, and still true at the E/F/G gate: `test/fixtures/seeder/seeder.go` and `test/fixtures/nntpstub/fixture.go` both name the payload `clustarr-fixture.bin`, and `pkg/fsops.MediaExtensions` — per kind since Q-1 (`de4891f`); video is `.mkv .mp4 .m4v .avi .mov .wmv .ts .m2ts .mpg .mpeg .webm` — has no `.bin` entry, by design. Scenario 1's transcode and subtitle legs (`TestDownloadScenario1TranscodeLegBlocked`, `TestDownloadScenario1SubtitleLegBlocked`) skip on this gap by name. `importarr/worker/fileimport` never guesses (CLAUDE.md's never-guess rule), so an unattributable file goes to `LibraryScan.status.unmatched` rather than becoming a `MediaFile`. The download and import halves of D2-10's scenarios can still run to completion; only the `MediaFile`-creation assertion at the end of scenarios 1, 2 and 6 is blocked. Fix is one field on each fixture's served filename (e.g. `clustarr-fixture.mkv`), not a code change — owned by whoever runs D2-10's scenarios against kind first.
 - [ ] **`config/e2e` deploys neither `test/fixtures/seeder` nor `test/fixtures/nntpstub` as a Service, so D2-10's download scenarios skip before creating anything.** Verified: `config/e2e/kustomization.yaml` and its sibling patches list `tmdb-stub.yaml`, `tvdb-stub.yaml` and `torznab-stub.yaml`, all three wired as the D1 pattern established, but no `seeder.yaml` or `nntpstub.yaml` exists in the directory and neither fixture binary is referenced anywhere under `config/`. D1's Torznab/Newznab fixture is the working pattern to copy (a `Deployment` plus a `Service` the relevant controller's spec points at); D2-9 built the two binaries and D2-10 wrote scenarios that assume they are reachable in-cluster, but no task actually added the manifests. Until they exist, `TestDownloadTorrentGrabToImportAttempt` and `TestDownloadUsenetNoInfoHashWithCrossServerFailover` have nothing to grab against and will skip or fail at setup, before the code under test runs at all.
 
 **Phase E — transcode.**
@@ -1271,6 +1303,85 @@ here is a regression introduced by Phase C unless it says so.
 - [ ] **`go mod tidy -diff` is non-empty on the Phase C branch.** Phase C's new tests import `github.com/prometheus/client_model`, `k8s.io/apiextensions-apiserver` and `sigs.k8s.io/yaml` directly (`catalogarr/metadata/tieredcache_test.go`, `test/e2e/main_test.go`, `cmd/clustarr/rbac_markers_test.go`), but `go.mod` still lists all three as `// indirect`. No version changes and nothing added or removed — a direct/indirect reclassification only — so builds and tests are unaffected, but the gate fails. Fold it into the same `go mod tidy` that fixes the `mousetrap` `go.sum` entry above, serially, and never from a parallel agent.
 - [ ] `deploymentsAvailable` in `test/e2e/main_test.go` **cannot see a Deployment scaled to zero** — Kubernetes reports `Available=True` for `replicas: 0`, so an overlay that mis-scales a service sails through the readiness gate (verified live: `tmdb-stub` at `replicas: 0` reported `Available=True Progressing=True`). The condition catches what matters — pods that cannot start, pull or pass probes — but anyone adding a "the right services are deployed" check must compare against a **roster**, not this condition. Owned by Phase H, or by whoever first needs that check.
 
+### Carried out of Phases E, F and G (2026-09-23)
+
+Harvested from `.superpowers/sdd/2026-09-23-phases-efg/progress.md` and the
+three phase plans, and each re-verified at HEAD during the final gate.
+
+**Events, history and the DLQ.**
+
+- [ ] **The history sink has producers for only three of its eight event types.** Only `CatalogReleaseSubject` (`catalogarr/worker/grab/perform.go`), `CatalogImportListSyncedSubject` (`importarr/worker/importlist/sync.go`) and `SubtitleEventSubject` (`captionarr/worker/fetch/apply.go`) are ever published. `CatalogItemSubject`, `CatalogMediaFileSubject`, `IndexerEventSubject`, `DownloadEventSubject` and `TranscodeJobSubject` have no production caller, so the sink turns none of those into Events.
+- [ ] A dead letter that resolves only to a namespace gets its Event on the `Namespace` object (`catalogarr/history/dlq.go`), which is cluster-scoped, so the Event lands in `default` rather than in the namespace it is about.
+- [ ] Per ruling R1 the DLQ projector annotates (`clustarr.io/dead-lettered`) instead of setting a condition; no owning controller folds that annotation into a condition yet. The `clustarr.io/replay` handler is not built (`catalogarr/history/doc.go` documents the manual workaround).
+- [ ] Pre-amendment dead code: `schema.ImportListTask`, `events.ConsumerCatalogImportList` and `events.FilterCatalogList` are still declared, and the consumer is still in the topology, although importarr's `WorkListSubject` replaced them. Prune them.
+
+**Import lists.**
+
+- [ ] `ImportList.status` lags a full refresh interval: the controller watches the ImportList with a generation predicate and otherwise requeues only at `nextSyncAt`, so the worker's sync result is not projected until the next scheduled sync.
+- [ ] Trakt and Plex are untestable end to end: `importarr/worker/importlist.BuildProvider` threads no base-URL override into `trakt.New` or `plex.New`, and `Reconciler.TraktBaseURL` (the device-flow seam) has no flag. Scenario 9 checks only that those two ImportLists are accepted.
+- [ ] Non-video import lists are skipped (`syncKind`'s `supportedKinds`, `importarr/worker/importlist/sync.go`), with a log line and nothing on status.
+- [ ] `SyncActionRemoveAndDelete` behaves exactly like `SyncActionRemove`: deleting the files is not implemented.
+
+**Search, decision and the RSS matcher.**
+
+- [ ] **Automatic search is movie and episode only.** `catalogarr/worker/search` dispatches `MediaKindMovie` and `MediaKindEpisode` and `snapshot.go` fails any other kind as unsupported, so no non-video item is ever searched or grabbed automatically.
+- [ ] **A non-video release cannot be quality-decided.** `pkg/release` fills `Quality` only for movie, TV and anime titles, and `quality.FromCRD` scores every catalogue custom format — all TRaSH video data — against music, book, audiobook and comic profiles alike.
+- [ ] The RSS matcher's yearless series-title fallback is unreachable: it looks up `TitleYearKey(parsedTitle, rel.Year)` against an index keyed by the series' first-aired year, so a release without a year only ever matches by TVDB id. `TestMatch_SeriesShapes` hides it with a fixture that carries a year.
+- [ ] A season pack passes the identity check for a single-episode target (`pkg/decision/identity.go` accepts `FullSeason`), so an automatic single-episode search may grab a whole season. Sonarr has a separate rule; this is a policy decision.
+- [ ] No scene-to-TVDB numbering map for anime: a scene-numbered release with no absolute number is rejected `WrongItem`.
+- [ ] Clustarr has no `SecondaryYear`; the identity check's year ±1 stands in for Radarr's exact-year-or-secondary-year rule.
+- [ ] `k8s.ManagerCatalogarrGrab`'s doc says it applies `status.activeDownloadRef`, but the Movie and Episode reconcilers also write that field under `ManagerCatalogarr` — the Phase C co-ownership entry above, still undocumented where the manager is declared.
+
+**Indexers.**
+
+- [ ] `IndexerProxy.spec.selector` is not implemented; there is no FlareSolverr client, and `socks4` is refused (`indexarr/controller/indexer/proxy.go`).
+- [ ] The Indexer controller does not watch `IndexerDefinition`, so a definition edit reaches an Indexer only at its next reprobe (≤15 minutes).
+- [ ] The Cardigann fields still never read are listed in the Phase D1 entry above.
+
+**Non-video metadata and catalog.**
+
+- [ ] **MusicBrainz `mapAlbum` never populates `Album.Releases`**, so an Album's `status.tracks` is always empty in production and `MetadataProfile.ReleaseStatuses` cannot be evaluated (it passes conservatively). `AlbumStatus.SelectedReleaseID` has no writer, and a `MediaRef` cannot address a Track, so there is no per-track file attribution.
+- [ ] MusicBrainz's "Field recording" secondary type has no member in the CRD's secondary-type enum.
+- [ ] Open Library returns minimal data: `Books` gives ids and title only, and `Book` never fills `Editions` or `FirstPublished`, which makes the metadata profile's `SkipMissingDate`/`SkipMissingISBN` documented no-ops.
+- [ ] ComicVine never fills `ComicVolume.Status`, and its body-level `status_code` is unmapped (TODO in `pkg/metadata/clients/comicvine/comicvine.go`).
+- [ ] `IssueStatus` has `fileQuality` but no `cutoffMet`, so comics get no upgrade tracking although `ComicSpec` carries a quality profile. `CalculatedNumberCentis`' parse is Clustarr's own, not a verified *arr precedent.
+- [ ] Album, Book and Audiobook `mapQualityProfile` wake only items that name the profile directly; an item inheriting it from its parent picks up an edit on its next reconcile.
+- [ ] Non-video import: an album's or audiobook's manual import adds files and never replaces old ones; lossy music has no frozen quality (bitrate needs a probe); Episode import is `Ignored`; a Series root folder rescan reports `unsupported_root_kind`.
+- [ ] Sample and promo handling: a release titled like "Free Samples" is dropped by the name rule, and a manual folder import takes promo clips along.
+
+**Transcode.**
+
+- [ ] Nothing in the binary applies `$UMASK`, though design §11 requires it (every service, not only squasharr).
+- [ ] Transcode Job pods get no `securityContext` (`squasharr/controller/transcodejob/job.go`), unlike every Deployment: no non-root, seccomp or read-only root filesystem.
+- [ ] `config/keda/transcode-scaledjob.yaml` (example only, ruling R7, but listed in `config/keda/kustomization.yaml`) cannot work as written: it runs as the `squasharr` ServiceAccount instead of `squasharr-worker`, and starts the worker without `--job`, which `squasharr`'s option validation rejects.
+- [ ] `policy.replaceSource: false` is rejected by CEL — deferred like chunking, because honouring it needs an output location that does not exist.
+- [ ] A container change is planned `Skipped` (ruling R8). Making it work means the worker writing `<stem>.<container>`, catalogarr taking over `spec.path` on the swap, and closing the rescan race between rename and path update.
+- [ ] Per-profile transcode concurrency has no API field; only `Reconciler.ProfileLimits` exists.
+- [ ] Intel GPU Jobs get no `supplementalGroups` for `/dev/dri`.
+- [ ] The TranscodeJob controller emits no Kubernetes Events, and the HDR arguments it renders into `status.plan` may differ from the worker's (decision and tier agree; the worker re-renders).
+
+**Subtitles.**
+
+- [ ] `clustarr all` never fetches subtitles: it runs captionarr's controller role only.
+- [ ] Fetch MsgIDs extend spec §6.5's `<uid>/<langKey>/<probeHash>` with `/<attempt>` or `/force-<generation>` (`events.MsgIDForSubtitle`, `MsgIDForForcedSubtitle`). The spec should record the deviation once its reflow lands.
+- [ ] `SubtitleProfile.spec.embedded.extract` has no effect: under the §6.5 planner an embedded track already counts as existing, so its language is never wanted and the embedded provider is never tasked. A spec-level conflict.
+- [ ] OpenSubtitles.com ignores `parent_imdb`/`parent_tmdb`, so an episode is searched by moviehash only; no JWT is injected, so `throttle.SetAuth` has no caller.
+- [ ] The first provider with an acceptable candidate wins, not Bazarr's pooling; two providers of one type means only the higher-priority one is searched.
+- [ ] Sidecars are always written 0664 (`fetch.DefaultSidecarMode`); `Worker.SidecarMode` is never set from the root folder's `perms.fileMode`.
+- [ ] `subdl`, `subsource` and `whisper` have no client (ruling R5), and sync/Whisper stay CEL-forced off.
+- [ ] `hiVerifiable` is still a separate table in the SubtitleProvider controller (`provider.go`), not read from `providerset`.
+
+**UI and `clustarr all`.**
+
+- [ ] `/readyz` goes green on cache sync, before the first projection round, so a fresh ui pod serves empty pages for ~12 s while reporting Ready.
+- [ ] `clustarr all`'s ui always binds `:8080`; there is no flag.
+
+**API.**
+
+- [ ] 44 defaulted `omitempty` scalars cannot send their zero from Go (the "zero omitted and defaulted" class `TestNoCRDDefaultIsUnreachableFromGo` logs). Most zeros mean nothing; three may matter: `CRFTable.HDROffset` (default -1, so "no HDR offset" cannot be sent), `IndexerSpec.MinimumSeeders` (0 becomes 1) and `RecycleBin.CleanupDays` (0 becomes 7). Make those pointers if their zero is wanted.
+- [ ] The design spec's field-manager table still lacks G1-0's three managers — the global entry at the top of this section.
+
+**Fixed during E, F and G, or at the final gate — not carried:** Cardigann `SearchBlock.Error` (`a7dd0cd`); grabarr's hard-coded engine PVC (`--data-claim`, G1-5); `Download.status.import.rejections` uncapped (`importarr/worker/fileimport/caps.go`, G4-0); OpenSubtitles.com JSON read uncapped (`7fbe132`); the stale "M6 / not applied" comments in indexarr (G1-5); `ManagerCatalogarrFanout`'s doc and `ManagerCatalogarr`'s missing Audiobook (it now says every `catalog.clustarr.io` kind); the `capMatchedFormats` wiring left untested (`0d820a9`); `ImportedFile` and every other 1024-capped path raised to 4096 (`8c76baf`); the pre-existing gofumpt and staticcheck findings (`7747c8c`, `11dfc86`); and the stale comments the gate brief listed (`f7a9a56`).
 
 ## Self-review notes
 
