@@ -27,20 +27,19 @@ import (
 )
 
 // movieYearTolerance is how far a release's parsed year may sit from the
-// movie's own year and still be the same film.
+// movie's own Year and still be the same film.
 //
 // Radarr does NOT use a tolerance: ParsingService.TryGetMovieBySearchCriteria
 // accepts a title match only when the parsed year equals Year or
 // SecondaryYear, and QueryExtensions.AllWithYear filters the same way
 // (Radarr src/NzbDrone.Core/Parser/ParsingService.cs,
 // src/NzbDrone.Core/Movies/QueryExtensions.cs; docs/research/ carries no note
-// on this rule). SecondaryYear is a second, provider-sourced year that
-// exists precisely because a festival premiere and a general release -- or
-// two regions -- disagree on a film's year by one. Clustarr's MovieMetadata
-// has no SecondaryYear, so an exact-year rule here would reject every
-// release named by the other year; one year either side is the stand-in for
-// it. Dune (2021) versus Dune (1984) is 37 years apart, so the tolerance
-// costs nothing where it matters.
+// on this rule). Clustarr carries SecondaryYear too
+// (MovieMetadata.secondaryYear, Identity.SecondaryYear) and accepts it
+// exactly, as Radarr does -- but a provider fills it only for some films, and
+// a release named by the year either side of a premiere is common, so ruling
+// R-7 keeps one year either side of Year as well. Dune (2021) versus Dune
+// (1984) is 37 years apart, so the tolerance costs nothing where it matters.
 const movieYearTolerance = 1
 
 // minPlausibleYear is Radarr's own "the title named no year" cut:
@@ -84,8 +83,9 @@ const minPlausibleYear = 1800
 //     piece of the title that does not change with language.
 //  3. Titles: every cleaned release title (ParsedRelease.Titles, so an "AKA"
 //     second title counts) against every cleaned title the item is known by
-//     (Identity.Titles), then for a movie the year within movieYearTolerance.
-//     The comparison key is titleKey's, not bare release.CleanTitle.
+//     (Identity.Titles), then for a movie the year (movieYearRejection:
+//     SecondaryYear exactly, or Year within movieYearTolerance). The
+//     comparison key is titleKey's, not bare release.CleanTitle.
 //  4. Nothing to compare -- the unevaluable case -- is UnknownItem. See below.
 //
 // An episode or pack target then has to pass the numbering half too
@@ -143,7 +143,7 @@ func itemRejection(kind common.MediaKind, id Identity, want map[string]struct{},
 
 	if rel.IndexerRef != "" && id.IDQueryIndexers[rel.IndexerRef] {
 		if kind == common.MediaKindMovie {
-			return yearRejection(id.Year, parsed.Year)
+			return movieYearRejection(id, parsed.Year)
 		}
 		return nil
 	}
@@ -169,7 +169,7 @@ func itemRejection(kind common.MediaKind, id Identity, want map[string]struct{},
 	for _, k := range got {
 		if _, ok := want[k]; ok {
 			if kind == common.MediaKindMovie {
-				return yearRejection(id.Year, parsed.Year)
+				return movieYearRejection(id, parsed.Year)
 			}
 			return nil
 		}
@@ -235,9 +235,24 @@ func normalizeID(key, v string) string {
 	return v
 }
 
-// yearRejection bounds a movie release's parsed year by movieYearTolerance.
-// An unknown year on either side constrains nothing.
-func yearRejection(targetYear, releaseYear int) *common.Rejection {
+// movieYearRejection is ruling R-7's year rule for a movie: the release's
+// parsed year is the item's SecondaryYear exactly, or within
+// movieYearTolerance of its Year. An unknown year on either side constrains
+// nothing.
+func movieYearRejection(id Identity, releaseYear int) *common.Rejection {
+	if id.SecondaryYear >= minPlausibleYear && releaseYear == id.SecondaryYear {
+		return nil
+	}
+	r := yearRejection(id.Year, releaseYear, movieYearTolerance)
+	if r != nil && id.SecondaryYear >= minPlausibleYear {
+		r.Reason += fmt.Sprintf(", and is not its secondary year %d", id.SecondaryYear)
+	}
+	return r
+}
+
+// yearRejection bounds a release's parsed year to within tolerance of the
+// item's. An unknown year on either side constrains nothing.
+func yearRejection(targetYear, releaseYear, tolerance int) *common.Rejection {
 	if targetYear < minPlausibleYear || releaseYear < minPlausibleYear {
 		return nil
 	}
@@ -245,11 +260,15 @@ func yearRejection(targetYear, releaseYear int) *common.Rejection {
 	if d < 0 {
 		d = -d
 	}
-	if d <= movieYearTolerance {
+	if d <= tolerance {
 		return nil
 	}
-	r := newRejection(ReasonWrongItem, "release year %d is more than %d year from the item's %d",
-		releaseYear, movieYearTolerance, targetYear)
+	unit := "years"
+	if tolerance == 1 {
+		unit = "year"
+	}
+	r := newRejection(ReasonWrongItem, "release year %d is more than %d %s from the item's %d",
+		releaseYear, tolerance, unit, targetYear)
 	return &r
 }
 

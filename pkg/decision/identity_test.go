@@ -96,6 +96,11 @@ func duneIdentity() decision.Identity {
 	}
 }
 
+func withSecondaryYear(id decision.Identity, year int) decision.Identity {
+	id.SecondaryYear = year
+	return id
+}
+
 func movieTarget(id decision.Identity) decision.Target {
 	return decision.Target{Kind: common.MediaKindMovie, Available: true, Identity: id}
 }
@@ -146,6 +151,25 @@ func TestIdentityMovie(t *testing.T) {
 		{name: "one year late is the same film", title: "Dune.2022.1080p.BluRay.x264-GRP"},
 		{name: "two years early is not", title: "Dune.2019.1080p.BluRay.x264-GRP", want: "WrongItem", detail: "release year 2019 is more than 1 year from the item's 2021"},
 		{name: "two years late is not", title: "Dune.2023.1080p.BluRay.x264-GRP", want: "WrongItem", detail: "release year 2023"},
+		// Ruling R-7: SecondaryYear exactly, however far from Year; the ±1
+		// around Year still stands, but not around SecondaryYear.
+		{
+			name: "the secondary year, beyond the tolerance around Year", title: "Dune.2019.1080p.BluRay.x264-GRP",
+			identity: withSecondaryYear(duneIdentity(), 2019),
+		},
+		{
+			name: "one year off the secondary year is not", title: "Dune.2018.1080p.BluRay.x264-GRP",
+			identity: withSecondaryYear(duneIdentity(), 2019), want: "WrongItem",
+			detail: "release year 2018 is more than 1 year from the item's 2021, and is not its secondary year 2019",
+		},
+		{
+			name: "the tolerance around Year still holds with a secondary year", title: "Dune.2022.1080p.BluRay.x264-GRP",
+			identity: withSecondaryYear(duneIdentity(), 2019),
+		},
+		{
+			name: "an id-query release named by the secondary year", title: "Dune.2019.1080p.BluRay.x264-GRP", indexer: idIndexer,
+			identity: withSecondaryYear(duneIdentity(), 2019),
+		},
 		{name: "an alternate title of the item", title: "Dune.Part.One.2021.1080p.BluRay.x264-GRP"},
 		{name: "an AKA second title on the release", title: "Duna.AKA.Dune.2021.1080p.BluRay.x264-GRP"},
 		{

@@ -94,9 +94,15 @@ type Identity struct {
 	Titles []string
 	// Year is status.metadata.year: a movie's release year, or a series'
 	// first-aired year. 0 means unknown. For a movie it bounds the release's
-	// parsed year (movieYearTolerance); for a series it is used only to
+	// parsed year (movieYearRejection); for a series it is used only to
 	// recognise the "Doctor Who 2005" disambiguated-title form.
 	Year int
+	// SecondaryYear is a movie's second provider-sourced year,
+	// status.metadata.secondaryYear: the year a festival premiere and a
+	// general release, or two regions, disagree on. 0 means there is none. A
+	// release named by it is the same film however far it sits from Year
+	// (movieYearRejection). Unused for every other kind.
+	SecondaryYear int
 	// IDs are the item's external ids, keyed by commonv1.IDKeyTMDB /
 	// IDKeyIMDB / IDKeyTVDB exactly as ReleaseInfo.IDs is: tmdb (spec) and
 	// imdb (status.metadata.externalIDs) for a movie; the SERIES' tvdb id for
