@@ -397,8 +397,11 @@ func (r *Reconciler) completeSearch(ctx context.Context, s *catalogv1alpha1.Sear
 
 	u := newStatusUpdate(s)
 	u.phase = catalogv1alpha1.SearchPhaseCompleted
-	k8s.MarkTrue(s, &u.conditions, catalogv1alpha1.SearchConditionCompleted, k8s.ReasonReconciled,
-		"%d releases kept from %d indexers", len(s.Status.Results), len(s.Status.IndexerOutcomes))
+	msg := fmt.Sprintf("%d releases kept from %d indexers", len(s.Status.Results), indexerOutcomeCount(s.Status.IndexerOutcomes))
+	if truncated(s.Status.IndexerOutcomes) {
+		msg += "; the reply was truncated, so these were decided from a partial set (see status.indexerOutcomes)"
+	}
+	k8s.MarkTrue(s, &u.conditions, catalogv1alpha1.SearchConditionCompleted, k8s.ReasonReconciled, "%s", msg)
 	k8s.MarkFalse(s, &u.conditions, catalogv1alpha1.SearchConditionFailed, k8s.ReasonReconciled, "search completed")
 	k8s.MarkTrue(s, &u.conditions, k8s.ConditionReady, k8s.ReasonReconciled, "status.results reflects spec")
 	if err := r.apply(ctx, s, u); err != nil {
@@ -418,6 +421,51 @@ func (r *Reconciler) completeSearch(ctx context.Context, s *catalogv1alpha1.Sear
 // DNS-1123 subdomain, so it can never collide with a real Indexer object's name
 // in a listType=map keyed by name.
 const WorkerOutcomeName = "catalogarr/search-worker"
+
+// TruncatedOutcomeName is the status.indexerOutcomes entry the search worker
+// adds when indexarr cut the federated reply at schema.MaxSearchReleases: the
+// results were decided from a partial set, and that has to be visible on the
+// object rather than only in a log line. Reserved the same way as
+// WorkerOutcomeName.
+const TruncatedOutcomeName = "catalogarr/truncated"
+
+// reservedOutcomePrefix begins every outcome name the search worker reserves
+// for something that is not one named Indexer. The slash keeps each of them
+// out of the DNS-1123 namespace a real Indexer's name lives in.
+const reservedOutcomePrefix = "catalogarr/"
+
+// UnnamedOutcomeName is the status.indexerOutcomes name the search worker
+// gives the n-th (1-based, in reply order) outcome indexarr reported with no
+// indexer name at all -- an indexer that failed before it could be named.
+// Such an outcome used to be dropped, which hid exactly the failure an
+// operator most needs to see.
+func UnnamedOutcomeName(n int) string {
+	return reservedOutcomePrefix + "unnamed-indexer-" + strconv.Itoa(n)
+}
+
+// indexerOutcomeCount counts the outcomes that are real indexers, leaving out
+// the worker's reserved entries (its own failure, the truncation marker) but
+// keeping the unnamed indexers, which were real indexers that answered.
+func indexerOutcomeCount(outcomes []catalogv1alpha1.IndexerOutcome) int {
+	n := 0
+	for _, o := range outcomes {
+		if o.Name == WorkerOutcomeName || o.Name == TruncatedOutcomeName {
+			continue
+		}
+		n++
+	}
+	return n
+}
+
+// truncated reports whether the worker marked the reply as cut short.
+func truncated(outcomes []catalogv1alpha1.IndexerOutcome) bool {
+	for _, o := range outcomes {
+		if o.Name == TruncatedOutcomeName {
+			return true
+		}
+	}
+	return false
+}
 
 // workerFailure reports the search worker's own explanation when it finished
 // without being able to search at all.

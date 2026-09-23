@@ -23,8 +23,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	searchctl "github.com/mediactl/clustarr/catalogarr/controller/search"
 	"github.com/mediactl/clustarr/pkg/decision"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
 func seedersPtr(n int32) *int32 { return &n }
@@ -130,4 +133,39 @@ func TestRankAndCapLimits(t *testing.T) {
 		"limit 0 means MaxResults, not 0")
 	require.Len(t, RankAndCap(mk(MaxResults+50), decision.Options{}, 0), MaxResults,
 		"status.results has MaxItems=200; the apiserver rejects more")
+}
+
+// TestWithTruncationKeepsTheMarkerAtTheCap: status.indexerOutcomes caps at
+// MaxIndexerOutcomes, and a truncation marker cut off by that cap would
+// hide the very thing it reports.
+func TestWithTruncationKeepsTheMarkerAtTheCap(t *testing.T) {
+	full := make([]catalogv1alpha1.IndexerOutcome, 0, MaxIndexerOutcomes)
+	for i := range MaxIndexerOutcomes {
+		full = append(full, catalogv1alpha1.IndexerOutcome{Name: fmt.Sprintf("idx-%03d", i)})
+	}
+	got := withTruncation(capOutcomes(full), 500)
+	require.Len(t, got, MaxIndexerOutcomes)
+	require.Equal(t, searchctl.TruncatedOutcomeName, got[len(got)-1].Name)
+	require.Equal(t, "idx-098", got[len(got)-2].Name)
+
+	few := withTruncation([]catalogv1alpha1.IndexerOutcome{{Name: "idx"}}, 3)
+	require.Len(t, few, 2)
+	require.Equal(t, int32(3), few[1].Count)
+}
+
+// TestMapOutcomesNamesTheNameless: a nameless outcome gets a reserved,
+// numbered name instead of being dropped, and the reserved names can never
+// be a real Indexer's (they are not DNS-1123 subdomains).
+func TestMapOutcomesNamesTheNameless(t *testing.T) {
+	got := mapOutcomes([]schema.SearchOutcome{
+		{Status: schema.SearchOutcomeError, Error: "boom"},
+		{IndexerName: "Display Only", Status: schema.SearchOutcomeOK},
+		{Status: schema.SearchOutcomeSkipped},
+	})
+	require.Len(t, got, 3)
+	require.Equal(t, searchctl.UnnamedOutcomeName(1), got[0].Name)
+	require.Equal(t, "boom", got[0].Error)
+	require.Equal(t, "Display Only", got[1].Name)
+	require.Equal(t, searchctl.UnnamedOutcomeName(2), got[2].Name)
+	require.Contains(t, got[0].Name, "/")
 }

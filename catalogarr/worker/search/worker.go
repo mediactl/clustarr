@@ -58,6 +58,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/metadata/scenemap"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -138,6 +139,18 @@ type Worker struct {
 	// Sink defaults to NopSink.
 	Sink  Sink
 	Clock clockwork.Clock
+	// Topology is the bus topology this process installed --
+	// k8s.Options.BusTopology(), the same value run.go hands
+	// k8s.EnsureTopology -- and SetupWithManager looks both consumers up in
+	// it. Nil means events.Default(), which is only correct while
+	// BusTopology's single-node collapse leaves consumers untouched; a
+	// caller that has the process's topology should always set it, so the
+	// consumer a replica subscribes to is the one it created.
+	Topology *events.Topology
+	// SceneMaps supplies TheXEM's scene-numbering table for a series (see
+	// sceneMappings). Nil means no scene numbering: every release number is
+	// read literally, as before TheXEM was wired.
+	SceneMaps scenemap.Source
 }
 
 // NewWorker builds a Worker with the production decision engine, no grab sink
@@ -250,13 +263,13 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 		}
 	}
 
-	switch task.MediaRef.Kind {
-	case commonv1.MediaKindMovie, commonv1.MediaKindEpisode:
-	default:
-		// §16 scopes catalogarr's non-video kinds to M6. Discarding is right:
-		// no number of redeliveries makes an artist searchable today.
-		return w.terminal(ctx, srch, "non-video search is M6 scope",
-			fmt.Errorf("kind=%s", task.MediaRef.Kind))
+	if !Searchable(task.MediaRef.Kind) {
+		// A container (an artist, an author, a comic, a series) is not
+		// searched for itself: its albums, books, issues and episodes are,
+		// each with its own identity. Discarding is right: no number of
+		// redeliveries makes one searchable.
+		return w.terminal(ctx, srch, fmt.Sprintf("kind %s is not searchable", task.MediaRef.Kind),
+			fmt.Errorf("search one of its items instead: kind=%s", task.MediaRef.Kind))
 	}
 
 	snap, err := w.snapshot(ctx, ns, task.MediaRef)
@@ -323,11 +336,24 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 	w.log(ctx).Info("search: decided",
 		"releases", len(rels), "approved", countApproved(decisions), "kept", len(ranked),
 		"truncated", resp.Truncated)
+	warnUnreported(ctx, resp)
 
 	if srch != nil {
-		return w.writeResults(ctx, srch, resp.Outcomes, ranked)
+		return w.writeResults(ctx, srch, resp, ranked)
 	}
 	return w.sink().Deliver(ctx, ns, grabTarget(task), ranked)
+}
+
+// Searchable reports whether the search worker can search for an item of
+// kind: one it can snapshot, identify and decide. Every other kind a
+// SearchTask can name is a container whose items are searched instead.
+func Searchable(kind commonv1.MediaKind) bool {
+	switch kind {
+	case commonv1.MediaKindMovie, commonv1.MediaKindEpisode:
+		return true
+	default:
+		return false
+	}
 }
 
 // recordAttempt stamps status.lastSearchedAt and status.searchAttempts on the
@@ -584,14 +610,41 @@ func recordDecisionMetrics(kind commonv1.MediaKind, ds []decision.Decision) {
 	}
 }
 
-// writeResults records a completed interactive search.
+// writeResults records a completed interactive search: every indexer's
+// outcome, named or not, plus the truncation marker when indexarr cut the
+// reply.
 func (w *Worker) writeResults(
 	ctx context.Context,
 	srch *catalogv1alpha1.Search,
-	outcomes []schema.SearchOutcome,
+	resp schema.SearchResponse,
 	ranked []commonv1.ReleaseDecision,
 ) error {
-	return w.applySearchStatus(ctx, srch, capOutcomes(mapOutcomes(outcomes)), ranked)
+	outcomes := capOutcomes(mapOutcomes(resp.Outcomes))
+	if resp.Truncated {
+		outcomes = withTruncation(outcomes, len(resp.Releases))
+	}
+	return w.applySearchStatus(ctx, srch, outcomes, ranked)
+}
+
+// warnUnreported logs the two things about a reply that an automatic search
+// has nowhere else to put: indexarr cut the reply at its cap, and indexers
+// that reported no name. An interactive search also records both on the
+// Search (writeResults); an automatic one has no object, so without this they
+// would be invisible -- which is how a truncated reply used to be reported,
+// as one boolean on an Info line.
+func warnUnreported(ctx context.Context, resp schema.SearchResponse) {
+	log := logging.FromContext(ctx)
+	if resp.Truncated {
+		log.Warn("search: indexarr truncated the reply; releases beyond the cap were never decided",
+			"cap", schema.MaxSearchReleases, "releases", len(resp.Releases))
+	}
+	for i, o := range resp.Outcomes {
+		if outcomeName(o) != "" {
+			continue
+		}
+		log.Warn("search: an indexer outcome carried no indexer name",
+			"position", i, "status", string(o.Status), "releases", o.Releases, "err", o.Error)
+	}
 }
 
 // writeFailure records a terminal failure on the Search without destroying
@@ -668,19 +721,23 @@ const MaxIndexerOutcomes = 100
 // itself a problem.
 const maxOutcomeErrorBytes = 512
 
-// mapOutcomes projects the RPC's per-indexer report onto the API type. It
-// drops nameless entries: status.indexerOutcomes is listType=map keyed by
-// name, and an entry with no key makes the apiserver reject the whole status
-// apply.
+// mapOutcomes projects the RPC's per-indexer report onto the API type.
+//
+// An outcome with no indexer name is kept, under a reserved name
+// (searchctl.UnnamedOutcomeName) numbered in reply order. It used to be
+// dropped, because status.indexerOutcomes is listType=map keyed by name and an
+// entry with no key makes the apiserver reject the whole status apply -- but
+// dropping it meant an indexer that failed before indexarr could name it
+// contributed nothing an operator could see, not even its error. The reserved
+// names contain a slash, so none can collide with a real Indexer's name.
 func mapOutcomes(outcomes []schema.SearchOutcome) []catalogv1alpha1.IndexerOutcome {
 	out := make([]catalogv1alpha1.IndexerOutcome, 0, len(outcomes))
+	unnamed := 0
 	for _, o := range outcomes {
-		name := o.IndexerRef.Name
+		name := outcomeName(o)
 		if name == "" {
-			name = o.IndexerName
-		}
-		if name == "" {
-			continue
+			unnamed++
+			name = searchctl.UnnamedOutcomeName(unnamed)
 		}
 		out = append(out, catalogv1alpha1.IndexerOutcome{
 			Name:       name,
@@ -691,6 +748,35 @@ func mapOutcomes(outcomes []schema.SearchOutcome) []catalogv1alpha1.IndexerOutco
 		})
 	}
 	return out
+}
+
+// outcomeName is the name an outcome is reported under: the Indexer object's
+// name, or failing that its display name. "" means indexarr named it neither.
+func outcomeName(o schema.SearchOutcome) string {
+	if o.IndexerRef.Name != "" {
+		return o.IndexerRef.Name
+	}
+	return o.IndexerName
+}
+
+// withTruncation adds the searchctl.TruncatedOutcomeName marker to an already
+// capped outcome list: indexarr cut the reply at schema.MaxSearchReleases, so
+// the results the user reads were decided from a partial set. The marker
+// takes the last slot when the list is already at MaxIndexerOutcomes, because
+// a truncation nobody can see is the failure this marker exists to prevent,
+// and a hundredth indexer's line is the cheaper thing to lose.
+func withTruncation(outcomes []catalogv1alpha1.IndexerOutcome, releases int) []catalogv1alpha1.IndexerOutcome {
+	marker := catalogv1alpha1.IndexerOutcome{
+		Name:  searchctl.TruncatedOutcomeName,
+		State: catalogv1alpha1.IndexerOutcomeSkipped,
+		Count: int32(releases),
+		Error: fmt.Sprintf("indexarr cut the federated reply at %d releases; any release beyond that was never decided",
+			schema.MaxSearchReleases),
+	}
+	if len(outcomes) >= MaxIndexerOutcomes {
+		outcomes = outcomes[:MaxIndexerOutcomes-1]
+	}
+	return append(outcomes, marker)
 }
 
 // capOutcomes deduplicates by name and truncates to MaxIndexerOutcomes. It is
@@ -753,19 +839,23 @@ func outcomeState(s schema.SearchOutcomeStatus) catalogv1alpha1.IndexerOutcomeSt
 	}
 }
 
-// runnableFunc is a manager.Runnable that never needs leader election, so both
-// search consumers run on every replica: the work queue itself is what stops
-// two replicas doing the same task.
-type runnableFunc func(ctx context.Context) error
-
-// Start implements manager.Runnable.
-func (f runnableFunc) Start(ctx context.Context) error { return f(ctx) }
-
-// NeedLeaderElection implements manager.LeaderElectionRunnable.
-func (runnableFunc) NeedLeaderElection() bool { return false }
+// topology is the bus topology the consumers are looked up in: Topology when
+// the caller set it, events.Default() otherwise.
+func (w *Worker) topology() events.Topology {
+	if w.Topology != nil {
+		return *w.Topology
+	}
+	return events.Default()
+}
 
 // SetupWithManager subscribes both search consumers. Nothing here registers
 // itself: catalogarr's run.go calls this once, from setupWorkers.
+//
+// Both consumers are k8s.EveryReplica runnables, so they run on every
+// replica rather than behind the leader lease: the work queue itself is what
+// stops two replicas doing the same task. (This package used to carry a
+// private copy of EveryReplica, which the registration guard could not see
+// because it was unexported.)
 //
 // It does NOT call [RegisterDownloadIndexes]. It used to, and that made the
 // three Download indexes a side effect of this worker being enabled -- while
@@ -784,14 +874,14 @@ func (w *Worker) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error {
 		// caller free to inject a different publisher.
 		w.Publisher = bus
 	}
-	topo := events.Default()
+	topo := w.topology()
 	for _, name := range []string{events.ConsumerCatalogSearchHigh, events.ConsumerCatalogSearchNorm} {
 		spec, ok := topo.Consumer(name)
 		if !ok {
-			return fmt.Errorf("no consumer spec named %s in the default topology", name)
+			return fmt.Errorf("no consumer spec named %s in the bus topology", name)
 		}
 		sub := spec.Subscription()
-		if err := mgr.Add(runnableFunc(func(ctx context.Context) error {
+		if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 			stop, err := bus.Subscribe(ctx, sub, w.Handle)
 			if err != nil {
 				return fmt.Errorf("subscribe %s: %w", sub.Durable, err)

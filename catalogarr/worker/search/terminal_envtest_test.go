@@ -111,7 +111,7 @@ func TestWorkerReportsAnUnsupportedKindOnTheSearchObject(t *testing.T) {
 	require.NoError(t, f.api.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: "srch-kind"}, got))
 	require.NotNil(t, got.Status.FinishedAt)
 	require.Len(t, got.Status.IndexerOutcomes, 1)
-	require.Contains(t, got.Status.IndexerOutcomes[0].Error, "M6 scope")
+	require.Contains(t, got.Status.IndexerOutcomes[0].Error, "is not searchable")
 }
 
 // TestWorkerCapsAndDedupesIndexerOutcomes proves the status write survives a
@@ -172,4 +172,64 @@ func TestWorkerCapsAndDedupesIndexerOutcomes(t *testing.T) {
 	}
 	require.Equal(t, catalogv1alpha1.IndexerOutcomeOK, got.Status.IndexerOutcomes[0].State,
 		"first entry wins on a duplicate name")
+}
+
+// TestWorkerReportsNamelessOutcomesAndTruncation pins two carried D1 defects:
+// an outcome indexarr reported with no indexer name was dropped, so an
+// indexer that failed before it was named left no trace an operator could
+// see; and a truncated reply was only a boolean on an Info log line, so a
+// user reading status.results could not tell they were decided from a
+// partial set.
+func TestWorkerReportsNamelessOutcomesAndTruncation(t *testing.T) {
+	ctx := context.Background()
+	f := newWorkerFixture(t, "worker-nameless")
+
+	f.rpc.Response = schema.SearchResponse{
+		Releases: []schema.Release{rpcRelease("g1", "The.Matrix.1999.1080p.BluRay.x264-HIGH", 100)},
+		Outcomes: []schema.SearchOutcome{
+			{IndexerRef: schema.Ref{Namespace: f.ns, Name: "idx"}, Status: schema.SearchOutcomeOK, Releases: 1},
+			{Status: schema.SearchOutcomeError, Error: "tls: handshake failure"},
+			{Status: schema.SearchOutcomeTimeout},
+		},
+		Truncated: true,
+	}
+	srch := &catalogv1alpha1.Search{
+		ObjectMeta: metav1.ObjectMeta{Name: "srch-nameless", Namespace: f.ns},
+		Spec: catalogv1alpha1.SearchSpec{
+			MediaRef: &commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
+			TTL:      metav1.Duration{Duration: time.Hour},
+		},
+	}
+	require.NoError(t, f.mgr.Create(ctx, srch))
+	waitCached(t, ctx, f.mgr, client.ObjectKey{Namespace: f.ns, Name: "srch-nameless"}, &catalogv1alpha1.Search{})
+
+	require.NoError(t, f.worker.Handle(ctx, testMessage{env: f.envelope(t, schema.SearchTask{
+		MediaRef:    commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
+		Reason:      schema.SearchReasonInteractive,
+		SearchRef:   &schema.Ref{Namespace: f.ns, Name: "srch-nameless"},
+		UserInvoked: true,
+	})}))
+
+	got := &catalogv1alpha1.Search{}
+	require.NoError(t, f.api.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: "srch-nameless"}, got))
+	byName := map[string]catalogv1alpha1.IndexerOutcome{}
+	for _, o := range got.Status.IndexerOutcomes {
+		byName[o.Name] = o
+	}
+	require.Len(t, byName, 4, "one named indexer, two nameless ones and the truncation marker: %+v", got.Status.IndexerOutcomes)
+	require.Equal(t, "idx", got.Status.IndexerOutcomes[0].Name, "real outcomes keep the reply's order, first")
+
+	first, ok := byName[searchctl.UnnamedOutcomeName(1)]
+	require.True(t, ok, "the first nameless outcome is reported, not dropped")
+	require.Equal(t, catalogv1alpha1.IndexerOutcomeError, first.State)
+	require.Equal(t, "tls: handshake failure", first.Error, "its error is what the operator needs")
+	second, ok := byName[searchctl.UnnamedOutcomeName(2)]
+	require.True(t, ok)
+	require.Equal(t, catalogv1alpha1.IndexerOutcomeTimeout, second.State)
+
+	marker, ok := byName[searchctl.TruncatedOutcomeName]
+	require.True(t, ok, "a truncated reply is visible on the object")
+	require.Equal(t, catalogv1alpha1.IndexerOutcomeSkipped, marker.State)
+	require.Contains(t, marker.Error, fmt.Sprint(schema.MaxSearchReleases))
+	require.Len(t, got.Status.Results, 1, "the results are written alongside")
 }
