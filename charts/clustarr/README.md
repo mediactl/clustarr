@@ -205,6 +205,7 @@ template.
 | `indexarr.facade.service.type`/`.port` | The Torznab facade Service (`/{indexer}/api`, `/{indexer}/download`, `/search/api`). | `ClusterIP`, `8080` |
 | `indexarr.facade.apiKeySecret` | Secret holding the facade's API keys; empty means `<release>-indexarr-facade`, created by indexarr itself with one random key. | `""` |
 | `squasharr.slots` | `--slots` budget string, e.g. `cpu=2,nvidia=1,intel=1`. | `cpu=2,nvidia=1,intel=1` |
+| `squasharr.intelRenderGroups` | GIDs of the host group owning `/dev/dri/renderD*` on the Intel GPU nodes (`--intel-render-groups`), added to every Intel transcode Job's pod as `supplementalGroups`. Host-specific, so no default; leave empty with a runtime that has `device_ownership_from_security_context`. | `[]` |
 | `captionarrWorker.ackWaitSeconds` | Also `terminationGracePeriodSeconds`, so a worker can drain its in-flight fetch on `SIGTERM` instead of losing it to redelivery. | `120` |
 | `ui.service.type`/`.port` | The web UI's Service. Ships with no login of its own -- put it behind ingress authentication. | `ClusterIP`, `8080` |
 

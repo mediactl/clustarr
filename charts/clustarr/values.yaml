@@ -269,6 +269,12 @@ squasharr:
   replicas: 1
   # cpu / nvidia / intel slots (§6.4, §12).
   slots: cpu=2,nvidia=1,intel=1
+  # GIDs of the host group owning /dev/dri/renderD* on the Intel GPU nodes,
+  # added to every Intel transcode Job's pod as supplementalGroups
+  # (--intel-render-groups). It varies per host install, so there is no
+  # default; leave it empty with a runtime that has
+  # device_ownership_from_security_context enabled.
+  intelRenderGroups: []
   resources:
     requests:
       cpu: 50m

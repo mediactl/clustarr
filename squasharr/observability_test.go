@@ -66,3 +66,28 @@ func TestWorkerObservabilityArgsParse(t *testing.T) {
 	quiet := workerObservabilityArgs(logging.Options{}, tracing.Options{SampleRatio: 1})
 	assert.Equal(t, []string{"--tracing-sample-ratio=1"}, quiet)
 }
+
+// TestJobConfigCarriesTheControllerOptions holds the link from squasharr's
+// Options to what every transcode Job is built with. Each of these has a
+// legal empty value -- no render groups, the default service account, the
+// default claim -- that fails only on a real node, so the only proof the
+// option arrives is the value itself. IntelRenderGroups is X14's
+// --intel-render-groups: without it an Intel Job's non-root worker cannot
+// open /dev/dri/renderD* on a runtime that does not hand device ownership
+// to the pod.
+func TestJobConfigCarriesTheControllerOptions(t *testing.T) {
+	t.Setenv("UMASK", "002")
+	o := DefaultOptions()
+	o.WorkerImage, o.WorkerImageCUDA = "media:1", "media-cuda:1"
+	o.WorkerServiceAccount, o.DataClaimName, o.DataDir = "rel-squasharr-worker", "rel-data", "/data"
+	o.IntelRenderGroups = []int64{109, 44}
+
+	cfg := jobConfig(o)
+	assert.Equal(t, []int64{109, 44}, cfg.IntelRenderGroups, "--intel-render-groups did not reach the Job config")
+	assert.Equal(t, "media:1", cfg.Image)
+	assert.Equal(t, "media-cuda:1", cfg.ImageCUDA)
+	assert.Equal(t, "rel-squasharr-worker", cfg.ServiceAccountName)
+	assert.Equal(t, "rel-data", cfg.DataClaimName)
+	assert.Equal(t, "/data", cfg.DataDir)
+	assert.Equal(t, "002", cfg.Umask, "the controller's $UMASK did not reach the Job config")
+}

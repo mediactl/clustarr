@@ -413,28 +413,38 @@ func setupControllers(mgr ctrl.Manager, o Options, bus events.Bus) error {
 		Slots:    o.Slots,
 		Recorder: mgr.GetEventRecorder("transcodejob"),
 		Bus:      bus,
-		Job: transcodejob.JobConfig{
-			Image:              o.WorkerImage,
-			ImageCUDA:          o.WorkerImageCUDA,
-			DataClaimName:      o.DataClaimName,
-			DataDir:            o.DataDir,
-			ServiceAccountName: o.WorkerServiceAccount,
-			IntelRenderGroups:  o.IntelRenderGroups,
-			// §11: the Jobs create files with the same UMASK this
-			// Deployment was given.
-			Umask: os.Getenv(transcodejob.UmaskEnv),
-			// NATSURL stays empty: the worker never uses the bus (R6),
-			// and its role no longer requires --nats-url.
-
-			// The worker logs and traces as this controller does: without
-			// these its spans -- the ffmpeg run's among them -- were
-			// recorded into a TracerProvider exporting nowhere.
-			ExtraArgs: workerObservabilityArgs(o.Logging, o.Tracing),
-		},
+		Job:      jobConfig(o),
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("squasharr: transcodejob: %w", err)
 	}
 	return nil
+}
+
+// jobConfig is what the TranscodeJob controller stamps onto every batch Job
+// it creates, from this controller's own options and environment. It is a
+// function of o alone so a test can hold each option to the Job it reaches
+// (TestJobConfigCarriesTheControllerOptions): several of them -- the render
+// groups, the service account, the claim -- have legal empty values that
+// only fail on a real node.
+func jobConfig(o Options) transcodejob.JobConfig {
+	return transcodejob.JobConfig{
+		Image:              o.WorkerImage,
+		ImageCUDA:          o.WorkerImageCUDA,
+		DataClaimName:      o.DataClaimName,
+		DataDir:            o.DataDir,
+		ServiceAccountName: o.WorkerServiceAccount,
+		IntelRenderGroups:  o.IntelRenderGroups,
+		// §11: the Jobs create files with the same UMASK this
+		// Deployment was given.
+		Umask: os.Getenv(transcodejob.UmaskEnv),
+		// NATSURL stays empty: the worker never uses the bus (R6),
+		// and its role no longer requires --nats-url.
+
+		// The worker logs and traces as this controller does: without
+		// these its spans -- the ffmpeg run's among them -- were
+		// recorded into a TracerProvider exporting nowhere.
+		ExtraArgs: workerObservabilityArgs(o.Logging, o.Tracing),
+	}
 }
 
 // workerObservabilityArgs renders the root command's --log-* and

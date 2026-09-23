@@ -215,6 +215,7 @@ func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 		workerImageCUDA string
 		workerAccount   string
 		dataClaim       string
+		renderGroups    string
 	)
 
 	cmd := &cobra.Command{
@@ -248,11 +249,20 @@ func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 			squasharr.DefaultWorkerServiceAccount+".")
 	cmd.Flags().StringVar(&dataClaim, "data-claim", envOr(dataClaimEnv, defaults.DataClaimName),
 		"RWX PersistentVolumeClaim transcode Jobs mount at --data-dir. Defaults to $"+dataClaimEnv+".")
+	cmd.Flags().StringVar(&renderGroups, "intel-render-groups", envOr(intelRenderGroupsEnv, ""),
+		"Comma-separated GIDs every Intel transcode Job's pod gets as supplementalGroups: the host group "+
+			"owning /dev/dri/renderD* on the Intel GPU nodes, e.g. 109 or 44,109. It varies per host install, "+
+			"so there is no default; empty relies on the container runtime's "+
+			"device_ownership_from_security_context. Defaults to $"+intelRenderGroupsEnv+".")
 
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		budget, err := squasharr.ParseSlots(slots)
 		if err != nil {
 			return err
+		}
+		gids, err := parseGIDs(renderGroups)
+		if err != nil {
+			return fmt.Errorf("--intel-render-groups: %w", err)
 		}
 		return runSquasharr(cmd.Context(), squasharr.Options{
 			Options:              *common,
@@ -264,6 +274,7 @@ func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 			WorkerImageCUDA:      workerImageCUDA,
 			WorkerServiceAccount: workerAccount,
 			DataClaimName:        dataClaim,
+			IntelRenderGroups:    gids,
 			Logging:              *lo,
 			Tracing:              tracingFor(to, squasharr.ServiceName),
 		})

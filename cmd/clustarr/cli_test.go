@@ -22,6 +22,7 @@ import (
 	"context"
 	"log/slog"
 	"net"
+	"reflect"
 	"runtime"
 	"sort"
 	"strings"
@@ -382,6 +383,51 @@ func TestSquasharrWorkerSettingsComeFromTheEnvironment(t *testing.T) {
 	}
 	if err := got.Validate(); err == nil {
 		t.Error("a squasharr controller with no worker image was accepted")
+	}
+}
+
+// TestSquasharrIntelRenderGroups holds X14's --intel-render-groups (the
+// flag images/Dockerfile.media's header names) to squasharr.Options: from
+// the flag, from $CLUSTARR_INTEL_RENDER_GROUPS (which the chart sets), empty
+// by default because the host render GID varies per install, and a typo
+// refused at startup rather than at every Job's pod creation.
+// squasharr's TestJobConfigCarriesTheControllerOptions holds the next link,
+// Options to the Job.
+func TestSquasharrIntelRenderGroups(t *testing.T) {
+	got := stub(t, &runSquasharr)
+	if _, err := execute(t, "squasharr", "--namespace", "clustarr", "--worker-image", "m:1",
+		"--intel-render-groups", "44, 109"); err != nil {
+		t.Fatalf("clustarr squasharr: %v", err)
+	}
+	if !reflect.DeepEqual(got.IntelRenderGroups, []int64{44, 109}) {
+		t.Errorf("--intel-render-groups 44,109 gave IntelRenderGroups %v", got.IntelRenderGroups)
+	}
+	if err := got.Validate(); err != nil {
+		t.Errorf("the parsed options are invalid: %v", err)
+	}
+
+	t.Setenv(intelRenderGroupsEnv, "109")
+	got = stub(t, &runSquasharr)
+	if _, err := execute(t, "squasharr", "--namespace", "clustarr", "--worker-image", "m:1"); err != nil {
+		t.Fatalf("clustarr squasharr: %v", err)
+	}
+	if !reflect.DeepEqual(got.IntelRenderGroups, []int64{109}) {
+		t.Errorf("$%s=109 gave IntelRenderGroups %v", intelRenderGroupsEnv, got.IntelRenderGroups)
+	}
+
+	t.Setenv(intelRenderGroupsEnv, "")
+	got = stub(t, &runSquasharr)
+	if _, err := execute(t, "squasharr", "--namespace", "clustarr", "--worker-image", "m:1"); err != nil {
+		t.Fatalf("clustarr squasharr: %v", err)
+	}
+	if len(got.IntelRenderGroups) != 0 {
+		t.Errorf("with nothing set, IntelRenderGroups = %v, want none", got.IntelRenderGroups)
+	}
+
+	for _, bad := range []string{"render", "44,", "-1", "44;109"} {
+		if _, err := execute(t, "squasharr", "--namespace", "clustarr", "--intel-render-groups", bad); err == nil {
+			t.Errorf("--intel-render-groups %q was accepted", bad)
+		}
 	}
 }
 

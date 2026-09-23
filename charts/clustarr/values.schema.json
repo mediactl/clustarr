@@ -173,6 +173,12 @@
           "pattern": "^[a-z][a-z0-9]*=[0-9]+(,[a-z][a-z0-9]*=[0-9]+)*$",
           "description": "squasharr --slots: comma-separated hardware=count pairs, e.g. cpu=2,nvidia=1,intel=1."
         },
+        "intelRenderGroups": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0 },
+          "uniqueItems": true,
+          "description": "squasharr --intel-render-groups: GIDs of the host group owning /dev/dri/renderD* on the Intel GPU nodes, added to every Intel transcode Job's pod as supplementalGroups. Host-specific, so no default."
+        },
         "resources": { "$ref": "#/$defs/resources" },
         "nodeSelector": { "type": "object" },
         "tolerations": { "type": "array" },

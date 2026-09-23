@@ -96,6 +96,14 @@ const (
 	// cluster with no egress.
 	traktBaseURLEnv = "CLUSTARR_TRAKT_BASE_URL"
 	plexBaseURLEnv  = "CLUSTARR_PLEX_BASE_URL"
+
+	// intelRenderGroupsEnv is the default for squasharr's
+	// --intel-render-groups: the comma-separated GIDs of the host group
+	// owning /dev/dri/renderD* on the Intel GPU nodes, which every Intel
+	// transcode Job's pod gets as supplementalGroups. It has no default
+	// because the GID is per host install (images/Dockerfile.media's header
+	// names the flag); the chart sets it from squasharr.intelRenderGroups.
+	intelRenderGroupsEnv = "CLUSTARR_INTEL_RENDER_GROUPS"
 )
 
 // envOr returns $name when it is set and non-empty, and fallback otherwise.
@@ -201,4 +209,24 @@ func offsetAddress(addr string, n int) (string, error) {
 		return "", fmt.Errorf("offsetting %q by %d leaves port %d out of range", addr, n, shifted)
 	}
 	return addr[:i+1] + strconv.Itoa(shifted), nil
+}
+
+// parseGIDs reads a comma-separated list of group ids, such as
+// --intel-render-groups' "44,109". Empty is no groups. A negative, a
+// non-number or an empty element is an error: a supplementalGroups entry
+// the kubelet rejects fails every Job at pod creation, far from the typo.
+func parseGIDs(s string) ([]int64, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+	var out []int64
+	for _, part := range strings.Split(s, ",") {
+		gid, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64)
+		if err != nil || gid < 0 {
+			return nil, fmt.Errorf("%q is not a list of group ids (element %q)", s, part)
+		}
+		out = append(out, gid)
+	}
+	return out, nil
 }

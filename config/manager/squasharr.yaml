@@ -111,6 +111,14 @@ spec:
               value: ghcr.io/mediactl/clustarr/media:dev
             - name: CLUSTARR_WORKER_IMAGE_CUDA
               value: ghcr.io/mediactl/clustarr/media-cuda:dev
+            # Intel transcode Jobs need the host's render group
+            # (--intel-render-groups, $CLUSTARR_INTEL_RENDER_GROUPS): the GID
+            # owning /dev/dri/renderD* on the Intel GPU nodes, which varies
+            # per host install, so nothing is set here. Add e.g.
+            #   - name: CLUSTARR_INTEL_RENDER_GROUPS
+            #     value: "109"
+            # or run a container runtime with
+            # device_ownership_from_security_context enabled instead.
           ports:
             - name: metrics
               containerPort: 8443
