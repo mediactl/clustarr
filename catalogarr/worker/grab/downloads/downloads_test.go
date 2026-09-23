@@ -61,6 +61,17 @@ func TestResolveSource(t *testing.T) {
 			},
 		},
 		{
+			name: "an upper-case info hash is lower-cased to fit the CRD pattern",
+			rel: commonv1.ReleaseInfo{
+				Protocol: commonv1.ProtocolTorrent, GUID: "g", IndexerRef: "idx",
+				InfoHash: "0123456789ABCDEF0123456789ABCDEF01234567",
+			},
+			want: downloadv1alpha1.DownloadSource{
+				IndexerDownload:  &downloadv1alpha1.IndexerDownload{IndexerRef: "idx", GUID: "g"},
+				ExpectedInfoHash: ptr.To(hexHash),
+			},
+		},
+		{
 			name: "a usenet indexer release goes through indexarr and never carries a hash",
 			rel: commonv1.ReleaseInfo{
 				Protocol: commonv1.ProtocolUsenet, GUID: "g", IndexerRef: "idx",

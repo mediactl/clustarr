@@ -332,6 +332,31 @@ func TestPerformGrab_AuthenticatedIndexerRoutesThroughIndexarr(t *testing.T) {
 	assert.Equal(t, release.InfoHash, *src.ExpectedInfoHash)
 }
 
+// TestPerformGrab_UpperCaseInfoHashStillGrabs: expectedInfoHash's CRD
+// pattern is lower-case hex, and indexers report the hash in upper case often
+// enough. Passed through verbatim, as the grab path used to, the apiserver
+// rejected the whole Download and the grab retried into a dead letter.
+func TestPerformGrab_UpperCaseInfoHashStillGrabs(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	ns := newNamespace(t, ctx, c)
+
+	movie := newMovie(t, ctx, c, ns, "the-thing-1982")
+	newIndexer(t, ctx, c, ns, "my-indexer", nil)
+	profile := hdBlurayWeb(t)
+	release := torrentRelease("guid-1", "my-indexer", profile.Tiers[0][0].Quality, 0)
+	release.InfoHash = "0123456789ABCDEF0123456789ABCDEF01234567"
+	target := commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name}
+
+	deps := grab.Deps{Client: c, Bus: newTestBus(t, nil), Now: fixedNow(testNow)}
+	require.NoError(t, grab.PerformGrabForTest(ctx, deps, ns, target, nil, release, downloadv1alpha1.GrabSourceSearch))
+
+	var dl downloadv1alpha1.Download
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: ns, Name: k8s.ChildName(movie.Name, release.GUID)}, &dl))
+	require.NotNil(t, dl.Spec.Source.ExpectedInfoHash)
+	assert.Equal(t, "0123456789abcdef0123456789abcdef01234567", *dl.Spec.Source.ExpectedInfoHash)
+}
+
 // TestPerformGrab_UnauthenticatedIndexerAlsoRoutesThroughIndexarr: whether
 // an Indexer has a Secret is no longer an input to the source. It used to
 // pick a direct torrentURL here, while the Search controller picked
