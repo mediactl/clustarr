@@ -183,6 +183,26 @@ func (k *kvHandle) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
+// DeleteRevision places a delete marker on key only if key's last revision is
+// rev. JetStream enforces it with the expected-last-subject-sequence header,
+// so a key rewritten, deleted or expired since rev fails the same way.
+func (k *kvHandle) DeleteRevision(ctx context.Context, key string, rev uint64) error {
+	if rev == 0 {
+		// jetstream.LastRevision(0) means "no expectation": an
+		// unconditional delete. No stored revision is 0.
+		return fmt.Errorf("natsbus: delete %s/%s at revision 0: %w",
+			k.name, key, events.ErrRevisionMismatch)
+	}
+	kv, err := k.resolve(ctx)
+	if err != nil {
+		return err
+	}
+	if err := kv.Delete(ctx, key, jetstream.LastRevision(rev)); err != nil {
+		return kvError("delete", k.name, key, err)
+	}
+	return nil
+}
+
 // Watch streams the current value of every key matching pattern and then
 // every subsequent change. The JetStream end-of-initial-values marker is
 // swallowed, because events.Entry has no nil form.

@@ -64,6 +64,7 @@ func RunBusContract(t *testing.T, newBus func() events.Bus) {
 	t.Run("WorkQueueAckRemoves", func(t *testing.T) { testAckRemoves(t, newBus) })
 	t.Run("ScheduledPublish", func(t *testing.T) { testScheduledPublish(t, newBus) })
 	t.Run("KeyValueCreateAndCAS", func(t *testing.T) { testKVCreateAndCAS(t, newBus) })
+	t.Run("KeyValueDeleteRevision", func(t *testing.T) { testKVDeleteRevision(t, newBus) })
 	t.Run("KeyValueTTL", func(t *testing.T) { testKVTTL(t, newBus) })
 	t.Run("KeyValueWatch", func(t *testing.T) { testKVWatch(t, newBus) })
 	t.Run("RequestReply", func(t *testing.T) { testRequestReply(t, newBus) })
@@ -633,6 +634,54 @@ func testKVCreateAndCAS(t *testing.T, newBus func() events.Bus) {
 	// A deleted lease can be taken again.
 	if _, err := kv.Create(ctx, key, []byte("download-4")); err != nil {
 		t.Errorf("Create after Delete: %v", err)
+	}
+}
+
+// testKVDeleteRevision holds the revision-checked delete: a caller that read
+// a key and then decides to delete it must not delete a value another writer
+// put there in between -- the grab lease a failed Download frees can be
+// reclaimed by a new grab between the read and the delete.
+func testKVDeleteRevision(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+	kv := bus.KV(events.BucketLeases)
+	key := events.LeaseKey("movie/the-thing")
+
+	read, err := kv.Create(ctx, key, []byte("download-1"))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	// Another writer moves the key on after it was read.
+	moved, err := kv.Update(ctx, key, []byte("download-2"), read)
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if err := kv.DeleteRevision(ctx, key, read); !errors.Is(err, events.ErrRevisionMismatch) {
+		t.Fatalf("DeleteRevision at the stale revision error = %v, want ErrRevisionMismatch", err)
+	}
+	entry, err := kv.Get(ctx, key)
+	if err != nil {
+		t.Fatalf("Get after a refused DeleteRevision: %v", err)
+	}
+	if string(entry.Value) != "download-2" || entry.Revision != moved {
+		t.Errorf("after a refused DeleteRevision the key is %q@%d, want the other writer's %q@%d",
+			entry.Value, entry.Revision, "download-2", moved)
+	}
+	if err := kv.DeleteRevision(ctx, key, 0); !errors.Is(err, events.ErrRevisionMismatch) {
+		t.Errorf("DeleteRevision at revision 0 error = %v, want ErrRevisionMismatch, not an unconditional delete", err)
+	}
+
+	if err := kv.DeleteRevision(ctx, key, moved); err != nil {
+		t.Fatalf("DeleteRevision at the current revision: %v", err)
+	}
+	if _, err := kv.Get(ctx, key); !errors.Is(err, events.ErrKeyNotFound) {
+		t.Fatalf("Get after DeleteRevision error = %v, want ErrKeyNotFound", err)
+	}
+	// Gone since it was read is a mismatch too, unlike Delete's no-op.
+	if err := kv.DeleteRevision(ctx, key, moved); !errors.Is(err, events.ErrRevisionMismatch) {
+		t.Errorf("DeleteRevision of a deleted key error = %v, want ErrRevisionMismatch", err)
+	}
+	if _, err := kv.Create(ctx, key, []byte("download-3")); err != nil {
+		t.Errorf("Create after DeleteRevision: %v", err)
 	}
 }
 

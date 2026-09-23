@@ -219,6 +219,10 @@ func (k *conflictKV) Delete(ctx context.Context, key string) error {
 	return k.inner.Delete(ctx, key)
 }
 
+func (k *conflictKV) DeleteRevision(ctx context.Context, key string, rev uint64) error {
+	return k.inner.DeleteRevision(ctx, key, rev)
+}
+
 func (k *conflictKV) Watch(ctx context.Context, p string) (<-chan events.Entry, error) {
 	return k.inner.Watch(ctx, p)
 }

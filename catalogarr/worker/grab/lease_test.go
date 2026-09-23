@@ -241,3 +241,47 @@ func TestFreeLeases_DeletesOnlyTheFailedDownloadsKeys(t *testing.T) {
 	_, err = FreeLeases(ctx, kv, "media", commonv1.MediaRef{Kind: commonv1.MediaKindArtist, Name: "radiohead"}, "x")
 	assert.ErrorIs(t, err, ErrUnsupportedKind)
 }
+
+// reclaimAfterReadKV is a real second writer interleaved into FreeLeases: the
+// first Get of a key returns what was stored, and then a grab reclaims that
+// key -- acquireLease's revision-checked Update -- before the caller acts on
+// the stale read.
+type reclaimAfterReadKV struct {
+	events.KV
+	t         *testing.T
+	reclaimer string
+	done      bool
+}
+
+func (k *reclaimAfterReadKV) Get(ctx context.Context, key string) (events.Entry, error) {
+	entry, err := k.KV.Get(ctx, key)
+	if err == nil && !k.done {
+		k.done = true
+		_, uerr := k.Update(ctx, key, []byte(k.reclaimer), entry.Revision)
+		require.NoError(k.t, uerr, "the interleaved grab reclaims the lease")
+	}
+	return entry, err
+}
+
+// TestFreeLeases_KeepsALeaseReclaimedAfterTheRead pins the race a value check
+// followed by a plain Delete loses: a grab that reclaims the failed
+// Download's lease between FreeLeases' read and its delete must keep it.
+func TestFreeLeases_KeepsALeaseReclaimedAfterTheRead(t *testing.T) {
+	ctx := context.Background()
+	inner := newTestBus(t).KV(events.BucketLeases)
+	key := packLeaseKeys("the-wire-s01e01")[0]
+	_, err := inner.Create(ctx, key, []byte("failed-download"))
+	require.NoError(t, err)
+
+	kv := &reclaimAfterReadKV{KV: inner, t: t, reclaimer: "new-grab"}
+	episode := commonv1.MediaRef{
+		Kind: commonv1.MediaKindSeries, Name: "the-wire", Keys: []string{"the-wire-s01e01"},
+	}
+	freed, err := FreeLeases(ctx, kv, "media", episode, "failed-download")
+	require.NoError(t, err)
+	assert.Empty(t, freed, "a lease reclaimed after the read is not the failed Download's to free")
+
+	entry, err := inner.Get(ctx, key)
+	require.NoError(t, err, "the reclaiming grab's lease must survive")
+	assert.Equal(t, "new-grab", string(entry.Value))
+}

@@ -268,6 +268,42 @@ func (k *kvHandle) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
+// DeleteRevision places a delete marker on key only if its current revision is
+// rev. A key that is absent -- deleted or expired since rev was read -- is a
+// mismatch, as it is on JetStream, where the key's last revision is then its
+// delete marker.
+func (k *kvHandle) DeleteRevision(ctx context.Context, key string, rev uint64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	b, err := k.resolve()
+	if err != nil {
+		return err
+	}
+	now := k.bus.clock.Now()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	v, ok := b.liveLocked(key, now)
+	if !ok {
+		return fmt.Errorf("membus: %q is absent, not at revision %d: %w",
+			key, rev, events.ErrRevisionMismatch)
+	}
+	if v.rev != rev {
+		return fmt.Errorf("membus: %q is at revision %d, not %d: %w",
+			key, v.rev, rev, events.ErrRevisionMismatch)
+	}
+	delete(b.vals, key)
+	b.rev++
+	b.notifyLocked(events.Entry{
+		Bucket:    b.spec.Name,
+		Key:       key,
+		Revision:  b.rev,
+		Created:   now,
+		Operation: events.KVDelete,
+	})
+	return nil
+}
+
 // Watch streams the current value of every matching key and then every
 // subsequent change. Unlike JetStream it sends no end-of-initial-values
 // marker, because events.Entry has no nil form; callers that need one should

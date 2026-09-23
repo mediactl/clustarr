@@ -49,8 +49,8 @@ var (
 	// It is the double-grab guard used by the clustarr-leases bucket.
 	ErrKeyExists = errors.New("events: key exists")
 
-	// ErrRevisionMismatch is returned by KV.Update when the supplied revision
-	// is not the key's current revision.
+	// ErrRevisionMismatch is returned by KV.Update and KV.DeleteRevision when
+	// the supplied revision is not the key's current revision.
 	ErrRevisionMismatch = errors.New("events: key revision mismatch")
 
 	// ErrClosed is returned by every method once Close has been called.

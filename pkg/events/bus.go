@@ -238,6 +238,14 @@ type KV interface {
 	// error.
 	Delete(ctx context.Context, key string) error
 
+	// DeleteRevision places a delete marker on key only if its current
+	// revision is rev, returning ErrRevisionMismatch otherwise -- including
+	// when the key has been deleted or has expired since rev was read. It is
+	// Delete with Update's compare-and-swap: a caller that read a value and
+	// decided to delete it cannot delete a value another writer put there
+	// meanwhile, as a value check followed by Delete can.
+	DeleteRevision(ctx context.Context, key string, rev uint64) error
+
 	// Watch streams the current value of every key matching pattern and then
 	// every subsequent change. The channel is closed when ctx is cancelled or
 	// the bus closes.

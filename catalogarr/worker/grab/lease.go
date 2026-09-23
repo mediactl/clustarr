@@ -174,12 +174,10 @@ func acquireLease(ctx context.Context, kv events.KV, key, downloadName string, h
 // or is already gone. Both make FreeLeases idempotent, so a redelivered
 // failure frees nothing twice.
 //
-// The value check is not a compare-and-swap: events.KV has no
-// revision-checked Delete, so a grab that reclaims the key between this Get
-// and this Delete loses its lease. It keeps its Download, and the double-grab
-// guard's live Download list (guardExistingDownloads) still refuses a third
-// grab of the item once that Download exists, so what is exposed is the
-// sub-second gap between that grab's reclaim and its create.
+// The delete is revision-checked against the read, so a grab that reclaims
+// the key between the two -- acquireLease's own revision-checked Update --
+// keeps its lease: the delete then fails with ErrRevisionMismatch and the key
+// is left to that grab, exactly as if it had been read under its new name.
 //
 // Without FreeLeases nothing is stranded -- acquireLease reclaims a lease
 // whose holder is terminal -- but the key keeps naming a dead Download
@@ -202,7 +200,11 @@ func FreeLeases(ctx context.Context, kv events.KV, ns string, target commonv1.Me
 		if string(entry.Value) != downloadName {
 			continue
 		}
-		if err := kv.Delete(ctx, key); err != nil {
+		if err := kv.DeleteRevision(ctx, key, entry.Revision); err != nil {
+			if errors.Is(err, events.ErrRevisionMismatch) {
+				// Reclaimed (or freed) since the read: no longer ours.
+				continue
+			}
 			return freed, fmt.Errorf("grab: free lease %q held by %s: %w", key, downloadName, err)
 		}
 		freed = append(freed, key)
