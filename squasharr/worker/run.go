@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -64,6 +65,31 @@ const (
 	// The same input and argv would produce the same output again.
 	ExitVerifyFailed = 4
 )
+
+// TraceParentEnv carries the W3C traceparent of the controller span that
+// created the Job (squasharr/controller/transcodejob), so the worker's spans
+// join that trace ([ContextWithTraceParent]).
+const TraceParentEnv = "CLUSTARR_TRACEPARENT"
+
+// ContextWithTraceParent returns ctx carrying the remote span context
+// traceparent encodes, so a span started from it continues that trace. An
+// empty or malformed value returns ctx unchanged: tracing is diagnostics,
+// never a reason for a transcode not to run.
+func ContextWithTraceParent(ctx context.Context, traceparent string) context.Context {
+	if traceparent == "" {
+		return ctx
+	}
+	return propagation.TraceContext{}.Extract(ctx, propagation.MapCarrier{"traceparent": traceparent})
+}
+
+// TraceParent renders ctx's span context as a W3C traceparent, "" when ctx
+// carries none. The TranscodeJob controller stamps it on each Job it creates
+// as [TraceParentEnv].
+func TraceParent(ctx context.Context) string {
+	carrier := propagation.MapCarrier{}
+	propagation.TraceContext{}.Inject(ctx, carrier)
+	return carrier.Get("traceparent")
+}
 
 // CPULimitEnv is the Downward API variable carrying the pod's limits.cpu
 // (§6.4), which becomes x265's pools= size: x265 otherwise sizes its pool

@@ -425,11 +425,50 @@ func setupControllers(mgr ctrl.Manager, o Options, bus events.Bus) error {
 			Umask: os.Getenv(transcodejob.UmaskEnv),
 			// NATSURL stays empty: the worker never uses the bus (R6),
 			// and its role no longer requires --nats-url.
+
+			// The worker logs and traces as this controller does: without
+			// these its spans -- the ffmpeg run's among them -- were
+			// recorded into a TracerProvider exporting nowhere.
+			ExtraArgs: workerObservabilityArgs(o.Logging, o.Tracing),
 		},
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("squasharr: transcodejob: %w", err)
 	}
 	return nil
+}
+
+// workerObservabilityArgs renders the root command's --log-* and
+// --tracing-* flags (pkg/obs/logging.BindFlags; cmd/clustarr's
+// bindObservabilityFlags) for a transcode Job's worker, so a Job pod logs in
+// the controller's format and level and exports its spans -- the
+// squasharr.worker.run and transcode.run (ffmpeg) spans -- to the same
+// collector. Only what differs from the flags' defaults is rendered.
+// TestWorkerObservabilityArgsParse holds the names to the flags.
+func workerObservabilityArgs(lo logging.Options, to tracing.Options) []string {
+	var args []string
+	if lo.Level != 0 {
+		args = append(args, "--log-level="+lo.Level.String())
+	}
+	if lo.Format != "" {
+		args = append(args, "--log-format="+lo.Format)
+	}
+	if lo.AddSource {
+		args = append(args, "--log-add-source")
+	}
+	if to.Enabled {
+		args = append(args, "--tracing-enabled")
+		if to.Endpoint != "" {
+			args = append(args, "--tracing-endpoint="+to.Endpoint)
+		}
+		if to.Insecure {
+			args = append(args, "--tracing-insecure")
+		}
+	}
+	// The sampler is parent-based, so a worker whose Job carries a sampled
+	// traceparent is sampled whatever this says; it decides only a worker
+	// started without one.
+	args = append(args, "--tracing-sample-ratio="+strconv.FormatFloat(to.SampleRatio, 'g', -1, 64))
+	return args
 }
 
 // runWorker is the whole of --role worker, the entrypoint of one transcode
@@ -454,6 +493,9 @@ func runWorker(ctx context.Context, o Options) error {
 	if err != nil {
 		return fmt.Errorf("squasharr: build client: %w", err)
 	}
+	// The Job's CLUSTARR_TRACEPARENT is the controller's span that created
+	// it: the worker's spans continue that trace rather than starting one.
+	ctx = worker.ContextWithTraceParent(ctx, os.Getenv(worker.TraceParentEnv))
 	code, err := worker.Run(ctx, c, worker.Options{
 		JobName:   o.JobName,
 		Namespace: o.Namespace,

@@ -34,6 +34,7 @@ import (
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/transcode"
+	"github.com/mediactl/clustarr/squasharr/worker"
 )
 
 func gpuProfile(hw transcodev1alpha1.Hardware) *transcodev1alpha1.TranscodeProfile {
@@ -322,4 +323,21 @@ func TestBuildJobPassesUmask(t *testing.T) {
 	assert.Equal(t, "002", env(JobConfig{Umask: "002"})[UmaskEnv])
 	_, set := env(JobConfig{})[UmaskEnv]
 	assert.False(t, set, "no UMASK is invented when the controller has none")
+}
+
+// A Job carries the traceparent of the reconcile that built it, for the
+// worker to continue; none is invented when there is no span.
+func TestBuildJobCarriesTheTraceParent(t *testing.T) {
+	env := func(cfg JobConfig) map[string]string {
+		out := map[string]string{}
+		for _, e := range buildJob(testTJ(), gpuProfile(transcodev1alpha1.HardwareCPU), transcodev1alpha1.HardwareCPU, cfg).
+			Spec.Template.Spec.Containers[0].Env {
+			out[e.Name] = e.Value
+		}
+		return out
+	}
+	tp := "00-0102030405060708090a0b0c0d0e0f10-0102030405060708-01"
+	assert.Equal(t, tp, env(JobConfig{TraceParent: tp})[worker.TraceParentEnv])
+	_, set := env(JobConfig{})[worker.TraceParentEnv]
+	assert.False(t, set)
 }

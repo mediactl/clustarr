@@ -187,8 +187,15 @@ type JobConfig struct {
 	NATSURL string
 
 	// ExtraArgs are appended after the fixed worker arguments (for example
-	// --nats-single-node on kind).
+	// --nats-single-node on kind). squasharr/run.go passes the controller's
+	// --log-* and --tracing-* flags through here.
 	ExtraArgs []string
+
+	// TraceParent, when set, is exported to the worker as
+	// worker.TraceParentEnv: the W3C traceparent of the reconcile that
+	// created the Job, so the worker's spans continue its trace. ensureJob
+	// sets it per Job; it is not a deployment setting.
+	TraceParent string
 }
 
 // jobName is the batch Job's name: deterministic from the TranscodeJob's
@@ -250,6 +257,9 @@ func buildJob(tj *transcodev1alpha1.TranscodeJob, profile *transcodev1alpha1.Tra
 	}
 	if cfg.Umask != "" {
 		env = append(env, corev1.EnvVar{Name: UmaskEnv, Value: cfg.Umask})
+	}
+	if cfg.TraceParent != "" {
+		env = append(env, corev1.EnvVar{Name: worker.TraceParentEnv, Value: cfg.TraceParent})
 	}
 
 	resources := resourcesFor(profile)

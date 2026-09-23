@@ -395,7 +395,9 @@ func (r *Reconciler) ensureJob(ctx context.Context, tj *transcodev1alpha1.Transc
 	}
 
 	hardware := hardwareForEncoder(st.Plan.Encoder)
-	job := buildJob(tj, profile, hardware, r.Job)
+	cfg := r.Job
+	cfg.TraceParent = worker.TraceParent(ctx) // the worker's spans continue this reconcile's trace
+	job := buildJob(tj, profile, hardware, cfg)
 	if err := k8s.SetControllerReference(tj, job, r.Client.Scheme()); err != nil {
 		return ctrl.Result{}, fmt.Errorf("transcodejob: owner reference: %w", err)
 	}

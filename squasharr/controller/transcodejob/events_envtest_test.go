@@ -37,7 +37,9 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	squasharrstatus "github.com/mediactl/clustarr/squasharr/status"
+	"github.com/mediactl/clustarr/squasharr/worker"
 )
 
 type capturedJobEvent struct {
@@ -306,4 +308,32 @@ func assertConditionsOwnedBy(t *testing.T, obj client.Object, manager string) {
 		}
 	}
 	t.Errorf("status.conditions is not owned by %s: %+v", manager, obj.GetManagedFields())
+}
+
+// TestJobCarriesTheReconcileTraceParent: with tracing set up as the binary
+// sets it up, the Job ensureJob creates carries the reconcile span's W3C
+// traceparent, which the worker continues (worker.ContextWithTraceParent) --
+// so an ffmpeg run's spans land in the trace of the reconcile that queued it.
+func TestJobCarriesTheReconcileTraceParent(t *testing.T) {
+	_, c := startEnv(t)
+	ctx := context.Background()
+	shutdown, err := tracing.Setup(ctx, tracing.Options{ServiceName: "squasharr-test", SampleRatio: 1})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = shutdown(ctx) })
+
+	const ns = "tj-trace"
+	newNamespace(t, c, ns)
+	newProfile(t, c, "hevc", "hash1", nil)
+	newMediaFile(t, c, ns, "arrival", "probe1", ptr.To(h264Probe()))
+	newTJ(t, c, ns, "arrival-hevc", "arrival", "hevc", "probe1", nil)
+	reconcileTJ(t, newReconciler(c, map[string]int32{"cpu": 0}), ns, "arrival-hevc")
+
+	job := getJob(t, c, ns, *getTJ(t, c, ns, "arrival-hevc").Status.JobRef)
+	var tp string
+	for _, e := range job.Spec.Template.Spec.Containers[0].Env {
+		if e.Name == worker.TraceParentEnv {
+			tp = e.Value
+		}
+	}
+	assert.Regexp(t, `^00-[0-9a-f]{32}-[0-9a-f]{16}-01$`, tp, "the Job must carry the reconcile's sampled traceparent")
 }

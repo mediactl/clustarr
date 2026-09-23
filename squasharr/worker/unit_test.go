@@ -29,6 +29,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/trace"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -361,5 +362,28 @@ func TestOutputPath(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, got)
 		})
+	}
+}
+
+// The controller stamps its span's traceparent on each Job, and the worker
+// continues that trace from it; nothing, or garbage, leaves the context as
+// it was.
+func TestTraceParentRoundTrips(t *testing.T) {
+	sc := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    trace.TraceID{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
+		SpanID:     trace.SpanID{1, 2, 3, 4, 5, 6, 7, 8},
+		TraceFlags: trace.FlagsSampled,
+	})
+	tp := TraceParent(trace.ContextWithSpanContext(context.Background(), sc))
+	require.Equal(t, "00-0102030405060708090a0b0c0d0e0f10-0102030405060708-01", tp)
+
+	got := trace.SpanContextFromContext(ContextWithTraceParent(context.Background(), tp))
+	assert.Equal(t, sc.TraceID(), got.TraceID())
+	assert.Equal(t, sc.SpanID(), got.SpanID())
+	assert.True(t, got.IsRemote())
+
+	assert.Empty(t, TraceParent(context.Background()), "no span, no traceparent")
+	for _, bad := range []string{"", "not-a-traceparent"} {
+		assert.False(t, trace.SpanContextFromContext(ContextWithTraceParent(context.Background(), bad)).IsValid())
 	}
 }
