@@ -19,11 +19,6 @@ package release
 
 import "github.com/dlclark/regexp2"
 
-// multiRegex ports *arr's MultiRegex: a MULTi token short-circuits language
-// detection to "Original" (the release carries the original-language track
-// alongside others, rather than a single named language).
-var multiRegex = mustCompile(`[_.\s]multi[_.\s]`, regexp2.IgnoreCase)
-
 // languageRegex is a bounded token table covering the languages the fixture
 // corpus exercises, not the full ~50-entry Radarr language id list
 // (docs/research/quality.md line 397): porting all of them is real work with
@@ -49,14 +44,28 @@ var languageRegex = mustCompile(
 
 var languageGroups = []string{"French", "German", "Spanish", "Italian", "Japanese", "Korean", "Chinese"}
 
-// parseLanguages extracts the language tags from a release title. MULTi
-// short-circuits to ["Original"]; no match defaults to ["English"], mirroring
-// *arr's own LanguageParser default.
+// parseLanguages extracts the language tags from a release title. No match
+// defaults to ["English"].
+//
+// A "MULTi" token is deliberately not a language. Radarr's semantics, from
+// its source (develop, fetched 2026-09-23): LanguageParser.ParseLanguages
+// has no MULTi rule at all, so "Movie.2020.MULTi.1080p" parses exactly as
+// "Movie.2020.1080p" does and "Movie.2020.FRENCH.MULTi.1080p" as French.
+// MULTi is read in one place only, AggregateLanguages, and only to add the
+// languages the indexer's per-indexer "Multi Languages" setting names
+// (Parser.HasMultipleLanguages, MultiRegex `[_. ](?<multi>multi)[_. ]`).
+// Clustarr's Indexer has no such setting, so MULTi contributes nothing here
+// either. This used to return ["Original"] -- a pseudo-language no
+// condition or profile could compare against the item's original language,
+// so a MULTi release of an English-original film failed
+// language-not-original and an "original" language profile alike.
+//
+// One divergence from Radarr stands and is not MULTi's: a title with no
+// language token is ["English"] here, where Radarr parses Unknown and
+// AggregateLanguages then substitutes the item's original language. That
+// substitution needs the item, which this item-independent parse does not
+// have.
 func parseLanguages(title string) []string {
-	if ok, err := multiRegex.MatchString(title); err == nil && ok {
-		return []string{"Original"}
-	}
-
 	if m, err := languageRegex.FindStringMatch(title); err == nil && m != nil {
 		for _, name := range languageGroups {
 			if grp := m.GroupByName(name); grp != nil && len(grp.Captures) > 0 {

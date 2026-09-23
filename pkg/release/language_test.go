@@ -30,7 +30,7 @@ func TestParseLanguagesDefaultsToEnglish(t *testing.T) {
 		want  []string
 	}{
 		{"no language token", "The.Matrix.1999.1080p.BluRay.x264-GROUP", []string{"English"}},
-		{"multi token", "Some.Movie.2020.MULTI.1080p.BluRay.x264-GROUP", []string{"Original"}},
+		{"multi token alone is no language", "Some.Movie.2020.MULTI.1080p.BluRay.x264-GROUP", []string{"English"}},
 		{"explicit french", "Amelie.2001.FRENCH.1080p.BluRay.x264-GROUP", []string{"French"}},
 	}
 	for _, tt := range tests {
@@ -71,5 +71,21 @@ func TestParseLanguagesDetectsChinese(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, parseLanguages(tt.title))
 		})
+	}
+}
+
+// TestParseLanguagesMultiIsNotALanguage pins Radarr's MULTi semantics (see
+// parseLanguages): the token neither short-circuits nor adds a language, so
+// a MULTi title parses exactly as it would without the token.
+func TestParseLanguagesMultiIsNotALanguage(t *testing.T) {
+	for _, tt := range []struct{ with, without string }{
+		{"Some.Movie.2020.MULTi.1080p.BluRay.x264-GROUP", "Some.Movie.2020.1080p.BluRay.x264-GROUP"},
+		{"Some.Movie.2020.FRENCH.MULTi.1080p.BluRay.x264-GROUP", "Some.Movie.2020.FRENCH.1080p.BluRay.x264-GROUP"},
+		{"Some.Movie.2020.MULTi.GERMAN.1080p.BluRay.x264-GROUP", "Some.Movie.2020.GERMAN.1080p.BluRay.x264-GROUP"},
+		{"Some Movie 2020 multi 1080p", "Some Movie 2020 1080p"},
+	} {
+		got := parseLanguages(tt.with)
+		assert.Equal(t, parseLanguages(tt.without), got, tt.with)
+		assert.NotContains(t, got, "Original", tt.with)
 	}
 }
