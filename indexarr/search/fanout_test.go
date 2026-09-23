@@ -495,17 +495,27 @@ func TestAFailingStoreStillYieldsAnOKOutcome(t *testing.T) {
 func TestIndexRowsAreNormalisedWithTitleNorm(t *testing.T) {
 	idx := healthyIndexer("fast")
 	store := &countingStore{}
+	// A Cyrillic title as well as ASCII ones: on printable ASCII TitleNorm
+	// and CleanTitle agree, so ASCII rows alone cannot tell which one wrote
+	// the column.
+	rels := append(wireReleases(2), torznab.Release{
+		Title: "Матрица.1999.1080p.BluRay", GUID: "guid-cyrillic",
+		PubDate: time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC),
+	})
 	s := &Service{
 		Client:    newFakeClient(&idx),
 		Store:     store,
-		ClientFor: stubClientFor(map[string]stubClient{"fast": {releases: wireReleases(2)}}),
+		ClientFor: stubClientFor(map[string]stubClient{"fast": {releases: rels}}),
 	}
 	cands := selectCandidates([]indexv1alpha1.Indexer{idx}, movieRequest(),
 		torznab.ModeMovieSearch, selectNow)
 	_, _ = s.fanOut(context.Background(), cands, movieRequest(), torznab.ModeMovieSearch, 2*time.Second)
 
-	require.Len(t, store.rows, 2)
+	require.Len(t, store.rows, 3)
 	for _, row := range store.rows {
+		if row.GUID == "guid-cyrillic" {
+			require.Contains(t, row.TitleNorm, "матрица", "the row lost its own title's tokens")
+		}
 		require.Equal(t, "fast", row.Indexer)
 		require.NotEmpty(t, row.GUID)
 		require.NotEmpty(t, row.TitleNorm)
