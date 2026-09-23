@@ -35,9 +35,17 @@ import (
 // markers being in force in the same pod -- even though controller-gen folds
 // every marker into one ClusterRole today.
 //
+// The six non-video kinds (artists, albums, authors, books, audiobooks,
+// comics) share the movies/series lines below rather than getting their own:
+// newTarget (target.go) and Handle's per-kind switch (worker.go) read and
+// PatchStatus all eight kinds identically, through the one
+// k8s.ManagerCatalogarrMetadata field manager, so their RBAC needs are the
+// same get;list;watch / status get;update;patch shape movies and series
+// already had.
+//
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=metadataproviders,verbs=get;list;watch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series,verbs=get;list;watch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies/status;series/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;artists;albums;authors;books;audiobooks;comics,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies/status;series/status;artists/status;albums/status;authors/status;books/status;audiobooks/status;comics/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
 // Options configures Setup. Client and Bus are required; everything else
