@@ -101,7 +101,6 @@ const (
 // run with no deadline, no resource limits and an unbounded scratch
 // volume. None of those zeros has a coherent meaning, which is the D1
 // precedent's test for flooring (Indexer.spec.timeout).
-const defaultActiveDeadline = 48 * time.Hour
 
 var defaultScratch = resource.MustParse("20Gi")
 
@@ -146,10 +145,7 @@ func threadsFromResources(r corev1.ResourceRequirements) (threads int32, fromLim
 
 // activeDeadlineFor floors spec.activeDeadline at the CRD default.
 func activeDeadlineFor(p *transcodev1alpha1.TranscodeProfile) time.Duration {
-	if d := p.Spec.ActiveDeadline.Duration; d > 0 {
-		return d
-	}
-	return defaultActiveDeadline
+	return worker.ActiveDeadline(p.Spec)
 }
 
 // resourcesFor floors an entirely empty spec.resources at the CRD default.

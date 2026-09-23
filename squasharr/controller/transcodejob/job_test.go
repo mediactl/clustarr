@@ -253,7 +253,7 @@ func TestFlooredDefaultsMatchTheGeneratedCRD(t *testing.T) {
 
 	d, err := time.ParseDuration(props["activeDeadline"].Default.(string))
 	require.NoError(t, err)
-	assert.Equal(t, defaultActiveDeadline, d, "defaultActiveDeadline no longer mirrors spec.activeDeadline's default")
+	assert.Equal(t, worker.DefaultActiveDeadline, d, "worker.DefaultActiveDeadline no longer mirrors spec.activeDeadline's default")
 	assert.Equal(t, defaultScratch.String(), props["scratch"].Default, "defaultScratch no longer mirrors spec.scratch's default")
 
 	var want corev1.ResourceRequirements
