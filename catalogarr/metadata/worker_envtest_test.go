@@ -461,3 +461,87 @@ func TestHandlerAlbumMetadataStaysSolelyOwnedByTheGatewayAcrossReapplies(t *test
 	require.Equal(t, map[string]bool{string(k8s.ManagerCatalogarrMetadata): true}, managers,
 		"only the metadata gateway may own a status field on Album -- ManagerCatalogarrFanout must never apply to status.metadata here (see buildAlbumMetadataAC's doc comment)")
 }
+
+// TestHandlerWritesSecondaryYearThroughTheRealTMDBClient drives ruling R-7
+// end to end against a real apiserver: TMDB's release_dates carry a
+// premiere a year before the primary release, the client derives
+// SecondaryYear, and buildMovieMetadataAC applies it into
+// status.metadata.secondaryYear, which the CRD admits.
+func TestHandlerWritesSecondaryYearThroughTheRealTMDBClient(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	const ns, name = "hsecondary", "festival-premiere"
+	newMovie(t, ctx, c, ns, name, 900001)
+
+	body, err := os.ReadFile("../../testdata/metadata/tmdb/movie_premiere_prior_year.json")
+	require.NoError(t, err)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(srv.Close)
+	cl, err := tmdb.New("test-key", srv.Client(), srv.URL, pkgmetadata.NewLimiter(1000, 1))
+	require.NoError(t, err)
+
+	h := &metadata.Handler{Client: c, Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{cl}}, Cache: noopCache{}}
+	env := &events.Envelope{Key: ns + "/" + name, Schema: schema.MetadataTask{}.Schema()}
+	_, env.Data, err = schema.Encode(schema.MetadataTask{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name}})
+	require.NoError(t, err)
+
+	require.NoError(t, h.Handle(ctx, testMessage{env: env}))
+
+	var got catalogv1alpha1.Movie
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	require.NotNil(t, got.Status.Metadata)
+	require.EqualValues(t, 2021, got.Status.Metadata.Year)
+	require.EqualValues(t, 2020, got.Status.Metadata.SecondaryYear)
+}
+
+// TestHandlerWritesEveryImageType proves the nine pkg/metadata image roles
+// mapImageType now passes through are all admitted by the CRD's widened
+// ImageType enum -- one value outside it would reject the whole status
+// apply, which is why mapImageType still drops anything unknown.
+func TestHandlerWritesEveryImageType(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	const ns, name, mbid = "himages", "radiohead", "a74b1b7f-71a5-4011-9441-d0b5e4122711"
+	newArtist(t, ctx, c, ns, name, mbid)
+
+	roles := []pkgmetadata.ImageType{
+		pkgmetadata.ImageTypePoster, pkgmetadata.ImageTypeFanart, pkgmetadata.ImageTypeBanner,
+		pkgmetadata.ImageTypeLogo, pkgmetadata.ImageTypeClearart, pkgmetadata.ImageTypeThumb,
+		pkgmetadata.ImageTypeScreenshot, pkgmetadata.ImageTypeDisc, pkgmetadata.ImageTypeHeadshot,
+	}
+	images := make([]pkgmetadata.Image, 0, len(roles)+1)
+	for _, r := range roles {
+		images = append(images, pkgmetadata.Image{Type: r, URL: "https://example.test/" + string(r) + ".jpg"})
+	}
+	images = append(images, pkgmetadata.Image{Type: "", URL: "https://example.test/unclassified.jpg"})
+
+	h := &metadata.Handler{
+		Client: c,
+		Registry: &pkgmetadata.Registry{Artists: []pkgmetadata.ArtistProvider{stubArtistOnlyProvider{
+			artist: &pkgmetadata.Artist{IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBArtist: mbid}, Name: "Radiohead", Images: images},
+		}}},
+		Cache: noopCache{},
+	}
+	env := &events.Envelope{Key: ns + "/" + name, Schema: schema.MetadataTask{}.Schema()}
+	var err error
+	_, env.Data, err = schema.Encode(schema.MetadataTask{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindArtist, Name: name}})
+	require.NoError(t, err)
+
+	require.NoError(t, h.Handle(ctx, testMessage{env: env}))
+
+	var got catalogv1alpha1.Artist
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	require.NotNil(t, got.Status.Metadata)
+	var gotTypes []catalogv1alpha1.ImageType
+	for _, img := range got.Status.Metadata.Images {
+		gotTypes = append(gotTypes, img.Type)
+	}
+	want := make([]catalogv1alpha1.ImageType, 0, len(roles))
+	for _, r := range roles {
+		want = append(want, catalogv1alpha1.ImageType(r))
+	}
+	require.Equal(t, want, gotTypes, "all nine roles written; the unclassified image dropped")
+}

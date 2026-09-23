@@ -43,7 +43,8 @@ func TestBuildMovieMetadataACMapsFieldsAndFiltersImageTypes(t *testing.T) {
 		InCinemas:        &inCinemas,
 		Images: []pkgmetadata.Image{
 			{Type: pkgmetadata.ImageTypePoster, URL: "https://image.tmdb.org/poster.jpg"},
-			{Type: pkgmetadata.ImageTypeBanner, URL: "https://image.tmdb.org/banner.jpg"}, // no CRD equivalent
+			{Type: pkgmetadata.ImageTypeBanner, URL: "https://image.tmdb.org/banner.jpg"},
+			{Type: "", URL: "https://image.tmdb.org/unclassified.jpg"}, // outside the CRD enum
 			{Type: pkgmetadata.ImageTypeFanart, URL: "https://image.tmdb.org/fanart.jpg"},
 		},
 		AlternateTitles: []pkgmetadata.AltTitle{{Title: "Origen"}, {Title: "Inception: Le Origini"}},
@@ -53,16 +54,20 @@ func TestBuildMovieMetadataACMapsFieldsAndFiltersImageTypes(t *testing.T) {
 
 	require.Equal(t, "Inception", *ac.Title)
 	require.EqualValues(t, 148, *ac.RuntimeMinutes)
+	require.NotNil(t, ac.SecondaryYear, "sent even at 0: the gateway's apply is a complete declaration of status.metadata")
+	require.Zero(t, *ac.SecondaryYear)
 	require.Equal(t, catalogv1alpha1.MovieReleaseStatus("released"), *ac.Status)
 	require.True(t, ac.InCinemas.Equal(&metav1.Time{Time: inCinemas}))
 	require.ElementsMatch(t, []string{"Action", "Science Fiction", "Adventure"}, ac.Genres)
 	require.Equal(t, map[string]string{"tmdb": "27205", "imdb": "tt1375666"}, ac.ExternalIDs)
 	require.True(t, ac.RefreshedAt.Equal(&metav1.Time{Time: now}))
 
-	require.Len(t, ac.Images, 2, "banner has no CRD ImageType and must be dropped, not mis-labelled")
+	require.Len(t, ac.Images, 3, "an image with no CRD ImageType is dropped, not mis-labelled; banner is one of the nine")
+	var types []catalogv1alpha1.ImageType
 	for _, img := range ac.Images {
-		require.Contains(t, []catalogv1alpha1.ImageType{catalogv1alpha1.ImageTypePoster, catalogv1alpha1.ImageTypeFanart}, *img.Type)
+		types = append(types, *img.Type)
 	}
+	require.Equal(t, []catalogv1alpha1.ImageType{catalogv1alpha1.ImageTypePoster, catalogv1alpha1.ImageTypeBanner, catalogv1alpha1.ImageTypeFanart}, types)
 
 	require.Equal(t, []string{"Origen", "Inception: Le Origini"}, ac.AlternateTitles)
 }
@@ -173,7 +178,8 @@ func TestBuildArtistMetadataACMapsFieldsAndFiltersImageTypes(t *testing.T) {
 		Genres:         []string{"Alternative Rock", "Art Rock"},
 		Images: []pkgmetadata.Image{
 			{Type: pkgmetadata.ImageTypePoster, URL: "https://x/poster.jpg"},
-			{Type: pkgmetadata.ImageTypeBanner, URL: "https://x/banner.jpg"}, // no CRD equivalent
+			{Type: pkgmetadata.ImageTypeBanner, URL: "https://x/banner.jpg"},
+			{Type: "wallpaper", URL: "https://x/wallpaper.jpg"}, // outside the CRD enum
 		},
 	}
 	ac := buildArtistMetadataAC(a, now)
@@ -186,8 +192,9 @@ func TestBuildArtistMetadataACMapsFieldsAndFiltersImageTypes(t *testing.T) {
 	require.ElementsMatch(t, []string{"Alternative Rock", "Art Rock"}, ac.Genres)
 	require.Equal(t, map[string]string{"mb-artist": "a74b1b7f-71a5-4011-9441-d0b5e4122711"}, ac.ExternalIDs)
 	require.True(t, ac.RefreshedAt.Equal(&metav1.Time{Time: now}))
-	require.Len(t, ac.Images, 1, "banner has no CRD ImageType and must be dropped, not mis-labelled")
+	require.Len(t, ac.Images, 2, "an image outside the CRD enum is dropped, not mis-labelled")
 	require.Equal(t, catalogv1alpha1.ImageTypePoster, *ac.Images[0].Type)
+	require.Equal(t, catalogv1alpha1.ImageTypeBanner, *ac.Images[1].Type)
 }
 
 func TestBuildArtistMetadataACOmitsStatusWhenEmpty(t *testing.T) {
@@ -229,7 +236,8 @@ func TestBuildAlbumMetadataACMapsFieldsAndFiltersImageTypes(t *testing.T) {
 		},
 		Images: []pkgmetadata.Image{
 			{Type: pkgmetadata.ImageTypePoster, URL: "https://x/poster.jpg"},
-			{Type: pkgmetadata.ImageTypeThumb, URL: "https://x/thumb.jpg"}, // no CRD equivalent
+			{Type: pkgmetadata.ImageTypeThumb, URL: "https://x/thumb.jpg"},
+			{Type: "", URL: "https://x/unclassified.jpg"}, // outside the CRD enum
 		},
 	}
 	ac := buildAlbumMetadataAC(a, now)
@@ -252,8 +260,9 @@ func TestBuildAlbumMetadataACMapsFieldsAndFiltersImageTypes(t *testing.T) {
 	require.EqualValues(t, 1, *ac.Releases[0].Media[0].Number)
 	require.Equal(t, "CD", *ac.Releases[0].Media[0].Format)
 
-	require.Len(t, ac.Images, 1, "thumb has no CRD ImageType and must be dropped, not mis-labelled")
+	require.Len(t, ac.Images, 2, "an image outside the CRD enum is dropped, not mis-labelled")
 	require.Equal(t, catalogv1alpha1.ImageTypePoster, *ac.Images[0].Type)
+	require.Equal(t, catalogv1alpha1.ImageTypeThumb, *ac.Images[1].Type)
 }
 
 func TestBuildAlbumMetadataACDropsAMediumWithNoPosition(t *testing.T) {
@@ -300,7 +309,8 @@ func TestBuildAuthorMetadataACMapsFieldsAndFiltersImageTypes(t *testing.T) {
 		Genres:         []string{"Fantasy", "Satire"},
 		Images: []pkgmetadata.Image{
 			{Type: pkgmetadata.ImageTypePoster, URL: "https://x/poster.jpg"},
-			{Type: pkgmetadata.ImageTypeHeadshot, URL: "https://x/headshot.jpg"}, // no CRD equivalent
+			{Type: pkgmetadata.ImageTypeHeadshot, URL: "https://x/headshot.jpg"},
+			{Type: "", URL: "https://x/unclassified.jpg"}, // outside the CRD enum
 		},
 	}
 	ac := buildAuthorMetadataAC(a, now)
@@ -312,8 +322,9 @@ func TestBuildAuthorMetadataACMapsFieldsAndFiltersImageTypes(t *testing.T) {
 	require.ElementsMatch(t, []string{"Fantasy", "Satire"}, ac.Genres)
 	require.Equal(t, map[string]string{"olauthor": "OL23919A"}, ac.ExternalIDs)
 	require.True(t, ac.RefreshedAt.Equal(&metav1.Time{Time: now}))
-	require.Len(t, ac.Images, 1, "headshot has no CRD ImageType and must be dropped, not mis-labelled")
+	require.Len(t, ac.Images, 2, "an image outside the CRD enum is dropped, not mis-labelled")
 	require.Equal(t, catalogv1alpha1.ImageTypePoster, *ac.Images[0].Type)
+	require.Equal(t, catalogv1alpha1.ImageTypeHeadshot, *ac.Images[1].Type)
 }
 
 func TestBuildAuthorMetadataACCapsGenresAndImagesAtTheCRDsMaxItems(t *testing.T) {
@@ -469,7 +480,8 @@ func TestBuildComicMetadataACMapsFieldsAndFiltersImageTypes(t *testing.T) {
 		AgeRating:   "Mature",
 		Images: []pkgmetadata.Image{
 			{Type: pkgmetadata.ImageTypePoster, URL: "https://x/poster.jpg"},
-			{Type: pkgmetadata.ImageTypeClearart, URL: "https://x/clearart.jpg"}, // no CRD equivalent
+			{Type: pkgmetadata.ImageTypeClearart, URL: "https://x/clearart.jpg"},
+			{Type: "", URL: "https://x/unclassified.jpg"}, // outside the CRD enum
 		},
 	}
 	ac := buildComicMetadataAC(v, now)
@@ -483,8 +495,9 @@ func TestBuildComicMetadataACMapsFieldsAndFiltersImageTypes(t *testing.T) {
 	require.Equal(t, catalogv1alpha1.MangaFlagYes, *ac.Manga)
 	require.Equal(t, map[string]string{"comicvine": "4050-12345"}, ac.ExternalIDs)
 	require.True(t, ac.RefreshedAt.Equal(&metav1.Time{Time: now}))
-	require.Len(t, ac.Images, 1, "clearart has no CRD ImageType and must be dropped, not mis-labelled")
+	require.Len(t, ac.Images, 2, "an image outside the CRD enum is dropped, not mis-labelled")
 	require.Equal(t, catalogv1alpha1.ImageTypePoster, *ac.Images[0].Type)
+	require.Equal(t, catalogv1alpha1.ImageTypeClearart, *ac.Images[1].Type)
 }
 
 func TestBuildComicMetadataACMapsNonMangaKindToNo(t *testing.T) {
@@ -504,4 +517,30 @@ func TestBuildComicMetadataACCapsImagesAtTheCRDsMaxItems(t *testing.T) {
 	}
 	ac := buildComicMetadataAC(v, time.Now())
 	require.Len(t, ac.Images, 50, "ComicMetadata.Images: +kubebuilder:validation:MaxItems=50")
+}
+
+// TestMapImageTypeCoversEveryPkgMetadataRole: the CRD enum widened to all
+// nine pkg/metadata roles (X1), so none may be dropped any more -- the
+// patch_test cases above used to treat banner, thumb, headshot and clearart
+// as having "no CRD equivalent".
+func TestMapImageTypeCoversEveryPkgMetadataRole(t *testing.T) {
+	for _, role := range []pkgmetadata.ImageType{
+		pkgmetadata.ImageTypePoster, pkgmetadata.ImageTypeFanart, pkgmetadata.ImageTypeBanner,
+		pkgmetadata.ImageTypeLogo, pkgmetadata.ImageTypeClearart, pkgmetadata.ImageTypeThumb,
+		pkgmetadata.ImageTypeScreenshot, pkgmetadata.ImageTypeDisc, pkgmetadata.ImageTypeHeadshot,
+	} {
+		got, ok := mapImageType(role)
+		require.True(t, ok, "%q must map", role)
+		require.Equal(t, catalogv1alpha1.ImageType(role), got)
+	}
+	for _, outside := range []pkgmetadata.ImageType{"", "wallpaper"} {
+		_, ok := mapImageType(outside)
+		require.False(t, ok, "%q is outside the CRD enum and would fail validation", outside)
+	}
+}
+
+func TestBuildMovieMetadataACCarriesSecondaryYear(t *testing.T) {
+	ac := buildMovieMetadataAC(&pkgmetadata.Movie{Title: "Festival Premiere", Year: 2021, SecondaryYear: 2020}, time.Now())
+	require.EqualValues(t, 2021, *ac.Year)
+	require.EqualValues(t, 2020, *ac.SecondaryYear)
 }

@@ -28,19 +28,35 @@ import (
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 )
 
-// mapImageType narrows pkg/metadata's nine image roles to the three
-// catalog.clustarr.io's CRD accepts (poster, fanart, logo -- §4.2,
-// api/catalog/v1alpha1/shared_types.go:51). An image with no CRD
-// equivalent (banner, clearart, thumb, screenshot, disc, headshot) is
-// dropped, not mis-labelled: a wrong type is worse than a missing image.
+// mapImageType maps pkg/metadata's image roles onto catalog.clustarr.io's
+// ImageType enum (api/catalog/v1alpha1/shared_types.go), which since X1 has
+// exactly the same nine values -- pkg/crdcheck's
+// TestImageTypeEnumMatchesPkgMetadata holds the two lists equal. It is still
+// an explicit switch, not a string conversion: a value outside the enum (an
+// empty Type from a provider that did not classify an image, or a tenth
+// role added to pkg/metadata first) would fail CRD enum validation and
+// reject the whole status apply, so it is dropped here instead. A wrong
+// type is worse than a missing image.
 func mapImageType(t pkgmetadata.ImageType) (catalogv1alpha1.ImageType, bool) {
 	switch t {
 	case pkgmetadata.ImageTypePoster:
 		return catalogv1alpha1.ImageTypePoster, true
 	case pkgmetadata.ImageTypeFanart:
 		return catalogv1alpha1.ImageTypeFanart, true
+	case pkgmetadata.ImageTypeBanner:
+		return catalogv1alpha1.ImageTypeBanner, true
 	case pkgmetadata.ImageTypeLogo:
 		return catalogv1alpha1.ImageTypeLogo, true
+	case pkgmetadata.ImageTypeClearart:
+		return catalogv1alpha1.ImageTypeClearart, true
+	case pkgmetadata.ImageTypeThumb:
+		return catalogv1alpha1.ImageTypeThumb, true
+	case pkgmetadata.ImageTypeScreenshot:
+		return catalogv1alpha1.ImageTypeScreenshot, true
+	case pkgmetadata.ImageTypeDisc:
+		return catalogv1alpha1.ImageTypeDisc, true
+	case pkgmetadata.ImageTypeHeadshot:
+		return catalogv1alpha1.ImageTypeHeadshot, true
 	default:
 		return "", false
 	}
@@ -59,6 +75,7 @@ func buildMovieMetadataAC(m *pkgmetadata.Movie, now time.Time) *catalogac.MovieM
 		WithOverview(m.Overview).
 		WithCertification(m.Certification).
 		WithYear(m.Year).
+		WithSecondaryYear(m.SecondaryYear).
 		WithRuntimeMinutes(m.Runtime).
 		WithExternalIDs(m.IDs).
 		WithRefreshedAt(metav1.NewTime(now))
@@ -341,10 +358,8 @@ func buildAuthorMetadataAC(a *pkgmetadata.Author, now time.Time) *catalogac.Auth
 // Images (both live on an Edition, fetched separately by
 // BookProvider.Edition, out of this task's scope) and no top-level Ratings
 // home in BookMetadata -- read, not invented a home for. Book.Editions is
-// mapped even though the current Book()/Books() calls never populate it
-// (openlibrary.Client.Book does not fetch editions), so this stays correct
-// the day a caller merges Edition() results onto Book.Editions before
-// caching.
+// filled by openlibrary.Client.Book (one page of the work's editions); a
+// Books() listing entry carries none.
 func buildBookMetadataAC(b *pkgmetadata.Book, now time.Time) *catalogac.BookMetadataApplyConfiguration {
 	ac := catalogac.BookMetadata().
 		WithTitle(b.Title).
