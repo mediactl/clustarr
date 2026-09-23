@@ -21,62 +21,38 @@ import (
 	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/download/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/catalogarr/worker/grab/downloads"
 )
 
-// BuildDownloadSource maps a release to a Download's spec.source. A magnet
-// link needs no indexer round-trip and is preferred when present; otherwise
-// the release is resolved through indexarr (rpc.indexarr.download) via
-// IndexerDownload, which applies the indexer's own auth, rate limits and
-// proxying -- spec §8.2's "source (indexerDownload when the indexer is
-// authenticated)".
+// BuildDownloadSource maps a release to a Download's spec.source. It is
+// downloads.ResolveSource -- the one mapping the automatic grab path
+// (catalogarr/worker/grab) uses too -- and must stay exactly that.
 //
-// DownloadSource's CEL rule requires exactly one member, so this function
-// never sets two. torrentURL/nzbURL are deliberately not produced: a bare
-// DownloadURL on a release is the indexer's own link, which usually carries
-// the indexer's API key, and the whole point of IndexerDownload is to keep
-// that credential out of the Download object.
+// Both paths name a Download k8s.ChildName(target, guid), and
+// DownloadSpec.Source is `self == oldSelf`. While this function and the grab
+// worker's own chooseSource disagreed (this one never set expectedInfoHash,
+// that one picked a direct URL for an Indexer without a Secret), a user's
+// grab here and an automatic grab of the same release could not both be
+// applied: the second was rejected as "source is immutable", and the grab
+// worker's rejected apply dead-lettered with the item stranded at
+// Phase=Delayed.
 //
-// Exported because the automatic-grab path (out of this task's scope) needs
-// the identical mapping.
+// A release with nothing to fetch it by (downloads.ErrNoSource) maps to an
+// empty source, which the CRD's "exactly one of" rule rejects on apply; that
+// rejection is what handleGrabs records in status.grabbed for the GUID.
 func BuildDownloadSource(rel commonv1.ReleaseInfo) downloadv1alpha1.DownloadSource {
-	if rel.MagnetURL != "" {
-		m := rel.MagnetURL
-		return downloadv1alpha1.DownloadSource{MagnetURL: &m}
+	src, err := downloads.ResolveSource(rel)
+	if err != nil {
+		return downloadv1alpha1.DownloadSource{}
 	}
-	return downloadv1alpha1.DownloadSource{
-		IndexerDownload: &downloadv1alpha1.IndexerDownload{
-			IndexerRef: rel.IndexerRef,
-			GUID:       rel.GUID,
-			URL:        rel.DownloadURL,
-		},
-	}
+	return src
 }
 
 // toDownloadSourceAC converts the plain value BuildDownloadSource returns into
-// the apply configuration k8s.Apply needs. It is a field-by-field copy rather
-// than a marshal/unmarshal round trip so a new member added to DownloadSource
-// fails to compile here instead of being silently dropped on the wire.
+// the apply configuration k8s.Apply needs, through the same converter the
+// grab worker uses.
 func toDownloadSourceAC(src downloadv1alpha1.DownloadSource) *downloadac.DownloadSourceApplyConfiguration {
-	ac := downloadac.DownloadSource()
-	if src.MagnetURL != nil {
-		ac = ac.WithMagnetURL(*src.MagnetURL)
-	}
-	if src.TorrentURL != nil {
-		ac = ac.WithTorrentURL(*src.TorrentURL)
-	}
-	if src.NZBURL != nil {
-		ac = ac.WithNZBURL(*src.NZBURL)
-	}
-	if src.IndexerDownload != nil {
-		ac = ac.WithIndexerDownload(downloadac.IndexerDownload().
-			WithIndexerRef(src.IndexerDownload.IndexerRef).
-			WithGUID(src.IndexerDownload.GUID).
-			WithURL(src.IndexerDownload.URL))
-	}
-	if src.ExpectedInfoHash != nil {
-		ac = ac.WithExpectedInfoHash(*src.ExpectedInfoHash)
-	}
-	return ac
+	return downloads.SourceApplyConfiguration(src)
 }
 
 // grabDecision is resolveGrab's verdict for one requested GUID.
