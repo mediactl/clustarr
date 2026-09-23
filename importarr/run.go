@@ -39,6 +39,7 @@ import (
 	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
 	"github.com/mediactl/clustarr/importarr/controller/importexclusion"
@@ -49,6 +50,7 @@ import (
 	"github.com/mediactl/clustarr/importarr/worker/importlist"
 	"github.com/mediactl/clustarr/importarr/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -82,7 +84,8 @@ type Role string
 // The roles amendment §A1.6 lists for `clustarr importarr --role`.
 const (
 	// RoleController runs the import-list, import-exclusion, library-scan
-	// and root-folder schedule controllers. Leader-elected.
+	// and root-folder schedule controllers, and fileimport's Retrigger.
+	// Leader-elected.
 	RoleController Role = "controller"
 
 	// RoleWorker runs the scan, list and fileimport consumers. Every
@@ -152,6 +155,20 @@ type Options struct {
 	// Deployments. Empty means [DefaultDataPath].
 	DataPath string
 
+	// SampleMaxBytes is the video size floor both the rescan and the
+	// completed-download import workers apply (fsops.IsSuspectedSample): a
+	// video file smaller than this whose name does not mark it a sample is
+	// a SUSPECTED sample, which a rescan lists in LibraryScan.status.unmatched
+	// and an import records as a rejection, rather than importing it. Zero
+	// disables the size rule.
+	//
+	// [DefaultOptions] sets fsops.DefaultSampleMaxBytes. A zero-value
+	// Options -- a bare struct literal that omits the field -- has the rule
+	// OFF, which is the silent failure this field's wiring exists to avoid:
+	// every caller that builds Options by hand must pass it explicitly, as
+	// cmd/clustarr's --sample-max-bytes does.
+	SampleMaxBytes int64
+
 	// Logging configures this process's root logger. The zero value is a
 	// reasonable default: JSON to stderr at info level.
 	Logging logging.Options
@@ -165,9 +182,10 @@ type Options struct {
 // DefaultOptions returns the options the Deployment gets with no flags.
 func DefaultOptions() Options {
 	return Options{
-		Options:  k8s.DefaultOptions(),
-		Role:     RoleController,
-		DataPath: DefaultDataPath,
+		Options:        k8s.DefaultOptions(),
+		Role:           RoleController,
+		DataPath:       DefaultDataPath,
+		SampleMaxBytes: fsops.DefaultSampleMaxBytes,
 	}
 }
 
@@ -189,6 +207,11 @@ func (o Options) Validate() error {
 	}
 	if strings.TrimSpace(o.DataPath) == "" {
 		return fmt.Errorf("importarr: --data-path is required")
+	}
+	if o.SampleMaxBytes < 0 {
+		// The workers read a negative threshold as "disabled", exactly as
+		// they read zero; a negative flag is a typo, not a request for that.
+		return fmt.Errorf("importarr: --sample-max-bytes must be 0 (disabled) or more, got %d", o.SampleMaxBytes)
 	}
 	if !o.UsesBus() {
 		// The controllers hand scan and import work to the bus, and the
@@ -367,6 +390,19 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		return fmt.Errorf("importarr: importlist: %w", err)
 	}
 
+	// fileimport's Retrigger (plan task G2-4 built it, G2-5 wires it), with
+	// the call its own doc comment gives. grabarr publishes a Download's
+	// ImportTask once, on completion, and the file-import worker acks a
+	// Blocked outcome, so without this nothing ever looks again at the
+	// catalog.clustarr.io/import-target or import-override annotation a user
+	// adds to a Blocked Download -- manual import, design §8.4, would be a
+	// documented instruction that does nothing. It publishes to
+	// work.importarr.fileimport rather than importing itself, so it needs no
+	// /data and runs here, under the lease, not on importarr-worker.
+	if err := (&fileimport.Retrigger{Client: mgr.GetClient(), Bus: bus}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("importarr: fileimport retrigger: %w", err)
+	}
+
 	return nil
 }
 
@@ -374,8 +410,13 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 // scan, fileimport and list.
 //
 // The list worker creates Movie and Series only today; a spec.kinds entry
-// naming a non-video kind is skipped with a logged reason until G2's
-// controllers land (see importarr/worker/importlist's syncKind).
+// naming a non-video kind is skipped with a logged reason (see
+// importarr/worker/importlist's syncKind). G2's non-video controllers are
+// registered in catalogarr now, so that skip is the list worker's own
+// unbuilt path, not a missing controller.
+//
+// Both file-reading workers get o.SampleMaxBytes through [newScanWorker] and
+// [newImportWorker]; see Options.SampleMaxBytes.
 func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	// The spec.path field index the incremental fingerprint check reads. It
 	// must be registered before the manager starts, which is why it is here
@@ -388,7 +429,7 @@ func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if !ok {
 		return fmt.Errorf("importarr: consumer %s missing from topology", events.ConsumerImportScan)
 	}
-	worker := rescan.NewWorker(mgr.GetClient(), bus)
+	worker := newScanWorker(mgr.GetClient(), bus, o)
 	sub := spec.Subscription()
 	// k8s.EveryReplica, not manager.RunnableFunc: amendment §A1.6 runs the
 	// scan consumer on EVERY replica of importarr-worker, and a bare
@@ -423,7 +464,7 @@ func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if !ok {
 		return fmt.Errorf("importarr: consumer %s missing from topology", events.ConsumerImportFile)
 	}
-	importWorker := fileimport.NewWorker(mgr.GetClient(), bus)
+	importWorker := newImportWorker(mgr.GetClient(), bus, o)
 	importSub := importSpec.Subscription()
 	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		stop, err := bus.Subscribe(ctx, importSub, importWorker.Handle)
@@ -462,4 +503,22 @@ func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	}
 
 	return nil
+}
+
+// newScanWorker builds the work.importarr.scan handler with o's sample size
+// floor. rescan.NewWorker already defaults the floor, so the assignment
+// matters exactly when o carries a different one -- a non-default
+// --sample-max-bytes, or 0 to disable the rule.
+func newScanWorker(c client.Client, bus events.Bus, o Options) *rescan.Worker {
+	w := rescan.NewWorker(c, bus)
+	w.SampleMaxBytes = o.SampleMaxBytes
+	return w
+}
+
+// newImportWorker builds the work.importarr.fileimport handler with o's
+// sample size floor, for the reason [newScanWorker] gives.
+func newImportWorker(c client.Client, bus events.Bus, o Options) *fileimport.Worker {
+	w := fileimport.NewWorker(c, bus)
+	w.SampleMaxBytes = o.SampleMaxBytes
+	return w
 }

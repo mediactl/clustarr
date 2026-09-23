@@ -45,8 +45,8 @@ import (
 // squasharr joined for plan task E-4. indexarr and captionarr joined for plan
 // task G1-5, together with the component shapes below: indexarr had its own
 // walk (indexarr/wiring_envtest_test.go) and so was left out here, and
-// captionarr's controllers and fetch worker were -- and, pending F-6, are --
-// registered nowhere.
+// captionarr's controllers and fetch worker were registered nowhere until
+// plan task F-6.
 var runnableServices = []string{"catalogarr", "importarr", "indexarr", "grabarr", "squasharr", "captionarr"}
 
 // pendingWiring is every component [TestEveryServiceComponentIsRegistered]
@@ -56,21 +56,11 @@ var runnableServices = []string{"catalogarr", "importarr", "indexarr", "grabarr"
 // the owning task has to delete its line, and it fails for any unregistered
 // component not listed here.
 //
-// album, author and book, and fileimport's Retrigger, are listed before they
-// are committed: plan tasks G2-2 and G2-4 build them in parallel with this,
-// and G2-5 is the task that wires every G2 component, so the guard must not
-// turn their own commits red. It will turn G2-5's red until G2-5 deletes
-// the lines -- which is the point.
-var pendingWiring = map[string]string{
-	"catalogarr/controller/album.Reconciler":     "G2-5",
-	"catalogarr/controller/artist.Reconciler":    "G2-5",
-	"catalogarr/controller/audiobook.Reconciler": "G2-5",
-	"catalogarr/controller/author.Reconciler":    "G2-5",
-	"catalogarr/controller/book.Reconciler":      "G2-5",
-	"catalogarr/controller/comic.Reconciler":     "G2-5",
-	"catalogarr/controller/issue.Reconciler":     "G2-5",
-	"importarr/worker/fileimport.Retrigger":      "G2-5",
-}
+// It is empty: G1-5, F-6 and G2-5 each wired their components and deleted
+// their lines, the last of them G2-5's seven non-video reconcilers and
+// fileimport's Retrigger. A task that builds a component ahead of its wiring
+// task adds a line here, naming that task, in the same commit.
+var pendingWiring = map[string]string{}
 
 // TestEveryManagerRunnableIsRegistered catches a whole class of wiring
 // omission, of which Task C12a shipped one.

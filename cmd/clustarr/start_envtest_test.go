@@ -115,6 +115,11 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 	// picks it, its verify dials it.
 	var facadeAddr string
 
+	// nvFake is the fake MusicBrainz, Open Library, ComicVine and Audnexus
+	// the catalogarr/all case's metadata gateway reaches; its prepare
+	// starts it, its verify reads what it was asked.
+	var nvFake *fakeMetadataProviders
+
 	// captionData is captionarr's --data-dir in both of its cases: the one
 	// media volume the controller role lists and the worker role reads, as
 	// the two Deployments share one claim. Every MediaFile path stays a
@@ -128,11 +133,12 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 	// per-controller metrics in one process-wide registry. So a single test
 	// binary can register the catalog controllers exactly once. Production is
 	// unaffected -- each service has one manager -- and `clustarr all` works
-	// precisely because catalogarr's names (movie, series, episode,
-	// mediafile, rootfolder, qualityprofile, delayprofile, metadataprovider,
-	// search) and importarr's (libraryscan, rootfolderschedule,
-	// importexclusion) are disjoint. Running catalogarr/all and importarr/all
-	// in this one binary is what proves that.
+	// precisely because catalogarr's names (movie, series, episode, artist,
+	// album, author, book, audiobook, comic, issue, mediafile, rootfolder,
+	// qualityprofile, delayprofile, metadataprovider, search) and
+	// importarr's (libraryscan, rootfolderschedule, importexclusion,
+	// importlist, fileimport-retrigger) are disjoint. Running catalogarr/all
+	// and importarr/all in this one binary is what proves that.
 	//
 	// The roles that register no named controller -- worker and metadata,
 	// whose consumers are manager Runnables -- can therefore run alongside
@@ -459,11 +465,27 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		// lease, so a non-leader replica never became Ready and every
 		// rollout deadlocked. Every other case here sets LeaderElect false
 		// and passes vacuously, which is why that shipped.
-		{name: "catalogarr/all", run: func(ctx context.Context, o k8s.Options) error {
-			d := catalogarr.DefaultOptions()
-			d.Options, d.Role = o, catalogarr.RoleAll
-			return catalogarr.Run(ctx, d)
-		}},
+		//
+		// It is also the one case that can prove catalogarr's controllers
+		// WORK, for the same reason importarr/all is importarr's: controller
+		// names are unique per process. Plan task G2-5 needs exactly that for
+		// the seven non-video reconcilers G2-2 and G2-3 built and nothing
+		// registered, and their first work runs through the metadata gateway
+		// this role also starts -- so prepare points the gateway at fake
+		// providers before it builds its registry.
+		{
+			name: "catalogarr/all",
+			prepare: func(t *testing.T) {
+				nvFake = startFakeMetadataProviders(t)
+				prepareNonVideoCatalog(t, env.Config, nvFake)
+			},
+			run: func(ctx context.Context, o k8s.Options) error {
+				d := catalogarr.DefaultOptions()
+				d.Options, d.Role = o, catalogarr.RoleAll
+				return catalogarr.Run(ctx, d)
+			},
+			verify: func(t *testing.T) { verifyNonVideoCatalog(t, env.Config, nvFake) },
+		},
 		//
 		// Once it is Ready as a non-leader, verify releases the lease and
 		// the case becomes the leader: that is the only way this binary can
@@ -471,7 +493,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		// per process, so there cannot be a second importarr case with
 		// controllers -- and plan task G1-5 needs exactly that, for the
 		// ImportList controller and list worker G1-3 built and nothing
-		// registered.
+		// registered, as does plan task G2-5 for fileimport's Retrigger.
 		{
 			name: "importarr/all (non-leader)",
 			run: func(ctx context.Context, o k8s.Options) error {
@@ -481,7 +503,10 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 				d.LeaderElect = true
 				return importarr.Run(ctx, d)
 			},
-			verify: func(t *testing.T) { verifyImportList(t, env.Config, natsURL) },
+			verify: func(t *testing.T) {
+				verifyImportList(t, env.Config, natsURL)
+				verifyRetrigger(t, env.Config)
+			},
 		},
 		// indexarr is driven through `clustarr all`'s OWN closure rather than
 		// a locally built Options, and that is the entire point of the case.

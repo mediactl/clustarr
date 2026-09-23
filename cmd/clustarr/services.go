@@ -306,8 +306,9 @@ func newCaptionarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comma
 func newImportarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	defaults := importarr.DefaultOptions()
 	var (
-		role     string
-		dataPath string
+		role           string
+		dataPath       string
+		sampleMaxBytes int64
 	)
 
 	cmd := &cobra.Command{
@@ -325,14 +326,24 @@ func newImportarrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 	cmd.Flags().StringVar(&dataPath, "data-path", defaults.DataPath,
 		"RWX media volume, mounted by the importarr-worker Deployment. The controller "+
 			"Deployment does not mount it and only needs this to be non-empty.")
+	cmd.Flags().Int64Var(&sampleMaxBytes, "sample-max-bytes", defaults.SampleMaxBytes,
+		"Video size floor, in bytes: a video file smaller than this whose name does not mark it a "+
+			"sample is a suspected sample, listed as unmatched by a rescan and rejected by a "+
+			"completed-download import unless the import is manual. 0 disables the size rule.")
 
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		// Every field is passed explicitly: this is a bare literal, not
+		// importarr.DefaultOptions(), so a field left out here is its zero
+		// value. For SampleMaxBytes that zero is not a missing default but
+		// a working setting -- the sample size rule silently switched off
+		// on every importarr replica.
 		return runImportarr(cmd.Context(), importarr.Options{
-			Options:  *common,
-			Role:     importarr.Role(role),
-			DataPath: dataPath,
-			Logging:  *lo,
-			Tracing:  tracingFor(to, importarr.ServiceName),
+			Options:        *common,
+			Role:           importarr.Role(role),
+			DataPath:       dataPath,
+			SampleMaxBytes: sampleMaxBytes,
+			Logging:        *lo,
+			Tracing:        tracingFor(to, importarr.ServiceName),
 		})
 	}
 	return cmd
