@@ -99,7 +99,7 @@ func TestStatusTargets(t *testing.T) {
 			want:   []commonv1.MediaRef{{Kind: commonv1.MediaKindAudiobook, Name: "guards-guards"}},
 		},
 		{
-			name:   "issue singleton, although IssueStatus has no pendingGrab",
+			name:   "issue singleton",
 			target: commonv1.MediaRef{Kind: commonv1.MediaKindIssue, Name: "saga-00001.0"},
 			want:   []commonv1.MediaRef{{Kind: commonv1.MediaKindIssue, Name: "saga-00001.0"}},
 		},

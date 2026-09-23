@@ -46,17 +46,14 @@ import (
 //   - Issue: the Comic's profile, delay profile and tags; an Issue carries
 //     none of its own.
 //
-// Album, Book and Audiobook status carry pendingGrab, lastSearchedAt and
-// searchAttempts, the same owned set as a Movie. IssueStatus has no
-// pendingGrab: an Issue's delayed grab is still scheduled and still grabbed
-// (the clustarr-pending entry and the scheduled GrabTask carry it), but the
-// Issue cannot show Phase=Delayed while it waits, and nothing on it can be
-// stranded there either. See recordsPendingGrab.
+// Every kind's status carries pendingGrab, lastSearchedAt and
+// searchAttempts, the same owned set as a Movie. An Issue's became whole in
+// X15, when IssueStatus gained pendingGrab: until then a delayed Issue grab
+// was scheduled and grabbed but the Issue could not show the wait.
 
 type albumOps struct{}
 
 func (albumOps) kind() commonv1.MediaKind { return commonv1.MediaKindAlbum }
-func (albumOps) recordsPendingGrab() bool { return true }
 
 func (albumOps) get(ctx context.Context, c client.Client, ns, name string) (client.Object, error) {
 	var a catalogv1alpha1.Album
@@ -113,7 +110,6 @@ func (albumOps) applyWorkerStatus(ctx context.Context, c client.Client, ns, name
 type bookOps struct{}
 
 func (bookOps) kind() commonv1.MediaKind { return commonv1.MediaKindBook }
-func (bookOps) recordsPendingGrab() bool { return true }
 
 func (bookOps) get(ctx context.Context, c client.Client, ns, name string) (client.Object, error) {
 	var b catalogv1alpha1.Book
@@ -176,7 +172,6 @@ func (bookOps) applyWorkerStatus(ctx context.Context, c client.Client, ns, name,
 type audiobookOps struct{}
 
 func (audiobookOps) kind() commonv1.MediaKind { return commonv1.MediaKindAudiobook }
-func (audiobookOps) recordsPendingGrab() bool { return true }
 
 func (audiobookOps) get(ctx context.Context, c client.Client, ns, name string) (client.Object, error) {
 	var a catalogv1alpha1.Audiobook
@@ -230,9 +225,6 @@ type issueOps struct{}
 
 func (issueOps) kind() commonv1.MediaKind { return commonv1.MediaKindIssue }
 
-// recordsPendingGrab is false: IssueStatus has no pendingGrab field.
-func (issueOps) recordsPendingGrab() bool { return false }
-
 func (issueOps) get(ctx context.Context, c client.Client, ns, name string) (client.Object, error) {
 	var iss catalogv1alpha1.Issue
 	if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &iss); err != nil {
@@ -263,15 +255,17 @@ func (issueOps) workerStatus(obj client.Object) workerStatus {
 		return workerStatus{}
 	}
 	return workerStatus{
+		PendingGrab:    iss.Status.PendingGrab,
 		LastSearchedAt: iss.Status.LastSearchedAt,
 		SearchAttempts: iss.Status.SearchAttempts,
 	}
 }
 
-// applyWorkerStatus never sends pendingGrab, which IssueStatus does not
-// have; Decide does not ask it to (recordsPendingGrab).
 func (issueOps) applyWorkerStatus(ctx context.Context, c client.Client, ns, name, resourceVersion string, ws workerStatus) error {
 	status := catalogac.IssueStatus()
+	if ws.PendingGrab != nil {
+		status = status.WithPendingGrab(pendingGrabAC(ws.PendingGrab))
+	}
 	if ws.LastSearchedAt != nil {
 		status = status.WithLastSearchedAt(*ws.LastSearchedAt)
 	}

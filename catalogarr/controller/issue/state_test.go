@@ -31,18 +31,25 @@ func TestState(t *testing.T) {
 		name        string
 		monitored   bool
 		hasFile     bool
+		cutoffMet   bool
 		downloading bool
+		pendingGrab bool
 		want        catalogv1alpha1.IssueState
 	}{
-		{"unmonitored outranks everything", false, true, true, catalogv1alpha1.IssueStateSkipped},
-		{"a file outranks an active download", true, true, true, catalogv1alpha1.IssueStateDownloaded},
-		{"a file alone", true, true, false, catalogv1alpha1.IssueStateDownloaded},
-		{"an active download with no file yet", true, false, true, catalogv1alpha1.IssueStateSnatched},
-		{"nothing yet", true, false, false, catalogv1alpha1.IssueStateWanted},
+		{"unmonitored outranks everything", false, true, true, true, true, catalogv1alpha1.IssueStateSkipped},
+		{"a file outranks an active download", true, true, false, true, false, catalogv1alpha1.IssueStateDownloaded},
+		{"a file alone", true, true, false, false, false, catalogv1alpha1.IssueStateDownloaded},
+		{"an active download with no file yet", true, false, false, true, false, catalogv1alpha1.IssueStateSnatched},
+		{"nothing yet", true, false, false, false, false, catalogv1alpha1.IssueStateWanted},
+		// X15: status.pendingGrab reads delayed, ranked as book.Phase ranks it.
+		{"a delayed grab with no file", true, false, false, false, true, catalogv1alpha1.IssueStateDelayed},
+		{"a delayed upgrade of a file below the cutoff", true, true, false, false, true, catalogv1alpha1.IssueStateDelayed},
+		{"a file meeting the cutoff outranks a delayed grab", true, true, true, false, true, catalogv1alpha1.IssueStateDownloaded},
+		{"the Download a delayed grab became outranks it", true, false, false, true, true, catalogv1alpha1.IssueStateSnatched},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			assert.Equal(t, c.want, issue.State(c.monitored, c.hasFile, c.downloading))
+			assert.Equal(t, c.want, issue.State(c.monitored, c.hasFile, c.cutoffMet, c.downloading, c.pendingGrab))
 		})
 	}
 }

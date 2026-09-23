@@ -163,6 +163,16 @@ func issuePredicate() predicate.Predicate {
 			}
 			return *iss.Status.Date
 		}),
+		// The grab worker's status.pendingGrab, under its own manager: a
+		// delayed grab being recorded or consumed is a state change
+		// (delayed <-> wanted) that bumps no generation.
+		k8s.StatusFieldChanged(func(o client.Object) metav1.Time {
+			iss, ok := o.(*catalogv1alpha1.Issue)
+			if !ok || iss.Status.PendingGrab == nil {
+				return metav1.Time{}
+			}
+			return iss.Status.PendingGrab.GrabAt
+		}),
 	)
 }
 
@@ -366,7 +376,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, iss *catalogv1alpha1.I
 	}
 	_, active := rollup.DownloadOverlay(dl)
 
-	state := State(monitored, hasFile, active)
+	state := State(monitored, hasFile, cutoffMet, active, iss.Status.PendingGrab != nil)
 
 	released := iss.Status.Date != nil && !now.Before(iss.Status.Date.Time)
 	k8s.MarkTrue(iss, &conditions, catalogv1alpha1.IssueConditionReleased, k8s.ReasonReconciled, "released=%t", released)

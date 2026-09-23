@@ -124,20 +124,10 @@ func Decide(
 		GrabAt:       metav1.NewTime(grabAt),
 	}
 	for _, st := range statusTargets {
-		ops, err := kindOpsFor(st.Kind)
-		if err != nil {
-			return err
-		}
-		if !ops.recordsPendingGrab() {
-			// An Issue has nowhere to show the wait. The grab is still
-			// scheduled above and still happens; only the object's view
-			// of it is missing.
-			continue
-		}
 		// The whole worker-owned status set is re-declared, not just
 		// pendingGrab, and only if nothing wrote the object since it was
 		// read: see workerStatus and updateWorkerStatus.
-		err = updateWorkerStatus(ctx, d.Client, a.Namespace, st, func(ws *workerStatus) bool {
+		err := updateWorkerStatus(ctx, d.Client, a.Namespace, st, func(ws *workerStatus) bool {
 			ws.PendingGrab = pg
 			return true
 		})

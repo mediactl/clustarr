@@ -353,6 +353,51 @@ func TestIssueReconcilerRealController(t *testing.T) {
 		require.NoError(t, c.Update(ctx, &regrab))
 	})
 
+	// X15: the grab worker records a delayed grab in status.pendingGrab under
+	// its own manager (catalogarr/worker/grab), a status-only write that bumps
+	// no generation. The Issue must wake on it and read delayed, then read
+	// wanted again once the grab consumes it -- and this reconciler, which
+	// re-applies its own set on every pass, must never take the field.
+	t.Run("a delayed grab reads delayed and goes back to wanted when consumed", func(t *testing.T) {
+		iss := &catalogv1alpha1.Issue{
+			ObjectMeta: metav1.ObjectMeta{Name: "batman-004.0", Namespace: "issue-ns"},
+			Spec:       catalogv1alpha1.IssueSpec{ComicRef: "batman", Number: "4", CalculatedNumberCentis: 400},
+		}
+		require.NoError(t, c.Create(ctx, iss))
+		key := types.NamespacedName{Namespace: "issue-ns", Name: "batman-004.0"}
+		var got catalogv1alpha1.Issue
+		require.Eventually(t, func() bool {
+			return c.Get(ctx, key, &got) == nil && got.Status.State == catalogv1alpha1.IssueStateWanted
+		}, 5*time.Second, 20*time.Millisecond, "setup: the Issue never settled at Wanted")
+
+		grabAt := metav1.NewTime(time.Now().Add(time.Hour).Truncate(time.Second))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab, catalogac.Issue(iss.Name, iss.Namespace).WithStatus(
+			catalogac.IssueStatus().WithPendingGrab(catalogac.PendingGrab().
+				WithReleaseTitle("Batman.004.CBZ").WithProtocol(commonv1.ProtocolTorrent).WithGrabAt(grabAt))))
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			return c.Get(ctx, key, &got) == nil && got.Status.State == catalogv1alpha1.IssueStateDelayed
+		}, 5*time.Second, 20*time.Millisecond, "a recorded pendingGrab must read delayed")
+		require.NotNil(t, got.Status.PendingGrab, "the reconciler's apply must not release the grab worker's field")
+		assert.True(t, got.Status.PendingGrab.GrabAt.Equal(&grabAt))
+
+		var owners []string
+		for _, e := range got.ManagedFields {
+			if e.Subresource == "status" && e.FieldsV1 != nil && strings.Contains(e.FieldsV1.GetRawString(), `"f:pendingGrab"`) {
+				owners = append(owners, e.Manager)
+			}
+		}
+		assert.Equal(t, []string{string(k8s.ManagerCatalogarrGrab)}, owners, "pendingGrab has one writer, the grab worker")
+
+		// The grab consumes it: the worker's complete declaration without it.
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab, catalogac.Issue(iss.Name, iss.Namespace).WithStatus(catalogac.IssueStatus()))
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			return c.Get(ctx, key, &got) == nil && got.Status.State == catalogv1alpha1.IssueStateWanted
+		}, 5*time.Second, 20*time.Millisecond, "a consumed pendingGrab must read wanted again")
+		assert.Nil(t, got.Status.PendingGrab)
+	})
+
 	// CutoffMet is decided against the owning Comic's profile, two objects
 	// away, so both of those objects' edits must reach the Issue: an edit to
 	// the QualityProfile itself (mapQualityProfile, profile -> Comic ->

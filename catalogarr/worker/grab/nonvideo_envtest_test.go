@@ -54,9 +54,9 @@ type nonVideoStatus struct {
 
 // nonVideoKind builds one non-video item, its container, and a realistic
 // steady state: the reconciler's phase (or, for an Issue, state) under
-// k8s.ManagerCatalogarr, and -- for the kinds whose status has one -- a
-// delayed grab's pendingGrab under k8s.ManagerCatalogarrGrab. A blank object
-// could not show a server-side-apply release.
+// k8s.ManagerCatalogarr, and a delayed grab's pendingGrab under
+// k8s.ManagerCatalogarrGrab. A blank object could not show a server-side-apply
+// release.
 type nonVideoKind struct {
 	name string
 	// setup creates the item and its container and returns the grab target.
@@ -68,8 +68,6 @@ type nonVideoKind struct {
 	wantProfile string
 	// wantPhase is the reconciler's phase the grab must leave alone.
 	wantPhase string
-	// recordsPendingGrab is false for an Issue, whose status has no field.
-	recordsPendingGrab bool
 }
 
 func delayedPendingGrab() *catalogac.PendingGrabApplyConfiguration {
@@ -83,7 +81,7 @@ func nonVideoKinds() []nonVideoKind {
 	return []nonVideoKind{
 		{
 			// An album with no override inherits its Artist's profile.
-			name: "album", wantProfile: "music-artist", wantPhase: string(catalogv1alpha1.AlbumPhaseDelayed), recordsPendingGrab: true,
+			name: "album", wantProfile: "music-artist", wantPhase: string(catalogv1alpha1.AlbumPhaseDelayed),
 			setup: func(t *testing.T, ctx context.Context, c client.Client, ns string) commonv1.MediaRef {
 				require.NoError(t, c.Create(ctx, &catalogv1alpha1.Artist{
 					ObjectMeta: metav1.ObjectMeta{Name: "radiohead", Namespace: ns},
@@ -112,7 +110,7 @@ func nonVideoKinds() []nonVideoKind {
 		},
 		{
 			// A book's own override wins over its Author's profile.
-			name: "book", wantProfile: "book-override", wantPhase: string(catalogv1alpha1.BookPhaseDelayed), recordsPendingGrab: true,
+			name: "book", wantProfile: "book-override", wantPhase: string(catalogv1alpha1.BookPhaseDelayed),
 			setup: func(t *testing.T, ctx context.Context, c client.Client, ns string) commonv1.MediaRef {
 				require.NoError(t, c.Create(ctx, &catalogv1alpha1.Author{
 					ObjectMeta: metav1.ObjectMeta{Name: "frank-herbert", Namespace: ns},
@@ -142,7 +140,7 @@ func nonVideoKinds() []nonVideoKind {
 		},
 		{
 			// An audiobook is standalone: everything is its own.
-			name: "audiobook", wantProfile: "audiobook", wantPhase: string(catalogv1alpha1.AudiobookPhaseDelayed), recordsPendingGrab: true,
+			name: "audiobook", wantProfile: "audiobook", wantPhase: string(catalogv1alpha1.AudiobookPhaseDelayed),
 			setup: func(t *testing.T, ctx context.Context, c client.Client, ns string) commonv1.MediaRef {
 				require.NoError(t, c.Create(ctx, &catalogv1alpha1.Audiobook{
 					ObjectMeta: metav1.ObjectMeta{Name: "guards-guards", Namespace: ns},
@@ -164,8 +162,8 @@ func nonVideoKinds() []nonVideoKind {
 		},
 		{
 			// An issue is ranked and grabbed under its Comic's profile, and
-			// has no pendingGrab to show a wait in.
-			name: "issue", wantProfile: "comic", wantPhase: string(catalogv1alpha1.IssueStateWanted), recordsPendingGrab: false,
+			// since X15 shows its wait in pendingGrab like the rest.
+			name: "issue", wantProfile: "comic", wantPhase: string(catalogv1alpha1.IssueStateDelayed),
 			setup: func(t *testing.T, ctx context.Context, c client.Client, ns string) commonv1.MediaRef {
 				require.NoError(t, c.Create(ctx, &catalogv1alpha1.Comic{
 					ObjectMeta: metav1.ObjectMeta{Name: "saga", Namespace: ns},
@@ -179,14 +177,17 @@ func nonVideoKinds() []nonVideoKind {
 					Spec:       catalogv1alpha1.IssueSpec{ComicRef: "saga", Number: "1", CalculatedNumberCentis: 100},
 				}))
 				_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Issue("saga-00001.0", ns).WithStatus(
-					catalogac.IssueStatus().WithState(catalogv1alpha1.IssueStateWanted)))
+					catalogac.IssueStatus().WithState(catalogv1alpha1.IssueStateDelayed)))
+				require.NoError(t, err)
+				_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab, catalogac.Issue("saga-00001.0", ns).WithStatus(
+					catalogac.IssueStatus().WithPendingGrab(delayedPendingGrab())))
 				require.NoError(t, err)
 				return commonv1.MediaRef{Kind: commonv1.MediaKindIssue, Name: "saga-00001.0"}
 			},
 			read: func(t *testing.T, ctx context.Context, c client.Client, ns, name string) nonVideoStatus {
 				var iss catalogv1alpha1.Issue
 				require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &iss))
-				return nonVideoStatus{&iss, string(iss.Status.State), nil, iss.Status.LastSearchedAt, iss.Status.SearchAttempts}
+				return nonVideoStatus{&iss, string(iss.Status.State), iss.Status.PendingGrab, iss.Status.LastSearchedAt, iss.Status.SearchAttempts}
 			},
 		},
 	}
@@ -215,7 +216,7 @@ func usenetRelease(guid, title string) commonv1.ReleaseInfo {
 //     it, recording the profile the item inherits, with ResolveSource's
 //     source;
 //   - the item's lease held by that Download;
-//   - the consumed pendingGrab cleared (where the kind has one) and nothing
+//   - the consumed pendingGrab cleared and nothing
 //     else released -- the reconciler's phase stays, and the grab manager
 //     owns no activeDownloadRef (R-5);
 //   - the double-grab guard refusing a second release while it is live;
@@ -278,10 +279,9 @@ func TestGrab_NonVideoKindsTakeTheWholeGrabPath(t *testing.T) {
 }
 
 // TestDecide_NonVideoKindsHonourTheirDelayProfile: a non-video grab under a
-// delay is held, not grabbed at once and not dropped. The kinds whose status
-// has pendingGrab record it; an Issue, whose status has none, is still
-// scheduled -- its pending entry is what the grab consumer reads -- and
-// nothing is written to it.
+// delay is held, not grabbed at once and not dropped, and every kind records
+// it in pendingGrab -- an Issue too since X15, which until then was scheduled
+// with nothing written to it and so could never read delayed.
 func TestDecide_NonVideoKindsHonourTheirDelayProfile(t *testing.T) {
 	profile := hdBlurayWeb(t)
 	bottom := profile.Tiers[len(profile.Tiers)-1][0].Quality
@@ -292,10 +292,7 @@ func TestDecide_NonVideoKindsHonourTheirDelayProfile(t *testing.T) {
 			ns := newNamespace(t, ctx, c)
 			target := k.setup(t, ctx, c, ns)
 			// Start from a wanted item with nothing pending.
-			if k.recordsPendingGrab {
-				seedClear(t, ctx, c, ns, target)
-			}
-			before := k.read(t, ctx, c, ns, target.Name)
+			seedClear(t, ctx, c, ns, target)
 			bus := newTestBus(t, nil)
 
 			release := usenetRelease("guid-"+k.name, "Some.Release")
@@ -311,13 +308,8 @@ func TestDecide_NonVideoKindsHonourTheirDelayProfile(t *testing.T) {
 			require.NoError(t, err, "the delayed grab is scheduled for every kind")
 
 			after := k.read(t, ctx, c, ns, target.Name)
-			if k.recordsPendingGrab {
-				require.NotNil(t, after.pendingGrab, "the delayed grab is recorded on the item")
-				assert.True(t, after.pendingGrab.GrabAt.Time.Equal(testNow.Add(30*time.Minute)))
-			} else {
-				assert.Equal(t, before.obj.GetResourceVersion(), after.obj.GetResourceVersion(),
-					"an Issue has no pendingGrab, so a delayed grab writes nothing to it")
-			}
+			require.NotNil(t, after.pendingGrab, "the delayed grab is recorded on the item")
+			assert.True(t, after.pendingGrab.GrabAt.Time.Equal(testNow.Add(30*time.Minute)))
 		})
 	}
 }
@@ -334,6 +326,8 @@ func seedClear(t *testing.T, ctx context.Context, c client.Client, ns string, ta
 		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab, catalogac.Book(target.Name, ns).WithStatus(catalogac.BookStatus()))
 	case commonv1.MediaKindAudiobook:
 		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab, catalogac.Audiobook(target.Name, ns).WithStatus(catalogac.AudiobookStatus()))
+	case commonv1.MediaKindIssue:
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab, catalogac.Issue(target.Name, ns).WithStatus(catalogac.IssueStatus()))
 	default:
 		t.Fatalf("seedClear: %s has no pendingGrab", target.Kind)
 	}

@@ -87,11 +87,6 @@ type kindOps interface {
 	// kind is the media kind this implementation serves.
 	kind() commonv1.MediaKind
 
-	// recordsPendingGrab reports whether the kind's status has a
-	// pendingGrab field for Decide to record a delayed grab in. Every kind
-	// but Issue does.
-	recordsPendingGrab() bool
-
 	// get fetches the object, typed.
 	get(ctx context.Context, c client.Client, ns, name string) (client.Object, error)
 
@@ -138,7 +133,6 @@ func kindOpsFor(kind commonv1.MediaKind) (kindOps, error) {
 type movieOps struct{}
 
 func (movieOps) kind() commonv1.MediaKind { return commonv1.MediaKindMovie }
-func (movieOps) recordsPendingGrab() bool { return true }
 
 func (movieOps) get(ctx context.Context, c client.Client, ns, name string) (client.Object, error) {
 	var m catalogv1alpha1.Movie
@@ -191,7 +185,6 @@ func (movieOps) applyWorkerStatus(ctx context.Context, c client.Client, ns, name
 type episodeOps struct{}
 
 func (episodeOps) kind() commonv1.MediaKind { return commonv1.MediaKindEpisode }
-func (episodeOps) recordsPendingGrab() bool { return true }
 
 func (episodeOps) get(ctx context.Context, c client.Client, ns, name string) (client.Object, error) {
 	var ep catalogv1alpha1.Episode

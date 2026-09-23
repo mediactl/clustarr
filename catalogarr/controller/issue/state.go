@@ -33,23 +33,34 @@ import (
 //
 // downloading reports whether a Download this Issue's ActiveDownloadRef
 // points at is still doing something (rollup.DownloadOverlay's `active`).
-// Both of rollup.Overlay's non-none values -- OverlayDelayed and
-// OverlayDownloading -- collapse onto IssueStateSnatched here: Episode's
-// Delayed/Downloading split exists because EpisodePhase has both members,
-// IssueState does not, and Sonarr's own "Snatched" is exactly this coarser
-// concept -- grabbed, not yet imported, regardless of the download engine's
-// internal phase.
+// It reads snatched: Sonarr's own "Snatched" is exactly this coarser concept
+// -- grabbed, not yet imported, regardless of the download engine's internal
+// phase.
+//
+// pendingGrab reports whether status.pendingGrab is set: a release chosen
+// and waiting out a DelayProfile delay, which reads delayed, ranked as
+// book.Phase ranks its Delayed -- above wanted and above a file that misses
+// the cutoff (a scheduled upgrade IS the story), below a file that meets it,
+// and below a live Download, which is what a pending grab becomes. Until
+// X15 IssueStatus had no pendingGrab and an Issue waiting on a delay read
+// wanted.
+//
+// cutoffMet matters only there: every other file-backed issue reads
+// downloaded whether or not it meets its cutoff, IssueState having no
+// CutoffUnmet member (the CutoffMet condition carries that split).
 //
 // archived/ignored/failed are deliberately never returned: nothing in this
-// task computes them (archived and ignored are user actions; failed belongs
-// to a future grab-failure signal Issue's status has ActiveDownloadRef for
-// but no PendingGrab/failure field of its own to read yet), the same
-// "reported, not invented" posture episode.Phase takes with FinaleType and
-// SceneNumbering.
-func State(monitored, hasFile, downloading bool) catalogv1alpha1.IssueState {
+// package computes them (archived and ignored are user actions; failed
+// belongs to a future grab-failure signal), the same "reported, not
+// invented" posture episode.Phase takes with FinaleType and SceneNumbering.
+func State(monitored, hasFile, cutoffMet, downloading, pendingGrab bool) catalogv1alpha1.IssueState {
 	switch {
 	case !monitored:
 		return catalogv1alpha1.IssueStateSkipped
+	case hasFile && cutoffMet:
+		return catalogv1alpha1.IssueStateDownloaded
+	case pendingGrab && !downloading:
+		return catalogv1alpha1.IssueStateDelayed
 	case hasFile:
 		return catalogv1alpha1.IssueStateDownloaded
 	case downloading:
