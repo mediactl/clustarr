@@ -306,21 +306,6 @@ func TestHandleRecordsUnmatchedPathsRelativeToTheRootFolderNotTheSubpath(t *test
 		"the path keeps its subpath prefix, because it is relative to the root folder")
 }
 
-// Library rescan handles movie root folders. Anything else is reported as an
-// honest scope limit rather than guessed at.
-func TestHandleReportsUnsupportedRootFolderKinds(t *testing.T) {
-	ctx := context.Background()
-	f := newFixture(t, ctx, "rw-series", catalogv1alpha1.RootFolderKindSeries, "hd-bluray-web", catalogv1alpha1.ScanModeFull)
-
-	mustWriteFile(t, filepath.Join(f.root, "Breaking Bad (2008)", "Breaking Bad - S01E01.mkv"), sampleFloor)
-
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
-
-	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
-	require.Len(t, got.Unmatched, 1)
-	assert.Contains(t, got.Unmatched[0].Reason, "not supported by library rescan yet")
-}
-
 // A root folder with no default quality profile cannot have a Movie created
 // under it -- Movie.spec.qualityProfileRef is required -- so the file is
 // reported instead of applied and rejected on every pass.

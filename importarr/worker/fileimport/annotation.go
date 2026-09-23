@@ -212,9 +212,8 @@ func readDirectives(annotations map[string]string) (directives, error) {
 }
 
 // FileRefFitsRoot reports whether a file attributed to ref may live under a
-// root folder of kind root: a movie under a movie root, an album under a
-// music root, and so on. Series and episodes fit a series root, but nothing
-// in importarr attributes episode files yet.
+// root folder of kind root: a movie under a movie root, an episode under a
+// series root, an album under a music root, and so on.
 func FileRefFitsRoot(ref commonv1.MediaRef, root catalogv1alpha1.RootFolderKind) bool {
 	switch root {
 	case catalogv1alpha1.RootFolderKindMovie:

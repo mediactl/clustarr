@@ -214,6 +214,8 @@ func (w *Worker) attributeMediaFile(ctx context.Context, st *scanState, path str
 		st.progress.ItemsUpdated++
 		st.progress.FilesMatched++
 		return nil
+	case st.root.Spec.Kind == catalogv1alpha1.RootFolderKindSeries:
+		return w.handleEpisodeFile(ctx, st, path, rel, info)
 	case st.root.Spec.Kind != catalogv1alpha1.RootFolderKindMovie:
 		return w.handleNonVideoFile(ctx, st, path, rel, info)
 	}
@@ -265,7 +267,7 @@ func (w *Worker) attributeMediaFile(ctx context.Context, st *scanState, path str
 
 	if !st.task.DryRun {
 		ref := commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movieName}
-		fresh := w.freshMovieSpec(ctx, st, parsed, profile, originalLanguage)
+		fresh := w.freshVideoSpec(ctx, st, parsed, profile, originalLanguage)
 		if err := w.applyObserved(ctx, st.scan.Namespace, nil, ref, path, info, fresh); err != nil {
 			return err
 		}
@@ -420,10 +422,11 @@ type frozenFields struct {
 // maxMatchedFormats is MediaFileSpec.MatchedFormats' MaxItems.
 const maxMatchedFormats = 200
 
-// freshMovieSpec is what a scanned movie file freezes: the release identity
-// pkg/release parsed, with an untagged file taking the movie's original
-// language (Radarr's AggregateLanguages), and the custom-format score of
-// that release against the movie's QualityProfile -- the same scoring the
+// freshVideoSpec is what a scanned movie or episode file freezes: the
+// release identity pkg/release parsed, with an untagged file taking the
+// item's original language (Radarr's and Sonarr's AggregateLanguages), and
+// the custom-format score of that release against the item's QualityProfile
+// (a movie's, or an episode's series') -- the same scoring the
 // file-import worker freezes, so a file that was scanned into the library
 // and one that was imported compare on the same terms when an upgrade is
 // decided. releaseGroup and edition are sent even when empty, as they always
@@ -432,7 +435,7 @@ const maxMatchedFormats = 200
 // A profile that cannot be read or resolved leaves the file unscored --
 // formatScore, matchedFormats and profileHash unsent -- and the empty
 // profileHash says so; the file is still fully tracked.
-func (w *Worker) freshMovieSpec(
+func (w *Worker) freshVideoSpec(
 	ctx context.Context, st *scanState, parsed *release.ParsedRelease, profileRef, originalLanguage string,
 ) frozenFields {
 	languageName := ""

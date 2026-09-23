@@ -94,34 +94,6 @@ func TestHandleImportsAFileAndOwnsOnlySpec(t *testing.T) {
 	require.Equal(t, sampleFloor, int(info.Size()))
 }
 
-// TestHandleNeverGuessesUnsupportedTargetKind proves the file-import shape of
-// the never-guess rule: a Download whose target this worker does not (yet)
-// know how to import is recorded honestly as Ignored, and no MediaFile is
-// ever created for it -- never a speculative one.
-func TestHandleNeverGuessesUnsupportedTargetKind(t *testing.T) {
-	ctx := context.Background()
-	f := newFixture(t, "fi-unsupported")
-
-	contentRoot := dataDir(t, "scratch")
-	mustWriteSparseFile(t, filepath.Join(contentRoot, "Some.Show.S01E01.mkv"), sampleFloor)
-
-	target := commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "does-not-exist"}
-	dl := f.createDownload(t, "series-dl", contentRoot, target)
-
-	msg := newImportTaskMessage(t, f.ns, dl.Name, "")
-	require.NoError(t, f.worker.Handle(ctx, msg))
-
-	var gotDL downloadv1alpha1.Download
-	require.NoError(t, f.api.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: dl.Name}, &gotDL))
-	require.NotNil(t, gotDL.Status.Import)
-	require.Equal(t, downloadv1alpha1.ImportPhaseIgnored, gotDL.Status.Import.State)
-	require.Empty(t, gotDL.Status.Import.Imported)
-
-	var mfList catalogv1alpha1.MediaFileList
-	require.NoError(t, f.api.List(ctx, &mfList, client.InNamespace(f.ns)))
-	require.Empty(t, mfList.Items, "an unsupported target must never produce a speculative MediaFile")
-}
-
 // TestHandleRedeliveryAfterImportIsANoOp proves the dedup fingerprint (R8,
 // events.BucketDedup) makes a second delivery of the same ImportTask a
 // no-op: it must not create a second MediaFile or otherwise reprocess the

@@ -124,6 +124,7 @@ type Worker struct {
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists;albums;authors;books;audiobooks;comics;issues,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=series;episodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=libraryscans,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
@@ -164,6 +165,10 @@ type scanState struct {
 	// nonVideo holds the candidates of a music, book, audiobook or comic
 	// root folder; nil for a movie root.
 	nonVideo *nonVideoIndex
+
+	// series holds the series of a series root folder, with their
+	// episodes.
+	series []SeriesCandidate
 
 	// manual is the scan's import-target annotation, resolved; nil unless
 	// the scan is a manual assignment.
@@ -328,6 +333,12 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		if err := w.loadMovies(ctx, &st.movies, scan.Namespace); err != nil {
 			return w.abort(ctx, m, st, err)
 		}
+	case root.Spec.Kind == catalogv1alpha1.RootFolderKindSeries:
+		series, err := w.loadSeries(ctx, scan.Namespace, &root)
+		if err != nil {
+			return w.abort(ctx, m, st, err)
+		}
+		st.series = series
 	case fileKindForRoot(root.Spec.Kind) != "":
 		idx, err := w.loadNonVideo(ctx, scan.Namespace, &root)
 		if err != nil {
@@ -547,10 +558,6 @@ func (w *Worker) walkHoldsMedia(ctx context.Context, st *scanState) (bool, error
 // way round: the small file beside the release is its promo clip, and is
 // left behind -- surfaced as unmatched with the remedy -- rather than swept
 // into the item with the real file (walkHoldsMedia).
-//
-// A series root is left to handleMediaFile too, which reports every file
-// there as unsupported_root_kind -- the more fundamental reason, and one an
-// assignment could not resolve.
 func (w *Worker) suspectedSample(ctx context.Context, st *scanState, path string, info os.FileInfo) (surfaced bool, err error) {
 	if fileKindForRoot(st.root.Spec.Kind) == "" {
 		return false, nil

@@ -61,13 +61,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // The import target is the Download's spec.target, or what its
 // [AnnotationImportTarget] annotation redirects it to (see "Manual import").
-// Supported: a movie, and the four non-video items that hold files -- an
-// album, a book, an audiobook, an issue (spec.target comic/<c> with exactly
-// one key, or the annotation comic/<c>/<issue>). A series or episode target
-// is recorded as [downloadv1alpha1.ImportPhaseIgnored]: episode import is
-// not built. An artist, author, or comic without an issue is Blocked with a
-// message naming the annotation that fixes it -- its files belong to one of
-// its children, and choosing which is a guess.
+// Supported: a movie; an episode, or a series whose keys name the episodes
+// of a pack (episode_import.go); and the four non-video items that hold
+// files -- an album, a book, an audiobook, an issue (spec.target comic/<c>
+// with exactly one key, or the annotation comic/<c>/<issue>). An artist,
+// author, or comic without an issue is Blocked with a message naming the
+// annotation that fixes it -- its files belong to one of its children, and
+// choosing which is a guess.
+//
+// An episode file is attributed by the numbering its name carries
+// ([MatchEpisodes]: season and episode, absolute number, or air date) to
+// episodes of the target's series, as Sonarr's import maps a release's
+// files; a file that names no episode the series has is a rejection. A file
+// covering several episodes is one MediaFile whose spec.mediaRef names the
+// first and lists all of them in keys ([EpisodeFileRef]).
 //
 // A non-video import (nonvideo.go) differs from a movie import in three
 // honest ways. Its files are classified by their own kind ([ClassifierFor]):

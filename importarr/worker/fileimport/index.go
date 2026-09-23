@@ -24,6 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
 // MediaFileByTargetIndexKey is the cache field index this worker looks a
@@ -47,7 +48,18 @@ func IndexMediaFileByTarget(ctx context.Context, mgr ctrl.Manager) error {
 			if !ok || mf.Spec.MediaRef.Name == "" {
 				return nil
 			}
-			return []string{targetKey(string(mf.Spec.MediaRef.Kind), mf.Spec.MediaRef.Name)}
+			ref := mf.Spec.MediaRef
+			keys := []string{targetKey(string(ref.Kind), ref.Name)}
+			if ref.Kind == commonv1.MediaKindEpisode {
+				// A multi-episode file backs every episode in keys
+				// (EpisodeFileRef), and is each one's existing file.
+				for _, k := range ref.Keys {
+					if k != ref.Name {
+						keys = append(keys, targetKey(string(ref.Kind), k))
+					}
+				}
+			}
+			return keys
 		})
 }
 

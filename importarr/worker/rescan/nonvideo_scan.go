@@ -49,6 +49,8 @@ func fileKindForRoot(k catalogv1alpha1.RootFolderKind) commonv1.MediaKind {
 	switch k {
 	case catalogv1alpha1.RootFolderKindMovie:
 		return commonv1.MediaKindMovie
+	case catalogv1alpha1.RootFolderKindSeries:
+		return commonv1.MediaKindEpisode
 	case catalogv1alpha1.RootFolderKindMusic:
 		return commonv1.MediaKindAlbum
 	case catalogv1alpha1.RootFolderKindBook:

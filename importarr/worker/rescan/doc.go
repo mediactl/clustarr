@@ -68,8 +68,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     extras folders -- and freeze only the quality the file determines
 //     exactly (fileimport.FrozenFileQuality: a probe for music, the
 //     extension otherwise).
-//   - series: reported as unsupported_root_kind; episode attribution is not
-//     built.
+//   - series: attributed to an EXISTING Series and its Episodes only
+//     (series.go): the series by its folder -- status.path, a TheTVDB id in
+//     the folder name, spec.folder, or its title and year -- and the
+//     episode by the numbering the file's name carries
+//     (fileimport.MatchEpisodes, which the import worker uses too). A file
+//     holding several episodes is one MediaFile naming them all in
+//     spec.mediaRef.keys.
 //
 // # Manual assignment
 //
@@ -93,8 +98,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // The annotation is the Download annotation's grammar, parsed by the same
 // function (fileimport.ParseImportTarget). The target names the item that
-// holds the file: movie/<m>, album/<a>, book/<b>, audiobook/<ab>, and for a
-// comic either issue/<i> or comic/<c>/<i>. Its kind must fit the root folder
+// holds the file: movie/<m>, album/<a>, book/<b>, audiobook/<ab>, for an
+// episode either episode/<e> or series/<s>/<e>, and for a comic either
+// issue/<i> or comic/<c>/<i>. Its kind must fit the root folder
 // (fileimport.FileRefFitsRoot), and the item must exist and be stored under
 // that root folder.
 //

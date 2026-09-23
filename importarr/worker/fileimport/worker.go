@@ -69,6 +69,7 @@ const FieldManager = k8s.ManagerImportarrWorker
 
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=series;episodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists;albums;authors;books;audiobooks;comics;issues,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
@@ -227,8 +228,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	case IsNonVideoFileKind(ref.Kind):
 		return w.importNonVideo(ctx, m, &dl, target, manual)
 	case ref.Kind == commonv1.MediaKindSeries || ref.Kind == commonv1.MediaKindEpisode:
-		return w.finishIgnored(ctx, &dl, fmt.Sprintf(
-			"target kind %q is not supported by file-import yet", ref.Kind))
+		return w.importEpisodes(ctx, m, &dl, target, manual)
 	default:
 		// An artist, author, or comic without an issue key: a container
 		// whose files belong to one of its children, and choosing which
@@ -388,17 +388,6 @@ func (w *Worker) finalAttempt(m events.Message) bool {
 		return true
 	}
 	return m.Attempt() >= uint64(spec.MaxDeliver) //nolint:gosec // MaxDeliver is a small positive constant
-}
-
-// finishIgnored patches status.import to Ignored for a target kind this
-// worker does not support yet -- the never-guess rule's file-import shape:
-// a Download this worker cannot handle is recorded honestly rather than
-// attempted. It is a terminal, non-retryable outcome.
-func (w *Worker) finishIgnored(ctx context.Context, dl *downloadv1alpha1.Download, message string) error {
-	ac := downloadac.ImportState().
-		WithState(downloadv1alpha1.ImportPhaseIgnored).
-		WithMessage(truncateChars(message, maxImportMessage))
-	return w.patchImport(ctx, dl, ac, nil)
 }
 
 // finishBlocked patches status.import to Blocked: the import could not

@@ -46,9 +46,10 @@ type manualAssign struct {
 	target fileimport.ImportTarget
 	ref    commonv1.MediaRef
 
-	// movie is the target Movie's scoring context -- its QualityProfile
-	// and original language -- when the target is a movie.
-	movie *MovieCandidate
+	// video is the scoring context of a movie or episode target -- the
+	// QualityProfile and original language of the Movie, or of the
+	// Episode's Series; nil for any other kind.
+	video *MovieCandidate
 }
 
 // errScanRefused marks a LibraryScan the worker will not walk as asked: a
@@ -79,12 +80,12 @@ func (w *Worker) resolveManualAssign(
 		return nil, refuse("invalid annotation: %v", err)
 	}
 	ref := t.FileRef()
-	if !fileimport.FileRefFitsRoot(ref, root.Spec.Kind) || ref.Kind == commonv1.MediaKindEpisode {
+	if !fileimport.FileRefFitsRoot(ref, root.Spec.Kind) {
 		return nil, refuse("%s %q cannot be assigned files under root folder %q, which is a %s root",
 			fileimport.AnnotationImportTarget, raw, root.Name, root.Spec.Kind)
 	}
 
-	itemRoot, movie, err := w.itemRootFolder(ctx, scan.Namespace, t)
+	itemRoot, video, err := w.itemRootFolder(ctx, scan.Namespace, t)
 	if err != nil {
 		return nil, err
 	}
@@ -92,13 +93,17 @@ func (w *Worker) resolveManualAssign(
 		return nil, refuse("%s %q names an item stored under root folder %q, not %q",
 			fileimport.AnnotationImportTarget, raw, itemRoot, root.Name)
 	}
-	return &manualAssign{target: t, ref: ref, movie: movie}, nil
+	return &manualAssign{target: t, ref: ref, video: video}, nil
 }
 
 // itemRootFolder reads the target and whatever parent names its root folder,
-// and, for a movie, the scoring context a file assigned to it freezes. A
-// NotFound anywhere refuses the scan; any other read error is transient.
+// and, for a movie or an episode, the scoring context a file assigned to it
+// freezes. A NotFound anywhere refuses the scan; any other read error is
+// transient.
 func (w *Worker) itemRootFolder(ctx context.Context, ns string, t fileimport.ImportTarget) (string, *MovieCandidate, error) {
+	if ref := t.FileRef(); ref.Kind == commonv1.MediaKindEpisode {
+		return w.episodeRootFolder(ctx, ns, t, ref.Name)
+	}
 	if ref := t.FileRef(); ref.Kind == commonv1.MediaKindMovie {
 		var m catalogv1alpha1.Movie
 		if err := w.Client.Get(ctx, types.NamespacedName{Namespace: ns, Name: ref.Name}, &m); err != nil {
@@ -113,6 +118,39 @@ func (w *Worker) itemRootFolder(ctx context.Context, ns string, t fileimport.Imp
 	}
 	root, err := w.nonMovieRootFolder(ctx, ns, t)
 	return root, nil, err
+}
+
+// episodeRootFolder is itemRootFolder for an episode target ("episode/<e>",
+// or "series/<s>/<e>", whose episode must be one of that series'): the
+// Episode's Series names the root folder and the scoring context.
+func (w *Worker) episodeRootFolder(ctx context.Context, ns string, t fileimport.ImportTarget, episode string) (string, *MovieCandidate, error) {
+	get := func(kind, name string, obj client.Object) error {
+		if err := w.Client.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, obj); err != nil {
+			if apierrors.IsNotFound(err) {
+				return refuse("%s %q names %s %q, which does not exist",
+					fileimport.AnnotationImportTarget, t.String(), kind, name)
+			}
+			return fmt.Errorf("rescan: get %s %s/%s: %w", kind, ns, name, err)
+		}
+		return nil
+	}
+	var ep catalogv1alpha1.Episode
+	if err := get("episode", episode, &ep); err != nil {
+		return "", nil, err
+	}
+	if t.Kind == commonv1.MediaKindSeries && ep.Spec.SeriesRef != t.Name {
+		return "", nil, refuse("%s %q: episode %s belongs to series %q, not %q",
+			fileimport.AnnotationImportTarget, t.String(), ep.Name, ep.Spec.SeriesRef, t.Name)
+	}
+	var s catalogv1alpha1.Series
+	if err := get("series", ep.Spec.SeriesRef, &s); err != nil {
+		return "", nil, err
+	}
+	c := &MovieCandidate{Name: s.Name, QualityProfileRef: s.Spec.QualityProfileRef}
+	if s.Status.Metadata != nil {
+		c.OriginalLanguage = s.Status.Metadata.OriginalLanguage
+	}
+	return s.Spec.RootFolderRef, c, nil
 }
 
 // nonMovieRootFolder is itemRootFolder for every kind but a movie.
@@ -191,17 +229,18 @@ func (w *Worker) assignManually(
 ) error {
 	ref := st.manual.ref
 	fresh := w.freshNonVideoSpec(ctx, ref.Kind, path, rel)
-	if ref.Kind == commonv1.MediaKindMovie {
-		// A movie file's release identity still comes from its name when
-		// the name parses, scored like any scanned file; an unparseable one
-		// is recorded without it.
+	if ref.Kind == commonv1.MediaKindMovie || ref.Kind == commonv1.MediaKindEpisode {
+		// A movie or episode file's release identity still comes from its
+		// name when the name parses, scored like any scanned file; an
+		// unparseable one is recorded without it. The person named the
+		// episode, so the name's numbering does not override them.
 		fresh = frozenFields{}
-		if parsed, err := release.ParsePath(path, release.Options{Kind: commonv1.MediaKindMovie}); err == nil {
+		if parsed, err := release.ParsePath(path, release.Options{Kind: ref.Kind}); err == nil {
 			var profile, language string
-			if m := st.manual.movie; m != nil {
-				profile, language = m.QualityProfileRef, m.OriginalLanguage
+			if v := st.manual.video; v != nil {
+				profile, language = v.QualityProfileRef, v.OriginalLanguage
 			}
-			fresh = w.freshMovieSpec(ctx, st, parsed, profile, language)
+			fresh = w.freshVideoSpec(ctx, st, parsed, profile, language)
 		}
 	}
 	fresh.importedFrom = catalogac.ImportSource().
