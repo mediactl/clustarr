@@ -124,3 +124,20 @@ func TestPingTreatsA404AsReachable(t *testing.T) {
 	defer down.Close()
 	require.Error(t, coverart.New(coverart.Config{HTTPClient: down.Client(), BaseURL: down.URL}).Ping(context.Background()))
 }
+
+func TestArtworkLeavesOutAnImageTheCAAHasNotApproved(t *testing.T) {
+	const rg = "1b022e01-4da6-387b-8658-8678046e4cef"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"images":[
+		 {"approved":false,"front":true,"back":false,"types":["Front"],"image":"http://coverartarchive.org/release/x/1.jpg"},
+		 {"approved":true,"front":false,"back":false,"types":["Medium"],"image":"http://coverartarchive.org/release/x/2.jpg"}
+		],"release":"https://musicbrainz.org/release/x"}`))
+	}))
+	defer srv.Close()
+	c := coverart.New(coverart.Config{HTTPClient: srv.Client(), BaseURL: srv.URL})
+
+	imgs, err := c.Artwork(context.Background(), commonv1.MediaKindAlbum, metadata.ExternalIDs{metadata.KeyMBReleaseGroup: rg})
+
+	require.NoError(t, err)
+	require.Equal(t, []metadata.Image{{Type: metadata.ImageTypeDisc, URL: "https://coverartarchive.org/release/x/2.jpg"}}, imgs)
+}
