@@ -84,6 +84,7 @@ package e2e
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -373,6 +374,26 @@ func waitForNonEmptyPhase(ctx context.Context, dl *downloadv1alpha1.Download, ti
 	return phase, err == nil
 }
 
+// httpGetHTMX is httpGetString with the HX-Request header htmx sends, for
+// a route that serves a component to htmx and a page to anyone else.
+func httpGetHTMX(ctx context.Context, c *http.Client, url string) (body string, status int, err error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", 0, err
+	}
+	req.Header.Set("HX-Request", "true")
+	resp, err := c.Do(req)
+	if err != nil {
+		return "", 0, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", resp.StatusCode, err
+	}
+	return string(raw), resp.StatusCode, nil
+}
+
 // httpGetString GETs url and returns its body as a string alongside the
 // status code, for the plain-substring page assertions R8 asks for (no
 // goquery, no new test dependency -- ui/downloads_test.go's own doc comment
@@ -582,7 +603,7 @@ func TestUILibraryImportListsSettingsAndUnmatchedPages(t *testing.T) {
 
 		found := false
 		_ = wait.PollUntilContextTimeout(ctx, pollInterval, uiUnwiredProjectionTimeout, true, func(ctx context.Context) (bool, error) {
-			body, status, err := httpGetString(ctx, pageClient, base+"/library")
+			body, status, err := httpGetString(ctx, pageClient, base+"/library/movies")
 			if err != nil || status != http.StatusOK {
 				//nolint:nilerr // keep polling
 				return false, nil
@@ -591,7 +612,7 @@ func TestUILibraryImportListsSettingsAndUnmatchedPages(t *testing.T) {
 			return found, nil
 		})
 		if !found {
-			t.Skipf(uiOptionsG35Reason, uiUnwiredProjectionTimeout, "Library", "/library")
+			t.Skipf(uiOptionsG35Reason, uiUnwiredProjectionTimeout, "Library", "/library/movies")
 		}
 
 		t.Run("write action", func(t *testing.T) {
@@ -609,6 +630,78 @@ func TestUILibraryImportListsSettingsAndUnmatchedPages(t *testing.T) {
 			require.NotNil(t, live.Spec.Monitored)
 			require.False(t, *live.Spec.Monitored)
 			requireNoUIManager(t, "Movie", &live)
+		})
+	})
+
+	// The library's TV tab, a series' page and a season toggle (spec
+	// 2026-09-23-library-page-design): the series lands on /library/tv and
+	// not on /library/movies; its page lists its seasons, each loading its
+	// episodes from the season route; the season toggle writes the override
+	// into spec.seasons under the UI's manager, never touching status.
+	t.Run("library tabs, series page and season toggle", func(t *testing.T) {
+		rf := newRootFolder(ctx, t, "e2e14-tv-rf", catalogv1alpha1.RootFolderKindSeries, "tv")
+		series := createSeries(ctx, t, rf.Name, 121361, catalogv1alpha1.SeriesTypeStandard)
+		live := waitForSeriesReady(ctx, t, series, fixtureEpisodesPerSeries)
+		var season int32 = -1
+		for _, st := range live.Status.Seasons {
+			if st.EpisodeCount > 0 {
+				season = st.Number
+				break
+			}
+		}
+		require.GreaterOrEqual(t, season, int32(0), "the series must roll up a season with episodes: %+v", live.Status.Seasons)
+
+		found := false
+		_ = wait.PollUntilContextTimeout(ctx, pollInterval, uiUnwiredProjectionTimeout, true, func(ctx context.Context) (bool, error) {
+			body, status, err := httpGetString(ctx, pageClient, base+"/library/tv")
+			if err != nil || status != http.StatusOK {
+				//nolint:nilerr // keep polling
+				return false, nil
+			}
+			found = strings.Contains(body, `data-kind="`+string(commonv1.MediaKindSeries)+`"`) && strings.Contains(body, series.Name)
+			return found, nil
+		})
+		if !found {
+			t.Skipf(uiOptionsG35Reason, uiUnwiredProjectionTimeout, "Library (TV tab)", "/library/tv")
+		}
+		movies, status, err := httpGetString(ctx, pageClient, base+"/library/movies")
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, status)
+		require.NotContains(t, movies, series.Name, "a series is not on the Movies tab")
+
+		seriesPath := fmt.Sprintf("/library/%s/series/%s", series.Namespace, series.Name)
+		page, status, err := httpGetString(ctx, pageClient, base+seriesPath)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, status)
+		require.Contains(t, page, fmt.Sprintf(`data-season="%d"`, season))
+		require.Contains(t, page, fmt.Sprintf(`hx-get="%s/seasons/%d"`, seriesPath, season))
+
+		partial, status, err := httpGetHTMX(ctx, pageClient, fmt.Sprintf("%s%s/seasons/%d", base, seriesPath, season))
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, status)
+		require.NotContains(t, partial, "<html", "htmx gets the episodes component, not a page")
+		require.Contains(t, partial, `data-episode="1"`)
+
+		t.Run("season toggle", func(t *testing.T) {
+			body, status, err := httpPostForm(ctx, pageClient, fmt.Sprintf("%s%s/seasons/%d/monitor", base, seriesPath, season),
+				url.Values{"monitored": {"false"}})
+			require.NoError(t, err)
+			if skipIfNoWriter(t, status, body) {
+				return
+			}
+			require.Equal(t, http.StatusSeeOther, status, "unexpected season-toggle response: %s", body)
+
+			var after catalogv1alpha1.Series
+			require.NoError(t, k8sClient.Get(ctx, client.ObjectKeyFromObject(series), &after))
+			var got *bool
+			for _, sp := range after.Spec.Seasons {
+				if sp.Number == season {
+					got = sp.Monitored
+				}
+			}
+			require.NotNil(t, got, "spec.seasons must hold the toggled season: %+v", after.Spec.Seasons)
+			require.False(t, *got)
+			requireNoUIManager(t, "Series", &after)
 		})
 	})
 
