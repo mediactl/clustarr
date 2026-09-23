@@ -1,0 +1,333 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"fmt"
+	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+)
+
+// Downloads renders the Downloads page (§A3.4): a DownloadClient summary
+// card per client, then one row per Download, live-updated over the
+// /events/downloads SSE stream (Task D3-3). It is a full page, wrapped in
+// Layout, so a plain GET renders something useful even before htmx's SSE
+// extension has connected.
+//
+// #downloads-rows is the sse-swap target, mirroring the Pipeline page: htmx's
+// SSE extension replaces that element's innerHTML with the named event's
+// data, so everything inside it (and only what's inside it) must be exactly
+// what DownloadRows renders. Client cards render outside the swapped
+// element, deliberately: client configuration does not move on the same
+// cadence as transfer state, and DownloadRows' produced contract (the D3
+// plan's Task D3-2) names only the Download rows.
+templ Downloads(downloads []downloadv1.Download, clients []downloadv1.DownloadClient) {
+	@Layout("Downloads") {
+		<h1 class="mb-4 text-2xl font-bold">Downloads</h1>
+		if len(clients) > 0 {
+			@downloadClientsSection(clients)
+		}
+		<div
+			id="downloads-rows"
+			hx-ext="sse"
+			sse-connect="/events/downloads"
+			sse-swap="downloads"
+			class="space-y-4"
+		>
+			@DownloadRows(downloads)
+		</div>
+	}
+}
+
+// DownloadRows renders the dynamic part of the Downloads page: the "nothing
+// in flight" placeholder or the row grid. This is also what
+// /events/downloads (Task D3-3) renders into each SSE event's data, so the
+// initial page render and every live update produce byte-for-byte the same
+// markup for #downloads-rows's contents.
+templ DownloadRows(downloads []downloadv1.Download) {
+	if len(downloads) == 0 {
+		<p class="text-slate-400">No downloads in flight.</p>
+	}
+	<div class="grid gap-3">
+		for _, d := range downloads {
+			@downloadRow(d)
+		}
+	</div>
+}
+
+// downloadRow renders one Download as a card: title, phase badge, progress
+// bar when the phase has a meaningful percentage, protocol-specific transfer
+// stats, the import state once catalogarr has written one, and the failure
+// detail when the download has failed or its release is blocklisted.
+//
+// Every row carries data-download, data-phase and data-protocol (ruling
+// R8): the tests in downloads_test.go and the later e2e assert on those
+// attributes, not on visible copy, so a wording change does not break a
+// test and a markup change does not pass one.
+//
+// grabarr has no controller yet (R5): every Download in a live cluster today
+// has status.phase == "" and every other status field at its zero value.
+// This function renders that as a plain, unremarkable row -- not a panic,
+// not an error -- and downloads_test.go covers all 11 DownloadPhase values
+// plus that zero-value case directly, without a cluster.
+templ downloadRow(d downloadv1.Download) {
+	<div
+		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
+		data-download={ d.Name }
+		data-phase={ string(d.Status.Phase) }
+		data-protocol={ string(d.Spec.Protocol) }
+	>
+		<div class="flex items-center justify-between gap-4">
+			<span class="font-medium">{ downloadTitle(d) }</span>
+			<span class={ downloadPhaseBadgeClass(d.Status.Phase) }>{ downloadPhaseLabel(d.Status.Phase) }</span>
+		</div>
+		if pct := downloadPercent(d); pct >= 0 {
+			<div class="mt-2 w-full overflow-hidden rounded-full bg-slate-800">
+				<div
+					class="h-2 rounded-full bg-sky-500"
+					style={ fmt.Sprintf("width: %d%%", clampPercent(pct)) }
+				></div>
+			</div>
+			<div class="mt-1 text-xs text-slate-400">{ fmt.Sprintf("%d%%", pct) }</div>
+		}
+		<div class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-400 sm:grid-cols-4">
+			<span>{ fmt.Sprintf("down %s/s · up %s/s", formatBytes(d.Status.DownloadRateBps), formatBytes(d.Status.UploadRateBps)) }</span>
+			if d.Spec.Protocol == commonv1.ProtocolTorrent {
+				<span>{ fmt.Sprintf("seeders %d · peers %d", d.Status.Seeders, d.Status.Peers) }</span>
+				<span>{ fmt.Sprintf("ratio %s", ratioString(d.Status.RatioMilli)) }</span>
+			}
+			<span>{ fmt.Sprintf("ETA %s", formatETA(d.Status.ETASeconds)) }</span>
+		</div>
+		if d.Status.Import != nil {
+			<div class="mt-1 text-xs text-slate-400">{ fmt.Sprintf("import: %s", downloadImportDetail(d)) }</div>
+		}
+		if d.Status.Phase == downloadv1.DownloadPhaseFailed || d.Status.Phase == downloadv1.DownloadPhaseBlocklisted {
+			<div class="mt-2 text-sm text-red-400">{ downloadFailureDetail(d) }</div>
+		}
+	</div>
+}
+
+// downloadClientsSection renders the DownloadClient summary cards named in
+// the D3 plan's Task D3-2 bullet: "A DownloadClient section: protocol,
+// enabled, status.engine, active/queued/seeding counts, free bytes."
+templ downloadClientsSection(clients []downloadv1.DownloadClient) {
+	<h2 class="mb-2 text-lg font-semibold">Clients</h2>
+	<div class="mb-6 grid gap-3 sm:grid-cols-2">
+		for _, c := range clients {
+			@downloadClientCard(c)
+		}
+	</div>
+}
+
+// downloadClientCard renders one DownloadClient summary card.
+templ downloadClientCard(c downloadv1.DownloadClient) {
+	<div
+		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
+		data-client={ c.Name }
+		data-protocol={ string(c.Spec.Protocol) }
+	>
+		<div class="flex items-center justify-between gap-4">
+			<span class="font-medium">{ c.Name }</span>
+			<span class={ clientEnabledBadgeClass(c) }>{ clientEnabledLabel(c) }</span>
+		</div>
+		<div class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-400 sm:grid-cols-4">
+			<span>{ fmt.Sprintf("active %d", c.Status.Active) }</span>
+			<span>{ fmt.Sprintf("queued %d", c.Status.Queued) }</span>
+			if c.Spec.Protocol == commonv1.ProtocolTorrent {
+				<span>{ fmt.Sprintf("seeding %d", c.Status.Seeding) }</span>
+			}
+			<span>{ fmt.Sprintf("free %s", formatBytes(c.Status.FreeBytes)) }</span>
+		</div>
+		if c.Status.Engine != nil {
+			<div class="mt-1 text-xs text-slate-400">{ fmt.Sprintf("engine %d/%d ready", c.Status.Engine.ReadyReplicas, c.Status.Engine.Replicas) }</div>
+		}
+	</div>
+}
+
+// downloadTitle prefers the release title grabarr recorded at grab time
+// (spec.release.title, per the D3 plan's Task D3-2 bullet); an empty release
+// title -- possible on a hand-built object in a test, or a Download created
+// before that field existed -- falls back to the object's own name so a row
+// never renders a blank title.
+func downloadTitle(d downloadv1.Download) string {
+	if d.Spec.Release.Title != "" {
+		return d.Spec.Release.Title
+	}
+	return d.Name
+}
+
+// downloadPhaseLabel renders status.phase, or a placeholder for the R5
+// zero-value reality: grabarr has no controller yet, so every phase is ""
+// until D2 lands one.
+func downloadPhaseLabel(phase downloadv1.DownloadPhase) string {
+	if phase == "" {
+		return "unset"
+	}
+	return string(phase)
+}
+
+// downloadPhaseBadgeClass returns the Tailwind utility classes for a phase's
+// badge, grouped by what the phase means (failed, blocklisted, settled, or
+// still moving) rather than by its exact name -- mirroring
+// helpers.go's stageBadgeClass -- so a phase this switch does not
+// specifically list (including the R5 zero value) still renders with a
+// sensible look instead of unstyled text.
+func downloadPhaseBadgeClass(phase downloadv1.DownloadPhase) string {
+	const base = "rounded-full px-2 py-0.5 text-xs font-medium "
+	switch phase {
+	case downloadv1.DownloadPhaseFailed:
+		return base + "bg-red-500/20 text-red-300"
+	case downloadv1.DownloadPhaseBlocklisted:
+		return base + "bg-amber-500/20 text-amber-300"
+	case downloadv1.DownloadPhaseCompleted, downloadv1.DownloadPhaseSeeding, downloadv1.DownloadPhaseImported:
+		return base + "bg-emerald-500/20 text-emerald-300"
+	case "":
+		return base + "bg-slate-500/20 text-slate-300"
+	default:
+		return base + "bg-sky-500/20 text-sky-300"
+	}
+}
+
+// downloadPercent reports the progress bar percentage for phase, or -1 (the
+// same "no meaningful percentage" sentinel pkg/pipeline.Entry.Percent uses,
+// consumed the same way by helpers.go's clampPercent) for a phase where
+// status.progressPercent either is not yet meaningful (Pending, Assigned,
+// Queued: no transfer has started) or is stale (Failed, Blocklisted,
+// Removing: the transfer state is no longer the point of the row) or where
+// the outcome is simply known without reading the field (Completed, Seeding
+// and Imported are always fully fetched).
+func downloadPercent(d downloadv1.Download) int32 {
+	switch d.Status.Phase {
+	case downloadv1.DownloadPhaseDownloading, downloadv1.DownloadPhasePaused:
+		return d.Status.ProgressPercent
+	case downloadv1.DownloadPhaseCompleted, downloadv1.DownloadPhaseSeeding, downloadv1.DownloadPhaseImported:
+		return 100
+	default:
+		return -1
+	}
+}
+
+// downloadImportDetail renders status.import for the row's "import:" line.
+// Callers must check d.Status.Import != nil first; this only formats it.
+func downloadImportDetail(d downloadv1.Download) string {
+	imp := d.Status.Import
+	state := string(imp.State)
+	if state == "" {
+		state = "unset"
+	}
+	if imp.Message != "" {
+		return fmt.Sprintf("%s (%s)", state, imp.Message)
+	}
+	return state
+}
+
+// downloadFailureDetail explains a Failed or Blocklisted row. It prefers the
+// message on the Failed condition (status.conditions, per the D3 plan's
+// Task D3-2 bullet), then the machine-readable failure reason, then the
+// engine's free-text message, and finally a fixed string -- so a hand-built
+// test object with a phase but no other status still renders something
+// rather than an empty line.
+func downloadFailureDetail(d downloadv1.Download) string {
+	for _, c := range d.Status.Conditions {
+		if c.Type == downloadv1.DownloadConditionFailed && c.Status == metav1.ConditionTrue {
+			if c.Message != "" {
+				return c.Message
+			}
+			break
+		}
+	}
+	if d.Status.FailureReason != "" && d.Status.FailureReason != downloadv1.DownloadFailureNone {
+		return string(d.Status.FailureReason)
+	}
+	if d.Status.Message != "" {
+		return d.Status.Message
+	}
+	return "no failure detail reported"
+}
+
+// ratioString renders status.ratioMilli (thousandths, per CLAUDE.md's
+// scaled-integer rule for api/) as a two-decimal ratio, e.g. 1500 -> "1.50",
+// using only integer arithmetic -- there is no reason to introduce floating
+// point in the one place that renders this value, even though the no-float
+// rule itself is scoped to api/.
+func ratioString(milli int32) string {
+	if milli < 0 {
+		milli = 0
+	}
+	whole := milli / 1000
+	frac := (milli % 1000) / 10
+	return fmt.Sprintf("%d.%02d", whole, frac)
+}
+
+// formatBytes renders a byte count with binary-scaled units (KiB, MiB, ...),
+// integer arithmetic only, for the same reason ratioString is.
+func formatBytes(b int64) string {
+	if b <= 0 {
+		return "0 B"
+	}
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	units := [...]string{"KiB", "MiB", "GiB", "TiB", "PiB"}
+	whole := b / div
+	frac := (b % div) * 100 / div
+	return fmt.Sprintf("%d.%02d %s", whole, frac, units[exp])
+}
+
+// formatETA renders status.etaSeconds: "-" when the engine has not reported
+// one (nil, distinct from zero -- the same "absence is not a value"
+// discipline api/common/v1alpha1.ReleaseInfo.PublishedAt documents), else a
+// Go duration string built the same way pkg/pipeline.Project builds
+// Entry.ETA.
+func formatETA(seconds *int32) string {
+	if seconds == nil {
+		return "-"
+	}
+	return (time.Duration(*seconds) * time.Second).String()
+}
+
+// clientEnabled reports spec.enabled, defaulting to true for a nil pointer
+// per DownloadClientSpec's +kubebuilder:default=true.
+func clientEnabled(c downloadv1.DownloadClient) bool {
+	return c.Spec.Enabled == nil || *c.Spec.Enabled
+}
+
+func clientEnabledLabel(c downloadv1.DownloadClient) string {
+	if clientEnabled(c) {
+		return "enabled"
+	}
+	return "disabled"
+}
+
+func clientEnabledBadgeClass(c downloadv1.DownloadClient) string {
+	const base = "rounded-full px-2 py-0.5 text-xs font-medium "
+	if clientEnabled(c) {
+		return base + "bg-emerald-500/20 text-emerald-300"
+	}
+	return base + "bg-slate-500/20 text-slate-300"
+}

@@ -100,7 +100,7 @@ func Layout(title string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " · Clustarr</title><script src=\"https://cdn.tailwindcss.com\"></script><script src=\"https://unpkg.com/htmx.org@2.0.4\"></script><script src=\"https://unpkg.com/htmx-ext-sse@2.2.2/sse.js\"></script></head><body class=\"min-h-screen bg-slate-950 text-slate-100\"><header class=\"border-b border-slate-800 px-6 py-4\"><a href=\"/pipeline\" class=\"text-lg font-semibold\">Clustarr</a></header><main class=\"p-6\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " · Clustarr</title><script src=\"https://cdn.tailwindcss.com\"></script><script src=\"https://unpkg.com/htmx.org@2.0.4\"></script><script src=\"https://unpkg.com/htmx-ext-sse@2.2.2/sse.js\"></script></head><body class=\"min-h-screen bg-slate-950 text-slate-100\"><header class=\"flex items-center gap-6 border-b border-slate-800 px-6 py-4\"><a href=\"/pipeline\" class=\"text-lg font-semibold\">Clustarr</a><nav class=\"flex gap-4 text-sm text-slate-300\"><a href=\"/pipeline\" class=\"hover:text-slate-100\">Pipeline</a> <a href=\"/downloads\" class=\"hover:text-slate-100\">Downloads</a></nav></header><main class=\"p-6\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
