@@ -372,7 +372,15 @@ func TestRunTranscodesVerifiesAndSwapsOverTheSource(t *testing.T) {
 	// Values cannot show an over-claim (pkg/k8s forces ownership); only
 	// managedFields can. The worker must own its three fields and no other.
 	assert.Equal(t, []string{"progress", "result", "stderrTail"}, statusFieldsOwnedBy(t, tj, k8s.ManagerSquasharrWorker))
-	assert.Equal(t, []string{"attempts", "jobRef", "message", "observedGeneration", "phase", "plan", "startedAt"},
+	// workerPod and fallbackReason are here even at "" -- squasharr/status's
+	// ControllerFields sends both unconditionally (spec §18.6: they are
+	// controller-owned dispatch fields, not worker output), so createJob's
+	// steady-state apply already claims them though it never sets a value.
+	// hardware and nextAttemptAt are absent because createJob's fixture never
+	// sets either: like phase, hardware is a CRD enum ControllerFields omits
+	// at "" rather than send an invalid empty enum value.
+	assert.Equal(t,
+		[]string{"attempts", "fallbackReason", "jobRef", "message", "observedGeneration", "phase", "plan", "startedAt", "workerPod"},
 		statusFieldsOwnedBy(t, tj, k8s.ManagerSquasharr))
 }
 
