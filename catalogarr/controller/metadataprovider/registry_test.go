@@ -72,7 +72,7 @@ func namedVolumeServer(t *testing.T, name string) *httptest.Server {
 	return srv
 }
 
-func TestBuildRegistryOrdersByPriorityAndSkipsUnimplemented(t *testing.T) {
+func TestBuildRegistryOrdersByPriorityAndSkipsDisabled(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
 	ns := "registry-test"
@@ -124,7 +124,7 @@ func TestBuildRegistryOrdersByPriorityAndSkipsUnimplemented(t *testing.T) {
 			Type: catalogv1alpha1.MetadataProviderComicVine, Enabled: boolPtr(false),
 			SecretRef: &corev1.LocalObjectReference{Name: "cv-creds"},
 		}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "not-implemented", Namespace: ns}, Spec: catalogv1alpha1.MetadataProviderSpec{
+		{ObjectMeta: metav1.ObjectMeta{Name: "coverart", Namespace: ns}, Spec: catalogv1alpha1.MetadataProviderSpec{
 			Type: catalogv1alpha1.MetadataProviderCoverArt,
 		}},
 	}
@@ -139,7 +139,10 @@ func TestBuildRegistryOrdersByPriorityAndSkipsUnimplemented(t *testing.T) {
 		t.Fatalf("BuildRegistry: %v", err)
 	}
 	if len(reg.Comics) != 2 {
-		t.Fatalf("got %d comic providers, want 2 (disabled and unimplemented excluded)", len(reg.Comics))
+		t.Fatalf("got %d comic providers, want 2 (the disabled one excluded; coverart is not a comic provider)", len(reg.Comics))
+	}
+	if len(reg.Artwork) != 1 || reg.Artwork[0].Name() != "coverart" {
+		t.Fatalf("got artwork providers %v, want the coverart provider (X6b: no type is left without a client)", reg.Artwork)
 	}
 	if reg.Comics[0].Name() != "comicvine" || reg.Comics[1].Name() != "comicvine" {
 		t.Errorf("both entries should be comicvine clients (only Priority differs), got %s / %s", reg.Comics[0].Name(), reg.Comics[1].Name())

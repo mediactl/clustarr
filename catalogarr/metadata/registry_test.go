@@ -60,8 +60,11 @@ func TestBuildRegistryWiresOnlyTheImplementedTypesInPriorityOrder(t *testing.T) 
 			},
 		},
 		{
-			ObjectMeta: metav1.ObjectMeta{Name: "no-client-yet", Namespace: "clustarr"},
-			Spec:       catalogv1alpha1.MetadataProviderSpec{Type: catalogv1alpha1.MetadataProviderFanart, Enabled: enabled()},
+			ObjectMeta: metav1.ObjectMeta{Name: "fanart", Namespace: "clustarr"},
+			Spec: catalogv1alpha1.MetadataProviderSpec{
+				Type: catalogv1alpha1.MetadataProviderFanart, Enabled: enabled(),
+				SecretRef: &corev1.LocalObjectReference{Name: "tmdb-key"},
+			},
 		},
 	}
 
@@ -69,9 +72,121 @@ func TestBuildRegistryWiresOnlyTheImplementedTypesInPriorityOrder(t *testing.T) 
 	reg, err := BuildRegistry(context.Background(), c, providers, http.DefaultClient)
 	require.NoError(t, err)
 
-	require.Len(t, reg.Movies, 2, "both tmdb providers wire a MovieProvider; the disabled tvdb and unimplemented fanart do not")
+	require.Len(t, reg.Movies, 2, "both tmdb providers wire a MovieProvider; the disabled tvdb and the artwork-only fanart do not")
 	require.Equal(t, "tmdb", reg.Movies[0].Name())
 	require.Empty(t, reg.Series, "tvdb was disabled; tmdb implements MovieProvider only (see Judgment call 3)")
+	require.Len(t, reg.Artwork, 1, "fanart is an ArtworkProvider")
+}
+
+// TestBuildRegistryWiresEveryProviderType is the X6b guard: every
+// MetadataProviderType value lands in the Registry slots its client fills,
+// so none is silently skipped the way the eight client-less types were.
+func TestBuildRegistryWiresEveryProviderType(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "creds", Namespace: "clustarr"},
+		Data: map[string][]byte{
+			catalogv1alpha1.MetadataSecretKeyAPIKey: []byte("k"),
+			catalogv1alpha1.MetadataSecretKeyBearer: []byte("t"),
+		},
+	}
+	types := []catalogv1alpha1.MetadataProviderType{
+		catalogv1alpha1.MetadataProviderTMDB, catalogv1alpha1.MetadataProviderTVDB,
+		catalogv1alpha1.MetadataProviderMusicBrainz, catalogv1alpha1.MetadataProviderCoverArt,
+		catalogv1alpha1.MetadataProviderFanart, catalogv1alpha1.MetadataProviderOpenLibrary,
+		catalogv1alpha1.MetadataProviderHardcover, catalogv1alpha1.MetadataProviderAudnexus,
+		catalogv1alpha1.MetadataProviderComicVine, catalogv1alpha1.MetadataProviderMetron,
+		catalogv1alpha1.MetadataProviderMangaDex, catalogv1alpha1.MetadataProviderAniList,
+		catalogv1alpha1.MetadataProviderKitsu, catalogv1alpha1.MetadataProviderAnimeLists,
+	}
+	providers := make([]catalogv1alpha1.MetadataProvider, 0, len(types))
+	for _, typ := range types {
+		providers = append(providers, catalogv1alpha1.MetadataProvider{
+			ObjectMeta: metav1.ObjectMeta{Name: string(typ), Namespace: "clustarr"},
+			Spec: catalogv1alpha1.MetadataProviderSpec{
+				Type: typ, Enabled: enabled(), Priority: 50, ContactUserAgent: "clustarr-test (test@example.com)",
+				SecretRef: &corev1.LocalObjectReference{Name: "creds"},
+			},
+		})
+	}
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(secret).Build()
+
+	reg, err := BuildRegistry(context.Background(), c, providers, http.DefaultClient)
+	require.NoError(t, err)
+
+	var got struct{ movies, series, artists, books, audiobooks, comics, artwork, resolvers []string }
+	for _, p := range reg.Movies {
+		got.movies = append(got.movies, p.Name())
+	}
+	for _, p := range reg.Series {
+		got.series = append(got.series, p.Name())
+	}
+	for _, p := range reg.Artists {
+		got.artists = append(got.artists, p.Name())
+	}
+	for _, p := range reg.Books {
+		got.books = append(got.books, p.Name())
+	}
+	for _, p := range reg.Audiobooks {
+		got.audiobooks = append(got.audiobooks, p.Name())
+	}
+	for _, p := range reg.Comics {
+		got.comics = append(got.comics, p.Name())
+	}
+	for _, p := range reg.Artwork {
+		got.artwork = append(got.artwork, p.Name())
+	}
+	for _, p := range reg.Resolvers {
+		got.resolvers = append(got.resolvers, p.Name())
+	}
+	require.Equal(t, []string{"tmdb"}, got.movies)
+	require.Equal(t, []string{"tvdb"}, got.series)
+	require.Equal(t, []string{"musicbrainz"}, got.artists)
+	require.Equal(t, []string{"openlibrary", "hardcover"}, got.books, "at equal priority the provider a Book is keyed by answers first")
+	require.Equal(t, []string{"audnexus"}, got.audiobooks)
+	require.Equal(t, []string{"comicvine", "mangadex", "metron"}, got.comics, "AniList is never a comic source")
+	require.Equal(t, []string{"coverart", "fanart"}, got.artwork)
+	require.ElementsMatch(t, []string{"metron", "mangadex", "anilist", "kitsu", "animelists"}, got.resolvers)
+}
+
+func TestBuildRegistryAnExplicitPriorityBeatsTheTieBreak(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "creds", Namespace: "clustarr"},
+		Data:       map[string][]byte{catalogv1alpha1.MetadataSecretKeyBearer: []byte("t")},
+	}
+	providers := []catalogv1alpha1.MetadataProvider{
+		{ObjectMeta: metav1.ObjectMeta{Name: "openlibrary", Namespace: "clustarr"}, Spec: catalogv1alpha1.MetadataProviderSpec{
+			Type: catalogv1alpha1.MetadataProviderOpenLibrary, Enabled: enabled(), Priority: 50, ContactUserAgent: "x (y@z)",
+		}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "hardcover", Namespace: "clustarr"}, Spec: catalogv1alpha1.MetadataProviderSpec{
+			Type: catalogv1alpha1.MetadataProviderHardcover, Enabled: enabled(), Priority: 10,
+			SecretRef: &corev1.LocalObjectReference{Name: "creds"},
+		}},
+	}
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(secret).Build()
+
+	reg, err := BuildRegistry(context.Background(), c, providers, http.DefaultClient)
+
+	require.NoError(t, err)
+	require.Equal(t, "hardcover", reg.Books[0].Name(), "the operator ranked it first")
+}
+
+func TestBuildRegistryErrorsOnASupplementaryProviderWithoutItsCredential(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "creds", Namespace: "clustarr"},
+		Data:       map[string][]byte{catalogv1alpha1.MetadataSecretKeyAPIKey: []byte("k")},
+	}
+	providers := []catalogv1alpha1.MetadataProvider{{
+		ObjectMeta: metav1.ObjectMeta{Name: "metron", Namespace: "clustarr"},
+		Spec: catalogv1alpha1.MetadataProviderSpec{
+			Type: catalogv1alpha1.MetadataProviderMetron, Enabled: enabled(),
+			SecretRef: &corev1.LocalObjectReference{Name: "creds"},
+		},
+	}}
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(secret).Build()
+
+	_, err := BuildRegistry(context.Background(), c, providers, http.DefaultClient)
+
+	require.ErrorContains(t, err, `"bearer"`, "metron authenticates with a Bearer token, not an api key")
 }
 
 func TestBuildRegistryErrorsOnAMissingSecret(t *testing.T) {
