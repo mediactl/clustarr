@@ -68,6 +68,33 @@ type Release struct {
 	// Kind is the media kind the classifier assigned to the title.
 	Kind commonv1.MediaKind `json:"kind,omitempty"`
 
+	// The non-video names a release is matched by (catalogarr's RSS matcher
+	// looks an album up by artist and album, a book or audiobook by author
+	// and ParsedTitle, a comic issue by ParsedTitle -- the series -- and
+	// issue number). indexarr fills each from the indexer's own Newznab
+	// attr where it sent one (artist, album, author; docs/research/
+	// indexers.md §4.3) and from the parsed title otherwise. All four are
+	// optional and additive: the payload keeps its schema version (schema.go's
+	// contract), a message from before they existed decodes with them empty,
+	// and an older consumer ignores them.
+
+	// Artist is who a music release is by. Empty for every other kind.
+	Artist string `json:"artist,omitempty"`
+
+	// Album is a music release's album title. Empty for every other kind.
+	Album string `json:"album,omitempty"`
+
+	// Author is a book's or an audiobook's author, as the release credits
+	// it ("Stephen King & Peter Straub" stays one string). Empty for every
+	// other kind.
+	Author string `json:"author,omitempty"`
+
+	// Issue is a comic release's issue number exactly as its title prints
+	// it ("050", "12.5"; a manga release's chapter). Torznab defines no
+	// issue attr, so it comes from the title alone. Empty for every other
+	// kind.
+	Issue string `json:"issue,omitempty"`
+
 	// Hints carries the codec, HDR, audio and container tokens the parser
 	// recognised, keyed by hint name.
 	Hints map[string][]string `json:"hints,omitempty"`

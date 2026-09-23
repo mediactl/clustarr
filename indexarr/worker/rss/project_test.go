@@ -352,3 +352,83 @@ func TestProjectReleaseCapsCategoriesAtTheCRDsMaxItems(t *testing.T) {
 	require.Len(t, got.Info.Categories, 50)
 	require.Equal(t, int32(2000), got.Info.Categories[0])
 }
+
+// TestProjectReleaseCarriesNonVideoNames: the names the RSS matcher finds an
+// album, a book, an audiobook or a comic issue by ride on the wire -- the
+// indexer's own Newznab attr where it sent one, the parsed title otherwise
+// -- and only for the kind the release was parsed as.
+func TestProjectReleaseCarriesNonVideoNames(t *testing.T) {
+	for _, c := range []struct {
+		name                         string
+		in                           torznab.Release
+		kind                         commonv1.MediaKind
+		parsedTitle                  string
+		artist, album, author, issue string
+	}{
+		{
+			name: "an album, named by its title",
+			in:   torznab.Release{Title: "Radiohead - OK Computer (1997) [FLAC]", Categories: []newznab.CategoryID{3040}},
+			kind: commonv1.MediaKindAlbum, parsedTitle: "Radiohead - OK Computer", artist: "Radiohead", album: "OK Computer",
+		},
+		{
+			name: "the indexer's artist and album attrs win over the title's reading",
+			in: torznab.Release{
+				Title: "Radiohead - OK Computer OKNOTOK (1997) [FLAC]", Categories: []newznab.CategoryID{3040},
+				Artist: "Radiohead", Album: "OK Computer",
+			},
+			kind: commonv1.MediaKindAlbum, parsedTitle: "Radiohead - OK Computer OKNOTOK", artist: "Radiohead", album: "OK Computer",
+		},
+		{
+			name: "an ebook's author",
+			in:   torznab.Release{Title: "Frank Herbert - Dune (1965) [EPUB]", Categories: []newznab.CategoryID{7020}},
+			kind: commonv1.MediaKindBook, parsedTitle: "Dune", author: "Frank Herbert",
+		},
+		{
+			name: "an author attr wins",
+			in: torznab.Release{
+				Title: "Herbert, Frank - Dune (1965) [EPUB]", Categories: []newznab.CategoryID{7020}, Author: "Frank Herbert",
+			},
+			kind: commonv1.MediaKindBook, parsedTitle: "Dune", author: "Frank Herbert",
+		},
+		{
+			name: "an audiobook's author, from the narrator shape",
+			in:   torznab.Release{Title: "The Stand - Stephen King {Grover Gardner} [ASIN B008TOJDNC] [M4B]"},
+			kind: commonv1.MediaKindAudiobook, parsedTitle: "The Stand", author: "Stephen King",
+		},
+		{
+			name: "a comic the classifier reads as a film is a comic by its category, issue and all",
+			in:   torznab.Release{Title: "Batman 050 (2018) (Digital) (Zone-Empire)", Categories: []newznab.CategoryID{7000, 7030}},
+			kind: commonv1.MediaKindComic, parsedTitle: "Batman", issue: "050",
+		},
+		{
+			name: "a film carries no non-video name, whatever attrs the indexer sent",
+			in: torznab.Release{
+				Title: "The Matrix 1999 1080p BluRay x264-GROUP", Categories: []newznab.CategoryID{2040},
+				Artist: "noise", Author: "noise",
+			},
+			kind: commonv1.MediaKindMovie, parsedTitle: "The Matrix",
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			c.in.GUID = "g"
+			got := rss.ProjectRelease(c.in, "idx", "torrent")
+			require.Equal(t, c.kind, got.Kind)
+			require.Equal(t, c.parsedTitle, got.ParsedTitle)
+			require.Equal(t, c.artist, got.Artist)
+			require.Equal(t, c.album, got.Album)
+			require.Equal(t, c.author, got.Author)
+			require.Equal(t, c.issue, got.Issue)
+
+			// The kind on the wire is still the one that steered the parse.
+			parsed, err := release.Parse(c.in.Title, release.Options{Kind: got.Kind})
+			require.NoError(t, err)
+			require.Equal(t, parsed.Title, got.ParsedTitle)
+		})
+	}
+
+	// Without its category the comic is still the classifier's film: the
+	// category refines a guess, it never invents one.
+	got := rss.ProjectRelease(torznab.Release{Title: "Batman 050 (2018) (Digital) (Zone-Empire)", GUID: "g"}, "idx", "torrent")
+	require.Equal(t, commonv1.MediaKindMovie, got.Kind)
+	require.Empty(t, got.Issue)
+}

@@ -105,3 +105,31 @@ func TestAnOlderConsumerIgnoresTheNewQueryModeField(t *testing.T) {
 	require.Equal(t, "nzbgeek", old.Outcomes[0].IndexerRef.Name)
 	require.Equal(t, int32(2), old.Outcomes[0].Releases)
 }
+
+// Release's non-video names (Z3) are additive and optional under the same
+// "index.Release.v1": they round-trip, are absent from a video release's
+// JSON, and a message from before they existed decodes with them empty.
+func TestReleaseNonVideoNamesAreAdditive(t *testing.T) {
+	require.Equal(t, "index.Release.v1", Release{}.Schema())
+
+	rel := Release{ParsedTitle: "Batman", Artist: "Radiohead", Album: "OK Computer", Author: "Frank Herbert", Issue: "050"}
+	schemaName, data, err := Encode(rel)
+	require.NoError(t, err)
+	var decoded Release
+	require.NoError(t, Decode(schemaName, data, &decoded))
+	require.Equal(t, rel.Artist, decoded.Artist)
+	require.Equal(t, rel.Album, decoded.Album)
+	require.Equal(t, rel.Author, decoded.Author)
+	require.Equal(t, rel.Issue, decoded.Issue)
+
+	_, data, err = Encode(Release{ParsedTitle: "The Matrix"})
+	require.NoError(t, err)
+	for _, key := range []string{`"artist"`, `"album"`, `"author"`, `"issue"`} {
+		require.NotContains(t, string(data), key, "a video release carries no non-video name")
+	}
+
+	var old Release
+	require.NoError(t, Decode("index.Release.v1", []byte(`{"info":{"guid":"g"},"parsedTitle":"x","fetchedAt":"2026-09-18T12:00:00Z"}`), &old))
+	require.Empty(t, old.Artist)
+	require.Empty(t, old.Issue)
+}

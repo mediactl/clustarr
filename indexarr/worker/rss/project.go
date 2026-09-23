@@ -120,7 +120,23 @@ func ProjectRelease(r torznab.Release, indexerName, protocol string) schema.Rele
 	// names -- would NOT fix this: both classifications already agree, and
 	// they agree on the wrong answer. The fix is in ClassifyKind's marker and
 	// extractIDs' id patterns. Neither is a Phase D1 path.
+	//
+	// A title the classifier cannot place falls to its movie default, so a
+	// comic ("Batman 050 (2018)") or a scene-named album with no bracketed
+	// codec parsed as a film and shipped with none of the names the matcher
+	// finds a non-video item by. The indexer's Newznab category says what it
+	// is where the title does not: kindFromCategories refines a VIDEO
+	// guess, and only when every category the release carries names one
+	// and the same non-video kind (each *arr owns its categories the same
+	// way -- Lidarr audio, Readarr books, Mylar comics). The refined kind
+	// is pinned exactly as the classifier's would be, so the Kind on the
+	// wire is still the one that steered the parse.
 	kind := release.ClassifyKind(r.Title)
+	if kind == commonv1.MediaKindMovie || kind == commonv1.MediaKindEpisode {
+		if k, ok := kindFromCategories(r.Categories); ok {
+			kind = k
+		}
+	}
 	parsed, err := release.Parse(r.Title, release.Options{Kind: kind})
 	if err != nil {
 		// An unparsable title is still a real release: it can match on
@@ -130,6 +146,7 @@ func ProjectRelease(r torznab.Release, indexerName, protocol string) schema.Rele
 	}
 	parsed.ApplyTo(&info)
 
+	artist, album, author, issue := nonVideoNames(r, parsed)
 	return schema.Release{
 		Info: info,
 		// The RAW parser title. rssmatcher.TitleYearKey applies CleanTitle
@@ -146,7 +163,100 @@ func ProjectRelease(r torznab.Release, indexerName, protocol string) schema.Rele
 		Special:     parsed.Special,
 		Kind:        kind,
 		Hints:       hints(parsed.Hints),
+		Artist:      artist,
+		Album:       album,
+		Author:      author,
+		Issue:       issue,
 	}
+}
+
+// nonVideoNames is the artist, album, author and issue number a release
+// names: the indexer's own Newznab attr where it sent one -- structured data
+// the indexer holds, not a guess at a title's shape (docs/research/
+// indexers.md §4.3; pkg/torznab keeps each attr's first value) -- else what
+// the parser read off the title for the kind it was parsed as. A name is
+// only ever filled for its own kind: an artist attr on a release parsed as
+// a film is the indexer's noise, not something to match an album by.
+// Torznab defines no issue attr, so the issue is the title's alone.
+func nonVideoNames(r torznab.Release, p *release.ParsedRelease) (artist, album, author, issue string) {
+	pick := func(attr, parsed string) string {
+		if a := strings.TrimSpace(attr); a != "" {
+			return a
+		}
+		return parsed
+	}
+	switch {
+	case p.Music != nil:
+		artist, album = pick(r.Artist, p.Music.Artist), pick(r.Album, p.Music.Album)
+	case p.Book != nil:
+		author = pick(r.Author, p.Book.Author)
+	case p.Comic != nil:
+		issue = p.Comic.Issue
+	}
+	return artist, album, author, issue
+}
+
+// kindFromCategories is the one non-video kind every standard Newznab
+// category of a release agrees on, and false when they name none, name a
+// video or other family, or disagree.
+//
+// A family root (3000 Audio, 7000 Books) is compatible with any kind of its
+// family and names its default alone -- an album, a book -- because Prowlarr
+// emits the root beside the subcategory. Audio/Audiobook (3030) is an
+// audiobook and Books/Comics (7030) a comic, as newznab.CategoryMapper has
+// them; Audio/Video (3020) is a music video, which Clustarr has no kind for,
+// so it refuses. An indexer's own custom categories (100000 and up) say
+// nothing about the standard tree and are skipped.
+func kindFromCategories(cats []newznab.CategoryID) (commonv1.MediaKind, bool) {
+	var kind, family commonv1.MediaKind // family: the root's default kind
+	for _, c := range cats {
+		if c >= newznab.CustomCategoryOffset {
+			continue
+		}
+		var k, root commonv1.MediaKind
+		switch c.Parent() {
+		case newznab.CatAudio:
+			root = commonv1.MediaKindAlbum
+			switch c {
+			case newznab.CatAudio:
+			case newznab.CatAudioAudiobook:
+				k = commonv1.MediaKindAudiobook
+			case newznab.CatAudioVideo:
+				return "", false
+			default:
+				k = commonv1.MediaKindAlbum
+			}
+		case newznab.CatBooks:
+			root = commonv1.MediaKindBook
+			switch c {
+			case newznab.CatBooks:
+			case newznab.CatBooksComics:
+				k = commonv1.MediaKindComic
+			default:
+				k = commonv1.MediaKindBook
+			}
+		default:
+			return "", false
+		}
+		if family != "" && family != root {
+			return "", false
+		}
+		family = root
+		if k == "" {
+			continue
+		}
+		if kind != "" && kind != k {
+			return "", false
+		}
+		kind = k
+	}
+	switch {
+	case kind != "":
+		return kind, true
+	case family != "":
+		return family, true
+	}
+	return "", false
 }
 
 // categoryIDs widens newznab ids to the []int32 the CRD carries. A nil slice
