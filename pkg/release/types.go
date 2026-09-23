@@ -88,29 +88,36 @@ type TitleCandidate struct {
 }
 
 // ParsedRelease is the result of parsing a release title. Field set is
-// verbatim from spec §7's pkg/release block.
+// spec §7's pkg/release block plus LanguageUnknown, which Radarr models as a
+// Language.Unknown entry and this package as a flag beside the default.
 type ParsedRelease struct {
-	Title       string
-	Titles      []string
-	Year        int
-	Quality     commonv1.Quality
-	Revision    commonv1.Revision
-	Languages   []string
-	Group       string
-	Hash        string // scene obfuscation hash token, e.g. trailing -a1b2c3d4; "" normally
-	Edition     string
-	Seasons     []int
-	Episodes    []int
-	Absolute    []int
-	AirDate     *time.Time
-	FullSeason  bool
-	Partial     bool
-	MultiSeason bool
-	Special     bool
-	ReleaseType commonv1.ReleaseType
-	Music       *MusicInfo
-	Book        *BookInfo
-	Comic       *ComicInfo
-	Hints       Hints
-	IDs         map[string]string
+	Title     string
+	Titles    []string
+	Year      int
+	Quality   commonv1.Quality
+	Revision  commonv1.Revision
+	Languages []string
+	// LanguageUnknown is true when the title names no language: Radarr's
+	// and Sonarr's Language.Unknown. Languages then holds this package's
+	// item-independent default -- ["English"] for a movie or TV title, nil
+	// for anime and every non-video kind -- and LanguagesFor gives the
+	// languages for a known item.
+	LanguageUnknown bool
+	Group           string
+	Hash            string // scene obfuscation hash token, e.g. trailing -a1b2c3d4; "" normally
+	Edition         string
+	Seasons         []int
+	Episodes        []int
+	Absolute        []int
+	AirDate         *time.Time
+	FullSeason      bool
+	Partial         bool
+	MultiSeason     bool
+	Special         bool
+	ReleaseType     commonv1.ReleaseType
+	Music           *MusicInfo
+	Book            *BookInfo
+	Comic           *ComicInfo
+	Hints           Hints
+	IDs             map[string]string
 }

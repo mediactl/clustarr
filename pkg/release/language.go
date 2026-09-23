@@ -36,16 +36,45 @@ import "github.com/dlclark/regexp2"
 // release). \b keeps GB (two ASCII letters) from matching inside an
 // unrelated token like a "1GB" size suffix.
 var languageRegex = mustCompile(
-	`\b(?<French>FRENCH|VFF|VFQ)\b|\b(?<German>GERMAN)\b|\b(?<Spanish>SPANISH)\b|`+
+	`\b(?<English>ENGLISH)\b|`+
+		`\b(?<French>FRENCH|VFF|VFQ)\b|\b(?<German>GERMAN)\b|\b(?<Spanish>SPANISH)\b|`+
 		`\b(?<Italian>ITALIAN)\b|\b(?<Japanese>JAPANESE)\b|\b(?<Korean>KOREAN)\b|`+
 		`\b(?<Chinese>CHS|CHT|GB|BIG5|Chinese|中文)\b`,
 	regexp2.IgnoreCase,
 )
 
-var languageGroups = []string{"French", "German", "Spanish", "Italian", "Japanese", "Korean", "Chinese"}
+// languageGroups is languageRegex's groups. English is Radarr's
+// `lowerTitle.Contains("english")` rule, as a whole word: without it an
+// English release could only ever be the default, and once an untagged
+// release takes the item's original language (LanguagesFor), "ENGLISH" in a
+// title is the only way left to say a release of a Japanese film is not
+// Japanese.
+var languageGroups = []string{"English", "French", "German", "Spanish", "Italian", "Japanese", "Korean", "Chinese"}
+
+// detectLanguages returns the language named in title, or nil when the
+// title names none -- Radarr's and Sonarr's Language.Unknown.
+func detectLanguages(title string) []string {
+	if m, err := languageRegex.FindStringMatch(title); err == nil && m != nil {
+		for _, name := range languageGroups {
+			if grp := m.GroupByName(name); grp != nil && len(grp.Captures) > 0 {
+				return []string{name}
+			}
+		}
+	}
+	return nil
+}
+
+// languagesOf is a movie or TV title's languages: those it names, or the
+// ["English"] default with unknown set.
+func languagesOf(title string) (langs []string, unknown bool) {
+	if l := detectLanguages(title); l != nil {
+		return l, false
+	}
+	return []string{"English"}, true
+}
 
 // parseLanguages extracts the language tags from a release title. No match
-// defaults to ["English"].
+// defaults to ["English"]; languagesOf also reports whether it did.
 //
 // A "MULTi" token is deliberately not a language. Radarr's semantics, from
 // its source (develop, fetched 2026-09-23): LanguageParser.ParseLanguages
@@ -60,19 +89,29 @@ var languageGroups = []string{"French", "German", "Spanish", "Italian", "Japanes
 // so a MULTi release of an English-original film failed
 // language-not-original and an "original" language profile alike.
 //
-// One divergence from Radarr stands and is not MULTi's: a title with no
-// language token is ["English"] here, where Radarr parses Unknown and
-// AggregateLanguages then substitutes the item's original language. That
-// substitution needs the item, which this item-independent parse does not
-// have.
+// The ["English"] default is item-independent and is not what Radarr ends up
+// with: its parser says Unknown, and AggregateLanguages then substitutes the
+// item's original language. ParsedRelease.LanguageUnknown records that no
+// language was named, and ParsedRelease.LanguagesFor applies the
+// substitution for a caller that knows the item.
 func parseLanguages(title string) []string {
-	if m, err := languageRegex.FindStringMatch(title); err == nil && m != nil {
-		for _, name := range languageGroups {
-			if grp := m.GroupByName(name); grp != nil && len(grp.Captures) > 0 {
-				return []string{name}
-			}
-		}
-	}
+	l, _ := languagesOf(title)
+	return l
+}
 
-	return []string{"English"}
+// LanguagesFor is p's languages for an item whose original language is
+// originalLanguage (a Radarr English display name, "" when unknown). A
+// release whose title names no language takes the item's original
+// language, as Radarr's and Sonarr's AggregateLanguages do (develop, fetched
+// 2026-09-23: Radarr "Use movie language as fallback if we couldn't parse a
+// language", Sonarr "Use series language as fallback if we couldn't parse a
+// language" -- languages.Count == 0 or [Unknown] becomes
+// [OriginalLanguage]). With the original language unknown the parsed
+// default stands, which is also where Radarr's fallback would leave a
+// release of an item with no known language.
+func (p *ParsedRelease) LanguagesFor(originalLanguage string) []string {
+	if p.LanguageUnknown && originalLanguage != "" {
+		return []string{originalLanguage}
+	}
+	return p.Languages
 }

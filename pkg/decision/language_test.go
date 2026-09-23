@@ -225,10 +225,20 @@ func TestEvaluateOriginalLanguageVocabulary(t *testing.T) {
 		{
 			name:          "a resolvable original language is still enforced",
 			tag:           "ja",
-			relTitle:      "Movie.2016.1080p.BluRay.x264-GROUP",
+			relTitle:      "Movie.2016.ENGLISH.1080p.BluRay.x264-GROUP",
 			wantRejection: true,
 			wantFormat:    true,
 			why:           "an English-only release of a Japanese film must still be rejected -- the fix must not disable the check",
+		},
+		{
+			// Radarr's AggregateLanguages: a title that names no language
+			// takes the item's original language (see
+			// release.ParsedRelease.LanguagesFor). This case used to be the
+			// "English-only" one above, when an untagged title meant English.
+			name:     "an untagged release takes the item's original language",
+			tag:      "ja",
+			relTitle: "Movie.2016.1080p.BluRay.x264-GROUP",
+			why:      "a release that names no language is in the item's original language, as in Radarr",
 		},
 	}
 	for _, tc := range cases {
@@ -299,6 +309,24 @@ func TestEvaluateApprovesAReleaseInTheItemsOwnOriginalLanguage(t *testing.T) {
 			relTitle:     "Arrival.2016.1080p.BluRay.x264-GROUP",
 			wantApproved: true,
 			why:          "must not regress the case fixed at 6ae2c8b",
+		},
+		{
+			// The ruling "untagged releases follow Radarr" must keep 42512f1's
+			// promise: an untagged release of a Japanese film is Japanese, so
+			// neither language-not-original nor language-not-english may
+			// score it -10000.
+			name:         "untagged release of a Japanese-original movie is approved",
+			tag:          "ja",
+			relTitle:     "Movie.2016.1080p.BluRay.x264-GROUP",
+			wantApproved: true,
+			why:          "Radarr's AggregateLanguages gives an untagged release the item's original language",
+		},
+		{
+			name:         "English release of a Japanese-original movie is rejected",
+			tag:          "ja",
+			relTitle:     "Movie.2016.ENGLISH.1080p.BluRay.x264-GROUP",
+			wantApproved: false,
+			why:          "a release that says it is English is not in the item's original language",
 		},
 		{
 			name:         "French release of an English-original movie is still rejected",
@@ -428,4 +456,30 @@ func TestEvaluateISO6392And3TagsMatchISO6391(t *testing.T) {
 				"%s and %s must carry the same rejections", tc.iso6391, tc.iso6392or3)
 		})
 	}
+}
+
+// TestUntaggedReleaseOfAJapaneseFilmScoresNoLanguagePenalty is the explicit
+// check the untagged-language ruling asked for: 42512f1 decided that a
+// release in the item's own original language is not penalised, and an
+// untagged release of a Japanese film is now such a release. Neither
+// always-active language format may match it, its score must not carry
+// their -10000, and the Decision's ReleaseInfo reports the language it was
+// judged in.
+func TestUntaggedReleaseOfAJapaneseFilmScoresNoLanguagePenalty(t *testing.T) {
+	p, cat := defaultProfile(t)
+	rel := englishBluray()
+	rel.Title = "Movie.2016.1080p.BluRay.x264-GROUP"
+	tg := decision.Target{
+		Kind:                common.MediaKindMovie,
+		Available:           true,
+		OriginalLanguageTag: "ja",
+		Identity:            identifiedByIndexer(),
+	}
+	ds := decision.Evaluate(context.Background(), tg, p, cat, []common.ReleaseInfo{rel}, defaultOptions())
+	require.Len(t, ds, 1)
+	require.NotContains(t, ds[0].Matched, "language-not-english")
+	require.NotContains(t, ds[0].Matched, "language-not-original")
+	require.Greater(t, ds[0].Score, -10000)
+	require.Equal(t, []string{"Japanese"}, ds[0].Release.Languages)
+	require.True(t, ds[0].Approved, "rejections %+v", ds[0].Rejections)
 }

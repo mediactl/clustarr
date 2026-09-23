@@ -157,7 +157,7 @@ func finishSeries(title string, p *ParsedRelease) *ParsedRelease {
 	p.Hash = hash
 	p.Edition = edition
 	p.Hints = parseHints(title)
-	p.Languages = parseLanguages(title)
+	p.Languages, p.LanguageUnknown = languagesOf(title)
 	return p
 }
 

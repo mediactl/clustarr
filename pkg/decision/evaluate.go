@@ -69,6 +69,12 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, idx ide
 			Rejections: []common.Rejection{newRejection(ReasonUnableToParse, "%v", err)},
 		}
 	}
+	// A title that names no language takes the item's original language
+	// before anything reads the languages -- custom-format scoring, the
+	// language check, and the ReleaseInfo this Decision carries -- which
+	// is the order Radarr's AggregateLanguages runs in (see
+	// release.ParsedRelease.LanguagesFor).
+	parsed.Languages = parsed.LanguagesFor(originalLanguage)
 	parsed.ApplyTo(&rel)
 
 	ic := catalogue.ItemContext{OriginalLanguageName: originalLanguage, IndexerFlags: rel.IndexerFlags, ReleaseType: parsed.ReleaseType}

@@ -72,6 +72,13 @@ func Parse(title string, o Options) (*ParsedRelease, error) {
 	if err != nil {
 		return nil, err
 	}
+	switch kind {
+	case commonv1.MediaKindMovie, commonv1.MediaKindSeries, commonv1.MediaKindEpisode:
+	default:
+		// The music, book and comic parsers read no language from a
+		// title, so none is ever named.
+		p.LanguageUnknown = true
+	}
 
 	if len(ids) > 0 {
 		if p.IDs == nil {
