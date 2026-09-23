@@ -250,6 +250,69 @@ func TestEvaluateOriginalLanguageVocabulary(t *testing.T) {
 	}
 }
 
+// TestEvaluateApprovesAReleaseInTheItemsOwnOriginalLanguage is the
+// decision-level (end-to-end) regression test for the product decision
+// recorded in .superpowers/sdd/lang-policy/brief.md: "a release in the
+// item's own original language must be approvable by a quality profile left
+// at its CRD defaults, whatever that language is." It exercises the same
+// real embedded TRaSH catalogue and real CRD-defaulted profile as
+// TestEvaluateAtCRDDefaultsApprovesAnEnglishRelease, so the fix is proven
+// against production data, not a synthetic catalogue.
+//
+// Before this fix a Japanese release of a Japanese-original film scored
+// -10000 from the always-active language-not-english custom format (a
+// NEGATED "contains English" condition, data/formats/language.json), which
+// the CRD's minFormatScore: 0 then rejected -- even though the vocabulary
+// defect fixed at 6ae2c8b already let language-not-original stand down
+// correctly for that very same release.
+func TestEvaluateApprovesAReleaseInTheItemsOwnOriginalLanguage(t *testing.T) {
+	cases := []struct {
+		name         string
+		tag          string
+		relTitle     string
+		wantApproved bool
+		why          string
+	}{
+		{
+			name:         "Japanese release of a Japanese-original movie is approved",
+			tag:          "ja",
+			relTitle:     "Movie.2016.JAPANESE.1080p.BluRay.x264-GROUP",
+			wantApproved: true,
+			why:          "the release is in the item's own original language -- the whole point of this fix",
+		},
+		{
+			name:         "English release of an English-original movie is still approved",
+			tag:          "en",
+			relTitle:     "Arrival.2016.1080p.BluRay.x264-GROUP",
+			wantApproved: true,
+			why:          "must not regress the case fixed at 6ae2c8b",
+		},
+		{
+			name:         "French release of an English-original movie is still rejected",
+			tag:          "en",
+			relTitle:     "Movie.2016.FRENCH.1080p.BluRay.x264-GROUP",
+			wantApproved: false,
+			why:          "the product decision allows non-English approvals only when English is not the original language -- not a blanket disable of the format",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p, cat := defaultProfile(t)
+			rel := englishBluray()
+			rel.Title = tc.relTitle
+			tg := decision.Target{
+				Kind:                common.MediaKindMovie,
+				Available:           true,
+				OriginalLanguageTag: tc.tag,
+			}
+			ds := decision.Evaluate(context.Background(), tg, p, cat, []common.ReleaseInfo{rel}, defaultOptions())
+			require.Len(t, ds, 1)
+			require.Equal(t, tc.wantApproved, ds[0].Approved, "%s; rejected with %+v (score %d, matched %v)",
+				tc.why, ds[0].Rejections, ds[0].Score, ds[0].Matched)
+		})
+	}
+}
+
 // TestRegionSubtagsResolveThroughTheirPrimarySubtag pins the tag half of the
 // region-subtag case against the language table itself, independently of what
 // pkg/release can parse out of a title. Radarr's table carries "Portuguese

@@ -227,6 +227,28 @@ func evalCondition(ctx context.Context, c Condition, r *release.ParsedRelease, i
 		} else {
 			raw = slices.Contains(r.Languages, want)
 		}
+		if c.Negate && !raw && ic.OriginalLanguageName != "" && want != ic.OriginalLanguageName &&
+			slices.Contains(r.Languages, ic.OriginalLanguageName) {
+			// raw is false: the release does not contain the literal
+			// language `want` (e.g. "English"), which Negate is about to
+			// turn into a rejection -- language-not-english's shape. But
+			// the release DOES contain the item's own known original
+			// language, and that language differs from `want` (e.g. a
+			// Japanese release of a Japanese-original film failing a
+			// literal "must contain English" check). Penalizing a release
+			// for being in the item's own original language is not
+			// evaluable, exactly as the want==LanguageOriginal branch above
+			// decided for language-not-original -- so return before Negate
+			// here too, for any literal-language condition, not only that
+			// one.
+			//
+			// This is a no-op when want started as LanguageOriginal: want
+			// was reassigned to ic.OriginalLanguageName above (or this case
+			// already returned, on an unknown original language), so
+			// want != ic.OriginalLanguageName can never hold there and this
+			// guard never fires for language-not-original itself.
+			return false
+		}
 	case CondIndexerFlag:
 		raw = slices.Contains(ic.IndexerFlags, c.Flag)
 	case CondReleaseType:

@@ -465,3 +465,90 @@ func TestLanguageNotOriginalNeedsAKnownOriginalLanguage(t *testing.T) {
 	require.Contains(t, got, "language-not-original",
 		"a KNOWN, different original language must still score; the unknown case must not have disabled the format")
 }
+
+// TestLanguageNotEnglishAllowsTheItemsOwnOriginalLanguage is the regression
+// test for the product decision recorded in .superpowers/sdd/lang-policy:
+// "a release in the item's own original language must be approvable by a
+// profile at CRD defaults, whatever that language is" -- not only English.
+//
+// language-not-english is a NEGATED "contains English" condition scored
+// -10000 (data/formats/language.json). Before this fix it fired for ANY
+// release lacking English, so a Japanese release of a Japanese-original film
+// scored -10000 for the sole reason that it was not English, on top of (and
+// surviving) the vocabulary defect 6ae2c8b already fixed for its sibling
+// format language-not-original.
+//
+// Covers the four combinations of {English-original, Japanese-original} x
+// {English release, Japanese release}, plus a French release of an
+// English-original movie (must still be penalized -- the product decision
+// allows non-English approvals only when English is not the original
+// language, it does not disable the format) and an unknown original language
+// (must keep failing OPEN in the pre-existing sense: with nothing to exempt
+// against, language-not-english's default enforcement is unchanged by this
+// fix).
+func TestLanguageNotEnglishAllowsTheItemsOwnOriginalLanguage(t *testing.T) {
+	all := loadAllEmbeddedFormats(t)
+	cat := &catalogue.Catalogue{Formats: all}
+
+	cases := []struct {
+		name        string
+		original    string // ItemContext.OriginalLanguageName; "" is UNKNOWN
+		languages   []string
+		wantMatched bool
+		why         string
+	}{
+		{
+			name:        "English-original, English release",
+			original:    "English",
+			languages:   []string{"English"},
+			wantMatched: false,
+			why:         "an English release of an English film has the expected English track; unaffected by this change",
+		},
+		{
+			name:        "English-original, Japanese release",
+			original:    "English",
+			languages:   []string{"Japanese"},
+			wantMatched: true,
+			why:         "a Japanese release of an English-original film is genuinely missing the expected English track",
+		},
+		{
+			name:        "Japanese-original, English release",
+			original:    "Japanese",
+			languages:   []string{"English"},
+			wantMatched: false,
+			why:         "the release contains English, so the literal \"contains English\" condition never fires regardless of original language",
+		},
+		{
+			name:        "Japanese-original, Japanese release",
+			original:    "Japanese",
+			languages:   []string{"Japanese"},
+			wantMatched: false,
+			why:         "the fix: a release in the item's own original language must not be penalized for lacking English",
+		},
+		{
+			name:        "French release of an English-original movie is still penalized",
+			original:    "English",
+			languages:   []string{"French"},
+			wantMatched: true,
+			why:         "this movie's original language IS English, so the format must still apply -- the fix narrows the exemption, it does not disable the format",
+		},
+		{
+			name:        "unknown original language keeps the pre-existing behaviour",
+			original:    "",
+			languages:   []string{"French"},
+			wantMatched: true,
+			why:         "an UNKNOWN original language has nothing to exempt against; this is not the fail-open case (that is language-not-original / ReasonWantedLanguage) and must not change",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &release.ParsedRelease{Title: "x", Languages: tc.languages}
+			got := cat.Match(context.Background(), r, catalogue.ItemContext{OriginalLanguageName: tc.original})
+			if tc.wantMatched {
+				require.Contains(t, got, "language-not-english", "%s (matched %v)", tc.why, got)
+			} else {
+				require.NotContains(t, got, "language-not-english", "%s (matched %v)", tc.why, got)
+			}
+		})
+	}
+}
