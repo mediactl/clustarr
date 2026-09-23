@@ -113,12 +113,23 @@ func queryCategories(requested []int32, caps *indexv1alpha1.Caps) []newznab.Cate
 // false when the indexer advertises the mode but none of the request's id
 // parameters and the request carries no text to fall back on.
 //
-// CARRIED ITEM: catalogarr NEVER sets Text
-// (catalogarr/worker/search/request.go builds an ids-only request), so spec
-// §6.2's "fallback t=search&q=" has no title to fall back to for any caller
-// that exists today. Text is honoured because the Torznab facade (M6) and
-// an interactive Search will set it; closing the gap for catalogarr needs a
-// resolved title the frozen payload has no field for.
+// Ids are preferred wherever the indexer supports them: queryMode is only
+// ever SearchQueryModeText when NONE of imdbid/tmdbid/tvdbid matched, so an
+// indexer that supports (say) tmdbid but not imdbid still gets a pure id
+// query when the request has a usable tmdbid, even if req.Text is also set --
+// a title query is strictly less precise than a server-side id match, and
+// mixing "q=" into an id-keyed request risks narrowing an exact match with a
+// noisy keyword filter on indexers that AND the two together.
+//
+// G1-6 closed the gap this comment used to describe (catalogarr never set
+// Text and the payload "had no field for" a resolved title): both were
+// wrong. schema.SearchRequest.Text has carried a free-text query since M0
+// (pkg/events/schema/index.go); the gap was catalogarr/worker/search never
+// having a resolved title to put there. BuildSearchRequest now renders one
+// from status.metadata via TargetIDs.Title, so Text is populated for the
+// Torznab facade, an interactive Search AND an automatic search alike, and
+// no new schema version was needed for an already-existing, already-optional
+// field.
 //
 // Anime arrives as an absolute number in Episode with Season nil and no
 // flag: catalogarr's BuildSearchRequest drops the season for an anime series
@@ -131,8 +142,8 @@ func buildQuery(
 	idx *indexv1alpha1.Indexer,
 	mode torznab.SearchMode,
 	limit int,
-) (torznab.Query, bool) {
-	q := torznab.Query{Type: mode, Limit: limit}
+) (q torznab.Query, ok bool, queryMode schema.SearchQueryMode) {
+	q = torznab.Query{Type: mode, Limit: limit}
 	caps := idx.Status.Caps
 
 	cats := queryCategories(req.Categories, caps)
@@ -160,10 +171,14 @@ func buildQuery(
 	if req.Episode != nil && paramSupported(caps, mode, "ep") {
 		q.Episode = strconv.Itoa(int(*req.Episode))
 	}
-	if req.Text != "" {
-		q.Q, anyID = req.Text, true
+	if anyID {
+		return q, true, schema.SearchQueryModeID
 	}
-	return q, anyID
+	if req.Text != "" {
+		q.Q = req.Text
+		return q, true, schema.SearchQueryModeText
+	}
+	return q, false, ""
 }
 
 // isAnimeRequest reports the absolute-numbering shape: an episode request

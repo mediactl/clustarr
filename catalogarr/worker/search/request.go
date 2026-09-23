@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package search
 
 import (
+	"fmt"
 	"strconv"
 	"time"
 
@@ -53,6 +54,11 @@ type TargetIDs struct {
 	// it lands and pkg/decision owns the one conversion into the
 	// display-name vocabulary the catalogue speaks.
 	OriginalLanguageTag string
+	// Title is the item's resolved title: Movie.status.metadata.title for a
+	// movie, the owning Series' status.metadata.title for an episode. Empty
+	// when metadata has not landed yet -- BuildSearchRequest then sends no
+	// text fallback at all rather than guess one from an unresolved name.
+	Title string
 }
 
 // BuildSearchRequest renders one catalog item's identity into the federated
@@ -75,6 +81,7 @@ func BuildSearchRequest(ns string, kind commonv1.MediaKind, ids TargetIDs, limit
 	req := schema.SearchRequest{
 		Namespace:      ns,
 		Kind:           kind,
+		Text:           resolvedText(kind, ids),
 		Limit:          limit,
 		DeadlineMillis: SearchDeadline.Milliseconds(),
 		UserInvoked:    userInvoked,
@@ -109,6 +116,49 @@ func BuildSearchRequest(ns string, kind commonv1.MediaKind, ids TargetIDs, limit
 		req.IDs = idmap
 	}
 	return req
+}
+
+// resolvedText renders ids' resolved title into schema.SearchRequest.Text,
+// the free-text fallback indexarr's buildQuery uses ONLY when an indexer
+// advertises none of the request's id parameters (ids stay preferred
+// wherever they work; see that function). It mirrors what Radarr/Sonarr
+// send: "<title> <year>" for a movie, "<series> SxxEyy" for a standard
+// episode.
+//
+// An anime episode carries no season token anywhere on the wire --
+// BuildSearchRequest already drops Season for one, folding the absolute
+// number into Episode instead (see its own doc comment) -- so its fallback
+// text follows the same shape: "<series> <absolute>", which is how *arr
+// indexers and their trackers key anime releases.
+//
+// ids.Title empty means no metadata has landed yet. This returns "" rather
+// than guess a title from a release name or an id: an empty Text leaves
+// indexarr's fallback unavailable for this item, exactly as it is today,
+// instead of searching on a placeholder that could match the wrong thing.
+func resolvedText(kind commonv1.MediaKind, ids TargetIDs) string {
+	if ids.Title == "" {
+		return ""
+	}
+	switch kind {
+	case commonv1.MediaKindMovie:
+		if ids.Year > 0 {
+			return fmt.Sprintf("%s %d", ids.Title, ids.Year)
+		}
+		return ids.Title
+	case commonv1.MediaKindEpisode:
+		if ids.Anime {
+			if ids.Episode == nil {
+				return ids.Title
+			}
+			return fmt.Sprintf("%s %d", ids.Title, *ids.Episode)
+		}
+		if ids.Season == nil || ids.Episode == nil {
+			return ids.Title
+		}
+		return fmt.Sprintf("%s S%02dE%02d", ids.Title, *ids.Season, *ids.Episode)
+	default:
+		return ""
+	}
 }
 
 func expandCategoryIDs(cats []newznab.CategoryID) []int32 {

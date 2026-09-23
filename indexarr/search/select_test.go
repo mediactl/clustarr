@@ -212,13 +212,15 @@ func TestResolveQuery(t *testing.T) {
 	idx.Status.Caps.Modes = map[string][]string{"movie": {"q"}}
 	c := candidate{Indexer: &idx}
 
-	_, skip := resolveQuery(c, movieRequest(), torznab.ModeMovieSearch, 500)
+	_, skip, mode := resolveQuery(c, movieRequest(), torznab.ModeMovieSearch, 500)
 	require.Equal(t, skipNoIDParam, skip)
+	require.Empty(t, mode, "a skip carries no query mode")
 
 	ok := healthyIndexer("b")
-	q, skip := resolveQuery(candidate{Indexer: &ok}, movieRequest(), torznab.ModeMovieSearch, 500)
+	q, skip, mode := resolveQuery(candidate{Indexer: &ok}, movieRequest(), torznab.ModeMovieSearch, 500)
 	require.Empty(t, skip)
 	require.Equal(t, "27205", q.TMDBID)
+	require.Equal(t, schema.SearchQueryModeID, mode)
 }
 
 // A request with no categories at all must not be gated by the category

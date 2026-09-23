@@ -82,6 +82,7 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 			snap.IDs.Year = md.Year
 			snap.IDs.ImdbID = md.ExternalIDs[commonv1.IDKeyIMDB]
 			snap.IDs.OriginalLanguageTag = md.OriginalLanguage
+			snap.IDs.Title = md.Title
 			snap.Target.RuntimeMinutes = int(md.RuntimeMinutes)
 			snap.Target.OriginalLanguageTag = md.OriginalLanguage
 		}
@@ -135,6 +136,10 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 		if md := s.Status.Metadata; md != nil {
 			snap.IDs.Year = md.Year
 			snap.IDs.OriginalLanguageTag = md.OriginalLanguage
+			// The SERIES title, not the episode's own: a text fallback
+			// query is "<series> SxxEyy" (see resolvedText), and an
+			// Episode carries no title of its own to put there.
+			snap.IDs.Title = md.Title
 			snap.Target.OriginalLanguageTag = md.OriginalLanguage
 		}
 		hasFile, fileRef = e.Status.HasFile, e.Status.FileRef

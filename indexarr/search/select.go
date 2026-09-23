@@ -145,16 +145,17 @@ func atQueryLimit(idx *indexv1alpha1.Indexer) bool {
 //
 // It is separate from selectCandidates because that verdict needs
 // buildQuery's answer, and keeping both pure is what makes each testable
-// without a cluster.
+// without a cluster. The third return is buildQuery's queryMode verbatim, ""
+// on a skip, for the caller to record on the outcome.
 func resolveQuery(
 	c candidate,
 	req schema.SearchRequest,
 	mode torznab.SearchMode,
 	limit int,
-) (torznab.Query, string) {
-	q, ok := buildQuery(req, c.Indexer, mode, limit)
+) (torznab.Query, string, schema.SearchQueryMode) {
+	q, ok, queryMode := buildQuery(req, c.Indexer, mode, limit)
 	if !ok {
-		return torznab.Query{}, skipNoIDParam
+		return torznab.Query{}, skipNoIDParam, ""
 	}
-	return q, ""
+	return q, "", queryMode
 }

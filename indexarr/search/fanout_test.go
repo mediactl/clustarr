@@ -354,6 +354,63 @@ func TestFanOutReportsEachIndexersOwnOutcome(t *testing.T) {
 	require.Empty(t, results[1].Releases)
 }
 
+// G1-6: the outcome records which parameter set the actual query used, all
+// the way through the real fan-out -- selectCandidates, resolveQuery,
+// buildQuery and the goroutine that stamps the outcome fanOut hands back.
+// Ids stay preferred wherever the indexer supports one, even when the
+// request also carries a resolved-title fallback.
+func TestFanOutRecordsQueryMode(t *testing.T) {
+	t.Run("id wins when the indexer supports one, even with text also set", func(t *testing.T) {
+		idxs := fanoutIndexers("a")
+		s := serviceFor(idxs, map[string]stubClient{"a": {releases: wireReleases(1)}})
+		req := movieRequest()
+		req.Text = "Inception 2010"
+		cands := selectCandidates(idxs, req, torznab.ModeMovieSearch, selectNow)
+		require.Len(t, cands, 1)
+
+		outcomes, _ := s.fanOut(context.Background(), cands, req, torznab.ModeMovieSearch, 2*time.Second)
+		require.Len(t, outcomes, 1)
+		require.Equal(t, schema.SearchOutcomeOK, outcomes[0].Status)
+		require.Equal(t, schema.SearchQueryModeID, outcomes[0].QueryMode)
+	})
+
+	t.Run("text is the fallback when the indexer supports no id parameter", func(t *testing.T) {
+		idx := healthyIndexer("b")
+		idx.Status.Caps.Modes = map[string][]string{"movie": {"q"}}
+		idxs := []indexv1alpha1.Indexer{idx}
+		s := serviceFor(idxs, map[string]stubClient{"b": {releases: wireReleases(1)}})
+		req := movieRequest()
+		req.IDs = nil
+		req.Text = "Inception 2010"
+		cands := selectCandidates(idxs, req, torznab.ModeMovieSearch, selectNow)
+		require.Len(t, cands, 1)
+		require.Empty(t, cands[0].Skip, "a caps-advertised q parameter must not be skipped as unsupported")
+
+		outcomes, _ := s.fanOut(context.Background(), cands, req, torznab.ModeMovieSearch, 2*time.Second)
+		require.Len(t, outcomes, 1)
+		require.Equal(t, schema.SearchOutcomeOK, outcomes[0].Status)
+		require.Equal(t, schema.SearchQueryModeText, outcomes[0].QueryMode)
+	})
+
+	t.Run("no id and no title known: skipped, not a guessed query", func(t *testing.T) {
+		idx := healthyIndexer("c")
+		idx.Status.Caps.Modes = map[string][]string{"movie": {"q"}}
+		idxs := []indexv1alpha1.Indexer{idx}
+		s := serviceFor(idxs, map[string]stubClient{"c": {releases: wireReleases(1)}})
+		req := movieRequest()
+		req.IDs = nil // no text set either: nothing this indexer can be asked
+
+		cands := selectCandidates(idxs, req, torznab.ModeMovieSearch, selectNow)
+		require.Len(t, cands, 1)
+
+		outcomes, _ := s.fanOut(context.Background(), cands, req, torznab.ModeMovieSearch, 2*time.Second)
+		require.Len(t, outcomes, 1)
+		require.Equal(t, schema.SearchOutcomeSkipped, outcomes[0].Status)
+		require.Equal(t, skipNoIDParam, outcomes[0].Error)
+		require.Empty(t, outcomes[0].QueryMode)
+	})
+}
+
 // One slow indexer must not consume the budget: the reply goes out on time
 // with the straggler reported as a NAMED timeout.
 //

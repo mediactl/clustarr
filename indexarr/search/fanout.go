@@ -233,7 +233,7 @@ func (s *Service) fanOut(
 			metrics.IndexerQueriesTotal.WithLabelValues(c.Indexer.Name, metricSkipped).Inc()
 			continue
 		}
-		q, skip := resolveQuery(c, req, mode, queryLimit(req, c.Indexer))
+		q, skip, queryMode := resolveQuery(c, req, mode, queryLimit(req, c.Indexer))
 		if skip != "" {
 			outcomes[i].Status = schema.SearchOutcomeSkipped
 			outcomes[i].Error = skip
@@ -248,15 +248,16 @@ func (s *Service) fanOut(
 			continue
 		}
 		wg.Add(1)
-		go func(i int, idx *indexv1alpha1.Indexer, q torznab.Query) {
+		go func(i int, idx *indexv1alpha1.Indexer, q torznab.Query, queryMode schema.SearchQueryMode) {
 			defer wg.Done()
 			defer s.inflight.Done()
 			out, rels := s.queryOne(work, idx, q, indexerDeadline(idx, budget))
+			out.QueryMode = queryMode
 			mu.Lock()
 			outcomes[i] = out
 			results[i].Releases = rels
 			mu.Unlock()
-		}(i, c.Indexer, q)
+		}(i, c.Indexer, q, queryMode)
 	}
 
 	done := make(chan struct{})

@@ -129,12 +129,13 @@ func TestBuildQuery(t *testing.T) {
 	}
 
 	tests := []struct {
-		name   string
-		req    schema.SearchRequest
-		idx    *indexv1alpha1.Indexer
-		mode   torznab.SearchMode
-		want   torznab.Query
-		wantOK bool
+		name     string
+		req      schema.SearchRequest
+		idx      *indexv1alpha1.Indexer
+		mode     torznab.SearchMode
+		want     torznab.Query
+		wantOK   bool
+		wantMode schema.SearchQueryMode
 	}{
 		{
 			name: "movie with tmdb and imdb",
@@ -150,7 +151,8 @@ func TestBuildQuery(t *testing.T) {
 				Categories: []newznab.CategoryID{2000},
 				IMDBID:     "tt1375666", TMDBID: "27205",
 			},
-			wantOK: true,
+			wantOK:   true,
+			wantMode: schema.SearchQueryModeID,
 		},
 		{
 			name: "episode with tvdb, season and episode",
@@ -168,7 +170,8 @@ func TestBuildQuery(t *testing.T) {
 				Categories: []newznab.CategoryID{5000},
 				TVDBID:     "121361", Season: ptr.To(2), Episode: "5",
 			},
-			wantOK: true,
+			wantOK:   true,
+			wantMode: schema.SearchQueryModeID,
 		},
 		{
 			// Anime: an absolute number in Episode with no season. That
@@ -190,7 +193,8 @@ func TestBuildQuery(t *testing.T) {
 				Categories: []newznab.CategoryID{5000, 5070},
 				TVDBID:     "81797", Episode: "137",
 			},
-			wantOK: true,
+			wantOK:   true,
+			wantMode: schema.SearchQueryModeID,
 		},
 		{
 			// The mode is advertised but none of the request's id params
@@ -203,16 +207,62 @@ func TestBuildQuery(t *testing.T) {
 			idx: &indexv1alpha1.Indexer{Status: indexv1alpha1.IndexerStatus{
 				Caps: &indexv1alpha1.Caps{Modes: map[string][]string{"tvsearch": {"q"}}},
 			}},
-			mode:   torznab.ModeTVSearch,
-			want:   torznab.Query{Type: torznab.ModeTVSearch, Limit: 500, Categories: []newznab.CategoryID{}},
-			wantOK: false,
+			mode:     torznab.ModeTVSearch,
+			want:     torznab.Query{Type: torznab.ModeTVSearch, Limit: 500, Categories: []newznab.CategoryID{}},
+			wantOK:   false,
+			wantMode: "",
+		},
+		{
+			// No id parameter is supported, but the request carries a
+			// resolved title: G1-6's fallback. "search" stands in for
+			// spec §6.2's t=search&q= -- the mode itself is whatever the
+			// caller asked for (movie/tv-search here), only the PARAMS
+			// change.
+			name: "falls back to text when the indexer supports no id parameter",
+			req: schema.SearchRequest{
+				Kind: commonv1.MediaKindMovie,
+				IDs:  map[string]string{commonv1.IDKeyTMDB: "27205"},
+				Text: "Inception 2010",
+			},
+			idx: &indexv1alpha1.Indexer{Status: indexv1alpha1.IndexerStatus{
+				Caps: &indexv1alpha1.Caps{Modes: map[string][]string{"movie": {"q"}}},
+			}},
+			mode:     torznab.ModeMovieSearch,
+			want:     torznab.Query{Type: torznab.ModeMovieSearch, Limit: 500, Categories: []newznab.CategoryID{}, Q: "Inception 2010"},
+			wantOK:   true,
+			wantMode: schema.SearchQueryModeText,
+		},
+		{
+			// FALSIFIED: reverting buildQuery's `if anyID { return ... }`
+			// guard (so Text is applied unconditionally, as it was before
+			// G1-6) makes this fail -- got.Q would be "Inception 2010"
+			// instead of "". Ids stay preferred wherever they work; a text
+			// query is strictly less precise and must never ride along
+			// with a working id.
+			name: "an id that works wins even when text is also set",
+			req: schema.SearchRequest{
+				Kind:       commonv1.MediaKindMovie,
+				IDs:        map[string]string{commonv1.IDKeyTMDB: "27205"},
+				Text:       "Inception 2010",
+				Categories: []int32{2000},
+			},
+			idx:  &indexv1alpha1.Indexer{Status: indexv1alpha1.IndexerStatus{Caps: movieCaps}},
+			mode: torznab.ModeMovieSearch,
+			want: torznab.Query{
+				Type: torznab.ModeMovieSearch, Limit: 500,
+				Categories: []newznab.CategoryID{2000},
+				TMDBID:     "27205",
+			},
+			wantOK:   true,
+			wantMode: schema.SearchQueryModeID,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := buildQuery(tt.req, tt.idx, tt.mode, schema.MaxSearchReleases)
+			got, ok, mode := buildQuery(tt.req, tt.idx, tt.mode, schema.MaxSearchReleases)
 			require.Equal(t, tt.wantOK, ok)
 			require.Equal(t, tt.want, got)
+			require.Equal(t, tt.wantMode, mode)
 		})
 	}
 }
@@ -224,7 +274,7 @@ func TestBuildQueryGatesSeasonAndEpisodeOnCaps(t *testing.T) {
 	idx := &indexv1alpha1.Indexer{Status: indexv1alpha1.IndexerStatus{
 		Caps: &indexv1alpha1.Caps{Modes: map[string][]string{"tvsearch": {"tvdbid"}}},
 	}}
-	got, ok := buildQuery(schema.SearchRequest{
+	got, ok, mode := buildQuery(schema.SearchRequest{
 		Kind:    commonv1.MediaKindEpisode,
 		IDs:     map[string]string{commonv1.IDKeyTVDB: "121361"},
 		Season:  ptr.To(int32(2)),
@@ -234,4 +284,5 @@ func TestBuildQueryGatesSeasonAndEpisodeOnCaps(t *testing.T) {
 	require.Nil(t, got.Season)
 	require.Empty(t, got.Episode)
 	require.Equal(t, "121361", got.TVDBID)
+	require.Equal(t, schema.SearchQueryModeID, mode)
 }

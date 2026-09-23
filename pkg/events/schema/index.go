@@ -154,6 +154,22 @@ const (
 	SearchOutcomeSkipped SearchOutcomeStatus = "skipped"
 )
 
+// SearchQueryMode names which parameter set a per-indexer query used.
+type SearchQueryMode string
+
+// Search query modes.
+const (
+	// SearchQueryModeID means at least one of the request's id parameters
+	// (imdbid/tmdbid/tvdbid) matched what the indexer advertises, and the
+	// query was built from ids.
+	SearchQueryModeID SearchQueryMode = "id"
+
+	// SearchQueryModeText means the indexer advertised none of the
+	// request's id parameters, so the query fell back to a free-text
+	// search built from SearchRequest.Text (spec §6.2's "t=search&q=").
+	SearchQueryModeText SearchQueryMode = "text"
+)
+
 // SearchOutcome reports how one indexer fared in a federated search.
 type SearchOutcome struct {
 	// IndexerRef is the indexer this outcome is about.
@@ -173,6 +189,13 @@ type SearchOutcome struct {
 
 	// Error is the failure message for an error outcome.
 	Error string `json:"error,omitempty"`
+
+	// QueryMode names which parameter set the query actually used: ids,
+	// preferred wherever they work, or a title-and-year text fallback when
+	// the indexer supported none of the request's id parameters. Empty for
+	// an outcome that never reached query construction (skipped, or still
+	// running when the reply had to be sent).
+	QueryMode SearchQueryMode `json:"queryMode,omitempty"`
 }
 
 // SearchRequest is the request half of the federated search RPC.
@@ -195,7 +218,15 @@ type SearchRequest struct {
 	// Kind is the media kind being searched for.
 	Kind commonv1.MediaKind `json:"kind"`
 
-	// Text is the free-text query.
+	// Text is the free-text query. Ids are preferred over it wherever an
+	// indexer supports one (see indexarr/search's buildQuery): an id-based
+	// match is server-side and exact, while a text query is only as precise
+	// as the indexer's own keyword search. catalogarr/worker/search.
+	// BuildSearchRequest sets this from the item's resolved title (and year,
+	// or SxxEyy for an episode) so an automatic search still reaches an
+	// indexer that advertises no id parameter at all, matching the Torznab
+	// facade and an interactive Search, which already set it from their own
+	// free-text input.
 	Text string `json:"text,omitempty"`
 
 	// IDs are the external IDs to search by, preferred over Text.

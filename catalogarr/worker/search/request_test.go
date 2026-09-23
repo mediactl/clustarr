@@ -55,6 +55,7 @@ func TestBuildSearchRequest(t *testing.T) {
 				require.Equal(t, []int32{2000}, got.Categories)
 				require.Nil(t, got.Season)
 				require.Nil(t, got.Episode)
+				require.Empty(t, got.Text, "no title in TargetIDs -> no text fallback, even with a known year")
 			},
 		},
 		{
@@ -68,6 +69,7 @@ func TestBuildSearchRequest(t *testing.T) {
 				require.Equal(t, i32(1), got.Episode)
 				require.Equal(t, []int32{5000}, got.Categories)
 				require.False(t, got.UserInvoked)
+				require.Empty(t, got.Text)
 			},
 		},
 		{
@@ -78,6 +80,7 @@ func TestBuildSearchRequest(t *testing.T) {
 			assert: func(t *testing.T, got schema.SearchRequest) {
 				require.Nil(t, got.Season, "absolute numbering has no season token")
 				require.Equal(t, i32(37), got.Episode)
+				require.Empty(t, got.Text)
 			},
 		},
 		{
@@ -102,6 +105,57 @@ func TestBuildSearchRequest(t *testing.T) {
 			limit: 10,
 			assert: func(t *testing.T, got schema.SearchRequest) {
 				require.Nil(t, got.IDs, "an empty map would read as 'search by id' with no id")
+			},
+		},
+		{
+			// G1-6: a resolved title lets an indexer that supports NO id
+			// parameter still be searched, via indexarr's t=search&q=
+			// fallback. Radarr's own convention for this query is
+			// "<title> <year>".
+			name:  "a movie with resolved metadata carries a title-and-year text fallback",
+			kind:  commonv1.MediaKindMovie,
+			ids:   TargetIDs{TmdbID: 603, ImdbID: "tt0133093", Year: 1999, Title: "The Matrix"},
+			limit: 100,
+			assert: func(t *testing.T, got schema.SearchRequest) {
+				require.Equal(t, "The Matrix 1999", got.Text)
+				// Ids are still sent too -- indexarr's buildQuery is what
+				// prefers them, not this function.
+				require.Equal(t, "603", got.IDs[commonv1.IDKeyTMDB])
+			},
+		},
+		{
+			// No metadata yet means no title -- not a guess from the id or
+			// from a release name.
+			name:  "a movie with an id but no resolved title yet has no text fallback",
+			kind:  commonv1.MediaKindMovie,
+			ids:   TargetIDs{TmdbID: 603},
+			limit: 100,
+			assert: func(t *testing.T, got schema.SearchRequest) {
+				require.Empty(t, got.Text)
+			},
+		},
+		{
+			// Sonarr's own convention for a single-episode text query:
+			// "<series> SxxEyy", zero-padded.
+			name:  "a standard episode's text fallback is the series title and SxxEyy",
+			kind:  commonv1.MediaKindEpisode,
+			ids:   TargetIDs{TvdbID: 279121, Season: i32(1), Episode: i32(2), Title: "Breaking Bad"},
+			limit: 100,
+			assert: func(t *testing.T, got schema.SearchRequest) {
+				require.Equal(t, "Breaking Bad S01E02", got.Text)
+			},
+		},
+		{
+			// Anime carries no season token on the wire at all (see
+			// BuildSearchRequest's own doc comment on Anime), so its
+			// fallback text follows the same shape as the id path: the
+			// series title plus the bare absolute number.
+			name:  "an anime episode's text fallback uses the absolute number, not SxxEyy",
+			kind:  commonv1.MediaKindEpisode,
+			ids:   TargetIDs{TvdbID: 279121, Season: i32(1), Episode: i32(37), Anime: true, Title: "One Piece"},
+			limit: 100,
+			assert: func(t *testing.T, got schema.SearchRequest) {
+				require.Equal(t, "One Piece 37", got.Text)
 			},
 		},
 	}
