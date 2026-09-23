@@ -78,11 +78,12 @@ const (
 	// FileState and FilesByRecording each take the view they need.
 	mediaFileByAlbumIndexKey = ".spec.mediaRef.album"
 
-	// albumByActiveDownloadIndexKey indexes Album by its
-	// status.activeDownloadRef, the reverse direction from a watched
-	// Download back to the Album holding the reference -- the same shape
-	// as episode.episodeByActiveDownloadIndexKey.
-	albumByActiveDownloadIndexKey = ".status.activeDownloadRef"
+	// downloadByAlbumIndexKey indexes Download by the Album its spec.target names
+	// (kind album only). It is how the reconciler finds the Downloads it
+	// derives status.activeDownloadRef from (gap-fix ruling R-5), the same
+	// shape as movie.downloadByMovieIndexKey. spec.target is immutable, so
+	// the index never has to follow an edit.
+	downloadByAlbumIndexKey = ".spec.target.album"
 
 	// albumByQualityProfileIndexKey indexes Album by its OWN
 	// spec.qualityProfileRef override (nil/empty excluded); mapQualityProfile
@@ -165,13 +166,13 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		}); err != nil {
 		return err
 	}
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &catalogv1alpha1.Album{}, albumByActiveDownloadIndexKey,
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &downloadv1alpha1.Download{}, downloadByAlbumIndexKey,
 		func(o client.Object) []string {
-			alb, ok := o.(*catalogv1alpha1.Album)
-			if !ok || alb.Status.ActiveDownloadRef == nil {
+			dl, ok := o.(*downloadv1alpha1.Download)
+			if !ok || dl.Spec.Target.Kind != commonv1.MediaKindAlbum {
 				return nil
 			}
-			return []string{*alb.Status.ActiveDownloadRef}
+			return []string{dl.Spec.Target.Name}
 		}); err != nil {
 		return err
 	}
@@ -198,10 +199,10 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 // albumPredicate wakes this controller on a spec change (GenerationChanged,
-// e.g. a user editing spec.monitored or pinning spec.releaseID) or on the
+// e.g. a user editing spec.monitored or pinning spec.releaseID), on the
 // metadata gateway's own write (StatusFieldChanged scoped to
-// status.metadata.refreshedAt) -- the same self-loop-avoidance shape as the
-// Movie/Series/Artist predicates.
+// status.metadata.refreshedAt), or on the grab path's status.pendingGrab --
+// the same self-loop-avoidance shape as the Movie/Series/Book predicates.
 func albumPredicate() predicate.Predicate {
 	return k8s.Or(
 		k8s.GenerationChanged(),
@@ -213,6 +214,17 @@ func albumPredicate() predicate.Predicate {
 				return metav1.Time{}
 			}
 			return alb.Status.Metadata.RefreshedAt
+		}),
+		// The grab path's status.pendingGrab write bumps no generation and
+		// touches no metadata, so without this arm Phase=Delayed would not
+		// appear until something else woke the Album. grabAt changes
+		// whenever the pending grab is set, rescheduled or cleared.
+		k8s.StatusFieldChanged(func(o client.Object) metav1.Time {
+			alb, ok := o.(*catalogv1alpha1.Album)
+			if !ok || alb.Status.PendingGrab == nil {
+				return metav1.Time{}
+			}
+			return alb.Status.PendingGrab.GrabAt
 		}),
 	)
 }
@@ -230,6 +242,10 @@ func downloadPredicate() predicate.Predicate {
 			}
 			return dl.Status.Phase
 		}),
+		// A Download being torn down stops counting the moment it is
+		// marked (rollup.DownloadNonTerminal), not when its finalizers let
+		// it go.
+		k8s.StatusFieldChanged(k8s.IsDeleting),
 	)
 }
 
@@ -241,20 +257,32 @@ func (r *Reconciler) mapMediaFile(_ context.Context, o client.Object) []reconcil
 	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: mf.Namespace, Name: mf.Spec.MediaRef.Name}}}
 }
 
-func (r *Reconciler) mapDownload(ctx context.Context, o client.Object) []reconcile.Request {
+// mapDownload needs no List: a Download names its target in spec.target,
+// so a Download that appears -- before anything has set the ref, which is
+// the whole point of deriving the ref from the Download -- reaches its
+// Album directly.
+func (r *Reconciler) mapDownload(_ context.Context, o client.Object) []reconcile.Request {
 	dl, ok := o.(*downloadv1alpha1.Download)
-	if !ok {
+	if !ok || dl.Spec.Target.Kind != commonv1.MediaKindAlbum {
 		return nil
 	}
-	var albums catalogv1alpha1.AlbumList
-	if err := r.List(ctx, &albums, client.InNamespace(dl.Namespace), client.MatchingFields{albumByActiveDownloadIndexKey: dl.Name}); err != nil {
-		return nil
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: dl.Namespace, Name: dl.Spec.Target.Name}}}
+}
+
+// activeDownload is the Download status.activeDownloadRef names, derived
+// level-style (gap-fix ruling R-5, which makes this reconciler the field's
+// only writer): the oldest Download targeting this Album that it owns and
+// that rollup.DownloadNonTerminal still counts, or nil. Ownership is by UID,
+// so a Download left behind by a deleted Album of the same name is never
+// adopted.
+func (r *Reconciler) activeDownload(ctx context.Context, alb *catalogv1alpha1.Album) (*downloadv1alpha1.Download, error) {
+	var list downloadv1alpha1.DownloadList
+	if err := r.List(ctx, &list, client.InNamespace(alb.Namespace), client.MatchingFields{downloadByAlbumIndexKey: alb.Name}); err != nil {
+		return nil, err
 	}
-	reqs := make([]reconcile.Request, 0, len(albums.Items))
-	for _, alb := range albums.Items {
-		reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: alb.Namespace, Name: alb.Name}})
-	}
-	return reqs
+	return rollup.ActiveDownload(list.Items, func(d *downloadv1alpha1.Download) bool {
+		return k8s.IsOwnedBy(d, alb)
+	}), nil
 }
 
 // mapQualityProfile is the reverse direction from an edited QualityProfile
@@ -552,16 +580,9 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 	}
 	hasFile, _, fileQuality, fileFormatScore, cutoffMet := FileState(mf, profile)
 
-	var dl *downloadv1alpha1.Download
-	if alb.Status.ActiveDownloadRef != nil {
-		var d downloadv1alpha1.Download
-		if err := r.Get(ctx, types.NamespacedName{Namespace: alb.Namespace, Name: *alb.Status.ActiveDownloadRef}, &d); err != nil {
-			if !apierrors.IsNotFound(err) {
-				return ctrl.Result{}, err
-			}
-		} else {
-			dl = &d
-		}
+	dl, err := r.activeDownload(ctx, alb)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 	overlay, active := rollup.DownloadOverlay(dl)
 
@@ -578,14 +599,13 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 	if fileQuality != nil {
 		statusAC = statusAC.WithQuality(*fileQuality)
 	}
-	if active && alb.Status.ActiveDownloadRef != nil {
-		statusAC = statusAC.WithActiveDownloadRef(*alb.Status.ActiveDownloadRef)
+	if active {
+		statusAC = statusAC.WithActiveDownloadRef(dl.Name)
 	}
-	// When !active and a ref was set, WithActiveDownloadRef is deliberately
-	// not called -- the same clear-by-omission convention as movie/episode's
-	// reconcilers, including the caveat that the grab path (not yet built
-	// for non-video kinds, R3) would share this field under
-	// k8s.ManagerCatalogarrGrab once it exists.
+	// With no Download still working on this item, WithActiveDownloadRef is
+	// deliberately not called: omitting a field this manager owns releases
+	// it under SSA, and since R-5 this manager is its only owner, so the
+	// release removes it.
 
 	k8s.MarkReady(alb, &conditions, metaReady && tracksSynced, k8s.ReasonReconciled, "phase=%s", phase)
 	statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)

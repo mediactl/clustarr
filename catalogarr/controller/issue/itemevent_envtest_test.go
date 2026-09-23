@@ -36,6 +36,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/catalogarr/controller/issue"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -93,6 +94,14 @@ func startIssueCache(t *testing.T, ctx context.Context, cfg *rest.Config) client
 				return nil
 			}
 			return []string{mf.Spec.MediaRef.Name}
+		}))
+	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &downloadv1alpha1.Download{}, ".spec.target.issue",
+		func(o client.Object) []string {
+			dl, ok := o.(*downloadv1alpha1.Download)
+			if !ok || dl.Spec.Target.Kind != commonv1.MediaKindIssue {
+				return nil
+			}
+			return []string{dl.Spec.Target.Name}
 		}))
 	go func() { _ = mgr.Start(ctx) }()
 	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))

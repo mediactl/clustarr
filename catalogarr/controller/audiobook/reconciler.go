@@ -63,10 +63,12 @@ const (
 	// List. Mirrors movie's mediaFileByMovieIndexKey.
 	mediaFileByAudiobookIndexKey = ".spec.mediaRef.audiobook"
 
-	// audiobookByActiveDownloadIndexKey indexes Audiobook by its
-	// status.activeDownloadRef, the reverse direction from a watched
-	// Download back to the Audiobook holding the reference.
-	audiobookByActiveDownloadIndexKey = ".status.activeDownloadRef"
+	// downloadByAudiobookIndexKey indexes Download by the Audiobook its spec.target names
+	// (kind audiobook only). It is how the reconciler finds the Downloads it
+	// derives status.activeDownloadRef from (gap-fix ruling R-5), the same
+	// shape as movie.downloadByMovieIndexKey. spec.target is immutable, so
+	// the index never has to follow an edit.
+	downloadByAudiobookIndexKey = ".spec.target.audiobook"
 
 	// audiobookByQualityProfileIndexKey indexes Audiobook by the
 	// QualityProfile it is ranked against, so a watched QualityProfile can
@@ -97,23 +99,18 @@ const (
 // MetadataTask when the cache is missing or past its RefreshTTL), path, the
 // spec.bookRef link check, and the file/download rollup from a watched
 // MediaFile and Download. It is the sole writer of status.phase,
-// status.path, status.hasFile, status.fileRefs, status.quality and
-// status.cutoffMet (§3's single-writer rule); status.metadata belongs to
-// the metadata gateway (field manager k8s.ManagerCatalogarrMetadata) and
-// this reconciler never builds an AudiobookStatusApplyConfiguration that
-// calls WithMetadata.
+// status.path, status.hasFile, status.fileRefs, status.quality,
+// status.cutoffMet and status.activeDownloadRef (§3's single-writer rule);
+// status.metadata belongs to the metadata gateway (field manager
+// k8s.ManagerCatalogarrMetadata) and this reconciler never builds an
+// AudiobookStatusApplyConfiguration that calls WithMetadata.
 //
-// status.activeDownloadRef follows movie.Reconciler exactly, including its
-// open question: this reconciler writes it under k8s.ManagerCatalogarr
-// (below), even though pkg/k8s/fieldmanager.go's ManagerCatalogarrGrab doc
-// comment describes the grab path as this field's writer "on Movie and
-// Episode". Both descriptions are live in the codebase for Movie today, and
-// task C12 -- not this one -- adjudicates which side keeps it; this
-// reconciler follows its assigned precedent (movie/) rather than
-// relitigating that call. status.pendingGrab is read-only here, for Phase
-// and the wake predicate below, and is never written by this reconciler --
-// also matching movie/reconciler.go's actual code, not the aspirational
-// comment.
+// status.activeDownloadRef is this reconciler's alone too (gap-fix ruling
+// R-5): it is derived level-style from the Audiobook's own non-terminal
+// Downloads (activeDownload), exactly as movie.Reconciler derives a Movie's,
+// and the grab path no longer writes it. status.pendingGrab is read-only
+// here, for Phase and the wake predicate below, and is never written by
+// this reconciler.
 type Reconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
@@ -141,13 +138,13 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		}); err != nil {
 		return err
 	}
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &catalogv1alpha1.Audiobook{}, audiobookByActiveDownloadIndexKey,
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &downloadv1alpha1.Download{}, downloadByAudiobookIndexKey,
 		func(o client.Object) []string {
-			a, ok := o.(*catalogv1alpha1.Audiobook)
-			if !ok || a.Status.ActiveDownloadRef == nil {
+			dl, ok := o.(*downloadv1alpha1.Download)
+			if !ok || dl.Spec.Target.Kind != commonv1.MediaKindAudiobook {
 				return nil
 			}
-			return []string{*a.Status.ActiveDownloadRef}
+			return []string{dl.Spec.Target.Name}
 		}); err != nil {
 		return err
 	}
@@ -229,6 +226,10 @@ func downloadPredicate() predicate.Predicate {
 			}
 			return dl.Status.Phase
 		}),
+		// A Download being torn down stops counting the moment it is
+		// marked (rollup.DownloadNonTerminal), not when its finalizers let
+		// it go.
+		k8s.StatusFieldChanged(k8s.IsDeleting),
 	)
 }
 
@@ -243,22 +244,32 @@ func (r *Reconciler) mapMediaFile(_ context.Context, o client.Object) []reconcil
 	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: mf.Namespace, Name: mf.Spec.MediaRef.Name}}}
 }
 
-// mapDownload is the reverse direction -- Audiobook is the side holding the
-// reference, so this needs the audiobookByActiveDownloadIndexKey index.
-func (r *Reconciler) mapDownload(ctx context.Context, o client.Object) []reconcile.Request {
+// mapDownload needs no List: a Download names its target in spec.target,
+// so a Download that appears -- before anything has set the ref, which is
+// the whole point of deriving the ref from the Download -- reaches its
+// Audiobook directly.
+func (r *Reconciler) mapDownload(_ context.Context, o client.Object) []reconcile.Request {
 	dl, ok := o.(*downloadv1alpha1.Download)
-	if !ok {
+	if !ok || dl.Spec.Target.Kind != commonv1.MediaKindAudiobook {
 		return nil
 	}
-	var audiobooks catalogv1alpha1.AudiobookList
-	if err := r.List(ctx, &audiobooks, client.InNamespace(dl.Namespace), client.MatchingFields{audiobookByActiveDownloadIndexKey: dl.Name}); err != nil {
-		return nil
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: dl.Namespace, Name: dl.Spec.Target.Name}}}
+}
+
+// activeDownload is the Download status.activeDownloadRef names, derived
+// level-style (gap-fix ruling R-5, which makes this reconciler the field's
+// only writer): the oldest Download targeting this Audiobook that it owns and
+// that rollup.DownloadNonTerminal still counts, or nil. Ownership is by UID,
+// so a Download left behind by a deleted Audiobook of the same name is never
+// adopted.
+func (r *Reconciler) activeDownload(ctx context.Context, m *catalogv1alpha1.Audiobook) (*downloadv1alpha1.Download, error) {
+	var list downloadv1alpha1.DownloadList
+	if err := r.List(ctx, &list, client.InNamespace(m.Namespace), client.MatchingFields{downloadByAudiobookIndexKey: m.Name}); err != nil {
+		return nil, err
 	}
-	reqs := make([]reconcile.Request, 0, len(audiobooks.Items))
-	for _, a := range audiobooks.Items {
-		reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: a.Namespace, Name: a.Name}})
-	}
-	return reqs
+	return rollup.ActiveDownload(list.Items, func(d *downloadv1alpha1.Download) bool {
+		return k8s.IsOwnedBy(d, m)
+	}), nil
 }
 
 // mapQualityProfile is the reverse direction from an edited QualityProfile
@@ -479,16 +490,9 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Aud
 	}
 	hasFile, fileRefs, fileQuality, cutoffMet := FileState(mfList.Items, profile)
 
-	var dl *downloadv1alpha1.Download
-	if m.Status.ActiveDownloadRef != nil {
-		var d downloadv1alpha1.Download
-		if err := r.Get(ctx, types.NamespacedName{Namespace: m.Namespace, Name: *m.Status.ActiveDownloadRef}, &d); err != nil {
-			if !apierrors.IsNotFound(err) {
-				return ctrl.Result{}, err
-			}
-		} else {
-			dl = &d
-		}
+	dl, err := r.activeDownload(ctx, m)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 	overlayPhase, active := DownloadOverlay(dl)
 
@@ -505,15 +509,13 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Aud
 	if fileQuality != nil {
 		statusAC = statusAC.WithQuality(*fileQuality)
 	}
-	if active && m.Status.ActiveDownloadRef != nil {
-		statusAC = statusAC.WithActiveDownloadRef(*m.Status.ActiveDownloadRef)
+	if active {
+		statusAC = statusAC.WithActiveDownloadRef(dl.Name)
 	}
-	// When !active and a ref was set, WithActiveDownloadRef is deliberately
-	// not called: omitting a field this manager owns releases it under SSA
-	// (pkg/k8s.PatchStatus's doc; proven by
-	// pkg/k8s/patch_envtest_test.go's TestPatchStatusReleasesItsOwnFieldsOnly),
-	// which is how the ref is cleared on a terminal Download phase. Mirrors
-	// movie.reconcileNormal's identical comment and behaviour.
+	// With no Download still working on this item, WithActiveDownloadRef is
+	// deliberately not called: omitting a field this manager owns releases
+	// it under SSA, and since R-5 this manager is its only owner, so the
+	// release removes it.
 
 	if hasFile {
 		k8s.MarkTrue(m, &conditions, catalogv1alpha1.AudiobookConditionHasFile, "HasFile", "backed by %d MediaFile(s)", len(fileRefs))

@@ -248,80 +248,109 @@ func TestIssueReconcilerRealController(t *testing.T) {
 			"this controller's own status patch must not re-trigger itself")
 	})
 
-	// Download watch: State=Snatched while a Download is actively working,
-	// ActiveDownloadRef cleared once it reaches a terminal phase -- the same
-	// shape as episode/reconciler_test.go's "Download watch rolls up
-	// Downloading and clears the ref on a terminal phase" subtest, adapted
-	// to Issue's coarser State enum (no separate Delayed value; see
-	// state.go's doc comment).
-	t.Run("Download watch snatches and clears the ref on a terminal phase", func(t *testing.T) {
+	// Download watch and gap-fix ruling R-5: the Issue derives
+	// status.activeDownloadRef from the Downloads it owns -- the grab path
+	// (catalogarr/worker/grab) creates each one owned by the Issue it targets
+	// -- so nothing seeds the ref. State reads Snatched exactly while such a
+	// Download is not terminal (Completed included, R-12), and the ref goes
+	// with it.
+	t.Run("an owned Download snatches the issue and the ref follows it to a terminal phase", func(t *testing.T) {
 		iss := &catalogv1alpha1.Issue{
 			ObjectMeta: metav1.ObjectMeta{Name: "batman-003.0", Namespace: "issue-ns"},
 			Spec:       catalogv1alpha1.IssueSpec{ComicRef: "batman", Number: "3", CalculatedNumberCentis: 300},
 		}
 		require.NoError(t, c.Create(ctx, iss))
-		require.Eventually(t, func() bool {
-			var got catalogv1alpha1.Issue
-			if err := c.Get(ctx, types.NamespacedName{Namespace: "issue-ns", Name: "batman-003.0"}, &got); err != nil {
-				return false
-			}
-			return got.Status.State != ""
-		}, 5*time.Second, 20*time.Millisecond)
-
-		dl := &downloadv1alpha1.Download{
-			ObjectMeta: metav1.ObjectMeta{Name: "batman-003-dl", Namespace: "issue-ns"},
-			Spec: downloadv1alpha1.DownloadSpec{
-				Protocol: commonv1.ProtocolTorrent,
-				Source:   downloadv1alpha1.DownloadSource{MagnetURL: strPtr("magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567")},
-				Release: commonv1.ReleaseInfo{
-					GUID: "https://indexer.example/3", IndexerRef: "example", IndexerName: "Example",
-					Title: "Batman.003.CBZ", Protocol: commonv1.ProtocolTorrent,
-					InfoHash: "0123456789abcdef0123456789abcdef01234567",
-				},
-				Target: commonv1.MediaRef{Kind: commonv1.MediaKindIssue, Name: "batman-003.0"},
-			},
-		}
-		require.NoError(t, c.Create(ctx, dl))
-
-		refAC := catalogac.Issue(iss.Name, iss.Namespace).WithStatus(
-			catalogac.IssueStatus().WithActiveDownloadRef(dl.Name),
-		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, refAC)
-		require.NoError(t, err)
-		require.Eventually(t, func() bool {
-			var got catalogv1alpha1.Issue
-			if err := c.Get(ctx, types.NamespacedName{Namespace: "issue-ns", Name: "batman-003.0"}, &got); err != nil {
-				return false
-			}
-			return got.Status.ActiveDownloadRef != nil && *got.Status.ActiveDownloadRef == dl.Name
-		}, 5*time.Second, 10*time.Millisecond)
-
-		dlAC := downloadStatusAC(dl.Name, dl.Namespace, downloadv1alpha1.DownloadPhaseDownloading)
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, dlAC)
-		require.NoError(t, err)
-
+		key := types.NamespacedName{Namespace: "issue-ns", Name: "batman-003.0"}
 		var got catalogv1alpha1.Issue
 		require.Eventually(t, func() bool {
-			if err := c.Get(ctx, types.NamespacedName{Namespace: "issue-ns", Name: "batman-003.0"}, &got); err != nil {
-				return false
+			return c.Get(ctx, key, &got) == nil && got.Status.State == catalogv1alpha1.IssueStateWanted
+		}, 5*time.Second, 20*time.Millisecond, "setup: the Issue never settled at Wanted")
+
+		newDownload := func(name string, owner *catalogv1alpha1.Issue) {
+			dl := &downloadv1alpha1.Download{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "issue-ns"},
+				Spec: downloadv1alpha1.DownloadSpec{
+					Protocol: commonv1.ProtocolTorrent,
+					Source:   downloadv1alpha1.DownloadSource{MagnetURL: strPtr("magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567")},
+					Release: commonv1.ReleaseInfo{
+						GUID: "https://indexer.example/" + name, IndexerRef: "example", IndexerName: "Example",
+						Title: "Batman.003.CBZ", Protocol: commonv1.ProtocolTorrent,
+						InfoHash: "0123456789abcdef0123456789abcdef01234567",
+					},
+					Target: commonv1.MediaRef{Kind: commonv1.MediaKindIssue, Name: "batman-003.0"},
+				},
 			}
-			return got.Status.State == catalogv1alpha1.IssueStateSnatched
-		}, 5*time.Second, 20*time.Millisecond)
-		require.NotNil(t, got.Status.ActiveDownloadRef)
-		assert.Equal(t, dl.Name, *got.Status.ActiveDownloadRef)
+			if owner != nil {
+				controller := true
+				dl.OwnerReferences = []metav1.OwnerReference{{
+					APIVersion: catalogv1alpha1.GroupVersion.String(), Kind: "Issue",
+					Name: owner.Name, UID: owner.UID, Controller: &controller,
+				}}
+			}
+			require.NoError(t, c.Create(ctx, dl))
+		}
 
-		dlAC = downloadStatusAC(dl.Name, dl.Namespace, downloadv1alpha1.DownloadPhaseCompleted)
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, dlAC)
-		require.NoError(t, err)
+		// A Download for this issue that it does not own -- one left behind
+		// by a deleted Issue of the same name -- is never adopted.
+		newDownload("batman-003-stranger-dl", nil)
+		require.Never(t, func() bool {
+			var g catalogv1alpha1.Issue
+			return c.Get(ctx, key, &g) == nil && (g.Status.ActiveDownloadRef != nil || g.Status.State != catalogv1alpha1.IssueStateWanted)
+		}, 500*time.Millisecond, 20*time.Millisecond, "a Download the Issue does not own must never become its ref")
 
+		newDownload("batman-003-dl", &got)
 		require.Eventually(t, func() bool {
-			if err := c.Get(ctx, types.NamespacedName{Namespace: "issue-ns", Name: "batman-003.0"}, &got); err != nil {
-				return false
+			return c.Get(ctx, key, &got) == nil && got.Status.State == catalogv1alpha1.IssueStateSnatched &&
+				got.Status.ActiveDownloadRef != nil && *got.Status.ActiveDownloadRef == "batman-003-dl"
+		}, 5*time.Second, 20*time.Millisecond, "an owned Download must snatch the issue and set its ref")
+
+		// This reconciler is the field's only writer.
+		var refOwners []string
+		for _, e := range got.ManagedFields {
+			if e.Subresource == "status" && e.FieldsV1 != nil && strings.Contains(e.FieldsV1.GetRawString(), `"f:activeDownloadRef"`) {
+				refOwners = append(refOwners, e.Manager)
 			}
-			return got.Status.State != catalogv1alpha1.IssueStateSnatched
+		}
+		assert.Equal(t, []string{string(k8s.ManagerCatalogarr)}, refOwners)
+
+		// Downloading, then Completed: both still working on the issue.
+		for _, phase := range []downloadv1alpha1.DownloadPhase{downloadv1alpha1.DownloadPhaseDownloading, downloadv1alpha1.DownloadPhaseCompleted} {
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC("batman-003-dl", "issue-ns", phase))
+			require.NoError(t, err)
+			require.Never(t, func() bool {
+				var g catalogv1alpha1.Issue
+				return c.Get(ctx, key, &g) == nil && (g.Status.State != catalogv1alpha1.IssueStateSnatched || g.Status.ActiveDownloadRef == nil)
+			}, 500*time.Millisecond, 20*time.Millisecond, "a %s Download is still working on the issue", phase)
+		}
+
+		// Failed is terminal: the ref goes, and the issue is Wanted again.
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC("batman-003-dl", "issue-ns", downloadv1alpha1.DownloadPhaseFailed))
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			return c.Get(ctx, key, &got) == nil && got.Status.State != catalogv1alpha1.IssueStateSnatched
 		}, 5*time.Second, 20*time.Millisecond)
 		assert.Nil(t, got.Status.ActiveDownloadRef, "a terminal Download phase must clear the ref")
 		assert.Equal(t, catalogv1alpha1.IssueStateWanted, got.Status.State, "no file and no active download: back to Wanted")
+
+		// A Download on its way out stops counting the moment it is marked
+		// for deletion, not when its finalizers (grabarr's teardown) let it
+		// go: the Download watch's deletion arm carries that edge.
+		newDownload("batman-003-regrab-dl", &got)
+		require.Eventually(t, func() bool {
+			return c.Get(ctx, key, &got) == nil && got.Status.ActiveDownloadRef != nil && *got.Status.ActiveDownloadRef == "batman-003-regrab-dl"
+		}, 5*time.Second, 20*time.Millisecond)
+		var regrab downloadv1alpha1.Download
+		dlKey := types.NamespacedName{Namespace: "issue-ns", Name: "batman-003-regrab-dl"}
+		require.NoError(t, c.Get(ctx, dlKey, &regrab))
+		regrab.Finalizers = append(regrab.Finalizers, "test.clustarr.io/hold")
+		require.NoError(t, c.Update(ctx, &regrab))
+		require.NoError(t, c.Delete(ctx, &regrab))
+		require.Eventually(t, func() bool {
+			return c.Get(ctx, key, &got) == nil && got.Status.ActiveDownloadRef == nil && got.Status.State == catalogv1alpha1.IssueStateWanted
+		}, 5*time.Second, 20*time.Millisecond, "a Download being deleted must stop being the issue's ref while its finalizer holds it")
+		require.NoError(t, c.Get(ctx, dlKey, &regrab))
+		regrab.Finalizers = nil
+		require.NoError(t, c.Update(ctx, &regrab))
 	})
 
 	// CutoffMet is decided against the owning Comic's profile, two objects

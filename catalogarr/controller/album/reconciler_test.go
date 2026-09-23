@@ -44,6 +44,7 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/catalogarr/controller/album"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -101,13 +102,13 @@ func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.
 			}
 			return []string{mf.Spec.MediaRef.Name}
 		}))
-	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &catalogv1alpha1.Album{}, ".status.activeDownloadRef",
+	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &downloadv1alpha1.Download{}, ".spec.target.album",
 		func(o client.Object) []string {
-			alb, ok := o.(*catalogv1alpha1.Album)
-			if !ok || alb.Status.ActiveDownloadRef == nil {
+			dl, ok := o.(*downloadv1alpha1.Download)
+			if !ok || dl.Spec.Target.Kind != commonv1.MediaKindAlbum {
 				return nil
 			}
-			return []string{*alb.Status.ActiveDownloadRef}
+			return []string{dl.Spec.Target.Name}
 		}))
 
 	go func() { _ = mgr.Start(ctx) }()

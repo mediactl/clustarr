@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -114,13 +115,13 @@ func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.
 			}
 			return []string{mf.Spec.MediaRef.Name}
 		}))
-	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &catalogv1alpha1.Audiobook{}, ".status.activeDownloadRef",
+	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &downloadv1alpha1.Download{}, ".spec.target.audiobook",
 		func(o client.Object) []string {
-			a, ok := o.(*catalogv1alpha1.Audiobook)
-			if !ok || a.Status.ActiveDownloadRef == nil {
+			dl, ok := o.(*downloadv1alpha1.Download)
+			if !ok || dl.Spec.Target.Kind != commonv1.MediaKindAudiobook {
 				return nil
 			}
-			return []string{*a.Status.ActiveDownloadRef}
+			return []string{dl.Spec.Target.Name}
 		}))
 	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &catalogv1alpha1.Audiobook{}, ".spec.qualityProfileRef",
 		func(o client.Object) []string {
@@ -645,78 +646,75 @@ func TestAudiobookReconcilerRealController(t *testing.T) {
 		assert.True(t, got.Status.CutoffMet)
 		assert.Equal(t, catalogv1alpha1.AudiobookPhaseImported, got.Status.Phase)
 
-		// A manual grab: create a Download and seed this Audiobook's
-		// activeDownloadRef, mirroring how a Download comes to exist for a
-		// non-video kind under R3 (no automated grab wired for these kinds
-		// by this task) -- the UI or an operator creates it, per CLAUDE.md's
-		// "the UI never writes status" invariant. The seed is applied under
-		// k8s.ManagerCatalogarr, the SAME manager this reconciler's own
-		// reassertion uses -- not k8s.ManagerCatalogarrGrab, which movie's
-		// identical test ALSO avoids for the seed step. This is deliberate,
-		// not merely mirroring: server-side apply only adds a manager as an
-		// owner of a leaf when that manager's apply actually changes
-		// something (CLAUDE.md's co-ownership gotcha, in the direction that
-		// matters here) -- so seeding under Grab and then having this
-		// reconciler "reassert" the identical value under ManagerCatalogarr
-		// never transfers ownership, and the later release-by-omission this
-		// test exists to prove has nothing to release. Falsified in a
-		// throwaway run: seeding under ManagerCatalogarrGrab instead
-		// reproduces exactly that -- Phase reaches Downloading, but the
-		// terminal-phase release never happens, because ManagerCatalogarr
-		// never became an owner of status.activeDownloadRef to release.
+		// status.activeDownloadRef is derived from the Audiobook's own
+		// non-terminal Downloads (gap-fix ruling R-5): nothing seeds it.
+		// A Download that targets this Audiobook but is not owned by it --
+		// one left behind by a deleted Audiobook of the same name -- is
+		// never adopted.
+		key := types.NamespacedName{Namespace: "rollup-ns", Name: "guards-guards"}
+		require.NoError(t, c.Get(ctx, key, &got))
 		magnet := "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
-		dl := &downloadv1alpha1.Download{
-			ObjectMeta: metav1.ObjectMeta{Name: "guards-guards-dl", Namespace: "rollup-ns"},
-			Spec: downloadv1alpha1.DownloadSpec{
-				Protocol: commonv1.ProtocolTorrent,
-				Source:   downloadv1alpha1.DownloadSource{MagnetURL: &magnet},
-				Release:  commonv1.ReleaseInfo{},
-				Target:   commonv1.MediaRef{Kind: commonv1.MediaKindAudiobook, Name: "guards-guards"},
-			},
+		newDownload := func(name string, owner *catalogv1alpha1.Audiobook) *downloadv1alpha1.Download {
+			d := &downloadv1alpha1.Download{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "rollup-ns"},
+				Spec: downloadv1alpha1.DownloadSpec{
+					Protocol: commonv1.ProtocolTorrent,
+					Source:   downloadv1alpha1.DownloadSource{MagnetURL: &magnet},
+					Release:  commonv1.ReleaseInfo{},
+					Target:   commonv1.MediaRef{Kind: commonv1.MediaKindAudiobook, Name: "guards-guards"},
+				},
+			}
+			if owner != nil {
+				controller := true
+				d.OwnerReferences = []metav1.OwnerReference{{
+					APIVersion: catalogv1alpha1.GroupVersion.String(), Kind: "Audiobook",
+					Name: owner.Name, UID: owner.UID, Controller: &controller,
+				}}
+			}
+			require.NoError(t, c.Create(ctx, d))
+			return d
 		}
-		require.NoError(t, c.Create(ctx, dl))
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr,
-			catalogac.Audiobook(m.Name, m.Namespace).WithStatus(
-				catalogac.AudiobookStatus().WithActiveDownloadRef("guards-guards-dl"),
-			))
-		require.NoError(t, err)
-		// mapDownload's reverse lookup depends on the
-		// audiobookByActiveDownloadIndexKey field index, populated from the
-		// CACHE's view of status.activeDownloadRef; wait for the cache to
-		// observe this write before changing the Download's phase, or the
-		// Download's watch event can fire before the index knows to map it
-		// back to "guards-guards" at all. Mirrors movie's identical wait.
+		newDownload("stranger-dl", nil)
+		require.Never(t, func() bool {
+			var g catalogv1alpha1.Audiobook
+			return c.Get(ctx, key, &g) == nil && g.Status.ActiveDownloadRef != nil
+		}, 500*time.Millisecond, 20*time.Millisecond, "a Download this Audiobook does not own must never become its ref")
+
+		// The grab's own Download: owned, just created, no phase yet.
+		newDownload("guards-guards-dl", &got)
 		require.Eventually(t, func() bool {
-			var got catalogv1alpha1.Audiobook
-			if err := c.Get(ctx, types.NamespacedName{Namespace: "rollup-ns", Name: "guards-guards"}, &got); err != nil {
-				return false
-			}
-			return got.Status.ActiveDownloadRef != nil && *got.Status.ActiveDownloadRef == "guards-guards-dl"
-		}, 5*time.Second, 10*time.Millisecond)
+			var g catalogv1alpha1.Audiobook
+			return c.Get(ctx, key, &g) == nil && g.Status.ActiveDownloadRef != nil &&
+				*g.Status.ActiveDownloadRef == "guards-guards-dl" && g.Status.Phase == catalogv1alpha1.AudiobookPhaseDownloading
+		}, 5*time.Second, 20*time.Millisecond, "an owned Download must set the ref and drive Phase=Downloading, overriding Imported")
 
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC("guards-guards-dl", "rollup-ns", downloadv1alpha1.DownloadPhaseDownloading))
+		// This reconciler is the field's only writer: one manager, catalogarr.
+		require.NoError(t, c.Get(ctx, key, &got))
+		var refOwners []string
+		for _, e := range got.ManagedFields {
+			if e.Subresource == "status" && e.FieldsV1 != nil && strings.Contains(e.FieldsV1.GetRawString(), `"f:activeDownloadRef"`) {
+				refOwners = append(refOwners, e.Manager)
+			}
+		}
+		assert.Equal(t, []string{string(k8s.ManagerCatalogarr)}, refOwners)
+
+		// Completed is on disk and awaiting import: still this item's
+		// Download (R-12).
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC("guards-guards-dl", "rollup-ns", downloadv1alpha1.DownloadPhaseCompleted))
 		require.NoError(t, err)
+		require.Never(t, func() bool {
+			var g catalogv1alpha1.Audiobook
+			return c.Get(ctx, key, &g) == nil && (g.Status.ActiveDownloadRef == nil || g.Status.Phase != catalogv1alpha1.AudiobookPhaseDownloading)
+		}, 500*time.Millisecond, 20*time.Millisecond, "a Completed Download is still working on the item")
 
-		require.Eventually(t, func() bool {
-			var got catalogv1alpha1.Audiobook
-			if err := c.Get(ctx, types.NamespacedName{Namespace: "rollup-ns", Name: "guards-guards"}, &got); err != nil {
-				return false
-			}
-			return got.Status.Phase == catalogv1alpha1.AudiobookPhaseDownloading
-		}, 5*time.Second, 20*time.Millisecond, "an active Download must drive Phase=Downloading, overriding Imported")
-
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC("guards-guards-dl", "rollup-ns", downloadv1alpha1.DownloadPhaseFailed))
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC("guards-guards-dl", "rollup-ns", downloadv1alpha1.DownloadPhaseImported))
 		require.NoError(t, err)
-
 		require.Eventually(t, func() bool {
-			var got catalogv1alpha1.Audiobook
-			if err := c.Get(ctx, types.NamespacedName{Namespace: "rollup-ns", Name: "guards-guards"}, &got); err != nil {
-				return false
-			}
-			return got.Status.ActiveDownloadRef == nil
+			var g catalogv1alpha1.Audiobook
+			return c.Get(ctx, key, &g) == nil && g.Status.ActiveDownloadRef == nil
 		}, 5*time.Second, 20*time.Millisecond, "a terminal Download phase must clear activeDownloadRef")
 
-		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "rollup-ns", Name: "guards-guards"}, &got))
+		require.NoError(t, c.Get(ctx, key, &got))
 		assert.Equal(t, catalogv1alpha1.AudiobookPhaseImported, got.Status.Phase, "once the download clears, the item reports its file state again")
 	})
 

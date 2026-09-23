@@ -42,6 +42,7 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	authorctrl "github.com/mediactl/clustarr/catalogarr/controller/author"
 	"github.com/mediactl/clustarr/catalogarr/controller/book"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -92,13 +93,13 @@ func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.
 			}
 			return []string{mf.Spec.MediaRef.Name}
 		}))
-	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &catalogv1alpha1.Book{}, ".status.activeDownloadRef",
+	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &downloadv1alpha1.Download{}, ".spec.target.book",
 		func(o client.Object) []string {
-			bk, ok := o.(*catalogv1alpha1.Book)
-			if !ok || bk.Status.ActiveDownloadRef == nil {
+			dl, ok := o.(*downloadv1alpha1.Download)
+			if !ok || dl.Spec.Target.Kind != commonv1.MediaKindBook {
 				return nil
 			}
-			return []string{*bk.Status.ActiveDownloadRef}
+			return []string{dl.Spec.Target.Name}
 		}))
 	// author.Reconciler's own index, needed here too because this test file
 	// also drives a real author.Reconciler directly against the same cache

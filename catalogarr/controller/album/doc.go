@@ -32,8 +32,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // This reconciler is the sole writer of status.conditions, status.tracks,
 // status.phase, status.path, status.trackFileCount, status.quality,
-// status.formatScore, status.cutoffMet, (conditionally)
-// status.activeDownloadRef and status.metadata.selectedReleaseID, under
+// status.formatScore, status.cutoffMet, status.activeDownloadRef (derived
+// from the Album's own non-terminal Downloads, gap-fix ruling R-5) and
+// status.metadata.selectedReleaseID, under
 // k8s.ManagerCatalogarr. Every other leaf of status.metadata belongs to the
 // metadata gateway (k8s.ManagerCatalogarrMetadata) -- see
 // buildAlbumMetadataAC's doc comment in catalogarr/metadata/patch.go for

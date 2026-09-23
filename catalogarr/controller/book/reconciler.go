@@ -61,10 +61,12 @@ const (
 	// movie.mediaFileByMovieIndexKey.
 	mediaFileByBookIndexKey = ".spec.mediaRef.book"
 
-	// bookByActiveDownloadIndexKey indexes Book by its
-	// status.activeDownloadRef, the reverse direction from a watched
-	// Download back to the Book holding the reference.
-	bookByActiveDownloadIndexKey = ".status.activeDownloadRef"
+	// downloadByBookIndexKey indexes Download by the Book its spec.target names
+	// (kind book only). It is how the reconciler finds the Downloads it
+	// derives status.activeDownloadRef from (gap-fix ruling R-5), the same
+	// shape as movie.downloadByMovieIndexKey. spec.target is immutable, so
+	// the index never has to follow an edit.
+	downloadByBookIndexKey = ".spec.target.book"
 
 	// bookByQualityProfileIndexKey indexes Book by its OWN direct
 	// spec.qualityProfileRef override only -- not the profile it effectively
@@ -145,13 +147,13 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		}); err != nil {
 		return err
 	}
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &catalogv1alpha1.Book{}, bookByActiveDownloadIndexKey,
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &downloadv1alpha1.Download{}, downloadByBookIndexKey,
 		func(o client.Object) []string {
-			bk, ok := o.(*catalogv1alpha1.Book)
-			if !ok || bk.Status.ActiveDownloadRef == nil {
+			dl, ok := o.(*downloadv1alpha1.Download)
+			if !ok || dl.Spec.Target.Kind != commonv1.MediaKindBook {
 				return nil
 			}
-			return []string{*bk.Status.ActiveDownloadRef}
+			return []string{dl.Spec.Target.Name}
 		}); err != nil {
 		return err
 	}
@@ -214,6 +216,10 @@ func downloadPredicate() predicate.Predicate {
 			}
 			return dl.Status.Phase
 		}),
+		// A Download being torn down stops counting the moment it is
+		// marked (rollup.DownloadNonTerminal), not when its finalizers let
+		// it go.
+		k8s.StatusFieldChanged(k8s.IsDeleting),
 	)
 }
 
@@ -243,20 +249,32 @@ func (r *Reconciler) mapMediaFile(_ context.Context, o client.Object) []reconcil
 	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: mf.Namespace, Name: mf.Spec.MediaRef.Name}}}
 }
 
-func (r *Reconciler) mapDownload(ctx context.Context, o client.Object) []reconcile.Request {
+// mapDownload needs no List: a Download names its target in spec.target,
+// so a Download that appears -- before anything has set the ref, which is
+// the whole point of deriving the ref from the Download -- reaches its
+// Book directly.
+func (r *Reconciler) mapDownload(_ context.Context, o client.Object) []reconcile.Request {
 	dl, ok := o.(*downloadv1alpha1.Download)
-	if !ok {
+	if !ok || dl.Spec.Target.Kind != commonv1.MediaKindBook {
 		return nil
 	}
-	var books catalogv1alpha1.BookList
-	if err := r.List(ctx, &books, client.InNamespace(dl.Namespace), client.MatchingFields{bookByActiveDownloadIndexKey: dl.Name}); err != nil {
-		return nil
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: dl.Namespace, Name: dl.Spec.Target.Name}}}
+}
+
+// activeDownload is the Download status.activeDownloadRef names, derived
+// level-style (gap-fix ruling R-5, which makes this reconciler the field's
+// only writer): the oldest Download targeting this Book that it owns and
+// that rollup.DownloadNonTerminal still counts, or nil. Ownership is by UID,
+// so a Download left behind by a deleted Book of the same name is never
+// adopted.
+func (r *Reconciler) activeDownload(ctx context.Context, bk *catalogv1alpha1.Book) (*downloadv1alpha1.Download, error) {
+	var list downloadv1alpha1.DownloadList
+	if err := r.List(ctx, &list, client.InNamespace(bk.Namespace), client.MatchingFields{downloadByBookIndexKey: bk.Name}); err != nil {
+		return nil, err
 	}
-	reqs := make([]reconcile.Request, 0, len(books.Items))
-	for _, bk := range books.Items {
-		reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: bk.Namespace, Name: bk.Name}})
-	}
-	return reqs
+	return rollup.ActiveDownload(list.Items, func(d *downloadv1alpha1.Download) bool {
+		return k8s.IsOwnedBy(d, bk)
+	}), nil
 }
 
 // mapAuthor is a plain filtered List, NOT an indexed lookup: the author
@@ -505,16 +523,9 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, bk *catalogv1alpha1.Bo
 	}
 	hasFile, fileRef, fileFormat, cutoffMet := FileState(mf, profile)
 
-	var dl *downloadv1alpha1.Download
-	if bk.Status.ActiveDownloadRef != nil {
-		var d downloadv1alpha1.Download
-		if err := r.Get(ctx, types.NamespacedName{Namespace: bk.Namespace, Name: *bk.Status.ActiveDownloadRef}, &d); err != nil {
-			if !apierrors.IsNotFound(err) {
-				return ctrl.Result{}, err
-			}
-		} else {
-			dl = &d
-		}
+	dl, err := r.activeDownload(ctx, bk)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 	overlayPhase, active := DownloadOverlay(dl)
 
@@ -533,13 +544,13 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, bk *catalogv1alpha1.Bo
 	if fileFormat != "" {
 		statusAC = statusAC.WithFileFormat(fileFormat)
 	}
-	if active && bk.Status.ActiveDownloadRef != nil {
-		statusAC = statusAC.WithActiveDownloadRef(*bk.Status.ActiveDownloadRef)
+	if active {
+		statusAC = statusAC.WithActiveDownloadRef(dl.Name)
 	}
-	// When !active and a ref was set, WithActiveDownloadRef is deliberately
-	// not called -- see movie.Reconciler's identical rationale: omitting a
-	// field this manager owns releases it under SSA, which is how the ref is
-	// cleared on a terminal Download phase.
+	// With no Download still working on this item, WithActiveDownloadRef is
+	// deliberately not called: omitting a field this manager owns releases
+	// it under SSA, and since R-5 this manager is its only owner, so the
+	// release removes it.
 
 	if hasFile {
 		k8s.MarkTrue(bk, &conditions, catalogv1alpha1.BookConditionHasFile, "HasFile", "backed by MediaFile %s", ptr.Deref(fileRef, ""))
