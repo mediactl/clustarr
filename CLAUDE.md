@@ -276,10 +276,32 @@ chart's copy to it; readiness is per-service and runs on every replica, not
 only the leader; `test/e2e`, `config/e2e`, the fixture image and `hack/e2e.sh`
 land scenarios 5, 7 and 8 on kind.
 
-Next: **Phase D** (M2 indexers, then M3 downloads, import and the first UI
-slice) → M4 transcode → M5 subtitles → M6 parity, import lists and non-video
+Phase D1 (done): M2 indexers — `indexarr` controllers for `Indexer`,
+`IndexerDefinition` and `IndexerProxy`; the caps probe with its 12-hour
+refresh (`capsTTL`, `indexarr/controller/indexer/controller.go`); the
+health/backoff escalation ladder in `indexarr/status/health.go` (Prowlarr's
+ten-rung `EscalationBackOff` periods, 0s to 24h, with a 15-minute startup
+grace); the SQLite FTS5 release index (`pkg/relindex`, external-content FTS5,
+pure-Go `modernc.org/sqlite`, no cgo); the federated search
+(`indexarr/search`) with its dedupe (infohash, then per-indexer
+`(indexer, guid)`) and the KV-backed query-limit window
+(`clustarr-indexer-limits`); the RSS poll worker and release firehose
+(`indexarr/worker/rss`); the three RPC verbs `rpc.indexarr.search|download|query`
+that make `catalogarr/worker/search`'s calls reach a real server for the first
+time; `indexarr/status` as the single declaration of each field manager's
+owned set (`ControllerFields`/`WorkerFields`). E2E scenario 17
+(`test/e2e/indexer_test.go`, against the Torznab fixture under
+`test/fixtures/torznabstub/`) is written — Indexer health and caps, ranked
+federated search, the release firehose, failure backoff — but has **never
+been executed against a kind cluster**; that and `make e2e` generally are
+deferred by explicit user instruction until D1–D3 implementation is complete,
+not by oversight. Reconciles against envtest; not proven end to end.
+
+Next: `grabarr` and `importarr`'s file-import worker (**Phase D2**, M3
+downloads and import) and the first UI slice (**Phase D3**) are in flight →
+M4 transcode → M5 subtitles → M6 parity, import lists and non-video
 inventory, then **Phase H: end-to-end proof on kind**. Phase detail, and the
-list Phase C carried forward, are in
+list Phase C and D1 carried forward, are in
 `docs/superpowers/plans/2026-09-18-remaining-work.md`; milestone detail is in
 the spec's §16 and amendment §A4.
 

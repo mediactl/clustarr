@@ -890,6 +890,21 @@ wired yet".
 >   results end to end through `rpc.indexarr.search`, and the release firehose
 >   reaching `catalogarr`'s RSS matcher with a legal envelope key. It is
 >   **scenario 17** in the roster below, so Phase H's audit sees seventeen.
+>
+>   **D1 done (2026-09-22).** Eleven tasks (D1-0..D1-9 plus a consolidation
+>   pass) landed: the three controllers, the caps probe and its 12-hour
+>   refresh, the health/backoff escalation ladder, `pkg/relindex` (SQLite
+>   FTS5), the federated search with dedupe and the KV-backed query-limit
+>   window, the RSS poll worker and firehose, and the three RPC verbs. The
+>   gate — `make generate`, `make manifests`, `make build`, `make lint`,
+>   `go test` — is green over the D1 surface (`./indexarr/...`,
+>   `./catalogarr/...`, `./importarr/...`, `./ui/...`, `./cmd/...`,
+>   `./api/...`, `./pkg/...` excluding `pkg/download`), with Phase D2's
+>   in-flight `pkg/download` and `grabarr/status` excluded as another agent's
+>   work. Scenario 17 is written but has **not** been run against kind,
+>   deferred by user instruction until D1-D3 are all in. CLAUDE.md's
+>   `## Status` carries the verified detail; the six-plus entries this phase
+>   carried forward are below, in the Phase D defects block.
 > - **D2 — `grabarr` + `importarr`'s file-import worker (M3).** DownloadClient,
 >   the torrent and usenet engines, the Download controller and its re-attach
 >   semantics, and the completed-download import. Lands scenarios 1 (through
