@@ -61,6 +61,48 @@ func TestParsePathStripsDirectoryAndExtension(t *testing.T) {
 	assert.Equal(t, 1999, p.Year)
 }
 
+// TestParsePathKeepsComicFormat pins that a comic file's format survives
+// ParsePath: the extension is the format, and stripping it (as every other
+// kind wants) left Quality "Unknown" and ComicInfo.Format empty for any file
+// whose name did not also carry a "[CBZ]" token.
+func TestParsePathKeepsComicFormat(t *testing.T) {
+	tests := []struct {
+		name   string
+		path   string
+		kind   commonv1.MediaKind
+		format string
+	}{
+		{"issue cbz", "/data/comics/Saga (2012)/Saga 001 (2012) (Digital) (Zone-Empire).cbz", commonv1.MediaKindIssue, "CBZ"},
+		{"comic cbr", "/data/comics/Saga (2012)/Saga 002 (2012) (Digital) (Zone-Empire).cbr", commonv1.MediaKindComic, "CBR"},
+		{"manga pdf", "/data/comics/One Piece/One Piece v107 c1088 (2023).pdf", commonv1.MediaKindComic, "PDF"},
+		{"classified cbz", "/data/comics/Saga (2012)/Saga 001 (2012) (Digital) (Zone-Empire).cbz", "", "CBZ"},
+		{"classified manga pdf", "/data/comics/One Piece/One Piece v107c1088 (2023).pdf", "", "PDF"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := release.ParsePath(tt.path, release.Options{Kind: tt.kind})
+			require.NoError(t, err)
+			require.NotNil(t, p.Comic)
+			assert.Equal(t, tt.format, p.Comic.Format)
+			assert.Equal(t, tt.format, p.Quality.Name)
+		})
+	}
+}
+
+// TestParsePathStripsANonComicExtension guards the other side: a movie or a
+// book file still loses its extension, so ".mkv" never reaches the group
+// parser and an ebook's ".pdf" is not read as a comic.
+func TestParsePathStripsANonComicExtension(t *testing.T) {
+	p, err := release.ParsePath("/data/movies/The.Matrix.1999.1080p.BluRay.x264-GROUP.mkv", release.Options{Kind: commonv1.MediaKindMovie})
+	require.NoError(t, err)
+	assert.Equal(t, "GROUP", p.Group)
+
+	b, err := release.ParsePath("/data/books/Andy Weir - Project Hail Mary (2021) [EPUB].pdf", release.Options{Kind: commonv1.MediaKindBook})
+	require.NoError(t, err)
+	assert.Nil(t, b.Comic)
+	assert.Equal(t, "EPUB", b.Quality.Name)
+}
+
 func TestParseRejectsEmptyTitle(t *testing.T) {
 	_, err := release.Parse("", release.Options{})
 	assert.Error(t, err)

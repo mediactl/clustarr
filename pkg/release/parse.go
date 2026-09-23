@@ -110,7 +110,8 @@ func ParseKind(title string, kind commonv1.MediaKind) (*ParsedRelease, error) {
 }
 
 // ParsePath strips the directory and extension from path and delegates to
-// Parse.
+// Parse. A comic's extension is its format, so it stays on (see
+// keepsComicExtension).
 //
 // A real Jellyfin/Plex/*arr library layout carries its provider id on the
 // *show/movie folder*, not the per-episode file — e.g.
@@ -127,7 +128,7 @@ func ParsePath(path string, o Options) (*ParsedRelease, error) {
 	segments := strings.Split(normalized, "/")
 
 	base := segments[len(segments)-1]
-	if idx := strings.LastIndex(base, "."); idx > 0 {
+	if idx := strings.LastIndex(base, "."); idx > 0 && !keepsComicExtension(base, o.Kind) {
 		base = base[:idx]
 	}
 
@@ -161,4 +162,26 @@ func ParsePath(path string, o Options) (*ParsedRelease, error) {
 		}
 	}
 	return p, nil
+}
+
+// keepsComicExtension reports whether ParsePath must hand base to Parse with
+// its extension still on. A comic's format is its container (CBZ, CBR, PDF),
+// and parseComic reads it from the extension -- so stripping it, as every
+// other kind wants, left a comic file's Quality "Unknown" whenever its name
+// carried no "[CBZ]" token as well. The extension stays when the caller named
+// a comic kind, or named none and ClassifyKind reads the whole filename as a
+// comic (its ".cbz"/".cbr" suffix check needs the extension too).
+func keepsComicExtension(base string, kind commonv1.MediaKind) bool {
+	if _, format := splitComicExtension(base); format == "" {
+		return false
+	}
+	switch kind {
+	case commonv1.MediaKindComic, commonv1.MediaKindIssue:
+		return true
+	case "":
+		_, stripped := extractIDs(base)
+		return ClassifyKind(stripped) == commonv1.MediaKindComic
+	default:
+		return false
+	}
 }

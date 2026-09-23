@@ -33,9 +33,11 @@ var comicIssueRegex = mustCompile(`(?<series>.+?)\s(?<issue>\d{2,4})\s\((?<year>
 // mangaVolChapterRegex matches a manga volume+chapter release,
 // "Series v107 c1088 (Year)". Tried before comicIssueRegex since its "v\d+"
 // token would otherwise also satisfy comicIssueRegex's looser series/issue
-// split.
+// split. The space between volume and chapter is optional because
+// ClassifyKind's manga token is the unspaced "v107c1088": a title classified
+// as a comic by that token must also parse as one.
 var mangaVolChapterRegex = mustCompile(
-	`(?<series>.+?)\sv(?<volume>\d{1,4})\sc(?<chapter>\d{1,4})\s\((?<year>\d{4})\)`,
+	`(?<series>.+?)\sv(?<volume>\d{1,4})\s?c(?<chapter>\d{1,4})\s\((?<year>\d{4})\)`,
 	regexp2.IgnoreCase,
 )
 
