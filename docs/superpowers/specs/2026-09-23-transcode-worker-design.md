@@ -571,3 +571,146 @@ wins.**
    (`worker.DefaultProgressInterval`). Watches on the lease and result
    buckets (a `source.Func` started with the controller) only wake it
    sooner. There is no in-memory state that a restart could lose.
+
+## 18. Scope additions (2026-09-23, second round)
+
+The owner added three requirements after §17. This section supersedes
+§17.1 and §17.6. The rest of §17 stands.
+
+### 18.1 The worker reports on a stream
+
+- **Where events go.** The worker publishes `transcode.StatusEvent.v1`
+  events on `clustarr.work.transcode.result.<jobUID>`, in
+  `CLUSTARR_WORK_SQUASHARR`. The Msg-Id is
+  `<jobUID>/<attempt>/<delivery>/<seq>`, where `seq` counts from 1 within one
+  delivery.
+- **The three kinds:**
+  - `claimed` carries the pod and node.
+  - `progress` is shaped like `status.progress` and published at most every
+    `ProgressInterval` (10s). The 1 Hz UI telemetry in `clustarr-progress` is
+    unchanged.
+  - `finished` carries the outcome, reason, message, result and stderr tail.
+- **Settling.** The worker acks its task only after JetStream has stored
+  `finished`, for every outcome. The queue retries nothing itself except a
+  crashed, drained or fenced delivery, which is redelivered for the same
+  attempt.
+- **Worker reasons:** `InvalidSource`, `SourceChanged` (the live file's probe
+  hash no longer matches, so it is not the planned file), `VerifyFailed`,
+  `DeadlineExceeded`, `Retriable`, `GPUUnavailable` (ffmpeg lacks the GPU
+  encoder the plan wants), `GPUEncodeFailed` (ffmpeg failed while encoding on
+  a GPU tier), and `Cancelled`.
+- **What is removed.** The results KV bucket from §17.1 goes away. Leases stay
+  in KV, because fencing needs compare-and-swap, and they are not status.
+
+### 18.2 squasharr consumes `squasharr-transcode-results`
+
+- **The consumer.** A durable in `Default()`, filtering
+  `clustarr.work.transcode.result.>`, with AckWait 30s, MaxDeliver 10,
+  BackOff 5s/30s/2m and MaxAckPending 1. It is subscribed by a runnable that
+  runs only on the leader. It acks an event only after the status write the
+  event causes has landed.
+- **One write path.** The consumer and the reconciler both write
+  `TranscodeJob.status` under `k8s.ManagerSquasharr`, through one function:
+  1. read the object fresh, through the uncached reader;
+  2. change a copy of its status;
+  3. apply it with the read `resourceVersion` as a precondition. This is the
+     compare-and-swap pattern in `catalogarr/worker/grab/kindops.go:181`.
+
+  A write that races the other path fails with Conflict and is redone from a
+  fresh read. It is never silently rolled back.
+- **Stale and duplicate events are ignored.** An event whose `attempt` is not
+  `status.attempts`, or that reaches a job that is terminal or not dispatched,
+  is acked and changes nothing.
+- **What the controller no longer reads.** It reads no lease and no progress
+  from KV. `claimed` and `progress` events move a job to Running and set
+  `workerPod`, `startedAt` and `progress`.
+
+### 18.3 squasharr decides the next step
+
+| `finished` | squasharr does |
+|---|---|
+| succeeded / skipped | Succeeded / Skipped |
+| cancelled | nothing (the withdrawal already acted) |
+| `GPUUnavailable`, `GPUEncodeFailed`, on an `auto` job running on a GPU class | set `status.fallbackReason`; back to Planned with no delay; the next dispatch is CPU (§18.5) |
+| `Retriable`, or a GPU reason on a job pinned to a GPU class | while `attempts` < 5: back to Planned with `status.nextAttemptAt` = now + 1m, 5m, 15m, then 30m for each later attempt; after that, block with reason `RetriesExhausted` |
+| `SourceChanged` | Failed, reason `SourceChanged`, **not** blocked: the TranscodeProfile controller deletes a Failed/SourceChanged job whose `spec.sourceProbeHash` differs from its MediaFile's current probe hash, and creates it again for the new file |
+| `InvalidSource`, `VerifyFailed`, `DeadlineExceeded` | block |
+| (a dead-lettered task, §13) | block, reason `DeadLettered` |
+
+Admission skips a Planned job until its `nextAttemptAt` has passed.
+
+### 18.4 Blocked
+
+- **What a block leaves.** A blocked job is phase **Failed** plus a
+  `Blocked=True` condition carrying the reason and message. There is no new
+  phase.
+- **Why that is enough.** The job's fixed name stops the TranscodeProfile
+  controller from creating it again.
+- **Retrying.** To retry, delete the TranscodeJob; the profile creates it
+  again. A status condition is controller-owned and has no user edit path, so
+  deletion is the supported retry.
+
+### 18.5 GPU preferred, CPU fallback
+
+- **GPU node labels.** A GPU node is a Ready, schedulable node that has both:
+  - the label `nvidia.com/gpu.present=true` or
+    `intel.feature.node.kubernetes.io/gpu=true`, overridable with
+    `--gpu-node-label-nvidia` and `--gpu-node-label-intel`;
+  - allocatable `nvidia.com/gpu` or `gpu.intel.com/i915` above 0.
+
+- **What "send a task to a GPU" means.** The task goes to its profile's pool
+  for that GPU class. That pool Job is **created** with
+  `.spec.scheduling.schedulingConstraints.topology: [{key: <the class's GPU
+  node label>}]`, which holds every pod in the pool to the label's `true`
+  domain. A CPU pool has no constraint.
+- **Facts from the 1.37 apiserver** (gates on; with `WorkloadWithJob` off the
+  whole `.spec.scheduling` is silently dropped):
+  - the constraint is accepted at create;
+  - changing it, adding it later, or leaving it out of a later apply is
+    rejected as immutable, even while the Job is suspended.
+
+  So every pool apply re-sends the constraint the Job was created with. A
+  changed label flag is immutable drift: the pool is recreated once idle
+  (§7).
+- **What stays on the pod.** Pool pods keep the GPU resource request, because
+  only a device-plugin request gives a pod the device. They also keep required
+  node affinity on the same label, which is the placement on clusters without
+  `WorkloadWithJob`. Both use the configured label keys, replacing the
+  constants in `job.go`.
+- **kind for Phase H.** The cluster also enables
+  `TopologyAwareWorkloadScheduling`, the 1.37 alpha gate the scheduler needs
+  to honour topology constraints.
+- **`hardware: auto`.** The value `auto` is added to `Hardware`, on the
+  profile and on `TranscodeJob.spec.hardware`, and becomes the profile's CRD
+  default.
+- **Choosing a class at dispatch.** For an `auto` job, the class is chosen in
+  priority order, `nvidia` then `intel` then `cpu`. A GPU class is eligible
+  when all four hold:
+  - a GPU node of that class exists;
+  - the class has a free slot, counting this pass's own dispatches;
+  - the job has no `fallbackReason`;
+  - that (profile, class) pool is not marked unschedulable.
+- **Planning for the chosen class.** Dispatch plans for the chosen class and
+  writes `status.plan` and `status.hardware` in the same write.
+- **Pinned classes.** `cpu`, `nvidia` and `intel` stay pinned and never fall
+  back.
+- **An unschedulable GPU pool.** If any pod of a GPU pool has been
+  `PodScheduled=False, reason=Unschedulable` for more than 10 minutes, that
+  pool is marked unschedulable for 30 minutes. Its dispatched jobs that are
+  not yet claimed (Queued) are then withdrawn (§8). Each gets
+  `fallbackReason` = "GPU pool unschedulable" and is dispatched again, which
+  sends it to CPU.
+
+### 18.6 API additions
+
+- **`TranscodeJobStatus`:**
+  - `workerPod` (§11);
+  - `hardware`: the class of the current attempt;
+  - `fallbackReason`, MaxLength 256;
+  - `nextAttemptAt`.
+- **Condition type `Blocked`.** A TranscodeJob now has seven condition types,
+  within `MaxItems=8`.
+- **`Hardware`.** The enum gains `auto`, and `TranscodeProfileSpec.hardware`
+  defaults to `auto`.
+- **RBAC.** squasharr gains `nodes: get,list,watch`, `pods: list` and
+  `transcodejobs: delete`.
