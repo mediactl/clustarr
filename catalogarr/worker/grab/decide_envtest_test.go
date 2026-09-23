@@ -251,7 +251,7 @@ func TestSink_DeliversTheBestApprovedRelease(t *testing.T) {
 		},
 	}
 	err := sink.Deliver(ctx, ns, commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name},
-		[]catalogv1alpha1.ReleaseDecision{
+		[]commonv1.ReleaseDecision{
 			{ReleaseInfo: rejected, Approved: false, Rank: 0},
 			{ReleaseInfo: approved, Approved: true, Rank: 1},
 		})
@@ -276,7 +276,7 @@ func TestSink_NoApprovedReleaseIsANoOp(t *testing.T) {
 	sink := grab.Sink{Deps: grab.Deps{Client: c, Bus: newTestBus(t, nil), Now: fixedNow(testNow)}}
 	require.NoError(t, sink.Deliver(ctx, ns,
 		commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-thing-1982"},
-		[]catalogv1alpha1.ReleaseDecision{{Approved: false}}))
+		[]commonv1.ReleaseDecision{{Approved: false}}))
 
 	var downloads downloadv1alpha1.DownloadList
 	require.NoError(t, c.List(ctx, &downloads, client.InNamespace(ns)))

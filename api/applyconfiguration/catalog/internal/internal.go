@@ -1465,6 +1465,18 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: score
       type:
         scalar: numeric
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.GrabResult
+  map:
+    fields:
+    - name: downloadRef
+      type:
+        scalar: string
+    - name: error
+      type:
+        scalar: string
+    - name: guid
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.Image
   map:
     fields:
@@ -1701,6 +1713,26 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: releaseTitle
       type:
         scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.IndexerOutcome
+  map:
+    fields:
+    - name: count
+      type:
+        scalar: numeric
+    - name: durationMs
+      type:
+        scalar: numeric
+    - name: error
+      type:
+        scalar: string
+    - name: name
+      type:
+        scalar: string
+    - name: state
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.IndexerOutcomeState
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.IndexerOutcomeState
+  scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.Issue
   map:
     fields:
@@ -2913,6 +2945,133 @@ var schemaYAML = typed.YAMLObject(`types:
         scalar: boolean
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ScoreSet
   scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.Search
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
+    - name: spec
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SearchSpec
+    - name: status
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SearchStatus
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SearchList
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: items
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Search
+          elementRelationship: atomic
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ListMeta
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SearchPhase
+  scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SearchSpec
+  map:
+    fields:
+    - name: categories
+      type:
+        list:
+          elementType:
+            scalar: numeric
+          elementRelationship: atomic
+    - name: grab
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: indexerRefs
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: kinds
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.common.v1alpha1.MediaKind
+          elementRelationship: atomic
+    - name: limit
+      type:
+        scalar: numeric
+      default: 100
+    - name: mediaRef
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.MediaRef
+    - name: override
+      type:
+        scalar: boolean
+    - name: query
+      type:
+        scalar: string
+    - name: ttl
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Duration
+      default: 1h
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SearchStatus
+  map:
+    fields:
+    - name: conditions
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Condition
+          elementRelationship: associative
+          keys:
+          - type
+    - name: finishedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: grabbed
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.GrabResult
+          elementRelationship: associative
+          keys:
+          - guid
+    - name: indexerOutcomes
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.IndexerOutcome
+          elementRelationship: associative
+          keys:
+          - name
+    - name: observedGeneration
+      type:
+        scalar: numeric
+    - name: phase
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SearchPhase
+    - name: results
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.common.v1alpha1.ReleaseDecision
+          elementRelationship: atomic
+    - name: startedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonSpec
   map:
     fields:
@@ -3491,6 +3650,121 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: source
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Source
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.Rejection
+  map:
+    fields:
+    - name: reason
+      type:
+        scalar: string
+    - name: type
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.RejectionType
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.RejectionType
+  scalar: string
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.ReleaseDecision
+  map:
+    fields:
+    - name: approved
+      type:
+        scalar: boolean
+    - name: categories
+      type:
+        list:
+          elementType:
+            scalar: numeric
+          elementRelationship: atomic
+    - name: downloadURL
+      type:
+        scalar: string
+    - name: edition
+      type:
+        scalar: string
+    - name: formatScore
+      type:
+        scalar: numeric
+    - name: guid
+      type:
+        scalar: string
+    - name: ids
+      type:
+        map:
+          elementType:
+            scalar: string
+    - name: indexerFlags
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: indexerName
+      type:
+        scalar: string
+    - name: indexerRef
+      type:
+        scalar: string
+    - name: infoHash
+      type:
+        scalar: string
+    - name: infoURL
+      type:
+        scalar: string
+    - name: languages
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: leechers
+      type:
+        scalar: numeric
+    - name: magnetURL
+      type:
+        scalar: string
+    - name: matchedFormats
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: protocol
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Protocol
+    - name: publishedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: quality
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Quality
+    - name: rank
+      type:
+        scalar: numeric
+    - name: rejections
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Rejection
+          elementRelationship: atomic
+    - name: releaseGroup
+      type:
+        scalar: string
+    - name: releaseType
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.ReleaseType
+    - name: revision
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Revision
+    - name: seeders
+      type:
+        scalar: numeric
+    - name: sizeBytes
+      type:
+        scalar: numeric
+    - name: temporarilyRejected
+      type:
+        scalar: boolean
+    - name: title
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.common.v1alpha1.ReleaseType
   scalar: string
 - name: com.github.mediactl.clustarr.api.common.v1alpha1.Revision

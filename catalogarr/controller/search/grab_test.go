@@ -22,7 +22,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
@@ -63,17 +62,17 @@ func TestToDownloadSourceACMapsBothBranches(t *testing.T) {
 }
 
 func TestResolveGrab(t *testing.T) {
-	permanent := catalogv1alpha1.ReleaseDecision{
+	permanent := commonv1.ReleaseDecision{
 		ReleaseInfo: commonv1.ReleaseInfo{GUID: "perm"},
 		Rejections:  []commonv1.Rejection{{Reason: "release group is unwanted", Type: commonv1.RejectionPermanent}},
 	}
-	temporary := catalogv1alpha1.ReleaseDecision{
+	temporary := commonv1.ReleaseDecision{
 		ReleaseInfo:         commonv1.ReleaseInfo{GUID: "temp"},
 		TemporarilyRejected: true,
 		Rejections:          []commonv1.Rejection{{Reason: "queue already has an equal candidate", Type: commonv1.RejectionTemporary}},
 	}
-	ok := catalogv1alpha1.ReleaseDecision{ReleaseInfo: commonv1.ReleaseInfo{GUID: "ok"}, Approved: true}
-	results := []catalogv1alpha1.ReleaseDecision{ok, permanent, temporary}
+	ok := commonv1.ReleaseDecision{ReleaseInfo: commonv1.ReleaseInfo{GUID: "ok"}, Approved: true}
+	results := []commonv1.ReleaseDecision{ok, permanent, temporary}
 
 	tests := []struct {
 		name        string

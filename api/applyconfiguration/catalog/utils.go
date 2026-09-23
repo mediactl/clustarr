@@ -123,6 +123,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.EpisodeStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("FormatScore"):
 		return &catalogv1alpha1.FormatScoreApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("GrabResult"):
+		return &catalogv1alpha1.GrabResultApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Image"):
 		return &catalogv1alpha1.ImageApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ImportExclusion"):
@@ -139,6 +141,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.ImportListStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ImportSource"):
 		return &catalogv1alpha1.ImportSourceApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("IndexerOutcome"):
+		return &catalogv1alpha1.IndexerOutcomeApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Issue"):
 		return &catalogv1alpha1.IssueApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("IssueSpec"):
@@ -213,6 +217,12 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.RootFolderStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SceneNumbering"):
 		return &catalogv1alpha1.SceneNumberingApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("Search"):
+		return &catalogv1alpha1.SearchApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("SearchSpec"):
+		return &catalogv1alpha1.SearchSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("SearchStatus"):
+		return &catalogv1alpha1.SearchStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SeasonSpec"):
 		return &catalogv1alpha1.SeasonSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SeasonStatus"):

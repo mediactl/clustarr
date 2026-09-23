@@ -190,3 +190,44 @@ type ReleaseInfo struct {
 	// +optional
 	IDs map[string]string `json:"ids,omitempty"`
 }
+
+// ReleaseDecision is declared here, beside ReleaseInfo, rather than in the
+// catalog group that uses it (Search.status.results), and that placement is
+// load-bearing. It embeds ReleaseInfo inline exactly as the design writes it
+// ({common.ReleaseInfo; Approved, TemporarilyRejected, Rejections, Rank}).
+// controller-tools v0.22.0's apply-configuration generator flattens an
+// embedded struct and then rewrites the package-relative $refs inside it
+// (Quality, Protocol, Revision, ReleaseType) against the EMBEDDING type's
+// package (convertRefs in pkg/applyconfiguration/openapi.go). When
+// ReleaseDecision lived in the catalog package those refs became
+// catalog.v1alpha1.Quality and so on, and the generator panicked with
+// "allSchemas schema is missing referenced type" -- which is why Search once
+// carried +kubebuilder:ac:generate=false and a hand-written apply
+// configuration. Declared in the same package as the type it embeds, the
+// rewrite is a no-op and generation works. Moving it back brings the panic
+// back; `make generate` is the test. (Kept apart from the doc comment below so
+// it stays out of the CRD's descriptions.)
+
+// ReleaseDecision is one search result together with the decision engine's
+// verdict on it.
+type ReleaseDecision struct {
+	// ReleaseInfo is the release as parsed from the indexer response.
+	ReleaseInfo `json:",inline"`
+
+	// Approved is true when the release passed every check.
+	// +optional
+	Approved bool `json:"approved,omitempty"`
+
+	// TemporarilyRejected is true when the release may pass a later run.
+	// +optional
+	TemporarilyRejected bool `json:"temporarilyRejected,omitempty"`
+
+	// Rejections explains why the release was not approved.
+	// +optional
+	// +kubebuilder:validation:MaxItems=20
+	Rejections []Rejection `json:"rejections,omitempty"`
+
+	// Rank is the release's position in the ranked result set; lower is better.
+	// +optional
+	Rank int32 `json:"rank,omitempty"`
+}

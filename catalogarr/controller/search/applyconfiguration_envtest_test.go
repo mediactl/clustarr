@@ -27,9 +27,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/catalogarr/controller/search"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -48,15 +48,13 @@ func TestSearchApplyConfigurationRoundTripsThroughPatchStatus(t *testing.T) {
 	require.NoError(t, c.Create(ctx, s))
 
 	seeders := int32(42)
-	ac := search.Search(name, ns).WithStatus(
-		search.SearchStatus().
+	ac := catalogac.Search(name, ns).WithStatus(
+		catalogac.SearchStatus().
 			WithPhase(catalogv1alpha1.SearchPhaseCompleted).
 			WithObservedGeneration(1).
 			WithFinishedAt(metav1.Now()).
-			WithIndexerOutcomes(catalogv1alpha1.IndexerOutcome{
-				Name: "idx", State: catalogv1alpha1.IndexerOutcomeOK, Count: 1,
-			}).
-			WithResults(catalogv1alpha1.ReleaseDecision{
+			WithIndexerOutcomes(catalogac.IndexerOutcome().WithName("idx").WithState(catalogv1alpha1.IndexerOutcomeOK).WithCount(1)).
+			WithResults(commonv1.ReleaseDecision{
 				ReleaseInfo: commonv1.ReleaseInfo{
 					GUID:        "g1",
 					Title:       "The.Matrix.1999.1080p.BluRay.x264-GROUP",
@@ -105,11 +103,11 @@ func TestSearchApplyConfigurationReleasesOmittedFields(t *testing.T) {
 		},
 	}))
 
-	full := search.Search(name, ns).WithStatus(
-		search.SearchStatus().
+	full := catalogac.Search(name, ns).WithStatus(
+		catalogac.SearchStatus().
 			WithPhase(catalogv1alpha1.SearchPhaseCompleted).
 			WithStartedAt(metav1.Now()).
-			WithResults(catalogv1alpha1.ReleaseDecision{
+			WithResults(commonv1.ReleaseDecision{
 				ReleaseInfo: commonv1.ReleaseInfo{GUID: "g1", PublishedAt: ptr.To(metav1.Now())},
 				Approved:    true,
 				Rank:        1,
@@ -119,8 +117,8 @@ func TestSearchApplyConfigurationReleasesOmittedFields(t *testing.T) {
 	require.NoError(t, err)
 
 	// A partial apply that keeps only the phase.
-	partial := search.Search(name, ns).WithStatus(
-		search.SearchStatus().WithPhase(catalogv1alpha1.SearchPhaseFailed),
+	partial := catalogac.Search(name, ns).WithStatus(
+		catalogac.SearchStatus().WithPhase(catalogv1alpha1.SearchPhaseFailed),
 	)
 	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, partial)
 	require.NoError(t, err)

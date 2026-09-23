@@ -48,6 +48,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
@@ -100,7 +101,7 @@ type EvaluateFunc func(
 // other side. target carries Keys, so a pack grab reaches every episode it
 // covers.
 type Sink interface {
-	Deliver(ctx context.Context, ns string, target commonv1.MediaRef, ranked []catalogv1alpha1.ReleaseDecision) error
+	Deliver(ctx context.Context, ns string, target commonv1.MediaRef, ranked []commonv1.ReleaseDecision) error
 }
 
 // NopSink drops the ranked list with a warning and acks the task. It must not
@@ -110,7 +111,7 @@ type Sink interface {
 type NopSink struct{}
 
 // Deliver implements Sink.
-func (NopSink) Deliver(ctx context.Context, ns string, target commonv1.MediaRef, ranked []catalogv1alpha1.ReleaseDecision) error {
+func (NopSink) Deliver(ctx context.Context, ns string, target commonv1.MediaRef, ranked []commonv1.ReleaseDecision) error {
 	logging.FromContext(ctx).Warn("search: no grab sink is wired; discarding ranked results",
 		"namespace", ns, "kind", target.Kind, "item", target.Name, "results", len(ranked))
 	return nil
@@ -588,7 +589,7 @@ func (w *Worker) writeResults(
 	ctx context.Context,
 	srch *catalogv1alpha1.Search,
 	outcomes []schema.SearchOutcome,
-	ranked []catalogv1alpha1.ReleaseDecision,
+	ranked []commonv1.ReleaseDecision,
 ) error {
 	return w.applySearchStatus(ctx, srch, capOutcomes(mapOutcomes(outcomes)), ranked)
 }
@@ -622,13 +623,16 @@ func (w *Worker) writeFailure(ctx context.Context, srch *catalogv1alpha1.Search,
 // manager split): finishedAt, indexerOutcomes and results here; phase,
 // conditions, observedGeneration, startedAt and grabbed there.
 //
-// All three owned fields are declared on EVERY call, including when they are
-// empty -- WithResults() with nothing to append still sends `[]`. Server-side
-// apply replaces a manager's whole ownership set rather than merging it, so a
-// field this manager owns and omits is released, which reads as "reset to
-// zero" on the object. An apply configuration whose list fields were plain
-// slices could not express the difference, because `omitempty` drops a
-// zero-length slice: see SearchStatusApplyConfiguration's doc comment.
+// All three owned fields are passed on EVERY call. Server-side apply replaces
+// a manager's whole ownership set rather than merging it, so a field this
+// manager owns and omits is released, which reads as "reset to zero" on the
+// object -- which is why the caller re-declares the live results on a failure
+// (writeFailure) rather than passing nothing. An EMPTY list is the one case
+// that goes out omitted, because every generated apply-configuration field is
+// omitempty: that releases the field, and since this manager is its only
+// owner the object then reads no results, which is what an empty list means.
+// Only the ownership record differs from declaring `[]`
+// (catalogarr/controller/search's ownership envtests pin it).
 //
 // Nothing here ever touches a controller-owned field, which is what lets the
 // worker report a terminal failure at all without breaking the single-writer
@@ -637,15 +641,19 @@ func (w *Worker) applySearchStatus(
 	ctx context.Context,
 	srch *catalogv1alpha1.Search,
 	outcomes []catalogv1alpha1.IndexerOutcome,
-	ranked []catalogv1alpha1.ReleaseDecision,
+	ranked []commonv1.ReleaseDecision,
 ) error {
-	statusAC := searchctl.SearchStatus().
+	outcomeACs, err := k8s.ApplyConfigurationsFrom[catalogac.IndexerOutcomeApplyConfiguration](outcomes)
+	if err != nil {
+		return fmt.Errorf("record search results: %w", err)
+	}
+	statusAC := catalogac.SearchStatus().
 		WithFinishedAt(metav1.NewTime(w.now())).
-		WithIndexerOutcomes(outcomes...).
+		WithIndexerOutcomes(outcomeACs...).
 		WithResults(ranked...)
 
 	if _, err := k8s.PatchStatus(ctx, w.Client, k8s.ManagerCatalogarrWorker,
-		searchctl.Search(srch.Name, srch.Namespace).WithStatus(statusAC)); err != nil {
+		catalogac.Search(srch.Name, srch.Namespace).WithStatus(statusAC)); err != nil {
 		return fmt.Errorf("record search results: %w", err)
 	}
 	return nil

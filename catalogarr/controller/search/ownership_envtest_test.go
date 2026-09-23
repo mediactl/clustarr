@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/catalogarr/controller/search"
@@ -55,17 +56,22 @@ func statusFieldsOwnedBy(t *testing.T, obj *catalogv1alpha1.Search, manager stri
 	return nil
 }
 
-// TestResultsAreDeclaredEmptyRatherThanReleased pins the mechanism the
-// pointer-to-slice list fields exist to provide, on status.results -- the one
-// of the three that is an atomic list, and so the only one where the
-// distinction is expressible at all.
+// TestAnEmptyResultsListIsReleasedAndReadsEmpty pins what an empty
+// status.results means on the wire now that Search's apply configuration is
+// generated (gap-fix X1 item 3), because it changed.
 //
-// Under server-side apply a field a manager omits is RELEASED, so "this list
-// is now empty" and "I have nothing to say about this list" must be different
-// things on the wire. A plain []T with `omitempty` cannot express the first,
-// because encoding/json omits on length rather than nil-ness, so an
-// explicitly-emptied list silently degrades into the second.
-func TestResultsAreDeclaredEmptyRatherThanReleased(t *testing.T) {
+// The hand-written apply configuration this package used to carry held its
+// lists as pointers to slices, so WithResults() with nothing to append sent
+// `results: []` and kept the field owned. Every generated apply-configuration
+// field is omitempty, so an empty list now goes out omitted and the field is
+// RELEASED. For an atomic list with exactly one owner -- status.results is the
+// worker's alone on a mediaRef Search and the reconciler's alone on a query
+// Search -- the object reads the same either way: no results. Only the
+// ownership record differs, and this test pins that difference so no comment
+// goes back to claiming the field stays owned. What preserves real results
+// across a write was never the wire form: it is the caller re-declaring them
+// (Worker.writeFailure, Reconciler.newStatusUpdate).
+func TestAnEmptyResultsListIsReleasedAndReadsEmpty(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
 	const ns, name = "search-ownership", "srch-own"
@@ -80,12 +86,10 @@ func TestResultsAreDeclaredEmptyRatherThanReleased(t *testing.T) {
 
 	// Steady state first: a blank object cannot observe a release.
 	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker,
-		search.Search(name, ns).WithStatus(
-			search.SearchStatus().
+		catalogac.Search(name, ns).WithStatus(
+			catalogac.SearchStatus().
 				WithFinishedAt(metav1.Now()).
-				WithIndexerOutcomes(catalogv1alpha1.IndexerOutcome{
-					Name: "idx", State: catalogv1alpha1.IndexerOutcomeOK, Count: 1,
-				}).
+				WithIndexerOutcomes(catalogac.IndexerOutcome().WithName("idx").WithState(catalogv1alpha1.IndexerOutcomeOK).WithCount(1)).
 				WithResults(approvedResult("g1"))))
 	require.NoError(t, err)
 
@@ -95,20 +99,21 @@ func TestResultsAreDeclaredEmptyRatherThanReleased(t *testing.T) {
 	require.Contains(t, statusFieldsOwnedBy(t, got, string(k8s.ManagerCatalogarrWorker)), "f:results")
 
 	// The same manager applies again with nothing to put in the list, which is
-	// what a terminal failure report carries.
+	// what a terminal failure with no earlier results carries.
 	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker,
-		search.Search(name, ns).WithStatus(
-			search.SearchStatus().
+		catalogac.Search(name, ns).WithStatus(
+			catalogac.SearchStatus().
 				WithFinishedAt(metav1.Now()).
 				WithIndexerOutcomes().
 				WithResults()))
 	require.NoError(t, err)
 
 	require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, got))
-	require.Contains(t, statusFieldsOwnedBy(t, got, string(k8s.ManagerCatalogarrWorker)), "f:results",
-		"an empty atomic list must still be DECLARED; omitting it releases the field instead")
-	require.NotNil(t, got.Status.Results, "a declared-empty list is [], not absent")
-	require.Empty(t, got.Status.Results)
+	require.Empty(t, got.Status.Results, "an empty list must read as no results")
+	owned := statusFieldsOwnedBy(t, got, string(k8s.ManagerCatalogarrWorker))
+	require.NotContains(t, owned, "f:results",
+		"a generated apply configuration omits an empty list, so the field is released, not declared empty")
+	require.Contains(t, owned, "f:finishedAt", "the fields this apply did send stay owned")
 }
 
 // TestAssociativeListOwnershipIsPerEntry records the limit of the fix above,
@@ -119,8 +124,8 @@ func TestResultsAreDeclaredEmptyRatherThanReleased(t *testing.T) {
 // apply tracks an associative list per ENTRY -- ownership is recorded as
 // k:{"name":"idx"} under the field -- so an empty list owns nothing, and
 // declaring `[]` is indistinguishable from omitting the field in both the
-// resulting object and the ownership record. The pointer shape buys these two
-// fields nothing.
+// resulting object and the ownership record. (The generated apply
+// configuration omits an empty list anyway; see the test above.)
 //
 // Which is why Worker.writeFailure re-declares the existing outcomes rather
 // than trusting the wire form, and why Reconciler.newStatusUpdate copies the
@@ -138,12 +143,10 @@ func TestAssociativeListOwnershipIsPerEntry(t *testing.T) {
 		},
 	}))
 	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker,
-		search.Search(name, ns).WithStatus(
-			search.SearchStatus().
+		catalogac.Search(name, ns).WithStatus(
+			catalogac.SearchStatus().
 				WithFinishedAt(metav1.Now()).
-				WithIndexerOutcomes(catalogv1alpha1.IndexerOutcome{
-					Name: "idx", State: catalogv1alpha1.IndexerOutcomeOK,
-				}).
+				WithIndexerOutcomes(catalogac.IndexerOutcome().WithName("idx").WithState(catalogv1alpha1.IndexerOutcomeOK)).
 				WithResults(approvedResult("g1"))))
 	require.NoError(t, err)
 
@@ -157,8 +160,8 @@ func TestAssociativeListOwnershipIsPerEntry(t *testing.T) {
 	// Declaring the list empty removes the entry AND the ownership record --
 	// exactly as omitting the field would have done.
 	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker,
-		search.Search(name, ns).WithStatus(
-			search.SearchStatus().
+		catalogac.Search(name, ns).WithStatus(
+			catalogac.SearchStatus().
 				WithFinishedAt(metav1.Now()).
 				WithIndexerOutcomes().
 				WithResults(approvedResult("g1"))))
@@ -170,12 +173,10 @@ func TestAssociativeListOwnershipIsPerEntry(t *testing.T) {
 		"an empty associative list owns nothing; only re-declaring its contents preserves them")
 }
 
-// TestSearchApplyConfigurationClaimsOnlyWhatItSets is the other half of the
-// pointer change: making an empty list declarable must not make every builder
-// claim every list. A builder that never mentions a field has to leave it
-// alone, which is why `omitempty` stays on the pointer rather than being
-// dropped -- without it, an untouched field would go out as
-// `"results": null` and claim ownership of something this caller does not own.
+// TestSearchApplyConfigurationClaimsOnlyWhatItSets: a builder that never
+// mentions a field has to leave it alone. Without omitempty an untouched field
+// would go out as `"results": null` and claim ownership of something this
+// caller does not own.
 func TestSearchApplyConfigurationClaimsOnlyWhatItSets(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
@@ -190,8 +191,8 @@ func TestSearchApplyConfigurationClaimsOnlyWhatItSets(t *testing.T) {
 	}))
 
 	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker,
-		search.Search(name, ns).WithStatus(
-			search.SearchStatus().WithFinishedAt(metav1.Now())))
+		catalogac.Search(name, ns).WithStatus(
+			catalogac.SearchStatus().WithFinishedAt(metav1.Now())))
 	require.NoError(t, err)
 
 	got := &catalogv1alpha1.Search{}

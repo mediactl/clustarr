@@ -19,7 +19,6 @@ package search
 
 import (
 	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/download/v1alpha1"
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 )
@@ -97,7 +96,7 @@ type grabDecision struct {
 // item is not available yet -- and a human looking at status.results and
 // picking that release is making exactly the judgement call the temporary
 // rejection was deferring.
-func resolveGrab(guid string, results []catalogv1alpha1.ReleaseDecision, override bool) grabDecision {
+func resolveGrab(guid string, results []commonv1.ReleaseDecision, override bool) grabDecision {
 	for _, r := range results {
 		if r.GUID != guid {
 			continue

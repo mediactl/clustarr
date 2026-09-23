@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 
+	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/download/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -234,7 +235,7 @@ type statusUpdate struct {
 	// s.Spec.Query != nil -- see both doc comments before changing either.
 	finishedAt      *metav1.Time
 	indexerOutcomes []catalogv1alpha1.IndexerOutcome
-	results         []catalogv1alpha1.ReleaseDecision
+	results         []commonv1.ReleaseDecision
 }
 
 func newStatusUpdate(s *catalogv1alpha1.Search) *statusUpdate {
@@ -254,31 +255,37 @@ func newStatusUpdate(s *catalogv1alpha1.Search) *statusUpdate {
 		// declaring them on an object the worker owns.
 		u.finishedAt = s.Status.FinishedAt
 		u.indexerOutcomes = append([]catalogv1alpha1.IndexerOutcome(nil), s.Status.IndexerOutcomes...)
-		u.results = append([]catalogv1alpha1.ReleaseDecision(nil), s.Status.Results...)
+		u.results = append([]commonv1.ReleaseDecision(nil), s.Status.Results...)
 	}
 	return u
 }
 
 // apply writes the update. It always sends every field this manager owns.
 //
-// status.grabbed is declared unconditionally, empty list included, so this
-// function is uniformly "declare everything I own" -- the rule this codebase
-// keeps getting bitten by. It is NOT what protects the recorded grabs:
-// status.grabbed is listType=map, and server-side apply tracks an associative
-// list per entry, so declaring it empty removes this manager's entries exactly
-// as omitting it would (see SearchStatusApplyConfiguration's doc comment).
-// What protects them is newStatusUpdate copying the live status.grabbed into
-// every update, so the contents are re-declared rather than merely re-claimed.
+// status.grabbed is passed on every call, so this function is uniformly
+// "declare everything I own" -- the rule this codebase keeps getting bitten
+// by. An empty list is omitted on the wire (every generated apply
+// configuration field is omitempty), which is harmless here: status.grabbed is
+// listType=map, and server-side apply tracks an associative list per entry, so
+// declaring it empty would remove this manager's entries exactly as omitting it
+// does (catalogarr/controller/search's ownership envtests pin both). What
+// protects the recorded grabs is newStatusUpdate copying the live
+// status.grabbed into every update, so the contents are re-declared rather
+// than merely re-claimed.
 //
 // phase and startedAt stay conditional because they are scalars whose zero
 // value is genuinely "nothing to say yet": a Search that has not started has
 // no phase to declare, and once either is set newStatusUpdate carries it
 // forward on every subsequent apply.
 func (r *Reconciler) apply(ctx context.Context, s *catalogv1alpha1.Search, u *statusUpdate) error {
-	statusAC := SearchStatus().
+	grabbed, err := k8s.ApplyConfigurationsFrom[catalogac.GrabResultApplyConfiguration](u.grabbed)
+	if err != nil {
+		return err
+	}
+	statusAC := catalogac.SearchStatus().
 		WithObservedGeneration(s.Generation).
 		WithConditions(k8s.ConditionACs(u.conditions)...).
-		WithGrabbed(u.grabbed...)
+		WithGrabbed(grabbed...)
 	if u.phase != "" {
 		statusAC = statusAC.WithPhase(u.phase)
 	}
@@ -292,13 +299,17 @@ func (r *Reconciler) apply(ctx context.Context, s *catalogv1alpha1.Search, u *st
 		// s.Spec.Query so a mediaRef-mode object -- where these fields
 		// belong to k8s.ManagerCatalogarrWorker -- never has this manager
 		// say anything about them at all.
-		statusAC = statusAC.WithIndexerOutcomes(u.indexerOutcomes...).WithResults(u.results...)
+		outcomes, err := k8s.ApplyConfigurationsFrom[catalogac.IndexerOutcomeApplyConfiguration](u.indexerOutcomes)
+		if err != nil {
+			return err
+		}
+		statusAC = statusAC.WithIndexerOutcomes(outcomes...).WithResults(u.results...)
 		if u.finishedAt != nil {
 			statusAC = statusAC.WithFinishedAt(*u.finishedAt)
 		}
 	}
 	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr,
-		Search(s.Name, s.Namespace).WithStatus(statusAC)); err != nil {
+		catalogac.Search(s.Name, s.Namespace).WithStatus(statusAC)); err != nil {
 		return err
 	}
 	return nil
@@ -397,6 +408,17 @@ func (r *Reconciler) completeSearch(ctx context.Context, s *catalogv1alpha1.Sear
 	return ctrl.Result{RequeueAfter: r.ttlRequeue(s)}, nil
 }
 
+// WorkerOutcomeName is the status.indexerOutcomes entry name the search worker
+// reserves for a failure that is not any one indexer's fault -- an invalid
+// QualityProfile, an unsupported media kind, a target that vanished mid-flight.
+//
+// It lives here rather than in the worker because both halves need it and the
+// dependency only points one way: the worker imports this package, so this
+// package cannot import the worker. The value is deliberately not a valid
+// DNS-1123 subdomain, so it can never collide with a real Indexer object's name
+// in a listType=map keyed by name.
+const WorkerOutcomeName = "catalogarr/search-worker"
+
 // workerFailure reports the search worker's own explanation when it finished
 // without being able to search at all.
 //
@@ -492,14 +514,14 @@ func (r *Reconciler) runQuery(ctx context.Context, s *catalogv1alpha1.Search) (c
 		return r.fail(ctx, s, "QueryFailed", resp.Error)
 	}
 
-	results := make([]catalogv1alpha1.ReleaseDecision, 0, len(resp.Releases))
+	results := make([]commonv1.ReleaseDecision, 0, len(resp.Releases))
 	for _, rel := range resp.Releases {
 		// No decision.Evaluate runs here: that needs a MediaRef's quality
 		// profile, availability window and blocklist, none of which a
 		// free-text query has. Every hit comes back unapproved and
 		// unranked -- the user grabs straight from the listing via
 		// spec.grab, per §8.2's "Search-CR grabs".
-		results = append(results, catalogv1alpha1.ReleaseDecision{ReleaseInfo: rel.Info})
+		results = append(results, commonv1.ReleaseDecision{ReleaseInfo: rel.Info})
 	}
 
 	now := metav1.NewTime(r.now())

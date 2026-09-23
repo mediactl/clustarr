@@ -105,7 +105,7 @@ func (s Sink) Deliver(
 	ctx context.Context,
 	ns string,
 	target commonv1.MediaRef,
-	ranked []catalogv1alpha1.ReleaseDecision,
+	ranked []commonv1.ReleaseDecision,
 ) error {
 	log := logging.FromContext(ctx).With("item", target.Name)
 	best, ok := firstApproved(ranked)
@@ -153,11 +153,11 @@ func (s Sink) Deliver(
 // firstApproved returns the best approved decision. The search worker already
 // ranked the list best first, so this is a scan for the first Approved rather
 // than a second ordering.
-func firstApproved(ranked []catalogv1alpha1.ReleaseDecision) (catalogv1alpha1.ReleaseDecision, bool) {
+func firstApproved(ranked []commonv1.ReleaseDecision) (commonv1.ReleaseDecision, bool) {
 	for _, d := range ranked {
 		if d.Approved {
 			return d, true
 		}
 	}
-	return catalogv1alpha1.ReleaseDecision{}, false
+	return commonv1.ReleaseDecision{}, false
 }

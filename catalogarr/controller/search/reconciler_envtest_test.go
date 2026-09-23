@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
@@ -323,21 +324,19 @@ func TestReconcileQueueFullLeavesThePhaseUnsetAndRequeues(t *testing.T) {
 
 // workerWrote simulates the search worker's own status write: the disjoint
 // field set it owns, under its own field manager.
-func workerWrote(t *testing.T, c client.Client, ns, name string, finishedAt metav1.Time, results ...catalogv1alpha1.ReleaseDecision) {
+func workerWrote(t *testing.T, c client.Client, ns, name string, finishedAt metav1.Time, results ...commonv1.ReleaseDecision) {
 	t.Helper()
 	_, err := k8s.PatchStatus(context.Background(), c, k8s.ManagerCatalogarrWorker,
-		search.Search(name, ns).WithStatus(
-			search.SearchStatus().
+		catalogac.Search(name, ns).WithStatus(
+			catalogac.SearchStatus().
 				WithFinishedAt(finishedAt).
-				WithIndexerOutcomes(catalogv1alpha1.IndexerOutcome{
-					Name: "idx", State: catalogv1alpha1.IndexerOutcomeOK, Count: int32(len(results)),
-				}).
+				WithIndexerOutcomes(catalogac.IndexerOutcome().WithName("idx").WithState(catalogv1alpha1.IndexerOutcomeOK).WithCount(int32(len(results)))).
 				WithResults(results...)))
 	require.NoError(t, err)
 }
 
-func approvedResult(guid string) catalogv1alpha1.ReleaseDecision {
-	return catalogv1alpha1.ReleaseDecision{
+func approvedResult(guid string) commonv1.ReleaseDecision {
+	return commonv1.ReleaseDecision{
 		ReleaseInfo: commonv1.ReleaseInfo{
 			GUID: guid, IndexerRef: "idx", Title: "The.Matrix.1999.1080p.BluRay.x264-GROUP",
 			Protocol: commonv1.ProtocolTorrent, DownloadURL: "https://idx.example/dl/" + guid,
@@ -347,8 +346,8 @@ func approvedResult(guid string) catalogv1alpha1.ReleaseDecision {
 	}
 }
 
-func rejectedResult(guid string) catalogv1alpha1.ReleaseDecision {
-	return catalogv1alpha1.ReleaseDecision{
+func rejectedResult(guid string) commonv1.ReleaseDecision {
+	return commonv1.ReleaseDecision{
 		ReleaseInfo: commonv1.ReleaseInfo{
 			GUID: guid, IndexerRef: "idx", Title: "The.Matrix.1999.480p.CAM-BAD",
 			Protocol: commonv1.ProtocolTorrent, DownloadURL: "https://idx.example/dl/" + guid,
@@ -363,7 +362,7 @@ func rejectedResult(guid string) catalogv1alpha1.ReleaseDecision {
 // worker's results, then Completed -- so a later failure path can be shown to
 // PRESERVE that state rather than release it. A blank object cannot observe a
 // server-side-apply release at all.
-func (f *fixture) drive(t *testing.T, name string, results ...catalogv1alpha1.ReleaseDecision) *catalogv1alpha1.Search {
+func (f *fixture) drive(t *testing.T, name string, results ...commonv1.ReleaseDecision) *catalogv1alpha1.Search {
 	t.Helper()
 	f.reconcile(t, name)
 	workerWrote(t, f.c, f.ns, name, metav1.NewTime(f.clock.Now()), results...)
@@ -522,14 +521,10 @@ func TestReconcileIgnoresAMissingSearch(t *testing.T) {
 func workerReportedFailure(t *testing.T, c client.Client, ns, name string, finishedAt metav1.Time, message string) {
 	t.Helper()
 	_, err := k8s.PatchStatus(context.Background(), c, k8s.ManagerCatalogarrWorker,
-		search.Search(name, ns).WithStatus(
-			search.SearchStatus().
+		catalogac.Search(name, ns).WithStatus(
+			catalogac.SearchStatus().
 				WithFinishedAt(finishedAt).
-				WithIndexerOutcomes(catalogv1alpha1.IndexerOutcome{
-					Name:  search.WorkerOutcomeName,
-					State: catalogv1alpha1.IndexerOutcomeError,
-					Error: message,
-				})))
+				WithIndexerOutcomes(catalogac.IndexerOutcome().WithName(search.WorkerOutcomeName).WithState(catalogv1alpha1.IndexerOutcomeError).WithError(message))))
 	require.NoError(t, err)
 }
 

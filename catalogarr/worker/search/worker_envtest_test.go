@@ -28,9 +28,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	searchctl "github.com/mediactl/clustarr/catalogarr/controller/search"
 	"github.com/mediactl/clustarr/catalogarr/worker/search"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -70,7 +70,7 @@ type recordingSink struct {
 	mu         sync.Mutex
 	namespaces []string
 	targets    []commonv1.MediaRef
-	batches    [][]catalogv1alpha1.ReleaseDecision
+	batches    [][]commonv1.ReleaseDecision
 	delivery   chan struct{}
 }
 
@@ -78,7 +78,7 @@ func newRecordingSink() *recordingSink {
 	return &recordingSink{delivery: make(chan struct{}, 8)}
 }
 
-func (s *recordingSink) Deliver(_ context.Context, ns string, target commonv1.MediaRef, ranked []catalogv1alpha1.ReleaseDecision) error {
+func (s *recordingSink) Deliver(_ context.Context, ns string, target commonv1.MediaRef, ranked []commonv1.ReleaseDecision) error {
 	s.mu.Lock()
 	s.namespaces = append(s.namespaces, ns)
 	s.targets = append(s.targets, target)
@@ -91,7 +91,7 @@ func (s *recordingSink) Deliver(_ context.Context, ns string, target commonv1.Me
 	return nil
 }
 
-func (s *recordingSink) last() (string, commonv1.MediaRef, []catalogv1alpha1.ReleaseDecision, int) {
+func (s *recordingSink) last() (string, commonv1.MediaRef, []commonv1.ReleaseDecision, int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.targets) == 0 {
@@ -299,8 +299,8 @@ func TestWorkerHandleWritesAnInteractiveSearchesResults(t *testing.T) {
 func writeControllerStatus(t *testing.T, ctx context.Context, c client.Client, ns, name string) {
 	t.Helper()
 	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr,
-		searchctl.Search(name, ns).WithStatus(
-			searchctl.SearchStatus().
+		catalogac.Search(name, ns).WithStatus(
+			catalogac.SearchStatus().
 				WithPhase(catalogv1alpha1.SearchPhaseRunning).
 				WithObservedGeneration(1).
 				WithStartedAt(metav1.Now())))

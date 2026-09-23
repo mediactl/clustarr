@@ -44,17 +44,6 @@ spec:
         description: |-
           Search is a short-lived interactive search. It is deleted once spec.ttl has
           elapsed after the search completed.
-
-          Apply-configuration generation is disabled for Search and SearchList.
-          SearchStatus.Results is []ReleaseDecision, which embeds common.ReleaseInfo
-          inline exactly as the spec writes it. controller-tools v0.22.0 flattens that
-          embedded cross-package schema and then rewrites the $refs inside it using the
-          *embedding* package, so common.Quality and common.Protocol are looked up as
-          catalog.v1alpha1.Quality / catalog.v1alpha1.Protocol and the generator panics
-          with "allSchemas schema is missing referenced type" (see convertRefs in
-          pkg/applyconfiguration/openapi.go). Every other catalog kind still gets an
-          apply configuration. Re-enable once controller-tools resolves those refs
-          against the package that owns the embedded type.
         properties:
           apiVersion:
             description: |-

@@ -428,7 +428,7 @@ func TestWorkerSearchRejectsAWrongFilmFromATextFallbackIndexer(t *testing.T) {
 
 	got := &catalogv1alpha1.Search{}
 	require.NoError(t, f.api.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: "srch"}, got))
-	byGUID := map[string]catalogv1alpha1.ReleaseDecision{}
+	byGUID := map[string]commonv1.ReleaseDecision{}
 	for _, r := range got.Status.Results {
 		byGUID[r.GUID] = r
 	}

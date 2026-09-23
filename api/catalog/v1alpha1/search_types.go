@@ -83,30 +83,6 @@ type IndexerOutcome struct {
 	Error string `json:"error,omitempty"`
 }
 
-// ReleaseDecision is one search result together with the decision engine's
-// verdict on it.
-type ReleaseDecision struct {
-	// ReleaseInfo is the release as parsed from the indexer response.
-	commonv1.ReleaseInfo `json:",inline"`
-
-	// Approved is true when the release passed every check.
-	// +optional
-	Approved bool `json:"approved,omitempty"`
-
-	// TemporarilyRejected is true when the release may pass a later run.
-	// +optional
-	TemporarilyRejected bool `json:"temporarilyRejected,omitempty"`
-
-	// Rejections explains why the release was not approved.
-	// +optional
-	// +kubebuilder:validation:MaxItems=20
-	Rejections []commonv1.Rejection `json:"rejections,omitempty"`
-
-	// Rank is the release's position in the ranked result set; lower is better.
-	// +optional
-	Rank int32 `json:"rank,omitempty"`
-}
-
 // GrabResult reports what happened to one requested grab.
 type GrabResult struct {
 	// GUID is the release GUID the user asked to grab.
@@ -213,7 +189,7 @@ type SearchStatus struct {
 	// Results is the ranked result set with the decision engine's verdicts.
 	// +optional
 	// +kubebuilder:validation:MaxItems=200
-	Results []ReleaseDecision `json:"results,omitempty"`
+	Results []commonv1.ReleaseDecision `json:"results,omitempty"`
 
 	// Grabbed reports what happened to each requested grab.
 	// +optional
@@ -225,7 +201,7 @@ type SearchStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:ac:generate=false
+// +kubebuilder:ac:generate=true
 // +kubebuilder:resource:scope=Namespaced,shortName=srch,categories=clustarr;catalog
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Results",type=integer,JSONPath=`.status.indexerOutcomes[0].count`
@@ -236,17 +212,6 @@ type SearchStatus struct {
 
 // Search is a short-lived interactive search. It is deleted once spec.ttl has
 // elapsed after the search completed.
-//
-// Apply-configuration generation is disabled for Search and SearchList.
-// SearchStatus.Results is []ReleaseDecision, which embeds common.ReleaseInfo
-// inline exactly as the spec writes it. controller-tools v0.22.0 flattens that
-// embedded cross-package schema and then rewrites the $refs inside it using the
-// *embedding* package, so common.Quality and common.Protocol are looked up as
-// catalog.v1alpha1.Quality / catalog.v1alpha1.Protocol and the generator panics
-// with "allSchemas schema is missing referenced type" (see convertRefs in
-// pkg/applyconfiguration/openapi.go). Every other catalog kind still gets an
-// apply configuration. Re-enable once controller-tools resolves those refs
-// against the package that owns the embedded type.
 type Search struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -256,10 +221,9 @@ type Search struct {
 }
 
 // +kubebuilder:object:root=true
-// +kubebuilder:ac:generate=false
+// +kubebuilder:ac:generate=true
 
-// SearchList contains a list of Search. Apply-configuration generation is
-// disabled for the same reason as on Search.
+// SearchList contains a list of Search.
 type SearchList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`

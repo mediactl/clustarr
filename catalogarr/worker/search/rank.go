@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package search
 
 import (
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/decision"
 )
 
@@ -47,7 +47,7 @@ const MaxResults = 200
 // by a meaningless key. That ordering is what makes status.results readable
 // in the UI -- grabbable releases first, then the ones explaining why the
 // rest were not.
-func RankAndCap(ds []decision.Decision, o decision.Options, limit int) []catalogv1alpha1.ReleaseDecision {
+func RankAndCap(ds []decision.Decision, o decision.Options, limit int) []commonv1.ReleaseDecision {
 	approved := make([]decision.Decision, 0, len(ds))
 	rejected := make([]decision.Decision, 0, len(ds))
 	for _, d := range ds {
@@ -68,9 +68,9 @@ func RankAndCap(ds []decision.Decision, o decision.Options, limit int) []catalog
 		n = len(ordered)
 	}
 
-	out := make([]catalogv1alpha1.ReleaseDecision, n)
+	out := make([]commonv1.ReleaseDecision, n)
 	for i := range out {
-		out[i] = catalogv1alpha1.ReleaseDecision{
+		out[i] = commonv1.ReleaseDecision{
 			ReleaseInfo:         ordered[i].Release,
 			Approved:            ordered[i].Approved,
 			TemporarilyRejected: ordered[i].TemporarilyRejected,
