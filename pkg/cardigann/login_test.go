@@ -146,6 +146,58 @@ func TestEngineLoginCaptchaRequiredSignal(t *testing.T) {
 	var captchaErr *cardigann.CaptchaRequiredError
 	require.ErrorAs(t, err, &captchaErr)
 	assert.Equal(t, "image", captchaErr.Type)
+	assert.Equal(t, "img.captcha-image", captchaErr.Selector)
+	assert.Contains(t, err.Error(), `serves an image captcha ("img.captcha-image")`)
+	assert.Contains(t, err.Error(), `set the Indexer Secret's "cookie" key`, "the condition names the workaround")
+}
+
+// TestEngineLoginCaptchaTakesAManualCookie is the documented workaround: a
+// login page that serves its captcha takes the operator's browser cookie
+// (the `cookie` setting) as the session instead of failing, and login.test
+// still proves it -- a dead cookie fails the test.
+func TestEngineLoginCaptchaTakesAManualCookie(t *testing.T) {
+	var submitted bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/login" && r.Method == http.MethodPost:
+			submitted = true
+		case r.URL.Path == "/login":
+			_, _ = w.Write([]byte(`<html><body><form><input name="u"></form><img class="captcha-image" src="/c.png"></body></html>`))
+		case r.URL.Path == "/me":
+			if c, err := r.Cookie("uid"); err == nil && c.Value == "7" {
+				_, _ = w.Write([]byte(`<a class="logout">out</a>`))
+				return
+			}
+			_, _ = w.Write([]byte(`<html><body>who?</body></html>`))
+		}
+	}))
+	defer srv.Close()
+
+	for _, method := range []string{"form", "post"} {
+		def := &cardigann.Definition{
+			Links: []string{srv.URL + "/"},
+			Login: &cardigann.LoginBlock{
+				Method: method, Path: "login",
+				Captcha: &cardigann.CaptchaBlock{Type: "image", Selector: "img.captcha-image", Input: "captcha"},
+				Test:    &cardigann.PageTestBlock{Path: "me", Selector: "a.logout"},
+			},
+		}
+		eng := cardigann.Engine{HTTP: srv.Client()}
+
+		cfg, err := cardigann.NewConfig(def, srv.URL+"/", map[string]string{"cookie": "uid=7; pass=abc"})
+		require.NoError(t, err)
+		sess, err := eng.Login(context.Background(), def, cfg)
+		require.NoError(t, err, method)
+		require.Len(t, sess.Cookies, 2, method)
+		assert.Equal(t, "uid", sess.Cookies[0].Name)
+		assert.False(t, submitted, "%s: the captcha form is never submitted", method)
+
+		dead, err := cardigann.NewConfig(def, srv.URL+"/", map[string]string{"cookie": "uid=8"})
+		require.NoError(t, err)
+		_, err = eng.Login(context.Background(), def, dead)
+		var le *cardigann.LoginError
+		require.ErrorAs(t, err, &le, "%s: login.test refuses an expired manual cookie", method)
+	}
 }
 
 // TestEngineLoginPost covers the "post" login method, the one mode the

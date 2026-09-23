@@ -444,7 +444,8 @@ func buildCardigann(
 
 // classifyLogin maps a login failure onto conditions. A rejected credential
 // and a captcha are the operator's to fix; anything else (a timeout, a 5xx)
-// is the tracker being unreachable.
+// is the tracker being unreachable. A captcha's message is the error's own
+// text, which names the captcha and the manual-cookie workaround (doc.go).
 func classifyLogin(err error) probeOutcome {
 	if err == nil {
 		return probeOutcome{}

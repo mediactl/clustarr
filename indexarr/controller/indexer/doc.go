@@ -128,6 +128,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // through their existing seams (ruling R5), and a tracker's search.error
 // page is an error the fan-out escalates rather than zero results (R6).
 //
+// A captcha is never solved. When a definition's login page serves the
+// captcha its login.captcha declares (45 bundled definitions declare one),
+// the login fails with Authenticated=False, reason CaptchaRequired, and a
+// message naming the captcha and the workaround: sign in to the tracker
+// with a browser, copy the request's Cookie header, and put it under the
+// Indexer Secret's "cookie" key. The engine then takes that cookie as the
+// session whenever the captcha appears (cardigann.CaptchaRequiredError),
+// login.test proves it on every renewal, and a cookie the tracker has
+// expired fails that test (reason CredentialsRejected) until it is
+// replaced.
+//
 // The IndexerProxies that apply -- spec.proxyRef, then every proxy whose
 // spec.selector matches the Indexer's labels, at most one http/socks4/socks5
 // route and at most one FlareSolverr applied last -- are routed by

@@ -55,15 +55,39 @@ type LoginError struct{ Message string }
 
 func (e *LoginError) Error() string { return "cardigann: login failed: " + e.Message }
 
-// CaptchaRequiredError signals that def.Login.Captcha is set and the login
-// page actually served a captcha challenge. pkg/cardigann never solves
-// captchas; Engine.Login returns this instead of attempting the submit so
-// the indexer controller can surface it (Indexer.status condition
-// Authenticated=False, reason CaptchaRequired) rather than looping forever.
-type CaptchaRequiredError struct{ Type string } // "image" | "text"
+// CaptchaRequiredError signals that def.Login.Captcha is set, the login page
+// actually served a captcha challenge, and no manual cookie was supplied.
+// pkg/cardigann never solves captchas (45 bundled definitions declare one);
+// Engine.Login returns this instead of attempting the submit so the indexer
+// controller can surface it (Indexer.status condition Authenticated=False,
+// reason CaptchaRequired, this error's text as the message) rather than
+// looping forever.
+//
+// The workaround is a manual cookie: sign in to the tracker with a browser,
+// copy the request's Cookie header, and put it in the Indexer Secret's
+// "cookie" key (the `cookie` setting). When the login page serves its
+// captcha, Login then takes that cookie as the session instead of failing
+// -- still proved by the definition's login.test -- and keeps doing so on
+// every renewal until the tracker expires it, when the test fails and the
+// cookie must be replaced.
+type CaptchaRequiredError struct {
+	Type     string // "image" | "text"
+	Selector string // login.captcha.selector, what matched on the page
+}
 
 func (e *CaptchaRequiredError) Error() string {
-	return "cardigann: captcha required (" + e.Type + ")"
+	what := "a captcha"
+	if e.Type != "" {
+		what = e.Type + " captcha"
+		if strings.ContainsRune("aeiouAEIOU", rune(e.Type[0])) {
+			what = "an " + what
+		} else {
+			what = "a " + what
+		}
+	}
+	return fmt.Sprintf("cardigann: captcha required: the login page serves %s (%q), which is never solved; "+
+		`sign in with a browser and set the Indexer Secret's "cookie" key to its Cookie header to use that session instead`,
+		what, e.Selector)
 }
 
 // ErrSessionRequired is returned by Search/Download when def.Login != nil
@@ -159,8 +183,8 @@ func (e Engine) login(ctx context.Context, def *Definition, cfg Config, lb *Logi
 		if err != nil {
 			return nil, err
 		}
-		if _, ok := page.Select(lb.Captcha.Selector); ok {
-			return nil, &CaptchaRequiredError{Type: lb.Captcha.Type}
+		if sess, err := lf.captcha(page); sess != nil || err != nil {
+			return sess, err
 		}
 	}
 	switch lb.Method {
@@ -184,6 +208,27 @@ type loginFlow struct {
 	lb  *LoginBlock
 	tc  *TemplateContext
 	jar http.CookieJar
+}
+
+// captcha checks the landing page for login.captcha. With no captcha on the
+// page it returns nil, nil and the login proceeds. With one, the operator's
+// manual cookie (the `cookie` setting, a browser's Cookie header) becomes
+// the session; without one, the login fails with *CaptchaRequiredError,
+// whose text says how to supply it.
+func (lf loginFlow) captcha(page Doc) (*Session, error) {
+	cb := lf.lb.Captcha
+	if cb == nil {
+		return nil, nil
+	}
+	if _, ok := page.Select(cb.Selector); !ok {
+		return nil, nil
+	}
+	if raw, ok := lf.cfg.stringValue("cookie"); ok {
+		if cookies := parseCookieHeader(raw); len(cookies) > 0 {
+			return &Session{Cookies: cookies, ExpiresAt: lf.e.now().Add(sessionTTL)}, nil
+		}
+	}
+	return nil, &CaptchaRequiredError{Type: cb.Type, Selector: cb.Selector}
 }
 
 // exchange is how a login request is sent. The landing page follows
@@ -300,10 +345,8 @@ func (lf loginFlow) form(ctx context.Context) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	if lb.Captcha != nil {
-		if _, ok := page.Select(lb.Captcha.Selector); ok {
-			return nil, &CaptchaRequiredError{Type: lb.Captcha.Type}
-		}
+	if sess, err := lf.captcha(page); sess != nil || err != nil {
+		return sess, err
 	}
 
 	formSel := lb.Form
