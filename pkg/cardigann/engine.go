@@ -454,21 +454,6 @@ func (cfg Config) stringValue(name string) (string, bool) {
 	return s, ok
 }
 
-// get issues a GET to path (resolved against cfg.BaseURL) and returns the
-// response and its body.
-func (e Engine) get(ctx context.Context, cfg Config, path string, x exchange) (*http.Response, []byte, error) {
-	u, err := resolveURL(cfg.BaseURL, path)
-	if err != nil {
-		return nil, nil, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, nil, fmt.Errorf("cardigann: build request: %w", RedactErr(err))
-	}
-	attachSession(req, cfg.Session)
-	return e.do(ctx, req, x)
-}
-
 // postForm issues a POST with an application/x-www-form-urlencoded body,
 // encoded in tc's charset, to path (resolved against cfg.BaseURL).
 func (e Engine) postForm(ctx context.Context, cfg Config, tc *TemplateContext, path string, form url.Values, x exchange) (*http.Response, []byte, error) {

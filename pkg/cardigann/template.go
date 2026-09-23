@@ -216,7 +216,7 @@ func renderModified(tmplText string, tc *TemplateContext, modifier func(string) 
 		}
 	}
 	if modifier != nil && t.Tree != nil {
-		modifyOutputs(t.Tree.Root)
+		modifyOutputs(t.Root)
 	}
 	var buf bytes.Buffer
 	if err := t.Execute(&buf, tc); err != nil {
