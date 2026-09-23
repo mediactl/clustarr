@@ -263,10 +263,7 @@ type frozenFields struct {
 }
 
 // freshMovieSpec is what a scanned movie file freezes: the release identity
-// pkg/release parsed. releaseGroup goes through releaseGroupOrEmpty rather
-// than straight from the parser: see releasegroup.go for the pkg/release
-// defect that guard compensates for, and why a frozen field makes it worth
-// compensating for. releaseGroup and edition are sent even when empty, as
+// pkg/release parsed. releaseGroup and edition are sent even when empty, as
 // they always have been on this path.
 //
 // formatScore, matchedFormats and profileHash are deliberately left at their
@@ -279,7 +276,7 @@ func freshMovieSpec(parsed *release.ParsedRelease) frozenFields {
 		quality:      &parsed.Quality,
 		revision:     &parsed.Revision,
 		releaseType:  parsed.ReleaseType,
-		releaseGroup: ptr.To(releaseGroupOrEmpty(parsed)),
+		releaseGroup: ptr.To(parsed.Group),
 		edition:      ptr.To(parsed.Edition),
 		languages:    parsed.Languages,
 	}

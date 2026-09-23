@@ -200,3 +200,31 @@ func TestParseBracedIDTokensDoNotHijackClassification(t *testing.T) {
 		assert.Equal(t, "Ray Porter", p.Book.Narrator)
 	})
 }
+
+// TestParsePathReleaseGroupOnLibraryLayouts is the corpus importarr's
+// rescan guard (importarr/worker/rescan/releasegroup.go, deleted with this
+// fix) carried while pkg/release mis-read the group on *arr's own renamed
+// files. MediaFileSpec.ReleaseGroup is frozen at import, so these are the
+// values that become permanent.
+func TestParsePathReleaseGroupOnLibraryLayouts(t *testing.T) {
+	tests := []struct {
+		path string
+		want string
+	}{
+		{"/data/media/movies/Heat (1995) [tmdbid-949]/Heat (1995) [tmdbid-949] - Bluray-1080p.mkv", ""},
+		{"/data/media/movies/Heat (1995)/Heat.1995.Bluray-1080p-RlsGrp.mkv", "RlsGrp"},
+		{"/data/media/movies/Heat (1995)/Heat (1995) WEBDL-720p.mkv", ""},
+		{"/data/media/movies/Heat (1995)/Heat.1995.1080p.BluRay.x264-SPARKS.mkv", "SPARKS"},
+		{"/data/media/movies/Heat (1995)/Heat.1995.2160p.UHD.BluRay.x265-TERMiNAL.mkv", "TERMiNAL"},
+		{"/data/media/movies/Heat (1995)/Heat.1995.1080p.WEB-DL.DDP5.1-NTb.mkv", "NTb"},
+		{"/data/media/movies/Heat (1995)/Heat.1995.DVDRip.XviD-FraMeSToR.mkv", "FraMeSToR"},
+		{"/data/media/movies/Heat (1995) [tmdbid-949]/Heat (1995) [tmdbid-949].mkv", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			p, err := release.ParsePath(tt.path, release.Options{Kind: commonv1.MediaKindMovie})
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, p.Group)
+		})
+	}
+}

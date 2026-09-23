@@ -176,9 +176,10 @@ func TestHandleCreatesMovieAndMediaFileSpecForAConfidentMatch(t *testing.T) {
 	assert.False(t, mf.Spec.ModTime.IsZero())
 	assert.Equal(t, "Bluray-1080p", mf.Spec.Quality.Name, "the quality frozen at import comes from the parsed release")
 	assert.NotEmpty(t, mf.Spec.Languages)
-	// pkg/release mis-parses this layout's group as "1080p". spec.releaseGroup
-	// is frozen at import and custom formats score on it, so the worker drops
-	// a known-garbage group rather than freezing it. See releasegroup.go.
+	// Radarr's own renamed-file layout carries no group, and pkg/release must
+	// not read the quality's "-1080p" as one: spec.releaseGroup is frozen at
+	// import and custom formats score on it (pkg/release's
+	// TestParsePathReleaseGroupOnLibraryLayouts pins the parser side).
 	assert.Empty(t, mf.Spec.ReleaseGroup,
 		"a group that is really a quality token must not be frozen into spec")
 
