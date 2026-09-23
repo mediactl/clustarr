@@ -1,0 +1,67 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: clustarr-squasharr-role
+rules:
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - episodes
+  - mediafiles
+  - movies
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - rootfolders
+  verbs:
+  - list
+- apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - transcode.clustarr.io
+  resources:
+  - transcodejobs
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - transcode.clustarr.io
+  resources:
+  - transcodejobs/status
+  - transcodeprofiles/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - transcode.clustarr.io
+  resources:
+  - transcodeprofiles
+  verbs:
+  - get
+  - list
+  - watch

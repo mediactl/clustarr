@@ -1,0 +1,70 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: clustarr-grabarr-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  - statefulsets
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - download.clustarr.io
+  resources:
+  - downloadclients
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - download.clustarr.io
+  resources:
+  - downloadclients/status
+  - downloads/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - download.clustarr.io
+  resources:
+  - downloads
+  verbs:
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - download.clustarr.io
+  resources:
+  - downloads/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch

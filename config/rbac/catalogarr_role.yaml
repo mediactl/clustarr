@@ -2,48 +2,21 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: clustarr-manager-role
+  name: clustarr-catalogarr-role
 rules:
 - apiGroups:
   - ""
   resources:
-  - configmaps
   - namespaces
   verbs:
   - get
 - apiGroups:
   - ""
   resources:
-  - persistentvolumeclaims
   - secrets
   verbs:
-  - create
   - get
   - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - apps
-  resources:
-  - deployments
-  - statefulsets
-  verbs:
-  - create
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - batch
-  resources:
-  - jobs
-  verbs:
-  - create
-  - get
-  - list
-  - patch
   - watch
 - apiGroups:
   - catalog.clustarr.io
@@ -52,6 +25,7 @@ rules:
   - books
   - episodes
   - issues
+  - mediafiles
   verbs:
   - create
   - get
@@ -69,7 +43,6 @@ rules:
   - books/finalizers
   - comics/finalizers
   - episodes/finalizers
-  - importexclusions/finalizers
   - issues/finalizers
   - movies/finalizers
   - series/finalizers
@@ -86,10 +59,7 @@ rules:
   - comics/status
   - delayprofiles/status
   - episodes/status
-  - importexclusions/status
-  - importlists/status
   - issues/status
-  - libraryscans/status
   - mediafiles/status
   - metadataproviders/status
   - movies/status
@@ -108,8 +78,6 @@ rules:
   - audiobooks
   - authors
   - comics
-  - libraryscans
-  - mediafiles
   - movies
   - searches
   - series
@@ -126,25 +94,16 @@ rules:
   resources:
   - delayprofiles
   - metadataproviders
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
-  - importexclusions
   - rootfolders
   verbs:
   - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - catalog.clustarr.io
   resources:
   - importlists
+  - libraryscans
   verbs:
   - get
   - list
@@ -171,30 +130,14 @@ rules:
 - apiGroups:
   - download.clustarr.io
   resources:
-  - downloadclients/status
-  - downloads/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - download.clustarr.io
-  resources:
   - downloads
   verbs:
   - create
-  - delete
   - get
   - list
   - patch
   - update
   - watch
-- apiGroups:
-  - download.clustarr.io
-  resources:
-  - downloads/finalizers
-  verbs:
-  - update
 - apiGroups:
   - events.k8s.io
   resources:
@@ -202,25 +145,6 @@ rules:
   verbs:
   - create
   - patch
-- apiGroups:
-  - index.clustarr.io
-  resources:
-  - indexerdefinitions
-  - indexerproxies
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - index.clustarr.io
-  resources:
-  - indexerdefinitions/status
-  - indexerproxies/status
-  - indexers/status
-  verbs:
-  - get
-  - patch
-  - update
 - apiGroups:
   - index.clustarr.io
   resources:
@@ -233,53 +157,21 @@ rules:
 - apiGroups:
   - subtitle.clustarr.io
   resources:
-  - subtitleprofiles
-  - subtitleproviders
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - subtitle.clustarr.io
-  resources:
-  - subtitleprofiles/status
-  - subtitleproviders/status
-  - subtitlerequests/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - subtitle.clustarr.io
-  resources:
   - subtitlerequests
   verbs:
-  - create
   - get
   - list
   - patch
-  - update
   - watch
 - apiGroups:
   - transcode.clustarr.io
   resources:
   - transcodejobs
   verbs:
-  - create
   - get
   - list
   - patch
-  - update
   - watch
-- apiGroups:
-  - transcode.clustarr.io
-  resources:
-  - transcodejobs/status
-  - transcodeprofiles/status
-  verbs:
-  - get
-  - patch
-  - update
 - apiGroups:
   - transcode.clustarr.io
   resources:

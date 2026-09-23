@@ -1,0 +1,56 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: clustarr-grabarr-engine-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - episodes
+  verbs:
+  - get
+- apiGroups:
+  - download.clustarr.io
+  resources:
+  - downloadclients
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - download.clustarr.io
+  resources:
+  - downloads
+  verbs:
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - download.clustarr.io
+  resources:
+  - downloads/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - download.clustarr.io
+  resources:
+  - downloads/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch

@@ -16,7 +16,7 @@ metadata:
 # The identity every transcode Job pod runs as (--worker-service-account's
 # default). It holds only the worker's own ClusterRole
 # (config/rbac/squasharr_worker_role.yaml, generated from
-# squasharr/worker's markers), never squasharr's manager role.
+# squasharr/worker's markers), never squasharr's own role.
 apiVersion: v1
 kind: ServiceAccount
 metadata:

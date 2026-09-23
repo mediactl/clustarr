@@ -29,6 +29,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/yaml"
@@ -36,91 +37,225 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
-// rbacServiceDirs reads RBAC_DIRS out of the Makefile -- the list controller-gen
-// is actually pointed at -- rather than restating it. A second copy here could
-// drift from the generator's real input, which is precisely the class of bug
-// these guards exist to catch.
-func rbacServiceDirs(t *testing.T, root string) []string {
+// rbacRole is one ClusterRole `make manifests` generates: its name in the
+// Makefile's RBAC_ROLES and the package patterns RBAC_PATHS_<name> hands
+// controller-gen. Since task X14 there is one per identity (design §10), not
+// one union role for every service.
+type rbacRole struct {
+	name  string
+	paths []string
+}
+
+// file is the generated role's file under config/rbac.
+func (r rbacRole) file() string { return strings.ReplaceAll(r.name, "-", "_") + "_role.yaml" }
+
+// rbacRoles reads RBAC_ROLES and each RBAC_PATHS_<role> out of the Makefile
+// -- what controller-gen is actually pointed at -- rather than restating
+// them. A second copy here could drift from the generator's real input,
+// which is precisely the class of bug these guards exist to catch.
+func rbacRoles(t *testing.T, root string) []rbacRole {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(root, "Makefile"))
 	require.NoError(t, err)
 
+	vars := map[string][]string{}
 	for _, line := range strings.Split(string(raw), "\n") {
-		_, value, found := strings.Cut(line, "RBAC_DIRS :=")
+		name, value, found := strings.Cut(line, ":=")
 		if !found {
 			continue
 		}
-		dirs := strings.Fields(value)
-		require.NotEmpty(t, dirs, "the Makefile's RBAC_DIRS is empty")
-		return dirs
+		vars[strings.TrimSpace(name)] = strings.Fields(value)
 	}
-	t.Fatal("no RBAC_DIRS assignment in the Makefile; this guard no longer knows what controller-gen is given")
-	return nil
+	names := vars["RBAC_ROLES"]
+	require.NotEmpty(t, names, "the Makefile has no RBAC_ROLES; this guard no longer knows what controller-gen is given")
+	out := make([]rbacRole, 0, len(names))
+	for _, name := range names {
+		paths := vars["RBAC_PATHS_"+name]
+		require.NotEmpty(t, paths, "RBAC_ROLES names %q but the Makefile has no RBAC_PATHS_%s", name, name)
+		out = append(out, rbacRole{name: name, paths: paths})
+	}
+	return out
 }
 
-// TestEveryDirectoryWithRBACMarkersIsGenerated closes the hole that hid the
-// importarr defect: importarr's controllers carried correct markers, and
-// RBAC_DIRS simply did not list importarr, so controller-gen was never pointed
-// at them and not one of its rules reached config/rbac/role.yaml.
-//
-// A guard that restated RBAC_DIRS would not have caught it -- the two lists
-// would have been wrong together. So this one DISCOVERS: any top-level
-// directory containing a +kubebuilder:rbac marker anywhere beneath it must
-// appear in RBAC_DIRS. A new service is then covered the moment it grows its
-// first marker, with no list to remember to update.
-func TestEveryDirectoryWithRBACMarkersIsGenerated(t *testing.T) {
-	root, err := filepath.Abs("../..")
-	require.NoError(t, err)
-
-	generated := map[string]bool{}
-	for _, dir := range rbacServiceDirs(t, root) {
-		generated[dir] = true
+// patternCovers reports whether a controller-gen paths= pattern covers the
+// package in dir (slash-separated, relative to the repo root): "./x/..." is
+// x and everything beneath it, "./x" is x alone.
+func patternCovers(pattern, dir string) bool {
+	pattern = strings.TrimPrefix(pattern, "./")
+	if base, ok := strings.CutSuffix(pattern, "/..."); ok {
+		return dir == base || strings.HasPrefix(dir, base+"/")
 	}
-
-	entries, err := os.ReadDir(root)
-	require.NoError(t, err)
-	for _, entry := range entries {
-		name := entry.Name()
-		if !entry.IsDir() || strings.HasPrefix(name, ".") {
-			continue
-		}
-		// No directory allowlist on purpose. The rule is simply "carries a
-		// marker implies generated", so api/, pkg/, cmd/, test/ and hack/ are
-		// skipped by having no markers rather than by being named here -- and
-		// the day one of them grows one, it is flagged instead of excused.
-		if !markerDirExists(t, filepath.Join(root, name)) {
-			continue
-		}
-		require.True(t, generated[name],
-			"%s/ carries +kubebuilder:rbac markers but is not in the Makefile's RBAC_DIRS, "+
-				"so controller-gen never sees them and every rule in it is silently absent "+
-				"from config/rbac/role.yaml -- exactly the defect importarr shipped with", name)
-	}
+	return dir == pattern
 }
 
-// markerDirExists reports whether any non-test Go file under dir carries an
-// RBAC marker.
-func markerDirExists(t *testing.T, dir string) bool {
+// goSources returns the non-test .go files directly in dir.
+func goSources(t *testing.T, dir string) []string {
 	t.Helper()
-	var found bool
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || found {
-			return nil //nolint:nilerr // an unreadable subtree is not this guard's business
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
+			continue
 		}
-		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+		out = append(out, filepath.Join(dir, e.Name()))
+	}
+	return out
+}
+
+// roleSources returns every non-test .go file in the packages r's patterns
+// cover: exactly what controller-gen reads markers from for r.
+func roleSources(t *testing.T, root string, r rbacRole) []string {
+	t.Helper()
+	var out []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
 			return nil
 		}
-		raw, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return nil
+		if path != root && strings.HasPrefix(d.Name(), ".") {
+			return fs.SkipDir
 		}
-		if bytes.Contains(raw, []byte("+kubebuilder:rbac:")) {
-			found = true
+		rel, _ := filepath.Rel(root, path)
+		rel = filepath.ToSlash(rel)
+		for _, pattern := range r.paths {
+			if patternCovers(pattern, rel) {
+				out = append(out, goSources(t, path)...)
+				break
+			}
 		}
 		return nil
 	})
 	require.NoError(t, err)
-	return found
+	require.NotEmpty(t, out, "RBAC_PATHS_%s %v covers no Go source", r.name, r.paths)
+	return out
+}
+
+// hasMarkerLine reports whether raw has a +kubebuilder:rbac marker line.
+func hasMarkerLine(raw []byte) bool {
+	return bytes.Contains(raw, []byte("+kubebuilder:rbac:"))
+}
+
+// TestEveryPackageWithRBACMarkersIsInARole closes the hole that hid the
+// importarr defect: importarr's controllers carried correct markers, and the
+// Makefile simply did not point controller-gen at them, so not one of their
+// rules reached the generated Role.
+//
+// A guard that restated the Makefile would not have caught it -- the two
+// lists would have been wrong together. So this one DISCOVERS: any package
+// anywhere in the tree whose non-test source carries a +kubebuilder:rbac
+// marker must be covered by some role's RBAC_PATHS. A new package is then
+// covered the moment it grows its first marker, and since the X14 split the
+// same check catches a package left out of every per-service role -- say a
+// new grabarr package that is neither the controller's nor the engines'.
+func TestEveryPackageWithRBACMarkersIsInARole(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	require.NoError(t, err)
+	roles := rbacRoles(t, root)
+
+	var found int
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		if path != root && strings.HasPrefix(d.Name(), ".") {
+			return fs.SkipDir
+		}
+		marked := false
+		for _, src := range goSources(t, path) {
+			raw, rerr := os.ReadFile(src)
+			require.NoError(t, rerr)
+			if hasMarkerLine(raw) {
+				marked = true
+				break
+			}
+		}
+		if !marked {
+			return nil
+		}
+		found++
+		rel, _ := filepath.Rel(root, path)
+		rel = filepath.ToSlash(rel)
+		for _, r := range roles {
+			for _, pattern := range r.paths {
+				if patternCovers(pattern, rel) {
+					return nil
+				}
+			}
+		}
+		t.Errorf("%s/ carries +kubebuilder:rbac markers, but no RBAC_PATHS_<role> in the Makefile covers it, "+
+			"so controller-gen never sees them and every rule in it is silently absent from every "+
+			"generated role -- exactly the defect importarr shipped with. Add it to the role of the "+
+			"identity whose process runs it.", rel)
+		return nil
+	})
+	require.NoError(t, err)
+	require.Positive(t, found, "no package carries an RBAC marker; this guard is not looking where it thinks it is")
+}
+
+// TestEveryGeneratedRoleMatchesItsMarkers holds each generated role to the
+// marker TEXT in its own packages, grant for grant: a marker added and never
+// regenerated -- a process Getting something its pod is Forbidden to Get,
+// which no envtest can see -- fails here, and so does a hand edit to a role,
+// and so does a grant that reaches a role from a package that is not its
+// own. It reads the markers without controller-gen, so a marker
+// controller-gen silently declines to collect (the package-level placement
+// defect) fails too. Until X14 this held only the transcode worker's role.
+func TestEveryGeneratedRoleMatchesItsMarkers(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	require.NoError(t, err)
+
+	for _, r := range rbacRoles(t, root) {
+		t.Run(r.name, func(t *testing.T) {
+			want := map[rbacGrant]bool{}
+			for _, src := range roleSources(t, root, r) {
+				raw, err := os.ReadFile(src)
+				require.NoError(t, err)
+				for _, line := range strings.Split(string(raw), "\n") {
+					_, marker, found := strings.Cut(line, "+kubebuilder:rbac:")
+					if !found {
+						continue
+					}
+					fields := map[string][]string{}
+					for _, field := range strings.Split(strings.TrimSpace(marker), ",") {
+						if k, v, ok := strings.Cut(field, "="); ok {
+							fields[strings.TrimSpace(k)] = strings.Split(strings.Trim(strings.TrimSpace(v), `"`), ";")
+						}
+					}
+					for _, g := range fields["groups"] {
+						for _, res := range fields["resources"] {
+							for _, v := range fields["verbs"] {
+								want[rbacGrant{g, res, v}] = true
+							}
+						}
+					}
+				}
+			}
+			require.NotEmpty(t, want, "no +kubebuilder:rbac markers in %v; this guard is looking in the wrong place", r.paths)
+
+			got := grantsOf(readRole(t, root, r.file()).Rules)
+			require.Equal(t, sortedGrants(want), sortedGrants(got),
+				"config/rbac/%s no longer matches the +kubebuilder:rbac markers in %v.\n"+
+					"Run `make manifests`, then copy its rules into charts/clustarr/templates/rbac.yaml "+
+					"between its BEGIN/END sentinels.", r.file(), r.paths)
+		})
+	}
+}
+
+// readRole reads one generated ClusterRole from config/rbac.
+func readRole(t *testing.T, root, file string) rbacv1.ClusterRole {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(root, "config", "rbac", file))
+	require.NoError(t, err)
+	var role rbacv1.ClusterRole
+	require.NoError(t, yaml.Unmarshal(raw, &role))
+	require.NotEmpty(t, role.Rules, "config/rbac/%s has no rules", file)
+	return role
 }
 
 // TestRBACMarkersArePackageLevel catches the silent failure that let four
@@ -144,23 +279,16 @@ func TestRBACMarkersArePackageLevel(t *testing.T) {
 	require.NoError(t, err)
 
 	var checked int
-	for _, dir := range rbacServiceDirs(t, root) {
-		base := filepath.Join(root, dir)
-		if _, err := os.Stat(base); os.IsNotExist(err) {
-			continue
-		}
-		err := filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
+	seen := map[string]bool{}
+	for _, r := range rbacRoles(t, root) {
+		for _, path := range roleSources(t, root, r) {
+			if seen[path] {
+				continue
 			}
-			if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-				return nil
-			}
+			seen[path] = true
 			fset := token.NewFileSet()
 			file, perr := parser.ParseFile(fset, path, nil, parser.ParseComments|parser.SkipObjectResolution)
-			if perr != nil {
-				return perr
-			}
+			require.NoError(t, perr)
 
 			// Every comment group that is some declaration's doc comment.
 			// The file's own package doc is fine -- that IS package level.
@@ -204,9 +332,7 @@ func TestRBACMarkersArePackageLevel(t *testing.T) {
 						rel, fset.Position(group.Pos()).Line)
 				}
 			}
-			return nil
-		})
-		require.NoError(t, err)
+		}
 	}
 
 	require.Positive(t, checked, "no RBAC markers were found at all; this guard is not looking where it thinks it is")
@@ -225,55 +351,30 @@ func hasRBACMarker(group *ast.CommentGroup) bool {
 	return false
 }
 
-// TestGeneratedRoleCoversEveryStatusWriter is a second, coarser net over the
-// same failure: every kind whose controller writes status must have its
-// /status subresource in the generated Role.
-//
-// The marker-placement guard above catches the mechanism; this one catches
-// the outcome, including the ways a marker can be missing rather than merely
-// misplaced. Both are cheap and neither needs a cluster.
-func TestGeneratedRoleCoversEveryStatusWriter(t *testing.T) {
+// TestGeneratedRolesCoverEveryStatusWriter is a floor under
+// TestEveryGeneratedRoleMatchesItsMarkers: that test proves each role is
+// exactly its markers, so it cannot see a marker that was never written.
+// This one names every kind whose status a Phase C controller or worker is
+// the single writer of, and requires some generated role to grant it.
+func TestGeneratedRolesCoverEveryStatusWriter(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
 
-	raw, err := os.ReadFile(filepath.Join(root, "config", "rbac", "role.yaml"))
-	require.NoError(t, err)
-
-	var role struct {
-		Rules []struct {
-			APIGroups []string `json:"apiGroups"`
-			Resources []string `json:"resources"`
-			Verbs     []string `json:"verbs"`
-		} `json:"rules"`
-	}
-	require.NoError(t, yaml.Unmarshal(raw, &role))
-
 	granted := map[string]bool{}
-	for _, rule := range role.Rules {
-		for _, group := range rule.APIGroups {
-			for _, resource := range rule.Resources {
-				granted[group+"/"+resource] = true
+	coreEvents := map[string]bool{}
+	for _, r := range rbacRoles(t, root) {
+		for _, rule := range readRole(t, root, r.file()).Rules {
+			for _, group := range rule.APIGroups {
+				for _, resource := range rule.Resources {
+					granted[group+"/"+resource] = true
+					if group == "" && resource == "events" {
+						coreEvents[r.file()] = true
+					}
+				}
 			}
 		}
 	}
 
-	// Derived: every `<resource>/status` any marker in the tree grants must
-	// be in the generated Role. This is the check that actually self-
-	// maintains, and it is NOT circular with the generator: it reads the
-	// marker TEXT from source, while controller-gen reads only the markers it
-	// manages to collect. A marker that exists but is never collected -- the
-	// package-level placement defect, or a directory missing from RBAC_DIRS --
-	// fails here even though `make manifests` exits 0.
-	for want := range statusGrantsInSource(t, root) {
-		require.True(t, granted[want],
-			"config/rbac/role.yaml does not grant %s, although a +kubebuilder:rbac marker in the tree "+
-				"asks for it. controller-gen did not collect that marker: check it is package level "+
-				"(a blank line above the declaration) and that its directory is in RBAC_DIRS.", want)
-	}
-
-	// A hardcoded floor, because the derived check above cannot see a marker
-	// that was never written. Every kind a Phase C controller or worker is the
-	// single writer of:
 	for _, want := range []string{
 		"catalog.clustarr.io/movies/status",
 		"catalog.clustarr.io/series/status",
@@ -288,8 +389,8 @@ func TestGeneratedRoleCoversEveryStatusWriter(t *testing.T) {
 		"catalog.clustarr.io/importexclusions/status",
 	} {
 		require.True(t, granted[want],
-			"config/rbac/role.yaml does not grant %s; its controller would be denied every status write "+
-				"on a real cluster (envtest does not enforce RBAC, so no suite can see this). "+
+			"no generated role grants %s; its controller would be denied every status write "+
+				"on a real cluster (envtest does not enforce RBAC by itself, so no suite can see this). "+
 				"Run `make manifests` and check the marker is package level.", want)
 	}
 
@@ -300,81 +401,11 @@ func TestGeneratedRoleCoversEveryStatusWriter(t *testing.T) {
 	// the core rule reappearing means a controller went back to the old
 	// recorder, or a groups="" marker outlived the recorder it described.
 	require.True(t, granted["events.k8s.io/events"], "the events.k8s.io Events group is not granted")
-	require.False(t, granted["/events"],
-		"config/rbac/role.yaml grants events in the CORE group, but nothing in this tree writes "+
+	require.Empty(t, coreEvents,
+		"these generated roles grant events in the CORE group, but nothing in this tree writes "+
 			"core/v1 Events any more. Either a controller is back on the deprecated "+
 			`mgr.GetEventRecorderFor, or a stale groups="" events marker survived the migration. `+
 			"Neither shows up in any other test: envtest does not enforce RBAC.")
-}
-
-// statusGrantsInSource returns every "<group>/<resource>/status" an RBAC
-// marker anywhere in the generated directories asks for, as the same
-// "<group>/<resource>" keys TestGeneratedRoleCoversEveryStatusWriter builds
-// from the role.
-//
-// It parses the marker text rather than using controller-gen's own parser
-// precisely so it can disagree with it: a marker controller-gen silently
-// declines to collect is still visible here.
-func statusGrantsInSource(t *testing.T, root string) map[string]bool {
-	t.Helper()
-	out := map[string]bool{}
-	for _, dir := range rbacServiceDirs(t, root) {
-		base := filepath.Join(root, dir)
-		if _, err := os.Stat(base); os.IsNotExist(err) {
-			continue
-		}
-		err := filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-				return nil
-			}
-			raw, readErr := os.ReadFile(path)
-			if readErr != nil {
-				return readErr
-			}
-			for _, line := range strings.Split(string(raw), "\n") {
-				_, marker, found := strings.Cut(line, "+kubebuilder:rbac:")
-				if !found {
-					continue
-				}
-				group, resources := markerGroupsAndResources(marker)
-				for _, resource := range resources {
-					if !strings.HasSuffix(resource, "/status") {
-						continue
-					}
-					out[group+"/"+resource] = true
-				}
-			}
-			return nil
-		})
-		require.NoError(t, err)
-	}
-	require.NotEmpty(t, out, "no /status grants were found in any marker; this guard is looking in the wrong place")
-	return out
-}
-
-// markerGroupsAndResources pulls the first groups= value and the resources=
-// list out of one marker body. Only single-group markers are read: every
-// /status marker in this tree names exactly one group, and a multi-group one
-// would need the cross product, which is more machinery than the check earns.
-func markerGroupsAndResources(marker string) (string, []string) {
-	var group string
-	var resources []string
-	for _, field := range strings.Split(strings.TrimSpace(marker), ",") {
-		key, value, found := strings.Cut(field, "=")
-		if !found {
-			continue
-		}
-		switch strings.TrimSpace(key) {
-		case "groups":
-			group = strings.Trim(strings.TrimSpace(value), `"`)
-		case "resources":
-			resources = strings.Split(strings.TrimSpace(value), ";")
-		}
-	}
-	return group, resources
 }
 
 // TestEveryCRDKindAControllerTouchesHasAnRBACMarker closes the last hole the
@@ -398,7 +429,9 @@ func markerGroupsAndResources(marker string) (string, []string) {
 // incorporated.
 //
 // The rule is "touches a Clustarr CRD kind implies a marker names its
-// resource, in the same service directory". Resolution is exact rather than
+// resource, in the packages of the same generated role" -- since the X14
+// split, a grant another service's markers happen to carry is no longer in
+// this service's role, so it no longer counts. Resolution is exact rather than
 // by string-matching: the kind comes from the selector expression, its API
 // group from the import path the selector's alias resolves to, and its
 // plural from the generated CRD itself.
@@ -409,27 +442,17 @@ func TestEveryCRDKindAControllerTouchesHasAnRBACMarker(t *testing.T) {
 	plurals := crdPlurals(t, root)
 	require.NotEmpty(t, plurals, "no CRDs were read; run `make manifests`")
 
-	for _, dir := range rbacServiceDirs(t, root) {
-		base := filepath.Join(root, dir)
-		if _, err := os.Stat(base); os.IsNotExist(err) {
-			continue
-		}
-		granted := markerResources(t, base)
-		err := filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-				return nil
-			}
+	for _, r := range rbacRoles(t, root) {
+		dir := r.name + " role " + strings.Join(r.paths, " ")
+		sources := roleSources(t, root, r)
+		granted := markerResources(t, sources)
+		for _, path := range sources {
 			fset := token.NewFileSet()
 			file, perr := parser.ParseFile(fset, path, nil, parser.ParseComments|parser.SkipObjectResolution)
-			if perr != nil {
-				return perr
-			}
+			require.NoError(t, perr)
 			groups := apiGroupAliases(file)
 			if len(groups) == 0 {
-				return nil
+				continue
 			}
 			rel, _ := filepath.Rel(root, path)
 			ast.Inspect(file, func(n ast.Node) bool {
@@ -451,7 +474,7 @@ func TestEveryCRDKindAControllerTouchesHasAnRBACMarker(t *testing.T) {
 					return true // a spec/enum/helper type, not a root kind
 				}
 				if !granted[group+"/"+plural] {
-					t.Errorf("%s:%d: %s touches %s.%s, but no +kubebuilder:rbac marker under %s/ "+
+					t.Errorf("%s:%d: %s touches %s.%s, but no +kubebuilder:rbac marker in the %s "+
 						"grants %s in group %s. envtest does not enforce RBAC, so this only fails on a "+
 						"real cluster, as a Forbidden on the first lazy informer or Get.",
 						rel, fset.Position(sel.Pos()).Line, dir, ident.Name, sel.Sel.Name, dir, plural, group)
@@ -459,9 +482,7 @@ func TestEveryCRDKindAControllerTouchesHasAnRBACMarker(t *testing.T) {
 				}
 				return true
 			})
-			return nil
-		})
-		require.NoError(t, err)
+		}
 	}
 }
 
@@ -522,24 +543,16 @@ func apiGroupAliases(file *ast.File) map[string]string {
 	return out
 }
 
-// markerResources returns every "<group>/<resource>" the RBAC markers under
-// dir grant, expanding the "resources=a;b;c" form and dropping the
+// markerResources returns every "<group>/<resource>" the RBAC markers in
+// sources grant, expanding the "resources=a;b;c" form and dropping the
 // "/status" and "/finalizers" subresource suffixes -- a Get on the main
 // resource is what this guard is about.
-func markerResources(t *testing.T, dir string) map[string]bool {
+func markerResources(t *testing.T, sources []string) map[string]bool {
 	t.Helper()
 	out := map[string]bool{}
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
+	for _, path := range sources {
 		raw, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
+		require.NoError(t, err)
 		for _, line := range strings.Split(string(raw), "\n") {
 			_, marker, found := strings.Cut(line, "+kubebuilder:rbac:")
 			if !found {
@@ -565,9 +578,7 @@ func markerResources(t *testing.T, dir string) map[string]bool {
 				}
 			}
 		}
-		return nil
-	})
-	require.NoError(t, err)
+	}
 	return out
 }
 
@@ -599,27 +610,17 @@ func TestEveryBuiltinKindAControllerTouchesHasAnRBACMarker(t *testing.T) {
 	require.NotEmpty(t, known, "the scheme registered nothing; this guard has no universe to check against")
 
 	var checked int
-	for _, dir := range rbacServiceDirs(t, root) {
-		base := filepath.Join(root, dir)
-		if _, err := os.Stat(base); os.IsNotExist(err) {
-			continue
-		}
-		granted := markerResources(t, base)
-		err := filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-				return nil
-			}
+	for _, r := range rbacRoles(t, root) {
+		dir := r.name + " role " + strings.Join(r.paths, " ")
+		sources := roleSources(t, root, r)
+		granted := markerResources(t, sources)
+		for _, path := range sources {
 			fset := token.NewFileSet()
 			file, perr := parser.ParseFile(fset, path, nil, parser.ParseComments|parser.SkipObjectResolution)
-			if perr != nil {
-				return perr
-			}
+			require.NoError(t, perr)
 			groups := builtinGroupAliases(file)
 			if len(groups) == 0 {
-				return nil
+				continue
 			}
 			rel, _ := filepath.Rel(root, path)
 			ast.Inspect(file, func(n ast.Node) bool {
@@ -647,7 +648,7 @@ func TestEveryBuiltinKindAControllerTouchesHasAnRBACMarker(t *testing.T) {
 					if group == "" {
 						group = `"" (core)`
 					}
-					t.Errorf("%s:%d: %s touches %s.%s, but no +kubebuilder:rbac marker under %s/ "+
+					t.Errorf("%s:%d: %s touches %s.%s, but no +kubebuilder:rbac marker in the %s "+
 						"grants %s in group %s. envtest does not enforce RBAC, so this only fails on a "+
 						"real cluster, as a Forbidden on the first Get or lazy informer.",
 						rel, fset.Position(sel.Pos()).Line, dir, ident.Name, sel.Sel.Name, dir, resource, group)
@@ -655,9 +656,7 @@ func TestEveryBuiltinKindAControllerTouchesHasAnRBACMarker(t *testing.T) {
 				}
 				return true
 			})
-			return nil
-		})
-		require.NoError(t, err)
+		}
 	}
 	require.Positive(t, checked,
 		"no built-in kind was found in any service directory; this guard is not looking where it "+

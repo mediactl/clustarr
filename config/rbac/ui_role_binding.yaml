@@ -1,6 +1,6 @@
 # Binds the `ui` ServiceAccount (config/manager/ui.yaml) to ui_role.yaml,
-# never to clustarr-manager-role -- see the note at the top of that file for
-# why ui gets its own ClusterRole instead of sharing the controllers' one.
+# never to a service's generated role -- see the note at the top of that file
+# for why ui's ClusterRole is hand-written.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:

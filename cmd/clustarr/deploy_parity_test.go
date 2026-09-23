@@ -76,10 +76,16 @@ type renderer struct {
 	// Helm prefixes everything with the release fullname.
 	prefix string
 
-	// managerRole and leaderElectionRole are the roleRef names that mark a
-	// binding as one of ours, so the NATS subchart's own RBAC (and any
-	// future binding to a different role) is not counted.
-	managerRole        string
+	// roleIdentity maps a ClusterRole name to the identity whose role it
+	// is ("catalogarr", "grabarr-engine", "ui", ...) and reports whether it
+	// is one of ours at all, so the NATS subchart's own RBAC is not counted.
+	// Since the X14 split each service has its own role, so a binding is
+	// compared by component AND the role it grants: both installers must
+	// bind catalogarr-metadata to catalogarr's role, not merely bind it.
+	roleIdentity func(name string) (string, bool)
+
+	// leaderElectionRole is the roleRef name that marks a RoleBinding as one
+	// of ours.
 	leaderElectionRole string
 
 	// docs is every YAML document the installer emitted.
@@ -122,10 +128,14 @@ func (r renderer) componentsFor(kind string) map[string]bool {
 			}
 			out[r.component(doc.Metadata.Name)] = true
 		case "ClusterRoleBinding":
-			if doc.RoleRef.Kind != "ClusterRole" || doc.RoleRef.Name != r.managerRole {
+			if doc.RoleRef.Kind != "ClusterRole" {
 				continue
 			}
-			out[r.component(subjectAccount(doc))] = true
+			identity, ours := r.roleIdentity(doc.RoleRef.Name)
+			if !ours {
+				continue
+			}
+			out[r.component(subjectAccount(doc))+" -> "+identity] = true
 		case "RoleBinding":
 			if doc.RoleRef.Kind != "Role" || doc.RoleRef.Name != r.leaderElectionRole {
 				continue
@@ -174,10 +184,27 @@ func TestChartAndKustomizeAgreePerComponent(t *testing.T) {
 	// by default (the Prometheus Operator CRDs may not be installed), and
 	// config/prometheus is an optional overlay for the same reason, so both
 	// sides are asked for them explicitly.
+	// Every role identity either installer may bind: the generated ones
+	// (the Makefile's RBAC_ROLES) and ui's hand-written one.
+	identities := map[string]bool{"ui": true}
+	for _, role := range rbacRoles(t, root) {
+		identities[role.name] = true
+	}
+	identityOf := func(prefix, suffix string) func(string) (string, bool) {
+		return func(name string) (string, bool) {
+			rest, ok := strings.CutPrefix(name, prefix)
+			if !ok {
+				return "", false
+			}
+			rest, ok = strings.CutSuffix(rest, suffix)
+			return rest, ok && identities[rest]
+		}
+	}
+
 	chart := renderer{
 		name:               "helm template charts/clustarr",
 		prefix:             "clustarr-",
-		managerRole:        "clustarr-manager",
+		roleIdentity:       identityOf("clustarr-", ""),
 		leaderElectionRole: "clustarr-leader-election",
 		docs: decodeManifests(t, run(t, root, helm,
 			"template", "clustarr", "charts/clustarr",
@@ -192,7 +219,7 @@ func TestChartAndKustomizeAgreePerComponent(t *testing.T) {
 	kustom := renderer{
 		name:               "kustomize build config/default + config/prometheus",
 		prefix:             "",
-		managerRole:        "clustarr-manager-role",
+		roleIdentity:       identityOf("clustarr-", "-role"),
 		leaderElectionRole: "clustarr-leader-election-role",
 		docs:               decodeManifests(t, kz),
 	}

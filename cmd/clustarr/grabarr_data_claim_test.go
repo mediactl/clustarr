@@ -98,3 +98,76 @@ func TestGrabarrEnginesMountAClaimTheInstallerCreates(t *testing.T) {
 		})
 	}
 }
+
+// TestGrabarrEnginesRunAsAnAccountTheInstallerBinds is the engine
+// ServiceAccount's half of the test above (X14, found by X9): the engine
+// pods the DownloadClient controller creates named no serviceAccountName, so
+// they ran as the namespace's "default" account, which nothing binds, and
+// were denied their own DownloadClient and every Download on a real cluster.
+// envtest schedules no pods and enforces no binding, so nothing could see it.
+//
+// For each installer this runs the grabarr controller Deployment's argv
+// through the real command tree with exactly its literal env and reads the
+// --engine-service-account the controller stamps onto every engine pod
+// (cmd/clustarr's start envtest proves the stamp itself). That account must
+// be one the installer creates, bound to exactly one ClusterRole whose
+// grants are exactly the engines' generated role.
+func TestGrabarrEnginesRunAsAnAccountTheInstallerBinds(t *testing.T) {
+	helm := findTool(t, "helm")
+	kustomize := findTool(t, "kustomize")
+	root, err := filepath.Abs("../..")
+	require.NoError(t, err)
+	want := sortedGrants(grantsOf(readRole(t, root, "grabarr_engine_role.yaml").Rules))
+
+	cases := map[string][]byte{
+		"helm template clustarr":   run(t, root, helm, "template", "clustarr", "charts/clustarr"),
+		"helm template media":      run(t, root, helm, "template", "media", "charts/clustarr"),
+		"kustomize config/default": run(t, root, kustomize, "build", "config/default"),
+	}
+	for name, out := range cases {
+		t.Run(name, func(t *testing.T) {
+			r := decodeRendered(t, out)
+			var dep *appsv1.Deployment
+			for i := range r.deployments {
+				if r.deployments[i].Spec.Template.Labels["app.kubernetes.io/component"] == "grabarr" {
+					dep = &r.deployments[i]
+				}
+			}
+			require.NotNil(t, dep, "no grabarr Deployment rendered")
+			ctr := dep.Spec.Template.Spec.Containers[0]
+			for _, e := range []string{engineImageEnv, dataClaimEnv, engineServiceAccountEnv} {
+				t.Setenv(e, "")
+			}
+			for _, e := range ctr.Env {
+				if e.ValueFrom == nil {
+					t.Setenv(e.Name, e.Value)
+				}
+			}
+			t.Setenv(namespaceEnv, "clustarr-system")
+			got := stub(t, &runGrabarr)
+			_, err := execute(t, ctr.Args...)
+			require.NoError(t, err)
+			require.NoError(t, got.Validate())
+
+			account := got.EngineServiceAccount
+			require.True(t, r.serviceAccounts[account],
+				"grabarr's engine pods would run as ServiceAccount %q, which %s does not create", account, name)
+			var boundTo []string
+			for _, b := range r.bindings {
+				for _, s := range b.Subjects {
+					if s.Kind == "ServiceAccount" && s.Name == account {
+						boundTo = append(boundTo, b.RoleRef.Name)
+					}
+				}
+			}
+			require.Len(t, boundTo, 1,
+				"engine ServiceAccount %q should be bound to exactly the engine ClusterRole, and is bound to %v",
+				account, boundTo)
+			role, ok := r.roles[boundTo[0]]
+			require.True(t, ok, "engine ServiceAccount %q is bound to ClusterRole %q, which %s does not render",
+				account, boundTo[0], name)
+			require.Equal(t, want, sortedGrants(grantsOf(role.Rules)),
+				"the ClusterRole engine pods run under is not the generated engine role")
+		})
+	}
+}

@@ -1,0 +1,49 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: clustarr-indexarr-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - get
+  - patch
+- apiGroups:
+  - download.clustarr.io
+  resources:
+  - downloads
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - index.clustarr.io
+  resources:
+  - indexerdefinitions
+  - indexerproxies
+  - indexers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - index.clustarr.io
+  resources:
+  - indexerdefinitions/status
+  - indexerproxies/status
+  - indexers/status
+  verbs:
+  - get
+  - patch
+  - update

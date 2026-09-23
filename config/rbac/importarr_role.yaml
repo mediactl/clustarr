@@ -1,0 +1,118 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: clustarr-importarr-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - get
+  - patch
+  - update
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - albums
+  - artists
+  - audiobooks
+  - authors
+  - books
+  - comics
+  - episodes
+  - issues
+  - qualityprofiles
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - importexclusions
+  - rootfolders
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - importexclusions/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - importexclusions/status
+  - importlists/status
+  - libraryscans/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - importlists
+  verbs:
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - libraryscans
+  - mediafiles
+  - movies
+  - series
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - download.clustarr.io
+  resources:
+  - downloads
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - download.clustarr.io
+  resources:
+  - downloads/status
+  verbs:
+  - get
+  - patch
+- apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - transcode.clustarr.io
+  resources:
+  - transcodejobs
+  verbs:
+  - get
+  - list
+  - watch

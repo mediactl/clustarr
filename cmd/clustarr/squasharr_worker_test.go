@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,7 +35,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	"sigs.k8s.io/yaml"
 
 	"github.com/mediactl/clustarr/squasharr"
 	"github.com/mediactl/clustarr/squasharr/worker"
@@ -197,104 +195,6 @@ func sortedGrants(m map[rbacGrant]bool) []string {
 	return out
 }
 
-func readWorkerRole(t *testing.T, root string) rbacv1.ClusterRole {
-	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(root, "config", "rbac", "squasharr_worker_role.yaml"))
-	require.NoError(t, err)
-	var role rbacv1.ClusterRole
-	require.NoError(t, yaml.Unmarshal(raw, &role))
-	require.NotEmpty(t, role.Rules, "config/rbac/squasharr_worker_role.yaml has no rules")
-	return role
-}
-
-// TestSquasharrWorkerRoleMatchesTheWorkerMarkers holds the generated worker
-// ClusterRole to the marker TEXT in squasharr/worker, grant for grant.
-//
-// The markers are the single source (squasharr/worker/doc.go): `make
-// manifests` generates the Role from that package alone. This reads the
-// markers without controller-gen, so a marker added and never regenerated
-// -- the worker Getting something its pod is Forbidden to Get, which no
-// envtest can see -- fails here, and so does a hand edit to the Role.
-func TestSquasharrWorkerRoleMatchesTheWorkerMarkers(t *testing.T) {
-	root, err := filepath.Abs("../..")
-	require.NoError(t, err)
-
-	want := map[rbacGrant]bool{}
-	dir := filepath.Join(root, "squasharr", "worker")
-	require.NoError(t, filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			if path != dir {
-				return fs.SkipDir // controller-gen reads this one package, not its children
-			}
-			return nil
-		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		for _, line := range strings.Split(string(raw), "\n") {
-			_, marker, found := strings.Cut(line, "+kubebuilder:rbac:")
-			if !found {
-				continue
-			}
-			fields := map[string][]string{}
-			for _, field := range strings.Split(strings.TrimSpace(marker), ",") {
-				if k, v, ok := strings.Cut(field, "="); ok {
-					fields[strings.TrimSpace(k)] = strings.Split(strings.Trim(strings.TrimSpace(v), `"`), ";")
-				}
-			}
-			for _, g := range fields["groups"] {
-				for _, r := range fields["resources"] {
-					for _, v := range fields["verbs"] {
-						want[rbacGrant{g, r, v}] = true
-					}
-				}
-			}
-		}
-		return nil
-	}))
-	require.NotEmpty(t, want, "no +kubebuilder:rbac markers under squasharr/worker; this guard is looking in the wrong place")
-
-	got := grantsOf(readWorkerRole(t, root).Rules)
-	require.Equal(t, sortedGrants(want), sortedGrants(got),
-		"config/rbac/squasharr_worker_role.yaml no longer matches squasharr/worker's +kubebuilder:rbac markers.\n"+
-			"Run `make manifests` (it regenerates the worker Role from that package alone), then copy its rules "+
-			"into charts/clustarr/templates/rbac.yaml between the squasharr_worker_role BEGIN/END sentinels.")
-}
-
-// TestChartWorkerRBACMatchesTheGeneratedRole is TestChartRBACMatchesTheGeneratedRole
-// for the worker's ClusterRole: Helm cannot read config/, so the chart carries
-// a verbatim copy, and this is what keeps it verbatim.
-func TestChartWorkerRBACMatchesTheGeneratedRole(t *testing.T) {
-	const (
-		begin = "# BEGIN generated from config/rbac/squasharr_worker_role.yaml -- do not edit by hand.\n"
-		end   = "# END generated from config/rbac/squasharr_worker_role.yaml."
-	)
-	root, err := filepath.Abs("../..")
-	require.NoError(t, err)
-	generated, err := os.ReadFile(filepath.Join(root, "config", "rbac", "squasharr_worker_role.yaml"))
-	require.NoError(t, err)
-	_, want, found := strings.Cut(string(generated), "\nrules:\n")
-	require.True(t, found, "config/rbac/squasharr_worker_role.yaml has no rules: block")
-
-	chart, err := os.ReadFile(filepath.Join(root, "charts", "clustarr", "templates", "rbac.yaml"))
-	require.NoError(t, err)
-	_, after, found := strings.Cut(string(chart), begin)
-	require.True(t, found, "charts/clustarr/templates/rbac.yaml has no %q sentinel", strings.TrimSpace(begin))
-	got, _, found := strings.Cut(after, end)
-	require.True(t, found, "charts/clustarr/templates/rbac.yaml has no %q sentinel", end)
-
-	require.Equal(t, strings.TrimRight(want, "\n"), strings.TrimRight(got, "\n"),
-		"the chart's squasharr-worker ClusterRole has drifted from config/rbac/squasharr_worker_role.yaml.\n"+
-			"Run `make manifests`, then copy the rules: list between the BEGIN/END sentinels.")
-}
-
 // rendered is one installer's output, decoded into the kinds this test reads.
 type rendered struct {
 	deployments     []appsv1.Deployment
@@ -364,7 +264,7 @@ func TestTranscodeJobServiceAccountHoldsTheWorkerRole(t *testing.T) {
 	kustomize := findTool(t, "kustomize")
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
-	want := sortedGrants(grantsOf(readWorkerRole(t, root).Rules))
+	want := sortedGrants(grantsOf(readRole(t, root, "squasharr_worker_role.yaml").Rules))
 
 	cases := map[string][]byte{
 		"helm template clustarr":   run(t, root, helm, "template", "clustarr", "charts/clustarr"),

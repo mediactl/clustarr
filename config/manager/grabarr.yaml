@@ -13,6 +13,17 @@ kind: ServiceAccount
 metadata:
   name: grabarr
 ---
+# The identity every engine pod the DownloadClient controller creates runs as
+# (--engine-service-account's default). It holds only the engines' own
+# ClusterRole (config/rbac/grabarr_engine_role.yaml, generated from
+# grabarr/engine's markers): read its DownloadClient, watch, update and
+# finalize its Downloads, write their engine status. Until task X14 the engine
+# pods named no ServiceAccount and ran as the namespace's unbound "default".
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grabarr-engine
+---
 apiVersion: v1
 kind: Service
 metadata:

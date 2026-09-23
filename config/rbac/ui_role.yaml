@@ -2,8 +2,9 @@
 # ruling R3, docs/superpowers/plans/2026-09-22-phase-d3-ui.md).
 #
 # Two reasons, and the second is the real one. A +kubebuilder:rbac marker in
-# ui/ would merge into clustarr-manager-role and hand every controller the
-# UI's grants -- and a marker can only ADD verbs; there is no marker that
+# ui/ would have merged into the old shared clustarr-manager-role and handed
+# every controller the UI's grants (roles are per service since task X14,
+# but the next point stands) -- and a marker can only ADD verbs; there is no marker that
 # expresses "and never write status". The UI's write limits (CLAUDE.md: "The
 # UI never writes status and owns no CRD") are therefore a property of THIS
 # document, not of controller-gen's output, and cmd/clustarr/ui_rbac_test.go

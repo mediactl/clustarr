@@ -1,0 +1,61 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: clustarr-captionarr-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - episodes
+  - mediafiles
+  - movies
+  - rootfolders
+  - series
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - subtitle.clustarr.io
+  resources:
+  - subtitleprofiles
+  - subtitleproviders
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - subtitle.clustarr.io
+  resources:
+  - subtitleprofiles/status
+  - subtitleproviders/status
+  - subtitlerequests/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - subtitle.clustarr.io
+  resources:
+  - subtitlerequests
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
