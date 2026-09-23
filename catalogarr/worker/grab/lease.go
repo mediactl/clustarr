@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"time"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
@@ -160,6 +161,53 @@ func acquireLease(ctx context.Context, kv events.KV, key, downloadName string, h
 		return true, nil
 	}
 	return false, fmt.Errorf("%w: %s contended for %d attempts", ErrDuplicateGrab, key, leaseReclaimAttempts)
+}
+
+// FreeLeases deletes the clustarr-leases keys downloadName holds on target's
+// status targets -- spec §8.3's "deletes the lease" for a Download that
+// failed -- and returns the keys it deleted. target is the Download's
+// spec.target, Keys included, so a season pack frees every episode's lease.
+//
+// Only a key whose value is downloadName is deleted. A key held under any
+// other name belongs to a later grab (one that already reclaimed the lease
+// from this terminal holder) and is left alone; a missing key was never taken
+// or is already gone. Both make FreeLeases idempotent, so a redelivered
+// failure frees nothing twice.
+//
+// The value check is not a compare-and-swap: events.KV has no
+// revision-checked Delete, so a grab that reclaims the key between this Get
+// and this Delete loses its lease. It keeps its Download, and the double-grab
+// guard's live Download list (guardExistingDownloads) still refuses a third
+// grab of the item once that Download exists, so what is exposed is the
+// sub-second gap between that grab's reclaim and its create.
+//
+// Without FreeLeases nothing is stranded -- acquireLease reclaims a lease
+// whose holder is terminal -- but the key keeps naming a dead Download
+// until the next grab of the item finds it, which is what an operator
+// reading the bucket would see.
+func FreeLeases(ctx context.Context, kv events.KV, ns string, target commonv1.MediaRef, downloadName string) ([]string, error) {
+	targets, err := StatusTargets(target, target.Keys)
+	if err != nil {
+		return nil, err
+	}
+	var freed []string
+	for _, key := range leaseKeys(ns, targets) {
+		entry, err := kv.Get(ctx, key)
+		switch {
+		case errors.Is(err, events.ErrKeyNotFound):
+			continue
+		case err != nil:
+			return freed, fmt.Errorf("grab: read lease %q: %w", key, err)
+		}
+		if string(entry.Value) != downloadName {
+			continue
+		}
+		if err := kv.Delete(ctx, key); err != nil {
+			return freed, fmt.Errorf("grab: free lease %q held by %s: %w", key, downloadName, err)
+		}
+		freed = append(freed, key)
+	}
+	return freed, nil
 }
 
 // releaseLeases deletes every key in acquired, best effort. A failed delete is

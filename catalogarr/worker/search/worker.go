@@ -100,9 +100,10 @@ type EvaluateFunc func(
 // namespaced. This worker has already resolved it from the envelope (see
 // namespaceOf), so passing it costs nothing here and is unguessable on the
 // other side. target carries Keys, so a pack grab reaches every episode it
-// covers.
+// covers. grabbedBy is what the resulting Download records (grabSource).
 type Sink interface {
-	Deliver(ctx context.Context, ns string, target commonv1.MediaRef, ranked []commonv1.ReleaseDecision) error
+	Deliver(ctx context.Context, ns string, target commonv1.MediaRef, ranked []commonv1.ReleaseDecision,
+		grabbedBy downloadv1alpha1.GrabSource) error
 }
 
 // NopSink drops the ranked list with a warning and acks the task. It must not
@@ -112,7 +113,9 @@ type Sink interface {
 type NopSink struct{}
 
 // Deliver implements Sink.
-func (NopSink) Deliver(ctx context.Context, ns string, target commonv1.MediaRef, ranked []commonv1.ReleaseDecision) error {
+func (NopSink) Deliver(
+	ctx context.Context, ns string, target commonv1.MediaRef, ranked []commonv1.ReleaseDecision, _ downloadv1alpha1.GrabSource,
+) error {
 	logging.FromContext(ctx).Warn("search: no grab sink is wired; discarding ranked results",
 		"namespace", ns, "kind", target.Kind, "item", target.Name, "results", len(ranked))
 	return nil
@@ -356,7 +359,20 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 	if srch != nil {
 		return w.writeResults(ctx, srch, resp, ranked)
 	}
-	return w.sink().Deliver(ctx, ns, grabTarget(task), ranked)
+	return w.sink().Deliver(ctx, ns, grabTarget(task), ranked, grabSource(task.Reason))
+}
+
+// grabSource is the spec.grabbedBy a grab this search leads to records. A
+// search catalogarr/worker/redownload published for a failed Download is a
+// redownload (spec §8.3; DownloadSpec.GrabbedBy's enum has the value for
+// exactly this); every other automatic search is a search. An interactive
+// search never reaches the sink -- its grabs are the Search controller's,
+// recorded as interactive there.
+func grabSource(reason schema.SearchReason) downloadv1alpha1.GrabSource {
+	if reason == schema.SearchReasonRedownload {
+		return downloadv1alpha1.GrabSourceRedownload
+	}
+	return downloadv1alpha1.GrabSourceSearch
 }
 
 // Searchable reports whether the search worker can search for an item of

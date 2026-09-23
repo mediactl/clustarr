@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 )
 
@@ -202,4 +203,41 @@ func TestAcquireLeases_ActiveHolderIsADuplicateAndRollsBack(t *testing.T) {
 	entry, err := kv.Get(ctx, keys[2])
 	require.NoError(t, err)
 	assert.Equal(t, "live-download", string(entry.Value), "the live holder's lease is untouched")
+}
+
+// TestFreeLeases_DeletesOnlyTheFailedDownloadsKeys is spec §8.3's lease
+// delete: a season pack frees every episode lease its Download holds, and
+// leaves alone the one a later grab already reclaimed and the one nobody
+// held -- so a redelivered failure frees nothing twice.
+func TestFreeLeases_DeletesOnlyTheFailedDownloadsKeys(t *testing.T) {
+	ctx := context.Background()
+	kv := newTestBus(t).KV(events.BucketLeases)
+	keys := packLeaseKeys("the-wire-s01e01", "the-wire-s01e02", "the-wire-s01e03")
+
+	_, err := kv.Create(ctx, keys[0], []byte("failed-download"))
+	require.NoError(t, err)
+	_, err = kv.Create(ctx, keys[1], []byte("later-download"))
+	require.NoError(t, err)
+	// keys[2]: never taken.
+
+	pack := commonv1.MediaRef{
+		Kind: commonv1.MediaKindSeries, Name: "the-wire",
+		Keys: []string{"the-wire-s01e01", "the-wire-s01e02", "the-wire-s01e03"},
+	}
+	freed, err := FreeLeases(ctx, kv, "media", pack, "failed-download")
+	require.NoError(t, err)
+	assert.Equal(t, []string{keys[0]}, freed)
+
+	_, err = kv.Get(ctx, keys[0])
+	assert.ErrorIs(t, err, events.ErrKeyNotFound, "the failed Download's lease is freed")
+	entry, err := kv.Get(ctx, keys[1])
+	require.NoError(t, err)
+	assert.Equal(t, "later-download", string(entry.Value), "a lease another grab holds is not the failed one's to free")
+
+	freed, err = FreeLeases(ctx, kv, "media", pack, "failed-download")
+	require.NoError(t, err)
+	assert.Empty(t, freed, "a second call frees nothing")
+
+	_, err = FreeLeases(ctx, kv, "media", commonv1.MediaRef{Kind: commonv1.MediaKindArtist, Name: "radiohead"}, "x")
+	assert.ErrorIs(t, err, ErrUnsupportedKind)
 }

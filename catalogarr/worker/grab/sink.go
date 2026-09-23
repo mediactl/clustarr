@@ -77,14 +77,11 @@ func statusKindOf(ref commonv1.MediaRef) commonv1.MediaKind {
 // It is the bridge between §8.2's two halves: the search worker decides, this
 // package delays and grabs.
 //
-// It implements catalogarr/worker/search.Sink in everything but the namespace:
-// that interface's Deliver takes (ctx, schema.SearchTask, ranked), and neither
-// a SearchTask nor a commonv1.MediaRef carries a namespace, while every object
-// this package touches is namespaced.
-// (reconciled by controller -- Task C12): wire this up once search.Sink's
-// Deliver carries the namespace the search worker already resolved from the
-// envelope. Until then C12 writes the four-line adapter itself, or the
-// interface gains the parameter; do not guess a namespace here.
+// It implements catalogarr/worker/search.Sink. That interface's Deliver takes
+// the namespace the search worker resolved from the envelope, because neither
+// a SearchTask nor a commonv1.MediaRef carries one while every object this
+// package touches is namespaced, and the grab source the task's reason maps
+// to.
 type Sink struct {
 	Deps Deps
 
@@ -101,12 +98,23 @@ type Sink struct {
 // Deliver grabs the best approved release for target, honouring its delay
 // profile. ranked is the search worker's output, best first; anything not
 // approved is ignored, and an empty list is a successful no-op.
+//
+// grabbedBy is what the Download will record as spec.grabbedBy: the search
+// worker passes redownload for a search a failed Download triggered (spec
+// §8.3, catalogarr/worker/redownload) and search otherwise. Empty means
+// search. It is carried through a delay as well (pendingValue.GrabbedBy), so
+// a redownload held by a DelayProfile is still a redownload when the
+// scheduled grab fires.
 func (s Sink) Deliver(
 	ctx context.Context,
 	ns string,
 	target commonv1.MediaRef,
 	ranked []commonv1.ReleaseDecision,
+	grabbedBy downloadv1alpha1.GrabSource,
 ) error {
+	if grabbedBy == "" {
+		grabbedBy = downloadv1alpha1.GrabSourceSearch
+	}
 	log := logging.FromContext(ctx).With("item", target.Name)
 	best, ok := firstApproved(ranked)
 	if !ok {
@@ -148,7 +156,7 @@ func (s Sink) Deliver(
 		Target:    commonv1.MediaRef{Kind: target.Kind, Name: target.Name},
 		Keys:      target.Keys,
 		Release:   best.ReleaseInfo,
-		GrabbedBy: downloadv1alpha1.GrabSourceSearch,
+		GrabbedBy: grabbedBy,
 	})
 	if errors.Is(err, ErrDuplicateGrab) {
 		// Another path got there first. Acknowledge: the search is done

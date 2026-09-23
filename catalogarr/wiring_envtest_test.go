@@ -169,7 +169,7 @@ func TestSetupWorkersLeavesTheBlocklistPathLive(t *testing.T) {
 // in the tree goes red. It inspects what buildQueueWorkers, the function
 // setupQueueWorkers subscribes, actually hands each consumer:
 //
-//   - all three look their durable consumer up in the topology Run installs;
+//   - all four look their durable consumer up in the topology Run installs;
 //   - every route into the grab path's double-grab guard -- the search
 //     sink, the scheduled grab and the RSS matcher -- reads live through the
 //     manager's API reader, not the cache (x4a-report's cache window);
@@ -191,6 +191,14 @@ func TestQueueWorkersShareRunsWiring(t *testing.T) {
 	require.Equal(t, want, *w.grab.Topology)
 	require.NotNil(t, w.rss.Deps.Topology, "the RSS matcher looks its consumer up in events.Default()")
 	require.Equal(t, want, *w.rss.Deps.Topology)
+	// Gap fix Y3: spec §8.3's failed-Download consumer is built with the
+	// process's client, bus and topology.
+	require.NotNil(t, w.redownload, "setupQueueWorkers builds no redownload consumer")
+	require.NotNil(t, w.redownload.Topology, "the redownload handler looks its consumer up in events.Default()")
+	require.Equal(t, want, *w.redownload.Topology)
+	require.Equal(t, events.ConsumerCatalogRedownload, w.redownload.Subscription().Durable)
+	require.True(t, w.redownload.Client == mgr.GetClient(), "the redownload handler reads through another client")
+	require.True(t, w.redownload.Bus == bus, "the redownload handler frees leases and publishes on another bus")
 
 	live := mgr.GetAPIReader()
 	sink, ok := w.search.Sink.(grab.Sink)

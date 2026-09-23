@@ -55,6 +55,7 @@ import (
 	"github.com/mediactl/clustarr/catalogarr/history"
 	catalogmetadata "github.com/mediactl/clustarr/catalogarr/metadata"
 	"github.com/mediactl/clustarr/catalogarr/worker/grab"
+	"github.com/mediactl/clustarr/catalogarr/worker/redownload"
 	"github.com/mediactl/clustarr/catalogarr/worker/rssmatcher"
 	"github.com/mediactl/clustarr/catalogarr/worker/search"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -95,8 +96,8 @@ const (
 	// RoleController runs the catalog controllers. Leader-elected.
 	RoleController Role = "controller"
 
-	// RoleWorker runs the search, grab and rss-matcher consumers. Every
-	// replica runs them. The import and importlist consumers are
+	// RoleWorker runs the search, grab, rss-matcher and redownload
+	// consumers. Every replica runs them. The import and importlist consumers are
 	// importarr's (amendment §A1.2, §A1.3).
 	RoleWorker Role = "worker"
 
@@ -563,7 +564,8 @@ func setupHistory(mgr ctrl.Manager, bus events.Bus) error {
 	return nil
 }
 
-// setupQueueWorkers registers the search, grab and rss-matcher consumers.
+// setupQueueWorkers registers the search, grab, rss-matcher and redownload
+// consumers.
 //
 // Order is load-bearing and is the reason the indexes are registered here
 // rather than by whichever worker happens to want them first: the RSS matcher
@@ -609,20 +611,28 @@ func setupQueueWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if err := w.rss.SetupWithManager(mgr, bus); err != nil {
 		return fmt.Errorf("catalogarr: subscribe rss-matcher: %w", err)
 	}
+	if err := w.redownload.SetupWithManager(mgr, bus); err != nil {
+		return fmt.Errorf("catalogarr: subscribe redownload: %w", err)
+	}
 	return nil
 }
 
-// queueWorkers is the three consumers setupQueueWorkers registers, built
+// queueWorkers is the four consumers setupQueueWorkers registers, built
 // but not yet subscribed, so a test can inspect exactly what Run hands each
 // one (wiring_envtest_test.go's TestQueueWorkersShareRunsWiring).
 type queueWorkers struct {
 	search *search.Worker
 	grab   *grab.Handler
 	rss    *rssmatcher.Handler
+	// redownload is spec §8.3's failed-Download consumer (gap fix Y3): it
+	// frees the item's grab lease and publishes a redownload search, which
+	// the search worker above turns into a grab recorded as
+	// grabbedBy=redownload.
+	redownload *redownload.Handler
 }
 
-// buildQueueWorkers builds the search, grab and rss-matcher consumers with
-// every seam setupQueueWorkers' doc comment names set.
+// buildQueueWorkers builds the search, grab, rss-matcher and redownload
+// consumers with every seam setupQueueWorkers' doc comment names set.
 func buildQueueWorkers(mgr ctrl.Manager, bus events.Bus, o Options) (queueWorkers, error) {
 	c := mgr.GetClient()
 	cat := catalogue.LoadedCatalogue()
@@ -666,7 +676,10 @@ func buildQueueWorkers(mgr ctrl.Manager, bus events.Bus, o Options) (queueWorker
 		Catalogue: cat,
 	})
 
-	return queueWorkers{search: searchWorker, grab: grabHandler, rss: rss}, nil
+	redownloadHandler := redownload.NewHandler(c, bus)
+	redownloadHandler.Topology = &topo
+
+	return queueWorkers{search: searchWorker, grab: grabHandler, rss: rss, redownload: redownloadHandler}, nil
 }
 
 // setupMetadataGateway registers RoleMetadata's gateway: every outbound

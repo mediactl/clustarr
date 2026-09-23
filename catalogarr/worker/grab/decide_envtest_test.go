@@ -254,7 +254,7 @@ func TestSink_DeliversTheBestApprovedRelease(t *testing.T) {
 		[]commonv1.ReleaseDecision{
 			{ReleaseInfo: rejected, Approved: false, Rank: 0},
 			{ReleaseInfo: approved, Approved: true, Rank: 1},
-		})
+		}, "")
 	require.NoError(t, err)
 
 	var downloads downloadv1alpha1.DownloadList
@@ -262,7 +262,8 @@ func TestSink_DeliversTheBestApprovedRelease(t *testing.T) {
 	require.Len(t, downloads.Items, 1)
 	assert.Equal(t, "guid-approved", downloads.Items[0].Spec.Release.GUID,
 		"a rejected decision must never be grabbed, however well it ranked")
-	assert.Equal(t, downloadv1alpha1.GrabSourceSearch, downloads.Items[0].Spec.GrabbedBy)
+	assert.Equal(t, downloadv1alpha1.GrabSourceSearch, downloads.Items[0].Spec.GrabbedBy,
+		"an empty grab source is a search")
 }
 
 // TestSink_NoApprovedReleaseIsANoOp: a search that approved nothing is a
@@ -276,7 +277,7 @@ func TestSink_NoApprovedReleaseIsANoOp(t *testing.T) {
 	sink := grab.Sink{Deps: grab.Deps{Client: c, Bus: newTestBus(t, nil), Now: fixedNow(testNow)}}
 	require.NoError(t, sink.Deliver(ctx, ns,
 		commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-thing-1982"},
-		[]commonv1.ReleaseDecision{{Approved: false}}))
+		[]commonv1.ReleaseDecision{{Approved: false}}, downloadv1alpha1.GrabSourceSearch))
 
 	var downloads downloadv1alpha1.DownloadList
 	require.NoError(t, c.List(ctx, &downloads, client.InNamespace(ns)))
