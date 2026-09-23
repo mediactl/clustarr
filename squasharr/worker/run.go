@@ -406,7 +406,13 @@ func (r *runner) run(ctx context.Context) error {
 	log.InfoContext(ctx, "squasharr worker: planned", "decision", plan.Decision, "tier", plan.Tier, "reason", plan.Reason)
 
 	// The .part is written beside the output, so the final rename is on one
-	// filesystem. Budget for an output as large as the source.
+	// filesystem; an explicit spec.outputPath may name a folder that does not
+	// exist yet. Budget for an output as large as the source.
+	if !sw.inPlace() {
+		if err := os.MkdirAll(filepath.Dir(sw.localOut), 0o775); err != nil {
+			return retriable("squasharr worker: create the output's folder: %w", err)
+		}
+	}
 	if err := fsops.EnsureFreeSpace(filepath.Dir(sw.localOut), st.Size()); err != nil {
 		return retriable("squasharr worker: scratch space: %w", err)
 	}

@@ -787,3 +787,48 @@ func TestRunRefusesToOverwriteAnUnrelatedFileAtTheOutputPath(t *testing.T) {
 	assert.True(t, bytes.Equal(theirs, got), "the unrelated file must be untouched")
 	f.requireSourceUntouched(t)
 }
+
+// An explicit spec.outputPath, in a folder that does not exist yet under the
+// same RootFolder, is honoured: the folder is created and the output lands
+// there, and the source is retired as for any replacing transcode.
+func TestRunWritesAnExplicitOutputPath(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	ctx := context.Background()
+	f := newFixture(t, c)
+	tj := f.get(t, c)
+	require.NoError(t, c.Delete(ctx, tj))
+	logicalOut := "/data/media/movies/Film (2020) [hevc]/Film (2020).mkv"
+	require.NoError(t, c.Create(ctx, &transcodev1alpha1.TranscodeJob{
+		ObjectMeta: metav1.ObjectMeta{Name: f.job, Namespace: f.ns},
+		Spec: transcodev1alpha1.TranscodeJobSpec{
+			MediaFileRef: "film-2020", ProfileRef: f.profileName,
+			SourcePath: f.logical, SourceProbeHash: f.probeHash, OutputPath: ptr.To(logicalOut),
+		},
+	}))
+
+	code, err := Run(ctx, c, f.options())
+	require.NoError(t, err)
+	require.Equal(t, ExitOK, code)
+
+	codec, _ := videoCodec(t, filepath.Join(f.dataDir, "media/movies/Film (2020) [hevc]/Film (2020).mkv"))
+	assert.Equal(t, "hevc", codec)
+	_, err = os.Stat(f.local)
+	assert.ErrorIs(t, err, os.ErrNotExist, "replaceSource=true retires the source")
+	assert.Equal(t, logicalOut, f.get(t, c).Status.Result.OutputPath)
+
+	// Outside every RootFolder it is refused before any work.
+	f2 := newFixture(t, c)
+	require.NoError(t, c.Delete(ctx, f2.get(t, c)))
+	require.NoError(t, c.Create(ctx, &transcodev1alpha1.TranscodeJob{
+		ObjectMeta: metav1.ObjectMeta{Name: f2.job, Namespace: f2.ns},
+		Spec: transcodev1alpha1.TranscodeJobSpec{
+			MediaFileRef: "film-2020", ProfileRef: f2.profileName,
+			SourcePath: f2.logical, SourceProbeHash: f2.probeHash, OutputPath: ptr.To("/data/elsewhere/Film.mkv"),
+		},
+	}))
+	code, err = Run(ctx, c, f2.options())
+	require.Error(t, err)
+	assert.Equal(t, ExitInvalidSource, code)
+	f2.requireSourceUntouched(t)
+}
