@@ -57,13 +57,13 @@ type Budget struct {
 	Slots map[string]int32
 
 	// ProfileLimits caps how many transcodes of one profile may run at once,
-	// across every hardware class. A missing or non-positive entry means no
-	// per-profile cap -- only the hardware budget applies.
+	// across every hardware class -- §6.4's "per-profile counts". A missing
+	// or non-positive entry means no per-profile cap: only the hardware
+	// budget applies.
 	//
-	// TranscodeProfileSpec has no concurrency field today (checked against
-	// api/transcode/v1alpha1 at E-2), so the reconciler's own ProfileLimits
-	// is the only source; §6.4's "per-profile counts" has nowhere else to
-	// come from without an API change.
+	// The reconciler fills it from each TranscodeProfile's
+	// spec.maxConcurrent ([profileLimits]), whose zero means the same "no
+	// cap" as a missing entry here.
 	ProfileLimits map[string]int32
 }
 

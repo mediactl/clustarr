@@ -104,10 +104,6 @@ type Reconciler struct {
 	// Slots is the per-hardware budget, squasharr.Options.Slots.
 	Slots map[string]int32
 
-	// ProfileLimits optionally caps concurrent transcodes per profile; see
-	// Budget.ProfileLimits.
-	ProfileLimits map[string]int32
-
 	// Job is the deployment-level half of every Job this creates.
 	Job JobConfig
 
@@ -492,6 +488,7 @@ func (r *Reconciler) admit(ctx context.Context) error {
 	for _, p := range profiles.Items {
 		profilePriority[p.Name] = p.Spec.Priority
 	}
+	limits := profileLimits(profiles.Items)
 
 	var queued, running []Slot
 	byKey := map[string]*batchv1.Job{}
@@ -524,7 +521,7 @@ func (r *Reconciler) admit(ctx context.Context) error {
 		byKey[slot.Key] = job
 	}
 
-	admitted := Admit(queued, running, Budget{Slots: r.Slots, ProfileLimits: r.ProfileLimits})
+	admitted := Admit(queued, running, Budget{Slots: r.Slots, ProfileLimits: limits})
 	setActive(r.Slots, running, admitted)
 	var errs []error
 	for _, s := range admitted {
@@ -537,6 +534,19 @@ func (r *Reconciler) admit(ctx context.Context) error {
 			"priority", s.Priority)
 	}
 	return errors.Join(errs...)
+}
+
+// profileLimits is Budget.ProfileLimits from each profile's
+// spec.maxConcurrent. A zero (or absent) maxConcurrent is left out, which
+// Admit reads as "no per-profile cap".
+func profileLimits(profiles []transcodev1alpha1.TranscodeProfile) map[string]int32 {
+	out := map[string]int32{}
+	for i := range profiles {
+		if n := profiles[i].Spec.MaxConcurrent; n > 0 {
+			out[profiles[i].Name] = n
+		}
+	}
+	return out
 }
 
 // setSuspend flips spec.suspend on a Job with a merge patch of that one

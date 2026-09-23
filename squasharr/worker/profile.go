@@ -27,9 +27,10 @@ import (
 )
 
 // ProfileSpec converts a TranscodeProfile's CRD spec into pkg/transcode's
-// plain-Go mirror of it, field for field. The Job-scheduling fields
-// (default, selector, resources, gpu, scratch, priority, activeDeadline,
-// ttlSecondsAfterFinished, chunking) have no counterpart there, by design:
+// plain-Go mirror of it, field for field. The Job-scheduling and admission
+// fields (default, selector, resources, gpu, scratch, priority,
+// maxConcurrent, activeDeadline, ttlSecondsAfterFinished, chunking) have no
+// counterpart there, by design:
 // see transcode.ProfileSpec's own doc comment.
 //
 // It is the ONE converter in squasharr. The TranscodeProfile controller

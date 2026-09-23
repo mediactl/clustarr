@@ -144,9 +144,10 @@ type VerifySpec struct {
 
 // ProfileSpec is pkg/transcode's plain-Go mirror of TranscodeProfileSpec. It
 // deliberately omits Default, Selector, Resources, GPU, Scratch, Priority,
-// ActiveDeadline, TTLSecondsAfterFinished and Chunking: those are Kubernetes
-// Job-scheduling fields the squasharr controller resolves before calling
-// this package, never ffmpeg-render inputs. The x265 thread-pool size
+// MaxConcurrent, ActiveDeadline, TTLSecondsAfterFinished and Chunking: those
+// are Kubernetes Job-scheduling and admission fields the squasharr
+// controller resolves before calling this package, never ffmpeg-render
+// inputs. The x265 thread-pool size
 // (Resources.Limits[cpu], fed via the Downward API per note §3.7) is passed
 // explicitly as PlanMeta.Threads instead of smuggled through this struct.
 type ProfileSpec struct {

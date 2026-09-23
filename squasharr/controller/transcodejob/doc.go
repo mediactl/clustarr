@@ -46,8 +46,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // codes 3 and 4 fail the Job outright.
 //
 // Admission: [Admit] is a pure function over the queued and running Jobs,
-// the --slots budget and optional per-profile limits; the reconciler runs it
-// after every non-terminal pass and unsuspends what it returns.
+// the --slots budget and the per-profile limits each TranscodeProfile's
+// spec.maxConcurrent sets; the reconciler runs it after every non-terminal
+// pass and unsuspends what it returns.
 //
 // Running / Succeeded / Failed are mirrored from the Job, which this package
 // Owns.

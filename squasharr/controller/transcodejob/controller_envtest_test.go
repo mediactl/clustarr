@@ -553,6 +553,49 @@ func TestAdmissionHonoursTheBudget(t *testing.T) {
 	assert.False(t, *lowJob.Spec.Suspend, "the pass that saw the slot free must admit the waiting job")
 }
 
+// TestAdmissionHonoursProfileMaxConcurrent: a profile's spec.maxConcurrent
+// caps its own running transcodes below a hardware budget that would admit
+// more, a profile with none (0) is capped only by the budget, and raising the
+// cap admits the waiting job on the next pass.
+func TestAdmissionHonoursProfileMaxConcurrent(t *testing.T) {
+	_, c := startEnv(t)
+	ctx := context.Background()
+	const ns = "tj-maxconc"
+	newNamespace(t, c, ns)
+	newProfile(t, c, "capped", "hashc", func(p *transcodev1alpha1.TranscodeProfile) { p.Spec.MaxConcurrent = 1 })
+	newProfile(t, c, "open", "hasho", nil)
+	for _, name := range []string{"c1", "c2", "o1", "o2"} {
+		newMediaFile(t, c, ns, name, "p"+name, ptr.To(h264Probe()))
+	}
+	newTJ(t, c, ns, "c1", "c1", "capped", "pc1", nil)
+	newTJ(t, c, ns, "c2", "c2", "capped", "pc2", nil)
+	newTJ(t, c, ns, "o1", "o1", "open", "po1", nil)
+	newTJ(t, c, ns, "o2", "o2", "open", "po2", nil)
+
+	queue := newReconciler(c, map[string]int32{"cpu": 0})
+	for _, name := range []string{"c1", "c2", "o1", "o2"} {
+		reconcileTJ(t, queue, ns, name)
+	}
+
+	r := newReconciler(c, map[string]int32{"cpu": 10})
+	reconcileTJ(t, r, ns, "o1")
+	suspended := func(name string) bool {
+		return *getJob(t, c, ns, *getTJ(t, c, ns, name).Status.JobRef).Spec.Suspend
+	}
+	assert.False(t, suspended("o1"), "a profile with no maxConcurrent is capped only by the budget")
+	assert.False(t, suspended("o2"), "a profile with no maxConcurrent is capped only by the budget")
+	assert.NotEqual(t, suspended("c1"), suspended("c2"),
+		"maxConcurrent 1 with ten free cpu slots must admit exactly one of the profile's two jobs")
+
+	var capped transcodev1alpha1.TranscodeProfile
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "capped"}, &capped))
+	capped.Spec.MaxConcurrent = 2
+	require.NoError(t, c.Update(ctx, &capped))
+	reconcileTJ(t, r, ns, "o1")
+	assert.False(t, suspended("c1"), "raising maxConcurrent must admit the waiting job")
+	assert.False(t, suspended("c2"), "raising maxConcurrent must admit the waiting job")
+}
+
 // TestUserSuspendPausesAndResumes: spec.suspend re-suspends a running Job
 // and keeps it out of admission until cleared.
 func TestUserSuspendPausesAndResumes(t *testing.T) {
