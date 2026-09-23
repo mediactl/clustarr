@@ -46,8 +46,8 @@ spec:
       serverAddress: {{ .Values.keda.prometheusAddress | quote }}
       query: |-
         sum(
-          jetstream_consumer_num_pending{stream_name="CLUSTARR_WORK_CAPTIONARR", consumer_name="captionarr-fetch"}
-          + jetstream_consumer_num_ack_pending{stream_name="CLUSTARR_WORK_CAPTIONARR", consumer_name="captionarr-fetch"}
+          jetstream_consumer_num_pending{stream_name="CLUSTARR_WORK_CAPTIONARR", consumer_name=~"captionarr-fetch-(high|normal)"}
+          + jetstream_consumer_num_ack_pending{stream_name="CLUSTARR_WORK_CAPTIONARR", consumer_name=~"captionarr-fetch-(high|normal)"}
         )
       threshold: {{ .Values.keda.captionarrWorker.threshold | quote }}
       activationThreshold: "5"

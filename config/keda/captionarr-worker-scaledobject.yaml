@@ -10,9 +10,15 @@
 # alone under-counts while workers are mid-fetch and flaps the replica count.
 #
 # cooldownPeriod and the Deployment's terminationGracePeriodSeconds are both
-# >= the consumer's AckWait (120s): a worker that is scaled away must be able
-# to finish its in-flight fetch, and KEDA must not scale down inside one
-# AckWait window or the message is redelivered to a pod that is going away.
+# >= the fetch consumers' AckWait (90s, pkg/events/topology.go): a worker
+# that is scaled away must be able to finish its in-flight fetch, and KEDA
+# must not scale down inside one AckWait window or the message is
+# redelivered to a pod that is going away.
+#
+# The query sums both fetch consumers, captionarr-fetch-high and
+# captionarr-fetch-normal; cmd/clustarr's
+# TestCaptionarrScaledObjectCountsTheRealFetchConsumers holds it (and the
+# chart's copy) to pkg/events' topology.
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
@@ -46,8 +52,8 @@ spec:
       serverAddress: http://prometheus-operated.monitoring.svc:9090
       query: |-
         sum(
-          jetstream_consumer_num_pending{stream_name="CLUSTARR_WORK_CAPTIONARR", consumer_name="captionarr-fetch"}
-          + jetstream_consumer_num_ack_pending{stream_name="CLUSTARR_WORK_CAPTIONARR", consumer_name="captionarr-fetch"}
+          jetstream_consumer_num_pending{stream_name="CLUSTARR_WORK_CAPTIONARR", consumer_name=~"captionarr-fetch-(high|normal)"}
+          + jetstream_consumer_num_ack_pending{stream_name="CLUSTARR_WORK_CAPTIONARR", consumer_name=~"captionarr-fetch-(high|normal)"}
         )
       # One replica per ~20 queued fetches. Providers are rate limited by the
       # shared KV token bucket, so more workers buy parallelism across
