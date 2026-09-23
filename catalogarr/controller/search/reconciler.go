@@ -84,6 +84,7 @@ const queueFullRequeue = time.Minute
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=series,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists;albums;authors;books;audiobooks;comics;issues,verbs=get;list;watch
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch;create;update;patch
 // The Recorder is a k8s.io/client-go/tools/events.EventRecorder, handed in by
 // mgr.GetEventRecorder, and it writes events.k8s.io/v1 -- so events.k8s.io is
@@ -769,9 +770,51 @@ func (r *Reconciler) handleGrabs(ctx context.Context, s *catalogv1alpha1.Search)
 // still created, just without an owner, and the grab path reports the item
 // separately. That keeps a stale MediaRef from silently swallowing a grab the
 // user explicitly asked for.
+//
+// The profile is the one the search worker ranked the results against: an
+// episode's is its Series'; an album's, a book's and an issue's is its own
+// override or else its container's (Artist, Author, Comic); an audiobook
+// names its own. A missing container leaves the profile empty rather than
+// failing the grab, for the same reason a missing item does.
 func (r *Reconciler) resolveTarget(ctx context.Context, s *catalogv1alpha1.Search) (client.Object, string, error) {
 	key := client.ObjectKey{Namespace: s.Namespace, Name: s.Spec.MediaRef.Name}
 	switch s.Spec.MediaRef.Kind {
+	case commonv1.MediaKindAlbum:
+		a := &catalogv1alpha1.Album{}
+		if err := r.Client.Get(ctx, key, a); err != nil {
+			return nil, "", client.IgnoreNotFound(err)
+		}
+		if ref := ptr.Deref(a.Spec.QualityProfileRef, ""); ref != "" {
+			return a, ref, nil
+		}
+		artist := &catalogv1alpha1.Artist{}
+		ref, err := r.containerProfile(ctx, s.Namespace, a.Spec.ArtistRef, artist, func() string { return artist.Spec.QualityProfileRef })
+		return a, ref, err
+	case commonv1.MediaKindBook:
+		b := &catalogv1alpha1.Book{}
+		if err := r.Client.Get(ctx, key, b); err != nil {
+			return nil, "", client.IgnoreNotFound(err)
+		}
+		if ref := ptr.Deref(b.Spec.QualityProfileRef, ""); ref != "" {
+			return b, ref, nil
+		}
+		author := &catalogv1alpha1.Author{}
+		ref, err := r.containerProfile(ctx, s.Namespace, ptr.Deref(b.Spec.AuthorRef, ""), author, func() string { return author.Spec.QualityProfileRef })
+		return b, ref, err
+	case commonv1.MediaKindAudiobook:
+		ab := &catalogv1alpha1.Audiobook{}
+		if err := r.Client.Get(ctx, key, ab); err != nil {
+			return nil, "", client.IgnoreNotFound(err)
+		}
+		return ab, ab.Spec.QualityProfileRef, nil
+	case commonv1.MediaKindIssue:
+		iss := &catalogv1alpha1.Issue{}
+		if err := r.Client.Get(ctx, key, iss); err != nil {
+			return nil, "", client.IgnoreNotFound(err)
+		}
+		comic := &catalogv1alpha1.Comic{}
+		ref, err := r.containerProfile(ctx, s.Namespace, iss.Spec.ComicRef, comic, func() string { return comic.Spec.QualityProfileRef })
+		return iss, ref, err
 	case commonv1.MediaKindMovie:
 		m := &catalogv1alpha1.Movie{}
 		if err := r.Client.Get(ctx, key, m); err != nil {
@@ -794,6 +837,18 @@ func (r *Reconciler) resolveTarget(ctx context.Context, s *catalogv1alpha1.Searc
 	default:
 		return nil, "", nil
 	}
+}
+
+// containerProfile reads the named container into obj and returns profile()
+// from it: "" when name is empty or the container is gone.
+func (r *Reconciler) containerProfile(ctx context.Context, ns, name string, obj client.Object, profile func() string) (string, error) {
+	if name == "" {
+		return "", nil
+	}
+	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, obj); err != nil {
+		return "", client.IgnoreNotFound(err)
+	}
+	return profile(), nil
 }
 
 // ttlDeadline is when this Search may be deleted, or the zero time when it is

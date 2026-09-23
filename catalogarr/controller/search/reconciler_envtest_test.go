@@ -471,6 +471,65 @@ func TestReconcileHandlesSpecGrab(t *testing.T) {
 	require.Len(t, dls.Items, 2)
 }
 
+// TestReconcileGrabsANonVideoItemUnderItsInheritedProfile: an interactive
+// grab of an album or an issue creates a Download owned by that item and
+// ranked against the profile the search worker used -- the album's
+// artist's, the issue's comic's. Before non-video search, resolveTarget knew
+// only movies and episodes, so such a Download had no owner (nothing cascades
+// it away with its item) and no profile (the importer could not judge it).
+func TestReconcileGrabsANonVideoItemUnderItsInheritedProfile(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t, "search-grab-nonvideo")
+
+	require.NoError(t, f.c.Create(ctx, &catalogv1alpha1.Artist{
+		ObjectMeta: metav1.ObjectMeta{Name: "radiohead", Namespace: f.ns},
+		Spec: catalogv1alpha1.ArtistSpec{
+			MusicBrainzID: "a74b1b7f-71a5-4011-9441-d0b5e4122711", QualityProfileRef: "music-lossless", RootFolderRef: "music",
+		},
+	}))
+	require.NoError(t, f.c.Create(ctx, &catalogv1alpha1.Album{
+		ObjectMeta: metav1.ObjectMeta{Name: "radiohead-kid-a", Namespace: f.ns},
+		Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: "radiohead", ReleaseGroupID: "b8048f24-c026-3398-b23a-b5e30716ea6f"},
+	}))
+	require.NoError(t, f.c.Create(ctx, &catalogv1alpha1.Comic{
+		ObjectMeta: metav1.ObjectMeta{Name: "saga", Namespace: f.ns},
+		Spec: catalogv1alpha1.ComicSpec{
+			Source: catalogv1alpha1.ComicSourceComicVine, SourceID: "46644", QualityProfileRef: "comic", RootFolderRef: "comics",
+		},
+	}))
+	require.NoError(t, f.c.Create(ctx, &catalogv1alpha1.Issue{
+		ObjectMeta: metav1.ObjectMeta{Name: "saga-050", Namespace: f.ns},
+		Spec:       catalogv1alpha1.IssueSpec{ComicRef: "saga", Number: "50", CalculatedNumberCentis: 5000},
+	}))
+
+	cases := []struct {
+		search, owner, ownerKind, profile string
+		ref                               commonv1.MediaRef
+	}{
+		{"srch-album", "radiohead-kid-a", "Album", "music-lossless", commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: "radiohead-kid-a"}},
+		{"srch-issue", "saga-050", "Issue", "comic", commonv1.MediaRef{Kind: commonv1.MediaKindIssue, Name: "saga-050"}},
+	}
+	for _, c := range cases {
+		t.Run(c.ownerKind, func(t *testing.T) {
+			ref := c.ref
+			f.createSearch(t, c.search, catalogv1alpha1.SearchSpec{MediaRef: &ref, TTL: metav1.Duration{Duration: time.Hour}})
+			before := f.drive(t, c.search, approvedResult("g-"+c.search))
+			patch := client.MergeFrom(before.DeepCopy())
+			before.Spec.Grab = []string{"g-" + c.search}
+			require.NoError(t, f.c.Patch(ctx, before, patch))
+			f.reconcile(t, c.search)
+
+			dl := &downloadv1alpha1.Download{}
+			require.NoError(t, f.c.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: k8s.ChildName(c.owner, "g-"+c.search)}, dl))
+			require.Equal(t, c.profile, dl.Spec.QualityProfileRef, "the profile the worker ranked against")
+			require.Len(t, dl.OwnerReferences, 1)
+			require.Equal(t, c.ownerKind, dl.OwnerReferences[0].Kind)
+			require.Equal(t, c.owner, dl.OwnerReferences[0].Name)
+			require.Equal(t, c.ref, dl.Spec.Target)
+		})
+	}
+}
+
 func TestReconcileDeletesTheSearchOnceItsTTLHasElapsed(t *testing.T) {
 	f := newFixture(t, "search-ttl")
 	f.createSearch(t, "srch", catalogv1alpha1.SearchSpec{

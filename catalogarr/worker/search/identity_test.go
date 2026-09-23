@@ -165,3 +165,71 @@ func TestSceneMappings(t *testing.T) {
 	require.Nil(t, SceneMappings(ctx, src, 0), "no tvdb id: nothing to ask for")
 	require.Equal(t, before, calls, "a series with no tvdb id costs no lookup")
 }
+
+func TestNonVideoIdentities(t *testing.T) {
+	// 23:30 on 31 December 1999 in UTC is already 2000 east of UTC and
+	// still 1999 west of it; the year must be read in UTC regardless of
+	// the zone the value was decoded in (CLAUDE.md's New Year gotcha).
+	west := time.FixedZone("UTC-5", -5*60*60)
+	newYearsEve := metav1.NewTime(time.Date(1999, 12, 31, 23, 30, 0, 0, time.UTC).In(west))
+
+	t.Run("album: title, the artist's name and sort name, the UTC release year", func(t *testing.T) {
+		got := AlbumIdentity(
+			&catalogv1alpha1.Album{Status: catalogv1alpha1.AlbumStatus{Metadata: &catalogv1alpha1.AlbumMetadata{
+				Title: "Abbey Road", ReleaseDate: &newYearsEve,
+			}}},
+			&catalogv1alpha1.Artist{Status: catalogv1alpha1.ArtistStatus{Metadata: &catalogv1alpha1.ArtistMetadata{
+				Name: "The Beatles", SortName: "Beatles, The",
+			}}},
+		)
+		require.Equal(t, decision.Identity{
+			Titles: []string{"Abbey Road"}, Creators: []string{"The Beatles", "Beatles, The"}, Year: 1999,
+		}, got)
+	})
+
+	t.Run("book: title, subtitle form and edition titles; the author's names", func(t *testing.T) {
+		got := BookIdentity(
+			&catalogv1alpha1.Book{Status: catalogv1alpha1.BookStatus{Metadata: &catalogv1alpha1.BookMetadata{
+				Title: "Dune", Subtitle: "Deluxe Edition",
+				Editions: []catalogv1alpha1.Edition{{ID: "OL1M", Title: "Duna"}, {ID: "OL2M", Title: "Dune"}},
+			}}},
+			&catalogv1alpha1.Author{Status: catalogv1alpha1.AuthorStatus{Metadata: &catalogv1alpha1.AuthorMetadata{
+				Name: "Frank Herbert", SortName: "Herbert, Frank",
+			}}},
+		)
+		require.Equal(t, []string{"Dune", "Dune: Deluxe Edition", "Duna"}, got.Titles)
+		require.Equal(t, []string{"Frank Herbert", "Herbert, Frank"}, got.Creators)
+	})
+
+	t.Run("a standalone book has no creators, so it fails closed on author", func(t *testing.T) {
+		got := BookIdentity(&catalogv1alpha1.Book{Status: catalogv1alpha1.BookStatus{
+			Metadata: &catalogv1alpha1.BookMetadata{Title: "Dune"},
+		}}, nil)
+		require.Empty(t, got.Creators)
+	})
+
+	t.Run("audiobook: every author, not the narrators", func(t *testing.T) {
+		got := AudiobookIdentity(&catalogv1alpha1.Audiobook{Status: catalogv1alpha1.AudiobookStatus{
+			Metadata: &catalogv1alpha1.AudiobookMetadata{
+				Title: "Good Omens", Authors: []catalogv1alpha1.NamedRef{{Name: "Terry Pratchett"}, {Name: "Neil Gaiman"}},
+				Narrators: []string{"Martin Jarvis"},
+			},
+		}})
+		require.Equal(t, []string{"Terry Pratchett", "Neil Gaiman"}, got.Creators)
+		require.Equal(t, []string{"Good Omens"}, got.Titles)
+	})
+
+	t.Run("issue: the comic's title, the issue number, the cover year; no volume-year fallback", func(t *testing.T) {
+		comic := &catalogv1alpha1.Comic{Status: catalogv1alpha1.ComicStatus{Metadata: &catalogv1alpha1.ComicMetadata{
+			Title: "Saga", Year: 2012,
+		}}}
+		dated := IssueIdentity(&catalogv1alpha1.Issue{
+			Spec:   catalogv1alpha1.IssueSpec{Number: "050"},
+			Status: catalogv1alpha1.IssueStatus{Title: "Chapter Fifty", Date: &newYearsEve},
+		}, comic)
+		require.Equal(t, decision.Identity{Titles: []string{"Saga"}, Issue: "050", Year: 1999}, dated)
+
+		undated := IssueIdentity(&catalogv1alpha1.Issue{Spec: catalogv1alpha1.IssueSpec{Number: "51"}}, comic)
+		require.Zero(t, undated.Year, "an undated issue is not bounded by the volume's start year")
+	})
+}

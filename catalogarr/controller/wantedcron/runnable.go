@@ -25,7 +25,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -70,7 +69,7 @@ func (n everyNHoursOnTheHour) Next(t time.Time) time.Time {
 	return next
 }
 
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;episodes,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;episodes;albums;books;audiobooks;issues,verbs=get;list;watch
 
 // Runnable is the twelve-hourly missing/cutoff-unmet sweep. It holds no state
 // between ticks: every sweep is a fresh List.
@@ -181,23 +180,16 @@ func (r *Runnable) runOnce(ctx context.Context, at time.Time) ([]string, error) 
 	ctx, span := tracing.Start(ctx, "wantedcron.runOnce")
 	defer span.End()
 
-	var movies []catalogv1alpha1.Movie
-	var episodes []catalogv1alpha1.Episode
+	var cands []Candidate
 	for _, opts := range listOptions(r.Namespaces) {
-		var ml catalogv1alpha1.MovieList
-		if err := r.Client.List(ctx, &ml, opts...); err != nil {
-			return nil, fmt.Errorf("wantedcron: list movies: %w", err)
+		got, err := ListCandidates(ctx, r.Client, sweptKind, at, opts...)
+		if err != nil {
+			return nil, fmt.Errorf("wantedcron: %w", err)
 		}
-		movies = append(movies, ml.Items...)
-
-		var el catalogv1alpha1.EpisodeList
-		if err := r.Client.List(ctx, &el, opts...); err != nil {
-			return nil, fmt.Errorf("wantedcron: list episodes: %w", err)
-		}
-		episodes = append(episodes, el.Items...)
+		cands = append(cands, got...)
 	}
 
-	namespaces := eligibleNamespaces(movies, episodes, at)
+	namespaces := eligibleNamespaces(cands, at)
 	epoch := at.Unix()
 	published := make([]string, 0, len(namespaces))
 	var firstErr error
@@ -211,14 +203,14 @@ func (r *Runnable) runOnce(ctx context.Context, at time.Time) ([]string, error) 
 		published = append(published, ns)
 	}
 	logging.FromContext(ctx).Info("wantedcron: sweep complete",
-		"movies", len(movies), "episodes", len(episodes), "namespaces", len(published))
+		"items", len(cands), "namespaces", len(published))
 	return published, firstErr
 }
 
 func (r *Runnable) publish(ctx context.Context, ns string, epoch int64, at time.Time) error {
 	schemaName, data, err := schema.Encode(schema.WantedScan{
 		Namespace:   ns,
-		Kinds:       []commonv1.MediaKind{commonv1.MediaKindMovie, commonv1.MediaKindEpisode},
+		Kinds:       SweptKinds,
 		CutoffUnmet: true,
 		Epoch:       epoch,
 	})
@@ -258,4 +250,14 @@ func listOptions(namespaces []string) [][]client.ListOption {
 		out = append(out, []client.ListOption{client.InNamespace(ns)})
 	}
 	return out
+}
+
+// sweptKind admits the kinds in SweptKinds.
+func sweptKind(k commonv1.MediaKind) bool {
+	for _, s := range SweptKinds {
+		if s == k {
+			return true
+		}
+	}
+	return false
 }

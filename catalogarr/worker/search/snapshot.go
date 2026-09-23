@@ -50,11 +50,10 @@ type itemSnapshot struct {
 // MediaFile if it has one, and the live queue for it, and folds the blocklist
 // informer into a predicate the decision engine can call per release.
 //
-// Only movie and episode are implemented. Spec §16's M1 scopes catalogarr's
-// non-video kinds (artist, album, author, book, audiobook, comic, issue) to
-// M6, and Handle discards a SearchTask for any other kind before it gets
-// here; the default branch is a belt-and-braces error, not a silent empty
-// snapshot.
+// Movie, episode, album, book, audiobook and issue are implemented -- the
+// kinds Searchable admits (nonvideo.go has the last four). Handle discards a
+// SearchTask for any other kind, a container, before it gets here; the
+// default branch is a belt-and-braces error, not a silent empty snapshot.
 func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef) (itemSnapshot, error) {
 	snap := itemSnapshot{
 		Target: decision.Target{
@@ -153,6 +152,14 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 		// single episode too.
 		snap.Target.Identity.SingleEpisodeSearch = true
 		hasFile, fileRef = e.Status.HasFile, e.Status.FileRef
+
+	case commonv1.MediaKindAlbum, commonv1.MediaKindBook, commonv1.MediaKindAudiobook, commonv1.MediaKindIssue:
+		var err error
+		hasFile, fileRef, err = w.snapshotNonVideo(ctx, ns, ref, &snap)
+		if err != nil {
+			return snap, err
+		}
+		snap.IDs = nonVideoIDs(snap.Target.Identity)
 
 	default:
 		return snap, fmt.Errorf("unsupported media kind %q", ref.Kind)

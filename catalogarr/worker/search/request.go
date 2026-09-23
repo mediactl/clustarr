@@ -55,15 +55,23 @@ type TargetIDs struct {
 	// display-name vocabulary the catalogue speaks.
 	OriginalLanguageTag string
 	// Title is the item's resolved title: Movie.status.metadata.title for a
-	// movie, the owning Series' status.metadata.title for an episode. Empty
-	// when metadata has not landed yet -- BuildSearchRequest then sends no
-	// text fallback at all rather than guess one from an unresolved name.
+	// movie, the owning Series' status.metadata.title for an episode, the
+	// album, book or audiobook title for those, and the owning Comic's
+	// (volume's) title for an issue. Empty when metadata has not landed yet
+	// -- BuildSearchRequest then sends no text fallback at all rather than
+	// guess one from an unresolved name.
 	Title string
+	// Creator is who made a non-video item, as a release names them: an
+	// album's artist, a book's or audiobook's first author. Empty for video.
+	Creator string
+	// Issue is an issue's number exactly as Issue.spec.number carries it.
+	// Empty for every other kind.
+	Issue string
 }
 
 // BuildSearchRequest renders one catalog item's identity into the federated
 // search RPC request. indexerRefs and categories, when non-empty, override the
-// newznab.ByKind(kind) default -- that is Search.spec.indexerRefs and
+// searchCategories(kind) default -- that is Search.spec.indexerRefs and
 // Search.spec.categories on an interactive search.
 //
 // schema.SearchRequest (pkg/events/schema/index.go) has Season and Episode but
@@ -91,7 +99,7 @@ func BuildSearchRequest(ns string, kind commonv1.MediaKind, ids TargetIDs, limit
 	if len(categories) > 0 {
 		req.Categories = categories
 	} else {
-		req.Categories = expandCategoryIDs(newznab.ByKind(kind))
+		req.Categories = expandCategoryIDs(searchCategories(kind))
 	}
 
 	idmap := map[string]string{}
@@ -156,8 +164,56 @@ func resolvedText(kind commonv1.MediaKind, ids TargetIDs) string {
 			return ids.Title
 		}
 		return fmt.Sprintf("%s S%02dE%02d", ids.Title, *ids.Season, *ids.Episode)
+	case commonv1.MediaKindAlbum, commonv1.MediaKindBook, commonv1.MediaKindAudiobook:
+		// "<artist> <album>" and "<author> <title>": the basic query Lidarr
+		// and Readarr send an indexer with no music or book search mode, and
+		// what indexarr's text fallback sends every non-video search (a
+		// non-video item has no id an indexer takes). The creator is left
+		// out rather than guessed when it is unknown; the identity check
+		// then fails such a release closed on its creator anyway.
+		if ids.Creator == "" {
+			return ids.Title
+		}
+		return ids.Creator + " " + ids.Title
+	case commonv1.MediaKindIssue:
+		// "<series> <issue>": Mylar's query (mylar3 mylar/search.py builds
+		// comsearch as the comic name followed by the issue number).
+		if ids.Issue == "" {
+			return ids.Title
+		}
+		return ids.Title + " " + ids.Issue
 	default:
 		return ""
+	}
+}
+
+// searchCategories is the Newznab categories an automatic search of kind
+// asks for when the caller named none (an interactive Search's
+// spec.categories overrides it). Video keeps newznab.ByKind's parent
+// category. The non-video kinds follow the *arr that owns each:
+//
+//   - album: Lidarr's default indexer categories, 3000/3010/3040 (Audio, MP3,
+//     Lossless). Lidarr also defaults 3030 (Audiobook), which is left out
+//     because Clustarr searches audiobooks as their own kind (Lidarr
+//     src/NzbDrone.Core/Indexers/Newznab/NewznabSettings.cs, develop).
+//   - book: Readarr's ebook defaults, 7020 (EBook) and 8010 (Other/Misc);
+//     Readarr also defaults 3030, which is the audiobook kind's here
+//     (Readarr src/NzbDrone.Core/Indexers/Newznab/NewznabSettings.cs,
+//     develop).
+//   - audiobook: 3030 (Audio/Audiobook).
+//   - issue: 7030 (Books/Comics), Mylar's comic category.
+func searchCategories(kind commonv1.MediaKind) []newznab.CategoryID {
+	switch kind {
+	case commonv1.MediaKindAlbum:
+		return []newznab.CategoryID{newznab.CatAudio, newznab.CatAudioMP3, newznab.CatAudioLossless}
+	case commonv1.MediaKindBook:
+		return []newznab.CategoryID{newznab.CatBooksEBook, newznab.CatOtherMisc}
+	case commonv1.MediaKindAudiobook:
+		return []newznab.CategoryID{newznab.CatAudioAudiobook}
+	case commonv1.MediaKindIssue:
+		return []newznab.CategoryID{newznab.CatBooksComics}
+	default:
+		return newznab.ByKind(kind)
 	}
 }
 

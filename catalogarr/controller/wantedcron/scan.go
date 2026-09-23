@@ -23,44 +23,27 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
 // eligibleNamespaces returns, sorted, every namespace holding at least one
-// item this sweep should wake the search workers for.
-//
-// An item counts when both hold:
-//
-//   - Its phase is Wanted or CutoffUnmet -- the two "something is still
-//     missing" states. Every other phase is either already handled
-//     (Downloading, Delayed, Imported), deliberately out of scope
-//     (Unmonitored) or not yet actionable (Pending, Unavailable, Unaired).
-//   - Its per-item backoff has elapsed, by the same Backoff/NextEligible the
-//     search worker applies. Waking a namespace whose every item the search
-//     worker would immediately skip costs a message, a consumer slot and a
-//     full List for nothing.
+// candidate this sweep should wake the search workers for: one that is
+// wanted (Candidate.Reason -- missing, or below its cutoff) and whose
+// per-item backoff has elapsed, by the same Backoff/NextEligible the search
+// worker applies (Candidate.Due). Waking a namespace whose every item the
+// search worker would immediately skip costs a message, a consumer slot and
+// a full List for nothing.
 //
 // It returns namespaces rather than items because §5's handoff is one
 // WantedScan per namespace; see the package doc.
-func eligibleNamespaces(movies []catalogv1alpha1.Movie, episodes []catalogv1alpha1.Episode, now time.Time) []string {
+func eligibleNamespaces(cands []Candidate, now time.Time) []string {
 	seen := map[string]struct{}{}
-	for i := range movies {
-		m := &movies[i]
-		if _, ok := seen[m.Namespace]; ok {
+	for _, c := range cands {
+		if _, ok := seen[c.Namespace]; ok {
 			continue
 		}
-		if movieWanted(m.Status.Phase) && Eligible(searchAttempts(m.Status.SearchAttempts, m.Status.LastSearchedAt), now) {
-			seen[m.Namespace] = struct{}{}
-		}
-	}
-	for i := range episodes {
-		ep := &episodes[i]
-		if _, ok := seen[ep.Namespace]; ok {
-			continue
-		}
-		if episodeWanted(ep.Status.Phase) && Eligible(searchAttempts(ep.Status.SearchAttempts, ep.Status.LastSearchedAt), now) {
-			seen[ep.Namespace] = struct{}{}
+		if c.Due(now, true) {
+			seen[c.Namespace] = struct{}{}
 		}
 	}
 	out := make([]string, 0, len(seen))
@@ -69,14 +52,6 @@ func eligibleNamespaces(movies []catalogv1alpha1.Movie, episodes []catalogv1alph
 	}
 	sort.Strings(out)
 	return out
-}
-
-func movieWanted(p catalogv1alpha1.MoviePhase) bool {
-	return p == catalogv1alpha1.MoviePhaseWanted || p == catalogv1alpha1.MoviePhaseCutoffUnmet
-}
-
-func episodeWanted(p catalogv1alpha1.EpisodePhase) bool {
-	return p == catalogv1alpha1.EpisodePhaseWanted || p == catalogv1alpha1.EpisodePhaseCutoffUnmet
 }
 
 // searchAttempts folds status.lastSearchedAt into status.searchAttempts.

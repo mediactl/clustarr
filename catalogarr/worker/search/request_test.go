@@ -158,6 +158,70 @@ func TestBuildSearchRequest(t *testing.T) {
 				require.Equal(t, "One Piece 37", got.Text)
 			},
 		},
+		{
+			// Lidarr's basic query, in Lidarr's default audio categories
+			// minus audiobooks, which are their own kind here.
+			name:  "an album searches by artist and title in the music categories",
+			kind:  commonv1.MediaKindAlbum,
+			ids:   TargetIDs{Title: "Kid A", Creator: "Radiohead"},
+			limit: 100,
+			assert: func(t *testing.T, got schema.SearchRequest) {
+				require.Equal(t, "Radiohead Kid A", got.Text)
+				require.Equal(t, []int32{3000, 3010, 3040}, got.Categories)
+				require.Nil(t, got.IDs)
+				require.Nil(t, got.Season)
+				require.Nil(t, got.Episode)
+			},
+		},
+		{
+			name:  "a book searches by author and title in Readarr's ebook categories",
+			kind:  commonv1.MediaKindBook,
+			ids:   TargetIDs{Title: "Dune", Creator: "Frank Herbert"},
+			limit: 100,
+			assert: func(t *testing.T, got schema.SearchRequest) {
+				require.Equal(t, "Frank Herbert Dune", got.Text)
+				require.Equal(t, []int32{7020, 8010}, got.Categories)
+			},
+		},
+		{
+			name:  "an audiobook searches in the audiobook category",
+			kind:  commonv1.MediaKindAudiobook,
+			ids:   TargetIDs{Title: "Dune", Creator: "Frank Herbert"},
+			limit: 100,
+			assert: func(t *testing.T, got schema.SearchRequest) {
+				require.Equal(t, "Frank Herbert Dune", got.Text)
+				require.Equal(t, []int32{3030}, got.Categories)
+			},
+		},
+		{
+			// Mylar's "<series> <issue>".
+			name:  "an issue searches by its comic's title and its number in the comics category",
+			kind:  commonv1.MediaKindIssue,
+			ids:   TargetIDs{Title: "Saga", Issue: "50"},
+			limit: 100,
+			assert: func(t *testing.T, got schema.SearchRequest) {
+				require.Equal(t, "Saga 50", got.Text)
+				require.Equal(t, []int32{7030}, got.Categories)
+			},
+		},
+		{
+			name:  "a non-video item with no creator yet searches by title alone rather than guess one",
+			kind:  commonv1.MediaKindBook,
+			ids:   TargetIDs{Title: "Dune"},
+			limit: 100,
+			assert: func(t *testing.T, got schema.SearchRequest) {
+				require.Equal(t, "Dune", got.Text)
+			},
+		},
+		{
+			name:  "a non-video item with no metadata yet sends no text at all",
+			kind:  commonv1.MediaKindAlbum,
+			ids:   TargetIDs{Creator: "Radiohead"},
+			limit: 100,
+			assert: func(t *testing.T, got schema.SearchRequest) {
+				require.Empty(t, got.Text)
+			},
+		},
 	}
 
 	for _, tc := range tests {

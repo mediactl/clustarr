@@ -121,6 +121,7 @@ func (NopSink) Deliver(ctx context.Context, ns string, target commonv1.MediaRef,
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=searches,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=searches/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;episodes;series;mediafiles,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists;albums;authors;books;audiobooks;comics;issues,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads;downloadclients,verbs=get;list;watch
 
@@ -305,12 +306,12 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 	//
 	// Before the sink, because grab.RecordSearchAttempt and the grab sink
 	// write the SAME owned set under the same field manager
-	// (k8s.ManagerCatalogarrGrab: activeDownloadRef, pendingGrab,
-	// lastSearchedAt, searchAttempts) through a read-modify-declare cycle
-	// against the informer cache. If this ran after Deliver, it could read a
-	// cache that had not yet caught up with the pendingGrab the sink just
-	// wrote and release it. Running first means the sink's write is the later
-	// one, and the one ordering this function controls is the safe one.
+	// (k8s.ManagerCatalogarrGrab: pendingGrab, lastSearchedAt,
+	// searchAttempts) through a read-modify-declare cycle. The grab path
+	// declares that set against the resourceVersion it read and retries on
+	// a conflict, so neither write can roll the other back; recording first
+	// still makes the sink's pendingGrab the later of the two in this
+	// process, which is the one ordering this function controls.
 	//
 	// After the RPC, because a search that never reached an indexer is not an
 	// attempt: stamping it would let the backoff ladder grow while nothing was
@@ -349,7 +350,8 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 // SearchTask can name is a container whose items are searched instead.
 func Searchable(kind commonv1.MediaKind) bool {
 	switch kind {
-	case commonv1.MediaKindMovie, commonv1.MediaKindEpisode:
+	case commonv1.MediaKindMovie, commonv1.MediaKindEpisode,
+		commonv1.MediaKindAlbum, commonv1.MediaKindBook, commonv1.MediaKindAudiobook, commonv1.MediaKindIssue:
 		return true
 	default:
 		return false
@@ -363,10 +365,11 @@ func Searchable(kind commonv1.MediaKind) bool {
 // every twelve-hourly sweep re-searches every still-wanted item.
 //
 // The write goes through catalogarr/worker/grab, which owns that field set
-// under k8s.ManagerCatalogarrGrab and re-declares all four fields on every
-// apply. Reimplementing the cycle here would release the grab path's
-// activeDownloadRef and pendingGrab, which is the failure that split
-// catalogarr-worker into per-consumer managers in the first place.
+// under k8s.ManagerCatalogarrGrab and re-declares all of it on every apply.
+// Reimplementing the cycle here would release the grab path's pendingGrab,
+// which is the failure that split catalogarr-worker into per-consumer
+// managers in the first place. (status.activeDownloadRef is not in that set:
+// ruling R-5 gave it to the item's reconciler alone.)
 //
 // Failing to record is deliberately NOT fatal to the task. The search itself
 // succeeded; results are about to be written or a grab dispatched, and
@@ -374,11 +377,11 @@ func Searchable(kind commonv1.MediaKind) bool {
 // paying for a fresh federated search, and possibly a second grab, to fix a
 // timestamp. A missed stamp costs at most one extra sweep of one item.
 //
-// grab.ErrUnsupportedKind is unreachable from this call site: it is returned
-// for a Series ref carrying no keys, and handleSearchTask discards every kind
-// but movie and episode before the RPC is ever issued. It is handled by the
-// same non-fatal path anyway rather than asserted away, because "unreachable
-// today" is exactly the reasoning this package has had to walk back twice.
+// grab.ErrUnsupportedKind IS reachable from this call site: the grab path's
+// per-kind status writers cover movie and episode, while this worker also
+// searches albums, books, audiobooks and issues. Until the grab path covers
+// them, their attempt is not recorded -- logged here, not fatal, for the
+// reason above.
 func (w *Worker) recordAttempt(ctx context.Context, ns string, ref commonv1.MediaRef) {
 	if err := grab.RecordSearchAttempt(ctx, w.Client, ns, ref, w.now()); err != nil {
 		w.log(ctx).Warn("search: could not record the search attempt; the per-item backoff will not advance",

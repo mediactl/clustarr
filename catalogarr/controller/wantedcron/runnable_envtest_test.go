@@ -125,7 +125,10 @@ func TestRunOnce_PublishesOneWantedScanPerEligibleNamespace(t *testing.T) {
 	select {
 	case scan := <-received:
 		assert.Equal(t, "media", scan.Namespace)
-		assert.Equal(t, []commonv1.MediaKind{commonv1.MediaKindMovie, commonv1.MediaKindEpisode}, scan.Kinds)
+		assert.Equal(t, []commonv1.MediaKind{
+			commonv1.MediaKindMovie, commonv1.MediaKindEpisode,
+			commonv1.MediaKindAlbum, commonv1.MediaKindBook, commonv1.MediaKindAudiobook, commonv1.MediaKindIssue,
+		}, scan.Kinds, "every searchable kind, non-video included")
 		assert.True(t, scan.CutoffUnmet)
 		assert.Equal(t, at.Unix(), scan.Epoch)
 	case <-time.After(10 * time.Second):
@@ -260,4 +263,28 @@ func TestTwelveHourly(t *testing.T) {
 
 func TestNeedLeaderElection(t *testing.T) {
 	assert.True(t, (&Runnable{}).NeedLeaderElection(), "a sweep from every replica would publish N times")
+}
+
+// TestRunOnce_WakesANamespaceHoldingOnlyNonVideoItems: before non-video
+// search, the sweep listed only movies and episodes, so a namespace of
+// nothing but music was never swept at all.
+func TestRunOnce_WakesANamespaceHoldingOnlyNonVideoItems(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	bus := newTestBus(t)
+
+	require.NoError(t, client.IgnoreAlreadyExists(c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "music-only"}})))
+	require.NoError(t, c.Create(ctx, &catalogv1alpha1.Album{
+		ObjectMeta: metav1.ObjectMeta{Name: "kid-a", Namespace: "music-only"},
+		Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: "radiohead", ReleaseGroupID: "b8048f24-c026-3398-b23a-b5e30716ea6f"},
+	}))
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Album("kid-a", "music-only").WithStatus(
+		catalogac.AlbumStatus().WithPhase(catalogv1alpha1.AlbumPhaseWanted)))
+	require.NoError(t, err)
+
+	at := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	r := &Runnable{Client: c, Bus: bus, Now: func() time.Time { return at }, Namespaces: []string{"music-only"}}
+	published, err := r.runOnce(ctx, at)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"music-only"}, published)
 }

@@ -25,10 +25,8 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/catalogarr/controller/wantedcron"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -124,61 +122,28 @@ type wantedItem struct {
 	UID    string
 }
 
-// wantedItems lists the namespace's movies and episodes and keeps the ones
-// that are still missing something AND whose per-item backoff has elapsed.
+// wantedItems lists the namespace's searchable items -- movies, episodes,
+// albums, books, audiobooks and issues, narrowed by scan.Kinds -- and keeps
+// the ones still missing something (or below their cutoff, when the scan asks
+// for upgrades) whose per-item backoff has elapsed.
 //
-// The phase predicates restate wantedcron's own (movieWanted/episodeWanted
-// there are unexported); the backoff is wantedcron's exported Eligible, so the
-// half that decides "wake this namespace" and the half that decides "search
-// this item" cannot disagree about the ladder. If the phase predicates are
-// ever exported, delete these two.
+// Both what "wanted" means and the backoff ladder are wantedcron's
+// (ListCandidates, Candidate.Due): the half that decides "wake this
+// namespace" and the half that decides "search this item" read items through
+// the same code, so they cannot disagree about which items are worth a
+// search.
 func (w *Worker) wantedItems(ctx context.Context, ns string, scan schema.WantedScan) ([]wantedItem, error) {
 	now := w.now()
-	want := kindFilter(scan.Kinds)
-	var out []wantedItem
-
-	if want(commonv1.MediaKindMovie) {
-		var movies catalogv1alpha1.MovieList
-		if err := w.Client.List(ctx, &movies, client.InNamespace(ns)); err != nil {
-			return nil, fmt.Errorf("list Movies in %s: %w", ns, err)
-		}
-		for i := range movies.Items {
-			m := &movies.Items[i]
-			reason, ok := movieSearchReason(m.Status.Phase, scan.CutoffUnmet)
-			if !ok {
-				continue
-			}
-			if !wantedcron.Eligible(searchAttempts(m.Status.SearchAttempts, m.Status.LastSearchedAt), now) {
-				continue
-			}
-			out = append(out, wantedItem{
-				Ref:    commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: m.Name},
-				Reason: reason,
-				UID:    string(m.UID),
-			})
-		}
+	cands, err := wantedcron.ListCandidates(ctx, w.Client, kindFilter(scan.Kinds), now, client.InNamespace(ns))
+	if err != nil {
+		return nil, fmt.Errorf("list wanted items in %s: %w", ns, err)
 	}
-
-	if want(commonv1.MediaKindEpisode) {
-		var episodes catalogv1alpha1.EpisodeList
-		if err := w.Client.List(ctx, &episodes, client.InNamespace(ns)); err != nil {
-			return nil, fmt.Errorf("list Episodes in %s: %w", ns, err)
+	var out []wantedItem
+	for _, c := range cands {
+		if !Searchable(c.Ref.Kind) || !c.Due(now, scan.CutoffUnmet) {
+			continue
 		}
-		for i := range episodes.Items {
-			ep := &episodes.Items[i]
-			reason, ok := episodeSearchReason(ep.Status.Phase, scan.CutoffUnmet)
-			if !ok {
-				continue
-			}
-			if !wantedcron.Eligible(searchAttempts(ep.Status.SearchAttempts, ep.Status.LastSearchedAt), now) {
-				continue
-			}
-			out = append(out, wantedItem{
-				Ref:    commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: ep.Name},
-				Reason: reason,
-				UID:    string(ep.UID),
-			})
-		}
+		out = append(out, wantedItem{Ref: c.Ref, Reason: c.Reason, UID: c.UID})
 	}
 	return out, nil
 }
@@ -197,49 +162,6 @@ func kindFilter(kinds []commonv1.MediaKind) func(commonv1.MediaKind) bool {
 		_, ok := set[k]
 		return ok
 	}
-}
-
-// movieSearchReason maps a Movie's phase onto the SearchReason a sweep would
-// publish, or reports that the phase is not worth searching for. Wanted means
-// there is no file at all; CutoffUnmet means there is one but it is below the
-// profile cutoff, and the sweep only chases those when it was asked to.
-func movieSearchReason(p catalogv1alpha1.MoviePhase, cutoffUnmet bool) (schema.SearchReason, bool) {
-	switch p {
-	case catalogv1alpha1.MoviePhaseWanted:
-		return schema.SearchReasonMissing, true
-	case catalogv1alpha1.MoviePhaseCutoffUnmet:
-		return schema.SearchReasonCutoffUnmet, cutoffUnmet
-	default:
-		return "", false
-	}
-}
-
-func episodeSearchReason(p catalogv1alpha1.EpisodePhase, cutoffUnmet bool) (schema.SearchReason, bool) {
-	switch p {
-	case catalogv1alpha1.EpisodePhaseWanted:
-		return schema.SearchReasonMissing, true
-	case catalogv1alpha1.EpisodePhaseCutoffUnmet:
-		return schema.SearchReasonCutoffUnmet, cutoffUnmet
-	default:
-		return "", false
-	}
-}
-
-// searchAttempts folds status.lastSearchedAt into status.searchAttempts.
-//
-// It mirrors wantedcron's unexported helper of the same name, for the same
-// reason: the two fields overlap, Attempts.Latest is the structured record and
-// LastSearchedAt the flat one, and a writer may reasonably set only the
-// latter. Taking the later of the two stops an item searched five minutes ago
-// from being searched again because the write went to the other field.
-func searchAttempts(a commonv1.Attempts, lastSearchedAt *metav1.Time) commonv1.Attempts {
-	if lastSearchedAt == nil {
-		return a
-	}
-	if a.Latest == nil || lastSearchedAt.After(a.Latest.Time) {
-		a.Latest = lastSearchedAt
-	}
-	return a
 }
 
 // publishItemSearch enqueues one item's search at the normal tier.
