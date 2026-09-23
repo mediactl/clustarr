@@ -105,6 +105,15 @@ Every new route and stream wired in both `clustarr ui` and `clustarr all`; `cmd/
 
 ## G4 — fixtures, e2e (written, not run), gate
 
+### G4-0 — sweep `api/` for CRD defaults a Go client can never reach (SERIAL, after the wiring queue)
+The same defect has now turned up **five times** in one phase, each found by a different agent in a different API group: `TranscodeProfile.maxOutputToSourcePercent` (an int32 defaulted to `1.0`, so every real transcode exited 4), `policy.replaceSource`/`recycleBin`, `activeDeadline`/`resources`/`scratch`, D2's usenet `PostProcess`, and `SubtitleProviderSpec.Enabled`. The mechanism is always one of two:
+- a **`bool` with `omitempty` and `+kubebuilder:default=true`** — a typed client drops `false`, the apiserver re-applies `true`, so the field **cannot be set false** from Go (kubectl YAML works, which is why it survives review);
+- a **value-typed field with a default** (`int32`, `metav1.Duration`, `resource.Quantity`, a struct) — a typed client always marshals it, present-but-zero, so the default **never** applies to anything created from Go.
+
+Find them all mechanically rather than waiting for the sixth: walk every `api/**/*_types.go` with `go/ast` for fields carrying `+kubebuilder:default` whose Go type is not a pointer, and classify each. Then per field, one of: make it a pointer (`*bool` for defaulted booleans — the only honest fix when `false` is meaningful); floor it in code where zero has no coherent meaning (the D1 `Indexer.spec.timeout` precedent), saying so in the doc comment; or record why neither applies. Update every consumer, `make generate manifests` in a clean worktree, and **turn the walker into a permanent test** that fails when a new defaulted non-pointer `bool` is added — the only way this stops recurring.
+
+
+
 ### G4-1 — fixtures and scenarios 9, 10, 11 and the rest of 14
 **Fix first (from G3-1):** `test/e2e/ui_test.go`'s `requireNoUIManager` rejects **any** manager whose name contains `ui` on the whole object. After R2 the UI legitimately owns `spec.monitored` under `clustarr-ui`, so the first e2e that performs a UI action would fail spuriously. Narrow it to the actual invariant: no `clustarr-ui` entry on the **status** subresource — the same assertion `TestUIManagerNeverOwnsStatus` makes in envtest.
 The Cardigann tracker page, import-list stubs and non-video metadata stubs in `test/fixtures/`, deployed from `config/e2e`. **Do not run.**
@@ -113,4 +122,4 @@ The Cardigann tracker page, import-list stubs and non-video metadata stubs in `t
 Mirror D1-10. Phase G paragraph, identifiers grepped, scenarios stated as **never executed**.
 
 ## Waves
-0: G1-0 · 1: G1-1, G1-2, G1-3, G1-4, G2-1, G3-2 · G1-6 after G1-1/G1-2 · 2: G2-2, G2-3, G3-1 · 3: G2-4, G3-3, G3-4 · 4: G1-5, G2-5, G3-5 (serial, one at a time) · 5: G4-1 · 6: G4-2
+0: G1-0 · 1: G1-1, G1-2, G1-3, G1-4, G2-1, G3-2 · G1-6 after G1-1/G1-2 · 2: G2-2, G2-3, G3-1 · 3: G2-4, G3-3, G3-4 · 4: G1-5, G2-5, G3-5 (serial, one at a time) · 5: G4-0 · 6: G4-1 · 7: G4-2
