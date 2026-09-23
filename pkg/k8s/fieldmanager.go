@@ -30,8 +30,11 @@ type FieldManager string
 // status fields the spec assigns them.
 const (
 	// ManagerCatalogarr is the catalogarr controller manager. It owns phase
-	// and conditions on every catalog.clustarr.io kind and is the only
-	// cross-group status writer (Download.status.import).
+	// and conditions on every catalog.clustarr.io kind. (This comment used to
+	// also claim Download.status.import, the project's one cross-group
+	// status write. Design spec §8.4 assigned it to catalogarr before
+	// amendment-1 moved the importer into importarr/worker/fileimport; see
+	// ManagerImportarr, which now owns that write. Settled at task D2-7.)
 	ManagerCatalogarr FieldManager = "catalogarr"
 
 	// ManagerCatalogarrSeries is the catalogarr Series reconciler when it
@@ -100,7 +103,28 @@ const (
 	ManagerCatalogarrGrab FieldManager = "catalogarr-grab"
 
 	// ManagerImportarr is the importarr controller manager. It owns ImportList,
-	// ImportExclusion and LibraryScan status, and Download.status.import.
+	// ImportExclusion and LibraryScan status.
+	//
+	// It also owns Download.status.import -- the project's one cross-group
+	// status write, applied by importarr/worker/fileimport (task D2-7), not
+	// by any importarr controller. That write deliberately uses this bare
+	// manager name rather than ManagerImportarrWorker: nothing else ever
+	// applies under either name to a Download object, so there is no
+	// collision to guard against the way there is on MediaFile (see
+	// ManagerImportarrWorker), and grabarr/status.Patch (which owns every
+	// other field manager on Download.status) refuses this name from its own
+	// declaration precisely so that importarr's write stays importarr's,
+	// made from importarr's own code, rather than being routed through
+	// grabarr's declaration and picking up grabarr's owned set too.
+	//
+	// Design spec §8.4 assigned this write to catalogarr, under the name
+	// ManagerCatalogarr. Amendment-1 moved the importer out of catalogarr
+	// into importarr/worker/fileimport ("Nothing named 'importer' remains in
+	// catalogarr"), and this field's ownership moved with it. Three comments
+	// disagreed on the result until task D2-7 settled it: this one and
+	// grabarr/status already said importarr; ManagerCatalogarr's comment and
+	// DownloadStatus' own field doc still said catalogarr. All three are now
+	// consistent.
 	ManagerImportarr FieldManager = "importarr"
 
 	// ManagerImportarrWorker is an importarr scan, list or file-import worker.
