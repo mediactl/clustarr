@@ -43,6 +43,12 @@ type MovieMetadataApplyConfiguration struct {
 	Certification *string `json:"certification,omitempty"`
 	// Year is the release year.
 	Year *int32 `json:"year,omitempty"`
+	// SecondaryYear is a second year the film is known by, where the
+	// provider exposes one -- a festival premiere and a general release, or
+	// two regions, that disagree on the year (Radarr's
+	// MovieMetadata.SecondaryYear). Release identity accepts a title naming
+	// Year or SecondaryYear. Zero or absent means there is none.
+	SecondaryYear *int32 `json:"secondaryYear,omitempty"`
 	// RuntimeMinutes is the runtime in minutes.
 	RuntimeMinutes *int32 `json:"runtimeMinutes,omitempty"`
 	// Genres lists the genres.
@@ -128,6 +134,14 @@ func (b *MovieMetadataApplyConfiguration) WithCertification(value string) *Movie
 // If called multiple times, the Year field is set to the value of the last call.
 func (b *MovieMetadataApplyConfiguration) WithYear(value int32) *MovieMetadataApplyConfiguration {
 	b.Year = &value
+	return b
+}
+
+// WithSecondaryYear sets the SecondaryYear field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SecondaryYear field is set to the value of the last call.
+func (b *MovieMetadataApplyConfiguration) WithSecondaryYear(value int32) *MovieMetadataApplyConfiguration {
+	b.SecondaryYear = &value
 	return b
 }
 

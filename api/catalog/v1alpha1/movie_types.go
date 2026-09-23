@@ -209,6 +209,15 @@ type MovieMetadata struct {
 	// +optional
 	Year int32 `json:"year,omitempty"`
 
+	// SecondaryYear is a second year the film is known by, where the
+	// provider exposes one -- a festival premiere and a general release, or
+	// two regions, that disagree on the year (Radarr's
+	// MovieMetadata.SecondaryYear). Release identity accepts a title naming
+	// Year or SecondaryYear. Zero or absent means there is none.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	SecondaryYear int32 `json:"secondaryYear,omitempty"`
+
 	// RuntimeMinutes is the runtime in minutes.
 	// +optional
 	RuntimeMinutes int32 `json:"runtimeMinutes,omitempty"`

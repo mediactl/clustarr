@@ -481,6 +481,16 @@ spec:
                     description: RuntimeMinutes is the runtime in minutes.
                     format: int32
                     type: integer
+                  secondaryYear:
+                    description: |-
+                      SecondaryYear is a second year the film is known by, where the
+                      provider exposes one -- a festival premiere and a general release, or
+                      two regions, that disagree on the year (Radarr's
+                      MovieMetadata.SecondaryYear). Release identity accepts a title naming
+                      Year or SecondaryYear. Zero or absent means there is none.
+                    format: int32
+                    minimum: 0
+                    type: integer
                   sortTitle:
                     description: SortTitle is the title used for sorting.
                     type: string

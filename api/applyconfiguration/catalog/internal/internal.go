@@ -2343,6 +2343,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: runtimeMinutes
       type:
         scalar: numeric
+    - name: secondaryYear
+      type:
+        scalar: numeric
     - name: sortTitle
       type:
         scalar: string
