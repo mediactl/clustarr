@@ -51,11 +51,10 @@ type PolicySpecApplyConfiguration struct {
 	// client can send that 0: with omitempty it would be dropped and
 	// defaulted back to 100. Unset means 100.
 	MaxOutputToSourcePercent *int32 `json:"maxOutputToSourcePercent,omitempty"`
-	// ReplaceSource replaces the source file with the output on success. A
-	// pointer so a Go client can send an explicit false; unset means true.
-	// Only true is supported in v1alpha1: the output is always renamed over
-	// the source path, and writing it anywhere else needs a library path
-	// migration that does not exist yet.
+	// ReplaceSource replaces the source file with the output on success;
+	// false leaves the source file in place instead of renaming the output
+	// over it. A pointer so a Go client can send an explicit false; unset
+	// means true.
 	ReplaceSource *bool `json:"replaceSource,omitempty"`
 	// RecycleBin keeps the replaced source in the root folder's recycle bin.
 	// false lets the swap drop the library's link to it outright (a seeding

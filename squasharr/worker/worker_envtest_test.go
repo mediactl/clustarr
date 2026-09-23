@@ -617,15 +617,13 @@ func TestRunWithRecycleBinOffSwapsWithoutRecycling(t *testing.T) {
 	assert.True(t, bytes.Equal(f.original, seed), "the seeding copy is a separate link and survives (§6.4)")
 }
 
-// replaceSource=false is expressible as a pointer but not supported: the
-// apiserver refuses it rather than storing a policy the worker would
-// silently ignore by replacing the source anyway.
-func TestTheAPIRefusesReplaceSourceFalse(t *testing.T) {
+// replaceSource=false is a v1 spec value (gap-fix ruling R-11), so the
+// apiserver admits it; the CEL rule that refused it is gone. Until the worker
+// implements it (X10) the worker still refuses such a profile at run time
+// rather than replacing the source anyway.
+func TestTheAPIAdmitsReplaceSourceFalse(t *testing.T) {
 	c := requireCluster(t)
-	err := createProfileFromYAML(t, c, "replace-source-false", "  policy:\n    replaceSource: false\n")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "replaceSource=false is not supported")
-
+	require.NoError(t, createProfileFromYAML(t, c, "replace-source-false", "  policy:\n    replaceSource: false\n"))
 	require.NoError(t, createProfileFromYAML(t, c, "replace-source-true", "  policy:\n    replaceSource: true\n"))
 }
 

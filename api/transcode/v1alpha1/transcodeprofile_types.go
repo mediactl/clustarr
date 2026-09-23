@@ -354,14 +354,12 @@ type PolicySpec struct {
 	// +kubebuilder:validation:Minimum=0
 	MaxOutputToSourcePercent *int32 `json:"maxOutputToSourcePercent,omitempty"`
 
-	// ReplaceSource replaces the source file with the output on success. A
-	// pointer so a Go client can send an explicit false; unset means true.
-	// Only true is supported in v1alpha1: the output is always renamed over
-	// the source path, and writing it anywhere else needs a library path
-	// migration that does not exist yet.
+	// ReplaceSource replaces the source file with the output on success;
+	// false leaves the source file in place instead of renaming the output
+	// over it. A pointer so a Go client can send an explicit false; unset
+	// means true.
 	// +optional
 	// +kubebuilder:default=true
-	// +kubebuilder:validation:XValidation:rule="self",message="replaceSource=false is not supported in v1alpha1: the verified output always replaces the source path"
 	ReplaceSource *bool `json:"replaceSource,omitempty"`
 
 	// RecycleBin keeps the replaced source in the root folder's recycle bin.

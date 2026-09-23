@@ -194,7 +194,9 @@ func transcodeProfile(spec map[string]any) map[string]any {
 }
 
 // transcodeProfileCases pins the TranscodeProfile shape changes: a
-// per-profile concurrency cap (maxConcurrent, 0 = no cap).
+// per-profile concurrency cap (maxConcurrent, 0 = no cap), and
+// policy.replaceSource=false admitted (ruling R-11; a CEL rule used to refuse
+// it). Chunking stays CEL-forced off (ruling R-1: spec-deferred).
 func transcodeProfileCases() []admissionCase {
 	return []admissionCase{
 		{
@@ -208,6 +210,14 @@ func transcodeProfileCases() []admissionCase {
 		{
 			"TranscodeProfile with a negative maxConcurrent is refused", gvrTranscodeProfs,
 			transcodeProfile(map[string]any{"maxConcurrent": int64(-1)}), "spec.maxConcurrent",
+		},
+		{
+			"TranscodeProfile with replaceSource false is admitted", gvrTranscodeProfs,
+			transcodeProfile(map[string]any{"policy": map[string]any{"replaceSource": false}}), "",
+		},
+		{
+			"TranscodeProfile with chunking enabled is still refused", gvrTranscodeProfs,
+			transcodeProfile(map[string]any{"chunking": map[string]any{"enabled": true}}), "chunking is not supported",
 		},
 	}
 }
