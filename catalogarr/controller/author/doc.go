@@ -64,12 +64,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // more request per work; openlibrary.Client.Book fetches them for a single
 // work). So SkipPartsAndSets now sees each work's subjects, while
 // AllowedLanguages and MinPages, which read editions, see none and pass
-// under MatchesProfile's absent-never-excludes rule. SkipMissingDate and
-// SkipMissingISBN stay documented no-ops (MatchesProfile's doc comment says
-// why); Readarr's own rule for the first is `!SkipMissingDate ||
-// ReleaseDate.HasValue` (MetadataProfileService.FilterBooks), which the date
-// Books now carries could support. MinPopularity has no home at all yet: no
-// field on pkg/metadata.Book, pkg/metadata.Author or the CRD's BookMetadata
-// carries a popularity score anywhere in this pipeline, so it is a documented
-// no-op (never disqualifies a work) rather than a guess at a source.
+// under MatchesProfile's absent-never-excludes rule. SkipMissingDate is
+// Readarr's rule, `!SkipMissingDate || ReleaseDate.HasValue`
+// (MetadataProfileService.FilterBooks), acting on the first-publication date
+// Books carries; SkipMissingISBN stays a documented no-op, because it reads
+// editions (MatchesProfile's doc comment says why). MinPopularity has no
+// home at all yet: no field on pkg/metadata.Book, pkg/metadata.Author or the
+// CRD's BookMetadata carries a popularity score anywhere in this pipeline,
+// so it is a documented no-op (never disqualifies a work) rather than a
+// guess at a source.
 package author

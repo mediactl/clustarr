@@ -87,20 +87,24 @@ func TestInitialBookMonitored(t *testing.T) {
 // the same class of gap): a dimension whose data is ABSENT on the fetched
 // work must never exclude it -- only a dimension whose data IS present and
 // fails the check does. Every dimension below is tested on both sides of
-// that line except SkipMissingDate/SkipMissingISBN, which this package's
-// fanout.go explains can never legally reach the "present and fails" side
-// at all (their whole check IS an absence check), so they are pinned as
-// permanent no-ops instead, on both an empty and a populated Book.
+// that line except SkipMissingDate and SkipMissingISBN. SkipMissingDate is
+// Readarr's absence check itself, acting on the provider's own answer (the
+// works listing asks for the date); SkipMissingISBN reads editions the
+// listing never fetches, so it is pinned as a no-op on both an empty and a
+// populated Book.
 func TestMatchesProfile(t *testing.T) {
 	t.Run("no filters set matches anything", func(t *testing.T) {
 		assert.True(t, author.MatchesProfile(catalogv1alpha1.BookMetadataProfile{}, metadata.Book{}))
 	})
 
-	t.Run("SkipMissingDate can never exclude: absence is its whole check, which the rule forbids acting on", func(t *testing.T) {
+	t.Run("SkipMissingDate is Readarr's rule: a work the provider gives no date is excluded", func(t *testing.T) {
 		p := catalogv1alpha1.BookMetadataProfile{SkipMissingDate: true}
-		assert.True(t, author.MatchesProfile(p, metadata.Book{}), "no date: not excluded")
+		assert.False(t, author.MatchesProfile(p, metadata.Book{}), "no date: excluded (!SkipMissingDate || ReleaseDate.HasValue)")
 		past := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
-		assert.True(t, author.MatchesProfile(p, metadata.Book{FirstPublished: &past}), "a date: still not excluded, there is nothing else to check")
+		assert.True(t, author.MatchesProfile(p, metadata.Book{FirstPublished: &past}), "a past date: included")
+		future := time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)
+		assert.True(t, author.MatchesProfile(p, metadata.Book{FirstPublished: &future}), "a future date is still a date: included")
+		assert.True(t, author.MatchesProfile(catalogv1alpha1.BookMetadataProfile{}, metadata.Book{}), "flag off: a dateless work is included")
 	})
 
 	t.Run("SkipMissingISBN can never exclude: absence is its whole check, which the rule forbids acting on", func(t *testing.T) {
@@ -201,12 +205,25 @@ func TestDesiredBooks(t *testing.T) {
 
 	t.Run("a fetched work with no profile-relevant data at all still passes any filter", func(t *testing.T) {
 		a2 := *a
-		a2.Spec.MetadataProfile = catalogv1alpha1.BookMetadataProfile{SkipMissingDate: true, AllowedLanguages: []string{"eng"}, MinPages: 100}
+		a2.Spec.MetadataProfile = catalogv1alpha1.BookMetadataProfile{SkipMissingISBN: true, AllowedLanguages: []string{"eng"}, MinPages: 100}
 		books := []metadata.Book{
 			{IDs: metadata.ExternalIDs{metadata.KeyOpenLibraryWork: "OL1W"}, Title: "The Hobbit"}, // no editions, no date
 		}
 		desired := author.DesiredBooks(&a2, false, nil, books, now)
 		require.Len(t, desired, 1, "absent data must never zero out the fan-out")
+		assert.Equal(t, "OL1W", desired[0].WorkID)
+	})
+
+	t.Run("SkipMissingDate drops a dateless work from the fan-out and keeps a dated one", func(t *testing.T) {
+		a2 := *a
+		a2.Spec.MetadataProfile = catalogv1alpha1.BookMetadataProfile{SkipMissingDate: true}
+		published := time.Date(1937, 9, 21, 0, 0, 0, 0, time.UTC)
+		books := []metadata.Book{
+			{IDs: metadata.ExternalIDs{metadata.KeyOpenLibraryWork: "OL1W"}, FirstPublished: &published},
+			{IDs: metadata.ExternalIDs{metadata.KeyOpenLibraryWork: "OL2W"}}, // no date, dropped
+		}
+		desired := author.DesiredBooks(&a2, false, nil, books, now)
+		require.Len(t, desired, 1)
 		assert.Equal(t, "OL1W", desired[0].WorkID)
 	})
 

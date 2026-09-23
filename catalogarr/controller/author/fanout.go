@@ -117,18 +117,29 @@ func InitialBookMonitored(mode catalogv1alpha1.AuthorMonitorMode, b metadata.Boo
 // fails the filter" are deliberately kept distinct below; only the second
 // excludes.
 //
-// SkipMissingDate and SkipMissingISBN are structurally different from the
-// rest: unlike an allow-list (AllowedLanguages) or a threshold
-// (MinPages), their ENTIRE check IS "is the data absent" -- there is no
-// separate "value that fails" for them to test once presence is granted.
-// Under the same-data-model constraint above (this package cannot tell "the
-// provider confirmed no date" from "we never fetched it"), that makes them
-// permanently unable to fire today: excluding on b.FirstPublished == nil or
-// !hasISBN(b.Editions) IS excluding on absence, exactly what this rule
-// forbids. They stay declared, not deleted, so a future task that finds a
-// way to represent "confirmed absent" (rather than "not fetched") has
-// somewhere to land the real check, and so a reader sees this was decided,
-// not missed.
+// SkipMissingDate is the one dimension whose check IS an absence check, and
+// it is Readarr's own rule verbatim: MetadataProfileService.FilterBooks
+// drops a work when `!p.SkipMissingDate || x.ReleaseDate.HasValue` is false
+// (Readarr develop 0b79d300, src/NzbDrone.Core/Profiles/Metadata/
+// MetadataProfileService.cs). It can act here because the works listing now
+// asks the provider for the date: openlibrary.Client.Books maps each work
+// record's first_publish_date (hardcover.Client.Books its release_date) into
+// FirstPublished, so a nil FirstPublished is the provider's own answer --
+// "no publication date for this work" -- not "never fetched", which is the
+// distinction the absent-never-excludes rule above exists to protect.
+// Readarr exempts a book already in the library (FilterByPredicate's
+// localItems: manually added, or with files); that exemption holds here by
+// construction, because the fan-out only ever creates Books and never
+// deletes or edits one, so a filter only decides whether a work becomes a
+// Book in the first place.
+//
+// SkipMissingISBN stays a documented no-op. Readarr applies it per edition
+// (FilterEditions: `!p.SkipMissingIsbn || x.Isbn13 ... || x.Asin ...`) and
+// then drops a work whose editions were all filtered out, but the works
+// listing fetches no editions (one more request per work;
+// openlibrary.Client.Book fetches them for a single work), so its absence
+// here is "never fetched", and acting on it would drop every work. It stays
+// declared, not deleted, so a reader sees this was decided, not missed.
 //
 // MinPopularity is the one dimension with nowhere to read from at all: no
 // field on pkg/metadata.Book, pkg/metadata.Author or pkg/metadata.Rating
@@ -139,10 +150,12 @@ func InitialBookMonitored(mode catalogv1alpha1.AuthorMonitorMode, b metadata.Boo
 // already consistent with the absent-never-excludes rule above by
 // construction, since it never even reads p.MinPopularity.
 func MatchesProfile(p catalogv1alpha1.BookMetadataProfile, b metadata.Book) bool {
-	// SkipMissingDate, SkipMissingISBN: see the doc comment above -- their
-	// only possible check IS an absence check, so under the
-	// absent-never-excludes rule neither can ever fire. No code follows for
-	// either flag; this comment is that decision's record.
+	if p.SkipMissingDate && b.FirstPublished == nil {
+		return false
+	}
+	// SkipMissingISBN: see the doc comment above -- the works listing
+	// carries no editions, so no code follows for it; this comment is that
+	// decision's record.
 
 	if p.SkipPartsAndSets && len(b.Subjects) > 0 && isPartOfASet(b) {
 		return false
