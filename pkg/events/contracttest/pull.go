@@ -19,6 +19,7 @@ package contracttest
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -33,6 +34,7 @@ func RunPullContract(t *testing.T, newBus func() events.Bus) {
 	t.Run("InProgressHoldsAPulledMessage", func(t *testing.T) { testPullInProgress(t, newBus) })
 	t.Run("PurgeSubjectRemovesOnlyThatSubject", func(t *testing.T) { testPurgeSubject(t, newBus) })
 	t.Run("DeleteSubscriptionIsIdempotentAndKeepsQueuedWork", func(t *testing.T) { testDeleteSubscription(t, newBus) })
+	t.Run("StreamAdminReportsAMissingStream", func(t *testing.T) { testStreamAdminMissingStream(t, newBus) })
 }
 
 func pullBus(t *testing.T, bus events.Bus) (events.PullSubscriber, events.StreamAdmin) {
@@ -208,5 +210,30 @@ func testDeleteSubscription(t *testing.T, newBus func() events.Bus) {
 	defer p.Stop()
 	if m := next(ctx, t, p, 5*time.Second); m.Envelope().ID != "queued" {
 		t.Fatalf("got %s, want the task published before the delete", m.Envelope().ID)
+	}
+}
+
+// testStreamAdminMissingStream holds every StreamAdmin method to one error
+// contract for a stream nothing ensured: PurgeSubject and Subjects must fail
+// with an error satisfying errors.Is(err, events.ErrStreamNotFound), the
+// sentinel Subscribe and Pull already report for the same condition, so a
+// caller can switch on one error whichever StreamAdmin call it made. natsbus
+// wrapping the raw jetstream.ErrStreamNotFound instead of remapping it, while
+// membus already used the sentinel, is exactly the drift this guards.
+// DeleteSubscription is different by design (see its doc comment: a missing
+// durable, and so a missing stream, is not an error) and must stay nil.
+func testStreamAdminMissingStream(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+	_, sa := pullBus(t, bus)
+	const missing = "CLUSTARR_NO_SUCH_STREAM"
+
+	if err := sa.PurgeSubject(ctx, missing, "clustarr.no.such.subject"); !errors.Is(err, events.ErrStreamNotFound) {
+		t.Fatalf("PurgeSubject on a missing stream = %v, want errors.Is ErrStreamNotFound", err)
+	}
+	if _, err := sa.Subjects(ctx, missing, "clustarr.>"); !errors.Is(err, events.ErrStreamNotFound) {
+		t.Fatalf("Subjects on a missing stream = %v, want errors.Is ErrStreamNotFound", err)
+	}
+	if err := sa.DeleteSubscription(ctx, missing, "some-durable"); err != nil {
+		t.Fatalf("DeleteSubscription on a missing stream = %v, want nil", err)
 	}
 }

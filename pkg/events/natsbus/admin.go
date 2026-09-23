@@ -30,6 +30,22 @@ import (
 
 var _ events.StreamAdmin = (*Bus)(nil)
 
+// lookupStream resolves stream and remaps jetstream.ErrStreamNotFound to
+// events.ErrStreamNotFound, exactly as Subscribe (natsbus.go) and
+// watchMaxDeliveries (deadletter.go) already do for their own stream lookups,
+// so every StreamAdmin caller can errors.Is against the package sentinel
+// instead of the jetstream one.
+func (b *Bus) lookupStream(ctx context.Context, stream string) (jetstream.Stream, error) {
+	st, err := b.js.Stream(ctx, stream)
+	if err != nil {
+		if errors.Is(err, jetstream.ErrStreamNotFound) {
+			return nil, fmt.Errorf("natsbus: stream %s: %w", stream, events.ErrStreamNotFound)
+		}
+		return nil, fmt.Errorf("natsbus: stream %s: %w", stream, err)
+	}
+	return st, nil
+}
+
 // DeleteSubscription implements events.StreamAdmin.
 func (b *Bus) DeleteSubscription(ctx context.Context, stream, durable string) error {
 	for _, c := range [][2]string{{stream, durable}, {events.StreamAdvisories, dlqWatchName(stream, durable)}} {
@@ -43,9 +59,9 @@ func (b *Bus) DeleteSubscription(ctx context.Context, stream, durable string) er
 
 // PurgeSubject implements events.StreamAdmin.
 func (b *Bus) PurgeSubject(ctx context.Context, stream, subject string) error {
-	st, err := b.js.Stream(ctx, stream)
+	st, err := b.lookupStream(ctx, stream)
 	if err != nil {
-		return fmt.Errorf("natsbus: stream %s: %w", stream, err)
+		return err
 	}
 	if err := st.Purge(ctx, jetstream.WithPurgeSubject(subject)); err != nil {
 		return fmt.Errorf("natsbus: purge %s on %s: %w", subject, stream, err)
@@ -55,9 +71,9 @@ func (b *Bus) PurgeSubject(ctx context.Context, stream, subject string) error {
 
 // Subjects implements events.StreamAdmin.
 func (b *Bus) Subjects(ctx context.Context, stream, filter string) ([]string, error) {
-	st, err := b.js.Stream(ctx, stream)
+	st, err := b.lookupStream(ctx, stream)
 	if err != nil {
-		return nil, fmt.Errorf("natsbus: stream %s: %w", stream, err)
+		return nil, err
 	}
 	info, err := st.Info(ctx, jetstream.WithSubjectFilter(filter))
 	if err != nil {

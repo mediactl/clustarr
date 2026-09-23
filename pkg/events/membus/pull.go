@@ -75,8 +75,7 @@ func (p *puller) Next(ctx context.Context) (context.Context, events.Message, err
 			return ctx, nil, events.ErrClosed
 		}
 		if m := p.bus.claimNext(ctx, p.stream, p.sub, p.ackWait); m != nil {
-			msg := &message{bus: p.bus, stream: p.stream, msg: m, durable: p.sub.Durable, ackWait: p.ackWait}
-			mctx := p.bus.opts.hooks.RunAfterReceive(ctx, msg.Envelope())
+			mctx, msg := p.bus.wrapDelivery(ctx, p.stream, p.sub, m, p.ackWait)
 			return mctx, msg, nil
 		}
 		select {

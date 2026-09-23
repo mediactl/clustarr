@@ -363,12 +363,23 @@ func (b *Bus) deadLetterLapsed(ctx context.Context, st *stream, sub events.Subsc
 	}
 }
 
+// wrapDelivery binds a claimed message to its subscription and runs
+// Hooks.AfterReceive, the way every consumer path must: deliver's handler
+// dispatch and Pull's Next (pull.go) share it, so a message looks identical
+// whether a handler or a caller settles it.
+func (b *Bus) wrapDelivery(ctx context.Context, st *stream, sub events.Subscription,
+	m *memMsg, ackWait func(attempt uint64) time.Duration,
+) (context.Context, *message) {
+	msg := &message{bus: b, stream: st, msg: m, durable: sub.Durable, ackWait: ackWait}
+	hctx := b.opts.hooks.RunAfterReceive(ctx, msg.Envelope())
+	return hctx, msg
+}
+
 // deliver runs one handler invocation and settles the message.
 func (b *Bus) deliver(ctx context.Context, st *stream, sub events.Subscription,
 	h events.Handler, m *memMsg, ackWait func(attempt uint64) time.Duration,
 ) {
-	msg := &message{bus: b, stream: st, msg: m, durable: sub.Durable, ackWait: ackWait}
-	hctx := b.opts.hooks.RunAfterReceive(ctx, msg.Envelope())
+	hctx, msg := b.wrapDelivery(ctx, st, sub, m, ackWait)
 	var err error
 	func() {
 		defer func() {
