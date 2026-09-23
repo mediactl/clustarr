@@ -1,0 +1,25 @@
+{
+  "success": true,
+  "data": [
+    {
+      "subtitleId": 9101, "link": "/subtitle/breaking-bad/english/9101", "language": "english",
+      "releaseInfo": ["Breaking.Bad.S01E05.720p.BluRay.x264-DEMAND"], "commentary": "",
+      "hearingImpaired": false, "foreignParts": false, "uploaderId": 1, "contributors": []
+    },
+    {
+      "subtitleId": 9102, "link": "/subtitle/breaking-bad/english/9102", "language": "english",
+      "releaseInfo": ["Breaking.Bad.S01.Complete.720p.BluRay.x264-DEMAND"], "commentary": "",
+      "hearingImpaired": false, "foreignParts": false, "uploaderId": 1, "contributors": []
+    },
+    {
+      "subtitleId": 9103, "link": "/subtitle/breaking-bad/english/9103", "language": "english",
+      "releaseInfo": ["Breaking.Bad.S01E06.720p.BluRay.x264-DEMAND"], "commentary": "",
+      "hearingImpaired": false, "foreignParts": false, "uploaderId": 1, "contributors": []
+    },
+    {
+      "subtitleId": 9104, "link": "/subtitle/breaking-bad/english/9104", "language": "english",
+      "releaseInfo": ["Breaking.Bad.S02E05.720p.BluRay.x264-DEMAND"], "commentary": "",
+      "hearingImpaired": false, "foreignParts": false, "uploaderId": 1, "contributors": []
+    }
+  ]
+}

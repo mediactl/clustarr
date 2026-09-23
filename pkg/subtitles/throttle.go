@@ -137,7 +137,8 @@ var defaultDurations = map[string]time.Duration{
 // to KindConfig. Its DownloadLimitExceeded row, "until 00:00 GMT + 1 h",
 // is not a fixed duration: the client sets RetryAfter to it.
 // subsource: AuthenticationError 1 h. Its ForbiddenError (15 min) has no
-// Kind of its own and shares KindAuth's row.
+// Kind of its own: the client maps a 403 to KindAuth with RetryAfter set to
+// those 15 minutes.
 var providerOverrides = map[string]map[string]time.Duration{
 	"opensubtitlescom": {KindTooManyRequests: time.Minute, KindDownloadLimitExceeded: 6 * time.Hour},
 	"subdl":            {KindAPIThrottled: 15 * time.Minute, KindConfig: time.Hour},

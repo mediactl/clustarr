@@ -1,0 +1,7 @@
+{
+  "success": true,
+  "data": [
+    { "movieId": 101, "title": "Inception 2", "alternateTitle": "", "releaseYear": 2031, "type": "movie" },
+    { "movieId": 100, "title": "Inception", "alternateTitle": "El origen", "releaseYear": 2010, "type": "movie" }
+  ]
+}

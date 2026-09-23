@@ -1,0 +1,6 @@
+{
+  "success": true,
+  "data": [
+    { "movieId": 200, "title": "Breaking Bad - First Season", "alternateTitle": "", "releaseYear": 2008, "type": "tvseries", "season": 1 }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "success": true,
+  "data": [
+    {
+      "subtitleId": 9001, "link": "/subtitle/inception/english/9001", "language": "english",
+      "releaseInfo": ["Inception.2010.720p.BluRay.x264-REWARD"], "commentary": "Synced for REWARD",
+      "hearingImpaired": false, "foreignParts": false, "uploaderId": 7,
+      "contributors": [ { "id": 3, "displayname": "helper" }, { "id": 7, "displayname": "uploader-seven" } ]
+    },
+    {
+      "subtitleId": 9002, "link": "/subtitle/inception/english/9002", "language": "english",
+      "releaseInfo": ["Inception.2010.1080p.BluRay.x264-SPARKS"], "commentary": "Full SDH version",
+      "hearingImpaired": false, "foreignParts": false, "uploaderId": 8,
+      "contributors": [ { "id": 8, "displayname": "sdh-maker" } ]
+    },
+    {
+      "subtitleId": 9003, "link": "/subtitle/inception/english/9003", "language": "english",
+      "releaseInfo": ["Inception.2010.1080p.BluRay.x264-SPARKS"], "commentary": null,
+      "hearingImpaired": false, "foreignParts": true, "uploaderId": 8,
+      "contributors": []
+    }
+  ]
+}
