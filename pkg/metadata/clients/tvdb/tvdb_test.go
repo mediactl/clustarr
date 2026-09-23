@@ -322,3 +322,47 @@ func TestLoginRejectsAnOversizedBody(t *testing.T) {
 
 	require.ErrorIs(t, err, metadata.ErrResponseTooLarge)
 }
+
+// A series' image and artworks reach the normalized model as Images -- the
+// series' own image first, as its poster, then each artwork by TheTVDB's
+// type (2 poster, 3 background, 1 banner) -- so status.metadata.images has
+// a poster for the library page to show. The recording carries none.
+func TestSeriesMapsItsImageAndArtworksIntoImages(t *testing.T) {
+	login, _ := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
+	recorded, err := os.ReadFile("../../../../testdata/metadata/tvdb/series_121361.json")
+	require.NoError(t, err)
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(recorded, &doc))
+	data, ok := doc["data"].(map[string]any)
+	require.True(t, ok)
+	data["image"] = "https://artworks.thetvdb.com/banners/posters/121361-1.jpg"
+	data["artworks"] = []map[string]any{
+		{"type": 3, "image": "https://artworks.thetvdb.com/banners/fanart/original/121361-2.jpg"},
+		{"type": 2, "image": "https://artworks.thetvdb.com/banners/posters/121361-3.jpg"},
+		{"type": 1, "image": "https://artworks.thetvdb.com/banners/graphical/121361-g.jpg"},
+		{"type": 99, "image": "https://artworks.thetvdb.com/banners/unknown.jpg"},
+	}
+	body, err := json.Marshal(doc)
+	require.NoError(t, err)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/login":
+			_, _ = w.Write(login)
+		case "/series/121361/extended":
+			_, _ = w.Write(body)
+		default:
+			t.Errorf("unexpected request: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	c := tvdb.New("test-key", "test-pin", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+
+	s, err := c.Series(context.Background(), "121361")
+	require.NoError(t, err)
+	require.Equal(t, []metadata.Image{
+		{Type: metadata.ImageTypePoster, URL: "https://artworks.thetvdb.com/banners/posters/121361-1.jpg"},
+		{Type: metadata.ImageTypeFanart, URL: "https://artworks.thetvdb.com/banners/fanart/original/121361-2.jpg"},
+		{Type: metadata.ImageTypePoster, URL: "https://artworks.thetvdb.com/banners/posters/121361-3.jpg"},
+		{Type: metadata.ImageTypeBanner, URL: "https://artworks.thetvdb.com/banners/graphical/121361-g.jpg"},
+	}, s.Images, "an artwork of an unknown type is left out")
+}

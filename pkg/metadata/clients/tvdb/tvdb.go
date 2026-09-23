@@ -111,7 +111,24 @@ type seriesExtendedResponse struct {
 		Genres []struct {
 			Name string `json:"name"`
 		} `json:"genres"`
+		// Image is the series' own poster; Artworks the rest, each typed
+		// by /artwork/types' ids (artworkTypes).
+		Image    string `json:"image"`
+		Artworks []struct {
+			Type  int    `json:"type"`
+			Image string `json:"image"`
+		} `json:"artworks"`
 	} `json:"data"`
+}
+
+// artworkTypes maps TheTVDB v4's artwork type ids (/artwork/types) onto
+// the normalized image types; an id not listed here is left out.
+var artworkTypes = map[int]metadata.ImageType{
+	1: metadata.ImageTypeBanner,
+	2: metadata.ImageTypePoster,
+	3: metadata.ImageTypeFanart,
+	6: metadata.ImageTypeClearart,
+	7: metadata.ImageTypeLogo,
 }
 
 // Series fetches a single series' extended record from
@@ -147,6 +164,17 @@ func (c *Client) Series(ctx context.Context, tvdbID string) (*metadata.Series, e
 	}
 	for _, g := range raw.Data.Genres {
 		s.Genres = append(s.Genres, g.Name)
+	}
+	// The series' own image is its poster and comes first, so a consumer
+	// that takes the first poster (the library page) shows the one TheTVDB
+	// itself leads with; the artworks follow in the order published.
+	if raw.Data.Image != "" {
+		s.Images = append(s.Images, metadata.Image{Type: metadata.ImageTypePoster, URL: raw.Data.Image})
+	}
+	for _, a := range raw.Data.Artworks {
+		if t, ok := artworkTypes[a.Type]; ok && a.Image != "" {
+			s.Images = append(s.Images, metadata.Image{Type: t, URL: a.Image})
+		}
 	}
 	if t, ok := parseDate(raw.Data.FirstAired); ok {
 		s.FirstAired = &t

@@ -87,6 +87,10 @@ const libraryBaseURL = "https://api.themoviedb.org/3"
 // thumbnail, so the largest standard poster size short of "original".
 const posterBaseURL = "https://image.tmdb.org/t/p/w500"
 
+// backdropBaseURL is the same CDN at its original size, for a backdrop,
+// which is a wide image no standard poster size suits.
+const backdropBaseURL = "https://image.tmdb.org/t/p/original"
+
 // New builds a Client. httpClient may be nil, in which case
 // http.DefaultTransport is used underneath the status-capturing wrapper.
 // baseURL overrides TMDB's default API host for this Client only -- tests
@@ -366,6 +370,15 @@ func mapMovie(d *rawtmdb.MovieDetails, region string) *metadata.Movie {
 			IDs:   metadata.ExternalIDs{metadata.KeyTMDB: strconv.FormatInt(d.BelongsToCollection.ID, 10)},
 			Title: d.BelongsToCollection.Name,
 		}
+	}
+	// TMDB publishes image paths, not URLs (research note §2.1); the
+	// poster is what the library page shows, the backdrop its fanart. A
+	// null path is no image, never a URL with nothing after the size.
+	if d.PosterPath != "" {
+		m.Images = append(m.Images, metadata.Image{Type: metadata.ImageTypePoster, URL: posterBaseURL + d.PosterPath})
+	}
+	if d.BackdropPath != "" {
+		m.Images = append(m.Images, metadata.Image{Type: metadata.ImageTypeFanart, URL: backdropBaseURL + d.BackdropPath})
 	}
 
 	return m

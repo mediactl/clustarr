@@ -20,6 +20,7 @@ package tmdb_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -406,4 +407,46 @@ func TestATransportFailureAfterASuccessIsNotADecodeError(t *testing.T) {
 	require.Error(t, err)
 	require.NotErrorIs(t, err, metadata.ErrDecode)
 	require.NotContains(t, err.Error(), "secret-key-123")
+}
+
+// withImages is the recorded movie fixture with TMDB's image paths set:
+// the recording has them null, and the library page has nothing to show
+// until the client maps them.
+func withImages(t *testing.T, body []byte, poster, backdrop any) []byte {
+	t.Helper()
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(body, &doc))
+	doc["poster_path"], doc["backdrop_path"] = poster, backdrop
+	out, err := json.Marshal(doc)
+	require.NoError(t, err)
+	return out
+}
+
+// A movie's poster and backdrop reach the normalized model as Images --
+// the poster at TMDB's w500 size, the backdrop at original -- so
+// status.metadata.images has a poster for the library page to show; null
+// paths yield no images rather than a URL with nothing after the size.
+func TestMovieMapsPosterAndBackdropIntoImages(t *testing.T) {
+	recorded, err := os.ReadFile("../../../../testdata/metadata/tmdb/movie_27205.json")
+	require.NoError(t, err)
+	body := withImages(t, recorded, "/inception-poster.jpg", "/inception-backdrop.jpg")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+	c, err := tmdb.New("test-key", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+	require.NoError(t, err)
+
+	m, err := c.Movie(context.Background(), "27205", "US")
+	require.NoError(t, err)
+	require.Equal(t, []metadata.Image{
+		{Type: metadata.ImageTypePoster, URL: "https://image.tmdb.org/t/p/w500/inception-poster.jpg"},
+		{Type: metadata.ImageTypeFanart, URL: "https://image.tmdb.org/t/p/original/inception-backdrop.jpg"},
+	}, m.Images)
+
+	body = withImages(t, recorded, nil, nil)
+	m, err = c.Movie(context.Background(), "27205", "US")
+	require.NoError(t, err)
+	require.Empty(t, m.Images, "null paths are no images")
 }
