@@ -59,6 +59,28 @@ func TestPreferLargestAgainstRealSizeTables(t *testing.T) {
 	})
 }
 
+// TestPreferLargestRatioAgainstEveryShippedEntry is ruling R-12's evidence:
+// every entry of all three shipped size tables -- not only each table's top
+// tier, which is all TestPreferLargestAgainstRealSizeTables checks -- reads
+// as the "biggest" sentinel, with margin to spare above preferLargestRatio.
+// An edited table entry that drifts toward the threshold fails here by name.
+func TestPreferLargestRatioAgainstEveryShippedEntry(t *testing.T) {
+	const lowestShipped = 0.995 // Sonarr's 995/1000
+	for name, table := range map[string]map[string]quality.SizeLimit{
+		"movie":  quality.MovieSizeTable(),
+		"series": quality.SeriesSizeTable(),
+		"anime":  quality.AnimeSizeTable(),
+	} {
+		require.NotEmpty(t, table, name)
+		for q, sl := range table {
+			require.True(t, preferLargest(sl), "%s table %s (%v/%v) must read as the biggest sentinel", name, q, sl.PrefMBPerMin, sl.MaxMBPerMin)
+			require.GreaterOrEqual(t, sl.PrefMBPerMin/sl.MaxMBPerMin, lowestShipped,
+				"%s table %s sits closer to preferLargestRatio than any upstream table does; revisit the threshold", name, q)
+		}
+	}
+	require.Less(t, preferLargestRatio, lowestShipped, "the threshold must sit below every shipped sentinel")
+}
+
 // TestBuildRankKeyThroughSeriesSizeTable proves buildRankKey itself (not
 // just preferLargest in isolation) takes the prefer-largest branch for a
 // real series Target/profile -- the existing Rank tests all construct

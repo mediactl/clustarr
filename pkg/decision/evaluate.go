@@ -183,6 +183,22 @@ func buildRankKey(p quality.Profile, o Options, t Target, parsed *release.Parsed
 // preferred size is far below its max, so 0.99 separates them with room to
 // spare. An absolute tolerance does NOT work here: `Pref >= Max-1` matches
 // 1999/2000 but misses 995/1000.
+//
+// Confirmed against the upstream tables (ruling R-12, TRaSH-Guides master
+// docs/json/{radarr,sonarr}/quality-size/*.json, 2026-09-23): every entry of
+// radarr movie.json, radarr anime.json and sqp-uhd.json is 1999/2000, and
+// every entry of sonarr series.json and anime.json is 995/1000, so the
+// lowest shipped ratio is 0.995 -- TestPreferLargestRatioAgainstEveryShippedEntry
+// pins all of them. The one upstream table that lands on both sides of 0.99
+// is radarr sqp-streaming.json (preferred = max - 1 on real caps: 84.7/85.7 =
+// 0.9883 up to 221.2/222.2 = 0.9955). Clustarr does not ship it (sizeTable
+// is movie, series, anime or none), and it would not matter if a profile
+// override copied it: with preferred a hair under max and the runtime
+// known, the closest-to-preferred branch and the largest branch order every
+// release below preferred identically (smaller distance to preferred is
+// larger size), and differ only within the last 1 MB/min under the cap.
+// (With the runtime unknown the closest-to-preferred branch ranks no size at
+// all; that difference is reachable only through such an override.)
 const preferLargestRatio = 0.99
 
 // preferLargest reports whether q's preferred size is TRaSH's own "biggest"
