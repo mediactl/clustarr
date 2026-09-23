@@ -135,4 +135,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
+//
+// The usenet engine's provider Secrets are read by name (get) to fold their
+// data into the engine's config hash, and watched (list, watch) through a
+// cache filtered to Secrets labelled download.clustarr.io/watch=enabled, so a
+// rotation restarts the engine at once. RBAC cannot narrow list and watch by
+// label, so the filter bounds what the controller holds rather than what it
+// may ask for; the unfiltered alternative would cache every Secret in the
+// cluster.
+//
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 package downloadclient

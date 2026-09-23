@@ -135,7 +135,7 @@ func TestBuildStatefulSetDefaultsListenPort(t *testing.T) {
 
 func TestBuildDeploymentShape(t *testing.T) {
 	dc := usenetClient("nzb")
-	dep := buildDeployment(dc, "nzb-engine", "img", "/data", "/scratch", "clustarr-data", EngineRuntime{}, fakeOwnerRef())
+	dep := buildDeployment(dc, "nzb-engine", "img", "/data", "/scratch", "clustarr-data", EngineRuntime{}, nil, fakeOwnerRef())
 
 	require.NotNil(t, dep.Spec.Replicas)
 	assert.Equal(t, int32(1), *dep.Spec.Replicas)
@@ -256,7 +256,7 @@ func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
 	usenet.Spec.Resources.Limits = corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("512Mi")}
 
 	sts := buildStatefulSet(torrent, "sab-engine", "img", "/data", "clustarr-data", rt, fakeOwnerRef())
-	dep := buildDeployment(usenet, "nzb-engine", "img", "/data", "/scratch", "clustarr-data", rt, fakeOwnerRef())
+	dep := buildDeployment(usenet, "nzb-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
 
 	for name, tc := range map[string]struct {
 		spec     *corev1ac.PodSpecApplyConfiguration

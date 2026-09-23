@@ -21,10 +21,15 @@ package downloadclient
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"fmt"
+	"sort"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -115,6 +120,15 @@ type Reconciler struct {
 
 	// DiskUsage is the filesystem probe; production uses fsops.DiskUsage.
 	DiskUsage diskUsageFunc
+
+	// SecretReader reads the Secrets a usenet engine reads at start, by name
+	// ([Reconciler.secretDigests]). Production passes the manager's uncached
+	// mgr.GetAPIReader(), so a read is a plain `get` and does not depend on
+	// the Secret carrying downloadv1alpha1.LabelWatch -- the manager's own
+	// Secret cache holds only labelled Secrets (grabarr.Options.ManagerOptions),
+	// and a cached Get of any other would read NotFound. NewReconciler sets
+	// it to the client it is given.
+	SecretReader client.Reader
 }
 
 // DefaultDataClaimName is the PVC config/'s grabarr pods -- controller and
@@ -135,6 +149,7 @@ func NewReconciler(c client.Client, recorder events.EventRecorder, dataDir, scra
 		Engine:        EngineRuntime{ServiceAccountName: DefaultEngineServiceAccount},
 		MinFreeBytes:  DefaultMinFreeBytes,
 		DiskUsage:     fsops.DiskUsage,
+		SecretReader:  c,
 	}
 }
 
@@ -283,7 +298,14 @@ func (r *Reconciler) reconcileWorkload(
 		if err := r.migrateToRecreate(ctx, dc.Namespace, workloadName); err != nil {
 			return 0, 0, 0, err
 		}
-		dep := buildDeployment(dc, workloadName, r.EngineImage, r.DataDir, r.ScratchDir, r.DataClaimName, r.Engine, ownerRef)
+		// Before the apply, and a read failure aborts it: applying without
+		// the digests would change the hash and restart the engine for a
+		// failed read rather than a rotated credential.
+		secrets, err := r.secretDigests(ctx, dc)
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		dep := buildDeployment(dc, workloadName, r.EngineImage, r.DataDir, r.ScratchDir, r.DataClaimName, r.Engine, secrets, ownerRef)
 		if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerGrabarr, dep); err != nil {
 			return 0, 0, 0, fmt.Errorf("downloadclient: apply Deployment %s: %w", workloadName, err)
 		}
@@ -364,6 +386,105 @@ func setEngineReadyCondition(dc *downloadv1alpha1.DownloadClient, conditions *[]
 		"%d/%d replicas exist, %d ready, want %d", replicas, desired, readyReplicas, desired)
 }
 
+// secretDigests reads every Secret the usenet engine for dc reads at start --
+// each provider's secretRef -- and returns a digest of each one's data, keyed
+// by Secret name, for [engineConfigHash]. A rotated credential then changes
+// the engine pod template and the Deployment restarts the engine, which is
+// the only way a running engine sees it: it resolves the credentials once,
+// when it builds its client.
+//
+// Each Secret is read by name with a plain `get` through [Reconciler.SecretReader],
+// the least a read by name needs. What brings a rotation here promptly is
+// the watch in [Reconciler.SetupWithManager], which covers only Secrets
+// labelled downloadv1alpha1.LabelWatch; every other Secret is re-read on the
+// periodic reconcile ([recheckInterval]) and rolls the engine then.
+//
+// A Secret that does not exist digests as "absent" -- the engine cannot start
+// without it, and creating it must restart the engine, which a changed digest
+// does. Any other read error is returned rather than digested: a digest for
+// "could not read" would restart the engine on an apiserver blip, and again
+// when the read recovered.
+func (r *Reconciler) secretDigests(ctx context.Context, dc *downloadv1alpha1.DownloadClient) (map[string]string, error) {
+	if dc.Spec.Usenet == nil || len(dc.Spec.Usenet.Providers) == 0 {
+		return nil, nil
+	}
+	reader := r.SecretReader
+	if reader == nil {
+		reader = r.Client
+	}
+	out := make(map[string]string, len(dc.Spec.Usenet.Providers))
+	for _, p := range dc.Spec.Usenet.Providers {
+		name := p.SecretRef.Name
+		if _, done := out[name]; done || name == "" {
+			continue
+		}
+		var s corev1.Secret
+		err := reader.Get(ctx, types.NamespacedName{Namespace: dc.Namespace, Name: name}, &s)
+		switch {
+		case apierrors.IsNotFound(err):
+			out[name] = "absent"
+		case err != nil:
+			return nil, fmt.Errorf("downloadclient: read provider Secret %s/%s: %w", dc.Namespace, name, err)
+		default:
+			out[name] = secretDataDigest(s.Data)
+		}
+	}
+	return out, nil
+}
+
+// secretDataDigest hashes a Secret's data -- keys sorted, and every key and
+// value length-prefixed so no two different maps encode alike. Only the
+// digest reaches the pod template: the annotation is readable by anyone who
+// can read the Deployment, so no credential, nor anything short enough to
+// guess one from, is ever in it (it holds a truncated hash of all of these
+// digests together).
+func secretDataDigest(data map[string][]byte) string {
+	keys := make([]string, 0, len(data))
+	for k := range data {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	h := sha256.New()
+	var n [8]byte
+	for _, k := range keys {
+		binary.BigEndian.PutUint64(n[:], uint64(len(k)))
+		h.Write(n[:])
+		h.Write([]byte(k))
+		binary.BigEndian.PutUint64(n[:], uint64(len(data[k])))
+		h.Write(n[:])
+		h.Write(data[k])
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// mapSecretToClients enqueues every usenet DownloadClient in the Secret's
+// namespace that names it as a provider's secretRef, so a rotated credential
+// restarts the engine now rather than at the next periodic reconcile. The
+// watch behind it sees only Secrets labelled downloadv1alpha1.LabelWatch (the
+// manager's cache is filtered to them), so this runs for those alone.
+func (r *Reconciler) mapSecretToClients(ctx context.Context, obj client.Object) []reconcile.Request {
+	var list downloadv1alpha1.DownloadClientList
+	if err := r.Client.List(ctx, &list, client.InNamespace(obj.GetNamespace())); err != nil {
+		logging.FromContext(ctx).WarnContext(ctx, "downloadclient: list clients for a Secret change failed",
+			"secret", obj.GetName(), "error", err)
+		return nil
+	}
+	var out []reconcile.Request
+	for i := range list.Items {
+		dc := &list.Items[i]
+		if dc.Spec.Usenet == nil {
+			continue
+		}
+		for _, p := range dc.Spec.Usenet.Providers {
+			if p.SecretRef.Name == obj.GetName() {
+				out = append(out, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(dc)})
+				break
+			}
+		}
+	}
+	return out
+}
+
 // mapDownloadToClient enqueues the DownloadClient a Download is labelled for,
 // so an assignment or a phase change is reconciled promptly instead of
 // waiting up to [recheckInterval] for the Active/Queued/Seeding rollup to
@@ -384,6 +505,9 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&appsv1.StatefulSet{}).
 		Owns(&appsv1.Deployment{}).
 		Watches(&downloadv1alpha1.Download{}, handler.EnqueueRequestsFromMapFunc(mapDownloadToClient)).
+		// Only Secrets labelled downloadv1alpha1.LabelWatch reach this watch:
+		// the manager caches no other (grabarr.Options.ManagerOptions).
+		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.mapSecretToClients)).
 		WithOptions(controller.Options{ReconciliationTimeout: 5 * time.Minute}).
 		Complete(r)
 }

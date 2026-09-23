@@ -44,7 +44,7 @@ func enginePods(t *testing.T) map[string]corev1.PodSpec {
 		return spec
 	}
 	sts := buildStatefulSet(torrentClient("qbit", 1), "qbit-engine", "img", "/data", "clustarr-data", EngineRuntime{}, fakeOwnerRef())
-	dep := buildDeployment(usenetClient("nzb"), "nzb-engine", "img", "/data", "/scratch", "clustarr-data", EngineRuntime{}, fakeOwnerRef())
+	dep := buildDeployment(usenetClient("nzb"), "nzb-engine", "img", "/data", "/scratch", "clustarr-data", EngineRuntime{}, nil, fakeOwnerRef())
 	return map[string]corev1.PodSpec{
 		"torrent": native(sts.Spec.Template.Spec),
 		"usenet":  native(dep.Spec.Template.Spec),

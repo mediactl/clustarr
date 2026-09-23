@@ -32,8 +32,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
@@ -232,8 +235,23 @@ func (o Options) Validate() error {
 //
 // Engines never take the lease: §3 runs one per StatefulSet ordinal and each
 // owns a disjoint set of Downloads, so there is nothing to elect.
+//
+// Every role's cache holds only the Secrets labelled
+// downloadv1alpha1.LabelWatch. The DownloadClient controller watches those
+// to restart a usenet engine when its provider credentials rotate, and reads
+// every Secret it needs by name through the uncached API reader instead, so
+// neither it nor anything else in grabarr ever caches the cluster's other
+// Secrets. The engines read theirs through a direct client before the
+// manager starts and never through this cache.
 func (o Options) ManagerOptions() ctrl.Options {
-	return o.Options.ManagerOptions(LeaderElectionID, o.LeaderElect && o.Role.RunsControllers())
+	opts := o.Options.ManagerOptions(LeaderElectionID, o.LeaderElect && o.Role.RunsControllers())
+	if opts.Cache.ByObject == nil {
+		opts.Cache.ByObject = map[client.Object]cache.ByObject{}
+	}
+	opts.Cache.ByObject[&corev1.Secret{}] = cache.ByObject{
+		Label: labels.SelectorFromSet(labels.Set{downloadv1alpha1.LabelWatch: downloadv1alpha1.LabelWatchValue}),
+	}
+	return opts
 }
 
 // Run starts the manager and blocks until ctx is cancelled.
@@ -343,6 +361,8 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	// engine under any other release name mounts a claim that does not exist.
 	dcReconciler.DataClaimName = o.DataClaimName
 	dcReconciler.Engine = engineRuntime(o)
+	// By name, uncached: the manager's Secret cache holds only labelled ones.
+	dcReconciler.SecretReader = mgr.GetAPIReader()
 	if err := dcReconciler.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("grabarr: downloadclient: %w", err)
 	}

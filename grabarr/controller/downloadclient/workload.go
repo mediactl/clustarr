@@ -312,10 +312,10 @@ func podSpecAC(dc *downloadv1alpha1.DownloadClient, container *corev1ac.Containe
 	return spec
 }
 
-func podTemplateAC(dc *downloadv1alpha1.DownloadClient, labels map[string]string, spec *corev1ac.PodSpecApplyConfiguration) *corev1ac.PodTemplateSpecApplyConfiguration {
+func podTemplateAC(configHash string, labels map[string]string, spec *corev1ac.PodSpecApplyConfiguration) *corev1ac.PodTemplateSpecApplyConfiguration {
 	return corev1ac.PodTemplateSpec().
 		WithLabels(labels).
-		WithAnnotations(map[string]string{EngineConfigHashAnnotation: engineConfigHash(dc)}).
+		WithAnnotations(map[string]string{EngineConfigHashAnnotation: configHash}).
 		WithSpec(spec)
 }
 
@@ -329,10 +329,12 @@ func podTemplateAC(dc *downloadv1alpha1.DownloadClient, labels map[string]string
 const EngineConfigHashAnnotation = "download.clustarr.io/engine-config-hash"
 
 // engineConfigHash hashes what the engine for dc reads at start
-// ([engineStartConfig]). JSON is a stable encoding here: struct fields render
-// in declaration order and map keys sorted.
-func engineConfigHash(dc *downloadv1alpha1.DownloadClient) string {
-	raw, err := json.Marshal(engineStartConfig(dc))
+// ([engineStartConfig]), with secrets the digest of each Secret it reads
+// ([Reconciler.secretDigests]; nil for a torrent engine, which reads none).
+// JSON is a stable encoding here: struct fields render in declaration order
+// and map keys sorted.
+func engineConfigHash(dc *downloadv1alpha1.DownloadClient, secrets map[string]string) string {
+	raw, err := json.Marshal(engineStartConfig(dc, secrets))
 	if err != nil {
 		// Every type in it is a plain API type, which always marshals.
 		panic(fmt.Sprintf("downloadclient: marshal engine config: %v", err))
@@ -355,12 +357,15 @@ func engineConfigHash(dc *downloadv1alpha1.DownloadClient) string {
 //     health floor and action, propagationDelay, downloadTimeout) and
 //     spec.categories, which the usenet engine resolves once at construction.
 //
+// The usenet providers' Secrets are read at start too, so their data is in
+// the hash as well, one digest per Secret: a rotated password restarts the
+// engine like any spec change (Z1 follow-up; see [Reconciler.secretDigests]
+// for how they are read and watched).
+//
 // It deliberately leaves out what already changes the pod template on its
 // own (resources, nodeSelector, tolerations) and what no engine reads
-// (enabled, priority, replicas). The providers' Secrets are read at start
-// too, but only their names are here: a rotated password is not a spec
-// change, and restarting the engine picks it up.
-func engineStartConfig(dc *downloadv1alpha1.DownloadClient) any {
+// (enabled, priority, replicas).
+func engineStartConfig(dc *downloadv1alpha1.DownloadClient, secrets map[string]string) any {
 	switch {
 	case dc.Spec.Torrent != nil:
 		t := dc.Spec.Torrent.DeepCopy()
@@ -373,7 +378,8 @@ func engineStartConfig(dc *downloadv1alpha1.DownloadClient) any {
 		return struct {
 			Usenet     *downloadv1alpha1.UsenetSpec `json:"usenet"`
 			Categories map[string]string            `json:"categories,omitempty"`
-		}{dc.Spec.Usenet, dc.Spec.Categories}
+			Secrets    map[string]string            `json:"secrets,omitempty"`
+		}{dc.Spec.Usenet, dc.Spec.Categories, secrets}
 	default:
 		return struct{}{}
 	}
@@ -524,7 +530,7 @@ func buildStatefulSet(dc *downloadv1alpha1.DownloadClient, name, image, dataDir,
 	spec := appsv1ac.StatefulSetSpec().
 		WithReplicas(torrentReplicas(dc)).
 		WithSelector(metav1ac.LabelSelector().WithMatchLabels(labels)).
-		WithTemplate(podTemplateAC(dc, labels, podSpecAC(dc, container, dataClaimName, rt)))
+		WithTemplate(podTemplateAC(engineConfigHash(dc, nil), labels, podSpecAC(dc, container, dataClaimName, rt)))
 
 	return appsv1ac.StatefulSet(name, dc.Namespace).
 		WithLabels(labels).
@@ -544,14 +550,17 @@ func buildStatefulSet(dc *downloadv1alpha1.DownloadClient, name, image, dataDir,
 // ReadWriteOnce, leaves the surge pod unschedulable on another node and the
 // rollout stuck. A roll is routine now that a config change triggers one
 // ([EngineConfigHashAnnotation]), so the old engine stops first.
-func buildDeployment(dc *downloadv1alpha1.DownloadClient, name, image, dataDir, scratchDir, dataClaimName string, rt EngineRuntime, owner *metav1ac.OwnerReferenceApplyConfiguration) *appsv1ac.DeploymentApplyConfiguration {
+//
+// secrets is the digest of each provider Secret ([Reconciler.secretDigests]),
+// folded into the config hash so a rotated credential rolls the engine too.
+func buildDeployment(dc *downloadv1alpha1.DownloadClient, name, image, dataDir, scratchDir, dataClaimName string, rt EngineRuntime, secrets map[string]string, owner *metav1ac.OwnerReferenceApplyConfiguration) *appsv1ac.DeploymentApplyConfiguration {
 	labels := selectorLabels(dc)
 	container := usenetContainer(dc, image, dataDir, scratchDir, rt)
 	spec := appsv1ac.DeploymentSpec().
 		WithReplicas(1).
 		WithStrategy(appsv1ac.DeploymentStrategy().WithType(appsv1.RecreateDeploymentStrategyType)).
 		WithSelector(metav1ac.LabelSelector().WithMatchLabels(labels)).
-		WithTemplate(podTemplateAC(dc, labels, podSpecAC(dc, container, dataClaimName, rt, scratchVolume(dc))))
+		WithTemplate(podTemplateAC(engineConfigHash(dc, secrets), labels, podSpecAC(dc, container, dataClaimName, rt, scratchVolume(dc))))
 
 	return appsv1ac.Deployment(name, dc.Namespace).
 		WithLabels(labels).
