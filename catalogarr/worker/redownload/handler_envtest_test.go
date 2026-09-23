@@ -271,8 +271,12 @@ func (f *fixture) failedDownload(t *testing.T, target commonv1.MediaRef, guid st
 	_, err = k8s.PatchStatus(f.ctx, f.c, k8s.ManagerGrabarr, downloadac.Download(name, f.ns).WithStatus(st))
 	require.NoError(t, err)
 
+	// The object the test goes on to use is read through the API reader: the
+	// writes above returned, so the apiserver has it, but the cache may not
+	// have seen even the create yet (a cached Get here once read NotFound).
+	// The handler reads through the cache, so the test then waits for that.
 	var got downloadv1alpha1.Download
-	require.NoError(t, f.c.Get(f.ctx, client.ObjectKey{Namespace: f.ns, Name: name}, &got))
+	require.NoError(t, f.api.Get(f.ctx, client.ObjectKey{Namespace: f.ns, Name: name}, &got))
 	eventually(t, "the cache to see "+name+"'s status", func() bool {
 		var c downloadv1alpha1.Download
 		return f.c.Get(f.ctx, client.ObjectKeyFromObject(&got), &c) == nil && c.Status.Phase != ""
