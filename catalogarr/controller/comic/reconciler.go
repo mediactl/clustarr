@@ -66,14 +66,6 @@ const issueByComicRefIndexKey = ".spec.comicRef"
 // error-triggered exponential backoff for a known-transient dependency).
 const issueSyncRPCBackoff = 30 * time.Second
 
-// mangaDexUnsupportedReason and its message are shared by every condition
-// this reconciler sets when a mangadex Comic is reconciled -- see this
-// package's doc.go for why the short-circuit exists at all.
-const (
-	mangaDexUnsupportedReason  = "MangaDexUnsupported"
-	mangaDexUnsupportedMessage = "mangadex has no registered metadata provider yet"
-)
-
 // bus is the subset of events.Bus this reconciler actually calls: Publish
 // for the metadata-staleness task and Request for the issue-listing RPC.
 // Narrower than the full events.Requester per the same rationale as
@@ -211,16 +203,12 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, c *catalogv1alpha1.Com
 // once metadata is cached), then adds the issue-listing RPC fan-out as the
 // last step, per §8.1's ordering: an RPC failure surfaces on
 // IssuesSynced/Ready but never blocks the rest of this same status patch
-// from landing. A mangadex-sourced Comic is short-circuited before any of
-// that -- see reconcileMangaDexUnsupported and this package's doc.go.
+// from landing. A ComicVine and a MangaDex Comic take the same path; only
+// the id the issue listing is keyed by differs (sourceIDs).
 func (r *Reconciler) reconcileNormal(ctx context.Context, c *catalogv1alpha1.Comic) (ctrl.Result, error) {
 	now := time.Now().UTC()
 	conditions := append([]metav1.Condition(nil), c.Status.Conditions...)
 	statusAC := catalogac.ComicStatus().WithObservedGeneration(c.Generation)
-
-	if c.Spec.Source == catalogv1alpha1.ComicSourceMangaDex {
-		return r.reconcileMangaDexUnsupported(ctx, c, statusAC, conditions)
-	}
 
 	stale := c.Status.Metadata == nil
 	if !stale {
@@ -343,30 +331,13 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, c *catalogv1alpha1.Com
 	return ctrl.Result{}, nil
 }
 
-// reconcileMangaDexUnsupported answers a mangadex-sourced Comic without ever
-// publishing a MetadataTask or calling the issue-listing RPC -- both would
-// only ever fail today (see this package's doc.go) -- reporting a single,
-// stable, non-error reason on Ready/MetadataReady/IssuesSynced instead of
-// error-looping. No RequeueAfter: nothing here changes until the user edits
-// spec.source, which bumps generation and re-triggers via comicPredicate's
-// GenerationChanged arm on its own.
-func (r *Reconciler) reconcileMangaDexUnsupported(ctx context.Context, c *catalogv1alpha1.Comic, statusAC *catalogac.ComicStatusApplyConfiguration, conditions []metav1.Condition) (ctrl.Result, error) {
-	k8s.MarkFalse(c, &conditions, catalogv1alpha1.ComicConditionMetadataReady, mangaDexUnsupportedReason, mangaDexUnsupportedMessage)
-	k8s.MarkFalse(c, &conditions, catalogv1alpha1.ComicConditionIssuesSynced, mangaDexUnsupportedReason, mangaDexUnsupportedMessage)
-	k8s.MarkFalse(c, &conditions, k8s.ConditionReady, mangaDexUnsupportedReason, mangaDexUnsupportedMessage)
-	statusAC = reassertKnownStatus(statusAC, c)
-	statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-	_, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Comic(c.Name, c.Namespace).WithStatus(statusAC))
-	return ctrl.Result{}, err
-}
-
 // reassertKnownStatus re-adds every field this manager owns besides
 // ObservedGeneration/Conditions to statusAC, sourced from c's current
 // (pre-reconcile) status. Used on every early-return path (QueueFull,
-// RootFolderNotFound, mangadex): each is either a transient failure or a
-// standing, non-progressing state, and without this, PatchStatus's apply
-// would omit every field it does not mention, releasing (zeroing) a healthy
-// Comic's Path/IssueFileCount/NextPullDate the next time either happens.
+// RootFolderNotFound): each is a transient failure, and without this,
+// PatchStatus's apply would omit every field it does not mention, releasing
+// (zeroing) a healthy Comic's Path/IssueFileCount/NextPullDate the next time
+// either happens.
 // Same mechanism as series.reassertKnownStatus; see CLAUDE.md's "Gotchas
 // found the hard way" for the general rule and its cost history.
 func reassertKnownStatus(statusAC *catalogac.ComicStatusApplyConfiguration, c *catalogv1alpha1.Comic) *catalogac.ComicStatusApplyConfiguration {
@@ -402,7 +373,7 @@ func (r *Reconciler) syncIssues(ctx context.Context, c *catalogv1alpha1.Comic, i
 
 	req := schema.MetadataRequest{
 		Kind: commonv1.MediaKindIssue,
-		IDs:  map[string]string{metadata.KeyComicVine: c.Spec.SourceID},
+		IDs:  map[string]string{SourceKey(c.Spec.Source): c.Spec.SourceID},
 	}
 	rpcCtx, cancel := context.WithTimeout(ctx, issueSyncRPCBackoff)
 	defer cancel()
@@ -478,8 +449,17 @@ func (r *Reconciler) ensureIssue(ctx context.Context, c *catalogv1alpha1.Comic, 
 		return err
 	}
 
+	// A provider answer without an id under the comic's source key (a
+	// ComicVine volume listed by Metron, which keys issues by its own id;
+	// a MangaDex volume, which has none) keeps the id this Issue already
+	// carries rather than clearing it: the field is a complete declaration
+	// of this manager's set, so sending "" would release a known id.
+	sourceID := d.SourceID
+	if sourceID == "" {
+		sourceID = iss.Status.SourceID
+	}
 	statusAC := catalogac.IssueStatus().
-		WithSourceID(d.SourceID).
+		WithSourceID(sourceID).
 		WithTitle(d.Title)
 	if d.Date != nil {
 		statusAC = statusAC.WithDate(metav1.NewTime(*d.Date))

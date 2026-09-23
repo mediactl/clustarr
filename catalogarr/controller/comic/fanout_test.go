@@ -151,3 +151,31 @@ func TestDesiredIssuesDatePrefersCoverDate(t *testing.T) {
 	require.Len(t, withNeither, 1)
 	assert.Nil(t, withNeither[0].Date)
 }
+
+// TestDesiredIssuesSourceIDFollowsTheComicsSource: SourceID is the issue's
+// id under the comic's own source key, never another provider's.
+func TestDesiredIssuesSourceIDFollowsTheComicsSource(t *testing.T) {
+	cv := newComic("batman", nil)
+	got := comic.DesiredIssues(cv, false, map[string]bool{}, []metadata.ComicIssue{
+		{IDs: metadata.ExternalIDs{metadata.KeyComicVine: "1001", "metron": "9"}, Number: "1"},
+		{IDs: metadata.ExternalIDs{"metron": "10"}, Number: "2"},
+	})
+	require.Len(t, got, 2)
+	assert.Equal(t, "1001", got[0].SourceID)
+	assert.Empty(t, got[1].SourceID, "a Metron-only id is not a ComicVine issue id")
+
+	md := newComic("one-piece", nil)
+	md.Spec.Source = catalogv1alpha1.ComicSourceMangaDex
+	got = comic.DesiredIssues(md, false, map[string]bool{}, []metadata.ComicIssue{
+		{Number: "1"},
+		{IDs: metadata.ExternalIDs{metadata.KeyComicVine: "3"}, Number: "2"},
+	})
+	require.Len(t, got, 2)
+	assert.Empty(t, got[0].SourceID, "a MangaDex volume has no id")
+	assert.Empty(t, got[1].SourceID, "a ComicVine id is not a MangaDex one")
+}
+
+func TestSourceKey(t *testing.T) {
+	assert.Equal(t, "comicvine", comic.SourceKey(catalogv1alpha1.ComicSourceComicVine))
+	assert.Equal(t, "mangadex", comic.SourceKey(catalogv1alpha1.ComicSourceMangaDex))
+}

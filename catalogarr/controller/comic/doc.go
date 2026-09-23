@@ -49,16 +49,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // side reconciles (see k8s.ManagerCatalogarrFanout's own doc comment and
 // CLAUDE.md's "Gotchas found the hard way").
 //
-// spec.source also allows "mangadex" (ComicSourceMangaDex), for which
-// pkg/metadata/clients has no registered ComicProvider today (only
-// ComicVine). catalogarr/metadata/target.go's externalIDs already documents
-// that a mangadex Comic's fetch will simply never succeed through the
-// registry (ErrNotFound-shaped, never guessing which provider a source
-// name maps to). Left alone, that would still cost a MetadataTask publish,
-// and this reconciler's own lookupIssues RPC call, on every single stale
-// check forever -- an error-loop for a capability gap, not a transient
-// failure. This reconciler instead short-circuits a mangadex Comic before
-// either call: MetadataReady and IssuesSynced are both marked False with a
-// single, stable "MangaDexUnsupported" reason, and neither the metadata
-// task nor the issue-listing RPC is ever sent for it.
+// spec.source is "comicvine" or "mangadex" (ComicSourceMangaDex), and both
+// take the same path: the metadata gateway keys a MangaDex Comic's fetch by
+// its manga UUID (catalogarr/metadata/target.go) and its issue listing by
+// the key it is handed (rpc.go's lookupIssues), so this reconciler sends
+// the source id under SourceKey(spec.source) -- "comicvine" or "mangadex".
+// A MangaDex comic's Issues are its collected volumes, which carry no id of
+// their own, so their status.sourceID stays empty (fanout.go).
 package comic

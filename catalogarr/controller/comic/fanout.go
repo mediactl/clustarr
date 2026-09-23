@@ -22,7 +22,21 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/metadata/clients/extid"
 )
+
+// SourceKey is the pkg/metadata ExternalIDs key a comic of this source is
+// looked up by: ComicVine's volume id, or MangaDex's manga UUID. The
+// metadata gateway keys a Comic's own fetch the same way
+// (catalogarr/metadata/target.go) and its issue listing dispatches on the
+// key it is handed (catalogarr/metadata/rpc.go's lookupIssues), so a
+// MangaDex comic reaches only the providers that can read a MangaDex id.
+func SourceKey(source catalogv1alpha1.ComicSourceProvider) string {
+	if source == catalogv1alpha1.ComicSourceMangaDex {
+		return extid.KeyMangaDex
+	}
+	return metadata.KeyComicVine
+}
 
 // DesiredIssue is one Issue object the Comic reconciler should ensure
 // exists, with the provider-sourced fields to write to its status (under
@@ -78,6 +92,13 @@ type DesiredIssue struct {
 //  4. Otherwise (a genuinely new issue discovered on a later refresh):
 //     Monitored follows spec.monitorNewIssues (default true).
 //
+// SourceID is the issue's id under the comic's own source key (SourceKey):
+// the ComicVine issue id for a ComicVine comic. A MangaDex comic's issues
+// are MangaDex volumes, which have no id of their own, and an issue listed
+// by a provider other than the comic's source (Metron answering for a
+// ComicVine comic) carries that provider's id instead -- both leave SourceID
+// empty rather than filing one provider's id as another's.
+//
 // Issues with a duplicate Number are deduplicated, first occurrence wins:
 // ComicVine is assumed not to send duplicates, but this defends anyway, the
 // same posture as series.DesiredEpisodes.
@@ -96,6 +117,7 @@ func DesiredIssues(
 		monitorNew = *c.Spec.MonitorNewIssues
 	}
 
+	sourceKey := SourceKey(c.Spec.Source)
 	seen := make(map[string]bool, len(issues))
 	out := make([]DesiredIssue, 0, len(issues))
 	for _, iss := range issues {
@@ -128,7 +150,7 @@ func DesiredIssues(
 
 		out = append(out, DesiredIssue{
 			Name: name, Number: iss.Number, CalculatedNumberCentis: centis,
-			SourceID: iss.IDs[metadata.KeyComicVine], Title: iss.Title, Date: date, Monitored: monitored,
+			SourceID: iss.IDs[sourceKey], Title: iss.Title, Date: date, Monitored: monitored,
 		})
 	}
 	return out

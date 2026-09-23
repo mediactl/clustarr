@@ -24,6 +24,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -100,10 +101,25 @@ type fakeIssueRPC struct {
 	issues []metadata.ComicIssue
 	err    error
 	calls  atomic.Int64
+
+	mu      sync.Mutex
+	lastIDs map[string]string
 }
 
-func (f *fakeIssueRPC) Request(_ context.Context, _ string, _, out any) error {
+// requestedIDs is the IDs map of the last issue-listing request.
+func (f *fakeIssueRPC) requestedIDs() map[string]string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.lastIDs
+}
+
+func (f *fakeIssueRPC) Request(_ context.Context, _ string, in, out any) error {
 	f.calls.Add(1)
+	if req, ok := in.(schema.MetadataRequest); ok {
+		f.mu.Lock()
+		f.lastIDs = req.IDs
+		f.mu.Unlock()
+	}
 	if f.err != nil {
 		return f.err
 	}
@@ -368,25 +384,25 @@ func TestComicReconcilerRealController(t *testing.T) {
 		assert.False(t, *gotIss1.Spec.Monitored, "the reconciler must not clobber a user's spec.monitored edit on an existing issue")
 	})
 
-	t.Run("mangadex comic reports Ready=False without publishing metadata or calling the issue RPC", func(t *testing.T) {
+	t.Run("mangadex comic lists its issues by its mangadex id", func(t *testing.T) {
 		// A dedicated cache-only client (not the live-manager client `c`,
 		// which the real auto-wired controller also reconciles against
 		// asynchronously): calling r.Reconcile manually right after Create
-		// races that shared cache's own sync, and a fresh IsolatedNamespace
-		// avoids the real controller ever touching this object too.
+		// races that shared cache's own sync, and a fresh namespace keeps
+		// the real controller off this object.
 		mangaClient := startCacheOnly(t, ctx, cfg)
 		require.NoError(t, mangaClient.Create(ctx, testNamespace("comic-mangadex-ns")))
 
+		const uuid = "a1c7c817-4e59-43b7-9365-09675a149a6f"
 		pub := &fakePublisher{}
-		mdRequester := &fakeIssueRPC{}
-		mangaBus := combinedBus{Publisher: pub, requester: mdRequester}
-
-		r := &comic.Reconciler{Client: mangaClient, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: mangaBus}
+		mdRequester := &fakeIssueRPC{issues: []metadata.ComicIssue{{Number: "1"}, {Number: "2"}}}
+		r := &comic.Reconciler{Client: mangaClient, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
+			Bus: combinedBus{Publisher: pub, requester: mdRequester}}
 
 		cm := &catalogv1alpha1.Comic{
 			ObjectMeta: metav1.ObjectMeta{Name: "one-piece-manga", Namespace: "comic-mangadex-ns"},
 			Spec: catalogv1alpha1.ComicSpec{
-				Source: catalogv1alpha1.ComicSourceMangaDex, SourceID: "some-mangadex-uuid",
+				Source: catalogv1alpha1.ComicSourceMangaDex, SourceID: uuid,
 				QualityProfileRef: "none", RootFolderRef: "comic-root",
 			},
 		}
@@ -399,31 +415,64 @@ func TestComicReconcilerRealController(t *testing.T) {
 		_, err := r.Reconcile(ctx, req)
 		require.NoError(t, err)
 
+		assert.Equal(t, map[string]string{"mangadex": uuid}, mdRequester.requestedIDs(),
+			"a MangaDex comic's issue listing is keyed by its manga UUID, never filed under comicvine")
+		assert.Positive(t, pub.calls.Load(), "a MangaDex comic publishes its MetadataTask like any other")
+
 		var got catalogv1alpha1.Comic
 		require.Eventually(t, func() bool {
-			return mangaClient.Get(ctx, req.NamespacedName, &got) == nil && len(got.Status.Conditions) > 0
-		}, 5*time.Second, 10*time.Millisecond)
-		readyCond := k8s.FindCondition(got.Status.Conditions, k8s.ConditionReady)
-		require.NotNil(t, readyCond)
-		assert.Equal(t, metav1.ConditionFalse, readyCond.Status)
-		assert.Equal(t, "MangaDexUnsupported", readyCond.Reason)
-		metaCond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.ComicConditionMetadataReady)
-		require.NotNil(t, metaCond)
-		assert.Equal(t, "MangaDexUnsupported", metaCond.Reason)
-		issuesCond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.ComicConditionIssuesSynced)
-		require.NotNil(t, issuesCond)
-		assert.Equal(t, "MangaDexUnsupported", issuesCond.Reason)
+			return mangaClient.Get(ctx, req.NamespacedName, &got) == nil &&
+				k8s.IsConditionTrue(got.Status.Conditions, catalogv1alpha1.ComicConditionIssuesSynced)
+		}, 5*time.Second, 10*time.Millisecond, "IssuesSynced never went True")
 
-		assert.Zero(t, pub.calls.Load(), "a mangadex Comic must never publish a MetadataTask")
-		assert.Zero(t, mdRequester.calls.Load(), "a mangadex Comic must never call the issue-listing RPC")
+		var issues catalogv1alpha1.IssueList
+		require.Eventually(t, func() bool {
+			if err := mangaClient.List(ctx, &issues, client.InNamespace("comic-mangadex-ns")); err != nil {
+				return false
+			}
+			return len(issues.Items) == 2
+		}, 5*time.Second, 10*time.Millisecond, "the MangaDex volumes never became Issues")
+		for _, iss := range issues.Items {
+			assert.Empty(t, iss.Status.SourceID, "a MangaDex volume has no id to file as the issue's")
+		}
+	})
 
-		// A second reconcile (simulating the next poll interval) must behave
-		// identically -- this is the "error-loop" the brief warns against,
-		// and the absence of one is the point of this whole subtest.
+	t.Run("an answer without a source id keeps the id an Issue already has", func(t *testing.T) {
+		keepClient := startCacheOnly(t, ctx, cfg)
+		require.NoError(t, keepClient.Create(ctx, testNamespace("comic-keepid-ns")))
+		rq := &fakeIssueRPC{issues: []metadata.ComicIssue{
+			{IDs: metadata.ExternalIDs{metadata.KeyComicVine: "7001"}, Number: "1", Title: "One"},
+		}}
+		r := &comic.Reconciler{Client: keepClient, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
+			Bus: combinedBus{Publisher: &fakePublisher{}, requester: rq}}
+		cm := &catalogv1alpha1.Comic{
+			ObjectMeta: metav1.ObjectMeta{Name: "saga", Namespace: "comic-keepid-ns"},
+			Spec: catalogv1alpha1.ComicSpec{
+				Source: catalogv1alpha1.ComicSourceComicVine, SourceID: "4050-77",
+				QualityProfileRef: "none", RootFolderRef: "comic-root",
+			},
+		}
+		require.NoError(t, keepClient.Create(ctx, cm))
+		req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "comic-keepid-ns", Name: "saga"}}
+		require.Eventually(t, func() bool { return keepClient.Get(ctx, req.NamespacedName, &catalogv1alpha1.Comic{}) == nil },
+			5*time.Second, 10*time.Millisecond)
+		_, err := r.Reconcile(ctx, req)
+		require.NoError(t, err)
+
+		issKey := types.NamespacedName{Namespace: "comic-keepid-ns", Name: comic.IssueName("saga", 100)}
+		require.Eventually(t, func() bool {
+			var iss catalogv1alpha1.Issue
+			return keepClient.Get(ctx, issKey, &iss) == nil && iss.Status.SourceID == "7001"
+		}, 5*time.Second, 10*time.Millisecond, "setup: the issue never got its ComicVine id")
+
+		// Metron answers this time: its issues carry a metron id only.
+		rq.issues = []metadata.ComicIssue{{IDs: metadata.ExternalIDs{"metron": "55"}, Number: "1", Title: "One"}}
 		_, err = r.Reconcile(ctx, req)
 		require.NoError(t, err)
-		assert.Zero(t, pub.calls.Load())
-		assert.Zero(t, mdRequester.calls.Load())
+		require.Never(t, func() bool {
+			var iss catalogv1alpha1.Issue
+			return keepClient.Get(ctx, issKey, &iss) == nil && iss.Status.SourceID != "7001"
+		}, 500*time.Millisecond, 20*time.Millisecond, "an answer with no comicvine id must not clear or replace the known one")
 	})
 
 	t.Run("Owns(Issue) watch keeps IssueFileCount live on an owned Issue's HasFile flip", func(t *testing.T) {
