@@ -47,9 +47,15 @@ const (
 	// ManagerCatalogarr, which the Episode reconciler uses for that Episode's own
 	// status: server-side apply replaces a manager's whole ownership set on every
 	// apply, so two writers sharing one manager name on one object silently
-	// release each other's fields. Distinct managers make the split native --
-	// and if they ever both claim the same field, the apiserver reports a loud
-	// conflict instead of losing data quietly.
+	// release each other's fields. Distinct managers make the split native.
+	//
+	// This comment used to promise that a double-claim would surface as a loud
+	// apiserver conflict. It does not. PatchStatus and Apply both force
+	// ownership (patch.go:88,121), which is what lets two managers co-own a
+	// field on purpose -- but it also means the later applier silently takes
+	// any field it claims. An over-claim is invisible in the object's values
+	// and shows up only in metadata.managedFields, which is where a test that
+	// means to catch one has to look.
 	ManagerCatalogarrSeries FieldManager = "catalogarr-series"
 
 	// ManagerCatalogarrWorker is the catalogarr queue worker. It covers the

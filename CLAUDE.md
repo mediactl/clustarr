@@ -116,8 +116,20 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
     `catalogarr-worker`, so the grab released `status.metadata` — the movie
     dropped to `Phase=Pending` and the gateway refetched, on every grab. Give
     each writer its own manager (as `catalogarr-series` does) rather than
-    re-asserting the other's fields; then a genuine double-claim is a loud
-    apiserver conflict instead of silent data loss.
+    re-asserting the other's fields.
+
+  **A double-claim is silent, not loud — this file and a code comment both
+  said otherwise and both were wrong.** `pkg/k8s.PatchStatus` and
+  `pkg/k8s.Apply` append `client.ForceOwnership` unconditionally
+  (`patch.go:88,121`), and there is no non-forcing path in the package.
+  Forcing is what makes deliberate co-ownership work, so it is not a bug — but
+  it means the apiserver never raises the conflict that distinct field managers
+  were supposed to surface. The later applier simply takes the field. Proven by
+  making one manager claim another's field and watching **every object-value
+  assertion keep passing**. So a test that asserts on the object's values
+  catches *under*-declaration only; an over-claim is visible in exactly one
+  place, and that is where a test meaning to catch one has to look —
+  `metadata.managedFields`, by manager name against the field paths it owns.
 
   And the reason this class keeps surviving review: **two managers can
   *co-own* a field.** SSA only needs force when their values differ, so while
