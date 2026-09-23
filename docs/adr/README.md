@@ -18,6 +18,7 @@ later change can tell whether its premise still holds.
 | [0006](0006-single-rwx-data-volume.md) | Storage is one RWX volume at `/data`, TRaSH layout, hardlink-else-copy | Accepted, 2026-09-18 |
 | [0007](0007-single-replica-metadata-gateway.md) | The metadata gateway is a single replica that owns all outbound provider clients | Accepted, 2026-09-18 |
 | [0008](0008-delay-profile-grab-semantics.md) | Grab semantics are Radarr-shaped delay profiles on scheduled messages, with a keep-best pending record and a grab lease | Accepted, 2026-09-18 |
+| [0009](0009-transcode-worker-pools-over-jetstream.md) | Transcodes run on per-profile worker-pool Jobs fed by a JetStream work queue (supersedes 0005 on acceptance) | Proposed, 2026-09-23 |
 
 Refinements that did not change a decision are recorded in the spec, not here:
 
