@@ -77,10 +77,15 @@ func TestBuildMovieMetadataACCapsListsAtTheCRDsMaxItems(t *testing.T) {
 		m.ReleaseDates = append(m.ReleaseDates, pkgmetadata.ReleaseDate{Country: "US", Type: pkgmetadata.ReleaseTypeTheatrical, Date: time.Now()})
 	}
 
+	for i := 0; i < 40; i++ {
+		m.Genres = append(m.Genres, "Genre")
+	}
+
 	ac := buildMovieMetadataAC(m, time.Now())
 	require.Len(t, ac.AlternateTitles, 50, "MovieMetadata.AlternateTitles: +kubebuilder:validation:MaxItems=50")
 	require.Len(t, ac.Images, 50, "MovieMetadata.Images: +kubebuilder:validation:MaxItems=50")
 	require.Len(t, ac.ReleaseDates, 60, "MovieMetadata.ReleaseDates: +kubebuilder:validation:MaxItems=60")
+	require.Len(t, ac.Genres, 30, "MovieMetadata.Genres: +kubebuilder:validation:MaxItems=30 -- previously sent uncapped")
 }
 
 func TestBuildMovieMetadataACOmitsCollectionWithoutATMDBID(t *testing.T) {
@@ -124,8 +129,12 @@ func TestBuildSeriesMetadataACCapsAlternateTitlesAt100(t *testing.T) {
 	for i := 0; i < 150; i++ {
 		s.AlternateTitles = append(s.AlternateTitles, pkgmetadata.AltTitle{Title: "Alt"})
 	}
+	for i := 0; i < 40; i++ {
+		s.Genres = append(s.Genres, "Genre")
+	}
 	ac := buildSeriesMetadataAC(s, time.Now())
 	require.Len(t, ac.AlternateTitles, 100, "SeriesMetadata.AlternateTitles: +kubebuilder:validation:MaxItems=100")
+	require.Len(t, ac.Genres, 30, "SeriesMetadata.Genres: +kubebuilder:validation:MaxItems=30 -- previously sent uncapped")
 }
 
 // TestBuildMovieMetadataACOmitsStatusWhenEmpty pins directly, at the
@@ -150,4 +159,349 @@ func TestBuildMovieMetadataACOmitsStatusWhenEmpty(t *testing.T) {
 func TestBuildSeriesMetadataACOmitsStatusWhenEmpty(t *testing.T) {
 	ac := buildSeriesMetadataAC(&pkgmetadata.Series{Title: "No Status"}, time.Now())
 	require.Nil(t, ac.Status, "SeriesRunStatus has no empty enum member; \"\" must stay unset, not sent as a zero value")
+}
+
+func TestBuildArtistMetadataACMapsFieldsAndFiltersImageTypes(t *testing.T) {
+	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	a := &pkgmetadata.Artist{
+		IDs:            pkgmetadata.ExternalIDs{pkgmetadata.KeyMBArtist: "a74b1b7f-71a5-4011-9441-d0b5e4122711"},
+		Name:           "Radiohead",
+		SortName:       "Radiohead",
+		Disambiguation: "English rock band",
+		Type:           "Group",
+		Overview:       "Formed in Abingdon in 1985.",
+		Genres:         []string{"Alternative Rock", "Art Rock"},
+		Images: []pkgmetadata.Image{
+			{Type: pkgmetadata.ImageTypePoster, URL: "https://x/poster.jpg"},
+			{Type: pkgmetadata.ImageTypeBanner, URL: "https://x/banner.jpg"}, // no CRD equivalent
+		},
+	}
+	ac := buildArtistMetadataAC(a, now)
+
+	require.Equal(t, "Radiohead", *ac.Name)
+	require.Equal(t, "Radiohead", *ac.SortName)
+	require.Equal(t, "English rock band", *ac.Disambiguation)
+	require.Equal(t, "Group", *ac.Type)
+	require.Equal(t, "Formed in Abingdon in 1985.", *ac.Overview)
+	require.ElementsMatch(t, []string{"Alternative Rock", "Art Rock"}, ac.Genres)
+	require.Equal(t, map[string]string{"mb-artist": "a74b1b7f-71a5-4011-9441-d0b5e4122711"}, ac.ExternalIDs)
+	require.True(t, ac.RefreshedAt.Equal(&metav1.Time{Time: now}))
+	require.Len(t, ac.Images, 1, "banner has no CRD ImageType and must be dropped, not mis-labelled")
+	require.Equal(t, catalogv1alpha1.ImageTypePoster, *ac.Images[0].Type)
+}
+
+func TestBuildArtistMetadataACOmitsStatusWhenEmpty(t *testing.T) {
+	ac := buildArtistMetadataAC(&pkgmetadata.Artist{Name: "No Status"}, time.Now())
+	require.Nil(t, ac.Status, "ArtistRunStatus has no empty enum member; \"\" must stay unset, not sent as a zero value")
+}
+
+func TestBuildArtistMetadataACCapsGenresAndImagesAtTheCRDsMaxItems(t *testing.T) {
+	a := &pkgmetadata.Artist{Name: "Padded"}
+	for i := 0; i < 40; i++ {
+		a.Genres = append(a.Genres, "Genre")
+	}
+	for i := 0; i < 60; i++ {
+		a.Images = append(a.Images, pkgmetadata.Image{Type: pkgmetadata.ImageTypePoster, URL: "https://x/1.jpg"})
+	}
+	ac := buildArtistMetadataAC(a, time.Now())
+	require.Len(t, ac.Genres, 30, "ArtistMetadata.Genres: +kubebuilder:validation:MaxItems=30")
+	require.Len(t, ac.Images, 50, "ArtistMetadata.Images: +kubebuilder:validation:MaxItems=50")
+}
+
+func TestBuildAlbumMetadataACMapsFieldsAndFiltersImageTypes(t *testing.T) {
+	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	releaseDate := time.Date(1997, 5, 21, 0, 0, 0, 0, time.UTC)
+	a := &pkgmetadata.Album{
+		IDs:            pkgmetadata.ExternalIDs{pkgmetadata.KeyMBReleaseGroup: "b1392450-e666-3926-9ce9-9b7f7b62f699"},
+		Title:          "OK Computer",
+		Disambiguation: "1997",
+		Overview:       "Third studio album.",
+		PrimaryType:    "Album",
+		SecondaryTypes: []string{"Live"},
+		ReleaseDate:    &releaseDate,
+		Releases: []pkgmetadata.AlbumRelease{
+			{
+				IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBRelease: "release-1"}, Status: "Official",
+				Country: []string{"GB"}, Labels: []string{"Parlophone"}, TrackCount: 12,
+				Media: []pkgmetadata.Medium{{Position: 1, Format: "CD"}},
+			},
+			{Status: "no id, must be dropped"}, // ReleaseSummary.ID is +required.
+		},
+		Images: []pkgmetadata.Image{
+			{Type: pkgmetadata.ImageTypePoster, URL: "https://x/poster.jpg"},
+			{Type: pkgmetadata.ImageTypeThumb, URL: "https://x/thumb.jpg"}, // no CRD equivalent
+		},
+	}
+	ac := buildAlbumMetadataAC(a, now)
+
+	require.Equal(t, "OK Computer", *ac.Title)
+	require.Equal(t, "1997", *ac.Disambiguation)
+	require.Equal(t, "Third studio album.", *ac.Overview)
+	require.Equal(t, "Album", *ac.AlbumType)
+	require.Equal(t, []string{"Live"}, ac.SecondaryTypes)
+	require.True(t, ac.ReleaseDate.Equal(&metav1.Time{Time: releaseDate}))
+	require.True(t, ac.RefreshedAt.Equal(&metav1.Time{Time: now}))
+
+	require.Len(t, ac.Releases, 1, "the release with no id must be dropped, not sent with a blank id")
+	require.Equal(t, "release-1", *ac.Releases[0].ID)
+	require.Equal(t, "Official", *ac.Releases[0].Status)
+	require.Equal(t, "GB", *ac.Releases[0].Country)
+	require.Equal(t, "Parlophone", *ac.Releases[0].Label)
+	require.EqualValues(t, 12, *ac.Releases[0].TrackCount)
+	require.Len(t, ac.Releases[0].Media, 1)
+	require.EqualValues(t, 1, *ac.Releases[0].Media[0].Number)
+	require.Equal(t, "CD", *ac.Releases[0].Media[0].Format)
+
+	require.Len(t, ac.Images, 1, "thumb has no CRD ImageType and must be dropped, not mis-labelled")
+	require.Equal(t, catalogv1alpha1.ImageTypePoster, *ac.Images[0].Type)
+}
+
+func TestBuildAlbumMetadataACDropsAMediumWithNoPosition(t *testing.T) {
+	a := &pkgmetadata.Album{
+		Title: "Padded",
+		Releases: []pkgmetadata.AlbumRelease{{
+			IDs:   pkgmetadata.ExternalIDs{pkgmetadata.KeyMBRelease: "release-1"},
+			Media: []pkgmetadata.Medium{{Position: 0, Format: "digital"}, {Position: 1, Format: "CD"}},
+		}},
+	}
+	ac := buildAlbumMetadataAC(a, time.Now())
+	require.Len(t, ac.Releases, 1)
+	require.Len(t, ac.Releases[0].Media, 1, "Medium.Number is +required with Minimum=1; a zero position must be dropped")
+	require.EqualValues(t, 1, *ac.Releases[0].Media[0].Number)
+}
+
+func TestBuildAlbumMetadataACCapsListsAtTheCRDsMaxItems(t *testing.T) {
+	a := &pkgmetadata.Album{Title: "Padded"}
+	for i := 0; i < 30; i++ {
+		a.SecondaryTypes = append(a.SecondaryTypes, "type")
+	}
+	for i := 0; i < 60; i++ {
+		a.Images = append(a.Images, pkgmetadata.Image{Type: pkgmetadata.ImageTypePoster, URL: "https://x/1.jpg"})
+	}
+	for i := 0; i < 60; i++ {
+		a.Releases = append(a.Releases, pkgmetadata.AlbumRelease{
+			IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBRelease: "release"},
+		})
+	}
+	ac := buildAlbumMetadataAC(a, time.Now())
+	require.Len(t, ac.SecondaryTypes, 16, "AlbumMetadata.SecondaryTypes: +kubebuilder:validation:MaxItems=16")
+	require.Len(t, ac.Images, 50, "AlbumMetadata.Images: +kubebuilder:validation:MaxItems=50")
+	require.Len(t, ac.Releases, 50, "AlbumMetadata.Releases: +kubebuilder:validation:MaxItems=50")
+}
+
+func TestBuildAuthorMetadataACMapsFieldsAndFiltersImageTypes(t *testing.T) {
+	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	a := &pkgmetadata.Author{
+		IDs:            pkgmetadata.ExternalIDs{pkgmetadata.KeyOpenLibraryAuthor: "OL23919A"},
+		Name:           "Terry Pratchett",
+		SortName:       "Pratchett, Terry",
+		Disambiguation: "British author",
+		Overview:       "Author of Discworld.",
+		Genres:         []string{"Fantasy", "Satire"},
+		Images: []pkgmetadata.Image{
+			{Type: pkgmetadata.ImageTypePoster, URL: "https://x/poster.jpg"},
+			{Type: pkgmetadata.ImageTypeHeadshot, URL: "https://x/headshot.jpg"}, // no CRD equivalent
+		},
+	}
+	ac := buildAuthorMetadataAC(a, now)
+
+	require.Equal(t, "Terry Pratchett", *ac.Name)
+	require.Equal(t, "Pratchett, Terry", *ac.SortName)
+	require.Equal(t, "British author", *ac.Disambiguation)
+	require.Equal(t, "Author of Discworld.", *ac.Overview)
+	require.ElementsMatch(t, []string{"Fantasy", "Satire"}, ac.Genres)
+	require.Equal(t, map[string]string{"olauthor": "OL23919A"}, ac.ExternalIDs)
+	require.True(t, ac.RefreshedAt.Equal(&metav1.Time{Time: now}))
+	require.Len(t, ac.Images, 1, "headshot has no CRD ImageType and must be dropped, not mis-labelled")
+	require.Equal(t, catalogv1alpha1.ImageTypePoster, *ac.Images[0].Type)
+}
+
+func TestBuildAuthorMetadataACCapsGenresAndImagesAtTheCRDsMaxItems(t *testing.T) {
+	a := &pkgmetadata.Author{Name: "Padded"}
+	for i := 0; i < 40; i++ {
+		a.Genres = append(a.Genres, "Genre")
+	}
+	for i := 0; i < 60; i++ {
+		a.Images = append(a.Images, pkgmetadata.Image{Type: pkgmetadata.ImageTypePoster, URL: "https://x/1.jpg"})
+	}
+	ac := buildAuthorMetadataAC(a, time.Now())
+	require.Len(t, ac.Genres, 30, "AuthorMetadata.Genres: +kubebuilder:validation:MaxItems=30")
+	require.Len(t, ac.Images, 50, "AuthorMetadata.Images: +kubebuilder:validation:MaxItems=50")
+}
+
+func TestBuildBookMetadataACMapsFieldsAndEditions(t *testing.T) {
+	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	firstPublished := time.Date(1983, 11, 24, 0, 0, 0, 0, time.UTC)
+	editionRelease := time.Date(2013, 1, 1, 0, 0, 0, 0, time.UTC)
+	b := &pkgmetadata.Book{
+		IDs:            pkgmetadata.ExternalIDs{pkgmetadata.KeyOpenLibraryWork: "OL45883W"},
+		Title:          "The Colour of Magic",
+		Overview:       "The first Discworld novel.",
+		FirstPublished: &firstPublished,
+		Genres:         []string{"Fantasy"},
+		Series:         []pkgmetadata.SeriesLink{{Series: "Discworld", Position: "1", Primary: true}},
+		Editions: []pkgmetadata.Edition{
+			{
+				IDs:         pkgmetadata.ExternalIDs{pkgmetadata.KeyOpenLibraryEdition: "OL7353617M", pkgmetadata.KeyISBN13: "9780061020701", pkgmetadata.KeyASIN: "B0031RS17E"},
+				Title:       "The Colour of Magic",
+				Language:    "eng",
+				Publisher:   "Harper",
+				Format:      "Paperback",
+				PageCount:   288,
+				ReleaseDate: &editionRelease,
+			},
+			{Title: "no OL edition id, must be dropped"},
+		},
+	}
+	ac := buildBookMetadataAC(b, now)
+
+	require.Equal(t, "The Colour of Magic", *ac.Title)
+	require.Equal(t, "The first Discworld novel.", *ac.Overview)
+	require.True(t, ac.ReleaseDate.Equal(&metav1.Time{Time: firstPublished}))
+	require.Equal(t, []string{"Fantasy"}, ac.Genres)
+	require.Equal(t, map[string]string{"olwork": "OL45883W"}, ac.ExternalIDs)
+	require.True(t, ac.RefreshedAt.Equal(&metav1.Time{Time: now}))
+
+	require.Len(t, ac.SeriesLinks, 1)
+	require.Equal(t, "Discworld", *ac.SeriesLinks[0].Series)
+	require.Equal(t, "1", *ac.SeriesLinks[0].Position)
+	require.True(t, *ac.SeriesLinks[0].Primary)
+
+	require.Len(t, ac.Editions, 1, "the edition with no Open Library edition id must be dropped")
+	require.Equal(t, "OL7353617M", *ac.Editions[0].ID)
+	require.Equal(t, "9780061020701", *ac.Editions[0].ISBN13)
+	require.Equal(t, "B0031RS17E", *ac.Editions[0].ASIN)
+	require.Equal(t, "eng", *ac.Editions[0].Language)
+	require.Equal(t, "Harper", *ac.Editions[0].Publisher)
+	require.Equal(t, "Paperback", *ac.Editions[0].Format)
+	require.EqualValues(t, 288, *ac.Editions[0].PageCount)
+	require.True(t, ac.Editions[0].ReleaseDate.Equal(&metav1.Time{Time: editionRelease}))
+}
+
+func TestBuildBookMetadataACCapsListsAtTheCRDsMaxItems(t *testing.T) {
+	b := &pkgmetadata.Book{Title: "Padded"}
+	for i := 0; i < 20; i++ {
+		b.Series = append(b.Series, pkgmetadata.SeriesLink{Series: "s"})
+	}
+	for i := 0; i < 150; i++ {
+		b.Editions = append(b.Editions, pkgmetadata.Edition{IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyOpenLibraryEdition: "ol"}})
+	}
+	ac := buildBookMetadataAC(b, time.Now())
+	require.Len(t, ac.SeriesLinks, 10, "BookMetadata.SeriesLinks: +kubebuilder:validation:MaxItems=10")
+	require.Len(t, ac.Editions, 100, "BookMetadata.Editions: +kubebuilder:validation:MaxItems=100")
+}
+
+func TestBuildAudiobookMetadataACMapsFields(t *testing.T) {
+	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	releaseDate := time.Date(2020, 3, 24, 0, 0, 0, 0, time.UTC)
+	a := &pkgmetadata.Audiobook{
+		IDs:         pkgmetadata.ExternalIDs{pkgmetadata.KeyASIN: "B0863H3FYS"},
+		Title:       "The Hobbit",
+		Subtitle:    "or There and Back Again",
+		Authors:     []pkgmetadata.NamedRef{{Name: "J.R.R. Tolkien", ASIN: "B000AP9A6K"}},
+		Narrators:   []string{"Andy Serkis"},
+		Publisher:   "HarperAudio",
+		ReleaseDate: &releaseDate,
+		Runtime:     11*time.Hour + 4*time.Minute,
+		Description: "A hobbit's unexpected journey.",
+		Language:    "eng",
+		Genres:      []string{"Fantasy"},
+		Series:      []pkgmetadata.SeriesLink{{Series: "Middle-earth", Position: "0", Primary: true}},
+		Chapters:    []pkgmetadata.Chapter{{Title: "Chapter 1", StartOffsetMs: 0}, {Title: "Chapter 2", StartOffsetMs: 600000}},
+		Image:       &pkgmetadata.Image{Type: pkgmetadata.ImageTypePoster, URL: "https://x/cover.jpg"},
+	}
+	ac := buildAudiobookMetadataAC(a, now)
+
+	require.Equal(t, "The Hobbit", *ac.Title)
+	require.Equal(t, "or There and Back Again", *ac.Subtitle)
+	require.Len(t, ac.Authors, 1)
+	require.Equal(t, "J.R.R. Tolkien", *ac.Authors[0].Name)
+	require.Equal(t, "B000AP9A6K", *ac.Authors[0].ASIN)
+	require.Equal(t, []string{"Andy Serkis"}, ac.Narrators)
+	require.Equal(t, "HarperAudio", *ac.Publisher)
+	require.True(t, ac.ReleaseDate.Equal(&metav1.Time{Time: releaseDate}))
+	require.EqualValues(t, 664, *ac.RuntimeMinutes, "11h4m floor-divided to whole minutes")
+	require.Equal(t, "A hobbit's unexpected journey.", *ac.Overview, "Description is preferred over Summary when both could apply")
+	require.Equal(t, "eng", *ac.Language)
+	require.Equal(t, []string{"Fantasy"}, ac.Genres)
+	require.NotNil(t, ac.Series)
+	require.Equal(t, "Middle-earth", *ac.Series.Series)
+	require.Len(t, ac.Chapters, 2)
+	require.Equal(t, "Chapter 1", *ac.Chapters[0].Title)
+	require.EqualValues(t, 600000, *ac.Chapters[1].StartMs)
+	require.Equal(t, map[string]string{"asin": "B0863H3FYS"}, ac.ExternalIDs)
+	require.True(t, ac.RefreshedAt.Equal(&metav1.Time{Time: now}))
+	require.Len(t, ac.Images, 1)
+	require.Equal(t, "https://x/cover.jpg", *ac.Images[0].URL)
+}
+
+func TestBuildAudiobookMetadataACFallsBackToSummaryWhenDescriptionIsEmpty(t *testing.T) {
+	ac := buildAudiobookMetadataAC(&pkgmetadata.Audiobook{Title: "T", Summary: "short blurb"}, time.Now())
+	require.Equal(t, "short blurb", *ac.Overview)
+}
+
+func TestBuildAudiobookMetadataACCapsListsAtTheCRDsMaxItems(t *testing.T) {
+	a := &pkgmetadata.Audiobook{Title: "Padded"}
+	for i := 0; i < 40; i++ {
+		a.Authors = append(a.Authors, pkgmetadata.NamedRef{Name: "A"})
+		a.Narrators = append(a.Narrators, "N")
+	}
+	for i := 0; i < 250; i++ {
+		a.Chapters = append(a.Chapters, pkgmetadata.Chapter{Title: "Ch"})
+	}
+	ac := buildAudiobookMetadataAC(a, time.Now())
+	require.Len(t, ac.Authors, 30, "AudiobookMetadata.Authors: +kubebuilder:validation:MaxItems=30")
+	require.Len(t, ac.Narrators, 30, "AudiobookMetadata.Narrators: +kubebuilder:validation:MaxItems=30")
+	require.Len(t, ac.Chapters, 200, "AudiobookMetadata.Chapters: +kubebuilder:validation:MaxItems=200")
+}
+
+func TestBuildComicMetadataACMapsFieldsAndFiltersImageTypes(t *testing.T) {
+	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	startYear := int32(2003)
+	v := &pkgmetadata.ComicVolume{
+		IDs:         pkgmetadata.ExternalIDs{pkgmetadata.KeyComicVine: "4050-12345"},
+		Kind:        "manga",
+		Title:       "Berserk",
+		Publisher:   "Hakusensha",
+		Description: "A dark fantasy manga.",
+		StartYear:   &startYear,
+		IssueCount:  42,
+		AgeRating:   "Mature",
+		Images: []pkgmetadata.Image{
+			{Type: pkgmetadata.ImageTypePoster, URL: "https://x/poster.jpg"},
+			{Type: pkgmetadata.ImageTypeClearart, URL: "https://x/clearart.jpg"}, // no CRD equivalent
+		},
+	}
+	ac := buildComicMetadataAC(v, now)
+
+	require.Equal(t, "Berserk", *ac.Title)
+	require.Equal(t, "Hakusensha", *ac.Publisher)
+	require.Equal(t, "A dark fantasy manga.", *ac.Overview)
+	require.EqualValues(t, 2003, *ac.Year)
+	require.EqualValues(t, 42, *ac.IssueCount)
+	require.Equal(t, "Mature", *ac.AgeRating)
+	require.Equal(t, catalogv1alpha1.MangaFlagYes, *ac.Manga)
+	require.Equal(t, map[string]string{"comicvine": "4050-12345"}, ac.ExternalIDs)
+	require.True(t, ac.RefreshedAt.Equal(&metav1.Time{Time: now}))
+	require.Len(t, ac.Images, 1, "clearart has no CRD ImageType and must be dropped, not mis-labelled")
+	require.Equal(t, catalogv1alpha1.ImageTypePoster, *ac.Images[0].Type)
+}
+
+func TestBuildComicMetadataACMapsNonMangaKindToNo(t *testing.T) {
+	ac := buildComicMetadataAC(&pkgmetadata.ComicVolume{Title: "T", Kind: "comic"}, time.Now())
+	require.Equal(t, catalogv1alpha1.MangaFlagNo, *ac.Manga)
+}
+
+func TestBuildComicMetadataACOmitsMangaWhenKindIsEmpty(t *testing.T) {
+	ac := buildComicMetadataAC(&pkgmetadata.ComicVolume{Title: "T"}, time.Now())
+	require.Nil(t, ac.Manga, "ComicVolume.Kind is unpopulated by the current comicvine client; Manga must stay unset, not guessed")
+}
+
+func TestBuildComicMetadataACCapsImagesAtTheCRDsMaxItems(t *testing.T) {
+	v := &pkgmetadata.ComicVolume{Title: "Padded"}
+	for i := 0; i < 60; i++ {
+		v.Images = append(v.Images, pkgmetadata.Image{Type: pkgmetadata.ImageTypePoster, URL: "https://x/1.jpg"})
+	}
+	ac := buildComicMetadataAC(v, time.Now())
+	require.Len(t, ac.Images, 50, "ComicMetadata.Images: +kubebuilder:validation:MaxItems=50")
 }

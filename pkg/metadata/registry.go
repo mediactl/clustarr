@@ -74,12 +74,44 @@ func (r *Registry) Lookup(ctx context.Context, kind commonv1.MediaKind, ids Exte
 		if !ok {
 			return nil, fmt.Errorf("metadata: audiobook lookup requires %q in ExternalIDs", KeyASIN)
 		}
+		// AudiobookSpec.Region (design §4.2) has ten possible marketplaces,
+		// not just "us" -- so the caller (catalogarr/metadata/target.go's
+		// externalIDs) stuffs it into ids["region"] the same way
+		// rpc.go's lookupEpisodes stuffs an episode order into
+		// ids["order"]: Lookup's signature is fixed at (kind, ExternalIDs),
+		// so an id-shaped extra parameter travels through the map rather
+		// than widening the method. Defaulting to "us" when absent keeps
+		// every existing caller (which never set it) working exactly as
+		// before.
+		region := ids["region"]
+		if region == "" {
+			region = "us"
+		}
 		return lookupFirst(r.Audiobooks, func(p AudiobookProvider) (*Audiobook, error) {
-			return p.Audiobook(ctx, asin, "us")
+			return p.Audiobook(ctx, asin, region)
 		})
 	case commonv1.MediaKindComic:
 		return lookupFirst(r.Comics, func(p ComicProvider) (*ComicVolume, error) { return p.Volume(ctx, ids) })
+	case commonv1.MediaKindAlbum:
+		mbReleaseGroupID, ok := ids[KeyMBReleaseGroup]
+		if !ok {
+			return nil, fmt.Errorf("metadata: album lookup requires %q in ExternalIDs", KeyMBReleaseGroup)
+		}
+		return lookupFirst(r.Artists, func(p ArtistProvider) (*Album, error) { return p.Album(ctx, mbReleaseGroupID) })
+	case commonv1.MediaKindBook:
+		return lookupFirst(r.Books, func(p BookProvider) (*Book, error) { return p.Book(ctx, ids) })
 	default:
+		// MediaKindEpisode and MediaKindIssue are deliberately absent, not
+		// just unimplemented: both are 1:many children whose provider call
+		// returns a list scoped by their parent's id (SeriesProvider.
+		// Episodes(tvdbID, order), ComicProvider.Issues(volumeID)), and
+		// "first entity from the first provider that succeeds" -- what
+		// Lookup does for every case above -- is the wrong shape for a
+		// list, exactly as this package's task C6 predecessor found for
+		// Episode (see catalogarr/metadata/rpc.go's lookupEpisodes, which
+		// bypasses this switch entirely). catalogarr/metadata/rpc.go's
+		// lookupIssues is Issue's counterpart to lookupEpisodes, for the
+		// same reason. Neither belongs here.
 		return nil, fmt.Errorf("metadata: Lookup does not support kind %q", kind)
 	}
 }

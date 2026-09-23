@@ -69,3 +69,26 @@ func seriesRefreshState(s *pkgmetadata.Series, now time.Time) string {
 		return pkgmetadata.RefreshStateAnnounced
 	}
 }
+
+// comicRefreshState is movieRefreshState's counterpart for ComicVolume:
+// RefreshTTL's MediaKindComic/MediaKindIssue branch (pkg/metadata/refresh.go)
+// drops to a 30-day cadence once the state reports RefreshStateCompleted,
+// and stays at 24h (RefreshStateOngoing or anything else) otherwise --
+// unlike Movie and Series, it does not branch further by state, so no
+// "recent" distinction is needed here.
+//
+// pkg/metadata/clients/comicvine.Client.Volume does not map ComicVine's
+// status field yet (see the TODO on Volume in that file), so v.Status is
+// always "" against the real provider today and this always answers
+// RefreshStateOngoing. That is an honest reflection of the data actually
+// available, not a bug in this function -- it starts giving completed
+// volumes their slower cadence the day that TODO is picked up, with no
+// change needed here.
+func comicRefreshState(v *pkgmetadata.ComicVolume) string {
+	switch v.Status {
+	case "ended", "completed":
+		return pkgmetadata.RefreshStateCompleted
+	default:
+		return pkgmetadata.RefreshStateOngoing
+	}
+}

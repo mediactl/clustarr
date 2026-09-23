@@ -103,6 +103,48 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		} else if hit {
 			cached = &v
 		}
+	case *catalogv1alpha1.Artist:
+		var v pkgmetadata.Artist
+		if hit, err := h.Cache.Get(ctx, ck, &v); err != nil {
+			return fmt.Errorf("metadata: cache get: %w", err)
+		} else if hit {
+			cached = &v
+		}
+	case *catalogv1alpha1.Album:
+		var v pkgmetadata.Album
+		if hit, err := h.Cache.Get(ctx, ck, &v); err != nil {
+			return fmt.Errorf("metadata: cache get: %w", err)
+		} else if hit {
+			cached = &v
+		}
+	case *catalogv1alpha1.Author:
+		var v pkgmetadata.Author
+		if hit, err := h.Cache.Get(ctx, ck, &v); err != nil {
+			return fmt.Errorf("metadata: cache get: %w", err)
+		} else if hit {
+			cached = &v
+		}
+	case *catalogv1alpha1.Book:
+		var v pkgmetadata.Book
+		if hit, err := h.Cache.Get(ctx, ck, &v); err != nil {
+			return fmt.Errorf("metadata: cache get: %w", err)
+		} else if hit {
+			cached = &v
+		}
+	case *catalogv1alpha1.Audiobook:
+		var v pkgmetadata.Audiobook
+		if hit, err := h.Cache.Get(ctx, ck, &v); err != nil {
+			return fmt.Errorf("metadata: cache get: %w", err)
+		} else if hit {
+			cached = &v
+		}
+	case *catalogv1alpha1.Comic:
+		var v pkgmetadata.ComicVolume
+		if hit, err := h.Cache.Get(ctx, ck, &v); err != nil {
+			return fmt.Errorf("metadata: cache get: %w", err)
+		} else if hit {
+			cached = &v
+		}
 	}
 
 	result := cached
@@ -129,6 +171,37 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindSeries, seriesRefreshState(v, now()), refreshedAt(target))
 		ac = catalogac.Series(key.Name, key.Namespace).WithStatus(
 			catalogac.SeriesStatus().WithMetadata(buildSeriesMetadataAC(v, now())))
+	case *pkgmetadata.Artist:
+		// RefreshTTL's MediaKindArtist/MediaKindAlbum branch is a flat 7-day
+		// cadence regardless of state (pkg/metadata/refresh.go); Active is
+		// passed only to avoid the two magic strings (RefreshStateSearch,
+		// RefreshStateCrosswalk) RefreshTTL special-cases ahead of its
+		// per-kind switch, not because it carries meaning for this kind.
+		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindArtist, pkgmetadata.RefreshStateActive, refreshedAt(target))
+		ac = catalogac.Artist(key.Name, key.Namespace).WithStatus(
+			catalogac.ArtistStatus().WithMetadata(buildArtistMetadataAC(v, now())))
+	case *pkgmetadata.Album:
+		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindAlbum, pkgmetadata.RefreshStateActive, refreshedAt(target))
+		ac = catalogac.Album(key.Name, key.Namespace).WithStatus(
+			catalogac.AlbumStatus().WithMetadata(buildAlbumMetadataAC(v, now())))
+	case *pkgmetadata.Author:
+		// MediaKindAuthor/Book/Audiobook are likewise a flat 30-day cadence
+		// regardless of state; see the Artist/Album comment above.
+		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindAuthor, pkgmetadata.RefreshStateActive, refreshedAt(target))
+		ac = catalogac.Author(key.Name, key.Namespace).WithStatus(
+			catalogac.AuthorStatus().WithMetadata(buildAuthorMetadataAC(v, now())))
+	case *pkgmetadata.Book:
+		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindBook, pkgmetadata.RefreshStateActive, refreshedAt(target))
+		ac = catalogac.Book(key.Name, key.Namespace).WithStatus(
+			catalogac.BookStatus().WithMetadata(buildBookMetadataAC(v, now())))
+	case *pkgmetadata.Audiobook:
+		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindAudiobook, pkgmetadata.RefreshStateActive, refreshedAt(target))
+		ac = catalogac.Audiobook(key.Name, key.Namespace).WithStatus(
+			catalogac.AudiobookStatus().WithMetadata(buildAudiobookMetadataAC(v, now())))
+	case *pkgmetadata.ComicVolume:
+		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindComic, comicRefreshState(v), refreshedAt(target))
+		ac = catalogac.Comic(key.Name, key.Namespace).WithStatus(
+			catalogac.ComicStatus().WithMetadata(buildComicMetadataAC(v, now())))
 	default:
 		return events.Discard("registry returned an unexpected type", fmt.Errorf("%T", result))
 	}

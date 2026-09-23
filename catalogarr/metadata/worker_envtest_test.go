@@ -258,13 +258,19 @@ func TestHandlerMapsNotFoundToDiscard(t *testing.T) {
 	require.ErrorAs(t, err, &de)
 }
 
+// TestHandlerDiscardsAnUnsupportedKind used to pin Artist as unsupported
+// (M6 was not yet in scope). Task G2-1 wired Artist into this worker, so
+// the case pinning "this worker rejects a kind with no status.metadata of
+// its own" now uses Issue -- see target.go's errUnsupportedKind doc comment
+// for why Issue (like Episode) is a deliberate, permanent exclusion rather
+// than a gap this worker will ever grow a case for.
 func TestHandlerDiscardsAnUnsupportedKind(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
 	h := &metadata.Handler{Client: c, Registry: &pkgmetadata.Registry{}, Cache: noopCache{}}
 
-	env := &events.Envelope{Key: "ns/artist-1", Schema: schema.MetadataTask{}.Schema()}
-	task := schema.MetadataTask{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindArtist, Name: "artist-1"}}
+	env := &events.Envelope{Key: "ns/issue-1", Schema: schema.MetadataTask{}.Schema()}
+	task := schema.MetadataTask{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindIssue, Name: "issue-1"}}
 	var err error
 	_, env.Data, err = schema.Encode(task)
 	require.NoError(t, err)
@@ -272,4 +278,186 @@ func TestHandlerDiscardsAnUnsupportedKind(t *testing.T) {
 	err = h.Handle(ctx, testMessage{env: env})
 	var de *events.DiscardError
 	require.ErrorAs(t, err, &de)
+}
+
+// stubArtistOnlyProvider is the minimal pkgmetadata.ArtistProvider this file
+// needs for the two Artist/Album Handler tests below: SearchArtists is never
+// called by Handle (only Registry.Lookup is), so it panics if it ever is.
+type stubArtistOnlyProvider struct {
+	artist *pkgmetadata.Artist
+	album  *pkgmetadata.Album
+	err    error
+}
+
+func (p stubArtistOnlyProvider) Name() string { return "musicbrainz" }
+func (p stubArtistOnlyProvider) Capabilities() pkgmetadata.Capabilities {
+	return pkgmetadata.Capabilities{}
+}
+
+func (p stubArtistOnlyProvider) SearchArtists(context.Context, string) ([]pkgmetadata.SearchHit, error) {
+	panic("SearchArtists must not be called by the metadata worker")
+}
+
+func (p stubArtistOnlyProvider) Artist(context.Context, string) (*pkgmetadata.Artist, error) {
+	return p.artist, p.err
+}
+
+func (p stubArtistOnlyProvider) Albums(context.Context, string) ([]pkgmetadata.Album, error) {
+	panic("Albums must not be called by the metadata worker")
+}
+
+func (p stubArtistOnlyProvider) Album(context.Context, string) (*pkgmetadata.Album, error) {
+	return p.album, p.err
+}
+
+func newArtist(t *testing.T, ctx context.Context, c client.Client, ns, name, mbid string) *catalogv1alpha1.Artist {
+	t.Helper()
+	if err := c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}); err != nil && client.IgnoreAlreadyExists(err) != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+	a := &catalogv1alpha1.Artist{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		Spec: catalogv1alpha1.ArtistSpec{
+			MusicBrainzID: mbid, QualityProfileRef: "lossless", RootFolderRef: "music",
+		},
+	}
+	require.NoError(t, c.Create(ctx, a))
+	return a
+}
+
+// TestHandlerFetchesArtistAndPatchesOnlyStatusMetadata is
+// TestHandlerFetchesFromTheProviderAndPatchesOnlyStatusMetadata's Artist
+// counterpart, proving G2-1's new dispatch end to end: newTarget ->
+// externalIDs -> Registry.Lookup -> buildArtistMetadataAC ->
+// k8s.ManagerCatalogarrMetadata.
+func TestHandlerFetchesArtistAndPatchesOnlyStatusMetadata(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	const ns, name, mbid = "hartist", "radiohead", "a74b1b7f-71a5-4011-9441-d0b5e4122711"
+	newArtist(t, ctx, c, ns, name, mbid)
+
+	h := &metadata.Handler{
+		Client: c,
+		Registry: &pkgmetadata.Registry{Artists: []pkgmetadata.ArtistProvider{stubArtistOnlyProvider{
+			artist: &pkgmetadata.Artist{
+				IDs:    pkgmetadata.ExternalIDs{pkgmetadata.KeyMBArtist: mbid},
+				Name:   "Radiohead",
+				Type:   "Group",
+				Genres: []string{"Alternative Rock"},
+				Images: []pkgmetadata.Image{{Type: pkgmetadata.ImageTypePoster, URL: "https://example.test/radiohead.jpg"}},
+			},
+		}}},
+		Cache: noopCache{},
+	}
+
+	env := &events.Envelope{Key: ns + "/" + name, Schema: schema.MetadataTask{}.Schema()}
+	task := schema.MetadataTask{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindArtist, Name: name}}
+	var err error
+	_, env.Data, err = schema.Encode(task)
+	require.NoError(t, err)
+
+	require.NoError(t, h.Handle(ctx, testMessage{env: env}))
+
+	var got catalogv1alpha1.Artist
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	require.NotNil(t, got.Status.Metadata)
+	require.Equal(t, "Radiohead", got.Status.Metadata.Name)
+	require.Equal(t, "Group", got.Status.Metadata.Type)
+	require.Equal(t, []string{"Alternative Rock"}, got.Status.Metadata.Genres)
+	require.Equal(t, mbid, got.Status.Metadata.ExternalIDs["mb-artist"])
+	require.Empty(t, got.Status.Conditions, "the worker must never set conditions; that is the artist controller's field")
+}
+
+func newAlbum(t *testing.T, ctx context.Context, c client.Client, ns, name, artistRef, releaseGroupID string) *catalogv1alpha1.Album {
+	t.Helper()
+	a := &catalogv1alpha1.Album{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: artistRef, ReleaseGroupID: releaseGroupID},
+	}
+	require.NoError(t, c.Create(ctx, a))
+	return a
+}
+
+// TestHandlerAlbumMetadataStaysSolelyOwnedByTheGatewayAcrossReapplies is the
+// SSA-per-leaf proof this task's brief calls for (CLAUDE.md's Phase D1 caps
+// lesson: a renderer that sends only some of a struct's leaves silently
+// releases the rest), applied to the specific question this task had to
+// answer for Album and Book: patch.go's buildAlbumMetadataAC doc comment
+// decides the metadata gateway (ManagerCatalogarrMetadata) is the sole
+// writer of every leaf of AlbumStatus.metadata, and G2-2's Artist fan-out
+// (ManagerCatalogarrFanout) must never apply to it. This proves both
+// halves against a real apiserver:
+//  1. A full fetch sets every leaf this builder maps.
+//  2. A second fetch, from a provider response with almost every field now
+//     empty, is a complete rebuild (buildAlbumMetadataAC is called in
+//     full both times, never a partial early return) -- so every omitted
+//     leaf is deliberately cleared, not accidentally retained, and the one
+//     leaf still present (Title) survives.
+//  3. Across both applies, status.metadata's managedFields entries show
+//     ONLY k8s.ManagerCatalogarrMetadata -- proving nothing else (in
+//     particular no future ManagerCatalogarrFanout write from G2-2) has
+//     claimed a leaf there.
+func TestHandlerAlbumMetadataStaysSolelyOwnedByTheGatewayAcrossReapplies(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	const ns, name, rgid = "halbum", "radiohead-ok-computer", "b1392450-e666-3926-9ce9-9b7f7b62f699"
+	newArtist(t, ctx, c, ns, "radiohead", "a74b1b7f-71a5-4011-9441-d0b5e4122711")
+	newAlbum(t, ctx, c, ns, name, "radiohead", rgid)
+
+	fullDate := time.Date(1997, 5, 21, 0, 0, 0, 0, time.UTC)
+	full := stubArtistOnlyProvider{album: &pkgmetadata.Album{
+		IDs:            pkgmetadata.ExternalIDs{pkgmetadata.KeyMBReleaseGroup: rgid},
+		Title:          "OK Computer",
+		Disambiguation: "1997",
+		PrimaryType:    "Album",
+		SecondaryTypes: []string{"Live"},
+		ReleaseDate:    &fullDate,
+		Images:         []pkgmetadata.Image{{Type: pkgmetadata.ImageTypePoster, URL: "https://example.test/okc.jpg"}},
+	}}
+	h := &metadata.Handler{Client: c, Registry: &pkgmetadata.Registry{Artists: []pkgmetadata.ArtistProvider{full}}, Cache: noopCache{}}
+
+	env := &events.Envelope{Key: ns + "/" + name, Schema: schema.MetadataTask{}.Schema()}
+	task := schema.MetadataTask{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: name}}
+	var err error
+	_, env.Data, err = schema.Encode(task)
+	require.NoError(t, err)
+	require.NoError(t, h.Handle(ctx, testMessage{env: env}))
+
+	var got catalogv1alpha1.Album
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	require.NotNil(t, got.Status.Metadata)
+	require.Equal(t, "OK Computer", got.Status.Metadata.Title)
+	require.Equal(t, "1997", got.Status.Metadata.Disambiguation)
+	require.Equal(t, "Album", got.Status.Metadata.AlbumType)
+	require.Equal(t, []string{"Live"}, got.Status.Metadata.SecondaryTypes)
+	require.NotNil(t, got.Status.Metadata.ReleaseDate)
+	require.Len(t, got.Status.Metadata.Images, 1)
+
+	// Second fetch: the provider now answers with only a Title (e.g. a
+	// stale/degraded upstream response). noopCache (not fakeCache) ensures
+	// this really calls the provider again rather than replaying the cache.
+	partial := stubArtistOnlyProvider{album: &pkgmetadata.Album{
+		IDs:   pkgmetadata.ExternalIDs{pkgmetadata.KeyMBReleaseGroup: rgid},
+		Title: "OK Computer",
+	}}
+	h.Registry = &pkgmetadata.Registry{Artists: []pkgmetadata.ArtistProvider{partial}}
+	require.NoError(t, h.Handle(ctx, testMessage{env: env}))
+
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
+	require.NotNil(t, got.Status.Metadata)
+	require.Equal(t, "OK Computer", got.Status.Metadata.Title, "the one leaf still present must survive")
+	require.Empty(t, got.Status.Metadata.Disambiguation, "an omitted leaf must be deliberately cleared, not retained")
+	require.Empty(t, got.Status.Metadata.AlbumType, "an omitted leaf must be deliberately cleared, not retained")
+	require.Empty(t, got.Status.Metadata.SecondaryTypes, "an omitted leaf must be deliberately cleared, not retained")
+	require.Nil(t, got.Status.Metadata.ReleaseDate, "an omitted leaf must be deliberately cleared, not retained")
+	require.Empty(t, got.Status.Metadata.Images, "an omitted leaf must be deliberately cleared, not retained")
+
+	managers := map[string]bool{}
+	for _, e := range got.ManagedFields {
+		if e.Subresource == "status" {
+			managers[e.Manager] = true
+		}
+	}
+	require.Equal(t, map[string]bool{string(k8s.ManagerCatalogarrMetadata): true}, managers,
+		"only the metadata gateway may own a status field on Album -- ManagerCatalogarrFanout must never apply to status.metadata here (see buildAlbumMetadataAC's doc comment)")
 }

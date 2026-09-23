@@ -51,3 +51,11 @@ func TestSeriesRefreshState(t *testing.T) {
 		seriesRefreshState(&pkgmetadata.Series{Status: pkgmetadata.SeriesStatusEnded, LastAired: &old}, now))
 	require.Equal(t, pkgmetadata.RefreshStateAnnounced, seriesRefreshState(&pkgmetadata.Series{Status: pkgmetadata.SeriesStatusUpcoming}, now))
 }
+
+func TestComicRefreshState(t *testing.T) {
+	require.Equal(t, pkgmetadata.RefreshStateCompleted, comicRefreshState(&pkgmetadata.ComicVolume{Status: "ended"}))
+	require.Equal(t, pkgmetadata.RefreshStateCompleted, comicRefreshState(&pkgmetadata.ComicVolume{Status: "completed"}))
+	require.Equal(t, pkgmetadata.RefreshStateOngoing, comicRefreshState(&pkgmetadata.ComicVolume{Status: "ongoing"}))
+	require.Equal(t, pkgmetadata.RefreshStateOngoing, comicRefreshState(&pkgmetadata.ComicVolume{}),
+		"comicvine.Client.Volume does not map ComicVine's status field yet, so this is the honest default today")
+}

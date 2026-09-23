@@ -90,18 +90,26 @@ func ServeRPC(bus events.Requester, reg *pkgmetadata.Registry) error {
 	return nil
 }
 
-// lookup answers rpc.catalogarr.metadata.lookup. MediaKindEpisode is a verb
-// Task C6 needs and pkg/metadata.Registry.Lookup does not support (its
-// switch covers movie/series/artist/author/audiobook/comic only, because
-// "first entity from the first provider that succeeds" is the wrong shape
-// for a list) -- dispatch it to lookupEpisodes before falling through to
-// Registry.Lookup for every other kind.
+// lookup answers rpc.catalogarr.metadata.lookup. MediaKindEpisode and
+// MediaKindIssue are both verbs pkg/metadata.Registry.Lookup deliberately
+// does not support (its switch covers every kind whose provider call
+// returns one entity; Episode and Issue are each a list scoped by their
+// parent's id -- SeriesProvider.Episodes(tvdbID, order) and
+// ComicProvider.Issues(volumeID) -- and "first entity from the first
+// provider that succeeds" is the wrong shape for a list, see
+// Registry.Lookup's own default case) -- dispatch them to lookupEpisodes and
+// lookupIssues respectively before falling through to Registry.Lookup for
+// every other kind, which now also covers album and book (task G2-1;
+// Registry.Lookup's switch).
 func lookup(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataRequest) schema.MetadataResponse {
 	ctx, span := tracing.Start(ctx, "metadata.rpc.lookup")
 	defer span.End()
 
-	if req.Kind == commonv1.MediaKindEpisode {
+	switch req.Kind {
+	case commonv1.MediaKindEpisode:
 		return lookupEpisodes(ctx, reg, req)
+	case commonv1.MediaKindIssue:
+		return lookupIssues(ctx, reg, req)
 	}
 
 	fetchCtx, fetchSpan := tracing.Start(ctx, "metadata.Registry.Lookup")
@@ -151,6 +159,48 @@ func lookupEpisodes(ctx context.Context, reg *pkgmetadata.Registry, req schema.M
 		}
 		epSpan.End()
 		return schema.MetadataResponse{Kind: req.Kind, Provider: p.Name(), Results: marshalAll(episodes)}
+	}
+	if lastErr == nil {
+		lastErr = pkgmetadata.ErrNotFound
+	}
+	tracing.RecordError(span, lastErr)
+	return schema.MetadataResponse{Kind: req.Kind, Error: lastErr.Error()}
+}
+
+// lookupIssues is lookupEpisodes' counterpart for Comic->Issue: Kind=
+// MediaKindIssue, IDs={"comicvine": volumeID} (ComicVine's own id shape,
+// "NNNN-NNNNN", covers both volumes and issues, but ComicProvider.Issues
+// takes the volume's id and returns every issue in it -- there is no
+// single-issue-by-id call, see pkg/metadata/clients/comicvine.Client.Issues).
+// Answers with Results, one JSON-encoded pkg/metadata.ComicIssue per entry,
+// first ComicProvider-that-succeeds over reg.Comics. This is the RPC path
+// G2-2's Comic reconciler is expected to call to fan issues out onto Issue
+// objects -- ComicVolume itself (what Registry.Lookup(kind=comic) and this
+// gateway's Handler fetch) never carries its issue list; Volume() and
+// Issues() are separate ComicVine calls, exactly as Series() and Episodes()
+// are separate TVDB calls.
+func lookupIssues(ctx context.Context, reg *pkgmetadata.Registry, req schema.MetadataRequest) schema.MetadataResponse {
+	ctx, span := tracing.Start(ctx, "metadata.rpc.lookupIssues")
+	defer span.End()
+
+	volumeID, ok := req.IDs[pkgmetadata.KeyComicVine]
+	if !ok {
+		err := fmt.Errorf("metadata: issue lookup requires %q in ids", pkgmetadata.KeyComicVine)
+		tracing.RecordError(span, err)
+		return schema.MetadataResponse{Kind: req.Kind, Error: err.Error()}
+	}
+	var lastErr error
+	for _, p := range reg.Comics {
+		isCtx, isSpan := tracing.Start(ctx, "metadata.ComicProvider.Issues")
+		issues, err := p.Issues(isCtx, volumeID)
+		if err != nil {
+			tracing.RecordError(isSpan, err)
+			isSpan.End()
+			lastErr = err
+			continue
+		}
+		isSpan.End()
+		return schema.MetadataResponse{Kind: req.Kind, Provider: p.Name(), Results: marshalAll(issues)}
 	}
 	if lastErr == nil {
 		lastErr = pkgmetadata.ErrNotFound
@@ -273,6 +323,10 @@ func idsOf(v any) map[string]string {
 	case *pkgmetadata.Audiobook:
 		return e.IDs
 	case *pkgmetadata.ComicVolume:
+		return e.IDs
+	case *pkgmetadata.Album:
+		return e.IDs
+	case *pkgmetadata.Book:
 		return e.IDs
 	default:
 		return nil

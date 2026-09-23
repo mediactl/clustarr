@@ -237,6 +237,85 @@ func TestServeRPCLookupEpisodesRequiresATVDBID(t *testing.T) {
 	require.NotEmpty(t, resp.Error)
 }
 
+type stubComicProvider struct {
+	issues    []pkgmetadata.ComicIssue
+	err       error
+	wantVolID string
+}
+
+func (p stubComicProvider) Name() string { return "comicvine" }
+func (p stubComicProvider) Capabilities() pkgmetadata.Capabilities {
+	return pkgmetadata.Capabilities{}
+}
+
+func (p stubComicProvider) SearchVolumes(context.Context, string) ([]pkgmetadata.SearchHit, error) {
+	return nil, nil
+}
+
+func (p stubComicProvider) Volume(context.Context, pkgmetadata.ExternalIDs) (*pkgmetadata.ComicVolume, error) {
+	return nil, pkgmetadata.ErrNotFound
+}
+
+func (p stubComicProvider) Issues(_ context.Context, volumeID string) ([]pkgmetadata.ComicIssue, error) {
+	if p.wantVolID != "" && volumeID != p.wantVolID {
+		return nil, fmt.Errorf("unexpected volume id %q", volumeID)
+	}
+	return p.issues, p.err
+}
+
+// TestServeRPCLookupListsIssuesForComicFanout is lookupEpisodes' test
+// (TestServeRPCLookupListsEpisodesForTaskC6) mirrored for Comic->Issue:
+// Registry.Lookup deliberately has no MediaKindIssue case (Issues(volumeID)
+// returns a list, the wrong shape for "first entity from the first provider
+// that succeeds"), so rpc.go's lookupIssues serves it directly, the way
+// lookupEpisodes serves Episode.
+func TestServeRPCLookupListsIssuesForComicFanout(t *testing.T) {
+	reg := &pkgmetadata.Registry{Comics: []pkgmetadata.ComicProvider{stubComicProvider{
+		wantVolID: "4050-12345",
+		issues: []pkgmetadata.ComicIssue{
+			{Number: "1", Title: "The Black Sword"},
+			{Number: "2", Title: "The Golden Age"},
+		},
+	}}}
+	bus := newTestBus(t)
+	require.NoError(t, ServeRPC(bus, reg))
+
+	var resp schema.MetadataResponse
+	req := schema.MetadataRequest{Kind: commonv1.MediaKindIssue, IDs: map[string]string{"comicvine": "4050-12345"}}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
+
+	require.Empty(t, resp.Error)
+	require.Equal(t, "comicvine", resp.Provider)
+	require.Len(t, resp.Results, 2)
+	var issue pkgmetadata.ComicIssue
+	require.NoError(t, json.Unmarshal(resp.Results[0], &issue))
+	require.Equal(t, "The Black Sword", issue.Title)
+}
+
+func TestServeRPCLookupIssuesRequiresAComicVineVolumeID(t *testing.T) {
+	reg := &pkgmetadata.Registry{}
+	bus := newTestBus(t)
+	require.NoError(t, ServeRPC(bus, reg))
+
+	var resp schema.MetadataResponse
+	req := schema.MetadataRequest{Kind: commonv1.MediaKindIssue, IDs: map[string]string{}}
+	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
+	require.NotEmpty(t, resp.Error)
+}
+
+// TestIdsOfCoversAlbumAndBook pins the two idsOf cases task G2-1 added
+// alongside Registry.Lookup's new album/book support -- without them,
+// schema.MetadataResponse.IDs would come back nil for these two kinds even
+// though Lookup succeeded, exactly the gap movie/series/artist/author/
+// audiobook/comic already avoid.
+func TestIdsOfCoversAlbumAndBook(t *testing.T) {
+	album := &pkgmetadata.Album{IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBReleaseGroup: "rg-1"}}
+	require.Equal(t, map[string]string{pkgmetadata.KeyMBReleaseGroup: "rg-1"}, idsOf(album))
+
+	book := &pkgmetadata.Book{IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyOpenLibraryWork: "OL45883W"}}
+	require.Equal(t, map[string]string{pkgmetadata.KeyOpenLibraryWork: "OL45883W"}, idsOf(book))
+}
+
 // TestServeRPCHandlersCreateASpanPerVerb is review round 1's Important fix:
 // the RPC surface previously never called tracing.Start, unlike worker.go
 // (which spans both the handler and the nested registry call). Concretely,
