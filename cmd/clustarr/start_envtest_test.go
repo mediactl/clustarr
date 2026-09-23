@@ -504,6 +504,10 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 			o.GracefulShutdownTimeout = 10 * time.Second
 
 			ctx, cancel := context.WithCancel(context.Background())
+			// A verify that fails calls t.Fatalf before the cancel() below,
+			// which would leave this service running into the next case --
+			// and, at the end, leave envtest's apiserver unable to stop.
+			t.Cleanup(cancel)
 			done := make(chan error, 1)
 			go func() { done <- tc.run(ctx, o) }()
 
