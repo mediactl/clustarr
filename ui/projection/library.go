@@ -207,29 +207,37 @@ type libraryCard struct {
 func describeLibraryItem(item client.Object) (libraryCard, bool) {
 	switch v := item.(type) {
 	case *catalogv1.Movie:
-		c := libraryCard{tab: TabMovies, monitored: monitoredOrDefault(v.Spec.Monitored),
-			phase: string(v.Status.Phase), hasFile: v.Status.HasFile, profile: v.Spec.QualityProfileRef}
+		c := libraryCard{
+			tab: TabMovies, monitored: monitoredOrDefault(v.Spec.Monitored),
+			phase: string(v.Status.Phase), hasFile: v.Status.HasFile, profile: v.Spec.QualityProfileRef,
+		}
 		if md := v.Status.Metadata; md != nil {
 			c.year, c.poster = md.Year, posterOf(md.Images)
 		}
 		return c, true
 	case *catalogv1.Series:
-		c := libraryCard{tab: TabTV, monitored: monitoredOrDefault(v.Spec.Monitored),
-			phase: string(v.Status.Phase), profile: v.Spec.QualityProfileRef}
+		c := libraryCard{
+			tab: TabTV, monitored: monitoredOrDefault(v.Spec.Monitored),
+			phase: string(v.Status.Phase), profile: v.Spec.QualityProfileRef,
+		}
 		if md := v.Status.Metadata; md != nil {
 			c.year, c.poster = md.Year, posterOf(md.Images)
 		}
 		return c, true
 	case *catalogv1.Artist:
-		c := libraryCard{tab: TabMusic, monitored: monitoredOrDefault(v.Spec.Monitored),
-			hasFile: v.Status.AlbumFileCount > 0, profile: v.Spec.QualityProfileRef}
+		c := libraryCard{
+			tab: TabMusic, monitored: monitoredOrDefault(v.Spec.Monitored),
+			hasFile: v.Status.AlbumFileCount > 0, profile: v.Spec.QualityProfileRef,
+		}
 		if md := v.Status.Metadata; md != nil {
 			c.poster = posterOf(md.Images)
 		}
 		return c, true
 	case *catalogv1.Author:
-		c := libraryCard{tab: TabBooks, monitored: monitoredOrDefault(v.Spec.Monitored),
-			hasFile: v.Status.BookFileCount > 0, profile: v.Spec.QualityProfileRef}
+		c := libraryCard{
+			tab: TabBooks, monitored: monitoredOrDefault(v.Spec.Monitored),
+			hasFile: v.Status.BookFileCount > 0, profile: v.Spec.QualityProfileRef,
+		}
 		if md := v.Status.Metadata; md != nil {
 			c.poster = posterOf(md.Images)
 		}
@@ -238,8 +246,10 @@ func describeLibraryItem(item client.Object) (libraryCard, bool) {
 		if v.Spec.AuthorRef != nil && *v.Spec.AuthorRef != "" {
 			return libraryCard{}, false
 		}
-		c := libraryCard{tab: TabBooks, monitored: monitoredOrDefault(v.Spec.Monitored),
-			phase: string(v.Status.Phase), hasFile: v.Status.HasFile}
+		c := libraryCard{
+			tab: TabBooks, monitored: monitoredOrDefault(v.Spec.Monitored),
+			phase: string(v.Status.Phase), hasFile: v.Status.HasFile,
+		}
 		if v.Spec.QualityProfileRef != nil {
 			c.profile = *v.Spec.QualityProfileRef
 		}
@@ -248,15 +258,19 @@ func describeLibraryItem(item client.Object) (libraryCard, bool) {
 		}
 		return c, true
 	case *catalogv1.Audiobook:
-		c := libraryCard{tab: TabBooks, monitored: monitoredOrDefault(v.Spec.Monitored),
-			phase: string(v.Status.Phase), hasFile: v.Status.HasFile, profile: v.Spec.QualityProfileRef}
+		c := libraryCard{
+			tab: TabBooks, monitored: monitoredOrDefault(v.Spec.Monitored),
+			phase: string(v.Status.Phase), hasFile: v.Status.HasFile, profile: v.Spec.QualityProfileRef,
+		}
 		if md := v.Status.Metadata; md != nil {
 			c.poster = posterOf(md.Images)
 		}
 		return c, true
 	case *catalogv1.Comic:
-		c := libraryCard{tab: TabBooks, monitored: monitoredOrDefault(v.Spec.Monitored),
-			hasFile: v.Status.IssueFileCount > 0, profile: v.Spec.QualityProfileRef}
+		c := libraryCard{
+			tab: TabBooks, monitored: monitoredOrDefault(v.Spec.Monitored),
+			hasFile: v.Status.IssueFileCount > 0, profile: v.Spec.QualityProfileRef,
+		}
 		if md := v.Status.Metadata; md != nil {
 			c.year, c.poster = md.Year, posterOf(md.Images)
 		}

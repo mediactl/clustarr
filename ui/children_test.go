@@ -48,8 +48,6 @@ func TestArtistAndAuthorPagesLoadTheirChildrenLazilyAndToggleThem(t *testing.T) 
 		tm := metav1.NewTime(time.Date(y, time.June, 1, 0, 0, 0, 0, time.UTC))
 		return &tm
 	}
-	objs := []interface{ GetName() string }{}
-	_ = objs
 	artist := &catalogv1.Artist{
 		ObjectMeta: metav1.ObjectMeta{Name: "bjork", Namespace: "default"},
 		Spec:       catalogv1.ArtistSpec{MusicBrainzID: "mb-bjork", QualityProfileRef: "music-lossless", RootFolderRef: "music"},
@@ -85,10 +83,14 @@ func TestArtistAndAuthorPagesLoadTheirChildrenLazilyAndToggleThem(t *testing.T) 
 		album("ok-computer", "radiohead", "OK Computer", 1997, 12),
 	).Build()
 	items := []projection.LibraryItem{
-		{Ref: types.NamespacedName{Namespace: "default", Name: "bjork"}, Kind: commonv1.MediaKindArtist,
-			Tab: projection.TabMusic, Title: "Björk", QualityProfileRef: "music-lossless", Monitored: true},
-		{Ref: types.NamespacedName{Namespace: "default", Name: "le-guin"}, Kind: commonv1.MediaKindAuthor,
-			Tab: projection.TabBooks, Title: "Ursula K. Le Guin", QualityProfileRef: "ebook", Monitored: true},
+		{
+			Ref: types.NamespacedName{Namespace: "default", Name: "bjork"}, Kind: commonv1.MediaKindArtist,
+			Tab: projection.TabMusic, Title: "Björk", QualityProfileRef: "music-lossless", Monitored: true,
+		},
+		{
+			Ref: types.NamespacedName{Namespace: "default", Name: "le-guin"}, Kind: commonv1.MediaKindAuthor,
+			Tab: projection.TabBooks, Title: "Ursula K. Le Guin", QualityProfileRef: "ebook", Monitored: true,
+		},
 	}
 	srv := ui.NewServer(t.Context(), ui.Options{
 		Reader:  c,
