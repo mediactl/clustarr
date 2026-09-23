@@ -31,6 +31,11 @@ const MaxSearchReleases = 500
 // clustarr.rel.<protocol>.<indexerName>.<newznabTop>.
 type Release struct {
 	// Info is the release as the indexer reported it, already normalised.
+	// A release a federated search merged from several indexers carries the
+	// others in Info.AlsoOn (wire key info.alsoOn): the provenance lives on
+	// ReleaseInfo, not here, so it survives into Search.status.results and a
+	// Download's spec.release without a second copy to keep in step. It is
+	// additive and optional, so the payload keeps its schema version.
 	Info commonv1.ReleaseInfo `json:"info"`
 
 	// ParsedTitle is the cleaned title the parser extracted.

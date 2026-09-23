@@ -29,7 +29,50 @@ import (
 	"github.com/stretchr/testify/require"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"sigs.k8s.io/yaml"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
+
+// This file holds the guards for Go values that mirror a CRD marker, so the
+// two cannot drift: each reads the marker's effect from the generated CRD in
+// config/crd/bases rather than restating it.
+
+// crdSchemaAt loads a generated CRD and walks its first version's schema
+// down the named properties.
+func crdSchemaAt(t *testing.T, file string, path ...string) *apiextensionsv1.JSONSchemaProps {
+	t.Helper()
+	raw, err := os.ReadFile("../../config/crd/bases/" + file)
+	require.NoError(t, err)
+	var crd apiextensionsv1.CustomResourceDefinition
+	require.NoError(t, yaml.Unmarshal(raw, &crd))
+	require.NotEmpty(t, crd.Spec.Versions)
+	schema := crd.Spec.Versions[0].Schema.OpenAPIV3Schema
+	for _, step := range path {
+		next, ok := schema.Properties[step]
+		require.True(t, ok, "%s has no %q on the way to %v", file, step, path)
+		schema = &next
+	}
+	return schema
+}
+
+// TestMaxAlsoOnMatchesTheCRD holds commonv1.MaxAlsoOn, the cap a merge
+// truncates ReleaseInfo.AlsoOn to, equal to the field's MaxItems, checked on
+// both CRDs that carry a ReleaseInfo.
+func TestMaxAlsoOnMatchesTheCRD(t *testing.T) {
+	onDownload := crdSchemaAt(t, "download.clustarr.io_downloads.yaml", "spec", "release", "alsoOn")
+	results := crdSchemaAt(t, "catalog.clustarr.io_searches.yaml", "status", "results")
+	require.NotNil(t, results.Items)
+	onSearch, ok := results.Items.Schema.Properties["alsoOn"]
+	require.True(t, ok, "status.results[] has no alsoOn")
+
+	for where, schema := range map[string]*apiextensionsv1.JSONSchemaProps{
+		"Download spec.release.alsoOn":   onDownload,
+		"Search status.results[].alsoOn": &onSearch,
+	} {
+		require.NotNil(t, schema.MaxItems, "%s is uncapped", where)
+		require.Equal(t, int64(commonv1.MaxAlsoOn), *schema.MaxItems, "%s: MaxAlsoOn and the MaxItems marker disagree", where)
+	}
+}
 
 // TestImageTypeEnumMatchesPkgMetadata holds catalog's Image.type enum to
 // exactly pkg/metadata.ImageType's constants (gap-fix X1 item 5). The CRD used
@@ -41,18 +84,7 @@ func TestImageTypeEnumMatchesPkgMetadata(t *testing.T) {
 	want := imageTypeConstants(t, "../metadata/model.go")
 	require.Len(t, want, 9, "pkg/metadata.ImageType should declare nine roles; update this guard if that changed deliberately")
 
-	raw, err := os.ReadFile("../../config/crd/bases/catalog.clustarr.io_movies.yaml")
-	require.NoError(t, err)
-	var crd apiextensionsv1.CustomResourceDefinition
-	require.NoError(t, yaml.Unmarshal(raw, &crd))
-	require.NotEmpty(t, crd.Spec.Versions)
-
-	schema := crd.Spec.Versions[0].Schema.OpenAPIV3Schema
-	for _, step := range []string{"status", "metadata", "images"} {
-		next, ok := schema.Properties[step]
-		require.True(t, ok, "movies CRD has no %q on the way to status.metadata.images", step)
-		schema = &next
-	}
+	schema := crdSchemaAt(t, "catalog.clustarr.io_movies.yaml", "status", "metadata", "images")
 	require.NotNil(t, schema.Items)
 	typ, ok := schema.Items.Schema.Properties["type"]
 	require.True(t, ok)

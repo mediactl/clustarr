@@ -154,6 +154,19 @@ spec:
                   on. pkg/crdcheck now owns the regression test, against a usenet-shaped
                   Download with no infoHash.
                 properties:
+                  alsoOn:
+                    description: |-
+                      AlsoOn lists the other Indexers, by object name, that offered this same
+                      release when a federated search merged duplicates (the design's alsoOn
+                      provenance, spec 6.2): IndexerRef is the source the merge kept, and
+                      AlsoOn never repeats it. Empty for a release only one indexer offered,
+                      and for one read from a single indexer's feed. Capped at MaxAlsoOn; the
+                      merge truncates beyond it.
+                    items:
+                      maxLength: 253
+                      type: string
+                    maxItems: 20
+                    type: array
                   categories:
                     description: |-
                       Categories lists the Newznab/Torznab category IDs of the release. A

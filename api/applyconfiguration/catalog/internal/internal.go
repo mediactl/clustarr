@@ -3670,6 +3670,12 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.common.v1alpha1.ReleaseDecision
   map:
     fields:
+    - name: alsoOn
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
     - name: approved
       type:
         scalar: boolean

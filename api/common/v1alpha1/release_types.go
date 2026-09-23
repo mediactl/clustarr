@@ -58,6 +58,10 @@ const (
 	IndexerFlagScene        = "scene"
 )
 
+// MaxAlsoOn mirrors ReleaseInfo.AlsoOn's +kubebuilder:validation:MaxItems; a
+// writer truncates to it rather than have the apiserver reject the object.
+const MaxAlsoOn = 20
+
 // Well-known keys of ReleaseInfo.IDs.
 const (
 	IDKeyTMDB = "tmdb"
@@ -79,6 +83,17 @@ type ReleaseInfo struct {
 	// IndexerName is the display name of the indexer at search time.
 	// +optional
 	IndexerName string `json:"indexerName,omitempty"`
+
+	// AlsoOn lists the other Indexers, by object name, that offered this same
+	// release when a federated search merged duplicates (the design's alsoOn
+	// provenance, spec 6.2): IndexerRef is the source the merge kept, and
+	// AlsoOn never repeats it. Empty for a release only one indexer offered,
+	// and for one read from a single indexer's feed. Capped at MaxAlsoOn; the
+	// merge truncates beyond it.
+	// +optional
+	// +kubebuilder:validation:MaxItems=20
+	// +kubebuilder:validation:items:MaxLength=253
+	AlsoOn []string `json:"alsoOn,omitempty"`
 
 	// Title is the raw release title as published by the indexer.
 	// +optional
