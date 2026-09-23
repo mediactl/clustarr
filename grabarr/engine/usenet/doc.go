@@ -87,17 +87,30 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // It never touches metadata.finalizers. [Reconciler.reconcileDeleting] calls
 // [download.Client.Remove] once a Download carries a deletionTimestamp, but
 // does not remove any finalizer -- finalizer bookkeeping is
-// k8s.ManagerGrabarr's, on the Download controller (plan task D2-4), which
-// does not exist in this tree yet. That leaves a genuine, unresolved seam:
-// something must learn that this engine's Remove finished before the
-// controller drops the finalizer, or a Download can be deleted while its
-// scratch files are still being torn down. This package's contribution is
-// making Remove happen and making it idempotent
-// ([download.ErrNotFound] is treated as success, matching
-// [download.Client.Remove]'s own contract); the coordination is D2-4's to
-// design, and the report for this task says so explicitly rather than
-// guessing at a mechanism (a status field, a condition, a bus event) that D2-4
-// might choose differently.
+// k8s.ManagerGrabarr's, on the Download controller (plan task D2-4, now
+// landed: grabarr/controller/download/controller.go's reconcileDelete). That
+// controller's own doc.go confirms the seam this paragraph originally
+// predicted rather than resolving it: reconcileDelete calls
+// fsops.SafeRemove against the shared DataDir and drops the finalizer
+// WITHOUT waiting for this engine's Remove to run first ("the finalizer
+// needs no live engine" -- true for disk, not for client state). So a
+// Download can still be, and regularly will be, fully deleted from the
+// apiserver before this engine's watch ever delivers the deletionTimestamp
+// -- this engine was down, the deletion landed during re-attach, or the
+// watch event was simply missed -- and reconcileDeleting above never runs
+// for it.
+//
+// [Reaper] (reaper.go, plan task D2-8b) is the recovery for exactly that:
+// a level-driven pass, independent of any watch event, that lists this
+// replica's client transfers against its Downloads and removes whatever
+// has had no matching Download for a full grace period. It does not
+// resolve the narrower ordering question this paragraph used to leave open
+// (Remove finishing before the controller tears down scratch files it
+// still has open) -- that would need the controller to wait on the engine,
+// which is explicitly out of D2-8b's scope (grabarr/controller/download is
+// owned by a different task). What it does guarantee is the outer bound:
+// no transfer is left running in this client forever just because the
+// delete event never reached it.
 //
 // It never writes status.phase, status.conditions, status.engine or
 // status.import -- see grabarr/status.go for the full field-manager split.

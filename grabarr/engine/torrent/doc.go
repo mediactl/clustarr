@@ -88,6 +88,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // them instead of leaving a third, different answer to the identical
 // question standing in one phase.
 //
+// That design leaves exactly the gap plan task D2-8b names: reconcileDelete
+// drops the finalizer without waiting for any engine, so a Download deleted
+// while this engine's watch has not yet delivered the deletion -- down,
+// mid-re-attach, or a missed event -- never reaches reconcileDeleting at
+// all, and its transfer keeps running with no CR left to say so. [Reaper]
+// (reaper.go) is the fix: a level-driven pass, independent of any watch
+// event, that lists [Engine.Client]'s own transfers against this replica's
+// Downloads and removes whatever has no match after a grace period. See its
+// doc comment for the two conservatism guards and why deleteData is always
+// false there.
+//
 // # What this package does not attempt
 //
 // It does not implement DownloadClient-driven rate limiting
