@@ -372,7 +372,17 @@ const (
 )
 
 // Default returns the production topology from the Clustarr design: seven
-// streams, sixteen durable consumers and eleven key/value buckets.
+// streams, fourteen durable consumers and ten key/value buckets.
+//
+// Three declarations the design once carried are gone because nothing ever
+// used them (gap fixes Z2): the catalogarr-import consumer and its
+// clustarr.work.catalogarr.import subject, which amendment §A1 replaced with
+// importarr-fileimport; the indexarr-definitions consumer and its
+// definitions-sync subject, which no worker consumed and nothing published,
+// because Cardigann definitions arrive through indexarr's startup bundle
+// loader; and the clustarr-search-cache bucket, which nothing read or wrote.
+// Ensure never deletes, so a broker that already holds the two consumers or
+// the bucket keeps them, idle and empty, until an operator removes them.
 func Default() Topology {
 	return Topology{
 		Streams:   defaultStreams(),
@@ -495,13 +505,6 @@ func defaultConsumers() []ConsumerSpec {
 			MaxAckPending: 16,
 		},
 		{
-			Name: ConsumerCatalogImport, Stream: StreamWorkCatalogarr,
-			Filters: []string{FilterCatalogImport},
-			AckWait: 300 * s, MaxDeliver: 5,
-			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m},
-			MaxAckPending: 4, Heartbeat: 60 * s,
-		},
-		{
 			Name: ConsumerCatalogMetadata, Stream: StreamWorkCatalogarr,
 			Filters: []string{FilterCatalogMetadata},
 			AckWait: 60 * s, MaxDeliver: 8,
@@ -579,13 +582,6 @@ func defaultConsumers() []ConsumerSpec {
 			Heartbeat:     30 * s,
 		},
 		{
-			Name: ConsumerIndexDefinitions, Stream: StreamWorkIndexarr,
-			Filters: []string{FilterIndexDefs},
-			AckWait: 300 * s, MaxDeliver: 3,
-			BackOff:       []time.Duration{5 * m, 30 * m},
-			MaxAckPending: 1,
-		},
-		{
 			Name: ConsumerCaptionFetchHigh, Stream: StreamWorkCaptionarr,
 			Filters: []string{"clustarr.work.captionarr.fetch.high.>"},
 			AckWait: 90 * s, MaxDeliver: 8,
@@ -629,7 +625,6 @@ func defaultBuckets() []BucketSpec {
 		b(BucketIndexerLimits, 2*24*time.Hour, "Query and grab timestamp rings."),
 		b(BucketProviderThrottle, 24*time.Hour, "Subtitle provider throttle table."),
 		b(BucketMetadataCache, 30*24*time.Hour, "L2 metadata cache."),
-		b(BucketSearchCache, 35*time.Minute, "Raw indexer search results."),
 		b(BucketProgress, 10*time.Minute, "1 Hz download and transcode telemetry."),
 		b(BucketImportList, 7*24*time.Hour, "Import list items, kept out of status."),
 		b(BucketDedup, 24*time.Hour, "Import fingerprints for re-import no-ops."),

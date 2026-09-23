@@ -57,14 +57,12 @@ const (
 	FilterAllDLQ          = "clustarr.dlq.>"
 	FilterCatalogSearch   = "clustarr.work.catalogarr.search.>"
 	FilterCatalogGrab     = "clustarr.work.catalogarr.grab.>"
-	FilterCatalogImport   = "clustarr.work.catalogarr.import.>"
 	FilterCatalogMetadata = "clustarr.work.catalogarr.metadata.>"
 	FilterCatalogWanted   = "clustarr.work.catalogarr.wantedscan.>"
 	FilterImportScan      = "clustarr.work.importarr.scan.>"
 	FilterImportList      = "clustarr.work.importarr.list.>"
 	FilterImportFile      = "clustarr.work.importarr.fileimport.>"
 	FilterIndexRSS        = "clustarr.work.indexarr.rss.>"
-	FilterIndexDefs       = "clustarr.work.indexarr.definitions.>"
 	FilterCaptionFetch    = "clustarr.work.captionarr.fetch.>"
 )
 
@@ -74,14 +72,12 @@ const (
 	ConsumerCatalogSearchHigh  = "catalogarr-search-high"
 	ConsumerCatalogSearchNorm  = "catalogarr-search-normal"
 	ConsumerCatalogGrab        = "catalogarr-grab"
-	ConsumerCatalogImport      = "catalogarr-import"
 	ConsumerCatalogMetadata    = "catalogarr-metadata"
 	ConsumerCatalogHistory     = "catalogarr-history"
 	ConsumerImportScan         = "importarr-scan"
 	ConsumerImportList         = "importarr-list"
 	ConsumerImportFile         = "importarr-fileimport"
 	ConsumerIndexRSS           = "indexarr-rss"
-	ConsumerIndexDefinitions   = "indexarr-definitions"
 	ConsumerCaptionFetchHigh   = "captionarr-fetch-high"
 	ConsumerCaptionFetchNormal = "captionarr-fetch-normal"
 	ConsumerDLQProjector       = "clustarr-dlq-projector"
@@ -96,7 +92,6 @@ const (
 	BucketIndexerLimits    = "clustarr-indexer-limits"
 	BucketProviderThrottle = "clustarr-provider-throttle"
 	BucketMetadataCache    = "clustarr-metadata-cache"
-	BucketSearchCache      = "clustarr-search-cache"
 	BucketProgress         = "clustarr-progress"
 	BucketImportList       = "clustarr-importlist"
 	BucketDedup            = "clustarr-dedup"
@@ -229,12 +224,6 @@ func WorkGrabSubject(mediaKey string) string {
 	return "clustarr.work.catalogarr.grab.normal." + tok(mediaKey)
 }
 
-// WorkImportSubject builds
-// clustarr.work.catalogarr.import.normal.<download-uid>.
-func WorkImportSubject(downloadUID string) string {
-	return "clustarr.work.catalogarr.import.normal." + tok(downloadUID)
-}
-
 // WorkMetadataSubject builds
 // clustarr.work.catalogarr.metadata.<high|normal>.<mediaKey>.
 func WorkMetadataSubject(p Priority, mediaKey string) string {
@@ -279,9 +268,6 @@ func WorkFileImportSubject(downloadUID string) string {
 func WorkRSSSubject(indexerUID string) string {
 	return "clustarr.work.indexarr.rss.normal." + tok(indexerUID)
 }
-
-// WorkDefinitionsSubject is the single definitions-sync work subject.
-const WorkDefinitionsSubject = "clustarr.work.indexarr.definitions.normal.sync"
 
 // WorkFetchSubject builds
 // clustarr.work.captionarr.fetch.<priority>.<request-uid>.<langKey>.

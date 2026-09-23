@@ -373,9 +373,9 @@ func testDiscardToDLQ(t *testing.T, newBus func() events.Bus) {
 	var mu sync.Mutex
 	deliveries := 0
 	stop, err := bus.Subscribe(ctx, events.Subscription{
-		Stream:      events.StreamWorkCatalogarr,
+		Stream:      events.StreamWorkImportarr,
 		Durable:     "ct-import",
-		Filters:     []string{events.FilterCatalogImport},
+		Filters:     []string{events.FilterImportFile},
 		AckWait:     5 * time.Second,
 		MaxDeliver:  5,
 		Backoff:     []time.Duration{50 * time.Millisecond},
@@ -391,7 +391,7 @@ func testDiscardToDLQ(t *testing.T, newBus func() events.Bus) {
 	}
 	defer stop()
 
-	subject := events.WorkImportSubject("dl-1")
+	subject := events.WorkFileImportSubject("dl-1")
 	body := envelope("task-discard", "catalog.ImportTask.v1", map[string]string{"k": "v"})
 	if _, err := bus.Publish(ctx, subject, body); err != nil {
 		t.Fatalf("Publish: %v", err)
@@ -399,7 +399,7 @@ func testDiscardToDLQ(t *testing.T, newBus func() events.Bus) {
 
 	dlq.waitFor(t, 1, "dead-letter copies")
 	e, dlqSubject := dlq.at(0)
-	if want := events.DLQSubject("catalogarr", "import", "task-discard"); dlqSubject != want {
+	if want := events.DLQSubject("importarr", "fileimport", "task-discard"); dlqSubject != want {
 		t.Errorf("DLQ subject = %q, want %q", dlqSubject, want)
 	}
 	if got := e.Headers[events.HeaderDLQReason]; got != "unparsable payload" {
@@ -811,8 +811,8 @@ func testKVDeleteRevision(t *testing.T, newBus func() events.Bus) {
 
 func testKVTTL(t *testing.T, newBus func() events.Bus) {
 	ctx, bus := setup(t, newBus)
-	kv := bus.KV(events.BucketSearchCache)
-	key := "idx-1.abc123"
+	kv := bus.KV(events.BucketLeases)
+	key := events.LeaseKey("movie-ttl")
 
 	if _, err := kv.Create(ctx, key, []byte("cached"), events.WithTTL(time.Second)); err != nil {
 		t.Fatalf("Create with TTL: %v", err)

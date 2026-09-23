@@ -424,10 +424,10 @@ func TestSubscriptionValidate(t *testing.T) {
 }
 
 func TestConsumerSpecSubscription(t *testing.T) {
-	spec, ok := events.Default().Consumer(events.ConsumerCatalogImport)
+	spec, ok := events.Default().Consumer(events.ConsumerImportFile)
 	if !ok {
 		t.Fatalf("consumer %s missing from the default topology",
-			events.ConsumerCatalogImport)
+			events.ConsumerImportFile)
 	}
 	sub := spec.Subscription()
 	if sub.Durable != spec.Name || sub.Stream != spec.Stream {
