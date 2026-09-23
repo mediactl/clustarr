@@ -18,12 +18,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package decision
 
 import (
+	"context"
+	"fmt"
 	"testing"
 
+	"github.com/dlclark/regexp2"
 	"github.com/stretchr/testify/require"
 
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
@@ -97,4 +101,40 @@ func TestCapMatchedFormatsTruncatesToTheMaxItems(t *testing.T) {
 	require.Len(t, capMatchedFormats(many), maxMatchedFormats)
 	require.Equal(t, []string{"a", "b"}, capMatchedFormats([]string{"a", "b"}))
 	require.Nil(t, capMatchedFormats(nil))
+}
+
+// TestEvaluateCapsMatchedFormatsOnTheRelease pins the call, not the helper:
+// TestCapMatchedFormatsTruncatesToTheMaxItems passes with evaluateOne
+// assigning the raw match list, so this drives the public Evaluate path with
+// a catalogue whose every format matches any title and asserts the Release
+// that reaches an apply carries at most the cap, while Decision.Matched keeps
+// every match.
+func TestEvaluateCapsMatchedFormatsOnTheRelease(t *testing.T) {
+	const formats = maxMatchedFormats + 50
+	anyTitle := regexp2.MustCompile(`.`, regexp2.IgnoreCase)
+	cat := &catalogue.Catalogue{Formats: make(map[string]*catalogue.Format, formats)}
+	for i := range formats {
+		slug := fmt.Sprintf("any-title-%03d", i)
+		cat.Formats[slug] = &catalogue.Format{
+			Slug: slug, Name: slug, Scores: map[string]int{"default": 0},
+			Conditions: []catalogue.Condition{{Kind: catalogue.CondReleaseTitle, Name: slug, Pattern: anyTitle}},
+		}
+	}
+	bluray1080, ok := quality.Lookup("video", "Bluray-1080p")
+	require.True(t, ok)
+	p := quality.Profile{
+		Tiers:        [][]quality.Definition{{bluray1080}},
+		ProperPolicy: "preferAndUpgrade",
+		LanguageName: "any",
+		Sizes:        quality.MovieSizeTable(),
+	}
+	tg := Target{Kind: common.MediaKindMovie, Available: true, Identity: Identity{Titles: []string{"Arrival"}, Year: 2016}}
+	rels := []common.ReleaseInfo{{Title: "Arrival.2016.1080p.BluRay.x264-GRP", GUID: "g", Protocol: common.ProtocolTorrent}}
+
+	ds := Evaluate(context.Background(), tg, p, cat, rels, Options{UserInvoked: true})
+
+	require.Len(t, ds, 1)
+	require.Len(t, ds[0].Matched, formats, "every synthetic format matches any title")
+	require.Len(t, ds[0].Release.MatchedFormats, maxMatchedFormats,
+		"the Release is what lands in Search.status.results and Download.spec.release, where MaxItems=%d", maxMatchedFormats)
 }
