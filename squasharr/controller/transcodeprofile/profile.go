@@ -131,15 +131,17 @@ func profileTag(profileName, profileHash string) string {
 }
 
 // alreadyTranscoded reports whether mf already carries the current profile's
-// tag, as worker.RecordedProfileTag reads it -- the probe's record of the
-// file's own CLUSTARR_PROFILE first (an earlier install's output, found by a
-// rescan, has only that), else the one catalogarr's mediafile controller
-// mirrors only after incorporating a SUCCESSFUL swap. So this is false for a
-// file that has never been transcoded, one whose last transcode failed, and
-// one tagged with a stale (pre-edit) profile hash. The TranscodeJob planner
-// reads the same function, so a file this skips is one it would skip too.
+// tag, by either record worker.HasProfileTag reads: the probe's record of
+// the file's own CLUSTARR_PROFILE (an earlier install's output, found by a
+// rescan, has only that), or the one catalogarr's mediafile controller sets
+// only after incorporating a SUCCESSFUL transcode -- an in-place swap, or a
+// replaceSource=false job's derived copy beside this file. So this is false
+// for a file that has never been transcoded, one whose last transcode
+// failed, and one tagged with a stale (pre-edit) profile hash. The
+// TranscodeJob planner asks the same function, so a file this skips is one
+// it would skip too.
 func alreadyTranscoded(mf *catalogv1alpha1.MediaFile, tag string) bool {
-	return worker.RecordedProfileTag(mf) == tag
+	return worker.HasProfileTag(mf, tag)
 }
 
 // probed reports whether mf has enough of a probe to plan a transcode from:

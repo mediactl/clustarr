@@ -389,15 +389,17 @@ func TestAlreadyTranscodedAndProbed(t *testing.T) {
 	assert.True(t, alreadyTranscoded(&mf, "hevc@deadbeef"))
 	assert.False(t, alreadyTranscoded(&mf, "hevc@newhash"), "a stale (pre-edit) tag must not count as already transcoded")
 
-	// The probe's record of the file's own tag counts, and stands before a
-	// swap's mirror: it is what the worker's live probe of the same bytes
-	// reads. A file with only the probe's tag -- an earlier install's
-	// output a rescan found -- is already transcoded too.
+	// The probe's record of the file's own tag counts too: a file with only
+	// that -- an earlier install's output a rescan found -- is already
+	// transcoded. Either record counts: a replaceSource=false job records
+	// its profile on a source whose own probe tag is another's.
 	mf.Status.MediaInfo.TranscodeProfile = "hevc@newhash"
-	assert.True(t, alreadyTranscoded(&mf, "hevc@newhash"))
-	assert.False(t, alreadyTranscoded(&mf, "hevc@deadbeef"), "the probe's tag stands before the swap's mirror")
+	assert.True(t, alreadyTranscoded(&mf, "hevc@newhash"), "the probe's tag counts")
+	assert.True(t, alreadyTranscoded(&mf, "hevc@deadbeef"), "the incorporated transcode's tag still counts")
+	assert.False(t, alreadyTranscoded(&mf, "hevc@third"))
 	mf.Status.Transcode = nil
 	assert.True(t, alreadyTranscoded(&mf, "hevc@newhash"), "the probe's tag alone counts")
+	assert.False(t, alreadyTranscoded(&mf, "hevc@deadbeef"))
 }
 
 // A file whose Movie or Episode is gone -- an import list's removeAndKeep

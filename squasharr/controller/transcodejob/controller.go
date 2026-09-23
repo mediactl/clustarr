@@ -317,7 +317,7 @@ func (r *Reconciler) plan(ctx context.Context, tj *transcodev1alpha1.TranscodeJo
 		r.fail(tj, st, ReasonInvalidOutput, "cannot place the output: %v", err)
 		return ctrl.Result{}, nil
 	}
-	info, err := mediaInfoFromFile(source, &mf)
+	info, err := mediaInfoFromFile(source, &mf, profile.Name+"@"+profile.Status.Hash)
 	if err != nil {
 		r.fail(tj, st, ReasonPlanError, "planning failed: %v", err)
 		return ctrl.Result{}, nil

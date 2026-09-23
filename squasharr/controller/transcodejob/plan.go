@@ -29,8 +29,8 @@ import (
 
 // profileTagKey is the container tag squasharr writes into every output,
 // "<name>@<hash>" (§4.5). catalogarr records it two ways: the probe reads it
-// into MediaFile.status.mediaInfo.transcodeProfile, and a swap mirrors it
-// into status.transcode.profileTag.
+// into MediaFile.status.mediaInfo.transcodeProfile, and a transcode it
+// incorporates sets status.transcode.profileTag.
 const profileTagKey = "CLUSTARR_PROFILE"
 
 // maxPlanList is the CRD's MaxItems on every list inside status.plan.
@@ -46,21 +46,20 @@ const maxPlanList = 200
 // (pkg/transcode's TestFromSummaryAndFromProbeRenderTheSameArgs, and this
 // package's TestStatusPlanIsTheArgvTheWorkerRenders).
 //
-// The summary's format tags are one: the file's CLUSTARR_PROFILE, which the
-// probe records as status.mediaInfo.transcodeProfile. That is the tag the
-// worker's live probe reads from the same bytes, so it stands first. A file
-// probed before that field existed has it empty until its bytes change, and
-// then the status.transcode.profileTag catalogarr mirrored after a swap
-// stands in. Either only ever decides "already transcoded with this
-// profile", never an argument.
-func mediaInfoFromFile(path string, mf *catalogv1alpha1.MediaFile) (transcode.MediaInfo, error) {
+// The summary carries no format tags. The one the planner reads, the
+// CLUSTARR_PROFILE that decides "already transcoded with this profile", is
+// set to tag when the MediaFile records it (worker.HasProfileTag: the
+// probe's record of the file's own tag, or the one catalogarr set after a
+// transcode it incorporated). It only ever decides that skip, never an
+// argument, so any other tag is left out: to Plan it means the same as none.
+func mediaInfoFromFile(path string, mf *catalogv1alpha1.MediaFile, tag string) (transcode.MediaInfo, error) {
 	info, err := transcode.FromSummary(path, mf.Status.MediaInfo)
 	if err != nil {
 		return transcode.MediaInfo{}, err
 	}
 	info.Format.SizeBytes = mf.Spec.SizeBytes
 	info.Modifier = string(mf.Spec.Quality.Modifier)
-	if tag := worker.RecordedProfileTag(mf); tag != "" {
+	if worker.HasProfileTag(mf, tag) {
 		info.Tags = map[string]string{profileTagKey: tag}
 	}
 	return info, nil

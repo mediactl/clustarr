@@ -111,27 +111,30 @@ func ProfileSpec(spec transcodev1alpha1.TranscodeProfileSpec, hardware *transcod
 	}
 }
 
-// RecordedProfileTag is the CLUSTARR_PROFILE tag ("<profile>@<hash>") the
-// MediaFile records for its file, "" for none. catalogarr records it two
-// ways: its probe reads the file's own tag into
-// status.mediaInfo.transcodeProfile, and a swap it incorporates mirrors the
-// tag into status.transcode.profileTag. The probe's stands first, because
-// it is the tag this worker's live probe of the same bytes reads (a job
-// runs only while the probe hash still matches). A file probed before that
-// field existed has it empty until its bytes change, and the swap's mirror
-// stands in.
+// HasProfileTag reports whether the MediaFile records tag ("<profile>@<hash>")
+// for its file. catalogarr records a tag two ways, and either counts:
 //
-// Both the TranscodeProfile controller (is this file already this profile's
-// work?) and the TranscodeJob controller's planner read it here, so the two
-// cannot disagree on which tag a file carries.
-func RecordedProfileTag(mf *catalogv1alpha1.MediaFile) string {
-	if mi := mf.Status.MediaInfo; mi != nil && mi.TranscodeProfile != "" {
-		return mi.TranscodeProfile
+//   - its probe reads the file's own CLUSTARR_PROFILE into
+//     status.mediaInfo.transcodeProfile -- the tag this worker's live probe
+//     of the same bytes reads, and the only record an earlier install's
+//     output, found by a rescan, has;
+//   - a transcode it incorporates sets status.transcode.profileTag: an
+//     in-place swap (whose probe soon reads the same tag), or a
+//     replaceSource=false job whose derived copy sits beside this untouched
+//     file, which then keeps its own probe tag, if any.
+//
+// catalogarr drops profileTag when the bytes change without a transcode,
+// so a match there is never stale. The TranscodeProfile controller (is this
+// file already this profile's work?) and the TranscodeJob controller's
+// planner both ask here, so the two cannot disagree.
+func HasProfileTag(mf *catalogv1alpha1.MediaFile, tag string) bool {
+	if tag == "" {
+		return false
 	}
-	if t := mf.Status.Transcode; t != nil {
-		return t.ProfileTag
+	if mi := mf.Status.MediaInfo; mi != nil && mi.TranscodeProfile == tag {
+		return true
 	}
-	return ""
+	return mf.Status.Transcode != nil && mf.Status.Transcode.ProfileTag == tag
 }
 
 // ReplaceSource is policy.replaceSource with its CRD default applied: unset
