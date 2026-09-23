@@ -39,6 +39,7 @@ var (
 	jobControllerOwned = []string{
 		"ObservedGeneration", "Phase", "Plan", "JobRef", "Attempts",
 		"StartedAt", "FinishedAt", "Message", "Conditions",
+		"WorkerPod", "Hardware", "FallbackReason", "NextAttemptAt",
 	}
 	jobWorkerOwned = []string{"Progress", "Result", "StderrTail"}
 )
@@ -75,11 +76,15 @@ func fullJobStatus() transcodev1alpha1.TranscodeJobStatus {
 			SubtitleTracks: []int32{2, 3},
 			ArgsHash:       "deadbeef",
 		},
-		JobRef:     &jobRef,
-		Attempts:   1,
-		StartedAt:  &at,
-		FinishedAt: &at,
-		Message:    "encoding",
+		JobRef:         &jobRef,
+		Attempts:       1,
+		StartedAt:      &at,
+		FinishedAt:     &at,
+		Message:        "encoding",
+		WorkerPod:      "arrival-2016-worker-0",
+		Hardware:       transcodev1alpha1.HardwareNVIDIA,
+		FallbackReason: "gpuBusy: no free nvidia slot",
+		NextAttemptAt:  &at,
 		Progress: &transcodev1alpha1.Progress{
 			Percent:       42,
 			Frame:         1200,
@@ -154,7 +159,7 @@ func TestEveryTranscodeJobStatusFieldIsAccountedFor(t *testing.T) {
 		_, ok := typ.FieldByName(name)
 		assert.Truef(t, ok, "%s is claimed by the split but is not a field of TranscodeJobStatus", name)
 	}
-	require.Len(t, jobControllerOwned, 9)
+	require.Len(t, jobControllerOwned, 13)
 	require.Len(t, jobWorkerOwned, 3)
 	assert.Equal(t, typ.NumField(), len(jobControllerOwned)+len(jobWorkerOwned))
 }

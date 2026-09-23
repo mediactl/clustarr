@@ -33,12 +33,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # TranscodeJob has two writers
 //
-// TranscodeJob's own doc comment (api/transcode/v1alpha1/transcodejob_types.go)
-// already states the split this package makes enforceable: the controller
+// This package makes the split enforceable: the controller
 // (k8s.ManagerSquasharr) owns phase, plan, jobRef, attempts, the two
-// timestamps, message, conditions and observedGeneration -- everything that
-// is a statement about the JOB OBJECT, decided by something watching it. The
-// worker (k8s.ManagerSquasharrWorker) owns progress, result and stderrTail --
+// timestamps, message, conditions, observedGeneration, workerPod, hardware,
+// fallbackReason and nextAttemptAt -- everything that is a statement about
+// the JOB OBJECT, decided by something watching it (spec §18.6: the four
+// dispatch fields are controller-owned too, since the controller is what
+// records where and on what class a task was dispatched). The worker
+// (k8s.ManagerSquasharrWorker) owns progress, result and stderrTail --
 // everything that is an observation of the ENCODE ITSELF, which only the Job
 // pod running ffmpeg can produce. [ControllerFields] and [WorkerFields] are
 // the two complete declarations; [Patch] is the only way either is applied.
@@ -107,18 +109,26 @@ import (
 
 // ControllerFields returns the complete set k8s.ManagerSquasharr owns on
 // TranscodeJob.status, seeded from the live status so that an apply which
-// changes one field still declares the other eight.
+// changes one field still declares the other twelve.
 //
-// observedGeneration, attempts and message are sent unconditionally, even at
-// their zero value: all three are always computable by the reconciler on
-// every pass (a freshly created job has observed generation 0, zero attempts
-// and no message, and each is a meaningful value in its own right, not an
-// absence). phase, plan, jobRef, startedAt and finishedAt are omitted while
-// empty, and that is a property of the object's SHAPE: a job that has not yet
-// been planned has no plan, one that has not yet started has no startedAt,
-// and phase and jobRef additionally could not be sent empty -- phase is a CRD
-// enum that rejects "". Omitting one of these because THIS reconcile could
-// not compute it would be the outcome case, and that is the release bug.
+// observedGeneration, attempts, message, workerPod and fallbackReason are
+// sent unconditionally, even at their zero value: all five are always
+// computable by the reconciler on every pass (a freshly created job has
+// observed generation 0, zero attempts, no message, no worker pod yet and no
+// fallback reason yet, and each is a meaningful value in its own right, not
+// an absence). phase, plan, jobRef, startedAt, finishedAt and nextAttemptAt
+// are omitted while empty, and that is a property of the object's SHAPE: a
+// job that has not yet been planned has no plan, one that has not yet
+// started has no startedAt, and phase additionally could not be sent empty
+// -- it is a CRD enum that rejects "". Omitting one of these because THIS
+// reconcile could not compute it would be the outcome case, and that is the
+// release bug.
+//
+// hardware joins phase in that exception rather than the unconditional
+// group: it carries the same [Hardware] CRD enum (spec §18.5's cpu, nvidia,
+// intel, auto), which the apiserver's schema validation rejects at "" just
+// as it rejects phase at "" -- a job dispatch has not chosen a class yet has
+// no hardware, not hardware="".
 //
 // To CLEAR a field rather than carry it forward, assign the apply
 // configuration's field directly (ac.JobRef = nil). A With* helper cannot
@@ -128,9 +138,14 @@ func ControllerFields(st transcodev1alpha1.TranscodeJobStatus) *transcodeac.Tran
 	ac := transcodeac.TranscodeJobStatus().
 		WithObservedGeneration(st.ObservedGeneration).
 		WithAttempts(st.Attempts).
-		WithMessage(st.Message)
+		WithMessage(st.Message).
+		WithWorkerPod(st.WorkerPod).
+		WithFallbackReason(st.FallbackReason)
 	if st.Phase != "" {
 		ac = ac.WithPhase(st.Phase)
+	}
+	if st.Hardware != "" {
+		ac = ac.WithHardware(st.Hardware)
 	}
 	if st.Plan != nil {
 		ac = ac.WithPlan(planAC(st.Plan))
@@ -143,6 +158,9 @@ func ControllerFields(st transcodev1alpha1.TranscodeJobStatus) *transcodeac.Tran
 	}
 	if st.FinishedAt != nil {
 		ac = ac.WithFinishedAt(*st.FinishedAt)
+	}
+	if st.NextAttemptAt != nil {
+		ac = ac.WithNextAttemptAt(*st.NextAttemptAt)
 	}
 	return ac
 }

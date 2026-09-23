@@ -105,7 +105,7 @@ func TestTheTwoJobManagersDoNotReleaseEachOthersFields(t *testing.T) {
 	now := metav1.NewTime(time.Now().UTC().Truncate(time.Second))
 	jobRef := "split-a1b2c3d4"
 
-	// Steady state: the controller's nine fields.
+	// Steady state: the controller's thirteen fields.
 	require.NoError(t, status.Patch(ctx, c, k8s.ManagerSquasharr, tj,
 		func(ac *transcodeac.TranscodeJobStatusApplyConfiguration) {
 			ac.WithObservedGeneration(1).
@@ -120,6 +120,10 @@ func TestTheTwoJobManagersDoNotReleaseEachOthersFields(t *testing.T) {
 				WithAttempts(1).
 				WithStartedAt(now).
 				WithMessage("encoding").
+				WithWorkerPod("split-worker-0").
+				WithHardware(transcodev1alpha1.HardwareNVIDIA).
+				WithFallbackReason("gpuBusy: no free nvidia slot").
+				WithNextAttemptAt(now).
 				WithConditions(k8s.ConditionAC(metav1.Condition{
 					Type: transcodev1alpha1.TranscodeJobConditionJobCreated, Status: metav1.ConditionTrue,
 					Reason: "JobCreated", LastTransitionTime: now, ObservedGeneration: 1,
@@ -252,6 +256,10 @@ func assertControllerHalfIntact(t *testing.T, st transcodev1alpha1.TranscodeJobS
 	assert.NotNil(t, st.StartedAt, who+" released startedAt")
 	assert.Equal(t, "encoding", st.Message, who+" released message")
 	assert.NotEmpty(t, st.Conditions, who+" released conditions")
+	assert.Equal(t, "split-worker-0", st.WorkerPod, who+" released workerPod")
+	assert.Equal(t, transcodev1alpha1.HardwareNVIDIA, st.Hardware, who+" released hardware")
+	assert.Equal(t, "gpuBusy: no free nvidia slot", st.FallbackReason, who+" released fallbackReason")
+	assert.NotNil(t, st.NextAttemptAt, who+" released nextAttemptAt")
 }
 
 // assertJobManagedFieldsSplit reads the apiserver's own record of who owns
