@@ -59,7 +59,7 @@ func TestDocSelectAndTextAcrossAllThreeResponseTypes(t *testing.T) {
 
 	xmlDoc, err := cardigann.ParseDoc(cardigann.ResponseXML, xmlBody)
 	require.NoError(t, err)
-	titleNode, ok := xmlDoc.Select("//title")
+	titleNode, ok := xmlDoc.Select("item > title") // CSS, as Prowlarr queries XML
 	require.True(t, ok)
 	titleText, ok := titleNode.Text("")
 	require.True(t, ok)

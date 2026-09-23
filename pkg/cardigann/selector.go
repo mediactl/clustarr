@@ -20,13 +20,16 @@ package cardigann
 import (
 	"bytes"
 	"context"
+	"encoding/xml"
+	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/antchfx/xmlquery"
 	"github.com/tidwall/gjson"
+	"golang.org/x/net/html"
 )
 
 // ResponseType selects which of the three selector backends a Doc uses.
@@ -59,12 +62,22 @@ func jsonPath(selector string) string {
 // Doc wraps one parsed response body (or a sub-node of one) so
 // SelectorBlock evaluation, row iteration and the filter chain never
 // branch on the underlying parser themselves.
+//
+// HTML and XML share one backend: a DOM queried with CSS selectors. That is
+// Prowlarr's model -- it parses an XML response with AngleSharp's
+// XmlParser and runs the same QuerySelector calls over it -- and it is what
+// every XML definition in the v11 corpus is written for ("rss > channel >
+// item", "[name=seeders]"). This package used to query XML with XPath
+// through xmlquery, whose Find panics on a CSS selector: every corpus XML
+// definition would have crashed the search.
 type Doc struct {
 	rt   ResponseType
 	html *goquery.Selection
 	json gjson.Result
-	xml  *xmlquery.Node
 }
+
+// dom reports whether d is queried with CSS (HTML or XML).
+func (d Doc) dom() bool { return d.rt == ResponseHTML || d.rt == ResponseXML }
 
 // ParseDoc parses body as rt.
 func ParseDoc(rt ResponseType, body []byte) (Doc, error) {
@@ -81,21 +94,74 @@ func ParseDoc(rt ResponseType, body []byte) (Doc, error) {
 		}
 		return Doc{rt: rt, json: gjson.ParseBytes(body)}, nil
 	case ResponseXML:
-		n, err := xmlquery.Parse(bytes.NewReader(body))
+		root, err := parseXML(body)
 		if err != nil {
-			return Doc{}, fmt.Errorf("cardigann: parse xml: %w", err)
+			return Doc{}, err
 		}
-		return Doc{rt: rt, xml: n}, nil
+		return Doc{rt: rt, html: goquery.NewDocumentFromNode(root).Selection}, nil
 	default:
 		return Doc{}, fmt.Errorf("cardigann: unknown response type %d", rt)
 	}
 }
 
-// Select narrows d to the first match of selector (CSS for HTML, a gjson
-// path for JSON, an XPath expression for XML); ok is false on no match.
+// parseXML builds an XML response into the same node tree the HTML parser
+// produces, so CSS selectors (cascadia, through goquery) run over it.
+// Element and attribute names are lower-cased because cascadia lower-cases
+// a selector's names ("pubDate" matches <pubDate>); a namespace prefix is
+// dropped, so <torznab:attr name="seeders"> is attr[name=seeders]. It does
+// not go through the HTML parser, which would treat RSS's <link> as the
+// void HTML element and lose its text. The body has already been decoded
+// to UTF-8 (decodeBody), so an encoding the XML declaration names is not
+// applied a second time -- as AngleSharp, parsing a decoded string, ignores
+// it. HTML entities are accepted, since trackers' feeds use them.
+func parseXML(body []byte) (*html.Node, error) {
+	if len(bytes.TrimSpace(body)) == 0 {
+		return nil, fmt.Errorf("cardigann: parse xml: empty response")
+	}
+	dec := xml.NewDecoder(bytes.NewReader(body))
+	dec.Strict = true
+	dec.Entity = xml.HTMLEntity
+	dec.CharsetReader = func(_ string, r io.Reader) (io.Reader, error) { return r, nil }
+
+	root := &html.Node{Type: html.DocumentNode}
+	cur := root
+	elements := 0
+	for {
+		tok, err := dec.Token()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("cardigann: parse xml: %w", err)
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			n := &html.Node{Type: html.ElementNode, Data: strings.ToLower(t.Name.Local)}
+			for _, a := range t.Attr {
+				n.Attr = append(n.Attr, html.Attribute{Key: strings.ToLower(a.Name.Local), Val: a.Value})
+			}
+			cur.AppendChild(n)
+			cur = n
+			elements++
+		case xml.EndElement:
+			if cur.Parent != nil {
+				cur = cur.Parent
+			}
+		case xml.CharData:
+			cur.AppendChild(&html.Node{Type: html.TextNode, Data: string(t)})
+		}
+	}
+	if elements == 0 {
+		return nil, fmt.Errorf("cardigann: parse xml: no root element")
+	}
+	return root, nil
+}
+
+// Select narrows d to the first match of selector (CSS for HTML and XML, a
+// gjson path for JSON); ok is false on no match.
 func (d Doc) Select(selector string) (Doc, bool) {
-	switch d.rt {
-	case ResponseHTML:
+	switch {
+	case d.dom():
 		if d.html == nil {
 			return Doc{}, false
 		}
@@ -104,52 +170,33 @@ func (d Doc) Select(selector string) (Doc, bool) {
 			return Doc{}, false
 		}
 		return Doc{rt: d.rt, html: sel}, true
-	case ResponseJSON:
+	case d.rt == ResponseJSON:
 		r := d.json.Get(jsonPath(selector))
 		if !r.Exists() {
 			return Doc{}, false
 		}
 		return Doc{rt: d.rt, json: r}, true
-	case ResponseXML:
-		if d.xml == nil {
-			return Doc{}, false
-		}
-		n := xmlquery.FindOne(d.xml, selector)
-		if n == nil {
-			return Doc{}, false
-		}
-		return Doc{rt: d.rt, xml: n}, true
 	}
 	return Doc{}, false
 }
 
-// Rows returns every match of selector as its own Doc — the HTML/JSON/XML
-// equivalents of goquery's *Selection.Each, gjson's array iteration and
-// xmlquery.Find.
+// Rows returns every match of selector as its own Doc — goquery's
+// *Selection.Each for HTML and XML, gjson's array iteration for JSON.
 func (d Doc) Rows(selector string) []Doc {
-	switch d.rt {
-	case ResponseHTML:
+	switch {
+	case d.dom():
 		if d.html == nil {
 			return nil
 		}
 		var out []Doc
 		d.html.Find(selector).Each(func(_ int, s *goquery.Selection) { out = append(out, Doc{rt: d.rt, html: s}) })
 		return out
-	case ResponseJSON:
+	case d.rt == ResponseJSON:
 		var out []Doc
 		d.json.Get(jsonPath(selector)).ForEach(func(_, v gjson.Result) bool {
 			out = append(out, Doc{rt: d.rt, json: v})
 			return true
 		})
-		return out
-	case ResponseXML:
-		if d.xml == nil {
-			return nil
-		}
-		var out []Doc
-		for _, n := range xmlquery.Find(d.xml, selector) {
-			out = append(out, Doc{rt: d.rt, xml: n})
-		}
 		return out
 	}
 	return nil
@@ -174,21 +221,8 @@ func (d Doc) elements() []Doc {
 // emptied row stays in the document, where it can still be walked past by
 // prevRow.
 func (d Doc) absorb(other Doc) {
-	switch d.rt {
-	case ResponseHTML:
-		if d.html != nil && other.html != nil {
-			d.html.AppendSelection(other.html.Contents())
-		}
-	case ResponseXML:
-		if d.xml == nil || other.xml == nil {
-			return
-		}
-		for c := other.xml.FirstChild; c != nil; {
-			next := c.NextSibling
-			xmlquery.RemoveFromTree(c)
-			xmlquery.AddChild(d.xml, c)
-			c = next
-		}
+	if d.dom() && d.html != nil && other.html != nil {
+		d.html.AppendSelection(other.html.Contents())
 	}
 }
 
@@ -197,58 +231,34 @@ func (d Doc) absorb(other Doc) {
 // element sibling (CardigannParser's PreviousElementSibling/ParentElement
 // walk). ok is false when there is none. JSON rows have no siblings.
 func (d Doc) prevRow() (Doc, bool) {
-	switch d.rt {
-	case ResponseHTML:
-		if d.html == nil || d.html.Length() == 0 {
-			return Doc{}, false
-		}
-		cur := d.html.First()
-		prev := cur.Prev()
-		if prev.Length() == 0 {
-			prev = cur.Parent().Prev()
-		}
-		if prev.Length() == 0 {
-			return Doc{}, false
-		}
-		return Doc{rt: d.rt, html: prev}, true
-	case ResponseXML:
-		if d.xml == nil {
-			return Doc{}, false
-		}
-		if prev := prevElement(d.xml); prev != nil {
-			return Doc{rt: d.rt, xml: prev}, true
-		}
-		if d.xml.Parent != nil {
-			if prev := prevElement(d.xml.Parent); prev != nil {
-				return Doc{rt: d.rt, xml: prev}, true
-			}
-		}
+	if !d.dom() || d.html == nil || d.html.Length() == 0 {
+		return Doc{}, false
 	}
-	return Doc{}, false
-}
-
-// prevElement is n's nearest preceding sibling that is an element.
-func prevElement(n *xmlquery.Node) *xmlquery.Node {
-	for p := n.PrevSibling; p != nil; p = p.PrevSibling {
-		if p.Type == xmlquery.ElementNode {
-			return p
-		}
+	cur := d.html.First()
+	prev := cur.Prev()
+	if prev.Length() == 0 {
+		prev = cur.Parent().Prev()
 	}
-	return nil
+	if prev.Length() == 0 {
+		return Doc{}, false
+	}
+	return Doc{rt: d.rt, html: prev}, true
 }
 
 // matches reports whether d itself (not a descendant) matches selector:
 // Prowlarr's HandleSelector tries dom.Matches(selector) before
 // QuerySelector, so a dateheaders selector naming the header row's own
-// class matches the header row. HTML only; XPath has no self-match to try.
+// class matches the header row.
 func (d Doc) matches(selector string) bool {
-	return d.rt == ResponseHTML && d.html != nil && d.html.Is(selector)
+	return d.dom() && d.html != nil && d.html.Is(selector)
 }
 
-// Text reads d's text (attribute == "" for HTML, ignored for JSON) or a
-// named attribute (HTML attribute, or one more gjson/xpath descent step for
-// JSON/XML — matches RowsBlock.Attribute's "descend one more level"
-// semantics from note §3.6); ok is false when attribute doesn't exist.
+// Text reads d's text (attribute == "" for HTML and XML, ignored for JSON)
+// or a named attribute (an element attribute for HTML and XML -- matched
+// lower-cased on XML, as parseXML stores it -- or one more gjson descent
+// step for JSON, which matches RowsBlock.Attribute's "descend one more
+// level" semantics from note §3.6); ok is false when attribute doesn't
+// exist.
 //
 // For a JSON array with no further attribute descent, the elements are
 // joined with "," rather than returned as raw JSON text (e.g.
@@ -257,16 +267,19 @@ func (d Doc) matches(selector string) bool {
 // bracket-and-quote-laden JSON source (0dayfiles-api.yml's genre field,
 // `selector: meta.genres`, relies on this).
 func (d Doc) Text(attribute string) (string, bool) {
-	switch d.rt {
-	case ResponseHTML:
+	switch {
+	case d.dom():
 		if d.html == nil || d.html.Length() == 0 {
 			return "", false
 		}
 		if attribute == "" {
 			return strings.TrimSpace(d.html.Text()), true
 		}
+		if d.rt == ResponseXML {
+			attribute = strings.ToLower(attribute)
+		}
 		return d.html.Attr(attribute)
-	case ResponseJSON:
+	case d.rt == ResponseJSON:
 		if attribute != "" {
 			sub, ok := d.Select(attribute)
 			if !ok {
@@ -283,19 +296,6 @@ func (d Doc) Text(attribute string) (string, bool) {
 			return strings.Join(parts, ","), true
 		}
 		return d.json.String(), true
-	case ResponseXML:
-		if d.xml == nil {
-			return "", false
-		}
-		if attribute == "" {
-			return strings.TrimSpace(d.xml.InnerText()), true
-		}
-		for _, a := range d.xml.Attr {
-			if a.Name.Local == attribute {
-				return a.Value, true
-			}
-		}
-		return "", false
 	}
 	return "", false
 }
@@ -342,7 +342,7 @@ func (b SelectorBlock) extractRaw(_ context.Context, d Doc, tc *TemplateContext)
 		// Selector is itself a template (e.g. 1337x's rows.selector,
 		// `tr:has(...){{ if .Config.uploader }}...{{ end }}`, and its
 		// download selectors, `a[href*="{{ .Config.primarydownloadlink }}"]`)
-		// — render it before handing it to the CSS/gjson/XPath backend.
+		// — render it before handing it to the CSS or gjson backend.
 		renderedSelector, err := render(b.Selector, tc)
 		if err != nil {
 			return "", false, err
@@ -353,10 +353,10 @@ func (b SelectorBlock) extractRaw(_ context.Context, d Doc, tc *TemplateContext)
 		}
 		sel = found
 	}
-	if b.Remove != "" && sel.rt == ResponseHTML && sel.html != nil {
+	if b.Remove != "" && sel.dom() && sel.html != nil {
 		sel.html.Find(b.Remove).Remove()
 	}
-	if len(b.Case) > 0 && sel.rt == ResponseHTML {
+	if len(b.Case) > 0 && sel.dom() {
 		return b.htmlCase(sel, tc)
 	}
 	raw, ok := sel.Text(b.Attribute)
@@ -369,7 +369,7 @@ func (b SelectorBlock) extractRaw(_ context.Context, d Doc, tc *TemplateContext)
 	return raw, true, nil
 }
 
-// htmlCase is Case on an HTML selection. Each key is a CSS selector, tried
+// htmlCase is Case on an HTML or XML selection. Each key is a CSS selector, tried
 // in file order against the selection itself and then its descendants
 // (Prowlarr: `selection.Matches(key) || QuerySelector(selection, key) !=
 // null`); the first that matches renders its value. "*" is simply the
@@ -391,15 +391,12 @@ func (b SelectorBlock) htmlCase(sel Doc, tc *TemplateContext) (string, bool, err
 	return b.optionalFallback()
 }
 
-// valueCase is Case on a JSON or XML value: the first key equal to raw, or
-// "*", in file order, renders its value; no match keeps raw (Prowlarr's
+// valueCase is Case on a JSON value: the first key equal to raw, or "*", in
+// file order, renders its value; no match keeps raw (Prowlarr's
 // HandleJsonSelector). Keys are compared verbatim, which matches both the
 // corpus's case-sensitive keys (freeleech's "100%"/"0%") and its
 // True/False-as-bareword-YAML-key idiom, which goccy/go-yaml decodes to the
-// lower-case "true"/"false" gjson's boolean String() also produces. XML
-// takes this path too: Prowlarr matches XML case keys as CSS selectors over
-// its DOM, but this package queries XML with XPath, so a CSS key cannot be
-// evaluated there.
+// lower-case "true"/"false" gjson's boolean String() also produces.
 func (b SelectorBlock) valueCase(raw string, tc *TemplateContext) (string, bool, error) {
 	for _, c := range b.Case {
 		if c.Key == raw || c.Key == "*" {

@@ -898,3 +898,68 @@ search:
 	_ = rc.Close()
 	assert.Equal(t, "42", fetched)
 }
+
+// TestXMLResponsesAreQueriedWithCSS: every XML definition in the v11 corpus
+// writes CSS selectors ("rss > channel > item", "[name=seeders]"), which
+// Prowlarr runs over an XML DOM. This package used XPath, and xmlquery's
+// Find panics on a CSS selector -- each of those definitions would have
+// crashed the search.
+func TestXMLResponsesAreQueriedWithCSS(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `<?xml version="1.0" encoding="windows-1251"?>
+<rss version="2.0" xmlns:torznab="http://torznab.com/schemas/2015/feed">
+<channel><title>feed</title>
+<item>
+  <title>Some.Movie.2024 &amp; Friends&nbsp;1080p</title>
+  <link>https://tracker.example/details/1</link>
+  <pubDate>Thu, 17 Sep 2026 10:00:00 +0000</pubDate>
+  <enclosure url="https://tracker.example/dl/1.torrent" length="4508876800" type="application/x-bittorrent"/>
+  <torznab:attr name="seeders" value="12"/>
+  <torznab:attr name="category" value="1"/>
+</item>
+</channel></rss>`)
+	}))
+	defer srv.Close()
+
+	def := loadFeature(t, `search:
+  paths:
+    - path: rss
+      response:
+        type: xml
+  rows:
+    selector: rss > channel > item
+  fields:
+    title:
+      selector: title
+    details:
+      selector: link
+    download:
+      selector: enclosure
+      attribute: url
+    size:
+      selector: enclosure
+      attribute: length
+    seeders:
+      selector: "[name=seeders]"
+      attribute: value
+    category:
+      selector: "[name=category]"
+      attribute: value
+    date:
+      selector: pubDate
+`)
+	var rels []torznab.Release
+	var err error
+	require.NotPanics(t, func() { rels, err = search(t, srv, def, "x") })
+	require.NoError(t, err)
+	require.Len(t, rels, 1)
+	r := rels[0]
+	assert.Equal(t, "Some.Movie.2024 & Friends 1080p", r.Title, "XML and HTML entities decode")
+	assert.Equal(t, "https://tracker.example/details/1", r.CommentURL, "<link> keeps its text (not HTML's void element)")
+	assert.Equal(t, "https://tracker.example/dl/1.torrent", r.Link)
+	assert.EqualValues(t, 4508876800, r.Size)
+	require.NotNil(t, r.Seeders)
+	assert.EqualValues(t, 12, *r.Seeders)
+	assert.Equal(t, []newznab.CategoryID{newznab.CatMovies}, r.Categories)
+	assert.Equal(t, time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC), r.PubDate.UTC(), "pubDate matches camelCase")
+}
