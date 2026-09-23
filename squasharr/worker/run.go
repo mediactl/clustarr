@@ -38,6 +38,8 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
@@ -128,6 +130,20 @@ type Options struct {
 	// ProgressInterval bounds how often status.progress is applied.
 	// Zero means [DefaultProgressInterval].
 	ProgressInterval time.Duration
+
+	// Telemetry is the clustarr-progress bucket the encode's 1 Hz
+	// schema.TranscodeProgress goes to, under [ProgressKey] (spec §5). Nil
+	// writes none: the bus is optional for a worker, and status.progress
+	// is the record either way.
+	Telemetry events.KV
+
+	// TelemetryInterval is how often Telemetry is written at most. Zero
+	// means [DefaultTelemetryInterval].
+	TelemetryInterval time.Duration
+
+	// PodName names this worker's Pod in the telemetry (WorkerRef); empty
+	// leaves it out.
+	PodName string
 
 	// Verifier overrides transcode.NewVerifier(FFprobePath). Tests only.
 	Verifier Verifier
@@ -247,7 +263,8 @@ type runner struct {
 	c client.Client
 	o Options
 
-	key types.NamespacedName
+	key    types.NamespacedName
+	jobUID types.UID
 
 	// Metric labels, known once the plan is.
 	tier, resolution string
@@ -273,6 +290,7 @@ func (r *runner) run(ctx context.Context) error {
 	if err := r.c.Get(ctx, r.key, &tj); err != nil {
 		return getErr("TranscodeJob "+r.key.String(), err)
 	}
+	r.jobUID = tj.UID
 	var tp transcodev1alpha1.TranscodeProfile
 	if err := r.c.Get(ctx, types.NamespacedName{Name: tj.Spec.ProfileRef}, &tp); err != nil {
 		return getErr("TranscodeProfile "+tj.Spec.ProfileRef, err)
@@ -595,10 +613,21 @@ func (r *runner) encode(ctx context.Context, plan *transcode.PlanResult, duratio
 	r.started = r.o.Now()
 
 	rep := newProgressReporter(r.o.ProgressInterval, durationMillis, r.o.Now, r.applyProgress)
+	var pod *schema.Ref
+	if r.o.PodName != "" {
+		pod = &schema.Ref{Namespace: r.o.Namespace, Name: r.o.PodName}
+	}
+	tel := newTelemetry(r.o.Telemetry, r.o.TelemetryInterval,
+		schema.Ref{Namespace: r.key.Namespace, Name: r.key.Name, UID: string(r.jobUID)}, pod, durationMillis, r.o.Now)
 	rep.start(ctx)
-	runErr := transcode.NewRunner(r.o.FFmpegPath).Run(ctx, plan, rep.observe)
+	tel.start(ctx)
+	runErr := transcode.NewRunner(r.o.FFmpegPath).Run(ctx, plan, func(p transcode.Progress) {
+		rep.observe(p)
+		tel.observe(p)
+	})
 	// A cancelled ctx cannot carry the final apply; the pod is going away.
 	rep.stop(ctx)
+	tel.stop(ctx)
 	if p, ok := rep.last(); ok {
 		r.speedMilli = p.SpeedMilli
 	}

@@ -34,7 +34,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     where the .part is written.
 //  4. Runner.Run, with progress applied to status.progress at most every
 //     [Options.ProgressInterval], re-reading the TranscodeJob before every
-//     apply.
+//     apply, and -- given a bus -- written as schema.TranscodeProgress to
+//     the clustarr-progress bucket at most every
+//     [Options.TelemetryInterval] (1 Hz, spec §5), under [ProgressKey].
 //  5. Verifier.Verify (ruling R2: duration tolerance plus stream layout),
 //     plus the profile's maxOutputToSourcePercent.
 //  6. The swap (ruling R5; R-11 for an output with its own name), then
@@ -126,7 +128,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // The worker writes only squasharr/status.WorkerFields -- progress, result
 // and stderrTail -- under k8s.ManagerSquasharrWorker, always through
-// squasharr/status.Patch, always from a freshly read object.
+// squasharr/status.Patch, always from a freshly read object. status.progress
+// is the record; the 1 Hz telemetry in clustarr-progress is best effort for
+// UIs, needs no RBAC, and a worker without a bus (Phase E ruling R6: none is
+// required) writes none.
 //
 // # RBAC: these markers are the Job pod's whole Role
 //

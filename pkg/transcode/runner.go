@@ -46,7 +46,8 @@ const runCancelGrace = 5 * time.Second
 // Progress mirrors TranscodeJobStatus.Progress's scaled-int fields exactly
 // -- FPSMilli, SpeedMilli, OutTimeMillis, Percent, BitrateKbps -- so a
 // controller can copy a Progress straight into the CRD status without a
-// float anywhere in between.
+// float anywhere in between. OutputBytes (ffmpeg's total_size) has no
+// status field; it feeds the 1 Hz schema.TranscodeProgress telemetry.
 type Progress struct {
 	Frame         int64
 	FPSMilli      int32
@@ -54,6 +55,7 @@ type Progress struct {
 	OutTimeMillis int64
 	BitrateKbps   int32
 	Percent       int32
+	OutputBytes   int64
 }
 
 // ParseProgressStream reads ffmpeg's `-progress pipe:1` key=value lines from
@@ -107,6 +109,7 @@ func progressFromFields(fields map[string]string, durationMillis int64) Progress
 		OutTimeMillis: parseIntField(fields["out_time_us"]) / 1000,
 		SpeedMilli:    parseMilliField(strings.TrimSuffix(fields["speed"], "x")),
 		BitrateKbps:   parseBitrateKbps(fields["bitrate"]),
+		OutputBytes:   max(parseIntField(fields["total_size"]), 0),
 	}
 	if durationMillis > 0 {
 		pct := p.OutTimeMillis * 100 / durationMillis

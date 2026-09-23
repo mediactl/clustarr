@@ -53,6 +53,7 @@ func TestParseProgressBlockMatchesTheVerifiedNoteExample(t *testing.T) {
 	require.Equal(t, int32(9240), p.SpeedMilli)    // speed=9.24x -> 9240
 	require.Equal(t, int32(623), p.BitrateKbps)    // "623.4kbits/s" -> 623
 	require.Equal(t, int32(30), p.Percent)         // 3000ms / 10000ms duration
+	require.Equal(t, int64(233781), p.OutputBytes) // total_size
 }
 
 // TestParseProgressStreamNeverPanicsOnMalformedInput covers the global

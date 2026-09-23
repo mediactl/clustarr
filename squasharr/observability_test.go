@@ -81,8 +81,10 @@ func TestJobConfigCarriesTheControllerOptions(t *testing.T) {
 	o.WorkerImage, o.WorkerImageCUDA = "media:1", "media-cuda:1"
 	o.WorkerServiceAccount, o.DataClaimName, o.DataDir = "rel-squasharr-worker", "rel-data", "/data"
 	o.IntelRenderGroups = []int64{109, 44}
+	o.NATSURL = "nats://rel-nats:4222"
 
 	cfg := jobConfig(o)
+	assert.Equal(t, "nats://rel-nats:4222", cfg.NATSURL, "the worker's telemetry bus is the controller's")
 	assert.Equal(t, []int64{109, 44}, cfg.IntelRenderGroups, "--intel-render-groups did not reach the Job config")
 	assert.Equal(t, "media:1", cfg.Image)
 	assert.Equal(t, "media-cuda:1", cfg.ImageCUDA)

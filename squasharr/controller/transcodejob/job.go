@@ -214,9 +214,11 @@ type JobConfig struct {
 	// whatever the Deployment was given.
 	Umask string
 
-	// NATSURL, when set, is exported to the worker as NATS_URL. The worker
-	// never uses the bus (ruling R6) and squasharr's worker role no longer
-	// demands --nats-url, so squasharr/run.go leaves this empty.
+	// NATSURL, when set, is exported to the worker as NATS_URL, the bus the
+	// worker writes its 1 Hz telemetry to (spec §5's clustarr-progress).
+	// The worker does not need it (ruling R6: status.progress is the
+	// record), so empty is legal and writes no telemetry; squasharr/run.go
+	// passes the controller's own --nats-url.
 	NATSURL string
 
 	// ExtraArgs are appended after the fixed worker arguments (for example

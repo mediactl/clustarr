@@ -256,8 +256,9 @@ func (o Options) Validate() error {
 	}
 	switch o.Role {
 	case RoleWorker:
-		// The worker never touches the bus (Phase E ruling R6: progress is
-		// status.progress, not NATS), so --nats-url is not asked of it.
+		// The worker does not need the bus (Phase E ruling R6: progress is
+		// status.progress), so --nats-url is not asked of it; given one,
+		// it adds the 1 Hz telemetry in clustarr-progress (spec §5).
 		if o.JobName == "" {
 			return fmt.Errorf("squasharr: --job is required for --role %s", RoleWorker)
 		}
@@ -400,7 +401,8 @@ func Run(ctx context.Context, o Options) error {
 // and a cache one event behind would admit past the budget (ADR-0005).
 //
 // bus carries the TranscodeJob controller's clustarr.evt.transcode.job.*
-// history events (§5); the worker never uses it (Phase E ruling R6).
+// history events (§5). A worker needs no bus (Phase E ruling R6); it
+// connects its own, when given one, only for its 1 Hz telemetry.
 func setupControllers(mgr ctrl.Manager, o Options, bus events.Bus) error {
 	if err := transcodeprofile.NewReconciler(
 		mgr.GetClient(), mgr.GetScheme(), mgr.GetEventRecorder("transcodeprofile"),
@@ -437,8 +439,10 @@ func jobConfig(o Options) transcodejob.JobConfig {
 		// §11: the Jobs create files with the same UMASK this
 		// Deployment was given.
 		Umask: os.Getenv(transcodejob.UmaskEnv),
-		// NATSURL stays empty: the worker never uses the bus (R6),
-		// and its role no longer requires --nats-url.
+		// The worker writes its 1 Hz telemetry to the controller's own
+		// bus (spec §5). Optional: status.progress is the record (R6),
+		// and the worker role does not require --nats-url.
+		NATSURL: o.NATSURL,
 
 		// The worker logs and traces as this controller does: without
 		// these its spans -- the ffmpeg run's among them -- were
@@ -506,12 +510,29 @@ func runWorker(ctx context.Context, o Options) error {
 	// The Job's CLUSTARR_TRACEPARENT is the controller's span that created
 	// it: the worker's spans continue that trace rather than starting one.
 	ctx = worker.ContextWithTraceParent(ctx, os.Getenv(worker.TraceParentEnv))
-	code, err := worker.Run(ctx, c, worker.Options{
+	wo := worker.Options{
 		JobName:   o.JobName,
 		Namespace: o.Namespace,
 		DataDir:   o.DataDir,
 		Threads:   worker.ThreadsFromEnv(),
-	})
+		PodName:   os.Getenv("POD_NAME"),
+	}
+	// The bus carries one thing for a worker: the 1 Hz telemetry spec §5
+	// puts in clustarr-progress. It is optional -- status.progress is the
+	// record (Phase E ruling R6) -- so no --nats-url means none, and a
+	// broker that cannot be reached never stops a transcode.
+	if o.UsesBus() {
+		bus, nc, err := k8s.ConnectBus(o.NATSURL, ServiceName+"-worker", k8s.WithBusHooks(obs.BusHooks()))
+		if err != nil {
+			logging.FromContext(ctx).WarnContext(ctx, "squasharr worker: no bus, so no transcode telemetry; transcoding anyway",
+				"error", err)
+		} else {
+			defer nc.Close()
+			defer func() { _ = bus.Close() }()
+			wo.Telemetry = bus.KV(events.BucketProgress)
+		}
+	}
+	code, err := worker.Run(ctx, c, wo)
 	if code == worker.ExitOK {
 		return nil
 	}
