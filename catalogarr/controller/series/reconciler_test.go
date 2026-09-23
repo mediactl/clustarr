@@ -409,7 +409,22 @@ func TestSeriesReconcilerRealController(t *testing.T) {
 				return false
 			}
 			cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.SeriesConditionEpisodesSynced)
-			return cond != nil && cond.Status == metav1.ConditionFalse
+			if cond == nil || cond.Status != metav1.ConditionFalse {
+				return false
+			}
+			// Wait for the object to CONVERGE, not merely for one condition.
+			// The pass that flips EpisodesSynced need not be the pass that set
+			// MetadataReady and Path: a finalizer-add conflict ("the object has
+			// been modified") makes an earlier pass return before its status
+			// apply, so a snapshot satisfying one condition can be missing the
+			// others entirely. Asserting the rest off that snapshot failed
+			// roughly half of cold runs.
+			//
+			// This waits on PRESENCE and asserts VALUES below, deliberately: if
+			// it waited on the values, a genuinely wrong one would surface as a
+			// bare 5s timeout instead of a message naming the field.
+			return k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.SeriesConditionMetadataReady) != nil &&
+				got.Status.Path != ""
 		}, 5*time.Second, 20*time.Millisecond)
 
 		metaReadyCond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.SeriesConditionMetadataReady)
