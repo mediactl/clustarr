@@ -213,11 +213,9 @@ func unmonitorSeries(
 
 func boolPtr(b bool) *bool { return &b }
 
-// deleteMovie removes the Movie a list sync previously added, for
-// SyncLevelRemoveAndKeep and SyncLevelRemoveAndDelete. See sync.go's doc
-// comment on applySyncDecision for why both act identically at this layer:
-// the distinction between the two is what happens to the underlying media
-// file, which this package does not touch.
+// deleteMovie removes the Movie a list sync previously added: all of
+// SyncLevelRemoveAndKeep, and the last step of SyncLevelRemoveAndDelete
+// once removeWithFiles (delete.go) has recycled its files.
 func deleteMovie(ctx context.Context, c client.Client, namespace, name string) error {
 	m := &catalogv1alpha1.Movie{}
 	m.Namespace, m.Name = namespace, name

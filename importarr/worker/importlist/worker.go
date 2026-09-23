@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -50,7 +51,8 @@ const defaultMetadataTimeout = 10 * time.Second
 // (the controller's field manager) owns it in full, per that constant's own
 // doc comment, and this worker instead checkpoints its result to a
 // clustarr-progress key (see Result and ResultKey) that the controller
-// polls -- the same split importarr/worker/rescan uses for LibraryScan.
+// reads -- the same split importarr/worker/rescan uses for LibraryScan --
+// and then stamps [AnnotationSyncedAt] so the controller reads it now.
 type Worker struct {
 	// Client reads the ImportList, its Secret/ConfigMap, and creates or
 	// updates the Movie and Series items a sync produces.
@@ -64,6 +66,11 @@ type Worker struct {
 	// Nil means http.DefaultClient.
 	HTTPClient *http.Client
 
+	// TraktBaseURL and PlexBaseURL override the Trakt API and Plex Discover
+	// hosts (ProviderOptions). Empty means production.
+	TraktBaseURL string
+	PlexBaseURL  string
+
 	// MetadataTimeout bounds one id-resolve RPC. Zero means
 	// defaultMetadataTimeout.
 	MetadataTimeout time.Duration
@@ -74,11 +81,17 @@ type Worker struct {
 
 // The import-list worker's RBAC. It creates and updates Movie and Series
 // spec, reads Secrets and ConfigMaps for provider credentials and CSV
-// content, and writes the owned Trakt token Secret; it never touches
-// importlists/status (the controller's alone) and never writes
-// MovieStatus/SeriesStatus, both of which catalogarr owns in full.
+// content, and writes the owned Trakt token Secret. It patches one
+// annotation on the ImportList itself ([AnnotationSyncedAt]) but never
+// importlists/status (the controller's alone), and never writes
+// MovieStatus/SeriesStatus, both of which catalogarr owns in full. Under
+// syncLevel removeAndDelete it reads the item's Episodes and RootFolder and
+// deletes the MediaFiles whose files it recycled.
 //
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=importlists,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=importlists,verbs=get;list;watch;patch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;delete
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=series,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;create;update;patch
@@ -102,7 +115,10 @@ func (w *Worker) now() time.Time {
 
 func (w *Worker) deps() syncDeps {
 	return syncDeps{
-		Client: w.Client, Bus: w.Bus, HTTPClient: w.HTTPClient,
+		Client: w.Client, Bus: w.Bus,
+		Providers: ProviderOptions{
+			HTTPClient: w.HTTPClient, TraktBaseURL: w.TraktBaseURL, PlexBaseURL: w.PlexBaseURL,
+		},
 		MetadataTimeout: w.MetadataTimeout, Clock: w.Clock,
 	}
 }
@@ -166,6 +182,13 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	if _, err := kv.Put(ctx, ResultKey(string(il.UID)), data); err != nil {
 		return fmt.Errorf("importlist: checkpoint result: %w", err)
 	}
+	if err := StampSynced(ctx, w.Client, &il, result.SyncedAt); err != nil {
+		// The checkpoint is durable; only the nudge failed. The controller
+		// still projects it at its next scheduled reconcile, so this is
+		// not worth redoing the whole sync over.
+		log.Warn("importlist: could not stamp the list; status catches up at the next scheduled sync",
+			"error", err)
+	}
 
 	if result.Error != "" {
 		log.Warn("importlist: sync finished with errors", "error", result.Error,
@@ -176,6 +199,25 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 			"excluded", result.Excluded, "removed", result.Removed)
 	}
 	return nil
+}
+
+// AnnotationSyncedAt is stamped on an ImportList by the worker when a sync
+// finishes, with the checkpointed Result's SyncedAt (RFC 3339, nanoseconds).
+// It is how the ImportList controller learns a sync completed: its For()
+// predicate passes a change to this value, so the new Result is projected
+// into status as soon as it lands rather than at the next scheduled sync
+// (nextSyncAt, up to a day away). The value is only a signal; the Result in
+// the clustarr-progress bucket stays the source of what status says.
+const AnnotationSyncedAt = "catalog.clustarr.io/importlist-synced-at"
+
+// StampSynced applies [AnnotationSyncedAt] to il under [FieldManager], the
+// one field that manager owns on an ImportList, so every apply is its
+// complete declaration there. It never touches spec or status.
+func StampSynced(ctx context.Context, c client.Client, il *catalogv1alpha1.ImportList, at time.Time) error {
+	ac := catalogac.ImportList(il.Name, il.Namespace).
+		WithAnnotations(map[string]string{AnnotationSyncedAt: at.UTC().Format(time.RFC3339Nano)})
+	_, err := k8s.Apply(ctx, c, FieldManager, ac)
+	return err
 }
 
 // syncAllKinds runs syncKind for every kind il.Spec.Kinds names and

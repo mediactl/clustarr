@@ -24,9 +24,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // creates or updates the resulting Movie and Series items (amendment
 // §A1.3, §A1.6, design spec §8.7; task G1-3).
 //
-// Non-video kinds a spec.kinds entry may name (album, book, audiobook,
-// comic) are G2's controllers, not this task's, and are skipped per kind --
-// never guessed at -- with a logged reason; see syncKind's doc comment.
+// A spec.kinds entry the provider cannot yield (kinds.go's CanYield; a
+// Trakt list asked for albums) fails that kind with ErrKindNotYieldable, and
+// a non-video kind the provider can yield fails with ErrNoCatalogWriter once
+// the provider answers -- both on status, never skipped with a log line
+// alone (gap-fix ruling R-10). See syncKind's doc comment.
+//
+// # Sync levels
+//
+// spec.syncLevel acts only on an item absent from every enabled list in the
+// namespace (design spec §8.7): one another list still remembers is left
+// alone (listedElsewhere). removeAndDelete recycles the item's files into
+// its RootFolder's recycle bin before deleting it (delete.go).
 //
 // # The status split
 //

@@ -34,16 +34,16 @@ import (
 // checkpoint instead of an apiserver write of its own.
 type Result struct {
 	// SyncedAt is when this sync attempt finished, successfully or not. The
-	// controller only adopts a checkpoint whose SyncedAt is newer than what
-	// it already has, so a slow, late-arriving redelivery of an old attempt
-	// cannot overwrite a newer one.
+	// key holds only the most recently finished attempt, which the
+	// controller projects as status.lastSyncAt; the worker also stamps it
+	// on the ImportList as AnnotationSyncedAt.
 	SyncedAt time.Time `json:"syncedAt"`
 
-	// Error is non-empty when the sync failed outright (the provider could
-	// not be built, or the fetch failed for every requested kind). A
-	// per-kind fetch failure that left other kinds succeeding is folded in
-	// here too, joined, so a partial failure is still visible without
-	// hiding the kinds that did work.
+	// Error is non-empty when any requested kind failed: the provider
+	// could not be built or cannot yield the kind, the fetch failed, no
+	// catalog writer exists for the kind, or a syncLevel action could not
+	// be carried out. Each kind's failure is joined in, so a partial
+	// failure is still visible without hiding the kinds that did work.
 	Error string `json:"error,omitempty"`
 
 	// Fetched is how many items the remote list(s) returned, summed across

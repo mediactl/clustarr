@@ -21,7 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -32,20 +32,10 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	pkgimportlist "github.com/mediactl/clustarr/pkg/importlist"
+	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
-
-// supportedKinds is every commonv1.MediaKind this task builds catalog items
-// for. ImportListSpec.Kinds may also carry album, book, audiobook or comic
-// (the CRD's own enum allows them); those are G2's non-video controllers'
-// job, not this task's, and are skipped per kind -- never guessed at -- with
-// a logged reason, counted by the log line rather than a status field (see
-// syncKind's doc comment for why there is no CRD counter for this).
-var supportedKinds = map[commonv1.MediaKind]bool{
-	commonv1.MediaKindMovie:  true,
-	commonv1.MediaKindSeries: true,
-}
 
 // kindResult is one kind's contribution to a sync's overall Result.
 type kindResult struct {
@@ -59,7 +49,7 @@ type kindResult struct {
 type syncDeps struct {
 	Client          client.Client
 	Bus             events.Bus
-	HTTPClient      *http.Client
+	Providers       ProviderOptions
 	MetadataTimeout time.Duration
 	Clock           func() time.Time
 }
@@ -76,20 +66,12 @@ func (d syncDeps) now() time.Time {
 // Series items for one (ImportList, kind) pair, then applies spec.syncLevel
 // to whatever this list previously added that is no longer present.
 //
-// A kind not in supportedKinds, or a provider that does not cover the
-// requested kind at all (pkg/importlist/stevenlu with kind=series, for
-// example), is a skip, not an error: it is logged with the reason and
-// contributes zero counts, never a speculative or partial sync. Likewise an
-// item this task cannot resolve the required external id for (see
-// resolveRequiredID) is logged and dropped rather than created with a
-// guessed id.
-//
-// Neither of those two skip reasons has a dedicated ImportListStatus
-// counter -- the CRD's four counts (item, added, excluded, removed) are
-// exactly the ones design spec §4.2 lists, and adding a fifth is a schema
-// change this task does not own. They are tallied in the structured log
-// line instead, at "warn" so an operator watching logs can see them without
-// a cluster-wide grep.
+// A kind the provider cannot yield (CanYield; gap-fix ruling R-10) fails
+// with ErrKindNotYieldable, and a yieldable kind with no catalog writer
+// fails with ErrNoCatalogWriter once the provider has answered: both reach
+// status.lastError through the Result, never a log line alone. An item this
+// task cannot resolve the required external id for (see resolveRequiredID)
+// is logged and dropped rather than created with a guessed id.
 func syncKind(
 	ctx context.Context, deps syncDeps, il *catalogv1alpha1.ImportList, kind commonv1.MediaKind,
 ) kindResult {
@@ -97,18 +79,14 @@ func syncKind(
 	defer span.End()
 	log := logging.FromContext(ctx).With("importList", il.Namespace+"/"+il.Name, "kind", kind)
 
-	if !supportedKinds[kind] {
-		log.Info("importlist: kind not supported by this task yet (non-video kinds are G2 work); skipping")
-		return kindResult{}
+	if !CanYield(il.Spec, kind) {
+		return kindResult{err: fmt.Errorf("%w: a %s list yields only %v, not %s",
+			ErrKindNotYieldable, ProviderName(il.Spec), YieldableKinds(il.Spec), kind)}
 	}
 
 	tokenStore := NewSecretTokenStore(deps.Client, il)
-	provider, err := BuildProvider(ctx, deps.Client, il, kind, tokenStore, deps.HTTPClient)
+	provider, err := BuildProvider(ctx, deps.Client, il, kind, tokenStore, deps.Providers)
 	if err != nil {
-		if errors.Is(err, ErrUnsupportedProviderKind) {
-			log.Info("importlist: provider does not cover this kind; skipping", "reason", err)
-			return kindResult{}
-		}
 		return kindResult{err: fmt.Errorf("build provider: %w", err)}
 	}
 
@@ -129,6 +107,11 @@ func syncKind(
 	if err != nil {
 		tracing.RecordError(span, err)
 		return kindResult{err: fmt.Errorf("fetch: %w", err)}
+	}
+	if !hasCatalogWriter(kind) {
+		return kindResult{fetched: int32(len(fetched)), err: fmt.Errorf(
+			"%w: the %s list returned %d %s items, and import lists create only movie and series items",
+			ErrNoCatalogWriter, ProviderName(il.Spec), len(fetched), kind)}
 	}
 
 	deduped := pkgimportlist.Dedupe(fetched)
@@ -155,12 +138,23 @@ func syncKind(
 	}
 
 	newSnapshot := make([]StoredItem, 0, len(included))
+	// keepKnown carries a previously added item forward when this cycle
+	// could not re-resolve or re-apply it. It is still on the list, so
+	// ApplySyncLevel makes no decision about it; without this it would
+	// silently drop out of the snapshot, and a later sync would never act
+	// on it once it really did fall off.
+	keepKnown := func(item pkgimportlist.Item) {
+		if prev, ok := byKey[item.Key()]; ok {
+			newSnapshot = append(newSnapshot, prev)
+		}
+	}
 	var added int32
 	for _, item := range included {
 		id, err := resolveRequiredID(ctx, deps, kind, item.ExternalIDs)
 		if err != nil {
 			log.Warn("importlist: could not resolve the id this kind requires; skipping entry",
 				"title", item.Title, "error", err)
+			keepKnown(item)
 			continue
 		}
 
@@ -174,6 +168,7 @@ func syncKind(
 		if err != nil {
 			log.Warn("importlist: could not apply catalog item; skipping entry",
 				"title", item.Title, "error", err)
+			keepKnown(item)
 			continue
 		}
 		if _, wasKnown := byKey[item.Key()]; !wasKnown {
@@ -192,19 +187,43 @@ func syncKind(
 		}
 	}
 
-	var removed int32
+	var (
+		removed    int32
+		actionErrs []error
+	)
 	for _, d := range decisions {
 		si, ok := byKey[d.Item.Key()]
 		if !ok {
 			continue
+		}
+		if d.Action != pkgimportlist.SyncActionLog {
+			other, err := listedElsewhere(ctx, deps.Client, kv, il, si)
+			if err != nil {
+				log.Warn("importlist: could not check the other lists; retrying next sync",
+					"title", d.Item.Title, "error", err)
+				newSnapshot = append(newSnapshot, si)
+				actionErrs = append(actionErrs, fmt.Errorf("%s: %w", si.ObjectName, err))
+				continue
+			}
+			if other != "" {
+				// Design spec §8.7 applies syncLevel to items absent from
+				// every enabled list. Dropped from this list's snapshot,
+				// the item is the other list's to act on once it falls
+				// off there too.
+				log.Info("importlist: entry fell off this list but another list still has it; leaving it",
+					"title", d.Item.Title, "object", si.ObjectName, "importList", other)
+				continue
+			}
 		}
 		if err := applySyncDecision(ctx, deps.Client, il, si, d.Action); err != nil {
 			log.Warn("importlist: sync-level action failed", "title", d.Item.Title,
 				"action", d.Action, "error", err)
 			// Left in place: a snapshot entry this cycle could not act on
 			// is remembered again, so the next sync retries the same
-			// decision instead of silently forgetting the item.
+			// decision instead of silently forgetting the item. The
+			// failure is also this kind's error, so it reaches status.
 			newSnapshot = append(newSnapshot, si)
+			actionErrs = append(actionErrs, fmt.Errorf("%s %s: %w", d.Action, si.ObjectName, err))
 			continue
 		}
 		if d.Action != pkgimportlist.SyncActionLog {
@@ -222,22 +241,53 @@ func syncKind(
 
 	publishSynced(ctx, deps, il, kind, len(fetched), int(added), int(removed), len(deduped)-len(included))
 
-	return kindResult{
+	res := kindResult{
 		fetched: int32(len(fetched)), added: added, excluded: excludedCount, removed: removed,
 	}
+	if len(actionErrs) > 0 {
+		res.err = fmt.Errorf("sync level %s: %w", il.Spec.SyncLevel, errors.Join(actionErrs...))
+	}
+	return res
+}
+
+// listedElsewhere returns the name of another enabled ImportList in il's
+// namespace whose last sync still remembers si's catalog object, or "" when
+// none does. Two lists naming the same film share one Movie (the name hashes
+// the TMDB id), so without this a list dropping it would unmonitor, remove
+// or -- under removeAndDelete -- recycle the files of something a second
+// list still wants.
+func listedElsewhere(
+	ctx context.Context, c client.Client, kv events.KV, il *catalogv1alpha1.ImportList, si StoredItem,
+) (string, error) {
+	var lists catalogv1alpha1.ImportListList
+	if err := c.List(ctx, &lists, client.InNamespace(il.Namespace)); err != nil {
+		return "", fmt.Errorf("list import lists: %w", err)
+	}
+	for i := range lists.Items {
+		other := &lists.Items[i]
+		if other.Name == il.Name || k8s.IsDeleting(other) ||
+			(other.Spec.Enabled != nil && !*other.Spec.Enabled) ||
+			!slices.Contains(other.Spec.Kinds, si.ObjectKind) {
+			continue
+		}
+		items, _, err := LoadItems(ctx, kv, other.Namespace, other.Name, si.ObjectKind)
+		if err != nil {
+			return "", err
+		}
+		for _, o := range items {
+			if o.ObjectName == si.ObjectName {
+				return other.Name, nil
+			}
+		}
+	}
+	return "", nil
 }
 
 // applySyncDecision turns one pkgimportlist.SyncDecision into a catalog
-// write. SyncActionRemove ("remove the catalog item, keep files") and
-// SyncActionRemoveAndDelete ("remove the catalog item and its files") are
-// deliberately identical here: both delete the Movie or Series object this
-// package created. The file-retention distinction between the two is about
-// what happens to the underlying MediaFile and the bytes on disk, which is
-// catalogarr's and importarr/worker/fileimport's domain, not this list
-// sync's -- this task's brief does not specify that deeper behaviour, and
-// deleting files this package never wrote would be a guess, which the
-// project's own never-guess rule forbids. Both actions are logged as
-// "removed" identically; the file-retention gap is a known limitation.
+// write. SyncActionRemove ("remove the catalog item, keep files") deletes
+// the Movie or Series this package created and leaves every file and
+// MediaFile where it is; SyncActionRemoveAndDelete also recycles the item's
+// files first (removeWithFiles, delete.go).
 func applySyncDecision(
 	ctx context.Context, c client.Client, il *catalogv1alpha1.ImportList, si StoredItem, action pkgimportlist.SyncAction,
 ) error {
@@ -251,11 +301,13 @@ func applySyncDecision(
 			return unmonitorSeries(ctx, c, il.Namespace, il.Name, si, il.Spec.Defaults)
 		}
 		return unmonitorMovie(ctx, c, il.Namespace, il.Name, si, il.Spec.Defaults)
-	case pkgimportlist.SyncActionRemove, pkgimportlist.SyncActionRemoveAndDelete:
+	case pkgimportlist.SyncActionRemove:
 		if si.ObjectKind == string(commonv1.MediaKindSeries) {
 			return deleteSeries(ctx, c, il.Namespace, si.ObjectName)
 		}
 		return deleteMovie(ctx, c, il.Namespace, si.ObjectName)
+	case pkgimportlist.SyncActionRemoveAndDelete:
+		return removeWithFiles(ctx, c, il.Namespace, si)
 	default:
 		return fmt.Errorf("importlist: unknown sync action %q", action)
 	}

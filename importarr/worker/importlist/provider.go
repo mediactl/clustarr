@@ -75,9 +75,29 @@ func readConfigMap(ctx context.Context, c client.Client, ns string, ref corev1.L
 
 // ErrUnsupportedProviderKind is returned by BuildProvider when the CRD's
 // selected provider has no data for the requested kind (for example
-// spec.stevenLu with kind=series). The caller counts this as a per-kind
-// skip, never a guess.
+// spec.stevenLu with kind=series). syncKind checks CanYield first, so
+// reaching it means that table and a provider constructor disagree; the
+// kind fails with it rather than being skipped.
 var ErrUnsupportedProviderKind = fmt.Errorf("importlist: provider does not support this kind")
+
+// ProviderOptions carries what BuildProvider threads into the providers
+// beyond the ImportList itself.
+type ProviderOptions struct {
+	// HTTPClient is used by every provider that makes its own HTTP calls.
+	// Nil means http.DefaultClient.
+	HTTPClient *http.Client
+
+	// TraktBaseURL overrides trakt.DefaultBaseURL for the list fetch and
+	// its token refresh. Empty means the production API. It exists so an
+	// end-to-end run can point Trakt at an in-cluster fixture; the
+	// device-code flow's own override is the ImportList controller's
+	// Reconciler.TraktBaseURL, and both should name the same host.
+	TraktBaseURL string
+
+	// PlexBaseURL overrides Plex Discover's base URL. Empty means the
+	// production service.
+	PlexBaseURL string
+}
 
 // BuildProvider is pkg/importlist/config.go:112-115's "wiring a Config to a
 // concrete provider constructor" -- this task's namesake job. It reads
@@ -87,18 +107,19 @@ var ErrUnsupportedProviderKind = fmt.Errorf("importlist: provider does not suppo
 // returns the concrete pkg/importlist.ImportList for kind.
 //
 // tokenStore is used only by the trakt branch; every other provider ignores
-// it. httpClient, similarly, is threaded through the branches that make
-// their own HTTP calls (every provider except imdbCSV, which is parsed
-// locally -- see the doc comment on configMapCSVList) and defaults to
-// http.DefaultClient when nil.
+// it. opts.HTTPClient is threaded through the branches that make their own
+// HTTP calls (every provider except imdbCSV, which is parsed locally -- see
+// the doc comment on configMapCSVList) and defaults to http.DefaultClient
+// when nil; opts' base URLs override Trakt's and Plex Discover's hosts.
 func BuildProvider(
 	ctx context.Context,
 	c client.Client,
 	il *catalogv1alpha1.ImportList,
 	kind commonv1.MediaKind,
 	tokenStore *SecretTokenStore,
-	httpClient *http.Client,
+	opts ProviderOptions,
 ) (pkgimportlist.ImportList, error) {
+	httpClient := opts.HTTPClient
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
@@ -123,7 +144,13 @@ func BuildProvider(
 			ListType: pkgimportlist.TraktListType(spec.Trakt.ListType), Username: spec.Trakt.Username,
 			ListSlug: spec.Trakt.ListSlug, Limit: spec.Trakt.Limit,
 		}
-		list, err := trakt.New(name, kind, cfg, creds, tokenStore, nil, trakt.WithHTTPClient(httpClient))
+		traktOpts := []trakt.Option{trakt.WithHTTPClient(httpClient)}
+		if opts.TraktBaseURL != "" {
+			traktOpts = append(traktOpts, trakt.WithBaseURL(opts.TraktBaseURL))
+		}
+		// A nil flow makes trakt.New build its refresh flow from these same
+		// options, so a token refresh mid-fetch goes to the same host.
+		list, err := trakt.New(name, kind, cfg, creds, tokenStore, nil, traktOpts...)
 		if err != nil {
 			return nil, wrapUnsupportedKind(err, trakt.ErrUnsupportedKind)
 		}
@@ -138,7 +165,11 @@ func BuildProvider(
 		if token == "" {
 			return nil, fmt.Errorf("importlist: plex requires spec.secretRef with a token key")
 		}
-		list, err := plex.New(name, kind, token, clientID, plex.WithHTTPClient(httpClient))
+		plexOpts := []plex.Option{plex.WithHTTPClient(httpClient)}
+		if opts.PlexBaseURL != "" {
+			plexOpts = append(plexOpts, plex.WithBaseURL(opts.PlexBaseURL))
+		}
+		list, err := plex.New(name, kind, token, clientID, plexOpts...)
 		if err != nil {
 			return nil, wrapUnsupportedKind(err, plex.ErrUnsupportedKind)
 		}
