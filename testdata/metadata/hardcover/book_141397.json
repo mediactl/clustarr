@@ -1,0 +1,23 @@
+{"data":{"books_by_pk":{
+ "id":141397,
+ "title":"Out of My Mind",
+ "subtitle":null,
+ "description":"Melody is not like most people. She cannot walk or talk, but she has a photographic memory.",
+ "release_date":"2010-01-01",
+ "rating":4.111111111111111,
+ "ratings_count":63,
+ "cached_tags":[
+  {"tag":"Fiction","tagSlug":"fiction","category":"Genre","categorySlug":"genre","spoilerRatio":0,"count":29758},
+  {"tag":"Young Adult","tagSlug":"young-adult","category":"Genre","categorySlug":"genre","spoilerRatio":0,"count":22645}
+ ],
+ "cached_image":"https://assets.hardcover.app/edition/30405274/d41534ce6075b53289d1c4d57a6dac34b974ce91.jpeg",
+ "book_series":[{"position":1,"series":{"id":141397,"name":"Out of My Mind"}}],
+ "contributions":[
+  {"contribution":null,"author":{"id":51942,"name":"Sharon M. Draper"}},
+  {"contribution":"Narrator","author":{"id":77001,"name":"Sisi Aisha Johnson"}}
+ ],
+ "editions":[
+  {"id":30405274,"title":"Out of My Mind","subtitle":null,"asin":null,"isbn_13":"9781416971702","edition_format":"Hardcover","pages":295,"release_date":"2010-01-01","language":{"code3":"eng"},"publisher":{"name":"Atheneum"},"cached_image":"https://assets.hardcover.app/edition/30405274/d41534ce6075b53289d1c4d57a6dac34b974ce91.jpeg"},
+  {"id":30405275,"title":"Out of My Mind","subtitle":null,"asin":"B003E7EU2U","isbn_13":null,"edition_format":"Audible Audio","pages":null,"release_date":"44 BC","language":null,"publisher":null,"cached_image":null}
+ ]
+}}}

@@ -1,0 +1,1 @@
+{"errors":[{"message":"field 'nope' not found in type: 'books'","extensions":{"path":"$.selectionSet.books.selectionSet.nope","code":"validation-failed"}}]}
