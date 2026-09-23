@@ -108,12 +108,14 @@ func startFakeMetadataProviders(t *testing.T) *fakeMetadataProviders {
 		// Client.Album also browses the release group's releases
 		// (musicbrainzws2's BrowseReleases: "/release/" filtered by a
 		// release-group query parameter) and fails the whole call if that
-		// browse fails. The single-page recorded fixture is The Bends',
-		// the same one test/fixtures/nonvideostub serves for Kid A: no
-		// Kid A release browse is recorded, and nothing here asserts on
-		// tracks.
+		// browse fails. The fixture is Kid A's own: MusicBrainz's browse of
+		// the real release group (e75c0549-ad55-39e3-8025-c72c5d4a3c5d,
+		// recorded 2026-09-23) trimmed to three of its thirty releases with
+		// release-count set to match, so it is one complete page. Until gap
+		// fix Z6 this served The Bends' releases, which verifyNonVideoCatalog
+		// could not assert tracks against.
 		case p == "/release" && q.Get("release-group") == nvReleaseGroupID:
-			return "musicbrainz/browse_releases_the_bends.json"
+			return "musicbrainz/browse_releases_kid_a.json"
 		}
 		return ""
 	})
@@ -335,6 +337,29 @@ func verifyNonVideoCatalog(t *testing.T, cfg *rest.Config, fake *fakeMetadataPro
 		return c.Get(ctx, client.ObjectKeyFromObject(&album), &got) == nil &&
 			got.Status.Metadata != nil && got.Status.Metadata.Title == "Kid A" && got.Status.Phase != ""
 	})
+	// Its tracks are Kid A's, from a Kid A release the fixture carries.
+	var gotAlbum catalogv1alpha1.Album
+	waitForLong(t, "the Album controller to select a release and write its tracks", func() bool {
+		return c.Get(ctx, client.ObjectKeyFromObject(&album), &gotAlbum) == nil && len(gotAlbum.Status.Tracks) > 0 &&
+			gotAlbum.Status.Metadata != nil && gotAlbum.Status.Metadata.SelectedReleaseID != ""
+	})
+	kidARelease := map[string]bool{
+		"57e1d657-a38d-3de5-b33e-45b661b0d5b0": true, // GB CD, 2000
+		"5cf1960d-d7c1-31cf-99e1-41c00069a471": true, // US CD, 2000
+		"8e34f14b-5aa7-30d9-89ce-f66c3b021700": true, // collector's edition 2CD, 2009
+	}
+	if md := gotAlbum.Status.Metadata; md == nil || !kidARelease[md.SelectedReleaseID] {
+		t.Errorf("Album selected release %+v, want one of the Kid A fixture's releases", md)
+	}
+	titles := map[string]bool{}
+	for _, tr := range gotAlbum.Status.Tracks {
+		titles[tr.Title] = true
+	}
+	for _, want := range []string{"Everything in Its Right Place", "Idioteque", "Motion Picture Soundtrack"} {
+		if !titles[want] {
+			t.Errorf("Album tracks %v lack Kid A's %q", titles, want)
+		}
+	}
 
 	// Author -> Book.
 	var book catalogv1alpha1.Book

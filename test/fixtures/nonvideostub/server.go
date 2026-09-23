@@ -118,8 +118,19 @@ func NewHandler(recordedDir string, logger *slog.Logger) http.Handler {
 	// would accept both shapes; that is exactly the blind spot G2-5's fake
 	// provider had (comicvine.go's Volume/Issues shape defect) that let
 	// Comic->Issue ship broken against the real API.
-	mux.HandleFunc("GET /comicvine/volume/4050-18257", comicVineGated(
+	//
+	// The canonical path carries ComicVine's trailing slash
+	// ("/volume/4050-18257/", which pkg/metadata/clients/comicvine requests
+	// since gap fix Z4); {$} keeps the pattern exact rather than a subtree.
+	// The unslashed form gets the 301 to it the real API answers, so a
+	// client that drops the slash still works but pays the round trip.
+	mux.HandleFunc("GET /comicvine/volume/4050-18257/{$}", comicVineGated(
 		filepath.Join(recordedDir, "comicvine", "volume_18257.json"), logger))
+	mux.HandleFunc("GET /comicvine/volume/4050-18257", func(w http.ResponseWriter, r *http.Request) {
+		u := *r.URL
+		u.Path += "/"
+		http.Redirect(w, r, u.String(), http.StatusMovedPermanently)
+	})
 	mux.HandleFunc("GET /comicvine/search/", comicVineGated(
 		filepath.Join(recordedDir, "comicvine", "search_batman.json"), logger))
 	// The issues route cannot enforce its id shape via the mux pattern the
@@ -162,11 +173,14 @@ func musicbrainzReleaseGroups(recordedDir string, logger *slog.Logger) http.Hand
 // musicbrainzReleases answers the release-group browse-releases shape
 // (?release-group=<mbid>) Client.Album's releases method drives -- see
 // NewHandler's route comment above for where that query shape comes from.
+// It serves Kid A's own releases (browse_releases_kid_a.json, recorded from
+// the real release group and trimmed to one three-release page), not The
+// Bends' it served until gap fix Z6.
 func musicbrainzReleases(recordedDir string, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/musicbrainz/release/" && r.URL.Query().Get("release-group") == "0b56cf2b-8e64-39e0-b6d5-9a89e46be9f6":
-			serveFile(filepath.Join(recordedDir, "musicbrainz", "browse_releases_the_bends.json"), logger)(w, r)
+			serveFile(filepath.Join(recordedDir, "musicbrainz", "browse_releases_kid_a.json"), logger)(w, r)
 		default:
 			notFound(logger)(w, r)
 		}

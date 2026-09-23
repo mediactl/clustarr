@@ -65,6 +65,11 @@ func TestMusicBrainzArtistAndAlbums(t *testing.T) {
 	album, err := c.Album(t.Context(), "0b56cf2b-8e64-39e0-b6d5-9a89e46be9f6")
 	require.NoError(t, err)
 	require.Equal(t, "Kid A", album.Title)
+	// The release browse is Kid A's own, not another album's.
+	require.Len(t, album.Releases, 3)
+	require.NotEmpty(t, album.Releases[0].Media)
+	require.NotEmpty(t, album.Releases[0].Media[0].Tracks)
+	require.Equal(t, "Everything in Its Right Place", album.Releases[0].Media[0].Tracks[0].Title)
 }
 
 // TestOpenLibraryAuthorWorksAndISBN drives the fixture with the real
@@ -153,6 +158,26 @@ func TestComicVineIssuesRejectsThePrefixedGuidFilter(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+// TestComicVineVolumeWithoutItsSlashIsRedirected: the canonical volume path
+// carries ComicVine's trailing slash, and the unslashed one gets the 301 to
+// it the real API answers; the bare numeric id is still not a volume.
+func TestComicVineVolumeWithoutItsSlashIsRedirected(t *testing.T) {
+	srv := httptest.NewServer(NewHandler(recordedDir, discardLogger()))
+	defer srv.Close()
+	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+
+	resp, err := noFollow.Get(srv.URL + "/comicvine/volume/4050-18257?api_key=" + ComicVineAPIKey) //nolint:noctx
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	require.Equal(t, http.StatusMovedPermanently, resp.StatusCode)
+	require.Equal(t, "/comicvine/volume/4050-18257/?api_key="+ComicVineAPIKey, resp.Header.Get("Location"))
+
+	resp, err = noFollow.Get(srv.URL + "/comicvine/volume/18257/?api_key=" + ComicVineAPIKey) //nolint:noctx
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
 // TestUnrecordedRouteFourOhFours proves an id this fixture never recorded
