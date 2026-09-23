@@ -68,6 +68,20 @@ type Deps struct {
 	Client client.Client
 	Bus    events.Bus
 	Now    func() time.Time
+
+	// Reader is an uncached reader -- manager.GetAPIReader() -- for the two
+	// reads that decide whether a grab is a duplicate: the double-grab
+	// guard's Download list and the lease holder's Download get. Nil falls
+	// back to Client.
+	//
+	// Client reads through the manager's informer cache, which lags the
+	// apiserver. A Search CR's interactive grab takes no lease, so the
+	// Download list is the only thing that can see it, and a Download
+	// created a moment before this grab may not have reached the cache yet:
+	// a different release would then be grabbed a second time, beside it.
+	// Grabs are rare enough that a live List per grab costs nothing worth
+	// that window.
+	Reader client.Reader
 }
 
 func (d Deps) now() time.Time {
@@ -75,6 +89,14 @@ func (d Deps) now() time.Time {
 		return d.Now()
 	}
 	return time.Now()
+}
+
+// liveReader is Reader when the process supplied one, Client otherwise.
+func (d Deps) liveReader() client.Reader {
+	if d.Reader != nil {
+		return d.Reader
+	}
+	return d.Client
 }
 
 // performGrab is spec §8.2's grab step, in order: take every lease
@@ -149,7 +171,7 @@ func performGrab(
 		items[i] = obj
 	}
 
-	resume, err := guardExistingDownloads(ctx, d.Client, ns, downloadName, statusTargets, items)
+	resume, err := guardExistingDownloads(ctx, d.liveReader(), ns, downloadName, statusTargets, items)
 	if err != nil {
 		releaseLeases(ctx, kv, acquired)
 		if errors.Is(err, ErrDuplicateGrab) {
@@ -267,6 +289,8 @@ func createDownload(
 // can provide: it asks the apiserver which Downloads are already working on
 // the grab's items -- downloads.Covers, and rollup.DownloadNonTerminal, the
 // same liveness test the reconcilers derive status.activeDownloadRef from.
+// c should be Deps.Reader, a live read: see its doc for the cache window a
+// cached list leaves open.
 //
 // It replaces a re-read of status.activeDownloadRef that could never fire:
 // nothing on the interactive path set that ref, and under ruling R-5 this
@@ -298,7 +322,7 @@ func createDownload(
 // or imported download does not stop the next grab.
 func guardExistingDownloads(
 	ctx context.Context,
-	c client.Client,
+	c client.Reader,
 	ns, downloadName string,
 	statusTargets []commonv1.MediaRef,
 	items []client.Object,
@@ -359,7 +383,7 @@ func appliedByGrabPath(dl *downloadv1alpha1.Download) bool {
 func (d Deps) leaseHolder(ns string) holderFunc {
 	return func(ctx context.Context, entry events.Entry) (holderState, error) {
 		var dl downloadv1alpha1.Download
-		err := d.Client.Get(ctx, client.ObjectKey{Namespace: ns, Name: string(entry.Value)}, &dl)
+		err := d.liveReader().Get(ctx, client.ObjectKey{Namespace: ns, Name: string(entry.Value)}, &dl)
 		switch {
 		case apierrors.IsNotFound(err):
 			// Either a grab that took the lease and has not created its

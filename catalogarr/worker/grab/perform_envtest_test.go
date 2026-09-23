@@ -25,9 +25,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -650,4 +652,74 @@ func TestRecordSearchAttempt_MissingObjectIsNotAnError(t *testing.T) {
 	ns := newNamespace(t, ctx, c)
 	require.NoError(t, grab.RecordSearchAttempt(ctx, c, ns,
 		commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "never-existed"}, testNow))
+}
+
+// staleCacheClient is a client whose reads have not yet seen any Download --
+// the informer cache in the milliseconds after another path created one.
+// Every other read and every write goes to the apiserver.
+func staleCacheClient(t *testing.T) client.Client {
+	t.Helper()
+	return interceptor.NewClient(newWatchClient(t), interceptor.Funcs{
+		List: func(ctx context.Context, wc client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			if _, ok := list.(*downloadv1alpha1.DownloadList); ok {
+				return nil
+			}
+			return wc.List(ctx, list, opts...)
+		},
+		Get: func(ctx context.Context, wc client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if _, ok := obj.(*downloadv1alpha1.Download); ok {
+				return apierrors.NewNotFound(downloadv1alpha1.GroupVersion.WithResource("downloads").GroupResource(), key.Name)
+			}
+			return wc.Get(ctx, key, obj, opts...)
+		},
+	})
+}
+
+// TestPerformGrab_TheGuardReadsLiveNotTheCache closes the guard's cache
+// window. A Search CR's interactive grab takes no lease, so the Download list
+// is the only thing that can see it -- and a list through the informer cache
+// cannot see a Download created a moment earlier. The automatic grab of a
+// different release then put a second Download on the item beside it.
+//
+// Deps.Client here is a cache that has not seen the user's Download yet;
+// Deps.Reader is the apiserver. The guard must read the second. The control
+// half runs the same grab with no Reader, proving the stale client really
+// does hide the Download -- without it the first half would pass for the
+// wrong reason.
+func TestPerformGrab_TheGuardReadsLiveNotTheCache(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	profile := hdBlurayWeb(t)
+	picked := torrentRelease("guid-user-picked", "my-indexer", profile.Tiers[1][0].Quality, 0)
+	automatic := torrentRelease("guid-automatic", "my-indexer", profile.Tiers[0][0].Quality, 0)
+	pickedSource, err := downloads.ResolveSource(picked)
+	require.NoError(t, err)
+
+	setup := func() (string, *catalogv1alpha1.Movie, commonv1.MediaRef) {
+		ns := newNamespace(t, ctx, c)
+		movie := newMovie(t, ctx, c, ns, "the-thing-1982")
+		newIndexer(t, ctx, c, ns, "my-indexer", nil)
+		seedWorkerStatus(t, ctx, c, movie, "", nil)
+		target := commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name}
+		interactiveDownload(t, ctx, c, movie, target, picked, pickedSource)
+		return ns, movie, target
+	}
+	count := func(ns string) int {
+		var list downloadv1alpha1.DownloadList
+		require.NoError(t, c.List(ctx, &list, client.InNamespace(ns)))
+		return len(list.Items)
+	}
+
+	ns, _, target := setup()
+	live := grab.Deps{Client: staleCacheClient(t), Reader: c, Bus: newTestBus(t, nil), Now: fixedNow(testNow)}
+	err = grab.PerformGrabForTest(ctx, live, ns, target, nil, automatic, downloadv1alpha1.GrabSourceSearch)
+	require.ErrorIs(t, err, grab.ErrDuplicateGrab,
+		"the guard read the cache, missed the user's Download and grabbed a second release beside it")
+	assert.Equal(t, 1, count(ns))
+
+	// Control: the same grab with only the stale client double-grabs.
+	ns, _, target = setup()
+	cached := grab.Deps{Client: staleCacheClient(t), Bus: newTestBus(t, nil), Now: fixedNow(testNow)}
+	require.NoError(t, grab.PerformGrabForTest(ctx, cached, ns, target, nil, automatic, downloadv1alpha1.GrabSourceSearch))
+	assert.Equal(t, 2, count(ns), "the stale client must actually hide the Download, or the live half proves nothing")
 }

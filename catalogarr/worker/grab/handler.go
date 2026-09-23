@@ -98,7 +98,7 @@ func (h *Handler) Subscription() events.Subscription {
 // This, with Topology set, is the ONLY registration catalogarr/run.go's
 // setupQueueWorkers needs for the grab worker:
 //
-//	h := grab.NewHandler(grab.Deps{Client: mgr.GetClient(), Bus: bus})
+//	h := grab.NewHandler(grab.Deps{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Bus: bus})
 //	h.Topology = &topo // o.BusTopology()
 //	if err := h.SetupWithManager(mgr, bus); err != nil {
 //		return fmt.Errorf("catalogarr: subscribe grab: %w", err)
