@@ -45,14 +45,16 @@ import (
 
 // AlbumIdentity is the decision.Identity of an Album of artist: the album
 // title, the artist's name and sort name as its creators (a sort name like
-// "Beatles, The" is keyed both ways round by the identity check), and the
-// year of its first release. artist may be nil, which leaves Creators empty
-// and fails every release closed on its artist.
+// "Beatles, The" is keyed both ways round by the identity check), the year
+// of its first release, and the year of each edition it accepts
+// (albumEditionYears). artist may be nil, which leaves Creators empty and
+// fails every release closed on its artist.
 func AlbumIdentity(a *catalogv1alpha1.Album, artist *catalogv1alpha1.Artist) decision.Identity {
 	var id decision.Identity
 	if md := a.Status.Metadata; md != nil {
 		id.Titles = appendTitles(id.Titles, md.Title)
 		id.Year = utcYear(md.ReleaseDate)
+		id.EditionYears = albumEditionYears(a)
 	}
 	if artist != nil && artist.Status.Metadata != nil {
 		id.Creators = appendTitles(id.Creators, artist.Status.Metadata.Name, artist.Status.Metadata.SortName)
@@ -120,6 +122,40 @@ func withSubtitle(title, subtitle string) string {
 		return ""
 	}
 	return title + ": " + subtitle
+}
+
+// albumEditionYears is the UTC year of each release of a's group the album
+// accepts -- every release while spec.anyReleaseOk (the default), else only
+// the one its tracks come from (status.metadata.selectedReleaseID, or the
+// spec.releaseID pin before one is selected) -- each once, undated releases
+// left out. It is the set Lidarr's AlbumYearMatcher.Match(Album, int?)
+// checks "for remasters/editions with different years": the album's
+// releases `Where(r => r.Monitored || album.AnyReleaseOk)`
+// (src/NzbDrone.Core/Music/AlbumYearMatcher.cs, develop). A remaster
+// released decades after the original is then the album it is
+// (decision.Identity.EditionYears).
+func albumEditionYears(a *catalogv1alpha1.Album) []int {
+	md := a.Status.Metadata
+	if md == nil {
+		return nil
+	}
+	anyOK := ptr.Deref(a.Spec.AnyReleaseOk, true)
+	selected := md.SelectedReleaseID
+	if selected == "" {
+		selected = ptr.Deref(a.Spec.ReleaseID, "")
+	}
+	var years []int
+	seen := map[int]bool{}
+	for _, r := range md.Releases {
+		if !anyOK && r.ID != selected {
+			continue
+		}
+		if y := utcYear(r.ReleaseDate); y != 0 && !seen[y] {
+			seen[y] = true
+			years = append(years, y)
+		}
+	}
+	return years
 }
 
 // utcYear is t's year in UTC, 0 when t is unknown.
@@ -210,8 +246,13 @@ func ReadNonVideo(ctx context.Context, c client.Reader, ns string, ref commonv1.
 		v.Available = a.Status.Metadata == nil || releasedBy(a.Status.Metadata.ReleaseDate, now)
 		v.Identity = AlbumIdentity(&a, &artist)
 		// The album's quality is the lowest across its imported tracks
-		// (status.quality), which is what an upgrade has to beat.
-		if a.Status.TrackFileCount > 0 && a.Status.Quality != nil {
+		// (status.quality), which is what an upgrade has to beat. That the
+		// album HAS a file is status.quality itself: the Album reconciler
+		// sets it from every MediaFile the album owns, while
+		// status.trackFileCount counts only files tied to a track, which the
+		// importer does for a one-track album alone -- gating on the count
+		// read nearly every imported album as empty, and grabbed it again.
+		if a.Status.Quality != nil {
 			v.Current = &decision.Current{Quality: *a.Status.Quality, FormatScore: int(a.Status.FormatScore)}
 		}
 		return v, nil
