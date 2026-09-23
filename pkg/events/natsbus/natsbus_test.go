@@ -133,7 +133,7 @@ func TestEnsureDefaultTopology(t *testing.T) {
 			t.Errorf("stream %s retention = %v", spec.Name, cfg.Retention)
 		}
 		if spec.Retention == events.RetentionWorkQueue && !cfg.AllowMsgSchedules &&
-			spec.Name != events.StreamAdvisories {
+			spec.Name != events.StreamAdvisories && spec.Name != events.StreamWorkSquasharr {
 			t.Errorf("work stream %s does not allow message schedules", spec.Name)
 		}
 	}

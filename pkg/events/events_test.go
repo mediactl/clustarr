@@ -50,7 +50,8 @@ func TestWorkStreamsAllowSchedules(t *testing.T) {
 	for _, s := range events.Default().Streams {
 		// The advisory stream is WorkQueue for its retention, not a work
 		// stream: only JetStream publishes to it, never with a schedule.
-		if s.Retention != events.RetentionWorkQueue || s.Name == events.StreamAdvisories {
+		// The transcode stream uses DiscardNew, so it has no schedules.
+		if s.Retention != events.RetentionWorkQueue || s.Name == events.StreamAdvisories || s.Name == events.StreamWorkSquasharr {
 			continue
 		}
 		if !s.AllowMsgSchedules {

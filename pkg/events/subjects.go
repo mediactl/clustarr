@@ -21,7 +21,9 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // Stream names.
@@ -32,6 +34,7 @@ const (
 	StreamWorkImportarr  = "CLUSTARR_WORK_IMPORTARR"
 	StreamWorkIndexarr   = "CLUSTARR_WORK_INDEXARR"
 	StreamWorkCaptionarr = "CLUSTARR_WORK_CAPTIONARR"
+	StreamWorkSquasharr  = "CLUSTARR_WORK_SQUASHARR"
 	StreamDLQ            = "CLUSTARR_DLQ"
 
 	// StreamAdvisories keeps JetStream's MAX_DELIVERIES advisories until a
@@ -87,6 +90,8 @@ const (
 	FilterWorkImportarr   = "clustarr.work.importarr.>"
 	FilterWorkIndexarr    = "clustarr.work.indexarr.>"
 	FilterWorkCaptionarr  = "clustarr.work.captionarr.>"
+	FilterWorkSquasharr   = "clustarr.work.transcode.>"
+	FilterTranscodeResults = "clustarr.work.transcode.result.>"
 	FilterAllDLQ          = "clustarr.dlq.>"
 	FilterCatalogSearch   = "clustarr.work.catalogarr.search.>"
 	FilterCatalogGrab     = "clustarr.work.catalogarr.grab.>"
@@ -113,6 +118,7 @@ const (
 	ConsumerIndexRSS           = "indexarr-rss"
 	ConsumerCaptionFetchHigh   = "captionarr-fetch-high"
 	ConsumerCaptionFetchNormal = "captionarr-fetch-normal"
+	ConsumerSquasharrResults   = "squasharr-transcode-results"
 	ConsumerDLQProjector       = "clustarr-dlq-projector"
 )
 
@@ -128,6 +134,7 @@ const (
 	BucketProgress         = "clustarr-progress"
 	BucketImportList       = "clustarr-importlist"
 	BucketDedup            = "clustarr-dedup"
+	BucketTranscodeLeases  = "clustarr-transcode-leases"
 )
 
 // Priority is the work-queue lane a task is placed in. It is the third token
@@ -424,6 +431,49 @@ func MsgIDForSubtitle(requestUID, langKey, probeHash string, attempt int32) stri
 // reset that failed and was retried) share the generation and are absorbed.
 func MsgIDForForcedSubtitle(requestUID, langKey, probeHash string, generation int64) string {
 	return fmt.Sprintf("%s/%s/%s/force-%d", requestUID, langKey, probeHash, generation)
+}
+
+// TranscodeLeaseTTL is how long a transcode task lease lives after its
+// holder's last renewal. It is the lease bucket's TTL, so the server, not a
+// worker's clock, decides when a lease has lapsed.
+const TranscodeLeaseTTL = 90 * time.Second
+
+// WorkTranscodeTaskSubject is where squasharr publishes one admitted
+// TranscodeJob's task for the pool of its profile and hardware class.
+// Profile and job are UIDs because a profile name may contain ".".
+func WorkTranscodeTaskSubject(profileUID, class, jobUID string) string {
+	return fmt.Sprintf("clustarr.work.transcode.task.%s.%s.%s", tok(profileUID), tok(class), tok(jobUID))
+}
+
+// WorkTranscodeResultSubject is where a worker publishes a job's status
+// events; squasharr-transcode-results consumes them.
+func WorkTranscodeResultSubject(jobUID string) string {
+	return "clustarr.work.transcode.result." + tok(jobUID)
+}
+
+// FilterTranscodeTasks is one pool's share of CLUSTARR_WORK_SQUASHARR.
+func FilterTranscodeTasks(profileUID, class string) string {
+	return fmt.Sprintf("clustarr.work.transcode.task.%s.%s.>", tok(profileUID), tok(class))
+}
+
+// TranscodeTaskConsumerName is the durable one pool's workers share.
+func TranscodeTaskConsumerName(profileUID, class string) string {
+	return "squasharr-transcode-" + KVKeyToken(profileUID) + "-" + KVKeyToken(class)
+}
+
+// TranscodeLeaseKey is a TranscodeJob's lease in clustarr-transcode-leases.
+func TranscodeLeaseKey(jobUID string) string { return "lease." + KVKeyToken(jobUID) }
+
+// MsgIDForTranscodeTask carries the dispatch count, so a job dispatched again
+// inside the duplicate window is not absorbed as a duplicate.
+func MsgIDForTranscodeTask(jobUID string, attempt int32) string {
+	return jobUID + "/" + strconv.Itoa(int(attempt))
+}
+
+// MsgIDForTranscodeEvent makes a re-published status event a duplicate;
+// delivery separates two workers' runs of one attempt.
+func MsgIDForTranscodeEvent(jobUID string, attempt int32, delivery, seq uint64) string {
+	return fmt.Sprintf("%s/%d/%d/%d", jobUID, attempt, delivery, seq)
 }
 
 // SubjectMatches reports whether subject matches a NATS subject filter, with

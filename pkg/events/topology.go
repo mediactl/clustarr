@@ -114,6 +114,26 @@ func (c ConsumerSpec) Subscription() Subscription {
 	}
 }
 
+// TranscodeTaskConsumer is one pool's durable. It is not in Default(): pools
+// come and go with profiles, so the worker's Pull creates it and squasharr's
+// StreamAdmin deletes it. There is no Heartbeat: the worker sends InProgress
+// itself while it renews its lease (spec §17.3). Workers settle every task
+// once its finished event is stored; redelivery covers only a crashed,
+// drained or fenced worker, so MaxDeliver is a safety net, not a retry policy
+// (squasharr decides retries, spec §18.3).
+func TranscodeTaskConsumer(profileUID, class string) ConsumerSpec {
+	return ConsumerSpec{
+		Name:          TranscodeTaskConsumerName(profileUID, class),
+		Stream:        StreamWorkSquasharr,
+		Description:   "One transcode pool's tasks.",
+		Filters:       []string{FilterTranscodeTasks(profileUID, class)},
+		AckWait:       60 * time.Second,
+		MaxDeliver:    8,
+		BackOff:       []time.Duration{time.Minute, 5 * time.Minute, 15 * time.Minute, 30 * time.Minute},
+		MaxAckPending: 64,
+	}
+}
+
 // BucketSpec is the declarative configuration of one key/value bucket.
 type BucketSpec struct {
 	Name        string
@@ -297,10 +317,11 @@ func (t Topology) Validate() error {
 		if len(s.Subjects) == 0 {
 			errs = append(errs, fieldErr(s.Name+".Subjects", "is required"))
 		}
-		// The advisory stream is a WorkQueue too, but only JetStream
-		// publishes to it, and never with a schedule.
+		// The advisory stream and the transcode stream are WorkQueues, but only
+		// JetStream publishes to the advisory, and transcode uses DiscardNew so
+		// it has no schedules.
 		if s.Retention == RetentionWorkQueue && !s.AllowMsgSchedules &&
-			s.Name != StreamAdvisories {
+			s.Name != StreamAdvisories && s.Name != StreamWorkSquasharr {
 			errs = append(errs, fieldErr(s.Name+".AllowMsgSchedules",
 				"work streams must allow message schedules, so delay profiles "+
 					"can publish a grab into the future"))
@@ -494,6 +515,17 @@ func defaultStreams() []StreamSpec {
 		work(StreamWorkIndexarr, FilterWorkIndexarr, 256*MiB),
 		work(StreamWorkCaptionarr, FilterWorkCaptionarr, 256*MiB),
 		{
+			Name:        StreamWorkSquasharr,
+			Description: "Transcode tasks squasharr admitted, and the workers' status events.",
+			Subjects:    []string{FilterWorkSquasharr},
+			Retention:   RetentionWorkQueue,
+			Storage:     StorageFile,
+			Discard:     DiscardNew,
+			MaxBytes:    64 * MiB,
+			Duplicates:  time.Hour,
+			Replicas:    3,
+		},
+		{
 			Name:        StreamDLQ,
 			Description: "Dead-lettered tasks awaiting operator replay.",
 			Subjects:    []string{FilterAllDLQ},
@@ -658,6 +690,14 @@ func defaultConsumers() []ConsumerSpec {
 			MaxAckPending: 16,
 		},
 		{
+			Name: ConsumerSquasharrResults, Stream: StreamWorkSquasharr,
+			Description: "Worker status events: squasharr sets TranscodeJob status and decides the next step.",
+			Filters: []string{FilterTranscodeResults},
+			AckWait: 30 * s, MaxDeliver: 10,
+			BackOff:       []time.Duration{5 * s, 30 * s, 2 * m},
+			MaxAckPending: 1,
+		},
+		{
 			Name: ConsumerDLQProjector, Stream: StreamDLQ,
 			Filters: []string{FilterAllDLQ},
 			AckWait: 30 * s, MaxDeliver: 3,
@@ -687,5 +727,7 @@ func defaultBuckets() []BucketSpec {
 		b(BucketProgress, 10*time.Minute, "1 Hz download and transcode telemetry."),
 		b(BucketImportList, 7*24*time.Hour, "Import list items, kept out of status."),
 		b(BucketDedup, 24*time.Hour, "Import fingerprints for re-import no-ops."),
+		b(BucketTranscodeLeases, TranscodeLeaseTTL,
+			"Transcode task leases: created by the claiming worker, renewed with Update, expired by the server; squasharr writes cancel markers."),
 	}
 }
