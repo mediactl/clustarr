@@ -68,8 +68,9 @@ existing item action.
 ## Projection and reads
 
 `projection.LibraryItem` gains `Year`, `Poster`, `QualityProfileRef` and
-`Tab`. The projection keeps its one tick over every kind; `SubscribeLibrary`
-takes the tab, and a subscriber receives only its tab's rows. Parent-only
+`Tab`. The projection keeps its one tick over every kind and one library
+stream; `/events/library/{tab}` filters every frame with `ForTab` before
+writing it, so a subscriber receives only its tab's rows. Parent-only
 filtering happens in the projection, so the grid, the stream and the tests
 share one rule.
 
