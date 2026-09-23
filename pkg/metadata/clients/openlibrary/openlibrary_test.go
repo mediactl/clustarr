@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package openlibrary_test
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -103,7 +104,9 @@ func TestAuthorMapsAnOpenLibraryAuthorRecord(t *testing.T) {
 }
 
 // TestBooksListsAnAuthorsWorks exercises /authors/{OLID}/works.json,
-// documented in docs/research/metadata.md §2.4.
+// documented in docs/research/metadata.md §2.4. Each entry is a full work
+// record, and is mapped as fully as Book maps one -- it used to yield ids
+// and a title only.
 func TestBooksListsAnAuthorsWorks(t *testing.T) {
 	body, err := os.ReadFile("../../../../testdata/metadata/openlibrary/works_OL21594A.json")
 	require.NoError(t, err)
@@ -120,21 +123,62 @@ func TestBooksListsAnAuthorsWorks(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, books, 1)
-	require.Equal(t, "Pride and Prejudice", books[0].Title)
-	require.Equal(t, "OL138052W", books[0].IDs[metadata.KeyOpenLibraryWork])
+	b := books[0]
+	require.Equal(t, "Pride and Prejudice", b.Title)
+	require.Equal(t, "OL138052W", b.IDs[metadata.KeyOpenLibraryWork])
+	require.Equal(t, []string{"OL21594A"}, b.AuthorIDs)
+	require.Contains(t, b.Overview, "Elizabeth Bennet")
+	require.Equal(t, []string{"Fiction", "England", "Social classes"}, b.Subjects)
+	require.NotNil(t, b.FirstPublished)
+	require.True(t, b.FirstPublished.Equal(time.Date(1813, 1, 1, 0, 0, 0, 0, time.UTC)))
+	require.Empty(t, b.Editions, "Books does not spend a request per work on editions")
+}
+
+func TestBooksToleratesALegacyAuthorShapeAndFallsBackToTheListedAuthor(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"entries":[{"key":"/works/OL1W","title":"Odd","authors":[{"author":"/authors/OL9A"}]}]}`))
+	}))
+	defer srv.Close()
+	c := openlibrary.New("Clustarr/0.1 (contact@example.invalid)", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+
+	books, err := c.Books(context.Background(), "OL21594A")
+
+	require.NoError(t, err, "one oddly-shaped author reference must not fail the whole listing")
+	require.Len(t, books, 1)
 	require.Equal(t, []string{"OL21594A"}, books[0].AuthorIDs)
 }
 
-// TestBookMapsAWorkRecord exercises /works/{OLID}.json, documented in
-// docs/research/metadata.md §2.4.
-func TestBookMapsAWorkRecord(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/openlibrary/work_OL138052W.json")
+// openLibraryServer serves the work and its editions fixture, recording
+// the editions request's query.
+func openLibraryServer(t *testing.T, work []byte, editionsQuery *string) *httptest.Server {
+	t.Helper()
+	editions, err := os.ReadFile("../../../../testdata/metadata/openlibrary/editions_OL138052W.json")
 	require.NoError(t, err)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/works/OL138052W.json", r.URL.Path)
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(body)
+		switch r.URL.Path {
+		case "/works/OL138052W.json":
+			_, _ = w.Write(work)
+		case "/works/OL138052W/editions.json":
+			if editionsQuery != nil {
+				*editionsQuery = r.URL.RawQuery
+			}
+			_, _ = w.Write(editions)
+		default:
+			http.NotFound(w, r)
+		}
 	}))
+}
+
+// TestBookMapsAWorkRecord exercises /works/{OLID}.json and
+// /works/{OLID}/editions.json, documented in docs/research/metadata.md
+// §2.4.
+func TestBookMapsAWorkRecord(t *testing.T) {
+	work, err := os.ReadFile("../../../../testdata/metadata/openlibrary/work_OL138052W.json")
+	require.NoError(t, err)
+	var editionsQuery string
+	srv := openLibraryServer(t, work, &editionsQuery)
 	defer srv.Close()
 
 	c := openlibrary.New("Clustarr/0.1 (contact@example.invalid)", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
@@ -146,6 +190,96 @@ func TestBookMapsAWorkRecord(t *testing.T) {
 	require.Contains(t, b.Overview, "Elizabeth Bennet")
 	require.Equal(t, []string{"Fiction", "England", "Social classes"}, b.Subjects)
 	require.Equal(t, "OL138052W", b.IDs[metadata.KeyOpenLibraryWork])
+	require.Equal(t, []string{"OL21594A"}, b.AuthorIDs)
+	require.Equal(t, "limit=100", editionsQuery, "one page, sized to BookMetadata.Editions' MaxItems")
+}
+
+// TestBookFillsEditionsAndFirstPublished is the regression for Book never
+// filling Editions or FirstPublished, which made the metadata profile's
+// SkipMissingDate and SkipMissingISBN documented no-ops.
+func TestBookFillsEditionsAndFirstPublished(t *testing.T) {
+	work, err := os.ReadFile("../../../../testdata/metadata/openlibrary/work_OL138052W.json")
+	require.NoError(t, err)
+	srv := openLibraryServer(t, work, nil)
+	defer srv.Close()
+	c := openlibrary.New("Clustarr/0.1 (contact@example.invalid)", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+
+	b, err := c.Book(context.Background(), metadata.ExternalIDs{metadata.KeyOpenLibraryWork: "OL138052W"})
+	require.NoError(t, err)
+
+	require.NotNil(t, b.FirstPublished)
+	require.True(t, b.FirstPublished.Equal(time.Date(1813, 1, 1, 0, 0, 0, 0, time.UTC)), "the work's own date, earlier than every edition")
+	require.Len(t, b.Editions, 3)
+
+	german := b.Editions[0]
+	require.Equal(t, metadata.ExternalIDs{
+		metadata.KeyOpenLibraryEdition: "OL50552339M",
+		metadata.KeyISBN13:             "9783730606490",
+	}, german.IDs)
+	require.Equal(t, "Stolz und Vorurteil", german.Title)
+	require.Equal(t, "de", german.Language, `"/languages/ger" normalized to BCP-47`)
+	require.Equal(t, "Anaconda", german.Publisher)
+	require.Equal(t, "gebundene Ausgabe", german.Format)
+	require.EqualValues(t, 448, german.PageCount)
+	require.True(t, german.ReleaseDate.Equal(time.Date(2018, 9, 30, 0, 0, 0, 0, time.UTC)))
+
+	fine := b.Editions[1]
+	require.Equal(t, "B00BEW9MJS", fine.IDs[metadata.KeyASIN], "identifiers.amazon is the edition's ASIN")
+	require.NotContains(t, fine.IDs, metadata.KeyISBN13)
+	require.Equal(t, "en", fine.Language)
+}
+
+func TestBookTakesTheEarliestEditionWhenTheWorkHasNoDateOrALaterOne(t *testing.T) {
+	for name, work := range map[string]string{
+		"no work date":    `{"key":"/works/OL138052W","title":"Pride and Prejudice"}`,
+		"later work date": `{"key":"/works/OL138052W","title":"Pride and Prejudice","first_publish_date":"1990"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := openLibraryServer(t, []byte(work), nil)
+			defer srv.Close()
+			c := openlibrary.New("Clustarr/0.1 (contact@example.invalid)", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+
+			b, err := c.Book(context.Background(), metadata.ExternalIDs{metadata.KeyOpenLibraryWork: "OL138052W"})
+			require.NoError(t, err)
+			require.NotNil(t, b.FirstPublished)
+			require.True(t, b.FirstPublished.Equal(time.Date(1946, 1, 1, 0, 0, 0, 0, time.UTC)), "got %v", b.FirstPublished)
+		})
+	}
+}
+
+func TestBookFailsWhenTheEditionsFetchFails(t *testing.T) {
+	work, err := os.ReadFile("../../../../testdata/metadata/openlibrary/work_OL138052W.json")
+	require.NoError(t, err)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/works/OL138052W.json" {
+			_, _ = w.Write(work)
+			return
+		}
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+	c := openlibrary.New("Clustarr/0.1 (contact@example.invalid)", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+
+	b, err := c.Book(context.Background(), metadata.ExternalIDs{metadata.KeyOpenLibraryWork: "OL138052W"})
+
+	require.Nil(t, b, "a work with no editions would read downstream as one that has none")
+	require.ErrorIs(t, err, metadata.ErrRateLimited)
+}
+
+func TestEditionRejectsAnOversizedBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"title":"`))
+		_, _ = w.Write(bytes.Repeat([]byte("x"), int(metadata.MaxResponseBytes)))
+		_, _ = w.Write([]byte(`"}`))
+	}))
+	defer srv.Close()
+	c := openlibrary.New("Clustarr/0.1 (contact@example.invalid)", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+
+	_, err := c.Edition(context.Background(), metadata.ExternalIDs{metadata.KeyISBN13: "9780141439518"})
+
+	require.ErrorIs(t, err, metadata.ErrResponseTooLarge)
+	require.NotErrorIs(t, err, metadata.ErrDecode)
 }
 
 // TestSearchBooksMapsGeneralSearchResults exercises /search.json?q=,

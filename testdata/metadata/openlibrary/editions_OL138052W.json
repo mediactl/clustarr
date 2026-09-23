@@ -1,0 +1,93 @@
+{
+  "links": {
+    "self": "/works/OL138052W/editions.json?limit=100",
+    "work": "/works/OL138052W"
+  },
+  "size": 3,
+  "entries": [
+    {
+      "key": "/books/OL50552339M",
+      "title": "Stolz und Vorurteil",
+      "publishers": [
+        "Anaconda"
+      ],
+      "publish_date": "September 30, 2018",
+      "isbn_13": [
+        "9783730606490"
+      ],
+      "isbn_10": [
+        "3730606492"
+      ],
+      "languages": [
+        {
+          "key": "/languages/ger"
+        }
+      ],
+      "number_of_pages": 448,
+      "physical_format": "gebundene Ausgabe",
+      "covers": [
+        14568556
+      ],
+      "identifiers": {},
+      "works": [
+        {
+          "key": "/works/OL138052W"
+        }
+      ]
+    },
+    {
+      "key": "/books/OL49836838M",
+      "title": "Pride and Prejudice, 1946 Fine Editions Press, Cleveland",
+      "publishers": [
+        "FINE EDITIONS PRESS"
+      ],
+      "publish_date": "1946",
+      "languages": [
+        {
+          "key": "/languages/eng"
+        }
+      ],
+      "number_of_pages": 446,
+      "covers": [
+        15043406
+      ],
+      "identifiers": {
+        "amazon": [
+          "B00BEW9MJS"
+        ],
+        "better_world_books": [
+          "BWB39161304"
+        ]
+      },
+      "works": [
+        {
+          "key": "/works/OL138052W"
+        }
+      ]
+    },
+    {
+      "key": "/books/OL51673567M",
+      "title": "Pride and Prejudice",
+      "publishers": [
+        "Dell Publishing Co. Inc."
+      ],
+      "publish_date": "1960-09",
+      "languages": [
+        {
+          "key": "/languages/eng"
+        }
+      ],
+      "number_of_pages": 383,
+      "physical_format": "paperback",
+      "covers": [
+        14619629
+      ],
+      "identifiers": {},
+      "works": [
+        {
+          "key": "/works/OL138052W"
+        }
+      ]
+    }
+  ]
+}

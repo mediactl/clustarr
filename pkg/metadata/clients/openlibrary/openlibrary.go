@@ -34,12 +34,21 @@ import (
 
 	"golang.org/x/time/rate"
 
+	"github.com/mediactl/clustarr/pkg/lang"
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
 const defaultBaseURL = "https://openlibrary.org"
+
+// editionsLimit is how many editions Book asks /works/{id}/editions.json
+// for: one page, sized to BookMetadata.Editions' own
+// +kubebuilder:validation:MaxItems=100. A popular work has thousands of
+// editions (Pride and Prejudice: over four thousand) and nothing downstream
+// can hold more than this many, so paging further would be spend with no
+// consumer.
+const editionsLimit = 100
 
 // Client is a metadata.BookProvider backed by Open Library.
 type Client struct {
@@ -154,17 +163,74 @@ func (c *Client) Author(ctx context.Context, ids metadata.ExternalIDs) (*metadat
 	return a, nil
 }
 
-// Books lists the works credited to authorID (an Open Library author id).
+// workRecord is Open Library's work record, as returned by
+// /works/{OLID}.json and as each entry of /authors/{OLID}/works.json (the
+// latter is a list of the same records -- verified against the live API:
+// both carry key, title, authors, description, subjects, covers and, on
+// some works, first_publish_date).
+type workRecord struct {
+	Key              string          `json:"key"`
+	Title            string          `json:"title"`
+	Description      json.RawMessage `json:"description"`
+	Subjects         []string        `json:"subjects"`
+	FirstPublishDate string          `json:"first_publish_date"`
+	// Authors is [{"author": {"key": "/authors/OL..."}, "type": {...}}].
+	// Each author is kept raw and decoded leniently by authorIDs: one
+	// oddly-shaped legacy record must not fail a whole works listing.
+	Authors []struct {
+		Author json.RawMessage `json:"author"`
+	} `json:"authors"`
+}
+
+// authorIDs returns the Open Library author ids a work credits, in order.
+func (w workRecord) authorIDs() []string {
+	var ids []string
+	for _, a := range w.Authors {
+		var ref struct {
+			Key string `json:"key"`
+		}
+		if err := json.Unmarshal(a.Author, &ref); err != nil || ref.Key == "" {
+			continue
+		}
+		ids = append(ids, strings.TrimPrefix(ref.Key, "/authors/"))
+	}
+	return ids
+}
+
+// mapWork converts a work record into the normalized Book, without
+// editions. fallbackAuthor is credited when the record names no author of
+// its own (an entry of an author's works listing is that author's by
+// definition).
+func mapWork(w workRecord, fallbackAuthor string) metadata.Book {
+	b := metadata.Book{
+		IDs:       metadata.ExternalIDs{metadata.KeyOpenLibraryWork: strings.TrimPrefix(w.Key, "/works/")},
+		AuthorIDs: w.authorIDs(),
+		Title:     w.Title,
+		Overview:  decodeOpenLibraryText(w.Description),
+		Subjects:  w.Subjects,
+	}
+	if len(b.AuthorIDs) == 0 && fallbackAuthor != "" {
+		b.AuthorIDs = []string{fallbackAuthor}
+	}
+	if t, ok := parseLenientDate(w.FirstPublishDate); ok {
+		b.FirstPublished = &t
+	}
+	return b
+}
+
+// Books lists the works credited to authorID (an Open Library author id):
+// one page of /authors/{OLID}/works.json at Open Library's default page
+// size, each mapped with the same fields Book maps from a work record --
+// title, overview, subjects, authors and first-publication date. Editions
+// are not fetched per work here (that is one more request per work); Book
+// fetches them.
 func (c *Client) Books(ctx context.Context, authorID string) ([]metadata.Book, error) {
 	ctx, span := tracing.Start(ctx, "metadata.openlibrary.Books")
 	defer span.End()
 	logger := logging.FromContext(ctx)
 
 	var raw struct {
-		Entries []struct {
-			Key   string `json:"key"`
-			Title string `json:"title"`
-		} `json:"entries"`
+		Entries []workRecord `json:"entries"`
 	}
 	if err := c.doGet(ctx, "/authors/"+authorID+"/works.json", &raw); err != nil {
 		tracing.RecordError(span, err)
@@ -174,16 +240,25 @@ func (c *Client) Books(ctx context.Context, authorID string) ([]metadata.Book, e
 
 	books := make([]metadata.Book, 0, len(raw.Entries))
 	for _, e := range raw.Entries {
-		books = append(books, metadata.Book{
-			IDs:       metadata.ExternalIDs{metadata.KeyOpenLibraryWork: strings.TrimPrefix(e.Key, "/works/")},
-			AuthorIDs: []string{authorID},
-			Title:     e.Title,
-		})
+		books = append(books, mapWork(e, authorID))
 	}
 	return books, nil
 }
 
-// Book fetches a single work (ids[metadata.KeyOpenLibraryWork]).
+// Book fetches a single work (ids[metadata.KeyOpenLibraryWork]) and one page
+// of its editions (/works/{OLID}/editions.json, editionsLimit of them).
+//
+// FirstPublished is the earliest date among the work's own
+// first_publish_date and every fetched edition's publish_date. Open
+// Library's work-level date is sparse and sometimes later than an edition
+// it lists, and "first published" means the earliest known publication, so
+// taking the minimum is the reading that never reports a date later than
+// one the provider itself shows.
+//
+// A failed editions fetch fails the call rather than returning the work
+// with no editions: an empty Editions would read downstream as "this work
+// has no editions" -- the metadata profile's SkipMissingISBN would act on
+// it -- when the truth is that the fetch did not complete.
 func (c *Client) Book(ctx context.Context, ids metadata.ExternalIDs) (*metadata.Book, error) {
 	ctx, span := tracing.Start(ctx, "metadata.openlibrary.Book")
 	defer span.End()
@@ -196,35 +271,97 @@ func (c *Client) Book(ctx context.Context, ids metadata.ExternalIDs) (*metadata.
 		return nil, err
 	}
 
-	var raw struct {
-		Key         string          `json:"key"`
-		Title       string          `json:"title"`
-		Description json.RawMessage `json:"description"`
-		Subjects    []string        `json:"subjects"`
-	}
+	var raw workRecord
 	if err := c.doGet(ctx, "/works/"+workID+".json", &raw); err != nil {
 		tracing.RecordError(span, err)
 		logger.ErrorContext(ctx, "openlibrary: work fetch failed", "olid", workID, "error", err)
 		return nil, err
 	}
+	b := mapWork(raw, "")
+	b.IDs = metadata.ExternalIDs{metadata.KeyOpenLibraryWork: workID}
 
-	return &metadata.Book{
-		IDs:      metadata.ExternalIDs{metadata.KeyOpenLibraryWork: workID},
-		Title:    raw.Title,
-		Overview: decodeOpenLibraryText(raw.Description),
-		Subjects: raw.Subjects,
-	}, nil
+	var eds struct {
+		Entries []editionResponse `json:"entries"`
+	}
+	path := "/works/" + workID + "/editions.json?limit=" + strconv.Itoa(editionsLimit)
+	if err := c.doGet(ctx, path, &eds); err != nil {
+		tracing.RecordError(span, err)
+		logger.ErrorContext(ctx, "openlibrary: work editions fetch failed", "olid", workID, "error", err)
+		return nil, err
+	}
+	for _, e := range eds.Entries {
+		ed := mapEdition(e)
+		if ed.ReleaseDate != nil && (b.FirstPublished == nil || ed.ReleaseDate.Before(*b.FirstPublished)) {
+			t := *ed.ReleaseDate
+			b.FirstPublished = &t
+		}
+		b.Editions = append(b.Editions, ed)
+	}
+
+	logger.DebugContext(ctx, "openlibrary: work fetched", "olid", workID, "title", b.Title, "editions", len(b.Editions))
+	return &b, nil
 }
 
-// editionResponse is Open Library's edition record, as returned by both
-// /isbn/{isbn}.json and /books/{OLID}.json.
+// editionResponse is Open Library's edition record, as returned by
+// /isbn/{isbn}.json, /books/{OLID}.json and each entry of
+// /works/{OLID}/editions.json (field names verified against the live API).
 type editionResponse struct {
-	Key         string   `json:"key"`
-	Title       string   `json:"title"`
-	Publishers  []string `json:"publishers"`
-	PublishDate string   `json:"publish_date"`
-	ISBN13      []string `json:"isbn_13"`
-	Covers      []int64  `json:"covers"`
+	Key            string   `json:"key"`
+	Title          string   `json:"title"`
+	Subtitle       string   `json:"subtitle"`
+	Publishers     []string `json:"publishers"`
+	PublishDate    string   `json:"publish_date"`
+	ISBN13         []string `json:"isbn_13"`
+	Covers         []int64  `json:"covers"`
+	NumberOfPages  int32    `json:"number_of_pages"`
+	PhysicalFormat string   `json:"physical_format"`
+	Languages      []struct {
+		Key string `json:"key"` // "/languages/eng"
+	} `json:"languages"`
+	Identifiers struct {
+		Amazon []string `json:"amazon"`
+	} `json:"identifiers"`
+}
+
+// mapEdition converts an edition record into the normalized model. An id
+// is only carried when it is well-formed (metadata.Validate): Open Library
+// is user-edited, and a malformed ISBN or ASIN in the crosswalk is worse
+// than none. Language is converted to BCP-47 at this boundary, as
+// Edition.language's CRD field documents ("/languages/ger" -> "de"); a code
+// pkg/lang cannot resolve is dropped rather than passed through in a
+// vocabulary the field does not use.
+func mapEdition(raw editionResponse) metadata.Edition {
+	e := metadata.Edition{
+		IDs:       metadata.ExternalIDs{metadata.KeyOpenLibraryEdition: strings.TrimPrefix(raw.Key, "/books/")},
+		Title:     raw.Title,
+		Subtitle:  raw.Subtitle,
+		Format:    raw.PhysicalFormat,
+		PageCount: raw.NumberOfPages,
+	}
+	if len(raw.ISBN13) > 0 && metadata.Validate(metadata.ExternalIDs{metadata.KeyISBN13: raw.ISBN13[0]}) == nil {
+		e.IDs[metadata.KeyISBN13] = raw.ISBN13[0]
+	}
+	if len(raw.Identifiers.Amazon) > 0 && metadata.Validate(metadata.ExternalIDs{metadata.KeyASIN: raw.Identifiers.Amazon[0]}) == nil {
+		e.IDs[metadata.KeyASIN] = raw.Identifiers.Amazon[0]
+	}
+	if len(raw.Publishers) > 0 {
+		e.Publisher = raw.Publishers[0]
+	}
+	if len(raw.Languages) > 0 {
+		if tag, ok := lang.Normalize(strings.TrimPrefix(raw.Languages[0].Key, "/languages/")); ok {
+			e.Language = string(tag)
+		}
+	}
+	if len(raw.Covers) > 0 && raw.Covers[0] > 0 {
+		e.Images = []metadata.Image{{Type: metadata.ImageTypePoster, URL: coverURLByID(raw.Covers[0])}}
+	}
+	// publish_date is free text ("2003", "March 2003", "2003-01-01", ...),
+	// not a fixed format -- a date that does not parse leaves ReleaseDate
+	// nil rather than erroring the whole call.
+	if t, ok := parseLenientDate(raw.PublishDate); ok {
+		e.ReleaseDate = &t
+	}
+	return e
 }
 
 // Edition fetches a single edition by ISBN-13 (ids[metadata.KeyISBN13]).
@@ -247,25 +384,13 @@ func (c *Client) Edition(ctx context.Context, ids metadata.ExternalIDs) (*metada
 		return nil, err
 	}
 
-	e := &metadata.Edition{
-		IDs:   metadata.ExternalIDs{metadata.KeyISBN13: isbn, metadata.KeyOpenLibraryEdition: strings.TrimPrefix(raw.Key, "/books/")},
-		Title: raw.Title,
-	}
-	if len(raw.Publishers) > 0 {
-		e.Publisher = raw.Publishers[0]
-	}
-	if len(raw.Covers) > 0 && raw.Covers[0] > 0 {
-		e.Images = []metadata.Image{{Type: metadata.ImageTypePoster, URL: coverURLByID(raw.Covers[0])}}
-	}
-	// publish_date is free text ("2003", "March 2003", "2003-01-01", ...),
-	// not a fixed format -- a date that does not parse leaves ReleaseDate
-	// nil rather than erroring the whole call.
-	if t, ok := parseLenientDate(raw.PublishDate); ok {
-		e.ReleaseDate = &t
-	}
+	e := mapEdition(raw)
+	// The ISBN asked for is the one this edition is known by, whichever of
+	// its isbn_13 values Open Library happens to list first.
+	e.IDs[metadata.KeyISBN13] = isbn
 
 	logger.DebugContext(ctx, "openlibrary: edition fetched", "isbn", isbn, "title", e.Title)
-	return e, nil
+	return &e, nil
 }
 
 var _ metadata.BookProvider = (*Client)(nil)
@@ -321,7 +446,9 @@ func parseLenientDate(s string) (time.Time, bool) {
 // doGet issues a GET request against path (relative to c.baseURL), waiting
 // on the rate limiter and setting the contact User-Agent Open Library
 // requires for its 3rps tier, and maps the HTTP status onto metadata's
-// sentinel errors.
+// sentinel errors. A 200 body is read through metadata.DecodeJSON's cap;
+// every other status is answered from the status alone, its body never
+// read.
 func (c *Client) doGet(ctx context.Context, path string, out any) error {
 	if err := c.limiter.Wait(ctx); err != nil {
 		return err
@@ -341,8 +468,8 @@ func (c *Client) doGet(ctx context.Context, path string, out any) error {
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-			return fmt.Errorf("openlibrary: decode %s: %w: %w", path, metadata.ErrDecode, err)
+		if err := metadata.DecodeJSON(resp.Body, metadata.MaxResponseBytes, out); err != nil {
+			return fmt.Errorf("openlibrary: %s: %w", path, err)
 		}
 		return nil
 	case http.StatusNotFound:

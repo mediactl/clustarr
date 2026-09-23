@@ -1,9 +1,24 @@
 {
+  "links": {
+    "self": "/authors/OL21594A/works.json",
+    "author": "/authors/OL21594A"
+  },
   "size": 1,
   "entries": [
     {
       "key": "/works/OL138052W",
-      "title": "Pride and Prejudice"
+      "title": "Pride and Prejudice",
+      "authors": [
+        {"author": {"key": "/authors/OL21594A"}, "type": {"key": "/type/author_role"}}
+      ],
+      "type": {"key": "/type/work"},
+      "description": {
+        "type": "/type/text",
+        "value": "Pride and Prejudice follows the emotional development of Elizabeth Bennet."
+      },
+      "subjects": ["Fiction", "England", "Social classes"],
+      "first_publish_date": "1813",
+      "covers": [8739161]
     }
   ]
 }
