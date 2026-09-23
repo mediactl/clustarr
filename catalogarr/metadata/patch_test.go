@@ -218,6 +218,7 @@ func TestBuildArtistMetadataACCapsGenresAndImagesAtTheCRDsMaxItems(t *testing.T)
 func TestBuildAlbumMetadataACMapsFieldsAndFiltersImageTypes(t *testing.T) {
 	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
 	releaseDate := time.Date(1997, 5, 21, 0, 0, 0, 0, time.UTC)
+	remasterDate := time.Date(2009, 3, 24, 0, 0, 0, 0, time.UTC)
 	a := &pkgmetadata.Album{
 		IDs:            pkgmetadata.ExternalIDs{pkgmetadata.KeyMBReleaseGroup: "b1392450-e666-3926-9ce9-9b7f7b62f699"},
 		Title:          "OK Computer",
@@ -231,6 +232,11 @@ func TestBuildAlbumMetadataACMapsFieldsAndFiltersImageTypes(t *testing.T) {
 				IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBRelease: "release-1"}, Status: "Official",
 				Country: []string{"GB"}, Labels: []string{"Parlophone"}, TrackCount: 12,
 				Media: []pkgmetadata.Medium{{Position: 1, Format: "CD"}},
+			},
+			{
+				// A remaster: its own date, twelve years after the group's.
+				IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBRelease: "release-2009"}, Status: "Official",
+				Date: &remasterDate,
 			},
 			{Status: "no id, must be dropped"}, // ReleaseSummary.ID is +required.
 		},
@@ -250,8 +256,13 @@ func TestBuildAlbumMetadataACMapsFieldsAndFiltersImageTypes(t *testing.T) {
 	require.True(t, ac.ReleaseDate.Equal(&metav1.Time{Time: releaseDate}))
 	require.True(t, ac.RefreshedAt.Equal(&metav1.Time{Time: now}))
 
-	require.Len(t, ac.Releases, 1, "the release with no id must be dropped, not sent with a blank id")
+	require.Len(t, ac.Releases, 2, "the release with no id must be dropped, not sent with a blank id")
 	require.Equal(t, "release-1", *ac.Releases[0].ID)
+	require.Nil(t, ac.Releases[0].ReleaseDate, "an undated release sends no date")
+	require.Equal(t, "release-2009", *ac.Releases[1].ID)
+	require.NotNil(t, ac.Releases[1].ReleaseDate)
+	require.True(t, ac.Releases[1].ReleaseDate.Equal(&metav1.Time{Time: remasterDate}),
+		"each release carries its own date, so a remaster's year is on record beside the group's")
 	require.Equal(t, "Official", *ac.Releases[0].Status)
 	require.Equal(t, "GB", *ac.Releases[0].Country)
 	require.Equal(t, "Parlophone", *ac.Releases[0].Label)

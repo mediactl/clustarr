@@ -304,6 +304,13 @@ func buildAlbumMetadataAC(a *pkgmetadata.Album, now time.Time) *catalogac.AlbumM
 		if len(rel.Labels) > 0 {
 			rs.WithLabel(rel.Labels[0])
 		}
+		// The release's own date, not the group's earliest: a remaster or a
+		// reissue is dated years after the original, and a release named
+		// by that later year is still this album (Lidarr's
+		// AlbumYearMatcher.Match(Album, int?) checks each release's date).
+		if rel.Date != nil {
+			rs.WithReleaseDate(metav1.NewTime(*rel.Date))
+		}
 		if rel.TrackCount > 0 {
 			rs.WithTrackCount(rel.TrackCount)
 		}

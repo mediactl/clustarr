@@ -2781,6 +2781,9 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Medium
           elementRelationship: atomic
+    - name: releaseDate
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
     - name: status
       type:
         scalar: string

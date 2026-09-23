@@ -79,6 +79,15 @@ type ReleaseSummary struct {
 	// +optional
 	Label string `json:"label,omitempty"`
 
+	// ReleaseDate is when this release was issued, MusicBrainz's release
+	// date; a partial date is the first day of the period it names. A
+	// remaster or reissue carries its own, later date here while the
+	// release group's earliest stays in AlbumMetadata.ReleaseDate, which is
+	// how a release named by its edition's year is recognised as this
+	// album (Lidarr's AlbumYearMatcher checks each release's date).
+	// +optional
+	ReleaseDate *metav1.Time `json:"releaseDate,omitempty"`
+
 	// TrackCount is the total number of tracks across all media.
 	// +optional
 	TrackCount int32 `json:"trackCount,omitempty"`

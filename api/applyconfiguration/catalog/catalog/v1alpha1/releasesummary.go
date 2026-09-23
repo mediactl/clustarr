@@ -19,6 +19,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package v1alpha1
 
+import (
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
 // ReleaseSummaryApplyConfiguration represents a declarative configuration of the ReleaseSummary type for use
 // with apply.
 //
@@ -32,6 +36,13 @@ type ReleaseSummaryApplyConfiguration struct {
 	Country *string `json:"country,omitempty"`
 	// Label is the issuing record label.
 	Label *string `json:"label,omitempty"`
+	// ReleaseDate is when this release was issued, MusicBrainz's release
+	// date; a partial date is the first day of the period it names. A
+	// remaster or reissue carries its own, later date here while the
+	// release group's earliest stays in AlbumMetadata.ReleaseDate, which is
+	// how a release named by its edition's year is recognised as this
+	// album (Lidarr's AlbumYearMatcher checks each release's date).
+	ReleaseDate *v1.Time `json:"releaseDate,omitempty"`
 	// TrackCount is the total number of tracks across all media.
 	TrackCount *int32 `json:"trackCount,omitempty"`
 	// Media lists the discs or sides making up the release.
@@ -73,6 +84,14 @@ func (b *ReleaseSummaryApplyConfiguration) WithCountry(value string) *ReleaseSum
 // If called multiple times, the Label field is set to the value of the last call.
 func (b *ReleaseSummaryApplyConfiguration) WithLabel(value string) *ReleaseSummaryApplyConfiguration {
 	b.Label = &value
+	return b
+}
+
+// WithReleaseDate sets the ReleaseDate field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ReleaseDate field is set to the value of the last call.
+func (b *ReleaseSummaryApplyConfiguration) WithReleaseDate(value v1.Time) *ReleaseSummaryApplyConfiguration {
+	b.ReleaseDate = &value
 	return b
 }
 
