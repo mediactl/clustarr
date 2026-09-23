@@ -1181,8 +1181,7 @@ other phase.
 > SHAs are the ones on `main`: a `git pull --rebase` mid-wave rewrote every
 > W1a commit, so the task reports' SHAs for those are stale -- find a commit
 > by subject with `git log --grep`. **What is still open is exactly the
-> block that follows**, plus the dependency prune in the Phase B block until
-> W3 runs it.
+> block that follows.**
 
 ### Still open after the gap fixes (2026-09-23)
 
@@ -1276,7 +1275,7 @@ took) and from the spec pass, which checked §5 and §8 against the code.
 - [x] **Fixed `3c59d29`.** Phase G: extend `torznab.Release` with non-video fields (artist, album, author, publisher) now carried in `Attrs`; ~~convert `importlist.ExternalIDs` (struct) ↔ `metadata.ExternalIDs` (map) in the ImportList controller~~ (done at G1-3: `importarr/worker/importlist/externalids.go`).
 - [x] **Fixed `5e7bde6` (transport told from decode), `902e244` (`Runner.Run` reports both errors), `903dd1b` (a base URL per TMDB client).** Minor debt: `metadata/clients/musicbrainz` maps `ClientError{StatusCode:0}` (transport or decode) to `ErrDecode`; `transcode.Runner.Run` reports only `waitErr` when both wait and scan fail; `golang-tmdb.SetCustomBaseURL` is process-global (one TMDB base URL per process).
 - [x] **Already fixed `0b7a726`** (verified by gap fix X2). Phase C: `pkg/release.parseLanguages` cannot detect Chinese, so the anime dual-audio Language group only fires for Japanese/Korean tags today.
-- [ ] `hack/deps/deps.go` still keeps `mimetype`, `sprig/v3` and `x/net/proxy` alive (no importer yet); prune each when its phase lands. **Open until the gap fixes' W3 dependency prune:** verify each has no importer, prune them with `antchfx/xmlquery` and `antchfx/xpath` (unimported since X8a moved XML to CSS), then one serial `go mod tidy`.
+- [x] **Fixed `e0eee98` (gap fixes, W3):** none had an importer, so `mimetype`, `sprig/v3` and `x/net/proxy` left go.mod with `antchfx/xmlquery` and `antchfx/xpath` (unimported since X8a queried XML with CSS); the keeper entries whose real importers had landed went too, and one serial `go mod tidy` ran. `hack/deps` now keeps nothing. Was: `hack/deps/deps.go` still keeps `mimetype`, `sprig/v3` and `x/net/proxy` alive (no importer yet); prune each when its phase lands.
 
 ### Carried out of Phase C (2026-09-18)
 
