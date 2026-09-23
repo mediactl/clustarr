@@ -752,3 +752,50 @@ func TestSearchInheritInputsFalseDropsSearchInputs(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"shared=s", "own=1"}, queries)
 }
+
+// TestHTMLCaseKeysAreSelectorsTriedInFileOrder: on an HTML page a case key
+// is a CSS selector, the first that matches the selection (or a descendant)
+// wins, and "*" is the universal selector written last. Until X8a the keys
+// were compared to the row's text and the map was a Go map, so every HTML
+// freeleech marker fell through to "*".
+func TestHTMLCaseKeysAreSelectorsTriedInFileOrder(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `<table>
+<tr><td class="t">Free</td><td><img class="free"><img class="half"></td></tr>
+<tr><td class="t">Half</td><td><img class="half"></td></tr>
+<tr><td class="t">Full</td><td></td></tr>
+</table>`)
+	}))
+	defer srv.Close()
+
+	def := loadFeature(t, `search:
+  path: search
+  rows:
+    selector: tr
+  fields:
+    title:
+      selector: td.t
+    downloadvolumefactor:
+      case:
+        img.free: 0
+        img.half: 0.5
+        "*": 1
+    size:
+      text: 1
+    seeders:
+      text: 1
+    category:
+      text: 1
+    download:
+      text: "magnet:?xt=urn:btih:abc"
+`)
+	rels, err := search(t, srv, def, "x")
+	require.NoError(t, err)
+	require.Equal(t, []string{"Free", "Half", "Full"}, titles(rels))
+	factors := make([]float64, 0, len(rels))
+	for _, r := range rels {
+		require.NotNil(t, r.DownloadVolumeFactor)
+		factors = append(factors, *r.DownloadVolumeFactor)
+	}
+	assert.Equal(t, []float64{0, 0.5, 1}, factors, "first matching selector wins, in file order; * falls back")
+}

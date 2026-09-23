@@ -301,39 +301,16 @@ func (d Doc) Text(attribute string) (string, bool) {
 }
 
 // Extract evaluates b against d: Text (literal/template) short-circuits
-// Selector; otherwise Selector+Attribute narrows d, Remove strips a nested
-// selector first (HTML only), Case maps the raw value (rendering the
-// matched case's value as a template, falling back to the "*" key), then
-// Filters run in order. ok is false when Selector matched nothing and
-// b.Optional with no Default — callers use this to implement the
+// Selector and Case; otherwise Selector+Attribute narrows d, Remove strips a
+// nested selector first (HTML only), Case maps the selection (see
+// caseValue), then Filters run in order. ok is false when Selector matched
+// nothing and b.Optional with no Default — callers use this to implement the
 // non-optional-field-drops-the-row rule (note §3.8).
 func (b SelectorBlock) Extract(ctx context.Context, d Doc, tc *TemplateContext) (string, bool, error) {
 	raw, ok, err := b.extractRaw(ctx, d, tc)
 	if err != nil || !ok {
 		return "", false, err
 	}
-
-	// Case: the schema's `case` map keys are compared to the raw value
-	// verbatim (no case-folding), matching both the corpus's
-	// case-sensitive keys (freeleech's "100%"/"0%") and its
-	// True/False-as-bareword-YAML-key idiom, which goccy/go-yaml decodes
-	// to the lower-case string keys "true"/"false" — the same casing
-	// TemplateContext.True/False and gjson's boolean String() already
-	// use, so no folding is ever needed here.
-	if len(b.Case) > 0 {
-		matched, isMatch := b.Case[raw]
-		if !isMatch {
-			matched, isMatch = b.Case["*"]
-		}
-		if isMatch {
-			rendered, err := render(string(matched), tc)
-			if err != nil {
-				return "", false, err
-			}
-			raw = rendered
-		}
-	}
-
 	for _, f := range b.Filters {
 		fn, known := Filters[f.Name]
 		if !known {
@@ -347,10 +324,11 @@ func (b SelectorBlock) Extract(ctx context.Context, d Doc, tc *TemplateContext) 
 	return raw, true, nil
 }
 
-// extractRaw resolves Text/Selector+Attribute+Remove into a raw string,
-// before Case/Filters run. It is Extract's first half, split out only for
-// readability.
-func (b SelectorBlock) extractRaw(ctx context.Context, d Doc, tc *TemplateContext) (string, bool, error) {
+// extractRaw resolves Text, or Selector+Remove then Case or Attribute, into
+// a raw string before Filters run -- Prowlarr's HandleSelector /
+// HandleJsonSelector order: a Text block returns its template and never
+// consults Case.
+func (b SelectorBlock) extractRaw(_ context.Context, d Doc, tc *TemplateContext) (string, bool, error) {
 	if b.Text != nil {
 		rendered, err := render(string(*b.Text), tc)
 		if err != nil {
@@ -378,9 +356,59 @@ func (b SelectorBlock) extractRaw(ctx context.Context, d Doc, tc *TemplateContex
 	if b.Remove != "" && sel.rt == ResponseHTML && sel.html != nil {
 		sel.html.Find(b.Remove).Remove()
 	}
+	if len(b.Case) > 0 && sel.rt == ResponseHTML {
+		return b.htmlCase(sel, tc)
+	}
 	raw, ok := sel.Text(b.Attribute)
 	if !ok {
 		return b.optionalFallback()
+	}
+	if len(b.Case) > 0 {
+		return b.valueCase(raw, tc)
+	}
+	return raw, true, nil
+}
+
+// htmlCase is Case on an HTML selection. Each key is a CSS selector, tried
+// in file order against the selection itself and then its descendants
+// (Prowlarr: `selection.Matches(key) || QuerySelector(selection, key) !=
+// null`); the first that matches renders its value. "*" is simply the
+// universal selector, so written last it is the fallback. When nothing
+// matches the field is missing, as Prowlarr's null is. This replaced a
+// value-equality lookup that compared each CSS selector to the row's text,
+// so a freeleech `img.free: 0` never matched and every HTML tracker's
+// volume factors fell through to "*".
+func (b SelectorBlock) htmlCase(sel Doc, tc *TemplateContext) (string, bool, error) {
+	for _, c := range b.Case {
+		if sel.html.Is(c.Key) || sel.html.Find(c.Key).Length() > 0 {
+			rendered, err := render(string(c.Value), tc)
+			if err != nil {
+				return "", false, err
+			}
+			return rendered, true, nil
+		}
+	}
+	return b.optionalFallback()
+}
+
+// valueCase is Case on a JSON or XML value: the first key equal to raw, or
+// "*", in file order, renders its value; no match keeps raw (Prowlarr's
+// HandleJsonSelector). Keys are compared verbatim, which matches both the
+// corpus's case-sensitive keys (freeleech's "100%"/"0%") and its
+// True/False-as-bareword-YAML-key idiom, which goccy/go-yaml decodes to the
+// lower-case "true"/"false" gjson's boolean String() also produces. XML
+// takes this path too: Prowlarr matches XML case keys as CSS selectors over
+// its DOM, but this package queries XML with XPath, so a CSS key cannot be
+// evaluated there.
+func (b SelectorBlock) valueCase(raw string, tc *TemplateContext) (string, bool, error) {
+	for _, c := range b.Case {
+		if c.Key == raw || c.Key == "*" {
+			rendered, err := render(string(c.Value), tc)
+			if err != nil {
+				return "", false, err
+			}
+			return rendered, true, nil
+		}
 	}
 	return raw, true, nil
 }

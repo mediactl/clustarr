@@ -78,7 +78,7 @@ func TestSelectorBlockExtractText(t *testing.T) {
 func TestSelectorBlockExtractCaseMapWithWildcardFallback(t *testing.T) {
 	def := &cardigann.SelectorBlock{
 		Selector: "freeleech",
-		Case:     map[string]cardigann.Scalar{"100%": "0", "0%": "1", "*": "0"},
+		Case:     cardigann.CaseBlock{{Key: "100%", Value: "0"}, {Key: "0%", Value: "1"}, {Key: "*", Value: "0"}},
 	}
 	doc, err := cardigann.ParseDoc(cardigann.ResponseJSON, []byte(`{"freeleech":"100%"}`))
 	require.NoError(t, err)

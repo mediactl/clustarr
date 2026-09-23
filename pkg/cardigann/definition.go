@@ -100,6 +100,44 @@ func (l *ScalarList) UnmarshalYAML(node ast.Node) error {
 	return nil
 }
 
+// CaseEntry is one `case:` entry: a key and the value (a template) it maps
+// to.
+type CaseEntry struct {
+	Key   string
+	Value Scalar
+}
+
+// CaseBlock is a selector's `case:` map in file order. Order is semantics:
+// on an HTML page each key is a CSS selector and the first one that matches
+// wins, with "*" -- the universal selector -- written last as the fallback
+// (Prowlarr's HandleSelector iterates the map in declaration order). A Go
+// map would try them in random order, and "*" would win at random.
+type CaseBlock []CaseEntry
+
+// UnmarshalYAML implements goccy/go-yaml's NodeUnmarshaler, decoding the
+// mapping entry by entry so declaration order survives. Keys may be bare
+// YAML scalars of any kind (`1: 0`, `true: 1`), rendered the way Scalar
+// renders them.
+func (c *CaseBlock) UnmarshalYAML(node ast.Node) error {
+	mapNode, ok := node.(ast.MapNode)
+	if !ok {
+		return fmt.Errorf("cardigann: case: expected a mapping, got %s", node.Type())
+	}
+	*c = nil
+	it := mapNode.MapRange()
+	for it.Next() {
+		var key, val Scalar
+		if err := key.UnmarshalYAML(it.Key()); err != nil {
+			return fmt.Errorf("cardigann: case key: %w", err)
+		}
+		if err := val.UnmarshalYAML(it.Value()); err != nil {
+			return fmt.Errorf("cardigann: case %q: %w", string(key), err)
+		}
+		*c = append(*c, CaseEntry{Key: string(key), Value: val})
+	}
+	return nil
+}
+
 // DefinitionType is the schema's own tracker-privacy enum, verbatim:
 // "public" | "semi-private" | "private" — NOT the IndexerDefinitionStatus
 // CRD's camelCase equivalent; the indexer controller maps between them.
@@ -261,7 +299,7 @@ type SelectorBlock struct {
 	Attribute string            `yaml:"attribute"`
 	Optional  bool              `yaml:"optional"`
 	Default   *Scalar           `yaml:"default"` // requires Optional per schema dependentRequired
-	Case      map[string]Scalar `yaml:"case"`
+	Case      CaseBlock         `yaml:"case"`
 	Remove    string            `yaml:"remove"` // a nested selector to strip before reading text
 	Text      *Scalar           `yaml:"text"`   // literal or template, replaces Selector entirely
 	Filters   []FilterBlock     `yaml:"filters"`
