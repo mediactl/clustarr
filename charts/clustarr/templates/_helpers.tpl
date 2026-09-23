@@ -196,8 +196,20 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{/*
+        fsGroup/fsGroupChangePolicy are what make the kubelet chown a mounted
+        volume to the pod's group. Every component that mounts a PVC needs
+        them: a freshly provisioned PVC root is root:root 0755 on most block
+        CSI drivers, and these pods run as uid 1000, so without the chown the
+        first write fails and the pod crash-loops forever. The condition must
+        therefore cover every flag that adds a persistentVolumeClaim volume
+        below -- it read `if .data` alone, which left indexarr (the only
+        component with "data" false and "index" true) with runAsUser: 1000 and
+        no fsGroup, unable to create releases.db. The chart-only kustomize
+        sets fsGroup on both. TestEveryPVCMountingWorkloadGetsFsGroup pins it.
+      */}}
       securityContext:
-        {{- if .data }}
+        {{- if or .data .index }}
         {{- toYaml $root.Values.podSecurityContext | nindent 8 }}
         {{- else }}
         {{- omit $root.Values.podSecurityContext "fsGroup" "fsGroupChangePolicy" | toYaml | nindent 8 }}
