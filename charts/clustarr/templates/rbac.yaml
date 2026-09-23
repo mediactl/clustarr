@@ -40,10 +40,33 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - persistentvolumeclaims
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - secrets
   verbs:
   - get
   - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  - statefulsets
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - catalog.clustarr.io
@@ -76,7 +99,6 @@ rules:
   - catalog.clustarr.io
   resources:
   - episodes
-  - mediafiles
   verbs:
   - create
   - get
@@ -108,6 +130,7 @@ rules:
   - catalog.clustarr.io
   resources:
   - libraryscans
+  - mediafiles
   - movies
   - searches
   - series
@@ -140,22 +163,24 @@ rules:
 - apiGroups:
   - download.clustarr.io
   resources:
-  - downloads
-  verbs:
-  - create
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - download.clustarr.io
-  resources:
+  - downloadclients/status
   - downloads/status
   verbs:
   - get
   - patch
   - update
+- apiGroups:
+  - download.clustarr.io
+  resources:
+  - downloads
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
 - apiGroups:
   - events.k8s.io
   resources:

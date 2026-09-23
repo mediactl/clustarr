@@ -40,6 +40,23 @@ type DownloadSpecApplyConfiguration struct {
 	Source *DownloadSourceApplyConfiguration `json:"source,omitempty"`
 	// Release is the indexer release snapshot this grab was decided from. It is
 	// immutable: re-deciding means creating a new Download.
+	//
+	// Every comparison below is guarded by has() on BOTH sides, and must stay
+	// that way. All five fields are +optional with omitempty in
+	// commonv1alpha1.ReleaseInfo, so an absent one is simply not in the object
+	// map -- an unguarded self.infoHash == oldSelf.infoHash does not compare
+	// unequal, it raises "no such key: infoHash" and the apiserver REJECTS the
+	// write. Because a status-subresource apply re-evaluates every spec CEL
+	// rule against the stored object, that rejection hits status-only writes
+	// too, which is the only way grabarr reports progress at all.
+	//
+	// infoHash is what made this fatal rather than theoretical: usenet
+	// releases do not have one, by protocol. So the unguarded form made every
+	// usenet Download unwritable after creation, while every torrent Download
+	// passed -- and every fixture in the tree was torrent-shaped, so two
+	// separate tasks hit it, worked around it in their own fixtures and moved
+	// on. pkg/crdcheck now owns the regression test, against a usenet-shaped
+	// Download with no infoHash.
 	Release *commonv1alpha1.ReleaseInfo `json:"release,omitempty"`
 	// Target is the catalog item the content is destined for. It is also the
 	// ownerReference of this Download. Immutable.
