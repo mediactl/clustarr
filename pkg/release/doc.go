@@ -26,4 +26,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // itself, and never for anime groups, audiobooks or PROPER/REPACK/REAL
 // revisions, all three of which docs/research/quality.md §7.3 verified rls
 // gets wrong.
+//
+// Non-video quality is a name, not a tuple, ported from the app that owns
+// the kind: Lidarr's QualityParser for music, Readarr's for books and
+// audiobooks, the file format for comics (nonvideo_quality.go). The release
+// group is Radarr's ReleaseGroupParser (group.go), languages a bounded port
+// of LanguageParser (language.go), and TitleNorm the normaliser pkg/relindex
+// indexes and searches through (normalize.go).
 package release

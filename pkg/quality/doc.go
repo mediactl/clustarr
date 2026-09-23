@@ -19,7 +19,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // ready-to-evaluate Profile values: a video/music/book/audiobook/comic
 // quality ladder (Definition, Lookup), TRaSH per-minute size tables
 // (SizeLimit, SizeLimits), a QualityProfile's tiers and custom-format scores
-// resolved against pkg/quality/catalogue (FromCRD), and the single-candidate
+// resolved against pkg/quality/catalogue (FromCRD; only a video profile has
+// custom formats -- the catalogue is TRaSH's Radarr/Sonarr data), and the
+// single-candidate
 // upgrade decision ported from UpgradableSpecification.IsUpgradable
 // (Profile.UpgradeDecision). The 13 built-in profiles this task ships as
 // embedded data are decoded and resolved by BuiltinProfiles.
