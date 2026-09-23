@@ -38,22 +38,41 @@ import (
 // swapped element, deliberately: the set of RootFolders does not move on the
 // same cadence as item status, mirroring downloads.templ's own client-cards
 // placement.
-templ Library(items []projection.LibraryItem, rootFolders []catalogv1.RootFolder) {
+templ Library(tab projection.Tab, items []projection.LibraryItem, rootFolders []catalogv1.RootFolder) {
 	@Layout("Library") {
 		<h1 class="mb-4 text-2xl font-bold">Library</h1>
+		@libraryTabs(tab)
 		if len(rootFolders) > 0 {
 			@rescanToolbar(rootFolders)
 		}
 		<div
 			id="library-rows"
+			data-tab={ string(tab) }
 			hx-ext="sse"
-			sse-connect="/events/library"
+			sse-connect={ "/events/library/" + string(tab) }
 			sse-swap="library"
 			class="space-y-4"
 		>
 			@LibraryRows(items)
 		</div>
 	}
+}
+
+// libraryTabs renders the tab strip -- one link per projection.Tab, in
+// the order Tabs() lists them, the current one marked -- so every tab is
+// reachable by a plain link, no JavaScript needed to switch.
+templ libraryTabs(current projection.Tab) {
+	<nav class="mb-4 flex gap-1 border-b border-slate-800" data-tabs>
+		for _, tab := range projection.Tabs() {
+			<a
+				href={ templ.URL("/library/" + string(tab)) }
+				data-tab-link={ string(tab) }
+				class={ tabClass(tab == current) }
+			>
+				{ tabLabel(tab) }
+			</a>
+		}
+	</nav>
 }
 
 // LibraryRows renders the dynamic part of the Library page: the "nothing
@@ -80,27 +99,58 @@ templ LibraryRows(items []projection.LibraryItem) {
 // and a markup change does not pass one.
 templ libraryCard(item projection.LibraryItem) {
 	<div
-		class="rounded-lg border border-slate-800 bg-slate-900 p-4"
+		class="flex gap-3 rounded-lg border border-slate-800 bg-slate-900 p-3"
 		data-ref={ item.Ref.String() }
 		data-kind={ string(item.Kind) }
 		data-monitored={ fmt.Sprintf("%t", item.Monitored) }
 		data-phase={ item.Phase }
 		data-hasfile={ fmt.Sprintf("%t", item.HasFile) }
+		data-year={ fmt.Sprint(item.Year) }
+		data-profile={ item.QualityProfileRef }
+		data-poster={ posterState(item.Poster) }
 	>
-		<div class="flex items-center justify-between gap-4">
-			<a href={ libraryItemURL(item) } class="font-medium hover:underline">{ item.Title }</a>
-			<span class={ monitoredBadgeClass(item.Monitored) }>{ monitoredLabel(item.Monitored) }</span>
-		</div>
-		<div class="mt-2 flex items-center gap-2 text-xs text-slate-400">
-			<span class="rounded-full bg-slate-800 px-2 py-0.5">{ string(item.Kind) }</span>
-			if item.Phase != "" {
-				<span class={ stagePhaseBadgeClass(item.Phase) }>{ item.Phase }</span>
+		@poster(item.Poster, item.Title)
+		<div class="min-w-0 flex-1">
+			<div class="flex items-start justify-between gap-3">
+				<a href={ libraryItemURL(item) } class="truncate font-medium hover:underline">{ item.Title }</a>
+				<span class={ monitoredBadgeClass(item.Monitored) }>{ monitoredLabel(item.Monitored) }</span>
+			</div>
+			if item.Year > 0 {
+				<div class="mt-0.5 text-xs text-slate-400">{ fmt.Sprint(item.Year) }</div>
 			}
-			if item.HasFile {
-				<span class="text-emerald-300">on disk</span>
-			}
+			<div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+				<span class="rounded-full bg-slate-800 px-2 py-0.5">{ string(item.Kind) }</span>
+				if item.QualityProfileRef != "" {
+					<span class="rounded-full bg-slate-800 px-2 py-0.5" title="quality profile">{ item.QualityProfileRef }</span>
+				}
+				if item.Phase != "" {
+					<span class={ stagePhaseBadgeClass(item.Phase) }>{ item.Phase }</span>
+				}
+				if item.HasFile {
+					<span class="text-emerald-300">on disk</span>
+				}
+			</div>
 		</div>
 	</div>
+}
+
+// poster renders the cover art the provider published, hotlinked (spec
+// 2026-09-23-library-page-design, decision 1): lazily, so a long grid does
+// not fetch every image at once, and without a referrer, so the provider's
+// image CDN never learns the UI's address. No art yet renders a
+// placeholder of the same size, never a broken image.
+templ poster(url, title string) {
+	if url != "" {
+		<img
+			src={ templ.URL(url) }
+			alt={ title }
+			loading="lazy"
+			referrerpolicy="no-referrer"
+			class="h-36 w-24 flex-none rounded-md bg-slate-800 object-cover"
+		/>
+	} else {
+		<div class="flex h-36 w-24 flex-none items-center justify-center rounded-md bg-slate-800 text-xs text-slate-500">no art</div>
+	}
 }
 
 // LibraryDetail renders one catalog item's detail view (amendment §A3.4's
@@ -201,6 +251,40 @@ templ ActionError(code, message string) {
 	<p data-action-error={ code } class="rounded-md border border-red-900 bg-red-950/50 p-4 text-sm text-red-300">
 		Action failed: { message }
 	</p>
+}
+
+// tabLabel and tabClass render the tab strip: the label a person reads, and
+// the current tab underlined.
+func tabLabel(tab projection.Tab) string {
+	switch tab {
+	case projection.TabMovies:
+		return "Movies"
+	case projection.TabTV:
+		return "TV"
+	case projection.TabMusic:
+		return "Music"
+	case projection.TabBooks:
+		return "Books"
+	default:
+		return string(tab)
+	}
+}
+
+func tabClass(current bool) string {
+	const base = "-mb-px border-b-2 px-3 py-2 text-sm font-medium "
+	if current {
+		return base + "border-sky-500 text-slate-100"
+	}
+	return base + "border-transparent text-slate-400 hover:text-slate-100"
+}
+
+// posterState is the card's data-poster value: "provider" when the card
+// hotlinks the provider's art, "none" when it shows the placeholder.
+func posterState(url string) string {
+	if url != "" {
+		return "provider"
+	}
+	return "none"
 }
 
 // monitoredLabel and monitoredBadgeClass mirror downloads.templ's

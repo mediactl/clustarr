@@ -312,7 +312,7 @@ func TestSettingsActionWithNoWriterRendersVisibleError(t *testing.T) {
 func TestSettingsAndImportListsNavLinksOnEveryPage(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{})
 
-	for _, path := range []string{"/pipeline", "/downloads", "/library", "/unmatched", "/import-lists", "/settings"} {
+	for _, path := range []string{"/pipeline", "/downloads", "/library/movies", "/unmatched", "/import-lists", "/settings"} {
 		rec := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 		require.Contains(t, rec.Body.String(), `href="/import-lists"`, "page %s is missing the Import Lists nav link", path)

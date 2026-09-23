@@ -20,6 +20,7 @@ package ui_test
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -57,7 +58,7 @@ func libraryTestScheme(t *testing.T) *runtime.Scheme {
 func TestLibraryPageRendersWithoutACluster(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{})
 	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library", nil))
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/movies", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Body.String(), "Nothing in the library yet.")
 }
@@ -71,6 +72,7 @@ func TestLibraryPageRendersItemsWithDataAttributes(t *testing.T) {
 	item := projection.LibraryItem{
 		Ref:       types.NamespacedName{Namespace: "default", Name: "arrival"},
 		Kind:      commonv1.MediaKindMovie,
+		Tab:       projection.TabMovies,
 		Title:     "Arrival",
 		Monitored: true,
 		Phase:     "Wanted",
@@ -81,7 +83,7 @@ func TestLibraryPageRendersItemsWithDataAttributes(t *testing.T) {
 		Library: func(context.Context) []projection.LibraryItem { return []projection.LibraryItem{item} },
 	})
 	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library", nil))
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/movies", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	body := rec.Body.String()
@@ -102,13 +104,13 @@ func TestLibraryPageShowsAnUnevaluatedCutoffAsAWarning(t *testing.T) {
 	for _, phase := range []string{"CutoffUnevaluated", "CutoffUnmet"} {
 		item := projection.LibraryItem{
 			Ref:  types.NamespacedName{Namespace: "default", Name: "arrival"},
-			Kind: commonv1.MediaKindMovie, Title: "Arrival", Monitored: true, Phase: phase,
+			Kind: commonv1.MediaKindMovie, Tab: projection.TabMovies, Title: "Arrival", Monitored: true, Phase: phase,
 		}
 		srv := ui.NewServer(t.Context(), ui.Options{
 			Library: func(context.Context) []projection.LibraryItem { return []projection.LibraryItem{item} },
 		})
 		rec := httptest.NewRecorder()
-		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library", nil))
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/movies", nil))
 		require.Equal(t, http.StatusOK, rec.Code)
 		require.Contains(t, rec.Body.String(), `bg-amber-500/20 text-amber-300">`+phase+`</span>`,
 			"phase %s is not shown with the amber warning badge", phase)
@@ -123,13 +125,13 @@ func TestLibraryPageShowsTranscodedAsDone(t *testing.T) {
 	for _, phase := range []string{"Transcoded", "Imported"} {
 		item := projection.LibraryItem{
 			Ref:  types.NamespacedName{Namespace: "default", Name: "arrival"},
-			Kind: commonv1.MediaKindMovie, Title: "Arrival", Monitored: true, Phase: phase, HasFile: true,
+			Kind: commonv1.MediaKindMovie, Tab: projection.TabMovies, Title: "Arrival", Monitored: true, Phase: phase, HasFile: true,
 		}
 		srv := ui.NewServer(t.Context(), ui.Options{
 			Library: func(context.Context) []projection.LibraryItem { return []projection.LibraryItem{item} },
 		})
 		rec := httptest.NewRecorder()
-		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library", nil))
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/movies", nil))
 		require.Equal(t, http.StatusOK, rec.Code)
 		require.Contains(t, rec.Body.String(), `data-phase="`+phase+`"`)
 		require.Contains(t, rec.Body.String(), `bg-emerald-500/20 text-emerald-300">`+phase+`</span>`,
@@ -150,7 +152,7 @@ func TestLibraryPageRendersRescanToolbarPerRootFolder(t *testing.T) {
 
 	srv := ui.NewServer(t.Context(), ui.Options{Reader: reader})
 	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library", nil))
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/movies", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Body.String(), `data-root-folder="movies"`)
 }
@@ -164,6 +166,7 @@ func TestLibraryDetailPageRendersActionsAndAttributes(t *testing.T) {
 	item := projection.LibraryItem{
 		Ref:       types.NamespacedName{Namespace: "default", Name: "arrival"},
 		Kind:      commonv1.MediaKindMovie,
+		Tab:       projection.TabMovies,
 		Title:     "Arrival",
 		Monitored: true,
 		Phase:     "Wanted",
@@ -298,7 +301,7 @@ func TestRescanActionSucceedsAndRedirects(t *testing.T) {
 func TestLibraryNavLinksOnEveryPage(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{})
 
-	for _, path := range []string{"/pipeline", "/downloads", "/library", "/unmatched"} {
+	for _, path := range []string{"/pipeline", "/downloads", "/library/movies", "/unmatched"} {
 		rec := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 		require.Contains(t, rec.Body.String(), `href="/library"`, "page %s is missing the Library nav link", path)
@@ -314,7 +317,7 @@ func TestLibraryNavLinksOnEveryPage(t *testing.T) {
 func TestLibraryEventsStreamReflectsAStatusChangeBetweenTicks(t *testing.T) {
 	wanted := projection.LibraryItem{
 		Ref: types.NamespacedName{Namespace: "default", Name: "arrival"}, Kind: commonv1.MediaKindMovie,
-		Title: "Arrival", Monitored: true, Phase: "Wanted",
+		Tab: projection.TabMovies, Title: "Arrival", Monitored: true, Phase: "Wanted",
 	}
 	imported := wanted
 	imported.Phase = "Imported"
@@ -332,7 +335,7 @@ func TestLibraryEventsStreamReflectsAStatusChangeBetweenTicks(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, httpSrv.URL+"/events/library", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, httpSrv.URL+"/events/library/movies", nil)
 	require.NoError(t, err)
 	resp, err := httpSrv.Client().Do(req)
 	require.NoError(t, err)
@@ -352,3 +355,99 @@ func TestLibraryEventsStreamReflectsAStatusChangeBetweenTicks(t *testing.T) {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+// The library is one tab per media type (spec 2026-09-23-library-page-design):
+// /library lands on Movies, and a tab that is not one of the four is not
+// found rather than an empty grid.
+func TestLibraryRedirectsToTheMoviesTabAndRefusesOtherTabs(t *testing.T) {
+	srv := ui.NewServer(t.Context(), ui.Options{})
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library", nil))
+	require.Equal(t, http.StatusFound, rec.Code)
+	require.Equal(t, "/library/movies", rec.Header().Get("Location"))
+
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/series", nil))
+	require.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func tabFixtures() (movie, series projection.LibraryItem) {
+	movie = projection.LibraryItem{
+		Ref: types.NamespacedName{Namespace: "default", Name: "arrival"}, Kind: commonv1.MediaKindMovie,
+		Tab: projection.TabMovies, Title: "Arrival", Year: 2016, Poster: "https://img.example/arrival.jpg",
+		QualityProfileRef: "hd-bluray-web", Monitored: true, Phase: "Imported", HasFile: true,
+	}
+	series = projection.LibraryItem{
+		Ref: types.NamespacedName{Namespace: "default", Name: "andor"}, Kind: commonv1.MediaKindSeries,
+		Tab: projection.TabTV, Title: "Andor", Year: 2022, QualityProfileRef: "web-1080p", Monitored: false,
+	}
+	return movie, series
+}
+
+// A tab renders only its own kind's cards, each with the poster (hotlinked,
+// lazily, without a referrer), the year, the monitored badge and the quality
+// profile; a card with no poster yet renders a placeholder, never a broken
+// image. The tab strip links every tab and marks the current one.
+func TestLibraryTabRendersItsOwnCardsWithArtYearAndProfile(t *testing.T) {
+	movie, series := tabFixtures()
+	srv := ui.NewServer(t.Context(), ui.Options{
+		Library: func(context.Context) []projection.LibraryItem { return []projection.LibraryItem{movie, series} },
+	})
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/tv", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	require.Contains(t, body, `data-ref="default/andor"`)
+	require.NotContains(t, body, `data-ref="default/arrival"`, "a movie is not on the TV tab")
+	require.Contains(t, body, `data-tab="tv"`)
+	require.Contains(t, body, `data-profile="web-1080p"`)
+	require.Contains(t, body, `data-year="2022"`)
+	require.Contains(t, body, `data-monitored="false"`)
+	require.Contains(t, body, `data-poster="none"`, "no poster yet renders a placeholder")
+	require.NotContains(t, body, `<img`, "no poster means no image tag")
+	require.Contains(t, body, `sse-connect="/events/library/tv"`)
+	for _, tab := range projection.Tabs() {
+		require.Contains(t, body, fmt.Sprintf(`href="/library/%s"`, tab))
+	}
+
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/movies", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	body = rec.Body.String()
+	require.Contains(t, body, `data-ref="default/arrival"`)
+	require.NotContains(t, body, `data-ref="default/andor"`)
+	require.Contains(t, body, `src="https://img.example/arrival.jpg"`)
+	require.Contains(t, body, `loading="lazy"`)
+	require.Contains(t, body, `referrerpolicy="no-referrer"`)
+	require.Contains(t, body, `data-profile="hd-bluray-web"`)
+}
+
+// A tab's stream carries only that tab's rows, so a movie landing does not
+// redraw the TV grid; a stream for a tab that does not exist is not found.
+func TestLibraryTabStreamCarriesOnlyItsRows(t *testing.T) {
+	movie, series := tabFixtures()
+	ch := make(chan []projection.LibraryItem, 1)
+	ch <- []projection.LibraryItem{movie, series}
+	srv := ui.NewServer(t.Context(), ui.Options{
+		SubscribeLibrary: func() (<-chan []projection.LibraryItem, func()) { return ch, func() {} },
+	})
+	httpSrv := httptest.NewServer(srv.Handler())
+	defer httpSrv.Close()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, httpSrv.URL+"/events/library/tv", nil)
+	require.NoError(t, err)
+	resp, err := httpSrv.Client().Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	first := readSSEEvent(t, bufio.NewReader(resp.Body))
+	require.Contains(t, first, `data-ref="default/andor"`)
+	require.NotContains(t, first, `data-ref="default/arrival"`)
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/events/library/nope", nil))
+	require.Equal(t, http.StatusNotFound, rec.Code)
+}

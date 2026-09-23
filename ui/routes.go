@@ -48,8 +48,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /events/pipeline", s.handlePipelineEvents)
 	mux.HandleFunc("GET /downloads", s.handleDownloads)
 	mux.HandleFunc("GET /events/downloads", s.handleDownloadsEvents)
-	mux.HandleFunc("GET /library", s.handleLibrary)
-	mux.HandleFunc("GET /events/library", s.handleLibraryEvents)
+	mux.HandleFunc("GET /library", s.handleLibraryIndex)
+	mux.HandleFunc("GET /library/{tab}", s.handleLibrary)
+	mux.HandleFunc("GET /events/library/{tab}", s.handleLibraryEvents)
 	mux.HandleFunc("GET /library/{namespace}/{kind}/{name}", s.handleLibraryItem)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/monitor", s.handleSetMonitored)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/search", s.handleSearchNow)
@@ -184,12 +185,24 @@ func (s *Server) listDownloads(ctx context.Context) ([]downloadv1.Download, []do
 // "Rescan" toolbar built from every known RootFolder (listRootFolders,
 // mirroring listDownloads' own direct-Reader reads for config-like data).
 func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
-	items := s.opts.Library(r.Context())
+	tab, ok := projection.ParseTab(r.PathValue("tab"))
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	items := projection.ForTab(s.opts.Library(r.Context()), tab)
 	rootFolders := s.listRootFolders(r.Context())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := views.Library(items, rootFolders).Render(r.Context(), w); err != nil {
+	if err := views.Library(tab, items, rootFolders).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render library page", "error", err)
 	}
+}
+
+// handleLibraryIndex sends /library to its first tab: the library is one
+// tab per media type (spec 2026-09-23-library-page-design), and a bare
+// /library has no grid of its own.
+func (s *Server) handleLibraryIndex(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "/library/"+string(projection.TabMovies), http.StatusFound)
 }
 
 // listRootFolders lists every RootFolder through Options.Reader, sorted by

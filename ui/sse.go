@@ -236,6 +236,15 @@ func writeDownloadsEvent(w http.ResponseWriter, ctx context.Context, downloads [
 // (design plan ruling R4, Task G3-3); a nil Options.SubscribeLibrary falls
 // back to [defaultSubscribeLibrary], a per-connection poll of Options.Library.
 func (s *Server) handleLibraryEvents(w http.ResponseWriter, r *http.Request) {
+	// One stream per tab: a tab's grid is swapped whole on every frame, so
+	// a frame carrying another tab's rows would redraw it with the wrong
+	// kind. The rows are filtered here, per frame, with the same rule the
+	// page itself uses (projection.ForTab); the projection stays one tick.
+	tab, ok := projection.ParseTab(r.PathValue("tab"))
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
@@ -256,7 +265,7 @@ func (s *Server) handleLibraryEvents(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			return
 		case items := <-ch:
-			if !writeLibraryEvent(w, ctx, items) {
+			if !writeLibraryEvent(w, ctx, projection.ForTab(items, tab)) {
 				return
 			}
 			flusher.Flush()
