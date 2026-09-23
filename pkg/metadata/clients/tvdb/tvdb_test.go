@@ -20,6 +20,8 @@ package tvdb_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -90,6 +92,105 @@ func TestEpisodesUsesTheRequestedSeasonOrder(t *testing.T) {
 	require.Equal(t, "Winter Is Coming", eps[0].Title)
 	require.EqualValues(t, 1, eps[0].SeasonNumber)
 	require.EqualValues(t, 1, *eps[0].AbsoluteNumber)
+}
+
+// episodesPage renders one page of TheTVDB v4's episode-list envelope: the
+// episodes named, in season n+1, and links.next set when more follows.
+func episodesPage(t *testing.T, n int, next bool, names ...string) []byte {
+	t.Helper()
+	eps := make([]map[string]any, 0, len(names))
+	for i, name := range names {
+		eps = append(eps, map[string]any{"name": name, "seasonNumber": n + 1, "number": i + 1, "aired": "1990-01-01"})
+	}
+	links := map[string]any{"self": fmt.Sprintf("/series/71663/episodes/official?page=%d", n), "next": nil, "page_size": 2}
+	if next {
+		links["next"] = fmt.Sprintf("/series/71663/episodes/official?page=%d", n+1)
+	}
+	body, err := json.Marshal(map[string]any{"data": map[string]any{"episodes": eps}, "links": links})
+	require.NoError(t, err)
+	return body
+}
+
+// TheTVDB v4 pages an episode list (links.page_size, 500 in production) and
+// names the next page in links.next; a series with more episodes than one
+// page -- The Simpsons, Mister Rogers' Neighborhood -- was cut off at the
+// first. Every page is fetched, in order, by asking for ?page=N until next
+// is null.
+func TestEpisodesFollowsEveryPage(t *testing.T) {
+	login, _ := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
+	var pages []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/login":
+			_, _ = w.Write(login)
+		case "/series/71663/episodes/official":
+			page := r.URL.Query().Get("page")
+			pages = append(pages, page)
+			switch page {
+			case "0":
+				_, _ = w.Write(episodesPage(t, 0, true, "Simpsons Roasting on an Open Fire", "Bart the Genius"))
+			case "1":
+				_, _ = w.Write(episodesPage(t, 1, true, "Homer's Odyssey", "There's No Disgrace Like Home"))
+			case "2":
+				_, _ = w.Write(episodesPage(t, 2, false, "Bart the General"))
+			default:
+				t.Errorf("unexpected page %q", page)
+			}
+		default:
+			t.Errorf("unexpected request: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	c := tvdb.New("test-key", "test-pin", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+
+	eps, err := c.Episodes(context.Background(), "71663", "official")
+
+	require.NoError(t, err)
+	titles := make([]string, 0, len(eps))
+	for _, ep := range eps {
+		titles = append(titles, ep.Title)
+	}
+	require.Equal(t, []string{
+		"Simpsons Roasting on an Open Fire", "Bart the Genius", "Homer's Odyssey",
+		"There's No Disgrace Like Home", "Bart the General",
+	}, titles)
+	require.EqualValues(t, 3, eps[4].SeasonNumber)
+	require.Equal(t, []string{"0", "1", "2"}, pages, "each page fetched once, in order")
+}
+
+// A page that names a next page yet carries no episodes ends the walk:
+// nothing more is coming, and following it would spend the limiter's budget
+// against TheTVDB on empty pages.
+func TestEpisodesStopsAtAnEmptyPage(t *testing.T) {
+	login, _ := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
+	var pages []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/login":
+			_, _ = w.Write(login)
+		case "/series/71663/episodes/official":
+			page := r.URL.Query().Get("page")
+			pages = append(pages, page)
+			switch page {
+			case "0":
+				_, _ = w.Write(episodesPage(t, 0, true, "Simpsons Roasting on an Open Fire"))
+			case "1":
+				_, _ = w.Write(episodesPage(t, 1, true))
+			default:
+				t.Errorf("walked past the empty page to %q", page)
+			}
+		default:
+			t.Errorf("unexpected request: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	c := tvdb.New("test-key", "test-pin", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+
+	eps, err := c.Episodes(context.Background(), "71663", "official")
+
+	require.NoError(t, err)
+	require.Len(t, eps, 1)
+	require.Equal(t, []string{"0", "1"}, pages)
 }
 
 func TestUpdatesReturnsRecordIDsSinceTheGivenTime(t *testing.T) {

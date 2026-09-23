@@ -188,6 +188,11 @@ type episodesResponse struct {
 			AbsoluteNumber *int32 `json:"absoluteNumber"`
 		} `json:"episodes"`
 	} `json:"data"`
+	// Links pages the list: v4 returns page_size (500) episodes per page
+	// and names the next page in next, null on the last.
+	Links struct {
+		Next *string `json:"next"`
+	} `json:"links"`
 }
 
 // Episodes fetches a series' episode list under the given season order
@@ -198,28 +203,38 @@ func (c *Client) Episodes(ctx context.Context, tvdbID string, order string) ([]m
 	defer span.End()
 	logger := logging.FromContext(ctx)
 
-	var raw episodesResponse
-	path := "/series/" + tvdbID + "/episodes/" + order
-	if err := c.doRequest(ctx, http.MethodGet, path, &raw); err != nil {
-		tracing.RecordError(span, err)
-		logger.ErrorContext(ctx, "tvdb: episodes fetch failed", "tvdb_id", tvdbID, "order", order, "error", err)
-		return nil, err
-	}
-
-	episodes := make([]metadata.Episode, 0, len(raw.Data.Episodes))
-	for _, e := range raw.Data.Episodes {
-		ep := metadata.Episode{
-			SeasonNumber:   e.SeasonNumber,
-			EpisodeNumber:  e.Number,
-			AbsoluteNumber: e.AbsoluteNumber,
-			Title:          e.Name,
-			Overview:       e.Overview,
-			Runtime:        e.Runtime,
+	// The list is paged (episodesResponse.Links): every page is fetched, by
+	// number rather than by following links.next's own text, until next is
+	// null. An empty page ends the walk whatever next says, so a provider
+	// that kept naming one could not run the limiter's budget down on
+	// nothing.
+	var episodes []metadata.Episode
+	base := "/series/" + tvdbID + "/episodes/" + order
+	for page := 0; ; page++ {
+		var raw episodesResponse
+		path := base + "?page=" + strconv.Itoa(page)
+		if err := c.doRequest(ctx, http.MethodGet, path, &raw); err != nil {
+			tracing.RecordError(span, err)
+			logger.ErrorContext(ctx, "tvdb: episodes fetch failed", "tvdb_id", tvdbID, "order", order, "page", page, "error", err)
+			return nil, err
 		}
-		if t, ok := parseDate(e.Aired); ok {
-			ep.AirDate = &t
+		for _, e := range raw.Data.Episodes {
+			ep := metadata.Episode{
+				SeasonNumber:   e.SeasonNumber,
+				EpisodeNumber:  e.Number,
+				AbsoluteNumber: e.AbsoluteNumber,
+				Title:          e.Name,
+				Overview:       e.Overview,
+				Runtime:        e.Runtime,
+			}
+			if t, ok := parseDate(e.Aired); ok {
+				ep.AirDate = &t
+			}
+			episodes = append(episodes, ep)
 		}
-		episodes = append(episodes, ep)
+		if len(raw.Data.Episodes) == 0 || raw.Links.Next == nil || *raw.Links.Next == "" {
+			break
+		}
 	}
 
 	logger.DebugContext(ctx, "tvdb: episodes fetched", "tvdb_id", tvdbID, "order", order, "count", len(episodes))
