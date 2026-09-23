@@ -628,7 +628,7 @@ spec:
               contentRoot:
                 description: ContentRoot is the directory the file paths in status.files
                   are relative to.
-                maxLength: 1024
+                maxLength: 4096
                 type: string
               downloadID:
                 description: |-
@@ -679,7 +679,7 @@ spec:
                     path:
                       description: Path is the file path relative to status.contentRoot.
                         It keys the list.
-                      maxLength: 1024
+                      maxLength: 4096
                       minLength: 1
                       type: string
                     sizeBytes:
@@ -746,7 +746,7 @@ spec:
                         destPath:
                           description: DestPath is the path the file now has in the
                             library.
-                          maxLength: 1024
+                          maxLength: 4096
                           type: string
                         mediaFileRef:
                           description: MediaFileRef is the name of the MediaFile created
@@ -755,7 +755,7 @@ spec:
                         sourcePath:
                           description: SourcePath is the path the file had inside
                             the download.
-                          maxLength: 1024
+                          maxLength: 4096
                           type: string
                       type: object
                     maxItems: 200
@@ -810,7 +810,7 @@ spec:
                 type: integer
               outputPath:
                 description: OutputPath is where the finished content was published.
-                maxLength: 1024
+                maxLength: 4096
                 type: string
               peers:
                 description: Peers is the number of connected peers. Torrent only.

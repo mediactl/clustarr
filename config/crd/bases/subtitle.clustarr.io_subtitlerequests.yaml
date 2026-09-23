@@ -189,7 +189,7 @@ spec:
                       description: |-
                         Path is the sidecar path relative to the media file's directory, or the
                         media file itself for an embedded track.
-                      maxLength: 1024
+                      maxLength: 4096
                       type: string
                     source:
                       description: |-
@@ -292,7 +292,7 @@ spec:
                     path:
                       description: Path is the written sidecar path relative to the
                         media file's directory.
-                      maxLength: 1024
+                      maxLength: 4096
                       type: string
                     provider:
                       description: Provider is the name of the SubtitleProvider the

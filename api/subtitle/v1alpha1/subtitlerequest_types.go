@@ -111,7 +111,7 @@ type ExistingSub struct {
 	// Path is the sidecar path relative to the media file's directory, or the
 	// media file itself for an embedded track.
 	// +optional
-	// +kubebuilder:validation:MaxLength=1024
+	// +kubebuilder:validation:MaxLength=4096
 	Path string `json:"path,omitempty"`
 
 	// StreamIndex is the zero-based container stream index of an embedded
@@ -171,7 +171,7 @@ type SubtitleItem struct {
 
 	// Path is the written sidecar path relative to the media file's directory.
 	// +optional
-	// +kubebuilder:validation:MaxLength=1024
+	// +kubebuilder:validation:MaxLength=4096
 	Path string `json:"path,omitempty"`
 
 	// Attempts tracks how often this language has been searched.

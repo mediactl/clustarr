@@ -369,7 +369,7 @@ type DownloadFile struct {
 	// Path is the file path relative to status.contentRoot. It keys the list.
 	// +required
 	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=1024
+	// +kubebuilder:validation:MaxLength=4096
 	Path string `json:"path"`
 
 	// SizeBytes is the file's size in bytes.
@@ -407,16 +407,21 @@ type UsenetHealth struct {
 	TotalArticles int32 `json:"totalArticles,omitempty"`
 }
 
+// Both ImportedFile paths are capped at 4096, Linux PATH_MAX, rather than
+// anything shorter: nothing truncates them, a real path over a tighter cap
+// gets the whole status.import apply rejected, and truncating a path to fit
+// would record a path that does not exist.
+
 // ImportedFile records one file that made it into the library.
 type ImportedFile struct {
 	// SourcePath is the path the file had inside the download.
 	// +optional
-	// +kubebuilder:validation:MaxLength=1024
+	// +kubebuilder:validation:MaxLength=4096
 	SourcePath string `json:"sourcePath,omitempty"`
 
 	// DestPath is the path the file now has in the library.
 	// +optional
-	// +kubebuilder:validation:MaxLength=1024
+	// +kubebuilder:validation:MaxLength=4096
 	DestPath string `json:"destPath,omitempty"`
 
 	// MediaFileRef is the name of the MediaFile created for the file.
@@ -510,12 +515,12 @@ type DownloadStatus struct {
 
 	// OutputPath is where the finished content was published.
 	// +optional
-	// +kubebuilder:validation:MaxLength=1024
+	// +kubebuilder:validation:MaxLength=4096
 	OutputPath string `json:"outputPath,omitempty"`
 
 	// ContentRoot is the directory the file paths in status.files are relative to.
 	// +optional
-	// +kubebuilder:validation:MaxLength=1024
+	// +kubebuilder:validation:MaxLength=4096
 	ContentRoot string `json:"contentRoot,omitempty"`
 
 	// Files lists the files in the transfer.

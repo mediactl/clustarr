@@ -22,6 +22,10 @@ package v1alpha1
 // ImportedFileApplyConfiguration represents a declarative configuration of the ImportedFile type for use
 // with apply.
 //
+// Both ImportedFile paths are capped at 4096, Linux PATH_MAX, rather than
+// anything shorter: nothing truncates them, a real path over a tighter cap
+// gets the whole status.import apply rejected, and truncating a path to fit
+// would record a path that does not exist.
 // ImportedFile records one file that made it into the library.
 type ImportedFileApplyConfiguration struct {
 	// SourcePath is the path the file had inside the download.
