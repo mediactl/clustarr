@@ -50,9 +50,14 @@ const metricKindMovie = "movie"
 // processConfig is everything one Download's import needs, so [processConfig.run]
 // takes no parameter besides ctx.
 type processConfig struct {
-	worker     *Worker
-	message    events.Message
-	download   *downloadv1alpha1.Download
+	worker   *Worker
+	message  events.Message
+	download *downloadv1alpha1.Download
+	// target is the MediaFile's spec.mediaRef: the Download's spec.target,
+	// or what its import-target annotation redirected the import to.
+	target commonv1.MediaRef
+	// manual is DownloadSpec.Manual or an import-override=true annotation.
+	manual     bool
 	movie      *catalogv1alpha1.Movie
 	rootFolder *catalogv1alpha1.RootFolder
 	profile    quality.Profile
@@ -132,7 +137,7 @@ func (pc *processConfig) processFile(
 	ic := catalogue.ItemContext{OriginalLanguageName: pc.originalLanguageName, ReleaseType: parsed.ReleaseType}
 	score, matched := pc.profile.Score(ctx, pc.worker.Catalogue, parsed, ic)
 
-	if pc.existing != nil && !pc.download.Spec.Manual {
+	if pc.existing != nil && !pc.manual {
 		current := quality.Candidate{
 			Quality:     pc.existing.Spec.Quality,
 			Revision:    pc.existing.Spec.Revision,
@@ -176,7 +181,7 @@ func (pc *processConfig) processFile(
 
 	mfName := k8s.ChildName(pc.movie.Name, "mediafile", dest)
 	spec := catalogac.MediaFileSpec().
-		WithMediaRef(pc.download.Spec.Target).
+		WithMediaRef(pc.target).
 		WithPath(dest).
 		WithSizeBytes(destInfo.Size()).
 		WithModTime(metav1.NewTime(destInfo.ModTime())).
@@ -194,7 +199,7 @@ func (pc *processConfig) processFile(
 			WithIndexerName(pc.download.Spec.Release.IndexerName).
 			WithProtocol(pc.download.Spec.Release.Protocol).
 			WithImportedAt(metav1.NewTime(pc.worker.now())).
-			WithManual(pc.download.Spec.Manual))
+			WithManual(pc.manual))
 	if len(matched) > 0 {
 		spec = spec.WithMatchedFormats(capMatchedFormats(matched)...)
 	}

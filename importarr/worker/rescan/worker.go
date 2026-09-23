@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/importarr/worker/fileimport"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
@@ -66,9 +67,6 @@ const (
 	// number, so carrying more would only inflate the KV value. The worker
 	// keeps the newest by dropping the oldest as it goes.
 	maxUnmatched = 200
-
-	// metricKindMovie is the bounded `kind` label on the import metrics.
-	metricKindMovie = "movie"
 )
 
 // Worker handles clustarr.work.importarr.scan.* messages: one message is one
@@ -97,6 +95,7 @@ type Worker struct {
 //
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists;albums;authors;books;audiobooks;comics;issues,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=libraryscans,verbs=get;list;watch
 
@@ -128,6 +127,14 @@ type scanState struct {
 	movies   []MovieCandidate
 	progress Progress
 
+	// nonVideo holds the candidates of a music, book, audiobook or comic
+	// root folder; nil for a movie root.
+	nonVideo *nonVideoIndex
+
+	// manual is the scan's import-target annotation, resolved; nil unless
+	// the scan is a manual assignment.
+	manual *manualAssign
+
 	// lastCheckpoint is when the running tally last reached the KV bucket.
 	lastCheckpoint time.Time
 
@@ -154,7 +161,11 @@ func (s *scanState) unmatched(path, code, reason string, candidates []string, at
 	if len(s.progress.Unmatched) > maxUnmatched {
 		s.progress.Unmatched = s.progress.Unmatched[len(s.progress.Unmatched)-maxUnmatched:]
 	}
-	metrics.ImportUnmatchedTotal.WithLabelValues(metricKindMovie, code).Inc()
+	kind := ""
+	if s.root != nil {
+		kind = string(s.root.Spec.Kind) // a closed enum, so a bounded label
+	}
+	metrics.ImportUnmatchedTotal.WithLabelValues(kind, code).Inc()
 }
 
 // Handle implements events.Handler. It walks the ScanTask's path, attributes
@@ -216,8 +227,37 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	}
 	st.root = &root
 
-	if err := w.loadMovies(ctx, &st.movies, scan.Namespace); err != nil {
+	// A subpath that climbs out of the root folder ("../elsewhere") would
+	// otherwise be walked, and every file found recorded against items of
+	// this root. The LibraryScan controller joins spec.subpath without
+	// checking it, and the UI creates LibraryScans, so the worker refuses.
+	if !withinRoot(root.Spec.Path, task.Path) {
+		return w.refuseScan(ctx, st, refuse("scan path %q is outside root folder %q (%s)",
+			task.Path, root.Name, root.Spec.Path))
+	}
+
+	manual, err := w.resolveManualAssign(ctx, &scan, &root)
+	switch {
+	case errors.Is(err, errScanRefused):
+		return w.refuseScan(ctx, st, err)
+	case err != nil:
 		return w.abort(ctx, m, st, err)
+	}
+	st.manual = manual
+
+	switch {
+	case st.manual != nil:
+		// A manual assignment matches nothing, so it loads no candidates.
+	case root.Spec.Kind == catalogv1alpha1.RootFolderKindMovie:
+		if err := w.loadMovies(ctx, &st.movies, scan.Namespace); err != nil {
+			return w.abort(ctx, m, st, err)
+		}
+	case fileKindForRoot(root.Spec.Kind) != "":
+		idx, err := w.loadNonVideo(ctx, scan.Namespace, &root)
+		if err != nil {
+			return w.abort(ctx, m, st, err)
+		}
+		st.nonVideo = idx
 	}
 
 	if err := w.walk(ctx, m, st); err != nil {
@@ -245,9 +285,16 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 // what keeps a sample, an extra or a half-downloaded .part out of the
 // catalog.
 func (w *Worker) walk(ctx context.Context, m events.Message, st *scanState) error {
+	fileKind := fileKindForRoot(st.root.Spec.Kind)
 	return fsops.Walk(ctx, st.task.Path, func(path string, info os.FileInfo, class fsops.FileClass) error {
 		if err := w.beat(ctx, m, st); err != nil {
 			return err
+		}
+		// fsops' class is video-shaped: no audio extension is media and
+		// every small ebook is a "sample". Non-video roots reclassify by
+		// their own kind's extensions (fileimport.ClassifyFor).
+		if fileimport.IsNonVideoFileKind(fileKind) {
+			class = fileimport.ClassifyFor(fileKind, path)
 		}
 
 		if class != fsops.ClassMedia {

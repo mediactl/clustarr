@@ -51,12 +51,45 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Scope
 //
-// Only Target.Kind == commonv1.MediaKindMovie is implemented. A Download
-// whose target is any other kind is recorded as
-// [downloadv1alpha1.ImportPhaseIgnored] with a clear reason rather than
-// attempted: series/episode packs, and every non-video kind, are later
-// milestone work (mirroring importarr/worker/rescan's identical scope cut
-// for RootFolder kinds).
+// The import target is the Download's spec.target, or what its
+// [AnnotationImportTarget] annotation redirects it to (see "Manual import").
+// Supported: a movie, and the four non-video items that hold files -- an
+// album, a book, an audiobook, an issue (spec.target comic/<c> with exactly
+// one key, or the annotation comic/<c>/<issue>). A series or episode target
+// is recorded as [downloadv1alpha1.ImportPhaseIgnored]: episode import is
+// not built. An artist, author, or comic without an issue is Blocked with a
+// message naming the annotation that fixes it -- its files belong to one of
+// its children, and choosing which is a guess.
+//
+// A non-video import (nonvideo.go) differs from a movie import in three
+// honest ways. Its files are classified by [ClassifyFor], because fsops'
+// class has no audio extension and calls a small ebook a sample. Its quality
+// is frozen only where the extension determines it exactly
+// ([FrozenQuality]); a file whose quality is undeterminable without a probe
+// is imported only by a manual import. And it is never scored: the custom-
+// format corpus is TRaSH video data, so formatScore, matchedFormats and
+// profileHash stay unset. An album's or audiobook's existing files are left
+// in place by a manual import that adds to it (which old track a new one
+// replaces is not knowable without probing both); a book's or issue's single
+// file is replaced by an upgrade exactly as a movie's is.
+//
+// # Manual import
+//
+// Design spec §8.4's two Download annotations:
+//
+//   - [AnnotationImportTarget] "<kind>/<name>[/<key>]" directs the import at
+//     one item instead of spec.target (which is immutable, and the
+//     Download's owner).
+//   - [AnnotationImportOverride] "true" has DownloadSpec.Manual's effect;
+//     [ParseImportOverride] says exactly what that is.
+//
+// Both are parsed strictly; a malformed one blocks the import with the
+// parse error on status.import rather than importing to spec.target.
+// Grabarr publishes a Download's ImportTask once, so an annotation set on a
+// Download that is already Blocked is acted on by [Retrigger], which re-
+// queues it. The same import-target grammar on a LibraryScan is how a
+// rescan-unmatched file is assigned by hand: importarr/worker/rescan's
+// package doc, "Manual assignment".
 //
 // # Registration
 //
@@ -92,4 +125,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // IndexMediaFileByTarget must run before the manager starts: it registers
 // the field index this worker uses to find a target's existing MediaFile.
+//
+// [Retrigger] is a separate controller, registered the same way as any
+// other (its doc comment has the call). It is not a work consumer and runs
+// under ordinary leader election.
 package fileimport

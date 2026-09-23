@@ -67,6 +67,7 @@ const FieldManager = k8s.ManagerImportarrWorker
 
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists;albums;authors;books;audiobooks;comics;issues,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch
@@ -181,14 +182,45 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		return nil
 	}
 
-	if dl.Spec.Target.Kind != commonv1.MediaKindMovie {
+	// The import annotations are read before anything else is decided: a
+	// malformed one is a user instruction this worker cannot follow, and
+	// importing to spec.target instead would be guessing what they meant.
+	// It is reported on status.import, which this worker owns, and the
+	// Download stays importable once the annotation is fixed (Retrigger).
+	dirs, derr := readDirectives(dl.Annotations)
+	if derr != nil {
+		return w.finishBlocked(ctx, &dl, nil, nil, "invalid annotation: "+derr.Error())
+	}
+	manual := dl.Spec.Manual || dirs.override
+	target := targetFromSpec(dl.Spec.Target)
+	if dirs.target != nil {
+		target = *dirs.target
+	}
+	ref := target.FileRef()
+
+	switch {
+	case ref.Kind == commonv1.MediaKindMovie:
+		// handled below
+	case IsNonVideoFileKind(ref.Kind):
+		return w.importNonVideo(ctx, m, &dl, target, manual)
+	case ref.Kind == commonv1.MediaKindSeries || ref.Kind == commonv1.MediaKindEpisode:
 		return w.finishIgnored(ctx, &dl, fmt.Sprintf(
-			"target kind %q is not supported by file-import yet", dl.Spec.Target.Kind))
+			"target kind %q is not supported by file-import yet", ref.Kind))
+	default:
+		// An artist, author, or comic without an issue key: a container
+		// whose files belong to one of its children, and choosing which
+		// is the guess this worker does not make.
+		return w.finishBlocked(ctx, &dl, nil, nil, fmt.Sprintf(
+			"target %s is a %s, which holds no files itself; set %s to the album, book or issue "+
+				"(comic/<comic>/<issue>) the files belong to", target, ref.Kind, AnnotationImportTarget))
 	}
 
 	var movie catalogv1alpha1.Movie
-	if err := w.Client.Get(ctx, types.NamespacedName{Namespace: ns, Name: dl.Spec.Target.Name}, &movie); err != nil {
-		return fmt.Errorf("fileimport: get movie %s/%s: %w", ns, dl.Spec.Target.Name, err)
+	if err := w.Client.Get(ctx, types.NamespacedName{Namespace: ns, Name: ref.Name}, &movie); err != nil {
+		if apierrors.IsNotFound(err) {
+			return w.finishBlocked(ctx, &dl, nil, nil, fmt.Sprintf("movie %q does not exist", ref.Name))
+		}
+		return fmt.Errorf("fileimport: get movie %s/%s: %w", ns, ref.Name, err)
 	}
 	if movie.Status.Metadata == nil {
 		return fmt.Errorf("fileimport: movie %s/%s has no metadata yet", ns, movie.Name)
@@ -215,7 +247,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		return fmt.Errorf("fileimport: stat content root %s: %w", dl.Status.ContentRoot, err)
 	}
 
-	existing, err := w.existingMediaFile(ctx, ns, dl.Spec.Target)
+	existing, err := w.existingMediaFile(ctx, ns, ref)
 	if err != nil {
 		return err
 	}
@@ -245,6 +277,8 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		worker:               w,
 		message:              m,
 		download:             &dl,
+		target:               ref,
+		manual:               manual,
 		movie:                &movie,
 		rootFolder:           &rootFolder,
 		profile:              profile,

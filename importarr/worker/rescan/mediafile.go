@@ -25,6 +25,7 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
@@ -72,6 +73,12 @@ const FieldManager = k8s.ManagerImportarrWorker
 // MediaFileStatus. Nothing here calls PatchStatus, and nothing here probes:
 // there is nowhere on MediaFileSpec for a probe result to go, and probing is
 // catalogarr's job (spec §8.5).
+//
+// A path that already has a MediaFile is not attributed again. The
+// MediaFile IS its attribution -- spec.mediaRef is immutable -- so a rescan
+// only refreshes what it observes (size and mtime) and re-asserts every
+// frozen field verbatim; re-running the matcher could only agree, or list a
+// file that is already in the catalog as unmatched.
 func (w *Worker) handleMediaFile(ctx context.Context, st *scanState, path string, info os.FileInfo) error {
 	now := w.now()
 	// Relative to the ROOT FOLDER, which is what
@@ -80,35 +87,33 @@ func (w *Worker) handleMediaFile(ctx context.Context, st *scanState, path string
 	// drop that prefix from every recorded entry.
 	rel := relPath(st.root.Spec.Path, path)
 
-	// Library rescan understands movie root folders. A file under any other
-	// kind is reported honestly rather than guessed at: extending this to
-	// series, music and books is M6 work.
-	if st.root.Spec.Kind != catalogv1alpha1.RootFolderKindMovie {
+	// Library rescan attributes movie, music, book, audiobook and comic
+	// root folders. A file under a series root is reported honestly rather
+	// than guessed at: episode attribution is not built.
+	if fileKindForRoot(st.root.Spec.Kind) == "" {
 		st.unmatched(rel, CodeUnsupportedKind, fmt.Sprintf(
 			"root folder kind %q is not supported by library rescan yet", st.root.Spec.Kind), nil, now)
 		return nil
 	}
 
-	existing, err := w.existingMediaFile(ctx, st.scan.Namespace, path)
-	if err != nil {
+	existing, skip, err := w.existingForRescan(ctx, st, path, info)
+	if err != nil || skip {
 		return err
 	}
-	if existing != nil {
-		// catalogarr takes spec.sizeBytes, spec.modTime and spec.original
-		// over once it incorporates a transcode swap (spec §8.5). k8s.Apply
-		// forces ownership, so re-applying those fields here would silently
-		// reclaim them and break the split; leave the file alone entirely.
-		if existing.Spec.Original != nil && !*existing.Spec.Original {
-			st.progress.FilesSkipped++
-			return nil
+	switch {
+	case st.manual != nil:
+		return w.assignManually(ctx, st, path, rel, info, existing)
+	case existing != nil:
+		if !st.task.DryRun {
+			if err := w.applyObserved(ctx, st.scan.Namespace, existing, existing.Spec.MediaRef, path, info, frozenFields{}); err != nil {
+				return err
+			}
 		}
-		// The incremental fingerprint is spec.sizeBytes plus spec.modTime
-		// directly: a file whose size and mtime are unchanged has nothing
-		// new to record.
-		if st.incremental() && sameFingerprint(existing, info) {
-			st.progress.FilesSkipped++
-			return nil
-		}
+		st.progress.ItemsUpdated++
+		st.progress.FilesMatched++
+		return nil
+	case st.root.Spec.Kind != catalogv1alpha1.RootFolderKindMovie:
+		return w.handleNonVideoFile(ctx, st, path, rel, info)
 	}
 
 	parsed, perr := release.ParsePath(path, release.Options{Kind: commonv1.MediaKindMovie})
@@ -153,7 +158,8 @@ func (w *Worker) handleMediaFile(ctx context.Context, st *scanState, path string
 	}
 
 	if !st.task.DryRun {
-		if err := w.applyMediaFile(ctx, st, movieName, path, info, parsed); err != nil {
+		ref := commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movieName}
+		if err := w.applyObserved(ctx, st.scan.Namespace, nil, ref, path, info, freshMovieSpec(parsed)); err != nil {
 			return err
 		}
 	}
@@ -161,6 +167,35 @@ func (w *Worker) handleMediaFile(ctx context.Context, st *scanState, path string
 	logging.FromContext(ctx).Debug("attributed a scanned file",
 		"movie", movieName, "tmdbID", result.TmdbID, "created", created)
 	return nil
+}
+
+// existingForRescan looks the path's MediaFile up and decides whether the
+// walk leaves it alone entirely. skip is true (and counted) for a file
+// catalogarr has taken over post-transcode and, on an incremental scan, for
+// an unchanged fingerprint.
+func (w *Worker) existingForRescan(
+	ctx context.Context, st *scanState, path string, info os.FileInfo,
+) (existing *catalogv1alpha1.MediaFile, skip bool, err error) {
+	existing, err = w.existingMediaFile(ctx, st.scan.Namespace, path)
+	if err != nil || existing == nil {
+		return existing, false, err
+	}
+	// catalogarr takes spec.sizeBytes, spec.modTime and spec.original
+	// over once it incorporates a transcode swap (spec §8.5). k8s.Apply
+	// forces ownership, so re-applying those fields here would silently
+	// reclaim them and break the split; leave the file alone entirely.
+	if existing.Spec.Original != nil && !*existing.Spec.Original {
+		st.progress.FilesSkipped++
+		return existing, true, nil
+	}
+	// The incremental fingerprint is spec.sizeBytes plus spec.modTime
+	// directly: a file whose size and mtime are unchanged has nothing
+	// new to record.
+	if st.incremental() && sameFingerprint(existing, info) {
+		st.progress.FilesSkipped++
+		return existing, true, nil
+	}
+	return existing, false, nil
 }
 
 // existingMediaFile looks a walked path up through the spec.path field index.
@@ -213,46 +248,155 @@ func (w *Worker) applyMovie(ctx context.Context, st *scanState, name string, tmd
 	return nil
 }
 
-// applyMediaFile records the file itself. Every field set here is a
-// MediaFileSpec field: the observed path, size and mtime, and the release
-// identity pkg/release parsed and spec §8.4 freezes at import.
-//
-// releaseGroup goes through releaseGroupOrEmpty rather than straight from the
-// parser: see releasegroup.go for the pkg/release defect that guard
-// compensates for, and why a frozen field makes it worth compensating for.
+// frozenFields is what a first sighting of a file freezes into
+// MediaFileSpec beyond the observed path, size and mtime (spec §8.4). A nil
+// or empty field is not sent, so this manager never claims a field it has
+// nothing to say about.
+type frozenFields struct {
+	quality      *commonv1.Quality
+	revision     *commonv1.Revision
+	releaseType  commonv1.ReleaseType
+	releaseGroup *string
+	edition      *string
+	languages    []string
+	importedFrom *catalogac.ImportSourceApplyConfiguration
+}
+
+// freshMovieSpec is what a scanned movie file freezes: the release identity
+// pkg/release parsed. releaseGroup goes through releaseGroupOrEmpty rather
+// than straight from the parser: see releasegroup.go for the pkg/release
+// defect that guard compensates for, and why a frozen field makes it worth
+// compensating for. releaseGroup and edition are sent even when empty, as
+// they always have been on this path.
 //
 // formatScore, matchedFormats and profileHash are deliberately left at their
 // zero values. They are importarr's fields, but scoring them needs the item's
 // QualityProfile and pkg/quality/catalogue's custom-format evaluation, which
 // this path does not integrate yet. An unscored file is still fully tracked;
 // the score only affects later upgrade decisions.
-func (w *Worker) applyMediaFile(
-	ctx context.Context,
-	st *scanState,
-	movieName, path string,
-	info os.FileInfo,
-	parsed *release.ParsedRelease,
+func freshMovieSpec(parsed *release.ParsedRelease) frozenFields {
+	return frozenFields{
+		quality:      &parsed.Quality,
+		revision:     &parsed.Revision,
+		releaseType:  parsed.ReleaseType,
+		releaseGroup: ptr.To(releaseGroupOrEmpty(parsed)),
+		edition:      ptr.To(parsed.Edition),
+		languages:    parsed.Languages,
+	}
+}
+
+// applyObserved applies a MediaFile's spec under [FieldManager].
+//
+// For a file with no MediaFile yet it sends ref, the observed path, size and
+// mtime, and fresh. For an existing one it sends the observed fields plus
+// every field this manager owns re-asserted verbatim from existing.Spec --
+// fresh is ignored. That is the complete-declaration rule applied to spec:
+// an apply that omitted formatScore, matchedFormats, profileHash,
+// importedFrom or original would RELEASE them, and fileimport sets all five
+// under this same manager, so a plain re-scan of an imported file used to
+// wipe its import score and provenance. Re-parsing instead of re-asserting
+// would be worse: the importer renames files, and a renamed file can parse
+// to a different quality than the release it was frozen from.
+func (w *Worker) applyObserved(
+	ctx context.Context, namespace string, existing *catalogv1alpha1.MediaFile,
+	ref commonv1.MediaRef, path string, info os.FileInfo, fresh frozenFields,
 ) error {
-	name := k8s.ChildName(movieName, "mediafile", path)
+	name := k8s.ChildName(ref.Name, "mediafile", path)
+	if existing != nil {
+		name = existing.Name
+		ref = existing.Spec.MediaRef
+		fresh = reassertFrozen(&existing.Spec)
+	}
 	spec := catalogac.MediaFileSpec().
-		WithMediaRef(commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movieName}).
+		WithMediaRef(ref).
 		WithPath(path).
 		WithSizeBytes(info.Size()).
-		WithModTime(metav1.NewTime(info.ModTime())).
-		WithQuality(parsed.Quality).
-		WithRevision(parsed.Revision).
-		WithReleaseType(parsed.ReleaseType).
-		WithReleaseGroup(releaseGroupOrEmpty(parsed)).
-		WithEdition(parsed.Edition)
-	if len(parsed.Languages) > 0 {
-		spec = spec.WithLanguages(parsed.Languages...)
+		WithModTime(metav1.NewTime(info.ModTime()))
+	if fresh.quality != nil {
+		spec = spec.WithQuality(*fresh.quality)
+	}
+	if fresh.revision != nil {
+		spec = spec.WithRevision(*fresh.revision)
+	}
+	if fresh.releaseType != "" {
+		spec = spec.WithReleaseType(fresh.releaseType)
+	}
+	if fresh.releaseGroup != nil {
+		spec = spec.WithReleaseGroup(*fresh.releaseGroup)
+	}
+	if fresh.edition != nil {
+		spec = spec.WithEdition(*fresh.edition)
+	}
+	if len(fresh.languages) > 0 {
+		spec = spec.WithLanguages(fresh.languages...)
+	}
+	if fresh.importedFrom != nil {
+		spec = spec.WithImportedFrom(fresh.importedFrom)
+	}
+	if existing != nil {
+		s := &existing.Spec
+		if s.FormatScore != 0 {
+			spec = spec.WithFormatScore(s.FormatScore)
+		}
+		if len(s.MatchedFormats) > 0 {
+			spec = spec.WithMatchedFormats(s.MatchedFormats...)
+		}
+		if s.ProfileHash != "" {
+			spec = spec.WithProfileHash(s.ProfileHash)
+		}
+		if s.Original != nil {
+			spec = spec.WithOriginal(*s.Original)
+		}
 	}
 
 	if _, err := k8s.Apply(ctx, w.Client, FieldManager,
-		catalogac.MediaFile(name, st.scan.Namespace).WithSpec(spec)); err != nil {
+		catalogac.MediaFile(name, namespace).WithSpec(spec)); err != nil {
 		return fmt.Errorf("rescan: apply media file %s: %w", name, err)
 	}
 	return nil
+}
+
+// reassertFrozen reads the frozen fields back off an existing spec, sending
+// only what is set.
+func reassertFrozen(s *catalogv1alpha1.MediaFileSpec) frozenFields {
+	var f frozenFields
+	if s.Quality != (commonv1.Quality{}) {
+		f.quality = &s.Quality
+	}
+	if s.Revision != (commonv1.Revision{}) {
+		f.revision = &s.Revision
+	}
+	f.releaseType = s.ReleaseType
+	if s.ReleaseGroup != "" {
+		f.releaseGroup = &s.ReleaseGroup
+	}
+	if s.Edition != "" {
+		f.edition = &s.Edition
+	}
+	f.languages = s.Languages
+	if src := s.ImportedFrom; src != nil {
+		ac := catalogac.ImportSource()
+		if src.DownloadRef != "" {
+			ac = ac.WithDownloadRef(src.DownloadRef)
+		}
+		if src.ReleaseTitle != "" {
+			ac = ac.WithReleaseTitle(src.ReleaseTitle)
+		}
+		if src.IndexerName != "" {
+			ac = ac.WithIndexerName(src.IndexerName)
+		}
+		if src.Protocol != "" {
+			ac = ac.WithProtocol(src.Protocol)
+		}
+		if !src.ImportedAt.IsZero() {
+			ac = ac.WithImportedAt(src.ImportedAt)
+		}
+		if src.Manual {
+			ac = ac.WithManual(true)
+		}
+		f.importedFrom = ac
+	}
+	return f
 }
 
 // resolveIMDb asks the metadata gateway to turn an IMDb id into a TMDB one.
