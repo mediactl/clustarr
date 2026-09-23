@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	subtitleac "github.com/mediactl/clustarr/api/applyconfiguration/subtitle/subtitle/v1alpha1"
@@ -32,6 +33,56 @@ import (
 // -----------------------------------------------------------------------
 // SubtitleRequest
 // -----------------------------------------------------------------------
+
+// IsLive reports whether it is a LIVE item under the item-liveness protocol,
+// the one rule both SubtitleRequest managers use to decide which entries of
+// status.items exist:
+//
+//  1. An item is live if and only if the controller currently owns its
+//     nextSearchAt. The controller sends a non-empty nextSearchAt for every
+//     item it wants -- satisfied ones included -- and stops sending an item
+//     it no longer wants.
+//  2. The controller creates items with {langKey, nextSearchAt, attempts}
+//     only.
+//  3. The worker, on every apply, after its re-read, re-sends its leaves
+//     ONLY for live items. It drops a non-live item from its apply, which
+//     releases its leaves, so no manager owns the entry any more and
+//     server-side apply deletes it. If a fetch task's own langKey is not
+//     live, the want was withdrawn: the worker records nothing and acks.
+//     The worker never creates an item.
+//
+// Why a protocol at all: a listType=map entry exists for as long as ANY
+// manager owns ANY of its fields. Ruling R4 has each manager re-declare
+// every item on every apply, so before this rule a language the controller
+// stopped wanting lived forever -- the worker kept re-sending the entry it
+// had once written, and nothing could ever remove it.
+//
+// Liveness is read from the object, not from managedFields: nextSearchAt
+// has exactly one writer (the controller, per [RequestControllerFields]),
+// so a non-empty value on a freshly read object is the controller's latest
+// declaration. The read must be fresh for the same reason every seed must
+// be (see [PatchRequest]).
+//
+// The controller's half of rule 1 has a trap of its own:
+// [RequestControllerFields] renders every entry of the status it is given,
+// and renders one without nextSearchAt as a bare langKey. That is still a
+// claim on the entry, so a controller that seeds from a status still
+// holding a withdrawn item keeps it alive. Build the controller's source
+// items from what it wants, each with its nextSearchAt, and nothing else.
+func IsLive(it subtitlev1alpha1.SubtitleItem) bool {
+	return it.NextSearchAt != nil && !it.NextSearchAt.IsZero()
+}
+
+// LiveItemKeys returns the langKeys of st's live items (see [IsLive]).
+func LiveItemKeys(st subtitlev1alpha1.SubtitleRequestStatus) sets.Set[string] {
+	out := sets.New[string]()
+	for _, it := range st.Items {
+		if IsLive(it) {
+			out.Insert(it.LangKey)
+		}
+	}
+	return out
+}
 
 // RequestControllerFields returns the complete set k8s.ManagerCaptionarr owns
 // on SubtitleRequest.status, seeded from the live status so that an apply
@@ -110,19 +161,27 @@ func requestControllerItemAC(it subtitlev1alpha1.SubtitleItem) *subtitleac.Subti
 }
 
 // RequestWorkerFields returns the complete set k8s.ManagerCaptionarrWorker
-// owns on SubtitleRequest.status: every leaf of every item except
+// owns on SubtitleRequest.status: every leaf of every LIVE item except
 // nextSearchAt and attempts, which belong to the controller.
 //
-// Every entry currently in st.Items is rendered, for the same reason
+// Every live entry in st.Items is rendered, for the same reason
 // [RequestControllerFields] renders every entry: ruling R4 requires each
 // manager to re-send every leaf it owns for every item on every apply, not
 // just the item this call is actually updating -- a worker that only rendered
 // the item it just searched would release every other item's state on its
 // next write.
+//
+// A non-live entry is deliberately NOT rendered: that release is rule 3 of
+// the item-liveness protocol ([IsLive]). Once the controller stops sending
+// an item's nextSearchAt, this apply releases the worker's leaves on it,
+// nothing owns the entry, and server-side apply deletes it.
 func RequestWorkerFields(st subtitlev1alpha1.SubtitleRequestStatus) *subtitleac.SubtitleRequestStatusApplyConfiguration {
 	ac := subtitleac.SubtitleRequestStatus()
 	items := make([]*subtitleac.SubtitleItemApplyConfiguration, 0, len(st.Items))
 	for _, it := range st.Items {
+		if !IsLive(it) {
+			continue
+		}
 		items = append(items, requestWorkerItemAC(it))
 	}
 	ac.Items = itemSlice(items)

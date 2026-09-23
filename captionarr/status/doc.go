@@ -51,7 +51,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // intervals, and nothing about a chosen candidate.
 //
 // [RequestWorkerFields], k8s.ManagerCaptionarrWorker -- every OTHER leaf of
-// every item: langKey (shared with the controller, see below), state, score,
+// every LIVE item ([IsLive]): langKey (shared with the controller, see below), state, score,
 // scoreOutOf, provider, subtitleID, path, lastError and downloadedAt. These
 // are observations of a provider search that only a worker that ran the
 // search can make.
@@ -76,6 +76,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // entry, so nothing is ever contested. See CLAUDE.md's note on the co-owner
 // false pass -- this is the one place in the split where co-ownership is
 // intentional rather than a hazard to guard against.
+//
+// # Which items exist: the liveness protocol
+//
+// Because each manager re-declares every item, an entry would outlive the
+// want that created it: the worker kept re-sending the leaves it once
+// wrote, so a language the controller stopped wanting could never be
+// removed. [IsLive] states the protocol that fixes it -- the controller's
+// nextSearchAt is what makes an item live, the worker renders only live
+// items, and an entry nobody declares is deleted by server-side apply --
+// and [LiveItemKeys] is its set form. Both managers use them; neither
+// restates the rule.
 //
 // # One declaration per manager, not one per caller (the Sidecars exception)
 //

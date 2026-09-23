@@ -42,8 +42,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // Only SubtitleRequest.status.items (ruling R1), under
 // k8s.ManagerCaptionarrWorker, through captionarr/status.PatchRequest --
-// every worker-owned leaf of every item, re-read immediately before the
-// apply (see [Worker.record] for why). items[].path is the sidecar's name
+// every worker-owned leaf of every LIVE item, re-read immediately before the
+// apply (see [Worker.record] for why). The worker follows the item-liveness
+// protocol in captionarr/status.IsLive: it never creates an item, records
+// nothing for a language the controller has stopped scheduling, and its
+// apply releases -- and so deletes -- every entry the controller withdrew. items[].path is the sidecar's name
 // RELATIVE to the media file's directory; catalogarr joins it
 // (catalogarr/controller/mediafile/sidecars.go) and projects the item into
 // MediaFile.status.sidecars. Provider failures go to the shared
@@ -61,9 +64,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     throttled, every provider failed, no provider can serve the item:
 //     recorded on the item and acked. Redelivering would only ask the same
 //     providers the same question.
-//   - Stale -- the request, MediaFile or profile language is gone, or the
-//     file was re-probed since planning: acked with no write; the
-//     controller's replan publishes a fresh task.
+//   - Stale -- the request, MediaFile or profile language is gone, the
+//     controller no longer schedules the language (the item is not live,
+//     status.IsLive), or the file was re-probed since planning: acked with
+//     no write; the controller's replan publishes a fresh task.
 //   - Transient -- a Kubernetes read failed, the file is mid-change, the
 //     disk refused the sidecar, the context was cancelled: an error, so the
 //     consumer's backoff redelivers. On the final delivery a file or disk

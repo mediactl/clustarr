@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -155,7 +156,7 @@ func (w *Worker) finish(ctx context.Context, req *subtitlev1alpha1.SubtitleReque
 			return err
 		}
 		if !applied {
-			log.Warn("fetch: the subtitle request went away during the fetch; the sidecar is written but unrecorded",
+			log.Warn("fetch: the request or this language was withdrawn during the fetch; the sidecar is written but unrecorded",
 				"path", ch.logicalPath)
 			return nil
 		}
@@ -267,20 +268,26 @@ func (w *Worker) finalAttempt(m events.Message) bool {
 // and seeds the apply from that read -- never from req, which was read
 // before the provider walk. This is CLAUDE.md's lost-update shape exactly: a
 // fetch spends seconds to minutes on provider round trips, and
-// status.RequestWorkerFields re-declares every worker-owned leaf of EVERY
-// item, so an apply seeded from the pre-search snapshot would silently roll
-// back whatever another fetch worker recorded for a sibling language in the
-// meantime -- a sidecar written, recorded, then forgotten, and dropped from
-// MediaFile.status.sidecars by catalogarr. No release test can see that;
-// the interleaved-writer test in worker_envtest_test.go does. (The
+// status.RequestWorkerFields re-declares every worker-owned leaf of every
+// live item, so an apply seeded from the pre-search snapshot would silently
+// roll back whatever another fetch worker recorded for a sibling language
+// in the meantime -- a sidecar written, recorded, then forgotten, and
+// dropped from MediaFile.status.sidecars by catalogarr. No release test can
+// see that; the interleaved-writer test in worker_envtest_test.go does. (The
 // controller's own leaves, nextSearchAt and attempts, are a different
 // manager's and are never declared here, so they survive this apply either
 // way.)
 //
-// set mutates the item for langKey, which is created when the request has
-// none yet; set must leave a non-empty state, which the CRD requires. The
-// bool is false when there was nothing to apply to: the request is gone, was
-// replaced, or has no room for another item.
+// The re-read is also where the item-liveness protocol (status.IsLive) is
+// applied. The item must still be live on the fresh object: a controller
+// that withdrew the language during the search has spoken last, so nothing
+// is recorded -- the worker never creates or revives an item. And because
+// RequestWorkerFields renders only live items, every other entry the
+// controller has withdrawn is released by this apply and deleted.
+//
+// set mutates the live item for langKey. The bool is false when there was
+// nothing to apply to: the request is gone or was replaced, or the item is
+// no longer live.
 func (w *Worker) record(ctx context.Context, req *subtitlev1alpha1.SubtitleRequest, langKey string,
 	set func(*subtitlev1alpha1.SubtitleItem),
 ) (bool, error) {
@@ -299,21 +306,10 @@ func (w *Worker) record(ctx context.Context, req *subtitlev1alpha1.SubtitleReque
 	for i := range fresh.Status.Items {
 		fresh.Status.Items[i].DeepCopyInto(&items[i])
 	}
-	idx := -1
-	for i := range items {
-		if items[i].LangKey == langKey {
-			idx = i
-			break
-		}
-	}
-	if idx < 0 {
-		if len(items) >= maxItems {
-			logging.FromContext(ctx).Warn("fetch: the request already carries the maximum number of items; not adding one",
-				"max", maxItems)
-			return false, nil
-		}
-		items = append(items, subtitlev1alpha1.SubtitleItem{LangKey: langKey})
-		idx = len(items) - 1
+	idx := slices.IndexFunc(items, func(it subtitlev1alpha1.SubtitleItem) bool { return it.LangKey == langKey })
+	if idx < 0 || !status.IsLive(items[idx]) {
+		logging.FromContext(ctx).Info("fetch: the controller withdrew this language during the fetch; recording nothing")
+		return false, nil
 	}
 	set(&items[idx])
 	fresh.Status.Items = items

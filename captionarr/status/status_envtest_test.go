@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -115,9 +116,11 @@ func TestTheRequestManagersDoNotReleaseEachOthersItemLeaves(t *testing.T) {
 		}))
 
 	// Steady state, half two: the controller's request-level fields, plus
-	// attempts/nextSearchAt for "en" only -- "es" is left untouched by the
-	// controller on purpose, so the split can be proven on an item the
-	// controller never claimed anything on beyond the shared langKey.
+	// attempts/nextSearchAt for "en" and nextSearchAt alone for "es" -- es
+	// carries no attempts, so the split is also proven on an item where the
+	// controller owns only its key and its schedule. Both items must be
+	// scheduled here: an item without the controller's nextSearchAt is not
+	// live (IsLive), and the worker's next apply would rightly delete it.
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(req), req))
 	require.NoError(t, status.PatchRequest(ctx, c, k8s.ManagerCaptionarr, req,
 		func(ac *subtitleac.SubtitleRequestStatusApplyConfiguration) {
@@ -127,8 +130,8 @@ func TestTheRequestManagersDoNotReleaseEachOthersItemLeaves(t *testing.T) {
 					Reason: "Planned", LastTransitionTime: now, ObservedGeneration: 1,
 				}))
 			for i := range ac.Items {
+				ac.Items[i].NextSearchAt = &now
 				if ac.Items[i].LangKey != nil && *ac.Items[i].LangKey == "en" {
-					ac.Items[i].NextSearchAt = &now
 					attempts := commonv1alpha1.Attempts{Initial: &now, Latest: &now, Count: 1}
 					ac.Items[i].Attempts = &attempts
 				}
@@ -166,8 +169,9 @@ func TestTheRequestManagersDoNotReleaseEachOthersItemLeaves(t *testing.T) {
 	assert.EqualValues(t, 97, enAfterWorker.Score, "the worker's own field did not update")
 
 	// And the controller applies again, changing observedGeneration and
-	// scheduling "es" for the first time, while "en" keeps its existing
-	// controller-owned leaves unmodified in this call's mutate.
+	// rescheduling "es", while "en" keeps its existing controller-owned
+	// leaves unmodified in this call's mutate.
+	later := metav1.NewTime(now.Add(time.Hour))
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(req), req))
 	require.NoError(t, status.PatchRequest(ctx, c, k8s.ManagerCaptionarr, req,
 		func(ac *subtitleac.SubtitleRequestStatusApplyConfiguration) {
@@ -182,7 +186,7 @@ func TestTheRequestManagersDoNotReleaseEachOthersItemLeaves(t *testing.T) {
 			}))
 			for i := range ac.Items {
 				if ac.Items[i].LangKey != nil && *ac.Items[i].LangKey == "es" {
-					ac.Items[i].NextSearchAt = &now
+					ac.Items[i].NextSearchAt = &later
 				}
 			}
 		}))
@@ -199,7 +203,9 @@ func TestTheRequestManagersDoNotReleaseEachOthersItemLeaves(t *testing.T) {
 	}
 	esAfterController := findItem(t, afterController.Status.Items, "es")
 	assertWorkerItemIntact(t, esAfterController, "the controller apply", 80)
-	assert.NotNil(t, esAfterController.NextSearchAt, "the controller's own field did not land on es")
+	if assert.NotNil(t, esAfterController.NextSearchAt, "the controller released its own nextSearchAt on es") {
+		assert.True(t, esAfterController.NextSearchAt.Equal(&later), "the controller's reschedule did not land on es")
+	}
 
 	// Finally, assert OWNERSHIP rather than values. Every assertion above
 	// compares what is on the object, and that class of assertion
@@ -424,4 +430,83 @@ func TestSubtitleProfileAndProviderRoundTripThroughManagerCaptionarr(t *testing.
 
 	err := status.PatchProvider(ctx, c, k8s.ManagerCaptionarrWorker, provider, nil)
 	require.ErrorContains(t, err, "owns no part of SubtitleProvider.status")
+}
+
+// Rule 3 of the item-liveness protocol (IsLive), on a real apiserver: once
+// the controller stops sending an item, the worker's next apply -- seeded
+// from a fresh read -- stops sending it too, no manager owns any leaf of
+// the entry, and server-side apply deletes it. Before the protocol the
+// worker re-declared every entry it had ever written, so a withdrawn
+// language lived forever.
+//
+// Falsified: making RequestWorkerFields render non-live items again leaves
+// "es" on the object with the worker still owning its leaves.
+func TestAWithdrawnItemIsDeletedByTheWorkersNextApply(t *testing.T) {
+	c := newTestClient(t)
+	ctx := context.Background()
+
+	const ns = "captionarr-status-withdraw"
+	newNamespace(t, ctx, c, ns)
+	req := newSubtitleRequest(t, ctx, c, ns, "withdraw")
+	key := client.ObjectKeyFromObject(req)
+	now := metav1.NewTime(time.Now().UTC().Truncate(time.Second))
+
+	// Steady state: both items live and fully described. The worker writes
+	// its half first only because the CRD still requires items[].state
+	// until F-4 relaxes it (rule 2 then lets the controller create items).
+	require.NoError(t, status.PatchRequest(ctx, c, k8s.ManagerCaptionarrWorker, req,
+		func(ac *subtitleac.SubtitleRequestStatusApplyConfiguration) {
+			ac.Items = []subtitleac.SubtitleItemApplyConfiguration{
+				*subtitleac.SubtitleItem().WithLangKey("en").WithState(subtitlev1alpha1.SubtitleItemDownloaded).
+					WithScore(95).WithScoreOutOf(100).WithProvider("os").WithSubtitleID("en-1").
+					WithPath("withdraw.en.srt").WithLastError(""),
+				*subtitleac.SubtitleItem().WithLangKey("es").WithState(subtitlev1alpha1.SubtitleItemDownloaded).
+					WithScore(80).WithScoreOutOf(100).WithProvider("os").WithSubtitleID("es-1").
+					WithPath("withdraw.es.srt").WithLastError(""),
+			}
+		}))
+	require.NoError(t, c.Get(ctx, key, req))
+	require.NoError(t, status.PatchRequest(ctx, c, k8s.ManagerCaptionarr, req,
+		func(ac *subtitleac.SubtitleRequestStatusApplyConfiguration) {
+			for i := range ac.Items {
+				ac.Items[i].NextSearchAt = &now
+			}
+		}))
+
+	// The controller withdraws "es": its next apply simply omits it.
+	require.NoError(t, c.Get(ctx, key, req))
+	req.Status.Items = slices.DeleteFunc(req.Status.Items, func(it subtitlev1alpha1.SubtitleItem) bool {
+		return it.LangKey == "es"
+	})
+	require.NoError(t, status.PatchRequest(ctx, c, k8s.ManagerCaptionarr, req, nil))
+
+	var mid subtitlev1alpha1.SubtitleRequest
+	require.NoError(t, c.Get(ctx, key, &mid))
+	esMid := findItem(t, mid.Status.Items, "es")
+	require.False(t, status.IsLive(esMid), "setup: the controller's withdrawal did not land")
+	require.Equal(t, subtitlev1alpha1.SubtitleItemDownloaded, esMid.State, "setup: the worker should still hold es")
+
+	// The worker's next apply, from a fresh read.
+	require.NoError(t, status.PatchRequest(ctx, c, k8s.ManagerCaptionarrWorker, &mid, nil))
+
+	var after subtitlev1alpha1.SubtitleRequest
+	require.NoError(t, c.Get(ctx, key, &after))
+	require.Len(t, after.Status.Items, 1, "the withdrawn item must be gone")
+	en := after.Status.Items[0]
+	assert.Equal(t, "en", en.LangKey)
+	assertWorkerItemIntact(t, en, "the worker apply that dropped es", 95)
+	assert.True(t, status.IsLive(en), "the live item keeps the controller's schedule")
+
+	for _, entry := range after.ManagedFields {
+		if entry.Subresource != "status" || entry.FieldsV1 == nil {
+			continue
+		}
+		var raw map[string]any
+		require.NoError(t, json.Unmarshal(entry.FieldsV1.GetRawBytes(), &raw))
+		st, _ := raw["f:status"].(map[string]any)
+		items, _ := st["f:items"].(map[string]any)
+		for k := range items {
+			assert.NotEqualf(t, "es", mapKeyLangKey(t, k), "%q still owns a leaf of the withdrawn item", entry.Manager)
+		}
+	}
 }

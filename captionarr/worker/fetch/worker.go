@@ -35,6 +35,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	"github.com/mediactl/clustarr/captionarr/providerset"
+	"github.com/mediactl/clustarr/captionarr/status"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -71,9 +72,8 @@ const (
 	// sidecars sit beside the video in a group-shared library.
 	DefaultSidecarMode os.FileMode = 0o664
 
-	// maxItems, maxLastError and maxSubtitleID are the CRD's own limits on
-	// status.items, items[].lastError and items[].subtitleID.
-	maxItems      = 20
+	// maxLastError and maxSubtitleID are the CRD's own limits on
+	// items[].lastError and items[].subtitleID.
 	maxLastError  = 512
 	maxSubtitleID = 256
 )
@@ -243,6 +243,13 @@ func (w *Worker) handle(ctx context.Context, m events.Message, t task) error {
 	}
 	if t.RequestRef.UID != "" && string(req.UID) != t.RequestRef.UID {
 		log.Info("fetch: the subtitle request was replaced since this task was published", "taskUID", t.RequestRef.UID)
+		return nil
+	}
+	if !status.LiveItemKeys(req.Status).Has(t.LangKey) {
+		// Rule 3 of the item-liveness protocol (status.IsLive): the
+		// controller no longer schedules this language, so the want was
+		// withdrawn. Record nothing -- the worker never creates an item.
+		log.Info("fetch: the controller no longer wants this language; nothing to fetch")
 		return nil
 	}
 

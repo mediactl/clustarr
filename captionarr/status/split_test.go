@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
@@ -195,6 +196,36 @@ func TestRequestWorkerFieldsDeclaresExactlyItsOwnSet(t *testing.T) {
 	wantItem := append(append([]string(nil), itemWorkerOwned...), itemSharedKey...)
 	sort.Strings(wantItem)
 	assert.Equal(t, wantItem, setFields(&got.Items[0]))
+}
+
+// The item-liveness protocol (IsLive's doc): an item is live exactly when
+// it carries a non-empty nextSearchAt.
+func TestIsLiveAndLiveItemKeys(t *testing.T) {
+	at := metav1.NewTime(time.Date(2026, 9, 23, 0, 0, 0, 0, time.UTC))
+	var zero metav1.Time
+	st := subtitlev1alpha1.SubtitleRequestStatus{Items: []subtitlev1alpha1.SubtitleItem{
+		{LangKey: "en", NextSearchAt: &at},
+		{LangKey: "es", State: subtitlev1alpha1.SubtitleItemDownloaded, Path: "Movie.es.srt"},
+		{LangKey: "fr", NextSearchAt: &zero},
+	}}
+
+	assert.True(t, status.IsLive(st.Items[0]))
+	assert.False(t, status.IsLive(st.Items[1]), "a worker-only entry is a withdrawn want, however complete")
+	assert.False(t, status.IsLive(st.Items[2]), "a zero time serialises as null: not a declaration")
+	assert.Equal(t, []string{"en"}, sets.List(status.LiveItemKeys(st)))
+}
+
+// Rule 3 of the protocol: the worker renders only live items, so a withdrawn
+// entry is released by the worker's next apply and deleted.
+func TestRequestWorkerFieldsRendersOnlyLiveItems(t *testing.T) {
+	st := fullRequestStatus()
+	st.Items = append(st.Items, subtitlev1alpha1.SubtitleItem{
+		LangKey: "es", State: subtitlev1alpha1.SubtitleItemDownloaded, Score: 80, Path: "Movie.es.srt",
+	})
+
+	got := status.RequestWorkerFields(st)
+	require.Len(t, got.Items, 1)
+	assert.Equal(t, "en", *got.Items[0].LangKey)
 }
 
 // The two declarations' PER-ITEM leaves must not overlap outside the shared

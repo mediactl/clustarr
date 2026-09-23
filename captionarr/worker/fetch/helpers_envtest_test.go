@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -39,10 +40,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
+	subtitleac "github.com/mediactl/clustarr/api/applyconfiguration/subtitle/subtitle/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	"github.com/mediactl/clustarr/captionarr/providerset"
+	"github.com/mediactl/clustarr/captionarr/status"
 	"github.com/mediactl/clustarr/captionarr/worker/fetch"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
@@ -174,7 +177,56 @@ func newFixture(t *testing.T, bus events.Bus) *fixture {
 		Client: c, APIReader: c, Bus: f.bus, Providers: f.source, DataDir: f.dataDir,
 		Clock: func() time.Time { return now },
 	}
+	f.seedLive(t, "en")
 	return f
+}
+
+// schedule is the nextSearchAt seedLive gives every item it makes live.
+var schedule = metav1.NewTime(now.Add(-time.Minute))
+
+// seedLive makes langKeys live the way the item-liveness protocol does
+// (status.IsLive): the controller schedules them. The worker writes a
+// pending state first only because the CRD still requires items[].state;
+// once F-4 relaxes that, the controller alone creates items (rule 2) and
+// the first step is merely redundant.
+func (f *fixture) seedLive(t *testing.T, langKeys ...string) {
+	t.Helper()
+	req := f.get(t)
+	have := status.LiveItemKeys(req.Status)
+	require.NoError(t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaptionarrWorker, req,
+		func(ac *subtitleac.SubtitleRequestStatusApplyConfiguration) {
+			for _, k := range langKeys {
+				if !have.Has(k) {
+					ac.Items = append(ac.Items, *subtitleac.SubtitleItem().WithLangKey(k).
+						WithState(subtitlev1alpha1.SubtitleItemPending))
+				}
+			}
+		}))
+
+	req = f.get(t)
+	req.Status.Items = slices.DeleteFunc(req.Status.Items, func(it subtitlev1alpha1.SubtitleItem) bool {
+		return !status.IsLive(it) && !slices.Contains(langKeys, it.LangKey)
+	})
+	for i := range req.Status.Items {
+		if !status.IsLive(req.Status.Items[i]) {
+			req.Status.Items[i].NextSearchAt = &schedule
+		}
+	}
+	require.NoError(t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaptionarr, req, nil))
+	for _, k := range langKeys {
+		require.True(t, status.LiveItemKeys(f.get(t).Status).Has(k), "setup: %s is not live", k)
+	}
+}
+
+// withdraw is the controller no longer wanting langKey: its next apply
+// simply omits the item (rule 1 of the protocol).
+func (f *fixture) withdraw(t *testing.T, langKey string) {
+	t.Helper()
+	req := f.get(t)
+	req.Status.Items = slices.DeleteFunc(req.Status.Items, func(it subtitlev1alpha1.SubtitleItem) bool {
+		return it.LangKey == langKey || !status.IsLive(it)
+	})
+	require.NoError(t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaptionarr, req, nil))
 }
 
 func (f *fixture) local(logical string) string {

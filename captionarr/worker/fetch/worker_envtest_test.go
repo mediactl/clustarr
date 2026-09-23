@@ -113,7 +113,8 @@ func TestFetchWritesTheBestAcceptableSubtitleAndRecordsIt(t *testing.T) {
 	live := f.get(t)
 	assert.Equal(t, map[string][]string{"en": workerItemLeaves}, itemLeaves(t, live, fetch.FieldManager),
 		"the worker owns exactly its leaves -- never nextSearchAt or attempts")
-	assert.Empty(t, itemLeaves(t, live, k8s.ManagerCaptionarr))
+	assert.Equal(t, map[string][]string{"en": {"langKey", "nextSearchAt"}}, itemLeaves(t, live, k8s.ManagerCaptionarr),
+		"the controller keeps the schedule that makes the item live")
 }
 
 // This is the test CLAUDE.md's "A lost update is not an SSA release" gotcha
@@ -137,20 +138,11 @@ func TestFetchWritesTheBestAcceptableSubtitleAndRecordsIt(t *testing.T) {
 func TestFetchDoesNotRollBackWhatAnotherWriterRecordedDuringTheSearch(t *testing.T) {
 	f := newFixture(t, natsBus(t))
 
-	// Steady state before the task: both managers have written both items.
+	// Steady state before the task: both items live and planned.
+	f.seedLive(t, "en", "es")
 	seeded := f.get(t)
-	seeded.Status.Items = []subtitlev1alpha1.SubtitleItem{
-		{LangKey: "en", State: subtitlev1alpha1.SubtitleItemPending},
-		{LangKey: "es", State: subtitlev1alpha1.SubtitleItemPending},
-	}
-	require.NoError(t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaptionarrWorker, seeded, nil))
-	firstSchedule := metav1.NewTime(now.Add(-time.Minute))
-	seeded = f.get(t)
 	seeded.Status.ProbeHash = f.probe
 	seeded.Status.Phase = subtitlev1alpha1.SubtitleRequestPhaseSearching
-	for i := range seeded.Status.Items {
-		seeded.Status.Items[i].NextSearchAt = &firstSchedule
-	}
 	require.NoError(t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaptionarr, seeded, nil))
 
 	rescheduled := metav1.NewTime(now.Add(6 * time.Hour))
@@ -177,7 +169,7 @@ func TestFetchDoesNotRollBackWhatAnotherWriterRecordedDuringTheSearch(t *testing
 		for i := range ctl.Status.Items {
 			if ctl.Status.Items[i].LangKey == "en" {
 				ctl.Status.Items[i].NextSearchAt = &rescheduled
-				ctl.Status.Items[i].Attempts = commonv1.Attempts{Initial: &firstSchedule, Latest: &siblingAt, Count: 2}
+				ctl.Status.Items[i].Attempts = commonv1.Attempts{Initial: &schedule, Latest: &siblingAt, Count: 2}
 			}
 		}
 		require.NoError(t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaptionarr, ctl, nil))
@@ -245,10 +237,9 @@ func TestAnUpgradeOnlyEverReplacesWithSomethingBetter(t *testing.T) {
 	require.NoError(t, os.WriteFile(oldLocal, []byte("old"), 0o644))
 	earlier := metav1.NewTime(now.Add(-24 * time.Hour))
 	seeded := f.get(t)
-	seeded.Status.Items = []subtitlev1alpha1.SubtitleItem{{
-		LangKey: "en", State: subtitlev1alpha1.SubtitleItemUpgradable, Score: 147, ScoreOutOf: 180,
-		Provider: "os", SubtitleID: "exact", Path: oldRel, DownloadedAt: &earlier,
-	}}
+	it := &seeded.Status.Items[0] // "en", live from the fixture
+	it.State, it.Score, it.ScoreOutOf = subtitlev1alpha1.SubtitleItemUpgradable, 147, 180
+	it.Provider, it.SubtitleID, it.Path, it.DownloadedAt = "os", "exact", oldRel, &earlier
 	require.NoError(t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaptionarrWorker, seeded, nil))
 
 	p := newFakeProvider("fake")
@@ -271,7 +262,7 @@ func TestAnUpgradeOnlyEverReplacesWithSomethingBetter(t *testing.T) {
 	p.files["hash"] = []byte(srtWithHI)
 	require.NoError(t, f.worker.Handle(f.ctx, f.message(t, "en", upgrade)))
 
-	it := f.item(t, "en")
+	it = ptrTo(f.item(t, "en"))
 	assert.Equal(t, subtitlev1alpha1.SubtitleItemDownloaded, it.State, "179 is within 3 of 180: no further upgrades")
 	assert.Equal(t, int32(179), it.Score)
 	assert.Equal(t, sidecarName, it.Path)
@@ -384,4 +375,99 @@ func TestFetchSettlement(t *testing.T) {
 		require.NoError(t, f.worker.Handle(f.ctx, m))
 	})
 	assert.Equal(t, int32(0), p.searches.Load(), "no settlement path reaches a provider")
+}
+
+func ptrTo[T any](v T) *T { return &v }
+
+// Rule 3 of the item-liveness protocol (status.IsLive), through the real
+// worker path: once the controller stops scheduling "es", the worker's next
+// apply -- for a different language entirely -- releases its leaves on es,
+// no manager owns the entry, and server-side apply deletes it. Before the
+// protocol the worker re-declared every entry it had ever written, so a
+// withdrawn language stayed on the object (and in MediaFile.status.sidecars)
+// forever.
+func TestTheWorkersNextApplyDeletesALanguageTheControllerWithdrew(t *testing.T) {
+	f := newFixture(t, natsBus(t))
+	f.seedLive(t, "en", "es")
+
+	// es was fetched earlier: the worker owns a full set of leaves on it.
+	withSub := f.get(t)
+	for i := range withSub.Status.Items {
+		if it := &withSub.Status.Items[i]; it.LangKey == "es" {
+			it.State, it.Score, it.ScoreOutOf = subtitlev1alpha1.SubtitleItemDownloaded, 170, 180
+			it.Provider, it.SubtitleID, it.Path = "os", "es-1", "Film (2010).es.srt"
+		}
+	}
+	require.NoError(t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaptionarrWorker, withSub, nil))
+
+	f.withdraw(t, "es")
+	require.Contains(t, itemLeaves(t, f.get(t), fetch.FieldManager), "es",
+		"setup: until the worker applies again it still holds the withdrawn es")
+
+	p := newFakeProvider("fake")
+	p.cands = []subtitles.Candidate{candidate("exact", releaseTitle)}
+	p.files["exact"] = []byte(srtWithHI)
+	f.entry("os", os1, p)
+	require.NoError(t, f.worker.Handle(f.ctx, f.message(t, "en", nil)))
+
+	live := f.get(t)
+	require.Len(t, live.Status.Items, 1, "the withdrawn item must be deleted")
+	assert.Equal(t, "en", live.Status.Items[0].LangKey)
+	assert.Equal(t, subtitlev1alpha1.SubtitleItemUpgradable, live.Status.Items[0].State)
+	for _, mgr := range []k8s.FieldManager{fetch.FieldManager, k8s.ManagerCaptionarr} {
+		assert.NotContains(t, itemLeaves(t, live, mgr), "es", "%s still owns a leaf of the withdrawn item", mgr)
+	}
+	assert.Equal(t, map[string][]string{"en": workerItemLeaves}, itemLeaves(t, live, fetch.FieldManager))
+}
+
+// A task for a language the controller no longer schedules records nothing
+// and acks -- whether the want was withdrawn before the task was picked up,
+// or during the provider search. The worker never creates or revives an
+// item.
+func TestATaskForAWithdrawnLanguageRecordsNothingAndAcks(t *testing.T) {
+	t.Run("withdrawn before delivery", func(t *testing.T) {
+		f := newFixture(t, natsBus(t))
+		f.seedLive(t, "en", "es")
+		p := newFakeProvider("fake")
+		f.entry("os", os1, p)
+		m := f.message(t, "es", nil)
+		f.withdraw(t, "es")
+
+		before := f.get(t).ResourceVersion
+		require.NoError(t, f.worker.Handle(f.ctx, m))
+		assert.Equal(t, before, f.get(t).ResourceVersion, "nothing recorded")
+		assert.Equal(t, int32(0), p.searches.Load(), "no provider is asked for a withdrawn want")
+	})
+
+	t.Run("never planned", func(t *testing.T) {
+		f := newFixture(t, natsBus(t))
+		p := newFakeProvider("fake")
+		f.entry("os", os1, p)
+
+		before := f.get(t).ResourceVersion
+		require.NoError(t, f.worker.Handle(f.ctx, f.message(t, "es", nil)))
+		live := f.get(t)
+		assert.Equal(t, before, live.ResourceVersion)
+		assert.NotContains(t, status.LiveItemKeys(live.Status), "es")
+		assert.Len(t, live.Status.Items, 1, "the worker never creates an item")
+	})
+
+	t.Run("withdrawn during the search", func(t *testing.T) {
+		f := newFixture(t, natsBus(t))
+		p := newFakeProvider("fake")
+		p.cands = []subtitles.Candidate{candidate("exact", releaseTitle)}
+		p.files["exact"] = []byte(srtWithHI)
+		var withdrawnAt string
+		p.onSearch = func() {
+			f.withdraw(t, "en")
+			withdrawnAt = f.get(t).ResourceVersion
+		}
+		f.entry("os", os1, p)
+
+		require.NoError(t, f.worker.Handle(f.ctx, f.message(t, "en", nil)))
+		live := f.get(t)
+		assert.Equal(t, withdrawnAt, live.ResourceVersion, "the controller spoke last; the worker recorded nothing")
+		assert.NotContains(t, status.LiveItemKeys(live.Status), "en")
+		assert.Empty(t, f.bus.subtitleEvents(t), "nothing recorded, nothing announced")
+	})
 }
