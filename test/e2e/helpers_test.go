@@ -27,8 +27,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -402,6 +405,112 @@ func isConditionTrue(conds []metav1.Condition, condType string) bool {
 		}
 	}
 	return false
+}
+
+// portForwardReadyRe matches kubectl port-forward's own stdout line once the
+// tunnel is up: "Forwarding from 127.0.0.1:<port> -> <remote>". Only the
+// IPv4 line is matched; kubectl also prints an [::1] line for the same
+// tunnel, and one is enough to learn the chosen local port.
+var portForwardReadyRe = regexp.MustCompile(`^Forwarding from 127\.0\.0\.1:(\d+) ->`)
+
+// portForwardService starts `kubectl port-forward` against svc/name on
+// remotePort in Namespace and returns the local base URL to reach it once
+// the tunnel is up, plus a func that tears it down (also registered with
+// t.Cleanup, so callers may treat the returned func as optional early
+// cleanup rather than the only one).
+//
+// This is the ONLY way this suite can reach a ClusterIP Service's HTTP port:
+// the package doc comment's "What it can reach" is exactly two things, the
+// API server and the /data hostPath mount, because kind publishes no
+// extraPortMappings for any Service. hack/e2e.sh's own diagnostics dump
+// already reaches NATS's monitor port the same way (hack/e2e.sh:171-179,
+// "NATS's monitor port is not published by kind, so reach /jsz through a
+// port-forward"); this is that same technique from Go, with a deterministic
+// ready signal (kubectl's own stdout) instead of a fixed sleep.
+//
+// kubectl is asked for a random local port (":<remote>", no local half) so
+// two runs -- or a rerun before the previous tunnel's OS-level TIME_WAIT
+// clears -- cannot collide on a fixed one.
+//
+// A new in-process alternative (k8s.io/client-go/tools/portforward) was
+// considered and rejected: it pulls in a SPDY transport
+// (k8s.io/client-go/transport/spdy -> github.com/moby/spdystream) that is
+// not in go.sum today, and CLAUDE.md's standing rule is that D3-era work
+// adds no dependency -- shelling out to the kubectl binary this suite
+// already requires (TestMain's own gate assumes it) needs none.
+func portForwardService(ctx context.Context, t *testing.T, name string, remotePort int) (baseURL string, stop func()) {
+	t.Helper()
+	if _, err := exec.LookPath("kubectl"); err != nil {
+		t.Fatalf("portForwardService: kubectl not on PATH: %v", err)
+	}
+
+	pfCtx, cancel := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(pfCtx, "kubectl",
+		"--context", KubeContext, "-n", Namespace,
+		"port-forward", "svc/"+name, fmt.Sprintf(":%d", remotePort))
+
+	stdout, err := cmd.StdoutPipe()
+	require.NoError(t, err, "portForwardService: stdout pipe")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	require.NoError(t, cmd.Start(), "portForwardService: start kubectl port-forward")
+
+	portCh := make(chan int, 1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		sc := bufio.NewScanner(stdout)
+		for sc.Scan() {
+			if m := portForwardReadyRe.FindStringSubmatch(sc.Text()); m != nil {
+				if port, err := strconv.Atoi(m[1]); err == nil {
+					select {
+					case portCh <- port:
+					default:
+					}
+				}
+			}
+		}
+		// Reads finish (Scan returns false) once kubectl exits and closes
+		// its stdout, which stop() below relies on: os/exec's own docs
+		// forbid calling Wait before every read from a StdoutPipe has
+		// completed.
+	}()
+
+	var (
+		port    int
+		stopped bool
+	)
+	stop = func() {
+		if stopped {
+			return
+		}
+		stopped = true
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+		}
+		_ = cmd.Wait()
+	}
+	t.Cleanup(stop)
+
+	select {
+	case port = <-portCh:
+	case <-done:
+		stop()
+		t.Fatalf("portForwardService: kubectl port-forward for svc/%s exited before reporting a local port; stderr:\n%s",
+			name, stderr.String())
+	case <-time.After(30 * time.Second):
+		stop()
+		t.Fatalf("portForwardService: timed out waiting for kubectl port-forward for svc/%s to report a local port; stderr:\n%s",
+			name, stderr.String())
+	case <-ctx.Done():
+		stop()
+		t.Fatalf("portForwardService: context done before kubectl port-forward for svc/%s was ready: %v", name, ctx.Err())
+	}
+
+	return fmt.Sprintf("http://127.0.0.1:%d", port), stop
 }
 
 // ---------------------------------------------------------------------------
