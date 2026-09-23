@@ -284,11 +284,21 @@ func TestBuiltinProfileCutoffVerdicts(t *testing.T) {
 		profile, quality string
 		met              bool
 	}{
-		{"ebook", "AZW3", true}, {"ebook", "MOBI", true}, {"ebook", "PDF", false},
-		{"comic", "CBZ", true}, {"comic", "CBR", false}, {"comic", "PDF", false},
-		{"audiobook", "FLAC", true}, {"audiobook", "MP3", true}, {"audiobook", "Unknown Audio", false},
-		{"music-lossless", "WAV", true}, {"music-lossless", "FLAC", true}, {"music-lossless", "MP3-192", false},
-		{"music-standard", "FLAC", true}, {"music-standard", "MP3-192", true}, {"music-standard", "Mid", false},
+		{"ebook", "AZW3", true},
+		{"ebook", "MOBI", true},
+		{"ebook", "PDF", false},
+		{"comic", "CBZ", true},
+		{"comic", "CBR", false},
+		{"comic", "PDF", false},
+		{"audiobook", "FLAC", true},
+		{"audiobook", "MP3", true},
+		{"audiobook", "Unknown Audio", false},
+		{"music-lossless", "WAV", true},
+		{"music-lossless", "FLAC", true},
+		{"music-lossless", "MP3-192", false},
+		{"music-standard", "FLAC", true},
+		{"music-standard", "MP3-192", true},
+		{"music-standard", "Mid", false},
 	} {
 		p, ok := profiles[tc.profile]
 		require.Truef(t, ok, "built-in %q", tc.profile)

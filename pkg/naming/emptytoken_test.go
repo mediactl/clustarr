@@ -198,24 +198,36 @@ func TestEmptyOptionalTokensCollapseToTheseExactPaths(t *testing.T) {
 		c    naming.Context
 		want string
 	}{
-		{"audiobook, no series, position or year", commonv1.MediaKindAudiobook,
+		{
+			"audiobook, no series, position or year", commonv1.MediaKindAudiobook,
 			naming.Context{AuthorName: "Terry Pratchett", BookTitle: "Guards! Guards!"},
-			"Terry Pratchett/Guards! Guards!"},
-		{"audiobook, series without a position", commonv1.MediaKindAudiobook,
+			"Terry Pratchett/Guards! Guards!",
+		},
+		{
+			"audiobook, series without a position", commonv1.MediaKindAudiobook,
 			naming.Context{AuthorName: "Terry Pratchett", BookSeries: "Discworld", Year: 1989, BookTitle: "Guards! Guards!"},
-			"Terry Pratchett/Discworld/1989 - Guards! Guards!"},
-		{"audiobook, every token", commonv1.MediaKindAudiobook,
+			"Terry Pratchett/Discworld/1989 - Guards! Guards!",
+		},
+		{
+			"audiobook, every token", commonv1.MediaKindAudiobook,
 			naming.Context{AuthorName: "Terry Pratchett", BookSeries: "Discworld", BookSeriesPosition: "8", Year: 1989, BookTitle: "Guards! Guards!", Narrator: "Nigel Planer"},
-			"Terry Pratchett/Discworld/8 - 1989 - Guards! Guards! Nigel Planer"},
-		{"album, no year", commonv1.MediaKindAlbum,
+			"Terry Pratchett/Discworld/8 - 1989 - Guards! Guards! Nigel Planer",
+		},
+		{
+			"album, no year", commonv1.MediaKindAlbum,
 			naming.Context{ArtistName: "Radiohead", AlbumTitle: "Kid A"},
-			"Radiohead/Kid A"},
-		{"album, with year", commonv1.MediaKindAlbum,
+			"Radiohead/Kid A",
+		},
+		{
+			"album, with year", commonv1.MediaKindAlbum,
 			naming.Context{ArtistName: "Radiohead", AlbumTitle: "Kid A", Year: 2000},
-			"Radiohead/Kid A (2000)"},
-		{"movie, no year", commonv1.MediaKindMovie,
+			"Radiohead/Kid A (2000)",
+		},
+		{
+			"movie, no year", commonv1.MediaKindMovie,
 			naming.Context{Title: "The Matrix", TmdbID: "603"},
-			"The Matrix [tmdbid-603]"},
+			"The Matrix [tmdbid-603]",
+		},
 	} {
 		got, err := e.BuildFolder(tc.kind, tc.c)
 		require.NoError(t, err, tc.name)
