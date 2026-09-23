@@ -1208,7 +1208,7 @@ took) and from the spec pass, which checked §5 and §8 against the code.
 **Dead code and stale strings.**
 
 - [ ] Prune candidates with no reader: `pkg/subtitles.Registry` (no production caller since pooling, X11b), `decision.Target.FreeBytes` (struck from spec §7), and `search.IndexBlocklistInfoHash`/`IndexBlocklistTitle` (still registered, never read, X4b/X14).
-- [ ] Two user-facing strings still say Clustarr ships no Cardigann corpus, which `7b6fc4a` made false: `hack/sync-cardigann/sync.go`'s `licenceNotice` and the `ErrDefinitionNotFound` message in `indexarr/controller/indexer/cardigann.go`'s `definitionByID` (X13 fixed only the comments).
+- [x] **Fixed `335f71f`.** Was: two user-facing strings still said Clustarr ships no Cardigann corpus, which `7b6fc4a` made false: `hack/sync-cardigann/sync.go`'s `licenceNotice` and the `ErrDefinitionNotFound` message in `indexarr/controller/indexer/cardigann.go`'s `definitionByID` (X13 fixed only the comments).
 
 **Chart and deploy.**
 
