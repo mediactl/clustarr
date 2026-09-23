@@ -335,3 +335,82 @@ func TestRegionSubtagsResolveThroughTheirPrimarySubtag(t *testing.T) {
 	_, ok := catalogue.LanguageName("cn")
 	require.False(t, ok, "cn is not ISO-639-1; it must report unresolvable rather than resolving to something plausible")
 }
+
+// TestEvaluateISO6392And3TagsMatchISO6391 is F-2b's regression test: TVDB
+// hands back ISO 639-3 ("eng", "jpn") and ffprobe hands back ISO 639-2
+// bibliographic codes ("fre") for exactly this same field, and before
+// pkg/lang.Normalize was wired into originalLanguageName, none of them were
+// in catalogue's language table at all. That sent every one of them down the
+// same "original language is unknown" fail-open path as genuine garbage --
+// which for a QualityProfile at CRD defaults with a non-English-original
+// item meant the -10000 language-not-original format stopped applying
+// silently, exactly the shape of the two prior incidents this task exists to
+// stop recurring.
+//
+// Each case runs decision.Evaluate twice, once with the ISO-639-1 tag and
+// once with its ISO 639-2/3 equivalent, for the identical release, and
+// requires the two Decisions to agree on Approved, Matched and Rejections --
+// not merely both non-empty, so a normalization that resolves to the wrong
+// language would still be caught.
+func TestEvaluateISO6392And3TagsMatchISO6391(t *testing.T) {
+	cases := []struct {
+		name       string
+		iso6391    string
+		iso6392or3 string
+		relTitle   string
+	}{
+		{
+			name:       "iso 639-3 english original, english release approved",
+			iso6391:    "en",
+			iso6392or3: "eng",
+			relTitle:   "Arrival.2016.1080p.BluRay.x264-GROUP",
+		},
+		{
+			name:       "iso 639-3 japanese original, english-only release still rejected",
+			iso6391:    "ja",
+			iso6392or3: "jpn",
+			relTitle:   "Movie.2016.1080p.BluRay.x264-GROUP",
+		},
+		{
+			name:       "iso 639-3 japanese original, japanese release approved",
+			iso6391:    "ja",
+			iso6392or3: "jpn",
+			relTitle:   "Movie.2016.JAPANESE.1080p.BluRay.x264-GROUP",
+		},
+		{
+			name:       "iso 639-2/b french original, french release approved",
+			iso6391:    "fr",
+			iso6392or3: "fre",
+			relTitle:   "Film.2016.FRENCH.1080p.BluRay.x264-GROUP",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p, cat := defaultProfile(t)
+			rel := englishBluray()
+			rel.Title = tc.relTitle
+
+			evalWith := func(tag string) []decision.Decision {
+				tg := decision.Target{
+					Kind:                common.MediaKindMovie,
+					Available:           true,
+					OriginalLanguageTag: tag,
+				}
+				return decision.Evaluate(context.Background(), tg, p, cat, []common.ReleaseInfo{rel}, defaultOptions())
+			}
+
+			want := evalWith(tc.iso6391)
+			got := evalWith(tc.iso6392or3)
+			require.Len(t, want, 1)
+			require.Len(t, got, 1)
+
+			require.Equal(t, want[0].Approved, got[0].Approved,
+				"%s (%s) and %s (%s) must reach the same Approved verdict; want rejections %+v, got rejections %+v",
+				tc.iso6391, tc.name, tc.iso6392or3, tc.name, want[0].Rejections, got[0].Rejections)
+			require.Equal(t, want[0].Matched, got[0].Matched,
+				"%s and %s must match the same custom formats", tc.iso6391, tc.iso6392or3)
+			require.Equal(t, want[0].Rejections, got[0].Rejections,
+				"%s and %s must carry the same rejections", tc.iso6391, tc.iso6392or3)
+		})
+	}
+}

@@ -20,6 +20,7 @@ package decision
 import (
 	"context"
 
+	"github.com/mediactl/clustarr/pkg/lang"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
@@ -50,6 +51,19 @@ import (
 // whole point: an unknown language must not turn into a rejection. See
 // languageRejection's "original" branch and catalogue.evalCondition's
 // CondLanguage case, which each fail open on "".
+//
+// catalogue.LanguageName only ever understood ISO 639-1 and BCP-47-with-
+// region -- the vocabulary Target.OriginalLanguageTag is documented to carry
+// today. But a provider tag has shown up in a third vocabulary too (TVDB's
+// ISO 639-3 "eng"/"jpn"), which used to fail catalogue.LanguageName outright
+// and fail open with a warning on every evaluation. pkg/lang.Normalize is
+// the shared fix for that bug class (also hit by ffprobe's ISO 639-2
+// bibliographic codes elsewhere in the tree); it is tried only as a
+// fallback, after the direct lookup, so every tag that already resolved
+// (including region-only forms like "pt-BR" and "es-419", which
+// catalogue.LanguageName's own primary-subtag cut already handles) keeps
+// resolving exactly as before -- Normalize is not on the path for those and
+// cannot change their answer.
 func originalLanguageName(ctx context.Context, tag string) string {
 	if tag == "" {
 		// No metadata yet, or a provider with nothing to say. Normal, and
@@ -57,6 +71,11 @@ func originalLanguageName(ctx context.Context, tag string) string {
 		return ""
 	}
 	name, ok := catalogue.LanguageName(tag)
+	if !ok {
+		if normalized, normOK := lang.Normalize(tag); normOK {
+			name, ok = catalogue.LanguageName(string(normalized))
+		}
+	}
 	if !ok {
 		// Worth saying out loud: the item is permanently outside the
 		// "original language" machinery until the tag is understood, and
