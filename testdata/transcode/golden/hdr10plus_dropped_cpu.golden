@@ -39,7 +39,7 @@ main10
 -bf
 8
 -x265-params
-pools=8:frame-threads=0:ref=4:rc-lookahead=40:hdr10=1:hdr10-opt=1:repeat-headers=1:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:range=limited:master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1):max-cll=1000,400
+pools=8:frame-threads=0:ref=4:rc-lookahead=40:hdr10=1:hdr10-opt=1:repeat-headers=1:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:range=limited
 -c:a:0
 aac
 -b:a:0

@@ -83,6 +83,45 @@ func hdrClass(f commonv1.HdrFormat) hdrBucket {
 	}
 }
 
+// colourTags are the four colour-description values the renderer writes for
+// an HDR source: the frames' setparams filter and x265's colorprim/transfer/
+// colormatrix/range.
+type colourTags struct{ primaries, transfer, space, rng string }
+
+// hdrColour is the colour description an HDR format is DEFINED by, and the
+// only place the renderer takes one from (hdrSetParamsFilter, X265Params):
+// PQ (SMPTE ST 2084) over BT.2020 for HDR10, PQ10 and HDR10+; ARIB STD-B67
+// (HLG) over BT.2020 for HLG; BT.709 for a Dolby Vision profile 8.2 SDR base
+// layer. Every Dolby Vision profile without an SDR or HLG base layer --
+// 8.1, 7 (whose base layer FFmpeg decodes as HDR10) and 5 -- takes the PQ
+// row, and in passthrough x265 overwrites the VUI from its own Dolby Vision
+// profile table anyway. Range is limited ("tv"): full-range HDR is not a
+// thing distribution produces.
+//
+// The source's own tags are deliberately not read. They are absent from
+// the probe summary MediaFile.status stores, which the TranscodeJob
+// controller plans from, so a renderer that read them would give the
+// controller's status.plan and the worker's argv different HDR arguments
+// for the same file (gap-fix item "the HDR arguments it renders into
+// status.plan may differ from the worker's"). Keying them on the HDR
+// classification -- which the summary and a live probe share, both being
+// pkg/mediainfo.ClassifyHDR of the same bytes -- makes the two identical by
+// construction, and it is also what makes the output immune to a source
+// whose tags are missing or wrong (docs/research/transcode.md §3.4's
+// pitfall). hdrNone returns the zero value, which nothing renders.
+func hdrColour(f commonv1.HdrFormat) colourTags {
+	switch f {
+	case commonv1.HdrFormatHLG10, commonv1.HdrFormatDolbyVisionHLG:
+		return colourTags{primaries: "bt2020", transfer: "arib-std-b67", space: "bt2020nc", rng: "tv"}
+	case commonv1.HdrFormatDolbyVisionSDR:
+		return colourTags{primaries: "bt709", transfer: "bt709", space: "bt709", rng: "tv"}
+	}
+	if hdrClass(f) == hdrNone {
+		return colourTags{}
+	}
+	return colourTags{primaries: "bt2020", transfer: "smpte2084", space: "bt2020nc", rng: "tv"}
+}
+
 // HDRInfo carries a video stream's HDR classification and metadata, using
 // pkg/mediainfo's real side-data types and the shared commonv1.HdrFormat
 // vocabulary rather than a local placeholder copy of either.
@@ -175,11 +214,107 @@ type MediaInfo struct {
 	Modifier string
 }
 
+// FromSummary builds Plan's input model from the probe summary alone --
+// the api/common/v1alpha1.MediaInfo that MediaFile.status.mediaInfo stores
+// -- for the file at path. It is what the TranscodeJob controller plans
+// from (it does not mount /data, so it cannot probe; Phase E ruling R3).
+//
+// Everything Plan's DECISION and every argument Args renders is derivable
+// from the summary, so a plan made here renders the same argv as one made
+// through [FromProbe] from a live probe of the same bytes; that is the
+// property TestFromSummaryAndFromProbeRenderTheSameArgs holds on a real
+// file. The two things the summary lacks cannot change the argv: colour tags
+// are rendered from the HDR classification ([hdrColour]), and HDR10 mastering
+// display and content light levels are never rendered at all -- FFmpeg's
+// libx265 wrapper carries them from the source's side data
+// ([X265Params]). What it cannot supply stays zero: format tags (the caller
+// adds CLUSTARR_PROFILE), size, per-stream level, field order and packet
+// counts, and HDR side data.
+//
+// Stream indexes are type-relative (0:a:N), as Plan expects, not the
+// container-wide indexes the summary stores.
+func FromSummary(path string, mi *commonv1.MediaInfo) (MediaInfo, error) {
+	if mi == nil {
+		return MediaInfo{}, fmt.Errorf("transcode: FromSummary: mi is nil")
+	}
+	if mi.VideoCodec == "" {
+		return MediaInfo{}, fmt.Errorf("transcode: FromSummary: the probe summary has no video stream")
+	}
+	duration := time.Duration(mi.RuntimeMillis) * time.Millisecond
+	info := MediaInfo{
+		Path: path,
+		Format: FormatInfo{
+			Name:        mi.Container,
+			Duration:    duration,
+			BitRateKbps: int64(mi.VideoBitrateKbps),
+		},
+	}
+
+	v := VideoStream{
+		Codec:     mi.VideoCodec,
+		Profile:   mi.VideoProfile,
+		PixFmt:    mi.PixelFormat,
+		BitDepth:  mi.VideoBitDepth,
+		Width:     mi.Width,
+		Height:    mi.Height,
+		FrameRate: Rational{Num: int64(mi.FpsMilli), Den: 1000},
+		Duration:  duration,
+		HDR:       HDRInfo{Format: mi.Hdr},
+	}
+	colour := hdrColour(mi.Hdr)
+	v.ColorPrimaries, v.ColorTransfer, v.ColorSpace, v.ColorRange = colour.primaries, colour.transfer, colour.space, colour.rng
+	if mi.DoviProfile != nil {
+		dv := &mediainfo.DoviRecord{Profile: *mi.DoviProfile, RPUPresent: true, BLPresent: true}
+		if mi.DoviBLCompatID != nil {
+			dv.BLSignalCompatibilityID = *mi.DoviBLCompatID
+		}
+		v.HDR.DolbyVision = dv
+	}
+	info.Video = []VideoStream{v}
+
+	for i, a := range mi.Audio {
+		info.Audio = append(info.Audio, AudioStream{
+			Index:         int32(i),
+			Codec:         a.Codec,
+			Profile:       a.Profile,
+			Channels:      a.Channels,
+			ChannelLayout: a.ChannelLayout,
+			BitRateKbps:   a.BitrateKbps,
+			Lossless:      isLosslessAudio(a.Codec, a.Profile),
+			Atmos:         isAtmos(a.Profile, a.Title),
+			Language:      a.Language,
+			Title:         a.Title,
+			Disposition:   Disposition{Default: a.Default, Comment: a.Commentary},
+		})
+	}
+	for i, s := range mi.Subtitles {
+		info.Subtitles = append(info.Subtitles, SubtitleStream{
+			Index:       int32(i),
+			Codec:       s.Codec,
+			Bitmap:      s.Bitmap || isBitmapSubtitle(s.Codec),
+			Language:    s.Language,
+			Title:       s.Title,
+			Disposition: Disposition{Forced: s.Forced, HearingImpaired: s.HearingImpaired},
+		})
+	}
+	for i := int32(0); i < mi.Attachments; i++ {
+		info.Attachments = append(info.Attachments, AttachmentStream{Index: i})
+	}
+	return info, nil
+}
+
 // FromProbe builds Plan's input model from a pkg/mediainfo probe. mi
 // supplies the CRD-level summary (bit depth, HDR classification, DV
 // profile); raw supplies per-stream detail. Fields the probe cannot supply
 // (Packets, Modifier) stay zero -- the controller fills Modifier separately
 // from the quality classifier before calling Plan.
+//
+// It is the squasharr worker's input. The detail it adds over
+// [FromSummary] -- the source's own colour tags, HDR side data, levels,
+// dispositions, chapters -- is kept for callers and diagnostics, but none of
+// it reaches the argv: Plan renders colour from the HDR classification and
+// never renders the side data, so a plan made here and one made by
+// FromSummary from the stored summary of the same file render identically.
 func FromProbe(mi *commonv1.MediaInfo, raw *mediainfo.Raw) (MediaInfo, error) {
 	if mi == nil {
 		return MediaInfo{}, fmt.Errorf("transcode: FromProbe: mi is nil")

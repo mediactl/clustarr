@@ -33,8 +33,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // FromProbe adapts a github.com/mediactl/clustarr/pkg/mediainfo probe
 // (commonv1.MediaInfo plus mediainfo.Raw) into this package's own MediaInfo
-// input model, which carries the per-stream, per-field detail an ffmpeg
-// command line needs and that the CRD-facing MediaInfo has no room for.
+// input model; FromSummary builds the same model from the commonv1.MediaInfo
+// summary alone, which is all a MediaFile's status stores. The two render
+// the same argv for the same file -- the renderer takes nothing from a probe
+// that the summary lacks -- so the squasharr controller's recorded plan
+// (from the stored summary) is the argv its worker runs (from a live probe).
 //
 // This package carries no Kubernetes types: ProfileSpec, Progress and the
 // rest are plain Go, hand-mirrored from the real generated

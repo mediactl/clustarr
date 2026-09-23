@@ -18,9 +18,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package transcode
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 )
+
+// ArgsHash is the sha256 of plan's full rendered argv (Args, NUL-joined),
+// hex-encoded: two plans that would run the same ffmpeg command have the
+// same hash. The TranscodeJob controller records it as status.plan.argsHash,
+// and the worker compares the argv it is about to run against it.
+func ArgsHash(plan *PlanResult) string {
+	sum := sha256.Sum256([]byte(strings.Join(Args(plan), "\x00")))
+	return hex.EncodeToString(sum[:])
+}
 
 // Args renders plan into the exact, deterministic ffmpeg argv (global
 // flags, HWInit, -i, Maps, Filters, VideoArgs, one -c:a:N/-metadata:s:a:N

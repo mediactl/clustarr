@@ -123,6 +123,12 @@ type PlanMeta struct {
 	ProfileName string
 	ProfileHash string
 	Threads     int32
+
+	// OutputPath is where the verified output will finally live. The
+	// in-progress output is written beside it, as <stem>.part.<ext>, so the
+	// caller's final rename stays inside one directory. Empty means the
+	// source's own path -- the output replaces the source in place.
+	OutputPath string
 }
 
 // containerFromExt maps a lowercased file extension (without the leading
@@ -278,7 +284,11 @@ func Plan(info MediaInfo, profile ProfileSpec, caps Capabilities, meta PlanMeta)
 func renderPlan(plan *PlanResult, info MediaInfo, profile ProfileSpec, meta PlanMeta, class hdrBucket) {
 	v0 := info.Video[0]
 
-	stem := strings.TrimSuffix(info.Path, filepath.Ext(info.Path))
+	final := meta.OutputPath
+	if final == "" {
+		final = info.Path
+	}
+	stem := strings.TrimSuffix(final, filepath.Ext(final))
 	plan.Output = stem + ".part." + containerExt(plan.Container)
 
 	plan.Audio = buildAudioPlan(info, profile)
@@ -287,7 +297,12 @@ func renderPlan(plan *PlanResult, info MediaInfo, profile ProfileSpec, meta Plan
 	plan.Maps = buildMaps(plan.Audio, plan.Subtitles)
 
 	dvMode := profile.HDR.DolbyVision
-	if class != hdrNone {
+	// Only an encode takes a video filter: ffmpeg refuses -vf beside
+	// -c:v copy ("Filtering and streamcopy cannot be used together"), so an
+	// HDR source whose video is already compliant -- a remux-only plan --
+	// would otherwise fail every attempt. A copied stream keeps its own
+	// colour tags anyway.
+	if class != hdrNone && plan.Decision == DecisionEncode {
 		plan.Filters = append(plan.Filters, hdrSetParamsFilter(v0))
 	}
 
@@ -399,10 +414,13 @@ func buildMaps(audio []AudioTrackPlan, subs []int32) []string {
 // hdrSetParamsFilter renders the "-vf setparams=..." filter emitted
 // whenever a source carries any HDR classification, so decoders downstream
 // are immune to sources whose container tags are missing or wrong (note
-// §3.4 pitfall paragraph).
+// §3.4 pitfall paragraph). The values are the HDR format's own ([hdrColour]),
+// never the stream's tags, so the filter renders the same from a live probe
+// and from the stored summary.
 func hdrSetParamsFilter(vs VideoStream) string {
+	c := hdrColour(vs.HDR.Format)
 	return fmt.Sprintf("setparams=color_primaries=%s:color_trc=%s:colorspace=%s:range=%s",
-		vs.ColorPrimaries, vs.ColorTransfer, vs.ColorSpace, vs.ColorRange)
+		c.primaries, c.transfer, c.space, c.rng)
 }
 
 // x265Range maps ffprobe's color_range vocabulary ("tv"/"pc") to x265's
@@ -418,6 +436,18 @@ func x265Range(colorRange string) string {
 // X265Params assembles -x265-params deterministically as an explicit
 // ordered list -- never by ranging a map, which Go randomizes. The one
 // exception, profile.Video.ExtraX265Params, is appended sorted by key.
+//
+// For an HDR10-class encode it renders hdr10, hdr10-opt, repeat-headers and
+// the colour description of the HDR format ([hdrColour]), but NOT
+// master-display or max-cll. FFmpeg's libx265 wrapper sets both from the
+// source's mastering-display and content-light side data before it applies
+// -x265-params (libavcodec/libx265.c handle_side_data/handle_mdcv, present in
+// the FFmpeg 9.0 the media images pin), and a re-encode of an HDR10 source
+// with neither in -x265-params was verified to keep both, byte-exact, in its
+// SEI (TestHDR10StaticMetadataPassesThroughLibx265). Rendering them here
+// would make the argv depend on side data the stored probe summary does not
+// carry, and so make the TranscodeJob controller's status.plan differ from
+// the worker's argv for every HDR10 source with mastering metadata.
 //
 // Exported because spec §7 names it ("func X265Params(...) string //
 // golden-tested"); the goldens in testdata/transcode/ cover the string it
@@ -436,23 +466,9 @@ func X265Params(threads int32, v VideoSpec, vs VideoStream, class hdrBucket, dvM
 		// RPU itself carries dynamic metadata (note §3.5).
 		parts = append(parts, "repeat-headers=1")
 	case class == hdrHDR10 || class == hdrHDR10Plus || (class == hdrDolbyVision && dvMode == DolbyVisionDowngradeToHDR10):
-		parts = append(parts, "hdr10=1", "hdr10-opt=1", "repeat-headers=1")
-		if vs.ColorPrimaries != "" {
-			parts = append(parts, "colorprim="+vs.ColorPrimaries)
-		}
-		if vs.ColorTransfer != "" {
-			parts = append(parts, "transfer="+vs.ColorTransfer)
-		}
-		if vs.ColorSpace != "" {
-			parts = append(parts, "colormatrix="+vs.ColorSpace)
-		}
-		parts = append(parts, "range="+x265Range(vs.ColorRange))
-		if vs.HDR.MasteringDisplay != nil {
-			parts = append(parts, "master-display="+vs.HDR.MasteringDisplay.X265())
-		}
-		if vs.HDR.ContentLight != nil {
-			parts = append(parts, "max-cll="+vs.HDR.ContentLight.X265())
-		}
+		c := hdrColour(vs.HDR.Format)
+		parts = append(parts, "hdr10=1", "hdr10-opt=1", "repeat-headers=1",
+			"colorprim="+c.primaries, "transfer="+c.transfer, "colormatrix="+c.space, "range="+x265Range(c.rng))
 	case class == hdrHLG:
 		parts = append(parts, "repeat-headers=1")
 	default: // hdrNone
