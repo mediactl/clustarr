@@ -42,9 +42,11 @@ import (
 )
 
 // createDownloadWith is createDownload with the profile and annotations under
-// the test's control, for targets other than the fixture's movie.
+// the test's control, for targets other than the fixture's movie. Each spec
+// func edits the spec before the Download is created (grabbedBy, manual).
 func (f *fixture) createDownloadWith(
 	t *testing.T, name, contentRoot string, target commonv1.MediaRef, profile string, annotations map[string]string,
+	spec ...func(*downloadv1alpha1.DownloadSpec),
 ) *downloadv1alpha1.Download {
 	t.Helper()
 	ctx := context.Background()
@@ -61,6 +63,9 @@ func (f *fixture) createDownloadWith(
 			Target:            target,
 			QualityProfileRef: profile,
 		},
+	}
+	for _, edit := range spec {
+		edit(&dl.Spec)
 	}
 	require.NoError(t, f.c.Create(ctx, dl))
 	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerGrabarr, downloadac.Download(dl.Name, f.ns).WithStatus(

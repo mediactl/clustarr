@@ -151,11 +151,12 @@ func knownKind(k commonv1.MediaKind) bool {
 // silently ignored instruction.
 //
 // The effect of "true" is the effect DownloadSpec.Manual has in this worker,
-// and no more: the upgrade decision against an existing file is skipped, an
-// undeterminable non-video quality is accepted, a video file only the size
-// floor suspects is a sample (Worker.SampleMaxBytes) is imported, and the
-// MediaFile records importedFrom.manual -- the list DownloadSpec.Manual's own
-// doc comment gives. This worker checks neither monitoring nor availability,
+// and no more: the upgrade decision against an existing file is skipped, a
+// transcoded file may be replaced (transcoded.go), an undeterminable
+// non-video quality is accepted, a video file only the size floor suspects
+// is a sample (Worker.SampleMaxBytes) is imported, and the MediaFile records
+// importedFrom.manual -- the list DownloadSpec.Manual's own doc comment
+// gives. This worker checks neither monitoring nor availability,
 // so neither has anything to skip, and a quality the profile does not allow
 // is still rejected under either.
 func ParseImportOverride(value string) (bool, error) {

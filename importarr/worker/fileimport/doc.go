@@ -97,6 +97,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // No import renames a file over one already at its destination without
 // linking the old one into the recycle bin first (placeFile).
 //
+// A transcoded file is final (CLAUDE.md, "Transcoding"): a movie's or
+// episode's existing file that catalogv1alpha1.(*MediaFile).Transcoded
+// reports is replaced only by a person's choice -- an interactive grab
+// (spec.grabbedBy interactive) or a manual import. A file of any other,
+// automatic grab that would replace it is a rejection saying so
+// (transcoded.go), checked before the upgrade comparison.
+//
 // An item that holds one file -- a movie, a book, an issue, an episode --
 // gets one file from a download however many the download carries for it
 // (order.go): every file is admitted first, the candidates are ranked by

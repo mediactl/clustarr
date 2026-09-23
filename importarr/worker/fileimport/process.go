@@ -248,6 +248,14 @@ func (pc *processConfig) processFile(
 	}
 	score, matched := pc.profile.Score(ctx, pc.worker.Catalogue, parsed, ic)
 
+	// A transcoded file is final: only a person's choice replaces it
+	// (transcoded.go). Checked before the upgrade comparison, so the
+	// rejection says why rather than reporting a quality verdict.
+	if pc.existing != nil {
+		if r := transcodedRejection(rel, pc.existing, pc.download, pc.manual); r != "" {
+			return nil, r, nil
+		}
+	}
 	if pc.existing != nil && !pc.manual {
 		current := quality.Candidate{
 			Quality:     pc.existing.Spec.Quality,

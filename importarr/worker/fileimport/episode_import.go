@@ -88,8 +88,9 @@ type episodePlan struct {
 // (MatchEpisodes) to episodes of the target's series -- whatever the pack
 // holds, as Sonarr imports every episode of the series a release contains
 // -- and then cleared per episode exactly as a movie file is: the profile
-// must allow its quality, and unless the import is manual it must be an
-// upgrade over each covered episode's current file. A file whose name
+// must allow its quality, an automatic grab never replaces a covered
+// episode's transcoded file (transcoded.go), and unless the import is manual
+// it must be an upgrade over each covered episode's current file. A file whose name
 // settles no episode is a rejection, except under a manual import to one
 // named episode, where a person has said which it is.
 func (w *Worker) importEpisodes(
@@ -351,6 +352,13 @@ func (w *Worker) importEpisodeFile(
 	existing, err := w.existingForEpisodes(ctx, plan.namespace, eps)
 	if err != nil {
 		return nil, "", err
+	}
+	// A transcoded file is final: only a person's choice replaces it
+	// (transcoded.go), whichever of the covered episodes it backs.
+	for i := range existing {
+		if r := transcodedRejection(rel, &existing[i], dl, manual); r != "" {
+			return nil, r, nil
+		}
 	}
 	if !manual {
 		candidate := quality.Candidate{Quality: parsed.Quality, Revision: parsed.Revision, FormatScore: score}
