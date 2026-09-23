@@ -182,6 +182,13 @@ Consumes `ConsumerImportFile` (`"importarr-fileimport"`, `pkg/events/subjects.go
 
 **Files:** `grabarr/run.go`, `cmd/clustarr/services.go`, `cmd/clustarr/all.go`, `Makefile` (`RBAC_DIRS`), `config/`, `charts/`.
 
+**Three specific things that are inert until you wire them, and one that is already flagged:**
+
+- **`torrent.Reaper` and `usenet.Reaper` (D2-8b, `d5c01d2`) are `manager.Runnable`s that nothing registers.** They need `mgr.GetCache()` for their `Cache` field and must run **per replica** — each holds its own `download.Client` and knows only its own transfers, so `NeedLeaderElection` is already `false`. An unregistered reaper is not a failing test anywhere; it is simply a torrent that seeds forever. **Write a guard**, modelled on `cmd/clustarr/ui_projection_wiring_test.go`, which walks a package's exported `Runnable` types rather than checking a hard-coded name — that test exists because D3-3's SSE stream shipped complete and unreachable for exactly this reason.
+- **`go.mod` needs `go mod tidy`**: `github.com/anacrolix/generics` is used directly but listed indirect. This is the one task permitted to run it, and only because it is serial — `go mod tidy` under parallel agents corrupts `go.mod`.
+- **`make manifests` has not been run since D2-3, D2-4, D2-5 and D2-6 each added package-level markers and each deliberately deferred regeneration to you.** Regenerate, then sync `charts/clustarr/templates/rbac.yaml` between its BEGIN/END sentinels or `TestChartRBACMatchesTheGeneratedRole` goes red.
+- Consider adding BEGIN/END sentinels around the chart's **`ui`** ClusterRole too: `cmd/clustarr/ui_rbac_test.go` currently anchors on literal chart text because D3-4's scope was two test files. It fails safely, but it is format-sensitive in a way the sibling test is not.
+
 Registers every controller, worker and engine behind its role flag; adds `grabarr` to `RBAC_DIRS` and regenerates; per-service readiness that runs on **every replica, not only the leader**; `k8s.WithBusHooks(obs.BusHooks())` on `k8s.ConnectBus` (AST-guarded — the guard will tell you if you miss it).
 
 **The D1 equivalent of this task found both of its phase's Criticals *outside* the package it scoped itself to.** Registration is where inert code hides: a controller nobody registers passes every unit test it has. Explicitly verify each new runnable is actually reachable from `clustarr all` and from its own subcommand.
