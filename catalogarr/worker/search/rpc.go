@@ -49,13 +49,28 @@ type busSearchRPC struct{ r events.Requester }
 // NewBusSearchRPC wraps a bus's request/reply half as a SearchRPC. Spec §5:
 // "micro, queue group indexarr, single reply at min(deadline, 45s)" --
 // events.Requester.Request already implements the single-reply semantics, so
-// this wrapper only translates events.ErrNoResponders (indexarr is down, or
-// not built yet) into a retryable error instead of a hard failure, per §8.8's
-// worker error handling. Everything else is returned verbatim so the
-// subscription's own backoff schedule applies.
+// this wrapper honours the request's own deadline and translates
+// events.ErrNoResponders (indexarr is down, or not built yet) into a
+// retryable error instead of a hard failure, per §8.8's worker error
+// handling. Everything else is returned verbatim so the subscription's own
+// backoff schedule applies.
 func NewBusSearchRPC(r events.Requester) SearchRPC { return &busSearchRPC{r: r} }
 
+// Search sends req and waits for the single reply for at most
+// req.DeadlineMillis. The deadline is advertised to indexarr as "how long the
+// caller will wait" (schema.SearchRequest), and indexarr budgets its fan-out
+// to reply inside it; bounding the wait here is what makes the advertisement
+// true. Without it the only bound was whatever the transport defaulted to --
+// natsbus' DefaultRequestTimeout, or none at all on a transport without one
+// -- and a caller context already carrying a longer deadline (the consumer's
+// AckWait) would have waited out that instead. A deadline already on ctx that
+// is SHORTER wins, as context.WithTimeout always keeps the earlier one.
 func (b *busSearchRPC) Search(ctx context.Context, req schema.SearchRequest) (schema.SearchResponse, error) {
+	if req.DeadlineMillis > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(req.DeadlineMillis)*time.Millisecond)
+		defer cancel()
+	}
 	var resp schema.SearchResponse
 	if err := b.r.Request(ctx, events.RPCIndexSearch, req, &resp); err != nil {
 		if errors.Is(err, events.ErrNoResponders) {

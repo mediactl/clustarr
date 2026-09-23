@@ -69,6 +69,71 @@ func TestBusSearchRPCNoRespondersIsRetryable(t *testing.T) {
 	require.ErrorIs(t, err, events.ErrNoResponders, "the cause must survive the wrapping")
 }
 
+// deadlineRequester records the deadline the request context carried and
+// then blocks until that context ends, as a hung indexarr would.
+type deadlineRequester struct {
+	deadline time.Time
+	has      bool
+}
+
+func (d *deadlineRequester) Request(ctx context.Context, _ string, _, _ any) error {
+	d.deadline, d.has = ctx.Deadline()
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (*deadlineRequester) Serve(string, string, func(context.Context, []byte) ([]byte, error)) error {
+	return errors.New("deadlineRequester serves nothing")
+}
+
+// TestBusSearchRPCHonoursDeadlineMillis pins the carried D1 defect: the RPC
+// advertised DeadlineMillis to indexarr but never bounded its own wait, so a
+// hung reply was bounded only by whatever the transport or the consumer's
+// AckWait happened to allow.
+func TestBusSearchRPCHonoursDeadlineMillis(t *testing.T) {
+	t.Run("the wait is bounded by the request's own deadline", func(t *testing.T) {
+		req := &deadlineRequester{}
+		// A parent context far longer than the advertised deadline, as the
+		// consumer's AckWait is.
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+
+		start := time.Now()
+		_, err := NewBusSearchRPC(req).Search(ctx, schema.SearchRequest{
+			Kind: commonv1.MediaKindMovie, DeadlineMillis: 50,
+		})
+		elapsed := time.Since(start)
+
+		require.Error(t, err)
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.True(t, req.has, "the request context must carry a deadline")
+		require.WithinDuration(t, start.Add(50*time.Millisecond), req.deadline, 40*time.Millisecond,
+			"the deadline must be DeadlineMillis from the call, not the parent's minute")
+		require.Less(t, elapsed, 5*time.Second)
+	})
+
+	t.Run("a shorter deadline already on the context wins", func(t *testing.T) {
+		req := &deadlineRequester{}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+		parent, _ := ctx.Deadline()
+
+		_, err := NewBusSearchRPC(req).Search(ctx, schema.SearchRequest{
+			Kind: commonv1.MediaKindMovie, DeadlineMillis: SearchDeadline.Milliseconds(),
+		})
+		require.Error(t, err)
+		require.Equal(t, parent, req.deadline)
+	})
+
+	t.Run("no advertised deadline leaves the context alone", func(t *testing.T) {
+		req := &deadlineRequester{}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, _ = NewBusSearchRPC(req).Search(ctx, schema.SearchRequest{Kind: commonv1.MediaKindMovie})
+		require.False(t, req.has)
+	})
+}
+
 func TestFakeSearchRPCRecordsRequestsAndReturnsCannedResponse(t *testing.T) {
 	fake := &FakeSearchRPC{Response: schema.SearchResponse{Releases: []schema.Release{{ParsedTitle: "canned"}}}}
 
