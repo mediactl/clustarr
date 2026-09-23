@@ -37,26 +37,23 @@ func mapPrimaryType(mb string) string {
 }
 
 // mapSecondaryType folds one MusicBrainz release-group secondary type
-// (docs/research/metadata.md:253-254, "Compilation, Soundtrack, Spokenword,
-// Interview, Audiobook, Audio drama, Live, Remix, DJ-mix, Mixtape/Street,
-// Demo, Field recording") onto MusicMetadataProfile.SecondaryTypes' CRD enum
+// (https://musicbrainz.org/doc/Release_Group/Type: "Compilation",
+// "Soundtrack", "Spokenword", "Interview", "Audiobook", "Audio drama",
+// "Live", "Remix", "DJ-mix", "Mixtape/Street", "Demo", "Field recording")
+// onto MusicMetadataProfile.SecondaryTypes' CRD enum
 // (studio;compilation;soundtrack;spokenword;interview;audiobook;live;remix;
-// djMix;mixtape;demo;audioDrama). Most fold by a plain case change; three do
-// not ("Audio drama"'s space, "DJ-mix"'s hyphen+case, "Mixtape/Street"'s
-// slash), so this is an explicit table -- the same style
-// catalogarr/metadata/patch.go's mapImageType uses for its own
-// provider-to-CRD vocabulary crosswalk -- rather than a strings.ToLower call.
+// djMix;mixtape;demo;audioDrama;fieldRecording). Most fold by a plain case
+// change; four do not ("Audio drama"'s and "Field recording"'s spaces,
+// "DJ-mix"'s hyphen+case, "Mixtape/Street"'s slash), so this is an explicit
+// table -- the same style catalogarr/metadata/patch.go's mapImageType uses
+// for its own provider-to-CRD vocabulary crosswalk -- rather than a
+// strings.ToLower call.
 //
-// MusicBrainz's "Field recording" has no CRD enum member at all: the CRD's
-// own default {studio} names a token with no MusicBrainz equivalent (MB has
-// no literal "Studio" secondary type; "studio" is this project's own
-// placeholder for "no secondary type set" on a plain studio album, handled
-// separately in AlbumAccepted), not the twelfth real MB value substituting
-// for it. A release group tagged only "Field recording" therefore has no
-// token it could ever match; ok=false reports that rather than silently
-// mapping it onto something else or dropping it. Flagged in this task's
-// report as a CRD enum gap -- api/catalog/v1alpha1 is out of this task's
-// directories, so it is reported, not fixed here.
+// "studio" has no MusicBrainz counterpart: MB has no literal "Studio"
+// secondary type, and the token is this project's own for "no secondary
+// type set" on a plain studio album, handled separately in AlbumAccepted. A
+// spelling outside the table (MusicBrainz adding a thirteenth type) reports
+// ok=false rather than being mapped onto something else or dropped.
 func mapSecondaryType(mb string) (string, bool) {
 	switch mb {
 	case "Compilation":
@@ -81,28 +78,45 @@ func mapSecondaryType(mb string) (string, bool) {
 		return "mixtape", true
 	case "Audio drama":
 		return "audioDrama", true
+	case "Field recording":
+		return "fieldRecording", true
 	default:
 		return "", false
 	}
 }
 
-// mapReleaseStatus folds one MusicBrainz release status
-// (docs/research/metadata.md:255, "official, promotion, bootleg,
-// pseudo-release") onto MusicMetadataProfile.ReleaseStatuses' CRD enum
-// (official;promotion;bootleg;pseudoRelease). Three already match verbatim;
-// only pseudo-release's hyphen needs folding. "withdrawn"/"cancelled" are
-// the two statuses docs/research/metadata.md:255 marks unverified and the
-// CRD enum deliberately omits, so they report ok=false rather than a
-// guessed mapping.
+// mapReleaseStatus folds one MusicBrainz release status onto
+// MusicMetadataProfile.ReleaseStatuses' CRD enum
+// (official;promotion;bootleg;pseudoRelease). The web service spells them
+// "Official", "Promotion", "Bootleg" and "Pseudo-Release" (verified against
+// musicbrainz.org/ws/2 on 2026-09-23; pkg/metadata/clients/musicbrainz
+// passes them through unchanged), so the comparison folds case first -- an
+// exact-case table matched none of them. "Withdrawn" and "Cancelled" have
+// no CRD token and report ok=false rather than a guessed mapping.
 func mapReleaseStatus(mb string) (string, bool) {
-	switch mb {
-	case "official", "promotion", "bootleg":
-		return mb, true
+	switch strings.ToLower(mb) {
+	case "official":
+		return "official", true
+	case "promotion":
+		return "promotion", true
+	case "bootleg":
+		return "bootleg", true
 	case "pseudo-release":
 		return "pseudoRelease", true
 	default:
 		return "", false
 	}
+}
+
+// ReleaseStatusAccepted reports whether a MusicBrainz release status
+// (spelled as the web service spells it) folds onto a token in
+// profile.ReleaseStatuses. It is the one release-status rule shared by
+// AlbumAccepted here and the Album controller's release selection
+// (catalogarr/controller/album), so the two can never disagree about which
+// statuses a profile admits.
+func ReleaseStatusAccepted(profile catalogv1alpha1.MusicMetadataProfile, status string) bool {
+	token, ok := mapReleaseStatus(status)
+	return ok && containsFold(profile.ReleaseStatuses, token)
 }
 
 func containsFold(list []string, want string) bool {
@@ -138,15 +152,17 @@ func containsFold(list []string, want string) bool {
 // rejects the album outright, the same as failing the allow-list.
 //
 // ReleaseStatuses: alb must have at least one release whose status folds
-// (mapReleaseStatus) onto a token in profile.ReleaseStatuses. alb.Releases
-// is populated by ArtistProvider.Album's own release-group lookup (used for
-// the gateway's status.metadata), not by ArtistProvider.Albums(mbArtistID)
-// (this fan-out's own browse call) -- pkg/metadata/clients/musicbrainz's
-// mapAlbum does not currently populate Releases from EITHER call, a Phase B
-// client gap flagged in this task's report, not this task's to fix. So in
-// practice today alb.Releases is always empty, and an empty Releases list
-// passes this dimension rather than blocking every album on data this task
-// cannot see.
+// (ReleaseStatusAccepted) onto a token in profile.ReleaseStatuses -- Lidarr's
+// album-level rule (SkyHookProxy.FilterAlbums,
+// src/NzbDrone.Core/MetadataSource/SkyHook/SkyHookProxy.cs at Lidarr
+// da7b4dfb: `album.ReleaseStatuses.Any(x => releaseStatuses.Contains(x))`).
+// This fan-out's own browse, ArtistProvider.Albums(mbArtistID), deliberately
+// does not browse releases (one extra request per release group), so here
+// alb.Releases is empty and this dimension passes rather than blocking every
+// album on data the call does not carry. The Album controller applies the
+// same rule once it has fetched its release group's releases: it selects
+// only among releases of an accepted status, and reports an album none of
+// whose releases qualifies (catalogarr/controller/album's SelectRelease).
 func AlbumAccepted(profile catalogv1alpha1.MusicMetadataProfile, alb pkgmetadata.Album) bool {
 	if !containsFold(profile.PrimaryTypes, mapPrimaryType(alb.PrimaryType)) {
 		return false
@@ -173,8 +189,7 @@ func AlbumAccepted(profile catalogv1alpha1.MusicMetadataProfile, alb pkgmetadata
 	if len(alb.Releases) > 0 {
 		accepted := false
 		for _, rel := range alb.Releases {
-			token, ok := mapReleaseStatus(rel.Status)
-			if ok && containsFold(profile.ReleaseStatuses, token) {
+			if ReleaseStatusAccepted(profile, rel.Status) {
 				accepted = true
 				break
 			}

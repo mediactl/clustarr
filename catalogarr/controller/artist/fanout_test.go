@@ -108,17 +108,20 @@ func TestAlbumAcceptedSecondaryTypeCrosswalk(t *testing.T) {
 	}
 }
 
-func TestAlbumAcceptedFieldRecordingHasNoCRDToken(t *testing.T) {
-	// MusicBrainz's twelfth secondary type has no CRD enum member at all
-	// (this task's report flags this as a gap) -- an album carrying only
-	// this type can never be accepted, regardless of profile.
+func TestAlbumAcceptedFieldRecording(t *testing.T) {
+	// MusicBrainz's "Field recording" (https://musicbrainz.org/doc/Release_Group/Type)
+	// folds onto the CRD token fieldRecording: accepted when the profile
+	// lists it, rejected when it does not.
 	profile := catalogv1alpha1.MusicMetadataProfile{
 		PrimaryTypes:    []string{"album"},
-		SecondaryTypes:  []string{"studio", "compilation", "soundtrack", "spokenword", "interview", "audiobook", "live", "remix", "djMix", "mixtape", "demo", "audioDrama"},
+		SecondaryTypes:  []string{"fieldRecording"},
 		ReleaseStatuses: []string{"official"},
 	}
 	alb := pkgmetadata.Album{PrimaryType: "Album", SecondaryTypes: []string{"Field recording"}}
-	assert.False(t, artist.AlbumAccepted(profile, alb))
+	assert.True(t, artist.AlbumAccepted(profile, alb))
+
+	profile.SecondaryTypes = []string{"studio", "compilation", "soundtrack", "spokenword", "interview", "audiobook", "live", "remix", "djMix", "mixtape", "demo", "audioDrama"}
+	assert.False(t, artist.AlbumAccepted(profile, alb), "every other token listed, but not fieldRecording")
 }
 
 func TestAlbumAcceptedReleaseStatuses(t *testing.T) {
@@ -137,6 +140,31 @@ func TestAlbumAcceptedReleaseStatuses(t *testing.T) {
 	pseudoProfile := defaultProfile()
 	pseudoProfile.ReleaseStatuses = []string{"pseudoRelease"}
 	assert.True(t, artist.AlbumAccepted(pseudoProfile, pseudo), "pseudo-release folds onto pseudoRelease")
+}
+
+// TestReleaseStatusAcceptedFoldsMusicBrainzSpelling pins the spelling the
+// web service actually sends ("Official", "Pseudo-Release"; see
+// testdata/metadata/musicbrainz/browse_releases_the_bends.json), which an
+// exact-case table matched none of.
+func TestReleaseStatusAcceptedFoldsMusicBrainzSpelling(t *testing.T) {
+	profile := catalogv1alpha1.MusicMetadataProfile{ReleaseStatuses: []string{"official", "pseudoRelease"}}
+	for _, c := range []struct {
+		status string
+		want   bool
+	}{
+		{"Official", true},
+		{"official", true},
+		{"Pseudo-Release", true},
+		{"Promotion", false},
+		{"Bootleg", false},
+		{"Withdrawn", false},
+		{"Cancelled", false},
+		{"", false},
+	} {
+		assert.Equal(t, c.want, artist.ReleaseStatusAccepted(profile, c.status), "status %q", c.status)
+	}
+	official := pkgmetadata.Album{PrimaryType: "Album", Releases: []pkgmetadata.AlbumRelease{{Status: "Official"}}}
+	assert.True(t, artist.AlbumAccepted(defaultProfile(), official), "a real MusicBrainz release list must pass an official-only profile")
 }
 
 func TestInitialAlbumMonitored(t *testing.T) {
