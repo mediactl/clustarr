@@ -8,6 +8,7 @@ rules:
   - ""
   resources:
   - configmaps
+  - namespaces
   verbs:
   - get
 - apiGroups:
@@ -48,25 +49,11 @@ rules:
   - catalog.clustarr.io
   resources:
   - albums
+  - books
+  - episodes
+  - issues
   verbs:
   - create
-  - get
-  - list
-  - patch
-  - watch
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
-  - artists
-  - comics
-  - libraryscans
-  - mediafiles
-  - movies
-  - searches
-  - series
-  verbs:
-  - create
-  - delete
   - get
   - list
   - patch
@@ -75,7 +62,11 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
+  - albums/finalizers
   - artists/finalizers
+  - audiobooks/finalizers
+  - authors/finalizers
+  - books/finalizers
   - comics/finalizers
   - episodes/finalizers
   - importexclusions/finalizers
@@ -87,7 +78,11 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
+  - albums/status
   - artists/status
+  - audiobooks/status
+  - authors/status
+  - books/status
   - comics/status
   - delayprofiles/status
   - episodes/status
@@ -109,11 +104,23 @@ rules:
 - apiGroups:
   - catalog.clustarr.io
   resources:
+  - artists
   - audiobooks
   - authors
-  - books
+  - comics
+  - libraryscans
+  - mediafiles
+  - movies
+  - searches
+  - series
   verbs:
+  - create
+  - delete
+  - get
+  - list
   - patch
+  - update
+  - watch
 - apiGroups:
   - catalog.clustarr.io
   resources:
@@ -122,18 +129,6 @@ rules:
   verbs:
   - get
   - list
-  - watch
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
-  - episodes
-  - issues
-  verbs:
-  - create
-  - get
-  - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - catalog.clustarr.io
@@ -238,11 +233,32 @@ rules:
 - apiGroups:
   - subtitle.clustarr.io
   resources:
-  - subtitlerequests
+  - subtitleprofiles
+  - subtitleproviders
   verbs:
   - get
   - list
+  - watch
+- apiGroups:
+  - subtitle.clustarr.io
+  resources:
+  - subtitleprofiles/status
+  - subtitleproviders/status
+  - subtitlerequests/status
+  verbs:
+  - get
   - patch
+  - update
+- apiGroups:
+  - subtitle.clustarr.io
+  resources:
+  - subtitlerequests
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - transcode.clustarr.io
