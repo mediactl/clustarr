@@ -166,6 +166,54 @@ func TestSceneMappings(t *testing.T) {
 	require.Equal(t, before, calls, "a series with no tvdb id costs no lookup")
 }
 
+// TestSearchNumbering pins Sonarr's search numbering for a scene-mapped
+// series: each field is the scene number of the episode's TheXEM row when the
+// row has one, and the episode's own TVDB number otherwise.
+func TestSearchNumbering(t *testing.T) {
+	ep := func(season, episode int32, absolute *int32) *catalogv1alpha1.Episode {
+		return &catalogv1alpha1.Episode{
+			Spec:   catalogv1alpha1.EpisodeSpec{SeasonNumber: season, EpisodeNumber: episode},
+			Status: catalogv1alpha1.EpisodeStatus{AbsoluteNumber: absolute},
+		}
+	}
+	// "Shinryaku!? Ika Musume": TVDB files the second season as season 1
+	// episodes 13 and on; the scene numbers it season 2.
+	table := []decision.SceneMapping{
+		{Scene: decision.EpisodeNumbering{Season: 1, Episode: 12, Absolute: 12}, TVDB: decision.EpisodeNumbering{Season: 1, Episode: 12, Absolute: 12}},
+		{Scene: decision.EpisodeNumbering{Season: 2, Episode: 1, Absolute: 13}, TVDB: decision.EpisodeNumbering{Season: 1, Episode: 13, Absolute: 13}},
+		{Scene: decision.EpisodeNumbering{Season: 2, Episode: 2}, TVDB: decision.EpisodeNumbering{Season: 1, Episode: 14, Absolute: 14}},
+		// A row with no scene episode: the in-season numbers stay TVDB's.
+		{Scene: decision.EpisodeNumbering{Absolute: 40}, TVDB: decision.EpisodeNumbering{Season: 1, Episode: 15, Absolute: 15}},
+		// Two rows for one TVDB episode: Sonarr applies rows in order, so the
+		// later one is the episode's scene numbering.
+		{Scene: decision.EpisodeNumbering{Season: 2, Episode: 4, Absolute: 16}, TVDB: decision.EpisodeNumbering{Season: 1, Episode: 16, Absolute: 16}},
+		{Scene: decision.EpisodeNumbering{Season: 2, Episode: 5, Absolute: 17}, TVDB: decision.EpisodeNumbering{Season: 1, Episode: 16, Absolute: 16}},
+	}
+
+	for _, c := range []struct {
+		name            string
+		ep              *catalogv1alpha1.Episode
+		table           []decision.SceneMapping
+		season, episode int32
+		absolute        *int32
+	}{
+		{"a mapped episode is searched by its scene season and episode", ep(1, 13, ptr.To[int32](13)), table, 2, 1, ptr.To[int32](13)},
+		{"the scene absolute replaces the TVDB one", ep(1, 16, ptr.To[int32](16)), table, 2, 5, ptr.To[int32](17)},
+		{"a row with no scene absolute keeps the episode's", ep(1, 14, ptr.To[int32](14)), table, 2, 2, ptr.To[int32](14)},
+		{"a row with no scene absolute and an episode with none has none", ep(1, 14, nil), table, 2, 2, nil},
+		{"a row with no scene episode keeps the TVDB season and episode", ep(1, 15, ptr.To[int32](15)), table, 1, 15, ptr.To[int32](40)},
+		{"an episode the table has no row for is searched literally", ep(3, 1, ptr.To[int32](30)), table, 3, 1, ptr.To[int32](30)},
+		{"no table: every number is the episode's own", ep(1, 13, ptr.To[int32](13)), nil, 1, 13, ptr.To[int32](13)},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			season, episode, absolute := searchNumbering(c.table, c.ep)
+			require.Equal(t, c.season, season)
+			require.Equal(t, c.episode, episode)
+			require.Equal(t, c.absolute, absolute)
+		})
+	}
+}
+
 func TestNonVideoIdentities(t *testing.T) {
 	// 23:30 on 31 December 1999 in UTC is already 2000 east of UTC and
 	// still 1999 west of it; the year must be read in UTC regardless of

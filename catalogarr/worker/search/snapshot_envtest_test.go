@@ -241,6 +241,87 @@ func TestWorkerSnapshotOfAnAnimeEpisodeWithAFile(t *testing.T) {
 	require.Equal(t, []int32{5000}, reqs[0].Categories)
 }
 
+// TestWorkerSearchesASceneMappedEpisodeByItsSceneNumbering: for a series
+// TheXEM maps, the request asks for the target's SCENE season and episode --
+// in the ids and in the text fallback alike -- as Sonarr's
+// ReleaseSearchService does, while the identity keeps the TVDB numbering and
+// the table that reads a scene-numbered answer back. TVDB S01E13 is scene
+// S02E01 here; asking an indexer keyed by scene numbers for S01E13 finds
+// nothing, or a different episode.
+func TestWorkerSearchesASceneMappedEpisodeByItsSceneNumbering(t *testing.T) {
+	ctx := context.Background()
+	mgr := newTestManager(t)
+	c := mgr.GetClient()
+	const ns = "snapshot-scene-request"
+	newNamespace(t, ctx, c, ns)
+
+	qp := testQualityProfile("snap-scene-request")
+	require.NoError(t, c.Create(ctx, qp))
+	require.NoError(t, c.Create(ctx, &catalogv1alpha1.Series{
+		ObjectMeta: metav1.ObjectMeta{Name: "ika-musume", Namespace: ns},
+		Spec: catalogv1alpha1.SeriesSpec{
+			TvdbID: 195721, QualityProfileRef: qp.Name, RootFolderRef: "tv",
+		},
+	}))
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Series("ika-musume", ns).WithStatus(
+		catalogac.SeriesStatus().WithMetadata(catalogac.SeriesMetadata().
+			WithTitle("Shinryaku! Ika Musume").WithYear(2010).WithRefreshedAt(metav1.Now()))))
+	require.NoError(t, err)
+	require.NoError(t, c.Create(ctx, &catalogv1alpha1.Episode{
+		ObjectMeta: metav1.ObjectMeta{Name: "ika-musume-s01e13", Namespace: ns},
+		Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: "ika-musume", SeasonNumber: 1, EpisodeNumber: 13},
+	}))
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Episode("ika-musume-s01e13", ns).WithStatus(
+		catalogac.EpisodeStatus().WithAirDate(metav1.NewTime(time.Date(2011, 9, 27, 0, 0, 0, 0, time.UTC))).
+			WithPhase(catalogv1alpha1.EpisodePhaseWanted)))
+	require.NoError(t, err)
+
+	capture := &targetCapture{}
+	rpc := &search.FakeSearchRPC{Response: schema.SearchResponse{
+		Releases: []schema.Release{rpcRelease("g1", "Shinryaku.Ika.Musume.S02E01.1080p.WEB-DL.x264-GRP", 90)},
+	}}
+	w := search.NewWorker(c, rpc, catalogue.LoadedCatalogue())
+	w.Evaluate = capture.evaluate
+	w.Sink = newRecordingSink()
+	w.Clock = clockwork.NewFakeClockAt(testNow)
+	table := []scenemap.Mapping{
+		{Scene: scenemap.Numbering{Season: 1, Episode: 12, Absolute: 12}, TVDB: scenemap.Numbering{Season: 1, Episode: 12, Absolute: 12}},
+		{Scene: scenemap.Numbering{Season: 2, Episode: 1, Absolute: 13}, TVDB: scenemap.Numbering{Season: 1, Episode: 13, Absolute: 13}},
+	}
+	w.SceneMaps = fakeSceneSource{195721: {TVDBID: 195721, Mappings: table}}
+
+	eventually(t, 10*time.Second, "the series metadata and the episode status to reach the cache", func() bool {
+		var s catalogv1alpha1.Series
+		var e catalogv1alpha1.Episode
+		return c.Get(ctx, client.ObjectKey{Namespace: ns, Name: "ika-musume"}, &s) == nil && s.Status.Metadata != nil &&
+			c.Get(ctx, client.ObjectKey{Namespace: ns, Name: "ika-musume-s01e13"}, &e) == nil && e.Status.AirDate != nil
+	})
+
+	schemaName, data, err := schema.Encode(schema.SearchTask{
+		MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "ika-musume-s01e13"},
+		Reason:   schema.SearchReasonMissing,
+	})
+	require.NoError(t, err)
+	require.NoError(t, w.Handle(ctx, testMessage{env: &events.Envelope{
+		ID: "scene-request-1", Type: "catalog.SearchTask", Schema: schemaName,
+		Key: ns + "/ika-musume-s01e13", Time: time.Now(), Data: data,
+	}}))
+
+	reqs := rpc.Requests()
+	require.Len(t, reqs, 1)
+	require.Equal(t, "195721", reqs[0].IDs[commonv1.IDKeyTVDB])
+	require.NotNil(t, reqs[0].Season)
+	require.NotNil(t, reqs[0].Episode)
+	require.Equal(t, int32(2), *reqs[0].Season, "the scene season goes on the wire, not TVDB's")
+	require.Equal(t, int32(1), *reqs[0].Episode, "the scene episode goes on the wire, not TVDB's")
+	require.Equal(t, "Shinryaku! Ika Musume S02E01", reqs[0].Text, "the text fallback names the scene numbering too")
+
+	target, _, _ := capture.get(t)
+	require.Equal(t, 1, target.Identity.Season, "the identity stays in TVDB numbering")
+	require.Equal(t, []int{13}, target.Identity.Episodes)
+	require.Len(t, target.Identity.SceneMappings, 2, "and carries the table that reads a scene-numbered answer back")
+}
+
 func TestWorkerSnapshotOfAMovieWithNoFileHasNoCurrent(t *testing.T) {
 	ctx := context.Background()
 	f := newWorkerFixture(t, "snapshot-movie")

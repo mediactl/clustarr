@@ -102,20 +102,25 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 		// An Episode carries no QualityProfileRef of its own: episodes are
 		// ranked against the owning Series' profile (spec §4.2).
 		snap.QualityProfileRef = s.Spec.QualityProfileRef
+		// The series' whole TheXEM table: the identity check reads every
+		// release number through it, and the request below asks for the
+		// target's scene numbering from it.
+		scene := SceneMappings(ctx, w.SceneMaps, s.Spec.TvdbID)
 		// The SERIES tvdb id, not Episode.status.tvdbID. A Newznab/Torznab
 		// tv-search is keyed `tvdbid=<series>&season=&ep=`; the episode's own
 		// tvdb id identifies a different entity and no indexer accepts it.
 		// (The task brief said status.tvdbID here -- see the task report.)
 		snap.IDs.TvdbID = s.Spec.TvdbID
-		snap.IDs.Season = ptr.To(e.Spec.SeasonNumber)
-		snap.IDs.Episode = ptr.To(e.Spec.EpisodeNumber)
 		snap.IDs.Anime = s.Spec.SeriesType == catalogv1alpha1.SeriesTypeAnime
-		if snap.IDs.Anime && e.Status.AbsoluteNumber != nil {
+		season, episode, absolute := searchNumbering(scene, &e)
+		snap.IDs.Season = ptr.To(season)
+		snap.IDs.Episode = ptr.To(episode)
+		if snap.IDs.Anime && absolute != nil {
 			// Anime indexers key releases by absolute number, so the
 			// absolute number -- not the in-season number -- is what goes
 			// on the wire. See BuildSearchRequest for the Season/Episode
 			// folding this feeds.
-			snap.IDs.Episode = e.Status.AbsoluteNumber
+			snap.IDs.Episode = absolute
 		}
 		// Prefer the episode's own runtime; fall back to the series'
 		// average when metadata has not filled it in yet. Zero is left as
@@ -144,7 +149,7 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 			snap.Target.OriginalLanguageTag = md.OriginalLanguage
 		}
 		snap.Target.Identity = EpisodeIdentity(&s, &e)
-		snap.Target.Identity.SceneMappings = SceneMappings(ctx, w.SceneMaps, s.Spec.TvdbID)
+		snap.Target.Identity.SceneMappings = scene
 		// This is a search for exactly one episode, so a whole-season pack
 		// is not what was asked for (ruling R-3, Sonarr's
 		// SingleEpisodeSearchMatchSpecification). It is set here, at the

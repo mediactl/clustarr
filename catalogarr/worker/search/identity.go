@@ -161,6 +161,56 @@ func SceneMappings(ctx context.Context, src scenemap.Source, tvdbID int64) []dec
 	return out
 }
 
+// searchNumbering is the season, episode and absolute number a search for e
+// asks an indexer for: the scene numbering of e's row in the series' TheXEM
+// table (scene), falling back field by field to e's own TVDB numbering.
+//
+// This is Sonarr's search, not its parser. XemService.PerformUpdate copies
+// each XEM row's scene numbers onto the TVDB episode it names
+// (Episode.SceneSeasonNumber/SceneEpisodeNumber/SceneAbsoluteEpisodeNumber),
+// and ReleaseSearchService searches with them wherever they are set:
+// GetSceneEpisodeMappings's "SceneSeasonNumber ?? SeasonNumber" and
+// "SceneEpisodeNumber ?? EpisodeNumber" for a standard series, SearchAnime's
+// "SceneAbsoluteEpisodeNumber ?? AbsoluteEpisodeNumber" for anime (Sonarr
+// src/NzbDrone.Core/DataAugmentation/Xem/XemService.cs and
+// src/NzbDrone.Core/IndexerSearch/ReleaseSearchService.cs, develop). An
+// indexer keyed by scene numbers -- every anime tracker whose season 2 is
+// TVDB's season 1 episodes 14-26 -- answers a TVDB-numbered query with
+// nothing, or with the wrong episode. What comes back is still read through
+// the same table by the identity check (decision.Identity.SceneMappings), so
+// a scene-numbered answer is compared as the TVDB episode it names.
+//
+// Sonarr applies the rows in table order and a later row for the same TVDB
+// episode overwrites an earlier one, so the LAST matching row wins here too.
+// A row with no scene episode leaves the in-season numbers alone, and a row
+// with no scene absolute leaves the absolute number alone: Sonarr's
+// "?? fallback" is per field. Sonarr's ExtrapolateMappings, which invents
+// scene numbers for TVDB episodes past the end of a table, is not ported --
+// neither is it on the identity side, so an extrapolated query would ask for
+// numbers the check then reads literally.
+//
+// absolute is nil when neither the row nor the episode has one.
+func searchNumbering(scene []decision.SceneMapping, e *catalogv1alpha1.Episode) (season, episode int32, absolute *int32) {
+	season, episode, absolute = e.Spec.SeasonNumber, e.Spec.EpisodeNumber, e.Status.AbsoluteNumber
+	var row *decision.EpisodeNumbering
+	for i := range scene {
+		if scene[i].TVDB.Season == int(season) && scene[i].TVDB.Episode == int(episode) {
+			row = &scene[i].Scene
+		}
+	}
+	if row == nil {
+		return season, episode, absolute
+	}
+	if row.Episode > 0 {
+		season, episode = int32(row.Season), int32(row.Episode)
+	}
+	if row.Absolute > 0 {
+		a := int32(row.Absolute)
+		absolute = &a
+	}
+	return season, episode, absolute
+}
+
 // idQueryIndexers names the indexers whose query in this search was keyed by
 // one of the item's ids, from the per-indexer QueryMode indexarr reports.
 // Both sides of the join are the Indexer object's name: indexarr stamps it on
