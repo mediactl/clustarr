@@ -46,9 +46,15 @@
 
 **R5 — the swap is: verify, recycle the source, atomic-move the output over the source path.** Never delete the source before the output is verified and in place. "Transcoding replaces the library hardlink only; a seeding copy in `/data/torrents` is untouched" (§6.4) — so replace the path, never touch anything outside the root folder.
 
+*Superseded in mechanism by E-3 (`797d9f3`), deliberately and for the better:* recycle-then-move leaves an instant where the library path does not exist, and a crash there leaves a hole no retry can repair. The worker instead **hard-links** the original into the recycle bin (`fsops.RecycleLink`, same bin layout as `Recycle`) and then renames the output over the source, so the path always holds a complete file. A retry after a crash **past** the swap sees a probe-hash mismatch, finds the file already tagged `CLUSTARR_PROFILE=<profile>@<status.hash>`, records the result and exits 0 rather than failing the Job permanently. The crash-state table is in `squasharr/worker/doc.go`.
+
 **R6 — no progress over NATS.** `ProgressTranscodeSubject` exists and nothing uses it, same as downloads (D3 R7). Progress goes to `status.progress` under `ManagerSquasharrWorker`, throttled. The UI already reads status.
 
 **R7 — the KEDA ScaledJob stays an example.** `config/keda/transcode-scaledjob.yaml` is labelled "OPTIONAL and EXAMPLE ONLY" and mutually exclusive with the slot scheduler. Do not wire it.
+
+**R8 — a container change is skipped at plan time, not transcoded.** Because the output replaces the source *path* (R5), an `.mp4` source under an `mkv` profile would become mkv data behind an `.mp4` name, and the reverse. Until a library path migration exists, the controller plans such a job as `Skipped` with a reason. Carried: making it work means the worker writing `<stem>.<container>` and catalogarr taking over `spec.path` on swap, alongside the `sizeBytes`/`modTime`/`original` it already takes over — plus a rescan race between the rename and the path update.
+
+**R9 — the controller owns the transcode metrics.** The worker runs in a Job pod that exits with nothing scraping it, so metrics set there are lost. The controller holds `TranscodeJobsActive` from its running count and observes duration, speed ratio and size ratio exactly once per job, on the transition to a terminal phase, from `status.result`.
 
 ---
 
@@ -94,6 +100,15 @@ Controller owns `ControllerFields` only. Watch owned Jobs.
 Tests: a **real** transcode of a small clip generated with ffmpeg's `lavfi` (`testsrc2` + `sine`, a couple of seconds), skipped cleanly when ffmpeg is absent — `pkg/transcode`'s own tests show the skip pattern. Prove the swap leaves the recycled original in the recycle bin and the verified output at the source path, and that a failed verify leaves the source untouched.
 
 ### E-4 — wiring, RBAC, readiness (SERIAL, after E-0..E-3)
+
+**Duties accumulated from E-0..E-3 — every one is required, and the first would break production:**
+- **`maxOutputToSourcePercent` defaults to 1.** `transcodeprofile_types.go:336` puts `+kubebuilder:default=1.0` on an `int32`, so the CRD default is `1` — "fail if the output exceeds 1% of the source" — and **every real transcode would exit 4**. Make it `100`. E-3's tests only pass because they set it explicitly; add one that relies on the CRD default through an unstructured create (a typed create never receives kubebuilder defaults).
+- **`policy.replaceSource` and `policy.recycleBin` cannot be set false.** `bool,omitempty` with a default of true: a typed client drops `false` and the apiserver re-applies `true` — the D1 "typed clients are never defaulted" trap. Make them `*bool` and update every consumer (worker and controller).
+- **`TranscodeJobStatus.Conditions` has no `MaxItems`** (E-0 capped only the profile's).
+- **`setupWorker` must not start a manager.** Per E-3: build a **direct** `client.New(ctrl.GetConfig(), …)` (not the cache — every apply re-reads the job), call `worker.Run(ctx, c, worker.Options{JobName, Namespace, DataDir, Threads: worker.ThreadsFromEnv()})`, and **make the process exit with the returned code**. A plain `return err` becomes exit 1, which `podFailurePolicy` retries — so exits 3 and 4 would never fail the Job, and a bad source would transcode `backoffLimit` times.
+- **Drop `--nats-url` from the worker role's `Validate`** — per R6 the worker never uses the bus.
+- **The Job pod's ServiceAccount needs the worker's RBAC**: `squasharr/worker/doc.go` declares `transcodejobs` get, `transcodeprofiles` get, `mediafiles` get, `rootfolders` list. A marker grants the *manager's* role; the Job runs as whatever ServiceAccount E-2's Job spec names. Make sure those match, and say how.
+- `--worker-image` / `--worker-image-cuda` flags threaded through manifests and chart; `TestChartImagesMatchConfig` holds them together.
 
 **Files:** `squasharr/run.go` (`setupControllers`), `cmd/clustarr/`, `config/`, `charts/`.
 
