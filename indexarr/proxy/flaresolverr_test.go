@@ -38,11 +38,19 @@ const challengePage = `<!DOCTYPE html><html><head><title>Just a moment...</title
 // issued to, the way Cloudflare binds cf_clearance.
 func cfTracker(t *testing.T) (*httptest.Server, *atomic.Int32) {
 	t.Helper()
-	var served atomic.Int32
+	srv, served, _ := cfTrackerCounting(t)
+	return srv, served
+}
+
+// cfTrackerCounting is cfTracker that also counts the challenges it served.
+func cfTrackerCounting(t *testing.T) (*httptest.Server, *atomic.Int32, *atomic.Int32) {
+	t.Helper()
+	var served, challenged atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "cloudflare")
 		ck, err := r.Cookie("cf_clearance")
 		if err != nil || ck.Value != "cleared" || r.UserAgent() != "FS-Agent/1.0" {
+			challenged.Add(1)
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = io.WriteString(w, challengePage)
 			return
@@ -52,7 +60,7 @@ func cfTracker(t *testing.T) (*httptest.Server, *atomic.Int32) {
 		_, _ = io.WriteString(w, "results for "+r.Method+" "+string(body))
 	}))
 	t.Cleanup(srv.Close)
-	return srv, &served
+	return srv, &served, &challenged
 }
 
 // fakeFlareSolverr answers /v1 like FlareSolverr and records every command.
@@ -96,7 +104,7 @@ func (f *fakeFlareSolverr) commands() []map[string]any {
 // of the page is never the answer -- and the clearance is reused, so the next
 // request costs no solve at all.
 func TestFlareSolverrSolvesAChallengeAndReusesTheClearance(t *testing.T) {
-	site, served := cfTracker(t)
+	site, served, challenged := cfTrackerCounting(t)
 	fs := newFakeFlareSolverr(t)
 	rt := &FlareSolverr{Endpoint: fs.srv.URL + "/v1", Clearances: &ClearanceCache{}, Proxy: "socks5://egress:1080"}
 
@@ -116,6 +124,8 @@ func TestFlareSolverrSolvesAChallengeAndReusesTheClearance(t *testing.T) {
 	require.Equal(t, "results for GET ", body)
 	require.Len(t, fs.commands(), 1, "a host with a clearance must not be solved again")
 	require.Equal(t, int32(2), served.Load())
+	require.Equal(t, int32(1), challenged.Load(),
+		"the cached clearance must go out on the FIRST attempt, not after another challenge")
 }
 
 // A form POST is solved with request.post and its url-encoded body, and the
