@@ -39,14 +39,15 @@ const (
 	IndexSeriesTvdbID = "rssmatcher.clustarr.io/series-tvdbid"
 
 	// IndexMovieTitleYear indexes Movie by "<cleanTitle>|<year>", one entry
-	// per known title (title and originalTitle can differ, and an indexer may
-	// use either).
+	// per known title (title, originalTitle and every alternate title can
+	// differ, and an indexer may use any of them).
 	IndexMovieTitleYear = "rssmatcher.clustarr.io/movie-title-year"
 
 	// IndexSeriesTitleYear indexes Series by SeriesTitleKey: its clean title
-	// alone, and its clean title with its first-aired year appended. The
-	// name keeps "year" because the year is still part of one of the two
-	// keys; see SeriesTitleKey for why a series is not keyed like a movie.
+	// alone, and its clean title with its first-aired year appended -- for
+	// its title and every alternate title. The name keeps "year" because
+	// the year is still part of one of the two keys; see SeriesTitleKey for
+	// why a series is not keyed like a movie.
 	IndexSeriesTitleYear = "rssmatcher.clustarr.io/series-title-year"
 
 	// IndexEpisodeSeriesSeason indexes Episode by "<seriesRef>/<season>", so
@@ -169,19 +170,24 @@ func TitleYearKey(title string, year int32) string {
 	return clean + "|" + strconv.Itoa(int(year))
 }
 
-// movieTitleYearKeys indexes a Movie under every title a release might use.
-// The metadata gateway fills status.metadata, so a movie whose metadata has
-// not arrived yet is simply not title-matchable -- it is still id-matchable,
-// because spec.tmdbID is set at creation.
+// movieTitleYearKeys indexes a Movie under every title a release might use:
+// its title, its original title and every alternate title metadata lists,
+// each with the movie's year. Radarr looks a movie up the same way, through
+// its alternative titles as well as its own (MovieRepository.FindByTitles,
+// develop). The metadata gateway fills status.metadata, so a movie whose
+// metadata has not arrived yet is simply not title-matchable -- it is still
+// id-matchable, because spec.tmdbID is set at creation.
 func movieTitleYearKeys(o client.Object) []string {
 	m, ok := o.(*catalogv1alpha1.Movie)
 	if !ok || m.Status.Metadata == nil {
 		return nil
 	}
-	return dedupeNonEmpty(
-		TitleYearKey(m.Status.Metadata.Title, m.Status.Metadata.Year),
-		TitleYearKey(m.Status.Metadata.OriginalTitle, m.Status.Metadata.Year),
-	)
+	md := m.Status.Metadata
+	keys := []string{TitleYearKey(md.Title, md.Year), TitleYearKey(md.OriginalTitle, md.Year)}
+	for _, alt := range md.AlternateTitles {
+		keys = append(keys, TitleYearKey(alt, md.Year))
+	}
+	return dedupeNonEmpty(keys...)
 }
 
 // SeriesTitleKey is the IndexSeriesTitleYear value a series title is
@@ -211,13 +217,27 @@ func SeriesTitleKey(title string, year int32) string {
 // "Doctor.Who.S01E01" and "Doctor.Who.2005.S01E01". A series titled with its
 // year already ("Doctor Who (2005)") answers only the second, as in Sonarr,
 // whose clean title for it includes the year.
+//
+// Every alternate title metadata lists is keyed the same two ways, so a
+// series whose releases use an alias ("Shingeki no Kyojin" for Attack on
+// Titan) is title-matchable, not only tvdb-id-matchable. Sonarr resolves a
+// release title through its alternate (scene) titles before its own
+// (ParsingService.GetSeries -> SceneMappingService.FindTvdbId, then
+// SeriesService.FindByTitle; develop). An alternate title's scene season
+// (AltTitle.SceneSeason) is not read: the identity check has no
+// season-by-title reading either (pkg/decision's releaseCoverage), and the
+// two must agree.
 func seriesTitleYearKeys(o client.Object) []string {
 	s, ok := o.(*catalogv1alpha1.Series)
 	if !ok || s.Status.Metadata == nil {
 		return nil
 	}
 	md := s.Status.Metadata
-	return dedupeNonEmpty(SeriesTitleKey(md.Title, 0), SeriesTitleKey(md.Title, md.Year))
+	keys := []string{SeriesTitleKey(md.Title, 0), SeriesTitleKey(md.Title, md.Year)}
+	for _, alt := range md.AlternateTitles {
+		keys = append(keys, SeriesTitleKey(alt.Title, 0), SeriesTitleKey(alt.Title, md.Year))
+	}
+	return dedupeNonEmpty(keys...)
 }
 
 func seasonKey(seriesRef string, season int32) string {

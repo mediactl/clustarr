@@ -24,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -343,6 +344,52 @@ func TestMatch_SeriesTitleFallbackFollowsSonarr(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, refs, 1, "a disambiguated title matches as the release writes it")
 	assert.Equal(t, "the-office-us-s01e01", refs[0].Name)
+}
+
+// TestMatch_SeriesAndMovieByAlternateTitle: a release that names an item by
+// an alternate title metadata lists -- and carries no id -- is matched by
+// that title, where it used to match only by id. Sonarr resolves a release
+// through its alternate titles before the series' own, Radarr through a
+// movie's alternative titles.
+func TestMatch_SeriesAndMovieByAlternateTitle(t *testing.T) {
+	ctx := context.Background()
+	mgr := newTestManager(t)
+	c := mgr.GetClient()
+	ns := newNamespace(t, ctx, c)
+
+	createSeries(t, ctx, c, ns, "attack-on-titan", 267440, "Attack on Titan", 2013)
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Series("attack-on-titan", ns).WithStatus(
+		catalogac.SeriesStatus().WithMetadata(catalogac.SeriesMetadata().
+			WithTitle("Attack on Titan").WithYear(2013).WithRuntimeMinutes(60).WithRefreshedAt(metav1.Now()).
+			WithAlternateTitles(catalogac.AltTitle().WithTitle("Shingeki no Kyojin")))))
+	require.NoError(t, err)
+	createEpisode(t, ctx, c, ns, "attack-on-titan", 1, 5, nil)
+
+	createMovie(t, ctx, c, ns, "spirited-away", 129, "Spirited Away", 2001)
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Movie("spirited-away", ns).WithStatus(
+		catalogac.MovieStatus().WithAvailable(true).WithMetadata(catalogac.MovieMetadata().
+			WithTitle("Spirited Away").WithYear(2001).WithRuntimeMinutes(125).WithOriginalLanguage("ja").
+			WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).WithRefreshedAt(metav1.Now()).
+			WithAlternateTitles("Sen to Chihiro no Kamikakushi"))))
+	require.NoError(t, err)
+
+	episode := schema.Release{
+		Info:        commonv1.ReleaseInfo{GUID: "g", Protocol: commonv1.ProtocolTorrent},
+		ParsedTitle: "Shingeki no Kyojin", Kind: commonv1.MediaKindEpisode, Seasons: []int32{1}, Episodes: []int32{5}, FetchedAt: relNow,
+	}
+	movie := movieRelease("Sen to Chihiro no Kamikakushi", 2001, nil)
+
+	eventually(t, 10*time.Second, "the alternate titles to be indexed", func() bool {
+		eps, err1 := rssmatcher.Match(ctx, c, ns, episode)
+		movies, err2 := rssmatcher.Match(ctx, c, ns, movie)
+		return err1 == nil && err2 == nil && len(eps) == 1 && len(movies) == 1
+	})
+	refs, err := rssmatcher.Match(ctx, c, ns, episode)
+	require.NoError(t, err)
+	assert.Equal(t, []commonv1.MediaRef{{Kind: commonv1.MediaKindEpisode, Name: "attack-on-titan-s01e05"}}, refs)
+	refs, err = rssmatcher.Match(ctx, c, ns, movie)
+	require.NoError(t, err)
+	assert.Equal(t, []commonv1.MediaRef{{Kind: commonv1.MediaKindMovie, Name: "spirited-away"}}, refs)
 }
 
 // setAbsolute gives an episode its anime absolute number, as the series

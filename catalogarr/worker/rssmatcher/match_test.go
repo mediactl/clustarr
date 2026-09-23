@@ -80,6 +80,16 @@ func TestMovieTitleYearKeys(t *testing.T) {
 			},
 		},
 		{
+			name: "every alternate title gets its own key, with the movie's year",
+			obj: &catalogv1alpha1.Movie{Status: catalogv1alpha1.MovieStatus{
+				Metadata: &catalogv1alpha1.MovieMetadata{Title: "Spirited Away", Year: 2001, AlternateTitles: []string{"Chihiro", ""}},
+			}},
+			want: []string{
+				TitleYearKey("Spirited Away", 2001),
+				TitleYearKey("Chihiro", 2001),
+			},
+		},
+		{
 			name: "an identical original title is not indexed twice",
 			obj: &catalogv1alpha1.Movie{Status: catalogv1alpha1.MovieStatus{
 				Metadata: &catalogv1alpha1.MovieMetadata{Title: "The Thing", OriginalTitle: "The Thing", Year: 1982},
@@ -109,6 +119,11 @@ func TestSeriesTitleYearKeys(t *testing.T) {
 		seriesTitleYearKeys(&catalogv1alpha1.Series{Status: catalogv1alpha1.SeriesStatus{
 			Metadata: &catalogv1alpha1.SeriesMetadata{Title: "Doctor Who (2005)", Year: 2005},
 		}}), "a title that already carries its year answers to that form")
+	assert.Equal(t, []string{"attack on titan", "attack on titan 2013", "shingeki no kyojin", "shingeki no kyojin 2013"},
+		seriesTitleYearKeys(&catalogv1alpha1.Series{Status: catalogv1alpha1.SeriesStatus{
+			Metadata: &catalogv1alpha1.SeriesMetadata{Title: "Attack on Titan", Year: 2013,
+				AlternateTitles: []catalogv1alpha1.AltTitle{{Title: "Shingeki no Kyojin"}, {Title: "Attack on Titan"}}},
+		}}), "an alias answers the same two ways as the title; a repeat of the title is not indexed twice")
 }
 
 // TestSeriesTitleKeyMatchesWhatTheParserProduces pins the lookup against
