@@ -29,6 +29,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
@@ -378,6 +379,23 @@ func verifyNonVideoCatalog(t *testing.T, cfg *rest.Config, fake *fakeMetadataPro
 		t.Errorf("Issue %s status is applied by %v, want both %s (Comic's fan-out) and %s (the Issue controller)",
 			iss.Name, got, k8s.ManagerCatalogarrFanout, k8s.ManagerCatalogarr)
 	}
+	// The Issue controller's catalog item event, which catalogarr/run.go
+	// could publish only once it handed the reconciler the bus (X14; until
+	// then a nil Bus published nothing, silently). This case also runs the
+	// history sink, which turns that event into an Event on the Issue.
+	waitForLong(t, "the Issue controller's item event to reach the history sink", func() bool {
+		var list eventsv1.EventList
+		if c.List(ctx, &list, client.InNamespace("default")) != nil {
+			return false
+		}
+		for _, e := range list.Items {
+			if e.Regarding.Kind == "Issue" && e.Regarding.Name == iss.Name &&
+				e.ReportingController == "catalogarr-history" {
+				return true
+			}
+		}
+		return false
+	})
 
 	// Audiobook, through the region it names.
 	waitForLong(t, "the Audiobook controller's MetadataTask to reach Audnexus for its own region", func() bool {

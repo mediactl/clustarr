@@ -353,6 +353,7 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		Client:   c,
 		Scheme:   scheme,
 		Recorder: mgr.GetEventRecorder("episode"),
+		Bus:      bus,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("catalogarr: episode: %w", err)
 	}
@@ -426,10 +427,11 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 // Request as well as for publishing its own MetadataTask; with a nil Bus
 // every reconcile panics into RecoverPanic before it lists a single child.
 // Album, Book and Audiobook are metadata targets of their own and publish
-// their own MetadataTasks, so they need it too. Issue is the one kind that
-// publishes nothing -- Comic's fan-out writes its provider fields under
-// k8s.ManagerCatalogarrFanout (catalogarr/controller/issue's doc.go) -- and
-// its Reconciler has no Bus field.
+// their own MetadataTasks, so they need it too. Issue fetches no metadata
+// of its own -- Comic's fan-out writes its provider fields under
+// k8s.ManagerCatalogarrFanout (catalogarr/controller/issue's doc.go) -- but
+// it publishes its catalog item events like every other kind, and a nil Bus
+// publishes nothing, so it gets the bus as well.
 //
 // Every recorder is named after its kind, the convention movie and series
 // set, so `kubectl get events` attributes each Event to the controller that
@@ -471,7 +473,7 @@ func setupNonVideoControllers(mgr ctrl.Manager, bus events.Bus) error {
 		return fmt.Errorf("catalogarr: comic: %w", err)
 	}
 	if err := (&issue.Reconciler{
-		Client: c, Scheme: scheme, Recorder: mgr.GetEventRecorder("issue"),
+		Client: c, Scheme: scheme, Recorder: mgr.GetEventRecorder("issue"), Bus: bus,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("catalogarr: issue: %w", err)
 	}
@@ -485,7 +487,7 @@ func setupNonVideoControllers(mgr ctrl.Manager, bus events.Bus) error {
 // (work.importarr.fileimport, work.importarr.list -- amendment §A1.6).
 func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if o.Role.Has(RoleWorker) || o.Role.Has(RoleAll) {
-		if err := setupQueueWorkers(mgr, bus); err != nil {
+		if err := setupQueueWorkers(mgr, bus, o); err != nil {
 			return err
 		}
 	}
@@ -523,17 +525,40 @@ func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 // Each gets its own recorder name, so `kubectl get events` attributes a
 // projected domain event and a dead letter to different reporting
 // controllers.
+//
+// The third piece is the clustarr.io/replay handler (design §5; task X5a
+// built it, X14 wires it): a metadata-only controller per annotatable kind
+// that reads a dead letter back off CLUSTARR_DLQ and republishes it. Both it
+// and the projector get the same DLQ reader -- the projector uses it to
+// record which sequence to replay (clustarr.io/dead-letter-seq) -- and
+// neither exists without one: the in-memory bus keeps no stream to read
+// back, so on it the projector leaves the sequence out and no replay handler
+// is registered. k8s.ConnectBus returns a JetStream-backed bus, so in
+// production both are always wired.
 func setupHistory(mgr ctrl.Manager, bus events.Bus) error {
 	if err := history.NewSink(history.SinkDeps{
 		Recorder: mgr.GetEventRecorder("catalogarr-history"),
 	}).SetupWithManager(mgr, bus); err != nil {
 		return fmt.Errorf("catalogarr: history sink: %w", err)
 	}
+	reader, replayable := history.DLQReaderFor(bus)
 	if err := history.NewDLQProjector(history.DLQDeps{
 		Client:   mgr.GetClient(),
 		Recorder: mgr.GetEventRecorder("clustarr-dlq-projector"),
+		DLQ:      reader,
 	}).SetupWithManager(mgr, bus); err != nil {
 		return fmt.Errorf("catalogarr: dlq projector: %w", err)
+	}
+	if !replayable {
+		return nil
+	}
+	if err := history.NewReplayer(history.ReplayDeps{
+		Client:   mgr.GetClient(),
+		Bus:      bus,
+		DLQ:      reader,
+		Recorder: mgr.GetEventRecorder("clustarr-replay"),
+	}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("catalogarr: dlq replay: %w", err)
 	}
 	return nil
 }
@@ -542,15 +567,28 @@ func setupHistory(mgr ctrl.Manager, bus events.Bus) error {
 //
 // Order is load-bearing and is the reason the indexes are registered here
 // rather than by whichever worker happens to want them first: the RSS matcher
-// reads the blocklist and the queue through catalogarr/worker/search's three
-// Download indexes, and when they are missing its lookups degrade to "not
-// blocklisted, empty queue" with a warning rather than an error. See
-// registerWorkerIndexes and assertWorkerIndexes, which turn that silent
-// degradation into a startup failure.
-func setupQueueWorkers(mgr ctrl.Manager, bus events.Bus) error {
-	c := mgr.GetClient()
-	cat := catalogue.LoadedCatalogue()
-
+// reads the live queue through catalogarr/worker/search's Download target
+// index and matches releases through its own indexes, and when they are
+// missing its lookups degrade rather than fail. See registerWorkerIndexes
+// and assertWorkerIndexes, which turn that silent degradation into a
+// startup failure.
+//
+// Three things every consumer here shares, each set once:
+//
+//   - the bus topology this process installed (o.BusTopology(), the value
+//     Run hands k8s.EnsureTopology), which each consumer looks its durable
+//     consumer up in. Left unset, each falls back to events.Default(),
+//     which is only right while BusTopology's single-node collapse happens
+//     to leave consumers untouched -- an invariant nothing enforces;
+//   - an uncached reader (mgr.GetAPIReader()) for the grab path's
+//     double-grab guard, on every route into it: the search sink, the
+//     scheduled grab and the RSS matcher. Through the cache, a Download
+//     another path created milliseconds earlier can be missed and grabbed
+//     beside (x4a-report "cache window");
+//   - one TheXEM scene-numbering source (newSceneMaps), so the search
+//     worker and the RSS matcher read a scene number the same way and TheXEM
+//     is asked once per series per TTL, not once per consumer.
+func setupQueueWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if err := registerWorkerIndexes(context.Background(), mgr); err != nil {
 		return err
 	}
@@ -558,7 +596,44 @@ func setupQueueWorkers(mgr ctrl.Manager, bus events.Bus) error {
 		return fmt.Errorf("catalogarr: assert worker indexes: %w", err)
 	}
 
-	grabDeps := grab.Deps{Client: c, Bus: bus}
+	w, err := buildQueueWorkers(mgr, bus, o)
+	if err != nil {
+		return err
+	}
+	if err := w.search.SetupWithManager(mgr, bus); err != nil {
+		return fmt.Errorf("catalogarr: subscribe search: %w", err)
+	}
+	if err := w.grab.SetupWithManager(mgr, bus); err != nil {
+		return fmt.Errorf("catalogarr: subscribe grab: %w", err)
+	}
+	if err := w.rss.SetupWithManager(mgr, bus); err != nil {
+		return fmt.Errorf("catalogarr: subscribe rss-matcher: %w", err)
+	}
+	return nil
+}
+
+// queueWorkers is the three consumers setupQueueWorkers registers, built
+// but not yet subscribed, so a test can inspect exactly what Run hands each
+// one (wiring_envtest_test.go's TestQueueWorkersShareRunsWiring).
+type queueWorkers struct {
+	search *search.Worker
+	grab   *grab.Handler
+	rss    *rssmatcher.Handler
+}
+
+// buildQueueWorkers builds the search, grab and rss-matcher consumers with
+// every seam setupQueueWorkers' doc comment names set.
+func buildQueueWorkers(mgr ctrl.Manager, bus events.Bus, o Options) (queueWorkers, error) {
+	c := mgr.GetClient()
+	cat := catalogue.LoadedCatalogue()
+	topo := o.BusTopology()
+
+	sceneMaps, err := newSceneMaps()
+	if err != nil {
+		return queueWorkers{}, err
+	}
+
+	grabDeps := grab.Deps{Client: c, Reader: mgr.GetAPIReader(), Bus: bus}
 
 	// The bridge from the search worker's ranked results to a grab (§8.2's
 	// two halves). Both resolvers must be set: grab.Sink logs a warning and
@@ -576,23 +651,22 @@ func setupQueueWorkers(mgr ctrl.Manager, bus events.Bus) error {
 
 	searchWorker := search.NewWorker(c, search.NewBusSearchRPC(bus), cat)
 	searchWorker.Sink = sink
-	if err := searchWorker.SetupWithManager(mgr, bus); err != nil {
-		return fmt.Errorf("catalogarr: subscribe search: %w", err)
-	}
+	searchWorker.Topology = &topo
+	searchWorker.SceneMaps = sceneMaps
 
-	if err := grab.NewHandler(grabDeps).SetupWithManager(mgr, bus); err != nil {
-		return fmt.Errorf("catalogarr: subscribe grab: %w", err)
-	}
+	grabHandler := grab.NewHandler(grabDeps)
+	grabHandler.Topology = &topo
 
-	if err := rssmatcher.NewHandler(rssmatcher.Deps{
+	rss := rssmatcher.NewHandler(rssmatcher.Deps{
 		Client:    c,
+		Reader:    mgr.GetAPIReader(),
 		Bus:       bus,
+		Topology:  &topo,
+		SceneMaps: sceneMaps,
 		Catalogue: cat,
-	}).SetupWithManager(mgr, bus); err != nil {
-		return fmt.Errorf("catalogarr: subscribe rss-matcher: %w", err)
-	}
+	})
 
-	return nil
+	return queueWorkers{search: searchWorker, grab: grabHandler, rss: rss}, nil
 }
 
 // setupMetadataGateway registers RoleMetadata's gateway: every outbound

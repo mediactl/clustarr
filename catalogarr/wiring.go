@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jonboulle/clockwork"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -33,6 +34,8 @@ import (
 	"github.com/mediactl/clustarr/catalogarr/worker/rssmatcher"
 	"github.com/mediactl/clustarr/catalogarr/worker/search"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/metadata/scenemap"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
@@ -94,19 +97,22 @@ var workerIndexes = []struct {
 	// list returns an empty list of the kind the index is registered on.
 	list func() client.ObjectList
 }{
-	// catalogarr/worker/search's three Download indexes: the two halves of
-	// the live blocklist and the per-target queue.
-	{search.IndexBlocklistInfoHash, func() client.ObjectList { return &downloadv1alpha1.DownloadList{} }},
-	{search.IndexBlocklistTitle, func() client.ObjectList { return &downloadv1alpha1.DownloadList{} }},
+	// catalogarr/worker/search's Download target index: the per-target live
+	// queue the search worker and the RSS matcher both read. Its two
+	// blocklist indexes are still registered by RegisterDownloadIndexes but
+	// read by nothing -- the blocklist is one labelled List per decision
+	// since X4b (search.LoadBlocklist) -- so asserting them proved nothing.
 	{search.IndexDownloadTarget, func() client.ObjectList { return &downloadv1alpha1.DownloadList{} }},
 
-	// catalogarr/worker/rssmatcher's five matching indexes -- §6.1's
-	// "informer-backed in-memory map".
+	// catalogarr/worker/rssmatcher's six matching indexes -- §6.1's
+	// "informer-backed in-memory map". The absolute-number one (X4b) is what
+	// lets an absolute-only anime release match at all.
 	{rssmatcher.IndexMovieTmdbID, func() client.ObjectList { return &catalogv1alpha1.MovieList{} }},
 	{rssmatcher.IndexMovieTitleYear, func() client.ObjectList { return &catalogv1alpha1.MovieList{} }},
 	{rssmatcher.IndexSeriesTvdbID, func() client.ObjectList { return &catalogv1alpha1.SeriesList{} }},
 	{rssmatcher.IndexSeriesTitleYear, func() client.ObjectList { return &catalogv1alpha1.SeriesList{} }},
 	{rssmatcher.IndexEpisodeSeriesSeason, func() client.ObjectList { return &catalogv1alpha1.EpisodeList{} }},
+	{rssmatcher.IndexEpisodeSeriesAbsolute, func() client.ObjectList { return &catalogv1alpha1.EpisodeList{} }},
 }
 
 // registerWorkerIndexes registers every index in [workerIndexes], once, on
@@ -146,7 +152,7 @@ func registerWorkerIndexes(ctx context.Context, mgr manager.Manager) error {
 // "silently inert" is observable is here, at startup, before any of it
 // matters.
 //
-// It costs eight empty, cache-served Lists once per process.
+// It costs one empty, cache-served List per entry, once per process.
 func assertWorkerIndexes(mgr manager.Manager) error {
 	// k8s.EveryReplica, not manager.RunnableFunc: the latter has no
 	// NeedLeaderElection method and controller-runtime therefore puts it
@@ -184,3 +190,39 @@ var defaultHTTPClient = &http.Client{Timeout: metadataProbeTimeout}
 
 // metadataProbeTimeout bounds one MetadataProvider credential probe.
 const metadataProbeTimeout = 30 * time.Second
+
+// sceneMapCacheSize bounds the in-process TheXEM cache: two whole-catalogue
+// entries (havemap and the scene names) plus one row set per mapped series
+// asked about. TheXEM maps a few thousand series in all.
+const sceneMapCacheSize = 4096
+
+// newSceneMaps builds the one TheXEM scene-numbering source a catalogarr
+// worker process shares between its search worker and its RSS matcher
+// (x4b-report, x6b-report "W2 decides the cache").
+//
+// The cache is a per-process metadata.LRUCache rather than the metadata
+// gateway's tiered L1/L2: that cache lives in the catalogarr-metadata
+// process, and the worker reads TheXEM through its own client. The cost is
+// that each worker replica asks TheXEM itself -- the havemap and names
+// every three hours, a mapped series' rows every twelve (scenemap.Cached's
+// Sonarr-matching TTLs), and nothing at all for the unmapped series that
+// are almost all of them -- which is well inside TheXEM's undocumented
+// limit and the client's own 1 req/s limiter.
+//
+// The limiter is this process's, per the caller-owns-rate-limiting rule:
+// scenemap.NewXEM never defaults one on.
+func newSceneMaps() (scenemap.Source, error) {
+	cache, err := pkgmetadata.NewLRUCache(sceneMapCacheSize, clockwork.NewRealClock())
+	if err != nil {
+		return nil, fmt.Errorf("catalogarr: scene-map cache: %w", err)
+	}
+	xem := scenemap.NewXEM(scenemap.XEMConfig{
+		HTTPClient: &http.Client{Timeout: sceneMapTimeout},
+		Limiter:    pkgmetadata.NewLimiter(scenemap.DefaultRate, scenemap.DefaultBurst),
+	})
+	return scenemap.NewCached(xem, cache, scenemap.Options{}), nil
+}
+
+// sceneMapTimeout bounds one TheXEM request, so a hung upstream cannot hold
+// a search or an RSS decision for the consumer's whole AckWait.
+const sceneMapTimeout = 30 * time.Second

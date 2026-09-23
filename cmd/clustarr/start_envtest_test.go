@@ -177,24 +177,13 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 			d.Options, d.Role = o, catalogarr.RoleMetadata
 			return catalogarr.Run(ctx, d)
 		}},
-		// --role history was a valid role that started NOTHING until plan
-		// task G1-5: the history sink and DLQ projector (G1-4) sat in
-		// catalogarr/history, fully tested and registered nowhere, while
-		// both durable consumers had existed server-side since M0 -- so
-		// every domain event and dead letter piled up unacknowledged behind
-		// a catalogarr Deployment that ran --role controller,worker,history
-		// and reported Ready. Readiness proves none of that, so verify
-		// publishes one of each on the real bus and watches each consumer
-		// do its first piece of work.
-		{
-			name: "catalogarr/history",
-			run: func(ctx context.Context, o k8s.Options) error {
-				d := catalogarr.DefaultOptions()
-				d.Options, d.Role = o, catalogarr.RoleHistory
-				return catalogarr.Run(ctx, d)
-			},
-			verify: func(t *testing.T) { verifyHistory(t, env.Config, natsURL) },
-		},
+		// --role history has no case of its own since X14: it registers
+		// the clustarr.io/replay handler, a controller per annotatable kind
+		// ("replay-movie", ...), and controller names are unique per
+		// process -- so, like every role with named controllers, it can run
+		// once per binary. catalogarr/all below is its superset and runs
+		// verifyHistory: the sink, the DLQ projector and the replay handler,
+		// each doing its first piece of work on the real bus.
 		{name: "importarr/worker", run: func(ctx context.Context, o k8s.Options) error {
 			d := importarr.DefaultOptions()
 			d.Options, d.Role = o, importarr.RoleWorker
@@ -496,7 +485,10 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 				d.Options, d.Role = o, catalogarr.RoleAll
 				return catalogarr.Run(ctx, d)
 			},
-			verify: func(t *testing.T) { verifyNonVideoCatalog(t, env.Config, nvFake) },
+			verify: func(t *testing.T) {
+				verifyNonVideoCatalog(t, env.Config, nvFake)
+				verifyHistory(t, env.Config, natsURL)
+			},
 		},
 		//
 		// Once it is Ready as a non-leader, verify releases the lease and
@@ -819,10 +811,12 @@ func allServiceRun(t *testing.T, name string) func(ctx context.Context, o k8s.Op
 }
 
 // verifyHistory publishes one domain event and one dead letter on the real
-// bus and waits for RoleHistory's two consumers to act on them: the sink
-// turning the event into an events.k8s.io Event on the CR it concerns, and
-// the DLQ projector annotating the dead-lettered CR (ruling R1) -- the
-// first observable piece of work each does.
+// bus and waits for RoleHistory's consumers to act on them: the sink
+// turning the event into an events.k8s.io Event on the CR it concerns, the
+// DLQ projector annotating the dead-lettered CR (ruling R1) with the
+// sequence to replay -- which it can name only with the DLQ reader
+// catalogarr/run.go hands it -- and the replay handler (X14) republishing
+// that dead letter when the CR is annotated clustarr.io/replay=<seq>.
 func verifyHistory(t *testing.T, cfg *rest.Config, natsURL string) {
 	t.Helper()
 	ctx := context.Background()
@@ -896,10 +890,56 @@ func verifyHistory(t *testing.T, cfg *rest.Config, natsURL string) {
 	}); err != nil {
 		t.Fatalf("publish the dead letter: %v", err)
 	}
-	waitFor(t, "the DLQ projector to annotate the dead-lettered Movie", func() bool {
+	// The annotation names whichever dead letter for this Movie came last.
+	// That is usually the one published above, but this runs beside the
+	// Movie controller and the metadata gateway (catalogarr/all), and with
+	// no TMDB provider configured the gateway dead-letters the Movie's own
+	// MetadataTask too -- a real dead letter, which resolves to the same
+	// Movie and proves the projector just as well. The sequence is what
+	// matters: the projector can name it only with the DLQ reader
+	// catalogarr/run.go hands it.
+	var seq string
+	waitFor(t, "the DLQ projector to annotate the dead-lettered Movie with its sequence", func() bool {
 		var got catalogv1alpha1.Movie
-		return c.Get(ctx, client.ObjectKeyFromObject(movie), &got) == nil &&
-			strings.HasPrefix(got.Annotations[history.AnnotationDeadLettered], origSubject+"@")
+		if c.Get(ctx, client.ObjectKeyFromObject(movie), &got) != nil {
+			return false
+		}
+		seq = got.Annotations[history.AnnotationDeadLetterSeq]
+		return got.Annotations[history.AnnotationDeadLettered] != "" && seq != ""
+	})
+
+	// The replay handler: the operator's `kubectl annotate movie
+	// history-probe clustarr.io/replay=<seq>`. Its proof is the Replayed
+	// Event and the request consumed; the dead-lettered marker itself may
+	// come straight back, since a replayed MetadataTask fails again here.
+	if err := c.Get(ctx, client.ObjectKeyFromObject(movie), movie); err != nil {
+		t.Fatalf("get Movie: %v", err)
+	}
+	patch := client.MergeFrom(movie.DeepCopy())
+	movie.Annotations[history.AnnotationReplay] = seq
+	if err := c.Patch(ctx, movie, patch); err != nil {
+		t.Fatalf("annotate the Movie for replay: %v", err)
+	}
+	waitFor(t, "the replay handler to consume the replay request", func() bool {
+		var got catalogv1alpha1.Movie
+		if c.Get(ctx, client.ObjectKeyFromObject(movie), &got) != nil {
+			return false
+		}
+		_, pending := got.Annotations[history.AnnotationReplay]
+		return !pending
+	})
+	waitFor(t, "the replay handler's Replayed Event on the Movie", func() bool {
+		var list eventsv1.EventList
+		if c.List(ctx, &list, client.InNamespace("default")) != nil {
+			return false
+		}
+		for _, e := range list.Items {
+			if e.Regarding.Kind == "Movie" && e.Regarding.Name == movie.Name &&
+				e.ReportingController == "clustarr-replay" && e.Reason == "Replayed" {
+				return true
+			}
+		}
+		return false
 	})
 }
 

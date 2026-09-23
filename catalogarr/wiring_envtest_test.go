@@ -33,6 +33,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/catalogarr/worker/grab"
 	"github.com/mediactl/clustarr/catalogarr/worker/search"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
@@ -160,6 +161,49 @@ func TestSetupWorkersLeavesTheBlocklistPathLive(t *testing.T) {
 	}
 }
 
+// TestQueueWorkersShareRunsWiring is the proof behind X14's queue-worker
+// wiring: each seam below is a field that is legal to leave unset -- nil
+// Topology falls back to events.Default(), nil Reader to the cache, nil
+// SceneMaps reads every scene number literally -- so a consumer built
+// without it starts, subscribes and decides, just wrongly, and nothing else
+// in the tree goes red. It inspects what buildQueueWorkers, the function
+// setupQueueWorkers subscribes, actually hands each consumer:
+//
+//   - all three look their durable consumer up in the topology Run installs;
+//   - every route into the grab path's double-grab guard -- the search
+//     sink, the scheduled grab and the RSS matcher -- reads live through the
+//     manager's API reader, not the cache (x4a-report's cache window);
+//   - the search worker and the RSS matcher read TheXEM through one shared
+//     source, so the two paths read a scene number the same way.
+func TestQueueWorkersShareRunsWiring(t *testing.T) {
+	requireEnvtest(t)
+
+	mgr := newManager(t)
+	bus := newBus(t)
+	o := Options{Options: k8s.Options{BusSingleNode: true}, Role: RoleWorker}
+	w, err := buildQueueWorkers(mgr, bus, o)
+	require.NoError(t, err)
+
+	want := o.BusTopology()
+	require.NotNil(t, w.search.Topology, "the search worker looks its consumers up in events.Default()")
+	require.Equal(t, want, *w.search.Topology)
+	require.NotNil(t, w.grab.Topology, "the grab handler looks its consumer up in events.Default()")
+	require.Equal(t, want, *w.grab.Topology)
+	require.NotNil(t, w.rss.Deps.Topology, "the RSS matcher looks its consumer up in events.Default()")
+	require.Equal(t, want, *w.rss.Deps.Topology)
+
+	live := mgr.GetAPIReader()
+	sink, ok := w.search.Sink.(grab.Sink)
+	require.True(t, ok, "the search worker's sink is %T, want grab.Sink", w.search.Sink)
+	require.True(t, sink.Deps.Reader == live, "the search sink's grab guard reads the cache, not the API reader")
+	require.True(t, w.grab.Deps.Reader == live, "the scheduled grab's guard reads the cache, not the API reader")
+	require.True(t, w.rss.Deps.Reader == live, "the RSS matcher's grab guard reads the cache, not the API reader")
+
+	require.NotNil(t, w.search.SceneMaps, "the search worker reads every scene number literally")
+	require.True(t, w.rss.Deps.SceneMaps == w.search.SceneMaps,
+		"the RSS matcher and the search worker read TheXEM through different sources")
+}
+
 // TestAssertWorkerIndexesFailsWhenTheIndexesAreMissing proves the startup
 // assertion is armed.
 //
@@ -177,7 +221,7 @@ func TestAssertWorkerIndexesFailsWhenTheIndexesAreMissing(t *testing.T) {
 	select {
 	case err := <-done:
 		require.Error(t, err, "the manager started cleanly with no worker field indexes registered")
-		require.Contains(t, err.Error(), search.IndexBlocklistInfoHash,
+		require.Contains(t, err.Error(), workerIndexes[0].name,
 			"the failure does not name the missing index")
 	case <-time.After(60 * time.Second):
 		t.Fatal("the manager did not fail within 60s despite the missing field indexes")
