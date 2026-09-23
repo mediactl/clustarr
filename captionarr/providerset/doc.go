@@ -27,17 +27,26 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // [Builder.Build] lists the enabled SubtitleProviders in a namespace and
 // returns one [Entry] per provider that has a client, ordered by
-// spec.priority ascending, ties broken by name. Three provider types have no
-// client in this phase (ruling R5): subdl, subsource and whisper. They are
-// skipped with [ErrNoClient], not failed -- one unimplemented provider must
-// not take the working ones down with it.
+// spec.priority ascending, ties broken by name. One provider type has no
+// client: whisper, which the design of record defers (gap-fix ruling R-1;
+// subdl and subsource, the other two Phase F's ruling R5 named, gained
+// theirs in gap-fix X11b). It is skipped with [ErrNoClient], not failed --
+// one unimplemented provider must not take the working ones down with it.
 //
-// A remote provider (opensubtitlescom, gestdown) gets one long-lived client
-// per SubtitleProvider object, cached across fetch tasks and rebuilt only
-// when the object's generation or its Secret's resourceVersion changes. The
-// cache is not an optimisation: the OpenSubtitles client holds its login
-// token in memory, and OpenSubtitles rate-limits logins far harder than
-// searches, so a client built per task would log in once per subtitle.
+// A remote provider (opensubtitlescom, gestdown, subdl, subsource) gets one
+// long-lived client per SubtitleProvider object, cached across fetch tasks
+// and rebuilt only when the object's generation or its Secret's
+// resourceVersion changes. The cache is not an optimisation: the
+// OpenSubtitles client holds its login token in memory, and OpenSubtitles
+// rate-limits logins far harder than searches, so a client built per task
+// would log in once per subtitle. Across replicas the token is shared too:
+// with [Builder.KV] set, each OpenSubtitles client stores and adopts it
+// through [TokenCache], the provider's entry in the
+// clustarr-provider-throttle bucket.
+//
+// Static facts about a type -- the Secret keys it needs ([NeedsSecrets]) and
+// whether its hearing-impaired flag is trustworthy ([HIVerifiable]) -- are
+// read from the client itself, never from a second table kept elsewhere.
 //
 // The local provider (embedded) reads the media file itself, so it cannot
 // be built until the file is known. Its [Entry] carries a constructor

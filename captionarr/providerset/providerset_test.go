@@ -19,7 +19,11 @@ package providerset_test
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,7 +36,11 @@ import (
 
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	"github.com/mediactl/clustarr/captionarr/providerset"
+	"github.com/mediactl/clustarr/captionarr/throttle"
+	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/subtitles"
 )
 
 const ns = "media"
@@ -81,17 +89,20 @@ func TestBuildOrdersByPriorityThenNameAndSkipsWhatItCannotBuild(t *testing.T) {
 		provider("alpha", subtitlev1alpha1.SubtitleProviderGestdown, 20, ""),
 		provider("first", subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, 5, "os"),
 		provider("local", subtitlev1alpha1.SubtitleProviderEmbedded, 50, ""),
-		provider("subdl", subtitlev1alpha1.SubtitleProviderSubDL, 1, ""),     // no client (R5)
-		provider("whisper", subtitlev1alpha1.SubtitleProviderWhisper, 1, ""), // no client (R5)
+		provider("subdl", subtitlev1alpha1.SubtitleProviderSubDL, 3, "key"),
+		provider("subsource", subtitlev1alpha1.SubtitleProviderSubSource, 30, "key"),
+		provider("subdl-nokey", subtitlev1alpha1.SubtitleProviderSubDL, 1, ""),
+		provider("whisper", subtitlev1alpha1.SubtitleProviderWhisper, 1, ""), // no client (spec-deferred)
 		provider("nocreds", subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, 1, "missing"),
 		disabled,
 		osSecret("os", fullOSCreds),
+		osSecret("key", map[string]string{"apiKey": "k"}),
 	)
 	b := providerset.NewBuilder(c, c)
 
 	got, err := b.Build(context.Background(), ns)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"first", "alpha", "zeta", "local"}, names(got))
+	assert.Equal(t, []string{"subdl", "first", "alpha", "zeta", "subsource", "local"}, names(got))
 
 	for _, e := range got {
 		assert.Equal(t, e.Type == subtitlev1alpha1.SubtitleProviderEmbedded, e.Local(), e.Name)
@@ -117,6 +128,8 @@ func TestValidateAndEntryAgree(t *testing.T) {
 		osSecret("partial", map[string]string{"apiKey": "k", "username": "u"}),
 		osSecret("blank", map[string]string{"apiKey": "k", "username": "u", "password": ""}),
 		osSecret("full", fullOSCreds),
+		osSecret("key", map[string]string{"apiKey": "k"}),
+		osSecret("blankkey", map[string]string{"apiKey": ""}),
 	)
 	b := providerset.NewBuilder(c, c)
 	ctx := context.Background()
@@ -126,9 +139,12 @@ func TestValidateAndEntryAgree(t *testing.T) {
 		sp   *subtitlev1alpha1.SubtitleProvider
 		want error // nil: buildable
 	}{
-		{"subsource has no client", provider("a", subtitlev1alpha1.SubtitleProviderSubSource, 1, ""), providerset.ErrNoClient},
-		{"subdl has no client", provider("a2", subtitlev1alpha1.SubtitleProviderSubDL, 1, ""), providerset.ErrNoClient},
 		{"whisper has no client", provider("a3", subtitlev1alpha1.SubtitleProviderWhisper, 1, ""), providerset.ErrNoClient},
+		{"subsource without a secretRef", provider("a", subtitlev1alpha1.SubtitleProviderSubSource, 1, ""), providerset.ErrMissingSecret},
+		{"subsource with its API key", provider("a1", subtitlev1alpha1.SubtitleProviderSubSource, 1, "key"), nil},
+		{"subdl without a secretRef", provider("a2", subtitlev1alpha1.SubtitleProviderSubDL, 1, ""), providerset.ErrMissingSecret},
+		{"subdl with an empty API key", provider("a4", subtitlev1alpha1.SubtitleProviderSubDL, 1, "blankkey"), providerset.ErrMissingSecret},
+		{"subdl with its API key", provider("a5", subtitlev1alpha1.SubtitleProviderSubDL, 1, "key"), nil},
 		{"opensubtitles without a secretRef", provider("b", subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, 1, ""), providerset.ErrMissingSecret},
 		{"opensubtitles with a missing secret", provider("c", subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, 1, "nope"), providerset.ErrMissingSecret},
 		{"opensubtitles without a password", provider("d", subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, 1, "partial"), providerset.ErrMissingSecret},
@@ -164,7 +180,25 @@ func TestNeedsSecretsIsEachClientsOwnList(t *testing.T) {
 	}, providerset.NeedsSecrets(subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom))
 	assert.Empty(t, providerset.NeedsSecrets(subtitlev1alpha1.SubtitleProviderGestdown))
 	assert.Empty(t, providerset.NeedsSecrets(subtitlev1alpha1.SubtitleProviderEmbedded))
-	assert.Empty(t, providerset.NeedsSecrets(subtitlev1alpha1.SubtitleProviderSubDL))
+	assert.Equal(t, []string{subtitlev1alpha1.ProviderSecretKeyAPIKey}, providerset.NeedsSecrets(subtitlev1alpha1.SubtitleProviderSubDL))
+	assert.Equal(t, []string{subtitlev1alpha1.ProviderSecretKeyAPIKey}, providerset.NeedsSecrets(subtitlev1alpha1.SubtitleProviderSubSource))
+	assert.Empty(t, providerset.NeedsSecrets(subtitlev1alpha1.SubtitleProviderWhisper))
+}
+
+// HIVerifiable is each client's own HIVerifiable() -- the one source the
+// SubtitleProvider controller's status.hiVerifiable and the fetch worker's
+// HI filter both read -- and false for a type with no client.
+func TestHIVerifiableIsEachClientsOwnClaim(t *testing.T) {
+	for _, typ := range []subtitlev1alpha1.SubtitleProviderType{
+		subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom,
+		subtitlev1alpha1.SubtitleProviderGestdown,
+		subtitlev1alpha1.SubtitleProviderSubDL,
+		subtitlev1alpha1.SubtitleProviderSubSource,
+		subtitlev1alpha1.SubtitleProviderEmbedded,
+	} {
+		assert.True(t, providerset.HIVerifiable(typ), typ)
+	}
+	assert.False(t, providerset.HIVerifiable(subtitlev1alpha1.SubtitleProviderWhisper), "no client, nothing to vouch")
 }
 
 // The cache exists so the OpenSubtitles client -- which holds its login
@@ -211,4 +245,62 @@ func TestServesComparesNormalisedLanguageTags(t *testing.T) {
 	assert.True(t, e.Serves([]string{"pt-BR"}))
 	assert.True(t, e.Serves([]string{"en"}), "ISO 639-2 eng normalises to en")
 	assert.False(t, e.Serves([]string{"pt"}), "pt and pt-BR are distinct")
+}
+
+// Two worker replicas -- two Builders over one KV bucket -- using one
+// OpenSubtitles.com account log in once between them: the first stores its
+// token through throttle.SetAuth (the caller the carried item said it never
+// had) and the second adopts it through throttle.Get. The token is keyed by
+// the provider's UID, and the entry's TokenExpiresAt is set for the
+// SubtitleProvider controller to project.
+func TestOpenSubtitlesReplicasShareOneLoginThroughTheThrottleKV(t *testing.T) {
+	var logins, searches atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/login":
+			logins.Add(1)
+			_, _ = w.Write([]byte(`{"token":"shared-token","user":{"vip":false}}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/subtitles":
+			searches.Add(1)
+			if r.Header.Get("Authorization") != "Bearer shared-token" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			_, _ = w.Write([]byte(`{"data":[]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	bus := membus.New(nil)
+	require.NoError(t, bus.Ensure(t.Context(), events.Default()))
+	t.Cleanup(func() { _ = bus.Close() })
+	kv := bus.KV(events.BucketProviderThrottle)
+
+	sp := provider("os", subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, 1, "os")
+	sp.Spec.Endpoint = ptr.To(srv.URL)
+	c := newClient(t, sp, osSecret("os", fullOSCreds))
+	q := subtitles.Query{Kind: "movie", IDs: map[string]string{"imdb": "133093"}, Languages: []subtitles.LangKey{"en"}}
+
+	for replica := range 2 {
+		b := providerset.NewBuilder(c, c)
+		b.KV = kv
+		e, err := b.Entry(t.Context(), sp)
+		require.NoError(t, err)
+		_, err = e.Client.Search(t.Context(), q)
+		require.NoError(t, err, "replica %d", replica)
+	}
+	assert.Equal(t, int32(1), logins.Load(), "the second replica adopts the first one's token instead of logging in")
+	assert.Equal(t, int32(2), searches.Load())
+
+	st, err := throttle.Get(t.Context(), kv, string(sp.UID))
+	require.NoError(t, err)
+	assert.Equal(t, "shared-token", st.JWT)
+	require.NotNil(t, st.TokenExpiresAt, "the expiry the provider controller projects into status")
+	assert.True(t, st.TokenExpiresAt.After(time.Now().Add(23*time.Hour)))
+
+	other, err := throttle.Get(t.Context(), kv, "uid-another-account")
+	require.NoError(t, err)
+	assert.Empty(t, other.JWT, "a token is keyed by its provider's UID, never shared across accounts")
 }

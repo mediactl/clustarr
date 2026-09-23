@@ -228,8 +228,10 @@ func TestReconcileDisabledProviderIsNotReadyEvenWhenAuthenticated(t *testing.T) 
 }
 
 // TestReconcileUnsupportedProviderTypeNeverErrorsOrAuthenticates is ruling
-// R5's own test: subdl has no client. Reconcile must return no error (not an
-// error loop) and report Ready=False with a clear reason.
+// R5's own test, now for whisper, the one type left with no client (subdl
+// and subsource gained theirs in gap-fix X11b; whisper is spec-deferred,
+// ruling R-1). Reconcile must return no error (not an error loop) and
+// report Ready=False with a clear reason.
 func TestReconcileUnsupportedProviderTypeNeverErrorsOrAuthenticates(t *testing.T) {
 	c := newTestClient(t)
 	kv := testKV(t)
@@ -237,8 +239,8 @@ func TestReconcileUnsupportedProviderTypeNeverErrorsOrAuthenticates(t *testing.T
 	const ns = "subtitleprovider-unsupported"
 	ensureNamespace(t, ctx, c, ns)
 
-	sp := createProvider(t, ctx, c, ns, "subdl", subtitlev1alpha1.SubtitleProviderSpec{
-		Type: subtitlev1alpha1.SubtitleProviderSubDL, Enabled: ptr.To(true),
+	sp := createProvider(t, ctx, c, ns, "whisper", subtitlev1alpha1.SubtitleProviderSpec{
+		Type: subtitlev1alpha1.SubtitleProviderWhisper, Enabled: ptr.To(true),
 	})
 
 	r := subtitleprovider.NewReconciler(c, kv, k8sevents.NewFakeRecorder(10))
@@ -275,13 +277,17 @@ func TestReadyAgreesWithTheFetchWorkersBuilder(t *testing.T) {
 
 	createSecret(t, ctx, c, ns, "full", map[string]string{"apiKey": "k", "username": "u", "password": "p"})
 	createSecret(t, ctx, c, ns, "partial", map[string]string{"apiKey": "k", "username": "u"})
+	createSecret(t, ctx, c, ns, "key", map[string]string{"apiKey": "k"})
 	specs := map[string]subtitlev1alpha1.SubtitleProviderSpec{
 		"os-full":         {Type: subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, SecretRef: &corev1.LocalObjectReference{Name: "full"}},
 		"os-partial":      {Type: subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, SecretRef: &corev1.LocalObjectReference{Name: "partial"}},
 		"gestdown":        {Type: subtitlev1alpha1.SubtitleProviderGestdown},
 		"gestdown-orphan": {Type: subtitlev1alpha1.SubtitleProviderGestdown, SecretRef: &corev1.LocalObjectReference{Name: "nope"}},
 		"embedded":        {Type: subtitlev1alpha1.SubtitleProviderEmbedded},
-		"subdl":           {Type: subtitlev1alpha1.SubtitleProviderSubDL},
+		"subdl":           {Type: subtitlev1alpha1.SubtitleProviderSubDL, SecretRef: &corev1.LocalObjectReference{Name: "key"}},
+		"subdl-nokey":     {Type: subtitlev1alpha1.SubtitleProviderSubDL},
+		"subsource":       {Type: subtitlev1alpha1.SubtitleProviderSubSource, SecretRef: &corev1.LocalObjectReference{Name: "key"}},
+		"whisper":         {Type: subtitlev1alpha1.SubtitleProviderWhisper},
 	}
 	r := subtitleprovider.NewReconciler(c, kv, k8sevents.NewFakeRecorder(100))
 	for name, spec := range specs {
@@ -297,13 +303,18 @@ func TestReadyAgreesWithTheFetchWorkersBuilder(t *testing.T) {
 	for _, e := range entries {
 		searched[e.Name] = true
 	}
-	require.Len(t, searched, 3, "setup: os-full, gestdown and embedded are buildable")
+	require.Len(t, searched, 5, "setup: os-full, gestdown, embedded, subdl and subsource are buildable")
 
 	for name := range specs {
 		var got subtitlev1alpha1.SubtitleProvider
 		require.NoError(t, c.Get(ctx, types.NamespacedName{Name: name, Namespace: ns}, &got))
 		assert.Equal(t, searched[name], k8s.IsConditionTrue(got.Status.Conditions, k8s.ConditionReady),
 			"%s: Ready must be true exactly when the fetch worker would search it", name)
+	}
+	for _, name := range []string{"subdl", "subsource"} {
+		var got subtitlev1alpha1.SubtitleProvider
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Name: name, Namespace: ns}, &got))
+		assert.True(t, got.Status.HIVerifiable, "%s: its client vouches for its HI flag", name)
 	}
 	var orphan subtitlev1alpha1.SubtitleProvider
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "gestdown-orphan", Namespace: ns}, &orphan))

@@ -28,13 +28,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
-func TestHIVerifiableMatchesEachShippedProvider(t *testing.T) {
-	assert.True(t, hiVerifiable(subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom))
-	assert.True(t, hiVerifiable(subtitlev1alpha1.SubtitleProviderGestdown))
-	assert.True(t, hiVerifiable(subtitlev1alpha1.SubtitleProviderEmbedded))
-	assert.False(t, hiVerifiable(subtitlev1alpha1.SubtitleProviderSubDL))
-}
-
 // TestJudge maps every verdict providerset.Validate can return onto the
 // conditions this controller reports. The checks themselves are
 // providerset's, and TestValidateAndEntryAgree there holds them to the
@@ -51,8 +44,12 @@ func TestJudge(t *testing.T) {
 		message       string
 	}{
 		{
-			"R5: no client", subtitlev1alpha1.SubtitleProviderSubDL, fmt.Errorf("%w: subdl", providerset.ErrNoClient),
-			false, false, ReasonNotImplemented, `no client for provider type "subdl"`,
+			"no client (whisper, spec-deferred)", subtitlev1alpha1.SubtitleProviderWhisper, fmt.Errorf("%w: whisper", providerset.ErrNoClient),
+			false, false, ReasonNotImplemented, `no client for provider type "whisper"`,
+		},
+		{
+			"subdl with its API key", subtitlev1alpha1.SubtitleProviderSubDL, nil,
+			true, true, ReasonCredentialsPresent, "subdl",
 		},
 		{
 			"missing credentials", subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, missing,

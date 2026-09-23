@@ -250,7 +250,7 @@ func applyThrottleState(
 	ac.WithObservedGeneration(generation).
 		WithThrottleReason(state.ThrottleReason).
 		WithErrorsLast120s(state.ErrorsLast120s).
-		WithHIVerifiable(impl && hiVerifiable(providerType))
+		WithHIVerifiable(impl && providerset.HIVerifiable(providerType))
 
 	if state.ThrottledUntil != nil {
 		ac.WithThrottledUntil(metav1.NewTime(*state.ThrottledUntil))

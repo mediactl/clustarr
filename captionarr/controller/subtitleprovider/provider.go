@@ -32,8 +32,8 @@ import (
 const (
 	// ReasonNotImplemented is Ready's (and, via k8s.MarkUnknown,
 	// Authenticated's and Throttled's) reason for a SubtitleProviderType
-	// ruling R5 names as having no client in this phase: subdl, subsource and
-	// whisper (providerset.ErrNoClient). "SubtitleProviderStatus mirrors KV
+	// captionarr has no client for (providerset.ErrNoClient): only whisper,
+	// which the design of record defers. "SubtitleProviderStatus mirrors KV
 	// throttle/quota into status" only makes sense for a type something
 	// actually authenticates and searches against.
 	ReasonNotImplemented = "NotImplemented"
@@ -52,20 +52,6 @@ const (
 	// throttle.
 	ReasonNotThrottled = "NotThrottled"
 )
-
-// hiVerifiable reports the static HIVerifiable() value t's real provider
-// returns (pkg/subtitles/providers/{opensubtitlescom,gestdown,embedded}
-// /provider.go all currently return true, each citing research note §4.1).
-// It is a fact about the provider TYPE, not a per-object computation, so it
-// is looked up here rather than by constructing a client.
-func hiVerifiable(t subtitlev1alpha1.SubtitleProviderType) bool {
-	switch t {
-	case subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, subtitlev1alpha1.SubtitleProviderGestdown, subtitlev1alpha1.SubtitleProviderEmbedded:
-		return true
-	default:
-		return false
-	}
-}
 
 // authResult is [judge]'s verdict: whether captionarr has a client for the
 // provider's type, whether its credentials are complete, and the condition

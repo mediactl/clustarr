@@ -265,11 +265,14 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 // rather than by how many pods run.
 //
 // The provider builder lives as long as the process: its client cache is
-// what keeps an OpenSubtitles login across fetch tasks. It reads Secrets,
-// and the worker re-reads each SubtitleRequest before its status apply,
-// through the API reader.
+// what keeps an OpenSubtitles login across fetch tasks, and its KV -- the
+// clustarr-provider-throttle bucket -- is what shares that login across
+// worker replicas (providerset.TokenCache, throttle.SetAuth). It reads
+// Secrets, and the worker re-reads each SubtitleRequest before its status
+// apply, through the API reader.
 func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	providers := providerset.NewBuilder(mgr.GetClient(), mgr.GetAPIReader())
+	providers.KV = bus.KV(events.BucketProviderThrottle)
 	worker := fetch.NewWorker(mgr.GetClient(), mgr.GetAPIReader(), bus, providers, o.DataDir)
 	if err := worker.SetupWithManager(mgr, o.BusTopology()); err != nil {
 		return fmt.Errorf("captionarr: fetch worker: %w", err)
