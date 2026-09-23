@@ -195,13 +195,16 @@ func TestMergeAlsoOnNeverNamesTheKeptIndexer(t *testing.T) {
 // The list is capped at the CRD's MaxItems: past it the apiserver rejects the
 // whole Search.status or Download.spec that carries the release.
 func TestMergeTruncatesAlsoOnToMaxAlsoOn(t *testing.T) {
-	var results []indexerResult
-	results = append(results, indexerResult{Name: "keeper", Priority: 1,
-		Releases: []schema.Release{rel("keeper", "g", "abc", 1)}})
+	results := []indexerResult{{
+		Name: "keeper", Priority: 1,
+		Releases: []schema.Release{rel("keeper", "g", "abc", 1)},
+	}}
 	for i := range commonv1.MaxAlsoOn + 5 {
 		name := "idx-" + strconv.Itoa(100+i)
-		results = append(results, indexerResult{Name: name, Priority: 25,
-			Releases: []schema.Release{rel(name, "g-"+name, "abc", 1)}})
+		results = append(results, indexerResult{
+			Name: name, Priority: 25,
+			Releases: []schema.Release{rel(name, "g-"+name, "abc", 1)},
+		})
 	}
 	got, _ := mergeReleases(results, schema.MaxSearchReleases)
 	require.Len(t, got, 1)
