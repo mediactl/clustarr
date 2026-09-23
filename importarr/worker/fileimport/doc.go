@@ -62,8 +62,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // its children, and choosing which is a guess.
 //
 // A non-video import (nonvideo.go) differs from a movie import in three
-// honest ways. Its files are classified by [ClassifyFor], because fsops'
-// class has no audio extension and calls a small ebook a sample. Its quality
+// honest ways. Its files are classified by [ClassifyFor], by their own kind:
+// fsops.Walk classifies as video, where a .flac is not media and a 1 MiB
+// file is under the video sample floor. Its quality
 // is frozen only where the extension determines it exactly
 // ([FrozenQuality]); a file whose quality is undeterminable without a probe
 // is imported only by a manual import. And it is never scored: the custom-

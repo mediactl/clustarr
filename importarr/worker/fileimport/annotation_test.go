@@ -137,6 +137,10 @@ func TestClassifyForAndFrozenQuality(t *testing.T) {
 	assert.Equal(t, fsops.ClassOther, ClassifyFor(commonv1.MediaKindBook, "/l/A/B/01.flac"), "the kind's own set only")
 	assert.Equal(t, fsops.ClassSample, ClassifyFor(commonv1.MediaKindBook, "/l/A/B/sample.epub"))
 	assert.Equal(t, fsops.ClassPart, ClassifyFor(commonv1.MediaKindIssue, "/l/A/B/x.cbz.part"))
+	assert.Equal(t, fsops.ClassMedia, ClassifyFor(commonv1.MediaKindAlbum, "/l/Phish/Hoist/05 - Sample in a Jar.flac"),
+		"music has no sample rule (pkg/fsops.IsSample): a track titled Sample is a track")
+	assert.Equal(t, fsops.ClassMedia, ClassifyFor(commonv1.MediaKindAudiobook, "/l/A/B/Part 01.m4b"))
+	assert.Equal(t, fsops.ClassOther, ClassifyFor(commonv1.MediaKindMovie, "/l/A/A.mkv"), "a video kind is not ClassifyFor's")
 
 	for _, tc := range []struct {
 		kind commonv1.MediaKind

@@ -32,31 +32,9 @@ import (
 // What this file knows about non-video files, shared with
 // importarr/worker/rescan so the importer and the scanner agree on what a
 // music, book, audiobook or comic file is and on what quality one is frozen
-// with.
-//
-// fsops.Walk's own classification is video-shaped and cannot be used for
-// these kinds as it stands: fsops.MediaExtensions has no audio extension at
-// all (every .flac, .mp3 and .m4b classifies as ClassOther), and
-// fsops.IsSample flags any media-extension file under 50 MiB as a sample, so
-// nearly every ebook and many comics classify as ClassSample. Both are
-// pkg/fsops defects this package does not own; [ClassifyFor] is the narrow
-// per-kind replacement callers use instead of the class fsops.Walk passes in.
-
-// fileExtensions is, per file-bearing kind, the extensions that kind's files
-// have. Each set is grounded in docs/research/naming.md: Lidarr's quality
-// list for music (MP3, AAC, Vorbis, FLAC, ALAC, WavPack, APE, WAV, WMA),
-// Readarr and Audiobookshelf for audiobooks (MP3, M4B, FLAC; m4a), Readarr
-// and Jellyfin for ebooks (EPUB, MOBI, AZW, AZW3, PDF), and Kavita/Jellyfin
-// for comics (cbz, cbr, cb7, cbt, pdf).
-var fileExtensions = map[commonv1.MediaKind]map[string]bool{
-	commonv1.MediaKindAlbum: {
-		".mp3": true, ".flac": true, ".m4a": true, ".aac": true, ".ogg": true,
-		".wv": true, ".ape": true, ".wav": true, ".wma": true,
-	},
-	commonv1.MediaKindAudiobook: {".m4b": true, ".m4a": true, ".mp3": true, ".flac": true},
-	commonv1.MediaKindBook:      {".epub": true, ".mobi": true, ".azw": true, ".azw3": true, ".pdf": true},
-	commonv1.MediaKindIssue:     {".cbz": true, ".cbr": true, ".cb7": true, ".cbt": true, ".pdf": true},
-}
+// with. Which extensions each kind's files have, and which sample rule
+// applies to them, is pkg/fsops' (fsops.MediaExtensions, fsops.IsSample);
+// [ClassifyFor] only maps a catalog kind onto an fsops.Kind.
 
 // frozenQualityNames maps an extension onto a pkg/quality definition name
 // (pkg/quality's nonVideoDefinitions, the ladders the built-in music-*,
@@ -93,28 +71,19 @@ var sampleSize24RE = regexp.MustCompile(`(?i)(?:^|[^0-9a-z])24[ _-]?bit(?:[^a-z]
 // IsNonVideoFileKind reports whether kind is one of the four non-video kinds
 // a file is attributed to: album, book, audiobook, issue.
 func IsNonVideoFileKind(kind commonv1.MediaKind) bool {
-	_, ok := fileExtensions[kind]
-	return ok
+	return ProfileKindFor(kind) != "video"
 }
 
-// ClassifyFor classifies path as a file of fileKind: a partial transfer, an
-// extra (by the Jellyfin extras-folder list), a sample by NAME (the size
-// heuristic is video-only and deliberately not applied), media when the
-// extension belongs to fileKind, and other otherwise. fileKind must satisfy
-// [IsNonVideoFileKind]; any other kind classifies everything as other.
+// ClassifyFor classifies path as a file of fileKind: fsops.Classify with the
+// fsops.Kind of fileKind's ladder ([ProfileKindFor]). Size is not passed,
+// and need not be: none of the non-video kinds has a size-based sample rule.
+// fileKind must satisfy [IsNonVideoFileKind]; any other kind classifies
+// everything as other.
 func ClassifyFor(fileKind commonv1.MediaKind, path string) fsops.FileClass {
-	switch {
-	case fsops.IsPart(path):
-		return fsops.ClassPart
-	case fsops.IsExtra(path):
-		return fsops.ClassExtra
-	case fsops.IsSample(path, 0): // size 0 disables the video size heuristic
-		return fsops.ClassSample
-	case fileExtensions[fileKind][strings.ToLower(filepath.Ext(path))]:
-		return fsops.ClassMedia
-	default:
+	if !IsNonVideoFileKind(fileKind) {
 		return fsops.ClassOther
 	}
+	return fsops.Classify(fsops.Kind(ProfileKindFor(fileKind)), path, 0)
 }
 
 // ProfileKindFor is the QualityProfile mediaKind (and pkg/quality ladder)
