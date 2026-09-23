@@ -29,7 +29,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/yaml"
+
+	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
 // rbacServiceDirs reads RBAC_DIRS out of the Makefile -- the list controller-gen
@@ -556,5 +560,127 @@ func markerResources(t *testing.T, dir string) map[string]bool {
 		return nil
 	})
 	require.NoError(t, err)
+	return out
+}
+
+// TestEveryBuiltinKindAControllerTouchesHasAnRBACMarker is the other half of
+// TestEveryCRDKindAControllerTouchesHasAnRBACMarker, and until now it was
+// missing entirely.
+//
+// That guard resolves a kind's plural through crdPlurals, which is built from
+// config/crd/bases -- so ConfigMap, Secret, Pod, Lease, Job and every other
+// built-in is STRUCTURALLY outside its reach. It is not that they were
+// checked and passed; there was nothing to check them against. Demonstrated:
+// an unmarked corev1.ConfigMap read added to a controller fired no guard at
+// all, and envtest does not enforce RBAC, so the reconcile passes locally and
+// fails with Forbidden on the first real cluster.
+//
+// The universe of kinds is taken from k8s.MustNewScheme rather than from a
+// table written here. That is exact rather than convenient: a type a Clustarr
+// manager's scheme does not register cannot be read through its client at
+// all, and the scheme is also what tells a root kind (corev1.Secret) apart
+// from a helper struct or a constant in the same package
+// (corev1.LocalObjectReference, corev1.EventTypeWarning), which no naming
+// heuristic does reliably. Plurals come from meta.UnsafeGuessKindToResource,
+// the same derivation the API machinery uses.
+func TestEveryBuiltinKindAControllerTouchesHasAnRBACMarker(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	require.NoError(t, err)
+
+	known := k8s.MustNewScheme().AllKnownTypes()
+	require.NotEmpty(t, known, "the scheme registered nothing; this guard has no universe to check against")
+
+	var checked int
+	for _, dir := range rbacServiceDirs(t, root) {
+		base := filepath.Join(root, dir)
+		if _, err := os.Stat(base); os.IsNotExist(err) {
+			continue
+		}
+		granted := markerResources(t, base)
+		err := filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			fset := token.NewFileSet()
+			file, perr := parser.ParseFile(fset, path, nil, parser.ParseComments|parser.SkipObjectResolution)
+			if perr != nil {
+				return perr
+			}
+			groups := builtinGroupAliases(file)
+			if len(groups) == 0 {
+				return nil
+			}
+			rel, _ := filepath.Rel(root, path)
+			ast.Inspect(file, func(n ast.Node) bool {
+				sel, ok := n.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+				ident, ok := sel.X.(*ast.Ident)
+				if !ok {
+					return true
+				}
+				gv, ok := groups[ident.Name]
+				if !ok {
+					return true
+				}
+				gvk := gv.WithKind(strings.TrimSuffix(sel.Sel.Name, "List"))
+				if _, isRootKind := known[gvk]; !isRootKind {
+					return true // a helper struct, an enum or a constant
+				}
+				checked++
+				gvr, _ := meta.UnsafeGuessKindToResource(gvk)
+				resource := gvr.Resource
+				if !granted[gvk.Group+"/"+resource] {
+					group := gvk.Group
+					if group == "" {
+						group = `"" (core)`
+					}
+					t.Errorf("%s:%d: %s touches %s.%s, but no +kubebuilder:rbac marker under %s/ "+
+						"grants %s in group %s. envtest does not enforce RBAC, so this only fails on a "+
+						"real cluster, as a Forbidden on the first Get or lazy informer.",
+						rel, fset.Position(sel.Pos()).Line, dir, ident.Name, sel.Sel.Name, dir, resource, group)
+					granted[gvk.Group+"/"+resource] = true // report each gap once
+				}
+				return true
+			})
+			return nil
+		})
+		require.NoError(t, err)
+	}
+	require.Positive(t, checked,
+		"no built-in kind was found in any service directory; this guard is not looking where it "+
+			"thinks it is (did the k8s.io/api import aliases change shape?)")
+}
+
+// builtinGroupAliases maps each import alias for a k8s.io/api/<group>/<version>
+// package in file to its GroupVersion, so a selector expression resolves to a
+// GVK without guessing from the alias's spelling. "core" is the empty group.
+func builtinGroupAliases(file *ast.File) map[string]schema.GroupVersion {
+	out := map[string]schema.GroupVersion{}
+	for _, imp := range file.Imports {
+		path := strings.Trim(imp.Path.Value, `"`)
+		rest, ok := strings.CutPrefix(path, "k8s.io/api/")
+		if !ok {
+			continue
+		}
+		group, version, ok := strings.Cut(rest, "/")
+		if !ok || strings.Contains(version, "/") {
+			continue
+		}
+		// k8s.io/api/<group>/<version>'s package name is the version, so an
+		// unaliased import is `v1`. Every one in this tree is aliased.
+		name := version
+		if imp.Name != nil {
+			name = imp.Name.Name
+		}
+		if group == "core" {
+			group = ""
+		}
+		out[name] = schema.GroupVersion{Group: group, Version: version}
+	}
 	return out
 }

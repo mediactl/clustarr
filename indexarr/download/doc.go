@@ -130,7 +130,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+//
+// secrets is get ONLY, not get;list;watch. indexarr.Options.ManagerOptions
+// disables the Secret cache (client.CacheOptions.DisableFor), so every Secret
+// read here is a live single-object Get and nothing in indexarr ever Lists or
+// Watches one.
+//
+// Be precise about what this buys, because it is less than it looks: Clustarr
+// generates ONE clustarr-manager-role and binds it to every service's
+// ServiceAccount, and catalogarr's metadata gateway reads Secrets through a
+// CACHED client, so it genuinely needs list;watch and the union keeps them in
+// the generated Role. indexarr's pod is therefore still granted verbs it does
+// not use. What this marker fixes is the declaration -- the package asks for
+// what it uses, so the day the role is split per service the narrowing is
+// already recorded. Splitting it is the real fix and is not this task's.
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 package download
 
 import (

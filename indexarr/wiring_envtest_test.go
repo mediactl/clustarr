@@ -21,6 +21,7 @@ import (
 	"context"
 	"go/ast"
 	"go/parser"
+	"go/printer"
 	"go/token"
 	"io"
 	"io/fs"
@@ -634,12 +635,40 @@ func TestTheIndexReadinessCheckFailsOnAClosedStore(t *testing.T) {
 // change to this file fails in this package rather than only in cmd's suite.
 // Without the hooks, trace propagation exists and never runs -- which was true
 // in production for an entire phase.
+//
+// It asserts on the parsed ConnectBus CALL rather than on the file's text.
+// require.Contains over a 28 KB source file prints the whole escaped file on
+// failure, which buries the one line that matters; this prints the arguments
+// that were actually passed.
 func TestRunPassesTheBusHooks(t *testing.T) {
-	raw, err := os.ReadFile("run.go")
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "run.go", nil, parser.SkipObjectResolution)
 	require.NoError(t, err)
-	require.Contains(t, string(raw), "k8s.WithBusHooks(obs.BusHooks())",
-		"indexarr/run.go must pass the bus hooks to k8s.ConnectBus, or every span this "+
-			"service publishes is an orphaned root at the far end")
+
+	var args []string
+	ast.Inspect(file, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "ConnectBus" {
+			return true
+		}
+		for _, arg := range call.Args {
+			var b strings.Builder
+			require.NoError(t, printer.Fprint(&b, fset, arg))
+			args = append(args, b.String())
+		}
+		return false
+	})
+	require.NotEmpty(t, args,
+		"indexarr/run.go no longer calls k8s.ConnectBus; this guard is looking for a call that "+
+			"is not there")
+	require.Contains(t, args, "k8s.WithBusHooks(obs.BusHooks())",
+		"k8s.ConnectBus was called with %v. Without the hooks, trace propagation exists and "+
+			"never runs: every span this service publishes is an orphaned root at the far end.",
+		args)
 }
 
 // ---------------------------------------------------------------------------

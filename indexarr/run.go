@@ -242,9 +242,13 @@ func (o Options) Validate() error {
 // resourceVersion with a TTL, a fan-out costs one Get per indexer per CHANGE
 // rather than per query.
 //
-// The consequence for RBAC is that `secrets watch` is no longer used; the
-// three component packages that declare the marker now ask for `get;list`
-// only.
+// The consequence for RBAC is that nothing in indexarr Lists or Watches a
+// Secret any more, and the three component packages that declare the marker
+// now ask for `secrets get` alone. The EFFECTIVE grant is unchanged, because
+// Clustarr generates one clustarr-manager-role for every ServiceAccount and
+// catalogarr's metadata gateway reads Secrets through a cached client, so the
+// union keeps list;watch. Splitting the role per service is the fix that
+// would cash this in.
 func (o Options) ManagerOptions() ctrl.Options {
 	opts := o.Options.ManagerOptions(LeaderElectionID, false)
 	opts.Client.Cache = &client.CacheOptions{
@@ -347,6 +351,16 @@ func Run(ctx context.Context, o Options) error {
 // synced, the SQLite index open and usable, and the bus connected. jetstream
 // is passed in rather than built here so this stays callable without a live
 // NATS connection.
+//
+// There is deliberately no fourth gate for the RPC responder, and the reason
+// is not that §13 omits one. A readiness gate could not close that window:
+// the three verbs are NATS request/reply on the "indexarr" queue group and do
+// not travel through the Kubernetes Service at all, so whether this pod is in
+// the Service's endpoints has no bearing on whether a responder exists. A
+// gate would delay `kubectl rollout status` and prevent not one
+// events.ErrNoResponders. catalogarr/worker/search's busSearchRPC already
+// turns that error into a 15s retry (§8.8), which covers a rollout, an
+// unscheduled pod and a NATS partition alike.
 //
 // It is a function rather than a block inside [Run] so that a test can drive
 // the real thing. The check it registers through k8s.CacheSyncChecker is a

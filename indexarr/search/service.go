@@ -296,8 +296,24 @@ func capOutcomes(in []schema.SearchOutcome) []schema.SearchOutcome {
 
 // Serve registers all three RPC verbs under queue group "indexarr".
 //
-// run.go calls this once, BEFORE the readiness probe passes -- until it does,
-// every caller gets events.ErrNoResponders and retries in 15s.
+// run.go calls this once, from a k8s.EveryReplica runnable, so there is a
+// window in which indexarr reports Ready while no responder is registered and
+// a caller gets events.ErrNoResponders.
+//
+// That window is deliberately NOT closed with a fourth readiness gate, and
+// the reason is not "§13 does not list one". A readiness gate CANNOT close it:
+// this RPC does not travel through the Kubernetes Service. catalogarr reaches
+// indexarr over NATS request/reply on the "indexarr" queue group, so whether
+// the pod is in the Service's endpoints has no bearing on whether a responder
+// exists. A gate would delay `kubectl rollout status` and prevent not one
+// ErrNoResponders -- and with §3's Recreate strategy at one replica there is
+// an unavoidable gap across every rollout regardless.
+//
+// It is handled at the layer that can handle it. catalogarr/worker/search's
+// busSearchRPC turns events.ErrNoResponders into an events.Retry with a 15s
+// delay (§8.8's worker error handling), which covers a rollout, a pod that is
+// not scheduled and a NATS partition alike -- none of which readiness
+// touches.
 //
 // stop drains in-flight fan-outs, including the stragglers that outlived
 // their reply. It cannot deregister the responders: events.Requester.Serve
