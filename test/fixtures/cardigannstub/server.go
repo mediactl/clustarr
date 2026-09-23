@@ -34,9 +34,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // pkg/cardigann/search.go's buildSearchRequest, which sends only what
 // search.inputs/path.inputs name).
 //
-// Two more routes exist that the bundled definition's own engine.go code
-// path never reaches today: GET /dashboard (the definition's login.test
-// block names it, "a.logout" selector) and GET /torrent/{name} (a
+// Two more routes are session-gated like a real private tracker's: GET
+// /dashboard, the definition's login.test (selector "a.logout"), which
+// pkg/cardigann's Login runs after every login method since gap fix Z6 --
+// a login the tracker did not accept is redirected to /login and fails the
+// test -- and GET /torrent/{name} (a
 // session-gated download target, reached only through indexarr's Torznab
 // facade -- GET /{indexer}/download -- never by pkg/cardigann.Engine.Download
 // itself, since indexarr/download's Fetcher is a separate, generic
@@ -105,9 +107,8 @@ var TorrentBytes = []byte("d8:e2e-fixture-cardigann-torrent-contentse")
 const errorHTML = `<!DOCTYPE html><html><body><div class="error">invalid username or password</div></body></html>`
 
 // dashboardHTML matches login-form.yml's login.test block (path: dashboard,
-// selector: a.logout) -- unused by pkg/cardigann's loginForm today (only
-// the cookie login method calls runLoginTest), served anyway so the
-// definition's own declared contract is satisfiable end to end.
+// selector: a.logout), served to a request carrying the session; Login runs
+// that test after every login method.
 const dashboardHTML = `<!DOCTYPE html><html><body><a class="logout" href="/logout">Logout</a></body></html>`
 
 // browseHTMLTemplate is login-form.yml's search.rows/fields shape: one
@@ -130,6 +131,11 @@ func NewHandler(recordedDir string, logger *slog.Logger) http.Handler {
 	mux.HandleFunc("GET /login", serveLoginPage(recordedDir, logger))
 	mux.HandleFunc("POST /login", handleLoginSubmit(logger))
 	mux.HandleFunc("GET /dashboard", func(w http.ResponseWriter, r *http.Request) {
+		if !hasSession(r) {
+			logger.Info("cardigannstub: /dashboard with no valid session; redirecting to the login page")
+			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write([]byte(dashboardHTML))
 	})

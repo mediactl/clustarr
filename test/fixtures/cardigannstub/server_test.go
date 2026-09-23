@@ -132,6 +132,31 @@ func TestTorrentIsSessionGated(t *testing.T) {
 	require.Equal(t, TorrentBytes, body)
 }
 
+// TestDashboardIsSessionGated: login-form.yml's login.test page shows its
+// logout link only to a session, so the test Login runs after the form
+// login proves the login worked.
+func TestDashboardIsSessionGated(t *testing.T) {
+	srv := httptest.NewServer(NewHandler("../../../testdata/cardigann", discardLogger()))
+	defer srv.Close()
+	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+
+	resp, err := noFollow.Get(srv.URL + "/dashboard") //nolint:noctx
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	require.Equal(t, http.StatusFound, resp.StatusCode)
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/dashboard", nil) //nolint:noctx
+	require.NoError(t, err)
+	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: SessionCookieValue})
+	resp2, err := noFollow.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp2.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp2.StatusCode)
+	body, err := io.ReadAll(resp2.Body)
+	require.NoError(t, err)
+	require.Contains(t, string(body), `class="logout"`)
+}
+
 // TestRecordedFixtureMissing404s proves NewHandler fails loudly, not
 // silently, when the image was built without login-form.html -- the same
 // guard tmdbstub's serveFile gives every recorded-JSON route.

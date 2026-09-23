@@ -68,12 +68,16 @@ func newExpiringTracker(t *testing.T) *expiringTracker {
 			et.mu.Unlock()
 			http.SetCookie(w, &http.Cookie{Name: "uid", Value: sess})
 			_, _ = io.WriteString(w, `<html><body><a class="logout" href="/logout">logout</a></body></html>`)
+		case r.URL.Path == "/dashboard":
+			// login-form.yml's login.test, which Login runs after every
+			// login method: the logout link shows to the current session.
+			if !et.live(r) {
+				http.Redirect(w, r, "/login", http.StatusFound)
+				return
+			}
+			_, _ = io.WriteString(w, `<html><body><a class="logout" href="/logout">logout</a></body></html>`)
 		case r.URL.Path == "/browse":
-			ck, err := r.Cookie("uid")
-			et.mu.Lock()
-			ok := err == nil && ck.Value == et.valid && et.valid != ""
-			et.mu.Unlock()
-			if !ok {
+			if !et.live(r) {
 				http.Redirect(w, r, "/login", http.StatusFound)
 				return
 			}
@@ -86,6 +90,14 @@ func newExpiringTracker(t *testing.T) *expiringTracker {
 	}))
 	t.Cleanup(et.srv.Close)
 	return et
+}
+
+// live reports whether r carries the tracker's current session cookie.
+func (et *expiringTracker) live(r *http.Request) bool {
+	ck, err := r.Cookie("uid")
+	et.mu.Lock()
+	defer et.mu.Unlock()
+	return err == nil && ck.Value == et.valid && et.valid != ""
 }
 
 // A search the tracker redirects to its login page logs in again and retries

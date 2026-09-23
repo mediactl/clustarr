@@ -82,6 +82,16 @@ func newLoginTracker(t *testing.T) *loginTracker {
 	lt.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
+			// login-form.yml's login.test, which Login runs after every
+			// login method: the logout link shows to a live session only.
+			if r.URL.Path == "/dashboard" {
+				if ck, err := r.Cookie("uid"); err == nil && ck.Value == "sess-7f3a" {
+					_, _ = io.WriteString(w, `<html><body><a class="logout" href="/logout">logout</a></body></html>`)
+					return
+				}
+				http.Redirect(w, r, "/login", http.StatusFound)
+				return
+			}
 			_, _ = io.WriteString(w, page)
 		case http.MethodPost:
 			lt.submits.Add(1)
