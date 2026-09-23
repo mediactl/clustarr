@@ -40,7 +40,10 @@ type admissionCase struct {
 	wantErr string
 }
 
-var gvrIndexerProxies = schema.GroupVersionResource{Group: "index.clustarr.io", Version: "v1alpha1", Resource: "indexerproxies"}
+var (
+	gvrIndexerProxies = schema.GroupVersionResource{Group: "index.clustarr.io", Version: "v1alpha1", Resource: "indexerproxies"}
+	gvrArtists        = schema.GroupVersionResource{Group: "catalog.clustarr.io", Version: "v1alpha1", Resource: "artists"}
+)
 
 // TestAdmission pins the API shape decisions of the gap-fix wave (X1) at the
 // one place a schema decision is actually enforced: a real apiserver
@@ -68,6 +71,7 @@ func TestAdmission(t *testing.T) {
 
 	cases := []admissionCase{}
 	cases = append(cases, indexerProxyPortCases()...)
+	cases = append(cases, artistSecondaryTypeCases()...)
 
 	ctx := context.Background()
 	for _, c := range cases {
@@ -106,5 +110,28 @@ func indexerProxyPortCases() []admissionCase {
 		{"IndexerProxy without a port is refused", gvrIndexerProxies, proxy(nil), "spec.port: Required value"},
 		{"IndexerProxy with port 0 is refused", gvrIndexerProxies, proxy(int64(0)), "spec.port"},
 		{"IndexerProxy with port 65536 is refused", gvrIndexerProxies, proxy(int64(65536)), "spec.port"},
+	}
+}
+
+// artistSecondaryTypeCases: MusicBrainz's twelfth secondary release-group
+// type, "Field recording", has a CRD token (fieldRecording) like the other
+// eleven; before, a profile could not name it at all.
+func artistSecondaryTypeCases() []admissionCase {
+	artist := func(secondary ...any) map[string]any {
+		return map[string]any{
+			"apiVersion": "catalog.clustarr.io/v1alpha1",
+			"kind":       "Artist",
+			"metadata":   map[string]any{"name": "a", "namespace": "default"},
+			"spec": map[string]any{
+				"musicBrainzID":     "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d",
+				"qualityProfileRef": "q",
+				"rootFolderRef":     "r",
+				"metadataProfile":   map[string]any{"secondaryTypes": secondary},
+			},
+		}
+	}
+	return []admissionCase{
+		{"Artist profile accepting fieldRecording is admitted", gvrArtists, artist("studio", "fieldRecording"), ""},
+		{"Artist profile with an unknown secondary type is refused", gvrArtists, artist("Field recording"), "secondaryTypes"},
 	}
 }

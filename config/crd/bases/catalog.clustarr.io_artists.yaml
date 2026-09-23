@@ -127,8 +127,12 @@ spec:
                   secondaryTypes:
                     default:
                     - studio
-                    description: SecondaryTypes are the MusicBrainz secondary release-group
-                      types to accept.
+                    description: |-
+                      SecondaryTypes are the MusicBrainz secondary release-group types to accept.
+                      Each token folds one MusicBrainz spelling (https://musicbrainz.org/doc/Release_Group/Type):
+                      "Audio drama" is audioDrama, "DJ-mix" djMix, "Mixtape/Street" mixtape
+                      and "Field recording" fieldRecording; "studio" is this project's token
+                      for a release group with no secondary type at all.
                     items:
                       enum:
                       - studio
@@ -143,6 +147,7 @@ spec:
                       - mixtape
                       - demo
                       - audioDrama
+                      - fieldRecording
                       type: string
                     maxItems: 16
                     type: array

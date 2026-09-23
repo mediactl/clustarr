@@ -27,6 +27,10 @@ type MusicMetadataProfileApplyConfiguration struct {
 	// PrimaryTypes are the MusicBrainz primary release-group types to accept.
 	PrimaryTypes []string `json:"primaryTypes,omitempty"`
 	// SecondaryTypes are the MusicBrainz secondary release-group types to accept.
+	// Each token folds one MusicBrainz spelling (https://musicbrainz.org/doc/Release_Group/Type):
+	// "Audio drama" is audioDrama, "DJ-mix" djMix, "Mixtape/Street" mixtape
+	// and "Field recording" fieldRecording; "studio" is this project's token
+	// for a release group with no secondary type at all.
 	SecondaryTypes []string `json:"secondaryTypes,omitempty"`
 	// ReleaseStatuses are the MusicBrainz release statuses to accept.
 	ReleaseStatuses []string `json:"releaseStatuses,omitempty"`
