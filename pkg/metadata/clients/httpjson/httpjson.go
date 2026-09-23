@@ -25,7 +25,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Those conventions are CLAUDE.md's ("the caller owns rate limiting",
 // "every HTTP response body is read through a cap", "provider errors
 // expose sentinels"), and writing them once is what keeps nine clients from
-// drifting apart on them.
+// drifting apart on them. It is not an internal package only because
+// pkg/metadata/scenemap, which sits outside pkg/metadata/clients, uses it
+// too.
 package httpjson
 
 import (

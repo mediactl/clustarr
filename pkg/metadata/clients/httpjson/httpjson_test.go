@@ -28,7 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mediactl/clustarr/pkg/metadata"
-	"github.com/mediactl/clustarr/pkg/metadata/clients/internal/httpjson"
+	"github.com/mediactl/clustarr/pkg/metadata/clients/httpjson"
 )
 
 func TestCheckMapsStatusesOntoTheMetadataSentinels(t *testing.T) {

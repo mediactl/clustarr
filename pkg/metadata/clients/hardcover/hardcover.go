@@ -55,7 +55,7 @@ import (
 
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/extid"
-	"github.com/mediactl/clustarr/pkg/metadata/clients/internal/httpjson"
+	"github.com/mediactl/clustarr/pkg/metadata/clients/httpjson"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
