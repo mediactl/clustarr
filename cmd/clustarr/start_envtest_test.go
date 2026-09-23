@@ -40,6 +40,8 @@ import (
 	"github.com/mediactl/clustarr/catalogarr"
 	"github.com/mediactl/clustarr/importarr"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
 // TestServiceStartsServesProbesAndStopsOnSignal is the M0 acceptance check for
@@ -104,19 +106,23 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 	// the "all" cases, and do.
 	cases := []struct {
 		name string
-		run  func(ctx context.Context, o k8s.Options) error
+		// prepare runs inside the subtest, before run. It exists for the
+		// indexarr case, which must redirect os.UserCacheDir somewhere
+		// disposable without changing the code path being tested.
+		prepare func(t *testing.T)
+		run     func(ctx context.Context, o k8s.Options) error
 	}{
-		{"catalogarr/worker", func(ctx context.Context, o k8s.Options) error {
+		{name: "catalogarr/worker", run: func(ctx context.Context, o k8s.Options) error {
 			d := catalogarr.DefaultOptions()
 			d.Options, d.Role = o, catalogarr.RoleWorker
 			return catalogarr.Run(ctx, d)
 		}},
-		{"catalogarr/metadata", func(ctx context.Context, o k8s.Options) error {
+		{name: "catalogarr/metadata", run: func(ctx context.Context, o k8s.Options) error {
 			d := catalogarr.DefaultOptions()
 			d.Options, d.Role = o, catalogarr.RoleMetadata
 			return catalogarr.Run(ctx, d)
 		}},
-		{"importarr/worker", func(ctx context.Context, o k8s.Options) error {
+		{name: "importarr/worker", run: func(ctx context.Context, o k8s.Options) error {
 			d := importarr.DefaultOptions()
 			d.Options, d.Role = o, importarr.RoleWorker
 			// The worker roles gate readiness on a writable /data
@@ -124,10 +130,13 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 			d.DataPath = t.TempDir()
 			return importarr.Run(ctx, d)
 		}},
-		// The two "all" cases come last and are each the superset of their
-		// service's roles: controllers, workers and (for catalogarr) the
-		// metadata gateway, in one manager. Together they are `clustarr all`
-		// minus the services that still register nothing.
+		// The three "all" cases come last and are each the superset of
+		// their service's roles: controllers, workers and (for catalogarr)
+		// the metadata gateway, in one manager. Together they are `clustarr
+		// all` minus the services that still register nothing -- which since
+		// Task D1-8 no longer includes indexarr: it registers three
+		// controllers, the RSS consumer, three RPC verbs and the release
+		// index's retention sweep.
 		//
 		// catalogarr/all runs WITHOUT leader election, so its controllers
 		// actually start and the case proves registration end to end.
@@ -140,18 +149,47 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		// lease, so a non-leader replica never became Ready and every
 		// rollout deadlocked. Every other case here sets LeaderElect false
 		// and passes vacuously, which is why that shipped.
-		{"catalogarr/all", func(ctx context.Context, o k8s.Options) error {
+		{name: "catalogarr/all", run: func(ctx context.Context, o k8s.Options) error {
 			d := catalogarr.DefaultOptions()
 			d.Options, d.Role = o, catalogarr.RoleAll
 			return catalogarr.Run(ctx, d)
 		}},
-		{"importarr/all (non-leader)", func(ctx context.Context, o k8s.Options) error {
+		{name: "importarr/all (non-leader)", run: func(ctx context.Context, o k8s.Options) error {
 			d := importarr.DefaultOptions()
 			d.Options, d.Role = o, importarr.RoleAll
 			d.DataPath = t.TempDir()
 			d.LeaderElect = true
 			return importarr.Run(ctx, d)
 		}},
+		// indexarr is driven through `clustarr all`'s OWN closure rather than
+		// a locally built Options, and that is the entire point of the case.
+		//
+		// Nothing in this tree called indexarr.Run before this: its role
+		// gates, relindex.Open and k8s.AddProbes had zero execution coverage,
+		// and Task D1-8 shipped a `clustarr all` that could not start. Open
+		// MkdirAlls under the PVC's mountPath (/var/lib/clustarr/index),
+		// which an unprivileged user cannot create, indexarr.Run returns that
+		// error, and runAll's cancel() then stops ALL SEVEN services.
+		//
+		// Building Options here instead would have proved nothing -- a test
+		// that sets its own writable IndexPath cannot see a missing override
+		// in all.go. allServices is the production wiring, so deleting the
+		// `d.IndexPath = devIndexPath()` line fails this case.
+		{
+			name: "indexarr/all (as `clustarr all` builds it)",
+			prepare: func(t *testing.T) {
+				// devIndexPath resolves through os.UserCacheDir, which reads
+				// XDG_CACHE_HOME on Linux and HOME elsewhere. Redirecting
+				// both keeps the test from writing into the developer's real
+				// cache directory while leaving the code path identical --
+				// and leaves the case failing if the override is removed,
+				// because /var/lib is still not writable.
+				dir := t.TempDir()
+				t.Setenv("XDG_CACHE_HOME", dir)
+				t.Setenv("HOME", dir)
+			},
+			run: allServiceRun(t, "indexarr"),
+		},
 	}
 
 	// The lease importarr/all must fail to acquire, held by another identity
@@ -160,6 +198,9 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.prepare != nil {
+				tc.prepare(t)
+			}
 			probeAddr := freeAddress(t)
 
 			o := k8s.DefaultOptions()
@@ -325,4 +366,23 @@ func holdLease(t *testing.T, cfg *rest.Config, namespace, id string) {
 	if err := c.Create(context.Background(), lease); err != nil {
 		t.Fatalf("hold the %s lease: %v", id, err)
 	}
+}
+
+// allServiceRun returns `clustarr all`'s own closure for one service, so a
+// test drives the production wiring rather than a restatement of it.
+//
+// allServices takes the root command's shared observability options; zero
+// values are what `clustarr all` uses when no --log-*/--tracing-* flag is
+// given, and neither reaches the assertions here.
+func allServiceRun(t *testing.T, name string) func(ctx context.Context, o k8s.Options) error {
+	t.Helper()
+	var lo logging.Options
+	var to tracing.Options
+	for _, svc := range allServices(&lo, &to) {
+		if svc.name == name {
+			return svc.run
+		}
+	}
+	t.Fatalf("`clustarr all` has no %q service; allServices was renamed or reordered", name)
+	return nil
 }

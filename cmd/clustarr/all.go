@@ -20,6 +20,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/spf13/cobra"
@@ -99,6 +101,22 @@ func allServices(lo *logging.Options, to *tracing.Options) []struct {
 		{"indexarr", func(ctx context.Context, o k8s.Options) error {
 			d := indexarr.DefaultOptions()
 			d.Options = o
+			// indexarr.DefaultIndexPath is /var/lib/clustarr/index, which is
+			// the PVC's mountPath in config/manager/indexarr.yaml and is
+			// pinned to it byte-for-byte by TestDefaultIndexPathMatchesTheManifest.
+			// `all` is the DEV entry point and has no such mount, so
+			// relindex.Open's MkdirAll under /var/lib fails for an
+			// unprivileged user -- and indexarr.Run returns that error, which
+			// runAll below turns into a cancel() that stops ALL SEVEN
+			// services. `clustarr all` would not start at all.
+			//
+			// The fix belongs here rather than in indexarr.Options, and the
+			// distinction matters: in-cluster, Open failing on an unwritable
+			// PVC is exactly the behaviour we want, because a silent fallback
+			// would let indexarr come up Ready and serve searches from an
+			// index that vanishes on restart, hiding a broken mount
+			// indefinitely. Only the dev entry point chooses a dev path.
+			d.IndexPath = devIndexPath()
 			d.Logging = *lo
 			d.Tracing = tr
 			return runIndexarr(ctx, d)
@@ -234,4 +252,23 @@ func runAll(
 	mu.Lock()
 	defer mu.Unlock()
 	return first
+}
+
+// devIndexPath is `clustarr all`'s SQLite release index: a writable location
+// on a developer's machine, since `all` has no PVC.
+//
+// os.UserCacheDir rather than os.TempDir so a dev index survives a restart --
+// re-syncing every indexer's RSS on every `clustarr all` is slow and hammers
+// the trackers. TempDir is the fallback for the case UserCacheDir actually
+// fails, which is HOME (or XDG_CACHE_HOME) being unset: a container, a cron
+// job, a CI runner. It is never silently preferred.
+//
+// This is deliberately NOT a fallback inside indexarr.Options. See the call
+// site: in-cluster, an unwritable PVC must fail loudly.
+func devIndexPath() string {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		dir = os.TempDir()
+	}
+	return filepath.Join(dir, "clustarr", "index", "releases.db")
 }
