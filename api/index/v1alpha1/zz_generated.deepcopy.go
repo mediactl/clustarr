@@ -482,6 +482,11 @@ func (in *IndexerSpec) DeepCopyInto(out *IndexerSpec) {
 		*out = make([]int32, len(*in))
 		copy(*out, *in)
 	}
+	if in.MinimumSeeders != nil {
+		in, out := &in.MinimumSeeders, &out.MinimumSeeders
+		*out = new(int32)
+		**out = **in
+	}
 	if in.SeedCriteria != nil {
 		in, out := &in.SeedCriteria, &out.SeedCriteria
 		*out = new(commonv1alpha1.SeedCriteria)

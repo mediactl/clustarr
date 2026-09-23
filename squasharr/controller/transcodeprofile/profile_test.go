@@ -45,7 +45,7 @@ func renderSpec() transcodev1alpha1.TranscodeProfileSpec {
 		Hardware:  transcodev1alpha1.HardwareCPU,
 		Video: transcodev1alpha1.VideoSpec{
 			Codec: "hevc", PixelFormat: "yuv420p10le", Profile: "main10",
-			CRF:    transcodev1alpha1.CRFTable{SD: 21, HD: 22, UHD: 23, HDROffset: -1},
+			CRF:    transcodev1alpha1.CRFTable{SD: 21, HD: 22, UHD: 23, HDROffset: ptr.To[int32](-1)},
 			Preset: "slow", Tune: ptr.To("grain"),
 			KeyintFactor: 10, BFrames: 8, Refs: 4, RCLookahead: 40, AQMode: 3,
 			MaxRateKbps: ptr.To[int32](20000), BufSizeKbps: ptr.To[int32](40000),
@@ -153,7 +153,12 @@ func TestStatusHashTreatsUnsetPolicyPointersAsTheirDefault(t *testing.T) {
 	unset.Policy.MinDuration, unset.Policy.MaxOutputToSourcePercent = nil, nil
 	unset.Policy.ReplaceSource, unset.Policy.RecycleBin = nil, nil
 	unset.Verify.PacketCount = nil
+	unset.Video.CRF.HDROffset = nil
 	assert.Equal(t, profileHash(defaulted), profileHash(unset))
+
+	noHDROffset := renderSpec()
+	noHDROffset.Video.CRF.HDROffset = ptr.To[int32](0)
+	assert.NotEqual(t, profileHash(defaulted), profileHash(noHDROffset), "an explicit 0 hdrOffset is no offset; it is not the -1 default")
 
 	off := renderSpec()
 	off.Policy.RecycleBin = ptr.To(false)

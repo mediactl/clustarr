@@ -105,7 +105,7 @@ func TestProfileSpecCarriesEveryField(t *testing.T) {
 		Hardware:  transcodev1alpha1.HardwareNVIDIA,
 		Video: transcodev1alpha1.VideoSpec{
 			Codec: "hevc", PixelFormat: "yuv420p10le", Profile: "main10",
-			CRF:    transcodev1alpha1.CRFTable{SD: 1, HD: 2, UHD: 3, HDROffset: -1},
+			CRF:    transcodev1alpha1.CRFTable{SD: 1, HD: 2, UHD: 3, HDROffset: ptr.To[int32](-1)},
 			Preset: "slow", Tune: &tune, KeyintFactor: 10, BFrames: 8, Refs: 4, RCLookahead: 40, AQMode: 3,
 			MaxRateKbps: ptr.To[int32](1), BufSizeKbps: ptr.To[int32](2),
 			ExtraX265Params: map[string]string{"a": "b"},

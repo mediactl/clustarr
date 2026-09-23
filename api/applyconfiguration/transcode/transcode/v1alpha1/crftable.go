@@ -30,7 +30,10 @@ type CRFTableApplyConfiguration struct {
 	HD *int32 `json:"hd,omitempty"`
 	// UHD is the CRF used for 2160p sources.
 	UHD *int32 `json:"uhd,omitempty"`
-	// HDROffset is added to the resolution CRF when the source is HDR.
+	// HDROffset is added to the resolution CRF when the source is HDR; 0
+	// means no HDR offset. A pointer so a Go client can send that 0: with
+	// omitempty it would be dropped and defaulted back to -1. Unset means -1;
+	// read it through HDROffsetOrDefault.
 	HDROffset *int32 `json:"hdrOffset,omitempty"`
 }
 

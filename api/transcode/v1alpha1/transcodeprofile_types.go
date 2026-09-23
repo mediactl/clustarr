@@ -109,10 +109,13 @@ type CRFTable struct {
 	// +kubebuilder:default=23
 	UHD int32 `json:"uhd,omitempty"`
 
-	// HDROffset is added to the resolution CRF when the source is HDR.
+	// HDROffset is added to the resolution CRF when the source is HDR; 0
+	// means no HDR offset. A pointer so a Go client can send that 0: with
+	// omitempty it would be dropped and defaulted back to -1. Unset means -1;
+	// read it through HDROffsetOrDefault.
 	// +optional
 	// +kubebuilder:default=-1
-	HDROffset int32 `json:"hdrOffset,omitempty"`
+	HDROffset *int32 `json:"hdrOffset,omitempty"`
 }
 
 // NVENCSpec tunes the NVIDIA NVENC encoder (hardware=nvidia).

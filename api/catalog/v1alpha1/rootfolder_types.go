@@ -194,11 +194,16 @@ type RecycleBin struct {
 	// +kubebuilder:default="/data/.recycle"
 	Path string `json:"path,omitempty"`
 
-	// CleanupDays is how long a recycled file is kept before it is removed.
+	// CleanupDays is how long a recycled file is kept before it is removed;
+	// 0 disables the cleanup, keeping recycled files until removed by hand
+	// (Sonarr's RecycleBinCleanupDays: RecycleBinProvider.Cleanup returns
+	// early at 0). A pointer so a Go client can send that 0: with omitempty
+	// it would be dropped and defaulted back to 7. Unset means 7; read it
+	// through CleanupDaysOrDefault.
 	// +optional
 	// +kubebuilder:default=7
 	// +kubebuilder:validation:Minimum=0
-	CleanupDays int32 `json:"cleanupDays,omitempty"`
+	CleanupDays *int32 `json:"cleanupDays,omitempty"`
 }
 
 // Perms is the ownership and mode applied to imported files and folders.

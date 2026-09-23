@@ -26,7 +26,12 @@ package v1alpha1
 type RecycleBinApplyConfiguration struct {
 	// Path is where deleted files are moved.
 	Path *string `json:"path,omitempty"`
-	// CleanupDays is how long a recycled file is kept before it is removed.
+	// CleanupDays is how long a recycled file is kept before it is removed;
+	// 0 disables the cleanup, keeping recycled files until removed by hand
+	// (Sonarr's RecycleBinCleanupDays: RecycleBinProvider.Cleanup returns
+	// early at 0). A pointer so a Go client can send that 0: with omitempty
+	// it would be dropped and defaulted back to 7. Unset means 7; read it
+	// through CleanupDaysOrDefault.
 	CleanupDays *int32 `json:"cleanupDays,omitempty"`
 }
 

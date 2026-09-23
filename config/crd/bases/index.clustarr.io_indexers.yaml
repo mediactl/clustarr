@@ -152,9 +152,14 @@ spec:
                 type: object
               minimumSeeders:
                 default: 1
-                description: MinimumSeeders is the fewest seeders a torrent release
-                  may have to be considered.
+                description: |-
+                  MinimumSeeders is the fewest seeders a torrent release may have to be
+                  considered; 0 considers releases with no seeders at all. A pointer so a
+                  Go client can send that 0: with omitempty it would be dropped and
+                  defaulted back to 1. Unset means 1; read it through
+                  MinimumSeedersOrDefault.
                 format: int32
+                minimum: 0
                 type: integer
               priority:
                 default: 25

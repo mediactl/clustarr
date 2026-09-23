@@ -77,7 +77,11 @@ type IndexerSpecApplyConfiguration struct {
 	AnimeCategories []int32 `json:"animeCategories,omitempty"`
 	// AnimeStandardFormatSearch also searches anime using standard SxxEyy numbering.
 	AnimeStandardFormatSearch *bool `json:"animeStandardFormatSearch,omitempty"`
-	// MinimumSeeders is the fewest seeders a torrent release may have to be considered.
+	// MinimumSeeders is the fewest seeders a torrent release may have to be
+	// considered; 0 considers releases with no seeders at all. A pointer so a
+	// Go client can send that 0: with omitempty it would be dropped and
+	// defaulted back to 1. Unset means 1; read it through
+	// MinimumSeedersOrDefault.
 	MinimumSeeders *int32 `json:"minimumSeeders,omitempty"`
 	// SeedCriteria overrides the download client's seeding limits for releases from this indexer.
 	SeedCriteria *commonv1alpha1.SeedCriteria `json:"seedCriteria,omitempty"`

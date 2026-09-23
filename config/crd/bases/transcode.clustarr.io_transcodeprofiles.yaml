@@ -530,8 +530,11 @@ spec:
                         type: integer
                       hdrOffset:
                         default: -1
-                        description: HDROffset is added to the resolution CRF when
-                          the source is HDR.
+                        description: |-
+                          HDROffset is added to the resolution CRF when the source is HDR; 0
+                          means no HDR offset. A pointer so a Go client can send that 0: with
+                          omitempty it would be dropped and defaulted back to -1. Unset means -1;
+                          read it through HDROffsetOrDefault.
                         format: int32
                         type: integer
                       sd:

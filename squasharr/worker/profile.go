@@ -55,7 +55,7 @@ func ProfileSpec(spec transcodev1alpha1.TranscodeProfileSpec, hardware *transcod
 			PixelFormat: v.PixelFormat,
 			Profile:     v.Profile,
 			CRF: transcode.CRFTable{
-				SD: v.CRF.SD, HD: v.CRF.HD, UHD: v.CRF.UHD, HDROffset: v.CRF.HDROffset,
+				SD: v.CRF.SD, HD: v.CRF.HD, UHD: v.CRF.UHD, HDROffset: v.CRF.HDROffsetOrDefault(),
 			},
 			Preset:          v.Preset,
 			Tune:            v.Tune,

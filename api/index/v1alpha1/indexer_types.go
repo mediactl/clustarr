@@ -175,10 +175,15 @@ type IndexerSpec struct {
 	// +optional
 	AnimeStandardFormatSearch bool `json:"animeStandardFormatSearch,omitempty"`
 
-	// MinimumSeeders is the fewest seeders a torrent release may have to be considered.
+	// MinimumSeeders is the fewest seeders a torrent release may have to be
+	// considered; 0 considers releases with no seeders at all. A pointer so a
+	// Go client can send that 0: with omitempty it would be dropped and
+	// defaulted back to 1. Unset means 1; read it through
+	// MinimumSeedersOrDefault.
 	// +optional
 	// +kubebuilder:default=1
-	MinimumSeeders int32 `json:"minimumSeeders,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	MinimumSeeders *int32 `json:"minimumSeeders,omitempty"`
 
 	// SeedCriteria overrides the download client's seeding limits for releases from this indexer.
 	// +optional
