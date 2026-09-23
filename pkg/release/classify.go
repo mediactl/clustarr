@@ -33,7 +33,20 @@ var comicExtOrMangaTokenRegex = mustCompile(`\.(?:cbz|cbr)$|\bv\d{1,4}c\d{1,4}\b
 
 // audiobookMarkerRegex catches the three audiobook-only tokens: an ASIN, an
 // "(Unabridged)" tag, or a "{Narrator}" token.
-var audiobookMarkerRegex = mustCompile(`\[ASIN\s[A-Z0-9]{10}\]|\(Unabridged\)|\{[^}]+\}`, regexp2.IgnoreCase)
+//
+// The narrator alternative is deliberately narrow. Braces are not an
+// audiobook convention alone: Jellyfin, Plex and the *arr folder formats put
+// provider ids in them ("{tmdb-603}", "{tvdbid-121361}") and Plex puts
+// editions in them ("{edition-Director's Cut}"). An alternative matching ANY
+// braced token classified "Some Show S01E01 {tvdbid-121361}" as an audiobook,
+// whose parser then refused it, so the release shipped with no parsed fields
+// at all. A narrator is a person's name, so the brace must hold no digit (every
+// id token carries one) and must not open with a known "key-" or "key=" tag.
+var audiobookMarkerRegex = mustCompile(
+	`\[ASIN\s[A-Z0-9]{10}\]|\(Unabridged\)|`+
+		`\{(?!\s*(?:tmdb|imdb|tvdb|tvmaze|anidb|anilist|mal|edition)(?:id)?\s*[-=])[^{}\d]+\}`,
+	regexp2.IgnoreCase,
+)
 
 // ebookFormatBracketRegex catches a bracketed ebook format token.
 var ebookFormatBracketRegex = mustCompile(`\[(?:EPUB|MOBI|AZW3|PDF)\]`, regexp2.IgnoreCase)

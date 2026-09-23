@@ -18,67 +18,74 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package release
 
 import (
+	"strings"
+
 	"github.com/dlclark/regexp2"
 )
 
-// idSpecs are the Jellyfin/Plex/*arr folder-naming conventions for embedded
-// provider ids: "[tmdbid-123]", "{tmdb-123}", "[imdbid-tt1234567]",
-// "{imdb-tt1234567}", "[tvdbid-123]", "{tvdb-123}" and "[tvdb-123]". Each
-// entry's capture group is the id value stored under IDs[key] — imdb keeps
-// its "tt" prefix, the others don't.
-var idSpecs = []struct {
-	re  *regexp2.Regexp
-	key string
-}{
-	{mustCompile(`\[tmdbid-(\d+)\]`, regexp2.IgnoreCase), "tmdb"},
-	{mustCompile(`\{tmdb-(\d+)\}`, regexp2.IgnoreCase), "tmdb"},
-	{mustCompile(`\[imdbid-(tt\d+)\]`, regexp2.IgnoreCase), "imdb"},
-	{mustCompile(`\{imdb-(tt\d+)\}`, regexp2.IgnoreCase), "imdb"},
-	{mustCompile(`\[tvdbid-(\d+)\]`, regexp2.IgnoreCase), "tvdb"},
-	{mustCompile(`\{tvdb-(\d+)\}`, regexp2.IgnoreCase), "tvdb"},
-	{mustCompile(`\[tvdb-(\d+)\]`, regexp2.IgnoreCase), "tvdb"},
-}
+// idTokenRegex matches one embedded provider-id token in every spelling the
+// Jellyfin/Plex/Emby/*arr folder-naming conventions use: the key "tmdb",
+// "imdb" or "tvdb", optionally suffixed "id", then "-" (or Emby's "="), then
+// the value, wrapped in a MATCHED pair of square brackets or braces --
+// "[tmdbid-603]", "{tmdb-603}", "{tmdbid-603}", "[tmdb=603]",
+// "[imdbid-tt0133093]", "{imdbid-tt0133093}", "[tvdb-81189]", ... Radarr's
+// and Sonarr's own folder formats emit "{tmdb-N}"/"[tmdbid-N]" and
+// "{tvdb-N}"/"[tvdbid-N]"; Jellyfin additionally accepts the braced "id"
+// form, which is why an earlier table of seven fixed spellings missed
+// "{tvdbid-121361}" and "{imdbid-tt0133093}".
+//
+// The value's shape is part of the pattern: imdb keeps its "tt" prefix and
+// the others are all digits, so "{tmdb-tt1}" or "[imdb-603]" is not an id
+// and is left alone rather than recorded under the wrong key.
+var idTokenRegex = mustCompile(
+	`\[(?<key>tmdb|tvdb)(?:id)?[-=](?<val>\d+)\]|\{(?<key>tmdb|tvdb)(?:id)?[-=](?<val>\d+)\}|`+
+		`\[(?<key>imdb)(?:id)?[-=](?<val>tt\d+)\]|\{(?<key>imdb)(?:id)?[-=](?<val>tt\d+)\}`,
+	regexp2.IgnoreCase,
+)
 
-// bareImdbRegex matches a standalone "tt1234567" token (no brackets), the
-// shape a title carries the imdb id in when it isn't already wrapped in one
-// of idSpecs' bracket/brace forms.
-var bareImdbRegex = mustCompile(`\b(tt\d{7,8})\b`, regexp2.IgnoreCase)
+// bareImdbRegex matches an imdb id carried outside idTokenRegex's keyed
+// forms: a standalone "tt1234567" token, or one wrapped in its own brackets,
+// braces or parentheses ("[tt1234567]", "{tt1234567}", "(tt1234567)"). The
+// wrapper is part of the match so that removing the id removes its
+// delimiters with it -- leaving "{}" or "[]" behind is how an earlier
+// version left "{imdbid-}" in the stripped title, which then classified as
+// an audiobook narrator token. A "tt" value directly after "-" or "=" is the
+// value half of a keyed token idTokenRegex rejected (say "{tmdb-tt1234567}"),
+// and taking the value alone out of it would leave "{tmdb-}", so it is left
+// whole.
+var bareImdbRegex = mustCompile(`[\[{(](?<val>tt\d{7,8})[\]})]|(?<![-=])\b(?<val>tt\d{7,8})\b`, regexp2.IgnoreCase)
 
 // extractIDs finds every embedded provider id token in title, returning the
-// ids found (never nil unless empty — see TestExtractIDsLeavesTitleWithNoIDsUnchanged)
-// and title with every matched token removed, so the rest of the parsing
-// pipeline (title/year, quality, group) never sees them. The bare imdb
-// fallback only runs once none of the bracketed/braced forms have already
-// claimed an "imdb" id, so it can't double-match the "tt1234567" inside an
-// already-stripped "[imdbid-tt1234567]" token.
+// ids found (nil when there are none -- see TestExtractIDsLeavesTitleWithNoIDsUnchanged)
+// and title with every matched token removed, delimiters included, so the
+// rest of the parsing pipeline (classification, title/year, quality,
+// group) never sees any part of one. The first token for a key wins. The
+// bare imdb fallback only runs once no keyed token has already supplied an
+// "imdb" id, so it can't double-count the value inside one.
 func extractIDs(title string) (map[string]string, string) {
 	var ids map[string]string
-	cleaned := title
-
-	for _, spec := range idSpecs {
-		m, err := spec.re.FindStringMatch(cleaned)
-		if err != nil || m == nil {
-			continue
-		}
-		g := m.GroupByNumber(1)
-		if g == nil || len(g.Captures) == 0 {
-			continue
-		}
+	record := func(key, val string) {
 		if ids == nil {
 			ids = make(map[string]string, 3)
 		}
-		ids[spec.key] = g.String()
-		if replaced, rerr := spec.re.Replace(cleaned, "", 0, -1); rerr == nil {
+		if _, seen := ids[key]; !seen {
+			ids[key] = val
+		}
+	}
+
+	cleaned := title
+	for m, err := idTokenRegex.FindStringMatch(cleaned); err == nil && m != nil; m, err = idTokenRegex.FindNextMatch(m) {
+		record(strings.ToLower(m.GroupByName("key").String()), strings.ToLower(m.GroupByName("val").String()))
+	}
+	if ids != nil {
+		if replaced, err := idTokenRegex.Replace(cleaned, "", 0, -1); err == nil {
 			cleaned = replaced
 		}
 	}
 
-	if ids == nil || ids["imdb"] == "" {
+	if ids["imdb"] == "" {
 		if m, err := bareImdbRegex.FindStringMatch(cleaned); err == nil && m != nil {
-			if ids == nil {
-				ids = make(map[string]string, 1)
-			}
-			ids["imdb"] = m.String()
+			record("imdb", strings.ToLower(m.GroupByName("val").String()))
 			if replaced, rerr := bareImdbRegex.Replace(cleaned, "", 0, -1); rerr == nil {
 				cleaned = replaced
 			}

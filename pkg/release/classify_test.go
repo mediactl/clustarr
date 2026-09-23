@@ -40,6 +40,14 @@ func TestClassifyKind(t *testing.T) {
 		{"ebook", "Andy Weir - Project Hail Mary (2021) [EPUB]", commonv1.MediaKindBook},
 		{"audiobook", "Andy Weir - Project Hail Mary (Unabridged) [M4B 64kbps]", commonv1.MediaKindAudiobook},
 		{"comic", "Saga 001 (2012) (Digital) (Zone-Empire).cbz", commonv1.MediaKindComic},
+		{"audiobook narrator brace", "Project Hail Mary - Andy Weir {Ray Porter} [ASIN B08G9PRS1K] [M4B]", commonv1.MediaKindAudiobook},
+		{"hyphenated narrator brace", "Title - Author {Jean-Luc Picard} [M4B]", commonv1.MediaKindAudiobook},
+		// A braced token is not by itself an audiobook marker: Plex puts
+		// editions and every library convention puts ids in braces.
+		{"plex edition brace", "The Matrix (1999) {edition-Director's Cut} [Bluray-1080p]", commonv1.MediaKindMovie},
+		{"unstripped id brace on a movie", "The Matrix (1999) {tmdb-603} [Bluray-1080p]", commonv1.MediaKindMovie},
+		{"unstripped id brace on an episode", "Some Show S01E01 {tvdbid-121361}", commonv1.MediaKindEpisode},
+		{"unknown id key brace", "Some Show S01E01 {tvmaze-12345}", commonv1.MediaKindEpisode},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

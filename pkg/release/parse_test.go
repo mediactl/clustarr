@@ -171,3 +171,32 @@ func TestParseKindWithUnknownKindReturnsError(t *testing.T) {
 	_, err := release.ParseKind("Some.Title.2020.1080p.BluRay.x264-GROUP", commonv1.MediaKind("bogus"))
 	assert.Error(t, err)
 }
+
+// TestParseBracedIDTokensDoNotHijackClassification is the carried defect
+// "any {...} token classifies a title as an audiobook": both titles used to
+// classify as audiobook, fail the book patterns, and ship with no parsed
+// fields at all. The bracket form ([tmdbid-603]) never had the problem, so
+// the brace form must now parse identically to it.
+func TestParseBracedIDTokensDoNotHijackClassification(t *testing.T) {
+	t.Run("episode", func(t *testing.T) {
+		p, err := release.Parse("Some Show S01E01 {tvdbid-121361}", release.Options{})
+		require.NoError(t, err)
+		assert.Equal(t, "Some Show", p.Title)
+		assert.Equal(t, []int{1}, p.Seasons)
+		assert.Equal(t, []int{1}, p.Episodes)
+		assert.Equal(t, map[string]string{"tvdb": "121361"}, p.IDs)
+	})
+	t.Run("movie", func(t *testing.T) {
+		p, err := release.Parse("{imdbid-tt0133093} The Matrix 1999 1080p", release.Options{})
+		require.NoError(t, err)
+		assert.Equal(t, "The Matrix", p.Title)
+		assert.Equal(t, 1999, p.Year)
+		assert.Equal(t, map[string]string{"imdb": "tt0133093"}, p.IDs)
+	})
+	t.Run("a real narrator brace is still an audiobook", func(t *testing.T) {
+		p, err := release.Parse("Project Hail Mary - Andy Weir {Ray Porter} [ASIN B08G9PRS1K] [M4B]", release.Options{})
+		require.NoError(t, err)
+		require.NotNil(t, p.Book)
+		assert.Equal(t, "Ray Porter", p.Book.Narrator)
+	})
+}
