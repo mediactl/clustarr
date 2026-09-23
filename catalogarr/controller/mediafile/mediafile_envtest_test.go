@@ -295,6 +295,16 @@ func TestMediaFileFieldManagersStayDisjoint(t *testing.T) {
 	if err := os.WriteFile(path, newContents, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// A real transcode takes minutes. Rewritten within the same second, the
+	// file's mtime serialises (RFC 3339, whole seconds) to the value importarr
+	// applied, and server-side apply lets two managers CO-OWN a field they
+	// set to the same value -- so importarr kept modTime and the "released"
+	// assertion below failed on roughly one run in three. Move the mtime
+	// past the original second, as a real encode would.
+	later := stat.ModTime().Add(2 * time.Second)
+	if err := os.Chtimes(path, later, later); err != nil {
+		t.Fatal(err)
+	}
 	newStat, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)

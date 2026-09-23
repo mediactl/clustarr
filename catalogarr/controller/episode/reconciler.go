@@ -27,7 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/events"
+	k8sevents "k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -42,6 +42,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/catalogarr/controller/rollup"
+	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -55,10 +56,13 @@ const (
 	// movie package's mediaFileByMovieIndexKey.
 	mediaFileByEpisodeIndexKey = ".spec.mediaRef.episode"
 
-	// episodeByActiveDownloadIndexKey indexes Episode by its
-	// status.activeDownloadRef, the reverse direction from a watched
-	// Download back to the Episode holding the reference.
-	episodeByActiveDownloadIndexKey = ".status.activeDownloadRef"
+	// downloadByEpisodeIndexKey indexes Download by every Episode its
+	// spec.target covers: the episode itself for a single-episode grab
+	// (kind episode), and each of spec.target.keys for a season pack (kind
+	// series), whose keys are Episode names. It is how the reconciler finds
+	// the Downloads it derives status.activeDownloadRef from. spec.target is
+	// immutable, so the index never has to follow an edit.
+	downloadByEpisodeIndexKey = ".spec.target.episode"
 
 	// seriesByQualityProfileIndexKey indexes SERIES, not Episode, by the
 	// QualityProfile it is ranked against: an Episode carries no
@@ -91,28 +95,35 @@ const (
 // belong to the Series reconciler -- see this package's doc comment for the
 // field-manager split.
 //
-// Unlike Movie and Series, this reconciler does no publishing (Episode has
-// no metadata of its own to refresh -- the Series reconciler's episode-list
-// RPC is what keeps its provider fields current), so it carries no Bus
-// field.
+// status.activeDownloadRef has had exactly one writer since gap-fix ruling
+// R-5: this reconciler, deriving it from the non-terminal Downloads that
+// cover the Episode -- its own single-episode grabs, and the season packs
+// its Series owns whose spec.target.keys name it. See the movie package's
+// Reconciler doc for the history.
+//
+// Unlike Movie and Series, this reconciler publishes no metadata work
+// (Episode has no metadata of its own to refresh -- the Series reconciler's
+// episode-list RPC is what keeps its provider fields current). Bus is used
+// only for the media-file domain events (imported/replaced/deleted) the
+// history sink records; a nil Bus publishes nothing, which is how a
+// catalogarr that has not wired one behaves.
 type Reconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
-	Recorder events.EventRecorder
+	Recorder k8sevents.EventRecorder
+	Bus      events.Publisher
 
 	// OnReconcile is a test-only hook, called at the top of every Reconcile.
 	// It is nil-checked so production callers never need to set it.
 	OnReconcile func()
 }
 
-// SetupWithManager registers the Episode controller: a predicate reacting
-// to a spec change (GenerationChanged, e.g. a user editing spec.monitored)
-// or to the Series reconciler's own write of status.airDate
-// (StatusFieldChanged) -- a newly-discovered air date must wake this
-// controller immediately, not wait for the next RequeueAfter poll -- and
-// the MediaFile/Download watches added in review.
-func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &catalogv1alpha1.MediaFile{}, mediaFileByEpisodeIndexKey,
+// RegisterIndexes registers every field index Reconcile's List calls and
+// the watches' map functions read, on idx. SetupWithManager calls it; a test
+// that drives Reconcile against a bare manager cache calls it too, so the
+// index names and extractors live in exactly one place.
+func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
+	if err := idx.IndexField(ctx, &catalogv1alpha1.MediaFile{}, mediaFileByEpisodeIndexKey,
 		func(o client.Object) []string {
 			mf, ok := o.(*catalogv1alpha1.MediaFile)
 			if !ok || mf.Spec.MediaRef.Kind != commonv1.MediaKindEpisode {
@@ -122,24 +133,50 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		}); err != nil {
 		return err
 	}
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &catalogv1alpha1.Episode{}, episodeByActiveDownloadIndexKey,
+	if err := idx.IndexField(ctx, &downloadv1alpha1.Download{}, downloadByEpisodeIndexKey,
 		func(o client.Object) []string {
-			ep, ok := o.(*catalogv1alpha1.Episode)
-			if !ok || ep.Status.ActiveDownloadRef == nil {
+			dl, ok := o.(*downloadv1alpha1.Download)
+			if !ok {
 				return nil
 			}
-			return []string{*ep.Status.ActiveDownloadRef}
+			return coveredEpisodes(dl.Spec.Target)
 		}); err != nil {
 		return err
 	}
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &catalogv1alpha1.Series{}, seriesByQualityProfileIndexKey,
+	return idx.IndexField(ctx, &catalogv1alpha1.Series{}, seriesByQualityProfileIndexKey,
 		func(o client.Object) []string {
 			s, ok := o.(*catalogv1alpha1.Series)
 			if !ok || s.Spec.QualityProfileRef == "" {
 				return nil
 			}
 			return []string{s.Spec.QualityProfileRef}
-		}); err != nil {
+		})
+}
+
+// coveredEpisodes names the Episodes a Download's target covers: the one
+// Episode of a single-episode grab, the keys of a season pack (the grab
+// path's StatusTargets expands a Series target the same way), nothing for
+// any other kind. A Series target with no keys covers no Episode that can
+// be named, so it names none rather than guessing at the whole series.
+func coveredEpisodes(target commonv1.MediaRef) []string {
+	switch target.Kind {
+	case commonv1.MediaKindEpisode:
+		return []string{target.Name}
+	case commonv1.MediaKindSeries:
+		return target.Keys
+	default:
+		return nil
+	}
+}
+
+// SetupWithManager registers the Episode controller: a predicate reacting
+// to a spec change (GenerationChanged, e.g. a user editing spec.monitored)
+// or to the Series reconciler's own write of status.airDate
+// (StatusFieldChanged) -- a newly-discovered air date must wake this
+// controller immediately, not wait for the next RequeueAfter poll -- and
+// the MediaFile/Download watches added in review.
+func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if err := RegisterIndexes(context.Background(), mgr.GetFieldIndexer()); err != nil {
 		return err
 	}
 
@@ -175,12 +212,16 @@ func episodePredicate() predicate.Predicate {
 			}
 			return ep.Status.PendingGrab.GrabAt
 		}),
+		// The DLQ projector's annotation changes neither generation nor
+		// status; see the movie package's moviePredicate.
+		k8s.DeadLetteredAnnotationChanged(),
 	)
 }
 
 // downloadPredicate is the same shape as the movie package's: a status-only
 // phase transition never bumps generation, so GenerationChanged alone would
-// never fire on it.
+// never fire on it, and a Download being deleted stops counting the moment
+// it is marked.
 func downloadPredicate() predicate.Predicate {
 	return k8s.Or(
 		k8s.GenerationChanged(),
@@ -191,6 +232,7 @@ func downloadPredicate() predicate.Predicate {
 			}
 			return dl.Status.Phase
 		}),
+		k8s.StatusFieldChanged(k8s.IsDeleting),
 	)
 }
 
@@ -202,18 +244,18 @@ func (r *Reconciler) mapMediaFile(_ context.Context, o client.Object) []reconcil
 	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: mf.Namespace, Name: mf.Spec.MediaRef.Name}}}
 }
 
-func (r *Reconciler) mapDownload(ctx context.Context, o client.Object) []reconcile.Request {
+// mapDownload needs no List: a Download names what it covers in
+// spec.target, so a new Download -- single episode or season pack --
+// reaches every Episode it covers directly, before anything has set a ref.
+func (r *Reconciler) mapDownload(_ context.Context, o client.Object) []reconcile.Request {
 	dl, ok := o.(*downloadv1alpha1.Download)
 	if !ok {
 		return nil
 	}
-	var episodes catalogv1alpha1.EpisodeList
-	if err := r.List(ctx, &episodes, client.InNamespace(dl.Namespace), client.MatchingFields{episodeByActiveDownloadIndexKey: dl.Name}); err != nil {
-		return nil
-	}
-	reqs := make([]reconcile.Request, 0, len(episodes.Items))
-	for _, ep := range episodes.Items {
-		reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ep.Namespace, Name: ep.Name}})
+	names := coveredEpisodes(dl.Spec.Target)
+	reqs := make([]reconcile.Request, 0, len(names))
+	for _, n := range names {
+		reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: dl.Namespace, Name: n}})
 	}
 	return reqs
 }
@@ -307,6 +349,9 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	now := time.Now().UTC()
 	monitored := ptr.Deref(ep.Spec.Monitored, true)
 	conditions := append([]metav1.Condition(nil), ep.Status.Conditions...)
+	// This reconciler has one status apply and no early return, so folding
+	// the DLQ projector's annotation here puts it in every declaration.
+	k8s.MarkDeadLettered(ep, &conditions)
 
 	var mfList catalogv1alpha1.MediaFileList
 	if err := r.List(ctx, &mfList, client.InNamespace(ep.Namespace), client.MatchingFields{mediaFileByEpisodeIndexKey: ep.Name}); err != nil {
@@ -314,7 +359,11 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	}
 	mf := rollup.PickMediaFile(mfList.Items)
 
-	profile, profileProblem, err := r.resolveProfile(ctx, ep)
+	series, err := r.getSeries(ctx, ep)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	profile, profileProblem, err := r.resolveProfile(ctx, ep, series)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -324,19 +373,17 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 			"seriesRef", ep.Spec.SeriesRef, "problem", profileProblem)
 	}
 	hasFile, fileRef, fileQuality, fileFormatScore, cutoffMet := FileState(mf, profile)
-
-	var dl *downloadv1alpha1.Download
-	if ep.Status.ActiveDownloadRef != nil {
-		var d downloadv1alpha1.Download
-		if err := r.Get(ctx, types.NamespacedName{Namespace: ep.Namespace, Name: *ep.Status.ActiveDownloadRef}, &d); err != nil {
-			if !apierrors.IsNotFound(err) {
-				return ctrl.Result{}, err
-			}
-		} else {
-			dl = &d
-		}
+	if action, file := rollup.FileTransition(ep.Status.FileRef, mf); action != "" {
+		r.publishFile(ctx, ep, action, file, mf, now)
 	}
-	overlayPhase, active := DownloadOverlay(dl)
+
+	dl, err := r.activeDownload(ctx, ep, series)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	// The overlay decides the phase only; whether the ref is set is
+	// rollup.DownloadNonTerminal's call, made inside activeDownload.
+	overlayPhase, _ := DownloadOverlay(dl)
 
 	phase := Phase(monitored, ep.Status.AirDate, hasFile, cutoffMet, profile != nil, ep.Status.PendingGrab != nil, now)
 	if overlayPhase != "" {
@@ -364,6 +411,9 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	case !hasFile:
 		k8s.MarkFalse(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, k8s.ReasonPending, "no file to rank against the profile cutoff")
 	case profile == nil:
+		if rollup.Transitioned(ep.Status.Conditions, catalogv1alpha1.EpisodeConditionCutoffMet, metav1.ConditionFalse, "ProfileUnresolved") {
+			r.warn(ep, "ProfileUnresolved", "cutoff not evaluated: %s", profileProblem)
+		}
 		// The cutoff was NOT evaluated -- see the movie package's identical
 		// branch for why this gets a reason of its own rather than reading
 		// as a genuine CutoffUnmet.
@@ -389,17 +439,13 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	if fileQuality != nil {
 		statusAC = statusAC.WithFileQuality(*fileQuality)
 	}
-	if active && ep.Status.ActiveDownloadRef != nil {
-		statusAC = statusAC.WithActiveDownloadRef(*ep.Status.ActiveDownloadRef)
+	if dl != nil {
+		statusAC = statusAC.WithActiveDownloadRef(dl.Name)
 	}
-	// When !active and a ref was set, WithActiveDownloadRef is deliberately
+	// With no non-terminal Download, WithActiveDownloadRef is deliberately
 	// not called -- see the identical rationale in the movie package's
-	// reconciler.go, including the caveat that this clear-by-omission only
-	// takes effect while ManagerCatalogarr still holds the field: the grab
-	// worker writes it too, under ManagerCatalogarrGrab, and PatchStatus
-	// passes ForceOwnership so ownership migrates to whoever wrote last
-	// rather than raising a conflict. Task C12 adjudicates which side keeps
-	// it.
+	// reconciler.go. Since ruling R-5 this manager is the field's only
+	// owner, so omitting it removes it.
 
 	// This reconciler owns exactly Phase/Conditions/HasFile/FileRef/
 	// FileQuality/FileFormatScore/CutoffMet/ActiveDownloadRef/
@@ -423,6 +469,11 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Episode(ep.Name, ep.Namespace).WithStatus(statusAC)); err != nil {
 		return ctrl.Result{}, err
 	}
+	// After the apply, so a phase that never landed is never announced; the
+	// first phase an Episode gets is not an edge.
+	if ep.Status.Phase != "" && ep.Status.Phase != phase {
+		r.normal(ep, string(phase), "phase %s -> %s", ep.Status.Phase, phase)
+	}
 
 	if ep.Status.AirDate != nil && now.Before(ep.Status.AirDate.Time) {
 		return ctrl.Result{RequeueAfter: ep.Status.AirDate.Sub(now)}, nil
@@ -430,27 +481,39 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	return ctrl.Result{}, nil
 }
 
-// resolveProfile fetches the QualityProfile episodes are ranked against via
-// the owning Series (ep.Spec.SeriesRef -> Series.Spec.QualityProfileRef),
-// since EpisodeSpec carries no QualityProfileRef of its own. It reports, as
-// a non-empty problem string, any reason the profile could not be resolved:
-// a missing Series, no reference on it, a reference that does not resolve,
-// or a profile that exists but does not parse against the catalogue.
-//
-// Only a non-NotFound API error is fatal; every other outcome degrades to
-// (nil, problem, nil) rather than failing the whole reconcile. An Episode is
-// only ever created by its owning Series, but that Series could be deleted
-// (finalizer permitting) or its profile reference could be stale. Before
-// task C13 all four outcomes collapsed into a bare nil profile and a
-// cutoffMet=false indistinguishable from a genuine "this file is below the
-// cutoff" -- see the CutoffMet condition's own branch.
-func (r *Reconciler) resolveProfile(ctx context.Context, ep *catalogv1alpha1.Episode) (*quality.Profile, string, error) {
+// getSeries fetches the Series that owns ep (ep.Spec.SeriesRef), or nil when
+// it is gone -- an Episode is only ever created by its Series, but that
+// Series can be deleted (finalizer permitting) while the Episode is still
+// being reconciled. Only a non-NotFound API error is returned.
+func (r *Reconciler) getSeries(ctx context.Context, ep *catalogv1alpha1.Episode) (*catalogv1alpha1.Series, error) {
 	var s catalogv1alpha1.Series
 	if err := r.Get(ctx, types.NamespacedName{Namespace: ep.Namespace, Name: ep.Spec.SeriesRef}, &s); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil, fmt.Sprintf("series %q not found", ep.Spec.SeriesRef), nil
+			return nil, nil
 		}
-		return nil, "", err
+		return nil, err
+	}
+	return &s, nil
+}
+
+// resolveProfile resolves the QualityProfile episodes are ranked against via
+// the owning Series (s, fetched once by getSeries; nil when it is gone ->
+// Series.Spec.QualityProfileRef), since EpisodeSpec carries no
+// QualityProfileRef of its own. It reports, as a non-empty problem string,
+// any reason the profile could not be resolved: a missing Series, no
+// reference on it, a reference that does not resolve, or a profile that
+// exists but does not parse against the catalogue.
+//
+// Only a non-NotFound API error is fatal; every other outcome degrades to
+// (nil, problem, nil) rather than failing the whole reconcile. Before task
+// C13 all four outcomes collapsed into a bare nil profile and a
+// cutoffMet=false indistinguishable from a genuine "this file is below the
+// cutoff" -- see the CutoffMet condition's own branch.
+//
+// QualityProfile is cluster-scoped, so it is fetched by name alone.
+func (r *Reconciler) resolveProfile(ctx context.Context, ep *catalogv1alpha1.Episode, s *catalogv1alpha1.Series) (*quality.Profile, string, error) {
+	if s == nil {
+		return nil, fmt.Sprintf("series %q not found", ep.Spec.SeriesRef), nil
 	}
 	if s.Spec.QualityProfileRef == "" {
 		return nil, fmt.Sprintf("series %q has no spec.qualityProfileRef", s.Name), nil

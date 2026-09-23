@@ -40,6 +40,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // on a different field manager means this reconciler does not even need to
 // pass them through to avoid clobbering them.
 //
+// status.activeDownloadRef is this reconciler's alone (gap-fix ruling R-5),
+// derived from the Downloads covering the Episode: its own single-episode
+// grabs and the season packs its Series owns (report.go). The reconciler
+// also folds the DLQ projector's annotation into a DeadLettered condition,
+// emits Events on phase and ProfileUnresolved edges, and, when catalogarr
+// hands it a Bus, publishes the media-file domain events.
+//
 // Unlike MediaFile's spec-versus-status split, both reconcilers here write
 // within the SAME subresource (status): every field the Series reconciler
 // sets on an Episode is genuinely an EpisodeStatus field, confirmed against

@@ -19,8 +19,10 @@ package episode_test
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"os"
+	"sort"
 	"testing"
 	"time"
 
@@ -93,8 +95,6 @@ func testSeries(ns, name, qualityProfileRef string) *catalogv1alpha1.Series {
 func downloadStatusAC(name, ns string, phase downloadv1alpha1.DownloadPhase) *downloadac.DownloadApplyConfiguration {
 	return downloadac.Download(name, ns).WithStatus(downloadac.DownloadStatus().WithPhase(phase))
 }
-
-func strPtr(s string) *string { return &s }
 
 // startManager wires a real episode.Reconciler into a real ctrl.Manager
 // backed by the envtest apiserver, starts it, and waits for the cache to
@@ -436,67 +436,189 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 			"the phase column must not read CutoffUnmet for a file never ranked against a cutoff")
 	})
 
-	t.Run("Download watch rolls up Downloading and clears the ref on a terminal phase", func(t *testing.T) {
+	// Ruling R-5, single-episode grab: the Download is created the way the
+	// grab path creates it (an apply under k8s.ManagerCatalogarrGrab, owned
+	// by the Episode) and nothing writes the ref, so the ref can only come
+	// from the Download watch and the derivation. managedFields proves the
+	// handover: exactly one owner, the Episode reconciler.
+	t.Run("an owned single-episode Download sets and clears the ref with no grab-worker write", func(t *testing.T) {
 		ep := &catalogv1alpha1.Episode{
 			ObjectMeta: metav1.ObjectMeta{Name: "the-wire-s01e02", Namespace: "ep-ns"},
 			Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: "the-wire", SeasonNumber: 1, EpisodeNumber: 2},
 		}
 		require.NoError(t, c.Create(ctx, ep))
-		waitForPhase(t, ctx, c, "ep-ns", "the-wire-s01e02")
+		live := waitForPhase(t, ctx, c, "ep-ns", "the-wire-s01e02")
 
-		dl := &downloadv1alpha1.Download{
-			ObjectMeta: metav1.ObjectMeta{Name: "the-wire-s01e02-abc1234567", Namespace: "ep-ns"},
-			Spec: downloadv1alpha1.DownloadSpec{
-				Protocol: commonv1.ProtocolTorrent,
-				Source:   downloadv1alpha1.DownloadSource{MagnetURL: strPtr("magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567")},
-				Release: commonv1.ReleaseInfo{
-					GUID: "https://indexer.example/2", IndexerRef: "example", IndexerName: "Example",
-					Title: "The.Wire.S01E02.1080p", Protocol: commonv1.ProtocolTorrent,
-					InfoHash: "0123456789abcdef0123456789abcdef01234567",
-				},
-				Target: commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "the-wire-s01e02"},
-			},
-		}
-		require.NoError(t, c.Create(ctx, dl))
-
-		refAC := catalogac.Episode(ep.Name, ep.Namespace).WithStatus(
-			catalogac.EpisodeStatus().WithActiveDownloadRef(dl.Name),
-		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, refAC)
-		require.NoError(t, err)
-
-		require.Eventually(t, func() bool {
-			var got catalogv1alpha1.Episode
-			if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "the-wire-s01e02"}, &got); err != nil {
-				return false
-			}
-			return got.Status.ActiveDownloadRef != nil && *got.Status.ActiveDownloadRef == dl.Name
-		}, 5*time.Second, 10*time.Millisecond)
-
-		dlAC := downloadStatusAC(dl.Name, dl.Namespace, downloadv1alpha1.DownloadPhaseAssigned)
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, dlAC)
-		require.NoError(t, err)
+		dl := grabPathDownload(t, ctx, c, &live, "the-wire-s01e02-abc1234567",
+			commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "the-wire-s01e02"})
 
 		var got catalogv1alpha1.Episode
 		require.Eventually(t, func() bool {
 			if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "the-wire-s01e02"}, &got); err != nil {
 				return false
 			}
+			return got.Status.ActiveDownloadRef != nil
+		}, 5*time.Second, 20*time.Millisecond, "a new owned Download must reach the ref through the Download watch alone")
+		assert.Equal(t, dl, *got.Status.ActiveDownloadRef)
+		assert.Equal(t, []string{k8s.ManagerCatalogarr.String()}, statusFieldOwners(t, &got, "activeDownloadRef"))
+
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC(dl, "ep-ns", downloadv1alpha1.DownloadPhaseAssigned))
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "the-wire-s01e02"}, &got); err != nil {
+				return false
+			}
 			return got.Status.Phase == catalogv1alpha1.EpisodePhaseDownloading
 		}, 5*time.Second, 20*time.Millisecond)
-		require.NotNil(t, got.Status.ActiveDownloadRef)
-		assert.Equal(t, dl.Name, *got.Status.ActiveDownloadRef)
 
-		dlAC = downloadStatusAC(dl.Name, dl.Namespace, downloadv1alpha1.DownloadPhaseCompleted)
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, dlAC)
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC(dl, "ep-ns", downloadv1alpha1.DownloadPhaseSeeding))
 		require.NoError(t, err)
-
 		require.Eventually(t, func() bool {
 			if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "the-wire-s01e02"}, &got); err != nil {
 				return false
 			}
 			return got.Status.Phase != catalogv1alpha1.EpisodePhaseDownloading
 		}, 5*time.Second, 20*time.Millisecond)
-		assert.Nil(t, got.Status.ActiveDownloadRef, "a terminal Download phase must clear the ref")
+		require.NotNil(t, got.Status.ActiveDownloadRef, "a Seeding Download that is not imported yet is still the active download")
+
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC(dl, "ep-ns", downloadv1alpha1.DownloadPhaseImported))
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "the-wire-s01e02"}, &got); err != nil {
+				return false
+			}
+			return got.Status.ActiveDownloadRef == nil
+		}, 5*time.Second, 20*time.Millisecond, "an Imported Download must clear the ref")
 	})
+
+	// A season pack names the Series as target and owner and lists the
+	// covered Episodes in spec.target.keys. Every covered Episode gets the
+	// ref; an Episode of the same Series outside the keys does not.
+	t.Run("a season pack owned by the Series sets the ref on exactly the episodes it covers", func(t *testing.T) {
+		require.NoError(t, c.Create(ctx, testSeries("ep-ns", "pack-show", "none")))
+		var series catalogv1alpha1.Series
+		require.Eventually(t, func() bool {
+			return c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "pack-show"}, &series) == nil
+		}, 5*time.Second, 10*time.Millisecond)
+
+		for i, name := range []string{"pack-show-s01e01", "pack-show-s01e02", "pack-show-s01e03"} {
+			require.NoError(t, c.Create(ctx, &catalogv1alpha1.Episode{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ep-ns"},
+				Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: "pack-show", SeasonNumber: 1, EpisodeNumber: int32(i + 1)},
+			}))
+			waitForPhase(t, ctx, c, "ep-ns", name)
+		}
+
+		dl := grabPathDownload(t, ctx, c, &series, "pack-show-s01-abc1234567", commonv1.MediaRef{
+			Kind: commonv1.MediaKindSeries, Name: "pack-show",
+			Keys: []string{"pack-show-s01e01", "pack-show-s01e02"},
+		})
+
+		for _, name := range []string{"pack-show-s01e01", "pack-show-s01e02"} {
+			require.Eventually(t, func() bool {
+				var got catalogv1alpha1.Episode
+				if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: name}, &got); err != nil {
+					return false
+				}
+				return got.Status.ActiveDownloadRef != nil && *got.Status.ActiveDownloadRef == dl
+			}, 5*time.Second, 20*time.Millisecond, "%s is covered by the pack", name)
+		}
+		require.Never(t, func() bool {
+			var got catalogv1alpha1.Episode
+			return c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "pack-show-s01e03"}, &got) == nil &&
+				got.Status.ActiveDownloadRef != nil
+		}, 500*time.Millisecond, 50*time.Millisecond, "an episode outside the pack's keys is not covered")
+
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC(dl, "ep-ns", downloadv1alpha1.DownloadPhaseFailed))
+		require.NoError(t, err)
+		for _, name := range []string{"pack-show-s01e01", "pack-show-s01e02"} {
+			require.Eventually(t, func() bool {
+				var got catalogv1alpha1.Episode
+				if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: name}, &got); err != nil {
+					return false
+				}
+				return got.Status.ActiveDownloadRef == nil
+			}, 5*time.Second, 20*time.Millisecond, "a Failed pack clears %s", name)
+		}
+	})
+
+	t.Run("the dead-lettered annotation folds into a DeadLettered condition and back out", func(t *testing.T) {
+		before := waitForPhase(t, ctx, c, "ep-ns", "the-wire-s01e02")
+		patch := client.MergeFrom(before.DeepCopy())
+		if before.Annotations == nil {
+			before.Annotations = map[string]string{}
+		}
+		before.Annotations[k8s.AnnotationDeadLettered] = "clustarr.work.catalogarr.search.high.x@2026-09-23T12:00:00Z"
+		require.NoError(t, c.Patch(ctx, &before, patch))
+
+		var got catalogv1alpha1.Episode
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "the-wire-s01e02"}, &got); err != nil {
+				return false
+			}
+			return k8s.IsConditionTrue(got.Status.Conditions, k8s.ConditionDeadLettered)
+		}, 5*time.Second, 20*time.Millisecond)
+		assert.Equal(t, before.Status.Phase, got.Status.Phase, "folding the condition must not release the phase")
+		assert.Equal(t, before.Status.ObservedGeneration, got.Status.ObservedGeneration)
+
+		patch = client.MergeFrom(got.DeepCopy())
+		delete(got.Annotations, k8s.AnnotationDeadLettered)
+		require.NoError(t, c.Patch(ctx, &got, patch))
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "the-wire-s01e02"}, &got); err != nil {
+				return false
+			}
+			return k8s.FindCondition(got.Status.Conditions, k8s.ConditionDeadLettered) == nil
+		}, 5*time.Second, 20*time.Millisecond)
+	})
+}
+
+// grabPathDownload creates a Download the way the grab path does: one
+// server-side apply under k8s.ManagerCatalogarrGrab with an ownerReference
+// to owner (the Episode for a single-episode grab, the Series for a pack)
+// and nothing written to any Episode. It returns the Download's name.
+func grabPathDownload(t *testing.T, ctx context.Context, c client.Client, owner client.Object, name string, target commonv1.MediaRef) string {
+	t.Helper()
+	ref, err := k8s.OwnerReferenceAC(owner, k8s.MustNewScheme())
+	require.NoError(t, err)
+	dl := downloadac.Download(name, owner.GetNamespace()).
+		WithOwnerReferences(ref).
+		WithSpec(downloadac.DownloadSpec().
+			WithProtocol(commonv1.ProtocolTorrent).
+			WithSource(downloadac.DownloadSource().WithMagnetURL("magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567")).
+			WithRelease(commonv1.ReleaseInfo{
+				GUID: "https://indexer.example/" + name, IndexerRef: "example", IndexerName: "Example",
+				Title: "Fixture.S01.1080p", Protocol: commonv1.ProtocolTorrent,
+				InfoHash: "0123456789abcdef0123456789abcdef01234567",
+			}).
+			WithTarget(target))
+	_, err = k8s.Apply(ctx, c, k8s.ManagerCatalogarrGrab, dl)
+	require.NoError(t, err)
+	return name
+}
+
+// statusFieldOwners returns the field managers whose managedFields entry
+// claims f:status.f:<field>, sorted -- the one place an over-claim shows
+// (CLAUDE.md, "A double-claim is silent").
+func statusFieldOwners(t *testing.T, obj client.Object, field string) []string {
+	t.Helper()
+	var owners []string
+	for _, e := range obj.GetManagedFields() {
+		if e.FieldsV1 == nil {
+			continue
+		}
+		var fields map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(e.FieldsV1.GetRawBytes(), &fields))
+		raw, ok := fields["f:status"]
+		if !ok {
+			continue
+		}
+		var status map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(raw, &status))
+		if _, ok := status["f:"+field]; ok {
+			owners = append(owners, e.Manager)
+		}
+	}
+	sort.Strings(owners)
+	return owners
 }

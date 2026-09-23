@@ -56,19 +56,15 @@ func (nopPublisher) Publish(_ context.Context, _ string, _ *events.Envelope, _ .
 
 // startOwnerCache starts a real ctrl.Manager's cache (WITHOUT wiring any
 // controller to it, so nothing auto-reconciles and no process-global
-// controller name is claimed) and returns its cached client. The Movie and
-// Episode reconcilers both reach a field-indexed
-// List(client.MatchingFields{...}) for "the MediaFiles backing this item",
-// and only a manager cache's FieldIndexer serves that -- against a bare
-// client the same option is sent to the apiserver as a fieldSelector, which
-// no CRD declares as selectable (the same trap mediafile_controller.go's
-// latestUnincorporatedTranscode documents from the other direction).
-//
-// The two keys below must stay in sync with movie.Reconciler and
-// episode.Reconciler's own SetupWithManager registrations. Their
-// .status.activeDownloadRef indexes are deliberately NOT registered: those
-// serve mapDownload, which only the watch path calls, and this suite drives
-// Reconcile directly.
+// controller name is claimed) with the field indexes the Movie and Episode
+// reconcilers' List calls read -- the MediaFiles backing an item and the
+// Downloads covering it. Only a manager cache's FieldIndexer serves a
+// List(client.MatchingFields{...}); against a bare client the same option is
+// sent to the apiserver as a fieldSelector, which no CRD declares as
+// selectable (the same trap mediafile_controller.go's
+// latestUnincorporatedTranscode documents from the other direction). The
+// indexes come from each package's RegisterIndexes, the call its
+// SetupWithManager makes, so they cannot drift from production.
 func startOwnerCache(t *testing.T, ctx context.Context, cfg *rest.Config) client.Client {
 	t.Helper()
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
@@ -78,33 +74,23 @@ func startOwnerCache(t *testing.T, ctx context.Context, cfg *rest.Config) client
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &catalogv1alpha1.MediaFile{}, ".spec.mediaRef.movie",
-		func(o client.Object) []string {
-			mf, ok := o.(*catalogv1alpha1.MediaFile)
-			if !ok || mf.Spec.MediaRef.Kind != commonv1.MediaKindMovie {
-				return nil
-			}
-			return []string{mf.Spec.MediaRef.Name}
-		}))
-	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &catalogv1alpha1.MediaFile{}, ".spec.mediaRef.episode",
-		func(o client.Object) []string {
-			mf, ok := o.(*catalogv1alpha1.MediaFile)
-			if !ok || mf.Spec.MediaRef.Kind != commonv1.MediaKindEpisode {
-				return nil
-			}
-			return []string{mf.Spec.MediaRef.Name}
-		}))
+	require.NoError(t, movie.RegisterIndexes(ctx, mgr.GetFieldIndexer()))
+	require.NoError(t, episode.RegisterIndexes(ctx, mgr.GetFieldIndexer()))
 
 	go func() { _ = mgr.Start(ctx) }()
 	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))
 	return mgr.GetClient()
 }
 
-// mustDownload creates a Download in the given phase, the way grabarr would.
-func mustDownload(t *testing.T, ctx context.Context, c client.Client, ns, name string, target commonv1.MediaRef, phase downloadv1alpha1.DownloadPhase) {
+// mustDownload creates a Download owned by owner in the given phase, the way
+// the grab path and grabarr would between them.
+func mustDownload(t *testing.T, ctx context.Context, c client.Client, owner client.Object, name string, target commonv1.MediaRef, phase downloadv1alpha1.DownloadPhase) {
 	t.Helper()
+	ns := owner.GetNamespace()
+	ref, err := k8s.OwnerReference(owner, k8s.MustNewScheme())
+	require.NoError(t, err)
 	dl := &downloadv1alpha1.Download{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, OwnerReferences: []metav1.OwnerReference{ref}},
 		Spec: downloadv1alpha1.DownloadSpec{
 			Protocol: commonv1.ProtocolTorrent,
 			Source:   downloadv1alpha1.DownloadSource{MagnetURL: ptrTo("magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567")},
@@ -117,7 +103,7 @@ func mustDownload(t *testing.T, ctx context.Context, c client.Client, ns, name s
 		},
 	}
 	require.NoError(t, c.Create(ctx, dl))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr,
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr,
 		downloadac.Download(name, ns).WithStatus(downloadac.DownloadStatus().WithPhase(phase)))
 	require.NoError(t, err)
 }
@@ -131,7 +117,8 @@ func ptrTo[T any](v T) *T { return &v }
 // genuine steady state through its OWN reconciler (the only writer of
 // k8s.ManagerCatalogarr on that object), so path, available/availableAt,
 // addOptionsApplied, observedGeneration and activeDownloadRef are all
-// really owned by that field manager, and only then runs the MediaFile
+// really owned by that field manager (the ref, since ruling R-5, by that
+// manager alone), and only then runs the MediaFile
 // reconciler over the file backing it.
 //
 // Before task C13, mediafile.Reconciler.rollupToOwner applied a
@@ -197,17 +184,17 @@ func TestMediaFileReconcileDoesNotReleaseOwnerStatus(t *testing.T) {
 		importarrCreatesMediaFileFor(t, ctx, c, ns, name+"-abc1234567",
 			commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name}, filePath, 9, time.Now(), bluray)
 
-		// An in-flight Download, plus the grab worker's own write of the
-		// reference. The Movie reconciler re-asserts it under
-		// k8s.ManagerCatalogarr while the Download is active, which is what
-		// puts the field in the blast radius of a rollup apply.
-		mustDownload(t, ctx, c, ns, name+"-dl", commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name}, downloadv1alpha1.DownloadPhaseAssigned)
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab,
-			catalogac.Movie(name, ns).WithStatus(catalogac.MovieStatus().WithActiveDownloadRef(name+"-dl")))
-		require.NoError(t, err)
+		// An in-flight Download the Movie owns. Since ruling R-5 the Movie
+		// reconciler is status.activeDownloadRef's only writer, deriving it
+		// from this Download, so catalogarr is the only thing standing
+		// between the ref and deletion -- which is what puts the field in
+		// the blast radius of a rollup apply.
+		var owner catalogv1alpha1.Movie
+		require.NoError(t, bare.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &owner))
+		mustDownload(t, ctx, c, &owner, name+"-dl", commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name}, downloadv1alpha1.DownloadPhaseAssigned)
 
 		// The Movie reconciler reads through the manager cache, so wait for
-		// it to observe both the metadata and the grab worker's ref before
+		// it to observe the metadata, the file and the Download before
 		// driving the steady state.
 		require.Eventually(t, func() bool {
 			var got catalogv1alpha1.Movie
@@ -218,27 +205,16 @@ func TestMediaFileReconcileDoesNotReleaseOwnerStatus(t *testing.T) {
 			if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name + "-abc1234567"}, &gotMF); err != nil {
 				return false
 			}
-			return got.Status.Metadata != nil && got.Status.ActiveDownloadRef != nil
-		}, 10*time.Second, 20*time.Millisecond, "setup: cache never observed metadata and activeDownloadRef")
+			var gotDL downloadv1alpha1.Download
+			if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name + "-dl"}, &gotDL); err != nil {
+				return false
+			}
+			return got.Status.Metadata != nil && gotDL.Status.Phase == downloadv1alpha1.DownloadPhaseAssigned
+		}, 10*time.Second, 20*time.Millisecond, "setup: cache never observed metadata, the file and the Download")
 
 		mr := &movie.Reconciler{Client: c, Scheme: scheme, Recorder: k8sevents.NewFakeRecorder(20), Bus: nopPublisher{}}
 		req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: name}}
 		_, err = mr.Reconcile(ctx, req)
-		require.NoError(t, err)
-
-		// Hand sole ownership of status.activeDownloadRef to catalogarr.
-		// Server-side apply lets two managers CO-OWN a field when they apply
-		// the same value (force is only needed when the values differ), so
-		// after the reconcile above both catalogarr-grab and catalogarr own
-		// the ref and a catalogarr release alone would not clear it. The
-		// grab worker's next apply, which no longer mentions the ref, drops
-		// its half -- the field survives on catalogarr's ownership, and
-		// catalogarr is now the only thing standing between the ref and
-		// deletion. This is exactly the "whenever catalogarr happens to hold
-		// it" window movie/reconciler.go's own comment flags, and the state
-		// the reviewer observed the orphaned Download in.
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab,
-			catalogac.Movie(name, ns).WithStatus(catalogac.MovieStatus()))
 		require.NoError(t, err)
 
 		var before catalogv1alpha1.Movie
@@ -291,10 +267,9 @@ func TestMediaFileReconcileDoesNotReleaseOwnerStatus(t *testing.T) {
 		importarrCreatesMediaFileFor(t, ctx, c, ns, name+"-abc1234567",
 			commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: name}, filePath, 4, time.Now(), bluray)
 
-		mustDownload(t, ctx, c, ns, name+"-dl", commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: name}, downloadv1alpha1.DownloadPhaseAssigned)
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab,
-			catalogac.Episode(name, ns).WithStatus(catalogac.EpisodeStatus().WithActiveDownloadRef(name+"-dl")))
-		require.NoError(t, err)
+		var owner catalogv1alpha1.Episode
+		require.NoError(t, bare.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &owner))
+		mustDownload(t, ctx, c, &owner, name+"-dl", commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: name}, downloadv1alpha1.DownloadPhaseAssigned)
 
 		require.Eventually(t, func() bool {
 			var got catalogv1alpha1.Episode
@@ -305,18 +280,16 @@ func TestMediaFileReconcileDoesNotReleaseOwnerStatus(t *testing.T) {
 			if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name + "-abc1234567"}, &gotMF); err != nil {
 				return false
 			}
-			return got.Status.AirDate != nil && got.Status.ActiveDownloadRef != nil
-		}, 10*time.Second, 20*time.Millisecond, "setup: cache never observed airDate and activeDownloadRef")
+			var gotDL downloadv1alpha1.Download
+			if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name + "-dl"}, &gotDL); err != nil {
+				return false
+			}
+			return got.Status.AirDate != nil && gotDL.Status.Phase == downloadv1alpha1.DownloadPhaseAssigned
+		}, 10*time.Second, 20*time.Millisecond, "setup: cache never observed airDate, the file and the Download")
 
 		er := &episode.Reconciler{Client: c, Scheme: scheme, Recorder: k8sevents.NewFakeRecorder(20)}
 		req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: name}}
 		_, err = er.Reconcile(ctx, req)
-		require.NoError(t, err)
-
-		// See the Movie subtest: drop catalogarr-grab's half of the
-		// co-owned status.activeDownloadRef so catalogarr is its sole owner.
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab,
-			catalogac.Episode(name, ns).WithStatus(catalogac.EpisodeStatus()))
 		require.NoError(t, err)
 
 		var before catalogv1alpha1.Episode
