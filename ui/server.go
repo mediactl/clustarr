@@ -82,14 +82,16 @@ type Options struct {
 
 	// Actions is ui's one write seam, and deliberately a separate field from
 	// Reader: Reader stays a client.Reader, so every read path is read-only
-	// by type, and the only writes ui can make are the three §A3.2 actions
-	// behind this value -- create a Search, create a LibraryScan, patch a
-	// catalog item's spec.monitored (ui/actions' package doc). An
-	// *actions.Actions exposes those three methods and holds its writer
-	// unexported, so nothing here can reach Create or Patch for anything
-	// else; ui/guard_test.go bans those calls outside ui/actions and bans
-	// every status write everywhere in ui/, ui/actions included.
+	// by type, and the only writes ui can make are the actions behind this
+	// value -- §A3.2's search now, rescan and monitor, the Unmatched page's
+	// manual assignment and the Settings page's spec patches (ui/actions'
+	// package doc). An *actions.Actions exposes those methods and holds its
+	// writer unexported, so nothing here can reach Create or Patch for
+	// anything else; ui/guard_test.go bans those calls outside ui/actions and
+	// bans every status write everywhere in ui/, ui/actions included.
 	//
+	// cmd/clustarr builds it (actions.New over a client.Client) in both
+	// `clustarr ui` and `clustarr all` whenever a kubeconfig resolves.
 	// A nil Actions is legal -- no cluster configured, or a test that only
 	// reads -- and every method on it returns actions.ErrNoWriter.
 	Actions *actions.Actions

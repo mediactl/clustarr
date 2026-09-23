@@ -329,6 +329,19 @@ actions create or patch spec: "search now" creates a `Search`; "rescan" creates 
 `LibraryScan`; "monitor this" patches `spec.monitored`. Everything the UI can do,
 `kubectl` can do, which keeps the GitOps story honest.
 
+> **Note (2026-09-23, Phase G, Task G3-5).** "Holds no field manager" is
+> superseded by Phase G ruling R2 (`docs/superpowers/plans/2026-09-23-phase-g-parity.md`):
+> the UI's spec edits are made as field manager `clustarr-ui`
+> (`pkg/k8s.ManagerUI`, restated as `ui/actions.FieldManager`), so an audit of
+> `managedFields` can tell a user's edit from a controller's. It holds that
+> manager on **spec only** — never on status, which it still never writes.
+> Every UI write lives in `ui/actions`: "search now" and "rescan" create; the
+> Unmatched page's manual assignment creates an annotated `LibraryScan`; "monitor
+> this" and the Settings page's forms are JSON merge patches of a few spec
+> fields. `cmd/clustarr`'s start envtest performs a UI action through a running
+> `clustarr ui` and asserts `clustarr-ui` owns the spec leaf and nothing on
+> status. The rest of this paragraph stands.
+
 ### A3.3 The pipeline projection
 
 The brief's pipeline page needs one stage per item, but an item's progress is

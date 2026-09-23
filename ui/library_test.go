@@ -153,10 +153,10 @@ func TestLibraryDetailPageNotFoundForAnUnknownItem(t *testing.T) {
 }
 
 // TestSetMonitoredActionWithNoWriterRendersVisibleError is this task's own
-// instruction, verified directly: Options.Actions is not wired in
-// production until Task G3-5, so a nil Options.Actions must still answer
-// with a visible, machine-checkable error rather than silently doing
-// nothing or panicking.
+// instruction, verified directly: a ui process with no cluster configured
+// has a nil Options.Actions (cmd/clustarr wires it only when a kubeconfig
+// resolves, since Task G3-5), and must still answer with a visible,
+// machine-checkable error rather than silently doing nothing or panicking.
 func TestSetMonitoredActionWithNoWriterRendersVisibleError(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{})
 	rec := httptest.NewRecorder()

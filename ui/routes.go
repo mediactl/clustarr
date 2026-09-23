@@ -242,9 +242,9 @@ func findLibraryItem(items []projection.LibraryItem, namespace, kind, name strin
 // /library/{namespace}/{kind}/{name}/monitor with a "monitored" field of
 // "true" or "false". It calls Options.Actions.SetMonitored -- and nothing
 // else in ui/ ever calls actions.Writer's Create or Patch, per ui/guard_test.go
-// -- and, since Options.Actions is not wired in production until Task G3-5,
-// renders actions.ErrNoWriter visibly through finishAction rather than
-// silently doing nothing.
+// -- and renders any failure visibly through finishAction, including
+// actions.ErrNoWriter from a ui process with no cluster configured (a nil
+// Options.Actions), rather than silently doing nothing.
 func (s *Server) handleSetMonitored(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "invalid form", http.StatusBadRequest)
@@ -285,9 +285,10 @@ func (s *Server) handleRescan(w http.ResponseWriter, r *http.Request) {
 // and on failure it renders views.ActionError directly in the response
 // (no redirect) with a status that reflects the failure -- 503 for
 // actions.ErrNoWriter, 400 for actions.ErrInvalid, 500 otherwise -- so the
-// error is visible to whatever submitted the form, per this task's own
-// instruction to "handle actions.ErrNoWriter visibly" now that
-// Options.Actions is not wired in production until Task G3-5.
+// error is visible to whatever submitted the form. ErrNoWriter is what a ui
+// process with no cluster configured answers; until Task G3-5 wired
+// Options.Actions in cmd/clustarr, it was what every production process
+// answered.
 func (s *Server) finishAction(w http.ResponseWriter, r *http.Request, err error) {
 	if err != nil {
 		code, status := actionErrorCode(err)
@@ -342,8 +343,8 @@ func (s *Server) handleUnmatched(w http.ResponseWriter, r *http.Request) {
 // -- and nowhere else in ui/ calls actions.Writer's Create or Patch, per
 // ui/guard_test.go.
 //
-// On failure -- actions.ErrNoWriter (Options.Actions unset, exactly like
-// every other action until Task G3-5 wires it), actions.ErrInvalid (a
+// On failure -- actions.ErrNoWriter (Options.Actions unset: a ui process
+// with no cluster configured), actions.ErrInvalid (a
 // malformed target), or the apiserver's own error -- it renders through
 // finishAction exactly like the Library page's own actions, so the failure
 // is visible rather than silent. On success it does NOT use finishAction's

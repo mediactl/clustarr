@@ -192,9 +192,9 @@ templ rescanToolbar(rootFolders []catalogv1.RootFolder) {
 }
 
 // ActionError renders the visible failure state for a write action (§A3.2's
-// three actions): actions.ErrNoWriter in particular, since Options.Actions
-// is not wired in production until Task G3-5 and this page must still say
-// so rather than silently doing nothing. code is a stable machine-readable
+// three actions): actions.ErrNoWriter in particular -- a ui process with no
+// cluster configured has no writer, and this page must still say so rather
+// than silently doing nothing. code is a stable machine-readable
 // reason ("no-writer", "invalid" or "failed") carried on data-action-error
 // (ruling R8), separate from message, which is the human-readable detail.
 templ ActionError(code, message string) {

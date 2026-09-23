@@ -428,9 +428,12 @@ never-writes invariant (CLAUDE.md) is now two enforced guards rather than an
 accident of no RBAC grant existing (D3-4, `6597877`): `ui/guard_test.go`'s
 `TestUINeverWrites` is an AST guard over every non-test file in `ui/`
 rejecting a `client.Writer` selector (`Create`, `Update`, `Patch`, `Delete`,
-`DeleteAllOf`, `Status`) on anything typed from controller-runtime's
-`client` package, plus any import of `pkg/k8s`; `cmd/clustarr/ui_rbac_test.go`'s
-`TestUIRoleGrantsOnlyReadVerbs` and `TestUIRoleChartMatchesConfig` assert
+`DeleteAllOf`, `Status`) by method name on any receiver -- it is syntactic,
+not type-checked, so it over-matches rather than tracing types back to
+controller-runtime's `client` package -- plus any import of `pkg/k8s`;
+`cmd/clustarr/ui_rbac_test.go`'s `TestUIRoleGrantsOnlyReadsAndActionWrites`
+(named `TestUIRoleGrantsOnlyReadVerbs` until Phase G ruling R2 narrowed both
+guards to admit `ui/actions`' writes) and `TestUIRoleChartMatchesConfig` assert
 `ui_role.yaml`'s verbs are a subset of `{get,list,watch}` with no `/status`
 resource, and hold the chart's copy byte-identical to it. E2E scenario 14
 (`test/e2e/ui_test.go`: the pipeline and downloads pages) is **written and

@@ -195,8 +195,8 @@ func TestUnmatchedPageManualAssignFormOmitsDatalistWithoutCandidates(t *testing.
 }
 
 // TestManualAssignActionWithNoWriterRendersVisibleError mirrors
-// ui/library_test.go's own no-writer tests: Options.Actions is not wired in
-// production until Task G3-5, so a nil Options.Actions must still answer
+// ui/library_test.go's own no-writer tests: a ui process with no cluster
+// configured has a nil Options.Actions, which must still answer
 // with a visible, machine-checkable error.
 func TestManualAssignActionWithNoWriterRendersVisibleError(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{})

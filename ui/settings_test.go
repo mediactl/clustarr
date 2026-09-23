@@ -289,8 +289,8 @@ func TestSettingsActionHandlersSucceedAndRedirect(t *testing.T) {
 
 // TestSettingsActionWithNoWriterRendersVisibleError mirrors
 // ui/library_test.go's TestSetMonitoredActionWithNoWriterRendersVisibleError
-// for the Settings page's own actions: Options.Actions is not wired in
-// production until Task G3-5, so a nil Options.Actions must still answer
+// for the Settings page's own actions: a ui process with no cluster
+// configured has a nil Options.Actions, which must still answer
 // with a visible, machine-checkable error rather than silently doing
 // nothing.
 func TestSettingsActionWithNoWriterRendersVisibleError(t *testing.T) {
