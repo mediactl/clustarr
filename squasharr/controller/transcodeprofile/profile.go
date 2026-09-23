@@ -232,6 +232,49 @@ func winningProfile(
 	return def
 }
 
+// itemKey names one catalog item a MediaFile can back: its MediaRef kind,
+// namespace and name.
+type itemKey struct {
+	kind      commonv1.MediaKind
+	namespace string
+	name      string
+}
+
+// managedItemLists are the catalog item kinds a TranscodeProfile can select
+// a file of ([eligibleKind]), with the List kind to read each through as
+// metadata only.
+var managedItemLists = map[commonv1.MediaKind]string{
+	commonv1.MediaKindMovie:   "MovieList",
+	commonv1.MediaKindEpisode: "EpisodeList",
+}
+
+// managedFiles drops every file whose catalog item no longer exists.
+//
+// An import list under removeAndKeep deletes a Movie or Episode but keeps
+// its files AND their MediaFile records, on purpose (importarr's
+// applySyncDecision; x7b-report): the record is what stops a rescan
+// re-adding the item, and the user asked to keep the file while Clustarr
+// stops managing it. Transcoding such a file would be managing it anyway, so
+// a file whose item is gone is no candidate. The rule is level-based: it
+// needs no marker, and a list re-adding the item under the same
+// deterministic name makes the file a candidate again -- the item watch in
+// SetupWithManager wakes every profile when that happens.
+//
+// items holds the movie and episode keys that exist. A file of any other
+// kind is passed through untouched for eligibleKind to judge.
+func managedFiles(files []catalogv1alpha1.MediaFile, items map[itemKey]bool) []catalogv1alpha1.MediaFile {
+	out := make([]catalogv1alpha1.MediaFile, 0, len(files))
+	for i := range files {
+		ref := files[i].Spec.MediaRef
+		if _, listed := managedItemLists[ref.Kind]; listed &&
+			!items[itemKey{kind: ref.Kind, namespace: files[i].Namespace, name: ref.Name}] {
+			continue
+		}
+		out = append(out, files[i])
+	}
+	return out
+}
+
 // selectFiles resolves every eligible file in files against the full
 // profiles list and def (profiles' resolved default winner, or nil), and
 // reports, from tp's point of view:

@@ -47,7 +47,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	transcodeac "github.com/mediactl/clustarr/api/applyconfiguration/transcode/transcode/v1alpha1"
@@ -78,6 +80,7 @@ import (
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodeprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;episodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconciler owns TranscodeProfile.status (under k8s.ManagerSquasharr, via
@@ -96,7 +99,8 @@ func NewReconciler(c client.Client, scheme *runtime.Scheme, recorder events.Even
 }
 
 // Reconcile computes tp's hash and validity, resolves which MediaFiles it
-// wins against every other TranscodeProfile (selectFiles), creates the
+// wins against every other TranscodeProfile (selectFiles) among those whose
+// Movie or Episode still exists (managedFiles), creates the
 // TranscodeJob for each winning file that is probed and not already
 // transcoded to tp's current hash, counts this profile's pending/running
 // TranscodeJobs, and patches status once.
@@ -134,7 +138,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	if err := r.List(ctx, &mfList); err != nil {
 		return ctrl.Result{}, fmt.Errorf("transcodeprofile: list MediaFiles: %w", err)
 	}
-	matching, overlapped := selectFiles(&tp, profileList.Items, defaultWinner(profileList.Items), mfList.Items)
+	items, err := r.catalogItems(ctx)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	matching, overlapped := selectFiles(&tp, profileList.Items, defaultWinner(profileList.Items),
+		managedFiles(mfList.Items, items))
 
 	var jobList transcodev1alpha1.TranscodeJobList
 	if err := r.List(ctx, &jobList); err != nil {
@@ -190,7 +199,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		k8s.MarkFalse(&fresh, &conditions, ConditionOverlap, ReasonNoOverlap, "no selector overlap with another profile")
 	}
 
-	err := squasharrstatus.PatchProfile(ctx, r.Client, k8s.ManagerSquasharr, &fresh,
+	err = squasharrstatus.PatchProfile(ctx, r.Client, k8s.ManagerSquasharr, &fresh,
 		func(ac *transcodeac.TranscodeProfileStatusApplyConfiguration) {
 			ac.WithObservedGeneration(fresh.Generation).
 				WithHash(hash).
@@ -206,6 +215,36 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return ctrl.Result{}, errors.Join(createErrs...)
 	}
 	return ctrl.Result{}, nil
+}
+
+// catalogItems lists, once per reconcile, every Movie and Episode that
+// exists, as metadata only: [managedFiles] needs their names, and a metadata
+// informer holds a fraction of what full objects would (a library's
+// Episodes number in the thousands).
+func (r *Reconciler) catalogItems(ctx context.Context) (map[itemKey]bool, error) {
+	items := map[itemKey]bool{}
+	for kind, listKind := range managedItemLists {
+		list := &metav1.PartialObjectMetadataList{}
+		list.SetGroupVersionKind(catalogv1alpha1.GroupVersion.WithKind(listKind))
+		if err := r.List(ctx, list); err != nil {
+			return nil, fmt.Errorf("transcodeprofile: list %s: %w", listKind, err)
+		}
+		for i := range list.Items {
+			items[itemKey{kind: kind, namespace: list.Items[i].Namespace, name: list.Items[i].Name}] = true
+		}
+	}
+	return items, nil
+}
+
+// createdOrDeleted passes an item's create and delete, the two events that
+// change whether its files are candidates; an item's updates never do.
+func createdOrDeleted() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc:  func(event.CreateEvent) bool { return true },
+		DeleteFunc:  func(event.DeleteEvent) bool { return true },
+		UpdateFunc:  func(event.UpdateEvent) bool { return false },
+		GenericFunc: func(event.GenericEvent) bool { return false },
+	}
 }
 
 // countJobs sums pending (Pending/Planned/Queued -- admitted but not yet
@@ -351,6 +390,13 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(k8s.StatusFieldChanged(extractProbeHash))).
 		Watches(&transcodev1alpha1.TranscodeJob{}, handler.EnqueueRequestsFromMapFunc(mapTranscodeJobToProfile),
 			builder.WithPredicates(k8s.StatusFieldChanged(extractJobPhase))).
+		// A Movie or Episode appearing or going away changes which files are
+		// candidates (managedFiles). Metadata only, matching catalogItems'
+		// list, so no full-object informer is ever started for them.
+		Watches(&catalogv1alpha1.Movie{}, handler.EnqueueRequestsFromMapFunc(r.mapAllProfiles),
+			builder.OnlyMetadata, builder.WithPredicates(createdOrDeleted())).
+		Watches(&catalogv1alpha1.Episode{}, handler.EnqueueRequestsFromMapFunc(r.mapAllProfiles),
+			builder.OnlyMetadata, builder.WithPredicates(createdOrDeleted())).
 		WithOptions(controller.Options{
 			RecoverPanic:          ptr.To(true),
 			ReconciliationTimeout: 5 * time.Minute,

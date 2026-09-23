@@ -29,8 +29,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
@@ -70,6 +74,12 @@ func newTestClient(t *testing.T) client.Client {
 // suppressing the lint.
 func probedMovie(t *testing.T, ctx context.Context, c client.Client, ns, name string, labels map[string]string) *catalogv1alpha1.MediaFile {
 	t.Helper()
+	// The Movie the file backs: a file whose item is gone is no candidate
+	// (profile.go managedFiles).
+	require.NoError(t, client.IgnoreAlreadyExists(c.Create(ctx, &catalogv1alpha1.Movie{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		Spec:       catalogv1alpha1.MovieSpec{TmdbID: 1, QualityProfileRef: "hd-bluray-web", RootFolderRef: "movies"},
+	})))
 	mf := &catalogv1alpha1.MediaFile{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: labels},
 		Spec: catalogv1alpha1.MediaFileSpec{
@@ -328,4 +338,104 @@ func TestReconcileSurfacesSelectorOverlapWithoutDoubleCreating(t *testing.T) {
 	assert.True(t, k8s.IsConditionTrue(gotLoser.Status.Conditions, transcodeprofile.ConditionOverlap),
 		"the losing profile must surface the overlap on its own status")
 	assert.EqualValues(t, 0, gotLoser.Status.MatchingFiles)
+}
+
+// TestAnOrphanedMediaFileIsNotTranscoded: an import list's removeAndKeep
+// deletes a Movie but keeps its file and MediaFile record (x7b ruling), so
+// the user keeps a file Clustarr no longer manages. From a steady state --
+// the profile already reconciled, one job per managed file -- a file whose
+// Movie is gone gets no job and leaves matchingFiles, and re-adding the
+// Movie under the same name makes it a candidate again.
+func TestAnOrphanedMediaFileIsNotTranscoded(t *testing.T) {
+	c := newTestClient(t)
+	ctx := context.Background()
+	const ns = "transcodeprofile-orphan"
+	require.NoError(t, client.IgnoreAlreadyExists(c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})))
+
+	probedMovie(t, ctx, c, ns, "arrival-2016", nil)
+	tp := defaultProfile(t, ctx, c, "default")
+	r := transcodeprofile.NewReconciler(c, k8s.MustNewScheme(), events.NewFakeRecorder(10))
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: tp.Name}}
+	_, err := r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	require.Len(t, listJobs(t, ctx, c), 1, "steady state: the managed file has its job")
+
+	// A second file arrives, and its Movie is removed (removeAndKeep) before
+	// the profile reconciles again.
+	kept := probedMovie(t, ctx, c, ns, "heat-1995", nil)
+	require.NoError(t, c.Delete(ctx, &catalogv1alpha1.Movie{ObjectMeta: metav1.ObjectMeta{Name: "heat-1995", Namespace: ns}}))
+	_, err = r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	jobs := listJobs(t, ctx, c)
+	require.Len(t, jobs, 1, "a file whose Movie is gone must get no TranscodeJob")
+	assert.Equal(t, "arrival-2016", jobs[0].Spec.MediaFileRef)
+	var got transcodev1alpha1.TranscodeProfile
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: tp.Name}, &got))
+	assert.EqualValues(t, 1, got.Status.MatchingFiles, "an unmanaged file is not a match")
+
+	// The list re-adds it under the same deterministic name.
+	require.NoError(t, c.Create(ctx, &catalogv1alpha1.Movie{
+		ObjectMeta: metav1.ObjectMeta{Name: kept.Name, Namespace: ns},
+		Spec:       catalogv1alpha1.MovieSpec{TmdbID: 949, QualityProfileRef: "hd-bluray-web", RootFolderRef: "movies"},
+	}))
+	_, err = r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	require.Len(t, listJobs(t, ctx, c), 2, "re-adding the Movie makes its kept file a candidate again")
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: tp.Name}, &got))
+	assert.EqualValues(t, 2, got.Status.MatchingFiles)
+}
+
+// TestAMovieReturningWakesTheProfile runs the controller under a real
+// manager, so its cached, metadata-only Movie list and watch are the ones
+// production uses: a kept file whose Movie is gone gets no job, and the
+// Movie being re-added -- a create, which touches no MediaFile and no
+// profile -- is enough on its own to get the file its job.
+func TestAMovieReturningWakesTheProfile(t *testing.T) {
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		t.Skip("KUBEBUILDER_ASSETS is unset; run via `make test`")
+	}
+	env := &envtest.Environment{CRDDirectoryPaths: []string{"../../../config/crd/bases"}, ErrorIfCRDPathMissing: true}
+	cfg, err := env.Start()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = env.Stop() })
+	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+		Scheme:                 k8s.MustNewScheme(),
+		Metrics:                metricsserver.Options{BindAddress: "0"},
+		HealthProbeBindAddress: "0",
+		Controller:             config.Controller{SkipNameValidation: ptr.To(true)},
+	})
+	require.NoError(t, err)
+	require.NoError(t, transcodeprofile.NewReconciler(mgr.GetClient(), mgr.GetScheme(), events.NewFakeRecorder(50)).SetupWithManager(mgr))
+	go func() { _ = mgr.Start(ctx) }()
+
+	const ns = "transcodeprofile-watch"
+	require.NoError(t, c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}))
+	probedMovie(t, ctx, c, ns, "arrival-2016", nil)
+	kept := probedMovie(t, ctx, c, ns, "heat-1995", nil)
+	require.NoError(t, c.Delete(ctx, &catalogv1alpha1.Movie{ObjectMeta: metav1.ObjectMeta{Name: kept.Name, Namespace: ns}}))
+	defaultProfile(t, ctx, c, "default")
+
+	jobFor := func(mediaFile string) bool {
+		for _, j := range listJobs(t, ctx, c) {
+			if j.Spec.MediaFileRef == mediaFile {
+				return true
+			}
+		}
+		return false
+	}
+	require.Eventually(t, func() bool { return jobFor("arrival-2016") }, 20*time.Second, 100*time.Millisecond)
+	require.Never(t, func() bool { return jobFor(kept.Name) }, 2*time.Second, 100*time.Millisecond,
+		"a file whose Movie is gone must get no TranscodeJob")
+
+	require.NoError(t, c.Create(ctx, &catalogv1alpha1.Movie{
+		ObjectMeta: metav1.ObjectMeta{Name: kept.Name, Namespace: ns},
+		Spec:       catalogv1alpha1.MovieSpec{TmdbID: 949, QualityProfileRef: "hd-bluray-web", RootFolderRef: "movies"},
+	}))
+	require.Eventually(t, func() bool { return jobFor(kept.Name) }, 20*time.Second, 100*time.Millisecond,
+		"the Movie's return must wake the profile on its own")
 }

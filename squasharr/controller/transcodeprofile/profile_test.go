@@ -389,3 +389,36 @@ func TestAlreadyTranscodedAndProbed(t *testing.T) {
 	assert.True(t, alreadyTranscoded(&mf, "hevc@deadbeef"))
 	assert.False(t, alreadyTranscoded(&mf, "hevc@newhash"), "a stale (pre-edit) tag must not count as already transcoded")
 }
+
+// A file whose Movie or Episode is gone -- an import list's removeAndKeep
+// keeps the file and its record but deletes the item -- is no longer a
+// candidate; one whose item exists is, and a kind managedFiles does not
+// judge (a book) passes through for eligibleKind to drop.
+func TestManagedFilesDropsFilesWhoseItemIsGone(t *testing.T) {
+	file := func(ns, name string, kind commonv1.MediaKind) catalogv1alpha1.MediaFile {
+		return catalogv1alpha1.MediaFile{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+			Spec:       catalogv1alpha1.MediaFileSpec{MediaRef: commonv1.MediaRef{Kind: kind, Name: name}},
+		}
+	}
+	files := []catalogv1alpha1.MediaFile{
+		file("media", "kept-movie", commonv1.MediaKindMovie),
+		file("media", "orphan-movie", commonv1.MediaKindMovie),
+		file("media", "kept-episode", commonv1.MediaKindEpisode),
+		file("media", "orphan-episode", commonv1.MediaKindEpisode),
+		file("other", "kept-movie", commonv1.MediaKindMovie), // same name, other namespace: no item there
+		file("media", "a-book", commonv1.MediaKindBook),
+	}
+	items := map[itemKey]bool{
+		{kind: commonv1.MediaKindMovie, namespace: "media", name: "kept-movie"}:     true,
+		{kind: commonv1.MediaKindEpisode, namespace: "media", name: "kept-episode"}: true,
+		// An Episode by the movie's name must not keep the movie's file.
+		{kind: commonv1.MediaKindEpisode, namespace: "media", name: "orphan-movie"}: true,
+	}
+
+	var got []string
+	for _, mf := range managedFiles(files, items) {
+		got = append(got, mf.Namespace+"/"+mf.Name)
+	}
+	assert.Equal(t, []string{"media/kept-movie", "media/kept-episode", "media/a-book"}, got)
+}
