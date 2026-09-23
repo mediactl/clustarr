@@ -57,6 +57,15 @@ type Release struct {
 	MinimumRatio         *float64
 	MinimumSeedTime      *int64 // seconds
 
+	// Non-video (Newznab's music and book attrs, docs/research/indexers.md
+	// §4.3): the music-search and book-search answers name the work these
+	// four ways. Each keeps the FIRST value when an attr repeats; Attrs
+	// still holds every value verbatim.
+	Artist    string
+	Album     string
+	Author    string
+	Publisher string
+
 	// usenet (Newznab-native)
 	Group      string
 	Poster     string
@@ -258,6 +267,14 @@ func applyAttr(rel *Release, name, value string) {
 		if id, err := strconv.ParseInt(value, 10, 32); err == nil {
 			rel.addCategoryIfAbsent(newznab.CategoryID(id))
 		}
+	case "artist":
+		setOnce(&rel.Artist, value)
+	case "album":
+		setOnce(&rel.Album, value)
+	case "author":
+		setOnce(&rel.Author, value)
+	case "publisher":
+		setOnce(&rel.Publisher, value)
 	case "group":
 		rel.Group = value
 	case "poster":
@@ -273,6 +290,14 @@ func applyAttr(rel *Release, name, value string) {
 		rel.Password = parseInt32(value)
 	case "nfo":
 		rel.NFO = parseInt32(value)
+	}
+}
+
+// setOnce assigns value to *field unless it already holds one, so a
+// repeated attr keeps its first value on the typed field.
+func setOnce(field *string, value string) {
+	if *field == "" {
+		*field = value
 	}
 }
 

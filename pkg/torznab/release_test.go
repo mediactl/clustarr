@@ -94,6 +94,29 @@ func TestParseItemUsenetNzbAttrs(t *testing.T) {
 	require.Equal(t, int32(1), *r.NFO)
 }
 
+// The music-search and book-search answers name the work through Newznab's
+// artist/album/author/publisher attrs. They land on typed fields (first value
+// wins) and stay verbatim in Attrs, alongside the attrs with no typed field.
+func TestParseItemNonVideoAttrs(t *testing.T) {
+	rels := parseResultsFile(t, "../../testdata/torznab/nonvideo_search.xml")
+	require.Len(t, rels, 2)
+
+	album := rels[0]
+	require.Equal(t, "Radiohead", album.Artist)
+	require.Equal(t, "Kid A", album.Album)
+	require.Equal(t, "Parlophone", album.Publisher)
+	require.Empty(t, album.Author)
+	require.Equal(t, []string{"10"}, album.Attrs["tracks"])
+
+	book := rels[1]
+	require.Equal(t, "Frank Herbert", book.Author, "a repeated attr keeps its first value")
+	require.Equal(t, []string{"Frank Herbert", "Brian Herbert"}, book.Attrs["author"])
+	require.Equal(t, "Chilton Books", book.Publisher)
+	require.Empty(t, book.Artist)
+	require.Empty(t, book.Album)
+	require.Equal(t, []string{"Dune"}, book.Attrs["booktitle"])
+}
+
 func TestParseResultsMalformedInputNeverPanics(t *testing.T) {
 	cases := map[string]string{
 		"garbage":   "not xml at all {{{",

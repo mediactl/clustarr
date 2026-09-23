@@ -128,3 +128,34 @@ func TestWriteResultsSynthesizesAttrsFromTypedFieldsAlone(t *testing.T) {
 	require.Equal(t, "603", got[0].IDs["tmdb"])
 	require.Equal(t, []newznab.CategoryID{newznab.CatMovies}, got[0].Categories)
 }
+
+// The non-video fields round-trip both ways: from a parsed feed (verbatim
+// through Attrs, repeated author included) and from a Release built in code,
+// as pkg/cardigann builds one, where only the typed field is set.
+func TestWriteResultsRoundTripsNonVideoFields(t *testing.T) {
+	f, err := os.Open("../../testdata/torznab/nonvideo_search.xml")
+	require.NoError(t, err)
+	want, err := torznab.ParseResults(f)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	var buf bytes.Buffer
+	require.NoError(t, torznab.WriteResults(&buf, want))
+	got, err := torznab.ParseResults(&buf)
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+
+	built := []torznab.Release{{
+		Title: "Some.Artist-Some.Album-2020-FLAC", GUID: "g",
+		Artist: "Some Artist", Album: "Some Album", Author: "An Author", Publisher: "A Label",
+	}}
+	buf.Reset()
+	require.NoError(t, torznab.WriteResults(&buf, built))
+	back, err := torznab.ParseResults(&buf)
+	require.NoError(t, err)
+	require.Len(t, back, 1)
+	require.Equal(t, "Some Artist", back[0].Artist)
+	require.Equal(t, "Some Album", back[0].Album)
+	require.Equal(t, "An Author", back[0].Author)
+	require.Equal(t, "A Label", back[0].Publisher)
+}

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"
+     xmlns:torznab="http://torznab.com/schemas/2015/feed"
+     xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/">
+  <channel>
+    <title>Clustarr Test Indexer</title>
+    <item>
+      <title>Radiohead-Kid.A-2000-FLAC</title>
+      <guid>https://tracker.example.invalid/details/900</guid>
+      <link>https://tracker.example.invalid/download/900</link>
+      <pubDate>Wed, 17 Sep 2026 10:11:12 +0000</pubDate>
+      <size>412345678</size>
+      <category>3040</category>
+      <torznab:attr name="category" value="3040"/>
+      <torznab:attr name="seeders" value="31"/>
+      <torznab:attr name="artist" value="Radiohead"/>
+      <torznab:attr name="album" value="Kid A"/>
+      <torznab:attr name="publisher" value="Parlophone"/>
+      <torznab:attr name="tracks" value="10"/>
+      <torznab:attr name="year" value="2000"/>
+    </item>
+    <item>
+      <title>Frank.Herbert-Dune-1965-EPUB</title>
+      <guid>https://tracker.example.invalid/details/901</guid>
+      <link>https://tracker.example.invalid/download/901</link>
+      <pubDate>Wed, 17 Sep 2026 10:11:12 +0000</pubDate>
+      <size>2345678</size>
+      <category>7020</category>
+      <newznab:attr name="category" value="7020"/>
+      <newznab:attr name="author" value="Frank Herbert"/>
+      <newznab:attr name="author" value="Brian Herbert"/>
+      <newznab:attr name="booktitle" value="Dune"/>
+      <newznab:attr name="publisher" value="Chilton Books"/>
+      <newznab:attr name="publishdate" value="Wed, 01 Aug 1965 00:00:00 +0000"/>
+    </item>
+  </channel>
+</rss>
