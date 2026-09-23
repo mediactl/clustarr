@@ -21,6 +21,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -109,6 +110,32 @@ func downloadStatusAC(name, ns string, phase downloadv1alpha1.DownloadPhase) *do
 }
 
 func strPtr(s string) *string { return &s }
+
+// comicProfile is a cluster-scoped comic QualityProfile ranking CBZ over CBR,
+// with its cutoff at the named tier.
+func comicProfile(name, cutoff string) *catalogv1alpha1.QualityProfile {
+	return &catalogv1alpha1.QualityProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec: catalogv1alpha1.QualityProfileSpec{
+			MediaKind: catalogv1alpha1.ProfileMediaKindComic,
+			Cutoff:    cutoff,
+			Tiers: []catalogv1alpha1.Tier{
+				{Name: "CBZ", Qualities: []string{"CBZ"}},
+				{Name: "CBR", Qualities: []string{"CBR"}},
+			},
+		},
+	}
+}
+
+func testComic(ns, name, profile string) *catalogv1alpha1.Comic {
+	return &catalogv1alpha1.Comic{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		Spec: catalogv1alpha1.ComicSpec{
+			Source: catalogv1alpha1.ComicSourceComicVine, SourceID: "4050-" + name,
+			QualityProfileRef: profile, RootFolderRef: "comic-root",
+		},
+	}
+}
 
 func testMediaFile(ns, name, issueName string, quality commonv1.Quality) *catalogv1alpha1.MediaFile {
 	return &catalogv1alpha1.MediaFile{
@@ -295,5 +322,90 @@ func TestIssueReconcilerRealController(t *testing.T) {
 		}, 5*time.Second, 20*time.Millisecond)
 		assert.Nil(t, got.Status.ActiveDownloadRef, "a terminal Download phase must clear the ref")
 		assert.Equal(t, catalogv1alpha1.IssueStateWanted, got.Status.State, "no file and no active download: back to Wanted")
+	})
+
+	// CutoffMet is decided against the owning Comic's profile, two objects
+	// away, so both of those objects' edits must reach the Issue: an edit to
+	// the QualityProfile itself (mapQualityProfile, profile -> Comic ->
+	// Issue), and the Comic pointing at another profile (mapComic).
+	t.Run("cutoffMet follows the Comic's profile, and edits to either reach the Issue", func(t *testing.T) {
+		require.NoError(t, c.Create(ctx, comicProfile("issue-comic-cbz", "CBZ")))
+		require.NoError(t, c.Create(ctx, comicProfile("issue-comic-cbz-strict", "CBZ")))
+		require.NoError(t, c.Create(ctx, testComic("issue-ns", "saga", "issue-comic-cbz")))
+		iss := &catalogv1alpha1.Issue{
+			ObjectMeta: metav1.ObjectMeta{Name: "saga-001.0", Namespace: "issue-ns"},
+			Spec:       catalogv1alpha1.IssueSpec{ComicRef: "saga", Number: "1", CalculatedNumberCentis: 100},
+		}
+		require.NoError(t, c.Create(ctx, iss))
+		key := types.NamespacedName{Namespace: "issue-ns", Name: "saga-001.0"}
+		cutoffCond := func(got *catalogv1alpha1.Issue) *metav1.Condition {
+			return k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.IssueConditionCutoffMet)
+		}
+
+		require.Eventually(t, func() bool {
+			var got catalogv1alpha1.Issue
+			if err := c.Get(ctx, key, &got); err != nil {
+				return false
+			}
+			cond := cutoffCond(&got)
+			return cond != nil && cond.Reason == "NoFile"
+		}, 5*time.Second, 20*time.Millisecond, "no file yet: CutoffMet=False/NoFile")
+
+		require.NoError(t, c.Create(ctx, testMediaFile("issue-ns", "saga-001-mf", "saga-001.0", commonv1.Quality{Name: "CBR"})))
+		var got catalogv1alpha1.Issue
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, key, &got); err != nil {
+				return false
+			}
+			cond := cutoffCond(&got)
+			return got.Status.HasFile && cond != nil && cond.Reason == "BelowCutoff"
+		}, 5*time.Second, 20*time.Millisecond, "a CBR file under a CBZ cutoff is below it")
+		assert.False(t, got.Status.CutoffMet)
+
+		// Lower the profile's cutoff to CBR: a QualityProfile edit, which
+		// only mapQualityProfile's two hops can carry to this Issue.
+		var qp catalogv1alpha1.QualityProfile
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "issue-comic-cbz"}, &qp))
+		qp.Spec.Cutoff = "CBR"
+		require.NoError(t, c.Update(ctx, &qp))
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, key, &got); err != nil {
+				return false
+			}
+			cond := cutoffCond(&got)
+			return got.Status.CutoffMet && cond != nil && cond.Status == metav1.ConditionTrue
+		}, 5*time.Second, 20*time.Millisecond, "the profile edit never reached the Issue")
+
+		// Point the Comic at the strict profile: a Comic edit, carried by
+		// mapComic.
+		var cm catalogv1alpha1.Comic
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "issue-ns", Name: "saga"}, &cm))
+		cm.Spec.QualityProfileRef = "issue-comic-cbz-strict"
+		require.NoError(t, c.Update(ctx, &cm))
+		require.Eventually(t, func() bool {
+			if err := c.Get(ctx, key, &got); err != nil {
+				return false
+			}
+			cond := cutoffCond(&got)
+			return !got.Status.CutoffMet && cond != nil && cond.Reason == "BelowCutoff"
+		}, 5*time.Second, 20*time.Millisecond, "the Comic's profile change never reached the Issue")
+
+		// status.cutoffMet is this reconciler's leaf under catalogarr, and
+		// no other manager claims it. It is false (and omitempty) right now,
+		// so flip it back to met before looking at managedFields.
+		qp = catalogv1alpha1.QualityProfile{}
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "issue-comic-cbz-strict"}, &qp))
+		qp.Spec.Cutoff = "CBR"
+		require.NoError(t, c.Update(ctx, &qp))
+		require.Eventually(t, func() bool {
+			return c.Get(ctx, key, &got) == nil && got.Status.CutoffMet
+		}, 5*time.Second, 20*time.Millisecond)
+		owned := map[string][]string{}
+		for _, e := range got.ManagedFields {
+			if e.Subresource == "status" && e.FieldsV1 != nil && strings.Contains(e.FieldsV1.GetRawString(), `"f:cutoffMet"`) {
+				owned["cutoffMet"] = append(owned["cutoffMet"], e.Manager)
+			}
+		}
+		assert.Equal(t, []string{string(k8s.ManagerCatalogarr)}, owned["cutoffMet"])
 	})
 }

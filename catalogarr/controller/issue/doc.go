@@ -46,15 +46,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // is the same status-versus-status split as episode's doc comment describes
 // for Series -> Episode, not MediaFile's spec-versus-status one.
 //
-// Unlike Episode, Issue's status carries no CutoffMet or FileFormatScore
-// field (confirmed against issue_types.go): ComicSpec.QualityProfileRef
-// exists ("issues are ranked against"), but there is no leaf on IssueStatus
-// to record that ranking's outcome, and pkg/quality's TRaSH catalogue is
-// video-only per R3
-// (docs/superpowers/plans/2026-09-23-phase-g-parity.md). This reconciler
-// therefore resolves no QualityProfile at all: it surfaces HasFile/FileRef/
-// FileQuality straight from the MediaFile backing the issue (rollup.FileState
-// called with a nil profile, whose cutoffMet/fileFormatScore return values
-// this package has nowhere to put and so does not read) rather than
-// inventing a place to store a decision the schema does not model.
+// Like Episode, an Issue is ranked against a profile it does not name: its
+// Comic's spec.qualityProfileRef. This reconciler resolves that profile
+// (resolveProfile) and writes the outcome to status.cutoffMet and the
+// CutoffMet condition, so a comic file below its profile's cutoff stays an
+// upgrade candidate. IssueStatus has no FileFormatScore leaf, and a comic
+// profile scores no custom formats (pkg/quality.FromCRD gives every
+// non-video profile an empty Scores), so that return value of
+// rollup.FileState is not read.
 package issue

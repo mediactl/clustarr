@@ -19,6 +19,8 @@ package issue
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -42,6 +44,8 @@ import (
 	"github.com/mediactl/clustarr/catalogarr/controller/rollup"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
 
 const (
@@ -61,6 +65,8 @@ const (
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=issues/finalizers,verbs=update
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=comics,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
 // The Recorder is a k8s.io/client-go/tools/events.EventRecorder, handed in by
 // mgr.GetEventRecorder, and it writes events.k8s.io/v1 -- so events.k8s.io is
 // the group to grant and the core group is not; see episode/reconciler.go's
@@ -68,19 +74,18 @@ const (
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconciler reconciles an Issue: state from monitored/hasFile/downloading,
-// and the file/download rollup from a watched MediaFile and Download. It is
-// the sole writer of status.observedGeneration, status.conditions
-// (Ready/HasFile/Released), status.state, status.hasFile, status.fileRef,
-// status.fileQuality and status.activeDownloadRef; the provider-sourced
-// fields (sourceID/title/date) belong to the Comic reconciler -- see this
-// package's doc comment for the field-manager split.
+// the file/download rollup from a watched MediaFile and Download, and the
+// cutoff decision against the owning Comic's QualityProfile. It is the sole
+// writer of status.observedGeneration, status.conditions
+// (Ready/HasFile/Released/CutoffMet), status.state, status.hasFile,
+// status.fileRef, status.fileQuality, status.cutoffMet and
+// status.activeDownloadRef; the provider-sourced fields (sourceID/title/date)
+// belong to the Comic reconciler -- see this package's doc comment for the
+// field-manager split.
 //
-// Unlike Episode, this reconciler resolves no QualityProfile: IssueStatus
-// has no CutoffMet/FileFormatScore leaf to record a ranking outcome in (see
-// doc.go), so there is nothing here for a profile lookup to feed. Like
-// Episode, it carries no Bus field -- Issue has no metadata of its own to
-// refresh; the Comic reconciler's issue-listing RPC is what keeps its
-// provider fields current.
+// An Issue carries no QualityProfileRef of its own: it is ranked against its
+// Comic's spec.qualityProfileRef (ComicSpec's "the QualityProfile issues are
+// ranked against"), the way an Episode is ranked against its Series'.
 type Reconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
@@ -99,6 +104,12 @@ type Reconciler struct {
 // cover date would sit unreflected in IssueConditionReleased/status.state
 // until some unrelated event woke this controller -- and the MediaFile/
 // Download watches, the same shape as episode/reconciler.go.
+//
+// Two watches keep status.cutoffMet current, since the profile it is
+// decided against lives two objects away: an edited QualityProfile wakes
+// every Issue of every Comic ranked against it (mapQualityProfile), and a
+// Comic's own spec change -- pointing spec.qualityProfileRef at another
+// profile -- wakes that Comic's Issues (mapComic).
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &catalogv1alpha1.MediaFile{}, mediaFileByIssueIndexKey,
 		func(o client.Object) []string {
@@ -126,6 +137,8 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&catalogv1alpha1.Issue{}, builder.WithPredicates(issuePredicate())).
 		Watches(&catalogv1alpha1.MediaFile{}, handler.EnqueueRequestsFromMapFunc(r.mapMediaFile), builder.WithPredicates(k8s.GenerationChanged())).
 		Watches(&downloadv1alpha1.Download{}, handler.EnqueueRequestsFromMapFunc(r.mapDownload), builder.WithPredicates(downloadPredicate())).
+		Watches(&catalogv1alpha1.Comic{}, handler.EnqueueRequestsFromMapFunc(r.mapComic), builder.WithPredicates(k8s.GenerationChanged())).
+		Watches(&catalogv1alpha1.QualityProfile{}, handler.EnqueueRequestsFromMapFunc(r.mapQualityProfile), builder.WithPredicates(k8s.GenerationChanged())).
 		WithOptions(controller.Options{RecoverPanic: ptr.To(true), ReconciliationTimeout: 5 * time.Minute}).
 		Complete(r)
 }
@@ -183,6 +196,68 @@ func (r *Reconciler) mapDownload(ctx context.Context, o client.Object) []reconci
 	return reqs
 }
 
+// mapComic wakes every Issue of an edited Comic. It filters a namespaced
+// List in Go rather than using the ".spec.comicRef" index: that index is
+// registered by the COMIC controller (comic/reconciler.go's
+// issueByComicRefIndexKey), and a second IndexField call for the same
+// (type, field) on one manager cache is a hard "indexer conflict" error at
+// startup -- the tradeoff episode.mapQualityProfile documents and makes for
+// the identical reason. Comic spec edits are a cold path.
+func (r *Reconciler) mapComic(ctx context.Context, o client.Object) []reconcile.Request {
+	c, ok := o.(*catalogv1alpha1.Comic)
+	if !ok {
+		return nil
+	}
+	return r.issuesOf(ctx, c.Namespace, map[string]bool{c.Name: true})
+}
+
+// mapQualityProfile is the reverse direction from an edited QualityProfile
+// to every Issue ranked against it, two hops away: IssueSpec carries no
+// QualityProfileRef, so this resolves profile -> Comics -> Issues.
+// QualityProfile is cluster-scoped while Comic is namespaced, so the Comic
+// List carries no client.InNamespace; both hops filter in Go (see mapComic
+// for why no index), which is fine for a profile edited by hand.
+func (r *Reconciler) mapQualityProfile(ctx context.Context, o client.Object) []reconcile.Request {
+	qp, ok := o.(*catalogv1alpha1.QualityProfile)
+	if !ok {
+		return nil
+	}
+	var comics catalogv1alpha1.ComicList
+	if err := r.List(ctx, &comics); err != nil {
+		return nil
+	}
+	byNamespace := map[string]map[string]bool{}
+	for _, c := range comics.Items {
+		if c.Spec.QualityProfileRef != qp.Name {
+			continue
+		}
+		if byNamespace[c.Namespace] == nil {
+			byNamespace[c.Namespace] = map[string]bool{}
+		}
+		byNamespace[c.Namespace][c.Name] = true
+	}
+	var reqs []reconcile.Request
+	for ns, names := range byNamespace {
+		reqs = append(reqs, r.issuesOf(ctx, ns, names)...)
+	}
+	return reqs
+}
+
+// issuesOf lists the Issues in ns whose spec.comicRef is one of comics.
+func (r *Reconciler) issuesOf(ctx context.Context, ns string, comics map[string]bool) []reconcile.Request {
+	var issues catalogv1alpha1.IssueList
+	if err := r.List(ctx, &issues, client.InNamespace(ns)); err != nil {
+		return nil
+	}
+	var reqs []reconcile.Request
+	for _, iss := range issues.Items {
+		if comics[iss.Spec.ComicRef] {
+			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: iss.Namespace, Name: iss.Name}})
+		}
+	}
+	return reqs
+}
+
 // Reconcile implements the §8.8 skeleton: get, split on deletion, ensure the
 // finalizer WITHOUT an early return, then reconcileNormal.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -234,14 +309,14 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, iss *catalogv1alpha1.I
 	}
 	mf := rollup.PickMediaFile(mfList.Items)
 
-	// profile is deliberately nil: IssueStatus has no CutoffMet or
-	// FileFormatScore field to hold a ranking decision in (this package's
-	// doc.go), so there is no QualityProfile to resolve. rollup.FileState
-	// still derives hasFile/fileRef/fileQuality correctly with a nil
-	// profile (its own doc comment); only its last two return values
-	// (fileFormatScore, cutoffMet), which this package has nowhere to put,
-	// are discarded.
-	hasFile, fileRef, fileQuality, _, _ := rollup.FileState(mf, nil)
+	profile, profileProblem, err := r.resolveProfile(ctx, iss)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	// fileFormatScore is discarded: IssueStatus has no leaf for it, and a
+	// comic profile scores no custom formats anyway (pkg/quality.FromCRD
+	// gives a non-video profile an empty Scores).
+	hasFile, fileRef, fileQuality, _, cutoffMet := rollup.FileState(mf, profile)
 
 	var dl *downloadv1alpha1.Download
 	if iss.Status.ActiveDownloadRef != nil {
@@ -268,6 +343,12 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, iss *catalogv1alpha1.I
 	} else {
 		k8s.MarkFalse(iss, &conditions, catalogv1alpha1.IssueConditionHasFile, k8s.ReasonPending, "no MediaFile backs this issue")
 	}
+	status, reason, message := CutoffCondition(hasFile, cutoffMet, profileProblem)
+	if status == metav1.ConditionTrue {
+		k8s.MarkTrue(iss, &conditions, catalogv1alpha1.IssueConditionCutoffMet, reason, "%s", message)
+	} else {
+		k8s.MarkFalse(iss, &conditions, catalogv1alpha1.IssueConditionCutoffMet, reason, "%s", message)
+	}
 
 	// Ready is unconditionally true on a successful pass: unlike Movie/
 	// Episode, IssueState has no phase value meaning "blocked, waiting on
@@ -281,6 +362,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, iss *catalogv1alpha1.I
 		WithObservedGeneration(iss.Generation).
 		WithState(state).
 		WithHasFile(hasFile).
+		WithCutoffMet(cutoffMet).
 		WithConditions(k8s.ConditionACs(conditions)...)
 	if fileRef != nil {
 		statusAC = statusAC.WithFileRef(*fileRef)
@@ -300,7 +382,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, iss *catalogv1alpha1.I
 	// Series->Episode").
 
 	// This reconciler owns exactly State/Conditions/HasFile/FileRef/
-	// FileQuality/ActiveDownloadRef/ObservedGeneration under
+	// FileQuality/CutoffMet/ActiveDownloadRef/ObservedGeneration under
 	// k8s.ManagerCatalogarr. The Comic reconciler writes this Issue's
 	// provider-sourced fields (SourceID/Title/Date) under the distinct
 	// k8s.ManagerCatalogarrFanout, so no pass-through of those fields is
@@ -313,4 +395,53 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, iss *catalogv1alpha1.I
 		return ctrl.Result{RequeueAfter: iss.Status.Date.Sub(now)}, nil
 	}
 	return ctrl.Result{}, nil
+}
+
+// CutoffCondition renders IssueConditionCutoffMet: True once the file backing
+// the issue meets its Comic's profile cutoff, otherwise False with the
+// reason it is not -- no file yet, a profile that could not be resolved
+// (problem, which also keeps cutoffMet false rather than guessing), or a
+// file below the cutoff, which leaves the issue an upgrade candidate.
+func CutoffCondition(hasFile, cutoffMet bool, problem string) (status metav1.ConditionStatus, reason, message string) {
+	switch {
+	case !hasFile:
+		return metav1.ConditionFalse, "NoFile", "no MediaFile backs this issue"
+	case problem != "":
+		return metav1.ConditionFalse, "ProfileUnresolved", "cutoff not evaluated: " + problem
+	case cutoffMet:
+		return metav1.ConditionTrue, "CutoffMet", "the file meets the quality profile's cutoff"
+	default:
+		return metav1.ConditionFalse, "BelowCutoff", "the file is below the quality profile's cutoff"
+	}
+}
+
+// resolveProfile fetches the QualityProfile iss is ranked against: its
+// Comic's spec.qualityProfileRef. Mirrors episode.Reconciler.resolveProfile's
+// degrade-rather-than-fail contract: only a non-NotFound API error is fatal;
+// a missing Comic, a missing profile or one that does not parse degrades to
+// (nil, problem, nil), so the rest of the status still lands and cutoffMet
+// reads false.
+func (r *Reconciler) resolveProfile(ctx context.Context, iss *catalogv1alpha1.Issue) (*quality.Profile, string, error) {
+	var c catalogv1alpha1.Comic
+	if err := r.Get(ctx, types.NamespacedName{Namespace: iss.Namespace, Name: iss.Spec.ComicRef}, &c); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, fmt.Sprintf("comic %q not found", iss.Spec.ComicRef), nil
+		}
+		return nil, "", err
+	}
+	if c.Spec.QualityProfileRef == "" {
+		return nil, fmt.Sprintf("comic %q names no qualityProfileRef", c.Name), nil
+	}
+	var qp catalogv1alpha1.QualityProfile
+	if err := r.Get(ctx, types.NamespacedName{Name: c.Spec.QualityProfileRef}, &qp); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, fmt.Sprintf("qualityProfile %q not found", c.Spec.QualityProfileRef), nil
+		}
+		return nil, "", err
+	}
+	p, errs := quality.FromCRD(&qp, catalogue.LoadedCatalogue())
+	if len(errs) > 0 {
+		return nil, fmt.Sprintf("qualityProfile %q does not parse: %s", qp.Name, errors.Join(errs...)), nil
+	}
+	return &p, "", nil
 }
