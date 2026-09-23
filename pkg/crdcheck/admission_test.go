@@ -44,6 +44,10 @@ var (
 	gvrIndexerProxies = schema.GroupVersionResource{Group: "index.clustarr.io", Version: "v1alpha1", Resource: "indexerproxies"}
 	gvrArtists        = schema.GroupVersionResource{Group: "catalog.clustarr.io", Version: "v1alpha1", Resource: "artists"}
 	gvrMediaFiles     = schema.GroupVersionResource{Group: "catalog.clustarr.io", Version: "v1alpha1", Resource: "mediafiles"}
+	gvrTranscodeProfs = schema.GroupVersionResource{Group: "transcode.clustarr.io", Version: "v1alpha1", Resource: "transcodeprofiles"}
+
+	// clusterScoped lists the kinds created without a namespace.
+	clusterScoped = map[schema.GroupVersionResource]bool{gvrTranscodeProfs: true}
 )
 
 // TestAdmission pins the API shape decisions of the gap-fix wave (X1) at the
@@ -74,13 +78,17 @@ func TestAdmission(t *testing.T) {
 	cases = append(cases, indexerProxyPortCases()...)
 	cases = append(cases, artistSecondaryTypeCases()...)
 	cases = append(cases, mediaRefTrackCases()...)
+	cases = append(cases, transcodeProfileCases()...)
 
 	ctx := context.Background()
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			obj := &unstructured.Unstructured{Object: c.obj}
-			_, err := dyn.Resource(c.gvr).Namespace("default").Create(ctx, obj,
-				metav1.CreateOptions{DryRun: []string{metav1.DryRunAll}})
+			var ri dynamic.ResourceInterface = dyn.Resource(c.gvr).Namespace("default")
+			if clusterScoped[c.gvr] {
+				ri = dyn.Resource(c.gvr)
+			}
+			_, err := ri.Create(ctx, obj, metav1.CreateOptions{DryRun: []string{metav1.DryRunAll}})
 			if c.wantErr == "" {
 				require.NoError(t, err)
 				return
@@ -170,6 +178,36 @@ func mediaRefTrackCases() []admissionCase {
 		{
 			"MediaFile with an over-long track id is refused", gvrMediaFiles,
 			mediaFile(map[string]any{"kind": "album", "name": "nevermind", "track": recording + "-x"}), "spec.mediaRef.track",
+		},
+	}
+}
+
+// transcodeProfile builds a cluster-scoped TranscodeProfile whose spec is the
+// given map; every other spec field is left to its CRD default.
+func transcodeProfile(spec map[string]any) map[string]any {
+	return map[string]any{
+		"apiVersion": "transcode.clustarr.io/v1alpha1",
+		"kind":       "TranscodeProfile",
+		"metadata":   map[string]any{"name": "tp"},
+		"spec":       spec,
+	}
+}
+
+// transcodeProfileCases pins the TranscodeProfile shape changes: a
+// per-profile concurrency cap (maxConcurrent, 0 = no cap).
+func transcodeProfileCases() []admissionCase {
+	return []admissionCase{
+		{
+			"TranscodeProfile with maxConcurrent 2 is admitted", gvrTranscodeProfs,
+			transcodeProfile(map[string]any{"maxConcurrent": int64(2)}), "",
+		},
+		{
+			"TranscodeProfile with maxConcurrent 0 (no cap) is admitted", gvrTranscodeProfs,
+			transcodeProfile(map[string]any{"maxConcurrent": int64(0)}), "",
+		},
+		{
+			"TranscodeProfile with a negative maxConcurrent is refused", gvrTranscodeProfs,
+			transcodeProfile(map[string]any{"maxConcurrent": int64(-1)}), "spec.maxConcurrent",
 		},
 	}
 }

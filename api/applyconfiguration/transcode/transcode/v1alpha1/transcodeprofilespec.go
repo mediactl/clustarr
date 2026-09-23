@@ -70,6 +70,11 @@ type TranscodeProfileSpecApplyConfiguration struct {
 	Scratch *resource.Quantity `json:"scratch,omitempty"`
 	// Priority orders jobs created from this profile; higher runs first.
 	Priority *int32 `json:"priority,omitempty"`
+	// MaxConcurrent caps how many TranscodeJobs created from this profile may
+	// run at once, across every hardware class -- the "per-profile counts"
+	// admission applies alongside the --slots budgets. Zero or absent means no
+	// per-profile cap: only the hardware slot budget applies.
+	MaxConcurrent *int32 `json:"maxConcurrent,omitempty"`
 	// ActiveDeadline is the batch Job activeDeadlineSeconds for the encode.
 	// A Go client always sends a Duration, so the controller floors a zero
 	// (or negative) one to the 48h default when it builds the Job, rather
@@ -197,6 +202,14 @@ func (b *TranscodeProfileSpecApplyConfiguration) WithScratch(value resource.Quan
 // If called multiple times, the Priority field is set to the value of the last call.
 func (b *TranscodeProfileSpecApplyConfiguration) WithPriority(value int32) *TranscodeProfileSpecApplyConfiguration {
 	b.Priority = &value
+	return b
+}
+
+// WithMaxConcurrent sets the MaxConcurrent field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the MaxConcurrent field is set to the value of the last call.
+func (b *TranscodeProfileSpecApplyConfiguration) WithMaxConcurrent(value int32) *TranscodeProfileSpecApplyConfiguration {
+	b.MaxConcurrent = &value
 	return b
 }
 

@@ -496,6 +496,14 @@ type TranscodeProfileSpec struct {
 	// +kubebuilder:default=50
 	Priority int32 `json:"priority,omitempty"`
 
+	// MaxConcurrent caps how many TranscodeJobs created from this profile may
+	// run at once, across every hardware class -- the "per-profile counts"
+	// admission applies alongside the --slots budgets. Zero or absent means no
+	// per-profile cap: only the hardware slot budget applies.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	MaxConcurrent int32 `json:"maxConcurrent,omitempty"`
+
 	// ActiveDeadline is the batch Job activeDeadlineSeconds for the encode.
 	// A Go client always sends a Duration, so the controller floors a zero
 	// (or negative) one to the 48h default when it builds the Job, rather

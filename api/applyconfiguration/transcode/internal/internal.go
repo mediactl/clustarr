@@ -622,6 +622,9 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.HDRSpec
       default: {}
+    - name: maxConcurrent
+      type:
+        scalar: numeric
     - name: policy
       type:
         namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.PolicySpec
