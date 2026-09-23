@@ -51,6 +51,16 @@ import (
 // develop).
 const albumYearTolerance = 5
 
+// albumEditionYearTolerance is how far an album release's year may sit from
+// one of the album's editions (Identity.EditionYears) and be that edition:
+// Lidarr's AlbumYearMatchingOptions.ExactMatchYearTolerance. Lidarr's
+// AlbumYearMatcher.Match(Album, int?) tries the album's own release date
+// first, then -- "Check album releases for remasters/editions with different
+// years" -- each release the album accepts (r.Monitored ||
+// album.AnyReleaseOk), taking any within this tolerance, and only then falls
+// back to the primary result's five-year hard reject.
+const albumEditionYearTolerance = 1
+
 // issueYearTolerance is how far a comic issue release's year may sit from
 // the issue's cover-date year. Mylar compares the release's year with the
 // issue's date year (search.py sets ComicYear from IssueDate), exactly by
@@ -63,7 +73,8 @@ const issueYearTolerance = 1
 // albumRejection is the album rule, Lidarr's: the release's artist is one of
 // the item's (ParsingService.GetArtist compares clean artist names), its
 // album title is one of the item's (GetAlbums / FindAlbumInSearchCriteria),
-// and its year is within albumYearTolerance of the album's.
+// and its year is within albumYearTolerance of the album's or
+// albumEditionYearTolerance of one of its editions' (albumYearRejection).
 func albumRejection(id Identity, idx identityIndex, p *release.ParsedRelease) *common.Rejection {
 	if p.Music == nil {
 		r := newRejection(ReasonUnknownItem, "release title %q names no artist and album", p.Title)
@@ -81,7 +92,42 @@ func albumRejection(id Identity, idx identityIndex, p *release.ParsedRelease) *c
 	); r != nil {
 		return r
 	}
-	return yearRejection(id.Year, p.Music.Year, albumYearTolerance)
+	return albumYearRejection(id, p.Music.Year)
+}
+
+// albumYearRejection is Lidarr's AlbumYearMatcher: a release year within
+// albumEditionYearTolerance of any of the album's edition years is that
+// edition; otherwise the album's own year bounds it by albumYearTolerance.
+// An unknown year on either side constrains nothing, as yearRejection says.
+func albumYearRejection(id Identity, releaseYear int) *common.Rejection {
+	if releaseYear >= minPlausibleYear {
+		for _, y := range id.EditionYears {
+			if y < minPlausibleYear {
+				continue
+			}
+			if d := y - releaseYear; d >= -albumEditionYearTolerance && d <= albumEditionYearTolerance {
+				return nil
+			}
+		}
+	}
+	r := yearRejection(id.Year, releaseYear, albumYearTolerance)
+	if r != nil {
+		if n := datedEditions(id.EditionYears); n > 0 {
+			r.Reason += fmt.Sprintf(", and is not within %d year of any of its %d dated edition(s)", albumEditionYearTolerance, n)
+		}
+	}
+	return r
+}
+
+// datedEditions counts the edition years a release could have matched.
+func datedEditions(years []int) int {
+	n := 0
+	for _, y := range years {
+		if y >= minPlausibleYear {
+			n++
+		}
+	}
+	return n
 }
 
 // bookRejection is the book and audiobook rule, Readarr's: the release's

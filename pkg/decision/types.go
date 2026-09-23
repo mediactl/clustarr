@@ -119,6 +119,14 @@ type Identity struct {
 	// release named by it is the same film however far it sits from Year
 	// (movieYearRejection). Unused for every other kind.
 	SecondaryYear int
+	// EditionYears is an album's per-edition release years: the UTC year of
+	// each MusicBrainz release in the album's release group that the album
+	// accepts (every release when anyReleaseOk, else only the pinned one),
+	// 0 or absent where MusicBrainz has no date. A release named within
+	// albumEditionYearTolerance of one of them is that edition -- a
+	// remaster dated decades after the original -- however far it sits
+	// from Year (albumYearRejection). Unused for every other kind.
+	EditionYears []int
 	// IDs are the item's external ids, keyed by commonv1.IDKeyTMDB /
 	// IDKeyIMDB / IDKeyTVDB exactly as ReleaseInfo.IDs is: tmdb (spec) and
 	// imdb (status.metadata.externalIDs) for a movie; the SERIES' tvdb id for

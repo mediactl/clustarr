@@ -57,11 +57,19 @@ func TestIdentityAlbum(t *testing.T) {
 	chk := decision.Identity{Titles: []string{"Wallop"}, Creators: []string{"!!!", "Chk Chk Chk"}, Year: 2019}
 	onlySymbols := decision.Identity{Titles: []string{"Wallop"}, Creators: []string{"!!!"}, Year: 2019}
 	noArtist := decision.Identity{Titles: []string{"Kind of Blue"}, Year: 1959}
+	// Kind of Blue's release group carries a 1997 Legacy remaster and an
+	// undated release; Lidarr's AlbumYearMatcher accepts a release within a
+	// year of any edition the album accepts.
+	withEditions := kindOfBlue
+	withEditions.EditionYears = []int{1959, 0, 1997}
 
 	runNonVideo(t, common.MediaKindAlbum, kindOfBlue, []nonVideoCase{
 		{name: "the album", title: "Miles Davis - Kind of Blue (1959) [FLAC]"},
 		{name: "a reissue within five years", title: "Miles Davis - Kind of Blue (1964) [FLAC]"},
 		{name: "a reissue beyond five years", title: "Miles Davis - Kind of Blue (1997) [FLAC]", want: "WrongItem", detail: "release year 1997 is more than 5 years from the item's 1959"},
+		{name: "a dated remaster edition", identity: &withEditions, title: "Miles Davis - Kind of Blue (1997) [FLAC]"},
+		{name: "a year either side of a dated edition", identity: &withEditions, title: "Miles Davis - Kind of Blue (1998) [FLAC]"},
+		{name: "near no edition and beyond five years", identity: &withEditions, title: "Miles Davis - Kind of Blue (2009) [FLAC]", want: "WrongItem", detail: "release year 2009 is more than 5 years from the item's 1959, and is not within 1 year of any of its 2 dated edition(s)"},
 		{name: "another album by the artist", title: "Miles Davis - Sketches of Spain (1960) [FLAC]", want: "WrongItem", detail: `release album title "Sketches of Spain" matches none of the item's 1 known titles (primary "Kind of Blue")`},
 		{name: "the same title by another artist", title: "John Coltrane - Kind of Blue (1959) [FLAC]", want: "WrongItem", detail: `release artist "John Coltrane" matches none of the item's 1 known artists (primary "Miles Davis")`},
 		{name: "a featured artist credit names the artist", title: "Miles Davis feat. John Coltrane - Kind of Blue (1959) [FLAC]"},
