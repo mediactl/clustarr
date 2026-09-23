@@ -195,6 +195,18 @@ func TestProjectReleaseIndexerFlagsStayInsideTheEnum(t *testing.T) {
 		{"dvf 0 is freeleech", torznab.Release{DownloadVolumeFactor: &zero}, []string{"freeleech"}},
 		{"dvf 0.5 is halfleech", torznab.Release{DownloadVolumeFactor: &half}, []string{"halfleech"}},
 		{"dvf 1 is neither", torznab.Release{DownloadVolumeFactor: ptr.To(1.0)}, nil},
+		// Sonarr's Freeleech25/Freeleech75 have no CRD member. They are
+		// dropped, not rounded onto halfleech, which they are not.
+		{"dvf 0.75 has no enum member", torznab.Release{DownloadVolumeFactor: ptr.To(0.75)}, nil},
+		{"dvf 0.25 has no enum member", torznab.Release{DownloadVolumeFactor: ptr.To(0.25)}, nil},
+		{"uvf 2 is doubleupload", torznab.Release{UploadVolumeFactor: ptr.To(2.0)}, []string{"doubleupload"}},
+		{"uvf 1 is nothing", torznab.Release{UploadVolumeFactor: ptr.To(1.0)}, nil},
+		{"freeleech and doubleupload together", torznab.Release{
+			DownloadVolumeFactor: &zero, UploadVolumeFactor: ptr.To(2.0),
+		}, []string{"freeleech", "doubleupload"}},
+		{"a factor flag and the same tag do not double up", torznab.Release{
+			DownloadVolumeFactor: &zero, Attrs: map[string][]string{"tag": {"freeleech"}},
+		}, []string{"freeleech"}},
 		{"tag attrs pass through when known", torznab.Release{
 			Attrs: map[string][]string{"tag": {"internal", "scene"}},
 		}, []string{"internal", "scene"}},

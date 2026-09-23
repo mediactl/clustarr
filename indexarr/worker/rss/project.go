@@ -226,15 +226,33 @@ var knownFlags = map[string]string{
 // indexerFlags maps the indexer's flags onto the CRD's closed enum. It is an
 // allow-list, never a passthrough: indexer-supplied strings are untrusted
 // input and this field's enum is enforced by the apiserver, far downstream.
+//
+// The volume factors follow Sonarr's TorznabRssParser.GetFlags exactly
+// (src/NzbDrone.Core/Indexers/Torznab/TorznabRssParser.cs, develop): an
+// absent factor reads as 1, downloadvolumefactor 0 is Freeleech and 0.5 is
+// Halfleech, and uploadvolumefactor 2 is DoubleUpload. These are what TRaSH's
+// IndexerFlag custom formats (freeleech.json, value 1 = Freeleech) and
+// pkg/decision's flag tiebreak read. Sonarr's two other factor flags,
+// Freeleech25 (0.75) and Freeleech75 (0.25), have no member in the CRD's enum
+// and are dropped rather than rounded onto halfleech, which they are not:
+// halfleech ranks above a plain release in pkg/decision.Rank.
 func indexerFlags(r torznab.Release) []string {
 	var out []string
-	if f := r.DownloadVolumeFactor; f != nil {
-		switch {
-		case *f == 0:
-			out = append(out, commonv1.IndexerFlagFreeleech)
-		case *f > 0 && *f < 1:
-			out = append(out, commonv1.IndexerFlagHalfleech)
+	add := func(f string) {
+		if !slices.Contains(out, f) {
+			out = append(out, f)
 		}
+	}
+	if f := r.DownloadVolumeFactor; f != nil {
+		switch *f {
+		case 0:
+			add(commonv1.IndexerFlagFreeleech)
+		case 0.5:
+			add(commonv1.IndexerFlagHalfleech)
+		}
+	}
+	if f := r.UploadVolumeFactor; f != nil && *f == 2 {
+		add(commonv1.IndexerFlagDoubleUpload)
 	}
 	for _, tag := range r.Attrs["tag"] {
 		if v, ok := knownFlags[strings.ToLower(strings.TrimSpace(tag))]; ok && !slices.Contains(out, v) {
