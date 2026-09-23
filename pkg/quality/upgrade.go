@@ -83,11 +83,15 @@ func (p Profile) UpgradeDecision(current, candidate Candidate) Verdict {
 	// versa" (docs/research/quality.md §6.1's IsRevisionUpgrade note) -- so
 	// this is gated on quality identity, not merely on qualityCompare == 0
 	// (which only proves the two tie in tier, e.g. WEBRip-1080p and
-	// WEBDL-1080p in one "WEB 1080p" tier).
+	// WEBDL-1080p in one "WEB 1080p" tier). A non-video quality has no
+	// triple -- Source, Resolution and Modifier are all zero -- so its
+	// identity is its name: ALAC and FLAC tie in one tier, and a PROPER ALAC
+	// is not a revision upgrade over a FLAC.
 	sameDef := qualityCompare == 0 &&
 		current.Quality.Source == candidate.Quality.Source &&
 		current.Quality.Resolution == candidate.Quality.Resolution &&
-		current.Quality.Modifier == candidate.Quality.Modifier
+		current.Quality.Modifier == candidate.Quality.Modifier &&
+		(!isNonVideo(current.Quality) || current.Quality.Name == candidate.Quality.Name)
 	preferPropers := p.ProperPolicy != "doNotPrefer"
 	revCompare := compareRevision(candidate.Revision, current.Revision)
 

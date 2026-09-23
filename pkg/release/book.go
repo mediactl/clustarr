@@ -59,7 +59,8 @@ func canonicalBookFormat(raw string) string {
 // shapes applies is determined entirely by which regex the title's own text
 // matches (the "{Narrator} [ASIN ...]" shape vs. the plain
 // "(Year|Unabridged) [Format]" shape) — matching parseMusic and parseComic,
-// neither of which takes a kind parameter either.
+// neither of which takes a kind parameter either. The one kind-dependent
+// fact, which unknown quality an unrecognised format gets, is Parse's.
 func parseBook(title string) (*ParsedRelease, error) {
 	if m, err := audiobookNarratorRegex.FindStringMatch(title); err != nil {
 		return nil, fmt.Errorf("release: book: narrator match: %w", err)
@@ -76,8 +77,11 @@ func parseBook(title string) (*ParsedRelease, error) {
 			Narrator: strings.TrimSpace(m.GroupByName("narrator").String()),
 			ASIN:     m.GroupByName("asin").String(),
 		}
+		q, _ := bookQuality(title)
 		return &ParsedRelease{
 			Title:       info.Title,
+			Quality:     q,
+			Revision:    revisionOrDefault(title),
 			Book:        info,
 			ReleaseType: commonv1.ReleaseTypeBook,
 		}, nil
@@ -107,9 +111,12 @@ func parseBook(title string) (*ParsedRelease, error) {
 		info.Format = canonicalBookFormat(fmtTokens[0])
 	}
 
+	q, _ := bookQuality(title)
 	return &ParsedRelease{
 		Title:       info.Title,
 		Year:        info.Year,
+		Quality:     q,
+		Revision:    revisionOrDefault(title),
 		Book:        info,
 		ReleaseType: commonv1.ReleaseTypeBook,
 	}, nil

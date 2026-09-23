@@ -63,6 +63,11 @@ func splitComicExtension(title string) (base, format string) {
 // parseComic parses a comic or manga release title.
 func parseComic(title string) (*ParsedRelease, error) {
 	base, format := splitComicExtension(title)
+	quality := comicQuality(format, base)
+	if format == "" && quality.Name != "Unknown" {
+		format = quality.Name
+	}
+	rev := revisionOrDefault(base)
 
 	if m, err := mangaVolChapterRegex.FindStringMatch(base); err != nil {
 		return nil, fmt.Errorf("release: comic: manga match: %w", err)
@@ -87,6 +92,8 @@ func parseComic(title string) (*ParsedRelease, error) {
 		return &ParsedRelease{
 			Title:       series,
 			Year:        year,
+			Quality:     quality,
+			Revision:    rev,
 			Comic:       info,
 			ReleaseType: commonv1.ReleaseTypeIssue,
 		}, nil
@@ -114,6 +121,8 @@ func parseComic(title string) (*ParsedRelease, error) {
 	return &ParsedRelease{
 		Title:       series,
 		Year:        year,
+		Quality:     quality,
+		Revision:    rev,
 		Comic:       info,
 		ReleaseType: commonv1.ReleaseTypeIssue,
 	}, nil

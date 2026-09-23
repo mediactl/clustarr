@@ -41,10 +41,14 @@ var comicExtOrMangaTokenRegex = mustCompile(`\.(?:cbz|cbr)$|\bv\d{1,4}c\d{1,4}\b
 // braced token classified "Some Show S01E01 {tvdbid-121361}" as an audiobook,
 // whose parser then refused it, so the release shipped with no parsed fields
 // at all. A narrator is a person's name, so the brace must hold no digit (every
-// id token carries one) and must not open with a known "key-" or "key=" tag.
+// id token carries one), must not open with a known "key-" or "key=" tag, and
+// must not be a bare format token -- Lidarr's own test corpus has music
+// releases tagged "{FLAC}".
 var audiobookMarkerRegex = mustCompile(
 	`\[ASIN\s[A-Z0-9]{10}\]|\(Unabridged\)|`+
-		`\{(?!\s*(?:tmdb|imdb|tvdb|tvmaze|anidb|anilist|mal|edition)(?:id)?\s*[-=])[^{}\d]+\}`,
+		`\{(?!\s*(?:tmdb|imdb|tvdb|tvmaze|anidb|anilist|mal|edition)(?:id)?\s*[-=])`+
+		`(?!\s*(?:flac|alac|ape|wavpack|wav|mp3|aac|m4a|m4b|ogg|opus|wma|epub|mobi|azw3?|pdf|cbz|cbr|web|cd|vinyl)\s*\})`+
+		`[^{}\d]+\}`,
 	regexp2.IgnoreCase,
 )
 

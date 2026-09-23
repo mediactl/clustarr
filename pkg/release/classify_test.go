@@ -48,6 +48,7 @@ func TestClassifyKind(t *testing.T) {
 		{"unstripped id brace on a movie", "The Matrix (1999) {tmdb-603} [Bluray-1080p]", commonv1.MediaKindMovie},
 		{"unstripped id brace on an episode", "Some Show S01E01 {tvdbid-121361}", commonv1.MediaKindEpisode},
 		{"unknown id key brace", "Some Show S01E01 {tvmaze-12345}", commonv1.MediaKindEpisode},
+		{"braced format token is not a narrator", "The Rolling Stones - The Very Best Of (1995) {FLAC}", commonv1.MediaKindMovie},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

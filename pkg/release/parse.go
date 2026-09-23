@@ -61,6 +61,9 @@ func Parse(title string, o Options) (*ParsedRelease, error) {
 		p, err = parseMusic(stripped)
 	case commonv1.MediaKindBook, commonv1.MediaKindAudiobook, commonv1.MediaKindAuthor:
 		p, err = parseBook(stripped)
+		if err == nil && p.Quality.Name == "" {
+			p.Quality = unknownBookQuality(kind)
+		}
 	case commonv1.MediaKindComic, commonv1.MediaKindIssue:
 		p, err = parseComic(stripped)
 	default:

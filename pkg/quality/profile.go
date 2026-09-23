@@ -66,7 +66,24 @@ type Profile struct {
 	// This package does not evaluate it; a later phase's release ranking
 	// does.
 	PreferredProtocol string
-	Hash              string
+	// MediaKind is QualityProfileSpec.MediaKind ("video", "music", "book",
+	// "audiobook" or "comic"). Empty reads as video, so a Profile built by
+	// hand keeps the behaviour it always had. Custom formats are TRaSH's
+	// Radarr/Sonarr data: only a video profile scores them (see FromCRD and
+	// Score).
+	MediaKind string
+	Hash      string
+}
+
+// scoresFormats reports whether p is a profile custom formats apply to.
+func (p Profile) scoresFormats() bool {
+	return isVideoKind(p.MediaKind)
+}
+
+// isVideoKind reports whether a profile media kind is video; empty reads as
+// video, as it always has.
+func isVideoKind(kind string) bool {
+	return kind == "" || kind == string(catalogv1alpha1.ProfileMediaKindVideo)
 }
 
 // Score is catalogue.Catalogue.Score against p's resolved Scores map -- see
@@ -74,7 +91,16 @@ type Profile struct {
 // (`Catalogue.Score(p *Profile, ...)`); the free function on Catalogue
 // itself cannot take *Profile without an import cycle (quality imports
 // catalogue), so it takes the score map and this wrapper adapts.
+//
+// A non-video profile scores nothing and matches nothing: every catalogue
+// format is TRaSH video data (release-group tiers, HDR, streaming services,
+// language-not-original, ...), and Catalogue.Match evaluates every format
+// regardless of the score map, so without this a music release would still
+// report -- and a MediaFile freeze -- video formats it "matched".
 func (p Profile) Score(ctx context.Context, cat *catalogue.Catalogue, r *release.ParsedRelease, ic catalogue.ItemContext) (score int, matched []string) {
+	if !p.scoresFormats() {
+		return 0, nil
+	}
 	return cat.Score(ctx, p.Scores, r, ic)
 }
 
@@ -86,7 +112,7 @@ func (p Profile) Score(ctx context.Context, cat *catalogue.Catalogue, r *release
 func (p Profile) Index(q common.Quality) (idx int, ok bool) {
 	for i, tier := range p.Tiers {
 		for _, d := range tier {
-			if sameQuality(d.Quality, q) {
+			if d.holds(q) {
 				return i, true
 			}
 		}
@@ -94,17 +120,23 @@ func (p Profile) Index(q common.Quality) (idx int, ok bool) {
 	return 0, false
 }
 
-// sameQuality compares two Quality values the way a Profile's tiers do: by
-// name for a non-video quality (Source/Resolution/Modifier are always zero
-// for music/book/audiobook/comic), by (Source, Resolution, Modifier) for
-// video (Name is display metadata there, not identity -- two Definitions in
-// one default-tie Group like "WEB 1080p" have different Names but the same
-// triple).
-func sameQuality(a, b common.Quality) bool {
-	if a.Source == "" && b.Source == "" && a.Resolution == 0 && b.Resolution == 0 {
-		return a.Name != "" && a.Name == b.Name
+// holds compares q with d the way a Profile's tiers do: by name for a
+// non-video quality (Source/Resolution/Modifier are always zero for
+// music/book/audiobook/comic), where a release's upstream name -- Lidarr's
+// "ALAC", say -- is held by the Definition that lists it as an alias; by
+// (Source, Resolution, Modifier) for video (Name is display metadata there,
+// not identity -- two Definitions in one default-tie Group like "WEB 1080p"
+// have different Names but the same triple).
+func (d Definition) holds(q common.Quality) bool {
+	if isNonVideo(d.Quality) && isNonVideo(q) {
+		return d.named(q.Name) || (q.Name != "" && d.Quality.Name == q.Name)
 	}
-	return a.Source == b.Source && a.Resolution == b.Resolution && a.Modifier == b.Modifier
+	return d.Quality.Source == q.Source && d.Quality.Resolution == q.Resolution && d.Quality.Modifier == q.Modifier
+}
+
+// isNonVideo reports whether q is a name-only (non-video) quality.
+func isNonVideo(q common.Quality) bool {
+	return q.Source == "" && q.Resolution == 0
 }
 
 // Allowed reports whether q appears in any tier of p.
@@ -129,6 +161,15 @@ func (p Profile) CutoffMet(q common.Quality) bool {
 // FormatScores referencing an unknown slug) is collected into the returned
 // slice rather than failing fast, so a caller can report every issue at once
 // via the Invalid condition (spec §4.2).
+//
+// Only a video profile gets custom formats. The catalogue is TRaSH's
+// Radarr/Sonarr corpus, so scoring it against a music, book, audiobook or
+// comic profile applied video release-group, HDR and language formats to
+// releases they were never written for. A non-video profile's Scores is
+// empty, and a spec that asks for formats anyway -- formatScores,
+// enabledFormatGroups, or a minFormatScore above zero, which no release of
+// that kind could ever reach -- is reported, as an unknown slug is, rather
+// than silently doing nothing.
 func FromCRD(p *catalogv1alpha1.QualityProfile, cat *catalogue.Catalogue) (Profile, []error) {
 	var errs []error
 	kind := string(p.Spec.MediaKind)
@@ -169,8 +210,14 @@ func FromCRD(p *catalogv1alpha1.QualityProfile, cat *catalogue.Catalogue) (Profi
 	for _, fs := range p.Spec.FormatScores {
 		overrides[fs.Format] = fs.Score
 	}
-	scores := make(map[string]int, len(cat.Formats))
-	for slug, f := range cat.Formats {
+	formats := cat.Formats
+	if !isVideoKind(kind) {
+		formats = nil
+		overrides = map[string]int32{}
+		errs = append(errs, nonVideoFormatErrors(p)...)
+	}
+	scores := make(map[string]int, len(formats))
+	for slug, f := range formats {
 		if f.Group != "" && !enabled[f.Group] {
 			continue
 		}
@@ -224,9 +271,30 @@ func FromCRD(p *catalogv1alpha1.QualityProfile, cat *catalogue.Catalogue) (Profi
 		Scores:                scores, Language: p.Spec.Language, LanguageName: langName,
 		ProperPolicy: string(p.Spec.ProperPolicy),
 		Sizes:        sizes, PreferredProtocol: string(p.Spec.PreferredProtocol),
+		MediaKind: kind,
 	}
 	prof.Hash = hashProfile(prof)
 	return prof, errs
+}
+
+// nonVideoFormatErrors reports every custom-format setting on a non-video
+// profile: each one is ignored, and a setting that silently does nothing is
+// the same class of mistake as an unknown slug.
+func nonVideoFormatErrors(p *catalogv1alpha1.QualityProfile) []error {
+	var errs []error
+	kind := p.Spec.MediaKind
+	for _, fs := range p.Spec.FormatScores {
+		errs = append(errs, fmt.Errorf("formatScores: custom formats apply to video profiles only; a %s profile cannot score %q", kind, fs.Format))
+	}
+	if len(p.Spec.EnabledFormatGroups) > 0 {
+		errs = append(errs, fmt.Errorf("enabledFormatGroups: custom formats apply to video profiles only; a %s profile has none to enable (%s)",
+			kind, strings.Join(p.Spec.EnabledFormatGroups, ", ")))
+	}
+	if p.Spec.MinFormatScore > 0 {
+		errs = append(errs, fmt.Errorf("minFormatScore %d can never be met: a %s profile scores no custom formats, so every release scores 0",
+			p.Spec.MinFormatScore, kind))
+	}
+	return errs
 }
 
 // normaliseLanguage resolves QualityProfileSpec.Language ("original",

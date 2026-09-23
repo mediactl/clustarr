@@ -90,6 +90,8 @@ func parseMusic(title string) (*ParsedRelease, error) {
 	return &ParsedRelease{
 		Title:       artist + " - " + album,
 		Year:        year,
+		Quality:     musicQuality(title),
+		Revision:    revisionOrDefault(title),
 		Music:       info,
 		ReleaseType: commonv1.ReleaseTypeAlbum,
 	}, nil

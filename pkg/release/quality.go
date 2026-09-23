@@ -395,3 +395,13 @@ func parseQualityTags(title string) (commonv1.Quality, commonv1.Revision, string
 	}
 	return q, rev, "", ""
 }
+
+// revisionOrDefault is detectRevision for the non-video parsers, degrading a
+// regexp2 MatchTimeout to Version 1 exactly as parseQualityTags does.
+func revisionOrDefault(title string) commonv1.Revision {
+	rev, err := detectRevision(title)
+	if err != nil {
+		return commonv1.Revision{Version: 1}
+	}
+	return rev
+}

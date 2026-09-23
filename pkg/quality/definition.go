@@ -78,20 +78,49 @@ var videoDefinitions = []Definition{
 	{Name: "Raw-HD", Weight: 26, Quality: common.Quality{Name: "Raw-HD", Source: common.SourceTV, Resolution: common.Resolution1080p, Modifier: common.ModifierRawHD}},
 }
 
-// nonVideoDefinitions holds the non-video quality ladders. music collapses
-// Lidarr's 38 fine-grained bitrate values (never enumerated in spec or
-// docs/research/quality.md) into the 8 tier names spec §9 gives; a later
-// task that needs per-bitrate resolution should extend this table, not
-// replace it.
+// nonVideoDefinitions holds the non-video quality ladders. A non-video
+// Quality is identified by Name alone, and a release's Quality.Name is the
+// upstream app's own quality name -- Lidarr's for music, Readarr's for books
+// and audiobooks, the file format for comics (pkg/release) -- so a Definition
+// lists every upstream name it stands for in Aliases, and Profile.Index
+// places a release by Name or alias.
+//
+// music collapses Lidarr's 38 qualities into the 8 tier names this ladder
+// has always had. Lidarr's groups (Qualities/Quality.cs,
+// DefaultQualityDefinitions, develop, fetched 2026-09-23) map onto five of
+// them without ambiguity, and those carry Lidarr's member names:
+//
+//	Trash          <- Trash Quality Lossy (MP3-8 .. MP3-80)
+//	Poor           <- Poor Quality Lossy (MP3-96, MP3-112, MP3-128, MP3-160, OGG Vorbis Q5)
+//	FLAC           <- Lossless (FLAC, ALAC, APE, WavPack)
+//	24bit Lossless <- FLAC 24bit, ALAC 24bit (Lidarr weights them above the rest of Lossless)
+//	WAV            <- WAV
+//
+// The lossy middle does not map, and is deliberately left without aliases
+// rather than guessed: this ladder ranks "MP3-192" ABOVE "Mid", where Lidarr
+// puts MP3-192 in "Low Quality Lossy", below Mid (MP3-256) and High (MP3-320,
+// V0). No assignment of Lidarr's Low, Mid and High groups to "Low", "Mid"
+// and "MP3-192" is both monotone and true to the names, so a release of
+// MP3-256, MP3-320, V0, V2, AAC or Vorbis is on no tier of this ladder yet;
+// MP3-192 itself matches the "MP3-192" tier by name. Fixing it means spec
+// §9's own tiers -- Trash/Poor/Low/Mid/High lossy, Lossless, 24-bit, WAV --
+// and rewriting the two built-in music profiles' tiers
+// (pkg/quality/catalogue/data/profiles/music-*.json) in the same change,
+// since they list "MP3-192" above "Mid" and TestEveryBuiltinProfileListsTiersBestFirst
+// holds them to this ladder's weights.
 var nonVideoDefinitions = map[string][]Definition{
 	"music": {
-		{Name: "Trash", Weight: 1, Quality: common.Quality{Name: "Trash"}},
-		{Name: "Poor", Weight: 2, Quality: common.Quality{Name: "Poor"}},
+		{Name: "Trash", Weight: 1, Quality: common.Quality{Name: "Trash"}, Aliases: []string{
+			"MP3-8", "MP3-16", "MP3-24", "MP3-32", "MP3-40", "MP3-48", "MP3-56", "MP3-64", "MP3-80",
+		}},
+		{Name: "Poor", Weight: 2, Quality: common.Quality{Name: "Poor"}, Aliases: []string{
+			"MP3-96", "MP3-112", "MP3-128", "MP3-160", "OGG Vorbis Q5",
+		}},
 		{Name: "Low", Weight: 3, Quality: common.Quality{Name: "Low"}},
 		{Name: "Mid", Weight: 4, Quality: common.Quality{Name: "Mid"}},
 		{Name: "MP3-192", Weight: 5, Quality: common.Quality{Name: "MP3-192"}}, // spec §9 names this exact cutoff for music-standard
-		{Name: "FLAC", Weight: 6, Quality: common.Quality{Name: "FLAC"}},
-		{Name: "24bit Lossless", Weight: 7, Quality: common.Quality{Name: "24bit Lossless"}},
+		{Name: "FLAC", Weight: 6, Quality: common.Quality{Name: "FLAC"}, Aliases: []string{"ALAC", "APE", "WavPack"}},
+		{Name: "24bit Lossless", Weight: 7, Quality: common.Quality{Name: "24bit Lossless"}, Aliases: []string{"FLAC 24bit", "ALAC 24bit"}},
 		{Name: "WAV", Weight: 8, Quality: common.Quality{Name: "WAV"}},
 	},
 	"book": {
@@ -116,26 +145,37 @@ var nonVideoDefinitions = map[string][]Definition{
 // Lookup finds a Definition by media kind ("video", "music", "book",
 // "audiobook" or "comic" -- the same strings as
 // catalogv1alpha1.ProfileMediaKind's enum values) and a canonical or alias
-// name. Video lookups accept both Radarr's and Sonarr's names.
+// name. Video lookups accept both Radarr's and Sonarr's names; music lookups
+// accept Lidarr's quality names where the ladder maps them (see
+// nonVideoDefinitions).
 func Lookup(kind, name string) (Definition, bool) {
+	var defs []Definition
 	switch kind {
 	case "video":
-		for _, d := range videoDefinitions {
-			if d.Name == name {
-				return d, true
-			}
-			for _, a := range d.Aliases {
-				if a == name {
-					return d, true
-				}
-			}
-		}
+		defs = videoDefinitions
 	case "music", "book", "audiobook", "comic":
-		for _, d := range nonVideoDefinitions[kind] {
-			if d.Name == name {
-				return d, true
-			}
+		defs = nonVideoDefinitions[kind]
+	}
+	for _, d := range defs {
+		if d.named(name) {
+			return d, true
 		}
 	}
 	return Definition{}, false
+}
+
+// named reports whether name is d's canonical name or one of its aliases.
+func (d Definition) named(name string) bool {
+	if name == "" {
+		return false
+	}
+	if d.Name == name {
+		return true
+	}
+	for _, a := range d.Aliases {
+		if a == name {
+			return true
+		}
+	}
+	return false
 }
