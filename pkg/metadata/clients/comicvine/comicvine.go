@@ -30,10 +30,13 @@ package comicvine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -44,6 +47,58 @@ import (
 )
 
 const defaultBaseURL = "https://comicvine.gamespot.com/api"
+
+// resourceTypeVolume is ComicVine's numeric resource-type prefix for a
+// volume guid (docs/research/metadata.md §2.5: "volume/4050-{id}" vs
+// "issue/4000-{id}"). It is a distinct constant, not a magic string, because
+// normalizeVolumeID compares against it to reject an issue guid ("4000-...")
+// sent where a volume id belongs, rather than silently mis-querying.
+const resourceTypeVolume = "4050"
+
+// ErrInvalidVolumeID means a value that was supposed to be a ComicVine
+// volume id was neither a bare numeric id ("18257") nor a
+// "<resource-type>-<numeric>" guid ("4050-18257"), or named a resource type
+// other than a volume -- most commonly an issue guid ("4000-...") sent
+// where a volume id belongs. It is a sentinel distinct from
+// metadata.ErrNotFound: this is rejected before any request is sent, not
+// after ComicVine answers.
+var ErrInvalidVolumeID = errors.New("comicvine: invalid volume id")
+
+var numericIDPattern = regexp.MustCompile(`^[0-9]+$`)
+
+// normalizeVolumeID accepts either shape a ComicVine volume id can arrive
+// in and returns both forms ComicVine's own endpoints need:
+//
+//   - guid: the full "4050-<num>" resource id GET /volume/{guid} requires
+//     (ComicVine's own volume page URL, e.g.
+//     https://comicvine.gamespot.com/batman/4050-18257/, and
+//     pkg/metadata.Validate's comicVinePattern, already encode this
+//     prefixed form as the crosswalk's canonical shape -- it is what a user
+//     copies and what Comic.spec.sourceID is expected to hold).
+//   - num: the bare numeric id ("18257") GET /issues/?filter=volume:{num}
+//     requires -- ComicVine's filter syntax rejects the prefixed guid there
+//     (confirmed against the ComicVine API forums: filtering issues by
+//     volume uses the plain numeric id, never "4050-<num>").
+//
+// Both a bare numeric id and the full guid are accepted as input so a
+// caller that already normalized (or one still passing the bare id some
+// call sites used before this existed) both work; anything else --
+// including a well-formed guid for a different resource type, most
+// commonly an issue guid -- is rejected via ErrInvalidVolumeID rather than
+// sent to ComicVine and left to fail there.
+func normalizeVolumeID(id string) (guid string, num string, err error) {
+	prefix, rest, hasPrefix := strings.Cut(id, "-")
+	if !hasPrefix {
+		if id == "" || !numericIDPattern.MatchString(id) {
+			return "", "", fmt.Errorf("%w: %q", ErrInvalidVolumeID, id)
+		}
+		return resourceTypeVolume + "-" + id, id, nil
+	}
+	if prefix != resourceTypeVolume || rest == "" || !numericIDPattern.MatchString(rest) {
+		return "", "", fmt.Errorf("%w: %q", ErrInvalidVolumeID, id)
+	}
+	return id, rest, nil
+}
 
 // userAgent is sent on every request: ComicVine is reported (community,
 // unverified) to block the Go standard library's default
@@ -140,7 +195,12 @@ type volumeResponse struct {
 }
 
 // Volume fetches a single comic volume by its ComicVine id
-// (ids[metadata.KeyComicVine], already Validate-checked to be "NNNN-NNNNN").
+// (ids[metadata.KeyComicVine], normalized by normalizeVolumeID -- see its
+// doc comment for the accepted shapes and why. The GET /volume/{guid}
+// endpoint always receives the full "4050-<num>" guid regardless of which
+// form arrived, and the returned ComicVolume.IDs carries that same
+// canonical guid back, so a caller that started from a bare numeric id
+// still ends up with the canonical form once metadata has been fetched).
 //
 // TODO(scope: ComicVine body-level status_code): map ComicVine's own
 // status_code field (distinct from the HTTP status) once that table is
@@ -156,17 +216,23 @@ func (c *Client) Volume(ctx context.Context, ids metadata.ExternalIDs) (*metadat
 		tracing.RecordError(span, err)
 		return nil, err
 	}
+	guid, _, err := normalizeVolumeID(id)
+	if err != nil {
+		tracing.RecordError(span, err)
+		logger.ErrorContext(ctx, "comicvine: invalid volume id", "id", id, "error", err)
+		return nil, err
+	}
 
 	var raw volumeResponse
-	path := fmt.Sprintf("/volume/%s?api_key=%s&format=json&field_list=id,name,start_year,publisher,count_of_issues,description,site_detail_url", id, c.apiKey)
+	path := fmt.Sprintf("/volume/%s?api_key=%s&format=json&field_list=id,name,start_year,publisher,count_of_issues,description,site_detail_url", guid, c.apiKey)
 	if err := c.doGet(ctx, path, &raw); err != nil {
 		tracing.RecordError(span, err)
-		logger.ErrorContext(ctx, "comicvine: volume fetch failed", "id", id, "error", err)
+		logger.ErrorContext(ctx, "comicvine: volume fetch failed", "id", guid, "error", err)
 		return nil, err
 	}
 
 	v := &metadata.ComicVolume{
-		IDs:         metadata.ExternalIDs{metadata.KeyComicVine: id},
+		IDs:         metadata.ExternalIDs{metadata.KeyComicVine: guid},
 		Title:       raw.Results.Name,
 		Description: raw.Results.Description,
 		Publisher:   raw.Results.Publisher.Name,
@@ -177,7 +243,7 @@ func (c *Client) Volume(ctx context.Context, ids metadata.ExternalIDs) (*metadat
 		v.StartYear = &y
 	}
 
-	logger.DebugContext(ctx, "comicvine: volume fetched", "id", id, "title", v.Title)
+	logger.DebugContext(ctx, "comicvine: volume fetched", "id", guid, "title", v.Title)
 	return v, nil
 }
 
@@ -195,17 +261,32 @@ type issuesResponse struct {
 	} `json:"results"`
 }
 
-// Issues fetches the issues belonging to volumeID.
+// Issues fetches the issues belonging to volumeID. volumeID is normalized
+// by normalizeVolumeID the same way Volume's id is -- accepting either the
+// full "4050-<num>" guid or a bare numeric id -- but the GET
+// /issues/?filter=volume:{num} request always uses the bare numeric form,
+// since ComicVine's filter syntax rejects the prefixed guid there (unlike
+// the /volume/{guid} path Volume calls). This is what makes Comic->Issue
+// work when Comic.spec.sourceID (the canonical, prefixed form) is passed
+// unchanged to both Volume and Issues: each endpoint gets the shape it
+// actually needs regardless of which form arrived.
 func (c *Client) Issues(ctx context.Context, volumeID string) ([]metadata.ComicIssue, error) {
 	ctx, span := tracing.Start(ctx, "metadata.comicvine.Issues")
 	defer span.End()
 	logger := logging.FromContext(ctx)
 
+	_, num, err := normalizeVolumeID(volumeID)
+	if err != nil {
+		tracing.RecordError(span, err)
+		logger.ErrorContext(ctx, "comicvine: invalid volume id", "volume_id", volumeID, "error", err)
+		return nil, err
+	}
+
 	var raw issuesResponse
-	path := fmt.Sprintf("/issues/?api_key=%s&format=json&filter=volume:%s&field_list=id,issue_number,name,cover_date,store_date,image", c.apiKey, volumeID)
+	path := fmt.Sprintf("/issues/?api_key=%s&format=json&filter=volume:%s&field_list=id,issue_number,name,cover_date,store_date,image", c.apiKey, num)
 	if err := c.doGet(ctx, path, &raw); err != nil {
 		tracing.RecordError(span, err)
-		logger.ErrorContext(ctx, "comicvine: issues fetch failed", "volume_id", volumeID, "error", err)
+		logger.ErrorContext(ctx, "comicvine: issues fetch failed", "volume_id", num, "error", err)
 		return nil, err
 	}
 
