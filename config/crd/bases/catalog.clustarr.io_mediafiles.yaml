@@ -365,8 +365,12 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               mediaInfo:
-                description: MediaInfo is the technical description produced by the
-                  probe.
+                description: |-
+                  MediaInfo is the technical description produced by the probe. Its
+                  transcodeProfile is the file's CLUSTARR_PROFILE tag: with it, or with
+                  spec.original false, the file is transcoded and final
+                  (catalogarr/controller/rollup.Transcoded) -- the tag is what recognises
+                  a file an earlier install transcoded, found by a rescan.
                 properties:
                   attachments:
                     description: Attachments is the number of attachment streams (fonts,
@@ -519,6 +523,19 @@ spec:
                       type: object
                     maxItems: 64
                     type: array
+                  transcodeProfile:
+                    description: |-
+                      TranscodeProfile is the file's CLUSTARR_PROFILE container tag,
+                      "<profile>@<hash>", which squasharr stamps into every file it writes
+                      (pkg/transcode.Args). Empty when the file carries no such tag. Read
+                      case-insensitively, because a container may change a tag key's case.
+                      A file that carries it was transcoded -- by this install or an earlier
+                      one -- and a transcoded file is final: its item reads Transcoded and is
+                      never upgraded automatically (catalogarr/controller/rollup.Transcoded).
+                      The bound is a TranscodeProfile name (253) plus "@" and a SHA-256 hex
+                      hash (64); pkg/mediainfo drops a longer value, which no squasharr wrote.
+                    maxLength: 320
+                    type: string
                   videoBitDepth:
                     description: VideoBitDepth is the video bit depth (8, 10, 12).
                     format: int32

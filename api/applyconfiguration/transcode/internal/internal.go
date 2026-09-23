@@ -120,6 +120,9 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: com.github.mediactl.clustarr.api.common.v1alpha1.SubtitleStream
           elementRelationship: atomic
+    - name: transcodeProfile
+      type:
+        scalar: string
     - name: videoBitDepth
       type:
         scalar: numeric

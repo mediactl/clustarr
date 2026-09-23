@@ -18,6 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package mediainfo
 
 import (
+	"strings"
+
 	ffprobe "gopkg.in/vansante/go-ffprobe.v2"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -82,7 +84,64 @@ func toMediaInfo(raw *Raw) *commonv1.MediaInfo {
 		}
 	}
 	mi.Chapters = int32(len(raw.Chapters))
+	mi.TranscodeProfile = transcodeProfile(raw)
 	return mi
+}
+
+// ProfileTagKey is the container format tag squasharr stamps into every file
+// it writes, "<profile>@<hash>" (pkg/transcode.Args renders it as
+// -metadata CLUSTARR_PROFILE=...). pkg/transcode cannot be imported from
+// here -- it imports this package -- so the key is restated once, beside
+// the one reader that turns it into MediaInfo.TranscodeProfile.
+const ProfileTagKey = "CLUSTARR_PROFILE"
+
+// MaxTranscodeProfileLength is MediaInfo.TranscodeProfile's
+// +kubebuilder:validation:MaxLength: a TranscodeProfile name (at most 253
+// characters), "@", and a 64-character SHA-256 hex hash, with room to spare.
+// The apiserver rejects a status apply carrying a longer value WHOLE, so a
+// file with one would never be probed at all; [toMediaInfo] drops it
+// instead. No squasharr wrote it, so dropping it loses nothing.
+const MaxTranscodeProfileLength = 320
+
+// FormatTag returns the container-level tag key of raw, compared without
+// regard to case, and "" when raw carries no such tag. Matroska keeps a
+// tag's key as written, while other muxers (MP4's, for one) may change its
+// case, so an exact-case lookup would miss a tag that is there. An exact
+// match wins; otherwise the lowest key in byte order that matches decides,
+// so a file with two spellings of one key reads the same on every probe.
+func FormatTag(raw *Raw, key string) string {
+	if raw == nil || raw.Format == nil {
+		return ""
+	}
+	tags := raw.Format.TagList
+	if v, ok := tags[key].(string); ok {
+		return v
+	}
+	var (
+		best  string
+		found bool
+		value string
+	)
+	for k, v := range tags {
+		s, ok := v.(string)
+		if !ok || !strings.EqualFold(k, key) {
+			continue
+		}
+		if !found || k < best {
+			best, value, found = k, s, true
+		}
+	}
+	return value
+}
+
+// transcodeProfile is raw's CLUSTARR_PROFILE tag, trimmed, or "" when it has
+// none or carries one longer than [MaxTranscodeProfileLength].
+func transcodeProfile(raw *Raw) string {
+	tag := strings.TrimSpace(FormatTag(raw, ProfileTagKey))
+	if len(tag) > MaxTranscodeProfileLength {
+		return ""
+	}
+	return tag
 }
 
 func firstStream(streams []*ffprobe.Stream, t ffprobe.StreamType) *ffprobe.Stream {

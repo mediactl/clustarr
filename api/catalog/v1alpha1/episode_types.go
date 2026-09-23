@@ -41,7 +41,11 @@ const (
 // QualityProfile could not be resolved, so the file was never ranked against
 // a cutoff; see MoviePhase for why CutoffUnmet was the wrong answer there.
 //
-// +kubebuilder:validation:Enum=Unaired;Wanted;Delayed;Downloading;Imported;CutoffUnmet;CutoffUnevaluated;Unmonitored
+// Transcoded is Imported's twin for a transcoded file, which is final; see
+// MoviePhase. Only a Download in flight (Downloading) and Unmonitored
+// outrank it.
+//
+// +kubebuilder:validation:Enum=Unaired;Wanted;Delayed;Downloading;Imported;Transcoded;CutoffUnmet;CutoffUnevaluated;Unmonitored
 type EpisodePhase string
 
 // Episode phases.
@@ -51,6 +55,9 @@ const (
 	EpisodePhaseDelayed     EpisodePhase = "Delayed"
 	EpisodePhaseDownloading EpisodePhase = "Downloading"
 	EpisodePhaseImported    EpisodePhase = "Imported"
+	// EpisodePhaseTranscoded: the file is transcoded, and so final. See
+	// MoviePhase.
+	EpisodePhaseTranscoded  EpisodePhase = "Transcoded"
 	EpisodePhaseCutoffUnmet EpisodePhase = "CutoffUnmet"
 	// EpisodePhaseCutoffUnevaluated: a file is imported but the quality
 	// profile could not be resolved, so its cutoff was never evaluated.

@@ -215,7 +215,11 @@ type MediaFileStatus struct {
 	// +optional
 	ProbedAt *metav1.Time `json:"probedAt,omitempty"`
 
-	// MediaInfo is the technical description produced by the probe.
+	// MediaInfo is the technical description produced by the probe. Its
+	// transcodeProfile is the file's CLUSTARR_PROFILE tag: with it, or with
+	// spec.original false, the file is transcoded and final
+	// (catalogarr/controller/rollup.Transcoded) -- the tag is what recognises
+	// a file an earlier install transcoded, found by a rescan.
 	// +optional
 	MediaInfo *commonv1.MediaInfo `json:"mediaInfo,omitempty"`
 

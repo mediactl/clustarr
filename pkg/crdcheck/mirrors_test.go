@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/mediainfo"
 )
 
 // This file holds the guards for Go values that mirror a CRD marker, so the
@@ -129,4 +130,22 @@ func imageTypeConstants(t *testing.T, path string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// TestMaxTranscodeProfileLengthMatchesTheCRD holds
+// pkg/mediainfo.MaxTranscodeProfileLength, the longest CLUSTARR_PROFILE tag
+// the probe keeps, equal to MediaInfo.transcodeProfile's MaxLength on both
+// CRDs that carry a MediaInfo. A marker lowered below the Go bound would have
+// the apiserver reject a probed file's whole status apply.
+func TestMaxTranscodeProfileLengthMatchesTheCRD(t *testing.T) {
+	for where, schema := range map[string]*apiextensionsv1.JSONSchemaProps{
+		"MediaFile status.mediaInfo.transcodeProfile": crdSchemaAt(t, "catalog.clustarr.io_mediafiles.yaml",
+			"status", "mediaInfo", "transcodeProfile"),
+		"TranscodeJob status.result.mediaInfo.transcodeProfile": crdSchemaAt(t, "transcode.clustarr.io_transcodejobs.yaml",
+			"status", "result", "mediaInfo", "transcodeProfile"),
+	} {
+		require.NotNil(t, schema.MaxLength, "%s is unbounded", where)
+		require.Equal(t, int64(mediainfo.MaxTranscodeProfileLength), *schema.MaxLength,
+			"%s: MaxTranscodeProfileLength and the MaxLength marker disagree", where)
+	}
 }

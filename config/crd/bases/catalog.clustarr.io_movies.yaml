@@ -551,6 +551,7 @@ spec:
                 - Delayed
                 - Downloading
                 - Imported
+                - Transcoded
                 - CutoffUnmet
                 - CutoffUnevaluated
                 - Unmonitored

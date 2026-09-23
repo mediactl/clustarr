@@ -49,7 +49,16 @@ const (
 // cutoff-unmet search rotation. The CutoffMet condition's ProfileUnresolved
 // reason carries the detail.
 //
-// +kubebuilder:validation:Enum=Pending;Unavailable;Wanted;Delayed;Downloading;Imported;CutoffUnmet;CutoffUnevaluated;Unmonitored
+// Transcoded is Imported's twin for a file squasharr transcoded -- one that
+// carries the CLUSTARR_PROFILE tag, or that a transcode swap replaced
+// (catalogarr/controller/rollup.Transcoded). A transcoded file is the final
+// destination: it reads Transcoded where it would otherwise read Imported,
+// CutoffUnmet or CutoffUnevaluated, counts as meeting the cutoff (the
+// CutoffMet condition is True with reason Transcoded), is never selected by
+// the wanted sweep and is never upgraded automatically. Only a Download in
+// flight (Downloading), Unmonitored and Pending outrank it.
+//
+// +kubebuilder:validation:Enum=Pending;Unavailable;Wanted;Delayed;Downloading;Imported;Transcoded;CutoffUnmet;CutoffUnevaluated;Unmonitored
 type MoviePhase string
 
 // Movie phases.
@@ -60,6 +69,9 @@ const (
 	MoviePhaseDelayed     MoviePhase = "Delayed"
 	MoviePhaseDownloading MoviePhase = "Downloading"
 	MoviePhaseImported    MoviePhase = "Imported"
+	// MoviePhaseTranscoded: the file is transcoded, and so final. See
+	// MoviePhase.
+	MoviePhaseTranscoded  MoviePhase = "Transcoded"
 	MoviePhaseCutoffUnmet MoviePhase = "CutoffUnmet"
 	// MoviePhaseCutoffUnevaluated: a file is imported but the quality
 	// profile could not be resolved, so its cutoff was never evaluated.
