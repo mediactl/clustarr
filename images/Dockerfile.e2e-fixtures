@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1.7
 #
-# ghcr.io/mediactl/clustarr-e2e-fixtures -- in-cluster stub services for the
+# ghcr.io/mediactl/clustarr/e2e-fixtures -- in-cluster stub services for the
 # kind-based e2e suite (docs/superpowers/plans/2026-09-18-remaining-work.md,
 # Phase H). No fixture ever calls out to the real Internet;
 # images/Dockerfile.controller is the shape this mirrors.
 #
-#   docker build -f images/Dockerfile.e2e-fixtures -t ghcr.io/mediactl/clustarr-e2e-fixtures:dev .
+#   docker build -f images/Dockerfile.e2e-fixtures -t ghcr.io/mediactl/clustarr/e2e-fixtures:dev .
 
 ARG GO_VERSION=1.27
 

@@ -53,50 +53,55 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-      - name: torznab-stub
-        image: ghcr.io/mediactl/clustarr-e2e-fixtures:dev
-        imagePullPolicy: IfNotPresent
-        args: ["torznab-stub", "--addr=:8080", "--request-log=/data/.e2e-fixtures/torznab/requests.jsonl"]
-        ports:
-        - name: http
-          containerPort: 8080
-          protocol: TCP
-        readinessProbe:
-          httpGet:
-            path: /api?t=caps&apikey=e2e-fixture-key
-            port: http
-          initialDelaySeconds: 1
-          periodSeconds: 5
-        livenessProbe:
-          httpGet:
-            path: /api?t=caps&apikey=e2e-fixture-key
-            port: http
-          initialDelaySeconds: 5
-          periodSeconds: 20
-        # resources.requests must be present or config/e2e/resources-patch.yaml's
-        # `replace` operations fail on this Deployment -- that patch targets
-        # kind: Deployment with no name selector, so it lands here too.
-        resources:
-          requests:
-            cpu: 10m
-            memory: 32Mi
-          limits:
-            cpu: 100m
-            memory: 64Mi
-        securityContext:
-          allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: true
-          capabilities:
-            drop: ["ALL"]
-        volumeMounts:
-        - name: data
-          mountPath: /data
+        - name: torznab-stub
+          image: ghcr.io/mediactl/clustarr/e2e-fixtures:dev
+          imagePullPolicy: IfNotPresent
+          args:
+            [
+              "torznab-stub",
+              "--addr=:8080",
+              "--request-log=/data/.e2e-fixtures/torznab/requests.jsonl",
+            ]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /api?t=caps&apikey=e2e-fixture-key
+              port: http
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api?t=caps&apikey=e2e-fixture-key
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          # resources.requests must be present or config/e2e/resources-patch.yaml's
+          # `replace` operations fail on this Deployment -- that patch targets
+          # kind: Deployment with no name selector, so it lands here too.
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
       volumes:
-      - name: data
-        persistentVolumeClaim:
-          # The same RWX hostPath claim importarr-worker mounts; it is the
-          # host directory the e2e test binary reads as $CLUSTARR_DATA_DIR.
-          claimName: clustarr-data
+        - name: data
+          persistentVolumeClaim:
+            # The same RWX hostPath claim importarr-worker mounts; it is the
+            # host directory the e2e test binary reads as $CLUSTARR_DATA_DIR.
+            claimName: clustarr-data
 ---
 apiVersion: v1
 kind: Service
@@ -112,7 +117,7 @@ spec:
   selector:
     app.kubernetes.io/component: torznab-stub
   ports:
-  - name: http
-    port: 80
-    targetPort: http
-    protocol: TCP
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

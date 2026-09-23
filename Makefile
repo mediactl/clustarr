@@ -7,7 +7,7 @@ KUSTOMIZE ?= $(GOBIN)/kustomize
 GOLANGCI_LINT ?= $(GOBIN)/golangci-lint-v2
 ENVTEST_K8S_VERSION ?= 1.37.0
 IMG ?= ghcr.io/mediactl/clustarr:dev
-MEDIA_IMG ?= ghcr.io/mediactl/clustarr-media:dev
+MEDIA_IMG ?= ghcr.io/mediactl/clustarr/media:dev
 
 API_PATHS := ./api/...
 CRD_DIR := config/crd/bases

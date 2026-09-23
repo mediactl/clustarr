@@ -51,47 +51,47 @@ spec:
           seccompProfile:
             type: RuntimeDefault
         containers:
-        - name: worker
-          image: ghcr.io/mediactl/clustarr-media:dev
-          args: ["squasharr", "--role", "worker"]
-          env:
-          - name: NATS_URL
-            value: nats://nats.clustarr-system.svc:4222
-          - name: UMASK
-            value: "002"
-          # §6.4: ffmpeg gets `pools=<cpu limit>` from the Downward API.
-          - name: CLUSTARR_CPU_LIMIT
-            valueFrom:
-              resourceFieldRef:
-                containerName: worker
-                resource: limits.cpu
-          resources:
-            requests:
-              cpu: "4"
-              memory: 4Gi
-            limits:
-              cpu: "8"
-              memory: 4Gi
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: ["ALL"]
-          volumeMounts:
-          - name: data
-            mountPath: /data
-          - name: scratch
-            mountPath: /scratch
+          - name: worker
+            image: ghcr.io/mediactl/clustarr/media:dev
+            args: ["squasharr", "--role", "worker"]
+            env:
+              - name: NATS_URL
+                value: nats://nats.clustarr-system.svc:4222
+              - name: UMASK
+                value: "002"
+              # §6.4: ffmpeg gets `pools=<cpu limit>` from the Downward API.
+              - name: CLUSTARR_CPU_LIMIT
+                valueFrom:
+                  resourceFieldRef:
+                    containerName: worker
+                    resource: limits.cpu
+            resources:
+              requests:
+                cpu: "4"
+                memory: 4Gi
+              limits:
+                cpu: "8"
+                memory: 4Gi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+            volumeMounts:
+              - name: data
+                mountPath: /data
+              - name: scratch
+                mountPath: /scratch
         volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: clustarr-data
-        - name: scratch
-          emptyDir: {}
+          - name: data
+            persistentVolumeClaim:
+              claimName: clustarr-data
+          - name: scratch
+            emptyDir: {}
   triggers:
-  - type: prometheus
-    metadata:
-      serverAddress: http://prometheus-operated.monitoring.svc:9090
-      query: |-
-        sum(clustarr_transcode_slots{state="waiting"})
-      threshold: "1"
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-operated.monitoring.svc:9090
+        query: |-
+          sum(clustarr_transcode_slots{state="waiting"})
+        threshold: "1"

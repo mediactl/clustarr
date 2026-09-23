@@ -21,10 +21,10 @@ spec:
   selector:
     app.kubernetes.io/component: catalogarr
   ports:
-  - name: metrics
-    port: 8443
-    targetPort: metrics
-    protocol: TCP
+    - name: metrics
+      port: 8443
+      targetPort: metrics
+      protocol: TCP
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -53,73 +53,80 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-      - name: catalogarr
-        # clustarr-media: the importer hardlinks/moves files and reuses ffprobe
-        # for MediaFile probes, so it needs the media toolchain image.
-        image: ghcr.io/mediactl/clustarr-media:dev
-        # --leader-elect: §3 and §12 run the controllers under a lease so
-        # only one replica reconciles. The flag defaults to off, so a
-        # controller Deployment that omits it reconciles from every replica.
-        # --nats-single-node: config/default ships the single-server dev NATS
-        # in config/nats, which cannot host the R3 streams events.Default()
-        # asks for (§12). charts/clustarr deploys a clustered NATS and derives
-        # this from the subchart instead.
-        args: ["catalogarr", "--role", "controller,worker,history", "--leader-elect", "--nats-single-node"]
-        env:
-        - name: NATS_URL
-          value: nats://nats.clustarr-system.svc:4222
-        - name: POD_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
-        - name: POD_NAMESPACE
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.namespace
-        # §11: everything writing under /data uses UMASK 002 so the other
-        # services (and the transcode Jobs) can rewrite what it creates.
-        - name: UMASK
-          value: "002"
-        ports:
-        - name: metrics
-          containerPort: 8443
-          protocol: TCP
-        - name: health
-          containerPort: 8081
-          protocol: TCP
-        livenessProbe:
-          httpGet:
-            path: /healthz
-            port: health
-          initialDelaySeconds: 15
-          periodSeconds: 20
-        readinessProbe:
-          # §13: readiness is a JetStream ping.
-          httpGet:
-            path: /readyz
-            port: health
-          initialDelaySeconds: 5
-          periodSeconds: 10
-        resources:
-          requests:
-            cpu: 100m
-            memory: 256Mi
-          limits:
-            cpu: "1"
-            memory: 1Gi
-        securityContext:
-          allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: true
-          capabilities:
-            drop: ["ALL"]
-        volumeMounts:
-        - name: data
-          mountPath: /data
-        - name: tmp
-          mountPath: /tmp
+        - name: catalogarr
+          # clustarr-media: the importer hardlinks/moves files and reuses ffprobe
+          # for MediaFile probes, so it needs the media toolchain image.
+          image: ghcr.io/mediactl/clustarr/media:dev
+          # --leader-elect: §3 and §12 run the controllers under a lease so
+          # only one replica reconciles. The flag defaults to off, so a
+          # controller Deployment that omits it reconciles from every replica.
+          # --nats-single-node: config/default ships the single-server dev NATS
+          # in config/nats, which cannot host the R3 streams events.Default()
+          # asks for (§12). charts/clustarr deploys a clustered NATS and derives
+          # this from the subchart instead.
+          args:
+            [
+              "catalogarr",
+              "--role",
+              "controller,worker,history",
+              "--leader-elect",
+              "--nats-single-node",
+            ]
+          env:
+            - name: NATS_URL
+              value: nats://nats.clustarr-system.svc:4222
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # §11: everything writing under /data uses UMASK 002 so the other
+            # services (and the transcode Jobs) can rewrite what it creates.
+            - name: UMASK
+              value: "002"
+          ports:
+            - name: metrics
+              containerPort: 8443
+              protocol: TCP
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            # §13: readiness is a JetStream ping.
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
       volumes:
-      - name: data
-        persistentVolumeClaim:
-          claimName: clustarr-data
-      - name: tmp
-        emptyDir: {}
+        - name: data
+          persistentVolumeClaim:
+            claimName: clustarr-data
+        - name: tmp
+          emptyDir: {}

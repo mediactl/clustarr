@@ -36,7 +36,7 @@ KIND_NATS="${KIND_NATS:-kustomize}"
 NATS_CHART_VERSION="${NATS_CHART_VERSION:-2.14.6}"
 NATS_HELM_REPO="https://nats-io.github.io/k8s/helm/charts/"
 IMG="${IMG:-ghcr.io/mediactl/clustarr:dev}"
-MEDIA_IMG="${MEDIA_IMG:-ghcr.io/mediactl/clustarr-media:dev}"
+MEDIA_IMG="${MEDIA_IMG:-ghcr.io/mediactl/clustarr/media:dev}"
 CONTEXT="kind-${CLUSTER_NAME}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

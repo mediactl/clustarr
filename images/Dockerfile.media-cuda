@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1.7
 #
-# ghcr.io/mediactl/clustarr-media-cuda -- Dockerfile.media on an nvidia/cuda
+# ghcr.io/mediactl/clustarr/media-cuda -- Dockerfile.media on an nvidia/cuda
 # base, for squasharr GPU (NVENC) transcode workers (§2, §6.4 of the design
 # spec). Same build stages and filesystem layout as Dockerfile.media.
 #
-#   docker build -f images/Dockerfile.media-cuda -t ghcr.io/mediactl/clustarr-media-cuda:dev .
+#   docker build -f images/Dockerfile.media-cuda -t ghcr.io/mediactl/clustarr/media-cuda:dev .
 #
 # Base image choice: the `-base-` CUDA flavour is enough for the BtbN ffmpeg
 # build (it links NVENC/NVDEC/CUDA through the driver libraries that the NVIDIA

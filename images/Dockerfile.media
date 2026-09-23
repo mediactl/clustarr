@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1.7
 #
-# ghcr.io/mediactl/clustarr-media -- the `clustarr` binary plus the media
+# ghcr.io/mediactl/clustarr/media -- the `clustarr` binary plus the media
 # toolchain (ffmpeg/ffprobe, par2) for catalogarr, grabarr, squasharr and
 # captionarr (§2 of the design spec).
 #
-#   docker build -f images/Dockerfile.media -t ghcr.io/mediactl/clustarr-media:dev .
+#   docker build -f images/Dockerfile.media -t ghcr.io/mediactl/clustarr/media:dev .
 #
 # Choices (see the design spec §2 and docs/research/download.md, transcode.md):
 #

@@ -15,7 +15,7 @@
 # Environment:
 #   KIND_CLUSTER_NAME   cluster name                    (default: clustarr)
 #   CLUSTARR_DATA_DIR   host dir mounted at /data       (default: <repo>/.data)
-#   FIXTURES_IMG        the fixture image tag           (default: ghcr.io/mediactl/clustarr-e2e-fixtures:dev)
+#   FIXTURES_IMG        the fixture image tag           (default: ghcr.io/mediactl/clustarr/e2e-fixtures:dev)
 #   E2E_SKIP_BUILD      set to 1 to reuse existing images and a running cluster
 #   E2E_ARGS            extra args appended to `go test` (e.g. -run TestLibraryRescan)
 
@@ -31,7 +31,7 @@ CONTEXT="kind-${CLUSTER_NAME}"
 # reads this to translate a cluster path under /data into a host path, and it
 # must mean the same directory in both processes.
 export CLUSTARR_DATA_DIR="${CLUSTARR_DATA_DIR:-${REPO_ROOT}/.data}"
-FIXTURES_IMG="${FIXTURES_IMG:-ghcr.io/mediactl/clustarr-e2e-fixtures:dev}"
+FIXTURES_IMG="${FIXTURES_IMG:-ghcr.io/mediactl/clustarr/e2e-fixtures:dev}"
 ARTIFACTS_DIR="${REPO_ROOT}/test/e2e/artifacts"
 KUSTOMIZE="$(go env GOPATH)/bin/kustomize"
 
