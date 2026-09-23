@@ -179,6 +179,7 @@ func TestRealLoopCompletesSeedsAndRemovesOnPolicy(t *testing.T) {
 
 	require.NoError(t, c.Get(ctx, req.NamespacedName, &got))
 	assert.True(t, got.Status.CanBeRemoved, "the last telemetry snapshot before removal must show CanBeRemoved=true")
+	assert.True(t, got.Status.SeedGoalReached, "the engine must report the seed goal it removed the transfer for")
 	assert.NoFileExists(t, sidecarFileName(e.StateDir, id), "the descriptor must be cleaned up once removed")
 
 	items, err := rawClient.List(ctx)

@@ -161,6 +161,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return ctrl.Result{}, err
 	}
 
+	if engine.Stopped(&dl) {
+		return r.reconcileStopped(ctx, log, &dl)
+	}
+
 	if dl.Status.DownloadID == "" {
 		return r.add(ctx, &dl)
 	}
@@ -215,13 +219,13 @@ func (r *Reconciler) add(ctx context.Context, dl *downloadv1alpha1.Download) (ct
 	id, err := r.Engine.Client.Add(ctx, addReq)
 	if err != nil {
 		// errors.Is(err, download.ErrPayloadMismatch) is a blocklist-worthy
-		// event (the interface doc's own words), but this engine has no
-		// channel to write status.failureReason -- that field is
-		// k8s.ManagerGrabarr's, and the controller has no way to learn this
-		// specific reason from status alone (see this task's report for why
-		// that is flagged as a cross-task gap rather than something fixed
-		// here). Returning the error either way lets controller-runtime's
-		// own backoff retry it rather than spinning tightly.
+		// event (the interface doc's own words), and since gap fix Y2 an
+		// engine does have a channel for a failure -- status.engineFailureReason
+		// -- but DownloadFailureReason has no member for "the indexer served
+		// different content", and reporting it as one of the others would
+		// be a guess the controller then blocklists on. It stays an error
+		// here, and controller-runtime's own backoff retries it rather than
+		// spinning tightly.
 		return ctrl.Result{}, fmt.Errorf("torrent: add %s/%s: %w", dl.Namespace, dl.Name, err)
 	}
 
@@ -355,6 +359,43 @@ func (r *Reconciler) handleMissingTransfer(ctx context.Context, dl *downloadv1al
 		return ctrl.Result{}, fmt.Errorf("torrent: stat descriptor for %s: %w", id, err)
 	}
 	return ctrl.Result{}, fmt.Errorf("torrent: %s has a persisted descriptor but %w", id, download.ErrNotFound)
+}
+
+// reconcileStopped removes the transfer of a Download the controller has
+// failed or blocklisted -- or that is labelled blocklisted, which the
+// controller is about to act on -- honouring spec.removeDataOnDelete for
+// its data, and adds nothing for one that never had a transfer. The
+// Download object stays: it is the record of the failure and, blocklisted,
+// the blocklist entry itself.
+//
+// This is Sonarr's "Remove Failed" download-client setting, on by default
+// there: a failed download is removed from the client, data and all, so it
+// neither keeps a stalled swarm busy nor keeps a partial release on the
+// shared volume for the blocklist's 90 days. It runs only once the
+// controller's verdict is on the object, never on this engine's own
+// observation, so the engine's report (status.engineFailureReason) is
+// always recorded as status.failureReason before the transfer that made it
+// is gone. Remove and the descriptor removal are both idempotent, so a
+// level-driven re-run over a stopped Download is a no-op.
+func (r *Reconciler) reconcileStopped(ctx context.Context, log *slog.Logger, dl *downloadv1alpha1.Download) (ctrl.Result, error) {
+	id := dl.Status.DownloadID
+	if id == "" {
+		return ctrl.Result{}, nil
+	}
+	deleteData := dl.Spec.RemoveDataOnDelete == nil || *dl.Spec.RemoveDataOnDelete
+	err := r.Engine.Client.Remove(ctx, id, deleteData)
+	switch {
+	case errors.Is(err, download.ErrNotFound):
+	case err != nil:
+		return ctrl.Result{}, fmt.Errorf("torrent: remove stopped %s: %w", id, err)
+	default:
+		log.InfoContext(ctx, "torrent: removed the transfer of a failed Download",
+			"id", id, "phase", dl.Status.Phase, "reason", dl.Status.FailureReason, "deleteData", deleteData)
+	}
+	if err := removeDescriptor(r.StateDir, id); err != nil {
+		log.ErrorContext(ctx, "torrent: remove descriptor of a stopped transfer failed", "id", id, "error", err)
+	}
+	return ctrl.Result{}, nil
 }
 
 // reconcileDeleting is this engine's half of the teardown protocol (ruling

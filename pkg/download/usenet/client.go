@@ -58,6 +58,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -122,7 +123,25 @@ type Config struct {
 
 	ConnectTimeout time.Duration
 	IOTimeout      time.Duration
+
+	// DownloadTimeout bounds a whole job, measured from its first Add
+	// (AddedAt, so a restart does not extend it) and including time spent
+	// paused. A job still running at the deadline fails with
+	// DownloadFailureTimeout (UsenetSpec.downloadTimeout). Zero means no
+	// deadline.
+	DownloadTimeout time.Duration
+
+	// ProviderRetryDelay is how long a job waits before trying again when no
+	// configured server could be asked for its articles
+	// ([ErrProvidersUnavailable]). Zero means [defaultProviderRetryDelay].
+	ProviderRetryDelay time.Duration
 }
+
+// defaultProviderRetryDelay is [Config.ProviderRetryDelay]'s default. It is
+// the pool's own refused-connection penalty, so a retry lands just as a
+// penalised provider becomes available again rather than finding it still
+// sitting out.
+const defaultProviderRetryDelay = penaltyRefused
 
 // PostProcess mirrors downloadv1alpha1.PostProcessSpec with its pointers
 // resolved.
@@ -181,6 +200,9 @@ func New(cfg Config) (download.Client, error) {
 	}
 	if cfg.AbortHealthPercent <= 0 {
 		cfg.AbortHealthPercent = 90
+	}
+	if cfg.ProviderRetryDelay <= 0 {
+		cfg.ProviderRetryDelay = defaultProviderRetryDelay
 	}
 
 	workers := cfg.Workers
@@ -608,8 +630,16 @@ func (c *Client) forget(id string) {
 // Add returns long before a 50GB transfer finishes, so its cancellation must
 // not reach the transfer -- but its logger and trace must, which is exactly
 // what context.WithoutCancel preserves.
+//
+// A configured [Config.DownloadTimeout] becomes the run context's deadline,
+// anchored at the job's AddedAt so a re-attached job keeps the deadline it
+// was first given; [job.abort] reads its expiry as DownloadFailureTimeout.
 func (c *Client) start(ctx context.Context, j *job) {
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	if c.cfg.DownloadTimeout > 0 && !j.addedAt.IsZero() {
+		cancel()
+		runCtx, cancel = context.WithDeadline(context.WithoutCancel(ctx), j.addedAt.Add(c.cfg.DownloadTimeout))
+	}
 	j.mu.Lock()
 	j.cancel = cancel
 	j.running = true
@@ -640,10 +670,24 @@ func (j *job) run(ctx context.Context) {
 		return
 	}
 
-	j.setStage(downloadv1alpha1.DownloadStageTransferring, download.StatusDownloading)
-	if err := j.transfer(ctx); err != nil {
-		j.abort(ctx, err)
-		return
+	for {
+		j.setStage(downloadv1alpha1.DownloadStageTransferring, download.StatusDownloading)
+		err := j.transfer(ctx)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, ErrProvidersUnavailable) {
+			j.abort(ctx, err)
+			return
+		}
+		// No server could be asked: an outage or a credentials problem, not
+		// the release. Wait and resume from the checkpointed segments; the
+		// articles that were never asked for are neither done nor failed,
+		// so the next pass fetches exactly those.
+		if werr := j.waitForProviders(ctx, err); werr != nil {
+			j.abort(ctx, werr)
+			return
+		}
 	}
 
 	if err := j.postProcess(ctx); err != nil {
@@ -655,30 +699,81 @@ func (j *job) run(ctx context.Context) {
 		"output", j.snapshotOutputPath(), "articles", j.nzb.TotalSegments, "failed", j.failedArticles())
 }
 
+// waitForProviders reports cause on the job -- StatusWarning, the state
+// [download.StatusWarning] documents for "a provider refusing articles" --
+// and waits [Config.ProviderRetryDelay]. It returns the run context's error
+// if the job is cancelled or reaches its deadline while waiting.
+func (j *job) waitForProviders(ctx context.Context, cause error) error {
+	j.mu.Lock()
+	j.status = download.StatusWarning
+	j.message = "waiting for a usenet provider: " + cause.Error()
+	j.mu.Unlock()
+	_ = j.checkpoint()
+	logging.FromContext(ctx).WarnContext(ctx, "no usenet provider could be asked; waiting to retry",
+		"download", j.id, "retryIn", j.client.cfg.ProviderRetryDelay, "error", cause)
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(j.client.cfg.ProviderRetryDelay):
+	}
+	j.mu.Lock()
+	j.message = ""
+	j.mu.Unlock()
+	return nil
+}
+
 // abort maps a pipeline error onto the machine-readable reason the *arr
-// failed-download contract keys off.
+// failed-download contract keys off -- see [failureReason] -- and fails the
+// job with it.
 func (j *job) abort(ctx context.Context, err error) {
 	if errors.Is(err, context.Canceled) {
 		return
 	}
-	log := logging.FromContext(ctx)
-
-	switch {
-	case errors.Is(err, ErrEncrypted):
+	reason := failureReason(ctx, err)
+	if reason == downloadv1alpha1.DownloadFailureEncrypted {
 		j.mu.Lock()
 		j.encrypted = true
 		j.mu.Unlock()
-		j.fail(downloadv1alpha1.DownloadFailureEncrypted, err)
-	case errors.Is(err, ErrUnrecoverable), errors.Is(err, ErrArticleMissing), errors.Is(err, ErrRepairFailed):
-		j.fail(downloadv1alpha1.DownloadFailureMissingArticles, err)
-	case errors.Is(err, fsops.ErrInsufficientSpace):
-		j.fail(downloadv1alpha1.DownloadFailureDiskFull, err)
-	case errors.Is(err, context.DeadlineExceeded):
-		j.fail(downloadv1alpha1.DownloadFailureTimeout, err)
-	default:
-		j.fail(downloadv1alpha1.DownloadFailureWriteError, err)
 	}
-	log.ErrorContext(ctx, "usenet download failed", "error", err)
+	j.fail(reason, err)
+	logging.FromContext(ctx).ErrorContext(ctx, "usenet download failed", "reason", reason, "error", err)
+}
+
+// failureReason classifies a pipeline error. ctx is the job's run context:
+// its deadline having passed makes the failure a timeout whatever shape the
+// error took on the way out -- a par2 or unrar child killed by the deadline
+// reports its own exit status, not context.DeadlineExceeded, and must not be
+// read as a failed repair.
+//
+//   - timeout: the job's DownloadTimeout expired.
+//   - encrypted: an archive needs a password.
+//   - missingArticles: every server that was asked answered "no such
+//     article" often enough that the health floor was crossed
+//     ([ErrUnrecoverable], also the pre-check's verdict), or par2 ran and
+//     could not repair the set ([ErrRepairFailed]).
+//   - diskFull: the scratch or data volume is out of space (the statfs
+//     guard's [fsops.ErrInsufficientSpace], or ENOSPC/EDQUOT from a write).
+//   - writeError: anything else -- a filesystem error, and the local
+//     configuration faults (no par2 binary for a set that needs repair).
+//
+// The first three blocklist the release; diskFull and writeError do not
+// (DownloadFailureReason.IsReleaseFault). An archive that fails to extract
+// for a reason other than a password or a write is classed writeError, the
+// conservative side: blocklisting needs evidence against the release.
+func failureReason(ctx context.Context, err error) downloadv1alpha1.DownloadFailureReason {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return downloadv1alpha1.DownloadFailureTimeout
+	case errors.Is(err, ErrEncrypted):
+		return downloadv1alpha1.DownloadFailureEncrypted
+	case errors.Is(err, ErrUnrecoverable), errors.Is(err, ErrArticleMissing), errors.Is(err, ErrRepairFailed):
+		return downloadv1alpha1.DownloadFailureMissingArticles
+	case errors.Is(err, fsops.ErrInsufficientSpace), errors.Is(err, syscall.ENOSPC), errors.Is(err, syscall.EDQUOT):
+		return downloadv1alpha1.DownloadFailureDiskFull
+	default:
+		return downloadv1alpha1.DownloadFailureWriteError
+	}
 }
 
 // waitForPropagation holds a release until its articles have had time to
@@ -718,6 +813,13 @@ func (j *job) preCheck(ctx context.Context) error {
 		}
 	}
 	missing, err := j.client.pool.Exists(ctx, ids)
+	if errors.Is(err, ErrProvidersUnavailable) {
+		// The pre-check is an optimisation; it cannot judge a release it
+		// could not look at. The transfer waits for the providers instead.
+		logging.FromContext(ctx).WarnContext(ctx, "usenet pre-check skipped: no provider could be asked",
+			"download", j.id, "error", err)
+		return nil
+	}
 	if err != nil {
 		return err
 	}

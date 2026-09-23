@@ -136,6 +136,11 @@ func BuildConfig(ctx context.Context, c client.Client, dc *downloadv1alpha1.Down
 	if us.PropagationDelay != nil {
 		cfg.PropagationDelay = us.PropagationDelay.Duration
 	}
+	// No CRD default: unset (and "0s") means no deadline, which is also
+	// Config's zero value.
+	if us.DownloadTimeout != nil && us.DownloadTimeout.Duration > 0 {
+		cfg.DownloadTimeout = us.DownloadTimeout.Duration
+	}
 	return cfg, nil
 }
 

@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package usenet
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -304,8 +305,15 @@ func (j *job) fetchFirstArticles(ctx context.Context, targets []*os.File) error 
 	if err != nil {
 		return err
 	}
+	var unavailable error
 	for i, r := range results {
 		fi := idx[i]
+		if errors.Is(r.Err, ErrProvidersUnavailable) {
+			// Not missing: nobody could be asked. Left neither done nor
+			// failed, so the retry after the provider wait fetches it.
+			unavailable = cmp.Or(unavailable, r.Err)
+			continue
+		}
 		if r.Err != nil {
 			j.recordFailure(fi, 0, r.Err)
 			continue
@@ -319,7 +327,10 @@ func (j *job) fetchFirstArticles(ctx context.Context, targets []*os.File) error 
 			return err
 		}
 	}
-	return j.checkpoint()
+	if err := j.checkpoint(); err != nil {
+		return err
+	}
+	return unavailable
 }
 
 // runBatch fetches one pipelined run and writes what came back.
@@ -332,8 +343,15 @@ func (j *job) runBatch(ctx context.Context, targets []*os.File, b batch) error {
 	if err != nil {
 		return err
 	}
+	var unavailable error
 	for i, r := range results {
 		si := b.segs[i]
+		if errors.Is(r.Err, ErrProvidersUnavailable) {
+			// Not missing, and not counted against health: see
+			// fetchFirstArticles.
+			unavailable = cmp.Or(unavailable, r.Err)
+			continue
+		}
 		if r.Err != nil {
 			j.recordFailure(b.file, si, r.Err)
 			continue
@@ -341,6 +359,9 @@ func (j *job) runBatch(ctx context.Context, targets []*os.File, b batch) error {
 		if err := j.writeSegment(targets[b.file], b.file, si, r); err != nil {
 			return err
 		}
+	}
+	if unavailable != nil {
+		return unavailable
 	}
 	return j.healthGate()
 }

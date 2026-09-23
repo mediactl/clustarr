@@ -55,8 +55,29 @@ import (
 	"sync"
 	"time"
 
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
 )
+
+// Stopped reports whether an engine must stop dl's transfer rather than run
+// it: the controller has failed it (phase Failed) or blocklisted it (phase
+// Blocklisted), or it carries the blocklist label the controller is about to
+// act on. Both engines remove a stopped Download's transfer and never add
+// one, so a release that failed -- or that an operator blocklisted before
+// its engine got to it -- is not fetched again.
+//
+// An Imported Download is never stopped, label or not: the controller keeps
+// Imported sticky over the label (grabarr/controller/download's
+// derivePhase), and its transfer is governed by spec.removeOnImport.
+func Stopped(dl *downloadv1alpha1.Download) bool {
+	switch dl.Status.Phase {
+	case downloadv1alpha1.DownloadPhaseFailed, downloadv1alpha1.DownloadPhaseBlocklisted:
+		return true
+	case downloadv1alpha1.DownloadPhaseImported:
+		return false
+	}
+	return dl.Labels[downloadv1alpha1.LabelBlocklisted] == downloadv1alpha1.LabelBlocklistedValue
+}
 
 // Finalizer is the finalizer every engine adds to a Download it owns. It is
 // distinct from the Download controller's own finalizer

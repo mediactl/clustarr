@@ -202,3 +202,21 @@ func (f *fakeClient) addCallCount() int {
 	defer f.mu.Unlock()
 	return len(f.addRequests)
 }
+
+// fail marks id failed with reason, the way pkg/download/torrent's session
+// does on a stall or a write error.
+func (f *fakeClient) fail(id string, reason downloadv1alpha1.DownloadFailureReason) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	item := f.items[id]
+	item.Status = download.StatusFailed
+	item.FailureReason = reason
+	item.Message = "failed: " + string(reason)
+	f.items[id] = item
+}
+
+func (f *fakeClient) removeCallsSnapshot() []removeCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]removeCall(nil), f.removeCalls...)
+}

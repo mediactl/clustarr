@@ -19,6 +19,7 @@ package usenet_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -152,6 +153,12 @@ func TestBuildConfigResolvesProvidersAndDefaultsPostProcess(t *testing.T) {
 	assert.True(t, cfg.PostProcess.Par2)
 	assert.True(t, cfg.PostProcess.Unpack)
 	assert.True(t, cfg.PostProcess.DeleteArchives)
+	assert.Zero(t, cfg.DownloadTimeout, "no downloadTimeout means no deadline")
+
+	dc.Spec.Usenet.DownloadTimeout = &metav1.Duration{Duration: 6 * time.Hour}
+	cfg, err = usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch")
+	require.NoError(t, err)
+	assert.Equal(t, 6*time.Hour, cfg.DownloadTimeout, "spec.usenet.downloadTimeout must reach the client")
 }
 
 func TestBuildConfigFailsOnMissingSecret(t *testing.T) {

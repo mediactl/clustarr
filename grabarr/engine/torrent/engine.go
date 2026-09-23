@@ -23,10 +23,24 @@ import (
 	"net/http"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
+
+// StallTimeout resolves spec.torrent.stallTimeout against its CRD default
+// for pkg/download/torrent.Config: nil -- a DownloadClient built in Go that
+// never saw the apiserver's defaulting -- is
+// downloadv1alpha1.DefaultStallTimeout, and "0s" (or a negative value) is
+// zero, which disables stall detection.
+func StallTimeout(spec *downloadv1alpha1.TorrentSpec) time.Duration {
+	if spec == nil || spec.StallTimeout == nil {
+		return downloadv1alpha1.DefaultStallTimeout
+	}
+	return max(spec.StallTimeout.Duration, 0)
+}
 
 // Engine owns one embedded [download.Client] and the re-attach-before-ready
 // gate every caller of it (this package's own [Reconciler], and

@@ -19,6 +19,7 @@ package torrent
 
 import (
 	"errors"
+	"fmt"
 	"syscall"
 	"time"
 
@@ -40,9 +41,17 @@ import (
 // order below (failed, then complete, then paused, then metadata/checking,
 // then peerless, then downloading) means a torrent that finishes while
 // marked failed still reports StatusFailed: [session.failed] is set only by
-// [session.onWriteChunkError], which also calls DisallowDataDownload, so a
-// failed torrent cannot actually reach Complete afterwards -- the ordering
-// is defensive, not load-bearing.
+// [session.onWriteChunkError] and [session.checkStallLocked], both of which
+// also call DisallowDataDownload, so a failed torrent cannot actually reach
+// Complete afterwards -- the ordering is defensive, not load-bearing.
+//
+// # Two verdicts are reached here, not merely reported
+//
+// The stall ([session.checkStallLocked]) and the seed goal
+// ([session.seedGoalMetLocked]) are both judged over time, and this is the
+// one place the engine looks at a transfer on every poll, so this is where
+// each is reached -- once, stickily -- the same way lastProgressAt is
+// tracked here.
 func (c *Client) itemFromTorrent(id string, t *anatorrent.Torrent) download.Item {
 	sess := c.sessionFor(id)
 	sess.mu.Lock()
@@ -112,14 +121,39 @@ func (c *Client) itemFromTorrent(id string, t *anatorrent.Torrent) download.Item
 	if complete && sess.completedAt.IsZero() {
 		sess.completedAt = now
 	}
+	if uploadedBytes > sess.lastUploadBytes {
+		sess.lastUploadAt = now
+	}
+	sess.lastUploadBytes = uploadedBytes
+
+	if complete && !sess.seedGoalMet && sess.seedGoalMetLocked(uploadedBytes, downloadedBytes, now) {
+		// Design spec §6.3: "seed criteria ... -> DisallowDataUpload(),
+		// CanBeRemoved=true, SeedGoalMet". Stopping the upload is qBittorrent's
+		// default share-limit action (pause the torrent), and it is what
+		// makes a met goal stay met.
+		sess.seedGoalMet = true
+		sess.seedGoalMetAt = now
+		t.DisallowDataUpload()
+	}
+	if complete {
+		until := now
+		if sess.seedGoalMet {
+			until = sess.seedGoalMetAt
+		}
+		item.SeedTime = until.Sub(sess.completedAt)
+	} else {
+		sess.checkStallLocked(t.DisallowDataDownload, c.cfg.StallTimeout, now)
+	}
 
 	// CanMoveFiles/CanBeRemoved must reflect real torrent state, not
 	// optimism (see the Client.Add doc comment): a torrent is only
 	// importable once every wanted byte is verified on disk, and only
 	// removable once it has been imported AND (for a torrent, unlike
-	// usenet) its seed goal is met.
+	// usenet) its seed goal is met. SeedGoalMet reports the goal on its
+	// own, import or not, so the controller can record it.
 	item.CanMoveFiles = complete
-	item.CanBeRemoved = complete && sess.imported && sess.seedGoalMetLocked(uploadedBytes, downloadedBytes, now)
+	item.SeedGoalMet = complete && sess.seedGoalMet
+	item.CanBeRemoved = item.SeedGoalMet && sess.imported
 
 	switch {
 	case sess.failed:
@@ -251,10 +285,51 @@ func (s *session) sampleRatesLocked(now time.Time, downloadedBytes, uploadedByte
 	return s.downRate, s.upRate
 }
 
+// checkStallLocked fails an unfinished transfer that has downloaded nothing
+// for timeout: qBittorrent's stalledDL ("no data is being received"), which
+// Sonarr reports as a Warning -- "The download is stalled with no
+// connections" -- held for the whole window. The caller must hold s.mu and
+// must not call it for a complete transfer. A timeout of zero disables it.
+//
+// The window is measured from the later of the last progress and
+// [session.activeSince], so a pause is never counted (a paused transfer is
+// skipped outright, and Resume restarts the clock) and neither is an engine
+// restart: lastProgressAt lives in memory, and a re-attach sets activeSince.
+// A magnet whose metadata never arrives makes no progress either, and
+// stalls the same way -- qBittorrent's metaDL with nobody to ask.
+//
+// The verdict is sticky, and the transfer stops requesting data (stop is
+// the torrent's DisallowDataDownload), exactly as
+// [session.onWriteChunkError] does: a stalled transfer the controller is
+// about to blocklist must not quietly finish afterwards.
+func (s *session) checkStallLocked(stop func(), timeout time.Duration, now time.Time) {
+	if timeout <= 0 || s.failed || s.paused || s.activeSince.IsZero() {
+		return
+	}
+	since := s.activeSince
+	if s.hasProgress && s.lastProgressAt.After(since) {
+		since = s.lastProgressAt
+	}
+	if now.Sub(since) < timeout {
+		return
+	}
+	stop()
+	s.failed = true
+	s.failureReason = downloadv1alpha1.DownloadFailureStalled
+	s.message = fmt.Sprintf("stalled: no data received for %s (stall timeout %s)",
+		now.Sub(since).Truncate(time.Second), timeout)
+}
+
 // seedGoalMetLocked reports whether sess's seed criteria are satisfied. The
 // caller must hold s.mu and must only call this once the transfer is
 // complete -- an incomplete transfer has nothing to evaluate a seed goal
 // against.
+//
+// Any one limit meets the goal, as in qBittorrent's share limits, which are
+// the three Sonarr's qBittorrent client checks for HasReachedSeedLimit
+// (docs/research/download.md): ratio, seeding time, and inactive seeding
+// time -- here SeedCriteria.InactiveTime, measured from the later of the
+// completion and the last upload.
 //
 // AddRequest.SeedCriteria is documented as "already merged from the client
 // default and the Download's override", which this package reads as: the
@@ -283,6 +358,16 @@ func (s *session) seedGoalMetLocked(uploadedBytes, downloadedBytes int64, now ti
 		return true
 	}
 
+	if sc.InactiveTime != nil && sc.InactiveTime.Duration > 0 && !s.completedAt.IsZero() {
+		idleSince := s.completedAt
+		if s.lastUploadAt.After(idleSince) {
+			idleSince = s.lastUploadAt
+		}
+		if now.Sub(idleSince) >= sc.InactiveTime.Duration {
+			return true
+		}
+	}
+
 	return false
 }
 
@@ -301,10 +386,7 @@ func (s *session) onWriteChunkError(t *anatorrent.Torrent) func(error) {
 	return func(err error) {
 		t.DisallowDataDownload()
 
-		reason := downloadv1alpha1.DownloadFailureWriteError
-		if errors.Is(err, syscall.ENOSPC) {
-			reason = downloadv1alpha1.DownloadFailureDiskFull
-		}
+		reason := chunkWriteFailure(err)
 
 		s.mu.Lock()
 		s.failed = true
@@ -312,4 +394,15 @@ func (s *session) onWriteChunkError(t *anatorrent.Torrent) func(error) {
 		s.message = err.Error()
 		s.mu.Unlock()
 	}
+}
+
+// chunkWriteFailure classifies a storage write error: diskFull when the
+// volume is out of space (ENOSPC) or the writer out of quota (EDQUOT, the
+// same condition as far as a download is concerned), writeError for
+// anything else. Both are local faults, so neither blocklists the release.
+func chunkWriteFailure(err error) downloadv1alpha1.DownloadFailureReason {
+	if errors.Is(err, syscall.ENOSPC) || errors.Is(err, syscall.EDQUOT) {
+		return downloadv1alpha1.DownloadFailureDiskFull
+	}
+	return downloadv1alpha1.DownloadFailureWriteError
 }

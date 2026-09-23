@@ -320,8 +320,57 @@ func TestPoolReportsAuthFailureAndPenalisesTheProvider(t *testing.T) {
 	pool := testPool(t, 1, p)
 	r, err := pool.Fetch(context.Background(), "whatever@clustarr.test")
 	require.NoError(t, err)
-	require.ErrorIs(t, r.Err, ErrArticleMissing)
+	// A wrong password says nothing about the article: it is unavailable,
+	// not missing -- missing blocklists the release (gap fix Y2).
+	require.ErrorIs(t, r.Err, ErrProvidersUnavailable)
+	require.NotErrorIs(t, r.Err, ErrArticleMissing)
 	require.True(t, pool.Stats()[0].Penalised, "a rejected password must not be retried on a tight loop")
+}
+
+// Every server refusing the connection is an outage, not a missing article.
+func TestFetchBatchReportsUnavailableWhenNoServerCanBeAsked(t *testing.T) {
+	a := newStubServer(t)
+	a.greetBusy = true
+	b := newStubServer(t)
+	b.greetBusy = true
+	pool := testPool(t, 2, a.provider("a", 2, 1), b.provider("b", 2, 2))
+
+	r, err := pool.Fetch(context.Background(), "down@clustarr.test")
+	require.NoError(t, err)
+	require.ErrorIs(t, r.Err, ErrProvidersUnavailable)
+	require.NotErrorIs(t, r.Err, ErrArticleMissing)
+
+	// And once both sit out their penalty, the next batch asks nobody at
+	// all -- still unavailable, never missing.
+	r, err = pool.Fetch(context.Background(), "down@clustarr.test")
+	require.NoError(t, err)
+	require.ErrorIs(t, r.Err, ErrProvidersUnavailable)
+}
+
+// One server answering "no such article" is enough to call it missing, even
+// when the other could not be asked.
+func TestFetchBatchReportsMissingWhenAServerAnswered(t *testing.T) {
+	answers := newStubServer(t)
+	id := "gone@clustarr.test"
+	answers.refuse[id] = 430
+	down := newStubServer(t)
+	down.greetBusy = true
+	pool := testPool(t, 2, answers.provider("answers", 2, 1), down.provider("down", 2, 2))
+
+	r, err := pool.Fetch(context.Background(), id)
+	require.NoError(t, err)
+	require.ErrorIs(t, r.Err, ErrArticleMissing)
+}
+
+// The pre-check cannot judge articles nobody could be asked about.
+func TestExistsReportsUnavailableWhenNoServerCanBeAsked(t *testing.T) {
+	down := newStubServer(t)
+	down.greetBusy = true
+	pool := testPool(t, 4, down.provider("down", 2, 1))
+
+	missing, err := pool.Exists(context.Background(), []string{"x@clustarr.test", "y@clustarr.test"})
+	require.ErrorIs(t, err, ErrProvidersUnavailable)
+	require.Empty(t, missing, "an unasked article must not be reported missing")
 }
 
 func TestExistsFindsMissingArticlesAcrossProviders(t *testing.T) {

@@ -97,6 +97,13 @@ type Config struct {
 	// Debug turns on anacrolix's own verbose logging.
 	Debug bool
 
+	// StallTimeout is how long an unfinished, unpaused transfer may go
+	// without downloading a byte before it is failed with
+	// DownloadFailureStalled (DownloadClient.spec.torrent.stallTimeout).
+	// Zero disables stall detection -- the zero value, so a Config built
+	// without it (every test before gap fix Y2) behaves as it always did.
+	StallTimeout time.Duration
+
 	// Logger, if set, receives anacrolix's internal log lines. anacrolix
 	// takes a single *slog.Logger at construction rather than one per call,
 	// so it cannot ride the request context the way this package's own
@@ -125,6 +132,12 @@ type session struct {
 	paused   bool
 	imported bool
 
+	// activeSince is when the transfer last became able to make progress:
+	// its Add in this process -- including a re-attach, so an engine restart
+	// never counts downtime as a stall -- or its last Resume. The stall
+	// clock never reaches back past it.
+	activeSince time.Time
+
 	failed        bool
 	failureReason downloadv1alpha1.DownloadFailureReason
 	message       string
@@ -132,6 +145,18 @@ type session struct {
 	hasSeedCriteria bool
 	seedCriteria    commonv1alpha1.SeedCriteria
 	completedAt     time.Time
+
+	// seedGoalMet is sticky: once the goal is met the torrent stops
+	// uploading (DisallowDataUpload, design spec §6.3), so nothing after it
+	// could un-meet it anyway. seedGoalMetAt is when, and where the
+	// reported seed time stops counting.
+	seedGoalMet   bool
+	seedGoalMetAt time.Time
+
+	// lastUploadAt is when uploadedBytes last increased, for the seed
+	// criteria's inactiveTime.
+	lastUploadAt    time.Time
+	lastUploadBytes int64
 
 	hasProgress       bool
 	lastProgressAt    time.Time
@@ -285,6 +310,7 @@ func (c *Client) Add(ctx context.Context, req download.AddRequest) (string, erro
 	sess.mu.Lock()
 	sess.contentRoot = dir
 	sess.addedAt = addedAt
+	sess.activeSince = time.Now()
 	sess.paused = req.Paused
 	if req.SeedCriteria != nil {
 		sess.seedCriteria = *req.SeedCriteria
@@ -376,11 +402,22 @@ func (c *Client) Resume(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	t.AllowDataDownload()
-	t.AllowDataUpload()
 	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	// A failed transfer stays stopped and a torrent past its seed goal
+	// stays off the swarm: Resume undoes a Pause, not a failure or the goal.
+	if !sess.failed {
+		t.AllowDataDownload()
+	}
+	if !sess.seedGoalMet {
+		t.AllowDataUpload()
+	}
+	if sess.paused {
+		// A paused transfer makes no progress by design, so the stall clock
+		// starts again from here rather than counting the pause.
+		sess.activeSince = time.Now()
+	}
 	sess.paused = false
-	sess.mu.Unlock()
 	return nil
 }
 

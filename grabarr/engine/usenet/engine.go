@@ -193,6 +193,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return r.reconcileImported(ctx, &dl)
 	}
 
+	// Before getOrAdd, which re-adds a transfer the client does not know:
+	// a failed Download's removed job must stay removed.
+	if engine.Stopped(&dl) {
+		return r.reconcileStopped(ctx, log, &dl)
+	}
+
 	item, err := r.getOrAdd(ctx, log, &dl)
 	if err != nil {
 		if r.Recorder != nil {
@@ -335,6 +341,38 @@ func (r *Reconciler) reconcileImported(ctx context.Context, dl *downloadv1alpha1
 		if err := r.Download.Remove(ctx, id, false); err != nil && !errors.Is(err, download.ErrNotFound) {
 			return ctrl.Result{}, err
 		}
+	}
+	return ctrl.Result{}, nil
+}
+
+// reconcileStopped removes the job of a Download the controller has failed
+// or blocklisted (or that is labelled blocklisted), and adds nothing for one
+// that never had a job: Sonarr's "Remove Failed", on by default there. A
+// failed usenet job is terminal inside the client already, but it keeps its
+// scratch directory -- up to the whole release on a volume sized for a few
+// -- and, if it published, its content on the shared volume; Remove
+// discards the scratch job always and the published content per
+// spec.removeDataOnDelete. The Download object stays as the record and,
+// blocklisted, as the blocklist entry.
+//
+// It acts on the controller's verdict, never on the job's own status, so
+// status.engineFailureReason is recorded as status.failureReason before the
+// job that reported it is gone; and it writes no telemetry, so that report
+// is not released afterwards.
+func (r *Reconciler) reconcileStopped(ctx context.Context, log *slog.Logger, dl *downloadv1alpha1.Download) (ctrl.Result, error) {
+	id := dl.Status.DownloadID
+	if id == "" {
+		return ctrl.Result{}, nil
+	}
+	deleteData := removeDataOnDelete(dl)
+	err := r.Download.Remove(ctx, id, deleteData)
+	switch {
+	case errors.Is(err, download.ErrNotFound):
+	case err != nil:
+		return ctrl.Result{}, err
+	default:
+		log.Info("usenet engine: removed the job of a failed Download",
+			"id", id, "phase", dl.Status.Phase, "reason", dl.Status.FailureReason, "deleteData", deleteData)
 	}
 	return ctrl.Result{}, nil
 }

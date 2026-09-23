@@ -460,9 +460,10 @@ func setupTorrentEngine(
 
 	enableDHT := dc.Spec.Torrent.EnableDHT == nil || *dc.Spec.Torrent.EnableDHT
 	rawClient, err := dltorrent.New(dltorrent.Config{
-		DataDir:    torrentDataDir,
-		ListenPort: int(dc.Spec.Torrent.ListenPort),
-		NoDHT:      !enableDHT,
+		DataDir:      torrentDataDir,
+		ListenPort:   int(dc.Spec.Torrent.ListenPort),
+		NoDHT:        !enableDHT,
+		StallTimeout: torrent.StallTimeout(dc.Spec.Torrent),
 		// Seed keeps a completed torrent uploading once finished; a
 		// DownloadClient exists to run the engine spec.seedCriteria (via
 		// Download.spec.seedCriteria/DownloadClientSpec.Torrent.Seed)

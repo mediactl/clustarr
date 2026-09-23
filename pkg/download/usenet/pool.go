@@ -47,6 +47,22 @@ var ErrArticleMissing = errors.New("usenet: article not available on any configu
 // ErrNoProviders is returned by [New] when no usable provider is configured.
 var ErrNoProviders = errors.New("usenet: no usable NNTP provider configured")
 
+// ErrProvidersUnavailable is the outcome when NO configured server could be
+// asked for an article: every one refused the connection, rejected the
+// credentials, sat out a penalty, had spent its quota, or dropped the
+// connection before answering for it.
+//
+// It is deliberately not [ErrArticleMissing]. "Missing" is a verdict on the
+// release -- the article is gone -- and it now blocklists the release (gap
+// fix Y2); an outage or a wrong password is a verdict on this client's
+// providers, and blocklisting every release grabbed while the password was
+// wrong would burn through the whole search result. Before Y2 the two were
+// the same sentinel, which was survivable only because nothing acted on a
+// missingArticles failure. The job waits for a provider instead
+// ([job.run]), the way SABnzbd and NZBGet keep a queue waiting on a down
+// server rather than failing it.
+var ErrProvidersUnavailable = errors.New("usenet: no configured server could be asked for the article")
+
 // Provider is one upstream usenet server, flattened from
 // downloadv1alpha1.NNTPProvider with its Secret already resolved. The engine
 // resolves credentials; this package never reads a Secret.
@@ -361,6 +377,11 @@ func (p *Pool) Stats() []ServerStats {
 // provider is tried. Failing that over too is what keeps one provider's bad
 // hour from failing a download.
 //
+// An article no server gave an answer for at all -- not a 430, not a
+// corrupt body, because none could be asked -- is [ErrProvidersUnavailable],
+// not ErrArticleMissing. "430 on every server" is the release's fault;
+// "every server unreachable" is not.
+//
 // Results are returned in request order and are always len(ids) long. The
 // returned error is non-nil only when ctx was cancelled; per-article outcomes
 // are in Result.Err.
@@ -373,6 +394,10 @@ func (p *Pool) FetchBatch(ctx context.Context, ids []string) ([]Result, error) {
 	// zero-length body is indistinguishable from an unfetched one, and
 	// "never finishes" is a worse failure than "fetched an empty article".
 	done := make([]bool, len(ids))
+	// answered is true once some server gave a per-article response for
+	// the id -- a refusal, a corrupt body or the article itself -- which is
+	// what separates a missing article from one nobody could be asked for.
+	answered := make([]bool, len(ids))
 	pending := make([]int, 0, len(ids))
 	for i := range ids {
 		res[i] = Result{Index: i, Err: ErrArticleMissing}
@@ -404,6 +429,7 @@ func (p *Pool) FetchBatch(ctx context.Context, ids []string) ([]Result, error) {
 		err := s.withConn(ctx, func(c *conn) error {
 			return c.pipeline(ctx, "BODY", batch, p.depth, 222, true, func(i int, r io.Reader, ferr error) error {
 				idx := pending[i]
+				answered[idx] = true
 				if ferr != nil {
 					// 430 and friends: leave it pending for the next server.
 					res[idx].Err = ferr
@@ -454,12 +480,16 @@ func (p *Pool) FetchBatch(ctx context.Context, ids []string) ([]Result, error) {
 		return res, err
 	}
 	for _, idx := range pending {
-		// Every server refused or failed. Keep the last cause visible but
-		// make the sentinel the one callers test for.
+		// Every server refused, failed, or could not be asked. Keep the
+		// last cause visible but make the sentinel the one callers test for.
+		sentinel := ErrArticleMissing
+		if !answered[idx] {
+			sentinel = ErrProvidersUnavailable
+		}
 		if res[idx].Err != nil && !errors.Is(res[idx].Err, ErrArticleMissing) {
-			res[idx].Err = fmt.Errorf("%w: last error: %w", ErrArticleMissing, res[idx].Err)
+			res[idx].Err = fmt.Errorf("%w: last error: %w", sentinel, res[idx].Err)
 		} else {
-			res[idx].Err = ErrArticleMissing
+			res[idx].Err = sentinel
 		}
 	}
 	return res, nil
@@ -478,6 +508,11 @@ func (p *Pool) Fetch(ctx context.Context, id string) (Result, error) {
 // pre-check SABnzbd calls "Check before download": a cheap sweep that decides
 // whether to commit disk and quota to a download at all.
 //
+// An id no server answered for at all is not counted missing: when there are
+// any, Exists returns the ones it did establish as missing together with
+// [ErrProvidersUnavailable], and the caller skips the verdict rather than
+// failing a release it could not look at.
+//
 // STAT transfers nothing, so it pipelines much deeper than BODY.
 func (p *Pool) Exists(ctx context.Context, ids []string) ([]string, error) {
 	ctx, span := tracing.Start(ctx, "usenet.pool.exists")
@@ -486,10 +521,14 @@ func (p *Pool) Exists(ctx context.Context, ids []string) ([]string, error) {
 	const statDepth = 32
 
 	found := make([]bool, len(ids))
+	// An invalid id is answered by construction: no server will ever hold it.
+	answered := make([]bool, len(ids))
 	pending := make([]int, 0, len(ids))
 	for i := range ids {
 		if validMessageID(ids[i]) {
 			pending = append(pending, i)
+		} else {
+			answered[i] = true
 		}
 	}
 
@@ -510,6 +549,7 @@ func (p *Pool) Exists(ctx context.Context, ids []string) ([]string, error) {
 		depth := max(p.depth, statDepth)
 		_ = s.withConn(ctx, func(c *conn) error {
 			return c.pipeline(ctx, "STAT", batch, depth, 223, false, func(i int, _ io.Reader, ferr error) error {
+				answered[pending[i]] = true
 				if ferr == nil {
 					found[pending[i]] = true
 				}
@@ -526,10 +566,18 @@ func (p *Pool) Exists(ctx context.Context, ids []string) ([]string, error) {
 	}
 
 	missing := make([]string, 0, len(pending))
+	unasked := 0
 	for i := range ids {
-		if !found[i] {
+		switch {
+		case found[i]:
+		case answered[i]:
 			missing = append(missing, ids[i])
+		default:
+			unasked++
 		}
+	}
+	if unasked > 0 {
+		return missing, fmt.Errorf("%w: %d of %d articles could not be checked", ErrProvidersUnavailable, unasked, len(ids))
 	}
 	return missing, nil
 }
