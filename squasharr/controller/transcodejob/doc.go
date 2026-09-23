@@ -32,14 +32,22 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // reason in message and the Planned condition (ruling R1: PlanMode has no
 // reject value, and Skipped already means "decided not to transcode").
 //
-// A container change (an .mp4 source under an mkv profile, or the reverse)
-// is also Skipped with status.plan unset (ruling R8): the worker writes over
-// the source PATH, so it would put one container's data behind the other's
-// extension, and there is no library path migration yet.
+// The output's location is squasharr/worker.OutputPath (gap-fix ruling
+// R-11): in place for a same-container profile, a new name beside the
+// source for a container change (an .mp4 source under an mkv profile, or the
+// reverse -- Phase E's ruling R8 skipped these; they are now transcoded, with
+// Planned=True reason ContainerChange naming the new path), and a
+// "<stem> - <profile>" name beside a source policy.replaceSource=false
+// keeps. An explicit spec.outputPath the profile's container contradicts is
+// Failed (InvalidOutput) at plan time.
 //
-// The profile is converted with squasharr/worker.ProfileSpec, the worker's
-// own converter, so the plan recorded here is made from the profile the
-// worker executes.
+// The plan is made through pkg/transcode.FromSummary from the stored probe,
+// with the profile converted by squasharr/worker.ProfileSpec, the worker's
+// own converter, the thread count the Job's Downward API will hand the
+// worker, and the worker's output path -- so status.plan, HDR arguments
+// included, is the argv the worker renders from its live probe of the same
+// bytes, and status.plan.argsHash is that argv's hash
+// (TestStatusPlanIsTheArgvTheWorkerRenders).
 //
 // Queued: a batch/v1 Job is created suspended (job.go). Its podFailurePolicy
 // is ruling R4's contract with the worker: DisruptionTarget is ignored, exit

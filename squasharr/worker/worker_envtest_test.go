@@ -129,6 +129,13 @@ type fixtureOptions struct {
 	// createProfile creates the TranscodeProfile named name instead of the
 	// typed create newFixture does. status.hash is set afterwards either way.
 	createProfile func(t *testing.T, c client.Client, name string)
+
+	// fileName replaces the source's file name, Film.2020.1080p.mkv; its
+	// extension picks the source's container.
+	fileName string
+
+	// mutateProfile edits the default typed profile before it is created.
+	mutateProfile func(*transcodev1alpha1.TranscodeProfile)
 }
 
 func newFixture(t *testing.T, c client.Client) *fixture {
@@ -140,16 +147,20 @@ func newFixtureWith(t *testing.T, c client.Client, fo fixtureOptions) *fixture {
 	t.Helper()
 	ctx := context.Background()
 	fixtureSeq++
+	fileName := fo.fileName
+	if fileName == "" {
+		fileName = "Film.2020.1080p.mkv"
+	}
 	f := &fixture{
 		ns:          fmt.Sprintf("worker-%d", fixtureSeq),
 		job:         "film-2020-abcd1234",
 		dataDir:     t.TempDir(),
-		logical:     "/data/media/movies/Film (2020)/Film.2020.1080p.mkv",
+		logical:     "/data/media/movies/Film (2020)/" + fileName,
 		profileName: fmt.Sprintf("worker-test-%d", fixtureSeq),
 		profileHash: "cafe1234",
 	}
-	f.local = filepath.Join(f.dataDir, "media/movies/Film (2020)/Film.2020.1080p.mkv")
-	f.seed = filepath.Join(f.dataDir, "torrents/Film.2020.1080p.mkv")
+	f.local = filepath.Join(f.dataDir, "media/movies/Film (2020)", fileName)
+	f.seed = filepath.Join(f.dataDir, "torrents", fileName)
 	f.bin = filepath.Join(f.dataDir, ".recycle")
 
 	// A two-second H.264 + AAC clip: not compliant, so the plan encodes.
@@ -197,7 +208,7 @@ func newFixtureWith(t *testing.T, c client.Client, fo fixtureOptions) *fixture {
 	if fo.createProfile != nil {
 		fo.createProfile(t, c, f.profileName)
 	} else {
-		require.NoError(t, c.Create(ctx, &transcodev1alpha1.TranscodeProfile{
+		tp := &transcodev1alpha1.TranscodeProfile{
 			ObjectMeta: metav1.ObjectMeta{Name: f.profileName},
 			Spec: transcodev1alpha1.TranscodeProfileSpec{
 				Video: transcodev1alpha1.VideoSpec{Preset: "ultrafast"},
@@ -212,7 +223,11 @@ func newFixtureWith(t *testing.T, c client.Client, fo fixtureOptions) *fixture {
 					MaxOutputToSourcePercent: ptr.To[int32](10_000),
 				},
 			},
-		}))
+		}
+		if fo.mutateProfile != nil {
+			fo.mutateProfile(tp)
+		}
+		require.NoError(t, c.Create(ctx, tp))
 	}
 	tp := &transcodev1alpha1.TranscodeProfile{}
 	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: f.profileName}, tp))
@@ -618,9 +633,8 @@ func TestRunWithRecycleBinOffSwapsWithoutRecycling(t *testing.T) {
 }
 
 // replaceSource=false is a v1 spec value (gap-fix ruling R-11), so the
-// apiserver admits it; the CEL rule that refused it is gone. Until the worker
-// implements it (X10) the worker still refuses such a profile at run time
-// rather than replacing the source anyway.
+// apiserver admits it; the CEL rule that refused it is gone, and the worker
+// honours it (TestRunWithReplaceSourceFalseKeepsTheSource).
 func TestTheAPIAdmitsReplaceSourceFalse(t *testing.T) {
 	c := requireCluster(t)
 	require.NoError(t, createProfileFromYAML(t, c, "replace-source-false", "  policy:\n    replaceSource: false\n"))
@@ -645,4 +659,131 @@ func statusFieldsOwnedBy(t *testing.T, tj *transcodev1alpha1.TranscodeJob, mgr k
 	}
 	sort.Strings(got)
 	return got
+}
+
+// --- gap-fix ruling R-11: output location, container change, kept source ---
+
+// A container change (an .mp4 source under the default mkv profile) is
+// transcoded to <stem>.mkv beside the source; once that is in place the
+// source is retired to the recycle bin, the seeding link is untouched, and
+// status.result names the new path for catalogarr to take spec.path from.
+func TestRunChangesTheContainerAndRetiresTheSource(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	f := newFixtureWith(t, c, fixtureOptions{fileName: "Film.2020.1080p.mp4"})
+	wantLogical := "/data/media/movies/Film (2020)/Film.2020.1080p.mkv"
+	wantLocal := filepath.Join(f.dataDir, "media/movies/Film (2020)/Film.2020.1080p.mkv")
+
+	code, err := Run(context.Background(), c, f.options())
+	require.NoError(t, err)
+	require.Equal(t, ExitOK, code)
+
+	codec, tag := videoCodec(t, wantLocal)
+	assert.Equal(t, "hevc", codec, "the output must be at <stem>.mkv")
+	assert.Equal(t, f.profileName+"@"+f.profileHash, tag)
+	mi, _, err := mediainfo.Probe(context.Background(), wantLocal)
+	require.NoError(t, err)
+	assert.Equal(t, "mkv", mi.Container, "mkv data behind an .mkv name, not the .mp4 one")
+	_, err = os.Stat(f.local)
+	assert.ErrorIs(t, err, os.ErrNotExist, "the .mp4 source must be retired from the library")
+	entries := f.binEntries(t)
+	require.Len(t, entries, 1)
+	recycled, err := os.ReadFile(filepath.Join(f.bin, entries[0]))
+	require.NoError(t, err)
+	assert.True(t, bytes.Equal(f.original, recycled), "the recycled file is the original")
+	seed, err := os.ReadFile(f.seed)
+	require.NoError(t, err)
+	assert.True(t, bytes.Equal(f.original, seed), "the seeding link is untouched (§6.4)")
+	assert.Empty(t, f.partFiles(t))
+
+	res := f.get(t, c).Status.Result
+	require.NotNil(t, res)
+	assert.Equal(t, wantLogical, res.OutputPath)
+}
+
+// replaceSource=false writes the output under the multiple-version name
+// beside the source and leaves the source exactly as it was.
+func TestRunWithReplaceSourceFalseKeepsTheSource(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	f := newFixtureWith(t, c, fixtureOptions{mutateProfile: func(tp *transcodev1alpha1.TranscodeProfile) {
+		tp.Spec.Policy.ReplaceSource = ptr.To(false)
+	}})
+	name := "Film.2020.1080p - " + f.profileName + ".mkv"
+	outLocal := filepath.Join(f.dataDir, "media/movies/Film (2020)", name)
+
+	code, err := Run(context.Background(), c, f.options())
+	require.NoError(t, err)
+	require.Equal(t, ExitOK, code)
+
+	codec, tag := videoCodec(t, outLocal)
+	assert.Equal(t, "hevc", codec)
+	assert.Equal(t, f.profileName+"@"+f.profileHash, tag)
+	f.requireSourceUntouched(t)
+	res := f.get(t, c).Status.Result
+	require.NotNil(t, res)
+	assert.Equal(t, "/data/media/movies/Film (2020)/"+name, res.OutputPath)
+}
+
+// plantOutput puts a small mkv at path, tagged CLUSTARR_PROFILE=tag when
+// tag is non-empty.
+func plantOutput(t *testing.T, path, tag string) []byte {
+	t.Helper()
+	args := []string{
+		"-hide_banner", "-loglevel", "error", "-y",
+		"-f", "lavfi", "-i", "testsrc2=size=160x120:rate=24:duration=1",
+		"-c:v", "libx265", "-preset", "ultrafast", "-x265-params", "log-level=none", "-pix_fmt", "yuv420p10le",
+	}
+	if tag != "" {
+		args = append(args, "-metadata", "CLUSTARR_PROFILE="+tag)
+	}
+	out, err := exec.Command(ffmpegBin, append(args, "-f", "matroska", path)...).CombinedOutput()
+	require.NoError(t, err, string(out))
+	b, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return b
+}
+
+// A crash after the output took its new name but before the source was
+// retired leaves both. The retry must not transcode again: it finds this
+// profile's tag on the output, retires the source, and records the result.
+func TestRunAfterACrashPostPlaceRetiresTheSourceWithoutTranscoding(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	f := newFixtureWith(t, c, fixtureOptions{fileName: "Film.2020.1080p.mp4"})
+	outLocal := filepath.Join(f.dataDir, "media/movies/Film (2020)/Film.2020.1080p.mkv")
+	placed := plantOutput(t, outLocal, f.profileName+"@"+f.profileHash)
+
+	code, err := Run(context.Background(), c, f.options())
+	require.NoError(t, err)
+	require.Equal(t, ExitOK, code)
+
+	got, err := os.ReadFile(outLocal)
+	require.NoError(t, err)
+	assert.True(t, bytes.Equal(placed, got), "the placed output must not be encoded again")
+	_, err = os.Stat(f.local)
+	assert.ErrorIs(t, err, os.ErrNotExist, "the retry must finish retiring the source")
+	assert.Len(t, f.binEntries(t), 1)
+	res := f.get(t, c).Status.Result
+	require.NotNil(t, res)
+	assert.Equal(t, "/data/media/movies/Film (2020)/Film.2020.1080p.mkv", res.OutputPath)
+}
+
+// A file already at the output path that is NOT this transcode -- no tag --
+// is never overwritten: the job fails outright (exit 3) and both files stay.
+func TestRunRefusesToOverwriteAnUnrelatedFileAtTheOutputPath(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	f := newFixtureWith(t, c, fixtureOptions{fileName: "Film.2020.1080p.mp4"})
+	outLocal := filepath.Join(f.dataDir, "media/movies/Film (2020)/Film.2020.1080p.mkv")
+	theirs := plantOutput(t, outLocal, "")
+
+	code, err := Run(context.Background(), c, f.options())
+	require.Error(t, err)
+	require.Equal(t, ExitInvalidSource, code)
+
+	got, err := os.ReadFile(outLocal)
+	require.NoError(t, err)
+	assert.True(t, bytes.Equal(theirs, got), "the unrelated file must be untouched")
+	f.requireSourceUntouched(t)
 }

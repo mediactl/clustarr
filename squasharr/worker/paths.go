@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 )
 
 // LogicalDataRoot is where every path stored in a CRD lives: RootFolder
@@ -71,4 +72,66 @@ func rootFolderFor(folders []catalogv1alpha1.RootFolder, source string) *catalog
 		}
 	}
 	return best
+}
+
+// OutputPath is where a TranscodeJob's verified output finally lives: the
+// output location gap-fix ruling R-11 asks for, from design spec §4.5
+// (TranscodeJobSpec.OutputPath, "default <stem>.mkv beside source";
+// PolicySpec.ReplaceSource) and §6.4 ("atomic rename over the source path
+// (source -> recycle bin)"; "replaces the library hardlink only").
+//
+//   - spec.outputPath, when set, wins. It must be absolute, carry the
+//     profile's container extension (a .mp4 name over mkv data is exactly
+//     what ruling R8 refused), and -- with replaceSource=false -- must not
+//     be the source itself, which would contradict keeping it.
+//   - Otherwise, replaceSource=true: <stem>.<container> beside the source,
+//     §4.5's default with the profile's container in place of the mkv
+//     default. For a same-container profile that IS the source path and the
+//     output replaces it in place; for a container change it is the new
+//     name, and the source is retired to the recycle bin once the output is
+//     in place.
+//   - Otherwise, replaceSource=false: "<stem> - <profile>.<container>" beside
+//     the source. §4.5's default would be the source itself for a
+//     same-container profile, so a kept source needs another name; the
+//     " - <label>" suffix is the multiple-version convention Jellyfin and
+//     Plex both read (docs/research/naming.md §A3), so a media server shows
+//     the transcode as a version of the same title rather than as a second
+//     one.
+//
+// The extension comparison ignores case: Film.MKV under an mkv profile is
+// replaced in place, not renamed. Both the TranscodeJob controller (which
+// records the plan) and the worker (which writes the file) call this, so
+// they agree on the path by construction.
+func OutputPath(spec transcodev1alpha1.TranscodeJobSpec, profileName string,
+	container transcodev1alpha1.Container, replaceSource bool,
+) (string, error) {
+	ext := strings.ToLower(string(container))
+	if ext == "" {
+		ext = string(transcodev1alpha1.ContainerMKV)
+	}
+	source := filepath.Clean(spec.SourcePath)
+
+	if spec.OutputPath != nil && *spec.OutputPath != "" {
+		out := filepath.Clean(*spec.OutputPath)
+		if !filepath.IsAbs(out) {
+			return "", fmt.Errorf("spec.outputPath %q is not absolute", *spec.OutputPath)
+		}
+		if got := strings.TrimPrefix(filepath.Ext(out), "."); !strings.EqualFold(got, ext) {
+			return "", fmt.Errorf("spec.outputPath %q has extension %q, but profile %s writes %s", out, got, profileName, ext)
+		}
+		if !replaceSource && out == source {
+			return "", fmt.Errorf("spec.outputPath is the source, but the profile's policy.replaceSource=false keeps the source")
+		}
+		return out, nil
+	}
+
+	srcExt := filepath.Ext(source)
+	stem := strings.TrimSuffix(source, srcExt)
+	if replaceSource {
+		if strings.EqualFold(strings.TrimPrefix(srcExt, "."), ext) {
+			return source, nil
+		}
+		return stem + "." + ext, nil
+	}
+	return stem + " - " + profileName + "." + ext, nil
 }

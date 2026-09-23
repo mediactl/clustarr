@@ -423,15 +423,17 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 		assert.Contains(t, cond.Message, "reject")
 	})
 
-	// Ruling R8: the output replaces the source path, so a container change
-	// is skipped at plan time, in both directions and case-insensitively.
+	// Gap-fix ruling R-11 (superseding Phase E's R8, which skipped these): a
+	// container change is planned to a NEW name beside the source, in both
+	// directions and case-insensitively, and the .part the plan renders is
+	// beside that name; a same-container source in another case is in place.
 	t.Run("container change mp4 to mkv", func(t *testing.T) {
 		newMediaFile(t, c, ns, "mp4src", "p3", ptr.To(h264Probe()))
 		newTJ(t, c, ns, "mp4src-hevc", "mp4src", "hevc", "p3", func(tj *transcodev1alpha1.TranscodeJob) {
 			tj.Spec.SourcePath = "/data/movies/Film (2020)/Film.2020.MP4"
 		})
 		reconcileTJ(t, r, ns, "mp4src-hevc")
-		assertContainerChangeSkipped(t, getTJ(t, c, ns, "mp4src-hevc"))
+		assertContainerChangePlanned(t, getTJ(t, c, ns, "mp4src-hevc"), "/data/movies/Film (2020)/Film.2020.mkv")
 	})
 	t.Run("container change mkv to mp4", func(t *testing.T) {
 		newProfile(t, c, "mp4out", "hash3", func(p *transcodev1alpha1.TranscodeProfile) {
@@ -440,7 +442,7 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 		newMediaFile(t, c, ns, "mkvsrc", "p4", ptr.To(h264Probe()))
 		newTJ(t, c, ns, "mkvsrc-mp4out", "mkvsrc", "mp4out", "p4", nil)
 		reconcileTJ(t, r, ns, "mkvsrc-mp4out")
-		assertContainerChangeSkipped(t, getTJ(t, c, ns, "mkvsrc-mp4out"))
+		assertContainerChangePlanned(t, getTJ(t, c, ns, "mkvsrc-mp4out"), "/data/movies/mkvsrc.mp4")
 	})
 	t.Run("same container in a different case is not a change", func(t *testing.T) {
 		newMediaFile(t, c, ns, "upper", "p5", ptr.To(h264Probe()))
@@ -448,25 +450,67 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 			tj.Spec.SourcePath = "/data/movies/Film (2020)/Film.2020.MKV"
 		})
 		reconcileTJ(t, r, ns, "upper-hevc")
-		assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, getTJ(t, c, ns, "upper-hevc").Status.Phase)
+		tj := getTJ(t, c, ns, "upper-hevc")
+		assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, tj.Status.Phase)
+		cond := k8s.FindCondition(tj.Status.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned)
+		require.NotNil(t, cond)
+		assert.Equal(t, transcodejob.ReasonPlanned, cond.Reason, "in place, not a container change")
+	})
+	// replaceSource=false keeps the source, so the output takes the
+	// multiple-version name beside it.
+	t.Run("replaceSource false", func(t *testing.T) {
+		newProfile(t, c, "keep", "hash4", func(p *transcodev1alpha1.TranscodeProfile) {
+			p.Spec.Policy.ReplaceSource = ptr.To(false)
+		})
+		newMediaFile(t, c, ns, "kept", "p6", ptr.To(h264Probe()))
+		newTJ(t, c, ns, "kept-keep", "kept", "keep", "p6", nil)
+		reconcileTJ(t, r, ns, "kept-keep")
+		tj := getTJ(t, c, ns, "kept-keep")
+		assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, tj.Status.Phase)
+		cond := k8s.FindCondition(tj.Status.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned)
+		require.NotNil(t, cond)
+		assert.Contains(t, cond.Message, "/data/movies/kept - keep.mkv")
+	})
+	// An explicit output path the profile's container contradicts cannot be
+	// honoured: failed at plan time, without spending a pod.
+	t.Run("an output path with the wrong container fails", func(t *testing.T) {
+		newMediaFile(t, c, ns, "wrongext", "p7", ptr.To(h264Probe()))
+		newTJ(t, c, ns, "wrongext-hevc", "wrongext", "hevc", "p7", func(tj *transcodev1alpha1.TranscodeJob) {
+			tj.Spec.OutputPath = ptr.To("/data/movies/wrongext.mp4")
+		})
+		reconcileTJ(t, r, ns, "wrongext-hevc")
+		tj := getTJ(t, c, ns, "wrongext-hevc")
+		assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseFailed, tj.Status.Phase)
+		cond := k8s.FindCondition(tj.Status.Conditions, transcodev1alpha1.TranscodeJobConditionFailed)
+		require.NotNil(t, cond)
+		assert.Equal(t, transcodejob.ReasonInvalidOutput, cond.Reason)
+		assert.Nil(t, tj.Status.JobRef)
 	})
 
 	var jobs batchv1.JobList
 	require.NoError(t, c.List(ctx, &jobs, client.InNamespace(ns)))
-	require.Len(t, jobs.Items, 1, "only the same-container job may create a Job")
-	assert.Equal(t, "upper-hevc", jobs.Items[0].Annotations[transcodejob.AnnotationTranscodeJob])
+	var withJobs []string
+	for _, j := range jobs.Items {
+		withJobs = append(withJobs, j.Annotations[transcodejob.AnnotationTranscodeJob])
+	}
+	assert.ElementsMatch(t, []string{"mp4src-hevc", "mkvsrc-mp4out", "upper-hevc", "kept-keep"}, withJobs,
+		"every planned job, container changes included, creates a Job; the failed one does not")
 }
 
-func assertContainerChangeSkipped(t *testing.T, tj *transcodev1alpha1.TranscodeJob) {
+// assertContainerChangePlanned: the job is planned and queued like any
+// other, its Planned condition names the change and the new path, and its
+// argv writes the .part beside that path.
+func assertContainerChangePlanned(t *testing.T, tj *transcodev1alpha1.TranscodeJob, out string) {
 	t.Helper()
-	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseSkipped, tj.Status.Phase)
-	assert.Nil(t, tj.Status.Plan, "R8: a container change leaves status.plan unset")
-	assert.Nil(t, tj.Status.JobRef)
-	assert.Contains(t, tj.Status.Message, "library path migration")
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, tj.Status.Phase)
+	require.NotNil(t, tj.Status.Plan)
+	assert.Equal(t, transcodev1alpha1.PlanModeTranscode, tj.Status.Plan.Mode)
+	assert.NotNil(t, tj.Status.JobRef)
 	cond := k8s.FindCondition(tj.Status.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned)
 	require.NotNil(t, cond)
-	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, metav1.ConditionTrue, cond.Status)
 	assert.Equal(t, transcodejob.ReasonContainerChange, cond.Reason)
+	assert.Contains(t, cond.Message, out)
 }
 
 // TestPendingUntilDependenciesAndSourceChange: a job waits (Pending) for the

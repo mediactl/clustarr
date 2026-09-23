@@ -28,6 +28,8 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -252,13 +254,6 @@ func (r *runner) run(ctx context.Context) error {
 		// nothing correct to tag with; it will be there shortly.
 		return retriable("squasharr worker: TranscodeProfile %s has no status.hash yet", tp.Name)
 	}
-	if !ReplaceSource(tp.Spec.Policy) {
-		// The CRD refuses replaceSource=false (CEL), so this is a profile
-		// stored before that rule, or a CRD installed without it. Writing
-		// over the source anyway would do the one thing the profile says
-		// not to, and the same profile fails the same way on every retry.
-		return invalidSource("squasharr worker: TranscodeProfile %s sets policy.replaceSource=false, which v1alpha1 does not support", tp.Name)
-	}
 	var mf catalogv1alpha1.MediaFile
 	if err := r.c.Get(ctx, types.NamespacedName{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}, &mf); err != nil {
 		return getErr("MediaFile "+tj.Spec.MediaFileRef, err)
@@ -286,7 +281,38 @@ func (r *runner) run(ctx context.Context) error {
 		return invalidSource("squasharr worker: RootFolder %s recycle bin: %w", rf.Name, err)
 	}
 
-	// 2. Is this the file that was planned? (R3)
+	// Where the output lands (gap-fix ruling R-11; OutputPath). In place is
+	// the Phase E swap; anywhere else is a new file, and the source is then
+	// retired (replaceSource=true) or kept (false).
+	sw := swap{
+		source: source, local: local, bin: bin,
+		replace: ReplaceSource(tp.Spec.Policy), recycle: RecycleBin(tp.Spec.Policy),
+	}
+	sw.out, err = OutputPath(tj.Spec, tp.Name, tp.Spec.Container, sw.replace)
+	if err != nil {
+		return invalidSource("squasharr worker: %w", err)
+	}
+	if sw.localOut, err = localPath(r.o.DataDir, sw.out); err != nil {
+		return invalidSource("squasharr worker: output: %w", err)
+	}
+	if !sw.inPlace() && rootFolderFor(folders.Items, sw.out) == nil {
+		return invalidSource("squasharr worker: output %s is under no RootFolder; refusing to write it", sw.out)
+	}
+	tag := tp.Name + "@" + tp.Status.Hash
+	if tj.Spec.SourceProbeHash == "" {
+		return invalidSource("squasharr worker: spec.sourceProbeHash is empty; cannot prove the source is the planned file")
+	}
+
+	// 2. Is the work already done, and is this the file that was planned? (R3)
+	if !sw.inPlace() {
+		done, err := r.producedEarlier(ctx, sw, tag)
+		if err != nil {
+			return err
+		}
+		if done {
+			return r.finishElsewhere(ctx, sw, tj.Spec.SourceProbeHash, mf.Spec.SizeBytes)
+		}
+	}
 	st, err := os.Stat(local)
 	if errors.Is(err, os.ErrNotExist) {
 		return invalidSource("squasharr worker: source %s does not exist", source)
@@ -297,12 +323,11 @@ func (r *runner) run(ctx context.Context) error {
 	if !st.Mode().IsRegular() {
 		return invalidSource("squasharr worker: source %s is not a regular file", source)
 	}
-	tag := tp.Name + "@" + tp.Status.Hash
 	liveHash := mediainfo.ProbeHash(source, st.Size(), st.ModTime())
-	if tj.Spec.SourceProbeHash == "" {
-		return invalidSource("squasharr worker: spec.sourceProbeHash is empty; cannot prove the source is the planned file")
-	}
 	if liveHash != tj.Spec.SourceProbeHash {
+		if !sw.inPlace() {
+			return invalidSource("squasharr worker: source %s changed since it was planned (probe hash mismatch)", source)
+		}
 		return r.alreadySwappedOrChanged(ctx, &mf, source, local, st, tag)
 	}
 
@@ -339,11 +364,12 @@ func (r *runner) run(ctx context.Context) error {
 		}
 	}
 	plan, err := transcode.Plan(info, profile, caps, transcode.PlanMeta{
-		ProfileName: tp.Name, ProfileHash: tp.Status.Hash, Threads: r.o.Threads,
+		ProfileName: tp.Name, ProfileHash: tp.Status.Hash, Threads: r.o.Threads, OutputPath: sw.localOut,
 	})
 	if err != nil {
 		return invalidSource("squasharr worker: plan: %w", err)
 	}
+	r.compareWithRecordedPlan(ctx, tj.Status.Plan, plan)
 	if plan.Decision == transcode.DecisionSkip || plan.Decision == transcode.DecisionReject {
 		// The controller planned this file for work from the stored probe
 		// of the same bytes. Exiting 0 would report a transcode that never
@@ -353,9 +379,9 @@ func (r *runner) run(ctx context.Context) error {
 	r.tier = string(plan.Tier)
 	log.InfoContext(ctx, "squasharr worker: planned", "decision", plan.Decision, "tier", plan.Tier, "reason", plan.Reason)
 
-	// The .part is written beside the source, so the final rename is on one
+	// The .part is written beside the output, so the final rename is on one
 	// filesystem. Budget for an output as large as the source.
-	if err := fsops.EnsureFreeSpace(filepath.Dir(local), st.Size()); err != nil {
+	if err := fsops.EnsureFreeSpace(filepath.Dir(sw.localOut), st.Size()); err != nil {
 		return retriable("squasharr worker: scratch space: %w", err)
 	}
 
@@ -389,14 +415,30 @@ func (r *runner) run(ctx context.Context) error {
 		return invalidSource("squasharr worker: source %s changed during the encode", source)
 	}
 
-	// 6. The swap (R5). Link the original into the bin, then rename the
-	// verified output over the source path. See the package doc for why
-	// this order and what a crash between any two steps leaves. With
-	// policy.recycleBin=false there is no link: the rename alone drops the
-	// library's name for the original, and a seeding hard link elsewhere
-	// keeps its inode alive regardless.
+	// 6. The swap. See the package doc for why each order and what a crash
+	// between any two steps leaves.
+	if !sw.inPlace() {
+		// Elsewhere (R-11): the verified output takes its own name first, so
+		// the library holds a complete file at every instant, then the source
+		// is retired -- or, with replaceSource=false, kept.
+		if err := fsops.MoveAtomic(plan.Output, sw.localOut); err != nil {
+			removePart(ctx, plan.Output)
+			return retriable("squasharr worker: place output: %w", err)
+		}
+		log.InfoContext(ctx, "squasharr worker: output placed", "output", sw.out, "replaceSource", sw.replace)
+		if err := sw.retireSource(ctx); err != nil {
+			return err
+		}
+		return r.finish(ctx, sw.out, sw.localOut, st.Size())
+	}
+
+	// In place (R5). Link the original into the bin, then rename the
+	// verified output over the source path. With policy.recycleBin=false
+	// there is no link: the rename alone drops the library's name for the
+	// original, and a seeding hard link elsewhere keeps its inode alive
+	// regardless.
 	var recycled string
-	if RecycleBin(tp.Spec.Policy) {
+	if sw.recycle {
 		recycled, err = fsops.RecycleLink(bin, local)
 		if err != nil {
 			removePart(ctx, plan.Output)
@@ -410,6 +452,104 @@ func (r *runner) run(ctx context.Context) error {
 	log.InfoContext(ctx, "squasharr worker: swapped", "recycled", recycled)
 
 	return r.finish(ctx, source, local, st.Size())
+}
+
+// swap is where one run's output goes and what happens to its source.
+type swap struct {
+	source, local string // the source, logical and in this process
+	out, localOut string // the final output, logical and in this process
+	bin           string // the RootFolder's recycle bin, in this process
+	replace       bool   // policy.replaceSource
+	recycle       bool   // policy.recycleBin
+}
+
+// inPlace reports whether the output replaces the source path itself --
+// Phase E's only case, and still the default for a same-container profile.
+func (s swap) inPlace() bool { return s.out == s.source }
+
+// retireSource ends the source's life in the library once the output is in
+// place elsewhere: moved into the recycle bin (policy.recycleBin), or
+// unlinked -- a seeding hard link under /data/torrents keeps its own name
+// either way (§6.4). With replaceSource=false it does nothing. A source
+// already gone is a retry finding its own earlier work, not an error.
+func (s swap) retireSource(ctx context.Context) error {
+	if !s.replace {
+		return nil
+	}
+	if _, err := os.Lstat(s.local); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if s.recycle {
+		recycled, err := fsops.Recycle(s.bin, s.local)
+		if err != nil {
+			return retriable("squasharr worker: recycle source: %w", err)
+		}
+		logging.FromContext(ctx).InfoContext(ctx, "squasharr worker: source retired", "recycled", recycled)
+		return nil
+	}
+	if err := os.Remove(s.local); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return retriable("squasharr worker: remove source: %w", err)
+	}
+	return nil
+}
+
+// producedEarlier reports whether an earlier attempt already placed this
+// transcode's output at its own (not-in-place) path: the file there carries
+// this profile's CLUSTARR_PROFILE tag. A file there WITHOUT that tag is not
+// ours, and is never overwritten -- the job fails outright rather than
+// clobbering a file a user or another job put there.
+func (r *runner) producedEarlier(ctx context.Context, sw swap, tag string) (bool, error) {
+	if _, err := os.Lstat(sw.localOut); errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	} else if err != nil {
+		return false, retriable("squasharr worker: stat output: %w", err)
+	}
+	_, raw, err := mediainfo.Probe(ctx, sw.localOut)
+	if err == nil && raw != nil && raw.Format != nil && formatTag(raw, "CLUSTARR_PROFILE") == tag {
+		logging.FromContext(ctx).InfoContext(ctx,
+			"squasharr worker: the output already carries this profile's tag; an earlier attempt placed it", "output", sw.out)
+		return true, nil
+	}
+	return false, invalidSource("squasharr worker: output path %s already holds a file that is not this transcode; refusing to overwrite it", sw.out)
+}
+
+// finishElsewhere completes a run whose output an earlier attempt already
+// placed: retire the source if that attempt did not get to (only when it is
+// still the planned file -- a source that changed since is not ours to
+// remove), then record the result. sourceSize is the MediaFile's recorded
+// size, the original's, for the ratio.
+func (r *runner) finishElsewhere(ctx context.Context, sw swap, plannedHash string, sourceSize int64) error {
+	if st, err := os.Stat(sw.local); err == nil {
+		if mediainfo.ProbeHash(sw.source, st.Size(), st.ModTime()) != plannedHash {
+			return invalidSource("squasharr worker: source %s changed since it was planned; leaving it and the output %s", sw.source, sw.out)
+		}
+		sourceSize = st.Size()
+		if err := sw.retireSource(ctx); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return retriable("squasharr worker: stat source: %w", err)
+	}
+	return r.finish(ctx, sw.out, sw.localOut, sourceSize)
+}
+
+// compareWithRecordedPlan checks the argv about to run against the
+// controller's status.plan.argsHash. They are built by the same renderer
+// from the same bytes (transcode.FromSummary/FromProbe), so a difference
+// means the two were given different inputs -- a profile with no CPU limit
+// (pools=), a /data mounted elsewhere, an image with a different ffprobe --
+// and is logged, never fatal: the worker's own plan, from the live file, is
+// the one that runs.
+func (r *runner) compareWithRecordedPlan(ctx context.Context, recorded *transcodev1alpha1.Plan, plan *transcode.PlanResult) {
+	if recorded == nil || recorded.ArgsHash == "" {
+		return
+	}
+	got := transcode.ArgsHash(plan)
+	trace.SpanFromContext(ctx).SetAttributes(attribute.Bool("transcode.args_match_plan", got == recorded.ArgsHash))
+	if got != recorded.ArgsHash {
+		logging.FromContext(ctx).WarnContext(ctx, "squasharr worker: the argv differs from the one status.plan records",
+			"planArgsHash", recorded.ArgsHash, "argsHash", got)
+	}
 }
 
 // encode runs ffmpeg with throttled progress applies.
@@ -462,15 +602,16 @@ func (r *runner) alreadySwappedOrChanged(ctx context.Context, mf *catalogv1alpha
 	return invalidSource("squasharr worker: source %s changed since it was planned (probe hash mismatch)", source)
 }
 
-// finish writes status.result for the file now at the source path.
-// sourceSize is the original's size, for the ratio; zero leaves it at 0.
-func (r *runner) finish(ctx context.Context, source, local string, sourceSize int64) error {
+// finish writes status.result for the output now at out (logical; local in
+// this process) -- the source path itself for an in-place swap. sourceSize
+// is the original's size, for the ratio; zero leaves it at 0.
+func (r *runner) finish(ctx context.Context, out, local string, sourceSize int64) error {
 	st, err := os.Stat(local)
 	if err != nil {
 		return retriable("squasharr worker: stat output: %w", err)
 	}
 	result := transcodev1alpha1.Result{
-		OutputPath:            source,
+		OutputPath:            out,
 		OutputSizeBytes:       st.Size(),
 		OutputToSourcePercent: sizePercent(st.Size(), sourceSize),
 	}

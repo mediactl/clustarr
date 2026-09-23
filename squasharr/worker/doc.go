@@ -28,14 +28,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     spec.sourceProbeHash (Phase E ruling R3). A mismatch means the file is
 //     not the one that was planned, and it is never transcoded -- with one
 //     exception, below.
-//  3. Probe, ProbeCapabilities, Plan, EnsureFreeSpace beside the source,
-//     where the .part output is written.
+//  3. Probe, ProbeCapabilities, Plan (from transcode.FromProbe, whose argv
+//     is the one the controller recorded in status.plan from the stored
+//     summary -- a mismatch is logged), EnsureFreeSpace beside the output,
+//     where the .part is written.
 //  4. Runner.Run, with progress applied to status.progress at most every
 //     [Options.ProgressInterval], re-reading the TranscodeJob before every
 //     apply.
 //  5. Verifier.Verify (ruling R2: duration tolerance plus stream layout),
 //     plus the profile's maxOutputToSourcePercent.
-//  6. The swap (ruling R5), then status.result.
+//  6. The swap (ruling R5; R-11 for an output with its own name), then
+//     status.result.
 //
 // # Exit codes are a contract with podFailurePolicy
 //
@@ -47,7 +50,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // environment (the apiserver, the node's ffmpeg build, disk space, a
 // signal).
 //
-// # The swap, and what a retry finds
+// # Where the output goes (gap-fix ruling R-11)
+//
+// [OutputPath] decides, and the TranscodeJob controller plans with the same
+// function: spec.outputPath when set; otherwise <stem>.<container> beside
+// the source when policy.replaceSource is true (the source path itself for a
+// same-container profile -- the in-place swap below -- or a new name for a
+// container change); otherwise "<stem> - <profile>.<container>" beside the
+// source, which is kept. The .part is written beside the final output. A
+// final output outside every RootFolder is refused like a source outside
+// one.
+//
+// # The in-place swap, and what a retry finds
 //
 // The output is verified, then the source is hard-linked into the root
 // folder's recycle bin (fsops.RecycleLink), then the verified output is
@@ -73,14 +87,40 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     the last few milliseconds of an hours-long encode would turn a
 //     finished transcode into a permanently Failed Job.
 //
-// Only the library path is replaced. A seeding copy under /data/torrents
-// is a separate hard link to the original inode; renaming over the library
-// name does not touch it (§6.4).
+// # The swap to a new name, and what a retry finds
 //
-// policy.recycleBin=false skips the link: the rename alone then drops the
-// library's name for the original. policy.replaceSource=false is refused
-// by the CRD, and by [Run] (exit 3) should a stored profile carry it
-// anyway -- the output always replaces the source path in v1alpha1.
+// When the output has its own name (a container change, a kept source, an
+// explicit spec.outputPath), the verified output is renamed to that name
+// first, and only then is the source retired -- moved into the recycle bin
+// (fsops.Recycle), or unlinked under policy.recycleBin=false -- or, under
+// replaceSource=false, left alone. The library holds a complete file at
+// every instant here too. The states a crash can leave:
+//
+//   - before the rename: the source is untouched; the retry transcodes again.
+//   - after the rename, before the retirement: both files exist, and the
+//     output carries this profile's tag. The retry finds that tag on the
+//     output before it does anything else, retires the source if it is
+//     still the planned file, writes status.result and exits 0 -- without
+//     encoding again.
+//   - after the retirement: the source is gone and the tagged output is in
+//     place; the retry finds the tag, has nothing to retire, and records
+//     the result.
+//
+// A file already at the output's name WITHOUT this profile's tag is someone
+// else's: the job fails outright (exit 3) rather than overwrite it.
+//
+// status.result.outputPath names where the output ended up. For anything
+// but an in-place swap that is a new path, and catalogarr's MediaFile
+// reconciler, which takes over spec.path on a swap
+// (catalogv1alpha1.MediaFileSpec.Path's doc), must follow it.
+//
+// Only library paths are ever replaced or retired. A seeding copy under
+// /data/torrents is a separate hard link to the original inode; renaming
+// over, recycling or unlinking the library name does not touch it (§6.4).
+//
+// policy.recycleBin=false skips the recycle bin: the in-place rename, or the
+// unlink of a retired source, then drops the library's name for the original
+// outright.
 //
 // # Status
 //

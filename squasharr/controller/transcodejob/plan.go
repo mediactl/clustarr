@@ -18,16 +18,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package transcodejob
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"path/filepath"
 	"strings"
-	"time"
+
+	corev1 "k8s.io/api/core/v1"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/transcode"
 )
 
@@ -41,108 +38,54 @@ const maxPlanList = 200
 // mediaInfoFromFile builds pkg/transcode's MediaInfo from the probe
 // catalogarr already stored on the MediaFile (ruling R3: the controller role
 // does not mount /data, so it cannot probe; the worker re-probes the live
-// file and refuses on a ProbeHash mismatch).
+// file and refuses on a ProbeHash mismatch), through
+// transcode.FromSummary -- the converter whose argv the worker's
+// transcode.FromProbe matches for the same bytes. So the status.plan this
+// controller records, HDR arguments included, is the argv the worker runs
+// (pkg/transcode's TestFromSummaryAndFromProbeRenderTheSameArgs, and this
+// package's TestStatusPlanIsTheArgvTheWorkerRenders).
 //
-// The stored probe is a summary, so the result is coarser than
-// transcode.FromProbe's: no per-stream colour tags, no mastering-display or
-// content-light side data, no chapter times. None of that changes the
-// DECISION (skip / remuxOnly / encode / reject) or the tier -- those depend
-// only on codec, profile, pixel format, container, audio codecs, modifier,
-// duration, the CLUSTARR_PROFILE tag and the Dolby Vision profile, all of
-// which are stored -- but it can change the rendered x265 HDR params. The
-// status.plan this controller records is therefore the decision and a
-// best-effort render; the worker renders the argv it actually runs from its
-// own live probe.
-//
-// Stream indexes are type-relative (0:a:N), as pkg/transcode expects, not
-// the container-wide indexes the stored probe carries.
-func mediaInfoFromFile(path string, mf *catalogv1alpha1.MediaFile) transcode.MediaInfo {
-	mi := mf.Status.MediaInfo
-	info := transcode.MediaInfo{
-		Path: path,
-		Format: transcode.FormatInfo{
-			Name:        mi.Container,
-			Duration:    time.Duration(mi.RuntimeMillis) * time.Millisecond,
-			SizeBytes:   mf.Spec.SizeBytes,
-			BitRateKbps: int64(mi.VideoBitrateKbps),
-		},
-		Modifier: string(mf.Spec.Quality.Modifier),
+// The summary carries no format tags, so the CLUSTARR_PROFILE tag
+// catalogarr mirrored into status.transcode.profileTag after a swap stands
+// in for the container tag the worker reads; it only ever decides "already
+// transcoded", never an argument.
+func mediaInfoFromFile(path string, mf *catalogv1alpha1.MediaFile) (transcode.MediaInfo, error) {
+	info, err := transcode.FromSummary(path, mf.Status.MediaInfo)
+	if err != nil {
+		return transcode.MediaInfo{}, err
 	}
+	info.Format.SizeBytes = mf.Spec.SizeBytes
+	info.Modifier = string(mf.Spec.Quality.Modifier)
 	if t := mf.Status.Transcode; t != nil && t.ProfileTag != "" {
 		info.Tags = map[string]string{profileTagKey: t.ProfileTag}
 	}
-
-	v := transcode.VideoStream{
-		Codec:     mi.VideoCodec,
-		Profile:   mi.VideoProfile,
-		PixFmt:    mi.PixelFormat,
-		BitDepth:  mi.VideoBitDepth,
-		Width:     mi.Width,
-		Height:    mi.Height,
-		FrameRate: transcode.Rational{Num: int64(mi.FpsMilli), Den: 1000},
-		Duration:  info.Format.Duration,
-		HDR:       transcode.HDRInfo{Format: mi.Hdr},
-	}
-	if mi.DoviProfile != nil {
-		dv := &mediainfo.DoviRecord{Profile: *mi.DoviProfile, RPUPresent: true, BLPresent: true}
-		if mi.DoviBLCompatID != nil {
-			dv.BLSignalCompatibilityID = *mi.DoviBLCompatID
-		}
-		v.HDR.DolbyVision = dv
-	}
-	info.Video = []transcode.VideoStream{v}
-
-	for i, a := range mi.Audio {
-		info.Audio = append(info.Audio, transcode.AudioStream{
-			Index:         int32(i),
-			Codec:         a.Codec,
-			Profile:       a.Profile,
-			Channels:      a.Channels,
-			ChannelLayout: a.ChannelLayout,
-			BitRateKbps:   a.BitrateKbps,
-			Lossless:      losslessAudio(a),
-			Atmos:         atmosAudio(a),
-			Language:      a.Language,
-			Title:         a.Title,
-			Disposition:   transcode.Disposition{Default: a.Default, Comment: a.Commentary},
-		})
-	}
-	for i, s := range mi.Subtitles {
-		info.Subtitles = append(info.Subtitles, transcode.SubtitleStream{
-			Index:       int32(i),
-			Codec:       s.Codec,
-			Bitmap:      s.Bitmap,
-			Language:    s.Language,
-			Title:       s.Title,
-			Disposition: transcode.Disposition{Forced: s.Forced, HearingImpaired: s.HearingImpaired},
-		})
-	}
-	for i := int32(0); i < mi.Attachments; i++ {
-		info.Attachments = append(info.Attachments, transcode.AttachmentStream{Index: i})
-	}
-	return info
+	return info, nil
 }
 
-// losslessAudio restates pkg/transcode's unexported isLosslessAudio over the
-// stored stream summary; KeepOriginal=lossless depends on it.
-func losslessAudio(a commonv1.AudioStream) bool {
-	switch a.Codec {
-	case "flac", "alac", "truehd", "mlp":
-		return true
+// threadsFor is the x265 pools= size the worker will render for a Job built
+// from profile: the Downward API hands it limits.cpu with divisor 1, which
+// the kubelet rounds UP to whole cores (worker.ThreadsFromEnv). The same
+// floored resources buildJob stamps on the container are read, so the two
+// agree. A profile that sets resources but no CPU limit gets the NODE's
+// allocatable CPU from the Downward API, which this controller cannot know;
+// it plans with 0 there, and that job's status.plan differs from its argv in
+// pools= alone (the worker logs the mismatch).
+func threadsFor(profile *transcodev1alpha1.TranscodeProfile) int32 {
+	limits := resourcesFor(profile).Limits
+	cpu, ok := limits[corev1.ResourceCPU]
+	if !ok || cpu.Sign() <= 0 {
+		return 0
 	}
-	return strings.HasPrefix(a.Codec, "pcm_") || (a.Codec == "dts" && a.Profile == "DTS-HD MA")
-}
-
-// atmosAudio restates pkg/transcode's unexported isAtmos.
-func atmosAudio(a commonv1.AudioStream) bool {
-	return strings.Contains(strings.ToLower(a.Profile), "atmos") ||
-		strings.Contains(strings.ToLower(a.Title), "atmos")
+	return int32((cpu.MilliValue() + 999) / 1000)
 }
 
 // containerChange reports whether planning source under a profile that
-// writes container would change the file's container (ruling R8), and
-// returns both sides for the message. The comparison is case-insensitive
-// on the extension; an empty profile container means the CRD default, mkv.
+// writes container changes the file's container, and returns both sides for
+// the Planned condition's message. The comparison is case-insensitive on the
+// extension; an empty profile container means the CRD default, mkv. Since
+// gap-fix ruling R-11 a container change is transcoded -- to a new name
+// beside the source (worker.OutputPath) -- rather than skipped as Phase E's
+// R8 did; this only labels it.
 func containerChange(source string, container transcodev1alpha1.Container) (src, want string, changed bool) {
 	src = strings.ToLower(strings.TrimPrefix(filepath.Ext(source), "."))
 	want = strings.ToLower(string(container))
@@ -212,7 +155,7 @@ func statusPlan(p *transcode.PlanResult) *transcodev1alpha1.Plan {
 		Encoder:  encoderName(p),
 		Mode:     transcodev1alpha1.PlanModeTranscode,
 		HDRMode:  p.HDR.Mode,
-		ArgsHash: argsHash(p),
+		ArgsHash: transcode.ArgsHash(p),
 	}
 	if p.Decision == transcode.DecisionRemuxOnly {
 		out.Mode = transcodev1alpha1.PlanModeRemuxOnly
@@ -230,13 +173,6 @@ func statusPlan(p *transcode.PlanResult) *transcodev1alpha1.Plan {
 	out.AudioTracks = capList(out.AudioTracks)
 	out.SubtitleTracks = capList(p.Subtitles)
 	return out
-}
-
-// argsHash is the sha256 of the full rendered argv, so two plans that would
-// run the same ffmpeg command compare equal.
-func argsHash(p *transcode.PlanResult) string {
-	sum := sha256.Sum256([]byte(strings.Join(transcode.Args(p), "\x00")))
-	return hex.EncodeToString(sum[:])
 }
 
 func capList[T any](s []T) []T {

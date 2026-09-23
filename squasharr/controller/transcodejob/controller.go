@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -77,7 +78,8 @@ const (
 	ReasonPlanned         = "Planned"
 	ReasonSkipped         = "Skipped"
 	ReasonRejected        = "Rejected"
-	ReasonContainerChange = "ContainerChange"
+	ReasonContainerChange = "ContainerChange" // Planned=True's reason when the output changes container (R-11)
+	ReasonInvalidOutput   = "InvalidOutput"
 	ReasonWaiting         = "Waiting"
 	ReasonSourceChanged   = "SourceChanged"
 	ReasonPlanError       = "PlanError"
@@ -304,25 +306,32 @@ func (r *Reconciler) plan(ctx context.Context, tj *transcodev1alpha1.TranscodeJo
 	if source == "" {
 		source = mf.Spec.Path
 	}
-	if src, want, ok := containerChange(source, profile.Spec.Container); ok {
-		// Ruling R8: the worker writes its output over the source PATH
-		// (R5), so a container change would put mkv data behind an .mp4
-		// name, or the reverse. Until a library path migration exists this
-		// is a decision not to transcode, like a reject: Skipped, no plan.
-		now := r.now()
-		msg := fmt.Sprintf("source is .%s but profile %s writes %s: a container change requires a library path migration, which is not yet supported",
-			src, profile.Name, want)
-		st.Phase = transcodev1alpha1.TranscodeJobPhaseSkipped
-		st.Message = msg
-		st.FinishedAt = &now
-		k8s.MarkFalse(tj, &st.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned, ReasonContainerChange, "%s", msg)
+	source = filepath.Clean(source) // the worker's input path, rendered into the argv
+	// Where the output lands (gap-fix ruling R-11): the same function the
+	// worker writes it with, so the plan's .part and argv name the path the
+	// worker uses. A container change or a kept source (replaceSource=false)
+	// is a new name beside the source; Phase E ruling R8's "container change
+	// is Skipped" is gone.
+	outPath, err := worker.OutputPath(tj.Spec, profile.Name, profile.Spec.Container, worker.ReplaceSource(profile.Spec.Policy))
+	if err != nil {
+		r.fail(tj, st, ReasonInvalidOutput, "cannot place the output: %v", err)
+		return ctrl.Result{}, nil
+	}
+	info, err := mediaInfoFromFile(source, &mf)
+	if err != nil {
+		r.fail(tj, st, ReasonPlanError, "planning failed: %v", err)
 		return ctrl.Result{}, nil
 	}
 
 	// worker.ProfileSpec, not a converter of this package's own: the plan
-	// recorded here must be made from the same profile the worker executes.
-	result, err := transcode.Plan(mediaInfoFromFile(source, &mf), worker.ProfileSpec(profile.Spec, tj.Spec.Hardware),
-		allEncoders(), transcode.PlanMeta{ProfileName: profile.Name, ProfileHash: profile.Status.Hash})
+	// recorded here must be made from the same profile the worker executes,
+	// with the same thread count and output path, so status.plan.argsHash is
+	// the hash of the worker's argv.
+	result, err := transcode.Plan(info, worker.ProfileSpec(profile.Spec, tj.Spec.Hardware), allEncoders(),
+		transcode.PlanMeta{
+			ProfileName: profile.Name, ProfileHash: profile.Status.Hash,
+			Threads: threadsFor(profile), OutputPath: outPath,
+		})
 	if err != nil {
 		// Plan errors only on inputs that no retry fixes (no video stream,
 		// an unknown hardware class the CRD enum should already reject).
@@ -349,8 +358,16 @@ func (r *Reconciler) plan(ctx context.Context, tj *transcodev1alpha1.TranscodeJo
 		st.Phase = transcodev1alpha1.TranscodeJobPhasePlanned
 		st.Plan = statusPlan(result)
 		st.Message = result.Reason
-		k8s.MarkTrue(tj, &st.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned, ReasonPlanned,
-			"%s with %s", st.Plan.Mode, st.Plan.Encoder)
+		reason, where := ReasonPlanned, ""
+		if outPath != source {
+			where = "; output " + outPath
+			if src, want, changed := containerChange(source, profile.Spec.Container); changed {
+				reason = ReasonContainerChange
+				where = fmt.Sprintf("; .%s becomes %s at %s", src, want, outPath)
+			}
+		}
+		k8s.MarkTrue(tj, &st.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned, reason,
+			"%s with %s%s", st.Plan.Mode, st.Plan.Encoder, where)
 	}
 	return ctrl.Result{}, nil
 }

@@ -292,3 +292,74 @@ func TestPercentOf(t *testing.T) {
 	assert.Equal(t, int32(100), percentOf(transcode.Progress{Percent: 100}, 1000))
 	assert.Equal(t, int32(0), percentOf(transcode.Progress{OutTimeMillis: -5}, 1000))
 }
+
+// OutputPath is gap-fix ruling R-11's output location, shared by the
+// controller's plan and the worker's write.
+func TestOutputPath(t *testing.T) {
+	const src = "/data/media/movies/Film (2020)/Film (2020).mkv"
+	spec := func(source string, out *string) transcodev1alpha1.TranscodeJobSpec {
+		return transcodev1alpha1.TranscodeJobSpec{SourcePath: source, OutputPath: out}
+	}
+	for _, tc := range []struct {
+		name      string
+		spec      transcodev1alpha1.TranscodeJobSpec
+		container transcodev1alpha1.Container
+		replace   bool
+		want      string
+		wantErr   string
+	}{
+		{name: "same container replaces in place", spec: spec(src, nil), container: "mkv", replace: true, want: src},
+		{name: "an empty container is mkv", spec: spec(src, nil), replace: true, want: src},
+		{
+			name: "case does not make a change", spec: spec("/data/media/movies/F/F.MKV", nil), container: "mkv", replace: true,
+			want: "/data/media/movies/F/F.MKV",
+		},
+		{
+			name: "container change gets the new extension", spec: spec("/data/media/movies/F/F.mp4", nil), container: "mkv", replace: true,
+			want: "/data/media/movies/F/F.mkv",
+		},
+		{
+			name: "mkv to mp4", spec: spec(src, nil), container: "mp4", replace: true,
+			want: "/data/media/movies/Film (2020)/Film (2020).mp4",
+		},
+		{
+			name: "a kept source takes a version name", spec: spec(src, nil), container: "mkv", replace: false,
+			want: "/data/media/movies/Film (2020)/Film (2020) - hevc.mkv",
+		},
+		{
+			name: "a kept source across a container change", spec: spec("/data/media/movies/F/F.avi", nil), container: "mkv", replace: false,
+			want: "/data/media/movies/F/F - hevc.mkv",
+		},
+		{
+			name: "spec.outputPath wins", spec: spec(src, ptr.To("/data/media/movies/Other/Film.mkv")), container: "mkv", replace: true,
+			want: "/data/media/movies/Other/Film.mkv",
+		},
+		{
+			name: "spec.outputPath is cleaned", spec: spec(src, ptr.To("/data/media/movies/./Other//Film.mkv")), container: "mkv", replace: false,
+			want: "/data/media/movies/Other/Film.mkv",
+		},
+		{
+			name: "spec.outputPath must match the container", spec: spec(src, ptr.To("/data/media/x.mp4")), container: "mkv", replace: true,
+			wantErr: "extension",
+		},
+		{
+			name: "spec.outputPath must be absolute", spec: spec(src, ptr.To("x.mkv")), container: "mkv", replace: true,
+			wantErr: "not absolute",
+		},
+		{
+			name: "a kept source cannot be the output", spec: spec(src, ptr.To(src)), container: "mkv", replace: false,
+			wantErr: "keeps the source",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := OutputPath(tc.spec, "hevc", tc.container, tc.replace)
+			if tc.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
