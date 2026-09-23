@@ -322,6 +322,24 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   test file. Restating it is also how `ValidKVKey` shipped permissive:
   nats.go's gate is the character set **plus** no leading `.`, no trailing
   `.` and no `..`, and the first version implemented only the regex.
+- **JetStream raises a pull consumer's MAX_DELIVERIES advisory only on its
+  next delivery attempt, and that needs a waiting pull request.** A `Consume`
+  callback that blocks issues none, so a handler hung inside the callback
+  never gets its message dead-lettered, and its consumer stalls with it
+  (nats-server 2.15 `getNextMsg`). That is why natsbus's callback never blocks
+  and parks a delivery when every `MaxInFlight` slot is busy — and why a test
+  of the hung case once needed `MaxInFlight = MaxDeliver+1` to see the
+  advisory at all.
+- **On a consumer with `BackOff`, nats-server adds `BackOff[n-1] -
+  BackOff[0]` to every delayed nak.** `processNak` stamps the entry
+  `now - AckWait + d`, `checkPending` redelivers once it is `BackOff[n-1]`
+  old, and `BackOff` overrides AckWait with `BackOff[0]`. A retry that asked
+  for `BackOff[n-1]` therefore waited nearly twice that — about 2h, not 1h,
+  on `catalogarr-search-normal`'s fourth attempt — while membus, which has no
+  such arithmetic, waited exactly `d`, so every test on the in-memory bus
+  passed. natsbus now naks for `d - (BackOff[n-1] - BackOff[0])`
+  (`natsbus.nakDelay`), and the contract test measures the real gap between
+  deliveries on both buses.
 - **Use `github.com/dlclark/regexp2`, not stdlib `regexp`, for TRaSH patterns.**
   Go's RE2 rejects 157 of the 2791 custom-format regexes (backtracking,
   lookaround). Set `IgnoreCase` and a `MatchTimeout`.
@@ -443,7 +461,8 @@ pipelining and quota accounting, then PAR2-verifies/repairs (shelling out to
 field-manager sets on `Download.status` — `ControllerFields`
 (`k8s.ManagerGrabarr`, nine fields) and `EngineFields`
 (`k8s.ManagerGrabarrEngine`, twenty-three then, twenty-five since gap fix
-Y2 added `engineFailureReason` and `seedGoalReached`) — and `Patch` refuses any other
+Y2 added `engineFailureReason` and `seedGoalReached`, twenty-six since Z1
+added `healthPaused`) — and `Patch` refuses any other
 manager. `grabarr/controller/downloadclient` reconciles `DownloadClient` into
 its engine workload (a `StatefulSet` per torrent client, a `Deployment` for
 usenet), `DiskSpaceOK` and the blocklist sweep.
@@ -802,6 +821,22 @@ DownloadFailedEvent for one) or a failure older than 24h; the grab records
 `grabbedBy=redownload`. The carried items, including the owner's policy call
 on `importRejected` blocklisting at once, are under *Downloads and events* in
 the remaining-work plan.
+
+Z-wave (done, 2026-09-23; Z1-Z6 plus a final pass, reports in
+`.superpowers/sdd/2026-09-23-gap-fixes/`): every fixable item left open after
+the gap fixes. Downloads read `healthAction` (`pause` holds a job with
+`status.healthPaused` until `spec.paused` is toggled) and `removeCompleted`,
+persist seed counters, blocklist `payloadMismatch`, reach a live transfer
+through `download.Client.SetPriority`, and roll the engine when a start-time
+setting or a usenet provider Secret's data changes (Secrets read by name with
+`get` alone, no watch, so within 5 minutes). natsbus runs `MaxInFlight`
+handlers, `CLUSTARR_ADVISORIES` captures MAX_DELIVERIES advisories durably,
+retries wait exactly their backoff, and the never-used consumers, subjects and
+search-cache bucket are pruned. Engines and the transcode worker write 1 Hz
+telemetry into `clustarr-progress`. RSS matches non-video releases and
+alternate titles; searches send scene numbering. The open list is the
+unchecked items under "Still open after the gap fixes" in the remaining-work
+plan.
 
 Next: Phases D through G and the gap fixes are done (M2-M6) → **Phase H:
 end-to-end proof on kind** is next. Only Phase C's scenarios (5, 7 and 8)
