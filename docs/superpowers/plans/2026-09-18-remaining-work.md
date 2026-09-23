@@ -1213,7 +1213,7 @@ took) and from the spec pass, which checked §5 and §8 against the code.
 
 **Chart and deploy.**
 
-- [ ] `--set keda.enabled=true` fails `values.schema.json`: the enabled KEDA subchart's values merge into `.Values.keda`, whose schema is `additionalProperties: false`, so the KEDA path cannot render at all (X16).
+- [x] **Fixed `8dc52c8`** (the `keda` object admits the subchart's own keys; the three Clustarr keys stay typed). Was: `--set keda.enabled=true` failed `values.schema.json`: the enabled KEDA subchart's values merge into `.Values.keda`, whose schema is `additionalProperties: false`, so the KEDA path cannot render at all (X16).
 - [ ] No Go test pins the render of `indexarr.cardigann.*`; it was verified with `helm template` only (X16).
 - [ ] No KEDA release has been tested against Kubernetes 1.37 yet (2.20.2 is the newest); the `nats`/`nack` dependency versions were not re-checked (X12a). The transcode ScaledJob stays a placeholder template (ruling R7 of Phase E).
 - [ ] Engine pods work only in the release namespace, where their ServiceAccount, data claim and NATS are (X14); a `listenPort` below 1024 binds only where the runtime allows unprivileged low ports (X16).
