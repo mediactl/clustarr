@@ -466,6 +466,7 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 			BindAddress:          bindAddress,
 			Reader:               reader,
 			WaitForSync:          waitForSync,
+			Projected:            proj.Projected,
 			Actions:              acts,
 			Entries:              proj.Entries,
 			Subscribe:            proj.Subscribe,

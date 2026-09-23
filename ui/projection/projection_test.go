@@ -707,3 +707,51 @@ func TestLibraryAndUnmatchedSubscribersShareThePipelineListRound(t *testing.T) {
 	require.EqualValues(t, listCallsPerTick, calls.Load(),
 		"library, unmatched and import-list subscribers must add no List call beyond the one shared round")
 }
+
+// failingReader fails every List until ok is set, standing in for a cluster
+// reader whose first rounds cannot list anything.
+type failingReader struct {
+	client.Reader
+	ok *atomic.Bool
+}
+
+func (r *failingReader) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if !r.ok.Load() {
+		return context.DeadlineExceeded
+	}
+	return r.Reader.List(ctx, list, opts...)
+}
+
+// TestProjectedTurnsTrueOnTheFirstCompletedRound is the projection half of
+// ui's /readyz gate (X14): Projected stays false until a round has
+// completed, a failed round does not count, and the first round that
+// completes -- with no rows, or with a nil reader -- flips it. ui's
+// TestReadyzGatesOnTheFirstProjectionRound holds the other half.
+func TestProjectedTurnsTrueOnTheFirstCompletedRound(t *testing.T) {
+	t.Run("a failing reader keeps it false until a round completes", func(t *testing.T) {
+		var ok atomic.Bool
+		r := &failingReader{Reader: fake.NewClientBuilder().WithScheme(testScheme(t)).Build(), ok: &ok}
+		p := projection.New(r, 20*time.Millisecond)
+		require.False(t, p.Projected(), "Projected before Run")
+
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		go func() { _ = p.Run(ctx) }()
+
+		time.Sleep(100 * time.Millisecond)
+		require.False(t, p.Projected(), "a round that failed to list counted as projected")
+
+		ok.Store(true)
+		require.Eventually(t, p.Projected, 5*time.Second, 10*time.Millisecond,
+			"Projected stayed false after a round completed")
+	})
+
+	t.Run("a nil reader projects at once", func(t *testing.T) {
+		p := projection.New(nil, time.Hour)
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		go func() { _ = p.Run(ctx) }()
+		require.Eventually(t, p.Projected, 5*time.Second, 10*time.Millisecond,
+			"a ui with no cluster never becomes Ready")
+	})
+}

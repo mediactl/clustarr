@@ -93,6 +93,28 @@ func TestLibraryPageRendersItemsWithDataAttributes(t *testing.T) {
 	require.Contains(t, body, `href="/library/default/movie/arrival"`)
 }
 
+// TestLibraryPageShowsAnUnevaluatedCutoffAsAWarning pins the badge colour
+// of the CutoffUnevaluated phase (X1 added it to Movie and Episode): an item
+// whose quality profile could not be resolved needs the user's attention,
+// like CutoffUnmet, so it takes the amber warning badge rather than the
+// neutral in-flight sky blue every phase this switch does not name gets.
+func TestLibraryPageShowsAnUnevaluatedCutoffAsAWarning(t *testing.T) {
+	for _, phase := range []string{"CutoffUnevaluated", "CutoffUnmet"} {
+		item := projection.LibraryItem{
+			Ref:  types.NamespacedName{Namespace: "default", Name: "arrival"},
+			Kind: commonv1.MediaKindMovie, Title: "Arrival", Monitored: true, Phase: phase,
+		}
+		srv := ui.NewServer(t.Context(), ui.Options{
+			Library: func(context.Context) []projection.LibraryItem { return []projection.LibraryItem{item} },
+		})
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library", nil))
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.Contains(t, rec.Body.String(), `bg-amber-500/20 text-amber-300">`+phase+`</span>`,
+			"phase %s is not shown with the amber warning badge", phase)
+	}
+}
+
 // TestLibraryPageRendersRescanToolbarPerRootFolder proves listRootFolders'
 // wiring: a RootFolder seeded into a fake, scheme-matched Reader shows up as
 // its own rescan form in the toolbar.

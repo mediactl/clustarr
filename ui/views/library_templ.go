@@ -905,7 +905,11 @@ func monitoredBadgeClass(monitored bool) string {
 func stagePhaseBadgeClass(phase string) string {
 	const base = "rounded-full px-2 py-0.5 text-xs font-medium "
 	switch phase {
-	case "CutoffUnmet", "Delayed":
+	case "CutoffUnmet", "CutoffUnevaluated", "Delayed":
+		// CutoffUnevaluated (Movie, Episode) is an item whose quality
+		// profile could not be resolved: like CutoffUnmet, something is
+		// wrong with it that the user should look at, so it shares the
+		// warning colour rather than the neutral in-flight sky blue.
 		return base + "bg-amber-500/20 text-amber-300"
 	case "Imported":
 		return base + "bg-emerald-500/20 text-emerald-300"

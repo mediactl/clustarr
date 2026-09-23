@@ -64,6 +64,31 @@ func TestReadyzGatesOnWaitForSync(t *testing.T) {
 		"/readyz must be 200 once the cache has synced")
 }
 
+// TestReadyzGatesOnTheFirstProjectionRound is X14's /readyz gate: a synced
+// cache is not yet a page with rows, so /readyz stays 503 until
+// Options.Projected (projection.Projection.Projected in production) reports
+// the first round done, even with WaitForSync already true. Before it, a
+// fresh pod reported Ready and served empty pages until its first round
+// landed.
+func TestReadyzGatesOnTheFirstProjectionRound(t *testing.T) {
+	var projected atomic.Bool
+	srv := ui.NewServer(t.Context(), ui.Options{
+		WaitForSync: func(context.Context) bool { return true },
+		Projected:   projected.Load,
+	})
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code,
+		"/readyz must be 503 before the first projection round, even with the cache synced")
+
+	projected.Store(true)
+
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	require.Equal(t, http.StatusOK, rec.Code, "/readyz must be 200 once the first round has completed")
+}
+
 // TestReadyzDefaultsToReadyWithNoReaderConfigured is the "keep the
 // no-cluster path working" half of Task D3-0's brief: Options.Reader nil
 // must stay legal, and a ui process with no cluster configured at all (the

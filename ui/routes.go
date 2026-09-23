@@ -93,7 +93,8 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 // empty pages indefinitely with no signal anything is wrong.
 //
 // It answers 503 while Options.WaitForSync reports the cache has not
-// finished syncing, and 200 once it has. A nil Options (no cluster
+// finished syncing or Options.Projected reports no projection round has
+// completed, and 200 once both have. A nil Options (no cluster
 // configured at all) defaults WaitForSync to a function that always returns
 // true -- see [NewServer] -- so this never blocks a cluster-less `clustarr
 // ui` from becoming Ready.
@@ -102,6 +103,11 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	if !s.opts.WaitForSync(r.Context()) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = w.Write([]byte("cluster reader is not synced yet"))
+		return
+	}
+	if !s.opts.Projected() {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("the first projection round has not completed yet"))
 		return
 	}
 	w.WriteHeader(http.StatusOK)

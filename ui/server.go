@@ -186,6 +186,14 @@ type Options struct {
 	// Ready.
 	WaitForSync func(context.Context) bool
 
+	// Projected reports whether the shared projection has completed its
+	// first round -- projection.Projection.Projected. /readyz answers 503
+	// until it returns true as well as WaitForSync: a synced cache is not
+	// yet a projection, and without this gate a fresh pod reported Ready
+	// and served empty pages until the first round landed. A nil Projected
+	// defaults to always true, like a nil WaitForSync.
+	Projected func() bool
+
 	// Logging configures the root logger [Run] builds and installs on the
 	// context every request descends from. The zero value is a reasonable
 	// default: JSON to stderr at info level.
@@ -270,6 +278,9 @@ func NewServer(ctx context.Context, opts Options) *Server {
 	}
 	if opts.WaitForSync == nil {
 		opts.WaitForSync = func(context.Context) bool { return true }
+	}
+	if opts.Projected == nil {
+		opts.Projected = func() bool { return true }
 	}
 	logging.FromContext(ctx).Warn(authWarning)
 	return &Server{opts: opts}

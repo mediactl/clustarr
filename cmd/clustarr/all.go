@@ -223,6 +223,7 @@ func allServices(lo *logging.Options, to *tracing.Options, uiAddr string) []stru
 				BindAddress:          uiAddr,
 				Reader:               reader,
 				WaitForSync:          waitForSync,
+				Projected:            proj.Projected,
 				Actions:              acts,
 				Entries:              proj.Entries,
 				Subscribe:            proj.Subscribe,

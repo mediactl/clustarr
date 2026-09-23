@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -58,6 +59,9 @@ const DefaultInterval = 5 * time.Second
 type Projection struct {
 	reader   client.Reader
 	interval time.Duration
+
+	// projected is set once the first round has completed; see Projected.
+	projected atomic.Bool
 
 	mu             sync.Mutex
 	entries        []pipeline.Entry
@@ -124,6 +128,7 @@ func (p *Projection) tick(ctx context.Context) {
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	defer p.projected.Store(true)
 	p.entries = entries
 	p.downloads = downloads
 	p.library = library
@@ -145,6 +150,16 @@ func (p *Projection) tick(ctx context.Context) {
 		publish(ch, importLists)
 	}
 }
+
+// Projected reports whether a projection round has completed, so every
+// page and stream has something to serve. ui's /readyz gates on it
+// (ui.Options.Projected): a cache that has synced is not yet a page with
+// rows, and before this gate a fresh ui pod reported Ready and served empty
+// pages until its first round landed. A round that fails does not count --
+// the previous snapshot, if any, keeps serving -- and with a nil reader the
+// first round completes at once, with no rows, so a ui with no cluster
+// still becomes Ready.
+func (p *Projection) Projected() bool { return p.projected.Load() }
 
 // publish delivers v to ch without blocking. A slow subscriber -- an SSE
 // connection whose client stopped reading -- gets its stale, buffered frame
