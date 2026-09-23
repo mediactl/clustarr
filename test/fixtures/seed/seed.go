@@ -48,6 +48,22 @@ const BakedClipPath = "/fixtures/media/tiny.mkv"
 // ClipName is the basename Run writes under its destination directory.
 const ClipName = "tiny.mkv"
 
+// HDR10ClipBakedPath is where images/Dockerfile.e2e-fixtures's HDR10
+// clipgen stage places its generated clip in the final image (Task E-5:
+// HEVC 10-bit, BT.2020/PQ, mastering-display and content-light metadata,
+// built with the identical ffmpeg recipe
+// pkg/mediainfo/hdr10_fixture_test.go proves classifies as HDR10). That unit
+// test is this clip's whole proof obligation -- no scenario in test/e2e
+// consumes it as of Phase E, deliberately (see test/e2e/transcode_test.go's
+// package doc comment for why scenario 12 uses the plain probe clip
+// instead) -- Run copies it out anyway so a future HDR-aware scenario has a
+// real, ffprobe-verified HDR10 source ready without a second bake step.
+const HDR10ClipBakedPath = "/fixtures/media/hdr10.mkv"
+
+// HDR10ClipName is the basename Run writes under its destination directory
+// when HDR10ClipBakedPath is present.
+const HDR10ClipName = "hdr10.mkv"
+
 // TorznabDirName is the subdirectory of the seed directory that the
 // torznab-stub appends its request log to. It is created world-writable
 // here, by the HOST user, because the stub pod runs as uid/gid 1000 and a
@@ -103,6 +119,19 @@ func Run(dir string) error {
 		return fmt.Errorf("seed: close %s: %w", dst, err)
 	}
 
+	// The HDR10 clip is optional cargo. Its absence must not fail Run --
+	// tiny.mkv above is what checkDataDir gates the whole suite on, and an
+	// image built before Task E-5 simply has no /fixtures/media/hdr10.mkv --
+	// but if the baked path exists and cannot be copied, that is a real
+	// image defect worth failing loudly on, exactly like tiny.mkv.
+	if _, err := os.Stat(HDR10ClipBakedPath); err == nil {
+		if err := copyFile(HDR10ClipBakedPath, filepath.Join(dir, HDR10ClipName)); err != nil {
+			return fmt.Errorf("seed: copy HDR10 clip: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("seed: stat HDR10 clip: %w", err)
+	}
+
 	reqDir := filepath.Join(dir, TorznabDirName)
 	if err := os.MkdirAll(reqDir, 0o777); err != nil {
 		return fmt.Errorf("seed: mkdir %s: %w", reqDir, err)
@@ -113,4 +142,25 @@ func Run(dir string) error {
 		return fmt.Errorf("seed: chmod %s: %w", reqDir, err)
 	}
 	return nil
+}
+
+// copyFile copies src to dst with mode 0664, matching the group-writable
+// convention every planted file in this package uses (§11's UMASK 002).
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", src, err)
+	}
+	defer func() { _ = in.Close() }()
+
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o664)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", dst, err)
+	}
+	defer func() { _ = out.Close() }()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return fmt.Errorf("copy %s -> %s: %w", src, dst, err)
+	}
+	return out.Close()
 }
