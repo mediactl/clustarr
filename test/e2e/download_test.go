@@ -53,25 +53,28 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     DownloadClient will never report EngineReady and
 //     waitForEngineReady's own timeout will name exactly that condition
 //     rather than hang silently with no diagnosis.
-//  2. config/e2e does not deploy test/fixtures/seeder or
-//     test/fixtures/nntpstub as in-cluster Services at all -- confirmed by
-//     grepping config/ for both names and finding nothing outside generated
-//     CRD schemas, and by reading every task in this phase's plan file: none
-//     of them adds such a manifest, and this was still true on the second,
-//     later read alongside gap 1 above. This is a genuine gap in the plan
-//     that no known task closes, so requireFixtureService
-//     (test/e2e/helpers_test.go) skips with a named reason instead of
-//     assuming it will have been fixed.
+//  2. config/e2e did not deploy test/fixtures/seeder or test/fixtures/
+//     nntpstub as in-cluster Services -- confirmed by grepping config/ for
+//     both names and finding nothing outside generated CRD schemas, and by
+//     reading every task in Phase D2's plan file: none of them added such a
+//     manifest. X12c (docs/superpowers/plans/2026-09-23-gap-fixes.md) closed
+//     this: config/e2e/seeder.yaml and config/e2e/nntp-stub.yaml. Kept as
+//     item 2 here, not deleted, because requireFixtureService
+//     (test/e2e/helpers_test.go) still exists and still matters if either
+//     manifest is ever dropped from config/e2e/kustomization.yaml's
+//     resources list again.
 //
-// A third, independent and PERMANENT gap -- not something a future wiring
-// task closes -- blocks every "Imported" assertion regardless of (1)-(2):
-// both fixtures always name their downloaded content "clustarr-fixture.bin",
-// an extension pkg/fsops.MediaExtensions does not recognise, so
-// importarr/worker/fileimport can never classify it as importable. See
-// helpers_test.go's importGapReason and waitForImportOutcomeOrSkip for the
-// full explanation; every scenario below that reaches the point of having a
-// completed transfer calls waitForImportOutcomeOrSkip rather than asserting
-// Imported or a MediaFile.
+// A third gap, independent of (1)-(2), used to block every "Imported"
+// assertion PERMANENTLY: both fixtures always named their downloaded
+// content "clustarr-fixture.bin", an extension pkg/fsops.MediaExtensions
+// does not recognise, so importarr/worker/fileimport could never classify
+// it as importable. X12c closed this too (test/fixtures/seeder.ContentName,
+// test/fixtures/nntpstub.FileName): both now serve
+// "Clustarr.Fixture.2010.1080p.BluRay.x264-CLUSTARR.REPACK.mkv", real bytes
+// under a real, parseable movie-release name -- see
+// helpers_test.go's waitForImportOutcome for the full reasoning. Every
+// scenario below that reaches a completed transfer now calls
+// waitForImportOutcome and asserts Imported for real.
 package e2e
 
 import (
@@ -80,23 +83,27 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/test/fixtures/nntpstub"
 )
 
-// TestDownloadTorrentGrabToImportAttempt is scenario 1's grabarr slice: a
-// Movie with real TMDB metadata, a real torrent DownloadClient/engine, a
-// Download driven directly against test/fixtures/seeder (see
+// TestDownloadTorrentGrabToImportAttempt is scenario 1's grabarr+importarr
+// slice: a Movie with real TMDB metadata, a real torrent DownloadClient/
+// engine, a Download driven directly against test/fixtures/seeder (see
 // newTorrentDownloadE2E's doc comment for why direct creation stands in for
-// catalogarr's real grab decision here), through Completed/Seeding -- then
-// an attempted import, gated per this file's package doc comment.
+// catalogarr's real grab decision here), through Completed/Seeding, then a
+// real import to Imported with a MediaFile.
 //
 // The transcode and subtitle legs of scenario 1 ("TranscodeJob Succeeded",
-// "SubtitleRequest Satisfied") are Phase E/F's surface and are not attempted
-// here even speculatively: they need a real MediaFile to exist first, which
-// this scenario cannot produce (see waitForImportOutcomeOrSkip).
+// "SubtitleRequest Satisfied") are Phase E/F's surface and are NOT in this
+// function: they are test/e2e/transcode_test.go's
+// TestDownloadScenario1TranscodeLeg and test/e2e/subtitle_test.go's
+// TestDownloadScenario1SubtitleLeg, each starting its own independent
+// download+import (not reusing this Movie/Download) so a failure in one
+// leg cannot mask or block the other two.
 func TestDownloadTorrentGrabToImportAttempt(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
 	defer cancel()
@@ -114,7 +121,9 @@ func TestDownloadTorrentGrabToImportAttempt(t *testing.T) {
 	require.NotEmpty(t, live.Status.ContentRoot, "a Completed/Seeding Download must publish status.contentRoot")
 	require.NotZero(t, live.Status.DownloadedBytes, "a Completed/Seeding Download must report bytes fetched")
 
-	waitForImportOutcomeOrSkip(ctx, t, dl, importAttemptTimeout)
+	imp := waitForImportOutcome(ctx, t, dl, importAttemptTimeout)
+	require.Len(t, imp.Imported, 1)
+	require.NotEmpty(t, imp.Imported[0].MediaFileRef)
 }
 
 // TestDownloadUsenetNoInfoHashWithCrossServerFailover is scenario 6: a
@@ -149,14 +158,21 @@ func TestDownloadUsenetNoInfoHashWithCrossServerFailover(t *testing.T) {
 	live := waitForDownloadPhaseAtLeast(ctx, t, dl, downloadCompleteTimeout, downloadv1alpha1.DownloadPhaseCompleted)
 	require.NotEmpty(t, live.Status.ContentRoot)
 
-	// Cross-server 430 failover: nntp-stub-a is expected (per this file's
-	// package doc comment / helpers_test.go's own section doc comment) to
-	// deny the fixture's first article, and nntp-stub-b to serve it after
-	// the primary refuses it. nntpstub.Build(0, 0) recomputes the exact
-	// article id deterministically rather than hard-coding it, so a change
-	// to the fixture's own defaults cannot silently desync this assertion
-	// from what the fixture would actually deny.
-	deniedID := nntpstub.Build(0, 0).Articles[0].ID
+	// Cross-server 430 failover: nntp-stub-a is expected (per
+	// config/e2e/nntp-stub.yaml and helpers_test.go's own section doc
+	// comment) to deny the fixture's first article, and nntp-stub-b to
+	// serve it after the primary refuses it.
+	// nntpstub.Build(fixtureNNTPSegmentBytes, 0) recomputes the exact
+	// article id deterministically -- Build and BuildFromFile share the
+	// identical "seg<n>.<segmentBytes>@clustarr.fixture.test" formula
+	// (BuildFromFile's own doc comment) -- rather than hard-coding it, so a
+	// change to fixtureNNTPSegmentBytes (which MUST track config/e2e/
+	// nntp-stub.yaml's --segment-bytes) cannot silently desync this
+	// assertion from what the fixture would actually deny. Build, not
+	// BuildFromFile, on purpose: the real baked clip nntp-stub-a's
+	// --content-path names lives only inside the fixture image, and this
+	// test process cannot reach it (main_test.go's own doc comment).
+	deniedID := nntpstub.Build(fixtureNNTPSegmentBytes, 0).Articles[0].ID
 	aEntries, aErr := readNNTPRequests(fixtureNNTPADir, t0)
 	require.NoError(t, aErr)
 	bEntries, bErr := readNNTPRequests(fixtureNNTPBDir, t0)
@@ -170,7 +186,9 @@ func TestDownloadUsenetNoInfoHashWithCrossServerFailover(t *testing.T) {
 		"nntp-stub-b never logged serving %q after nntp-stub-a denied it.\n%s",
 		deniedID, describeNNTPRequests(fixtureNNTPBDir, t0)())
 
-	waitForImportOutcomeOrSkip(ctx, t, dl, importAttemptTimeout)
+	imp := waitForImportOutcome(ctx, t, dl, importAttemptTimeout)
+	require.Len(t, imp.Imported, 1)
+	require.NotEmpty(t, imp.Imported[0].MediaFileRef)
 }
 
 // TestDownloadBlocklistThenRedownload is scenario 3: a failed download is
@@ -206,7 +224,7 @@ func TestDownloadBlocklistThenRedownload(t *testing.T) {
 	movie := newMovie(ctx, t, "e2e-dlbl-movie", fixtureTmdbID, QualityProfileName, rf.Name, catalogv1alpha1.MinimumAvailabilityAnnounced)
 	settled := waitForMovieSettled(ctx, t, movie, "Inception")
 
-	newTorrentDownloadClientE2E(ctx, t, "e2e-dlbl-dc")
+	dc := newTorrentDownloadClientE2E(ctx, t, "e2e-dlbl-dc")
 	torrentURL := "http://" + fixtureSeederService + "." + Namespace + ".svc/fixture.torrent"
 
 	first := newTorrentDownloadE2E(ctx, t, "e2e-dlbl-dl1", &settled, torrentURL, "guid-dlbl-1", QualityProfileName)
@@ -214,6 +232,21 @@ func TestDownloadBlocklistThenRedownload(t *testing.T) {
 
 	patchDownloadLabel(ctx, t, first, downloadv1alpha1.LabelBlocklisted, downloadv1alpha1.LabelBlocklistedValue)
 	waitForDownloadPhaseExactly(ctx, t, first, engineReadyTimeout, downloadv1alpha1.DownloadPhaseBlocklisted)
+
+	// Live, not degraded: blocklisting one Download is a label on that one
+	// object (this function's own doc comment -- "there is no field-manager
+	// race here, only a label"), and must not knock the SHARED
+	// DownloadClient's engine StatefulSet out of readiness. Re-fetching and
+	// asserting EngineReady is still True here, rather than trusting that
+	// the redownload below would fail loudly if it were not, is what turns
+	// "the engine happens to still work" into a proof: a degraded-but-not-
+	// yet-failing engine could still complete one more transfer while
+	// reporting unready, and the assertion below would never see that.
+	var liveDC downloadv1alpha1.DownloadClient
+	require.NoError(t, k8sClient.Get(ctx, client.ObjectKeyFromObject(dc), &liveDC))
+	require.True(t, isConditionTrue(liveDC.Status.Conditions, downloadv1alpha1.DownloadClientConditionEngineReady),
+		"DownloadClient %s must stay EngineReady after blocklisting an unrelated Download, not degrade:\n%s",
+		dc.Name, describeDownloadClient(client.ObjectKeyFromObject(dc))())
 
 	// Redownload: an independent Download for the same movie, a different
 	// release guid, proceeds normally -- the earlier blocklisted Download

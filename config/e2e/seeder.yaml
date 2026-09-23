@@ -1,0 +1,131 @@
+# The in-cluster fixture torrent seeder: a real BitTorrent swarm of one,
+# seeding real media bytes (test/fixtures/seed.BakedClipPath, the same clip
+# scenario 7's LibraryScan route plants) over a real .torrent/BEP3 tracker.
+# Following config/e2e/torznab-stub.yaml's pattern.
+#
+# --peer-host is the Pod's own IP (Downward API status.podIP): BEP3's
+# compact peer format carries a raw IP, never a hostname, and a Service
+# ClusterIP is never what the seeder itself is reachable at on the
+# BitTorrent port -- see test/fixtures/seeder_cmd.go's --peer-host flag doc.
+# The Service below therefore exposes only the HTTP side (the tracker and
+# the .torrent file); grabarr's torrent engine dials the BitTorrent port
+# directly at the peer IP the tracker announces, exactly as any BitTorrent
+# client would against a real swarm.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: seeder
+  namespace: clustarr-system
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: seeder
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: seeder
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: clustarr
+        app.kubernetes.io/part-of: clustarr
+        app.kubernetes.io/component: seeder
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        # 1000/1000, matching every other fixture that writes onto the
+        # shared hostPath volume (torznab-stub's own securityContext doc
+        # comment explains why: a hostPath mount ignores fsGroup, so the
+        # UID must match the host-side directory hack/e2e.sh's `seed`
+        # pre-creates -- test/fixtures/seed.SeederDirName).
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: seeder
+          image: ghcr.io/mediactl/clustarr/e2e-fixtures:dev
+          imagePullPolicy: IfNotPresent
+          args:
+            [
+              "seeder",
+              "--bt-addr=:6889",
+              "--http-addr=:8080",
+              "--announce-host=seeder.clustarr-system.svc",
+              "--peer-host=$(POD_IP)",
+              "--data-dir=/data/.e2e-fixtures/seeder",
+              "--content-path=/fixtures/media/tiny.mkv",
+            ]
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: bittorrent
+              containerPort: 6889
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /fixture.torrent
+              port: http
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /fixture.torrent
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          # resources.requests must be present or config/e2e/resources-patch.yaml's
+          # `replace` operations fail on this Deployment -- see
+          # torznab-stub.yaml's identical comment. Limits are higher than
+          # torznab-stub's: this Pod hashes a real ~55MiB clip
+          # (metainfo.Info.BuildFromFilePath) and holds it plus the torrent
+          # client's own bookkeeping in memory.
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            # The same RWX hostPath claim importarr-worker mounts; it is the
+            # host directory the e2e test binary reads as $CLUSTARR_DATA_DIR.
+            claimName: clustarr-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: seeder
+  namespace: clustarr-system
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: seeder
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: seeder
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

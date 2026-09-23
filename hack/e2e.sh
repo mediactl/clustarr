@@ -42,6 +42,9 @@ WORKLOADS=(
   deployment/tmdb-stub
   deployment/tvdb-stub
   deployment/torznab-stub
+  deployment/seeder
+  deployment/nntp-stub-a
+  deployment/nntp-stub-b
   deployment/catalogarr
   deployment/catalogarr-metadata
   deployment/importarr
@@ -167,6 +170,16 @@ if [[ "${status}" -ne 0 ]]; then
     cp "${CLUSTARR_DATA_DIR}/.e2e-fixtures/torznab/requests.jsonl" \
        "${ARTIFACTS_DIR}/torznab-requests.jsonl" 2>/dev/null || true
   fi
+
+  # Same reasoning, for the two usenet fixtures: the only record of which
+  # of nntp-stub-a/nntp-stub-b actually served or denied a given article on
+  # this run (test/e2e/download_test.go's cross-server-failover proof).
+  for name in nntp-a nntp-b; do
+    if [[ -f "${CLUSTARR_DATA_DIR}/.e2e-fixtures/${name}/requests.jsonl" ]]; then
+      cp "${CLUSTARR_DATA_DIR}/.e2e-fixtures/${name}/requests.jsonl" \
+         "${ARTIFACTS_DIR}/${name}-requests.jsonl" 2>/dev/null || true
+    fi
+  done
 
   # NATS's monitor port is not published by kind, so reach /jsz through a
   # port-forward rather than assuming the host can route to the ClusterIP.

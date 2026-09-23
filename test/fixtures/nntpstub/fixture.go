@@ -20,6 +20,7 @@ package nntpstub
 import (
 	"encoding/xml"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/javi11/rapidyenc"
@@ -28,7 +29,18 @@ import (
 const (
 	// FileName is the name of the fixture's one content file, exactly as it
 	// appears in the NZB subject and in a client's published output.
-	FileName = "clustarr-fixture.bin"
+	//
+	// Its shape is a real movie-release name, not a bare "clustarr-fixture"
+	// stem -- see test/fixtures/seeder.ContentName's doc comment for the
+	// full reasoning (a real pkg/fsops.MediaExtensions video extension, a
+	// year token pkg/release/movie.go's parseMovie requires to match at
+	// all, and a quality/revision pair chosen to match
+	// libraryscan_test.go's fixtureMovieFile's (resolution, source) with a
+	// higher revision, deliberately, for import_test.go's upgrade proof).
+	// This package's own value MUST equal seeder's byte for byte: both
+	// fixtures stand in for "the same release available from two
+	// protocols" in test/e2e/download_test.go.
+	FileName = "Clustarr.Fixture.2010.1080p.BluRay.x264-CLUSTARR.REPACK.mkv"
 
 	// DefaultSegmentBytes is one article's DECODED size. Real posts run
 	// 512KiB-768KiB (pkg/download/usenet/conn.go's own comment); this
@@ -103,6 +115,68 @@ func Build(segmentBytes, segmentCount int) Fixture {
 		NZB:      buildNZB(title, articles),
 		Articles: articles,
 	}
+}
+
+// BuildFromFile derives a Fixture from REAL bytes read from path (e.g.
+// test/fixtures/seed.BakedClipPath), sliced into segmentBytes-sized
+// articles (the last one shorter), instead of Build's synthesized,
+// non-media payload. This is what lets a Download completed against this
+// fixture's NZB become a file pkg/mediainfo can genuinely ffprobe once
+// imported -- the same reason test/fixtures/seeder.Config.ContentPath
+// exists. segmentCount is not a parameter: it is however many segments the
+// real file's length divides into at segmentBytes, unlike Build where the
+// caller picks both independently.
+//
+// Article IDs use the IDENTICAL "seg<n>.<segmentBytes>@clustarr.fixture.
+// test" scheme Build uses, so test/e2e/download_test.go's
+// TestDownloadUsenetNoInfoHashWithCrossServerFailover can keep computing
+// its expected --deny id with the cheap, no-file-access Build(segmentBytes,
+// 0).Articles[0].ID rather than needing the real baked clip on the host
+// running `go test` (main_test.go's own doc comment: this suite reaches
+// neither NATS nor a fixture Service directly, only the apiserver and
+// /data -- the baked clip lives only inside the fixture image).
+// segmentBytes <= 0 falls back to DefaultSegmentBytes.
+func BuildFromFile(path string, segmentBytes int) (Fixture, error) {
+	if segmentBytes <= 0 {
+		segmentBytes = DefaultSegmentBytes
+	}
+	data, err := os.ReadFile(path) //nolint:gosec // fixture reads a path this package's own caller controls
+	if err != nil {
+		return Fixture{}, fmt.Errorf("nntpstub: read content %s: %w", path, err)
+	}
+	if len(data) == 0 {
+		return Fixture{}, fmt.Errorf("nntpstub: content %s is empty", path)
+	}
+
+	fileSize := int64(len(data))
+	segmentCount := (len(data) + segmentBytes - 1) / segmentBytes
+	articles := make([]Article, 0, segmentCount)
+	var offset int64
+	for i := range segmentCount {
+		start := i * segmentBytes
+		end := min(start+segmentBytes, len(data))
+		payload := data[start:end]
+		articles = append(articles, Article{
+			ID:   fmt.Sprintf("seg%d.%d@clustarr.fixture.test", i, segmentBytes),
+			Data: payload,
+			Meta: rapidyenc.Meta{
+				FileName:   FileName,
+				FileSize:   fileSize,
+				PartNumber: int64(i + 1),
+				TotalParts: int64(segmentCount),
+				Offset:     offset,
+				PartSize:   int64(len(payload)),
+			},
+		})
+		offset += int64(len(payload))
+	}
+
+	title := fmt.Sprintf("Clustarr.Fixture.%dx%d", segmentCount, segmentBytes)
+	return Fixture{
+		Title:    title,
+		NZB:      buildNZB(title, articles),
+		Articles: articles,
+	}, nil
 }
 
 // segmentPayload makes a deterministic, non-trivial article body: bytes

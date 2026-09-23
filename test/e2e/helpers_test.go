@@ -1025,29 +1025,31 @@ func runSearch(ctx context.Context, t *testing.T, m *catalogv1alpha1.Movie, inde
 
 // Fixture Service names this suite expects config/e2e to deploy, following
 // the "<component>" convention config/e2e/torznab-stub.yaml already uses
-// (the Service name equals the component label). AS OF THIS WRITING NEITHER
-// IS WIRED: no task in docs/superpowers/plans/2026-09-22-phase-d2-grabarr.md
-// adds a config/e2e manifest for either fixture -- D2-9's own file list
-// (test/fixtures/seeder/, test/fixtures/nntpstub/, images/Dockerfile.fixture)
-// stops at the binary, and `grep -rln seeder\|nntpstub config/` finds
-// nothing outside generated CRD schemas. requireFixtureService below turns
-// that gap into a named skip instead of a hung wait.
+// (the Service name equals the component label). Both are wired as of X12c
+// (docs/superpowers/plans/2026-09-23-gap-fixes.md): config/e2e/seeder.yaml
+// and config/e2e/nntp-stub.yaml. requireFixtureService below is kept
+// anyway, not deleted: it is still the correct behaviour for a suite that
+// "never installs anything itself" (main_test.go's own doc comment) if
+// either manifest is ever dropped from config/e2e/kustomization.yaml's
+// resources list again -- a named skip instead of a hung wait, at the exact
+// place that mistake would otherwise surface as a mysteriously-stuck
+// DownloadClient.
 //
 // The two nntp-stub Services are deliberately separate Deployments of the
-// SAME fixture image with different flags: nntpstub.Build(segmentBytes,
-// segmentCount) is a pure function (nntpstub/fixture.go's own doc comment),
-// so two independent processes started with identical --segment-bytes/
-// --segment-count produce byte-identical articles and NZB without sharing
-// state. For the cross-server 430 failover proof
-// TestDownloadUsenetNoInfoHashWithCrossServerFailover needs, config/e2e's
-// nntp-stub-a must be started with `--deny=<first article id>` (this
-// package computes that id at runtime with nntpstub.Build(0, 0), so it is
-// never hand-copied into a manifest) and a distinct
+// SAME fixture image with different flags: nntpstub.Build (and
+// BuildFromFile, X12c) is a pure function of (path, segmentBytes)
+// (nntpstub/fixture.go's own doc comment), so two independent processes
+// started with identical --content-path/--segment-bytes produce
+// byte-identical articles and NZB without sharing state. config/e2e/
+// nntp-stub.yaml starts nntp-stub-a with `--deny=seg0.1048576@clustarr.
+// fixture.test` (nntpstub.Build's own deterministic id formula, evaluated
+// by hand for segment 0 at --segment-bytes=1048576 -- see that manifest's
+// own doc comment for why 1MiB and not nntpstub.DefaultSegmentBytes) and
 // `--request-log=/data/.e2e-fixtures/nntp-a/requests.jsonl`; nntp-stub-b
 // needs no --deny and `--request-log=/data/.e2e-fixtures/nntp-b/requests.jsonl`.
-// Both need --http-addr serving /fixture.nzb so a Download's spec.source.nzbURL
-// can name either one directly (the engine fetches it in-cluster; this test
-// process never does).
+// Both serve /fixture.nzb over --http-addr so a Download's
+// spec.source.nzbURL can name either one directly (the engine fetches it
+// in-cluster; this test process never does).
 const (
 	fixtureSeederService    = "seeder"
 	fixtureNNTPStubAService = "nntp-stub-a"
@@ -1056,9 +1058,20 @@ const (
 	// fixtureNNTPPort is nntp-stub's --addr default (":1119").
 	fixtureNNTPPort = 1119
 
+	// fixtureNNTPSegmentBytes MUST equal config/e2e/nntp-stub.yaml's
+	// --segment-bytes on both nntp-stub-a and nntp-stub-b: it is how
+	// TestDownloadUsenetNoInfoHashWithCrossServerFailover recomputes the
+	// exact article id nntp-stub-a denies
+	// (nntpstub.Build(fixtureNNTPSegmentBytes, 0).Articles[0].ID) without
+	// hard-coding the string a second time or needing the real baked clip
+	// on the host running `go test` (nntp-stub-a's real content lives only
+	// inside the fixture image -- see BuildFromFile's own doc comment for
+	// why the synthetic Build's id formula is used here regardless).
+	fixtureNNTPSegmentBytes = 1 << 20
+
 	// fixtureNNTPADir and fixtureNNTPBDir are the request-log subdirectories
-	// under $CLUSTARR_DATA_DIR/.e2e-fixtures this package's doc comment above
-	// asks config/e2e to use for nntp-stub-a and nntp-stub-b respectively.
+	// under $CLUSTARR_DATA_DIR/.e2e-fixtures config/e2e/nntp-stub.yaml uses
+	// for nntp-stub-a and nntp-stub-b respectively.
 	fixtureNNTPADir = "nntp-a"
 	fixtureNNTPBDir = "nntp-b"
 
@@ -1069,18 +1082,20 @@ const (
 	// EngineReady condition flips. Generous for a loaded single kind node.
 	engineReadyTimeout = 5 * time.Minute
 
-	// downloadCompleteTimeout covers a real transfer of the seeder's default
-	// ~64MiB payload, or the nntp-stub fixture's much smaller default
-	// (4 * 16KiB), over cluster-internal networking, plus the engine's own
-	// telemetry cadence (grabarr/run.go's TODO comments cite Stats() every 5s
-	// and SSA telemetry every 10s). Both are trivially fast transfers; this
-	// is sized generously for a loaded node, not for the transfer itself.
+	// downloadCompleteTimeout covers a real transfer of the seeder's or
+	// nntp-stub's real ~55MiB baked-clip content (test/fixtures/seed.
+	// BakedClipPath, X12c's --content-path default on both fixtures) over
+	// cluster-internal networking, plus the engine's own telemetry cadence
+	// (grabarr/run.go's TODO comments cite Stats() every 5s and SSA
+	// telemetry every 10s). Sized generously for a loaded node, not for
+	// the transfer itself, which is trivially fast on cluster-internal
+	// networking even at real size.
 	downloadCompleteTimeout = 6 * time.Minute
 
-	// importAttemptTimeout bounds waitForImportOutcomeOrSkip's poll for
-	// status.import to become non-nil. grabarr's own publish (once wired,
-	// D2-8) happens on the SAME reconcile that first observes completion, so
-	// by the time a caller reaches this wait -- after waitForDownloadPhase
+	// importAttemptTimeout bounds waitForImportOutcome's poll for
+	// status.import to reach a terminal state. grabarr's own publish
+	// happens on the SAME reconcile that first observes completion, so by
+	// the time a caller reaches this wait -- after waitForDownloadPhase
 	// AtLeast(Completed) already returned -- the publish has very likely
 	// already happened; this budgets for the consumer's own delivery and
 	// this suite's poll interval, not a redelivery ladder.
@@ -1387,50 +1402,51 @@ func patchDownloadLabel(ctx context.Context, t *testing.T, dl *downloadv1alpha1.
 	require.NoError(t, k8sClient.Patch(ctx, &live, patch))
 }
 
-// importGapReason documents, in one place, why status.import can never
-// reach Imported for a Download whose content came from test/fixtures/seeder
-// or test/fixtures/nntpstub as they are built today. Both name their single
-// content file "clustarr-fixture.bin" -- seeder.ContentName and
-// nntpstub.FileName are both unexported-constant-shaped and not configurable
-// via either fixture's Config/flags -- and pkg/fsops.MediaExtensions
-// (classify.go) is exactly {.mkv, .epub, .mobi, .azw, .azw3, .pdf, .cbz,
-// .cbr, .cb7, .cbt}. A file named *.bin is not in that set, so fsops.Walk
-// classifies it ClassOther and importarr/worker/fileimport's
-// processConfig.run (process.go) skips it before ever calling
-// release.ParsePath -- no rejection reason is even recorded, since the file
-// is filtered out before the per-file logic that would produce one runs at
-// all.
+// waitForImportOutcome waits (bounded) for dl.status.import to reach a
+// terminal ImportPhase and asserts it is Imported, with at least one
+// ImportedFile.
 //
-// This is a structural fact about the two fixtures' fixed content name, not
-// a bug in any D2 controller, and no QualityProfile or Release.Title routes
-// around it: process.go parses the file's OWN on-disk path, never the
-// Download's spec.release.title. Building a fixture with a real media
-// extension is explicitly out of D2-10's file scope (test/e2e/*.go only,
-// not test/fixtures/*), so every scenario that reaches this point waits,
-// bounded, for whatever status.import DOES reach, logs it, and skips rather
-// than asserts Imported.
-const importGapReason = "test/fixtures/seeder and test/fixtures/nntpstub always name their " +
-	"downloaded content \"clustarr-fixture.bin\" -- .bin is in none of pkg/fsops.MediaExtensions's " +
-	"per-kind lists (classify.go), video, music, audiobook, book or comic, even after Q-1 (de4891f) " +
-	"broadened that map to every video container and audio format -- so a Classifier therefore " +
-	"never classifies it ClassMedia, and importarr/worker/fileimport skips it before parsing. No " +
-	"QualityProfile or Release.Title changes this: process.go parses the file's own on-disk path, " +
-	"not the Download's spec. This is a fixture-shape gap, not a controller bug, and building a new " +
-	"fixture is out of D2-10's file scope (test/e2e/*.go only)."
-
-// waitForImportOutcomeOrSkip waits (bounded) for dl.status.import to become
-// non-nil, logs whatever it reports, and ALWAYS skips rather than asserting
-// Imported -- see importGapReason. It also covers the independent
-// possibility that importarr/worker/fileimport.Worker or grabarr's own
-// publish-on-completion (controller/download) is not reachable because task
-// D2-8's wiring into importarr/run.go's setupWorkers and
-// grabarr/run.go's setupControllers/setupEngine has not landed, or has
-// regressed, by the time this suite runs -- see download_test.go's package
-// doc comment for exactly what was and was not verified about that wiring
-// while this file was written. If status.import never populates at all
-// within the timeout, that is logged too, and the skip names every possible
-// cause so a reader does not have to re-derive them.
-func waitForImportOutcomeOrSkip(ctx context.Context, t *testing.T, dl *downloadv1alpha1.Download, timeout time.Duration) {
+// Until X12c (docs/superpowers/plans/2026-09-23-gap-fixes.md), this always
+// skipped instead: test/fixtures/seeder and test/fixtures/nntpstub both
+// named their downloaded content "clustarr-fixture.bin", an extension
+// outside pkg/fsops.MediaExtensions, so fsops.Walk classified it ClassOther
+// and importarr/worker/fileimport skipped it before ever calling
+// release.ParsePath -- a structural, permanent wall, not a wiring gap, and
+// out of D2-10's file scope (test/e2e/*.go only, not test/fixtures/*) to
+// fix. X12c owns test/fixtures/** and closed it: both fixtures now serve
+// "Clustarr.Fixture.2010.1080p.BluRay.x264-CLUSTARR.REPACK.mkv" -- real
+// bytes (test/fixtures/seed.BakedClipPath, copied verbatim -- see
+// seeder.ContentName's doc comment) under a real movie-release name, so
+// release.ParsePath succeeds, config/e2e/quality-profile.yaml's "e2e-any"
+// profile admits the parsed Bluray-1080p quality, and catalogarr's
+// MediaFile controller can genuinely ffprobe the result afterwards.
+//
+// The quality/revision choice is deliberate, not incidental: SAME
+// (resolution, source) as libraryscan_test.go's fixtureMovieFile
+// ("Inception.2010.1080p.BluRay.x264-GROUP.mkv", Version 1) plus a REPACK
+// tag (pkg/release/quality.go's detectRevision bumps that to Version 2).
+// pkg/quality.Profile.UpgradeDecision's sameDef branch (pkg/quality/
+// upgrade.go) only grants Upgrade for an IDENTICAL Source/Resolution/
+// Modifier with a higher Revision -- a different source at the same tier
+// index falls through to FormatScoreNotHigher instead, since e2e-any
+// configures no custom formats and both sides score 0 -- so this is what
+// lets import_test.go's TestFileImportUpgradeAttempt see a genuine
+// Upgrade verdict against that pre-existing planted file, not a rejection.
+//
+// Reusing fixtureMovieFile's (resolution, source) pair for a NEW
+// TranscodeProfile/SubtitleProfile selector would risk the exact
+// cross-scenario collision transcode_test.go's newTranscodeProfile and
+// subtitle_test.go's subtitleMovieFolder doc comments both warn against
+// (their own reason for choosing a pair "no OTHER e2e scenario's real,
+// PROBED MediaFile uses") -- but this package's own Movie objects created
+// through the DOWNLOAD path (this function's callers) never create such a
+// profile against fixtureMovieFile's pair themselves; only
+// TestDownloadScenario1TranscodeLeg and TestDownloadScenario1SubtitleLeg
+// do (transcode_test.go, subtitle_test.go), and both document there why
+// that specific reuse is safe under this suite's sequential,
+// alphabetical-by-filename test ordering (download < import < ... <
+// subtitle < transcode < ui) plus per-test cleanup on success.
+func waitForImportOutcome(ctx context.Context, t *testing.T, dl *downloadv1alpha1.Download, timeout time.Duration) downloadv1alpha1.ImportState {
 	t.Helper()
 	var live downloadv1alpha1.Download
 	err := wait.PollUntilContextTimeout(ctx, pollInterval, timeout, true, func(ctx context.Context) (bool, error) {
@@ -1438,20 +1454,32 @@ func waitForImportOutcomeOrSkip(ctx context.Context, t *testing.T, dl *downloadv
 			//nolint:nilerr // keep polling
 			return false, nil
 		}
-		return live.Status.Import != nil, nil
+		if live.Status.Import == nil {
+			return false, nil
+		}
+		switch live.Status.Import.State {
+		case downloadv1alpha1.ImportPhaseImported, downloadv1alpha1.ImportPhaseBlocked, downloadv1alpha1.ImportPhaseIgnored:
+			return true, nil
+		default:
+			return false, nil
+		}
 	})
-	if err != nil {
-		t.Skipf("Download %s/%s: status.import never populated within %s -- either "+
-			"importarr/worker/fileimport.Worker is not wired into importarr-worker's RoleWorker setup, "+
-			"or grabarr's own completion publish is unreachable because its controllers/engines are not "+
-			"registered (both task D2-8), or something else entirely blocked the handoff. Skipping the "+
-			"Imported assertion rather than waiting out the full context.\n%s",
-			dl.Namespace, dl.Name, timeout, describeDownload(client.ObjectKeyFromObject(dl))())
-		return
-	}
-	t.Logf("Download %s/%s reached status.import.state=%q message=%q rejections=%v",
-		dl.Namespace, dl.Name, live.Status.Import.State, live.Status.Import.Message, live.Status.Import.Rejections)
-	t.Skip("skipping the Imported/MediaFile assertion: " + importGapReason)
+	require.NoErrorf(t, err, "Download %s/%s: status.import never reached a terminal state within %s -- either "+
+		"importarr/worker/fileimport.Worker is not wired into importarr-worker's RoleWorker setup, or "+
+		"grabarr's own completion publish is unreachable because its controllers/engines are not registered "+
+		"(both task D2-8), or something else entirely blocked the handoff.\n%s",
+		dl.Namespace, dl.Name, timeout, describeDownload(client.ObjectKeyFromObject(dl))())
+
+	t.Logf("Download %s/%s reached status.import.state=%q message=%q rejections=%v imported=%v",
+		dl.Namespace, dl.Name, live.Status.Import.State, live.Status.Import.Message,
+		live.Status.Import.Rejections, live.Status.Import.Imported)
+	require.Equalf(t, downloadv1alpha1.ImportPhaseImported, live.Status.Import.State,
+		"Download %s/%s: import did not reach Imported (message=%q rejections=%v) -- see waitForImportOutcome's "+
+			"own doc comment for the fixture-content shape this depends on",
+		dl.Namespace, dl.Name, live.Status.Import.Message, live.Status.Import.Rejections)
+	require.NotEmpty(t, live.Status.Import.Imported,
+		"Download %s/%s: State is Imported but status.import.imported is empty", dl.Namespace, dl.Name)
+	return *live.Status.Import
 }
 
 // nntpRequestLogPath is where one nntp-stub instance's fixture writes its
@@ -1547,4 +1575,78 @@ func kubectlRolloutRestart(ctx context.Context, t *testing.T, deployment string)
 		"rollout", "status", "deployment/"+deployment, "--timeout=3m")
 	out, err = status.CombinedOutput()
 	require.NoErrorf(t, err, "kubectl rollout status deployment/%s: %s", deployment, out)
+}
+
+// traceIDRe matches a structured log line's trace_id field --
+// pkg/obs/tracing.go's enrich writes exactly `"trace_id":"<32 lowercase hex
+// chars>"` (a W3C trace id), via the slog.NewJSONHandler every service
+// constructs (CLAUDE.md: "Logging is slog carried through context").
+var traceIDRe = regexp.MustCompile(`"trace_id":"([0-9a-f]{32})"`)
+
+// deploymentTraceIDsSince returns the set of distinct trace_id values
+// logged by deployment in Namespace at or after since, read the only way
+// this suite can reach a Deployment's logs -- shelling out to `kubectl
+// logs`, the same technique kubectlRolloutRestart and hack/e2e.sh's own
+// diagnostics dump already use, and portForwardService's doc comment gives
+// the identical reasoning for (no in-process client-go equivalent this
+// project wants to add a dependency for).
+func deploymentTraceIDsSince(ctx context.Context, t *testing.T, deployment string, since time.Time) map[string]struct{} {
+	t.Helper()
+	if _, err := exec.LookPath("kubectl"); err != nil {
+		t.Fatalf("deploymentTraceIDsSince: kubectl not on PATH: %v", err)
+	}
+	cmd := exec.CommandContext(ctx, "kubectl", "--context", KubeContext, "-n", Namespace,
+		"logs", "deployment/"+deployment, "--all-containers", "--tail=-1",
+		"--since-time="+since.UTC().Format(time.RFC3339))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		// A Deployment with zero matching pods (or one still starting) is
+		// not this helper's failure to diagnose -- the caller's own wait
+		// for that Deployment's work already did that -- so this logs and
+		// returns an empty set rather than failing the test itself.
+		t.Logf("deploymentTraceIDsSince: kubectl logs deployment/%s: %v\n%s", deployment, err, out)
+		return nil
+	}
+	ids := make(map[string]struct{})
+	for _, m := range traceIDRe.FindAllSubmatch(out, -1) {
+		ids[string(m[1])] = struct{}{}
+	}
+	return ids
+}
+
+// sharedTraceID returns one trace_id present in every one of deployments'
+// log sets since t0, or "" if none is. Scenario 1's Phase H text
+// (remaining-work.md) asks for "one trace_id appears in the logs of
+// catalogarr, indexarr, grabarr and importarr for the same grab" -- this
+// suite's download-path scenarios create their Download directly rather
+// than through a real Search-driven grab decision (newTorrentDownloadE2E's
+// own doc comment explains why: the fixture indexer's canned releases do
+// not point at test/fixtures/seeder, so there is no real grab to drive
+// instead), which means catalogarr's own search/grab worker and indexarr
+// are never reached by that flow at all -- there is structurally no trace
+// to find in either service's logs for THIS grab. What the direct-create
+// flow DOES exercise for real is the bus hop pkg/events' hooks propagate
+// through (CLAUDE.md: "propagation rides the Clustarr-Trace header"):
+// grabarr's Download controller publishing an ImportTask on completion,
+// and importarr-worker's fileimport worker consuming it and creating the
+// MediaFile -- see TestDownloadScenario1TranscodeLeg's own call for
+// exactly which two Deployments it checks and why, honestly, not the four
+// the spec text names.
+func sharedTraceID(deployments ...map[string]struct{}) string {
+	if len(deployments) == 0 {
+		return ""
+	}
+	for id := range deployments[0] {
+		in := true
+		for _, other := range deployments[1:] {
+			if _, ok := other[id]; !ok {
+				in = false
+				break
+			}
+		}
+		if in {
+			return id
+		}
+	}
+	return ""
 }

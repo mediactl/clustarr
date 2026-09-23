@@ -38,13 +38,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // test/e2e/mediafile_test.go's TestMediaFileTwoWriter does) and a second,
 // real completed torrent download for the same movie.
 //
-// It hits the identical, permanent wall test/e2e/download_test.go's package
-// doc comment documents in full: test/fixtures/seeder always publishes its
-// content as "clustarr-fixture.bin", an extension outside
-// pkg/fsops.MediaExtensions, so fsops.Walk never reaches processFile's
-// upgrade check at all for this download's content -- see
-// helpers_test.go's importGapReason. waitForImportOutcomeOrSkip is called
-// exactly as download_test.go's scenarios call it, and for the same reason.
+// It used to hit the identical, permanent wall test/e2e/download_test.go's
+// package doc comment used to document in full: test/fixtures/seeder used
+// to publish its content as "clustarr-fixture.bin", an extension outside
+// pkg/fsops.MediaExtensions, so fsops.Walk never reached processFile's
+// upgrade check at all. X12c (docs/superpowers/plans/2026-09-23-gap-fixes.md)
+// closed that: seeder.ContentName now serves real bytes named
+// "Clustarr.Fixture.2010.1080p.BluRay.x264-CLUSTARR.REPACK.mkv" -- the SAME
+// (resolution, source) as fixtureMovieFile below, with a REPACK tag that
+// pkg/release/quality.go's detectRevision reads as a higher revision, so
+// pkg/quality.Profile.UpgradeDecision's sameDef branch returns Upgrade
+// against fixtureMovieFile's Version-1 original rather than
+// FormatScoreNotHigher -- see waitForImportOutcome's own doc comment
+// (helpers_test.go) for the full reasoning. This file now asserts the
+// upgrade for real.
 //
 // Build-tagged e2e. Never executed against a kind cluster as of this
 // writing (2026-09-23) -- see download_test.go's package doc comment for
@@ -53,8 +60,12 @@ package e2e
 
 import (
 	"context"
+	"os"
 	"path"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
@@ -89,5 +100,25 @@ func TestFileImportUpgradeAttempt(t *testing.T) {
 	dl := newTorrentDownloadE2E(ctx, t, "e2e-imp2-dl", &movie, torrentURL, "guid-imp2-upgrade-1", movie.Spec.QualityProfileRef)
 
 	waitForDownloadPhaseAtLeast(ctx, t, dl, downloadCompleteTimeout, downloadv1alpha1.DownloadPhaseCompleted)
-	waitForImportOutcomeOrSkip(ctx, t, dl, importAttemptTimeout)
+	imp := waitForImportOutcome(ctx, t, dl, importAttemptTimeout)
+	require.Len(t, imp.Imported, 1)
+	require.NotEmpty(t, imp.Imported[0].MediaFileRef)
+
+	// The superseded original must land in the recycle bin, not just
+	// vanish: pkg/fsops.Recycle (root/<yyyy-mm-dd UTC>/<basename>, its own
+	// doc comment) is what process.go calls before applying the new
+	// MediaFile, ahead of deleting the old MediaFile object -- see this
+	// function's own doc comment for why pc.existing (the planted
+	// fixtureMovieFile) is non-nil here, which is what makes this the
+	// upgrade path rather than TestDownloadTorrentGrabToImportAttempt's
+	// first-import one.
+	recycled := hostPath(path.Join(defaultRecycleBinLogical, time.Now().UTC().Format("2006-01-02"), fixtureMovieFile))
+	waitFor(t, ctx, recycledOriginalTimeout, "recycled original at "+recycled, func(context.Context) (bool, error) {
+		info, err := os.Stat(recycled)
+		if err != nil {
+			//nolint:nilerr // keep polling
+			return false, nil
+		}
+		return info.Size() == existing.Spec.SizeBytes, nil
+	})
 }

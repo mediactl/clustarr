@@ -35,15 +35,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # Why manual import here is a LibraryScan, not a Download
 //
 // The plan text names "Download with Manual=true and the import-target
-// annotation". test/e2e/download_test.go's own package doc comment (and
-// helpers_test.go's importGapReason) record a PERMANENT, already-documented
-// wall that applies identically to every kind, not just this one:
-// test/fixtures/seeder always publishes its transferred content as
-// "clustarr-fixture.bin", an extension outside pkg/fsops.MediaExtensions for
-// every kind (video, music, book, audiobook, comic alike) -- so a REAL
-// grabbed-and-completed Download can never reach fileimport's import step
-// for ANY kind, and driving one here would produce four more
-// waitForImportOutcomeOrSkip skips proving nothing about non-video import
+// annotation". Even after X12c (docs/superpowers/plans/2026-09-23-gap-
+// fixes.md) fixed test/fixtures/seeder's and test/fixtures/nntpstub's
+// former "clustarr-fixture.bin" extension gap (test/e2e/download_test.go's
+// package doc comment), a REAL grabbed-and-completed Download still cannot
+// reach fileimport's import step for a NON-VIDEO kind: both fixtures serve
+// one fixed movie-release file (seeder.ContentName), real VIDEO bytes
+// under a real MOVIE-shaped release name, and importarr/worker/fileimport/
+// process.go's release.ParsePath call is hard-coded
+// Options{Kind: commonv1.MediaKindMovie} (processFile's own source) for
+// the movie walk this Download route drives -- there is no download-path
+// route to an Artist/Author/Audiobook/Comic import in this fixture set
+// regardless of extension, and building one (a second fixture content
+// kind, or a configurable one) is a materially different task than X12c's
+// brief. Driving a Download here would still produce four more
+// waitForImportOutcome failures proving nothing about non-video import
 // specifically.
 //
 // importarr/worker/fileimport/annotation.go's own doc comment states the

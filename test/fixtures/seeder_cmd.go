@@ -24,6 +24,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/mediactl/clustarr/test/fixtures/seed"
 	"github.com/mediactl/clustarr/test/fixtures/seeder"
 )
 
@@ -35,6 +36,7 @@ func newSeederCommand() *cobra.Command {
 		peerHost     string
 		dataDir      string
 		contentBytes int64
+		contentPath  string
 	)
 	cmd := &cobra.Command{
 		Use:   "seeder",
@@ -55,6 +57,7 @@ func newSeederCommand() *cobra.Command {
 				AnnounceHost: announceHost,
 				PeerHost:     peerHost,
 				ContentBytes: contentBytes,
+				ContentPath:  contentPath,
 				DataDir:      dataDir,
 				Logger:       logger,
 			})
@@ -76,6 +79,13 @@ func newSeederCommand() *cobra.Command {
 		"IP other Pods dial to reach this seeder's BitTorrent listener (e.g. status.podIP via the Downward "+
 			"API); empty uses --bt-addr's host if it named one, else the first non-loopback IPv4 address found")
 	cmd.Flags().StringVar(&dataDir, "data-dir", "/data/.e2e-fixtures/seeder", "directory for the seeded content and torrent client state")
-	cmd.Flags().Int64Var(&contentBytes, "content-bytes", seeder.DefaultContentBytes, "size of the deterministic seeded file")
+	cmd.Flags().Int64Var(&contentBytes, "content-bytes", seeder.DefaultContentBytes,
+		"size of the synthesized content file; ignored when --content-path is set")
+	cmd.Flags().StringVar(&contentPath, "content-path", seed.BakedClipPath,
+		"real media file copied verbatim to become the torrent's content, so a completed transfer against "+
+			"this seeder is real, ffprobe-able media rather than synthetic bytes (X12c, "+
+			"docs/superpowers/plans/2026-09-23-gap-fixes.md); empty falls back to --content-bytes worth of "+
+			"synthesized, non-media bytes, which is what this package's own tests use since they run "+
+			"outside the fixture image and have no baked clip to point at")
 	return cmd
 }

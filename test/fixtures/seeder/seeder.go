@@ -63,7 +63,37 @@ const (
 	DefaultContentBytes int64 = 64 << 20
 
 	// ContentName is the single file inside the fixture's torrent.
-	ContentName = "clustarr-fixture.bin"
+	//
+	// It carries a real movie-release shape, not a bare "clustarr-fixture"
+	// stem, for two independent reasons X12c (docs/superpowers/plans/
+	// 2026-09-23-gap-fixes.md) proved by reading pkg/release directly, not
+	// by assumption:
+	//
+	//   - The extension must be one pkg/fsops.MediaExtensions[KindVideo]
+	//     recognises (.mkv here) or importarr/worker/fileimport's Walk
+	//     classifies the download ClassOther and never even calls
+	//     release.ParsePath on it -- this was the whole of the former
+	//     "clustarr-fixture.bin" gap (remaining-work.md's carried defect).
+	//   - pkg/release/movie.go's parseMovie requires a
+	//     "[.\s_(](19|20)\d\d[.\s_)]" year token to match AT ALL (a bare
+	//     "clustarr-fixture" has none), and quality tags a real
+	//     QualityProfile accepts: config/e2e/quality-profile.yaml's
+	//     "e2e-any" only admits qualities named in its single "HD" tier,
+	//     which "Unknown" (parseQualityTags' own fallback for an
+	//     untagged title) is not. ".2010.1080p.BluRay." supplies both, and
+	//     is deliberately the SAME (resolution, source) pair as
+	//     libraryscan_test.go's fixtureMovieFile ("Inception.2010.1080p.
+	//     BluRay.x264-GROUP.mkv") -- see waitForImportOutcome's doc
+	//     comment (helpers_test.go) for why that reuse is deliberate, not
+	//     an oversight, and safe under this suite's sequential,
+	//     alphabetical-by-file test ordering.
+	//   - ".REPACK." bumps pkg/release's detected commonv1.Revision to
+	//     Version 2 (release/quality.go's detectRevision), which is what
+	//     lets import_test.go's TestFileImportUpgradeAttempt see a genuine
+	//     pkg/quality.Upgrade verdict against fixtureMovieFile's
+	//     Version-1 original -- same quality, same source, higher
+	//     revision -- rather than FormatScoreNotHigher.
+	ContentName = "Clustarr.Fixture.2010.1080p.BluRay.x264-CLUSTARR.REPACK.mkv"
 
 	// pieceLength matches a real release's rough piece size; small enough
 	// that hashing DefaultContentBytes at startup stays well under a second.
@@ -101,8 +131,20 @@ type Config struct {
 	AnnounceHost string
 
 	// ContentBytes sizes the deterministic seeded file. <= 0 uses
-	// DefaultContentBytes.
+	// DefaultContentBytes. Ignored when ContentPath is set: the real
+	// file's own size is what gets seeded.
 	ContentBytes int64
+
+	// ContentPath, when set, is copied verbatim to become the torrent's
+	// content instead of ContentBytes worth of synthesized, non-media
+	// bytes -- test/fixtures/seed.BakedClipPath (a real, ffprobe-able
+	// H.264/AAC clip images/Dockerfile.e2e-fixtures bakes into this same
+	// image) is the intended value, and seeder_cmd.go defaults to exactly
+	// that path. Empty keeps the synthetic generator this package's own
+	// tests use: they run outside the fixture image, where no baked clip
+	// exists, and only need to prove the BitTorrent/tracker mechanics,
+	// not a real ffprobe downstream.
+	ContentPath string
 
 	// DataDir holds the seeded file and the torrent client's own state.
 	// Empty uses a fresh temp directory.
@@ -146,13 +188,22 @@ func New(cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("seeder: data dir: %w", err)
 	}
 
-	size := cfg.ContentBytes
-	if size <= 0 {
-		size = DefaultContentBytes
-	}
 	contentPath := filepath.Join(dataDir, ContentName)
-	if err := writeDeterministicContent(contentPath, size); err != nil {
-		return nil, err
+	var size int64
+	if cfg.ContentPath != "" {
+		copied, err := copyContentFile(cfg.ContentPath, contentPath)
+		if err != nil {
+			return nil, fmt.Errorf("seeder: copy content from %s: %w", cfg.ContentPath, err)
+		}
+		size = copied
+	} else {
+		size = cfg.ContentBytes
+		if size <= 0 {
+			size = DefaultContentBytes
+		}
+		if err := writeDeterministicContent(contentPath, size); err != nil {
+			return nil, err
+		}
 	}
 
 	info := metainfo.Info{PieceLength: pieceLength}
@@ -343,6 +394,35 @@ func marshalMetaInfo(mi *metainfo.MetaInfo) ([]byte, error) {
 		return nil, fmt.Errorf("seeder: encode torrent: %w", err)
 	}
 	return b, nil
+}
+
+// copyContentFile copies src (e.g. seed.BakedClipPath) to dst verbatim and
+// returns the number of bytes copied, so the caller can report it as
+// Config.ContentBytes would have been. Unlike writeDeterministicContent,
+// the bytes are real media -- this is what lets a real transfer against
+// this seeder produce a file pkg/mediainfo can genuinely ffprobe once
+// imported.
+func copyContentFile(src, dst string) (int64, error) {
+	in, err := os.Open(src) //nolint:gosec // fixture reads a path this package's own caller controls
+	if err != nil {
+		return 0, fmt.Errorf("seeder: open %s: %w", src, err)
+	}
+	defer func() { _ = in.Close() }()
+
+	out, err := os.Create(dst) //nolint:gosec // fixture writes into its own generated data dir
+	if err != nil {
+		return 0, fmt.Errorf("seeder: create %s: %w", dst, err)
+	}
+	defer func() { _ = out.Close() }()
+
+	n, err := io.Copy(out, in)
+	if err != nil {
+		return 0, fmt.Errorf("seeder: copy %s -> %s: %w", src, dst, err)
+	}
+	if err := out.Close(); err != nil {
+		return 0, fmt.Errorf("seeder: close %s: %w", dst, err)
+	}
+	return n, nil
 }
 
 // writeDeterministicContent streams a reproducible byte sequence to path:

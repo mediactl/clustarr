@@ -88,11 +88,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Extending download scenario 1
 //
-// See TestDownloadScenario1TranscodeLegBlocked's own doc comment: the
-// download-import route to a MediaFile is permanently blocked by
-// helpers_test.go's importGapReason, so there is nothing to extend without a
-// new fixture outside this task's file scope (test/fixtures/seeder and
-// test/fixtures/nntpstub are D2's files, not E-5's).
+// TestDownloadScenario1TranscodeLeg (this file) drives scenario 1's
+// download-import route to a real MediaFile and through a real
+// TranscodeJob. It used to be a permanent skip -- the download-import
+// route could never reach a MediaFile at all, because test/fixtures/seeder
+// and test/fixtures/nntpstub named their content "clustarr-fixture.bin",
+// outside pkg/fsops.MediaExtensions -- until X12c (docs/superpowers/plans/
+// 2026-09-23-gap-fixes.md) fixed both fixtures (test/fixtures/**, out of
+// E-5's own file scope but squarely X12c's).
 package e2e
 
 import (
@@ -113,6 +116,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/pipeline"
 	transcodejobctrl "github.com/mediactl/clustarr/squasharr/controller/transcodejob"
@@ -723,44 +727,101 @@ func TestTranscodeDolbyVisionSkipped(t *testing.T) {
 		"pkg/transcode's own unit and golden tests, against hand-authored MediaInfo, not a real file.")
 }
 
-// TestDownloadScenario1TranscodeLegBlocked documents why scenario 1's
-// transcode leg ("MediaFile -> TranscodeJob Succeeded") cannot be added to
-// download_test.go's TestDownloadTorrentGrabToImportAttempt -- whose own
-// doc comment already says as much: "The transcode and subtitle legs of
-// scenario 1 ... are not attempted here even speculatively: they need a
-// real MediaFile to exist first, which this scenario cannot produce".
+// TestDownloadScenario1TranscodeLeg is scenario 1's transcode leg
+// ("MediaFile -> TranscodeJob Succeeded") through the REAL download-import
+// route: a torrent grab against test/fixtures/seeder, a real import to a
+// MediaFile, then a real TranscodeJob through Succeeded. It used to be a
+// permanent skip: the download-import route could never reach a MediaFile
+// at all, because test/fixtures/seeder always named its content
+// "clustarr-fixture.bin", outside pkg/fsops.MediaExtensions -- see this
+// file's git history for the former doc comment recording that in full.
+// X12c (docs/superpowers/plans/2026-09-23-gap-fixes.md) closed the
+// fixture-shape gap (seeder.ContentName's own doc comment); this now
+// drives the real pipeline instead of documenting why it could not.
 //
-// The blocker is PERMANENT, not an execution-time uncertainty resolved by
-// some other task's wiring landing: helpers_test.go's importGapReason
-// records that test/fixtures/seeder and test/fixtures/nntpstub both always
-// name their downloaded content "clustarr-fixture.bin", an extension
-// outside pkg/fsops.MediaExtensions, so importarr/worker/fileimport never
-// classifies it ClassMedia and no MediaFile is ever created from a real
-// grab -- waitForImportOutcomeOrSkip (helpers_test.go) always ends in a
-// skip for exactly this reason, regardless of whether D2's controllers are
-// wired and reconciling. squasharr's TranscodeJob mapper
-// (squasharr/controller/transcodeprofile) watches MediaFile, not Download,
-// so there is structurally nothing here to extend: driving the full
-// download flow (up to downloadCompleteTimeout, a real transfer over
-// cluster networking) only to hit the SAME importGapReason skip
-// waitForImportOutcomeOrSkip already reaches is a foregone conclusion
-// known in advance, not a result worth spending real cluster time to
-// reconfirm.
+// It starts its OWN independent Movie/Download -- see
+// TestDownloadScenario1SubtitleLeg's identical doc comment paragraph
+// (subtitle_test.go) for why sharing download_test.go's
+// TestDownloadTorrentGrabToImportAttempt's objects would be the wrong
+// choice here, not an oversight.
 //
-// This task's file scope is test/e2e/transcode_test.go plus fixtures and
-// config (this file's own package doc comment), not
-// test/fixtures/seeder or test/fixtures/nntpstub (D2's files) -- so
-// building a real-media-extension fixture to unblock this is out of reach
-// here regardless. Skipping immediately, without spending a real
-// download's worth of cluster time on a result already known, is the same
-// "no timeout no fixture can ever answer" reasoning
-// requireFixtureService's own doc comment (helpers_test.go) gives for its
-// early-skip pattern.
+// newTranscodeProfile is scoped to (1080, Bluray) -- reusing
+// libraryscan_test.go's fixtureMovieFile's own (resolution, source), same
+// as TestDownloadScenario1SubtitleLeg's SubtitleProfile and for the
+// identical reason: see waitForImportOutcome's doc comment
+// (helpers_test.go) for why the shared download fixture always parses to
+// that quality, and why the reuse is safe under this suite's sequential,
+// alphabetical-by-filename test ordering.
 //
-// TestTranscodeMediaFileThroughTranscodeJob (this file) is how scenario
-// 12's TranscodeJob leg IS reached in this suite -- through the
-// LibraryScan route to a real MediaFile, not a download import.
-func TestDownloadScenario1TranscodeLegBlocked(t *testing.T) {
-	t.Skip("scenario 1's transcode leg (\"MediaFile -> TranscodeJob Succeeded\") can never run " +
-		"against test/fixtures/seeder or test/fixtures/nntpstub as they exist today: " + importGapReason)
+// This function also closes Phase H's scenario 1 trace check ("one
+// trace_id appears in the logs of catalogarr, indexarr, grabarr and
+// importarr for the same grab", remaining-work.md) -- HONESTLY scoped, not
+// as written: see sharedTraceID's own doc comment (helpers_test.go) for
+// why this suite's direct-create Download flow structurally never reaches
+// catalogarr's search/grab worker or indexarr at all, so a real, full
+// four-service trace needs a different scenario (a real Search-driven
+// grab, matching indexer_test.go's scenario 17 shape) that no task has
+// built yet. What this DOES prove for real: the bus hop between grabarr
+// (publishing an ImportTask on Download completion) and importarr-worker
+// (consuming it and creating the MediaFile) carries ONE shared
+// Clustarr-Trace-derived trace_id, which is the one hop in this flow where
+// propagation could silently break without a same-process call stack to
+// carry it -- see sharedTraceID's own reasoning for why the other legs of
+// this flow (grabarr's own watch-driven Download reconcile, catalogarr's
+// watch-driven MediaFile/TranscodeJob reconciles) need no such proof:
+// there is no message-queue hop there for propagation to fail across.
+//
+// TestTranscodeMediaFileThroughTranscodeJob (this file) is scenario 12's
+// own, more thorough TranscodeJob leg, through the LibraryScan route.
+func TestDownloadScenario1TranscodeLeg(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
+	defer cancel()
+	requireFixtureService(ctx, t, fixtureSeederService)
+
+	t0 := time.Now().Add(-time.Minute)
+
+	rf := newRootFolder(ctx, t, "e2e-dl1tj-rf", catalogv1alpha1.RootFolderKindMovie, "movies")
+	movie := newMovie(ctx, t, "e2e-dl1tj-movie", fixtureTmdbID, QualityProfileName, rf.Name, catalogv1alpha1.MinimumAvailabilityAnnounced)
+	settled := waitForMovieSettled(ctx, t, movie, "Inception")
+
+	newTorrentDownloadClientE2E(ctx, t, "e2e-dl1tj-dc")
+	torrentURL := "http://" + fixtureSeederService + "." + Namespace + ".svc/fixture.torrent"
+	dl := newTorrentDownloadE2E(ctx, t, "e2e-dl1tj-dl", &settled, torrentURL, "guid-dl1tj-1", QualityProfileName)
+	waitForDownloadPhaseAtLeast(ctx, t, dl, downloadCompleteTimeout, downloadv1alpha1.DownloadPhaseCompleted)
+
+	imp := waitForImportOutcome(ctx, t, dl, importAttemptTimeout)
+	require.Len(t, imp.Imported, 1)
+	mfKey := client.ObjectKey{Namespace: Namespace, Name: imp.Imported[0].MediaFileRef}
+	mf := waitForMediaFileProbed(ctx, t, mfKey)
+	require.Equal(t, "1080", mf.Labels[catalogv1alpha1.LabelResolution],
+		"catalogarr's mirrored labels must carry the imported file's real, frozen-at-import resolution")
+	require.Equal(t, "bluray", mf.Labels[catalogv1alpha1.LabelSource])
+
+	newTranscodeProfile(ctx, t, "e2e-dl1tj-profile", 1080, commonv1.SourceBluray, transcodev1alpha1.ContainerMKV)
+
+	tj := waitForTranscodeJobForMediaFile(ctx, t, Namespace, mf.Name)
+	tjKey := client.ObjectKeyFromObject(&tj)
+	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), &tj) })
+
+	planned := waitForTranscodeJobPhaseAtLeast(ctx, t, tjKey, transcodeJobPlannedTimeout, transcodev1alpha1.TranscodeJobPhasePlanned)
+	require.NotNil(t, planned.Status.Plan)
+	require.Equal(t, transcodev1alpha1.PlanModeTranscode, planned.Status.Plan.Mode,
+		"the baked probe clip (h264/AAC) under the profile's hevc default must plan a real encode, not a skip or remux")
+
+	succeeded := waitForTranscodeJobPhase(ctx, t, tjKey, transcodeJobSucceededTimeout, transcodev1alpha1.TranscodeJobPhaseSucceeded)
+	require.NotNil(t, succeeded.Status.Result)
+	require.NotEmpty(t, succeeded.Status.Result.OutputPath)
+	require.NotZero(t, succeeded.Status.Result.OutputSizeBytes)
+
+	// The trace check: see this function's own doc comment for exactly
+	// what is and is not proven here.
+	grabarrIDs := deploymentTraceIDsSince(ctx, t, "grabarr", t0)
+	importarrIDs := deploymentTraceIDsSince(ctx, t, "importarr-worker", t0)
+	shared := sharedTraceID(grabarrIDs, importarrIDs)
+	require.NotEmptyf(t, shared,
+		"no trace_id is common to grabarr's and importarr-worker's logs since %s -- "+
+			"grabarr saw %d distinct trace_id(s), importarr-worker saw %d; Clustarr-Trace propagation "+
+			"across the ImportTask bus hop (pkg/events hooks) may be broken, or the two Deployments' "+
+			"logs for this specific grab were not both captured",
+		t0.Format(time.RFC3339), len(grabarrIDs), len(importarrIDs))
 }

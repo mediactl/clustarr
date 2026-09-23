@@ -29,6 +29,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/mediactl/clustarr/test/fixtures/nntpstub"
+	"github.com/mediactl/clustarr/test/fixtures/seed"
 )
 
 func newNNTPStubCommand() *cobra.Command {
@@ -41,6 +42,7 @@ func newNNTPStubCommand() *cobra.Command {
 		segmentBytes  int
 		segmentCount  int
 		requestLogDir string
+		contentPath   string
 	)
 	cmd := &cobra.Command{
 		Use:   "nntp-stub",
@@ -48,7 +50,16 @@ func newNNTPStubCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 
-			fx := nntpstub.Build(segmentBytes, segmentCount)
+			var fx nntpstub.Fixture
+			if contentPath != "" {
+				built, err := nntpstub.BuildFromFile(contentPath, segmentBytes)
+				if err != nil {
+					return err
+				}
+				fx = built
+			} else {
+				fx = nntpstub.Build(segmentBytes, segmentCount)
+			}
 			denyMap := make(map[string]int, len(deny))
 			for _, id := range deny {
 				id = strings.TrimSpace(id)
@@ -106,8 +117,16 @@ func newNNTPStubCommand() *cobra.Command {
 	cmd.Flags().StringVar(&user, "user", "", "required AUTHINFO username (empty disables auth)")
 	cmd.Flags().StringVar(&pass, "pass", "", "required AUTHINFO password")
 	cmd.Flags().IntVar(&segmentBytes, "segment-bytes", nntpstub.DefaultSegmentBytes, "decoded size of one article")
-	cmd.Flags().IntVar(&segmentCount, "segment-count", nntpstub.DefaultSegmentCount, "number of articles in the fixture's one file")
+	cmd.Flags().IntVar(&segmentCount, "segment-count", nntpstub.DefaultSegmentCount,
+		"number of articles in the fixture's one file; ignored when --content-path is set, where the real "+
+			"file's own length divides by --segment-bytes instead")
 	cmd.Flags().StringVar(&requestLogDir, "request-log", "/data/.e2e-fixtures/nntp/requests.jsonl",
 		"JSONL file on the shared /data volume every BODY/STAT is appended to")
+	cmd.Flags().StringVar(&contentPath, "content-path", seed.BakedClipPath,
+		"real media file split into --segment-bytes yEnc articles, so a completed transfer against this "+
+			"fixture is real, ffprobe-able media rather than synthetic bytes (X12c, docs/superpowers/plans/"+
+			"2026-09-23-gap-fixes.md); empty falls back to Build's synthetic --segment-bytes x --segment-count "+
+			"payload, which is what this package's own tests use since they run outside the fixture image "+
+			"and have no baked clip to point at")
 	return cmd
 }

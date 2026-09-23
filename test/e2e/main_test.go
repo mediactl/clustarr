@@ -225,29 +225,54 @@ func natsReady(ctx context.Context) (bool, error) {
 	return sts.Status.ReadyReplicas >= 1, nil
 }
 
-// deploymentsAvailable reports whether every Clustarr Deployment carries
-// Available=True.
+// deploymentRoster is every Deployment config/e2e must produce: the ten
+// Clustarr services (config/manager/*.yaml -- catalogarr,
+// catalogarr-metadata, importarr, importarr-worker, indexarr, grabarr,
+// squasharr, captionarr, captionarr-worker, ui) plus every fixture stub
+// Deployment the overlay adds (config/e2e/*.yaml). It is checked BY NAME,
+// not just counted, for the reason deploymentsAvailable's own doc comment
+// below gives: Available=True on its own cannot tell "the roster is
+// complete" from "the roster is short one Deployment nobody noticed was
+// missing or scaled to zero". Kept in one place, alongside hack/e2e.sh's
+// WORKLOADS array (a shell array cannot import this constant, so the two
+// are kept in sync by hand; a name added to one belongs in the other).
+var deploymentRoster = []string{
+	"catalogarr", "catalogarr-metadata", "importarr", "importarr-worker",
+	"indexarr", "grabarr", "squasharr", "captionarr", "captionarr-worker", "ui",
+	"tmdb-stub", "tvdb-stub", "torznab-stub", "seeder", "nntp-stub-a", "nntp-stub-b",
+	"opensubtitles-stub", "gestdown-stub", "cardigann-stub", "importlist-stub",
+	"nonvideo-stub", "httpproxy-stub",
+}
+
+// deploymentsAvailable reports whether every Deployment named in
+// deploymentRoster exists in Namespace AND carries Available=True.
 //
-// It deliberately does NOT catch a Deployment scaled to zero: Kubernetes
-// reports Available=True for replicas: 0 (verified against a real cluster --
-// `kubectl scale deployment/ui --replicas=0` leaves Available=True,
-// Progressing=True), because zero of zero replicas are indeed available. The
-// gate catches the case that matters -- a Deployment whose pods cannot start,
-// cannot be pulled or cannot pass their probes -- but an overlay that
-// mis-scales a service to zero sails through it. Anyone adding a "the right
-// services are deployed" check needs to compare against a roster, not against
-// this condition.
+// Available=True alone is not enough. Kubernetes reports Available=True for
+// replicas: 0 (verified against a real cluster -- `kubectl scale
+// deployment/ui --replicas=0` leaves Available=True, Progressing=True),
+// because zero of zero replicas are indeed available -- so a Deployment an
+// overlay mis-scaled to zero sails through a bare Available check. And a
+// Deployment missing from the cluster ENTIRELY (a kustomization.yaml that
+// forgot to list a new fixture's manifest, the exact mistake this file's
+// own history records -- see the package doc comment's "What it can reach"
+// discussion) is indistinguishable from "everything deployed is healthy"
+// to a check that only iterates whatever the List call happened to return:
+// zero unhealthy items among zero relevant items is vacuously true. Both
+// gaps need a roster to check names against, not a count or a condition;
+// deploymentRoster above is that roster.
 func deploymentsAvailable(ctx context.Context) (bool, error) {
 	var list appsv1.DeploymentList
 	if err := k8sClient.List(ctx, &list, client.InNamespace(Namespace), client.MatchingLabels{PartOfLabel: PartOfValue}); err != nil {
 		//nolint:nilerr // keep polling
 		return false, nil
 	}
-	if len(list.Items) == 0 {
-		return false, nil
-	}
+	byName := make(map[string]*appsv1.Deployment, len(list.Items))
 	for i := range list.Items {
-		if !deploymentAvailable(&list.Items[i]) {
+		byName[list.Items[i].Name] = &list.Items[i]
+	}
+	for _, name := range deploymentRoster {
+		d, ok := byName[name]
+		if !ok || !deploymentAvailable(d) {
 			return false, nil
 		}
 	}

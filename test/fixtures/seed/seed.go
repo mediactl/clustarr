@@ -75,6 +75,36 @@ const TorznabDirName = "torznab"
 // RequestLogName is the JSONL file inside it.
 const RequestLogName = "requests.jsonl"
 
+// NNTPStubADirName and NNTPStubBDirName are the request-log directories
+// test/fixtures/nntpstub's two e2e Deployments (nntp-stub-a, nntp-stub-b,
+// config/e2e/nntp-stub.yaml) append to, and SeederDirName is
+// test/fixtures/seeder's --data-dir. All three are pre-created here for
+// the IDENTICAL reason TorznabDirName is (see its own doc comment): each
+// stub pod runs as uid/gid 1000 against this HOST-owned directory (`docker
+// run --user "$(id -u):$(id -g)"`, hack/e2e.sh), so ITS OWN
+// os.MkdirAll(0o777) call under this 0775 parent -- test/fixtures/
+// nntpstub/reqlog.go's record() and test/fixtures/seeder/seeder.go's
+// New() both make exactly one -- would fail permission-denied: the pod's
+// uid falls in "other" relative to the host-owned parent, and 0775 grants
+// "other" no write bit. torznabstub/reqlog.go's own MkdirAll(0o777) call
+// hits the identical wall, which is why TorznabDirName exists at all.
+//
+// A failure here is not merely lost observability. For nntp-a/nntp-b it
+// silently blackholes the request log record() swallows every write
+// error on purpose (reqlog.go's own doc comment), so
+// TestDownloadUsenetNoInfoHashWithCrossServerFailover's failover proof
+// would read an empty log and fail with a confusing "logged NO request"
+// message instead of the real cause. For seeder it is worse: seeder.New
+// does NOT swallow the error (unlike record()), because there is no
+// content file without it, so the seeder Pod would CrashLoopBackOff and
+// every download-path scenario (1, 2, 4, 6, the blocklist test) would
+// never even reach a Completed Download.
+const (
+	NNTPStubADirName = "nntp-a"
+	NNTPStubBDirName = "nntp-b"
+	SeederDirName    = "seeder"
+)
+
 // MinMediaBytes is pkg/fsops's sampleMaxBytes: at or above it a .mkv is
 // ClassMedia, below it ClassSample. It is duplicated rather than imported
 // because this package is also the image's runtime entrypoint and must not
@@ -142,6 +172,18 @@ func Run(dir string) error {
 	// the other-write bit that the stub pod depends on. Chmod does not.
 	if err := os.Chmod(reqDir, 0o777); err != nil {
 		return fmt.Errorf("seed: chmod %s: %w", reqDir, err)
+	}
+
+	// NNTPStubADirName/NNTPStubBDirName/SeederDirName: same treatment, same
+	// reason -- see their own doc comment above.
+	for _, name := range []string{NNTPStubADirName, NNTPStubBDirName, SeederDirName} {
+		sub := filepath.Join(dir, name)
+		if err := os.MkdirAll(sub, 0o777); err != nil {
+			return fmt.Errorf("seed: mkdir %s: %w", sub, err)
+		}
+		if err := os.Chmod(sub, 0o777); err != nil {
+			return fmt.Errorf("seed: chmod %s: %w", sub, err)
+		}
 	}
 	return nil
 }
