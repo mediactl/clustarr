@@ -35,6 +35,7 @@ import (
 	"github.com/mediactl/clustarr/catalogarr/controller/wantedcron"
 	"github.com/mediactl/clustarr/catalogarr/worker/grab"
 	"github.com/mediactl/clustarr/pkg/decision"
+	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
@@ -261,20 +262,28 @@ func TestWorkerWantedScanIncludesNonVideoItems(t *testing.T) {
 }
 
 // TestWorkerSkipsAnAutomaticSearchTheGrabPathCannotGrab: an automatic
-// search of a kind the grab path cannot grab yet costs no indexer query --
-// its result would be dropped at the sink -- while an interactive one of the
-// same item runs (TestWorkerSearchesAnAlbumAndDecidesItByName).
+// search of a kind the grab path cannot grab costs no indexer query -- its
+// result would be dropped at the sink.
+//
+// Since task X4a extended the grab path to albums, books, audiobooks and
+// issues, every kind the worker searches is one the grab path grabs, and
+// the kinds it refuses are the containers: an Artist, an Author, a Comic, a
+// Series, whose items are searched instead. So this now asks about an
+// Artist (it used to ask about an Album, and skipped itself once albums
+// became grabbable): the task is discarded -- no number of redeliveries
+// makes a container searchable -- before any query is spent.
 func TestWorkerSkipsAnAutomaticSearchTheGrabPathCannotGrab(t *testing.T) {
 	ctx := context.Background()
-	f := newWorkerFixture(t, "worker-album-automatic")
+	f := newWorkerFixture(t, "worker-artist-automatic")
 	createKidA(t, ctx, f.mgr, f.ns, "music-anything")
 
-	ref := commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: "radiohead-kid-a"}
-	err := f.worker.Handle(ctx, testMessage{env: f.envelope(t, schema.SearchTask{MediaRef: ref, Reason: schema.SearchReasonMissing})})
+	ref := commonv1.MediaRef{Kind: commonv1.MediaKindArtist, Name: "radiohead"}
+	_, gerr := grab.StatusTargets(ref, nil)
+	require.ErrorIs(t, gerr, grab.ErrUnsupportedKind, "the grab path grabs artists now; point this at a kind it cannot")
 
-	if _, gerr := grab.StatusTargets(ref, nil); gerr == nil {
-		t.Skip("the grab path grabs albums now; the gate is lifted and the ordinary search tests cover the path")
-	}
-	require.NoError(t, err, "acked, not retried: no redelivery makes the kind grabbable")
+	err := f.worker.Handle(ctx, testMessage{env: f.envelope(t, schema.SearchTask{MediaRef: ref, Reason: schema.SearchReasonMissing})})
+	require.Error(t, err, "a container's search task must be discarded, not acked as done")
+	var discard *events.DiscardError
+	require.ErrorAs(t, err, &discard, "discarded, not retried: no redelivery makes a container searchable")
 	require.Empty(t, f.rpc.Requests(), "no indexer query for a result nothing can grab")
 }
