@@ -189,8 +189,12 @@ hardlinks, probes and moves files.
 *As built:* only `importarr-worker` mounts `/data`; the controller Deployment
 does not, which is why the recycle-bin sweeper (`fileimport.RecycleSweeper`,
 `RootFolder.spec.recycleBin.cleanupDays`, gap fix X7a) runs on the worker role.
-The rescan attributes files under a series root folder to existing Series and
-Episodes (gap fix X7a), and a `RootFolder` schedule tick waits while an earlier
+The rescan attributes files under a series root folder to Series and Episodes
+(gap fix X7a). A series folder carrying a TheTVDB id no Series has creates that
+Series, pinned to the folder (`spec.folder`) and with neither add-time search,
+as rule 4 above upserts a movie; until the Series controller fans out its
+episodes its files are counted as awaiting them, not listed as unmatched, and a
+later scan attributes them. A `RootFolder` schedule tick waits while an earlier
 scan of the same folder is still Pending or Running (CronJob's `Forbid`).
 `status.filesSkipped` counts only recorded media files the scan did not write;
 parts, extras, samples and non-media files are counted by kind in the worker's

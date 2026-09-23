@@ -64,10 +64,10 @@ type UnmatchedFile struct {
 //
 //   - a media file of the root folder's kind (or a suspected sample) is
 //     SEEN, and then matched (FilesMatched), skipped (FilesSkipped, and one
-//     of Unchanged, Transcoded, TranscodeOutputs or Deferred says why) or
-//     unmatched (an entry
-//     in Unmatched, which is capped, so the count is not derivable from
-//     the list);
+//     of Unchanged, Transcoded, TranscodeOutputs or Deferred says why),
+//     awaiting the episodes of its series (AwaitingEpisodes) or unmatched
+//     (an entry in Unmatched, which is capped, so the count is not
+//     derivable from the list);
 //   - anything else is NOT CONSIDERED, and one of NotMedia, Parts, Extras
 //     or Samples counts it. Those never reach LibraryScan.status's
 //     counters: they are not media, so they are neither matched nor
@@ -134,6 +134,15 @@ type Progress struct {
 	// writing the fields it owns. Also counted in FilesMatched.
 	HandedOver int64 `json:"handedOver,omitempty"`
 
+	// AwaitingEpisodes counts episode files of a series that has no
+	// episodes yet -- typically one this walk created from its folder's
+	// TheTVDB id, whose episode list the Series controller fans out only
+	// once its metadata arrives. They are attributable, just not yet, so
+	// they are counted rather than listed in the capped Unmatched, where
+	// thousands of them would evict the files that need a person; a later
+	// scan attributes them.
+	AwaitingEpisodes int64 `json:"awaitingEpisodes,omitempty"`
+
 	// NotMedia, Parts, Extras and Samples count the files the walk did not
 	// consider at all: a non-media extension, a partial download, a file in
 	// a video extras folder, and a file whose name marks it a sample.
@@ -171,6 +180,9 @@ func (p Progress) Summary() string {
 		))
 	}
 	fmt.Fprintf(&b, ", %d unmatched", len(p.Unmatched))
+	if p.AwaitingEpisodes > 0 {
+		fmt.Fprintf(&b, "; %d awaiting the episodes of their series, which a later scan attributes", p.AwaitingEpisodes)
+	}
 	if p.HandedOver > 0 {
 		fmt.Fprintf(&b, "; %d transcoded files changed on disk, handed to catalogarr", p.HandedOver)
 	}

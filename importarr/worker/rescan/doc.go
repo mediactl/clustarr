@@ -68,11 +68,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     extras folders -- and freeze only the quality the file determines
 //     exactly (fileimport.FrozenFileQuality: a probe for music, the
 //     extension otherwise).
-//   - series: attributed to an EXISTING Series and its Episodes only
-//     (series.go): the series by its folder -- status.path, a TheTVDB id in
-//     the folder name, spec.folder, or its title and year -- and the
-//     episode by the numbering the file's name carries
-//     (fileimport.MatchEpisodes, which the import worker uses too). A file
+//   - series: attributed to a Series and its Episodes (series.go): the
+//     series by its folder -- status.path, a TheTVDB id in the folder name,
+//     spec.folder, or its title and year -- and the episode by the
+//     numbering the file's name carries (fileimport.MatchEpisodes, which
+//     the import worker uses too). A folder's TheTVDB id that no series
+//     has creates the Series, pinned to that folder; its files await its
+//     episodes (Progress.AwaitingEpisodes) until a later scan. A file
 //     holding several episodes is one MediaFile naming them all in
 //     spec.mediaRef.keys.
 //

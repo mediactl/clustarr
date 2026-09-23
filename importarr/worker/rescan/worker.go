@@ -115,7 +115,8 @@ type Worker struct {
 }
 
 // The rescan worker's RBAC. It is the sole writer of MediaFileSpec (spec §8.4)
-// and creates the Movie a scanned file is attributed to; it never writes
+// and creates the Movie a scanned file is attributed to, and the Series a
+// series folder's TheTVDB id names; it never writes
 // MediaFileStatus or LibraryScan.status, both of which have their own single
 // writer, so neither /status subresource appears here. It reads
 // QualityProfiles to score a scanned movie file, and patches one annotation
@@ -125,7 +126,8 @@ type Worker struct {
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists;albums;authors;books;audiobooks;comics;issues,verbs=get;list;watch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=series;episodes,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=series,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=libraryscans,verbs=get;list;watch
