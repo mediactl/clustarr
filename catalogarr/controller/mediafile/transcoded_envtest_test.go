@@ -19,6 +19,7 @@ package mediafile_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -29,8 +30,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/config"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	transcodeac "github.com/mediactl/clustarr/api/applyconfiguration/transcode/transcode/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -161,4 +166,76 @@ func drain(rec *events.FakeRecorder) []string {
 			return out
 		}
 	}
+}
+
+// TestObservedFingerprintIsImportarrsKey holds the two spellings of the
+// hand-over annotation equal: importarr applies rescan's, this controller
+// watches its own.
+func TestObservedFingerprintIsImportarrsKey(t *testing.T) {
+	assert.Equal(t, rescan.AnnotationObservedFingerprint, mediafile.AnnotationObservedFingerprint)
+}
+
+// TestObservedFingerprintWakesTheController is the hand-over through a real
+// manager: a transcoded file changes on disk, nothing about the MediaFile's
+// spec changes, and importarr's observed-fingerprint annotation is what
+// makes the controller re-probe it -- without the predicate arm the change
+// would wait for the recheck timer.
+func TestObservedFingerprintWakesTheController(t *testing.T) {
+	_, cfg := startEnv(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+		Scheme:                 k8s.MustNewScheme(),
+		Metrics:                metricsserver.Options{BindAddress: "0"},
+		HealthProbeBindAddress: "0",
+		// See TestTranscodeJobWatchTriggersReconcile.
+		Controller: config.Controller{SkipNameValidation: ptr.To(true)},
+	})
+	require.NoError(t, err)
+	r := mediafile.NewReconciler(mgr.GetClient(), mgr.GetScheme(), events.NewFakeRecorder(64))
+	r.Probe = fakeProbe
+	require.NoError(t, r.SetupWithManager(mgr))
+	go func() { _ = mgr.Start(ctx) }()
+	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))
+	c := mgr.GetClient()
+
+	const ns, name = "fingerprint-ns", "heat-abc1234567"
+	mustNamespace(t, ctx, c, ns)
+	base := time.Now().Add(-time.Hour).Truncate(time.Second)
+	path := writeFile(t, t.TempDir(), "Heat (1995).mkv", []byte("transcoded bytes"))
+	require.NoError(t, os.Chtimes(path, base, base))
+	importarrCreatesMediaFile(t, ctx, c, ns, name, path, int64(len("transcoded bytes")), base,
+		commonv1.Quality{Name: "Bluray-1080p", Source: commonv1.SourceBluray, Resolution: commonv1.Resolution1080p, Modifier: commonv1.ModifierNone})
+
+	var got catalogv1alpha1.MediaFile
+	require.Eventually(t, func() bool {
+		return c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got) == nil && got.Status.ProbeHash != ""
+	}, 5*time.Second, 50*time.Millisecond, "initial reconcile did not land")
+	// Stand in for an incorporated swap: catalogarr owns original=false.
+	_, err = k8s.Apply(ctx, c, k8s.ManagerCatalogarr, catalogac.MediaFile(name, ns).WithSpec(
+		catalogac.MediaFileSpec().WithSizeBytes(int64(len("transcoded bytes"))).WithModTime(metav1.NewTime(base)).WithOriginal(false)))
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		return c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got) == nil &&
+			got.Spec.Original != nil && !*got.Spec.Original
+	}, 5*time.Second, 50*time.Millisecond)
+	hash := got.Status.ProbeHash
+
+	changed := []byte("changed on disk, and longer too")
+	require.NoError(t, os.WriteFile(path, changed, 0o644))
+	later := base.Add(20 * time.Minute)
+	require.NoError(t, os.Chtimes(path, later, later))
+	require.Never(t, func() bool {
+		return c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got) == nil && got.Status.ProbeHash != hash
+	}, time.Second, 100*time.Millisecond, "setup: nothing should wake the controller for a bare disk change")
+
+	// importarr's hand-over, under its own manager.
+	_, err = k8s.Apply(ctx, c, k8s.ManagerImportarr, catalogac.MediaFile(name, ns).WithAnnotations(map[string]string{
+		rescan.AnnotationObservedFingerprint: fmt.Sprintf("%d@%s", len(changed), later.UTC().Format(time.RFC3339)),
+	}))
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		return c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got) == nil &&
+			got.Status.ProbeHash != hash && got.Spec.SizeBytes == int64(len(changed))
+	}, 5*time.Second, 50*time.Millisecond, "the observed-fingerprint annotation must wake the re-probe")
 }

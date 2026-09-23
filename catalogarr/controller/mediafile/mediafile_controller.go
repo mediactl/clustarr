@@ -66,17 +66,32 @@ import (
 // +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitlerequests,verbs=get;list;watch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
+// AnnotationObservedFingerprint is how importarr's library rescan tells this
+// controller that a post-transcode file changed on disk: "<sizeBytes>@<RFC
+// 3339 mtime>" as the walk found it, applied under k8s.ManagerImportarr,
+// which owns nothing else on a MediaFile. It is the same key as
+// importarr/worker/rescan.AnnotationObservedFingerprint (a test holds the
+// two equal; catalogarr does not import importarr to read one constant).
+//
+// This is the gap-fix X5a/X7a contract for "a transcoded file's bytes
+// legitimately changed". Once catalogarr incorporates a transcode swap it
+// owns spec.sizeBytes, spec.modTime and spec.original, so the rescan never
+// re-applies them -- k8s.Apply forces ownership and would silently take
+// them back. The rescan only OBSERVES and hands over through this
+// annotation; this controller ACTS: the annotation's change wakes it (a
+// metadata change bumps no generation, so the For() predicate has an arm
+// for it), and the reconcile re-stats the file, re-probes it when its
+// fingerprint moved, re-records size and mtime under its own manager and
+// drops the transcode verdict the old bytes earned. The value is never
+// parsed: the stat is the authority, the annotation only the doorbell.
+const AnnotationObservedFingerprint = "catalog.clustarr.io/observed-fingerprint"
+
 // TranscodedRecheckInterval is how often a transcoded MediaFile
-// (spec.original=false) is re-examined on disk when nothing else wakes it.
-// Once catalogarr has incorporated a transcode swap it owns the file's
-// on-disk facts -- spec.sizeBytes, spec.modTime, spec.original -- and the
-// library rescan deliberately never touches such a file again (it would
-// force-reclaim those fields; see importarr/worker/rescan's
-// existingForRescan). So nothing but this controller notices a transcoded
-// file whose bytes change afterwards, and a file change bumps no generation:
-// without a timer it would be noticed only at the manager's resync. A day is
-// the budget: one stat, two cached Lists and one no-op apply per transcoded
-// file per day.
+// (spec.original=false) is re-examined on disk when nothing else wakes it:
+// the floor under [AnnotationObservedFingerprint], for a library whose root
+// folder has no rescan schedule, or a change between two scans. A day is the
+// budget: one stat, two cached Lists and one no-op apply per transcoded file
+// per day.
 const TranscodedRecheckInterval = 24 * time.Hour
 
 // Reconciler owns 100% of MediaFile.status (see this section's "Resolving
@@ -293,8 +308,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			// no newer Succeeded TranscodeJob explains it (a re-mux, a hand
 			// edit, a restore from backup). The size and mtime are
 			// re-recorded above, under this manager, which has owned them
-			// since the swap; the rescan never re-applies them (see
-			// TranscodedRecheckInterval). What the previous encode claimed
+			// since the swap; the rescan never re-applies them, it only rings
+			// AnnotationObservedFingerprint. What the previous encode claimed
 			// about the file no longer describes these bytes, so the
 			// compliance verdict and the profile revision it was judged
 			// against are dropped. LastResult stays: it is the history of the
@@ -454,7 +469,10 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("mediafile").
-		For(&catalogv1alpha1.MediaFile{}, builder.WithPredicates(k8s.GenerationChanged())).
+		For(&catalogv1alpha1.MediaFile{}, builder.WithPredicates(k8s.Or(
+			k8s.GenerationChanged(),
+			k8s.StatusFieldChanged(observedFingerprint),
+		))).
 		Watches(&transcodev1alpha1.TranscodeJob{}, handler.EnqueueRequestsFromMapFunc(r.mediaFileForTranscodeJob),
 			builder.WithPredicates(k8s.StatusFieldIn(extractTranscodeJobPhase, string(transcodev1alpha1.TranscodeJobPhaseSucceeded)))).
 		Watches(&subtitlev1alpha1.SubtitleRequest{}, handler.EnqueueRequestsFromMapFunc(r.mediaFileForSubtitleRequest),
@@ -555,4 +573,13 @@ func (r *Reconciler) scanSidecars(ctx context.Context, mf *catalogv1alpha1.Media
 		return nil, false, err
 	}
 	return sidecars, true, nil
+}
+
+// observedFingerprint extracts [AnnotationObservedFingerprint], for the For()
+// predicate arm that lets importarr's hand-over reach this reconcile.
+func observedFingerprint(o client.Object) string {
+	if o == nil {
+		return ""
+	}
+	return o.GetAnnotations()[AnnotationObservedFingerprint]
 }
