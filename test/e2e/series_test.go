@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
 // TestSeriesAndEpisodes is Phase H scenario 5's catalog leg: three Series,
@@ -47,9 +48,8 @@ import (
 //     onto absolute ordering (EffectiveEpisodeOrder, §4.2).
 //
 // The file leg of scenario 5 -- each Episode gaining a MediaFile -- is
-// covered by TestSeriesRootFolderScanIsNotSupportedYet below, which asserts
-// what importarr actually does with a series root folder today. See that
-// test's comment.
+// TestSeriesRootFolderScanAttributesEpisodes below, through importarr's
+// series rescan (task X7a).
 // fixtureEpisodesPerSeries is how many episodes each of the three fixture
 // series carries in test/fixtures/tvdbstub/testdata. Both the recorded GoT
 // list and the two fixture-owned lists hold two, which is deliberate: a
@@ -113,25 +113,18 @@ func TestSeriesAndEpisodes(t *testing.T) {
 	// it races the Series reconciler's pre-fan-out rollup.
 }
 
-// TestSeriesRootFolderScanIsNotSupportedYet pins what importarr's library
-// rescan does with a series root folder TODAY, which is not what scenario 5's
-// file leg eventually wants.
+// TestSeriesRootFolderScanAttributesEpisodes is scenario 5's file leg through
+// importarr's library rescan. Until task X7a the rescan refused every file
+// under a series root folder as "not supported by library rescan" (this test
+// was TestSeriesRootFolderScanIsNotSupportedYet and pinned that); it now
+// attributes each file to an EXISTING Series and Episode (the Series by its
+// resolved folder, the Episode by the numbering the file's name carries --
+// importarr/worker/rescan/series.go) and creates a MediaFile for it.
 //
-// importarr/worker/rescan/mediafile.go's handleMediaFile short-circuits every
-// file under a root folder whose kind is not "movie" into
-// LibraryScan.status.unmatched with CodeUnsupportedKind, and its own comment
-// says so: "Library rescan understands movie root folders... extending this
-// to series, music and books is M6 work." The remaining-work plan's scenario
-// 5 assumes the opposite for Phase C ("the files arrive through the rescan
-// importarr owns"), so the two disagree and the implementation is the one
-// that ships.
-//
-// Asserting the real behaviour rather than skipping keeps the invariant that
-// matters most under test -- the scanner never guesses, so an unattributable
-// file is reported with a reason and NO speculative Episode or MediaFile is
-// invented (CLAUDE.md) -- and makes the flip to the eventual behaviour a
-// one-test edit when series rescan lands.
-func TestSeriesRootFolderScanIsNotSupportedYet(t *testing.T) {
+// The never-guess invariant (CLAUDE.md) is the other half: a file naming an
+// episode the series does not have is reported with a reason and nothing is
+// invented for it -- no MediaFile, no Episode.
+func TestSeriesRootFolderScanAttributesEpisodes(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
 	defer cancel()
 
@@ -140,33 +133,32 @@ func TestSeriesRootFolderScanIsNotSupportedYet(t *testing.T) {
 	live := waitForSeriesReady(ctx, t, series, fixtureEpisodesPerSeries)
 
 	// A real season pack unpacks into one file per episode; MediaFile is
-	// "one file on disk", so a pack is two files, not one.
+	// "one file on disk", so a pack is two files, not one. The third names
+	// an episode the fixture series does not have.
 	packDir := path.Join(live.Status.Path, "Season 01")
 	plantFiller(t, hostPath(path.Join(packDir, "Game.of.Thrones.S01E01.720p.BluRay.x264-DEMAND.mkv")))
 	plantFiller(t, hostPath(path.Join(packDir, "Game.of.Thrones.S01E02.720p.BluRay.x264-DEMAND.mkv")))
+	plantFiller(t, hostPath(path.Join(live.Status.Path, "Season 09", "Game.of.Thrones.S09E99.720p.BluRay.x264-DEMAND.mkv")))
 
 	scan := runScan(ctx, t, rf, catalogv1alpha1.ScanModeFull)
+	require.EqualValues(t, 2, scan.Status.FilesMatched,
+		"both episode files should have been attributed; unmatched=%+v", scan.Status.Unmatched)
 
-	require.NotEmpty(t, scan.Status.Unmatched, "every file under a series root folder must be reported, never dropped")
-	for _, u := range scan.Status.Unmatched {
-		require.NotEmpty(t, u.Reason, "unmatched file %q was recorded without a reason", u.Path)
-		require.Contains(t, u.Reason, "not supported by library rescan",
-			"unmatched file %q was refused for an unexpected reason", u.Path)
-	}
-	var seen []string
-	for _, u := range scan.Status.Unmatched {
-		seen = append(seen, path.Base(u.Path))
-	}
-	require.ElementsMatch(t,
-		[]string{"Game.of.Thrones.S01E01.720p.BluRay.x264-DEMAND.mkv", "Game.of.Thrones.S01E02.720p.BluRay.x264-DEMAND.mkv"},
-		seen)
+	// The never-guess half: the unknown episode is reported, with a reason.
+	require.Len(t, scan.Status.Unmatched, 1, "unmatched=%+v", scan.Status.Unmatched)
+	require.Equal(t, "Game.of.Thrones.S09E99.720p.BluRay.x264-DEMAND.mkv", path.Base(scan.Status.Unmatched[0].Path))
+	require.NotEmpty(t, scan.Status.Unmatched[0].Reason, "an unmatched file must carry its reason")
 
-	// The never-guess half: nothing was invented for the files it refused.
-	require.Empty(t, mediaFilesUnder(ctx, t, rf.Spec.Path),
-		"a scan that could not attribute a file must not create a MediaFile for it")
-	ep := requireEpisode(ctx, t, series.Name+"-s01e01")
-	require.False(t, ep.Status.HasFile,
-		"Episode %s must not claim a file the scanner never attributed", ep.Name)
+	files := waitForMediaFileCount(ctx, t, rf.Spec.Path, 2)
+	byEpisode := map[string]string{}
+	for _, mf := range files {
+		require.Equal(t, commonv1.MediaKindEpisode, mf.Spec.MediaRef.Kind, "MediaFile %s", mf.Name)
+		byEpisode[mf.Spec.MediaRef.Name] = path.Base(mf.Spec.Path)
+	}
+	require.Equal(t, map[string]string{
+		series.Name + "-s01e01": "Game.of.Thrones.S01E01.720p.BluRay.x264-DEMAND.mkv",
+		series.Name + "-s01e02": "Game.of.Thrones.S01E02.720p.BluRay.x264-DEMAND.mkv",
+	}, byEpisode, "each file must back the Episode its name numbers")
 }
 
 // createSeries creates one Series and registers its cleanup. Deleting the

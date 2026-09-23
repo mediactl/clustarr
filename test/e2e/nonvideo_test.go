@@ -64,9 +64,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // wired -- see ui_test.go's new page tests for that gap), planting one file
 // under each kind's RootFolder and creating the redirecting LibraryScan by
 // hand, in ui/actions.ManualAssign's own exact shape.
-// importarr/worker/rescan/mediafile.go's "unsupported_root_kind" refusal
-// for every non-movie root folder was G2-4's own fix (6e1b97b); before that
-// commit every scan below would have failed outright.
+// Until G2-4 (6e1b97b), library rescan refused every non-movie root folder
+// as "unsupported_root_kind", so every scan below would have failed
+// outright; that code is now reported only for a root folder kind rescan
+// does not attribute at all (importarr/worker/rescan's fileKindForRoot).
 //
 // Build-tagged e2e. Per the standing instruction, this suite is written and
 // has never been run against a kind cluster.

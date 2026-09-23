@@ -106,6 +106,7 @@ import (
 	"path"
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -143,7 +144,7 @@ const (
 	transcodeMovieFolder = "Fixture Transcode Movie (2019) {tmdb-27205}"
 	transcodeMovieFile   = "Fixture.Transcode.Movie.2019.2160p.WEB-DL.x264-CLUSTARR.mkv"
 
-	// transcodeContainerFolder/File plant TestTranscodeContainerChangeSkipped's
+	// transcodeContainerFolder/File plant TestTranscodeContainerChangeMovesTheFile's
 	// file: a distinct (720, webdl) signature, same reasoning as above.
 	transcodeContainerFolder = "Fixture Transcode Container Movie (2019) {tmdb-27205}"
 	transcodeContainerFile   = "Fixture.Transcode.Container.Movie.2019.720p.WEB-DL.x264-CLUSTARR.mkv"
@@ -177,11 +178,6 @@ const (
 	// is pure computation from the MediaFile's stored probe and the
 	// profile -- no real work happens before Planned.
 	transcodeJobPlannedTimeout = 2 * time.Minute
-
-	// transcodeJobSkippedTimeout covers ruling R8's container-change
-	// decision, made entirely inside plan() with no batch Job at all --
-	// exactly as fast as transcodeJobPlannedTimeout.
-	transcodeJobSkippedTimeout = 3 * time.Minute
 
 	// transcodeJobSucceededTimeout covers what plannedTimeout does not: a
 	// REAL batch Job -- pod scheduling and image pull (generous margin,
@@ -645,15 +641,18 @@ func TestTranscodeMediaFileThroughTranscodeJob(t *testing.T) {
 		})
 }
 
-// TestTranscodeContainerChangeSkipped proves ruling R8: a TranscodeProfile
-// whose output container differs from the source's is Skipped at plan
-// time, with no batch Job ever created, because the worker's swap (R5)
-// renames the output OVER the source PATH -- an .mp4 profile against a
-// .mkv source would write mp4 data behind a .mkv name, and there is no
-// library path migration yet to fix the extension afterwards
-// (squasharr/controller/transcodejob/controller.go's plan(), the
-// containerChange check before pkg/transcode.Plan is ever called).
-func TestTranscodeContainerChangeSkipped(t *testing.T) {
+// TestTranscodeContainerChangeMovesTheFile proves gap-fix ruling R-11: a
+// TranscodeProfile whose output container differs from the source's is
+// planned and run, not skipped. Under replaceSource=true (the profile's
+// default) the worker writes <stem>.<container> beside the source, retires
+// the source into the recycle bin and reports the new path; catalogarr's
+// MediaFile controller then takes over spec.path (task X5a's swap under a
+// new name), so the library ends at the .mp4 and the catalog follows it.
+//
+// Until R-11 this shape was ruling R8's Skipped: the worker renamed its
+// output OVER the source path, so an .mp4 profile against a .mkv source
+// would have written mp4 data behind a .mkv name.
+func TestTranscodeContainerChangeMovesTheFile(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
 	defer cancel()
 
@@ -663,9 +662,13 @@ func TestTranscodeContainerChangeSkipped(t *testing.T) {
 	runScan(ctx, t, rf, catalogv1alpha1.ScanModeFull)
 
 	files := waitForMediaFileCount(ctx, t, rf.Spec.Path, 1)
-	mf := waitForMediaFileProbed(ctx, t, client.ObjectKeyFromObject(&files[0]))
+	mfKey := client.ObjectKeyFromObject(&files[0])
+	mf := waitForMediaFileProbed(ctx, t, mfKey)
 	require.Equal(t, int32(720), mf.Spec.Quality.Resolution)
 	require.Equal(t, commonv1.SourceWebDL, mf.Spec.Quality.Source)
+	require.Equal(t, filePath, mf.Spec.Path)
+	firstProbedAt := mf.Status.ProbedAt
+	require.NotNil(t, firstProbedAt)
 
 	cleanupUnlessFailed(t, func() {
 		_ = k8sClient.Delete(context.Background(), &catalogv1alpha1.Movie{
@@ -673,29 +676,44 @@ func TestTranscodeContainerChangeSkipped(t *testing.T) {
 		})
 	})
 
-	// mp4 output against a .mkv source: exactly R8's container-change shape.
+	// mp4 output against a .mkv source: the container-change shape.
 	newTranscodeProfile(ctx, t, "e2e-tjcc-profile", 720, commonv1.SourceWebDL, transcodev1alpha1.ContainerMP4)
 
 	tj := waitForTranscodeJobForMediaFile(ctx, t, Namespace, mf.Name)
 	tjKey := client.ObjectKeyFromObject(&tj)
 	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), &tj) })
 
-	skipped := waitForTranscodeJobPhase(ctx, t, tjKey, transcodeJobSkippedTimeout, transcodev1alpha1.TranscodeJobPhaseSkipped)
-	require.Nil(t, skipped.Status.Plan, "ruling R8: a container-change skip leaves status.plan unset, like a reject decision")
-	require.Contains(t, skipped.Status.Message, "container change")
-	require.Nil(t, skipped.Status.JobRef, "no batch Job may ever be created for a container-change skip")
+	planned := waitForTranscodeJobPhaseAtLeast(ctx, t, tjKey, transcodeJobPlannedTimeout, transcodev1alpha1.TranscodeJobPhasePlanned)
+	require.NotNil(t, planned.Status.Plan, "a container change is planned, not skipped (R-11)")
+	cond := findCondition(planned.Status.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned)
+	require.NotNil(t, cond, "Planned condition must be set")
+	require.Equal(t, metav1.ConditionTrue, cond.Status)
+	require.Equal(t, transcodejobctrl.ReasonContainerChange, cond.Reason)
 
-	planned := findCondition(skipped.Status.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned)
-	require.NotNil(t, planned, "Planned condition must be set")
-	require.Equal(t, metav1.ConditionFalse, planned.Status)
-	require.Equal(t, transcodejobctrl.ReasonContainerChange, planned.Reason)
+	succeeded := waitForTranscodeJobPhase(ctx, t, tjKey, transcodeJobSucceededTimeout, transcodev1alpha1.TranscodeJobPhaseSucceeded)
+	require.NotNil(t, succeeded.Status.Result)
+	wantOutput := strings.TrimSuffix(filePath, ".mkv") + ".mp4"
+	require.Equal(t, wantOutput, succeeded.Status.Result.OutputPath,
+		"replaceSource=true writes <stem>.<container> beside the source")
+
+	// On disk: the .mp4 is there and the .mkv has been retired.
+	waitFor(t, ctx, recycledOriginalTimeout, "the .mp4 output beside the retired source", func(context.Context) (bool, error) {
+		_, outErr := os.Stat(hostPath(wantOutput))
+		_, srcErr := os.Stat(hostPath(filePath))
+		return outErr == nil && os.IsNotExist(srcErr), nil
+	})
+
+	// The catalog follows: catalogarr takes over spec.path in the same
+	// apply as the rest of the swap.
+	swapped := waitForMediaFileSwapIncorporated(ctx, t, mfKey, firstProbedAt.Time)
+	require.Equal(t, wantOutput, swapped.Spec.Path, "the MediaFile must follow the file to its new container")
+	require.Equal(t, "mp4", swapped.Status.MediaInfo.Container, "the re-probe must read the new container")
 }
 
 // TestTranscodeDolbyVisionSkipped documents, rather than exercises, Dolby
 // Vision handling (ruling R1: a reject decision -- DolbyVisionMode=reject,
 // or DolbyVisionMode=passthrough with no VBV limits set -- lands as phase
-// Skipped with status.plan left unset, exactly like ruling R8's
-// container-change shape).
+// Skipped with status.plan left unset, as any Skipped decision does).
 //
 // Dolby Vision cannot be synthesized with ffmpeg alone: it needs an RPU (a
 // "DOVI configuration record" the encoder embeds), which only a tool like

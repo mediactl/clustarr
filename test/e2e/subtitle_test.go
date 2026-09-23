@@ -38,10 +38,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Fixtures
 //
-// test/fixtures/opensubtitlesstub and test/fixtures/gestdownstub mock the
-// two remote providers Phase F ships real clients for (embedded is local
-// and needs no upstream, subdl/subsource/whisper have no client at all,
-// ruling R5). Deployed from config/e2e/opensubtitles-stub.yaml and
+// test/fixtures/opensubtitlesstub and test/fixtures/gestdownstub mock two of
+// the remote providers captionarr ships clients for. subdl and subsource
+// have clients too since gap-fix task X11a/X11b, but no fixture here;
+// embedded is local and needs no upstream; whisper stays spec-deferred
+// (ruling R-1). Deployed from config/e2e/opensubtitles-stub.yaml and
 // config/e2e/gestdown-stub.yaml. Both packages carry their own guard-rail
 // unit tests proving their canned JSON/SRT round-trips through the REAL
 // pkg/subtitles/providers/{opensubtitlescom,gestdown} client packages --
@@ -55,42 +56,33 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // phase", so it is worth stating precisely why it cannot be built against
 // an ordinary movie:
 //
-//   - captionarr/worker/fetch/worker.go's eligible() registers each
-//     provider into a pkg/subtitles.Registry keyed by Name(), and
-//     Registry.Register returns ErrDuplicateProvider for a second provider
-//     of the same type -- "one account per provider", Bazarr's own model
-//     (eligible's own doc comment). Two SubtitleProviders of the SAME type
-//     can therefore never both be searched for one task, so a scenario
-//     built from two opensubtitlescom SubtitleProviders could never prove
-//     a search falling through from one to a DIFFERENT one that still
-//     answers.
+//   - Since gap-fix ruling R-4 the fetch worker pools: it searches every
+//     eligible provider, two accounts of one type included, scores all
+//     candidates together and downloads the best (Bazarr's pooling). A
+//     throttled provider simply contributes no candidates, so proving the
+//     search survives it needs a second provider that CAN answer the item.
 //   - pkg/subtitles/providers/gestdown.Provider.Capabilities() reports only
-//     Episodes: true (confirmed against provider.go); pkg/subtitles/
-//     registry.go's Registry.For(kind) filters on exactly that field, and
-//     captionarr/worker/fetch/select.go's searchable() independently hard-
-//     codes "gestdown is episode-only, and only with a tvdb id". Gestdown
-//     is therefore never even offered a Movie search.
+//     Episodes: true (confirmed against provider.go), and
+//     captionarr/worker/fetch/select.go's searchable() independently says
+//     "gestdown is episode-only, and only with a tvdb id". Gestdown is
+//     therefore never even offered a Movie search.
 //
-// The only real two-different-types fallthrough this codebase's Phase F
-// can exercise is OpenSubtitles.com (Movies+Episodes) throttled, with
-// Gestdown (Episodes only) as the surviving second provider -- which needs
-// an Episode-kind MediaFile.
+// The only real two-different-types case these fixtures can exercise is
+// OpenSubtitles.com (Movies+Episodes) throttled, with Gestdown (Episodes
+// only) as the surviving second provider -- which needs an Episode-kind
+// MediaFile.
 //
 // TestSubtitleThrottleFallsThroughToGestdown reaches that MediaFile by
-// creating it directly rather than through a real LibraryScan, for a
-// structural reason series_test.go's own
-// TestSeriesRootFolderScanIsNotSupportedYet already pins:
-// importarr/worker/rescan/mediafile.go's handleMediaFile short-circuits
-// every file under a non-movie root folder into
-// LibraryScan.status.unmatched with CodeUnsupportedKind -- series
-// root-folder scanning is M6 work, not this task's, so there is no real
-// path to an Episode MediaFile today. The direct-create is the same
-// technique this package's own newTorrentDownloadE2E/newUsenetDownloadE2E
-// and test/e2e/ui_test.go's newUIDownload already use to stand in for a
-// real decision this suite structurally cannot reach yet: everything AFTER
-// the MediaFile exists -- catalogarr's real ffprobe, the real
-// SubtitleProfile/SubtitleRequest controllers, the real fetch worker, the
-// real (mocked) providers -- runs for real, against a real Series and
+// creating it directly rather than through a real LibraryScan. When it was
+// written, library rescan refused every file under a series root folder;
+// since gap-fix task X7a it attributes them (series_test.go's
+// TestSeriesRootFolderScanAttributesEpisodes), but the direct-create keeps
+// this scenario independent of the rescan's own matching. It is the same
+// technique newTorrentDownloadE2E/newUsenetDownloadE2E and
+// test/e2e/ui_test.go's newUIDownload use to stand in for a real decision:
+// everything AFTER the MediaFile exists -- catalogarr's real ffprobe, the
+// real SubtitleProfile/SubtitleRequest controllers, the real fetch worker,
+// the real (mocked) providers -- runs for real, against a real Series and
 // Episode created through catalogarr's own real controllers
 // (series_test.go's createSeries/waitForSeriesReady/requireEpisode).
 //

@@ -74,8 +74,15 @@ func TestLibraryRescan(t *testing.T) {
 	scan := runScan(ctx, t, rf, catalogv1alpha1.ScanModeFull)
 	require.EqualValues(t, 1, scan.Status.FilesMatched,
 		"exactly the feature file should have been attributed; unmatched=%+v", scan.Status.Unmatched)
-	require.GreaterOrEqual(t, scan.Status.FilesSkipped, int64(2),
-		"the sample and the extra must be skipped, not matched")
+	// status.filesSkipped counts only media the scan chose not to act on
+	// (unchanged, transcoded, deferred); a sample and an extra are not media
+	// the scan considers at all, so since task X7a's honest counters they
+	// are 0 here and reported instead in the Ready message's "other files
+	// not considered" clause (rescan.Progress.Summary).
+	ready := findCondition(scan.Status.Conditions, "Ready")
+	require.NotNil(t, ready, "the finished scan has no Ready condition")
+	require.Contains(t, ready.Message, "1 samples, 1 extras",
+		"the sample and the extra must be recognised and left alone, not matched")
 
 	// Exactly one MediaFile under this root, and it is the feature.
 	files := waitForMediaFileCount(ctx, t, root, 1)
