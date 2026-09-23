@@ -259,6 +259,7 @@ func TestClassify(t *testing.T) {
 		{name: "nil", err: nil, reason: ""},
 		{name: "bare", err: errors.New("dial tcp: connection refused"), reason: ReasonProbeFailed},
 		{name: "too large", err: fmt.Errorf("%w: at least 9 bytes", torznab.ErrResponseTooLarge), reason: ReasonResponseTooLarge},
+		{name: "malformed caps", err: fmt.Errorf("%w: strconv.ParseInt: invalid syntax", torznab.ErrMalformedCaps), reason: ReasonMalformedCaps},
 		{name: "bad credentials", err: &torznab.Error{Code: torznab.ErrIncorrectCredentials}, reason: ReasonCredentialsRejected, auth: true},
 		{name: "suspended", err: &torznab.Error{Code: torznab.ErrAccountSuspended}, reason: ReasonCredentialsRejected, auth: true},
 		{name: "insufficient privileges", err: &torznab.Error{Code: torznab.ErrInsufficientPrivileges}, reason: ReasonCredentialsRejected, auth: true},

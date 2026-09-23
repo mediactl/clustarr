@@ -18,7 +18,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package torznab_test
 
 import (
+	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -90,4 +92,33 @@ func TestParseCapsMalformedInputNeverPanics(t *testing.T) {
 			})
 		})
 	}
+}
+
+// A malformed caps document is a TYPED error: the <limits> attributes stay
+// ints (a guessed page size is worse than a refusal), and every failure --
+// a non-integer limit included -- matches ErrMalformedCaps, so the Indexer
+// reconciler can name it rather than report a generic probe failure.
+func TestParseCapsMalformedDocumentIsATypedError(t *testing.T) {
+	cases := map[string]string{
+		"non-integer max":     `<caps><limits default="50" max="lots"/></caps>`,
+		"non-integer default": `<caps><limits default="fifty" max="100"/></caps>`,
+		"garbage":             "not xml at all {{{",
+		"truncated":           `<?xml version="1.0"?><caps><server title="x"`,
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := torznab.ParseCaps(strings.NewReader(body))
+			require.ErrorIs(t, err, torznab.ErrMalformedCaps)
+		})
+	}
+
+	// The underlying cause survives the wrap.
+	_, err := torznab.ParseCaps(strings.NewReader(`<caps><limits max="lots"/></caps>`))
+	var numErr *strconv.NumError
+	require.True(t, errors.As(err, &numErr), "want the strconv cause through the wrap, got %v", err)
+
+	// A well-formed document with no <limits> at all is not malformed.
+	caps, err := torznab.ParseCaps(strings.NewReader(`<caps><server title="x"/></caps>`))
+	require.NoError(t, err)
+	require.Zero(t, caps.LimitsMax)
 }

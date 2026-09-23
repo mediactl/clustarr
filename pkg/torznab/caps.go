@@ -29,6 +29,8 @@ package torznab
 
 import (
 	"encoding/xml"
+	"errors"
+	"fmt"
 	"io"
 	"strings"
 
@@ -105,6 +107,20 @@ func (c Caps) Supports(mode SearchMode, param string) bool {
 	return false
 }
 
+// ErrMalformedCaps is what every t=caps document ParseCaps cannot read
+// matches: not XML, truncated, or carrying a value its typed field refuses.
+//
+// The last case is the one this sentinel exists for. wireCaps.Limits stays
+// TYPED (ints, not strings, unlike wireItem's lenient Size): a caps document
+// is one small, authoritative answer about what the indexer accepts, so a
+// <limits max="lots"> is not something to degrade past silently -- a guessed
+// limit would page the indexer at a size it never offered. encoding/xml
+// reports that as a bare *strconv.NumError, which reads to a caller as an
+// arbitrary parse failure; wrapping it lets the Indexer reconciler report
+// "the indexer's caps document is malformed" as its own reason rather than a
+// generic probe failure.
+var ErrMalformedCaps = errors.New("torznab: malformed caps document")
+
 // wireCaps mirrors the <caps> document 1:1 (docs/research/indexers.md
 // §2.3).
 type wireCaps struct {
@@ -154,11 +170,13 @@ type wireTag struct {
 	Description string `xml:"description,attr"`
 }
 
-// ParseCaps parses r as a t=caps response document.
+// ParseCaps parses r as a t=caps response document. Any document it cannot
+// read -- including a <limits> attribute that is not an integer -- is an
+// error matching [ErrMalformedCaps].
 func ParseCaps(r io.Reader) (Caps, error) {
 	var wc wireCaps
 	if err := xml.NewDecoder(r).Decode(&wc); err != nil {
-		return Caps{}, err
+		return Caps{}, fmt.Errorf("%w: %w", ErrMalformedCaps, err)
 	}
 
 	byElement := map[string]wireSearching{

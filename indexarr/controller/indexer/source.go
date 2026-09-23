@@ -354,6 +354,7 @@ const (
 	ReasonCredentialsRejected      = "CredentialsRejected"
 	ReasonIndexerDisabled          = "IndexerDisabled"
 	ReasonResponseTooLarge         = "ResponseTooLarge"
+	ReasonMalformedCaps            = "MalformedCaps"
 	ReasonProbeFailed              = "ProbeFailed"
 	ReasonBackingOff               = "BackingOff"
 	ReasonLimitReached             = "LimitReached"
@@ -368,6 +369,12 @@ func classify(err error) probeOutcome {
 	out := probeOutcome{Reason: ReasonProbeFailed, Message: err.Error()}
 	if errors.Is(err, torznab.ErrResponseTooLarge) {
 		out.Reason = ReasonResponseTooLarge
+		return out
+	}
+	if errors.Is(err, torznab.ErrMalformedCaps) {
+		// The indexer answered, but not with a caps document we can read:
+		// its own defect, named as such rather than as an unreachable host.
+		out.Reason = ReasonMalformedCaps
 		return out
 	}
 	var te *torznab.Error
