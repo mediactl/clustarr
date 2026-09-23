@@ -125,6 +125,7 @@ type MediaInfo struct { // *arr MediaInfoModel vocabulary
     Container, VideoCodec, VideoProfile, PixelFormat string; VideoBitDepth, Width, Height int32; Fps float64 `json:"fps"`
     VideoBitrateKbps int32; Hdr HdrFormat; DoviProfile, DoviBLCompatID *int32; RuntimeSeconds float64
     Audio []AudioStream `json:"audio"` /* ≤64 */; Subtitles []SubtitleStream /* ≤64 */; Attachments int32; Chapters int32
+    TranscodeProfile string // ≤320; the file's CLUSTARR_PROFILE container tag "<profile>@<hash>", read case-insensitively by pkg/mediainfo (gap fix T1)
 }
 type SeedCriteria struct { Ratio *float64; SeedTime, PackSeedTime, InactiveTime *metav1.Duration }
 type RejectionType string // Permanent Temporary
@@ -203,7 +204,7 @@ type MovieSpec struct {
     Tags []string; Source *common.AddSource
 }
 type MovieStatus struct {
-    Phase string enum{Pending,Unavailable,Wanted,Delayed,Downloading,Imported,CutoffUnmet,CutoffUnevaluated,Unmonitored}
+    Phase string enum{Pending,Unavailable,Wanted,Delayed,Downloading,Imported,Transcoded,CutoffUnmet,CutoffUnevaluated,Unmonitored}
     Metadata *MovieMetadata // {Title, OriginalTitle, SortTitle, OriginalLanguage, Overview, Certification string; Year, SecondaryYear, RuntimeMinutes int32; Genres []string; Status enum{tba,announced,inCinemas,released}; InCinemas, DigitalRelease, PhysicalRelease *metav1.Time; ReleaseDates []ReleaseDate{Country string; Type int32 /*1-6*/; Date metav1.Time} ≤60; Collection *{TmdbID int64; Name string}; ExternalIDs map[string]string; Images []Image{Type enum{poster,fanart,banner,logo,clearart,thumb,screenshot,disc,headshot} /* = pkg/metadata.ImageType, gap fix X1 */; URL string}; AlternateTitles []string ≤50; RefreshedAt metav1.Time}
     AddOptionsApplied bool; Available bool; AvailableAt *metav1.Time; Path string
     HasFile bool; FileRef *string; FileQuality *common.Quality; FileFormatScore int32; CutoffMet bool
@@ -213,7 +214,7 @@ type MovieStatus struct {
 } // conditions Ready, MetadataReady, Available, HasFile, CutoffMet, QueueFull
 ```
 
-**Item phases (gap fixes).** `CutoffUnevaluated` (Movie and Episode, gap fix X1) replaces `CutoffUnmet` when the item has a file but its QualityProfile cannot be resolved, so `kubectl get` no longer calls an unjudged file below cutoff; it ranks where `CutoffUnmet` does and the wanted sweeps skip it. `activeDownloadRef` is derived, never grabbed (R-5, §2). One rule overlays a Download on every grabbable kind (`catalogarr/controller/rollup.DownloadOverlay`, gap fix X5a): while the item owns a non-terminal Download -- phase `""` (just created), Pending, Assigned, Queued, Downloading, Paused, Completed or Seeding -- the item reads Downloading (an Issue's state `snatched`) and `activeDownloadRef` names it; Imported, Failed, Blocklisted, Removing or a deletion timestamp give no opinion, so the file decides (Imported, CutoffUnmet, or Wanted again). Completed and Seeding count because the content still waits for import (Radarr's QueueSpecification treats ImportPending the same), and Pending is not Delayed: Delayed is §8.2's delay-profile hold, which ends when the grab creates the Download. `metadata.secondaryYear` is the earliest premiere year when it differs from `year` (Radarr's SkyHookProxy.MapMovie; TMDB fills it), and identity accepts a release year equal to it or within ±1 of `year` (R-7). Movie, Series and Episode emit Kubernetes Events on phase edges and publish their item and media-file events (§5).
+**Item phases (gap fixes).** `CutoffUnevaluated` (Movie and Episode, gap fix X1) replaces `CutoffUnmet` when the item has a file but its QualityProfile cannot be resolved, so `kubectl get` no longer calls an unjudged file below cutoff; it ranks where `CutoffUnmet` does and the wanted sweeps skip it. **A transcoded file is final** (Movie and Episode, gap fix T1; the owner's rule): a file is transcoded when `spec.original` is false (a swap was incorporated, §8.5) or its probe found squasharr's `CLUSTARR_PROFILE` tag (`status.mediaInfo.transcodeProfile`, which is how a rescan recognises a file an earlier install transcoded) -- one predicate, `catalogarr/controller/rollup.Transcoded`; `status.transcode.profileTag` does not count, because a `replaceSource=false` job records it on a source it left untouched. Such an item reads `Transcoded` wherever it would otherwise read `Imported`, `CutoffUnmet` or `CutoffUnevaluated`; its `cutoffMet` is true and its `CutoffMet` condition True with reason `Transcoded`, whatever the profile says of the release quality frozen on the file. Precedence, highest first: Downloading (the Download overlay), Unmonitored, Pending (Movie), Transcoded, Imported, Delayed, CutoffUnevaluated, CutoffUnmet, Unavailable or Unaired, Wanted. The wanted sweep never selects it, and `pkg/decision` rejects every automatic candidate against it as `TranscodedFinal` (Permanent) -- the RSS matcher's, an automatic search's, and a season pack's keys, which skip a transcoded episode -- while a user's interactive search is left to the ordinary checks, as Radarr and Sonarr allow a manual grab. The Movie and Episode watches wake on the file's transcoded verdict as well as its generation, because the probe records the tag in a status write. A Transcoded episode counts toward the Series' file totals as an Imported one does. `activeDownloadRef` is derived, never grabbed (R-5, §2). One rule overlays a Download on every grabbable kind (`catalogarr/controller/rollup.DownloadOverlay`, gap fix X5a): while the item owns a non-terminal Download -- phase `""` (just created), Pending, Assigned, Queued, Downloading, Paused, Completed or Seeding -- the item reads Downloading (an Issue's state `snatched`) and `activeDownloadRef` names it; Imported, Failed, Blocklisted, Removing or a deletion timestamp give no opinion, so the file decides (Imported, CutoffUnmet, or Wanted again). Completed and Seeding count because the content still waits for import (Radarr's QueueSpecification treats ImportPending the same), and Pending is not Delayed: Delayed is §8.2's delay-profile hold, which ends when the grab creates the Download. `metadata.secondaryYear` is the earliest premiere year when it differs from `year` (Radarr's SkyHookProxy.MapMovie; TMDB fills it), and identity accepts a release year equal to it or within ±1 of `year` (R-7). Movie, Series and Episode emit Kubernetes Events on phase edges and publish their item and media-file events (§5).
 
 **Series** (Namespaced)
 ```go
@@ -244,7 +245,7 @@ type EpisodeSpec struct { SeriesRef string /* req imm */; SeasonNumber, EpisodeN
 type EpisodeStatus struct {
     TvdbID int64; Title, Overview string; AirDate *metav1.Time; RuntimeMinutes int32; AbsoluteNumber *int32
     SceneNumbering *SceneNumbering // {Season, Episode, Absolute *int32; Unverified bool}
-    FinaleType string; Phase string enum{Unaired,Wanted,Delayed,Downloading,Imported,CutoffUnmet,CutoffUnevaluated,Unmonitored}
+    FinaleType string; Phase string enum{Unaired,Wanted,Delayed,Downloading,Imported,Transcoded,CutoffUnmet,CutoffUnevaluated,Unmonitored}
     HasFile bool; FileRef *string; FileQuality *common.Quality; FileFormatScore int32; CutoffMet bool
     ActiveDownloadRef *string; PendingGrab *PendingGrab; LastSearchedAt *metav1.Time; SearchAttempts common.Attempts
 } // conditions Aired, HasFile, CutoffMet
@@ -341,7 +342,7 @@ type MediaFileSpec struct {
 }
 type MediaFileStatus struct {
     ProbeHash string          // sha1(path|size|mtime); bumped ⇒ downstream services replan
-    ProbedAt *metav1.Time; MediaInfo *common.MediaInfo
+    ProbedAt *metav1.Time; MediaInfo *common.MediaInfo // mediaInfo.transcodeProfile: the CLUSTARR_PROFILE tag; with it, or spec.original false, the file is transcoded and final (T1)
     Sidecars []Sidecar        // map[path]; ≤50; {Path, Language string; Forced, HI bool}
     Transcode *TranscodeState // {Compliant bool; ProfileTag string; JobRef *string; LastResult enum{none,succeeded,failed,skipped}}
     // controller-mirrored labels: catalog.clustarr.io/kind, /resolution, /source, /modifier, /video-codec, /hdr, /original
