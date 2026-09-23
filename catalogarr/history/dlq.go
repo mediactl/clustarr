@@ -150,8 +150,7 @@ func (p *DLQProjector) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error 
 // be resolved unambiguously -- emits a namespace-level Event and does
 // nothing else, rather than guess. See target.go's resolvers and this
 // package's doc comment for what "cannot be resolved" covers: an unlisted
-// schema, a namespace-wide task with no single object (WantedScan), or a
-// fully global one with no namespace either (DefinitionsSync).
+// schema, or a namespace-wide task with no single object (WantedScan).
 func (p *DLQProjector) Handle(ctx context.Context, m events.Message) error {
 	return p.handle(ctx, m)
 }

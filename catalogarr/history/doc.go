@@ -60,12 +60,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // payload's own schema carries, exactly as [Sink] does for a live event. See
 // resolvers in target.go for the schema -> object mapping. A dead letter
 // whose schema this package does not recognise, or whose payload carries no
-// specific object at all (catalog.WantedScan is a namespace sweep;
-// index.DefinitionsSync is cluster-global), gets a namespace-level Event
-// instead of a guess: regarding a core/v1 Namespace, which is how Kubernetes
-// itself reports events about cluster-scoped things. No annotation is
-// applied in that case, because there is nothing correctly-typed to apply it
-// to.
+// specific object at all (catalog.WantedScan is a namespace sweep), gets a
+// namespace-level Event instead of a guess: regarding a core/v1 Namespace,
+// which is how Kubernetes itself reports events about cluster-scoped things.
+// No annotation is applied in that case, because there is nothing
+// correctly-typed to apply it to.
 //
 // # clustarr.io/replay: the replay handler
 //

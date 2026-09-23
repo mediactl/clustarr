@@ -249,8 +249,8 @@ func TestResolve_NamespaceOnlyAndUnresolvable(t *testing.T) {
 		}, got)
 	})
 
-	t.Run("DefinitionsSync is cluster-global: no schema entry, no key", func(t *testing.T) {
-		env := envelopeFor(t, "", schema.DefinitionsSync{Source: "built-in"})
+	t.Run("a cluster-global payload: no schema entry, no key", func(t *testing.T) {
+		env := &events.Envelope{Schema: "some.GlobalTask.v1", Data: []byte(`{"source":"built-in"}`)}
 		got := history.Resolve(env)
 		require.Equal(t, history.Target{}, got)
 		require.False(t, got.KindKnown())

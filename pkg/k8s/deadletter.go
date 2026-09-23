@@ -59,9 +59,8 @@ import (
 //	subtitle.clustarr.io  SubtitleRequest (subtitle.SubtitleEvent, FetchTask)
 //
 // Every other kind never carries it: a dead letter whose schema has no
-// resolver, or that names no single object
-// (catalog.WantedScan, index.DefinitionsSync), gets a namespace-level Warning
-// Event instead. MediaFile, RootFolder, QualityProfile, DownloadClient,
+// resolver, or that names no single object (catalog.WantedScan, a namespace
+// sweep), gets a namespace-level Warning Event instead. MediaFile, RootFolder, QualityProfile, DownloadClient,
 // TranscodeProfile, SubtitleProfile, SubtitleProvider and the rest are never
 // annotated.
 //

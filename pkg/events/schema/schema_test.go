@@ -45,7 +45,6 @@ func allPayloads() []schema.Payload {
 		schema.Release{},
 		schema.IndexerEvent{},
 		schema.RssTask{},
-		schema.DefinitionsSync{},
 		schema.SearchRequest{},
 		schema.SearchResponse{},
 		schema.DownloadRequest{},

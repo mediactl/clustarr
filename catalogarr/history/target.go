@@ -139,11 +139,13 @@ type resolver func(key string, data []byte) Target
 // through to the "cannot resolve" path in both Sink and DLQProjector rather
 // than being guessed at.
 //
-// Two schemas that DO carry an object-shaped payload are deliberately absent:
-// catalog.WantedScan (a namespace sweep -- Namespace only, no Name) and
-// index.DefinitionsSync (cluster-global -- no Namespace either). Both are
-// handled directly in resolveWantedScan below and by falling through for
-// DefinitionsSync, rather than pretending either names one object.
+// catalog.WantedScan names no single object -- it is a namespace sweep,
+// Namespace and no Name -- so resolveWantedScan resolves it to its namespace
+// alone rather than pretending it names one object. A payload with no
+// namespace either, a cluster-global task, would fall through with an empty
+// key and resolve to nothing; no schema publishes one today (the
+// index.DefinitionsSync this comment once cited never had a producer and was
+// removed in gap fixes Z2).
 var resolvers = map[string]resolver{
 	schema.ItemEvent{}.Schema():        resolveItemEvent,
 	schema.ReleaseEvent{}.Schema():     resolveReleaseEvent,

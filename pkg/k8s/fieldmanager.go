@@ -65,9 +65,9 @@ const (
 	// consumers that write status fields NO other catalogarr writer touches:
 	// the search worker's Search.status.finishedAt/indexerOutcomes/results.
 	// (The import and importlist consumers this comment also named went to
-	// importarr with amendment §A1: the importlist half was pruned from
-	// pkg/events in the gap-fix wave, and the catalogarr-import consumer is
-	// still declared in the topology but has no subscriber.)
+	// importarr with amendment §A1; neither ever had a subscriber here, and
+	// both are gone from pkg/events -- catalogarr-importlist in the gap-fix
+	// wave (X1), catalogarr-import in gap fixes Z2.)
 	//
 	// The two consumers that used to share it and could not -- the metadata
 	// gateway and the grab path -- have their own names below. See

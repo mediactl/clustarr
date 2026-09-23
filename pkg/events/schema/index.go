@@ -149,23 +149,6 @@ type RssTask struct {
 // Schema implements Payload.
 func (RssTask) Schema() string { return "index.RssTask.v1" }
 
-// DefinitionsSync asks a worker to refresh the Cardigann definition set.
-// Subject: clustarr.work.indexarr.definitions.normal.sync.
-type DefinitionsSync struct {
-	// Source is the definitions repository or bundle to sync from. Empty
-	// means the built-in bundle.
-	Source string `json:"source,omitempty"`
-
-	// Revision is the definition-set revision to move to. Empty means latest.
-	Revision string `json:"revision,omitempty"`
-
-	// Force re-applies definitions even when the revision is unchanged.
-	Force bool `json:"force,omitempty"`
-}
-
-// Schema implements Payload.
-func (DefinitionsSync) Schema() string { return "index.DefinitionsSync.v1" }
-
 // SearchOutcomeStatus is how one indexer fared in a federated search.
 type SearchOutcomeStatus string
 
