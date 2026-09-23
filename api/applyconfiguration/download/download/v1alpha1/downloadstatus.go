@@ -31,7 +31,10 @@ import (
 // DownloadStatus defines the observed state of Download. Three writers share
 // it through server-side apply on disjoint field sets: the grabarr controller
 // owns the lifecycle fields, the grabarr-engine replica owns the telemetry
-// fields, and catalogarr owns status.import.
+// fields, and importarr's file-import worker owns status.import. (Design
+// spec §8.4 assigned this field to catalogarr; amendment-1 moved the
+// importer out of catalogarr into importarr/worker/fileimport, and this
+// field's ownership moved with it. Settled at task D2-7.)
 type DownloadStatusApplyConfiguration struct {
 	// ObservedGeneration is the spec generation this status was computed from.
 	// Written by the grabarr controller.
@@ -110,9 +113,10 @@ type DownloadStatusApplyConfiguration struct {
 	// works from it.
 	LastProgressAt *v1.Time `json:"lastProgressAt,omitempty"`
 	// Import is the import outcome. It is the one cross-service field on this
-	// object: catalogarr, not grabarr, writes it, through server-side apply
-	// with its own field manager, and grabarr never touches it. grabarr reads
-	// it to decide when a Download may be removed or blocklisted.
+	// object: importarr's file-import worker, not grabarr, writes it,
+	// through server-side apply with its own field manager (k8s.ManagerImportarr),
+	// and grabarr never touches it. grabarr reads it to decide when a
+	// Download may be removed or blocklisted.
 	Import *ImportStateApplyConfiguration `json:"import,omitempty"`
 	// Conditions holds Assigned, Downloaded, SeedGoalMet, Imported and Failed.
 	Conditions []metav1.ConditionApplyConfiguration `json:"conditions,omitempty"`

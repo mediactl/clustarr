@@ -29,12 +29,13 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/importarr/worker/fileimport"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
 // TestHandleImportsAFileAndOwnsOnlySpec is the phase gate: a completed
-// Download's one file is hardlinked into the library, a MediaFile records
+// Download's one file is hard-linked into the library, a MediaFile records
 // it, and Download.status.import reports the outcome -- and the two writes
 // land under the two different field managers task D2-7 settled on.
 func TestHandleImportsAFileAndOwnsOnlySpec(t *testing.T) {
@@ -65,7 +66,7 @@ func TestHandleImportsAFileAndOwnsOnlySpec(t *testing.T) {
 	require.Contains(t, gotDL.Status.Import.Imported[0].DestPath, f.mediaRoot)
 
 	require.Equal(t, string(k8s.ManagerImportarr),
-		managerFor(t, gotDL.ManagedFields, "status", "import"),
+		managerFor(t, gotDL.ManagedFields, "status", "status.import"),
 		"status.import must be owned by k8s.ManagerImportarr, not any other manager")
 
 	// The MediaFile side: spec only, under the worker's FieldManager, and no
@@ -84,7 +85,7 @@ func TestHandleImportsAFileAndOwnsOnlySpec(t *testing.T) {
 
 	specManager := managerFor(t, gotMF.ManagedFields, "", "spec")
 	require.Equal(t, "importarr-worker", specManager, "MediaFileSpec must be owned by k8s.ManagerImportarrWorker")
-	statusManager := managerFor(t, gotMF.ManagedFields, "status", "conditions")
+	statusManager := managerFor(t, gotMF.ManagedFields, "status", "status.conditions")
 	require.Empty(t, statusManager, "nothing in this package may ever claim any part of MediaFileStatus")
 
 	// The imported file must actually exist at the recorded destination.
@@ -158,6 +159,6 @@ func TestHandleRedeliveryAfterImportIsANoOp(t *testing.T) {
 	require.NoError(t, f.api.List(ctx, &mfList, client.InNamespace(f.ns)))
 	require.Len(t, mfList.Items, 1, "a redelivered ImportTask must not create a second MediaFile")
 
-	_, err := f.bus.KV(events.BucketDedup).Get(ctx, "import."+uid)
+	_, err := f.bus.KV(events.BucketDedup).Get(ctx, fileimport.DedupKey(uid))
 	require.NoError(t, err, "a dedup fingerprint must exist for the imported download")
 }
