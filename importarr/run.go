@@ -335,16 +335,14 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		return fmt.Errorf("importarr: libraryscan: %w", err)
 	}
 
-	// GetEventRecorderFor is deprecated, and used deliberately: this
-	// reconciler's Recorder field is a
-	// k8s.io/client-go/tools/record.EventRecorder, which is the only thing
-	// that call returns. mgr.GetEventRecorder yields the events.k8s.io/v1
-	// recorder instead, and moving to it means changing the reconciler's
-	// field type -- see catalogarr's setupControllers for the tree-wide
-	// split and the follow-up that would retire this call.
+	// mgr.GetEventRecorder, not the deprecated mgr.GetEventRecorderFor: the
+	// Recorder field is a k8s.io/client-go/tools/events.EventRecorder and
+	// writes events.k8s.io/v1, which is what the package's RBAC marker
+	// grants. See catalogarr's setupControllers for why the two must move
+	// together.
 	if err := (&rootfolderschedule.Reconciler{
 		Client:   mgr.GetClient(),
-		Recorder: mgr.GetEventRecorderFor("rootfolderschedule"), //nolint:staticcheck // see above
+		Recorder: mgr.GetEventRecorder("rootfolderschedule"),
 		Clock:    time.Now,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("importarr: rootfolderschedule: %w", err)

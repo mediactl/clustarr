@@ -32,7 +32,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -124,7 +124,7 @@ func TestReconcileScansOnceOnAdoption(t *testing.T) {
 	ns := createNamespace(t, ctx, c, "rfs-adopt")
 	newRootFolder(t, ctx, c, ns, "0 3 * * *", nil)
 
-	r := &rootfolderschedule.Reconciler{Client: c, Recorder: record.NewFakeRecorder(10), Clock: time.Now}
+	r := &rootfolderschedule.Reconciler{Client: c, Recorder: events.NewFakeRecorder(10), Clock: time.Now}
 	res, err := r.Reconcile(ctx, request(ns))
 	require.NoError(t, err)
 	assert.Positive(t, res.RequeueAfter)
@@ -151,7 +151,7 @@ func TestReconcileDoesNotDuplicateTheSameTick(t *testing.T) {
 	ns := createNamespace(t, ctx, c, "rfs-dedup")
 	newRootFolder(t, ctx, c, ns, "0 3 * * *", nil)
 
-	r := &rootfolderschedule.Reconciler{Client: c, Recorder: record.NewFakeRecorder(10), Clock: time.Now}
+	r := &rootfolderschedule.Reconciler{Client: c, Recorder: events.NewFakeRecorder(10), Clock: time.Now}
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns))))
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns))))
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns))))
@@ -168,7 +168,7 @@ func TestReconcileDoesNotRefireAfterTheScanIsDeleted(t *testing.T) {
 	ns := createNamespace(t, ctx, c, "rfs-ttl-gap")
 	newRootFolder(t, ctx, c, ns, "0 3 * * *", nil)
 
-	r := &rootfolderschedule.Reconciler{Client: c, Recorder: record.NewFakeRecorder(10), Clock: time.Now}
+	r := &rootfolderschedule.Reconciler{Client: c, Recorder: events.NewFakeRecorder(10), Clock: time.Now}
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns))))
 	scans := listScans(t, ctx, c, ns)
 	require.Len(t, scans, 1)
@@ -205,7 +205,7 @@ func TestReconcileFiresOnlyWhenTheTickIsDue(t *testing.T) {
 
 			r := &rootfolderschedule.Reconciler{
 				Client:   c,
-				Recorder: record.NewFakeRecorder(10),
+				Recorder: events.NewFakeRecorder(10),
 				Clock:    func() time.Time { return now },
 			}
 			res, err := r.Reconcile(ctx, request(ns))
@@ -240,7 +240,7 @@ func TestReconcileDoesNotBackfillMissedTicks(t *testing.T) {
 
 	now := time.Date(2026, 9, 18, 10, 0, 0, 0, time.UTC)
 	r := &rootfolderschedule.Reconciler{
-		Client: c, Recorder: record.NewFakeRecorder(10), Clock: func() time.Time { return now },
+		Client: c, Recorder: events.NewFakeRecorder(10), Clock: func() time.Time { return now },
 	}
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns))))
 
@@ -265,7 +265,7 @@ func TestReconcileReadoptsRatherThanWalkingAMillionMissedTicks(t *testing.T) {
 	newRootFolder(t, ctx, c, ns, "* * * * *",
 		map[string]string{rootfolderschedule.AnnotationLastTick: "0001-01-01T00:00:00Z"})
 
-	r := &rootfolderschedule.Reconciler{Client: c, Recorder: record.NewFakeRecorder(10), Clock: time.Now}
+	r := &rootfolderschedule.Reconciler{Client: c, Recorder: events.NewFakeRecorder(10), Clock: time.Now}
 
 	done := make(chan error, 1)
 	go func() { done <- errOf(r.Reconcile(ctx, request(ns))) }()
@@ -299,7 +299,7 @@ func TestReconcileStillFiresTheRealTickJustInsideTheCatchUpWindow(t *testing.T) 
 
 	now := time.Date(2026, 9, 18, 10, 0, 0, 0, time.UTC)
 	r := &rootfolderschedule.Reconciler{
-		Client: c, Recorder: record.NewFakeRecorder(10), Clock: func() time.Time { return now },
+		Client: c, Recorder: events.NewFakeRecorder(10), Clock: func() time.Time { return now },
 	}
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns))))
 
@@ -318,7 +318,7 @@ func TestReconcileEmitsEventAndTerminalErrorOnInvalidCron(t *testing.T) {
 	ns := createNamespace(t, ctx, c, "rfs-bad-cron")
 	newRootFolder(t, ctx, c, ns, "not a cron expression", nil)
 
-	rec := record.NewFakeRecorder(10)
+	rec := events.NewFakeRecorder(10)
 	r := &rootfolderschedule.Reconciler{Client: c, Recorder: rec, Clock: time.Now}
 	_, err := r.Reconcile(ctx, request(ns))
 	require.Error(t, err)
@@ -345,7 +345,7 @@ func TestReconcileIgnoresARootFolderWithNoSchedule(t *testing.T) {
 	ns := createNamespace(t, ctx, c, "rfs-no-schedule")
 	newRootFolder(t, ctx, c, ns, "", nil)
 
-	r := &rootfolderschedule.Reconciler{Client: c, Recorder: record.NewFakeRecorder(10), Clock: time.Now}
+	r := &rootfolderschedule.Reconciler{Client: c, Recorder: events.NewFakeRecorder(10), Clock: time.Now}
 	res, err := r.Reconcile(ctx, request(ns))
 	require.NoError(t, err)
 	assert.Positive(t, res.RequeueAfter)
@@ -361,7 +361,7 @@ func TestReconcileReadoptsOnACorruptTickAnnotation(t *testing.T) {
 	newRootFolder(t, ctx, c, ns, "0 3 * * *",
 		map[string]string{rootfolderschedule.AnnotationLastTick: "yesterday-ish"})
 
-	r := &rootfolderschedule.Reconciler{Client: c, Recorder: record.NewFakeRecorder(10), Clock: time.Now}
+	r := &rootfolderschedule.Reconciler{Client: c, Recorder: events.NewFakeRecorder(10), Clock: time.Now}
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns))))
 
 	assert.Len(t, listScans(t, ctx, c, ns), 1)

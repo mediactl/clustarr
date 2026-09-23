@@ -23,7 +23,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -95,7 +95,7 @@ type Reconciler struct {
 
 	// Recorder surfaces an unusable cron expression to the user, which is
 	// the one failure a status condition cannot carry here.
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 
 	// Clock is the time source, injected so tests are deterministic.
 	Clock func() time.Time
@@ -130,8 +130,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		// controller may not write RootFolder.status to say so, so the
 		// Event is the whole user-facing signal.
 		if r.Recorder != nil {
-			r.Recorder.Eventf(&rf, corev1.EventTypeWarning, ReasonInvalidScanSchedule,
-				"cron expression %q is invalid: %v", rf.Spec.ScanSchedule, err)
+			r.Recorder.Eventf(&rf, nil, corev1.EventTypeWarning, ReasonInvalidScanSchedule,
+				"Reconcile", "cron expression %q is invalid: %v", rf.Spec.ScanSchedule, err)
 		}
 		return ctrl.Result{}, reconcile.TerminalError(
 			fmt.Errorf("rootfolderschedule: %s: %w", req.NamespacedName, err))
@@ -149,8 +149,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	next := sched.Next(last)
 	if next.IsZero() {
 		if r.Recorder != nil {
-			r.Recorder.Eventf(&rf, corev1.EventTypeWarning, ReasonInvalidScanSchedule,
-				"cron expression %q will never fire again", rf.Spec.ScanSchedule)
+			r.Recorder.Eventf(&rf, nil, corev1.EventTypeWarning, ReasonInvalidScanSchedule,
+				"Reconcile", "cron expression %q will never fire again", rf.Spec.ScanSchedule)
 		}
 		return ctrl.Result{}, reconcile.TerminalError(fmt.Errorf(
 			"rootfolderschedule: %s: cron expression %q will never fire again",
@@ -212,8 +212,8 @@ func (r *Reconciler) fire(
 	}
 
 	if r.Recorder != nil {
-		r.Recorder.Eventf(rf, corev1.EventTypeNormal, ReasonScanScheduled,
-			"created LibraryScan %s for the %s tick", name, tick.UTC().Format(time.RFC3339))
+		r.Recorder.Eventf(rf, nil, corev1.EventTypeNormal, ReasonScanScheduled,
+			"Reconcile", "created LibraryScan %s for the %s tick", name, tick.UTC().Format(time.RFC3339))
 	}
 	logging.FromContext(ctx).Info("library scan scheduled", "scan", name, "tick", tick)
 	return ctrl.Result{RequeueAfter: requeueFor(time.Minute)}, nil
@@ -272,14 +272,13 @@ func requeueFor(d time.Duration) time.Duration {
 // boundary is the field manager, not RBAC.
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=libraryscans,verbs=get;list;watch;create;update;patch
-// record.EventRecorder (the recorder Movie, Series, Episode, MediaFile and
-// Search use, and the one mgr.GetEventRecorderFor returns) writes core/v1
-// Events, so the core group is what this needs. Wave 1's controllers declared
-// events.k8s.io for that same recorder, which meant the generated Role
-// granted a group nobody wrote and omitted the one they did; Task C12a
-// corrected the four that were wrong and left events.k8s.io on the four that
-// take a tools/events recorder and really do write it.
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// The Recorder is a k8s.io/client-go/tools/events.EventRecorder, handed in by
+// mgr.GetEventRecorder, and it writes events.k8s.io/v1 -- so events.k8s.io is
+// the group to grant and the core group is not. The marker and the recorder
+// type move together or not at all: a mismatch is denied only on a real
+// cluster, and no suite can see it, because envtest does not enforce RBAC.
+// catalogarr's setupControllers records the occasion this repo learned it.
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // SetupWithManager registers the schedule controller.
 //

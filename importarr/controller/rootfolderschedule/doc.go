@@ -51,15 +51,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 //	if err := (&rootfolderschedule.Reconciler{
 //	        Client:   mgr.GetClient(),
-//	        Recorder: mgr.GetEventRecorderFor("rootfolderschedule"),
+//	        Recorder: mgr.GetEventRecorder("rootfolderschedule"),
 //	        Clock:    time.Now,
 //	}).SetupWithManager(mgr); err != nil {
 //	        return fmt.Errorf("importarr: rootfolderschedule: %w", err)
 //	}
 //
-// Recorder is a k8s.io/client-go/tools/record.EventRecorder, matching the
-// Movie and Series reconcilers wave 1 shipped. (catalogarr's RootFolder
-// reconciler uses the newer events.k8s.io recorder instead; the two
-// conventions coexist in the tree today and reconciling them is not this
-// task's to do.)
+// Recorder is a k8s.io/client-go/tools/events.EventRecorder, which writes
+// events.k8s.io/v1 -- the one recorder convention in this tree, and the
+// reason the package's events RBAC marker names events.k8s.io rather than the
+// core group. The deprecated mgr.GetEventRecorderFor is not used anywhere.
 package rootfolderschedule
