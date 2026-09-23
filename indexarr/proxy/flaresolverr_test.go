@@ -207,3 +207,31 @@ func TestIsChallenge(t *testing.T) {
 		})
 	}
 }
+
+// errBody is a response body whose first read fails.
+type errBody struct{}
+
+func (errBody) Read([]byte) (int, error) { return 0, io.ErrUnexpectedEOF }
+func (errBody) Close() error             { return nil }
+
+type fixedTripper struct{ resp *http.Response }
+
+func (f fixedTripper) RoundTrip(*http.Request) (*http.Response, error) { return f.resp, nil }
+
+// A body that cannot be peeked for a challenge is an error, and only an
+// error: a RoundTripper that returns a response AND an error breaks
+// net/http's contract, and the caller would parse a half-read body.
+func TestFlareSolverrReturnsAnErrorAloneWhenThePeekFails(t *testing.T) {
+	h := http.Header{}
+	h.Set("Server", "cloudflare")
+	rt := &FlareSolverr{
+		Endpoint:   "http://127.0.0.1:1/v1",
+		Clearances: &ClearanceCache{},
+		Next:       fixedTripper{resp: &http.Response{StatusCode: http.StatusOK, Header: h, Body: errBody{}}},
+	}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://tracker.example/browse", nil)
+	require.NoError(t, err)
+	resp, err := rt.RoundTrip(req)
+	require.Error(t, err)
+	require.Nil(t, resp, "a RoundTripper returns a response or an error, never both")
+}
