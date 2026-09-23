@@ -31,6 +31,46 @@ import (
 // collision by appending "-2", "-3", ... before the extension. It returns
 // the final destination path.
 func Recycle(root, path string) (string, error) {
+	dest, err := recycleDest(root, path)
+	if err != nil {
+		return "", err
+	}
+	if err := MoveAtomic(path, dest); err != nil {
+		return "", fmt.Errorf("fsops: recycle %s: %w", path, err)
+	}
+	return dest, nil
+}
+
+// RecycleLink puts a copy of path into the recycle bin -- the same
+// root/<yyyy-mm-dd>/ layout and collision rule as [Recycle] -- WITHOUT
+// removing path: a hard link when root shares path's filesystem, a full
+// copy otherwise ([HardlinkOrCopy]). It returns the destination.
+//
+// It exists for replace-in-place, where the caller is about to rename a new
+// file over path. Recycling by move first and renaming second leaves a
+// window in which path does not exist at all, so a crash between the two
+// strands the library with a hole where the file was. Linking first and
+// then renaming over path means path always names a complete file: the old
+// one until the rename, the new one after, with the old one already safe in
+// the bin.
+func RecycleLink(root, path string) (string, error) {
+	dest, err := recycleDest(root, path)
+	if err != nil {
+		return "", err
+	}
+	if _, err := HardlinkOrCopy(path, dest); err != nil {
+		return "", fmt.Errorf("fsops: recycle %s: %w", path, err)
+	}
+	if err := fsyncDir(filepath.Dir(dest)); err != nil {
+		return "", err
+	}
+	return dest, nil
+}
+
+// recycleDest is the destination [Recycle] and [RecycleLink] use for path:
+// root/<yyyy-mm-dd>/<base>, created if needed, suffixed "-2", "-3", ...
+// before the extension on a collision.
+func recycleDest(root, path string) (string, error) {
 	day := time.Now().UTC().Format("2006-01-02")
 	destDir := filepath.Join(root, day)
 	if err := os.MkdirAll(destDir, 0o775); err != nil {
@@ -46,10 +86,6 @@ func Recycle(root, path string) (string, error) {
 			break
 		}
 		dest = filepath.Join(destDir, fmt.Sprintf("%s-%d%s", stem, n, ext))
-	}
-
-	if err := MoveAtomic(path, dest); err != nil {
-		return "", fmt.Errorf("fsops: recycle %s: %w", path, err)
 	}
 	return dest, nil
 }

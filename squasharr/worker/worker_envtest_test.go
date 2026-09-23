@@ -1,0 +1,517 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package worker
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
+
+	transcodeac "github.com/mediactl/clustarr/api/applyconfiguration/transcode/transcode/v1alpha1"
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/transcode"
+	"github.com/mediactl/clustarr/squasharr/status"
+)
+
+// These tests run a REAL ffmpeg encode against a real apiserver. They skip
+// without KUBEBUILDER_ASSETS (run via `make test`) and without ffmpeg,
+// using pkg/transcode's own skip pattern.
+const (
+	ffmpegBin  = "/usr/bin/ffmpeg"
+	ffprobeBin = "/usr/bin/ffprobe"
+)
+
+var testClient client.Client
+
+func TestMain(m *testing.M) {
+	code := func() int {
+		if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+			return m.Run()
+		}
+		env := &envtest.Environment{
+			CRDDirectoryPaths:     []string{"../../config/crd/bases"},
+			ErrorIfCRDPathMissing: true,
+		}
+		cfg, err := env.Start()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "envtest:", err)
+			return 1
+		}
+		defer func() { _ = env.Stop() }()
+		testClient, err = client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "client:", err)
+			return 1
+		}
+		return m.Run()
+	}()
+	os.Exit(code)
+}
+
+func requireCluster(t *testing.T) client.Client {
+	t.Helper()
+	if testClient == nil {
+		t.Skip("KUBEBUILDER_ASSETS is unset; run via `make test`")
+	}
+	return testClient
+}
+
+func requireFFmpeg(t *testing.T) {
+	t.Helper()
+	if _, err := os.Stat(ffmpegBin); err != nil {
+		t.Skip("ffmpeg not present on this box")
+	}
+	if _, err := os.Stat(ffprobeBin); err != nil {
+		t.Skip("ffprobe not present on this box")
+	}
+}
+
+// fixture is one TranscodeJob's world: a namespace, a RootFolder, a
+// MediaFile, a profile, a generated source clip, and a seeding hard link
+// of it under /data/torrents.
+type fixture struct {
+	ns, job     string
+	dataDir     string
+	logical     string // /data/media/movies/...
+	local       string // dataDir/media/movies/...
+	seed        string // dataDir/torrents/... -- a hard link of the source
+	bin         string // dataDir/.recycle
+	original    []byte
+	probeHash   string
+	profileName string
+	profileHash string
+}
+
+var fixtureSeq int
+
+func newFixture(t *testing.T, c client.Client) *fixture {
+	t.Helper()
+	ctx := context.Background()
+	fixtureSeq++
+	f := &fixture{
+		ns:          fmt.Sprintf("worker-%d", fixtureSeq),
+		job:         "film-2020-abcd1234",
+		dataDir:     t.TempDir(),
+		logical:     "/data/media/movies/Film (2020)/Film.2020.1080p.mkv",
+		profileName: fmt.Sprintf("worker-test-%d", fixtureSeq),
+		profileHash: "cafe1234",
+	}
+	f.local = filepath.Join(f.dataDir, "media/movies/Film (2020)/Film.2020.1080p.mkv")
+	f.seed = filepath.Join(f.dataDir, "torrents/Film.2020.1080p.mkv")
+	f.bin = filepath.Join(f.dataDir, ".recycle")
+
+	// A two-second H.264 + AAC clip: not compliant, so the plan encodes.
+	require.NoError(t, os.MkdirAll(filepath.Dir(f.local), 0o755))
+	gen := exec.Command(ffmpegBin, "-hide_banner", "-loglevel", "error", "-y",
+		"-f", "lavfi", "-i", "testsrc2=size=320x240:rate=24:duration=2",
+		"-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=48000:duration=2",
+		"-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k",
+		"-shortest", f.local)
+	out, err := gen.CombinedOutput()
+	require.NoError(t, err, string(out))
+	f.original, err = os.ReadFile(f.local)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(f.seed), 0o755))
+	require.NoError(t, os.Link(f.local, f.seed))
+
+	st, err := os.Stat(f.local)
+	require.NoError(t, err)
+	f.probeHash = mediainfo.ProbeHash(f.logical, st.Size(), st.ModTime())
+
+	require.NoError(t, c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: f.ns}}))
+	require.NoError(t, c.Create(ctx, &catalogv1alpha1.RootFolder{
+		ObjectMeta: metav1.ObjectMeta{Name: "movies", Namespace: f.ns},
+		Spec: catalogv1alpha1.RootFolderSpec{
+			Path: "/data/media/movies", Kind: catalogv1alpha1.RootFolderKindMovie,
+			RecycleBin: catalogv1alpha1.RecycleBin{Path: "/data/.recycle"},
+		},
+	}))
+	require.NoError(t, c.Create(ctx, &catalogv1alpha1.MediaFile{
+		ObjectMeta: metav1.ObjectMeta{Name: "film-2020", Namespace: f.ns},
+		Spec: catalogv1alpha1.MediaFileSpec{
+			MediaRef:  commonv1alpha1.MediaRef{Kind: commonv1alpha1.MediaKindMovie, Name: "film-2020"},
+			Path:      f.logical,
+			SizeBytes: st.Size(),
+		},
+	}))
+
+	tp := &transcodev1alpha1.TranscodeProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: f.profileName},
+		Spec: transcodev1alpha1.TranscodeProfileSpec{
+			Video: transcodev1alpha1.VideoSpec{Preset: "ultrafast"},
+			Policy: transcodev1alpha1.PolicySpec{
+				MinDuration: metav1.Duration{Duration: 0},
+				// An int32 whose CRD default is 1: set it so a real, tiny
+				// clip is not refused for being larger than 1% of itself.
+				MaxOutputToSourcePercent: 10_000,
+			},
+		},
+	}
+	require.NoError(t, c.Create(ctx, tp))
+	require.NoError(t, status.PatchProfile(ctx, c, k8s.ManagerSquasharr, tp,
+		func(ac *transcodeac.TranscodeProfileStatusApplyConfiguration) { ac.WithHash(f.profileHash) }))
+
+	f.createJob(t, c, f.probeHash)
+	return f
+}
+
+// createJob creates the TranscodeJob and drives the controller's half of
+// its status to a steady state, so the worker acts on an object that
+// ALREADY has status -- the only way a release would be visible.
+func (f *fixture) createJob(t *testing.T, c client.Client, probeHash string) {
+	t.Helper()
+	ctx := context.Background()
+	tj := &transcodev1alpha1.TranscodeJob{
+		ObjectMeta: metav1.ObjectMeta{Name: f.job, Namespace: f.ns},
+		Spec: transcodev1alpha1.TranscodeJobSpec{
+			MediaFileRef: "film-2020", ProfileRef: f.profileName,
+			SourcePath: f.logical, SourceProbeHash: probeHash,
+		},
+	}
+	require.NoError(t, c.Create(ctx, tj))
+	now := metav1.NewTime(time.Now().UTC().Truncate(time.Second))
+	require.NoError(t, status.Patch(ctx, c, k8s.ManagerSquasharr, tj,
+		func(ac *transcodeac.TranscodeJobStatusApplyConfiguration) {
+			ac.WithObservedGeneration(1).
+				WithPhase(transcodev1alpha1.TranscodeJobPhaseRunning).
+				WithPlan(transcodeac.Plan().WithMode(transcodev1alpha1.PlanModeTranscode).WithEncoder("libx265")).
+				WithJobRef(f.job).
+				WithAttempts(1).
+				WithStartedAt(now).
+				WithMessage("running")
+		}))
+}
+
+func (f *fixture) options() Options {
+	return Options{
+		JobName: f.job, Namespace: f.ns, DataDir: f.dataDir,
+		FFmpegPath: ffmpegBin, FFprobePath: ffprobeBin,
+		Threads: 2, ProgressInterval: 50 * time.Millisecond,
+	}
+}
+
+func (f *fixture) get(t *testing.T, c client.Client) *transcodev1alpha1.TranscodeJob {
+	t.Helper()
+	var tj transcodev1alpha1.TranscodeJob
+	require.NoError(t, c.Get(context.Background(), client.ObjectKey{Namespace: f.ns, Name: f.job}, &tj))
+	return &tj
+}
+
+// binEntries lists everything in the recycle bin, relative to it.
+func (f *fixture) binEntries(t *testing.T) []string {
+	t.Helper()
+	var out []string
+	_ = filepath.Walk(f.bin, func(p string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			rel, _ := filepath.Rel(f.bin, p)
+			out = append(out, rel)
+		}
+		return nil
+	})
+	return out
+}
+
+func (f *fixture) partFiles(t *testing.T) []string {
+	t.Helper()
+	m, err := filepath.Glob(filepath.Join(filepath.Dir(f.local), "*.part.*"))
+	require.NoError(t, err)
+	return m
+}
+
+func (f *fixture) requireSourceUntouched(t *testing.T) {
+	t.Helper()
+	got, err := os.ReadFile(f.local)
+	require.NoError(t, err, "the source must still exist")
+	require.True(t, bytes.Equal(f.original, got), "the source must be byte-identical")
+	assert.Empty(t, f.partFiles(t), "no output may be left beside the source")
+	assert.Empty(t, f.binEntries(t), "nothing may have been recycled")
+}
+
+func videoCodec(t *testing.T, path string) (codec, tag string) {
+	t.Helper()
+	mi, raw, err := mediainfo.Probe(context.Background(), path)
+	require.NoError(t, err)
+	return mi.VideoCodec, formatTag(raw, "CLUSTARR_PROFILE")
+}
+
+// The happy path, end to end: a real encode lands the verified output at
+// the source path, the original sits in the recycle bin, the seeding link
+// under /data/torrents is untouched, and status carries the worker's three
+// fields without disturbing the controller's.
+func TestRunTranscodesVerifiesAndSwapsOverTheSource(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	f := newFixture(t, c)
+
+	code, err := Run(context.Background(), c, f.options())
+	require.NoError(t, err)
+	require.Equal(t, ExitOK, code)
+
+	codec, tag := videoCodec(t, f.local)
+	assert.Equal(t, "hevc", codec, "the source path must now hold the transcode")
+	assert.Equal(t, f.profileName+"@"+f.profileHash, tag)
+	assert.Empty(t, f.partFiles(t), "the .part must have been renamed, not copied")
+
+	entries := f.binEntries(t)
+	require.Len(t, entries, 1, "the original must be in the recycle bin")
+	assert.Equal(t, filepath.Join(time.Now().UTC().Format("2006-01-02"), "Film.2020.1080p.mkv"), entries[0])
+	recycled, err := os.ReadFile(filepath.Join(f.bin, entries[0]))
+	require.NoError(t, err)
+	assert.True(t, bytes.Equal(f.original, recycled), "the recycled file must be the original, byte for byte")
+
+	seed, err := os.ReadFile(f.seed)
+	require.NoError(t, err, "the seeding copy must survive")
+	assert.True(t, bytes.Equal(f.original, seed), "the seeding copy must be untouched (§6.4)")
+
+	tj := f.get(t, c)
+	require.NotNil(t, tj.Status.Result)
+	assert.Equal(t, f.logical, tj.Status.Result.OutputPath, "result carries the logical path, not this pod's mount")
+	st, err := os.Stat(f.local)
+	require.NoError(t, err)
+	assert.Equal(t, st.Size(), tj.Status.Result.OutputSizeBytes)
+	assert.Equal(t, sizePercent(st.Size(), int64(len(f.original))), tj.Status.Result.OutputToSourcePercent)
+	require.NotNil(t, tj.Status.Result.MediaInfo)
+	assert.Equal(t, "hevc", tj.Status.Result.MediaInfo.VideoCodec)
+	require.NotNil(t, tj.Status.Progress)
+	assert.Equal(t, int32(100), tj.Status.Progress.Percent)
+	assert.Positive(t, tj.Status.Progress.Frame)
+	assert.False(t, tj.Status.Progress.UpdatedAt.IsZero())
+
+	// The controller's fields are exactly as it left them.
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, tj.Status.Phase)
+	require.NotNil(t, tj.Status.Plan)
+	assert.Equal(t, "libx265", tj.Status.Plan.Encoder)
+	require.NotNil(t, tj.Status.JobRef)
+	assert.Equal(t, int32(1), tj.Status.Attempts)
+	assert.Equal(t, "running", tj.Status.Message)
+	assert.NotNil(t, tj.Status.StartedAt)
+
+	// Values cannot show an over-claim (pkg/k8s forces ownership); only
+	// managedFields can. The worker must own its three fields and no other.
+	assert.Equal(t, []string{"progress", "result", "stderrTail"}, statusFieldsOwnedBy(t, tj, k8s.ManagerSquasharrWorker))
+	assert.Equal(t, []string{"attempts", "jobRef", "message", "observedGeneration", "phase", "plan", "startedAt"},
+		statusFieldsOwnedBy(t, tj, k8s.ManagerSquasharr))
+}
+
+// R2/R4: a failed verification exits 4 and leaves the source exactly as it
+// was -- not recycled, not replaced, no output left beside it.
+func TestRunExitsFourAndLeavesTheSourceUntouchedWhenVerificationFails(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	f := newFixture(t, c)
+
+	o := f.options()
+	o.Verifier = failingVerifier{real: transcode.NewVerifier(ffprobeBin)}
+	code, err := Run(context.Background(), c, o)
+	require.Error(t, err)
+	require.Equal(t, ExitVerifyFailed, code)
+	assert.Contains(t, err.Error(), "stream count")
+
+	f.requireSourceUntouched(t)
+	seed, err := os.ReadFile(f.seed)
+	require.NoError(t, err)
+	assert.True(t, bytes.Equal(f.original, seed))
+	assert.Nil(t, f.get(t, c).Status.Result, "a failed job has no result")
+}
+
+// failingVerifier runs the real verifier against the real output, then
+// reports a problem, so the worker's handling of a genuine Report is what
+// is exercised.
+type failingVerifier struct{ real transcode.Verifier }
+
+func (v failingVerifier) Verify(ctx context.Context, src, dst string, exp transcode.Expectation) (*transcode.Report, error) {
+	r, err := v.real.Verify(ctx, src, dst, exp)
+	if err != nil {
+		return nil, err
+	}
+	r.OK = false
+	r.Problems = append(r.Problems, "stream count 1, want 2")
+	return r, nil
+}
+
+// R3: a source whose probe hash does not match the plan exits 3 BEFORE
+// ffmpeg ever runs. ffmpeg is a wrapper that leaves a marker when invoked,
+// so "before" is proven rather than inferred from the output's absence.
+func TestRunExitsThreeBeforeRunningFFmpegWhenTheSourceChanged(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	f := newFixture(t, c)
+
+	// The job was planned from a different file than the one now on disk.
+	require.NoError(t, c.Delete(context.Background(), f.get(t, c)))
+	f.createJob(t, c, "0123456789abcdef0123456789abcdef01234567")
+
+	marker := filepath.Join(t.TempDir(), "ffmpeg-ran")
+	wrapper := filepath.Join(t.TempDir(), "ffmpeg")
+	require.NoError(t, os.WriteFile(wrapper,
+		[]byte("#!/bin/sh\ntouch '"+marker+"'\nexec "+ffmpegBin+" \"$@\"\n"), 0o755))
+
+	o := f.options()
+	o.FFmpegPath = wrapper
+	code, err := Run(context.Background(), c, o)
+	require.Error(t, err)
+	require.Equal(t, ExitInvalidSource, code)
+	assert.Contains(t, err.Error(), "changed since it was planned")
+
+	_, statErr := os.Stat(marker)
+	assert.True(t, os.IsNotExist(statErr), "ffmpeg must never have been invoked")
+	f.requireSourceUntouched(t)
+}
+
+// The dangerous crash: the swap completed but the pod died before
+// status.result landed. The retry finds a source whose probe hash no
+// longer matches -- which would be exit 3, a permanently Failed Job for a
+// transcode that in fact succeeded -- unless it recognises its own output
+// by the CLUSTARR_PROFILE tag. It must, and must not transcode again.
+func TestRunAfterACrashPostSwapRecordsTheResultWithoutTranscodingAgain(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	f := newFixture(t, c)
+	ctx := context.Background()
+
+	code, err := Run(ctx, c, f.options())
+	require.NoError(t, err)
+	require.Equal(t, ExitOK, code)
+	swapped, err := os.ReadFile(f.local)
+	require.NoError(t, err)
+
+	// Simulate the crash: the result never landed.
+	tj := f.get(t, c)
+	tj.Status.Result = nil
+	require.NoError(t, status.Patch(ctx, c, k8s.ManagerSquasharrWorker, tj, nil))
+	require.Nil(t, f.get(t, c).Status.Result, "setup: result must be gone")
+
+	marker := filepath.Join(t.TempDir(), "ffmpeg-ran")
+	wrapper := filepath.Join(t.TempDir(), "ffmpeg")
+	require.NoError(t, os.WriteFile(wrapper,
+		[]byte("#!/bin/sh\ntouch '"+marker+"'\nexec "+ffmpegBin+" \"$@\"\n"), 0o755))
+	o := f.options()
+	o.FFmpegPath = wrapper
+
+	code, err = Run(ctx, c, o)
+	require.NoError(t, err)
+	require.Equal(t, ExitOK, code)
+
+	_, statErr := os.Stat(marker)
+	assert.True(t, os.IsNotExist(statErr), "the retry must not transcode again")
+	now, err := os.ReadFile(f.local)
+	require.NoError(t, err)
+	assert.True(t, bytes.Equal(swapped, now), "the swapped-in output must be left as it is")
+	assert.Len(t, f.binEntries(t), 1, "and nothing recycled a second time")
+
+	got := f.get(t, c).Status.Result
+	require.NotNil(t, got)
+	assert.Equal(t, f.logical, got.OutputPath)
+	assert.Equal(t, int64(len(swapped)), got.OutputSizeBytes)
+}
+
+// Classification of the failure paths that need no encode. Each case is
+// the permanent-or-not decision podFailurePolicy acts on.
+func TestRunClassifiesInputFailures(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	ctx := context.Background()
+
+	t.Run("missing TranscodeJob is permanent", func(t *testing.T) {
+		f := newFixture(t, c)
+		o := f.options()
+		o.JobName = "no-such-job"
+		code, _ := Run(ctx, c, o)
+		assert.Equal(t, ExitInvalidSource, code)
+	})
+
+	t.Run("missing source file is permanent", func(t *testing.T) {
+		f := newFixture(t, c)
+		require.NoError(t, os.Remove(f.local))
+		code, _ := Run(ctx, c, f.options())
+		assert.Equal(t, ExitInvalidSource, code)
+	})
+
+	t.Run("a source under no RootFolder is never touched", func(t *testing.T) {
+		f := newFixture(t, c)
+		var rf catalogv1alpha1.RootFolder
+		require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: "movies"}, &rf))
+		require.NoError(t, c.Delete(ctx, &rf))
+		code, err := Run(ctx, c, f.options())
+		assert.Equal(t, ExitInvalidSource, code)
+		assert.Contains(t, err.Error(), "under no RootFolder")
+		f.requireSourceUntouched(t)
+	})
+
+	t.Run("a profile the controller has not hashed yet is transient", func(t *testing.T) {
+		f := newFixture(t, c)
+		var tp transcodev1alpha1.TranscodeProfile
+		require.NoError(t, c.Get(ctx, client.ObjectKey{Name: f.profileName}, &tp))
+		require.NoError(t, status.PatchProfile(ctx, c, k8s.ManagerSquasharr, &tp,
+			func(ac *transcodeac.TranscodeProfileStatusApplyConfiguration) { ac.WithHash("") }))
+		code, _ := Run(ctx, c, f.options())
+		assert.Equal(t, ExitRetriable, code)
+		f.requireSourceUntouched(t)
+	})
+
+	t.Run("an output above maxOutputToSourcePercent fails verification", func(t *testing.T) {
+		f := newFixture(t, c)
+		var tp transcodev1alpha1.TranscodeProfile
+		require.NoError(t, c.Get(ctx, client.ObjectKey{Name: f.profileName}, &tp))
+		tp.Spec.Policy.MaxOutputToSourcePercent = 1
+		require.NoError(t, c.Update(ctx, &tp))
+		code, err := Run(ctx, c, f.options())
+		assert.Equal(t, ExitVerifyFailed, code)
+		assert.Contains(t, err.Error(), "maxOutputToSourcePercent")
+		f.requireSourceUntouched(t)
+	})
+}
+
+// statusFieldsOwnedBy returns the top-level status fields the apiserver
+// records mgr as owning on the status subresource.
+func statusFieldsOwnedBy(t *testing.T, tj *transcodev1alpha1.TranscodeJob, mgr k8s.FieldManager) []string {
+	t.Helper()
+	var got []string
+	for _, e := range tj.ManagedFields {
+		if e.Manager != string(mgr) || e.Subresource != "status" || e.FieldsV1 == nil {
+			continue
+		}
+		var fields map[string]any
+		require.NoError(t, json.Unmarshal(e.FieldsV1.GetRawBytes(), &fields))
+		st, _ := fields["f:status"].(map[string]any)
+		for k := range st {
+			got = append(got, strings.TrimPrefix(k, "f:"))
+		}
+	}
+	sort.Strings(got)
+	return got
+}

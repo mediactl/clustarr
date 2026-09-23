@@ -150,3 +150,34 @@ func TestSweepRecycleBinCancellationAfterTheFirstEntryStopsTheSweep(t *testing.T
 	_, statErr = os.Stat(filepath.Join(root, day3))
 	require.NoError(t, statErr, "day3 must be untouched -- never reached")
 }
+
+// RecycleLink must leave the source in place and put the SAME bytes in the
+// bin -- by hard link when it can, so recycling a 40 GB file costs nothing.
+func TestRecycleLinkKeepsTheSourceAndLinksItIntoTheBin(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, ".recycle")
+	src := filepath.Join(dir, "Film.2020.mkv")
+	require.NoError(t, os.WriteFile(src, []byte("original"), 0o664))
+
+	dest, err := fsops.RecycleLink(root, src)
+	require.NoError(t, err)
+
+	day := time.Now().UTC().Format("2006-01-02")
+	require.Equal(t, filepath.Join(root, day, "Film.2020.mkv"), dest)
+
+	got, err := os.ReadFile(src)
+	require.NoError(t, err, "the source must still exist")
+	require.Equal(t, "original", string(got))
+
+	srcInfo, err := os.Stat(src)
+	require.NoError(t, err)
+	destInfo, err := os.Stat(dest)
+	require.NoError(t, err)
+	require.True(t, os.SameFile(srcInfo, destInfo), "same filesystem: the bin entry must be a hard link")
+
+	// A second recycle of the same name the same day disambiguates exactly
+	// as Recycle does.
+	dest2, err := fsops.RecycleLink(root, src)
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(root, day, "Film.2020-2.mkv"), dest2)
+}

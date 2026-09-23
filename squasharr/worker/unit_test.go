@@ -1,0 +1,203 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package worker
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"reflect"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
+
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/transcode"
+)
+
+func TestLocalPathMapsLogicalDataPathsAndRefusesEverythingElse(t *testing.T) {
+	cases := []struct {
+		name, dataDir, in, want string
+		wantErr                 bool
+	}{
+		{name: "identity in a pod", dataDir: "/data", in: "/data/media/movies/A (2020)/A.mkv", want: "/data/media/movies/A (2020)/A.mkv"},
+		{name: "remapped", dataDir: "/tmp/x", in: "/data/media/movies/A.mkv", want: "/tmp/x/media/movies/A.mkv"},
+		{name: "dot-dot cannot escape", dataDir: "/tmp/x", in: "/data/media/../../etc/passwd", wantErr: true},
+		{name: "outside /data", dataDir: "/data", in: "/etc/passwd", wantErr: true},
+		{name: "prefix is not containment", dataDir: "/data", in: "/database/x.mkv", wantErr: true},
+		{name: "relative", dataDir: "/data", in: "media/x.mkv", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := localPath(tc.dataDir, tc.in)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestRootFolderForPicksTheDeepestContainingFolderAndNeverAPrefixMatch(t *testing.T) {
+	rf := func(name, path string) catalogv1alpha1.RootFolder {
+		return catalogv1alpha1.RootFolder{ObjectMeta: metav1.ObjectMeta{Name: name}, Spec: catalogv1alpha1.RootFolderSpec{Path: path}}
+	}
+	folders := []catalogv1alpha1.RootFolder{
+		rf("media", "/data/media"),
+		rf("movies", "/data/media/movies"),
+		rf("movies4k", "/data/media/movies4k"),
+	}
+	assert.Equal(t, "movies", rootFolderFor(folders, "/data/media/movies/A (2020)/A.mkv").Name)
+	assert.Equal(t, "movies4k", rootFolderFor(folders, "/data/media/movies4k/A.mkv").Name)
+	assert.Equal(t, "media", rootFolderFor(folders, "/data/media/tv/x.mkv").Name)
+	assert.Nil(t, rootFolderFor(folders, "/data/torrents/A.mkv"), "a seeding copy is under no root folder")
+	assert.Nil(t, rootFolderFor(folders[1:], "/data/media/movies"), "the folder itself is not inside itself")
+}
+
+// Every classification helper must produce the code its name promises,
+// through wrapping, and anything unclassified must be retriable -- never 3
+// or 4, which the Job treats as permanent.
+func TestExitCodeClassification(t *testing.T) {
+	assert.Equal(t, ExitOK, ExitCode(nil))
+	assert.Equal(t, ExitRetriable, ExitCode(retriable("x")))
+	assert.Equal(t, ExitInvalidSource, ExitCode(invalidSource("x")))
+	assert.Equal(t, ExitVerifyFailed, ExitCode(verifyFailed("x")))
+	assert.Equal(t, ExitInvalidSource, ExitCode(fmt.Errorf("wrapped: %w", invalidSource("x"))))
+	assert.Equal(t, ExitRetriable, ExitCode(errors.New("unclassified")))
+	assert.Equal(t, []int{0, 2, 3, 4}, []int{ExitOK, ExitRetriable, ExitInvalidSource, ExitVerifyFailed},
+		"the codes are a contract with podFailurePolicy (R4); they do not move")
+}
+
+// ProfileSpec must carry every render-relevant field. Populate every field
+// of the CRD spec with a non-zero value and require every leaf of the
+// result to be non-zero: a field added to transcode.ProfileSpec later and
+// forgotten here fails by name.
+func TestProfileSpecCarriesEveryField(t *testing.T) {
+	tune := "grain"
+	spec := transcodev1alpha1.TranscodeProfileSpec{
+		Container: transcodev1alpha1.ContainerMP4,
+		Hardware:  transcodev1alpha1.HardwareNVIDIA,
+		Video: transcodev1alpha1.VideoSpec{
+			Codec: "hevc", PixelFormat: "yuv420p10le", Profile: "main10",
+			CRF:    transcodev1alpha1.CRFTable{SD: 1, HD: 2, UHD: 3, HDROffset: -1},
+			Preset: "slow", Tune: &tune, KeyintFactor: 10, BFrames: 8, Refs: 4, RCLookahead: 40, AQMode: 3,
+			MaxRateKbps: ptr.To[int32](1), BufSizeKbps: ptr.To[int32](2),
+			ExtraX265Params: map[string]string{"a": "b"},
+			NVENC:           transcodev1alpha1.NVENCSpec{Preset: "p6", Tune: "hq", CQ: 24, Multipass: "fullres", BRefMode: "middle"},
+			QSV:             transcodev1alpha1.QSVSpec{GlobalQuality: 22, Preset: "veryslow", LookAheadDepth: 40},
+		},
+		Audio: transcodev1alpha1.AudioSpec{
+			Codec: "aac", BitratePerChannelKbps: 64, KeepOriginal: transcodev1alpha1.KeepOriginalAtmos,
+			Languages: []string{"en"}, DropCommentary: true, StereoCompatTrack: true,
+		},
+		Subtitles: transcodev1alpha1.SubSpec{CopyText: true, CopyBitmap: true, CopyAttachments: true},
+		HDR:       transcodev1alpha1.HDRSpec{HDR10Plus: transcodev1alpha1.HDR10PlusDrop, DolbyVision: transcodev1alpha1.DolbyVisionReject},
+		Policy: transcodev1alpha1.PolicySpec{
+			SkipIfCompliant: true, RemuxOnlyWhenVideoCompliant: true, NeverTranscodeModifiers: []string{"remux"},
+			MinDuration: metav1.Duration{Duration: time.Minute}, MaxOutputToSourcePercent: 100,
+			ReplaceSource: true, RecycleBin: true,
+		},
+		Verify:  transcodev1alpha1.VerifySpec{PacketCount: true, FullDecode: true, VMAFMinCentis: ptr.To[int32](9000)},
+		Scratch: resource.MustParse("1Gi"),
+	}
+	got := ProfileSpec(spec, nil)
+	assertNoZeroLeaf(t, reflect.ValueOf(got), "ProfileSpec")
+	assert.Equal(t, transcode.HardwareNVIDIA, got.Hardware)
+
+	cpu := transcodev1alpha1.HardwareCPU
+	assert.Equal(t, transcode.HardwareCPU, ProfileSpec(spec, &cpu).Hardware, "TranscodeJob.spec.hardware overrides the profile")
+}
+
+func assertNoZeroLeaf(t *testing.T, v reflect.Value, path string) {
+	t.Helper()
+	if v.Kind() == reflect.Struct {
+		for i := range v.NumField() {
+			assertNoZeroLeaf(t, v.Field(i), path+"."+v.Type().Field(i).Name)
+		}
+		return
+	}
+	assert.Falsef(t, v.IsZero(), "%s was not carried over", path)
+}
+
+// Progress arrives from ffmpeg once a second. The reporter must turn a
+// burst of samples into at most one apply per interval, and must apply the
+// LAST sample when stopped, so the final state is never lost to throttling.
+func TestProgressReporterThrottlesAndFlushesTheLastSample(t *testing.T) {
+	var mu sync.Mutex
+	var applied []transcodev1alpha1.Progress
+	apply := func(_ context.Context, p transcodev1alpha1.Progress) error {
+		mu.Lock()
+		defer mu.Unlock()
+		applied = append(applied, p)
+		return nil
+	}
+	rep := newProgressReporter(time.Hour, 10_000, time.Now, apply)
+	ctx := context.Background()
+	rep.start(ctx)
+	for i := int64(1); i <= 50; i++ {
+		rep.observe(transcode.Progress{Frame: i, OutTimeMillis: i * 100})
+	}
+	rep.stop(ctx)
+
+	require.Len(t, applied, 1, "fifty samples inside one interval must be one apply")
+	assert.Equal(t, int64(50), applied[0].Frame, "the apply on stop must carry the last sample")
+	assert.Equal(t, int32(50), applied[0].Percent, "5000ms of 10000ms")
+	assert.False(t, applied[0].UpdatedAt.IsZero())
+}
+
+func TestProgressReporterRetriesAFailedApplyAndAppliesNothingWhenIdle(t *testing.T) {
+	calls := 0
+	fail := true
+	apply := func(context.Context, transcodev1alpha1.Progress) error {
+		calls++
+		if fail {
+			return errors.New("apiserver blip")
+		}
+		return nil
+	}
+	rep := newProgressReporter(time.Hour, 0, time.Now, apply)
+	ctx := context.Background()
+
+	rep.flush(ctx)
+	assert.Zero(t, calls, "no sample, no apply")
+
+	rep.observe(transcode.Progress{Frame: 1})
+	rep.flush(ctx)
+	fail = false
+	rep.flush(ctx)
+	assert.Equal(t, 2, calls, "a failed apply is retried on the next tick")
+	rep.flush(ctx)
+	assert.Equal(t, 2, calls, "and not re-applied once it landed")
+}
+
+func TestPercentOf(t *testing.T) {
+	assert.Equal(t, int32(0), percentOf(transcode.Progress{OutTimeMillis: 500}, 0), "no duration, no percentage")
+	assert.Equal(t, int32(25), percentOf(transcode.Progress{OutTimeMillis: 250}, 1000))
+	assert.Equal(t, int32(99), percentOf(transcode.Progress{OutTimeMillis: 1200}, 1000), "only progress=end says 100")
+	assert.Equal(t, int32(100), percentOf(transcode.Progress{Percent: 100}, 1000))
+	assert.Equal(t, int32(0), percentOf(transcode.Progress{OutTimeMillis: -5}, 1000))
+}
