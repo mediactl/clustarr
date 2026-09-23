@@ -54,6 +54,33 @@ func TestSearchReturnsOneCandidatePerEligibleTextStream(t *testing.T) {
 	}
 }
 
+// TestEmbeddedCandidatesClearEveryDefaultMinimumScore runs a candidate
+// through the scoring path a caller actually uses -- CandidateMatches with
+// the provider's own Capabilities().HashVerifiable, then Score -- rather than
+// asserting on Matches alone, which a hash-verifiable claim silently
+// undoes. research note §4.6: embedded candidates are "full score".
+func TestEmbeddedCandidatesClearEveryDefaultMinimumScore(t *testing.T) {
+	info := common.MediaInfo{Subtitles: []common.SubtitleStream{{Index: 2, Codec: "subrip", Language: "eng"}}}
+	p := embedded.New(embedded.Config{Path: "/data/movie.mkv", Info: info})
+
+	for _, tc := range []struct {
+		kind common.MediaKind
+		pct  int // SubtitleProfileSpec.MinScorePercent defaults
+	}{
+		{common.MediaKindMovie, 70},
+		{common.MediaKindEpisode, 90},
+	} {
+		cands, err := p.Search(context.Background(), subtitles.Query{Kind: tc.kind})
+		require.NoError(t, err)
+		require.Len(t, cands, 1)
+
+		matches := subtitles.CandidateMatches(tc.kind, p.Capabilities().HashVerifiable, false, nil, cands[0].Matches)
+		score, _ := subtitles.Score(tc.kind, matches)
+		assert.GreaterOrEqual(t, score, subtitles.MinScore(tc.kind, tc.pct),
+			"%s: an embedded track must reach the default minimum score", tc.kind)
+	}
+}
+
 func TestSearchExcludesBitmapSubtitleCodecsRegardlessOfIgnoreFlags(t *testing.T) {
 	info := common.MediaInfo{Subtitles: []common.SubtitleStream{{Index: 1, Codec: "dvd_subtitle", Bitmap: true}}}
 	p := embedded.New(embedded.Config{Info: info})

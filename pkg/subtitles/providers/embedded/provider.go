@@ -62,8 +62,16 @@ func New(cfg Config) *Provider {
 
 func (p *Provider) Name() string       { return "embedded" }
 func (p *Provider) HIVerifiable() bool { return true } // research note §4.1, §4.6
+// Capabilities reports HashVerifiable false. The "hash" match Search sets is
+// not a moviehash a remote database happened to agree with -- the candidate
+// IS a stream of the file being searched for -- so there is nothing to
+// corroborate, and Bazarr's embedded provider does not mark its subtitles
+// hash-verifiable either. Claiming true made subtitles.CandidateMatches
+// demand video_codec and source matches no embedded candidate carries, drop
+// the hash, and score every embedded track at 0 or 1: nothing embedded could
+// ever reach a profile's minimum score.
 func (p *Provider) Capabilities() subtitles.Capabilities {
-	return subtitles.Capabilities{Movies: true, Episodes: true, ForcedSearch: true, HashVerifiable: true}
+	return subtitles.Capabilities{Movies: true, Episodes: true, ForcedSearch: true, HashVerifiable: false}
 }
 
 // Search returns one Candidate per eligible text subtitle stream in
