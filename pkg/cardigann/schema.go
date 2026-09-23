@@ -38,6 +38,11 @@ var schemaJSON []byte
 // directory and therefore needs its own copy of the same file.
 func EmbeddedSchemaForTest() []byte { return schemaJSON }
 
+// EmbeddedSchema returns a copy of the v11 schema this package validates
+// against -- for a tool that must know whether an upstream corpus was
+// written against the same schema (hack/sync-cardigann).
+func EmbeddedSchema() []byte { return bytes.Clone(schemaJSON) }
+
 // SchemaURL is the identifier the embedded schema is registered under. It is
 // a name, not a location: nothing ever fetches it (jsonschema/v6's default
 // loader only reads file URLs, and the resource is added before Compile asks
