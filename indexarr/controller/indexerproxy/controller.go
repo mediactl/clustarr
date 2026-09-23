@@ -166,18 +166,19 @@ func probeStateFrom(st indexv1alpha1.IndexerProxyStatus) probeState {
 
 // validateSpec rejects a proxy that cannot be addressed at all.
 //
-// spec.port is +optional in the CRD with no default, but a proxy is addressed
-// as host:port and there is no defensible default across flaresolverr (8191),
-// http (3128, 8080, 8888, ...) and socks (1080). Guessing one would probe
-// something the operator never configured and report it Ready. So an absent
-// port is reported as an invalid spec instead -- visible, and fixable by an
-// edit -- rather than guessed at.
+// spec.port is +required with a 1..65535 range in the CRD, so the apiserver
+// refuses a portless proxy at admission. The check stays here for a spec that
+// reached the reconciler some other way (a fake client, an object stored
+// before the schema tightened): there is no defensible default across
+// flaresolverr (8191), http (3128, 8080, 8888, ...) and socks (1080), and
+// guessing one would probe something the operator never configured and
+// report it Ready.
 func validateSpec(spec indexv1alpha1.IndexerProxySpec) error {
 	if spec.Host == "" {
 		return fmt.Errorf("spec.host is empty")
 	}
 	if spec.Port <= 0 || spec.Port > 65535 {
-		return fmt.Errorf("spec.port is %d: a proxy is addressed as host:port and the CRD sets no default", spec.Port)
+		return fmt.Errorf("spec.port is %d: a proxy is addressed as host:port and has no default port", spec.Port)
 	}
 	switch spec.Type {
 	case indexv1alpha1.IndexerProxyTypeFlareSolverr,

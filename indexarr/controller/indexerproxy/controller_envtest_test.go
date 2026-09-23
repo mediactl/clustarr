@@ -205,8 +205,11 @@ func TestMissingSecretDoesNotReleaseTheProbeResult(t *testing.T) {
 }
 
 // TestUnaddressableSpecIsTerminalAndKeepsStatus covers the other early return:
-// a spec with no port. It is terminal -- only an edit can fix it -- and it,
-// too, must declare the complete owned set rather than gutting the object.
+// an unaddressable spec, here an empty host. (It used to clear spec.port, but
+// the CRD now requires a port in 1..65535, so the apiserver refuses that edit
+// before the reconciler can see it; pkg/crdcheck's admission test pins that.)
+// It is terminal -- only an edit can fix it -- and it, too, must declare the
+// complete owned set rather than gutting the object.
 func TestUnaddressableSpecIsTerminalAndKeepsStatus(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
@@ -231,7 +234,7 @@ func TestUnaddressableSpecIsTerminalAndKeepsStatus(t *testing.T) {
 	require.Equal(t, "v3.3.21", steady.Status.Version, "setup: the first reconcile did not populate status")
 	require.NotNil(t, steady.Status.LastCheckedAt)
 
-	steady.Spec.Port = 0
+	steady.Spec.Host = ""
 	require.NoError(t, c.Update(ctx, &steady))
 
 	_, err = reconcileOnce(t, r, ns, "flare")

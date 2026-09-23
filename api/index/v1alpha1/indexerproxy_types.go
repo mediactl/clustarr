@@ -51,9 +51,16 @@ type IndexerProxySpec struct {
 	// +required
 	Host string `json:"host"`
 
-	// Port is the proxy port.
-	// +optional
-	Port int32 `json:"port,omitempty"`
+	// Port is the proxy port. It is required and has no default: a proxy is
+	// addressed as host:port, and the defensible values are per-type
+	// (flaresolverr 8191, http 3128/8080/8888, socks 1080), so any one
+	// default would probe an endpoint nobody configured and report it Ready.
+	// Before this was +required the CRD accepted a portless proxy that the
+	// controller then always refused as an invalid spec.
+	// +required
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	Port int32 `json:"port"`
 
 	// SecretRef names a Secret in the same namespace holding proxy credentials.
 	// +optional
