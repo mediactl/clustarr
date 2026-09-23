@@ -104,6 +104,15 @@ func startFakeMetadataProviders(t *testing.T) *fakeMetadataProviders {
 			return "musicbrainz/browse_releasegroups_radiohead.json"
 		case p == "/release-group/"+nvReleaseGroupID:
 			return "musicbrainz/releasegroup_kid_a.json"
+		// Client.Album also browses the release group's releases
+		// (musicbrainzws2's BrowseReleases: "/release/" filtered by a
+		// release-group query parameter) and fails the whole call if that
+		// browse fails. The single-page recorded fixture is The Bends',
+		// the same one test/fixtures/nonvideostub serves for Kid A: no
+		// Kid A release browse is recorded, and nothing here asserts on
+		// tracks.
+		case p == "/release" && q.Get("release-group") == nvReleaseGroupID:
+			return "musicbrainz/browse_releases_the_bends.json"
 		}
 		return ""
 	})
@@ -115,6 +124,10 @@ func startFakeMetadataProviders(t *testing.T) *fakeMetadataProviders {
 			return "openlibrary/works_OL21594A.json"
 		case "/works/" + nvWorkID + ".json":
 			return "openlibrary/work_OL138052W.json"
+		// Client.Book also fetches the work's editions and fails the whole
+		// call if that fetch fails.
+		case "/works/" + nvWorkID + "/editions.json":
+			return "openlibrary/editions_OL138052W.json"
 		case "/search.json":
 			return "openlibrary/search_pride_and_prejudice.json"
 		}
