@@ -15,6 +15,7 @@ is the UI, and the web UI is a view over the same resources.
   `importarr`, observability and the UI. **Where the two disagree, the amendment
   wins.**
 - `docs/adr/0001..0008` — why NATS, why GPL-3.0, why Jobs for transcode, and so on.
+  `docs/adr/README.md` is the index and the supersede lifecycle.
 - `docs/research/*.md` — nine verified research notes (TRaSH quality model,
   Prowlarr/Cardigann, queue comparison, torrent/usenet, controller-runtime,
   ffmpeg, Bazarr, metadata providers, naming). Long: `grep -n '^#'` first, then
@@ -49,7 +50,10 @@ Bazarr logic verbatim — keep the header on every file).
   fingerprint, plus the quality, revision, formatScore, matchedFormats and
   releaseType frozen at import); `catalogarr` is the sole writer of all of
   `MediaFileStatus`, and additionally takes over `spec.sizeBytes`,
-  `spec.modTime` and `spec.original` once it incorporates a transcode swap.
+  `spec.modTime` and `spec.original` once it incorporates a transcode swap —
+  and `spec.path` too when the transcode landed under a new name and the
+  source is gone (a container change or an explicit `spec.outputPath`, ruling
+  R-11). A `replaceSource=false` result is not a swap and claims nothing.
   Both write with their own field manager, so the apiserver enforces the split
   rather than convention. (Until Phase C this file claimed `importarr` owned
   `status.file`/`status.probe` and `catalogarr` `status.quality`/
@@ -81,6 +85,7 @@ make manifests     # CRDs + RBAC into config/
 make build         # binary into bin/  (never bare `go build` — it drops a binary in the repo root)
 make test          # unit + envtest, sets KUBEBUILDER_ASSETS
 make lint          # golangci-lint v2
+make cardigann-bundle  # re-pack .data/Definitions into indexarr/bundle/embedded/definitions.zip
 make kind-up       # local cluster with NATS, then: make install deploy
 make e2e           # end-to-end suite against that kind cluster (test/e2e, tag e2e)
 ```
@@ -153,7 +158,13 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
     kept both partial early returns *and* a second unconditional status apply
     at the end of every reconcile. Once a rule goes in here, sweep every
     controller for it — the rule existing is not the same as the code obeying
-    it.
+    it. The gap fixes hit the same class outside SSA three more times: a CI fix
+    to how the `media` image fetches par2 was not carried to `media-cuda`,
+    which kept failing; deleting the rescan's copy of the release-group guard
+    once the parser was fixed left `fileimport`'s second copy dropping real
+    groups; and `rollup.DownloadOverlay` learned the just-created `""` phase
+    while `pkg/pipeline`'s own mapping of the same enum did not. Before closing
+    a fix, grep for the other copies of the thing you fixed.
 
   - **The same rule binds the main resource, not only status — and there the
     failure is a rejected write, not a silent reset.** A manager that applies
@@ -233,6 +244,43 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   where zero means nothing (`Indexer.spec.timeout`). `pkg/crdcheck`'s
   `TestNoCRDDefaultIsUnreachableFromGo` and `TestEveryStatusListIsCapped`
   guard the sweep.
+- **A pod a controller builds at runtime escapes every guard the installers
+  have.** The chart and `config/manager` are held to each other, to the
+  generated roles and to a securityContext by tests; the pod specs grabarr and
+  squasharr build in Go were held to nothing. Transcode Job pods had no
+  securityContext, UMASK or tracing flags; engine pods had no ServiceAccount
+  (so they ran as `default`, bound to nothing), no `POD_NAMESPACE`, no NATS
+  address, no UMASK, no `GOMEMLIMIT` and no securityContext — they could not
+  have started on any cluster, and every envtest passed, because envtest
+  enforces no RBAC and runs no pods. The KEDA ScaledJob example ran the wrong
+  ServiceAccount without `--job`. Fix the class, not the instance: test the
+  rendered pod spec against what the installer creates and binds
+  (`TestGrabarrEnginesRunAsAnAccountTheInstallerBinds`,
+  `TestEnginePodSecurityMatchesTheDeployment`), and run services under their
+  real roles (the RBAC-enforced start envtest).
+- **A test built from a fixture shaped like the answer cannot fail.** Custom
+  formats' `ReleaseTitle` conditions were matched against
+  `ParsedRelease.Title`, which the real parser sets to the item's title
+  ("Heat"), so no repack, HDR or streaming format ever scored — and every test
+  passed, because each built a `ParsedRelease` whose `Title` was the whole
+  release name. The RSS matcher's yearless series fallback never matched a
+  single release, and its test's fixture carried a year. A `TitleNorm` test
+  used ASCII titles, on which it and `CleanTitle` are identical. Build inputs
+  through the real producer (run the real parser, the real client against a
+  recorded response), and falsify: revert the fix and watch the test fail by
+  name. Falsification also found tests that never existed — a guard a Phase C
+  ruling required ("fails if controller-gen ever generates one") and a
+  RoundTripper fix, both untested.
+- **Other processes share this checkout, its git state and the scratchpad.**
+  In one wave an agent's `git stash` swept five other agents' uncommitted
+  files (each recovered its own with `git show stash@{0}:<path>`, never
+  `pop`); a process ran `git pull --rebase origin main` and pushed mid-gate,
+  giving every commit of the wave a new SHA, so find commits by subject
+  (`git log --grep`), never by a SHA from a report; and two agents' scripts of
+  the same name in the shared scratchpad meant one repeatedly reset the
+  other's throwaway worktree, invalidating its falsification runs. Keep
+  scratch files under your own subdirectory, name worktrees uniquely, and
+  never push from a task.
 - **Never run `go get` or `go mod tidy` from parallel agents.** They corrupt
   `go.mod`. Add every dependency serially up front, then tell workers not to touch
   it.
@@ -312,9 +360,10 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
 Pre-alpha, and it reconciles: every service — `catalogarr`, `importarr`,
 `indexarr`, `grabarr`, `squasharr`, `captionarr` and `ui` — registers every
 controller, worker and server behind its role flags, and `clustarr all` still
-stands every service up in one process (controller roles only for `grabarr`,
-`squasharr` and `captionarr`, so it never downloads, transcodes or fetches a
-subtitle).
+stands every service up in one process (controller roles only for `grabarr`
+and `squasharr`, so it never downloads or transcodes; `captionarr` runs its
+fetch worker too since the gap fixes, and `--ui-bind-address` sets the ui's
+address).
 
 M0 (done): the 29 CRDs across five groups, `pkg/events` (NATS and in-memory
 behind one contract suite), `pkg/k8s`, the binary, manifests, chart and images.
@@ -489,7 +538,9 @@ the exit codes survive; the Job runs as its own `squasharr-worker`
 ServiceAccount with a generated role
 (`config/rbac/squasharr_worker_role.yaml`); `--worker-image`,
 `--worker-image-cuda` and `--data-claim` are threaded through config and
-chart. Defects a future reader must know: `maxOutputToSourcePercent` was an
+chart. (The gap fixes reversed two of Phase E's rulings: a container change
+and `replaceSource: false` are transcoded now, ruling R-11, below.) Defects a
+future reader must know: `maxOutputToSourcePercent` was an
 `int32` defaulted to `1.0`, so **every real transcode would have exited 4**;
 `policy.replaceSource`/`recycleBin` could not be set false from Go and
 `activeDeadline`/`resources`/`scratch` never got their defaults from a Go
@@ -608,14 +659,117 @@ re-scan erased a MediaFile's frozen import fields by re-applying
 against `cardigannstub`, `httpproxystub`, `importliststub` and `nonvideostub`)
 and the rest of 14 (`TestUILibraryImportListsSettingsAndUnmatchedPages`) are
 **written and never executed**, deferred by user instruction; scenario 9 only
-checks that the Trakt and Plex CRs are accepted, since neither client takes a
-base-URL override. Reconciles against envtest; not proven end to end.
+checked that the Trakt and Plex CRs are accepted, since neither client took a
+base-URL override (the gap fixes added `--trakt-base-url`/`--plex-base-url`
+and un-skipped both). Reconciles against envtest; not proven end to end.
 
-Next: Phases D through G are done (M2-M6) → **Phase H: end-to-end proof on
-kind** is next. Only Phase C's scenarios (5, 7 and 8) have ever run on kind;
-every scenario written since — 1-4, 6, 9-14 and 17 — never has. Phase H runs
-them, writes 15 and 16 and the trace assertion in 1, and owns the list every
-phase carried forward, consolidated under "Carried defects" in
+Gap fixes (done, 2026-09-23): plan `docs/superpowers/plans/2026-09-23-gap-fixes.md`,
+tasks X1-X16 in four waves — W0 every API change serially, W1a/W1b code under
+strict file ownership, W2 wiring and RBAC, W3 docs — closing the carried list
+except what the spec defers. **API** (X1, X15): `CutoffUnevaluated` on Movie
+and Episode (an unresolved profile no longer reads `CutoffUnmet`);
+`IndexerProxy.spec.port` required; `ReleaseDecision` moved to
+`api/common/v1alpha1` so controller-gen generates Search's apply configuration
+and the hand-written one is gone; `fieldRecording`; all nine image types;
+`IssueStatus.cutoffMet`, `pendingGrab` and state `delayed`; `MediaRef.track`;
+`TranscodeProfileSpec.maxConcurrent`; `hdrOffset`/`minimumSeeders`/
+`cleanupDays` as pointers with `*OrDefault` accessors; `ReleaseInfo.alsoOn`;
+`MovieMetadata.secondaryYear`; `replaceSource=false` admitted;
+`k8s.MarkDeadLettered`/`DeadLetteredAnnotationChanged`, folded into the
+`DeadLettered` condition of all sixteen annotatable kinds; ImportList CEL
+admitting only the kinds its provider can yield;
+`IndexerDefinition.status.replaces`. **Catalog and search:**
+`status.activeDownloadRef` has one writer, the item's reconciler, derived from
+its owned non-terminal Downloads (`rollup.ActiveDownload`,
+`rollup.DownloadNonTerminal`) on all six grabbable kinds, and
+`rollup.DownloadOverlay` reads every Download phase before Imported as
+Downloading; the grab path has one source resolver shared with Search-CR grabs
+(`catalogarr/worker/grab/downloads.ResolveSource`), a double-grab guard that
+lists Downloads through the uncached APIReader, reclaimable and re-enterable
+leases, CAS status writes, and grabs albums, books, audiobooks and issues,
+which automatic search now covers too (text queries after Lidarr, Readarr and
+Mylar); `decision.Identity` gains `SecondaryYear`, `FullSeason` on a
+single-episode search, TheXEM scene mappings (`pkg/metadata/scenemap`) and
+non-video rules; ReleaseTitle custom formats read the release or file name;
+the RSS matcher keys series as Sonarr does; Series airings get a writer;
+`history.Replayer` serves `clustarr.io/replay`; item, media-file, indexer,
+download and transcode events all have producers. **Metadata:** eight new
+clients (coverart, fanart, hardcover, metron, mangadex, anilist, kitsu,
+animelists) that reach Ready, every client read through `metadata.ReadBody`/
+`CappedTransport`, the real `tmdb.SearchMovies`/`musicbrainz.SearchArtists`,
+`Album.Releases`, Open Library editions, ComicVine status, artwork and
+resolver enrichment of `status.metadata`, Lidarr's album release selection
+(`selectedReleaseID` is the Album reconciler's leaf), Kapowarr issue numbers
+and injective Issue names. **Release and quality:** `release.TitleNorm` on
+both sides of the release index (non-Latin search works), Radarr's
+ReleaseGroupParser, MULTi is not a language, an untagged release takes the
+item's original language, non-video qualities on Lidarr's music ladder,
+multi-episode names per Sonarr. **Indexers:** every field the Cardigann schema
+decodes, XML queried with CSS, cookie and form logins that work,
+session-expiry re-login, `indexarr/proxy` (selector, FlareSolverr, SOCKS4;
+an empty selector matches nothing and ambiguity fails closed),
+`minimumSeeders`, RSS pages and direct grabs counted into their windows,
+`alsoOn`. **Downloads:** torrent file selection by `spec.target.keys`, usenet
+priority classes, `Item.AddedAt`, and an engine finalizer so the controller
+removes files only after the engine lets go. **Import:** best file first per
+single-file item, episode and series-root imports, honest rescan counters,
+redelivery resume, `fileimport.RecycleSweeper`, `removeAndDelete` through the
+recycle bin, `automaticAdd=false`. **Transcode:** one output rule
+(`squasharr/worker.OutputPath`), `status.plan` equal to the worker's argv,
+per-profile `maxConcurrent`, Job pods with the Deployments' securityContext,
+`--intel-render-groups`, the Intel QSV/VAAPI runtime in the media image.
+**Subtitles:** SubDL and SubSource clients, Bazarr pooling, an effective
+`embedded.extract`, one shared OpenSubtitles login, sidecar mode from the
+RootFolder. **Wiring** (X14, X16): one generated ClusterRole per identity
+(`RBAC_ROLES`), proven by a start envtest that runs every service as its own
+ServiceAccount under only its role; a registration guard that derives the
+services and catches bare-`Start` runnables, unadded `EveryReplica`s and
+duplicate controller names; UMASK applied by the binary; engine pods with a
+ServiceAccount (`--engine-service-account`), namespace, NATS URL, UMASK,
+`GOMEMLIMIT` and the Deployments' securityContext; `--trakt-base-url`,
+`--plex-base-url`, `--ui-bind-address`; ui `/readyz` after the first
+projection round. **The Cardigann corpus** (`7b6fc4a`): the project owner
+added Prowlarr's Cardigann definitions on 2026-09-23 — 752 files packed by
+`hack/pack-cardigann` into `indexarr/bundle/embedded/definitions.zip`
+(`go:embed`, read through `archive/zip` as an `fs.FS`), 749 of which load;
+indexarr applies them at startup (`--cardigann-bundled`, default true), and
+`--cardigann-definitions-dir` (chart: `indexarr.cardigann.*`) replaces them.
+**Found and fixed beyond the list:** engine pods had no ServiceAccount,
+namespace or NATS address and could not have started on any cluster; grab
+leases were never released, so every item could be grabbed exactly once; the
+RSS title fallback had never matched a series without an id; the generic
+`.torrent` fetch bypassed the Indexer's proxy, passkey included; TMDB and
+ComicVine API keys leaked into error strings; every HDR10 remux with non-AAC
+audio failed (`-vf` beside stream copy, exit 234) and every 8-bit QSV encode
+failed (exit 218); `fsops.IsPart` missed a transcode's `<stem>.part.<ext>`;
+a multi-file download gave one item several MediaFiles; `removeDataOnDelete`
+was a no-op for every torrent; HTML `case` keys, XML definitions (a panic)
+and cookie logins were all broken for the whole corpus; MusicBrainz release
+statuses never matched; an album listing one recording twice made a status the
+apiserver would have rejected; ImportList `Synced` reset once its checkpoint expired.
+**Rulings:** R-1 subtitle sync, Whisper and chunked transcoding stay
+spec-deferred and CEL-forced off; R-2 usenet dedupe stays per indexer; R-3 an
+automatic single-episode search rejects a full-season pack (Sonarr); R-4
+subtitles pool every provider, Bazarr-style; R-5 one writer of
+`activeDownloadRef`, the reconciler; R-6 each engine's finalizer gates the
+controller's file removal, with a 10-minute timeout for a gone engine; R-7
+`SecondaryYear` exact or ±1 of `Year`; R-8 only three `omitempty` scalars
+become pointers; R-9 `IndexerProxy.spec.port` required; R-10 an unyieldable
+import-list kind is refused at admission; R-11 `replaceSource=false` and the
+container change are implemented; R-12 confirmation-only items closed with
+evidence, or fixed where the evidence said so; R-13 vendor the Cardigann corpus only under a compatible licence —
+superseded by the owner's addition of the corpus above. E2E: X12c made the
+download fixtures serve real media, deployed the seeder and NNTP stubs, and
+wrote scenarios 15 and 16 (16's Helm and `clustarr all` legs skip); every
+scenario is still **written and never executed**. Reconciles against envtest
+(W2 gate green at `732c4a1`); not proven end to end.
+
+Next: Phases D through G and the gap fixes are done (M2-M6) → **Phase H:
+end-to-end proof on kind** is next. Only Phase C's scenarios (5, 7 and 8)
+have ever run on kind; every scenario written since — 1-4, 6, 9-17 — never
+has. Phase H runs them, builds the second deploy path scenario 16's Helm and
+`clustarr all` legs need, extends scenario 1's trace check to all four
+services, and owns the open items left under "Carried defects" in
 `docs/superpowers/plans/2026-09-18-remaining-work.md`. Milestone detail is in
 the spec's §16 and amendment §A4.
 
