@@ -36,11 +36,15 @@ import (
 	"github.com/mediactl/clustarr/pkg/metadata/clients/tvdb"
 )
 
-// ErrProviderNotImplemented is returned by NewProber and addToRegistry for
-// one of the eight MetadataProviderType values Phase B (pkg/metadata/clients)
-// did not ship a client for: coverart, fanart, hardcover, metron, mangadex,
-// anilist, kitsu, animelists.
-var ErrProviderNotImplemented = errors.New("metadataprovider: no Phase B client exists for this provider type yet")
+// ErrProviderNotImplemented is returned by NewProber and addToRegistry for a
+// MetadataProviderType this package has no client for. Every value the
+// CRD's enum admits has one since task X6b (the eight Phase B left without
+// -- coverart, fanart, hardcover, metron, mangadex, anilist, kitsu,
+// animelists -- are built by registry.go's buildSupplementary), so an
+// admitted object no longer reaches it; it stays for a type added to the
+// enum ahead of its client, which the Reconciler reports as
+// Ready=Unknown/ProviderNotImplemented rather than an error.
+var ErrProviderNotImplemented = errors.New("metadataprovider: no client exists for this provider type")
 
 // ProbeResult carries whatever the probe learned that is worth writing to
 // status beyond reachability itself.
@@ -79,9 +83,10 @@ func limiterFor(spec catalogv1alpha1.MetadataProviderSpec, def rate.Limit, defBu
 	return metadata.NewLimiter(rps, burst)
 }
 
-// NewProber builds the Prober for spec.Type, or ErrProviderNotImplemented for
-// one of the eight types Phase B did not ship a client for (coverart, fanart,
-// hardcover, metron, mangadex, anilist, kitsu, animelists).
+// NewProber builds the Prober for spec.Type. The six Phase B types have
+// their own probers below; the eight task X6b added probe through their
+// client's Ping (newSupplementaryProber, registry.go); any other type is
+// ErrProviderNotImplemented.
 func NewProber(spec catalogv1alpha1.MetadataProviderSpec, secret map[string][]byte, httpClient *http.Client) (Prober, error) {
 	limits := metadata.DefaultLimits()
 
@@ -132,7 +137,7 @@ func NewProber(spec catalogv1alpha1.MetadataProviderSpec, secret map[string][]by
 		return audnexusProber{c}, nil
 
 	default:
-		return nil, ErrProviderNotImplemented
+		return newSupplementaryProber(spec, secret, httpClient)
 	}
 }
 

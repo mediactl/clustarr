@@ -271,10 +271,7 @@ func (p pingProber) Probe(ctx context.Context) (ProbeResult, error) {
 
 // newSupplementaryProber builds the Prober for one of the eight provider
 // types buildSupplementary covers, or ErrProviderNotImplemented for any
-// other. NewProber's default case (prober.go) is where it belongs; until
-// that one-line change lands the controller still reports these types
-// Ready=Unknown/ProviderNotImplemented even though the registries wire
-// them.
+// other. It is NewProber's default case (prober.go).
 func newSupplementaryProber(spec catalogv1alpha1.MetadataProviderSpec, secret map[string][]byte, httpClient *http.Client) (Prober, error) {
 	a, err := buildSupplementary(spec, secret, httpClient)
 	if err != nil {

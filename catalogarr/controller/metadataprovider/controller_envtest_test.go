@@ -22,12 +22,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -113,32 +115,133 @@ func TestReconcileDisabledProviderSkipsProbe(t *testing.T) {
 	}
 }
 
-func TestReconcileUnimplementedTypeIsUnknownNotError(t *testing.T) {
+// fixtures is testdata/metadata, relative to this package.
+const fixtures = "../../../testdata/metadata/"
+
+// addedTypeServer answers the one probe a supplementary provider's Ping
+// makes with that client's own recorded fixture, checks the credential
+// the provider type authenticates with, and fails anything else -- so a
+// Ready=True proves the probe asked the right question with the right
+// credential, not merely that a server answered.
+type addedType struct {
+	typ     catalogv1alpha1.MetadataProviderType
+	path    string // request path the probe must use
+	fixture string // body to answer with; "" answers an empty 200
+	authOK  func(*http.Request) bool
+}
+
+var addedTypes = []addedType{
+	{catalogv1alpha1.MetadataProviderCoverArt, "/release-group/1b022e01-4da6-387b-8658-8678046e4cef", "coverart/release-group_1b022e01-4da6-387b-8658-8678046e4cef.json", nil},
+	{catalogv1alpha1.MetadataProviderFanart, "/v3.2/movies/603", "fanart/movie_603.json", func(r *http.Request) bool { return r.URL.Query().Get("api_key") == "k" }},
+	{catalogv1alpha1.MetadataProviderHardcover, "/", "hardcover/search_out_of_my_mind.json", func(r *http.Request) bool { return r.Header.Get("Authorization") == "Bearer t" }},
+	{catalogv1alpha1.MetadataProviderMetron, "/series/", "metron/series_list_empty.json", func(r *http.Request) bool { return r.Header.Get("Authorization") == "Bearer t" }},
+	{catalogv1alpha1.MetadataProviderMangaDex, "/manga", "mangadex/search_berserk.json", nil},
+	{catalogv1alpha1.MetadataProviderAniList, "/", "anilist/ids_anime_mal_1735.json", nil},
+	{catalogv1alpha1.MetadataProviderKitsu, "/mappings", "kitsu/mappings_empty.json", nil},
+	{catalogv1alpha1.MetadataProviderAnimeLists, "/anime-list-full.json", "", nil},
+}
+
+func (a addedType) server(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != a.path {
+			t.Errorf("%s probe asked for %s, want %s", a.typ, r.URL.Path, a.path)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if a.authOK != nil && !a.authOK(r) {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if a.fixture == "" {
+			return
+		}
+		body, err := os.ReadFile(fixtures + a.fixture)
+		if err != nil {
+			t.Errorf("read fixture: %v", err)
+		}
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func reconcileAddedType(t *testing.T, ctx context.Context, c client.Client, ns string, a addedType, secret map[string][]byte) catalogv1alpha1.MetadataProvider {
+	t.Helper()
+	srv := a.server(t)
+	base := srv.URL
+	if a.typ == catalogv1alpha1.MetadataProviderAnimeLists {
+		base += a.path // animelists' base URL is the dataset file itself
+	}
+	name := string(a.typ)
+	if err := c.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns}, Data: secret}); err != nil {
+		t.Fatalf("create secret: %v", err)
+	}
+	if err := c.Create(ctx, &catalogv1alpha1.MetadataProvider{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		Spec: catalogv1alpha1.MetadataProviderSpec{
+			Type: a.typ, BaseURL: &base, SecretRef: &corev1.LocalObjectReference{Name: name},
+		},
+	}); err != nil {
+		t.Fatalf("create MetadataProvider: %v", err)
+	}
+	r := metadataprovider.NewReconciler(c, events.NewFakeRecorder(10), srv.Client())
+	if _, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: name}}); err != nil {
+		t.Fatalf("Reconcile %s: %v", a.typ, err)
+	}
+	var got catalogv1alpha1.MetadataProvider
+	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	return got
+}
+
+// TestReconcileEveryAddedProviderTypeBecomesReady replaces the test that
+// pinned coverart at Ready=Unknown/ProviderNotImplemented: each of the
+// eight types task X6b gave a client probes its own recorded fixture
+// through the real Reconciler and a real apiserver, and reports Ready and
+// Authenticated.
+func TestReconcileEveryAddedProviderTypeBecomesReady(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
-	ns := "mdp-unimplemented"
+	ns := "mdp-added"
 	if err := c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}); err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
-	mp := &catalogv1alpha1.MetadataProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: "coverart", Namespace: ns},
-		Spec:       catalogv1alpha1.MetadataProviderSpec{Type: catalogv1alpha1.MetadataProviderCoverArt},
+	secret := map[string][]byte{"apiKey": []byte("k"), "bearer": []byte("t")}
+
+	for _, a := range addedTypes {
+		t.Run(string(a.typ), func(t *testing.T) {
+			got := reconcileAddedType(t, ctx, c, ns, a, secret)
+			ready := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.MetadataProviderConditionReady)
+			if ready == nil || ready.Status != metav1.ConditionTrue {
+				t.Errorf("Ready = %+v, want True", ready)
+			}
+			if !k8s.IsConditionTrue(got.Status.Conditions, catalogv1alpha1.MetadataProviderConditionAuthenticated) {
+				t.Errorf("Authenticated is not True: %+v", got.Status.Conditions)
+			}
+		})
 	}
-	if err := c.Create(ctx, mp); err != nil {
-		t.Fatalf("create MetadataProvider: %v", err)
+}
+
+// TestReconcileAnAddedTypeWithARejectedCredentialIsNotReady proves the
+// supplementary probers carry a provider's 401 through to the
+// Authenticated condition, as the Phase B probers do.
+func TestReconcileAnAddedTypeWithARejectedCredentialIsNotReady(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+	ns := "mdp-added-rejected"
+	if err := c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}); err != nil {
+		t.Fatalf("create namespace: %v", err)
 	}
 
-	r := metadataprovider.NewReconciler(c, events.NewFakeRecorder(10), http.DefaultClient)
-	if _, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: "coverart"}}); err != nil {
-		t.Fatalf("Reconcile returned an error for an unimplemented type: %v", err)
+	got := reconcileAddedType(t, ctx, c, ns, addedTypes[2], map[string][]byte{"bearer": []byte("revoked")}) // hardcover
+	ready := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.MetadataProviderConditionReady)
+	if ready == nil || ready.Status != metav1.ConditionFalse || ready.Reason != "CredentialsRejected" {
+		t.Errorf("Ready = %+v, want False/CredentialsRejected", ready)
 	}
-
-	var got catalogv1alpha1.MetadataProvider
-	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "coverart"}, &got); err != nil {
-		t.Fatalf("get: %v", err)
-	}
-	cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.MetadataProviderConditionReady)
-	if cond == nil || cond.Status != metav1.ConditionUnknown || cond.Reason != "ProviderNotImplemented" {
-		t.Errorf("Ready = %+v, want Unknown/ProviderNotImplemented", cond)
+	auth := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.MetadataProviderConditionAuthenticated)
+	if auth == nil || auth.Status != metav1.ConditionFalse {
+		t.Errorf("Authenticated = %+v, want False", auth)
 	}
 }

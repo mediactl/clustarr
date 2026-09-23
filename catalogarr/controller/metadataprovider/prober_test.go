@@ -85,10 +85,34 @@ func TestOpenLibraryProberSucceedsWithNoCredentials(t *testing.T) {
 	}
 }
 
+// TestUnimplementedProviderTypeIsExplicit used coverart, one of the eight
+// types that had no client until task X6b. Every enum value has one now, so
+// the case is pinned with a type the enum does not admit: the path still
+// exists for a type added to the enum ahead of its client.
 func TestUnimplementedProviderTypeIsExplicit(t *testing.T) {
-	_, err := NewProber(catalogv1alpha1.MetadataProviderSpec{Type: catalogv1alpha1.MetadataProviderCoverArt}, nil, http.DefaultClient)
+	_, err := NewProber(catalogv1alpha1.MetadataProviderSpec{Type: "gcd"}, nil, http.DefaultClient)
 	if !errors.Is(err, ErrProviderNotImplemented) {
 		t.Errorf("err = %v, want ErrProviderNotImplemented", err)
+	}
+}
+
+// TestEveryEnumTypeHasAProber is the X6b guard at NewProber's own level: no
+// value the CRD admits is ErrProviderNotImplemented any more.
+func TestEveryEnumTypeHasAProber(t *testing.T) {
+	secret := map[string][]byte{"apiKey": []byte("k"), "bearer": []byte("t")}
+	for _, typ := range []catalogv1alpha1.MetadataProviderType{
+		catalogv1alpha1.MetadataProviderTMDB, catalogv1alpha1.MetadataProviderTVDB,
+		catalogv1alpha1.MetadataProviderMusicBrainz, catalogv1alpha1.MetadataProviderCoverArt,
+		catalogv1alpha1.MetadataProviderFanart, catalogv1alpha1.MetadataProviderOpenLibrary,
+		catalogv1alpha1.MetadataProviderHardcover, catalogv1alpha1.MetadataProviderAudnexus,
+		catalogv1alpha1.MetadataProviderComicVine, catalogv1alpha1.MetadataProviderMetron,
+		catalogv1alpha1.MetadataProviderMangaDex, catalogv1alpha1.MetadataProviderAniList,
+		catalogv1alpha1.MetadataProviderKitsu, catalogv1alpha1.MetadataProviderAnimeLists,
+	} {
+		spec := catalogv1alpha1.MetadataProviderSpec{Type: typ, ContactUserAgent: "clustarr-test (test@example.com)"}
+		if _, err := NewProber(spec, secret, http.DefaultClient); err != nil {
+			t.Errorf("NewProber(%s): %v", typ, err)
+		}
 	}
 }
 
