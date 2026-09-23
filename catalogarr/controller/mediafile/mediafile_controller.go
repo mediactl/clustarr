@@ -66,6 +66,19 @@ import (
 // +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitlerequests,verbs=get;list;watch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
+// TranscodedRecheckInterval is how often a transcoded MediaFile
+// (spec.original=false) is re-examined on disk when nothing else wakes it.
+// Once catalogarr has incorporated a transcode swap it owns the file's
+// on-disk facts -- spec.sizeBytes, spec.modTime, spec.original -- and the
+// library rescan deliberately never touches such a file again (it would
+// force-reclaim those fields; see importarr/worker/rescan's
+// existingForRescan). So nothing but this controller notices a transcoded
+// file whose bytes change afterwards, and a file change bumps no generation:
+// without a timer it would be noticed only at the manager's resync. A day is
+// the budget: one stat, two cached Lists and one no-op apply per transcoded
+// file per day.
+const TranscodedRecheckInterval = 24 * time.Hour
+
 // Reconciler owns 100% of MediaFile.status (see this section's "Resolving
 // the field-manager split") plus, narrowly, spec.sizeBytes/modTime/original
 // after a transcode swap. It writes nothing at all on any other resource.
@@ -181,6 +194,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	conditions := append([]metav1.Condition(nil), mf.Status.Conditions...)
 	now := metav1.NewTime(r.Clock())
+	// Taken before anything below can flip it: a file catalogarr already
+	// took over after a transcode swap.
+	transcoded := mf.Spec.Original != nil && !*mf.Spec.Original
 
 	// The complete declaration of everything ManagerCatalogarr owns on
 	// MediaFileStatus, seeded from what is already on the object. Each
@@ -208,7 +224,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, err
 	}
 
-	probed := false
+	probed, changed := false, false
 	if swap != nil || ps.Stale || mf.Status.ProbeHash == "" {
 		mi, _, probeErr := r.Probe(ctx, mf.Spec.Path)
 		if probeErr != nil {
@@ -272,6 +288,23 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		known.MediaInfo = mi
 		probed = true
 
+		if swap == nil && transcoded && mf.Status.ProbeHash != "" {
+			// The bytes of a file catalogarr already took over changed, and
+			// no newer Succeeded TranscodeJob explains it (a re-mux, a hand
+			// edit, a restore from backup). The size and mtime are
+			// re-recorded above, under this manager, which has owned them
+			// since the swap; the rescan never re-applies them (see
+			// TranscodedRecheckInterval). What the previous encode claimed
+			// about the file no longer describes these bytes, so the
+			// compliance verdict and the profile revision it was judged
+			// against are dropped. LastResult stays: it is the history of the
+			// last transcode, which did happen. squasharr re-judges the file
+			// from the fresh probe (its watch keys on probeHash) and decides
+			// whether it needs another encode -- this controller never
+			// guesses that.
+			known.Transcode = staleTranscodeState(known.Transcode)
+			changed = true
+		}
 		if swap != nil {
 			profileTag, terr := r.transcodeProfileTag(ctx, swap)
 			if terr != nil {
@@ -306,8 +339,29 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if probed && r.Recorder != nil {
 		r.Recorder.Eventf(&mf, nil, "Normal", "Probed", "Reconcile", "probed %s", mf.Spec.Path)
 	}
+	if changed && r.Recorder != nil {
+		r.Recorder.Eventf(&mf, nil, "Warning", "TranscodedFileChanged", "Reconcile",
+			"the transcoded file at %s changed on disk with no transcode to explain it; re-probed, compliance cleared", mf.Spec.Path)
+	}
 
+	if transcoded || swap != nil {
+		return ctrl.Result{RequeueAfter: TranscodedRecheckInterval}, nil
+	}
 	return ctrl.Result{}, nil
+}
+
+// staleTranscodeState is t with the compliance verdict dropped: Compliant
+// false and no ProfileTag, because the bytes they described are gone.
+// LastResult and JobRef are kept -- they are about the last transcode, not
+// about the file as it now is. A nil t stays nil.
+func staleTranscodeState(t *catalogv1alpha1.TranscodeState) *catalogv1alpha1.TranscodeState {
+	if t == nil {
+		return nil
+	}
+	out := *t
+	out.Compliant = false
+	out.ProfileTag = ""
+	return &out
 }
 
 // knownStatus is the whole of MediaFileStatus, minus the two fields every
