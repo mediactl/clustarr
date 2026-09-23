@@ -107,8 +107,9 @@ func breakingBadS01E05() subtitles.Query {
 	}
 }
 
-// Bazarr's query(): bazarr/comment/releases/unpack flags, the SubDL
-// language codes, the IMDb id in its tt-and-seven-digits form, 30 per page.
+// Bazarr's query() minus its bazarr=1 integration flag: the documented
+// comment/releases/hi/unpack flags, the SubDL language codes, the IMDb id in
+// its tt-and-seven-digits form, 30 per page.
 func TestMovieSearchSendsBazarrsParameters(t *testing.T) {
 	f := &fakeSubDL{search: always(http.StatusOK, fixture(t, "movie_search.json"))}
 	_, p := f.start(t)
@@ -127,9 +128,11 @@ func TestMovieSearchSendsBazarrsParameters(t *testing.T) {
 	assert.Equal(t, "movie", got.Get("type"))
 	assert.Equal(t, "BR_PT,EN", got.Get("languages"), "deduplicated, sorted SubDL codes")
 	assert.Equal(t, "30", got.Get("subs_per_page"))
-	for _, flag := range []string{"bazarr", "comment", "releases", "unpack"} {
+	for _, flag := range []string{"comment", "releases", "hi", "unpack"} {
 		assert.Equal(t, "1", got.Get(flag), flag)
 	}
+	assert.False(t, got.Has("bazarr"), "Clustarr must not present itself as Bazarr: bazarr=1 is not a documented filter")
+	assert.False(t, got.Has("client"), "no integration is claimed at all")
 }
 
 func TestMovieCandidates(t *testing.T) {

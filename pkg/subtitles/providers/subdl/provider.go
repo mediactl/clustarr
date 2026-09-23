@@ -30,13 +30,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // What is ported: the search with its fallbacks (episode, then season-only,
 // then title-only for TV; IMDb or film name, then TMDB, for movies),
-// two-page pagination, the server's bazarr_policy, per-episode pack
-// handling through the server's unpacked files, Bazarr's HI and forced
-// heuristics, identity matches, and the status mapping (see statusError).
-// What is not: SubDL Pro's on-demand AI translation (a paid, job-polling
-// flow), and searches by absolute episode number, which subtitles.Query
-// does not carry. AI-translated results are returned flagged
-// Candidate.AITranslated, for the caller's own filter to decide on.
+// two-page pagination, per-episode pack handling through the server's
+// unpacked files, Bazarr's HI and forced heuristics, identity matches, and
+// the status mapping (see statusError). What is not: SubDL Pro's on-demand
+// AI translation (a paid, job-polling flow), searches by absolute episode
+// number, which subtitles.Query does not carry, and Bazarr's bazarr=1
+// integration flag (see Search) -- so the server's bazarr_policy block,
+// which answers that flag, is honoured only if the server sends one
+// unasked; otherwise defaultPolicy applies. AI-translated results are
+// returned flagged Candidate.AITranslated, for the caller's own filter to
+// decide on.
 package subdl
 
 import (
@@ -112,7 +115,9 @@ type Provider struct {
 }
 
 // policy is the server-steered search behaviour of Bazarr's
-// DEFAULT_BAZARR_POLICY, updated from each search's first page.
+// DEFAULT_BAZARR_POLICY, updated from a search's first page if that page
+// carries a bazarr_policy block. Clustarr does not send the bazarr=1 flag
+// the block answers (see Search), so in practice defaultPolicy holds.
 type policy struct {
 	enabled, seasonFallback, titleFallback, unpack bool
 	maxPages                                       int
@@ -225,10 +230,22 @@ func (p *Provider) Search(ctx context.Context, q subtitles.Query) ([]subtitles.C
 	}
 	title := sanitizeTitle(q.Title)
 
-	// "bazarr" asks the API to leave out image-based and .txt subtitles
-	// this pipeline cannot use, and to return bazarr_policy.
+	// Only parameters SubDL's own API documentation describes
+	// (https://subdl.com/api-doc, "Request Parameters", read 2026-09-23):
+	// comment, releases, hi and unpack each ask for one more field per
+	// result. Bazarr also sends bazarr=1, which that page does not document
+	// at all -- it lists a separate `client` parameter for naming an
+	// integration, with "bazarr" as one of its values -- so it is an
+	// integration flag, not a general filter, and Clustarr does not send
+	// it: this client must not present itself as Bazarr. What it bought
+	// Bazarr is covered here instead: image-based and .txt subtitles are
+	// dropped when an archive is opened (subarchive keeps only .srt, .sub,
+	// .ssa and .ass members), and without a bazarr_policy block the search
+	// follows defaultPolicy -- Bazarr's own DEFAULT_BAZARR_POLICY. hi=1 is
+	// sent because the documentation names it as what includes each
+	// result's hearing-impaired flag, which HIVerifiable promises.
 	base := url.Values{
-		"bazarr": {"1"}, "comment": {"1"}, "releases": {"1"}, "unpack": {"1"},
+		"comment": {"1"}, "releases": {"1"}, "hi": {"1"}, "unpack": {"1"},
 		"languages": {strings.Join(langs, ",")},
 	}
 	switch {

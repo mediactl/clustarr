@@ -79,7 +79,8 @@ type unpackFile struct {
 }
 
 // policyPayload is the small, bounded bazarr_policy object api.subdl.com
-// returns to a bazarr=1 search (Bazarr's _apply_bazarr_policy).
+// returns to a bazarr=1 search (Bazarr's _apply_bazarr_policy). This client
+// does not send bazarr=1; the block is still honoured if it ever arrives.
 type policyPayload struct {
 	Enabled               *bool           `json:"enabled"`
 	SeasonFallbackEnabled *bool           `json:"season_fallback_enabled"`
