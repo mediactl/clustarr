@@ -93,6 +93,14 @@ apiserver enforces the split instead of convention.
 > comments and §8.5). Both still write with their own field manager, and the
 > two-writer envtest this amendment demands still gates it — against the real
 > split.
+>
+> **Gap fix X5a (ruling R-11), 2026-09-23:** catalogarr also takes over
+> `spec.path` when a transcode lands under a new name and the source is gone
+> (a container change, or an explicit `spec.outputPath`), in the same apply as
+> the other three. A `replaceSource=false` result is not a swap and claims no
+> spec field. After a transcode the rescan never re-applies `MediaFileSpec`; it
+> reports changed bytes only through the `catalog.clustarr.io/observed-fingerprint`
+> annotation (base design §8.5).
 
 ### A1.4 New kind: LibraryScan
 
@@ -177,6 +185,16 @@ the existing tools.
 
 Both mount the RWX `/data` volume. The worker uses the media image because it
 hardlinks, probes and moves files.
+
+*As built:* only `importarr-worker` mounts `/data`; the controller Deployment
+does not, which is why the recycle-bin sweeper (`fileimport.RecycleSweeper`,
+`RootFolder.spec.recycleBin.cleanupDays`, gap fix X7a) runs on the worker role.
+The rescan attributes files under a series root folder to existing Series and
+Episodes (gap fix X7a), and a `RootFolder` schedule tick waits while an earlier
+scan of the same folder is still Pending or Running (CronJob's `Forbid`).
+`status.filesSkipped` counts only recorded media files the scan did not write;
+parts, extras, samples and non-media files are counted by kind in the worker's
+KV progress and rendered into the Ready condition's message.
 
 Stream `CLUSTARR_WORK_IMPORTARR`, work-queue retention, subjects
 `work.importarr.scan.<rootfolder>`, `work.importarr.list.<importlist>`,
@@ -298,6 +316,12 @@ must not depend on anything external, or a broker blip restarts every pod.
 `/readyz` includes the dependencies the service genuinely needs: NATS
 connectivity for every service that consumes work, the index volume for
 `indexarr`, `/data` writability for services that touch files.
+
+*As built:* `catalogarr` also waits for its informer caches, grabarr's engines
+for re-attach, and the `ui` for its cache sync **and** its first completed
+projection round (gap fix X14), so a fresh ui pod never reports Ready while it
+would serve empty pages. Every readiness runnable runs on every replica, not
+only the leader.
 
 ---
 
