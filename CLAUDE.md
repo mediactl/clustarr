@@ -42,6 +42,12 @@ API groups: `{catalog,index,download,transcode,subtitle}.clustarr.io/v1alpha1`.
 Module `github.com/mediactl/clustarr`. Licence GPL-3.0 (lets us port *arr and
 Bazarr logic verbatim — keep the header on every file).
 
+## Transcoding
+
+A transcoded media file should be the final destination. If we detect a transcoded profile, we should not mark the media "CutoffUnmet" - instead it should be marked `Transcoded`.
+
+The predicate is `catalogarr/controller/rollup.Transcoded` -- `spec.original` false, or the probe's `status.mediaInfo.transcodeProfile` (the `CLUSTARR_PROFILE` tag) -- and such a Movie or Episode reads phase `Transcoded`, with `CutoffMet=True` reason `Transcoded`; `pkg/decision` rejects every automatic upgrade of it as `TranscodedFinal` (spec §4.2).
+
 ## Invariants — do not break these
 
 - **One controller-writer per resource.** The sole exception is `MediaFile`, and
