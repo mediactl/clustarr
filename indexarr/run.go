@@ -453,11 +453,12 @@ func IndexReadyChecker(store relindex.Store) healthz.Checker {
 // setupControllers registers indexarr's three reconcilers (§6.2, §16 M2 and
 // M6). Each package's doc.go documents the exact call; these are those calls.
 //
-// All three take a k8s.io/client-go/tools/record.EventRecorder -- the
-// DEPRECATED mgr.GetEventRecorderFor, which writes CORE/v1 Events -- and
-// their +kubebuilder:rbac markers declare `groups=""` to match. catalogarr's
-// setupControllers carries the long note on why two recorder conventions
-// coexist in this tree.
+// All three take a k8s.io/client-go/tools/events.EventRecorder from
+// mgr.GetEventRecorder, which writes events.k8s.io/v1 Events, and their
+// +kubebuilder:rbac markers declare `groups=events.k8s.io` to match. The
+// deprecated mgr.GetEventRecorderFor is not used anywhere in this tree;
+// catalogarr's setupControllers carries the long note on why the marker and
+// the recorder type have to move in the same commit.
 //
 // limiters is the ONE process-wide *ratelimit.Limiter. The Indexer reconciler
 // is its only writer (it is the only reader of spec.requestDelay); the search
@@ -478,7 +479,7 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, clients *indexer.ClientC
 
 	idxReconciler := indexer.NewReconciler(
 		c,
-		mgr.GetEventRecorderFor("indexer"), //nolint:staticcheck // record.EventRecorder; see the note above
+		mgr.GetEventRecorder("indexer"),
 		clients.Limiters(),
 		bus,
 	)
@@ -491,7 +492,7 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, clients *indexer.ClientC
 
 	if err := indexerdefinition.NewReconciler(
 		c,
-		mgr.GetEventRecorderFor("indexerdefinition"), //nolint:staticcheck // record.EventRecorder; see the note above
+		mgr.GetEventRecorder("indexerdefinition"),
 	).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("indexarr: indexerdefinition: %w", err)
 	}
@@ -503,7 +504,7 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, clients *indexer.ClientC
 	// cap UNDER that, silently ignoring an operator who asked for longer.
 	if err := indexerproxy.NewReconciler(
 		c,
-		mgr.GetEventRecorderFor("indexerproxy"), //nolint:staticcheck // record.EventRecorder; see the note above
+		mgr.GetEventRecorder("indexerproxy"),
 		nil,
 	).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("indexarr: indexerproxy: %w", err)

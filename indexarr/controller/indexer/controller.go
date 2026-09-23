@@ -27,7 +27,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	k8sevents "k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -70,9 +70,9 @@ type Reconciler struct {
 
 	// Recorder is optional; a nil Recorder disables events rather than
 	// panicking, which is what lets a unit test construct a Reconciler with
-	// nothing but a client. It is a core/v1 recorder, from
-	// mgr.GetEventRecorderFor, matching indexarr's other two controllers.
-	Recorder record.EventRecorder
+	// nothing but a client. It is an events.k8s.io/v1 recorder, from
+	// mgr.GetEventRecorder, matching indexarr's other two controllers.
+	Recorder k8sevents.EventRecorder
 
 	// Limiters paces every outbound indexer request in this process, keyed
 	// by indexer host. D1-8 constructs exactly one and hands the same
@@ -131,13 +131,13 @@ type capsMemo struct {
 }
 
 // NewReconciler builds a Reconciler. recorder comes from
-// mgr.GetEventRecorderFor and writes core/v1 Events; limiters is the one
+// mgr.GetEventRecorder and writes events.k8s.io/v1 Events; limiters is the one
 // process-wide *ratelimit.Limiter indexarr shares across the caps probe, the
 // search fan-out and the RSS poll; bus is the one the RSS worker consumes
 // from, and is what lets this reconciler seed the first poll.
 func NewReconciler(
 	c client.Client,
-	recorder record.EventRecorder,
+	recorder k8sevents.EventRecorder,
 	limiters *ratelimit.Limiter,
 	bus events.Bus,
 ) *Reconciler {
@@ -331,8 +331,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	case outcome.AuthFailed:
 		k8s.MarkFalse(&idx, &conditions, indexv1alpha1.IndexerConditionAuthenticated, ReasonCredentialsRejected, "%s", outcome.Message)
 		if r.Recorder != nil {
-			r.Recorder.Eventf(&idx, corev1.EventTypeWarning, ReasonCredentialsRejected,
-				"the indexer rejected the configured credentials: %s", outcome.Message)
+			r.Recorder.Eventf(&idx, nil, corev1.EventTypeWarning, ReasonCredentialsRejected,
+				"Reconcile", "the indexer rejected the configured credentials: %s", outcome.Message)
 		}
 	default:
 		// Always set, never left absent: a condition this manager

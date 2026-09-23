@@ -30,7 +30,7 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	k8sevents "k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -86,7 +86,7 @@ func newJetStreamReconciler(t *testing.T, c client.Client) (*indexer.Reconciler,
 	t.Cleanup(func() { _ = bus.Close() })
 	require.NoError(t, bus.Ensure(t.Context(), events.Default().ForSingleNode()))
 
-	r := indexer.NewReconciler(c, record.NewFakeRecorder(10), ratelimit.New(ratelimit.Config{}), bus)
+	r := indexer.NewReconciler(c, k8sevents.NewFakeRecorder(10), ratelimit.New(ratelimit.Config{}), bus)
 	return r, nc
 }
 

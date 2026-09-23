@@ -34,7 +34,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 //	if err := indexerdefinition.NewReconciler(
 //	    mgr.GetClient(),
-//	    mgr.GetEventRecorderFor("indexerdefinition"), // record.EventRecorder, core/v1 Events
+//	    mgr.GetEventRecorder("indexerdefinition"), // events.EventRecorder, events.k8s.io/v1
 //	).SetupWithManager(mgr); err != nil {
 //	    return err
 //	}
@@ -97,11 +97,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // config/rbac/role.yaml, and no envtest could see it because envtest does not
 // enforce RBAC. cmd/clustarr's TestRBACMarkersArePackageLevel is the guard.
 //
-// The Events group is "" (core/v1), not events.k8s.io: the recorder here comes
-// from mgr.GetEventRecorderFor, which returns a
-// k8s.io/client-go/tools/record.EventRecorder and writes core Events.
+// The Recorder is a k8s.io/client-go/tools/events.EventRecorder, handed in by
+// mgr.GetEventRecorder, and it writes events.k8s.io/v1 -- so events.k8s.io is
+// the group to grant and the core group is not. The marker and the recorder
+// type move together or not at all: a mismatch is denied only on a real
+// cluster, and no suite can see it, because envtest does not enforce RBAC.
+// catalogarr's setupControllers records the occasion this repo learned it.
 //
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexerdefinitions,verbs=get;list;watch
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexerdefinitions/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 package indexerdefinition

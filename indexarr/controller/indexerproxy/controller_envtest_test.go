@@ -33,7 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -124,7 +124,7 @@ func TestIndexerProxyReportsReadyAndVersion(t *testing.T) {
 	}
 	require.NoError(t, c.Create(ctx, proxy))
 
-	r := indexerproxy.NewReconciler(c, record.NewFakeRecorder(10), srv.Client())
+	r := indexerproxy.NewReconciler(c, events.NewFakeRecorder(10), srv.Client())
 	res, err := reconcileOnce(t, r, ns, "flare")
 	require.NoError(t, err)
 	assert.Positive(t, res.RequeueAfter, "a reachability probe must be repeated")
@@ -172,7 +172,7 @@ func TestMissingSecretDoesNotReleaseTheProbeResult(t *testing.T) {
 	}
 	require.NoError(t, c.Create(ctx, proxy))
 
-	r := indexerproxy.NewReconciler(c, record.NewFakeRecorder(10), srv.Client())
+	r := indexerproxy.NewReconciler(c, events.NewFakeRecorder(10), srv.Client())
 	_, err := reconcileOnce(t, r, ns, "flare")
 	require.NoError(t, err)
 
@@ -222,7 +222,7 @@ func TestUnaddressableSpecIsTerminalAndKeepsStatus(t *testing.T) {
 	}
 	require.NoError(t, c.Create(ctx, proxy))
 
-	r := indexerproxy.NewReconciler(c, record.NewFakeRecorder(10), srv.Client())
+	r := indexerproxy.NewReconciler(c, events.NewFakeRecorder(10), srv.Client())
 	_, err := reconcileOnce(t, r, ns, "flare")
 	require.NoError(t, err)
 
@@ -270,7 +270,7 @@ func TestUnreachableProxyIsNotReadyButKeepsVersion(t *testing.T) {
 	}
 	require.NoError(t, c.Create(ctx, proxy))
 
-	r := indexerproxy.NewReconciler(c, record.NewFakeRecorder(10), srv.Client())
+	r := indexerproxy.NewReconciler(c, events.NewFakeRecorder(10), srv.Client())
 	_, err := reconcileOnce(t, r, ns, "flare")
 	require.NoError(t, err)
 
@@ -300,7 +300,7 @@ func TestUnreachableProxyIsNotReadyButKeepsVersion(t *testing.T) {
 
 func TestReconcileIsANoOpForAMissingProxy(t *testing.T) {
 	c := newTestClient(t)
-	r := indexerproxy.NewReconciler(c, record.NewFakeRecorder(10), http.DefaultClient)
+	r := indexerproxy.NewReconciler(c, events.NewFakeRecorder(10), http.DefaultClient)
 	res, err := reconcileOnce(t, r, "default", "definitely-not-there")
 	require.NoError(t, err)
 	assert.Zero(t, res)
@@ -317,5 +317,5 @@ func TestSetupWithManagerRegisters(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, indexerproxy.NewReconciler(
-		mgr.GetClient(), record.NewFakeRecorder(10), http.DefaultClient).SetupWithManager(mgr))
+		mgr.GetClient(), events.NewFakeRecorder(10), http.DefaultClient).SetupWithManager(mgr))
 }

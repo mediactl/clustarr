@@ -34,7 +34,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/record"
+	k8sevents "k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -122,9 +122,9 @@ func capsServer(t *testing.T, body string, status int) *httptest.Server {
 // tests that only need the seed not to explode; the ones that assert on a
 // PENDING schedule use newJetStreamReconciler, because membus has no
 // deduplication window and no rollup.
-func newReconciler(t *testing.T, c client.Client) (*indexer.Reconciler, *record.FakeRecorder) {
+func newReconciler(t *testing.T, c client.Client) (*indexer.Reconciler, *k8sevents.FakeRecorder) {
 	t.Helper()
-	rec := record.NewFakeRecorder(10)
+	rec := k8sevents.NewFakeRecorder(10)
 	return indexer.NewReconciler(c, rec, ratelimit.New(ratelimit.Config{}), newMemBus(t)), rec
 }
 

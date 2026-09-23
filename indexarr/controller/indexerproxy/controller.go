@@ -26,7 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -60,7 +60,7 @@ type Reconciler struct {
 
 	// Recorder is optional; a nil Recorder disables events rather than
 	// panicking.
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 
 	// Probe is the reachability check. NewReconciler installs the real one;
 	// a test injects its own.
@@ -68,9 +68,9 @@ type Reconciler struct {
 }
 
 // NewReconciler builds a Reconciler probing with httpClient (nil means
-// http.DefaultClient). recorder comes from mgr.GetEventRecorderFor and writes
-// core/v1 Events.
-func NewReconciler(c client.Client, recorder record.EventRecorder, httpClient *http.Client) *Reconciler {
+// http.DefaultClient). recorder comes from mgr.GetEventRecorder and writes
+// events.k8s.io/v1 Events.
+func NewReconciler(c client.Client, recorder events.EventRecorder, httpClient *http.Client) *Reconciler {
 	return &Reconciler{Client: c, Recorder: recorder, Probe: NewProber(httpClient, nil)}
 }
 
@@ -95,7 +95,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		log.Warn("spec is not addressable", "error", err)
 		k8s.MarkReady(&pxy, &conditions, false, k8s.ReasonInvalidSpec, "%s", err.Error())
 		if r.Recorder != nil {
-			r.Recorder.Eventf(&pxy, corev1.EventTypeWarning, k8s.ReasonInvalidSpec, "%s", err.Error())
+			r.Recorder.Eventf(&pxy, nil, corev1.EventTypeWarning, k8s.ReasonInvalidSpec, "Reconcile", "%s", err.Error())
 		}
 		// The complete owned set, not a conditions-only apply: the version and
 		// the timestamp below are what the proxy last reported, and an apply

@@ -24,7 +24,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -61,12 +61,12 @@ type Reconciler struct {
 	// Recorder is optional; a nil Recorder disables events rather than
 	// panicking, which is what lets a unit test construct a Reconciler with
 	// nothing but a client.
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 }
 
 // NewReconciler builds a Reconciler. recorder comes from
-// mgr.GetEventRecorderFor and writes core/v1 Events.
-func NewReconciler(c client.Client, recorder record.EventRecorder) *Reconciler {
+// mgr.GetEventRecorder and writes events.k8s.io/v1 Events.
+func NewReconciler(c client.Client, recorder events.EventRecorder) *Reconciler {
 	return &Reconciler{Client: c, Recorder: recorder}
 }
 
@@ -94,7 +94,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		k8s.MarkFalse(&def, &conditions, indexv1alpha1.IndexerDefinitionConditionValid,
 			k8s.ReasonInvalidSpec, "%s", message)
 		if r.Recorder != nil {
-			r.Recorder.Eventf(&def, corev1.EventTypeWarning, k8s.ReasonInvalidSpec,
+			r.Recorder.Eventf(&def, nil, corev1.EventTypeWarning, k8s.ReasonInvalidSpec, "Reconcile",
 				"spec.yaml does not validate against the bundled Cardigann v11 schema: %s", message)
 		}
 		// The complete owned set, NOT a conditions-only apply. The id, name,

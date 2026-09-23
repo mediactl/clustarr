@@ -133,9 +133,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // convention D1-0 set and the same reasoning as R31: one declaration, in the
 // place that does the thing.
 //
-// The Events group is "" (core/v1), not events.k8s.io: the recorder comes
-// from mgr.GetEventRecorderFor, which returns a
-// k8s.io/client-go/tools/record.EventRecorder and writes core Events.
+// The Recorder is a k8s.io/client-go/tools/events.EventRecorder, handed in by
+// mgr.GetEventRecorder, and it writes events.k8s.io/v1 -- so events.k8s.io is
+// the group to grant and the core group is not. The marker and the recorder
+// type move together or not at all: a mismatch is denied only on a real
+// cluster, and no suite can see it, because envtest does not enforce RBAC.
+// catalogarr's setupControllers records the occasion this repo learned it.
 //
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch
 //
@@ -153,5 +156,5 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // what it uses, so the day the role is split per service the narrowing is
 // already recorded. Splitting it is the real fix and is not this task's.
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 package indexer

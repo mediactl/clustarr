@@ -27,7 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -132,7 +132,7 @@ func TestIndexerDefinitionReportsValidAndSummary(t *testing.T) {
 	require.NoError(t, c.Create(ctx, def))
 	t.Cleanup(func() { _ = c.Delete(ctx, def) })
 
-	r := indexerdefinition.NewReconciler(c, record.NewFakeRecorder(10))
+	r := indexerdefinition.NewReconciler(c, events.NewFakeRecorder(10))
 	_, err := reconcileOnce(t, r, name)
 	require.NoError(t, err)
 
@@ -188,7 +188,7 @@ func TestInvalidYAMLDoesNotReleaseTheValidatedSummary(t *testing.T) {
 	require.NoError(t, c.Create(ctx, def))
 	t.Cleanup(func() { _ = c.Delete(ctx, def) })
 
-	r := indexerdefinition.NewReconciler(c, record.NewFakeRecorder(10))
+	r := indexerdefinition.NewReconciler(c, events.NewFakeRecorder(10))
 	_, err := reconcileOnce(t, r, name)
 	require.NoError(t, err)
 
@@ -234,7 +234,7 @@ func TestInvalidYAMLDoesNotReleaseTheValidatedSummary(t *testing.T) {
 // object is gone by the time the work item is handled.
 func TestReconcileIsANoOpForAMissingDefinition(t *testing.T) {
 	c := newTestClient(t)
-	r := indexerdefinition.NewReconciler(c, record.NewFakeRecorder(10))
+	r := indexerdefinition.NewReconciler(c, events.NewFakeRecorder(10))
 	res, err := reconcileOnce(t, r, "definitely-not-there")
 	require.NoError(t, err)
 	assert.Zero(t, res)
@@ -252,5 +252,5 @@ func TestSetupWithManagerRegisters(t *testing.T) {
 		Metrics: server.Options{BindAddress: "0"},
 	})
 	require.NoError(t, err)
-	require.NoError(t, indexerdefinition.NewReconciler(mgr.GetClient(), record.NewFakeRecorder(10)).SetupWithManager(mgr))
+	require.NoError(t, indexerdefinition.NewReconciler(mgr.GetClient(), events.NewFakeRecorder(10)).SetupWithManager(mgr))
 }
