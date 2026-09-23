@@ -124,6 +124,7 @@ Register both reconcilers; add squasharr's RBAC markers (TranscodeJob/TranscodeP
 Generate an **HDR10** clip in the fixture image with ffmpeg (`lavfi` source, `-color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc` plus mastering-display metadata). **Dolby Vision cannot be synthesized with ffmpeg alone** — it needs an RPU. If no DV clip is achievable without a new tool, say so, and write the DV scenario to skip with that named reason rather than faking it. Write scenario 12 and extend scenario 1 through the TranscodeJob. **Do not run them.**
 
 ### E-6 — gate, CLAUDE.md Status, carried list
+**Carried from E-4 into E-6's carried list:** nothing in the binary applies `$UMASK` though design §11 says it must; transcode Job pods lack the pod security settings the Deployments have (non-root, seccomp, read-only root filesystem) — file both; `config/keda/transcode-scaledjob.yaml` (example only, R7) still names the `squasharr` ServiceAccount instead of `squasharr-worker` — fix it, it is one line; `replaceSource: false` is now **rejected by the API** (like `chunking`) because honouring it needs an output location that does not exist — record it as deferred.
 
 Mirror D1-10 (`3038552`). `make generate manifests build lint test` with `KUBEBUILDER_ASSETS` exported. A Phase E paragraph in CLAUDE.md's Status, identifiers grepped before written, stating plainly that scenario 12 is written and **never executed**.
 
