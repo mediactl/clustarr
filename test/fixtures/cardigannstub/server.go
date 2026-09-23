@@ -199,7 +199,7 @@ func handleBrowse(logger *slog.Logger) http.HandlerFunc {
 			_, _ = w.Write([]byte(`<!DOCTYPE html><html><body><table></table></body></html>`))
 			return
 		}
-		fmt.Fprintf(w, browseHTMLTemplate, ResultDownloadPath, ResultTitle, ResultSize, ResultSeeders)
+		_, _ = fmt.Fprintf(w, browseHTMLTemplate, ResultDownloadPath, ResultTitle, ResultSize, ResultSeeders)
 	}
 }
 
