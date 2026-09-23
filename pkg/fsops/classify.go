@@ -80,12 +80,25 @@ var MediaExtensions = map[Kind]map[string]bool{
 	KindComic:     {".cbz": true, ".cbr": true, ".cb7": true, ".cbt": true, ".pdf": true},
 }
 
-// IsPart reports whether path names an in-progress transfer's partial
-// file: anacrolix/torrent's UsePartFiles convention (verified in
-// docs/research/download.md §1.6) writes every incomplete file as
-// <name>.part.
+// IsPart reports whether path names an in-progress partial file, in either
+// convention the stack writes:
+//
+//   - anacrolix/torrent's UsePartFiles (verified in docs/research/
+//     download.md §1.6) writes every incomplete file as <name>.part;
+//   - pkg/transcode writes a transcode's output as <stem>.part.<ext>
+//     beside its final path (Plan.Output) until the worker renames it into
+//     place. Its extension is a media one, so without this rule a scan
+//     that ran during a transcode classified the half-written output as
+//     media. The infix is matched exactly as pkg/transcode writes it,
+//     lower case, so a title word such as "The.Movie.Part.mkv" is not
+//     mistaken for one.
 func IsPart(path string) bool {
-	return strings.EqualFold(filepath.Ext(path), ".part")
+	base := filepath.Base(path)
+	if strings.EqualFold(filepath.Ext(base), ".part") {
+		return true
+	}
+	stem := strings.TrimSuffix(base, filepath.Ext(base))
+	return filepath.Ext(stem) == ".part"
 }
 
 var extraDirs = map[string]bool{

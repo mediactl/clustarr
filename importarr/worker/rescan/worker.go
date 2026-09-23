@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/importarr/worker/fileimport"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -125,6 +126,7 @@ type Worker struct {
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists;albums;authors;books;audiobooks;comics;issues,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=series;episodes,verbs=get;list;watch
+// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=libraryscans,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
@@ -182,6 +184,12 @@ type scanState struct {
 	// resumeAfter is a resumed tally's Resume path: the walk passes over
 	// every file up to and including it, whose outcome is already counted.
 	resumeAfter string
+
+	// transcodeOutputs maps each status.result.outputPath of a Succeeded
+	// TranscodeJob in the scan's namespace (cleaned) to that job's name:
+	// files the walk must not adopt unless a MediaFile already records
+	// them. Listed once per scan (transcodeOutputs).
+	transcodeOutputs map[string]string
 
 	// profiles caches the QualityProfiles a movie walk scores files with,
 	// by name; a nil entry is a profile that could not be used.
@@ -325,6 +333,12 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		}
 		st.manualHasMedia = hasMedia
 	}
+
+	outputs, err := w.transcodeOutputs(ctx, scan.Namespace)
+	if err != nil {
+		return w.abort(ctx, m, st, err)
+	}
+	st.transcodeOutputs = outputs
 
 	switch {
 	case st.manual != nil:
@@ -483,6 +497,11 @@ func (w *Worker) walk(ctx context.Context, m events.Message, st *scanState) erro
 
 // visit is one walked file's outcome, by its class.
 func (w *Worker) visit(ctx context.Context, st *scanState, path string, info os.FileInfo, class fsops.FileClass) error {
+	if class == fsops.ClassMedia || class == fsops.ClassSuspectedSample {
+		if skip, err := w.transcodeOutput(ctx, st, path); err != nil || skip {
+			return err
+		}
+	}
 	switch class {
 	case fsops.ClassMedia:
 	case fsops.ClassSuspectedSample:
@@ -507,6 +526,54 @@ func (w *Worker) visit(ctx context.Context, st *scanState, path string, info os.
 	}
 	st.progress.FilesSeen++
 	return w.handleMediaFile(ctx, st, path, info)
+}
+
+// transcodeOutputs lists the scan namespace's TranscodeJobs once and
+// returns the output path of every Succeeded one that has a result, mapped
+// to the job's name. One List per scan, from the cache, not one per file.
+func (w *Worker) transcodeOutputs(ctx context.Context, ns string) (map[string]string, error) {
+	var jobs transcodev1alpha1.TranscodeJobList
+	if err := w.Client.List(ctx, &jobs, client.InNamespace(ns)); err != nil {
+		return nil, fmt.Errorf("rescan: list transcode jobs in %s: %w", ns, err)
+	}
+	out := map[string]string{}
+	for i := range jobs.Items {
+		j := &jobs.Items[i]
+		if j.Status.Phase != transcodev1alpha1.TranscodeJobPhaseSucceeded || j.Status.Result == nil ||
+			j.Status.Result.OutputPath == "" {
+			continue
+		}
+		out[filepath.Clean(j.Status.Result.OutputPath)] = j.Name
+	}
+	return out, nil
+}
+
+// transcodeOutput decides a media file a Succeeded TranscodeJob wrote. Once
+// a MediaFile records the path -- catalogarr moved spec.path to a
+// container change's new file, or the job transcoded in place -- the file
+// is the catalog's like any other, and skip is false. Until then it is
+// skipped and counted (Progress.TranscodeOutputs): a container change
+// writes <stem>.<container> and retires the source, and replaceSource=false
+// keeps the source and writes "<stem> - <profile>.<container>" beside it,
+// and in the window before catalogarr's spec.path takeover -- and for good,
+// for a kept source's derived file -- the walk would otherwise adopt the
+// output as an unrecorded file: a second MediaFile for the item, or an
+// unmatched entry, or a new Movie.
+func (w *Worker) transcodeOutput(ctx context.Context, st *scanState, path string) (skip bool, err error) {
+	job, ok := st.transcodeOutputs[filepath.Clean(path)]
+	if !ok {
+		return false, nil
+	}
+	existing, err := w.existingMediaFile(ctx, st.scan.Namespace, path)
+	if err != nil || existing != nil {
+		return false, err
+	}
+	st.progress.FilesSeen++
+	st.progress.TranscodeOutputs++
+	st.progress.FilesSkipped++
+	logging.FromContext(ctx).Debug("left a transcode output catalogarr has not recorded yet",
+		"path", relPath(st.root.Spec.Path, path), "transcodeJob", job)
+	return true, nil
 }
 
 // walkHoldsMedia reports whether the walk of a manual assignment will visit

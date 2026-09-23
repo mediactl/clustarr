@@ -64,7 +64,8 @@ type UnmatchedFile struct {
 //
 //   - a media file of the root folder's kind (or a suspected sample) is
 //     SEEN, and then matched (FilesMatched), skipped (FilesSkipped, and one
-//     of Unchanged, Transcoded or Deferred says why) or unmatched (an entry
+//     of Unchanged, Transcoded, TranscodeOutputs or Deferred says why) or
+//     unmatched (an entry
 //     in Unmatched, which is capped, so the count is not derivable from
 //     the list);
 //   - anything else is NOT CONSIDERED, and one of NotMedia, Parts, Extras
@@ -104,7 +105,8 @@ type Progress struct {
 	ItemsUpdated int64 `json:"itemsUpdated"`
 
 	// FilesSkipped counts media files already in the catalog that the walk
-	// deliberately wrote nothing for: Unchanged + Transcoded + Deferred.
+	// deliberately wrote nothing for: Unchanged + Transcoded +
+	// TranscodeOutputs + Deferred.
 	FilesSkipped int64 `json:"filesSkipped"`
 
 	// Unchanged counts files an incremental scan found at the size and
@@ -118,6 +120,14 @@ type Progress struct {
 	// Deferred counts files whose MediaFile changed between the walk
 	// reading it and writing it, twice over; the next scan picks them up.
 	Deferred int64 `json:"deferred,omitempty"`
+
+	// TranscodeOutputs counts files a Succeeded TranscodeJob wrote
+	// (status.result.outputPath) that no MediaFile records yet: a
+	// container change's new file before catalogarr moves spec.path to it,
+	// or a replaceSource=false output kept beside its source. They belong
+	// to the item whose file was transcoded, and are catalogarr's to
+	// record; adopting one would make a duplicate or an unmatched entry.
+	TranscodeOutputs int64 `json:"transcodeOutputs,omitempty"`
 
 	// HandedOver counts post-transcode files whose bytes changed on disk:
 	// the walk told catalogarr (AnnotationObservedFingerprint) instead of
@@ -156,6 +166,7 @@ func (p Progress) Summary() string {
 		fmt.Fprintf(&b, ", %d skipped (%s)", p.FilesSkipped, clauses(
 			clause{p.Unchanged, "unchanged"},
 			clause{p.Transcoded, "transcoded, left to catalogarr"},
+			clause{p.TranscodeOutputs, "transcode outputs catalogarr has not recorded yet"},
 			clause{p.Deferred, "changed during the scan, left to the next"},
 		))
 	}

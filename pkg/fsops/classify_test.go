@@ -205,6 +205,22 @@ func TestSizeRuleIsVideoOnly(t *testing.T) {
 // TestIsSampleIsAMarkerNotAWordSearch pins the "Free Samples" fix: the
 // name rule matches "sample" where a releaser puts the marker, never as a
 // word of the title, which used to drop the real file as its own sample.
+// pkg/transcode's in-progress output, <stem>.part.<ext>, is a part like a
+// torrent client's <name>.part; a title word "Part" is not.
+func TestIsPartCoversATranscodesPartialOutput(t *testing.T) {
+	for name, want := range map[string]bool{
+		"Heat (1995).mkv.part":            true,
+		"Heat (1995).part.mkv":            true,
+		"Heat (1995) - hevc.part.mp4":     true,
+		"Heat (1995).PART":                true,
+		"The.Movie.Part.mkv":              false,
+		"Deathly.Hallows.Part.1.2010.mkv": false,
+		"Heat (1995).mkv":                 false,
+	} {
+		assert.Equalf(t, want, fsops.IsPart("/lib/"+name), "%s", name)
+	}
+}
+
 func TestIsSampleIsAMarkerNotAWordSearch(t *testing.T) {
 	for name, want := range map[string]bool{
 		// Titles that contain the word.

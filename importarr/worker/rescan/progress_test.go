@@ -142,11 +142,12 @@ func TestWalkOrderLessMatchesWalkDir(t *testing.T) {
 func TestProgressSummary(t *testing.T) {
 	assert.Equal(t, "0 files seen, 0 matched, 0 unmatched", rescan.Progress{}.Summary())
 	assert.Equal(t,
-		"12 files seen, 7 matched, 4 skipped (2 unchanged, 1 transcoded, left to catalogarr, 1 changed during the scan, left to the next), "+
+		"12 files seen, 7 matched, 5 skipped (2 unchanged, 1 transcoded, left to catalogarr, "+
+			"1 transcode outputs catalogarr has not recorded yet, 1 changed during the scan, left to the next), "+
 			"1 unmatched; 1 transcoded files changed on disk, handed to catalogarr; 2 could not be read; "+
 			"9 other files not considered (5 not media, 3 samples, 1 partial downloads)",
 		rescan.Progress{
-			FilesSeen: 12, FilesMatched: 7, FilesSkipped: 4, Unchanged: 2, Transcoded: 1, Deferred: 1,
+			FilesSeen: 12, FilesMatched: 7, FilesSkipped: 5, Unchanged: 2, Transcoded: 1, TranscodeOutputs: 1, Deferred: 1,
 			HandedOver: 1, Unreadable: 2, NotMedia: 5, Samples: 3, Parts: 1,
 			Unmatched: []rescan.UnmatchedFile{{Path: "x.mkv"}},
 		}.Summary())
