@@ -121,12 +121,13 @@ type Progress struct {
 	// reading it and writing it, twice over; the next scan picks them up.
 	Deferred int64 `json:"deferred,omitempty"`
 
-	// TranscodeOutputs counts files a Succeeded TranscodeJob wrote
-	// (status.result.outputPath) that no MediaFile records yet: a
-	// container change's new file before catalogarr moves spec.path to it,
-	// or a replaceSource=false output kept beside its source. They belong
-	// to the item whose file was transcoded, and are catalogarr's to
-	// record; adopting one would make a duplicate or an unmatched entry.
+	// TranscodeOutputs counts files squasharr wrote that no MediaFile
+	// records: a container change's new file, named by its Succeeded
+	// TranscodeJob, before catalogarr moves spec.path to it; or a
+	// replaceSource=false output kept beside its source, named by its job
+	// or, once the job is gone, recognised by its name and tag (keptOutput).
+	// They belong to the item whose file was transcoded; adopting one would
+	// make a duplicate or an unmatched entry.
 	TranscodeOutputs int64 `json:"transcodeOutputs,omitempty"`
 
 	// HandedOver counts post-transcode files whose bytes changed on disk:
@@ -175,7 +176,7 @@ func (p Progress) Summary() string {
 		fmt.Fprintf(&b, ", %d skipped (%s)", p.FilesSkipped, clauses(
 			clause{p.Unchanged, "unchanged"},
 			clause{p.Transcoded, "transcoded, left to catalogarr"},
-			clause{p.TranscodeOutputs, "transcode outputs catalogarr has not recorded yet"},
+			clause{p.TranscodeOutputs, "transcode outputs, left to catalogarr"},
 			clause{p.Deferred, "changed during the scan, left to the next"},
 		))
 	}

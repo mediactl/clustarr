@@ -102,6 +102,12 @@ type Worker struct {
 	// NewWorker sets catalogue.LoadedCatalogue(); nil means the same.
 	Catalogue *catalogue.Catalogue
 
+	// ProbeTranscodeProfile reads a file's CLUSTARR_PROFILE tag, the last
+	// test of whether a file named like a kept source's transcode output is
+	// one (keptOutput). NewWorker sets the pkg/mediainfo probe; nil skips
+	// that test, so only the kept source's own record can confirm one.
+	ProbeTranscodeProfile ProbeTranscodeProfile
+
 	// SampleMaxBytes is the video size floor (fsops.IsSuspectedSample): a
 	// video file smaller than this whose name does not mark it a sample is
 	// a SUSPECTED sample. The walk records it in LibraryScan.status.unmatched
@@ -139,7 +145,7 @@ func NewWorker(c client.Client, bus events.Bus) *Worker {
 	return &Worker{
 		Client: c, Bus: bus, Clock: time.Now, MetadataTimeout: defaultMetadataTimeout,
 		Catalogue: catalogue.LoadedCatalogue(), ProbeAudio: mediainfo.ProbeAudio,
-		SampleMaxBytes: fsops.DefaultSampleMaxBytes,
+		ProbeTranscodeProfile: probeTranscodeProfile, SampleMaxBytes: fsops.DefaultSampleMaxBytes,
 	}
 }
 
@@ -550,25 +556,32 @@ func (w *Worker) transcodeOutputs(ctx context.Context, ns string) (map[string]st
 	return out, nil
 }
 
-// transcodeOutput decides a media file a Succeeded TranscodeJob wrote. Once
-// a MediaFile records the path -- catalogarr moved spec.path to a
-// container change's new file, or the job transcoded in place -- the file
-// is the catalog's like any other, and skip is false. Until then it is
-// skipped and counted (Progress.TranscodeOutputs): a container change
+// transcodeOutput decides a media file squasharr wrote. Once a MediaFile
+// records the path -- catalogarr moved spec.path to a container change's new
+// file, or the job transcoded in place -- the file is the catalog's like any
+// other, and skip is false. Until then a file a Succeeded TranscodeJob names
+// is skipped and counted (Progress.TranscodeOutputs): a container change
 // writes <stem>.<container> and retires the source, and replaceSource=false
 // keeps the source and writes "<stem> - <profile>.<container>" beside it,
 // and in the window before catalogarr's spec.path takeover -- and for good,
 // for a kept source's derived file -- the walk would otherwise adopt the
 // output as an unrecorded file: a second MediaFile for the item, or an
-// unmatched entry, or a new Movie.
+// unmatched entry, or a new Movie. A kept source's derived file stays
+// protected once its job is gone too, recognised by its name beside the
+// recorded source and squasharr's tag (keptOutput).
 func (w *Worker) transcodeOutput(ctx context.Context, st *scanState, path string) (skip bool, err error) {
-	job, ok := st.transcodeOutputs[filepath.Clean(path)]
-	if !ok {
-		return false, nil
+	job, byJob := st.transcodeOutputs[filepath.Clean(path)]
+	if !byJob {
+		if _, _, named := keptOutputName(filepath.Base(path)); !named {
+			return false, nil
+		}
 	}
 	existing, err := w.existingMediaFile(ctx, st.scan.Namespace, path)
 	if err != nil || existing != nil {
 		return false, err
+	}
+	if !byJob {
+		return w.keptOutput(ctx, st, path)
 	}
 	st.progress.FilesSeen++
 	st.progress.TranscodeOutputs++

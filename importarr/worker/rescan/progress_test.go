@@ -143,7 +143,7 @@ func TestProgressSummary(t *testing.T) {
 	assert.Equal(t, "0 files seen, 0 matched, 0 unmatched", rescan.Progress{}.Summary())
 	assert.Equal(t,
 		"12 files seen, 7 matched, 5 skipped (2 unchanged, 1 transcoded, left to catalogarr, "+
-			"1 transcode outputs catalogarr has not recorded yet, 1 changed during the scan, left to the next), "+
+			"1 transcode outputs, left to catalogarr, 1 changed during the scan, left to the next), "+
 			"1 unmatched; 1 transcoded files changed on disk, handed to catalogarr; 2 could not be read; "+
 			"9 other files not considered (5 not media, 3 samples, 1 partial downloads)",
 		rescan.Progress{

@@ -19,3 +19,6 @@ package rescan
 
 // WalkOrderLess exposes walkOrderLess to the external test package.
 var WalkOrderLess = walkOrderLess
+
+// KeptOutputName exposes keptOutputName to the external test package.
+var KeptOutputName = keptOutputName
