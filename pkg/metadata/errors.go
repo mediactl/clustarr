@@ -37,10 +37,10 @@ var (
 	// HTTP 401/403, or an authentication flow -- TVDB's login -- failing
 	// outright).
 	ErrAuth = errors.New("metadata: authentication failed")
-	// ErrUnsupported means the provider does not implement the requested
-	// operation at all (for example MusicBrainz search, deferred by this
-	// client until a later task needs it) -- distinct from ErrNotFound,
-	// which means the operation ran but found nothing.
+	// ErrUnsupported means the provider cannot perform the requested
+	// operation for this input at all (for example TMDB's FindMovie given
+	// only ids it has no crosswalk for) -- distinct from ErrNotFound, which
+	// means the operation ran but found nothing.
 	ErrUnsupported = errors.New("metadata: unsupported operation")
 	// ErrDecode means the provider's HTTP response could not be parsed: an
 	// empty body, truncated JSON, or bytes that are not valid JSON at all,
@@ -50,6 +50,10 @@ var (
 	// so a caller can tell "the provider sent something this client could
 	// not read" apart from a specific mapped status like ErrNotFound.
 	ErrDecode = errors.New("metadata: could not decode provider response")
+	// ErrResponseTooLarge means the provider's response body exceeded
+	// MaxResponseBytes. It is distinct from ErrDecode: the body was never
+	// parsed, because reading it whole would have been the failure.
+	ErrResponseTooLarge = errors.New("metadata: response body exceeds size limit")
 )
 
 // RateLimitedError is returned in place of a bare ErrRateLimited whenever

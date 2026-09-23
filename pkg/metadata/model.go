@@ -182,8 +182,12 @@ type Movie struct {
 	OriginalLanguage string `json:"originalLanguage,omitempty"`
 	Overview         string `json:"overview,omitempty"`
 
-	Year    int32 `json:"year,omitempty"`
-	Runtime int32 `json:"runtime,omitempty"`
+	Year int32 `json:"year,omitempty"`
+	// SecondaryYear is a second year the film is known by (Radarr's
+	// MovieMetadata.SecondaryYear), 0 when there is none. See
+	// DeriveSecondaryYear for how a provider derives it.
+	SecondaryYear int32 `json:"secondaryYear,omitempty"`
+	Runtime       int32 `json:"runtime,omitempty"`
 
 	Genres  []string `json:"genres,omitempty"`
 	Ratings Ratings  `json:"ratings,omitempty"`

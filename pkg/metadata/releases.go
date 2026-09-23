@@ -63,6 +63,36 @@ func hasCountry(dates []ReleaseDate, country string) bool {
 	return false
 }
 
+// DeriveSecondaryYear returns the second year a movie is known by, or 0 when
+// there is none: the year of its earliest ReleaseTypePremiere date in any
+// country, when that differs from year (the primary, TMDB release_date
+// year). This is Radarr's rule -- SkyHookProxy.MapMovie
+// (src/NzbDrone.Core/MetadataSource/SkyHook/SkyHookProxy.cs, verified via
+// DeepWiki against Radarr/Radarr): "If the premier differs from the TMDB
+// year, use it as a secondary year" -- and it exists because a festival
+// premiere a year before general release is a year release names use.
+// The premiere is not region-scoped: a festival premiere is one event, so
+// the earliest across every country is the one that counts. The year is
+// taken in UTC, as every date in dates already is.
+func DeriveSecondaryYear(dates []ReleaseDate, year int32) int32 {
+	var premiere *time.Time
+	for i := range dates {
+		if dates[i].Type != ReleaseTypePremiere {
+			continue
+		}
+		if premiere == nil || dates[i].Date.Before(*premiere) {
+			premiere = &dates[i].Date
+		}
+	}
+	if premiere == nil {
+		return 0
+	}
+	if y := int32(premiere.UTC().Year()); y != year {
+		return y
+	}
+	return 0
+}
+
 // DeriveMovieStatus derives Radarr's MovieStatus from the release cycle: a
 // reached digital or physical date is always "released"; otherwise a
 // theatrical date in the future is "announced", one within the last 90 days
