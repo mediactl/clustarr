@@ -149,8 +149,15 @@ func TestReconcilePublishesOneInteractiveSearchTaskAtHighPriority(t *testing.T) 
 	require.Len(t, subjects, 1)
 }
 
-func TestReconcileQueryModeFailsWithAnExplanation(t *testing.T) {
+// TestReconcileQueryModeWithoutARPCFailsWithAnExplanation covers a
+// Reconciler whose Query was never wired -- NewReconciler only wires it when
+// the bus it is handed also satisfies events.Requester, and the fixture's
+// recordingPublisher deliberately implements Publish alone (see
+// NewReconciler's own doc comment on why that is the tested case, not an
+// oversight).
+func TestReconcileQueryModeWithoutARPCFailsWithAnExplanation(t *testing.T) {
 	f := newFixture(t, "search-query")
+	require.Nil(t, f.r.Query, "the fixture's publisher does not satisfy events.Requester")
 	q := "the matrix"
 	f.createSearch(t, "srch", catalogv1alpha1.SearchSpec{Query: &q, TTL: metav1.Duration{Duration: time.Hour}})
 
@@ -161,12 +168,135 @@ func TestReconcileQueryModeFailsWithAnExplanation(t *testing.T) {
 	cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.SearchConditionFailed)
 	require.NotNil(t, cond)
 	require.Equal(t, metav1.ConditionTrue, cond.Status)
-	require.Equal(t, "NotImplemented", cond.Reason)
+	require.Equal(t, "NotConfigured", cond.Reason)
 	require.Contains(t, cond.Message, "rpc.indexarr.query")
 	require.NotNil(t, got.Status.StartedAt, "a failed Search still needs a TTL anchor")
 
 	subjects, _ := f.pub.snapshot()
 	require.Empty(t, subjects, "query mode must not reach the work queue")
+}
+
+// TestReconcileQueryModeCompletesFromTheLocalIndex is the main path: a
+// query-mode Search answers synchronously from a QueryRPC (indexarr's local
+// release index over clustarr.rpc.indexarr.query), never touches the work
+// queue startSearch uses, and lands Completed with status.results and
+// status.indexerOutcomes populated -- the two fields the Reconciler doc
+// comment says belong to the worker for a mediaRef-mode Search, here written
+// by this same reconciler because query mode has no worker.
+func TestReconcileQueryModeCompletesFromTheLocalIndex(t *testing.T) {
+	f := newFixture(t, "search-query-ok")
+	rel := commonv1.ReleaseInfo{GUID: "guid-1", IndexerRef: "idx", Title: "The Matrix 1999 1080p"}
+	fake := &search.FakeQueryRPC{Response: schema.QueryResponse{
+		Releases: []schema.Release{{Info: rel}},
+	}}
+	f.r.Query = fake
+
+	q := "the matrix"
+	f.createSearch(t, "srch", catalogv1alpha1.SearchSpec{
+		Query:      &q,
+		Categories: []int32{2000, 2010},
+		TTL:        metav1.Duration{Duration: time.Hour},
+	})
+
+	f.reconcile(t, "srch")
+
+	got := f.get(t, "srch")
+	require.Equal(t, catalogv1alpha1.SearchPhaseCompleted, got.Status.Phase)
+	require.NotNil(t, got.Status.StartedAt)
+	require.NotNil(t, got.Status.FinishedAt)
+	require.Len(t, got.Status.Results, 1)
+	require.Equal(t, rel.GUID, got.Status.Results[0].GUID)
+	require.False(t, got.Status.Results[0].Approved, "query mode runs no decision.Evaluate")
+	require.Len(t, got.Status.IndexerOutcomes, 1)
+	require.Equal(t, search.QueryOutcomeName, got.Status.IndexerOutcomes[0].Name)
+	require.EqualValues(t, 1, got.Status.IndexerOutcomes[0].Count)
+
+	cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.SearchConditionCompleted)
+	require.NotNil(t, cond)
+	require.Equal(t, metav1.ConditionTrue, cond.Status)
+
+	subjects, _ := f.pub.snapshot()
+	require.Empty(t, subjects, "query mode must not reach the work queue")
+
+	reqs := fake.Requests()
+	require.Len(t, reqs, 1)
+	require.Equal(t, "the matrix", reqs[0].Text)
+	require.Equal(t, "2000,2010", reqs[0].Filters["category"])
+
+	// A second reconcile must not re-query: the phase is no longer empty.
+	f.reconcile(t, "srch")
+	require.Len(t, fake.Requests(), 1)
+}
+
+// TestReconcileQueryModeFailsWhenTheIndexReportsAnError covers
+// QueryResponse.Error, the one business-level failure indexarr/query's
+// Handle can report (it "never returns an error, by design").
+func TestReconcileQueryModeFailsWhenTheIndexReportsAnError(t *testing.T) {
+	f := newFixture(t, "search-query-err")
+	f.r.Query = &search.FakeQueryRPC{Response: schema.QueryResponse{Error: "boom"}}
+	q := "!!!"
+	f.createSearch(t, "srch", catalogv1alpha1.SearchSpec{Query: &q, TTL: metav1.Duration{Duration: time.Hour}})
+
+	f.reconcile(t, "srch")
+
+	got := f.get(t, "srch")
+	require.Equal(t, catalogv1alpha1.SearchPhaseFailed, got.Status.Phase)
+	cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.SearchConditionFailed)
+	require.NotNil(t, cond)
+	require.Equal(t, "QueryFailed", cond.Reason)
+	require.Contains(t, cond.Message, "boom")
+}
+
+// TestReconcileQueryModeRetriesWhenIndexarrIsUnreachable covers the
+// transport-level failure: nothing is currently serving
+// clustarr.rpc.indexarr.query. It must not fail the Search -- the same
+// "leave phase alone, requeue" shape startSearch uses for ErrQueueFull.
+func TestReconcileQueryModeRetriesWhenIndexarrIsUnreachable(t *testing.T) {
+	f := newFixture(t, "search-query-unreachable")
+	f.r.Query = &search.FakeQueryRPC{Err: events.ErrNoResponders}
+	q := "the matrix"
+	f.createSearch(t, "srch", catalogv1alpha1.SearchSpec{Query: &q, TTL: metav1.Duration{Duration: time.Hour}})
+
+	res := f.reconcile(t, "srch")
+	require.Positive(t, res.RequeueAfter)
+
+	got := f.get(t, "srch")
+	require.Empty(t, string(got.Status.Phase), "an unreachable indexarr must leave the object retryable")
+	cond := k8s.FindCondition(got.Status.Conditions, k8s.ConditionReady)
+	require.NotNil(t, cond)
+	require.Equal(t, "IndexarrUnavailable", cond.Reason)
+}
+
+// TestHandleGrabsRejectsAQueryModeSearch guards the nil spec.mediaRef path:
+// before query mode could reach Completed, handleGrabs was unreachable for
+// it, so resolveTarget's switch on spec.mediaRef.Kind and the grab loop's
+// *s.Spec.MediaRef/k8s.ChildName(s.Spec.MediaRef.Name, ...) calls never saw a
+// nil MediaRef. Now that a query-mode Search can complete, spec.grab on one
+// must fail per guid rather than panic.
+func TestHandleGrabsRejectsAQueryModeSearch(t *testing.T) {
+	f := newFixture(t, "search-query-grab")
+	f.r.Query = &search.FakeQueryRPC{Response: schema.QueryResponse{
+		Releases: []schema.Release{{Info: commonv1.ReleaseInfo{GUID: "guid-1", Title: "The Matrix"}}},
+	}}
+	q := "the matrix"
+	s := f.createSearch(t, "srch", catalogv1alpha1.SearchSpec{
+		Query: &q,
+		Grab:  []string{"guid-1"},
+		TTL:   metav1.Duration{Duration: time.Hour},
+	})
+	_ = s
+
+	f.reconcile(t, "srch") // runs the query, lands Completed
+	f.reconcile(t, "srch") // grabsPending sees spec.grab and calls handleGrabs
+
+	got := f.get(t, "srch")
+	require.Len(t, got.Status.Grabbed, 1)
+	require.Equal(t, "guid-1", got.Status.Grabbed[0].GUID)
+	require.Contains(t, got.Status.Grabbed[0].Error, "spec.mediaRef")
+
+	var dls downloadv1alpha1.DownloadList
+	require.NoError(t, f.c.List(context.Background(), &dls, client.InNamespace(f.ns)))
+	require.Empty(t, dls.Items, "no Download should be created for a query-mode grab")
 }
 
 func TestReconcileQueueFullLeavesThePhaseUnsetAndRequeues(t *testing.T) {

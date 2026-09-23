@@ -16,10 +16,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package search owns the Search custom resource: the interactive search
-// trigger from spec §8.2. The reconciler validates the request, publishes one
-// catalog.SearchTask.v1 at high priority, waits for the search worker to land
-// its results, turns spec.grab into Download objects, and TTL-deletes the
-// object once spec.ttl has elapsed.
+// trigger from spec §8.2. For a mediaRef-mode Search the reconciler
+// validates the request, publishes one catalog.SearchTask.v1 at high
+// priority, and waits for the search worker to land its results. For a
+// query-mode Search (spec.query, free text against indexarr's local release
+// index) there is no worker to wait for: the reconciler answers it directly
+// over clustarr.rpc.indexarr.query. Either way it then turns spec.grab into
+// Download objects and TTL-deletes the object once spec.ttl has elapsed.
 //
 // Nothing here registers itself. catalogarr's run.go calls
 // NewReconciler(...).SetupWithManager(mgr).
@@ -29,6 +32,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jonboulle/clockwork"
@@ -89,27 +94,52 @@ const queueFullRequeue = time.Minute
 
 // Reconciler reconciles Search. It is the sole writer of Search's
 // status.phase, status.conditions, status.observedGeneration,
-// status.startedAt and status.grabbed; the search worker owns the disjoint
-// set status.results, status.indexerOutcomes and status.finishedAt under
-// k8s.ManagerCatalogarrWorker (§2's controller/worker manager split).
+// status.startedAt and status.grabbed.
+//
+// status.results, status.indexerOutcomes and status.finishedAt split by
+// mode. For a mediaRef-mode Search the search worker owns them, under
+// k8s.ManagerCatalogarrWorker (§2's controller/worker manager split); this
+// reconciler never touches them for that object. For a query-mode Search
+// (spec.query) there is no worker, so THIS reconciler is their sole writer
+// instead, under its own k8s.ManagerCatalogarr -- see runQuery, and
+// newStatusUpdate/apply, which gate the three on s.Spec.Query != nil so
+// each mode's writer only ever declares what it owns.
 type Reconciler struct {
 	Client   client.Client
 	Bus      events.Publisher
 	Recorder k8sevents.EventRecorder
 	Scheme   *runtime.Scheme
 	Clock    clockwork.Clock
+
+	// Query answers a query-mode Search (spec.query) against indexarr's
+	// local release index, clustarr.rpc.indexarr.query. Nil is a valid,
+	// tested state -- runQuery reports NotConfigured rather than
+	// dereferencing it -- because NewReconciler can only wire this
+	// opportunistically; see its doc comment.
+	Query QueryRPC
 }
 
 // NewReconciler builds a Search reconciler with the real clock and the project
 // scheme. SetupWithManager replaces the scheme with the manager's own.
+//
+// Query is wired from bus when bus also satisfies events.Requester, which
+// the events.Bus every real caller passes always does; this constructor's
+// parameter stays events.Publisher -- unchanged from before query-mode
+// existed -- so a fake that only ever implemented Publish (this package's
+// own test fixture included) keeps compiling instead of having to grow the
+// rest of events.Bus's surface just to satisfy a wider signature.
 func NewReconciler(c client.Client, bus events.Publisher, rec k8sevents.EventRecorder) *Reconciler {
-	return &Reconciler{
+	r := &Reconciler{
 		Client:   c,
 		Bus:      bus,
 		Recorder: rec,
 		Scheme:   k8s.MustNewScheme(),
 		Clock:    clockwork.NewRealClock(),
 	}
+	if requester, ok := bus.(events.Requester); ok {
+		r.Query = NewBusQueryRPC(requester)
+	}
+	return r
 }
 
 // SetupWithManager registers the Search controller.
@@ -123,8 +153,10 @@ func NewReconciler(c client.Client, bus events.Publisher, rec k8sevents.EventRec
 // reconcile.TerminalError is likewise absent: SearchSpec's only cross-field
 // invariant (exactly one of query/mediaRef) is a CEL rule enforced at
 // admission, so Reconcile never observes a spec it would have to terminally
-// reject. Query-mode is a valid spec this phase cannot serve yet, which is a
-// status outcome, not a reconcile error.
+// reject. A query-mode Search that outruns its Query RPC (indexarr
+// unreachable, the release index itself erroring) is likewise a status
+// outcome -- Failed with a reason, or a requeue -- never a reconcile error
+// that would panic-recover or spin the workqueue.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.Scheme = mgr.GetScheme()
 	return ctrl.NewControllerManagedBy(mgr).
@@ -162,8 +194,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	switch {
 	case r.ttlExpired(s):
 		return r.deleteExpired(ctx, s)
-	case s.Spec.Query != nil:
-		return r.failQueryMode(ctx, s)
+	case s.Status.Phase == "" && s.Spec.Query != nil:
+		return r.runQuery(ctx, s)
 	case s.Status.Phase == "":
 		return r.startSearch(ctx, s)
 	case s.Status.FinishedAt != nil && s.Status.Phase != catalogv1alpha1.SearchPhaseCompleted:
@@ -194,15 +226,37 @@ type statusUpdate struct {
 	startedAt  *metav1.Time
 	grabbed    []catalogv1alpha1.GrabResult
 	conditions []metav1.Condition
+
+	// finishedAt, indexerOutcomes and results are set only for a query-mode
+	// Search (spec.query != nil). A mediaRef-mode Search never populates
+	// them here: those three stay k8s.ManagerCatalogarrWorker's alone, per
+	// the Reconciler doc comment, and apply() only ever declares them when
+	// s.Spec.Query != nil -- see both doc comments before changing either.
+	finishedAt      *metav1.Time
+	indexerOutcomes []catalogv1alpha1.IndexerOutcome
+	results         []catalogv1alpha1.ReleaseDecision
 }
 
 func newStatusUpdate(s *catalogv1alpha1.Search) *statusUpdate {
-	return &statusUpdate{
+	u := &statusUpdate{
 		phase:      s.Status.Phase,
 		startedAt:  s.Status.StartedAt,
 		grabbed:    append([]catalogv1alpha1.GrabResult(nil), s.Status.Grabbed...),
 		conditions: append([]metav1.Condition(nil), s.Status.Conditions...),
 	}
+	if s.Spec.Query != nil {
+		// Query mode has no worker: THIS manager is the sole writer of
+		// these three for this object, so -- exactly like grabbed and
+		// conditions above -- every apply must re-declare them from the
+		// live object or release them out from under itself. A
+		// mediaRef-mode Search (the else of this branch) never carries
+		// them forward, which is what keeps this reconciler from ever
+		// declaring them on an object the worker owns.
+		u.finishedAt = s.Status.FinishedAt
+		u.indexerOutcomes = append([]catalogv1alpha1.IndexerOutcome(nil), s.Status.IndexerOutcomes...)
+		u.results = append([]catalogv1alpha1.ReleaseDecision(nil), s.Status.Results...)
+	}
+	return u
 }
 
 // apply writes the update. It always sends every field this manager owns.
@@ -230,6 +284,18 @@ func (r *Reconciler) apply(ctx context.Context, s *catalogv1alpha1.Search, u *st
 	}
 	if u.startedAt != nil {
 		statusAC = statusAC.WithStartedAt(*u.startedAt)
+	}
+	if s.Spec.Query != nil {
+		// See newStatusUpdate: a query-mode Search has no worker, so this
+		// manager declares these three itself, every apply, the same way
+		// it already declares grabbed unconditionally above. Guarded on
+		// s.Spec.Query so a mediaRef-mode object -- where these fields
+		// belong to k8s.ManagerCatalogarrWorker -- never has this manager
+		// say anything about them at all.
+		statusAC = statusAC.WithIndexerOutcomes(u.indexerOutcomes...).WithResults(u.results...)
+		if u.finishedAt != nil {
+			statusAC = statusAC.WithFinishedAt(*u.finishedAt)
+		}
 	}
 	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr,
 		Search(s.Name, s.Namespace).WithStatus(statusAC)); err != nil {
@@ -351,16 +417,134 @@ func workerFailure(s *catalogv1alpha1.Search) (string, bool) {
 	return "", false
 }
 
-// failQueryMode rejects a free-text Search. SearchSpec's CEL rule makes it a
-// legal object, but answering it needs indexarr's release index
-// (rpc.indexarr.query), which does not exist before Phase D -- so it is
-// reported as a documented scope cut rather than left Pending forever.
-func (r *Reconciler) failQueryMode(ctx context.Context, s *catalogv1alpha1.Search) (ctrl.Result, error) {
-	if s.Status.Phase == catalogv1alpha1.SearchPhaseFailed {
-		return ctrl.Result{RequeueAfter: r.ttlRequeue(s)}, nil
+// noQueryResponderRequeue is how long to wait before asking indexarr's
+// release index again when nothing answers clustarr.rpc.indexarr.query --
+// most often indexarr rolling, or not up yet. It mirrors
+// catalogarr/worker/search's own noRespondersRetryAfter for the same subject
+// family, without reusing pkg/events.Retry: that helper drives a queue
+// consumer's nak/redelivery schedule, and this is a plain controller-runtime
+// Reconcile, which already gets a retry from a returned RequeueAfter.
+const noQueryResponderRequeue = 15 * time.Second
+
+// QueryOutcomeName is the status.indexerOutcomes entry a query-mode Search
+// reports its one line under. There is no per-indexer fan-out to report --
+// query mode is a single read against indexarr's already-merged local
+// index, not a live search of any indexer -- but
+// status.indexerOutcomes[0].count is kubectl's own "Results" printer column
+// (api/catalog/v1alpha1/search_types.go's +kubebuilder:printcolumn), so
+// leaving the list empty would print a perfectly successful query-mode
+// search as blank. Deliberately not a valid DNS-1123 subdomain, so it can
+// never collide with a real Indexer's name in this listType=map keyed by
+// name -- the same trick WorkerOutcomeName uses in applyconfiguration.go,
+// and the same "_local-index" spelling indexarr/query's own metrics use for
+// the same reason (indexarr/query/service.go's localIndexLabel).
+const QueryOutcomeName = "_local-index"
+
+// runQuery answers a free-text Search (spec.query) directly against
+// indexarr's local release index over clustarr.rpc.indexarr.query, rather
+// than through the async SearchTask pipeline startSearch uses for a
+// mediaRef Search.
+//
+// There is no MediaRef to run decision.Evaluate/Rank against -- query mode
+// is a raw listing, not a ranked, profile-checked one -- so there is
+// nothing left for a worker to do that this reconciler cannot do inline,
+// which is why it is the sole writer of
+// status.results/indexerOutcomes/finishedAt for this object: see
+// newStatusUpdate and apply, which gate those three fields on
+// s.Spec.Query != nil for exactly this reason. SearchSpec's CEL rule
+// (exactly one of query/mediaRef) means the two field managers this
+// produces -- this one, and k8s.ManagerCatalogarrWorker on a mediaRef
+// object -- never apply to the same object.
+//
+// The caller gates this on status.phase == "", the same gate startSearch
+// uses, so a later reconcile (a status update this apply itself causes, a
+// resync) falls through to the phase-based branches below instead of
+// re-querying and re-stamping finishedAt on every pass.
+func (r *Reconciler) runQuery(ctx context.Context, s *catalogv1alpha1.Search) (ctrl.Result, error) {
+	if r.Query == nil {
+		return r.fail(ctx, s, "NotConfigured",
+			"indexarr's release index (rpc.indexarr.query) is not wired into this reconciler")
 	}
-	return r.fail(ctx, s, "NotImplemented",
-		"query-mode search requires indexarr's release index (rpc.indexarr.query), not yet available before Phase D")
+
+	req := schema.QueryRequest{Text: *s.Spec.Query, Limit: s.Spec.Limit}
+	if filters := queryFilters(s); len(filters) > 0 {
+		req.Filters = filters
+	}
+
+	resp, err := r.Query.Query(ctx, req)
+	if err != nil {
+		if errors.Is(err, events.ErrNoResponders) {
+			// Transient -- indexarr is not up yet -- not a verdict on the
+			// query. Leave phase alone so the next reconcile still takes
+			// the runQuery branch, the same shape startSearch uses for
+			// ErrQueueFull.
+			u := newStatusUpdate(s)
+			k8s.MarkFalse(s, &u.conditions, k8s.ConditionReady, "IndexarrUnavailable",
+				"indexarr's release index is not reachable yet")
+			if perr := r.apply(ctx, s, u); perr != nil {
+				return ctrl.Result{}, perr
+			}
+			return ctrl.Result{RequeueAfter: noQueryResponderRequeue}, nil
+		}
+		return ctrl.Result{}, fmt.Errorf("query RPC: %w", err)
+	}
+	if resp.Error != "" {
+		return r.fail(ctx, s, "QueryFailed", resp.Error)
+	}
+
+	results := make([]catalogv1alpha1.ReleaseDecision, 0, len(resp.Releases))
+	for _, rel := range resp.Releases {
+		// No decision.Evaluate runs here: that needs a MediaRef's quality
+		// profile, availability window and blocklist, none of which a
+		// free-text query has. Every hit comes back unapproved and
+		// unranked -- the user grabs straight from the listing via
+		// spec.grab, per §8.2's "Search-CR grabs".
+		results = append(results, catalogv1alpha1.ReleaseDecision{ReleaseInfo: rel.Info})
+	}
+
+	now := metav1.NewTime(r.now())
+	u := newStatusUpdate(s)
+	u.phase = catalogv1alpha1.SearchPhaseCompleted
+	if u.startedAt == nil {
+		u.startedAt = &now
+	}
+	u.finishedAt = &now
+	u.results = results
+	u.indexerOutcomes = []catalogv1alpha1.IndexerOutcome{{
+		Name:  QueryOutcomeName,
+		State: catalogv1alpha1.IndexerOutcomeOK,
+		Count: int32(len(results)),
+	}}
+	k8s.MarkTrue(s, &u.conditions, catalogv1alpha1.SearchConditionCompleted, k8s.ReasonReconciled,
+		"%d releases matched the local index", len(results))
+	k8s.MarkFalse(s, &u.conditions, catalogv1alpha1.SearchConditionFailed, k8s.ReasonReconciled, "search completed")
+	k8s.MarkTrue(s, &u.conditions, k8s.ConditionReady, k8s.ReasonReconciled, "status.results reflects spec")
+	if err := r.apply(ctx, s, u); err != nil {
+		return ctrl.Result{}, err
+	}
+	r.event(s, "SearchCompleted", "matched %d releases from the local index", len(results))
+	return ctrl.Result{RequeueAfter: r.ttlRequeue(s)}, nil
+}
+
+// queryFilters translates the SearchSpec fields indexarr/query's filter
+// vocabulary understands -- category and indexer, see
+// indexarr/query/filters.go's filterKeys -- into a QueryRequest.Filters map.
+// spec.kinds has no counterpart there (query's filters are category,
+// indexer, protocol and since) and is left unfiltered rather than guessed
+// at; spec.protocol and spec.since have no SearchSpec field to read from.
+func queryFilters(s *catalogv1alpha1.Search) map[string]string {
+	filters := map[string]string{}
+	if len(s.Spec.Categories) > 0 {
+		cats := make([]string, len(s.Spec.Categories))
+		for i, c := range s.Spec.Categories {
+			cats[i] = strconv.Itoa(int(c))
+		}
+		filters["category"] = strings.Join(cats, ",")
+	}
+	if len(s.Spec.IndexerRefs) > 0 {
+		filters["indexer"] = strings.Join(s.Spec.IndexerRefs, ",")
+	}
+	return filters
 }
 
 // failStuck self-heals a Search whose worker never answered.
@@ -425,57 +609,76 @@ func (r *Reconciler) handleGrabs(ctx context.Context, s *catalogv1alpha1.Search)
 		grabbed[g.GUID] = g
 	}
 
-	owner, qualityProfileRef, err := r.resolveTarget(ctx, s)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	for _, guid := range s.Spec.Grab {
-		if existing, done := grabbed[guid]; done && existing.Error == "" {
-			continue
-		}
-		got := resolveGrab(guid, s.Status.Results, s.Spec.Override)
-		if !got.Allowed {
-			grabbed[guid] = catalogv1alpha1.GrabResult{GUID: guid, Error: got.Error}
-			continue
-		}
-
-		name := k8s.ChildName(s.Spec.MediaRef.Name, guid)
-		// Manual is set because a Search-CR grab IS an operator-forced grab:
-		// the user read status.results and picked this release by hand. Its
-		// own doc comment -- "the importer then skips the monitored and
-		// minimum-availability checks it would otherwise apply" -- describes
-		// exactly what has to happen for a hand-picked grab of an unmonitored
-		// or not-yet-released item to survive import. Without it the download
-		// completes in full and is thrown away at the import gate, which is a
-		// silent waste of the user's bandwidth and of a seeding slot.
-		specAC := downloadac.DownloadSpec().
-			WithProtocol(got.Release.Protocol).
-			WithSource(toDownloadSourceAC(BuildDownloadSource(got.Release))).
-			WithRelease(got.Release).
-			WithTarget(*s.Spec.MediaRef).
-			WithGrabbedBy(downloadv1alpha1.GrabSourceInteractive).
-			WithManual(true)
-		if qualityProfileRef != "" {
-			specAC = specAC.WithQualityProfileRef(qualityProfileRef)
-		}
-		dl := downloadac.Download(name, s.Namespace).WithSpec(specAC)
-		if owner != nil {
-			ownerAC, oerr := k8s.OwnerReferenceAC(owner, r.Scheme)
-			if oerr != nil {
-				return ctrl.Result{}, oerr
+	if s.Spec.MediaRef == nil {
+		// A query-mode Search's results have no catalog item behind them:
+		// resolveTarget switches on spec.mediaRef.Kind and the loop below
+		// dereferences *s.Spec.MediaRef for WithTarget and
+		// k8s.ChildName(s.Spec.MediaRef.Name, guid), both nil for every
+		// query-mode object (SearchSpec's CEL rule makes query and
+		// mediaRef mutually exclusive). Report the gap per guid, like
+		// every other grab rejection here, instead of reaching either.
+		for _, guid := range s.Spec.Grab {
+			if existing, done := grabbed[guid]; done && existing.Error == "" {
+				continue
 			}
-			dl = dl.WithOwnerReferences(ownerAC)
+			grabbed[guid] = catalogv1alpha1.GrabResult{
+				GUID:  guid,
+				Error: "query-mode search has no spec.mediaRef; nothing to attach the Download to",
+			}
+		}
+	} else {
+		owner, qualityProfileRef, err := r.resolveTarget(ctx, s)
+		if err != nil {
+			return ctrl.Result{}, err
 		}
 
-		if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerCatalogarr, dl); err != nil {
-			log.Error("search: grab failed", "guid", guid, "download", name, "err", err)
-			grabbed[guid] = catalogv1alpha1.GrabResult{GUID: guid, Error: err.Error()}
-			r.eventWarning(s, "GrabFailed", "could not create Download %s: %v", name, err)
-			continue
+		for _, guid := range s.Spec.Grab {
+			if existing, done := grabbed[guid]; done && existing.Error == "" {
+				continue
+			}
+			got := resolveGrab(guid, s.Status.Results, s.Spec.Override)
+			if !got.Allowed {
+				grabbed[guid] = catalogv1alpha1.GrabResult{GUID: guid, Error: got.Error}
+				continue
+			}
+
+			name := k8s.ChildName(s.Spec.MediaRef.Name, guid)
+			// Manual is set because a Search-CR grab IS an operator-forced grab:
+			// the user read status.results and picked this release by hand. Its
+			// own doc comment -- "the importer then skips the monitored and
+			// minimum-availability checks it would otherwise apply" -- describes
+			// exactly what has to happen for a hand-picked grab of an unmonitored
+			// or not-yet-released item to survive import. Without it the download
+			// completes in full and is thrown away at the import gate, which is a
+			// silent waste of the user's bandwidth and of a seeding slot.
+			specAC := downloadac.DownloadSpec().
+				WithProtocol(got.Release.Protocol).
+				WithSource(toDownloadSourceAC(BuildDownloadSource(got.Release))).
+				WithRelease(got.Release).
+				WithTarget(*s.Spec.MediaRef).
+				WithGrabbedBy(downloadv1alpha1.GrabSourceInteractive).
+				WithManual(true)
+			if qualityProfileRef != "" {
+				specAC = specAC.WithQualityProfileRef(qualityProfileRef)
+			}
+			dl := downloadac.Download(name, s.Namespace).WithSpec(specAC)
+			if owner != nil {
+				ownerAC, oerr := k8s.OwnerReferenceAC(owner, r.Scheme)
+				if oerr != nil {
+					return ctrl.Result{}, oerr
+				}
+				dl = dl.WithOwnerReferences(ownerAC)
+			}
+
+			if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerCatalogarr, dl); err != nil {
+				log.Error("search: grab failed", "guid", guid, "download", name, "err", err)
+				grabbed[guid] = catalogv1alpha1.GrabResult{GUID: guid, Error: err.Error()}
+				r.eventWarning(s, "GrabFailed", "could not create Download %s: %v", name, err)
+				continue
+			}
+			grabbed[guid] = catalogv1alpha1.GrabResult{GUID: guid, DownloadRef: name}
+			r.event(s, "Grabbed", "created Download %s", name)
 		}
-		grabbed[guid] = catalogv1alpha1.GrabResult{GUID: guid, DownloadRef: name}
-		r.event(s, "Grabbed", "created Download %s", name)
 	}
 
 	u := newStatusUpdate(s)

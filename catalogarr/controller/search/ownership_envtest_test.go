@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,6 +30,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/catalogarr/controller/search"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -201,4 +203,49 @@ func TestSearchApplyConfigurationClaimsOnlyWhatItSets(t *testing.T) {
 	require.NotContains(t, owned, "f:indexerOutcomes")
 	require.NotContains(t, owned, "f:grabbed")
 	require.Nil(t, got.Status.Results, "an unclaimed list stays absent, not []")
+}
+
+// TestReconcilerDoesNotClaimWorkerFieldsOnAMediaRefSearch guards the split
+// runQuery introduced: Reconciler.apply only declares
+// results/indexerOutcomes/finishedAt when s.Spec.Query != nil (see
+// newStatusUpdate and apply). A mediaRef-mode Search must never see
+// k8s.ManagerCatalogarr -- the reconciler's own manager -- claim any of the
+// three; they stay k8s.ManagerCatalogarrWorker's alone. Only
+// metadata.managedFields can show an over-claim; every value assertion
+// elsewhere in this package would still pass even if this one regressed
+// (CLAUDE.md's "an over-claim is silent").
+func TestReconcilerDoesNotClaimWorkerFieldsOnAMediaRefSearch(t *testing.T) {
+	f := newFixture(t, "search-own-mediaref")
+	f.createSearch(t, "srch", catalogv1alpha1.SearchSpec{
+		MediaRef: movieRef("the-matrix"), TTL: metav1.Duration{Duration: time.Hour},
+	})
+
+	f.reconcile(t, "srch")
+
+	got := f.get(t, "srch")
+	owned := statusFieldsOwnedBy(t, got, string(k8s.ManagerCatalogarr))
+	require.Contains(t, owned, "f:phase", "the reconciler does own phase")
+	require.NotContains(t, owned, "f:results")
+	require.NotContains(t, owned, "f:indexerOutcomes")
+	require.NotContains(t, owned, "f:finishedAt")
+}
+
+// TestReconcilerClaimsResultFieldsOnAQueryModeSearch is the other half: a
+// query-mode Search has no worker, so k8s.ManagerCatalogarr must own all
+// three once runQuery lands Completed.
+func TestReconcilerClaimsResultFieldsOnAQueryModeSearch(t *testing.T) {
+	f := newFixture(t, "search-own-query")
+	f.r.Query = &search.FakeQueryRPC{Response: schema.QueryResponse{
+		Releases: []schema.Release{{Info: commonv1.ReleaseInfo{GUID: "g1"}}},
+	}}
+	q := "the matrix"
+	f.createSearch(t, "srch", catalogv1alpha1.SearchSpec{Query: &q, TTL: metav1.Duration{Duration: time.Hour}})
+
+	f.reconcile(t, "srch")
+
+	got := f.get(t, "srch")
+	owned := statusFieldsOwnedBy(t, got, string(k8s.ManagerCatalogarr))
+	require.Contains(t, owned, "f:results")
+	require.Contains(t, owned, "f:indexerOutcomes")
+	require.Contains(t, owned, "f:finishedAt")
 }
