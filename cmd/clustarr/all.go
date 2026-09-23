@@ -152,7 +152,12 @@ func allServices(lo *logging.Options, to *tracing.Options) []struct {
 			// cluster reader buildUIReader may build, so it stops on the
 			// same cancellation too.
 			reader, waitForSync := buildUIReader(ctx)
-			return runUI(ctx, ui.Options{Reader: reader, WaitForSync: waitForSync, Logging: *lo, Tracing: tr})
+			proj := buildUIProjection(ctx, reader)
+			return runUI(ctx, ui.Options{
+				Reader: reader, WaitForSync: waitForSync,
+				Entries: proj.Entries, Subscribe: proj.Subscribe,
+				Logging: *lo, Tracing: tr,
+			})
 		}},
 	}
 }

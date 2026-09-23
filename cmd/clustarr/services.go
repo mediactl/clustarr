@@ -35,6 +35,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/squasharr"
 	"github.com/mediactl/clustarr/ui"
+	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // The service entrypoints, as variables so the package's tests can execute a
@@ -335,6 +336,28 @@ func buildUIReader(ctx context.Context) (client.Reader, func(context.Context) bo
 	return reader, waitForSync
 }
 
+// buildUIProjection builds and starts Task D3-1's shared pipeline
+// projection loop (ui/projection.Projection) over reader and returns it so
+// the caller can wire ui.Options.Entries and ui.Options.Subscribe to the
+// same instance -- one list round feeding both the initial page render and
+// every open SSE connection (design plan ruling R4), replacing the
+// TODO(M3) this closes.
+//
+// Starting it unconditionally, even over a nil reader, keeps both `clustarr
+// ui` call sites (this file's newUICommand and all.go's allServices)
+// identical: Projection already treats a nil reader as "project nothing"
+// (ui/projection/projection.go), the same as ui.Options.Entries being unset
+// ever meant.
+func buildUIProjection(ctx context.Context, reader client.Reader) *projection.Projection {
+	proj := projection.New(reader, projection.DefaultInterval)
+	go func() {
+		if err := proj.Run(ctx); err != nil && ctx.Err() == nil {
+			ctrl.LoggerFrom(ctx).WithName("ui").Error(err, "pipeline projection loop stopped")
+		}
+	}()
+	return proj
+}
+
 func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	var bindAddress string
 
@@ -354,16 +377,15 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		ctx := cmd.Context()
 		reader, waitForSync := buildUIReader(ctx)
+		proj := buildUIProjection(ctx, reader)
 		return runUI(ctx, ui.Options{
 			BindAddress: bindAddress,
 			Reader:      reader,
 			WaitForSync: waitForSync,
-			// TODO(M3): back Entries with a controller-runtime cache-backed
-			// projection over the Pipeline resources. Until then the Pipeline
-			// page renders with no rows rather than reaching for a cluster ui
-			// has no client for.
-			Logging: *lo,
-			Tracing: tracingFor(to, "ui"),
+			Entries:     proj.Entries,
+			Subscribe:   proj.Subscribe,
+			Logging:     *lo,
+			Tracing:     tracingFor(to, "ui"),
 		})
 	}
 	return cmd

@@ -76,6 +76,25 @@ type Options struct {
 	// struct again.
 	Reader client.Reader
 
+	// Subscribe returns a channel that receives the current pipeline
+	// projection immediately upon subscribing, and again whenever it
+	// changes, plus a func that unsubscribes -- the shape
+	// ui/projection.Projection's own Subscribe method has. /events/pipeline
+	// (ui/sse.go) reads from it instead of polling Entries itself on its
+	// own ticker, so production wiring can back this with ONE shared
+	// projection loop instead of one re-projection per open connection
+	// (design plan ruling R4).
+	//
+	// A nil Subscribe -- every test in this package that sets only Entries,
+	// and any `clustarr ui` process too short-lived to have wired one --
+	// defaults in [NewServer] to a per-connection poll of Entries on a fixed
+	// interval, which is exactly what /events/pipeline did before Task
+	// D3-1 existed. That keeps Entries the one seam a test needs to inject
+	// cluster state, same as before; Subscribe only needs setting in
+	// production, where cmd/clustarr wires both it and Entries to the same
+	// *projection.Projection.
+	Subscribe func() (<-chan []pipeline.Entry, func())
+
 	// WaitForSync reports whether Reader's cache has completed its initial
 	// sync -- typically [NewClusterReader]'s own WaitForCacheSync. The
 	// /readyz handler polls it: 503 while it returns false, 200 once it
@@ -133,6 +152,12 @@ type Server struct {
 func NewServer(ctx context.Context, opts Options) *Server {
 	if opts.Entries == nil {
 		opts.Entries = func(context.Context) []pipeline.Entry { return nil }
+	}
+	if opts.Subscribe == nil {
+		// Defaulted from the already-defaulted Entries above, so this
+		// closure never sees a nil entries func even when a caller built
+		// Options directly with neither field set.
+		opts.Subscribe = defaultSubscribe(opts.Entries)
 	}
 	if opts.WaitForSync == nil {
 		opts.WaitForSync = func(context.Context) bool { return true }
