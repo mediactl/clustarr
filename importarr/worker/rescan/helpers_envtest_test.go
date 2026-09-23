@@ -43,10 +43,11 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
-// sampleFloor is fsops.IsSample's size threshold: a media-extension file
-// under 50 MiB is classified as a sample regardless of its name. Every file a
-// test wants classified as media has to clear it, so the helpers below write
-// sparse files rather than real bytes.
+// sampleFloor clears fsops.DefaultSampleMaxBytes: a video file under 50 MiB
+// is a suspected sample, which the walk records as unmatched rather than
+// attributes (sample_envtest_test.go). Every video file a test wants
+// classified as media has to clear it, so the helpers below write sparse
+// files rather than real bytes.
 const sampleFloor = 60 << 20
 
 // testClient is the manager-cached client every envtest in this package

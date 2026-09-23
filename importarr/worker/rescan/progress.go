@@ -79,8 +79,10 @@ type Progress struct {
 	ItemsUpdated int64 `json:"itemsUpdated"`
 
 	// FilesSkipped counts files the walk deliberately did not consider: a
-	// sample, extra, part or non-media file, an unchanged incremental
-	// fingerprint, or a file catalogarr owns post-transcode.
+	// file whose name marks it a sample, an extra, a part or a non-media
+	// file, an unchanged incremental fingerprint, or a file catalogarr owns
+	// post-transcode. A suspected sample (size alone) is not skipped: it is
+	// seen and unmatched.
 	FilesSkipped int64 `json:"filesSkipped"`
 
 	// Unmatched lists the files that could not be attributed.

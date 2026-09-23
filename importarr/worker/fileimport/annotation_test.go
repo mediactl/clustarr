@@ -129,18 +129,28 @@ func TestFileRefFitsRoot(t *testing.T) {
 		"a comic holds no file of its own; its issues do")
 }
 
-func TestClassifyForAndFrozenQuality(t *testing.T) {
-	// A 1 MiB ebook is a "sample" to fsops.Walk; ClassifyFor must not be.
-	assert.Equal(t, fsops.ClassMedia, ClassifyFor(commonv1.MediaKindBook, "/l/A/B/A.epub"))
-	assert.Equal(t, fsops.ClassMedia, ClassifyFor(commonv1.MediaKindAlbum, "/l/A/B/01.FLAC"))
-	assert.Equal(t, fsops.ClassOther, ClassifyFor(commonv1.MediaKindAlbum, "/l/A/B/cover.jpg"))
-	assert.Equal(t, fsops.ClassOther, ClassifyFor(commonv1.MediaKindBook, "/l/A/B/01.flac"), "the kind's own set only")
-	assert.Equal(t, fsops.ClassSample, ClassifyFor(commonv1.MediaKindBook, "/l/A/B/sample.epub"))
-	assert.Equal(t, fsops.ClassPart, ClassifyFor(commonv1.MediaKindIssue, "/l/A/B/x.cbz.part"))
-	assert.Equal(t, fsops.ClassMedia, ClassifyFor(commonv1.MediaKindAlbum, "/l/Phish/Hoist/05 - Sample in a Jar.flac"),
+func TestClassifierForAndFrozenQuality(t *testing.T) {
+	const mib = int64(1 << 20)
+	classify := func(kind commonv1.MediaKind, path string, size int64) fsops.FileClass {
+		return ClassifierFor(kind, "/l", fsops.DefaultSampleMaxBytes).Classify(path, size)
+	}
+	// A 1 MiB ebook is under the video sample floor; a book is not video.
+	assert.Equal(t, fsops.ClassMedia, classify(commonv1.MediaKindBook, "/l/A/B/A.epub", mib))
+	assert.Equal(t, fsops.ClassMedia, classify(commonv1.MediaKindAlbum, "/l/A/B/01.FLAC", mib))
+	assert.Equal(t, fsops.ClassOther, classify(commonv1.MediaKindAlbum, "/l/A/B/cover.jpg", mib))
+	assert.Equal(t, fsops.ClassOther, classify(commonv1.MediaKindBook, "/l/A/B/01.flac", mib), "the kind's own set only")
+	assert.Equal(t, fsops.ClassSample, classify(commonv1.MediaKindBook, "/l/A/B/sample.epub", mib))
+	assert.Equal(t, fsops.ClassPart, classify(commonv1.MediaKindIssue, "/l/A/B/x.cbz.part", mib))
+	assert.Equal(t, fsops.ClassMedia, classify(commonv1.MediaKindAlbum, "/l/Phish/Hoist/05 - Sample in a Jar.flac", mib),
 		"music has no sample rule (pkg/fsops.IsSample): a track titled Sample is a track")
-	assert.Equal(t, fsops.ClassMedia, ClassifyFor(commonv1.MediaKindAudiobook, "/l/A/B/Part 01.m4b"))
-	assert.Equal(t, fsops.ClassOther, ClassifyFor(commonv1.MediaKindMovie, "/l/A/A.mkv"), "a video kind is not ClassifyFor's")
+	assert.Equal(t, fsops.ClassMedia, classify(commonv1.MediaKindAudiobook, "/l/A/B/Part 01.m4b", mib))
+	assert.Equal(t, fsops.ClassMedia, classify(commonv1.MediaKindAlbum, "/l/Miles Davis/Interviews/01.flac", mib),
+		"the extras-folder list is video's alone")
+	assert.Equal(t, fsops.ClassMedia, classify(commonv1.MediaKindMovie, "/l/A/A.mkv", 60*mib), "a movie is video")
+	assert.Equal(t, fsops.ClassSuspectedSample, classify(commonv1.MediaKindMovie, "/l/A/A.mkv", mib), "with video's size floor")
+	assert.Equal(t, fsops.ClassExtra, classify(commonv1.MediaKindMovie, "/l/A/Extras/A.mkv", 60*mib), "and video's extras folders")
+	assert.Equal(t, fsops.ClassMedia, ClassifierFor(commonv1.MediaKindMovie, "/l", 0).Classify("/l/A/A.mkv", mib),
+		"a zero threshold turns the size floor off")
 
 	for _, tc := range []struct {
 		kind commonv1.MediaKind

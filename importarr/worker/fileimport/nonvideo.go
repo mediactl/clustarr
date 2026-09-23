@@ -132,8 +132,8 @@ func (w *Worker) importNonVideo(
 }
 
 // runNonVideo walks the content root and imports every file of plan.ref's
-// kind. It mirrors processConfig.run, except that a file is classified by
-// [ClassifyFor] rather than by fsops.Walk's video-shaped class.
+// kind. It mirrors processConfig.run, except that a file is classified as
+// plan.ref's kind ([ClassifierFor]) rather than as video.
 func (w *Worker) runNonVideo(
 	ctx context.Context, m events.Message, dl *downloadv1alpha1.Download, plan nonVideoPlan, manual bool,
 ) (importOutcome, error) {
@@ -143,11 +143,16 @@ func (w *Worker) runNonVideo(
 		recycledOld   bool
 		dests         = map[string]string{}
 	)
-	err := fsops.Walk(ctx, dl.Status.ContentRoot, func(srcPath string, info os.FileInfo, _ fsops.FileClass) error {
+	root := dl.Status.ContentRoot
+	classifier := ClassifierFor(plan.ref.Kind, root, w.SampleMaxBytes)
+	err := classifier.Walk(ctx, root, func(srcPath string, info os.FileInfo, class fsops.FileClass) error {
 		if err := w.beat(ctx, m, &lastHeartbeat); err != nil {
 			return err
 		}
-		if ClassifyFor(plan.ref.Kind, srcPath) != fsops.ClassMedia {
+		if rejection, candidate := w.admit(root, srcPath, info, class, manual); !candidate {
+			if rejection != "" {
+				out.rejections = append(out.rejections, rejection)
+			}
 			return nil
 		}
 		imported, rejection, err := w.importNonVideoFile(ctx, dl, plan, manual, srcPath, info, dests, &recycledOld)

@@ -38,6 +38,7 @@ import (
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/naming"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -90,11 +91,27 @@ type Worker struct {
 
 	// Clock is the time source, injected so tests are deterministic.
 	Clock func() time.Time
+
+	// SampleMaxBytes is the video size floor (fsops.IsSuspectedSample): a
+	// video file smaller than this whose name does not mark it a sample is
+	// a SUSPECTED sample, recorded as a rejection on status.import rather
+	// than imported -- a size alone cannot tell a promo clip from a short
+	// film -- unless the import is manual (DownloadSpec.Manual, or
+	// AnnotationImportOverride=true), which imports it. A file whose NAME
+	// marks it a sample is never imported and never reported, the
+	// convention every scene release follows. Zero disables the size rule.
+	// NewWorker sets fsops.DefaultSampleMaxBytes; a Worker built as a
+	// literal without it has the rule off.
+	SampleMaxBytes int64
 }
 
-// NewWorker builds a Worker with the production catalogue and clock.
+// NewWorker builds a Worker with the production catalogue, clock and sample
+// threshold.
 func NewWorker(c client.Client, bus events.Bus) *Worker {
-	return &Worker{Client: c, Bus: bus, Catalogue: catalogue.LoadedCatalogue(), Clock: time.Now}
+	return &Worker{
+		Client: c, Bus: bus, Catalogue: catalogue.LoadedCatalogue(), Clock: time.Now,
+		SampleMaxBytes: fsops.DefaultSampleMaxBytes,
+	}
 }
 
 func (w *Worker) now() time.Time {

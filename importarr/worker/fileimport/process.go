@@ -91,11 +91,16 @@ func (pc *processConfig) run(ctx context.Context) (importOutcome, error) {
 	var lastHeartbeat time.Time
 	recycledOld := false
 
-	err := fsops.Walk(ctx, pc.download.Status.ContentRoot, func(srcPath string, info os.FileInfo, class fsops.FileClass) error {
+	root := pc.download.Status.ContentRoot
+	classifier := ClassifierFor(commonv1.MediaKindMovie, root, pc.worker.SampleMaxBytes)
+	err := classifier.Walk(ctx, root, func(srcPath string, info os.FileInfo, class fsops.FileClass) error {
 		if err := pc.worker.beat(ctx, pc.message, &lastHeartbeat); err != nil {
 			return err
 		}
-		if class != fsops.ClassMedia {
+		if rejection, candidate := pc.worker.admit(root, srcPath, info, class, pc.manual); !candidate {
+			if rejection != "" {
+				out.rejections = append(out.rejections, rejection)
+			}
 			return nil
 		}
 
@@ -114,6 +119,39 @@ func (pc *processConfig) run(ctx context.Context) (importOutcome, error) {
 		return out, err
 	}
 	return out, nil
+}
+
+// admit decides what one walked file's class means for an import, for the
+// movie walk and the non-video walk alike: candidate is true for a file the
+// import goes on to attribute and clear.
+//
+//   - media: a candidate.
+//   - a suspected sample (fsops.ClassSuspectedSample, a video file only the
+//     size floor flags): never dropped silently, because a size alone cannot
+//     tell a promo clip from a real short film. It is a rejection naming its
+//     size and the threshold, so status.import says why the file was left
+//     behind -- and a candidate under a manual import, a person's
+//     instruction to import this download's files, exactly as a manual
+//     import accepts a non-video quality this worker cannot determine.
+//   - a part, an extra, a name-marked sample or a non-media file: neither a
+//     candidate nor reported. Those are the release's own packaging -- a
+//     "-sample" file ships in nearly every scene release beside the real
+//     one, and its name is the releaser's declaration, not this worker's
+//     inference -- and listing each would bury the rejections a person has
+//     to act on.
+func (w *Worker) admit(root, path string, info os.FileInfo, class fsops.FileClass, manual bool) (rejection string, candidate bool) {
+	switch class {
+	case fsops.ClassMedia:
+		return "", true
+	case fsops.ClassSuspectedSample:
+		if manual {
+			return "", true
+		}
+		return fmt.Sprintf("%s: %s; only a manual import (spec.manual, or %s=true) imports it",
+			relPath(root, path), SuspectedSampleReason(info.Size(), w.SampleMaxBytes), AnnotationImportOverride), false
+	default:
+		return "", false
+	}
 }
 
 // processFile imports one media file, or explains why it was rejected.

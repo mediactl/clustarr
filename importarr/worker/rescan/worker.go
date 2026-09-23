@@ -86,6 +86,17 @@ type Worker struct {
 	// MetadataTimeout bounds one resolve RPC. Zero means
 	// defaultMetadataTimeout.
 	MetadataTimeout time.Duration
+
+	// SampleMaxBytes is the video size floor (fsops.IsSuspectedSample): a
+	// video file smaller than this whose name does not mark it a sample is
+	// a SUSPECTED sample. The walk records it in LibraryScan.status.unmatched
+	// with the reason [CodeSuspectedSample] instead of attributing it --
+	// never skips it, since a size cannot tell a promo clip from a short
+	// film -- unless a MediaFile already records the path, or the scan is a
+	// manual assignment; see walk. Zero disables the size rule. NewWorker
+	// sets fsops.DefaultSampleMaxBytes; a Worker built as a literal without
+	// it has the rule off.
+	SampleMaxBytes int64
 }
 
 // The rescan worker's RBAC. It is the sole writer of MediaFileSpec (spec §8.4)
@@ -99,9 +110,13 @@ type Worker struct {
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=libraryscans,verbs=get;list;watch
 
-// NewWorker builds a Worker with the production clock and timeout.
+// NewWorker builds a Worker with the production clock, timeout and sample
+// threshold.
 func NewWorker(c client.Client, bus events.Bus) *Worker {
-	return &Worker{Client: c, Bus: bus, Clock: time.Now, MetadataTimeout: defaultMetadataTimeout}
+	return &Worker{
+		Client: c, Bus: bus, Clock: time.Now, MetadataTimeout: defaultMetadataTimeout,
+		SampleMaxBytes: fsops.DefaultSampleMaxBytes,
+	}
 }
 
 func (w *Worker) now() time.Time {
@@ -280,25 +295,39 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	return nil
 }
 
-// walk is the classify-and-dispatch loop. Every file fsops classifies as
-// anything but media is skipped before it ever reaches matching, which is
-// what keeps a sample, an extra or a half-downloaded .part out of the
-// catalog.
+// walk is the classify-and-dispatch loop. Every file is classified as its
+// root folder's kind (fileimport.ClassifierFor), bounded by the root
+// folder's path -- not the walked path, so a scan narrowed by spec.subpath
+// classifies a file exactly as a full scan would.
+//
+// A part, an extras-folder file, a file whose NAME marks it a sample, and a
+// non-media file are skipped before matching and counted in FilesSkipped:
+// the first three are a release's own packaging, and a "-sample" file
+// accompanies nearly every scene release, so listing each in the capped
+// unmatched list would evict the genuinely unattributable files the list
+// exists for. A SUSPECTED sample -- a video file only the size floor flags
+// -- is never skipped; see suspectedSample.
 func (w *Worker) walk(ctx context.Context, m events.Message, st *scanState) error {
-	fileKind := fileKindForRoot(st.root.Spec.Kind)
-	return fsops.Walk(ctx, st.task.Path, func(path string, info os.FileInfo, class fsops.FileClass) error {
+	classifier := fileimport.ClassifierFor(fileKindForRoot(st.root.Spec.Kind), st.root.Spec.Path, w.SampleMaxBytes)
+	return classifier.Walk(ctx, st.task.Path, func(path string, info os.FileInfo, class fsops.FileClass) error {
 		if err := w.beat(ctx, m, st); err != nil {
 			return err
 		}
-		// fsops' class is video-shaped: no audio extension is media and
-		// every small ebook is a "sample". Non-video roots reclassify by
-		// their own kind's extensions (fileimport.ClassifyFor).
-		if fileimport.IsNonVideoFileKind(fileKind) {
-			class = fileimport.ClassifyFor(fileKind, path)
-		}
 
-		if class != fsops.ClassMedia {
+		switch class {
+		case fsops.ClassMedia:
+		case fsops.ClassSuspectedSample:
+			surfaced, err := w.suspectedSample(ctx, st, path, info)
+			if err != nil {
+				return err
+			}
+			if surfaced {
+				return w.checkpoint(ctx, st, false)
+			}
+		default:
 			st.progress.FilesSkipped++
+			logging.FromContext(ctx).Debug("skipped a walked file",
+				"path", relPath(st.root.Spec.Path, path), "class", class.String())
 			return w.checkpoint(ctx, st, false)
 		}
 		st.progress.FilesSeen++
@@ -308,6 +337,45 @@ func (w *Worker) walk(ctx context.Context, m events.Message, st *scanState) erro
 		}
 		return w.checkpoint(ctx, st, false)
 	})
+}
+
+// suspectedSample decides a file only the size floor flags as a sample
+// (fsops.ClassSuspectedSample). The scanner never guesses, and a size is a
+// guess -- it cannot tell a promo clip from a 45 MiB short film or an old
+// low-resolution episode -- so the file is recorded as unmatched with
+// [CodeSuspectedSample], naming its size and the threshold, and counted as
+// seen: surfaced is true and the walk moves on.
+//
+// Two cases are not a guess, and surfaced is false so the walk attributes
+// the file like any other media file:
+//
+//   - a manual assignment: a person named this file's item, and a size
+//     does not overrule them. Without this, the unmatched page's assign
+//     action could never assign the very file this reports.
+//   - a path a MediaFile already records: the MediaFile is its
+//     attribution (see handleMediaFile), however it was made -- a manual
+//     assignment, or an import under a lower threshold -- and reporting it
+//     unmatched on every later scan would list a file that is in the
+//     catalog.
+//
+// A series root is left to handleMediaFile too, which reports every file
+// there as unsupported_root_kind -- the more fundamental reason, and one an
+// assignment could not resolve.
+func (w *Worker) suspectedSample(ctx context.Context, st *scanState, path string, info os.FileInfo) (surfaced bool, err error) {
+	if st.manual != nil || fileKindForRoot(st.root.Spec.Kind) == "" {
+		return false, nil
+	}
+	existing, err := w.existingMediaFile(ctx, st.scan.Namespace, path)
+	if err != nil || existing != nil {
+		return false, err
+	}
+	st.progress.FilesSeen++
+	st.unmatched(relPath(st.root.Spec.Path, path), CodeSuspectedSample,
+		fileimport.SuspectedSampleReason(info.Size(), w.SampleMaxBytes)+
+			"; if it is real media, assign it by hand (the unmatched page's assign action, or a LibraryScan "+
+			"annotated "+fileimport.AnnotationImportTarget+" whose subpath names this file)",
+		nil, w.now())
+	return true, nil
 }
 
 // beat extends the delivery's ack deadline when heartbeatInterval has

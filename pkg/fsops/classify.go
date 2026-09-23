@@ -33,8 +33,8 @@ import (
 // catalog kind already has in hand.
 type Kind string
 
-// The kinds Classify understands. Any other Kind classifies every file that
-// is not a part or an extra as ClassOther.
+// The kinds a Classifier understands. Any other Kind classifies every file
+// that is not a part as ClassOther.
 const (
 	KindVideo     Kind = "video"
 	KindMusic     Kind = "music"
@@ -43,8 +43,9 @@ const (
 	KindComic     Kind = "comic"
 )
 
-// MediaExtensions is, per Kind, the lowercase, dotted extensions Classify
-// treats as ClassMedia absent a Part/Extra/Sample signal. It is a var so a
+// MediaExtensions is, per Kind, the lowercase, dotted extensions
+// Classifier.Classify treats as ClassMedia absent a part, extra or sample
+// signal. It is a var so a
 // caller can extend it.
 //
 //   - video: the common containers -- Matroska (every docs/research/
@@ -93,21 +94,44 @@ var extraDirs = map[string]bool{
 	"backdrops": true,
 }
 
-// IsExtra reports whether path lives under a directory Jellyfin/Plex/Emby
-// treat as bonus content -- the verified list from docs/research/
-// naming.md §A3's Jellyfin row: "behind the scenes", "deleted scenes",
-// "interviews", "scenes", "samples", "shorts", "featurettes", "clips",
-// "extras", "trailers", "theme-music", "backdrops". (A parallel
-// filename-suffix convention, e.g. "-trailer", exists in Jellyfin/Kodi
-// but is not verified in the research notes, so it is deliberately not
+// IsExtra reports whether path, a file of kind, lives in a folder that
+// Jellyfin/Plex/Emby treat as bonus content -- the verified list from
+// docs/research/naming.md §A3's Jellyfin row: "behind the scenes", "deleted
+// scenes", "interviews", "scenes", "samples", "shorts", "featurettes",
+// "clips", "extras", "trailers", "theme-music", "backdrops". (A parallel
+// filename-suffix convention, e.g. "-trailer", exists in Jellyfin/Kodi but
+// is not verified in the research notes, so it is deliberately not
 // implemented here rather than guessed.)
-func IsExtra(path string) bool {
-	for dir := filepath.Dir(path); dir != "." && dir != string(filepath.Separator); dir = filepath.Dir(dir) {
+//
+// Two bounds keep a guess about bonus content from silently dropping real
+// media:
+//
+//   - The list is Jellyfin's MOVIE and series convention, so it applies to
+//     KindVideo only. No research note documents an extras-folder list for
+//     music, audiobooks, books or comics, and applying the video one there
+//     would skip an album or a book whose folder happens to be called
+//     "Interviews" or "Extras". Every other kind is never an extra until it
+//     has a documented list of its own.
+//   - Only folders strictly beneath root are consulted. root is where the
+//     library or download the file belongs to starts -- the RootFolder's
+//     path, a Download's content root -- and the folders above it are the
+//     operator's filesystem layout, not the release's: a root folder at
+//     /mnt/Extras/movies holds movies, not extras. root itself is not
+//     consulted either, for the same reason. A path that is not beneath
+//     root (or an empty root) has no folder that can be judged, and is not
+//     an extra; the caller always knows the root it is walking, and passes
+//     it.
+func IsExtra(kind Kind, root, path string) bool {
+	if kind != KindVideo || root == "" {
+		return false
+	}
+	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(path))
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	for dir := filepath.Dir(rel); dir != "." && dir != string(filepath.Separator); dir = filepath.Dir(dir) {
 		if extraDirs[strings.ToLower(filepath.Base(dir))] {
 			return true
-		}
-		if filepath.Dir(dir) == dir {
-			break // reached the filesystem root without a match
 		}
 	}
 	return false
@@ -115,54 +139,63 @@ func IsExtra(path string) bool {
 
 var sampleRE = regexp.MustCompile(`(?i)(^|[^a-zA-Z0-9])sample(s)?([^a-zA-Z0-9]|$)`)
 
-// sampleMaxBytes is the video-only size floor; see IsSample.
-const sampleMaxBytes = 50 * 1024 * 1024 // 50 MiB
+// DefaultSampleMaxBytes is the video size floor's default: a video file
+// smaller than this, whose name does not say it is a sample, is
+// ClassSuspectedSample. See IsSuspectedSample.
+const DefaultSampleMaxBytes int64 = 50 * 1024 * 1024 // 50 MiB
 
-// IsSample reports whether path is likely a promotional sample bundled in a
-// release of kind rather than the release itself. The rule depends on kind:
+// IsSample reports whether path's NAME marks it as a promotional sample
+// bundled in a release of kind rather than the release itself: the
+// filename signature \bsample(s)?\b, case-insensitive. That label is the
+// release author's own declaration, which is why a caller may act on it
+// (skip the file) where it must not act on the size heuristic
+// (IsSuspectedSample). The rule depends on kind:
 //
-//   - video: a filename signature (\bsample(s)?\b, case-insensitive) is
-//     decisive on its own; absent that, a video-container file under 50 MiB
-//     is flagged too. The size floor is Clustarr's own dependency-free
-//     heuristic, not an *arr rule. No research note covers how the *arrs
-//     detect samples (docs/research/naming.md §A4 and §A6 name the "sample"
-//     import check and NotSampleSpecification, not their mechanism); per
-//     Radarr's source as DeepWiki summarises it -- unverified here --
-//     file-level DetectSample decides on a MediaInfo runtime probe against
-//     the movie's expected runtime, and the only size threshold is
-//     release-level ("sample" in the title AND under 70 MB). The floor's
-//     false positives are cheap: amendment §A1.5 surfaces every file for
-//     review rather than acting on a guess, and pkg/mediainfo.Probe
-//     downstream makes the real call.
-//   - audiobook, book, comic: the filename signature only. The size floor
-//     is a video heuristic and would class nearly every ebook, most comics
-//     and every short audiobook part as a sample.
-//   - music: never. Per the same (unverified) DeepWiki reading, Lidarr has
-//     no file-level sample check at all -- its only sample rule is
-//     release-level, "sample" in the title AND under 20 MB -- and the name
+//   - video, audiobook, book, comic: the filename signature.
+//   - music: never. Per Radarr's and Lidarr's source as DeepWiki summarises
+//     it -- unverified here, since no research note covers sample
+//     detection (docs/research/naming.md §A4 and §A6 name the "sample"
+//     import check and NotSampleSpecification, not their mechanism) --
+//     Lidarr has no file-level sample check at all; its only sample rule is
+//     release-level, "sample" in the title AND under 20 MB. And the name
 //     rule would silently drop real tracks: a song titled "Sample in a Jar"
 //     is a track, not a promo clip. The trade-off is deliberate: a stray
-//     promo clip in an album folder is attributed like any other file there,
-//     which is visible, where a dropped track is not.
+//     promo clip in an album folder is attributed like any other file
+//     there, which is visible, where a dropped track is not.
 //   - any other kind: never.
-//
-// size <= 0 means unknown and never trips the size floor.
-func IsSample(kind Kind, path string, size int64) bool {
-	base := filepath.Base(path)
+func IsSample(kind Kind, path string) bool {
 	switch kind {
-	case KindVideo:
-		if sampleRE.MatchString(base) {
-			return true
-		}
-		return MediaExtensions[KindVideo][strings.ToLower(filepath.Ext(base))] && size > 0 && size < sampleMaxBytes
-	case KindAudiobook, KindBook, KindComic:
-		return sampleRE.MatchString(base)
+	case KindVideo, KindAudiobook, KindBook, KindComic:
+		return sampleRE.MatchString(filepath.Base(path))
 	default:
 		return false
 	}
 }
 
-// FileClass is what Walk classifies a regular file as.
+// IsSuspectedSample reports whether path, a file of kind and size bytes, is
+// small enough that it MIGHT be a promotional sample although its name does
+// not say so: a video-container file of KindVideo under maxBytes.
+//
+// This is Clustarr's own dependency-free heuristic, not an *arr rule. Per
+// Radarr's source as DeepWiki summarises it -- unverified here --
+// file-level DetectSample decides on a MediaInfo runtime probe against the
+// movie's expected runtime, and the only size threshold is release-level
+// ("sample" in the title AND under 70 MB). A size alone cannot tell a
+// promo clip from a real 45 MiB short film or an old low-resolution
+// episode, so the answer is a SUSPICION: a caller must surface the file for
+// a person to review (amendment §A1.5's never-guess rule) and never skip it
+// on this alone. That is why Classify reports it as its own class,
+// ClassSuspectedSample, rather than folding it into ClassSample.
+//
+// Only video has the rule: it would class nearly every ebook, most comics
+// and every short audiobook part or track as a sample. maxBytes <= 0
+// disables it, and size <= 0 means unknown and never trips it.
+func IsSuspectedSample(kind Kind, path string, size, maxBytes int64) bool {
+	return kind == KindVideo && maxBytes > 0 && size > 0 && size < maxBytes &&
+		MediaExtensions[KindVideo][strings.ToLower(filepath.Ext(path))]
+}
+
+// FileClass is what a Classifier classifies a regular file as.
 type FileClass int
 
 const (
@@ -171,6 +204,14 @@ const (
 	ClassExtra
 	ClassPart
 	ClassOther
+
+	// ClassSuspectedSample is a media file that only IsSuspectedSample's
+	// size heuristic flags: it would be ClassMedia but for its size. It is
+	// a question for a person, not a verdict -- a caller that skips it
+	// silently drops a real short film. The scanner records it in
+	// LibraryScan.status.unmatched; the file-import worker records it as a
+	// rejection on Download.status.import.
+	ClassSuspectedSample
 )
 
 func (c FileClass) String() string {
@@ -179,6 +220,8 @@ func (c FileClass) String() string {
 		return "media"
 	case ClassSample:
 		return "sample"
+	case ClassSuspectedSample:
+		return "suspected-sample"
 	case ClassExtra:
 		return "extra"
 	case ClassPart:
@@ -188,41 +231,61 @@ func (c FileClass) String() string {
 	}
 }
 
-// Classify classifies the regular file at path, of the given size, as a
-// file of kind: IsPart first, then IsExtra (an extras folder literally named
-// "samples" is real Jellyfin extras content per the verified list, so the
-// folder check must win over the filename-based IsSample check), then
-// IsSample with kind's own rule, then ClassMedia if the extension is in
-// MediaExtensions[kind], else ClassOther. size <= 0 means unknown.
-func Classify(kind Kind, path string, size int64) FileClass {
+// Classifier classifies the files of one walk. There is deliberately no
+// zero-configuration package-level Classify or Walk: Root bounds IsExtra's
+// folder check and SampleMaxBytes is an operator setting, and a caller that
+// could omit either would reintroduce exactly the silent skips they exist
+// to prevent.
+type Classifier struct {
+	// Kind selects which extensions are media and which sample and extras
+	// rules apply.
+	Kind Kind
+
+	// Root is where the library or download the walked files belong to
+	// starts: a RootFolder's spec.path, a Download's status.contentRoot.
+	// IsExtra consults only folders strictly beneath it. It may differ
+	// from the directory Walk visits -- a LibraryScan narrowed by
+	// spec.subpath walks beneath its root folder -- and it must contain it.
+	Root string
+
+	// SampleMaxBytes is IsSuspectedSample's threshold; zero (or negative)
+	// disables the size rule, so every file of a media extension that is
+	// not a part, an extra or a name-marked sample is ClassMedia.
+	// DefaultSampleMaxBytes is the production default.
+	SampleMaxBytes int64
+}
+
+// Classify classifies the regular file at path, of the given size: IsPart
+// first, then IsExtra (an extras folder literally named "samples" is real
+// Jellyfin extras content per the verified list, so the folder check must
+// win over the filename-based IsSample check), then IsSample's name rule,
+// then IsSuspectedSample's size rule, then ClassMedia if the extension is in
+// MediaExtensions[c.Kind], else ClassOther. size <= 0 means unknown.
+func (c Classifier) Classify(path string, size int64) FileClass {
 	switch {
 	case IsPart(path):
 		return ClassPart
-	case IsExtra(path):
+	case IsExtra(c.Kind, c.Root, path):
 		return ClassExtra
-	case IsSample(kind, path, size):
+	case IsSample(c.Kind, path):
 		return ClassSample
-	case MediaExtensions[kind][strings.ToLower(filepath.Ext(path))]:
+	case IsSuspectedSample(c.Kind, path, size, c.SampleMaxBytes):
+		return ClassSuspectedSample
+	case MediaExtensions[c.Kind][strings.ToLower(filepath.Ext(path))]:
 		return ClassMedia
 	default:
 		return ClassOther
 	}
 }
 
-// Walk is WalkAs(ctx, KindVideo, root, fn): it classifies every file as
-// video, which is what a movie or series library and a video download are.
-// A caller walking another kind's files uses WalkAs.
-func Walk(ctx context.Context, root string, fn func(path string, info os.FileInfo, class FileClass) error) error {
-	return WalkAs(ctx, KindVideo, root, fn)
-}
-
-// WalkAs walks root in lexical order and calls fn for every regular file
-// with its Classify(kind, path, size) class. It never drops a file silently
-// -- every regular file under root reaches fn exactly once. WalkAs returns
-// ctx.Err() as soon as ctx is cancelled between files, and returns fn's
-// first non-nil error unwrapped.
-func WalkAs(ctx context.Context, kind Kind, root string, fn func(path string, info os.FileInfo, class FileClass) error) error {
-	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+// Walk walks dir -- c.Root or a directory (or single file) beneath it -- in
+// lexical order and calls fn for every regular file with its c.Classify
+// class. It never drops a file silently: every regular file under dir
+// reaches fn exactly once, and what a class means is the caller's decision.
+// Walk returns ctx.Err() as soon as ctx is cancelled between files, and
+// returns fn's first non-nil error unwrapped.
+func (c Classifier) Walk(ctx context.Context, dir string, fn func(path string, info os.FileInfo, class FileClass) error) error {
+	return filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -236,6 +299,6 @@ func WalkAs(ctx context.Context, kind Kind, root string, fn func(path string, in
 		if infoErr != nil {
 			return infoErr
 		}
-		return fn(p, info, Classify(kind, p, info.Size()))
+		return fn(p, info, c.Classify(p, info.Size()))
 	})
 }

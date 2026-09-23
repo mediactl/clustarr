@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package fileimport
 
 import (
+	"fmt"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -32,9 +33,10 @@ import (
 // What this file knows about non-video files, shared with
 // importarr/worker/rescan so the importer and the scanner agree on what a
 // music, book, audiobook or comic file is and on what quality one is frozen
-// with. Which extensions each kind's files have, and which sample rule
-// applies to them, is pkg/fsops' (fsops.MediaExtensions, fsops.IsSample);
-// [ClassifyFor] only maps a catalog kind onto an fsops.Kind.
+// with. Which extensions each kind's files have, and which sample and extras
+// rules apply to them, is pkg/fsops' (fsops.MediaExtensions, fsops.IsSample,
+// fsops.IsExtra); [ClassifierFor] only maps a catalog kind onto an
+// fsops.Kind.
 
 // frozenQualityNames maps an extension onto a pkg/quality definition name
 // (pkg/quality's nonVideoDefinitions, the ladders the built-in music-*,
@@ -74,16 +76,37 @@ func IsNonVideoFileKind(kind commonv1.MediaKind) bool {
 	return ProfileKindFor(kind) != "video"
 }
 
-// ClassifyFor classifies path as a file of fileKind: fsops.Classify with the
-// fsops.Kind of fileKind's ladder ([ProfileKindFor]). Size is not passed,
-// and need not be: none of the non-video kinds has a size-based sample rule.
-// fileKind must satisfy [IsNonVideoFileKind]; any other kind classifies
-// everything as other.
-func ClassifyFor(fileKind commonv1.MediaKind, path string) fsops.FileClass {
-	if !IsNonVideoFileKind(fileKind) {
-		return fsops.ClassOther
+// ClassifierFor is the fsops.Classifier for files of fileKind found under
+// root: its kind is fileKind's ladder ([ProfileKindFor]) -- so an album's
+// files are music, and a movie's, or those of any kind that is not one of
+// the four non-video kinds, are video -- bounded by root, with
+// sampleMaxBytes as the video size floor (0 disables it; the non-video kinds
+// have none). Both workers and the rescan classify through it, so the
+// importer and the scanner agree on what every file is.
+func ClassifierFor(fileKind commonv1.MediaKind, root string, sampleMaxBytes int64) fsops.Classifier {
+	return fsops.Classifier{
+		Kind:           fsops.Kind(ProfileKindFor(fileKind)),
+		Root:           root,
+		SampleMaxBytes: sampleMaxBytes,
 	}
-	return fsops.Classify(fsops.Kind(ProfileKindFor(fileKind)), path, 0)
+}
+
+// SuspectedSampleReason is the sentence the scanner and the importer both
+// record for an fsops.ClassSuspectedSample file of size bytes found under a
+// maxBytes threshold: what was suspected, and why that is a question rather
+// than a verdict. Each caller appends the remedy its own surface offers. It
+// is a sentence for LibraryScan.status.unmatched or Download.status.import,
+// never a metric label.
+func SuspectedSampleReason(size, maxBytes int64) string {
+	return fmt.Sprintf("suspected sample: at %s it is under the %s sample-size threshold, though its name "+
+		"does not mark it a sample -- a size alone cannot tell a promo clip from a short film or an old "+
+		"low-resolution episode", formatMiB(size), formatMiB(maxBytes))
+}
+
+// formatMiB renders n bytes for a person: MiB to one decimal, and the exact
+// byte count the threshold is configured in.
+func formatMiB(n int64) string {
+	return fmt.Sprintf("%.1f MiB (%d bytes)", float64(n)/(1<<20), n)
 }
 
 // ProfileKindFor is the QualityProfile mediaKind (and pkg/quality ladder)

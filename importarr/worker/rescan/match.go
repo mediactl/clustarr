@@ -61,6 +61,12 @@ const (
 	// the root folder names no default QualityProfile, which Movie.spec
 	// requires.
 	CodeNoQualityProfile = "no_default_quality_profile"
+
+	// CodeSuspectedSample means the file is a video file under the
+	// worker's sample-size threshold (Worker.SampleMaxBytes) whose name
+	// does not mark it a sample: it may be a promo clip, or a real short
+	// film, and a size cannot say which.
+	CodeSuspectedSample = "suspected_sample"
 )
 
 // MovieCandidate is one existing Movie, reduced to what matching needs. The

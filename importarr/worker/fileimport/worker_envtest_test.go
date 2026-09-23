@@ -144,9 +144,10 @@ func dataDir(t *testing.T, sub string) string {
 }
 
 // mustWriteSparseFile creates a sparse file of the given size, so a test can
-// plant a "60 MiB" movie without writing 60 MiB -- fsops.IsSample's 50 MiB
-// floor (mirrored from importarr/worker/rescan's sampleFloor) must be cleared
-// or the walk classifies the file as a sample and skips it.
+// plant a "60 MiB" movie without writing 60 MiB. sampleFloor clears
+// fsops.DefaultSampleMaxBytes (mirrored from importarr/worker/rescan's
+// sampleFloor); under it a video file is a suspected sample, which the
+// import rejects rather than imports (sample_envtest_test.go).
 const sampleFloor = 60 << 20
 
 func mustWriteSparseFile(t *testing.T, path string, size int64) {

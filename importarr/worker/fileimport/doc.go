@@ -47,7 +47,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Download's target, or cannot parse, is never turned into a speculative
 // MediaFile. It is recorded in Download.status.import.rejections with a
 // reason instead -- the file-import analogue of LibraryScan.status.unmatched,
-// since a Download has no LibraryScan to report through.
+// since a Download has no LibraryScan to report through. That includes a
+// video file only the sample size floor flags ([Worker.SampleMaxBytes]):
+// a size is a suspicion, not a verdict, so the file is a rejection naming
+// its size and the threshold, and a manual import takes it. A part, an
+// extras-folder file or a file whose name marks it a sample is the
+// release's own packaging and is passed over without a rejection
+// (Worker.admit says why).
 //
 // # Scope
 //
@@ -62,9 +68,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // its children, and choosing which is a guess.
 //
 // A non-video import (nonvideo.go) differs from a movie import in three
-// honest ways. Its files are classified by [ClassifyFor], by their own kind:
-// fsops.Walk classifies as video, where a .flac is not media and a 1 MiB
-// file is under the video sample floor. Its quality
+// honest ways. Its files are classified by their own kind ([ClassifierFor]):
+// classified as video, a .flac would not be media, a 1 MiB ebook would be
+// under the video sample floor, and a book in a folder named "Extras" would
+// be a video extra. Its quality
 // is frozen only where the extension determines it exactly
 // ([FrozenQuality]); a file whose quality is undeterminable without a probe
 // is imported only by a manual import. And it is never scored: the custom-

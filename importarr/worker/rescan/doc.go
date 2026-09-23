@@ -28,6 +28,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // decision lives in, so the "must not match" cases are testable without a
 // cluster.
 //
+// Classification is fsops', as the root folder's kind
+// (fileimport.ClassifierFor), and happens before matching. A part, a file
+// in a video extras folder beneath the root folder, a file whose name marks
+// it a sample, and a non-media file are skipped and counted in
+// filesSkipped. A video file only the size floor ([Worker.SampleMaxBytes])
+// flags is not skipped: a size is a guess, so it is recorded as unmatched
+// with [CodeSuspectedSample] and its size, unless a MediaFile already
+// records it or a person is assigning it.
+//
 // A path that already has a MediaFile is never attributed again: the
 // MediaFile is its attribution (spec.mediaRef is immutable), so a rescan
 // refreshes only the observed size and mtime and re-asserts every frozen
@@ -40,8 +49,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //   - music, book, audiobook, comic: attributed to an EXISTING Album, Book,
 //     Audiobook or Issue only (nonvideo.go explains why nothing on disk can
 //     honestly yield the provider id creating one would need). Files are
-//     classified by fileimport.ClassifyFor, not by fsops.Walk's
-//     video-shaped class, and freeze only the quality their extension
+//     classified as their own kind -- no video size floor, no video
+//     extras folders -- and freeze only the quality their extension
 //     determines exactly (fileimport.FrozenQuality).
 //   - series: reported as unsupported_root_kind; episode attribution is not
 //     built.
@@ -85,7 +94,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // The walk then records every file it visits against the target without
 // matching -- a person made the attribution, which is the one way the
 // never-guess rule admits an unmatchable file -- with
-// spec.importedFrom.manual=true. It does not bypass the MediaFile rules: a
+// spec.importedFrom.manual=true. That includes a suspected_sample file: the
+// size floor does not overrule a person. It does not include a part, an
+// extras-folder file or a file whose name marks it a sample, which a
+// directory subpath would otherwise sweep into the item. It does not bypass the MediaFile rules: a
 // path already recorded against a different item is reported as unmatched
 // (recorded_elsewhere) and never re-pointed, a malformed or unusable
 // annotation, a missing item, an item of another root, and a subpath outside

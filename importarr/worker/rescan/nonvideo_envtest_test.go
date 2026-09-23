@@ -271,8 +271,8 @@ func TestHandleMatchesAnEmbeddedASINAndNeverCreatesFromOne(t *testing.T) {
 }
 
 // A book root attributes pkg/naming's "Author/Title/Author.epub" to the
-// existing Book whose Author and title match -- a 1 MiB ebook that
-// fsops.Walk alone would have skipped as a sample.
+// existing Book whose Author and title match -- a 1 MiB ebook, under the
+// video size floor, which a book is not subject to.
 func TestHandleAttributesABookFileToAnExistingBookOnly(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, ctx, "rw-book", catalogv1alpha1.RootFolderKindBook, "", catalogv1alpha1.ScanModeFull)
