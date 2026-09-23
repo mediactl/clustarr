@@ -64,7 +64,9 @@ const (
 	// ManagerCatalogarrWorker is the catalogarr queue worker. It covers the
 	// consumers that write status fields NO other catalogarr writer touches:
 	// the interactive search worker's Search.status.finishedAt/
-	// indexerOutcomes/results, and the import and importlist consumers.
+	// indexerOutcomes/results, and the import consumer. (The importlist
+	// consumer this comment also named was pre-amendment dead code, pruned in
+	// the gap-fix wave: import lists are importarr's.)
 	//
 	// The two consumers that used to share it and could not -- the metadata
 	// gateway and the grab path -- have their own names below. See
@@ -75,8 +77,7 @@ const (
 	// and Series it applies status.metadata and nothing else.
 	//
 	// It is deliberately distinct from ManagerCatalogarrGrab, which applies
-	// status.activeDownloadRef/pendingGrab/lastSearchedAt/searchAttempts on
-	// the same objects. Server-side apply replaces a manager's whole
+	// status.pendingGrab/lastSearchedAt/searchAttempts on the same objects. Server-side apply replaces a manager's whole
 	// ownership set on every apply rather than merging it, so while both
 	// wrote as catalogarr-worker each one's apply RELEASED the other's
 	// fields: a grab deleted the movie's cached metadata (dropping it to
@@ -90,13 +91,24 @@ const (
 
 	// ManagerCatalogarrGrab is the catalogarr grab path -- the grab worker,
 	// the RSS matcher and the search worker's grab sink, which all write
-	// through one code path. On Movie and Episode it applies exactly
-	// status.activeDownloadRef, status.pendingGrab, status.lastSearchedAt and
-	// status.searchAttempts.
+	// through one code path. On a catalog item it applies exactly
+	// status.pendingGrab, status.lastSearchedAt and status.searchAttempts.
 	//
-	// It never applies status.phase: the Movie and Episode reconcilers own
-	// phase and conditions under ManagerCatalogarr, and recompute
-	// Phase=Delayed from the pendingGrab this manager writes.
+	// It does NOT own status.activeDownloadRef (gap-fix ruling R-5). That
+	// field has one writer: the item's own reconciler, under
+	// ManagerCatalogarr, which derives it level-style from the item's owned
+	// non-terminal Download. The grab path's double-grab guard looks up the
+	// existing Downloads for the target instead of reading the ref. The grab
+	// path used to apply the ref as well, so the two managers co-owned it
+	// under ForceOwnership and ownership migrated to whichever applied last;
+	// the reconciler's "omit to clear on a terminal Download" only worked
+	// while it happened to hold the field. Until task X4a lands,
+	// catalogarr/worker/grab still applies it (kindops.go); that write is the
+	// defect R-5 removes, not a second sanctioned owner.
+	//
+	// It never applies status.phase: the reconcilers own phase and
+	// conditions under ManagerCatalogarr, and recompute Phase=Delayed from
+	// the pendingGrab this manager writes.
 	//
 	// See ManagerCatalogarrMetadata for why this is not
 	// ManagerCatalogarrWorker.
