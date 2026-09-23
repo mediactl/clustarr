@@ -225,16 +225,28 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 // reconcile returns, and Ready is about the ImportList's configuration being
 // valid and schedulable, which is a different claim from "the last sync
 // actually succeeded".
+//
+// The checkpoint lives in clustarr-progress, whose TTL is ten minutes, so
+// it is normally gone by the next scheduled reconcile. A missing checkpoint
+// therefore means "never synced" only while status.lastSyncAt is unset;
+// after that, the Synced condition already on the object (seeded into
+// conditions) is the last sync's verdict and is kept as it is.
 func markSynced(il *catalogv1alpha1.ImportList, conditions *[]metav1.Condition, checkpoint worker.Result, ok bool) {
 	switch {
+	case !ok && il.Status.LastSyncAt != nil:
+		return
 	case !ok:
 		k8s.MarkUnknown(il, conditions, catalogv1alpha1.ImportListConditionSynced,
 			k8s.ReasonPending, "no sync has completed yet")
 	case checkpoint.Error == "":
+		note := ""
+		if il.Spec.AutomaticAdd != nil && !*il.Spec.AutomaticAdd {
+			note = " (automaticAdd is false: entries are listed, not added)"
+		}
 		k8s.MarkTrue(il, conditions, catalogv1alpha1.ImportListConditionSynced,
-			k8s.ReasonSucceeded, "last sync at %s: %d fetched, %d added, %d excluded, %d removed",
+			k8s.ReasonSucceeded, "last sync at %s: %d fetched, %d added, %d excluded, %d removed%s",
 			checkpoint.SyncedAt.UTC().Format(time.RFC3339), checkpoint.Fetched, checkpoint.Added,
-			checkpoint.Excluded, checkpoint.Removed)
+			checkpoint.Excluded, checkpoint.Removed, note)
 	default:
 		k8s.MarkFalse(il, conditions, catalogv1alpha1.ImportListConditionSynced,
 			k8s.ReasonFailed, "%s", checkpoint.Error)

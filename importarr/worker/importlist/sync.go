@@ -64,7 +64,9 @@ func (d syncDeps) now() time.Time {
 // syncKind fetches, dedupes, drops excluded entries, resolves the id each
 // catalog kind requires, and creates or updates the resulting Movie or
 // Series items for one (ImportList, kind) pair, then applies spec.syncLevel
-// to whatever this list previously added that is no longer present.
+// to whatever this list previously added that is no longer present. With
+// spec.automaticAdd false it does all of that except the create or update:
+// the entries are recorded as listed and nothing is added (Radarr).
 //
 // A kind the provider cannot yield (CanYield; gap-fix ruling R-10) fails
 // with ErrKindNotYieldable, and a yieldable kind with no catalog writer
@@ -130,12 +132,18 @@ func syncKind(
 		included = append(included, item)
 	}
 
+	// Only what this list itself added is subject to spec.syncLevel. An
+	// entry it merely listed (automaticAdd off) was never its to add, so it
+	// is never its to unmonitor or remove either.
 	existingItems := make([]pkgimportlist.Item, 0, len(existing))
 	byKey := make(map[string]StoredItem, len(existing))
 	for _, si := range existing {
-		existingItems = append(existingItems, si.Item)
+		if !si.ListedOnly {
+			existingItems = append(existingItems, si.Item)
+		}
 		byKey[si.Item.Key()] = si
 	}
+	autoAdd := il.Spec.AutomaticAdd == nil || *il.Spec.AutomaticAdd
 
 	newSnapshot := make([]StoredItem, 0, len(included))
 	// keepKnown carries a previously added item forward when this cycle
@@ -158,6 +166,27 @@ func syncKind(
 			continue
 		}
 
+		prev, wasKnown := byKey[item.Key()]
+		if !autoAdd {
+			// Radarr's ProcessMovieReport returns before adding anything
+			// when the list's EnableAuto is off, but the list is still
+			// fetched and its movies still recorded (SyncMoviesForList), so
+			// they count as listed when CleanLibrary looks for movies no
+			// list has. Here the snapshot is that record: the entry is
+			// remembered as listed only, under the name it would have, so
+			// listedElsewhere sees it; and an item this list added before
+			// automaticAdd was turned off stays its own.
+			entry := StoredItem{
+				Item: item, ObjectKind: string(kind), ObjectName: catalogName(kind, item.Title, id),
+				ResolvedID: id, ListedOnly: true,
+			}
+			if wasKnown && !prev.ListedOnly {
+				entry = prev
+			}
+			newSnapshot = append(newSnapshot, entry)
+			continue
+		}
+
 		var objectName string
 		switch kind {
 		case commonv1.MediaKindMovie:
@@ -171,11 +200,15 @@ func syncKind(
 			keepKnown(item)
 			continue
 		}
-		if _, wasKnown := byKey[item.Key()]; !wasKnown {
+		if !wasKnown || prev.ListedOnly {
 			added++
 		}
 		newSnapshot = append(newSnapshot,
 			StoredItem{Item: item, ObjectKind: string(kind), ObjectName: objectName, ResolvedID: id})
+	}
+	if !autoAdd {
+		log.Info("importlist: spec.automaticAdd is false; entries recorded as listed, nothing added",
+			"listed", len(included))
 	}
 
 	decisions, err := pkgimportlist.ApplySyncLevel(
@@ -284,10 +317,24 @@ func listedElsewhere(
 }
 
 // applySyncDecision turns one pkgimportlist.SyncDecision into a catalog
-// write. SyncActionRemove ("remove the catalog item, keep files") deletes
-// the Movie or Series this package created and leaves every file and
-// MediaFile where it is; SyncActionRemoveAndDelete also recycles the item's
-// files first (removeWithFiles, delete.go).
+// write. SyncActionRemoveAndDelete recycles the item's files and deletes
+// their MediaFiles before the item (removeWithFiles, delete.go).
+//
+// SyncActionRemove ("remove the catalog item, keep files") deletes only the
+// Movie or Series, and leaves every file and every MediaFile record where
+// it is. Radarr also drops the MovieFile rows (MediaFileService handles
+// MoviesDeletedEvent with DeleteForMovies), but Radarr's disk scan only
+// ever scans movies it already has (DiskScanService.Scan(Movie)); Clustarr's
+// library rescan instead adopts every unrecorded file under a root folder
+// and creates the item it belongs to. The MediaFile record is what marks a
+// file as accounted for -- the rescan re-observes a recorded file and never
+// creates an item for it -- so deleting it here would be exactly what lets
+// the next rescan undo the removal. Kept, it also re-attaches by itself if
+// a list adds the item back: the item's name is deterministic, which is
+// Radarr's re-added movie finding its file again. An ImportExclusion is not
+// written either: Radarr's list clean-up calls DeleteMovie(id, false),
+// whose addImportListExclusion defaults to false, so a movie that comes
+// back onto a list is added again.
 func applySyncDecision(
 	ctx context.Context, c client.Client, il *catalogv1alpha1.ImportList, si StoredItem, action pkgimportlist.SyncAction,
 ) error {

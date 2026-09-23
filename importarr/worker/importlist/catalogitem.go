@@ -107,6 +107,14 @@ func seriesName(title string, tvdbID int64) string {
 	return k8s.ChildName(title, "series", strconv.FormatInt(tvdbID, 10))
 }
 
+// catalogName is the name kind's item for id gets: movieName or seriesName.
+func catalogName(kind commonv1.MediaKind, title string, id int64) string {
+	if kind == commonv1.MediaKindSeries {
+		return seriesName(title, id)
+	}
+	return movieName(title, id)
+}
+
 // applyMovie creates or updates the Movie item identifies, under
 // [FieldManager]. It always sends the complete set of fields this package
 // ever sets -- see FieldManager's doc comment for why a partial send would

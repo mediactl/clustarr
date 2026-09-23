@@ -253,3 +253,30 @@ func TestAFinishedSyncReachesStatusWithoutWaitingForNextSyncAt(t *testing.T) {
 		return dl != nil && dl.Status == metav1.ConditionTrue
 	}, 10*time.Second, 50*time.Millisecond, "the dead-lettered annotation was not folded")
 }
+
+// The worker's checkpoint expires ten minutes after a sync (clustarr-progress
+// TTL); a later reconcile must not report the list as never synced.
+func TestReconcileKeepsSyncedOnceTheCheckpointHasExpired(t *testing.T) {
+	c := requireEnvtest(t)
+	ctx := context.Background()
+	ns := createNamespace(t, ctx, c, "il-expired")
+	bus := newBus(t, ctx)
+	clock := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+	r := &importlist.Reconciler{Client: c, Bus: bus, Clock: func() time.Time { return clock }}
+
+	il := steadyList(t, ctx, c, bus, r, &clock, ns)
+	before := findCondition(il.Status.Conditions, catalogv1alpha1.ImportListConditionSynced).DeepCopy()
+
+	require.NoError(t, bus.KV(events.BucketProgress).Delete(ctx, workerimportlist.ResultKey(string(il.UID))))
+	clock = clock.Add(time.Hour)
+	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: il.Name}})
+	require.NoError(t, err)
+
+	var got catalogv1alpha1.ImportList
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: il.Name}, &got))
+	synced := findCondition(got.Status.Conditions, catalogv1alpha1.ImportListConditionSynced)
+	require.NotNil(t, synced)
+	require.Equal(t, before.Status, synced.Status, "an expired checkpoint is not a list that never synced")
+	require.Equal(t, before.Message, synced.Message)
+	require.Equal(t, il.Status.ItemCount, got.Status.ItemCount)
+}

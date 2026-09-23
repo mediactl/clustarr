@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
@@ -36,8 +37,11 @@ import (
 )
 
 // testClient is the envtest apiserver client every test in this package
-// shares.
-var testClient client.Client
+// shares; testConfig is its config, for a test that runs a manager.
+var (
+	testClient client.Client
+	testConfig *rest.Config
+)
 
 func TestMain(m *testing.M) {
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
@@ -60,7 +64,7 @@ func TestMain(m *testing.M) {
 			fmt.Fprintf(os.Stderr, "build client: %v\n", err)
 			return 1
 		}
-		testClient = c
+		testClient, testConfig = c, cfg
 		return m.Run()
 	}()
 

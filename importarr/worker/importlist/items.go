@@ -27,7 +27,8 @@ import (
 	"github.com/mediactl/clustarr/pkg/importlist"
 )
 
-// StoredItem is one entry of what a previous sync last added, kept just
+// StoredItem is one entry of what a previous sync last added (or, with
+// spec.automaticAdd off, only listed -- see ListedOnly), kept just
 // long enough to let the next sync's pkg/importlist.ApplySyncLevel diff
 // "what is on the list now" against "what we added last time" without
 // listing every Movie/Series in the namespace and reverse-engineering which
@@ -56,6 +57,13 @@ type StoredItem struct {
 	// why a partial apply from the same manager is unsafe) never needs a
 	// second resolve RPC.
 	ResolvedID int64 `json:"resolvedID"`
+
+	// ListedOnly marks an entry the list carried while spec.automaticAdd
+	// was false: remembered, so another list's syncLevel sees the item is
+	// still wanted, but never added by this list and so never acted on by
+	// this list's syncLevel. False (and absent, in every snapshot written
+	// before the field existed) means this list added ObjectName.
+	ListedOnly bool `json:"listedOnly,omitempty"`
 }
 
 // itemsSnapshot is the KV value ItemsKey stores: one list's remembered
