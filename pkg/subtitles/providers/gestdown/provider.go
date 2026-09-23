@@ -77,6 +77,20 @@ type Provider struct {
 
 	mu      sync.Mutex
 	showIDs map[string]string // TVDB id -> Gestdown's own internal show id, cached for this Provider's lifetime
+	// inflight is the show lookup currently running for each TVDB id, so
+	// concurrent searches for episodes of one show on a cold cache share one
+	// GET /shows/external/tvdb/{id} instead of each spending a request of
+	// the caller's shared budget on the same answer (see resolveShowID).
+	inflight map[string]*showLookup
+}
+
+// showLookup is one in-flight show-id resolution. done is closed once id
+// and err are final; every caller that joined the lookup reads them only
+// after that.
+type showLookup struct {
+	done chan struct{}
+	id   string
+	err  error
 }
 
 // New builds a Provider from cfg, applying defaults for any zero field.
@@ -164,7 +178,7 @@ func (p *Provider) Search(ctx context.Context, q subtitles.Query) ([]subtitles.C
 	}
 
 	var sr searchResponse
-	if err := json.NewDecoder(resp.Body).Decode(&sr); err != nil {
+	if err := decodeJSON(resp.Body, &sr); err != nil {
 		return nil, fmt.Errorf("subtitles: gestdown search: decode: %w", err)
 	}
 	out := make([]subtitles.Candidate, 0, len(sr.MatchingSubtitles))
@@ -191,21 +205,76 @@ type showsResponse struct {
 	} `json:"shows"`
 }
 
-// resolveShowID resolves tvdbID to Gestdown's own internal show id via GET
-// /shows/external/tvdb/{tvdbID}, caching the result for the Provider's
-// lifetime (a TVDB id's mapping to a Gestdown show id is effectively
-// permanent). A 404 — verified live: Gestdown returns one for a TVDB id it
-// has never indexed, with a bare JSON string body, not an object — maps to
-// a subtitles.KindNotFound ProviderError, distinct from "the show exists
-// but has no subtitles for this language/episode".
+// resolveShowID resolves tvdbID to Gestdown's own internal show id,
+// caching the result for the Provider's lifetime (a TVDB id's mapping to a
+// Gestdown show id is effectively permanent).
+//
+// Lookups are single-flight per TVDB id: while one caller's GET
+// /shows/external/tvdb/{id} is in flight, every other caller asking for the
+// same id waits for that request's answer rather than issuing its own. A
+// season's worth of episodes searched in parallel on a cold cache is
+// otherwise one identical lookup per episode, each spending a request of
+// the caller's shared rate budget. Only a success is cached; a failure is
+// handed to the callers that waited on it and the next caller tries again.
+//
+// A waiter's own ctx bounds its wait. If the lookup it joined failed only
+// because the leading caller's context ended, and the waiter's own context
+// is still live, the waiter retries rather than inheriting a cancellation
+// that was never its own.
 func (p *Provider) resolveShowID(ctx context.Context, tvdbID string) (string, error) {
-	p.mu.Lock()
-	if id, ok := p.showIDs[tvdbID]; ok {
+	for {
+		p.mu.Lock()
+		if id, ok := p.showIDs[tvdbID]; ok {
+			p.mu.Unlock()
+			return id, nil
+		}
+		if l, ok := p.inflight[tvdbID]; ok {
+			p.mu.Unlock()
+			select {
+			case <-l.done:
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+			if isContextErr(l.err) && ctx.Err() == nil {
+				continue // the leader's context ended, not ours: try again
+			}
+			return l.id, l.err
+		}
+		l := &showLookup{done: make(chan struct{})}
+		if p.inflight == nil {
+			p.inflight = map[string]*showLookup{}
+		}
+		p.inflight[tvdbID] = l
 		p.mu.Unlock()
-		return id, nil
-	}
-	p.mu.Unlock()
 
+		l.id, l.err = p.lookupShowID(ctx, tvdbID)
+
+		p.mu.Lock()
+		delete(p.inflight, tvdbID)
+		if l.err == nil {
+			if p.showIDs == nil {
+				p.showIDs = map[string]string{}
+			}
+			p.showIDs[tvdbID] = l.id
+		}
+		p.mu.Unlock()
+		close(l.done)
+		return l.id, l.err
+	}
+}
+
+// isContextErr reports whether err is (or wraps) a context cancellation or
+// deadline, however deep the HTTP client buried it.
+func isContextErr(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+// lookupShowID performs the uncached GET /shows/external/tvdb/{tvdbID}. A
+// 404 — verified live: Gestdown returns one for a TVDB id it has never
+// indexed, with a bare JSON string body, not an object — maps to a
+// subtitles.KindNotFound ProviderError, distinct from "the show exists but
+// has no subtitles for this language/episode".
+func (p *Provider) lookupShowID(ctx context.Context, tvdbID string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.cfg.Endpoint+"/shows/external/tvdb/"+tvdbID, nil)
 	if err != nil {
 		return "", err
@@ -227,21 +296,13 @@ func (p *Provider) resolveShowID(ctx context.Context, tvdbID string) (string, er
 	}
 
 	var sr showsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&sr); err != nil {
+	if err := decodeJSON(resp.Body, &sr); err != nil {
 		return "", fmt.Errorf("subtitles: gestdown show lookup: decode: %w", err)
 	}
 	if len(sr.Shows) == 0 {
 		return "", &subtitles.ProviderError{Provider: p.Name(), Kind: subtitles.KindNotFound, Err: fmt.Errorf("tvdb id %s: no matching show", tvdbID)}
 	}
-
-	id := sr.Shows[0].ID
-	p.mu.Lock()
-	if p.showIDs == nil {
-		p.showIDs = map[string]string{}
-	}
-	p.showIDs[tvdbID] = id
-	p.mu.Unlock()
-	return id, nil
+	return sr.Shows[0].ID, nil
 }
 
 // classifyNonOKStatus maps a non-200 Gestdown response — from either the
@@ -275,9 +336,32 @@ func releaseInfoFromVersion(version string) string {
 // provider response could exhaust the captionarr worker's memory.
 const maxSubtitleBytes = 8 << 20 // 8 MiB
 
-// ErrResponseTooLarge is returned by Download when a subtitle body exceeds
-// maxSubtitleBytes.
+// maxJSONBytes bounds a JSON API response -- the show lookup and the
+// subtitle search -- which is read whole before it is decoded. A real
+// search response is a few kilobytes; the cap only has to stop a
+// misbehaving endpoint from exhausting the worker's memory (CLAUDE.md:
+// every HTTP response body is read through a cap).
+const maxJSONBytes = 4 << 20 // 4 MiB
+
+// ErrResponseTooLarge is returned when a response body exceeds its cap: a
+// subtitle download past maxSubtitleBytes, or a JSON API response past
+// maxJSONBytes.
 var ErrResponseTooLarge = errors.New("subtitles: gestdown: response body exceeds size limit")
+
+// decodeJSON reads body through maxJSONBytes and decodes it into v. It
+// reads one byte past the cap, so a body exactly at the cap is accepted and
+// anything larger is ErrResponseTooLarge -- never truncated JSON handed to
+// the decoder.
+func decodeJSON(body io.Reader, v any) error {
+	raw, err := io.ReadAll(io.LimitReader(body, maxJSONBytes+1))
+	if err != nil {
+		return err
+	}
+	if len(raw) > maxJSONBytes {
+		return fmt.Errorf("%w: at least %d bytes", ErrResponseTooLarge, len(raw))
+	}
+	return json.Unmarshal(raw, v)
+}
 
 // Download implements subtitles.Provider.Download. c.FetchID is the raw
 // downloadUri Search returned (a path relative to the endpoint) — verified
