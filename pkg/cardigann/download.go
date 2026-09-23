@@ -33,12 +33,22 @@ import (
 // already a "magnet:" URI, in which case it is returned unread) into the
 // downloadable content: with no DownloadBlock, link is fetched directly;
 // otherwise Before (if set, its path taken from PathSelector on link's page
-// when that is set) runs first, link's page is fetched and each Selectors
-// entry is tried in file order (selector strings are themselves templates —
-// see 1337x's `a[href*="{{ .Config.primarydownloadlink }}"]`); the first
-// non-empty match is resolved against link and fetched (or returned as-is
-// when it is itself a "magnet:" URI); with no Selectors match, InfoHash (if
-// set) builds a magnet URI from the extracted hash and title.
+// when that is set) runs first. Then, in Prowlarr's order
+// (CardigannRequestGenerator.DownloadRequest, develop): an InfoHash block,
+// when the definition has one, builds a magnet URI from the extracted hash
+// and title, and Selectors are not consulted at all -- Prowlarr's
+// `if (download.Infohash != null) ... else if (download.Selectors ...)`.
+// Otherwise each Selectors entry is tried in file order (selector strings
+// are themselves templates -- see 1337x's
+// `a[href*="{{ .Config.primarydownloadlink }}"]`); the first non-empty match
+// is resolved against link and fetched (or returned as-is when it is itself
+// a "magnet:" URI). Until gap fix Z6 the selectors were tried first and the
+// infohash only after none matched. Where Prowlarr, on an infohash that does
+// not match, falls through to requesting link itself -- the details page,
+// handed to the download client as if it were a torrent -- this returns the
+// error. An infohash or selector with usebeforeresponse reads the before
+// response instead of link's page (the infohash block's own flag, as
+// Prowlarr reads it, or its hash/title field's).
 //
 // testlinktorrent (default true, Prowlarr's CardigannDefinition default)
 // makes a selector's fetched file prove it is a torrent -- a bencoded
@@ -116,22 +126,30 @@ func (e Engine) Download(ctx context.Context, def *Definition, cfg Config, link 
 			}
 			before.Path = path
 		}
-		d, err := e.runBefore(ctx, def, cfg, tc, headers, &before)
+		d, err := e.runBefore(ctx, def, cfg, tc, headers, &before, pageURL)
 		if err != nil {
 			return nil, err
 		}
 		beforeDoc = d
 	}
 
-	doc, err := loadPage()
-	if err != nil {
-		return nil, err
+	// source is the document a selector with usebeforeresponse reads: the
+	// before response when there was a before request, else link's page.
+	source := func(useBefore bool) (Doc, error) {
+		if useBefore && db.Before != nil {
+			return beforeDoc, nil
+		}
+		return loadPage()
+	}
+
+	if db.InfoHash != nil {
+		return e.buildMagnet(ctx, tc, db.InfoHash, source)
 	}
 
 	for _, sel := range db.Selectors {
-		src := doc
-		if sel.UseBeforeResponse && db.Before != nil {
-			src = beforeDoc
+		src, err := source(sel.UseBeforeResponse)
+		if err != nil {
+			return nil, err
 		}
 		val, ok, err := extractSelectorField(ctx, src, sel, tc)
 		if err != nil {
@@ -157,10 +175,6 @@ func (e Engine) Download(ctx context.Context, def *Definition, cfg Config, link 
 			continue
 		}
 		return io.NopCloser(bytes.NewReader(body)), nil
-	}
-
-	if db.InfoHash != nil {
-		return e.buildMagnet(ctx, tc, db.InfoHash, beforeDoc, doc)
 	}
 	return nil, fmt.Errorf("cardigann: no download selector matched for %q", redactRawURL(link))
 }
@@ -200,11 +214,16 @@ func (e Engine) fetch(ctx context.Context, def *Definition, cfg Config, tc *Temp
 }
 
 // runBefore issues download.before's request and parses its response as
-// HTML, for a later Selectors/InfoHash entry with UseBeforeResponse to
-// read from. Neither bundled definition (1337x, 0dayfiles-api) sets
-// download.before, so this path has no corpus coverage; it is implemented
-// to the same request-building rules as search.go's buildSearchRequest.
-func (e Engine) runBefore(ctx context.Context, def *Definition, cfg Config, tc *TemplateContext, headers map[string][]string, before *BeforeBlock) (Doc, error) {
+// HTML, for a later Selectors/InfoHash entry with UseBeforeResponse to read
+// from. It is Prowlarr's HandleRequest: the path resolved against the site,
+// inputs as the query of a GET (added to any query the path already has) or
+// the form of a POST, download.headers else search.headers, Referer set to
+// the link, and redirects NOT followed -- HandleRequest's HttpRequestBuilder
+// leaves AllowAutoRedirect at its false default, so a before request that
+// answers 302 is read as the 302 it is. Until gap fix Z6 it followed them,
+// and a before path's own query was replaced by its inputs. 23 of the 752
+// bundled definitions set download.before.
+func (e Engine) runBefore(ctx context.Context, def *Definition, cfg Config, tc *TemplateContext, headers map[string][]string, before *BeforeBlock, referer string) (Doc, error) {
 	renderedPath, err := render(before.Path, tc)
 	if err != nil {
 		return Doc{}, err
@@ -233,6 +252,9 @@ func (e Engine) runBefore(ctx context.Context, def *Definition, cfg Config, tc *
 			return Doc{}, fmt.Errorf("cardigann: before url %q: %w", redactRawURL(u), RedactErr(err))
 		}
 		if q := encodeValues(values, tc.enc, before.QuerySeparator); q != "" {
+			if parsed.RawQuery != "" {
+				q = parsed.RawQuery + "&" + q
+			}
 			parsed.RawQuery = q
 		}
 		req, err = http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
@@ -249,8 +271,9 @@ func (e Engine) runBefore(ctx context.Context, def *Definition, cfg Config, tc *
 	if err := renderHeaders(req, headers, tc); err != nil {
 		return Doc{}, err
 	}
+	req.Header.Set("Referer", referer)
 	attachSession(req, cfg.Session)
-	_, body, err := e.do(ctx, req, exchange{def: def, site: cfg.BaseURL, follow: true})
+	_, body, err := e.do(ctx, req, exchange{def: def, site: cfg.BaseURL})
 	if err != nil {
 		return Doc{}, err
 	}
@@ -291,14 +314,18 @@ func extractSelectorField(ctx context.Context, d Doc, sf SelectorField, tc *Temp
 }
 
 // buildMagnet extracts InfoHash's Hash/Title and formats
-// "magnet:?xt=urn:btih:<hash>&dn=<title>" — no announce trackers, since
+// "magnet:?xt=urn:btih:<hash>&dn=<title>" -- no announce trackers, since
 // InfoHashBlock carries none (a difference from the research note's
 // parenthetical "hash+title+trackers"; the schema's actual InfoHashBlock
-// only has Hash/Title/UseBeforeResponse — the schema wins over the note).
-func (e Engine) buildMagnet(ctx context.Context, tc *TemplateContext, ih *InfoHashBlock, beforeDoc, doc Doc) (io.ReadCloser, error) {
-	hashSrc := doc
-	if ih.Hash.UseBeforeResponse {
-		hashSrc = beforeDoc
+// only has Hash/Title/UseBeforeResponse -- the schema wins over the note).
+// source yields the page each half reads: the before response when the
+// block's usebeforeresponse is set -- the level Prowlarr reads, and the one
+// the bundled kinozal-magnet and magnetdownload definitions set -- or the
+// field's own, else link's page.
+func (e Engine) buildMagnet(ctx context.Context, tc *TemplateContext, ih *InfoHashBlock, source func(useBefore bool) (Doc, error)) (io.ReadCloser, error) {
+	hashSrc, err := source(ih.UseBeforeResponse || ih.Hash.UseBeforeResponse)
+	if err != nil {
+		return nil, err
 	}
 	hash, ok, err := extractSelectorField(ctx, hashSrc, ih.Hash, tc)
 	if err != nil {
@@ -308,9 +335,9 @@ func (e Engine) buildMagnet(ctx context.Context, tc *TemplateContext, ih *InfoHa
 		return nil, fmt.Errorf("cardigann: infohash selector %q did not match", ih.Hash.Selector)
 	}
 
-	titleSrc := doc
-	if ih.Title.UseBeforeResponse {
-		titleSrc = beforeDoc
+	titleSrc, err := source(ih.UseBeforeResponse || ih.Title.UseBeforeResponse)
+	if err != nil {
+		return nil, err
 	}
 	title, ok, err := extractSelectorField(ctx, titleSrc, ih.Title, tc)
 	if err != nil {

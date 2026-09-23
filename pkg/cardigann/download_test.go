@@ -157,3 +157,94 @@ func TestEngineDownloadMagnetShortCircuitsBeforeSessionCheck(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "magnet:?xt=urn:btih:ABCDEF0123456789ABCDEF0123456789ABCDEF01", string(body))
 }
+
+// TestEngineDownloadInfoHashComesBeforeSelectors pins Prowlarr's order
+// (CardigannRequestGenerator.DownloadRequest: `if (download.Infohash !=
+// null) ... else if (download.Selectors ...)`): a definition with both
+// builds the magnet from the infohash and never follows a selector's link.
+func TestEngineDownloadInfoHashComesBeforeSelectors(t *testing.T) {
+	var fetchedLink bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/dl/1.torrent" {
+			fetchedLink = true
+			_, _ = w.Write([]byte("d8:announce0:e"))
+			return
+		}
+		_, _ = w.Write([]byte(`<a class="dl" href="/dl/1.torrent">get</a>` +
+			`<div id="hash">ABCDEF0123456789ABCDEF0123456789ABCDEF01</div><div id="name">Some.Release</div>`))
+	}))
+	defer srv.Close()
+
+	def := &cardigann.Definition{
+		Links: []string{srv.URL + "/"},
+		Download: &cardigann.DownloadBlock{
+			Selectors: []cardigann.SelectorField{{Selector: "a.dl", Attribute: "href"}},
+			InfoHash: &cardigann.InfoHashBlock{
+				Hash:  cardigann.SelectorField{Selector: "#hash"},
+				Title: cardigann.SelectorField{Selector: "#name"},
+			},
+		},
+	}
+	cfg, err := cardigann.NewConfig(def, srv.URL+"/", nil)
+	require.NoError(t, err)
+	rc, err := cardigann.Engine{HTTP: srv.Client()}.Download(context.Background(), def, cfg, "/details/1")
+	require.NoError(t, err)
+	body, err := io.ReadAll(rc)
+	require.NoError(t, err)
+	assert.Equal(t, "magnet:?xt=urn:btih:ABCDEF0123456789ABCDEF0123456789ABCDEF01&dn=Some.Release", string(body))
+	assert.False(t, fetchedLink, "the selector is not consulted when the definition has an infohash")
+}
+
+// TestEngineDownloadBeforeIsNotFollowedAndFeedsTheInfoHash covers
+// download.before as Prowlarr's HandleRequest sends it -- no redirect
+// following, Referer set to the link, the path's own query kept beside the
+// inputs -- and the infohash block's own usebeforeresponse (the level the
+// bundled kinozal-magnet and magnetdownload set), which reads the before
+// response rather than the details page.
+func TestEngineDownloadBeforeIsNotFollowedAndFeedsTheInfoHash(t *testing.T) {
+	var beforeQuery, beforeReferer string
+	var followed bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/get_srv_details.php":
+			beforeQuery, beforeReferer = r.URL.RawQuery, r.Header.Get("Referer")
+			w.Header().Set("Location", "/elsewhere")
+			w.WriteHeader(http.StatusFound)
+			_, _ = w.Write([]byte(`<ul><li>0123456789ABCDEF0123456789ABCDEF01234567</li></ul>`))
+		case "/elsewhere":
+			followed = true
+			_, _ = w.Write([]byte(`<ul><li>FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF</li></ul>`))
+		default:
+			_, _ = w.Write([]byte(`<ul><li>EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE</li></ul><h1>Title.On.Page</h1>`))
+		}
+	}))
+	defer srv.Close()
+
+	def := &cardigann.Definition{
+		Links: []string{srv.URL + "/"},
+		Download: &cardigann.DownloadBlock{
+			Before: &cardigann.BeforeBlock{
+				Path:   "get_srv_details.php?action=2",
+				Inputs: map[string]cardigann.Scalar{"id": "{{ .DownloadUri.Query.id }}"},
+			},
+			InfoHash: &cardigann.InfoHashBlock{
+				UseBeforeResponse: true,
+				Hash:              cardigann.SelectorField{Selector: "li:first-child"},
+				Title:             cardigann.SelectorField{Selector: "h1"},
+			},
+		},
+	}
+	cfg, err := cardigann.NewConfig(def, srv.URL+"/", nil)
+	require.NoError(t, err)
+	rc, err := cardigann.Engine{HTTP: srv.Client()}.Download(context.Background(), def, cfg, "/details.php?id=42")
+	require.NoError(t, err)
+	body, err := io.ReadAll(rc)
+	require.NoError(t, err)
+
+	assert.False(t, followed, "download.before does not follow a redirect")
+	assert.Equal(t, "action=2&id=42", beforeQuery, "the path's own query is kept beside the inputs")
+	assert.Equal(t, srv.URL+"/details.php?id=42", beforeReferer)
+	// The block-level flag sends both halves to the before response, which
+	// has no h1: a magnet with no dn, from the before response's hash.
+	assert.Equal(t, "magnet:?xt=urn:btih:0123456789ABCDEF0123456789ABCDEF01234567", string(body))
+}
