@@ -50,7 +50,7 @@ func Next(stored *batchv1.Job, dispatched int32, drift Drift) (Desired, Action) 
 		}
 		return Desired{Parallelism: dispatched}, ActionApply
 	}
-	if failed(stored) {
+	if Failed(stored) {
 		return Desired{}, ActionDelete
 	}
 	par := ptr.Deref(stored.Spec.Parallelism, 1)
@@ -83,7 +83,10 @@ func Next(stored *batchv1.Job, dispatched int32, drift Drift) (Desired, Action) 
 	}
 }
 
-func failed(j *batchv1.Job) bool {
+// Failed reports whether the Job controller has given up on a pool Job
+// (Failed=True: backoffLimit spent on worker-level failures, or a
+// FailJob rule). Such a pool is deleted and recreated (spec §7).
+func Failed(j *batchv1.Job) bool {
 	for _, c := range j.Status.Conditions {
 		if c.Type == batchv1.JobFailed && c.Status == corev1.ConditionTrue {
 			return true

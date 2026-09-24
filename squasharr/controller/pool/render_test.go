@@ -149,3 +149,15 @@ func TestRenderKeepsTheAppliedTemplateWhileRunning(t *testing.T) {
 	assert.Equal(t, first.Spec.Template.Spec.Containers[0].Resources, next.Spec.Template.Spec.Containers[0].Resources)
 	assert.Equal(t, int32(2), *next.Spec.Parallelism)
 }
+
+// A pool Job that lost its applied-template annotation cannot be rendered:
+// there is no template to re-send. The refusal is the ErrNoAppliedSpec
+// sentinel, which the reconciler recreates the pool on (ruling R15).
+func TestRenderRefusesAPoolWithoutItsAppliedSpec(t *testing.T) {
+	k := Key{Profile: "p", ProfileUID: "u", Class: "cpu"}
+	stored := rendered(t, k, profile(), Desired{Parallelism: 1}, nil)
+	delete(stored.Annotations, AnnotationAppliedTemplate)
+	_, err := Render(k, profile(), Want(profile(), k.Class, cfg), Desired{Parallelism: 1, Suspend: true}, &stored, cfg)
+	require.ErrorIs(t, err, ErrNoAppliedSpec)
+	assert.Contains(t, err.Error(), stored.Name)
+}

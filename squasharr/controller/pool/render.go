@@ -164,7 +164,7 @@ func Render(k Key, tp *transcodev1alpha1.TranscodeProfile, want Spec, d Desired,
 	if stored != nil {
 		prev, ok := applied(stored)
 		if !ok {
-			return nil, fmt.Errorf("pool %s: no applied spec to keep", stored.Name)
+			return nil, fmt.Errorf("pool %s: %w", stored.Name, ErrNoAppliedSpec)
 		}
 		spec.Constraint = prev.Constraint
 		if !Mutable(stored) {

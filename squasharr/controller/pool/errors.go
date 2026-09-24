@@ -18,10 +18,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package pool
 
 import (
+	"errors"
 	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
+
+// ErrNoAppliedSpec is [Render] refusing a stored pool Job that has lost its
+// applied-template annotation (an operator's edit): a Job that is not
+// [Mutable] must be re-sent the template it was applied with, and there is
+// none to send. The reconciler recreates such a pool (ruling R15).
+var ErrNoAppliedSpec = errors.New("no applied spec to keep")
 
 // IsSchedulingImmutable reports the apiserver refusing to add
 // .spec.scheduling to a Job created before WorkloadWithJob was enabled
