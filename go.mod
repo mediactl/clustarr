@@ -13,9 +13,11 @@ require (
 	github.com/bodgit/sevenzip v1.6.5
 	github.com/cyruzin/golang-tmdb v1.9.4
 	github.com/dlclark/regexp2 v1.12.0
+	github.com/fergusstrange/embedded-postgres v1.34.0
 	github.com/go-logr/logr v1.4.4
 	github.com/goccy/go-yaml v1.19.2
 	github.com/hashicorp/golang-lru/v2 v2.0.7
+	github.com/jackc/pgx/v5 v5.11.0
 	github.com/javi11/nzbparser v0.5.5
 	github.com/javi11/rapidyenc v0.0.0-20260215144528-f0dac5a39d34
 	github.com/jonboulle/clockwork v0.5.0
@@ -37,6 +39,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.46.0
 	go.uploadedlobster.com/mbtypes v0.4.0
 	go.uploadedlobster.com/musicbrainzws2 v0.19.0
+	golang.org/x/image v0.46.0
 	golang.org/x/net v0.59.0
 	golang.org/x/text v0.42.0
 	golang.org/x/time v0.16.0
@@ -120,9 +123,13 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	github.com/huandu/xstrings v1.5.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.20.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.3 // indirect
+	github.com/lib/pq v1.10.9 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/minio/highwayhash v1.0.4 // indirect
 	github.com/minio/sha256-simd v1.0.0 // indirect
@@ -172,6 +179,7 @@ require (
 	github.com/ulikunitz/xz v0.5.15 // indirect
 	github.com/wlynxg/anet v0.0.3 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
+	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect
 	go.etcd.io/bbolt v1.5.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.46.0 // indirect

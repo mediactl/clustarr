@@ -62,3 +62,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // then, because the rule at the top of this comment is "the moment a real
 // importer lands".
 package deps
+
+// M7 (plan docs/superpowers/plans/2026-09-24-index-artwork-ratings-plex.md)
+// pre-adds three modules in W0-1; each entry is retired by the task that
+// imports it for real: pgx/v5 by A1 (pkg/relindex's Postgres store),
+// embedded-postgres by A1 (its test) and x/image by C2 (pkg/overlay).
+import (
+	_ "github.com/fergusstrange/embedded-postgres"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	_ "golang.org/x/image/draw"
+)
