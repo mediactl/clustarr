@@ -178,12 +178,25 @@ func (o *objectHandle) Put(ctx context.Context, name string, r io.Reader,
 	return objectInfoOf(o.name, info)
 }
 
-// Delete removes name. Unlike KV's Delete, a missing object is
-// ErrObjectNotFound, matching jetstream.ObjectStore.Delete.
+// Delete removes name. An absent object -- never written, or already
+// deleted -- is ErrObjectNotFound.
+//
+// jetstream.ObjectStore.Delete does not itself enforce that: it treats an
+// object that is already deleted (a soft-delete tombstone still on record)
+// as an idempotent no-op and returns nil, reserving ErrObjectNotFound for a
+// name that was never Put at all (verified against a real embedded server).
+// The events.ObjectStore contract wants ErrObjectNotFound for both, matching
+// membus, which has no tombstone to distinguish them. GetInfo hides deleted
+// objects exactly like Get does, so checking visibility first turns both
+// "never written" and "already deleted" into ErrObjectNotFound before
+// Delete's own, looser, idempotent-no-op behaviour ever runs.
 func (o *objectHandle) Delete(ctx context.Context, name string) error {
 	store, err := o.resolve(ctx)
 	if err != nil {
 		return err
+	}
+	if _, err := store.GetInfo(ctx, name); err != nil {
+		return objectError("delete", o.name, name, err)
 	}
 	if err := store.Delete(ctx, name); err != nil {
 		return objectError("delete", o.name, name, err)

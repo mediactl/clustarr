@@ -1425,37 +1425,44 @@ func testObjectStoreInfoMissing(t *testing.T, newBus func() events.Bus) {
 	}
 }
 
-// testObjectStoreDeleteThenGet proves a deleted object is gone from both Get
-// and Info, and that deleting an object that was never written at all is
-// ErrObjectNotFound, not a silent no-op.
+// testObjectStoreDeleteThenGet proves the full Delete contract on both
+// buses: a name that was never written is ErrObjectNotFound; deleting an
+// object that exists succeeds; deleting it again is ErrObjectNotFound, not
+// a silent no-op; and Get afterward is ErrObjectNotFound.
 //
-// A second Delete of the SAME now-deleted object is deliberately not
-// asserted here: on a real server jetstream.ObjectStore.Delete treats an
-// already-deleted object (a soft-delete tombstone still on record) as
-// idempotent and returns nil, reserving ErrObjectNotFound for a name that
-// was never Put at all -- verified against the embedded server, not assumed.
-// membus has no tombstone and returns ErrObjectNotFound for both cases; the
-// two buses agree on every case this suite actually asserts.
+// The second-Delete case is the one a real server does not give for free:
+// jetstream.ObjectStore.Delete treats an already-deleted object (a
+// soft-delete tombstone still on record) as idempotent and returns nil on
+// its own, reserving ErrObjectNotFound for a name that was never Put at all
+// (verified against the embedded server, not assumed). natsbus checks
+// GetInfo -- which hides deleted objects exactly like Get does -- before
+// calling Delete, so both "never written" and "already deleted" surface as
+// ErrObjectNotFound the same way membus's map-delete does. Both buses must
+// agree here: a caller (the reaper, spec §B.5) that deletes an object twice
+// because two replicas raced must see the same error either way.
 func testObjectStoreDeleteThenGet(t *testing.T, newBus func() events.Bus) {
 	ctx, bus := setup(t, newBus)
 	store := bus.ObjectStore(events.BucketArtwork)
 	name := "movie/uid-3/poster/original"
 	neverWritten := "movie/uid-3/poster/never-written"
 
+	if err := store.Delete(ctx, neverWritten); !errors.Is(err, events.ErrObjectNotFound) {
+		t.Fatalf("Delete of a name never written error = %v, want ErrObjectNotFound", err)
+	}
 	if _, err := store.Put(ctx, name, bytes.NewReader([]byte("v1")), nil); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 	if err := store.Delete(ctx, name); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
+	if err := store.Delete(ctx, name); !errors.Is(err, events.ErrObjectNotFound) {
+		t.Fatalf("second Delete error = %v, want ErrObjectNotFound", err)
+	}
 	if _, _, err := store.Get(ctx, name); !errors.Is(err, events.ErrObjectNotFound) {
 		t.Fatalf("Get after Delete error = %v, want ErrObjectNotFound", err)
 	}
 	if _, err := store.Info(ctx, name); !errors.Is(err, events.ErrObjectNotFound) {
 		t.Fatalf("Info after Delete error = %v, want ErrObjectNotFound", err)
-	}
-	if err := store.Delete(ctx, neverWritten); !errors.Is(err, events.ErrObjectNotFound) {
-		t.Fatalf("Delete of a name never written error = %v, want ErrObjectNotFound", err)
 	}
 }
 

@@ -332,7 +332,9 @@ type ObjectStore interface {
 	// the stored object's info.
 	Put(ctx context.Context, name string, r io.Reader, headers map[string]string) (ObjectInfo, error)
 
-	// Delete removes name. Deleting an absent object is not an error.
+	// Delete removes name. An object that is absent -- never written, or
+	// already deleted -- is ErrObjectNotFound; deleting an absent object is
+	// not the no-op it is for KV.
 	Delete(ctx context.Context, name string) error
 
 	// Info returns name's current metadata without its content. A missing
