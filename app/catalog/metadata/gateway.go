@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/metadata/artwork"
 	"github.com/mediactl/clustarr/pkg/events"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 )
@@ -51,11 +52,18 @@ import (
 // Options configures Setup. Client and Bus are required; everything else
 // defaults.
 type Options struct {
-	Client     client.Client
+	Client client.Client
+	// Reader is the uncached reader the artwork pass re-reads an item
+	// through before its apply (mgr.GetAPIReader()). Nil uses Client.
+	Reader     client.Reader
 	Bus        events.Bus
 	HTTPClient *http.Client
 	L1Size     int
 	Clock      clockwork.Clock
+	// Artwork fetches artwork originals after each metadata fetch (spec
+	// §B.4). Nil fetches none -- status.artwork is still re-declared on
+	// every apply, never omitted.
+	Artwork *artwork.Fetcher
 }
 
 // Setup builds the metadata gateway (the Registry from every enabled
@@ -100,7 +108,10 @@ func Setup(ctx context.Context, o Options) (stop func(), err error) {
 	if !ok {
 		return nil, fmt.Errorf("metadata: consumer %q missing from the default topology", events.ConsumerCatalogMetadata)
 	}
-	h := &Handler{Client: o.Client, Registry: reg, Cache: cache}
+	h := &Handler{
+		Client: o.Client, Reader: o.Reader, Registry: reg, Cache: cache,
+		Artwork: o.Artwork, Bus: o.Bus,
+	}
 	stopSub, err := o.Bus.Subscribe(ctx, spec.Subscription(), h.Handle)
 	if err != nil {
 		return nil, fmt.Errorf("metadata: subscribe: %w", err)

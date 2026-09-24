@@ -28,8 +28,10 @@ package catalogarr
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -54,6 +56,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/wantedcron"
 	"github.com/mediactl/clustarr/app/catalog/history"
 	catalogmetadata "github.com/mediactl/clustarr/app/catalog/metadata"
+	"github.com/mediactl/clustarr/app/catalog/metadata/artwork"
 	"github.com/mediactl/clustarr/app/catalog/worker/grab"
 	"github.com/mediactl/clustarr/app/catalog/worker/redownload"
 	"github.com/mediactl/clustarr/app/catalog/worker/rssmatcher"
@@ -693,7 +696,10 @@ func buildQueueWorkers(mgr ctrl.Manager, bus events.Bus, o Options) (queueWorker
 
 // setupMetadataGateway registers RoleMetadata's gateway: every outbound
 // metadata client, their rate limiters and the two cache tiers, serving
-// rpc.catalogarr.metadata.* and the work.catalogarr.metadata.<tier> consumer.
+// rpc.catalogarr.metadata.* and the work.catalogarr.metadata.<tier> consumer;
+// and the artwork store's gateway half (spec §B.3-§B.7) -- the Fetcher that
+// both the metadata consumer and the catalogarr-artwork-fetch consumer store
+// originals through, that consumer itself, and the orphan reaper.
 //
 // It is a Runnable rather than a direct call because catalogmetadata.Setup
 // Lists MetadataProviders through the manager's client: called before
@@ -710,12 +716,25 @@ func buildQueueWorkers(mgr ctrl.Manager, bus events.Bus, o Options) (queueWorker
 // which does not elect, and controller-runtime treats a non-electing process
 // as elected -- so the gateway did start there. The exposure is a role that
 // elects and also serves metadata: one replica would serve, the rest idle.
+//
+// The one replica is also what makes artwork.Fetcher.Lock -- an in-process
+// lock -- enough to serialise the two artwork consumers per item. The
+// reaper, unlike both consumers, IS behind the lease (§B.5): one sweeper
+// per cluster, and under --role metadata the process counts as elected.
 func setupMetadataGateway(mgr ctrl.Manager, bus events.Bus) error {
+	fetcher := &artwork.Fetcher{
+		Store:    bus.ObjectStore(events.BucketArtwork),
+		HTTP:     artworkHTTPClient,
+		Limiter:  artwork.NewHostLimiters(artworkHostRate, artworkHostBurst),
+		Recorder: mgr.GetEventRecorder("metadata-gateway"),
+	}
 	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		stop, err := catalogmetadata.Setup(ctx, catalogmetadata.Options{
 			Client:     mgr.GetClient(),
+			Reader:     mgr.GetAPIReader(),
 			Bus:        bus,
 			HTTPClient: defaultHTTPClient,
+			Artwork:    fetcher,
 		})
 		if err != nil {
 			return fmt.Errorf("catalogarr: metadata gateway: %w", err)
@@ -726,5 +745,47 @@ func setupMetadataGateway(mgr ctrl.Manager, bus events.Bus) error {
 	})); err != nil {
 		return fmt.Errorf("catalogarr: add the metadata gateway: %w", err)
 	}
+
+	// The ImportArtwork durable (spec §B.7): a reconciler saw spec.artwork
+	// drift from status.artwork. Same Fetcher, so the same per-item lock.
+	spec, ok := events.Default().Consumer(events.ConsumerCatalogArtworkFetch)
+	if !ok {
+		return fmt.Errorf("catalogarr: consumer %q missing from the default topology", events.ConsumerCatalogArtworkFetch)
+	}
+	fetch := &artwork.Handler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Bus: bus, Fetcher: fetcher}
+	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
+		stop, err := bus.Subscribe(ctx, spec.Subscription(), fetch.Handle)
+		if err != nil {
+			return fmt.Errorf("catalogarr: subscribe %s: %w", events.ConsumerCatalogArtworkFetch, err)
+		}
+		defer stop()
+		<-ctx.Done()
+		return nil
+	})); err != nil {
+		return fmt.Errorf("catalogarr: add the artwork fetch consumer: %w", err)
+	}
+
+	if err := mgr.Add(&artwork.Reaper{
+		Store:  bus.ObjectStore(events.BucketArtwork),
+		Client: mgr.GetAPIReader(),
+	}); err != nil {
+		return fmt.Errorf("catalogarr: add the artwork reaper: %w", err)
+	}
 	return nil
 }
+
+// artworkHTTPClient fetches artwork originals. It is not defaultHTTPClient:
+// an image of up to artwork.MaxImageBytes from a CDN is a longer transfer
+// than a metadata API call, and a stuck one must not hold a gateway handler
+// (and the item's artwork lock) past this timeout.
+var artworkHTTPClient = &http.Client{Timeout: 60 * time.Second}
+
+// Each image host gets its own token bucket. Image CDNs are not the metadata
+// APIs whose MetadataProvider limits the registry applies, and a custom
+// spec.artwork URL may name any host; four a second with a burst of four is
+// polite to a CDN and still fetches an item's nine types in about two
+// seconds.
+const (
+	artworkHostRate  = 4
+	artworkHostBurst = 4
+)

@@ -19,6 +19,7 @@ package metadata
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -29,6 +30,7 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/metadata/artwork"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -38,13 +40,29 @@ import (
 
 // Handler is the clustarr.work.catalogarr.metadata.<tier>.<mediaKey>
 // consumer: the only place that reads a MetadataTask, calls a provider
-// through the Registry, and patches status.metadata back -- and ONLY
-// status.metadata (§3's single-writer rule; §8.1).
+// through the Registry, and patches status.metadata back -- together with
+// status.artwork, which the same manager owns (spec §B.6), in the same
+// apply and nothing else (§3's single-writer rule; §8.1).
 type Handler struct {
-	Client   client.Client
+	Client client.Client
+
+	// Reader re-reads the item, uncached, for the artwork pass that follows
+	// every successful fetch (artwork.Pass.Reader). Nil uses Client.
+	Reader client.Reader
+
 	Registry *pkgmetadata.Registry
 	Cache    pkgmetadata.Cache
-	Now      func() time.Time // nil = time.Now
+
+	// Artwork fetches the item's artwork originals after the metadata
+	// fetch (spec §B.4). Nil fetches none; status.artwork is then
+	// re-declared as it stands, never omitted.
+	Artwork *artwork.Fetcher
+
+	// Bus receives the RenderOverlay task a changed poster triggers. Nil
+	// publishes none.
+	Bus events.Publisher
+
+	Now func() time.Time // nil = time.Now
 }
 
 // Handle implements events.Handler.
@@ -72,6 +90,11 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 
 	ctx, span := tracing.Start(ctx, "metadata.Handler.Handle")
 	defer span.End()
+	// A provider fetch plus up to nine image fetches can outlast the
+	// consumer's first BackOff step, which replaces AckWait as the
+	// redelivery timer.
+	stopHeartbeat := artwork.KeepAlive(ctx, m, artwork.HeartbeatInterval)
+	defer stopHeartbeat()
 
 	if err := h.Client.Get(ctx, key, target); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -174,17 +197,34 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		result = v
 	}
 
-	var ac k8s.ApplyConfiguration
-	var ttl time.Duration
+	// Each kind renders its status.metadata once, from the provider
+	// document; the images the artwork pass resolves against are the very
+	// list that status.metadata.images will hold. build is the gateway's
+	// whole declaration -- status.metadata AND status.artwork in one apply
+	// (app/catalog/status.GatewayFields) -- because server-side apply
+	// releases whatever a manager's apply omits.
+	var (
+		ttl    time.Duration
+		images []catalogv1alpha1.Image
+		build  artwork.BuildFunc
+	)
 	switch v := result.(type) {
 	case *pkgmetadata.Movie:
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindMovie, movieRefreshState(v, now()), refreshedAt(target))
-		ac = catalogac.Movie(key.Name, key.Namespace).WithStatus(
-			catalogac.MovieStatus().WithMetadata(buildMovieMetadataAC(v, now())))
+		md := buildMovieMetadataAC(v, now())
+		images = imagesOf(md.Images)
+		build = func(_ client.Object, art []*catalogac.ArtworkEntryApplyConfiguration) (k8s.ApplyConfiguration, error) {
+			return catalogac.Movie(key.Name, key.Namespace).WithStatus(
+				catalogac.MovieStatus().WithMetadata(md).WithArtwork(art...)), nil
+		}
 	case *pkgmetadata.Series:
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindSeries, seriesRefreshState(v, now()), refreshedAt(target))
-		ac = catalogac.Series(key.Name, key.Namespace).WithStatus(
-			catalogac.SeriesStatus().WithMetadata(buildSeriesMetadataAC(v, now())))
+		md := buildSeriesMetadataAC(v, now())
+		images = imagesOf(md.Images)
+		build = func(_ client.Object, art []*catalogac.ArtworkEntryApplyConfiguration) (k8s.ApplyConfiguration, error) {
+			return catalogac.Series(key.Name, key.Namespace).WithStatus(
+				catalogac.SeriesStatus().WithMetadata(md).WithArtwork(art...)), nil
+		}
 	case *pkgmetadata.Artist:
 		// RefreshTTL's MediaKindArtist/MediaKindAlbum branch is a flat 7-day
 		// cadence regardless of state (pkg/metadata/refresh.go); Active is
@@ -192,30 +232,54 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		// RefreshStateCrosswalk) RefreshTTL special-cases ahead of its
 		// per-kind switch, not because it carries meaning for this kind.
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindArtist, pkgmetadata.RefreshStateActive, refreshedAt(target))
-		ac = catalogac.Artist(key.Name, key.Namespace).WithStatus(
-			catalogac.ArtistStatus().WithMetadata(buildArtistMetadataAC(v, now())))
+		md := buildArtistMetadataAC(v, now())
+		images = imagesOf(md.Images)
+		build = func(_ client.Object, art []*catalogac.ArtworkEntryApplyConfiguration) (k8s.ApplyConfiguration, error) {
+			return catalogac.Artist(key.Name, key.Namespace).WithStatus(
+				catalogac.ArtistStatus().WithMetadata(md).WithArtwork(art...)), nil
+		}
 	case *pkgmetadata.Album:
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindAlbum, pkgmetadata.RefreshStateActive, refreshedAt(target))
-		ac = catalogac.Album(key.Name, key.Namespace).WithStatus(
-			catalogac.AlbumStatus().WithMetadata(buildAlbumMetadataAC(v, now())))
+		md := buildAlbumMetadataAC(v, now())
+		images = imagesOf(md.Images)
+		build = func(_ client.Object, art []*catalogac.ArtworkEntryApplyConfiguration) (k8s.ApplyConfiguration, error) {
+			return catalogac.Album(key.Name, key.Namespace).WithStatus(
+				catalogac.AlbumStatus().WithMetadata(md).WithArtwork(art...)), nil
+		}
 	case *pkgmetadata.Author:
 		// MediaKindAuthor/Book/Audiobook are likewise a flat 30-day cadence
 		// regardless of state; see the Artist/Album comment above.
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindAuthor, pkgmetadata.RefreshStateActive, refreshedAt(target))
-		ac = catalogac.Author(key.Name, key.Namespace).WithStatus(
-			catalogac.AuthorStatus().WithMetadata(buildAuthorMetadataAC(v, now())))
+		md := buildAuthorMetadataAC(v, now())
+		images = imagesOf(md.Images)
+		build = func(_ client.Object, art []*catalogac.ArtworkEntryApplyConfiguration) (k8s.ApplyConfiguration, error) {
+			return catalogac.Author(key.Name, key.Namespace).WithStatus(
+				catalogac.AuthorStatus().WithMetadata(md).WithArtwork(art...)), nil
+		}
 	case *pkgmetadata.Book:
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindBook, pkgmetadata.RefreshStateActive, refreshedAt(target))
-		ac = catalogac.Book(key.Name, key.Namespace).WithStatus(
-			catalogac.BookStatus().WithMetadata(buildBookMetadataAC(v, now())))
+		md := buildBookMetadataAC(v, now())
+		images = imagesOf(md.Images)
+		build = func(_ client.Object, art []*catalogac.ArtworkEntryApplyConfiguration) (k8s.ApplyConfiguration, error) {
+			return catalogac.Book(key.Name, key.Namespace).WithStatus(
+				catalogac.BookStatus().WithMetadata(md).WithArtwork(art...)), nil
+		}
 	case *pkgmetadata.Audiobook:
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindAudiobook, pkgmetadata.RefreshStateActive, refreshedAt(target))
-		ac = catalogac.Audiobook(key.Name, key.Namespace).WithStatus(
-			catalogac.AudiobookStatus().WithMetadata(buildAudiobookMetadataAC(v, now())))
+		md := buildAudiobookMetadataAC(v, now())
+		images = imagesOf(md.Images)
+		build = func(_ client.Object, art []*catalogac.ArtworkEntryApplyConfiguration) (k8s.ApplyConfiguration, error) {
+			return catalogac.Audiobook(key.Name, key.Namespace).WithStatus(
+				catalogac.AudiobookStatus().WithMetadata(md).WithArtwork(art...)), nil
+		}
 	case *pkgmetadata.ComicVolume:
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindComic, comicRefreshState(v), refreshedAt(target))
-		ac = catalogac.Comic(key.Name, key.Namespace).WithStatus(
-			catalogac.ComicStatus().WithMetadata(buildComicMetadataAC(v, now())))
+		md := buildComicMetadataAC(v, now())
+		images = imagesOf(md.Images)
+		build = func(_ client.Object, art []*catalogac.ArtworkEntryApplyConfiguration) (k8s.ApplyConfiguration, error) {
+			return catalogac.Comic(key.Name, key.Namespace).WithStatus(
+				catalogac.ComicStatus().WithMetadata(md).WithArtwork(art...)), nil
+		}
 	default:
 		return events.Discard("registry returned an unexpected type", fmt.Errorf("%T", result))
 	}
@@ -229,16 +293,39 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	}
 
 	// k8s.ManagerCatalogarrMetadata, not ManagerCatalogarrWorker: this apply
-	// carries status.metadata and nothing else, and server-side apply
-	// releases every field its manager owns and this apply omits. While the
-	// gateway and the grab path shared catalogarr-worker, each refresh
-	// deleted the grab path's status.activeDownloadRef and
+	// carries status.metadata and status.artwork and nothing else, and
+	// server-side apply releases every field its manager owns and this apply
+	// omits. While the gateway and the grab path shared catalogarr-worker,
+	// each refresh deleted the grab path's status.activeDownloadRef and
 	// status.pendingGrab -- taking a delayed item out of Phase=Delayed back
 	// to Wanted, where the wanted cron re-searched an item that already had a
 	// grab scheduled -- and each grab deleted the metadata written here.
-	if _, err := k8s.PatchStatus(ctx, h.Client, k8s.ManagerCatalogarrMetadata, ac); err != nil {
+	//
+	// The artwork pass fetches the originals first (slow work), re-reads the
+	// item uncached and applies once; a failed image fetch keeps its
+	// previous entry (R3), so a refresh never empties status.artwork.
+	pass := artwork.Pass{Client: h.Client, Reader: h.Reader, Bus: h.Bus, Fetcher: h.Artwork}
+	if err := pass.Run(ctx, key, task.MediaRef.Kind, images, build); err != nil {
+		if errors.Is(err, artwork.ErrItemGone) {
+			return events.Discard("target object no longer exists", err)
+		}
 		tracing.RecordError(span, err)
-		return fmt.Errorf("metadata: patch status.metadata: %w", err)
+		return fmt.Errorf("metadata: patch status.metadata and status.artwork: %w", err)
 	}
 	return nil
+}
+
+// imagesOf reads a rendered status.metadata.images back as API values, the
+// list the artwork pass resolves provider sources from. It is never nil --
+// an empty list means "the provider published no images", which
+// artwork.Pass must not mistake for "use the item's stored images".
+func imagesOf(acs []catalogac.ImageApplyConfiguration) []catalogv1alpha1.Image {
+	out := make([]catalogv1alpha1.Image, 0, len(acs))
+	for _, img := range acs {
+		if img.Type == nil || img.URL == nil {
+			continue
+		}
+		out = append(out, catalogv1alpha1.Image{Type: *img.Type, URL: *img.URL})
+	}
+	return out
 }
