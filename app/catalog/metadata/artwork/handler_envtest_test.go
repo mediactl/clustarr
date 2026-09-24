@@ -24,6 +24,7 @@ import (
 	"image/color"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -112,7 +113,7 @@ func TestArtworkTaskReDeclaresOnlyWhatTheGatewayOwns(t *testing.T) {
 	brokenURL := srv.serveStatus("/broken.png", 500)
 	rec := k8sevents.NewFakeRecorder(16)
 	h := &artwork.Handler{
-		Client: c, Bus: bus,
+		Client: c, Reader: c, Bus: bus,
 		Fetcher: &artwork.Fetcher{Store: store, HTTP: srv.Client(), Recorder: rec},
 	}
 
@@ -233,7 +234,7 @@ func TestArtworkTaskDiscards(t *testing.T) {
 	c := newEnvtestClient(t)
 	bus := membus.New(nil)
 	require.NoError(t, bus.Ensure(ctx, events.Default()))
-	h := &artwork.Handler{Client: c, Bus: bus, Fetcher: &artwork.Fetcher{Store: bus.ObjectStore(events.BucketArtwork)}}
+	h := &artwork.Handler{Client: c, Reader: c, Bus: bus, Fetcher: &artwork.Fetcher{Store: bus.ObjectStore(events.BucketArtwork)}}
 
 	var discard *events.DiscardError
 	err := h.Handle(ctx, fetchTask(t, commonv1.MediaKindEpisode, "tv", "s01e01"))
@@ -290,4 +291,208 @@ func TestReaperAgainstARealAPIServer(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 2, deleted)
 	assert.ElementsMatch(t, keep, fx.names(t))
+}
+
+// renderCollector records every RenderOverlay task delivered on a bus.
+type renderCollector struct {
+	mu   sync.Mutex
+	envs []*events.Envelope
+}
+
+func collectRenders(t *testing.T, ctx context.Context, bus events.Bus) *renderCollector {
+	t.Helper()
+	c := &renderCollector{}
+	stop, err := bus.Subscribe(ctx, events.Subscription{
+		Stream: events.StreamWorkCatalogarr, Durable: "test-render-collector",
+		Filters: []string{events.FilterCatalogArtworkRender},
+	}, func(_ context.Context, m events.Message) error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.envs = append(c.envs, m.Envelope())
+		return nil
+	})
+	require.NoError(t, err)
+	t.Cleanup(stop)
+	return c
+}
+
+func (c *renderCollector) all() []*events.Envelope {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]*events.Envelope(nil), c.envs...)
+}
+
+// settled waits for want deliveries, then a little longer, so a test that
+// asserts "exactly want" is not fooled by one still in flight.
+func (c *renderCollector) settled(t *testing.T, want int) []*events.Envelope {
+	t.Helper()
+	require.Eventually(t, func() bool { return len(c.all()) >= want }, 2*time.Second, 5*time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
+	return c.all()
+}
+
+func assertRender(t *testing.T, env *events.Envelope, uid types.UID, digest string) {
+	t.Helper()
+	assert.Equal(t, schema.MsgIDForRenderOverlay(uid, digest), env.ID)
+	var task schema.RenderOverlayTask
+	require.NoError(t, schema.Decode(env.Schema, env.Data, &task))
+	assert.Equal(t, "original", task.Reason)
+	assert.Equal(t, commonv1.MediaKindMovie, task.MediaRef.Kind)
+}
+
+// flakyPublisher fails the first render publish it sees, standing in for a
+// broker blip -- or a pod death -- after the apply landed.
+type flakyPublisher struct {
+	events.Publisher
+	failed atomic.Bool
+}
+
+func (p *flakyPublisher) Publish(ctx context.Context, subject string, e *events.Envelope, opts ...events.PublishOption) (events.Receipt, error) {
+	if strings.HasPrefix(subject, "clustarr.work.catalogarr.artwork.render.") && p.failed.CompareAndSwap(false, true) {
+		return events.Receipt{}, errors.New("nats: timeout")
+	}
+	return p.Publisher.Publish(ctx, subject, e, opts...)
+}
+
+// seedMovie creates a Movie whose gateway status already records a stored
+// provider poster, and returns it.
+func seedMovie(t *testing.T, ctx context.Context, c client.Client, store events.ObjectStore, ns, posterURL string, body []byte) *catalogv1alpha1.Movie {
+	t.Helper()
+	require.NoError(t, c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}))
+	m := &catalogv1alpha1.Movie{
+		ObjectMeta: metav1.ObjectMeta{Name: "heat", Namespace: ns},
+		Spec:       catalogv1alpha1.MovieSpec{TmdbID: 949, QualityProfileRef: "q", RootFolderRef: "r"},
+	}
+	require.NoError(t, c.Create(ctx, m))
+	info, err := store.Put(ctx, events.ArtworkKey(commonv1.MediaKindMovie, m.UID, "poster", events.ArtworkVariantOriginal),
+		bytes.NewReader(body), map[string]string{"Content-Type": "image/png", "Clustarr-Source": "provider", "Clustarr-Source-URL": posterURL})
+	require.NoError(t, err)
+	at := metav1.NewTime(time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC))
+	_, err = k8s.PatchStatus(ctx, c, catalogstatus.GatewayManager, catalogac.Movie(m.Name, ns).WithStatus(catalogac.MovieStatus().
+		WithMetadata(catalogac.MovieMetadata().WithTitle("Heat").WithRefreshedAt(at).
+			WithImages(catalogac.Image().WithType(catalogv1alpha1.ImageTypePoster).WithURL(posterURL))).
+		WithArtwork(catalogstatus.ArtworkEntries([]catalogv1alpha1.ArtworkEntry{{
+			Type: catalogv1alpha1.ImageTypePoster, Source: catalogv1alpha1.ArtworkSourceProvider, SourceURL: posterURL,
+			Digest: info.Digest, SizeBytes: info.Size, UpdatedAt: at,
+		}})...)))
+	require.NoError(t, err)
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(m), m))
+	return m
+}
+
+func setMovieOverride(t *testing.T, ctx context.Context, c client.Client, m *catalogv1alpha1.Movie, url string) {
+	t.Helper()
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(m), m))
+	m.Spec.Artwork = nil
+	if url != "" {
+		m.Spec.Artwork = []catalogv1alpha1.ArtworkOverride{{Type: catalogv1alpha1.ImageTypePoster, URL: url}}
+	}
+	require.NoError(t, c.Update(ctx, m))
+}
+
+// A pass that changes nothing still publishes the render task for the
+// poster it has: the task is level-driven, so a render lost on any earlier
+// pass is recovered by the next one.
+func TestAPassWithAnUnchangedPosterStillPublishesItsRender(t *testing.T) {
+	ctx := context.Background()
+	c := newEnvtestClient(t)
+	bus := membus.New(nil)
+	require.NoError(t, bus.Ensure(ctx, events.Default()))
+	renders := collectRenders(t, ctx, bus)
+	store := bus.ObjectStore(events.BucketArtwork)
+	srv := newImageServer(t)
+	body := pngBytes(t, 4, 6, color.White)
+	posterURL := srv.serve("/poster.png", "image/png", body)
+	m := seedMovie(t, ctx, c, store, "render-unchanged", posterURL, body)
+
+	h := &artwork.Handler{Client: c, Reader: c, Bus: bus, Fetcher: &artwork.Fetcher{Store: store, HTTP: srv.Client()}}
+	require.NoError(t, h.Handle(ctx, fetchTask(t, commonv1.MediaKindMovie, m.Namespace, m.Name)))
+
+	assert.Zero(t, srv.totalHits(), "nothing was stale, nothing was fetched")
+	envs := renders.settled(t, 1)
+	require.Len(t, envs, 1)
+	assertRender(t, envs[0], m.UID, digestOf(body))
+}
+
+// The review's lost-render case: the apply lands, the render publish fails,
+// the delivery is retried -- and the retry, which finds nothing stale,
+// publishes the render anyway.
+func TestARenderLostAfterTheApplyIsPublishedOnRedelivery(t *testing.T) {
+	ctx := context.Background()
+	c := newEnvtestClient(t)
+	bus := membus.New(nil)
+	require.NoError(t, bus.Ensure(ctx, events.Default()))
+	renders := collectRenders(t, ctx, bus)
+	store := bus.ObjectStore(events.BucketArtwork)
+	srv := newImageServer(t)
+	providerBody := pngBytes(t, 4, 6, color.White)
+	m := seedMovie(t, ctx, c, store, "render-redelivered", srv.serve("/provider.png", "image/png", providerBody), providerBody)
+	customBody := pngBytes(t, 4, 6, color.Black)
+	setMovieOverride(t, ctx, c, m, srv.serve("/custom.png", "image/png", customBody))
+
+	flaky := &flakyPublisher{Publisher: bus}
+	h := &artwork.Handler{Client: c, Reader: c, Bus: flaky, Fetcher: &artwork.Fetcher{Store: store, HTTP: srv.Client()}}
+
+	require.Error(t, h.Handle(ctx, fetchTask(t, commonv1.MediaKindMovie, m.Namespace, m.Name)),
+		"the failed publish fails the delivery, so it is retried")
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(m), m))
+	require.Len(t, m.Status.Artwork, 1)
+	require.Equal(t, digestOf(customBody), m.Status.Artwork[0].Digest, "the apply had landed before the publish failed")
+	time.Sleep(50 * time.Millisecond)
+	require.Empty(t, renders.all())
+
+	require.NoError(t, h.Handle(ctx, fetchTask(t, commonv1.MediaKindMovie, m.Namespace, m.Name)), "the redelivery")
+	assert.Equal(t, 1, srv.hitsFor("/custom.png"), "the redelivery found nothing stale")
+	envs := renders.settled(t, 1)
+	require.Len(t, envs, 1, "and published the render all the same")
+	assertRender(t, envs[0], m.UID, digestOf(customBody))
+}
+
+// Dropping the poster (a custom override removed, no provider poster to
+// replace it) publishes the render under RenderNoPoster so the renderer
+// clears the overlay -- and, while an overlay is still recorded, every pass
+// does, so a lost one is recovered too.
+func TestAPosterDropPublishesTheNoneRender(t *testing.T) {
+	ctx := context.Background()
+	c := newEnvtestClient(t)
+	bus := membus.New(nil)
+	require.NoError(t, bus.Ensure(ctx, events.Default()))
+	renders := collectRenders(t, ctx, bus)
+	store := bus.ObjectStore(events.BucketArtwork)
+	srv := newImageServer(t)
+
+	const ns = "render-none"
+	require.NoError(t, c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}))
+	m := &catalogv1alpha1.Movie{
+		ObjectMeta: metav1.ObjectMeta{Name: "heat", Namespace: ns},
+		Spec: catalogv1alpha1.MovieSpec{
+			TmdbID: 949, QualityProfileRef: "q", RootFolderRef: "r",
+			Artwork: []catalogv1alpha1.ArtworkOverride{{
+				Type: catalogv1alpha1.ImageTypePoster, URL: srv.serve("/custom.png", "image/png", pngBytes(t, 4, 6, color.Black)),
+			}},
+		},
+	}
+	require.NoError(t, c.Create(ctx, m))
+	h := &artwork.Handler{Client: c, Reader: c, Bus: bus, Fetcher: &artwork.Fetcher{Store: store, HTTP: srv.Client()}}
+	require.NoError(t, h.Handle(ctx, fetchTask(t, commonv1.MediaKindMovie, ns, m.Name)))
+	require.Len(t, renders.settled(t, 1), 1, "the custom poster's own render")
+
+	// The renderer has rendered it: status.overlay stands.
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrArtwork, catalogac.Movie(m.Name, ns).WithStatus(
+		catalogac.MovieStatus().WithOverlay(catalogac.OverlayEntry().WithProfileRef("badges").WithDigest("ov").
+			WithRenderedFrom("in").WithUpdatedAt(metav1.NewTime(time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC))))))
+	require.NoError(t, err)
+
+	setMovieOverride(t, ctx, c, m, "")
+	flaky := &flakyPublisher{Publisher: bus}
+	h.Bus = flaky
+	require.Error(t, h.Handle(ctx, fetchTask(t, commonv1.MediaKindMovie, ns, m.Name)), "the drop's render publish is lost")
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(m), m))
+	require.Empty(t, m.Status.Artwork, "the drop itself landed")
+
+	require.NoError(t, h.Handle(ctx, fetchTask(t, commonv1.MediaKindMovie, ns, m.Name)), "the redelivery")
+	envs := renders.settled(t, 2)
+	require.Len(t, envs, 2)
+	assertRender(t, envs[1], m.UID, artwork.RenderNoPoster)
+	assert.Equal(t, string(m.UID)+"/render/none", envs[1].ID)
 }

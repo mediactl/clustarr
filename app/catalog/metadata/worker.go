@@ -46,8 +46,9 @@ import (
 type Handler struct {
 	Client client.Client
 
-	// Reader re-reads the item, uncached, for the artwork pass that follows
-	// every successful fetch (artwork.Pass.Reader). Nil uses Client.
+	// Reader reads the item, uncached (mgr.GetAPIReader()), for the artwork
+	// pass that follows every successful fetch. Required: see
+	// artwork.Pass.Reader for why the cached Client will not do.
 	Reader client.Reader
 
 	Registry *pkgmetadata.Registry
@@ -58,7 +59,7 @@ type Handler struct {
 	// re-declared as it stands, never omitted.
 	Artwork *artwork.Fetcher
 
-	// Bus receives the RenderOverlay task a changed poster triggers. Nil
+	// Bus receives the RenderOverlay task every artwork pass ends with. Nil
 	// publishes none.
 	Bus events.Publisher
 

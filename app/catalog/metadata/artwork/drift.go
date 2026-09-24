@@ -122,9 +122,10 @@ func PublishFetch(ctx context.Context, bus events.Publisher, obj client.Object, 
 	return nil
 }
 
-// publishRender publishes the RenderOverlay task spec §B.4 asks for after a
-// poster original whose digest changed is recorded, under
-// schema.MsgIDForRenderOverlay(uid, posterDigest).
+// publishRender publishes one RenderOverlay task (spec §B.4) under
+// schema.MsgIDForRenderOverlay(uid, posterDigest) -- posterDigest being
+// RenderNoPoster when the item has no poster original. See
+// Pass.publishRenders for when.
 func publishRender(ctx context.Context, bus events.Publisher, obj client.Object, kind commonv1.MediaKind, posterDigest string) error {
 	schemaName, data, err := schema.Encode(schema.RenderOverlayTask{
 		MediaRef: commonv1.MediaRef{Kind: kind, Name: obj.GetName()},

@@ -231,3 +231,13 @@ func TestExtractGatewayStatusRefusesAnObjectReadWithoutManagedFields(t *testing.
 	_, err := artwork.ExtractGatewayStatus(stripped, nil)
 	require.ErrorIs(t, err, artwork.ErrNoManagedFields)
 }
+
+func TestPassWithoutAReaderPanicsWithAClearMessage(t *testing.T) {
+	assert.PanicsWithValue(t,
+		"artwork: Pass.Reader is required -- pass the uncached API reader (mgr.GetAPIReader()); "+
+			"the manager's cache lags this gateway's own writes and strips managedFields",
+		func() {
+			_ = artwork.Pass{}.Run(context.Background(), types.NamespacedName{Namespace: "n", Name: "x"},
+				commonv1.MediaKindMovie, nil, artwork.ExtractGatewayStatus)
+		})
+}

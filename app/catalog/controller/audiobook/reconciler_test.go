@@ -340,6 +340,7 @@ func TestAudiobookRegionReachesTheMetadataGateway(t *testing.T) {
 	// pkg/metadata.Registry.Lookup -> audnexus.Client.Audiobook.
 	h := &catalogmetadata.Handler{
 		Client:   c,
+		Reader:   uncachedReader(t, cfg),
 		Registry: &pkgmetadata.Registry{Audiobooks: []pkgmetadata.AudiobookProvider{audnexusClient}},
 		Cache:    noopCache{},
 	}
@@ -413,6 +414,7 @@ func TestAudiobookRegionDefaultsToUSWhenUnset(t *testing.T) {
 
 	h := &catalogmetadata.Handler{
 		Client:   c,
+		Reader:   uncachedReader(t, cfg),
 		Registry: &pkgmetadata.Registry{Audiobooks: []pkgmetadata.AudiobookProvider{audnexusClient}},
 		Cache:    noopCache{},
 	}
@@ -957,4 +959,14 @@ func TestAudiobookReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		assert.Equal(t, *before.Status.Quality, *after.Status.Quality, "RootFolderNotFound must not release Quality")
 		assert.Equal(t, before.Status.CutoffMet, after.Status.CutoffMet, "RootFolderNotFound must not release CutoffMet")
 	})
+}
+
+// uncachedReader is the metadata gateway's required Reader: a client straight
+// to the apiserver, as mgr.GetAPIReader() is in production, not the cache c
+// reads through.
+func uncachedReader(t *testing.T, cfg *rest.Config) client.Reader {
+	t.Helper()
+	r, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	require.NoError(t, err)
+	return r
 }

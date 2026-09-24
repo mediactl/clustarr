@@ -234,7 +234,7 @@ func TestMetadataRefreshNeverReleasesStatusArtwork(t *testing.T) {
 	provider := &docMovieProvider{}
 	provider.set(inceptionDoc("https://image.tmdb.org/t/p/w500/poster-v1.png", "https://image.tmdb.org/t/p/original/fanart-v1.png"))
 	h := &metadata.Handler{
-		Client: c, Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{provider}},
+		Client: c, Reader: c, Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{provider}},
 		Cache: noopCache{}, Artwork: fetcher, Bus: bus,
 	}
 
@@ -263,7 +263,7 @@ func TestMetadataRefreshNeverReleasesStatusArtwork(t *testing.T) {
 		cl, err := tmdb.New("test-key", srv.Client(), srv.URL, pkgmetadata.NewLimiter(1000, 1))
 		require.NoError(t, err)
 		failing := &metadata.Handler{
-			Client: c, Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{cl}},
+			Client: c, Reader: c, Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{cl}},
 			Cache: noopCache{}, Artwork: fetcher, Bus: bus,
 		}
 		require.Error(t, failing.Handle(ctx, movieTask(t, ns, name)), "a provider 500 is a retry")
@@ -307,9 +307,10 @@ func TestMetadataRefreshNeverReleasesStatusArtwork(t *testing.T) {
 	})
 }
 
-// TestMetadataRefreshPublishesOneRenderPerChangedPoster: a changed poster
-// digest publishes one RenderOverlay task, keyed by the digest; an
-// unchanged one publishes nothing.
+// TestMetadataRefreshPublishesOneRenderPerChangedPoster: every refresh
+// publishes the RenderOverlay task for its poster, keyed by the digest, so a
+// changed digest is one new task and an unchanged one is absorbed as a
+// duplicate.
 func TestMetadataRefreshPublishesOneRenderPerChangedPoster(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
@@ -345,7 +346,7 @@ func TestMetadataRefreshPublishesOneRenderPerChangedPoster(t *testing.T) {
 	provider := &docMovieProvider{}
 	provider.set(inceptionDoc("https://img.example/p1.png", "https://img.example/f.png"))
 	h := &metadata.Handler{
-		Client: c, Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{provider}},
+		Client: c, Reader: c, Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{provider}},
 		Cache: noopCache{}, Bus: bus,
 		Artwork: &artwork.Fetcher{Store: bus.ObjectStore(events.BucketArtwork), HTTP: host.client()},
 	}
@@ -355,7 +356,8 @@ func TestMetadataRefreshPublishesOneRenderPerChangedPoster(t *testing.T) {
 
 	require.NoError(t, h.Handle(ctx, movieTask(t, ns, name)))
 	time.Sleep(50 * time.Millisecond)
-	require.Equal(t, 1, count(), "an unchanged poster publishes nothing")
+	require.Equal(t, 1, count(),
+		"an unchanged poster republishes under the same Msg-Id, which the duplicate window absorbs")
 
 	provider.set(inceptionDoc("https://img.example/p2.png", "https://img.example/f.png"))
 	require.NoError(t, h.Handle(ctx, movieTask(t, ns, name)))

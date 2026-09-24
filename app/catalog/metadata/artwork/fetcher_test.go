@@ -539,3 +539,14 @@ func TestLockSerialisesOneItemAndHonoursTheContext(t *testing.T) {
 	require.NoError(t, err)
 	again()
 }
+
+func TestSyncStoresTheDecodedFormatNotTheServersLabel(t *testing.T) {
+	fx := newFixture(t)
+	url := fx.srv.serve("/mislabelled.jpg", "image/jpeg", pngBytes(t, 4, 6, color.White))
+
+	entries, _ := fx.sync(nil, []catalogv1alpha1.Image{{Type: catalogv1alpha1.ImageTypePoster, URL: url}}, nil)
+	require.Len(t, entries, 1)
+	info, err := fx.store.Info(fx.ctx, fx.key(catalogv1alpha1.ImageTypePoster))
+	require.NoError(t, err)
+	assert.Equal(t, "image/png", info.Headers["Content-Type"], "a PNG labelled image/jpeg is stored as what it is")
+}

@@ -403,13 +403,22 @@ func (f *Fetcher) fetchAndPut(ctx context.Context, key string, t catalogv1alpha1
 	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
 		return catalogv1alpha1.ArtworkEntry{}, fmt.Errorf("%w: a %s body that does not decode", ErrNotAnImage, contentType)
 	}
+	// The stored Content-Type is what the bytes ARE, not what the server
+	// said: a PNG labelled image/jpeg is stored, and served, as image/png.
+	// The header only had to be one of the three to get this far; the
+	// decoded format must be one of them too (another decoder registered
+	// in this binary, say GIF, is not an accepted original).
+	stored := "image/" + format
+	if !acceptedContentTypes[stored] {
+		return catalogv1alpha1.ArtworkEntry{}, fmt.Errorf("%w: a %s body served as %s", ErrNotAnImage, format, contentType)
+	}
 	if cfg.Width > MaxImageDimension || cfg.Height > MaxImageDimension {
 		return catalogv1alpha1.ArtworkEntry{}, fmt.Errorf("%w: %s is %dx%d, more than %d pixels on a side",
 			ErrImageTooLarge, format, cfg.Width, cfg.Height, MaxImageDimension)
 	}
 
 	info, err := f.Store.Put(ctx, key, bytes.NewReader(body), map[string]string{
-		HeaderContentType: contentType,
+		HeaderContentType: stored,
 		HeaderSource:      string(src.Kind),
 		HeaderSourceURL:   src.URL,
 	})

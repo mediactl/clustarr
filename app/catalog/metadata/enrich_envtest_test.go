@@ -101,6 +101,7 @@ func TestHandlerFoldsArtworkAndCrosswalkIntoStatusMetadata(t *testing.T) {
 	fail := false
 	h := &metadata.Handler{
 		Client: c,
+		Reader: c,
 		Registry: &pkgmetadata.Registry{
 			Movies:    []pkgmetadata.MovieProvider{tm},
 			Artwork:   []pkgmetadata.ArtworkProvider{fa},
@@ -140,6 +141,7 @@ func TestHandlerKeepsATaskRetryableWhenOneProviderMissesAndAnotherFails(t *testi
 
 	h := &metadata.Handler{
 		Client: c,
+		Reader: c,
 		Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{
 			erroringMovieProvider{err: pkgmetadata.ErrNotFound},
 			erroringMovieProvider{err: errors.New("tmdb-mirror: unexpected status 502")},
@@ -190,6 +192,7 @@ func TestHandlerFetchesAMangaDexComicByItsOwnID(t *testing.T) {
 
 	h := &metadata.Handler{
 		Client: c,
+		Reader: c,
 		Registry: &pkgmetadata.Registry{
 			Comics:    []pkgmetadata.ComicProvider{comicvine.New("k", cvSrv.Client(), cvSrv.URL, pkgmetadata.NewLimiter(1000, 1)), md},
 			Resolvers: []pkgmetadata.IDResolver{md},

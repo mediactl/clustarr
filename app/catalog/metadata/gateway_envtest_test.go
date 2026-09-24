@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -43,7 +44,7 @@ func TestSetupBuildsAndStartsTheGatewayWithNoProvidersConfigured(t *testing.T) {
 	t.Cleanup(func() { _ = bus.Close() })
 	require.NoError(t, bus.Ensure(ctx, events.Default().ForSingleNode()))
 
-	stop, err := metadata.Setup(ctx, metadata.Options{Client: c, Bus: bus, HTTPClient: http.DefaultClient})
+	stop, err := metadata.Setup(ctx, metadata.Options{Client: c, Reader: c, Bus: bus, HTTPClient: http.DefaultClient})
 	require.NoError(t, err)
 	require.NotNil(t, stop)
 	stop()
@@ -52,6 +53,14 @@ func TestSetupBuildsAndStartsTheGatewayWithNoProvidersConfigured(t *testing.T) {
 func TestSetupRejectsMissingRequiredOptions(t *testing.T) {
 	_, err := metadata.Setup(context.Background(), metadata.Options{})
 	require.Error(t, err)
+
+	// No Reader: the gateway would otherwise read items through the
+	// manager's cache, which lags its own writes and strips managedFields.
+	_, err = metadata.Setup(context.Background(), metadata.Options{
+		Client: fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).Build(),
+		Bus:    membus.New(clockwork.NewRealClock()),
+	})
+	require.ErrorContains(t, err, "Reader is required")
 }
 
 // TestTwoManagerSSASplitDoesNotClobberEitherSide mirrors

@@ -111,6 +111,7 @@ func TestHandlerFetchesFromTheProviderAndPatchesOnlyStatusMetadata(t *testing.T)
 
 	h := &metadata.Handler{
 		Client:   c,
+		Reader:   c,
 		Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{cl}},
 		Cache:    noopCache{},
 	}
@@ -177,6 +178,7 @@ func TestHandlerSkipsTheProviderOnACacheHit(t *testing.T) {
 
 	h := &metadata.Handler{
 		Client:   c,
+		Reader:   c,
 		Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{failIfCalledMovieProvider{t: t}}},
 		Cache:    &fakeCache{movie: &pkgmetadata.Movie{Title: "Inception (cached)", Runtime: 148}},
 	}
@@ -221,6 +223,7 @@ func TestHandlerMapsRateLimitedToRetry(t *testing.T) {
 
 	h := &metadata.Handler{
 		Client: c,
+		Reader: c,
 		Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{
 			erroringMovieProvider{err: &pkgmetadata.RateLimitedError{Provider: "tmdb", RetryAfter: 45 * time.Second}},
 		}},
@@ -246,6 +249,7 @@ func TestHandlerMapsNotFoundToDiscard(t *testing.T) {
 
 	h := &metadata.Handler{
 		Client:   c,
+		Reader:   c,
 		Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{erroringMovieProvider{err: pkgmetadata.ErrNotFound}}},
 		Cache:    noopCache{},
 	}
@@ -269,7 +273,7 @@ func TestHandlerMapsNotFoundToDiscard(t *testing.T) {
 func TestHandlerDiscardsAnUnsupportedKind(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
-	h := &metadata.Handler{Client: c, Registry: &pkgmetadata.Registry{}, Cache: noopCache{}}
+	h := &metadata.Handler{Client: c, Reader: c, Registry: &pkgmetadata.Registry{}, Cache: noopCache{}}
 
 	env := &events.Envelope{Key: "ns/issue-1", Schema: schema.MetadataTask{}.Schema()}
 	task := schema.MetadataTask{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindIssue, Name: "issue-1"}}
@@ -340,6 +344,7 @@ func TestHandlerFetchesArtistAndPatchesOnlyStatusMetadata(t *testing.T) {
 
 	h := &metadata.Handler{
 		Client: c,
+		Reader: c,
 		Registry: &pkgmetadata.Registry{Artists: []pkgmetadata.ArtistProvider{stubArtistOnlyProvider{
 			artist: &pkgmetadata.Artist{
 				IDs:    pkgmetadata.ExternalIDs{pkgmetadata.KeyMBArtist: mbid},
@@ -416,7 +421,7 @@ func TestHandlerAlbumMetadataStaysSolelyOwnedByTheGatewayAcrossReapplies(t *test
 		ReleaseDate:    &fullDate,
 		Images:         []pkgmetadata.Image{{Type: pkgmetadata.ImageTypePoster, URL: "https://example.test/okc.jpg"}},
 	}}
-	h := &metadata.Handler{Client: c, Registry: &pkgmetadata.Registry{Artists: []pkgmetadata.ArtistProvider{full}}, Cache: noopCache{}}
+	h := &metadata.Handler{Client: c, Reader: c, Registry: &pkgmetadata.Registry{Artists: []pkgmetadata.ArtistProvider{full}}, Cache: noopCache{}}
 
 	env := &events.Envelope{Key: ns + "/" + name, Schema: schema.MetadataTask{}.Schema()}
 	task := schema.MetadataTask{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: name}}
@@ -485,7 +490,7 @@ func TestHandlerWritesSecondaryYearThroughTheRealTMDBClient(t *testing.T) {
 	cl, err := tmdb.New("test-key", srv.Client(), srv.URL, pkgmetadata.NewLimiter(1000, 1))
 	require.NoError(t, err)
 
-	h := &metadata.Handler{Client: c, Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{cl}}, Cache: noopCache{}}
+	h := &metadata.Handler{Client: c, Reader: c, Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{cl}}, Cache: noopCache{}}
 	env := &events.Envelope{Key: ns + "/" + name, Schema: schema.MetadataTask{}.Schema()}
 	_, env.Data, err = schema.Encode(schema.MetadataTask{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name}})
 	require.NoError(t, err)
@@ -522,6 +527,7 @@ func TestHandlerWritesEveryImageType(t *testing.T) {
 
 	h := &metadata.Handler{
 		Client: c,
+		Reader: c,
 		Registry: &pkgmetadata.Registry{Artists: []pkgmetadata.ArtistProvider{stubArtistOnlyProvider{
 			artist: &pkgmetadata.Artist{IDs: pkgmetadata.ExternalIDs{pkgmetadata.KeyMBArtist: mbid}, Name: "Radiohead", Images: images},
 		}}},
@@ -588,6 +594,7 @@ func TestHandlerBypassesTheCacheOnAForcedRefresh(t *testing.T) {
 	stale := &fakeCache{movie: &pkgmetadata.Movie{Title: "Inception (cached)", Runtime: 148}}
 	h := &metadata.Handler{
 		Client:   c,
+		Reader:   c,
 		Registry: &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{provider}},
 		Cache:    stale,
 	}

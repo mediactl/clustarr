@@ -49,12 +49,13 @@ import (
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies/status;series/status;artists/status;albums/status;authors/status;books/status;audiobooks/status;comics/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
-// Options configures Setup. Client and Bus are required; everything else
-// defaults.
+// Options configures Setup. Client, Reader and Bus are required;
+// everything else defaults.
 type Options struct {
 	Client client.Client
-	// Reader is the uncached reader the artwork pass re-reads an item
-	// through before its apply (mgr.GetAPIReader()). Nil uses Client.
+	// Reader is the uncached reader the artwork pass reads an item through
+	// (mgr.GetAPIReader()). Required: the manager's cache lags the
+	// gateway's own writes and strips managedFields (artwork.Pass.Reader).
 	Reader     client.Reader
 	Bus        events.Bus
 	HTTPClient *http.Client
@@ -75,6 +76,10 @@ type Options struct {
 func Setup(ctx context.Context, o Options) (stop func(), err error) {
 	if o.Client == nil || o.Bus == nil {
 		return nil, fmt.Errorf("metadata: Client and Bus are required")
+	}
+	if o.Reader == nil {
+		return nil, fmt.Errorf("metadata: Reader is required -- pass the uncached API reader (mgr.GetAPIReader()); " +
+			"the manager's cache lags the gateway's own writes and strips managedFields")
 	}
 	httpClient := o.HTTPClient
 	if httpClient == nil {

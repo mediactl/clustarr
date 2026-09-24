@@ -104,17 +104,18 @@ type Pass struct {
 	// Client applies the status.
 	Client client.Client
 
-	// Reader re-reads the item, uncached (mgr.GetAPIReader()): a cache that
-	// has not yet seen this gateway's previous apply would hand the merge a
-	// status.artwork -- and ExtractGatewayStatus a status.metadata -- from
-	// before it, and the apply would roll that write back. It must also be
-	// uncached because every manager's cache strips managedFields, which
-	// ExtractGatewayStatus reads (it refuses an object without them). Nil
-	// uses Client, which is right only for a client that is itself uncached.
+	// Reader reads the item, uncached (mgr.GetAPIReader()). Required: Run
+	// panics without one. There is no fallback to Client, because in
+	// production Client is the manager's cache, which is wrong twice over:
+	// a cache that has not yet seen this gateway's previous apply would hand
+	// the merge a status.artwork -- and ExtractGatewayStatus a
+	// status.metadata -- from before it, and the apply would roll that write
+	// back; and every manager's cache strips managedFields
+	// (pkg/k8s.ManagerOptions), which ExtractGatewayStatus reads.
 	Reader client.Reader
 
-	// Bus receives the RenderOverlay task after a poster whose digest
-	// changed is recorded. Nil publishes nothing.
+	// Bus receives the RenderOverlay task every pass ends with (see Run).
+	// Nil publishes nothing.
 	Bus events.Publisher
 
 	// Fetcher fetches the originals. Nil fetches nothing and re-declares
@@ -123,19 +124,22 @@ type Pass struct {
 	Fetcher *Fetcher
 }
 
-func (p Pass) reader() client.Reader {
-	if p.Reader != nil {
-		return p.Reader
-	}
-	return p.Client
-}
+// RenderNoPoster is the digest slot of the RenderOverlay Msg-Id a pass
+// publishes when the item has no poster original -- its custom override was
+// removed with no provider poster to replace it -- so the renderer clears
+// the overlay. A hex SHA-256 never reads "none", so it cannot collide with a
+// real poster's Msg-Id.
+const RenderNoPoster = "none"
+
+// errNoReader is Run's panic value for a Pass built without a Reader.
+const errNoReader = "artwork: Pass.Reader is required -- pass the uncached API reader (mgr.GetAPIReader()); " +
+	"the manager's cache lags this gateway's own writes and strips managedFields"
 
 // Run holds the item's lock, reads it, Syncs its artwork against images
 // (nil: the item's own status.metadata.images), re-reads it, merges this
 // Sync's changes onto the re-read status.artwork, applies build's
 // configuration under the gateway's manager, and then -- only once the
-// apply has landed -- publishes the RenderOverlay task if the poster's
-// digest changed.
+// apply has landed -- publishes the RenderOverlay task (publishRenders).
 //
 // It never applies a partial status: every return before the apply
 // returns without writing, and the one apply is build's complete
@@ -143,6 +147,9 @@ func (p Pass) reader() client.Reader {
 func (p Pass) Run(ctx context.Context, key client.ObjectKey, kind commonv1.MediaKind,
 	images []catalogv1alpha1.Image, build BuildFunc,
 ) error {
+	if p.Reader == nil {
+		panic(errNoReader)
+	}
 	ctx, span := tracing.Start(ctx, "artwork.Pass.Run")
 	defer span.End()
 
@@ -163,12 +170,14 @@ func (p Pass) Run(ctx context.Context, key client.ObjectKey, kind commonv1.Media
 		return err
 	}
 
-	entries, posterChanged := it.entries, false
+	// Sync's posterChanged is deliberately unused: the render task below is
+	// published level-style on every pass, not on this pass's edge.
+	entries := it.entries
 	if p.Fetcher != nil {
 		if images == nil {
 			images = it.images
 		}
-		entries, posterChanged = p.Fetcher.Sync(ctx, before, kind, it.overrides, images, it.entries)
+		entries, _ = p.Fetcher.Sync(ctx, before, kind, it.overrides, images, it.entries)
 	}
 
 	// Image fetches are slow work: re-read before the apply (CLAUDE.md's
@@ -198,16 +207,40 @@ func (p Pass) Run(ctx context.Context, key client.ObjectKey, kind commonv1.Media
 		return fmt.Errorf("artwork: apply %s %s status: %w", kind, key, err)
 	}
 
-	if posterChanged && p.Bus != nil {
-		for _, e := range merged {
-			if e.Type != catalogv1alpha1.ImageTypePoster {
-				continue
-			}
-			if err := publishRender(ctx, p.Bus, fresh, kind, e.Digest); err != nil {
-				tracing.RecordError(span, err)
-				return err
-			}
-		}
+	if err := p.publishRenders(ctx, fresh, kind, it, freshItem, merged); err != nil {
+		tracing.RecordError(span, err)
+		return err
+	}
+	return nil
+}
+
+// publishRenders ends every pass whose apply landed. It is level-driven, not
+// edge-driven: publishing only when THIS pass saw the poster change would
+// lose the task for good whenever that publish failed, or the pod died,
+// after the apply -- the redelivery reads the new entry, finds nothing
+// stale, and has no edge left to publish on. So:
+//
+//   - a poster entry exists: publish under MsgIDForRenderOverlay(uid,
+//     digest). A repeat inside the duplicate window is absorbed by the
+//     Msg-Id, and one after it by the renderer's inputs-digest check;
+//   - no poster entry, but this pass's first read had one (it dropped a
+//     removed override's poster) or the item still records an overlay:
+//     publish under RenderNoPoster so the renderer clears it. The overlay
+//     half is what makes the drop's task survive a lost publish too.
+//
+// A failed publish fails the pass, so the delivery is retried and the
+// retry publishes again.
+func (p Pass) publishRenders(ctx context.Context, fresh client.Object, kind commonv1.MediaKind,
+	before, freshItem item, merged []catalogv1alpha1.ArtworkEntry,
+) error {
+	if p.Bus == nil {
+		return nil
+	}
+	if poster, ok := index(merged)[catalogv1alpha1.ImageTypePoster]; ok {
+		return publishRender(ctx, p.Bus, fresh, kind, poster.Digest)
+	}
+	if _, had := index(before.entries)[catalogv1alpha1.ImageTypePoster]; had || freshItem.hasOverlay {
+		return publishRender(ctx, p.Bus, fresh, kind, RenderNoPoster)
 	}
 	return nil
 }
@@ -217,7 +250,7 @@ func (p Pass) read(ctx context.Context, kind commonv1.MediaKind, key client.Obje
 	if err != nil {
 		return nil, err
 	}
-	if err := p.reader().Get(ctx, key, obj); err != nil {
+	if err := p.Reader.Get(ctx, key, obj); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, fmt.Errorf("%w: %s %s", ErrItemGone, kind, key)
 		}
