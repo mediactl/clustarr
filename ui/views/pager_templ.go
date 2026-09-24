@@ -369,9 +369,9 @@ func Pager(p paging.Page, base string) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var17 templ.SafeURL
-				templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(base + paging.Paginate(p.Total, 1, size).Query(1)))
+				templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(base + perHref(p, size)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/pager.templ`, Line: 84, Col: 79}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/pager.templ`, Line: 84, Col: 53}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 				if templ_7745c5c3_Err != nil {
@@ -384,7 +384,7 @@ func Pager(p paging.Page, base string) templ.Component {
 				var templ_7745c5c3_Var18 string
 				templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(size))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/pager.templ`, Line: 84, Col: 130}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/pager.templ`, Line: 84, Col: 104}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 				if templ_7745c5c3_Err != nil {
@@ -410,6 +410,14 @@ func Pager(p paging.Page, base string) templ.Component {
 func pageHref(base string, p paging.Page, n int) string {
 	n = min(max(n, 1), p.Last)
 	return base + p.Query(n)
+}
+
+// perHref is the query selecting page 1 at size, keeping the page's view
+// (its Params), so changing the size never drops a sort or filter.
+func perHref(p paging.Page, size int) string {
+	q := p.Values(1)
+	q.Set("per", fmt.Sprint(size))
+	return "?" + q.Encode()
 }
 
 var _ = templruntime.GeneratedTemplate

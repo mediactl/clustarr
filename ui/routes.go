@@ -197,20 +197,30 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	items := projection.ForTab(s.opts.Library(r.Context()), tab)
+	// The toolbar's view (sort, direction, filter) is applied before
+	// paging, and rides every link through req.Params, so the pager, the
+	// stream and the jump bar all address the same arranged list.
+	view := parseLibraryView(r.URL.Query())
+	items := view.arrange(projection.ForTab(s.opts.Library(r.Context()), tab))
 	req := paging.Parse(r.URL.Query())
+	req.Params = view.values()
 	base := "/library/" + string(tab)
+	p := req.Page(len(items))
 	// ?jump=<letter> is the A-Z bar (design 2026-09-24, after Radarr): the
 	// page where that letter's titles begin, as a redirect so the URL the
 	// reader lands on is the plain paged one.
 	if jump := r.URL.Query().Get("jump"); jump != "" {
-		http.Redirect(w, r, base+paging.Paginate(len(items), jumpPage(items, jumpKey(jump), req.Per), req.Per).Query(jumpPage(items, jumpKey(jump), req.Per)), http.StatusFound)
+		http.Redirect(w, r, base+p.Query(jumpPage(items, jumpKey(jump), req.Per)), http.StatusFound)
 		return
 	}
-	p := req.Page(len(items))
+	// The bar means nothing under any order but the title's.
+	var bar []views.Jump
+	if view.Sort == projection.SortTitle {
+		bar = jumps(items, base, p)
+	}
 	rootFolders := s.listRootFolders(r.Context())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := views.Library(tab, p, paging.Window(items, p), rootFolders, jumps(items, base, p.Per)).Render(r.Context(), w); err != nil {
+	if err := views.Library(tab, p, paging.Window(items, p), view.toolbar(base, p.Per), rootFolders, bar).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render library page", "error", err)
 	}
 }

@@ -81,7 +81,7 @@ templ Pager(p paging.Page, base string) {
 				if size == p.Per {
 					<span class="font-medium text-foreground" aria-current="true">{ fmt.Sprint(size) }</span>
 				} else {
-					<a href={ templ.SafeURL(base + paging.Paginate(p.Total, 1, size).Query(1)) } class="hover:text-foreground">{ fmt.Sprint(size) }</a>
+					<a href={ templ.SafeURL(base + perHref(p, size)) } class="hover:text-foreground">{ fmt.Sprint(size) }</a>
 				}
 			}
 		</span>
@@ -94,4 +94,12 @@ templ Pager(p paging.Page, base string) {
 func pageHref(base string, p paging.Page, n int) string {
 	n = min(max(n, 1), p.Last)
 	return base + p.Query(n)
+}
+
+// perHref is the query selecting page 1 at size, keeping the page's view
+// (its Params), so changing the size never drops a sort or filter.
+func perHref(p paging.Page, size int) string {
+	q := p.Values(1)
+	q.Set("per", fmt.Sprint(size))
+	return "?" + q.Encode()
 }

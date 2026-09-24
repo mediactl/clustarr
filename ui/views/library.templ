@@ -25,6 +25,8 @@ import (
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/components/buttongroup"
+	"github.com/mediactl/clustarr/ui/components/dropdownmenu"
+	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/item"
 	"github.com/mediactl/clustarr/ui/components/tabs"
 	"github.com/mediactl/clustarr/ui/components/tooltip"
@@ -46,14 +48,12 @@ import (
 // swapped element, deliberately: the set of RootFolders does not move on the
 // same cadence as item status, mirroring downloads.templ's own client-cards
 // placement.
-templ Library(tab projection.Tab, p paging.Page, items []projection.LibraryItem, rootFolders []catalogv1.RootFolder, jumpsFor []Jump) {
+templ Library(tab projection.Tab, p paging.Page, items []projection.LibraryItem, tb LibraryToolbar, rootFolders []catalogv1.RootFolder, jumpsFor []Jump) {
 	@Shell("Library", []Crumb{{Label: "Library", Href: "/library"}, {Label: tabLabel(tab)}}) {
 		<div id="library-page" class="flex gap-4">
 			<div class="min-w-0 flex-1 space-y-4">
 				@libraryTabs(tab)
-				if len(rootFolders) > 0 {
-					@rescanToolbar(rootFolders)
-				}
+				@libraryToolbar(tb, rootFolders)
 				<div
 					id="library-rows"
 					data-tab={ string(tab) }
@@ -181,7 +181,7 @@ templ libraryCard(li projection.LibraryItem) {
 				}
 			}
 		}
-		<div class={ stripeClass(posterStatus(li)) } data-status={ posterStatus(li) }></div>
+		<div class={ stripeClass(projection.LibraryStatus(li)) } data-status={ projection.LibraryStatus(li) }></div>
 		<div class="px-2 py-1.5 text-center text-xs leading-5">
 			<div>{ monitoredTitle(li.Monitored) }</div>
 			<div class="truncate text-muted-foreground">{ li.QualityProfileRef }</div>
@@ -278,30 +278,106 @@ func childCrumbs(li projection.LibraryItem, label string) []Crumb {
 	}
 }
 
-// rescanToolbar renders one "Rescan" form per known RootFolder (§A3.2's
-// third action). It reads config-like data (RootFolder is edited rarely, via
-// the eventual Settings page, not something that needs a live SSE stream of
-// its own), the same reasoning downloads.templ's downloadClientsSection
-// gives for rendering its own DownloadClient cards outside the SSE-swapped
-// region.
-templ rescanToolbar(rootFolders []catalogv1.RootFolder) {
-	<div class="mb-6 flex flex-wrap items-center gap-3 rounded-lg border border-slate-800 bg-slate-900 p-4">
-		<span class="text-sm text-slate-400">Rescan:</span>
-		for _, rf := range rootFolders {
-			<form method="post" action="/library/rescan" data-root-folder={ rf.Name }>
-				<input type="hidden" name="namespace" value={ rf.Namespace }/>
-				<input type="hidden" name="rootFolder" value={ rf.Name }/>
-				<input type="hidden" name="return" value="/library"/>
-				<button
-					type="submit"
-					data-action="rescan"
-					class="rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium hover:bg-slate-700"
-				>
-					{ rf.Name }
-				</button>
-			</form>
-		}
+// Choice is one entry of a toolbar menu: its ?sort or ?filter value, the
+// label, the link to the page in that view, whether it is the current one
+// and, for the current sort, its direction.
+type Choice struct {
+	Key    string
+	Label  string
+	Href   string
+	Active bool
+	Dir    string
+}
+
+// LibraryToolbar is the toolbar's state and menus: the current view for
+// the tests (data-current-sort, -dir and -filter) and the Sort and Filter
+// entries the handler built.
+type LibraryToolbar struct {
+	Sort    string
+	Dir     string
+	Filter  string
+	Sorts   []Choice
+	Filters []Choice
+}
+
+// libraryToolbar is Radarr's toolbar row (design 2026-09-24): the actions
+// on the left -- one "Rescan" form per known RootFolder, §A3.2's third
+// action, reading config-like data that needs no live stream of its own,
+// as downloads.templ's client cards do -- and the Sort and Filter menus on
+// the right. It renders outside the SSE-swapped rows: the view only changes
+// when the reader chooses, and every menu link swaps the whole page as the
+// tabs do so the stream reconnects with the new view.
+templ libraryToolbar(tb LibraryToolbar, rootFolders []catalogv1.RootFolder) {
+	<div data-toolbar data-current-sort={ tb.Sort } data-current-dir={ tb.Dir } data-current-filter={ tb.Filter } class="flex flex-wrap items-center justify-between gap-3">
+		<div class="flex flex-wrap items-center gap-2">
+			for _, rf := range rootFolders {
+				<form method="post" action="/library/rescan" data-root-folder={ rf.Name }>
+					<input type="hidden" name="namespace" value={ rf.Namespace }/>
+					<input type="hidden" name="rootFolder" value={ rf.Name }/>
+					<input type="hidden" name="return" value="/library"/>
+					@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline, Size: button.SizeSm, Attributes: templ.Attributes{"data-action": "rescan"}}) {
+						@icon.Icon("folder-sync")()
+						Rescan { rf.Name }
+					}
+				</form>
+			}
+		</div>
+		<div class="flex items-center gap-2">
+			@viewMenu("Sort", "arrow-up-down", "Sort by", "data-sort", tb.Sorts)
+			@viewMenu("Filter", "funnel", "Filter", "data-filter", tb.Filters)
+		</div>
 	</div>
+}
+
+// viewMenu is one toolbar menu: a button trigger and a dropdown of links,
+// the current entry checked and, for a sort, marked with its direction.
+// attr names the data attribute each entry carries its key in.
+templ viewMenu(label, iconName, heading, attr string, choices []Choice) {
+	@dropdownmenu.DropdownMenu() {
+		@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Attributes: dropdownmenu.Trigger(ctx)}) {
+			@icon.Icon(iconName)()
+			{ label }
+		}
+		@dropdownmenu.Content(dropdownmenu.ContentProps{Align: dropdownmenu.AlignEnd}) {
+			@dropdownmenu.Label() {
+				{ heading }
+			}
+			for _, c := range choices {
+				@dropdownmenu.Item(dropdownmenu.ItemProps{Href: c.Href, Attributes: choiceAttributes(attr, c)}) {
+					if c.Active {
+						@icon.Icon("check")()
+					} else {
+						<span class="size-4"></span>
+					}
+					<span class="flex-1">{ c.Label }</span>
+					switch c.Dir {
+						case "asc":
+							@icon.Icon("arrow-up")()
+						case "desc":
+							@icon.Icon("arrow-down")()
+					}
+				}
+			}
+		}
+	}
+}
+
+// choiceAttributes are a menu entry's attributes: its key under attr, the
+// htmx swap of #library-page the tabs use (so the URL follows and the
+// stream reconnects in the new view) and data-active on the current one.
+func choiceAttributes(attr string, c Choice) templ.Attributes {
+	attrs := templ.Attributes{
+		attr:          c.Key,
+		"hx-get":      c.Href,
+		"hx-push-url": "true",
+		"hx-target":   "#library-page",
+		"hx-select":   "#library-page",
+		"hx-swap":     "outerHTML",
+	}
+	if c.Active {
+		attrs["data-active"] = true
+	}
+	return attrs
 }
 
 // ActionError renders the visible failure state for a write action (§A3.2's
@@ -342,26 +418,7 @@ func posterState(url string) string {
 	return "none"
 }
 
-// posterStatus is the card's stripe (design 2026-09-24, after Radarr's):
-// what is on disk decides first -- green, or amber below the cutoff --
-// then an item in flight is blue, a monitored item with nothing on disk
-// is red, and an unmonitored one is gray.
-func posterStatus(li projection.LibraryItem) string {
-	switch {
-	case li.HasFile && (li.Phase == "CutoffUnmet" || li.Phase == "CutoffUnevaluated"):
-		return "cutoff-unmet"
-	case li.HasFile:
-		return "downloaded"
-	case li.Phase == "Downloading" || li.Phase == "Delayed" || li.Phase == "Grabbed":
-		return "downloading"
-	case li.Monitored:
-		return "missing"
-	default:
-		return "unmonitored"
-	}
-}
-
-// stripeClass is the stripe's colour for a posterStatus.
+// stripeClass is the stripe's colour for a projection.LibraryStatus.
 func stripeClass(status string) string {
 	const base = "h-1 w-full "
 	switch status {

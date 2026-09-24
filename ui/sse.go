@@ -268,13 +268,17 @@ func (s *Server) handleLibraryEvents(w http.ResponseWriter, r *http.Request) {
 	ch, unsubscribe := s.opts.SubscribeLibrary()
 	defer unsubscribe()
 
+	// The same view and window the page parsed from the same query, so a
+	// frame carries exactly the rows the page shows.
+	view := parseLibraryView(r.URL.Query())
 	want := paging.Parse(r.URL.Query())
+	want.Params = view.values()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case items := <-ch:
-			rows := projection.ForTab(items, tab)
+			rows := view.arrange(projection.ForTab(items, tab))
 			p := want.Page(len(rows))
 			if !writeLibraryEvent(w, ctx, tab, p, paging.Window(rows, p)) {
 				return

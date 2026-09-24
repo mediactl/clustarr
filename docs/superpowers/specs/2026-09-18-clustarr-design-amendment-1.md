@@ -517,6 +517,25 @@ bundle `shadcn-templ add` writes under `ui/static/js` is embedded and
 loaded once from the layout head; its scripts bind by delegation and
 observe the DOM, so htmx swaps keep them working.
 
+**Toolbar, sort and filter (as built, 2026-09-24).** Above the grid sits
+Radarr's toolbar row: the actions on the left (one "Rescan" `button` per
+RootFolder, the form it always was) and on the right a Sort and a Filter
+menu, each a `dropdown-menu` of links. The view is three query parameters
+the page and its stream parse alike and apply through
+`projection.Arrange` before paging: `?sort` (`title`, the default, `year`,
+`profile` or `status`, the stripe's state with missing first), `?dir=desc`
+(choosing the current sort again flips it, as Radarr does) and `?filter`,
+Radarr's presets (`all`, `monitored`, `unmonitored`, `missing` = monitored
+with nothing on disk, `wanted` = missing and released, `cutoff-unmet`).
+Defaults are left off the URL, so a link to the default view is the plain
+page URL and two links to one view are byte-identical (`url.Values`
+order). The view rides every link on the page -- the pager and its
+page-size links, `sse-connect`, the A–Z bar and the menus themselves --
+through `paging.Request.Params`; the A–Z bar shows only under the title
+sort, where it means something. Each menu entry swaps `#library-page`
+through htmx the way the tabs do, so the stream reconnects in the new
+view and the URL follows.
+
 **Pagination (as built, 2026-09-23).** The pipeline, downloads, unmatched
 and library pages each show one window of rows: `?page=N&per=M`, 1-based,
 `per` defaulting to 50 and capped at 500, a page past the end clamping to
@@ -525,9 +544,9 @@ the same parameters and the stream slices every push to that window, so a
 live update redraws only the page in view; the pager (shadcn-templ's
 pagination component: previous, first, neighbours, gaps, last, next, plus
 "showing a to b of N" and the page-size links) rides the streamed fragment
-so its counts stay live. Ordering is the projection's own; sorting and
-filtering are not part of this. The Downloads page's client cards stay
-outside the window.
+so its counts stay live. Ordering is the projection's own, except on the
+library, where the toolbar's view above is applied first. The Downloads
+page's client cards stay outside the window.
 
 ### A3.5 Authentication
 

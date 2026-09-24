@@ -25,6 +25,7 @@ package paging
 
 import (
 	"net/url"
+	"slices"
 	"strconv"
 )
 
@@ -41,6 +42,11 @@ const (
 type Request struct {
 	Number int
 	Per    int
+	// Params are the query parameters every link of the page carries
+	// besides page and per -- the library's sort and filter. Parse leaves
+	// it nil; the caller sets the parameters it recognised, already
+	// canonical, and [Page.Values] and [Page.Query] carry them.
+	Params url.Values
 }
 
 // Parse reads ?page and ?per. A missing, malformed or non-positive value
@@ -57,7 +63,11 @@ func Parse(q url.Values) Request {
 }
 
 // Page returns the window r selects over a list of total items.
-func (r Request) Page(total int) Page { return Paginate(total, r.Number, r.Per) }
+func (r Request) Page(total int) Page {
+	p := Paginate(total, r.Number, r.Per)
+	p.Params = r.Params
+	return p
+}
 
 // Page is one window over a list: the items from Offset for Count, on
 // page Number of Last. Number is clamped into [1, Last] and Last is at
@@ -70,6 +80,9 @@ type Page struct {
 	Last   int
 	Offset int
 	Count  int
+	// Params are [Request.Params], carried by every link; nil from
+	// [Paginate].
+	Params url.Values
 }
 
 // Paginate clamps number against total items of per each. A non-positive
@@ -119,10 +132,23 @@ func (p Page) HasPrev() bool { return p.Number > 1 }
 // HasNext reports whether a page follows this one.
 func (p Page) HasNext() bool { return p.Number < p.Last }
 
-// Query is the query string selecting page n at this page's size, so a
-// pager link never drops the size the reader chose.
+// Values are the query parameters selecting page n at this page's size
+// with Params, as a fresh copy the caller may edit -- the A-Z bar swaps
+// page for jump.
+func (p Page) Values(n int) url.Values {
+	v := url.Values{"page": {strconv.Itoa(n)}, "per": {strconv.Itoa(p.Per)}}
+	for k, vs := range p.Params {
+		v[k] = slices.Clone(vs)
+	}
+	return v
+}
+
+// Query is the query string selecting page n at this page's size with
+// Params, so a pager link never drops the size the reader chose nor the
+// view they are in. url.Values encodes keys in sorted order, so two links
+// to one view are byte-identical.
 func (p Page) Query(n int) string {
-	return "?page=" + strconv.Itoa(n) + "&per=" + strconv.Itoa(p.Per)
+	return "?" + p.Values(n).Encode()
 }
 
 // Numbers is the strip of page numbers a pager shows: the first and last

@@ -26,12 +26,14 @@ import (
 	"github.com/mediactl/clustarr/ui/views"
 )
 
-// jumpLetters is the A-Z bar's alphabet, Radarr's: # for a title that does
-// not start with a letter, then A to Z.
+// The A-Z jump bar (design 2026-09-24, after Radarr's): a letter per
+// entry, # for a title that starts with anything else, and a link to the
+// page where that letter's titles begin in the tab's title order.
+
 const jumpLetters = "#ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-// jumpKey is the letter a title files under: its first rune upper-cased,
-// or # when that is not a letter (a digit, a bracket, nothing).
+// jumpKey is the letter a title files under: its first rune upper-cased
+// when that is A-Z, else '#'.
 func jumpKey(title string) byte {
 	r, _ := utf8.DecodeRuneInString(title)
 	r = unicode.ToUpper(r)
@@ -41,10 +43,9 @@ func jumpKey(title string) byte {
 	return '#'
 }
 
-// jumpPage is the page, at per items each, holding the first title filed
-// at or after letter in items, which the projection keeps sorted by title.
-// A letter past every title lands on the last page; an empty list on the
-// first.
+// jumpPage is the page of per items on which the first title filing under
+// letter or later sits, given items in title order; the last page when no
+// title does.
 func jumpPage(items []projection.LibraryItem, letter byte, per int) int {
 	idx := len(items) - 1
 	for i, it := range items {
@@ -56,10 +57,10 @@ func jumpPage(items []projection.LibraryItem, letter byte, per int) int {
 	return paging.Paginate(len(items), max(idx, 0)/max(per, 1)+1, per).Number
 }
 
-// jumps renders the bar for items on the tab at base: one entry per
-// letter, linked when a title is filed under it and disabled otherwise,
-// each link keeping the page size.
-func jumps(items []projection.LibraryItem, base string, per int) []views.Jump {
+// jumps builds the bar for a tab at base: a link per letter some title
+// files under, carrying the page's size and view (p.Params) with jump in
+// place of page, and a disabled entry per letter none does.
+func jumps(items []projection.LibraryItem, base string, p paging.Page) []views.Jump {
 	present := map[byte]bool{}
 	for _, it := range items {
 		present[jumpKey(it.Title)] = true
@@ -69,32 +70,12 @@ func jumps(items []projection.LibraryItem, base string, per int) []views.Jump {
 		letter := jumpLetters[i]
 		j := views.Jump{Letter: string(letter), Enabled: present[letter]}
 		if j.Enabled {
-			j.Href = base + "?jump=" + jumpQuery(letter) + "&per=" + itoa(per)
+			q := p.Values(1)
+			q.Del("page")
+			q.Set("jump", string(letter))
+			j.Href = base + "?" + q.Encode()
 		}
 		out = append(out, j)
 	}
 	return out
-}
-
-// jumpQuery is the letter as a query value: # must be escaped or the URL
-// reads it as a fragment.
-func jumpQuery(letter byte) string {
-	if letter == '#' {
-		return "%23"
-	}
-	return string(letter)
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(buf[i:])
 }

@@ -125,3 +125,25 @@ func TestQueryCarriesPer(t *testing.T) {
 	require.False(t, paging.Paginate(120, 1, 50).HasPrev())
 	require.False(t, paging.Paginate(120, 3, 50).HasNext())
 }
+
+// TestQueryCarriesParams: a page's links keep every parameter the caller
+// asked to carry -- the library's sort and filter -- in url.Values' canonical
+// (sorted) order, so two links to the same view are byte-identical, and a
+// page with nothing to carry still renders the old "?page=N&per=M".
+func TestQueryCarriesParams(t *testing.T) {
+	req := paging.Parse(url.Values{"page": {"2"}, "per": {"25"}})
+	req.Params = url.Values{"sort": {"year"}, "filter": {"missing"}}
+	p := req.Page(120)
+	require.Equal(t, "?filter=missing&page=3&per=25&sort=year", p.Query(3))
+	require.Equal(t, "?page=3&per=25", paging.Paginate(120, 2, 25).Query(3), "no params: unchanged")
+
+	v := p.Values(1)
+	require.Equal(t, url.Values{"page": {"1"}, "per": {"25"}, "sort": {"year"}, "filter": {"missing"}}, v)
+	v.Set("jump", "M")
+	v.Del("page")
+	require.Equal(t, "?filter=missing&page=1&per=25&sort=year", p.Query(1), "Values returns a copy")
+	require.Equal(t, "filter=missing&jump=M&per=25&sort=year", v.Encode())
+
+	req.Params = url.Values{"filter": {"#"}}
+	require.Equal(t, "?filter=%23&page=1&per=25", req.Page(1).Query(1), "values are escaped")
+}
