@@ -46,6 +46,7 @@ var (
 	gvrMediaFiles     = schema.GroupVersionResource{Group: "catalog.clustarr.io", Version: "v1alpha1", Resource: "mediafiles"}
 	gvrTranscodeProfs = schema.GroupVersionResource{Group: "transcode.clustarr.io", Version: "v1alpha1", Resource: "transcodeprofiles"}
 	gvrImportLists    = schema.GroupVersionResource{Group: "catalog.clustarr.io", Version: "v1alpha1", Resource: "importlists"}
+	gvrRootFolders    = schema.GroupVersionResource{Group: "catalog.clustarr.io", Version: "v1alpha1", Resource: "rootfolders"}
 
 	// clusterScoped lists the kinds created without a namespace.
 	clusterScoped = map[schema.GroupVersionResource]bool{gvrTranscodeProfs: true}
@@ -81,6 +82,7 @@ func TestAdmission(t *testing.T) {
 	cases = append(cases, mediaRefTrackCases()...)
 	cases = append(cases, transcodeProfileCases()...)
 	cases = append(cases, importListKindCases()...)
+	cases = append(cases, rootFolderPathCases()...)
 
 	ctx := context.Background()
 	for _, c := range cases {
@@ -253,5 +255,33 @@ func importListKindCases() []admissionCase {
 		{"a Lidarr list of books is refused", gvrImportLists, list("arr", arr("lidarr"), "book"), "only its instance's kinds"},
 		{"a Clustarr list of comics is admitted", gvrImportLists, list("arr", arr("clustarr"), "comic"), ""},
 		{"a custom list of anything is admitted", gvrImportLists, list("custom", map[string]any{"url": "http://c"}, "comic", "book"), ""},
+	}
+}
+
+// rootFolderPathCases: a RootFolder's path is under /data/media/ and clean
+// (kind-cluster finding D3, ruling R28). The prefix check alone admitted
+// "/data/media/../x", which every consumer of the path -- importarr's
+// rescan, the transcode worker's RootFolder guard (spec §17.5) -- resolves
+// outside the library.
+func rootFolderPathCases() []admissionCase {
+	folder := func(path string) map[string]any {
+		return map[string]any{
+			"apiVersion": "catalog.clustarr.io/v1alpha1",
+			"kind":       "RootFolder",
+			"metadata":   map[string]any{"name": "movies", "namespace": "default"},
+			"spec":       map[string]any{"path": path, "kind": "movie"},
+		}
+	}
+	const unclean = "path must be clean"
+	return []admissionCase{
+		{"RootFolder under /data/media/ is admitted", gvrRootFolders, folder("/data/media/movies"), ""},
+		{"RootFolder with a nested path is admitted", gvrRootFolders, folder("/data/media/movies/4k"), ""},
+		{"RootFolder with a dotted name is admitted", gvrRootFolders, folder("/data/media/movies.old/..hidden"), ""},
+		{"RootFolder outside /data/media/ is refused", gvrRootFolders, folder("/data/other"), "path must start with /data/media/"},
+		{"RootFolder with a .. segment is refused", gvrRootFolders, folder("/data/media/../etc"), unclean},
+		{"RootFolder ending in a .. segment is refused", gvrRootFolders, folder("/data/media/movies/.."), unclean},
+		{"RootFolder with a . segment is refused", gvrRootFolders, folder("/data/media/./movies"), unclean},
+		{"RootFolder ending in a . segment is refused", gvrRootFolders, folder("/data/media/movies/."), unclean},
+		{"RootFolder with an empty segment is refused", gvrRootFolders, folder("/data/media//movies"), unclean},
 	}
 }

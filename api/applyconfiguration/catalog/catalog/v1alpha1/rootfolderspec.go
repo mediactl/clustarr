@@ -29,7 +29,9 @@ import (
 // RootFolderSpec defines the desired state of RootFolder.
 type RootFolderSpecApplyConfiguration struct {
 	// Path is the absolute path of the root folder; it is immutable and must
-	// live under /data/media/.
+	// live under /data/media/. It is a clean path: no "." or ".." segment
+	// and no empty one ("//"), so "/data/media/../x" cannot pass the prefix
+	// check and resolve outside the library.
 	Path *string `json:"path,omitempty"`
 	// Kind is the media kind stored under this root folder.
 	Kind *catalogv1alpha1.RootFolderKind `json:"kind,omitempty"`

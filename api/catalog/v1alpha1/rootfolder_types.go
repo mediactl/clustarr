@@ -228,10 +228,13 @@ type Perms struct {
 // RootFolderSpec defines the desired state of RootFolder.
 type RootFolderSpec struct {
 	// Path is the absolute path of the root folder; it is immutable and must
-	// live under /data/media/.
+	// live under /data/media/. It is a clean path: no "." or ".." segment
+	// and no empty one ("//"), so "/data/media/../x" cannot pass the prefix
+	// check and resolve outside the library.
 	// +required
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="path is immutable"
 	// +kubebuilder:validation:XValidation:rule="self.startsWith('/data/media/')",message="path must start with /data/media/"
+	// +kubebuilder:validation:XValidation:rule="!self.contains('/../') && !self.endsWith('/..') && !self.contains('/./') && !self.endsWith('/.') && !self.contains('//')",message="path must be clean: no '.' or '..' segment and no empty segment ('//')"
 	Path string `json:"path"`
 
 	// Kind is the media kind stored under this root folder.

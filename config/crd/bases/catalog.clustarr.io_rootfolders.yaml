@@ -202,13 +202,19 @@ spec:
               path:
                 description: |-
                   Path is the absolute path of the root folder; it is immutable and must
-                  live under /data/media/.
+                  live under /data/media/. It is a clean path: no "." or ".." segment
+                  and no empty one ("//"), so "/data/media/../x" cannot pass the prefix
+                  check and resolve outside the library.
                 type: string
                 x-kubernetes-validations:
                 - message: path is immutable
                   rule: self == oldSelf
                 - message: path must start with /data/media/
                   rule: self.startsWith('/data/media/')
+                - message: 'path must be clean: no ''.'' or ''..'' segment and no
+                    empty segment (''//'')'
+                  rule: '!self.contains(''/../'') && !self.endsWith(''/..'') && !self.contains(''/./'')
+                    && !self.endsWith(''/.'') && !self.contains(''//'')'
               permissions:
                 description: Permissions is the ownership and mode applied to imported
                   files.
