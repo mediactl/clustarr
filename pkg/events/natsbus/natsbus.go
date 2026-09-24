@@ -423,6 +423,16 @@ func (b *Bus) deadLetter(ctx context.Context, msg events.Message, durable, reaso
 	_, _ = b.Publish(pubCtx, subject, env)
 }
 
+// respondError answers a request with a header-only service error, the
+// shape Request turns back into an error on the caller's side. It carries no
+// body, so it fits under any max_payload.
+func respondError(m *nats.Msg, err error) {
+	reply := &nats.Msg{Subject: m.Reply, Header: nats.Header{}}
+	reply.Header.Set("Nats-Service-Error", err.Error())
+	reply.Header.Set("Nats-Service-Error-Code", "500")
+	_ = m.RespondMsg(reply)
+}
+
 // Serve registers a queue-group responder on core NATS.
 func (b *Bus) Serve(subject, queue string,
 	h func(ctx context.Context, data []byte) ([]byte, error),
@@ -455,13 +465,22 @@ func (b *Bus) Serve(subject, queue string,
 
 		data, err := h(ctx, m.Data)
 		if err != nil {
-			reply := &nats.Msg{Subject: m.Reply, Header: nats.Header{}}
-			reply.Header.Set("Nats-Service-Error", err.Error())
-			reply.Header.Set("Nats-Service-Error-Code", "500")
-			_ = m.RespondMsg(reply)
+			respondError(m, err)
 			return
 		}
-		_ = m.Respond(data)
+		if err := m.Respond(data); err != nil {
+			// The connection refused to send the reply -- nats.ErrMaxPayload
+			// when the body is over the server's max_payload -- and the
+			// requester would otherwise wait out its whole deadline with
+			// nothing to say why (2026-09-24: a 1.3 MB .nzb against the
+			// Helm chart's 1 MiB default stranded every usenet grab as
+			// "context deadline exceeded"). A header-only error reply always
+			// fits, so the requester fails at once and names the cause.
+			logging.FromContext(ctx).Error("bus: reply not sent",
+				"subject", subject, "bytes", len(data), "err", err)
+			respondError(m, fmt.Errorf("natsbus: reply of %d bytes to %q not sent: %w",
+				len(data), subject, err))
+		}
 	}
 
 	var (

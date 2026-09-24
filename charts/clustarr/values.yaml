@@ -65,6 +65,19 @@ nats:
       memoryStore:
         enabled: true
         maxSize: 256Mi
+    # Homelab-friendly limits (design spec §12), the same values
+    # config/nats/configmap.yaml sets for kustomize. max_payload matters:
+    # the nats subchart's default is the server's 1 MiB, and indexarr
+    # answers rpc.indexarr.download with the .nzb inline (base64 in JSON,
+    # so 4/3 of its size), which a 1080p movie's ~1.3 MB .nzb already
+    # exceeds -- every such grab then sat in Assigned with "context
+    # deadline exceeded" (2026-09-24). The << >> markers are the
+    # subchart's syntax for an unquoted value with a unit.
+    merge:
+      max_payload: "<< 8Mi >>"
+      write_deadline: "10s"
+      lame_duck_grace_period: "10s"
+      lame_duck_duration: "30s"
   # Feeds the optional KEDA triggers and the NATS dashboards.
   promExporter:
     enabled: false
