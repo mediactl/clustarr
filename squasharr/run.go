@@ -30,10 +30,15 @@ import (
 	"strconv"
 	"strings"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs"
@@ -41,6 +46,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/squasharr/controller/transcodejob"
 	"github.com/mediactl/clustarr/squasharr/controller/transcodeprofile"
+	"github.com/mediactl/clustarr/squasharr/status"
 	"github.com/mediactl/clustarr/squasharr/worker"
 )
 
@@ -511,11 +517,9 @@ func runWorker(ctx context.Context, o Options) error {
 	// it: the worker's spans continue that trace rather than starting one.
 	ctx = worker.ContextWithTraceParent(ctx, os.Getenv(worker.TraceParentEnv))
 	wo := worker.Options{
-		JobName:   o.JobName,
-		Namespace: o.Namespace,
-		DataDir:   o.DataDir,
-		Threads:   worker.ThreadsFromEnv(),
-		PodName:   os.Getenv("POD_NAME"),
+		DataDir: o.DataDir,
+		Threads: worker.ThreadsFromEnv(),
+		PodName: os.Getenv("POD_NAME"),
 	}
 	// The bus carries one thing for a worker: the 1 Hz telemetry spec §5
 	// puts in clustarr-progress. It is optional -- status.progress is the
@@ -532,9 +536,81 @@ func runWorker(ctx context.Context, o Options) error {
 			wo.Telemetry = bus.KV(events.BucketProgress)
 		}
 	}
-	code, err := worker.Run(ctx, c, wo)
+	code, err := runWorkerJob(ctx, c, o, wo)
 	if code == worker.ExitOK {
 		return nil
 	}
 	return &ExitError{Code: code, Err: err}
+}
+
+// runWorkerJob is the transitional in-cluster adapter (removed in Task 10 of
+// docs/superpowers/plans/2026-09-23-transcode-worker-pools.md): it reads what
+// BuildTask needs, runs worker.Process, and writes the worker's status.
+func runWorkerJob(ctx context.Context, c client.Client, o Options, wo worker.Options) (int, error) {
+	// Checked before any apiserver call: a missing ffmpeg/ffprobe is this
+	// node's image, not the TranscodeJob's inputs, and must never be
+	// misread as -- or masked by -- an unreachable apiserver.
+	if err := worker.CheckFFmpeg(wo); err != nil {
+		return worker.ExitCode(err), err
+	}
+	key := types.NamespacedName{Namespace: o.Namespace, Name: o.JobName}
+	var tj transcodev1alpha1.TranscodeJob
+	if err := c.Get(ctx, key, &tj); err != nil {
+		return exitForGet(err), err
+	}
+	var tp transcodev1alpha1.TranscodeProfile
+	if err := c.Get(ctx, types.NamespacedName{Name: tj.Spec.ProfileRef}, &tp); err != nil {
+		return exitForGet(err), err
+	}
+	if tp.Status.Hash == "" {
+		return worker.ExitRetriable, fmt.Errorf("TranscodeProfile %s has no status.hash yet", tp.Name)
+	}
+	var mf catalogv1alpha1.MediaFile
+	if err := c.Get(ctx, types.NamespacedName{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}, &mf); err != nil {
+		return exitForGet(err), err
+	}
+	var folders catalogv1alpha1.RootFolderList
+	if err := c.List(ctx, &folders, client.InNamespace(tj.Namespace)); err != nil {
+		return worker.ExitRetriable, err
+	}
+	t, err := worker.BuildTask(&tj, &tp, &mf, folders.Items, tj.Status.Attempts, tp.Spec.Hardware)
+	if err != nil {
+		return worker.ExitInvalidSource, err
+	}
+	apply := func(change func(*transcodev1alpha1.TranscodeJobStatus)) error {
+		var fresh transcodev1alpha1.TranscodeJob
+		if err := c.Get(ctx, key, &fresh); err != nil {
+			return err
+		}
+		change(&fresh.Status)
+		return status.Patch(ctx, c, k8s.ManagerSquasharrWorker, &fresh, nil)
+	}
+	wo.OnProgress = func(_ context.Context, p transcodev1alpha1.Progress) error {
+		return apply(func(s *transcodev1alpha1.TranscodeJobStatus) { s.Progress = &p })
+	}
+	out := worker.Process(ctx, t, wo)
+	if out.StderrTail != "" {
+		_ = apply(func(s *transcodev1alpha1.TranscodeJobStatus) { s.StderrTail = out.StderrTail })
+	}
+	if out.Code == worker.ExitOK && out.Result != nil {
+		if err := apply(func(s *transcodev1alpha1.TranscodeJobStatus) {
+			s.Result = out.Result
+			if s.Progress != nil {
+				s.Progress.Percent, s.Progress.UpdatedAt = 100, metav1.Now()
+			}
+		}); err != nil {
+			return worker.ExitRetriable, err
+		}
+	}
+	return out.Code, out.Err
+}
+
+// exitForGet classifies a failed Get: a missing object is permanent, so
+// running the same Job again cannot help; anything else is the apiserver
+// and is retried.
+func exitForGet(err error) int {
+	if apierrors.IsNotFound(err) {
+		return worker.ExitInvalidSource
+	}
+	return worker.ExitRetriable
 }

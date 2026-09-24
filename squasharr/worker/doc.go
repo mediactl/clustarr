@@ -15,32 +15,39 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package worker is the entrypoint of a squasharr transcode Job pod:
-// `clustarr squasharr --role worker --job <name>` transcodes exactly one
-// TranscodeJob and exits (spec §6.4). [Run] is the whole of it.
+// Package worker transcodes one task.Task: [Process] is the whole of it, and
+// it never talks to Kubernetes (spec §9) -- every input it needs is resolved
+// onto the task by [BuildTask] before Process is ever called, and every
+// output (progress, the result, stderr) comes back on the returned Outcome
+// for the caller to do something with. In this transitional phase the only
+// caller is `clustarr squasharr --role worker --job <name>`
+// (squasharr/run.go's runWorkerJob, removed in Task 10 of
+// docs/superpowers/plans/2026-09-23-transcode-worker-pools.md), which reads
+// the TranscodeJob/TranscodeProfile/MediaFile/RootFolders BuildTask needs and
+// applies the worker's status fields from Outcome; a pool worker (Task 6)
+// will be the next.
 //
 // # Sequence
 //
-//  1. Get the TranscodeJob, its TranscodeProfile and its MediaFile, and find
-//     the RootFolder whose path contains the source. A source under no root
-//     folder is refused: the worker never touches a file outside one.
+//  1. Map the task's source onto this process's filesystem and confirm it
+//     falls under its resolved RootFolder; the worker never touches a file
+//     outside one.
 //  2. Stat the live source and compare mediainfo.ProbeHash with
-//     spec.sourceProbeHash (Phase E ruling R3). A mismatch means the file is
+//     SourceProbeHash (Phase E ruling R3). A mismatch means the file is
 //     not the one that was planned, and it is never transcoded -- with one
 //     exception, below.
 //  3. Probe, ProbeCapabilities, Plan (from transcode.FromProbe, whose argv
-//     is the one the controller recorded in status.plan from the stored
-//     summary -- a mismatch is logged), EnsureFreeSpace beside the output,
-//     where the .part is written.
-//  4. Runner.Run, with progress applied to status.progress at most every
-//     [Options.ProgressInterval], re-reading the TranscodeJob before every
-//     apply, and -- given a bus -- written as schema.TranscodeProgress to
-//     the clustarr-progress bucket at most every
-//     [Options.TelemetryInterval] (1 Hz, spec §5), under [ProgressKey].
+//     is compared against the controller's recorded ArgsHash -- a mismatch
+//     is logged), EnsureFreeSpace beside the output, where the .part is
+//     written.
+//  4. Runner.Run, with progress reported through [Options.OnProgress] at
+//     most every [Options.ProgressInterval], and -- given a bus -- written
+//     as schema.TranscodeProgress to the clustarr-progress bucket at most
+//     every [Options.TelemetryInterval] (1 Hz, spec §5), under [ProgressKey].
 //  5. Verifier.Verify (ruling R2: duration tolerance plus stream layout),
 //     plus the profile's maxOutputToSourcePercent.
-//  6. The swap (ruling R5; R-11 for an output with its own name), then
-//     status.result.
+//  6. The swap (ruling R5; R-11 for an output with its own name), then the
+//     Outcome's Result.
 //
 // # Exit codes are a contract with podFailurePolicy
 //
@@ -126,12 +133,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Status
 //
-// The worker writes only squasharr/status.WorkerFields -- progress, result
-// and stderrTail -- under k8s.ManagerSquasharrWorker, always through
-// squasharr/status.Patch, always from a freshly read object. status.progress
-// is the record; the 1 Hz telemetry in clustarr-progress is best effort for
-// UIs, needs no RBAC, and a worker without a bus (Phase E ruling R6: none is
-// required) writes none.
+// This package writes none: [Process] reads and writes files only, and
+// reports progress, the result and stderr on the returned Outcome (and, for
+// progress, through [Options.OnProgress] as it happens). The transitional
+// in-cluster caller (runWorkerJob, squasharr/run.go) is what applies
+// squasharr/status.WorkerFields -- progress, result and stderrTail -- under
+// k8s.ManagerSquasharrWorker, always through squasharr/status.Patch, always
+// from a freshly read object; status.progress is the record there. The 1 Hz
+// telemetry in clustarr-progress is best effort for UIs, needs no RBAC, and
+// a worker without a bus (Phase E ruling R6: none is required) writes none.
 //
 // # RBAC: these markers are the Job pod's whole Role
 //

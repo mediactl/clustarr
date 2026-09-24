@@ -20,13 +20,10 @@ package worker
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
-	"strings"
 	"testing"
 	"time"
 
@@ -35,6 +32,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -48,6 +46,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/squasharr/status"
+	"github.com/mediactl/clustarr/squasharr/task"
 )
 
 // These tests run a REAL ffmpeg encode against a real apiserver. They skip
@@ -267,7 +266,7 @@ func (f *fixture) createJob(t *testing.T, c client.Client, probeHash string) {
 
 func (f *fixture) options() Options {
 	return Options{
-		JobName: f.job, Namespace: f.ns, DataDir: f.dataDir,
+		DataDir:    f.dataDir,
 		FFmpegPath: ffmpegBin, FFprobePath: ffprobeBin,
 		Threads: 2, ProgressInterval: 50 * time.Millisecond,
 	}
@@ -278,6 +277,35 @@ func (f *fixture) get(t *testing.T, c client.Client) *transcodev1alpha1.Transcod
 	var tj transcodev1alpha1.TranscodeJob
 	require.NoError(t, c.Get(context.Background(), client.ObjectKey{Namespace: f.ns, Name: f.job}, &tj))
 	return &tj
+}
+
+// processWith runs Process on the task BuildTask renders from the fixture's
+// real, apiserver-defaulted objects: the same producer squasharr dispatches
+// with (runWorkerJob, squasharr/run.go), under the caller-supplied options --
+// for a test that needs to override one (a wrapped ffmpeg, a failing
+// verifier). A BuildTask error is reported the way runWorkerJob reports one:
+// ExitInvalidSource, before Process is ever called.
+func (f *fixture) processWith(t *testing.T, c client.Client, o Options) Outcome {
+	t.Helper()
+	ctx := context.Background()
+	tj := f.get(t, c)
+	var tp transcodev1alpha1.TranscodeProfile
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: tj.Spec.ProfileRef}, &tp))
+	var mf catalogv1alpha1.MediaFile
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}, &mf))
+	var folders catalogv1alpha1.RootFolderList
+	require.NoError(t, c.List(ctx, &folders, client.InNamespace(tj.Namespace)))
+	tk, err := BuildTask(tj, &tp, &mf, folders.Items, 1, tp.Spec.Hardware)
+	if err != nil {
+		return Outcome{Code: ExitInvalidSource, Err: err}
+	}
+	return Process(ctx, tk, o)
+}
+
+// process is processWith under the fixture's own Options.
+func (f *fixture) process(t *testing.T, c client.Client) Outcome {
+	t.Helper()
+	return f.processWith(t, c, f.options())
 }
 
 // binEntries lists everything in the recycle bin, relative to it.
@@ -326,9 +354,9 @@ func TestRunTranscodesVerifiesAndSwapsOverTheSource(t *testing.T) {
 	requireFFmpeg(t)
 	f := newFixture(t, c)
 
-	code, err := Run(context.Background(), c, f.options())
-	require.NoError(t, err)
-	require.Equal(t, ExitOK, code)
+	out := f.process(t, c)
+	require.NoError(t, out.Err)
+	require.Equal(t, ExitOK, out.Code)
 
 	codec, tag := videoCodec(t, f.local)
 	assert.Equal(t, "hevc", codec, "the source path must now hold the transcode")
@@ -346,42 +374,26 @@ func TestRunTranscodesVerifiesAndSwapsOverTheSource(t *testing.T) {
 	require.NoError(t, err, "the seeding copy must survive")
 	assert.True(t, bytes.Equal(f.original, seed), "the seeding copy must be untouched (§6.4)")
 
-	tj := f.get(t, c)
-	require.NotNil(t, tj.Status.Result)
-	assert.Equal(t, f.logical, tj.Status.Result.OutputPath, "result carries the logical path, not this pod's mount")
+	require.NotNil(t, out.Result)
+	assert.Equal(t, f.logical, out.Result.OutputPath, "result carries the logical path, not this pod's mount")
 	st, err := os.Stat(f.local)
 	require.NoError(t, err)
-	assert.Equal(t, st.Size(), tj.Status.Result.OutputSizeBytes)
-	assert.Equal(t, sizePercent(st.Size(), int64(len(f.original))), tj.Status.Result.OutputToSourcePercent)
-	require.NotNil(t, tj.Status.Result.MediaInfo)
-	assert.Equal(t, "hevc", tj.Status.Result.MediaInfo.VideoCodec)
-	require.NotNil(t, tj.Status.Progress)
-	assert.Equal(t, int32(100), tj.Status.Progress.Percent)
-	assert.Positive(t, tj.Status.Progress.Frame)
-	assert.False(t, tj.Status.Progress.UpdatedAt.IsZero())
+	assert.Equal(t, st.Size(), out.Result.OutputSizeBytes)
+	assert.Equal(t, sizePercent(st.Size(), int64(len(f.original))), out.Result.OutputToSourcePercent)
+	require.NotNil(t, out.Result.MediaInfo)
+	assert.Equal(t, "hevc", out.Result.MediaInfo.VideoCodec)
 
-	// The controller's fields are exactly as it left them.
+	// Process makes no Kubernetes client of its own (spec §9): the
+	// TranscodeJob's controller-owned fields, and its managedFields, are
+	// exactly as createJob left them. Task 10's status tests hold the
+	// single-writer split once runWorkerJob (squasharr/run.go) is the one
+	// applying the worker's fields again.
+	tj := f.get(t, c)
 	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, tj.Status.Phase)
 	require.NotNil(t, tj.Status.Plan)
 	assert.Equal(t, "libx265", tj.Status.Plan.Encoder)
-	require.NotNil(t, tj.Status.JobRef)
-	assert.Equal(t, int32(1), tj.Status.Attempts)
-	assert.Equal(t, "running", tj.Status.Message)
-	assert.NotNil(t, tj.Status.StartedAt)
-
-	// Values cannot show an over-claim (pkg/k8s forces ownership); only
-	// managedFields can. The worker must own its three fields and no other.
-	assert.Equal(t, []string{"progress", "result", "stderrTail"}, statusFieldsOwnedBy(t, tj, k8s.ManagerSquasharrWorker))
-	// workerPod and fallbackReason are here even at "" -- squasharr/status's
-	// ControllerFields sends both unconditionally (spec §18.6: they are
-	// controller-owned dispatch fields, not worker output), so createJob's
-	// steady-state apply already claims them though it never sets a value.
-	// hardware and nextAttemptAt are absent because createJob's fixture never
-	// sets either: like phase, hardware is a CRD enum ControllerFields omits
-	// at "" rather than send an invalid empty enum value.
-	assert.Equal(t,
-		[]string{"attempts", "fallbackReason", "jobRef", "message", "observedGeneration", "phase", "plan", "startedAt", "workerPod"},
-		statusFieldsOwnedBy(t, tj, k8s.ManagerSquasharr))
+	assert.Nil(t, tj.Status.Result, "Process writes no status; the caller (runWorkerJob) does")
+	assert.Nil(t, tj.Status.Progress)
 }
 
 // R2/R4: a failed verification exits 4 and leaves the source exactly as it
@@ -393,16 +405,16 @@ func TestRunExitsFourAndLeavesTheSourceUntouchedWhenVerificationFails(t *testing
 
 	o := f.options()
 	o.Verifier = failingVerifier{real: transcode.NewVerifier(ffprobeBin)}
-	code, err := Run(context.Background(), c, o)
-	require.Error(t, err)
-	require.Equal(t, ExitVerifyFailed, code)
-	assert.Contains(t, err.Error(), "stream count")
+	out := f.processWith(t, c, o)
+	require.Error(t, out.Err)
+	require.Equal(t, ExitVerifyFailed, out.Code)
+	assert.Contains(t, out.Err.Error(), "stream count")
 
 	f.requireSourceUntouched(t)
 	seed, err := os.ReadFile(f.seed)
 	require.NoError(t, err)
 	assert.True(t, bytes.Equal(f.original, seed))
-	assert.Nil(t, f.get(t, c).Status.Result, "a failed job has no result")
+	assert.Nil(t, out.Result, "a failed job has no result")
 }
 
 // failingVerifier runs the real verifier against the real output, then
@@ -439,39 +451,71 @@ func TestRunExitsThreeBeforeRunningFFmpegWhenTheSourceChanged(t *testing.T) {
 
 	o := f.options()
 	o.FFmpegPath = wrapper
-	code, err := Run(context.Background(), c, o)
-	require.Error(t, err)
-	require.Equal(t, ExitInvalidSource, code)
-	assert.Contains(t, err.Error(), "changed since it was planned")
+	out := f.processWith(t, c, o)
+	require.Error(t, out.Err)
+	require.Equal(t, ExitInvalidSource, out.Code)
+	assert.Contains(t, out.Err.Error(), "changed since it was planned")
+	assert.Equal(t, task.ReasonSourceChanged, out.Reason)
 
 	_, statErr := os.Stat(marker)
 	assert.True(t, os.IsNotExist(statErr), "ffmpeg must never have been invoked")
 	f.requireSourceUntouched(t)
 }
 
-// The dangerous crash: the swap completed but the pod died before
-// status.result landed. The retry finds a source whose probe hash no
-// longer matches -- which would be exit 3, a permanently Failed Job for a
-// transcode that in fact succeeded -- unless it recognises its own output
-// by the CLUSTARR_PROFILE tag. It must, and must not transcode again.
+// A source edited after BuildTask already planned it -- as opposed to a
+// TranscodeJob created with a stale spec.sourceProbeHash, above -- is the
+// same failure by a different route, and Process must report it through
+// Outcome.Reason so a redispatching pool can act on it without reparsing the
+// message (spec §18.1, §18.3).
+func TestProcessReportsSourceChangedWhenTheSourceIsEditedAfterPlanning(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	ctx := context.Background()
+	f := newFixture(t, c)
+
+	tj := f.get(t, c)
+	var tp transcodev1alpha1.TranscodeProfile
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: tj.Spec.ProfileRef}, &tp))
+	var mf catalogv1alpha1.MediaFile
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}, &mf))
+	var folders catalogv1alpha1.RootFolderList
+	require.NoError(t, c.List(ctx, &folders, client.InNamespace(tj.Namespace)))
+	tk, err := BuildTask(tj, &tp, &mf, folders.Items, 1, tp.Spec.Hardware)
+	require.NoError(t, err)
+
+	// The source is edited (different size, so a different ProbeHash) after
+	// the task was already built from it.
+	require.NoError(t, os.WriteFile(f.local, append(append([]byte{}, f.original...), 0), 0o644))
+
+	out := Process(ctx, tk, f.options())
+	require.Error(t, out.Err)
+	assert.Equal(t, ExitInvalidSource, out.Code)
+	assert.Equal(t, task.ReasonSourceChanged, out.Reason)
+	assert.Empty(t, f.partFiles(t), "no output may be left beside the source")
+	assert.Empty(t, f.binEntries(t), "nothing may have been recycled")
+}
+
+// The dangerous crash: the swap completed but the pod died before the
+// result was recorded. Process itself never touches Kubernetes any more --
+// the caller does that (runWorkerJob, squasharr/run.go) -- so what this
+// exercises is purely file-system-level: a retry of the same task finds a
+// source whose probe hash no longer matches -- which would be exit 3, a
+// permanently failed task for a transcode that in fact succeeded -- unless
+// it recognises its own output by the CLUSTARR_PROFILE tag. It must, and
+// must not transcode again.
 func TestRunAfterACrashPostSwapRecordsTheResultWithoutTranscodingAgain(t *testing.T) {
 	c := requireCluster(t)
 	requireFFmpeg(t)
 	f := newFixture(t, c)
-	ctx := context.Background()
 
-	code, err := Run(ctx, c, f.options())
-	require.NoError(t, err)
-	require.Equal(t, ExitOK, code)
+	out := f.process(t, c)
+	require.NoError(t, out.Err)
+	require.Equal(t, ExitOK, out.Code)
 	swapped, err := os.ReadFile(f.local)
 	require.NoError(t, err)
 
-	// Simulate the crash: the result never landed.
-	tj := f.get(t, c)
-	tj.Status.Result = nil
-	require.NoError(t, status.Patch(ctx, c, k8s.ManagerSquasharrWorker, tj, nil))
-	require.Nil(t, f.get(t, c).Status.Result, "setup: result must be gone")
-
+	// The retry: same TranscodeJob, a wrapped ffmpeg that would leave a
+	// marker if it ran.
 	marker := filepath.Join(t.TempDir(), "ffmpeg-ran")
 	wrapper := filepath.Join(t.TempDir(), "ffmpeg")
 	require.NoError(t, os.WriteFile(wrapper,
@@ -479,9 +523,9 @@ func TestRunAfterACrashPostSwapRecordsTheResultWithoutTranscodingAgain(t *testin
 	o := f.options()
 	o.FFmpegPath = wrapper
 
-	code, err = Run(ctx, c, o)
-	require.NoError(t, err)
-	require.Equal(t, ExitOK, code)
+	out2 := f.processWith(t, c, o)
+	require.NoError(t, out2.Err)
+	require.Equal(t, ExitOK, out2.Code)
 
 	_, statErr := os.Stat(marker)
 	assert.True(t, os.IsNotExist(statErr), "the retry must not transcode again")
@@ -490,32 +534,33 @@ func TestRunAfterACrashPostSwapRecordsTheResultWithoutTranscodingAgain(t *testin
 	assert.True(t, bytes.Equal(swapped, now), "the swapped-in output must be left as it is")
 	assert.Len(t, f.binEntries(t), 1, "and nothing recycled a second time")
 
-	got := f.get(t, c).Status.Result
-	require.NotNil(t, got)
-	assert.Equal(t, f.logical, got.OutputPath)
-	assert.Equal(t, int64(len(swapped)), got.OutputSizeBytes)
+	require.NotNil(t, out2.Result)
+	assert.Equal(t, f.logical, out2.Result.OutputPath)
+	assert.Equal(t, int64(len(swapped)), out2.Result.OutputSizeBytes)
 }
 
 // Classification of the failure paths that need no encode. Each case is
-// the permanent-or-not decision podFailurePolicy acts on.
+// the permanent-or-not decision a caller acts on (podFailurePolicy today;
+// task.Outcome/Reason once Task 6 lands).
+//
+// Two cases from before Process existed are gone rather than ported: a
+// missing TranscodeJob and an unhashed TranscodeProfile are now caught by
+// the orchestrator BEFORE it can even build a task.Task -- runWorkerJob
+// (squasharr/run.go), exercised at the process level by
+// TestSquasharrWorkerExitCodeReachesTheProcess's "invalid source" case, and
+// (for the unhashed profile) by runWorkerJob's own tp.Status.Hash=="" check.
+// Process, given a task, no longer has Kubernetes objects to fail a Get
+// against.
 func TestRunClassifiesInputFailures(t *testing.T) {
 	c := requireCluster(t)
 	requireFFmpeg(t)
 	ctx := context.Background()
 
-	t.Run("missing TranscodeJob is permanent", func(t *testing.T) {
-		f := newFixture(t, c)
-		o := f.options()
-		o.JobName = "no-such-job"
-		code, _ := Run(ctx, c, o)
-		assert.Equal(t, ExitInvalidSource, code)
-	})
-
 	t.Run("missing source file is permanent", func(t *testing.T) {
 		f := newFixture(t, c)
 		require.NoError(t, os.Remove(f.local))
-		code, _ := Run(ctx, c, f.options())
-		assert.Equal(t, ExitInvalidSource, code)
+		out := f.process(t, c)
+		assert.Equal(t, ExitInvalidSource, out.Code)
 	})
 
 	t.Run("a source under no RootFolder is never touched", func(t *testing.T) {
@@ -523,20 +568,9 @@ func TestRunClassifiesInputFailures(t *testing.T) {
 		var rf catalogv1alpha1.RootFolder
 		require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: "movies"}, &rf))
 		require.NoError(t, c.Delete(ctx, &rf))
-		code, err := Run(ctx, c, f.options())
-		assert.Equal(t, ExitInvalidSource, code)
-		assert.Contains(t, err.Error(), "under no RootFolder")
-		f.requireSourceUntouched(t)
-	})
-
-	t.Run("a profile the controller has not hashed yet is transient", func(t *testing.T) {
-		f := newFixture(t, c)
-		var tp transcodev1alpha1.TranscodeProfile
-		require.NoError(t, c.Get(ctx, client.ObjectKey{Name: f.profileName}, &tp))
-		require.NoError(t, status.PatchProfile(ctx, c, k8s.ManagerSquasharr, &tp,
-			func(ac *transcodeac.TranscodeProfileStatusApplyConfiguration) { ac.WithHash("") }))
-		code, _ := Run(ctx, c, f.options())
-		assert.Equal(t, ExitRetriable, code)
+		out := f.process(t, c)
+		assert.Equal(t, ExitInvalidSource, out.Code)
+		assert.ErrorIs(t, out.Err, ErrNoRootFolder, "BuildTask refuses before Process ever runs")
 		f.requireSourceUntouched(t)
 	})
 
@@ -546,9 +580,10 @@ func TestRunClassifiesInputFailures(t *testing.T) {
 		require.NoError(t, c.Get(ctx, client.ObjectKey{Name: f.profileName}, &tp))
 		tp.Spec.Policy.MaxOutputToSourcePercent = ptr.To[int32](1)
 		require.NoError(t, c.Update(ctx, &tp))
-		code, err := Run(ctx, c, f.options())
-		assert.Equal(t, ExitVerifyFailed, code)
-		assert.Contains(t, err.Error(), "maxOutputToSourcePercent")
+		out := f.process(t, c)
+		assert.Equal(t, ExitVerifyFailed, out.Code)
+		require.Error(t, out.Err)
+		assert.Contains(t, out.Err.Error(), "maxOutputToSourcePercent")
 		f.requireSourceUntouched(t)
 	})
 }
@@ -598,16 +633,15 @@ func TestRunUnderTheCRDDefaultOutputLimitSwapsANormalTranscode(t *testing.T) {
 	require.True(t, ReplaceSource(tp.Spec.Policy))
 	require.True(t, RecycleBin(tp.Spec.Policy))
 
-	code, err := Run(ctx, c, f.options())
-	require.NoError(t, err)
-	require.Equal(t, ExitOK, code)
+	out := f.process(t, c)
+	require.NoError(t, out.Err)
+	require.Equal(t, ExitOK, out.Code)
 
 	codec, _ := videoCodec(t, f.local)
 	assert.Equal(t, "hevc", codec, "the verified output must be at the source path")
-	res := f.get(t, c).Status.Result
-	require.NotNil(t, res)
-	assert.Positive(t, res.OutputToSourcePercent)
-	assert.LessOrEqual(t, res.OutputToSourcePercent, int32(100))
+	require.NotNil(t, out.Result)
+	assert.Positive(t, out.Result.OutputToSourcePercent)
+	assert.LessOrEqual(t, out.Result.OutputToSourcePercent, int32(100))
 	assert.Len(t, f.binEntries(t), 1, "the default recycles the original")
 }
 
@@ -628,9 +662,9 @@ func TestRunWithRecycleBinOffSwapsWithoutRecycling(t *testing.T) {
 	require.NotNil(t, tp.Spec.Policy.RecycleBin, "a typed false must survive the round trip, not be re-defaulted")
 	require.False(t, *tp.Spec.Policy.RecycleBin)
 
-	code, err := Run(ctx, c, f.options())
-	require.NoError(t, err)
-	require.Equal(t, ExitOK, code)
+	out := f.process(t, c)
+	require.NoError(t, out.Err)
+	require.Equal(t, ExitOK, out.Code)
 
 	codec, _ := videoCodec(t, f.local)
 	assert.Equal(t, "hevc", codec)
@@ -649,26 +683,6 @@ func TestTheAPIAdmitsReplaceSourceFalse(t *testing.T) {
 	require.NoError(t, createProfileFromYAML(t, c, "replace-source-true", "  policy:\n    replaceSource: true\n"))
 }
 
-// statusFieldsOwnedBy returns the top-level status fields the apiserver
-// records mgr as owning on the status subresource.
-func statusFieldsOwnedBy(t *testing.T, tj *transcodev1alpha1.TranscodeJob, mgr k8s.FieldManager) []string {
-	t.Helper()
-	var got []string
-	for _, e := range tj.ManagedFields {
-		if e.Manager != string(mgr) || e.Subresource != "status" || e.FieldsV1 == nil {
-			continue
-		}
-		var fields map[string]any
-		require.NoError(t, json.Unmarshal(e.FieldsV1.GetRawBytes(), &fields))
-		st, _ := fields["f:status"].(map[string]any)
-		for k := range st {
-			got = append(got, strings.TrimPrefix(k, "f:"))
-		}
-	}
-	sort.Strings(got)
-	return got
-}
-
 // --- gap-fix ruling R-11: output location, container change, kept source ---
 
 // A container change (an .mp4 source under the default mkv profile) is
@@ -682,9 +696,9 @@ func TestRunChangesTheContainerAndRetiresTheSource(t *testing.T) {
 	wantLogical := "/data/media/movies/Film (2020)/Film.2020.1080p.mkv"
 	wantLocal := filepath.Join(f.dataDir, "media/movies/Film (2020)/Film.2020.1080p.mkv")
 
-	code, err := Run(context.Background(), c, f.options())
-	require.NoError(t, err)
-	require.Equal(t, ExitOK, code)
+	out := f.process(t, c)
+	require.NoError(t, out.Err)
+	require.Equal(t, ExitOK, out.Code)
 
 	codec, tag := videoCodec(t, wantLocal)
 	assert.Equal(t, "hevc", codec, "the output must be at <stem>.mkv")
@@ -704,9 +718,8 @@ func TestRunChangesTheContainerAndRetiresTheSource(t *testing.T) {
 	assert.True(t, bytes.Equal(f.original, seed), "the seeding link is untouched (§6.4)")
 	assert.Empty(t, f.partFiles(t))
 
-	res := f.get(t, c).Status.Result
-	require.NotNil(t, res)
-	assert.Equal(t, wantLogical, res.OutputPath)
+	require.NotNil(t, out.Result)
+	assert.Equal(t, wantLogical, out.Result.OutputPath)
 }
 
 // replaceSource=false writes the output under the multiple-version name
@@ -720,17 +733,16 @@ func TestRunWithReplaceSourceFalseKeepsTheSource(t *testing.T) {
 	name := "Film.2020.1080p - " + f.profileName + ".mkv"
 	outLocal := filepath.Join(f.dataDir, "media/movies/Film (2020)", name)
 
-	code, err := Run(context.Background(), c, f.options())
-	require.NoError(t, err)
-	require.Equal(t, ExitOK, code)
+	out := f.process(t, c)
+	require.NoError(t, out.Err)
+	require.Equal(t, ExitOK, out.Code)
 
 	codec, tag := videoCodec(t, outLocal)
 	assert.Equal(t, "hevc", codec)
 	assert.Equal(t, f.profileName+"@"+f.profileHash, tag)
 	f.requireSourceUntouched(t)
-	res := f.get(t, c).Status.Result
-	require.NotNil(t, res)
-	assert.Equal(t, "/data/media/movies/Film (2020)/"+name, res.OutputPath)
+	require.NotNil(t, out.Result)
+	assert.Equal(t, "/data/media/movies/Film (2020)/"+name, out.Result.OutputPath)
 }
 
 // plantOutput puts a small mkv at path, tagged CLUSTARR_PROFILE=tag when
@@ -762,9 +774,9 @@ func TestRunAfterACrashPostPlaceRetiresTheSourceWithoutTranscoding(t *testing.T)
 	outLocal := filepath.Join(f.dataDir, "media/movies/Film (2020)/Film.2020.1080p.mkv")
 	placed := plantOutput(t, outLocal, f.profileName+"@"+f.profileHash)
 
-	code, err := Run(context.Background(), c, f.options())
-	require.NoError(t, err)
-	require.Equal(t, ExitOK, code)
+	out := f.process(t, c)
+	require.NoError(t, out.Err)
+	require.Equal(t, ExitOK, out.Code)
 
 	got, err := os.ReadFile(outLocal)
 	require.NoError(t, err)
@@ -772,9 +784,8 @@ func TestRunAfterACrashPostPlaceRetiresTheSourceWithoutTranscoding(t *testing.T)
 	_, err = os.Stat(f.local)
 	assert.ErrorIs(t, err, os.ErrNotExist, "the retry must finish retiring the source")
 	assert.Len(t, f.binEntries(t), 1)
-	res := f.get(t, c).Status.Result
-	require.NotNil(t, res)
-	assert.Equal(t, "/data/media/movies/Film (2020)/Film.2020.1080p.mkv", res.OutputPath)
+	require.NotNil(t, out.Result)
+	assert.Equal(t, "/data/media/movies/Film (2020)/Film.2020.1080p.mkv", out.Result.OutputPath)
 }
 
 // A file already at the output path that is NOT this transcode -- no tag --
@@ -786,9 +797,9 @@ func TestRunRefusesToOverwriteAnUnrelatedFileAtTheOutputPath(t *testing.T) {
 	outLocal := filepath.Join(f.dataDir, "media/movies/Film (2020)/Film.2020.1080p.mkv")
 	theirs := plantOutput(t, outLocal, "")
 
-	code, err := Run(context.Background(), c, f.options())
-	require.Error(t, err)
-	require.Equal(t, ExitInvalidSource, code)
+	out := f.process(t, c)
+	require.Error(t, out.Err)
+	require.Equal(t, ExitInvalidSource, out.Code)
 
 	got, err := os.ReadFile(outLocal)
 	require.NoError(t, err)
@@ -815,17 +826,19 @@ func TestRunWritesAnExplicitOutputPath(t *testing.T) {
 		},
 	}))
 
-	code, err := Run(ctx, c, f.options())
-	require.NoError(t, err)
-	require.Equal(t, ExitOK, code)
+	out := f.process(t, c)
+	require.NoError(t, out.Err)
+	require.Equal(t, ExitOK, out.Code)
 
 	codec, _ := videoCodec(t, filepath.Join(f.dataDir, "media/movies/Film (2020) [hevc]/Film (2020).mkv"))
 	assert.Equal(t, "hevc", codec)
-	_, err = os.Stat(f.local)
+	_, err := os.Stat(f.local)
 	assert.ErrorIs(t, err, os.ErrNotExist, "replaceSource=true retires the source")
-	assert.Equal(t, logicalOut, f.get(t, c).Status.Result.OutputPath)
+	require.NotNil(t, out.Result)
+	assert.Equal(t, logicalOut, out.Result.OutputPath)
 
-	// Outside every RootFolder it is refused before any work.
+	// Outside every RootFolder it is refused before any work: BuildTask
+	// itself refuses (ErrNoRootFolder), before Process is ever called.
 	f2 := newFixture(t, c)
 	require.NoError(t, c.Delete(ctx, f2.get(t, c)))
 	require.NoError(t, c.Create(ctx, &transcodev1alpha1.TranscodeJob{
@@ -835,8 +848,8 @@ func TestRunWritesAnExplicitOutputPath(t *testing.T) {
 			SourcePath: f2.logical, SourceProbeHash: f2.probeHash, OutputPath: ptr.To("/data/elsewhere/Film.mkv"),
 		},
 	}))
-	code, err = Run(ctx, c, f2.options())
-	require.Error(t, err)
-	assert.Equal(t, ExitInvalidSource, code)
+	out2 := f2.process(t, c)
+	require.Error(t, out2.Err)
+	assert.Equal(t, ExitInvalidSource, out2.Code)
 	f2.requireSourceUntouched(t)
 }

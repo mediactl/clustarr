@@ -38,6 +38,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/transcode"
+	"github.com/mediactl/clustarr/squasharr/task"
 )
 
 func TestLocalPathMapsLogicalDataPathsAndRefusesEverythingElse(t *testing.T) {
@@ -93,6 +94,32 @@ func TestExitCodeClassification(t *testing.T) {
 	assert.Equal(t, ExitRetriable, ExitCode(errors.New("unclassified")))
 	assert.Equal(t, []int{0, 2, 3, 4}, []int{ExitOK, ExitRetriable, ExitInvalidSource, ExitVerifyFailed},
 		"the codes are a contract with podFailurePolicy (R4); they do not move")
+}
+
+// The three constructors squasharr itself decides the reason for (spec
+// §18.1, §18.3) must still classify to the same exit code every other
+// failure of their kind does, and must carry the task.Reason a redispatching
+// caller reads without reparsing the message.
+func TestExitCodeClassifiesTheNamedReasons(t *testing.T) {
+	assert.Equal(t, ExitInvalidSource, ExitCode(sourceChanged("x")))
+	assert.Equal(t, ExitRetriable, ExitCode(gpuUnavailable("x")))
+	assert.Equal(t, ExitRetriable, ExitCode(gpuEncodeFailed(errors.New("x"))))
+
+	var f *failure
+	require.ErrorAs(t, sourceChanged("x"), &f)
+	assert.Equal(t, task.ReasonSourceChanged, f.reason)
+	f = nil
+	require.ErrorAs(t, gpuUnavailable("x"), &f)
+	assert.Equal(t, task.ReasonGPUUnavailable, f.reason)
+	f = nil
+	require.ErrorAs(t, gpuEncodeFailed(errors.New("x")), &f)
+	assert.Equal(t, task.ReasonGPUEncodeFailed, f.reason)
+
+	// A plain retriable/invalidSource/verifyFailed carries no reason: only
+	// squasharr's own decisions do.
+	f = nil
+	require.ErrorAs(t, retriable("x"), &f)
+	assert.Empty(t, f.reason)
 }
 
 // ProfileSpec must carry every render-relevant field. Populate every field

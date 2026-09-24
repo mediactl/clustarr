@@ -185,10 +185,10 @@ func TestRunWritesTranscodeTelemetryToTheProgressBucket(t *testing.T) {
 	o := f.options()
 	o.Telemetry, o.TelemetryInterval, o.PodName = kv, interval, "film-hevc-x7k2p"
 	start := time.Now()
-	code, err := Run(context.Background(), c, o)
+	out := f.processWith(t, c, o)
 	elapsed := time.Since(start)
-	require.NoError(t, err)
-	require.Equal(t, ExitOK, code)
+	require.NoError(t, out.Err)
+	require.Equal(t, ExitOK, out.Code)
 
 	tj := f.get(t, c)
 	got := readTelemetry(t, kv, string(tj.UID))

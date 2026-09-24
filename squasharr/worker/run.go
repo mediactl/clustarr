@@ -31,35 +31,29 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
-	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
-	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/transcode"
-	"github.com/mediactl/clustarr/squasharr/status"
+	"github.com/mediactl/clustarr/squasharr/task"
 )
 
-// Exit codes, the contract with the Job's podFailurePolicy (§6.4, Phase E
-// ruling R4). The Job fails outright on 3 and 4; anything else non-zero is
-// retried up to backoffLimit.
+// Exit codes, the contract with the caller: [Process]'s Outcome.Code carries
+// one of these up to whatever runs the task -- a transitional in-cluster Job
+// (whose podFailurePolicy fails outright on 3 and 4, Phase E ruling R4) or,
+// once Task 6 lands, a pool worker reporting task.Outcome/Reason instead.
 const (
 	// ExitOK: the output is verified and in place, or was already.
 	ExitOK = 0
 	// ExitRetriable: the cause may be the environment -- the apiserver, the
-	// node, disk space, a signal. Running the Job again may succeed.
+	// node, disk space, a signal. Running the task again may succeed.
 	ExitRetriable = 2
-	// ExitInvalidSource: the job's inputs are wrong -- the source changed
+	// ExitInvalidSource: the task's inputs are wrong -- the source changed
 	// since it was planned, is missing, unreadable, outside every root
 	// folder, or its objects are gone. Running it again cannot help.
 	ExitInvalidSource = 3
@@ -107,12 +101,8 @@ type Verifier interface {
 	Verify(ctx context.Context, src, dst string, exp transcode.Expectation) (*transcode.Report, error)
 }
 
-// Options configures one worker run.
+// Options configures one [Process] call.
 type Options struct {
-	// JobName and Namespace name the TranscodeJob.
-	JobName   string
-	Namespace string
-
 	// DataDir is where the /data volume is mounted in this process. Every
 	// path in a CRD is a logical /data path and is mapped through it; in a
 	// Job pod it is /data and the mapping is the identity.
@@ -127,14 +117,20 @@ type Options struct {
 	// pkg/transcode leave pools= unset.
 	Threads int32
 
-	// ProgressInterval bounds how often status.progress is applied.
-	// Zero means [DefaultProgressInterval].
+	// ProgressInterval bounds how often OnProgress is called. Zero means
+	// [DefaultProgressInterval].
 	ProgressInterval time.Duration
+
+	// OnProgress reports one status-shaped progress sample at most every
+	// ProgressInterval. Process makes no Kubernetes client of its own, so
+	// applying a sample anywhere -- status.progress or otherwise -- is
+	// entirely the caller's business; nil drops status-shaped progress.
+	OnProgress func(context.Context, transcodev1alpha1.Progress) error
 
 	// Telemetry is the clustarr-progress bucket the encode's 1 Hz
 	// schema.TranscodeProgress goes to, under [ProgressKey] (spec §5). Nil
-	// writes none: the bus is optional for a worker, and status.progress
-	// is the record either way.
+	// writes none: the bus is optional for a worker, and OnProgress (when
+	// set) is the record either way.
 	Telemetry events.KV
 
 	// TelemetryInterval is how often Telemetry is written at most. Zero
@@ -185,12 +181,15 @@ func (o Options) withDefaults() Options {
 	return o
 }
 
-// failure carries an exit code with its cause. Every error [Run] returns
+// failure carries an exit code with its cause, and -- when squasharr itself
+// decided why -- the task.Reason a redispatching caller can act on without
+// reparsing the message (spec §18.1, §18.3). Every error [Process] returns
 // was classified at the point it happened, where the reason is known; an
 // unclassified error is a bug and is reported as retriable.
 type failure struct {
-	code int
-	err  error
+	code   int
+	reason task.Reason
+	err    error
 }
 
 func (f *failure) Error() string { return f.err.Error() }
@@ -208,7 +207,28 @@ func verifyFailed(format string, a ...any) error {
 	return &failure{code: ExitVerifyFailed, err: fmt.Errorf(format, a...)}
 }
 
-// ExitCode classifies an error returned by [Run]: nil is [ExitOK], and an
+// sourceChanged: the live file is not the one that was planned. squasharr
+// fails it unblocked, and the profile replaces the job for the new file.
+func sourceChanged(format string, a ...any) error {
+	return &failure{code: ExitInvalidSource, reason: task.ReasonSourceChanged, err: fmt.Errorf(format, a...)}
+}
+
+// gpuUnavailable: ffmpeg lacks the GPU encoder the plan wants.
+func gpuUnavailable(format string, a ...any) error {
+	return &failure{code: ExitRetriable, reason: task.ReasonGPUUnavailable, err: fmt.Errorf(format, a...)}
+}
+
+// gpuEncodeFailed: ffmpeg failed while encoding on a GPU tier.
+func gpuEncodeFailed(err error) error {
+	return &failure{code: ExitRetriable, reason: task.ReasonGPUEncodeFailed, err: err}
+}
+
+// gpuTier reports whether tier is a hardware encoder rather than the libx265
+// software tier: gpuUnavailable and gpuEncodeFailed only ever apply to one
+// of these, since a CPU failure has no GPU tier to route away from.
+func gpuTier(tier transcode.Tier) bool { return tier != transcode.TierCPUx265 }
+
+// ExitCode classifies an error returned by [Process]: nil is [ExitOK], and an
 // error not classified at its source is [ExitRetriable].
 func ExitCode(err error) int {
 	if err == nil {
@@ -221,50 +241,15 @@ func ExitCode(err error) int {
 	return ExitRetriable
 }
 
-// getErr classifies a failed Get: a missing object is permanent, anything
-// else is the apiserver and is retried.
-func getErr(what string, err error) error {
-	if apierrors.IsNotFound(err) {
-		return invalidSource("squasharr worker: %s not found: %w", what, err)
-	}
-	return retriable("squasharr worker: get %s: %w", what, err)
-}
-
-// Run transcodes the TranscodeJob o names and returns the process exit code
-// with the reason for any non-zero one. It is the whole of
-// `clustarr squasharr --role worker`: the caller exits with the code.
-//
-// c must be a client that reads from the apiserver, not a cache: every
-// status apply re-reads the TranscodeJob first, and a lagging cache would
-// make that re-read stale.
-func Run(ctx context.Context, c client.Client, o Options) (int, error) {
-	o = o.withDefaults()
-	if o.JobName == "" || o.Namespace == "" {
-		return ExitInvalidSource, invalidSource("squasharr worker: job name and namespace are required")
-	}
-
-	ctx, span := tracing.Start(ctx, "squasharr.worker.run")
-	defer span.End()
-	ctx = logging.With(ctx, "transcodeJob", o.Namespace+"/"+o.JobName)
-
-	r := &runner{c: c, o: o}
-	err := r.run(ctx)
-	code := ExitCode(err)
-	if err != nil {
-		tracing.RecordError(span, err)
-		logging.FromContext(ctx).ErrorContext(ctx, "squasharr worker: transcode failed", "exitCode", code, "error", err)
-	}
-	r.observeOutcome(code)
-	return code, err
-}
-
-// runner is one Run's state.
+// runner is one [Process] call's state.
 type runner struct {
-	c client.Client
 	o Options
+	t task.Task
 
-	key    types.NamespacedName
-	jobUID types.UID
+	// out accumulates the Outcome Process returns: run() never touches
+	// Kubernetes, so recording progress, stderr and the result is writing
+	// into this struct rather than applying status.
+	out Outcome
 
 	// Metric labels, known once the plan is.
 	tier, resolution string
@@ -272,81 +257,62 @@ type runner struct {
 	speedMilli       int32
 }
 
-func (r *runner) run(ctx context.Context) error {
-	log := logging.FromContext(ctx)
-	r.key = types.NamespacedName{Namespace: r.o.Namespace, Name: r.o.JobName}
-
-	// ffmpeg or ffprobe missing is the image, not the source: retriable,
-	// and checked before anything could be misclassified as invalid input
-	// because a probe failed for want of a binary.
-	for _, bin := range []string{r.o.FFmpegPath, r.o.FFprobePath, "ffprobe"} {
+// CheckFFmpeg verifies o.FFmpegPath and o.FFprobePath (and "ffprobe" on
+// PATH, which pkg/mediainfo.Probe always uses) are runnable. A missing
+// binary is retriable -- it is the image, not the task's inputs -- and a
+// caller that orchestrates around Process (runWorkerJob, squasharr/run.go;
+// a future pool worker) should call this before doing anything else, so a
+// missing binary is never misclassified by whatever its other setup (an
+// apiserver Get, a lease claim) happens to fail with first. [Process] also
+// checks, so calling it here is an optimization, not a requirement for
+// correctness.
+func CheckFFmpeg(o Options) error {
+	o = o.withDefaults()
+	for _, bin := range []string{o.FFmpegPath, o.FFprobePath, "ffprobe"} {
 		if _, err := exec.LookPath(bin); err != nil {
 			return retriable("squasharr worker: %s not available: %w", bin, err)
 		}
 	}
+	return nil
+}
 
-	// 1. The objects.
-	var tj transcodev1alpha1.TranscodeJob
-	if err := r.c.Get(ctx, r.key, &tj); err != nil {
-		return getErr("TranscodeJob "+r.key.String(), err)
-	}
-	r.jobUID = tj.UID
-	var tp transcodev1alpha1.TranscodeProfile
-	if err := r.c.Get(ctx, types.NamespacedName{Name: tj.Spec.ProfileRef}, &tp); err != nil {
-		return getErr("TranscodeProfile "+tj.Spec.ProfileRef, err)
-	}
-	if tp.Status.Hash == "" {
-		// The tag written into the output, and compared by catalogarr, is
-		// <profile>@<status.hash>. Without the controller's hash there is
-		// nothing correct to tag with; it will be there shortly.
-		return retriable("squasharr worker: TranscodeProfile %s has no status.hash yet", tp.Name)
-	}
-	var mf catalogv1alpha1.MediaFile
-	if err := r.c.Get(ctx, types.NamespacedName{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}, &mf); err != nil {
-		return getErr("MediaFile "+tj.Spec.MediaFileRef, err)
+func (r *runner) run(ctx context.Context) error {
+	log := logging.FromContext(ctx)
+
+	if err := CheckFFmpeg(r.o); err != nil {
+		return err
 	}
 
-	source := filepath.Clean(tj.Spec.SourcePath)
+	source := r.t.SourcePath
 	local, err := localPath(r.o.DataDir, source)
 	if err != nil {
 		return invalidSource("squasharr worker: source: %w", err)
 	}
-	var folders catalogv1alpha1.RootFolderList
-	if err := r.c.List(ctx, &folders, client.InNamespace(tj.Namespace)); err != nil {
-		return retriable("squasharr worker: list RootFolders: %w", err)
+	if !within(r.t.Root.Path, source) {
+		return invalidSource("squasharr worker: source %s is outside root folder %s", source, r.t.Root.Path)
 	}
-	rf := rootFolderFor(folders.Items, source)
-	if rf == nil {
-		return invalidSource("squasharr worker: source %s is under no RootFolder; refusing to touch it", source)
-	}
-	binLogical := rf.Spec.RecycleBin.Path
-	if binLogical == "" {
-		binLogical = defaultRecycleBin
-	}
-	bin, err := localPath(r.o.DataDir, binLogical)
+	bin, err := localPath(r.o.DataDir, r.t.Root.RecycleBin)
 	if err != nil {
-		return invalidSource("squasharr worker: RootFolder %s recycle bin: %w", rf.Name, err)
+		return invalidSource("squasharr worker: recycle bin: %w", err)
 	}
 
-	// Where the output lands (gap-fix ruling R-11; OutputPath). In place is
-	// the Phase E swap; anywhere else is a new file, and the source is then
-	// retired (replaceSource=true) or kept (false).
+	// Where the output lands (gap-fix ruling R-11; OutputPath, resolved by
+	// BuildTask into r.t.OutputPath/OutputRoot). In place is the Phase E
+	// swap; anywhere else is a new file, and the source is then retired
+	// (replaceSource=true) or kept (false).
 	sw := swap{
 		source: source, local: local, bin: bin,
-		replace: ReplaceSource(tp.Spec.Policy), recycle: RecycleBin(tp.Spec.Policy),
+		replace: ReplaceSource(r.t.Profile.Spec.Policy), recycle: RecycleBin(r.t.Profile.Spec.Policy),
 	}
-	sw.out, err = OutputPath(tj.Spec, tp.Name, tp.Spec.Container, sw.replace)
-	if err != nil {
-		return invalidSource("squasharr worker: %w", err)
-	}
+	sw.out = r.t.OutputPath
 	if sw.localOut, err = localPath(r.o.DataDir, sw.out); err != nil {
 		return invalidSource("squasharr worker: output: %w", err)
 	}
-	if !sw.inPlace() && rootFolderFor(folders.Items, sw.out) == nil {
+	if !sw.inPlace() && (r.t.OutputRoot == "" || !within(r.t.OutputRoot, sw.out)) {
 		return invalidSource("squasharr worker: output %s is under no RootFolder; refusing to write it", sw.out)
 	}
-	tag := tp.Name + "@" + tp.Status.Hash
-	if tj.Spec.SourceProbeHash == "" {
+	tag := r.t.Profile.Name + "@" + r.t.Profile.Hash
+	if r.t.SourceProbeHash == "" {
 		return invalidSource("squasharr worker: spec.sourceProbeHash is empty; cannot prove the source is the planned file")
 	}
 
@@ -357,7 +323,7 @@ func (r *runner) run(ctx context.Context) error {
 			return err
 		}
 		if done {
-			return r.finishElsewhere(ctx, sw, tj.Spec.SourceProbeHash, mf.Spec.SizeBytes)
+			return r.finishElsewhere(ctx, sw, r.t.SourceProbeHash, r.t.SourceSizeBytes)
 		}
 	}
 	st, err := os.Stat(local)
@@ -371,11 +337,11 @@ func (r *runner) run(ctx context.Context) error {
 		return invalidSource("squasharr worker: source %s is not a regular file", source)
 	}
 	liveHash := mediainfo.ProbeHash(source, st.Size(), st.ModTime())
-	if liveHash != tj.Spec.SourceProbeHash {
+	if liveHash != r.t.SourceProbeHash {
 		if !sw.inPlace() {
-			return invalidSource("squasharr worker: source %s changed since it was planned (probe hash mismatch)", source)
+			return sourceChanged("squasharr worker: source %s changed since it was planned (probe hash mismatch)", source)
 		}
-		return r.alreadySwappedOrChanged(ctx, &mf, source, local, st, tag)
+		return r.alreadySwappedOrChanged(ctx, r.t.SourceSizeBytes, source, local, st, tag)
 	}
 
 	// 3. Probe, capabilities, plan, space.
@@ -388,7 +354,7 @@ func (r *runner) run(ctx context.Context) error {
 		return invalidSource("squasharr worker: %w", err)
 	}
 	info.Path = local
-	info.Modifier = string(mf.Spec.Quality.Modifier)
+	info.Modifier = r.t.SourceModifier
 	if len(info.Video) > 0 {
 		r.resolution = resolutionClass(info.Video[0].Height)
 	}
@@ -397,7 +363,7 @@ func (r *runner) run(ctx context.Context) error {
 	if err != nil {
 		return retriable("squasharr worker: %w", err)
 	}
-	profile := ProfileSpec(tp.Spec, tj.Spec.Hardware)
+	profile := ProfileSpec(r.t.Profile.Spec, r.t.Profile.Hardware)
 	if len(info.Video) > 0 {
 		want, err := transcode.SelectTier(profile, info)
 		if err != nil {
@@ -407,16 +373,19 @@ func (r *runner) run(ctx context.Context) error {
 		// node's ffmpeg build, not the source: another pod may land on a
 		// node that has it.
 		if _, ok := transcode.FallbackTier(want, caps); !ok {
+			if gpuTier(want) {
+				return gpuUnavailable("squasharr worker: this node's ffmpeg has no encoder for tier %s", want)
+			}
 			return retriable("squasharr worker: this node's ffmpeg has no encoder for tier %s", want)
 		}
 	}
 	plan, err := transcode.Plan(info, profile, caps, transcode.PlanMeta{
-		ProfileName: tp.Name, ProfileHash: tp.Status.Hash, Threads: r.o.Threads, OutputPath: sw.localOut,
+		ProfileName: r.t.Profile.Name, ProfileHash: r.t.Profile.Hash, Threads: r.o.Threads, OutputPath: sw.localOut,
 	})
 	if err != nil {
 		return invalidSource("squasharr worker: plan: %w", err)
 	}
-	r.compareWithRecordedPlan(ctx, tj.Status.Plan, plan)
+	r.compareWithRecordedPlan(ctx, r.t.ArgsHash, plan)
 	if plan.Decision == transcode.DecisionSkip || plan.Decision == transcode.DecisionReject {
 		// The controller planned this file for work from the stored probe
 		// of the same bytes. Exiting 0 would report a transcode that never
@@ -455,7 +424,7 @@ func (r *runner) run(ctx context.Context) error {
 		removePart(ctx, plan.Output)
 		return verifyFailed("squasharr worker: output failed verification: %v", report.Problems)
 	}
-	if limit := MaxOutputToSourcePercent(tp.Spec.Policy); limit > 0 && report.SizeBytes*100 > st.Size()*int64(limit) {
+	if limit := MaxOutputToSourcePercent(r.t.Profile.Spec.Policy); limit > 0 && report.SizeBytes*100 > st.Size()*int64(limit) {
 		removePart(ctx, plan.Output)
 		return verifyFailed("squasharr worker: output is %d%% of the source, above policy.maxOutputToSourcePercent %d",
 			sizePercent(report.SizeBytes, st.Size()), limit)
@@ -465,7 +434,7 @@ func (r *runner) run(ctx context.Context) error {
 	// output is a transcode of a file that no longer exists.
 	if st2, err := os.Stat(local); err != nil || mediainfo.ProbeHash(source, st2.Size(), st2.ModTime()) != liveHash {
 		removePart(ctx, plan.Output)
-		return invalidSource("squasharr worker: source %s changed during the encode", source)
+		return sourceChanged("squasharr worker: source %s changed during the encode", source)
 	}
 
 	// 6. The swap. See the package doc for why each order and what a crash
@@ -587,22 +556,23 @@ func (r *runner) finishElsewhere(ctx context.Context, sw swap, plannedHash strin
 }
 
 // compareWithRecordedPlan checks the argv about to run against the
-// controller's status.plan.argsHash. They are built by the same renderer
-// from the same bytes (transcode.FromSummary/FromProbe) with the same
-// thread count ([CPULimitEnv]), so a difference means the two were given
-// different inputs -- a /data mounted elsewhere, an image with a different
-// ffprobe, a LimitRange that changed the pod's CPU limit -- and is logged,
-// never fatal: the worker's own plan, from the live file, is the one that
-// runs.
-func (r *runner) compareWithRecordedPlan(ctx context.Context, recorded *transcodev1alpha1.Plan, plan *transcode.PlanResult) {
-	if recorded == nil || recorded.ArgsHash == "" {
+// controller's status.plan.argsHash, carried onto the task as ArgsHash by
+// BuildTask. They are built by the same renderer from the same bytes
+// (transcode.FromSummary/FromProbe) with the same thread count
+// ([CPULimitEnv]), so a difference means the two were given different
+// inputs -- a /data mounted elsewhere, an image with a different ffprobe, a
+// LimitRange that changed the pod's CPU limit -- and is logged, never fatal:
+// the worker's own plan, from the live file, is the one that runs. An empty
+// recorded value (no plan recorded yet) skips the comparison.
+func (r *runner) compareWithRecordedPlan(ctx context.Context, recorded string, plan *transcode.PlanResult) {
+	if recorded == "" {
 		return
 	}
 	got := transcode.ArgsHash(plan)
-	trace.SpanFromContext(ctx).SetAttributes(attribute.Bool("transcode.args_match_plan", got == recorded.ArgsHash))
-	if got != recorded.ArgsHash {
+	trace.SpanFromContext(ctx).SetAttributes(attribute.Bool("transcode.args_match_plan", got == recorded))
+	if got != recorded {
 		logging.FromContext(ctx).WarnContext(ctx, "squasharr worker: the argv differs from the one status.plan records",
-			"planArgsHash", recorded.ArgsHash, "argsHash", got)
+			"planArgsHash", recorded, "argsHash", got)
 	}
 }
 
@@ -615,10 +585,9 @@ func (r *runner) encode(ctx context.Context, plan *transcode.PlanResult, duratio
 	rep := newProgressReporter(r.o.ProgressInterval, durationMillis, r.o.Now, r.applyProgress)
 	var pod *schema.Ref
 	if r.o.PodName != "" {
-		pod = &schema.Ref{Namespace: r.o.Namespace, Name: r.o.PodName}
+		pod = &schema.Ref{Namespace: r.t.Job.Namespace, Name: r.o.PodName}
 	}
-	tel := newTelemetry(r.o.Telemetry, r.o.TelemetryInterval,
-		schema.Ref{Namespace: r.key.Namespace, Name: r.key.Name, UID: string(r.jobUID)}, pod, durationMillis, r.o.Now)
+	tel := newTelemetry(r.o.Telemetry, r.o.TelemetryInterval, r.t.Job, pod, durationMillis, r.o.Now)
 	rep.start(ctx)
 	tel.start(ctx)
 	runErr := transcode.NewRunner(r.o.FFmpegPath).Run(ctx, plan, func(p transcode.Progress) {
@@ -637,14 +606,16 @@ func (r *runner) encode(ctx context.Context, plan *transcode.PlanResult, duratio
 	}
 	var re *transcode.RunError
 	if errors.As(runErr, &re) {
-		if err := r.applyStderrTail(ctx, re.StderrTail); err != nil {
-			logging.FromContext(ctx).WarnContext(ctx, "squasharr worker: applying stderrTail failed", "error", err)
-		}
+		r.applyStderrTail(re.StderrTail)
 	}
 	// A non-zero ffmpeg exit may be a bad source, but equally OOM, a node
-	// drain, a GPU fault. backoffLimit bounds the cost of retrying a source
-	// that really is bad; failing permanently on a transient fault would
-	// need a human to recover.
+	// drain, a GPU fault. On a GPU tier that is worth naming
+	// (task.ReasonGPUEncodeFailed) so a redispatching pool can route the
+	// next attempt to a different class; on the CPU tier there is nowhere
+	// else to route it, so it stays retriable exactly as before.
+	if gpuTier(plan.Tier) {
+		return gpuEncodeFailed(fmt.Errorf("squasharr worker: ffmpeg: %w", runErr))
+	}
 	return retriable("squasharr worker: ffmpeg: %w", runErr)
 }
 
@@ -652,8 +623,9 @@ func (r *runner) encode(ctx context.Context, plan *transcode.PlanResult, duratio
 // matches the plan. Either an earlier attempt of this Job swapped the
 // output in and died before recording it -- the file then carries this
 // profile's CLUSTARR_PROFILE tag -- or the file really changed and must not
-// be touched.
-func (r *runner) alreadySwappedOrChanged(ctx context.Context, mf *catalogv1alpha1.MediaFile,
+// be touched. sourceSize is the MediaFile's recorded size, the original's,
+// used when the tag matches and finish computes the output ratio.
+func (r *runner) alreadySwappedOrChanged(ctx context.Context, sourceSize int64,
 	source, local string, st os.FileInfo, tag string,
 ) error {
 	_, raw, err := mediainfo.Probe(ctx, local)
@@ -661,45 +633,32 @@ func (r *runner) alreadySwappedOrChanged(ctx context.Context, mf *catalogv1alpha
 		if got := formatTag(raw, "CLUSTARR_PROFILE"); got == tag {
 			logging.FromContext(ctx).InfoContext(ctx,
 				"squasharr worker: source already carries this profile's tag; an earlier attempt swapped it in", "tag", tag)
-			return r.finish(ctx, source, local, mf.Spec.SizeBytes)
+			return r.finish(ctx, source, local, sourceSize)
 		}
 	}
-	return invalidSource("squasharr worker: source %s changed since it was planned (probe hash mismatch)", source)
+	return sourceChanged("squasharr worker: source %s changed since it was planned (probe hash mismatch)", source)
 }
 
-// finish writes status.result for the output now at out (logical; local in
-// this process) -- the source path itself for an in-place swap. sourceSize
-// is the original's size, for the ratio; zero leaves it at 0.
+// finish records status.result for the output now at out (logical; local in
+// this process) -- the source path itself for an in-place swap -- into
+// r.out.Result. sourceSize is the original's size, for the ratio; zero
+// leaves it at 0.
 func (r *runner) finish(ctx context.Context, out, local string, sourceSize int64) error {
 	st, err := os.Stat(local)
 	if err != nil {
 		return retriable("squasharr worker: stat output: %w", err)
 	}
-	result := transcodev1alpha1.Result{
+	res := transcodev1alpha1.Result{
 		OutputPath:            out,
 		OutputSizeBytes:       st.Size(),
 		OutputToSourcePercent: sizePercent(st.Size(), sourceSize),
 	}
 	if mi, _, err := mediainfo.Probe(ctx, local); err == nil {
-		result.MediaInfo = mi
+		res.MediaInfo = mi
 	} else {
 		logging.FromContext(ctx).WarnContext(ctx, "squasharr worker: probing the output for status.result failed", "error", err)
 	}
-
-	err = r.applyWorkerStatus(ctx, func(s *transcodev1alpha1.TranscodeJobStatus) {
-		s.Result = &result
-		if s.Progress != nil {
-			done := *s.Progress
-			done.Percent = 100
-			done.UpdatedAt = metav1.NewTime(r.o.Now().UTC().Truncate(time.Second))
-			s.Progress = &done
-		}
-	})
-	if err != nil {
-		// The swap is done. A retry finds the tagged output and lands here
-		// again, so this is safe to retry.
-		return retriable("squasharr worker: apply result: %w", err)
-	}
+	r.out.Result = &res
 
 	if sourceSize > 0 && r.tier != "" {
 		metrics.TranscodeSizeRatio.WithLabelValues(r.tier, r.resolution).Observe(float64(st.Size()) / float64(sourceSize))
@@ -707,32 +666,22 @@ func (r *runner) finish(ctx context.Context, out, local string, sourceSize int64
 	return nil
 }
 
-// applyProgress applies one progress sample.
+// applyProgress reports one progress sample through o.OnProgress, when the
+// caller gave one; nil drops it on the floor.
 func (r *runner) applyProgress(ctx context.Context, p transcodev1alpha1.Progress) error {
-	return r.applyWorkerStatus(ctx, func(s *transcodev1alpha1.TranscodeJobStatus) { s.Progress = &p })
+	if r.o.OnProgress == nil {
+		return nil
+	}
+	return r.o.OnProgress(ctx, p)
 }
 
-func (r *runner) applyStderrTail(ctx context.Context, tail string) error {
+// applyStderrTail records tail into the Outcome. It cannot fail: unlike the
+// Kubernetes-era apply, there is no round trip to lose.
+func (r *runner) applyStderrTail(tail string) {
 	if len(tail) > 4096 {
 		tail = tail[len(tail)-4096:]
 	}
-	return r.applyWorkerStatus(ctx, func(s *transcodev1alpha1.TranscodeJobStatus) { s.StderrTail = tail })
-}
-
-// applyWorkerStatus re-reads the TranscodeJob, changes the worker's fields
-// on the fresh copy and applies the worker's complete declaration of it.
-//
-// The re-read is the point. The worker read the job before an encode that
-// can run for hours; applying a declaration seeded from that read would
-// re-send whatever the worker's fields held then, rolling back anything
-// written since -- a lost update, which no release test can see.
-func (r *runner) applyWorkerStatus(ctx context.Context, change func(*transcodev1alpha1.TranscodeJobStatus)) error {
-	var fresh transcodev1alpha1.TranscodeJob
-	if err := r.c.Get(ctx, r.key, &fresh); err != nil {
-		return fmt.Errorf("re-read TranscodeJob: %w", err)
-	}
-	change(&fresh.Status)
-	return status.Patch(ctx, r.c, k8s.ManagerSquasharrWorker, &fresh, nil)
+	r.out.StderrTail = tail
 }
 
 // observeOutcome records the duration and speed metrics once the plan
