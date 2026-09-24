@@ -1656,6 +1656,10 @@ what it left behind.
       kubectl) is used only after `catalogarr-metadata` restarts; the
       controller's Ready probe runs on every change, the gateway's registry
       does not. Rebuild the registry on a MetadataProvider or Secret change.
+      (Fixed the same day: a provider whose credentials cannot be read no
+      longer fails that startup -- it is skipped and logged, since one
+      hardcover provider made from the Settings page against a hand-made
+      Secret with the wrong key name crash-looped the gateway on kind.)
 - [ ] **Per-definition Cardigann settings in the Indexer form.** The form
       offers a definition picker, the credential entries and a free
       settings map; the definition's own `settings:` fields (text, password,

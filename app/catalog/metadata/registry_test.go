@@ -196,7 +196,11 @@ func TestBuildRegistryAnExplicitPriorityBeatsTheTieBreak(t *testing.T) {
 	require.Equal(t, "hardcover", reg.Books[0].Name(), "the operator ranked it first")
 }
 
-func TestBuildRegistryErrorsOnASupplementaryProviderWithoutItsCredential(t *testing.T) {
+// Until 2026-09-24 this and the next test expected the registry to fail;
+// a missing credential now skips the one provider (see
+// TestBuildRegistrySkipsAProviderWhoseCredentialsAreMissing) and the
+// key's name still reaches the log through ErrProviderCredentials.
+func TestBuildRegistrySkipsASupplementaryProviderWithoutItsCredential(t *testing.T) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "creds", Namespace: "clustarr"},
 		Data:       map[string][]byte{catalogv1alpha1.MetadataSecretKeyAPIKey: []byte("k")},
@@ -210,12 +214,15 @@ func TestBuildRegistryErrorsOnASupplementaryProviderWithoutItsCredential(t *test
 	}}
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(secret).Build()
 
-	_, err := BuildRegistry(context.Background(), c, providers, http.DefaultClient)
-
+	reg, err := BuildRegistry(context.Background(), c, providers, http.DefaultClient)
+	require.NoError(t, err, "the misconfigured provider is skipped, not fatal")
+	require.Empty(t, reg.Comics)
+	_, err = secretValue(context.Background(), c, providers[0], catalogv1alpha1.MetadataSecretKeyBearer)
 	require.ErrorContains(t, err, `"bearer"`, "metron authenticates with a Bearer token, not an api key")
+	require.ErrorIs(t, err, ErrProviderCredentials)
 }
 
-func TestBuildRegistryErrorsOnAMissingSecret(t *testing.T) {
+func TestBuildRegistrySkipsAProviderWhoseSecretIsMissing(t *testing.T) {
 	providers := []catalogv1alpha1.MetadataProvider{{
 		ObjectMeta: metav1.ObjectMeta{Name: "tmdb", Namespace: "clustarr"},
 		Spec: catalogv1alpha1.MetadataProviderSpec{
@@ -224,6 +231,69 @@ func TestBuildRegistryErrorsOnAMissingSecret(t *testing.T) {
 		},
 	}}
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).Build()
-	_, err := BuildRegistry(context.Background(), c, providers, http.DefaultClient)
-	require.Error(t, err)
+	reg, err := BuildRegistry(context.Background(), c, providers, http.DefaultClient)
+	require.NoError(t, err)
+	require.Empty(t, reg.Movies, "tmdb without its Secret is skipped")
+}
+
+// A provider whose credentials cannot be read -- no secretRef, a Secret
+// that is not there, or one without the key its type reads -- is skipped,
+// not fatal: the controller already reports it Ready=False InvalidSpec, and
+// one misconfigured provider must not take every other one down with the
+// gateway. On kind-cluster-plex (2026-09-24) a hardcover provider made from
+// the Settings page against a hand-made Secret holding apiKey, where
+// hardcover reads bearer, crash-looped catalogarr-metadata until the key
+// was added.
+func TestBuildRegistrySkipsAProviderWhoseCredentialsAreMissing(t *testing.T) {
+	good := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "tmdb-key", Namespace: "clustarr"},
+		Data:       map[string][]byte{catalogv1alpha1.MetadataSecretKeyAPIKey: []byte("test-key")},
+	}
+	wrongKey := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "hardcover", Namespace: "clustarr"},
+		Data:       map[string][]byte{catalogv1alpha1.MetadataSecretKeyAPIKey: []byte("a token under the wrong key")},
+	}
+	providers := []catalogv1alpha1.MetadataProvider{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "tmdb", Namespace: "clustarr"},
+			Spec: catalogv1alpha1.MetadataProviderSpec{
+				Type: catalogv1alpha1.MetadataProviderTMDB, Enabled: enabled(),
+				SecretRef: &corev1.LocalObjectReference{Name: "tmdb-key"},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "hardcover", Namespace: "clustarr"},
+			Spec: catalogv1alpha1.MetadataProviderSpec{
+				Type: catalogv1alpha1.MetadataProviderHardcover, Enabled: enabled(),
+				SecretRef: &corev1.LocalObjectReference{Name: "hardcover"},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "metron", Namespace: "clustarr"},
+			Spec: catalogv1alpha1.MetadataProviderSpec{
+				Type: catalogv1alpha1.MetadataProviderMetron, Enabled: enabled(),
+				SecretRef: &corev1.LocalObjectReference{Name: "not-there"},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "comicvine", Namespace: "clustarr"},
+			Spec:       catalogv1alpha1.MetadataProviderSpec{Type: catalogv1alpha1.MetadataProviderComicVine, Enabled: enabled()},
+		},
+	}
+
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(good, wrongKey).Build()
+	reg, err := BuildRegistry(context.Background(), c, providers, http.DefaultClient)
+	require.NoError(t, err, "three providers with unusable credentials must not fail the registry")
+	require.Len(t, reg.Movies, 1, "tmdb, whose key is there, is wired")
+	require.Empty(t, reg.Comics, "comicvine without a secretRef is skipped")
+	require.Empty(t, reg.Books, "hardcover with the wrong key is skipped")
+
+	// The error class is named, so the skip is deliberate and a build
+	// failure of any other kind still fails the registry.
+	_, err = secretValue(context.Background(), c, providers[1], catalogv1alpha1.MetadataSecretKeyBearer)
+	require.ErrorIs(t, err, ErrProviderCredentials)
+	_, err = secretValue(context.Background(), c, providers[2], catalogv1alpha1.MetadataSecretKeyBearer)
+	require.ErrorIs(t, err, ErrProviderCredentials)
+	_, err = secretValue(context.Background(), c, providers[3], catalogv1alpha1.MetadataSecretKeyAPIKey)
+	require.ErrorIs(t, err, ErrProviderCredentials)
 }

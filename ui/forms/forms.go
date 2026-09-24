@@ -409,9 +409,13 @@ func (b *builder) secret(f *schema.Field, name string, s *Secret) []Control {
 	nameField := f.Lookup("name")
 	// Never required: the handler names the Secret after the object when
 	// the input is blank and any entry is given.
+	keys := make([]string, 0, len(s.Keys))
+	for _, k := range s.Keys {
+		keys = append(keys, k.Key)
+	}
 	c := Control{
 		Type: ControlText, Name: name + ".name", Label: b.label(f),
-		Help: "The Secret holding the entries below; created or updated from them. Blank names it after this object.",
+		Help: "The Secret holding the entries below, under the keys " + strings.Join(keys, ", ") + "; created or updated from them. Blank names it after this object. An existing Secret must use those key names.",
 	}
 	if nameField != nil {
 		c.Value = format(b.value(name + ".name"))
