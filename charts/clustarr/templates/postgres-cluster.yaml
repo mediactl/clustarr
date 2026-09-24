@@ -1,0 +1,43 @@
+{{/*
+CloudNativePG Cluster for indexarr's Postgres-backed release index (design
+spec 2026-09-24 §A.3-A.4; ADR-0010). Rendered only when postgres.enabled.
+
+Ruling R2: this is a post-install/post-upgrade Helm hook, not a plain
+resource. CNPG's admission webhook fails closed until its own Deployment is
+Ready, so a Cluster submitted in the same pass that installs the operator
+(the cloudnative-pg dependency above, when cloudnative-pg.enabled) is
+rejected outright -- install with `helm install --wait` (or `helm upgrade
+--wait`) so the operator is up before this hook fires. There is deliberately
+no helm.sh/hook-delete-policy: this is the database, and a hook resource with
+no delete policy survives `helm uninstall` like every other object here
+(pvc.yaml's helm.sh/resource-policy: keep is the same posture for /data).
+
+CNPG's bootstrap.initdb creates the "clustarr" database owned by role
+"clustarr" and a Secret named "<this Cluster's name>-app" holding that role's
+DSN under key "uri" -- what templates/deployments.yaml's indexarr env reads
+by default (postgres.existingSecret overrides the Secret name for a Postgres
+CNPG did not create).
+*/}}
+{{- if .Values.postgres.enabled }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "clustarr.fullname" . }}-postgres
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "0"
+spec:
+  instances: {{ .Values.postgres.cluster.instances }}
+  storage:
+    size: {{ .Values.postgres.cluster.storage.size | quote }}
+    {{- with .Values.postgres.cluster.storage.storageClass }}
+    storageClass: {{ . }}
+    {{- end }}
+  bootstrap:
+    initdb:
+      database: clustarr
+      owner: clustarr
+{{- end }}

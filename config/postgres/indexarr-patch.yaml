@@ -1,0 +1,43 @@
+# Strategic-merge patch: points indexarr at the CloudNativePG Cluster's
+# release index instead of the local SQLite volume config/manager/
+# indexarr.yaml mounts by default (design spec 2026-09-24 §A.3-A.4;
+# ADR-0010).
+#
+# CLUSTARR_INDEX_DSN is added (CLUSTARR_INDEX_PATH stays -- indexarr logs and
+# ignores it once a DSN is set, spec §A.3) from Secret "clustarr-postgres-app",
+# which CNPG's bootstrap.initdb creates automatically for cluster.yaml's
+# "clustarr-postgres" Cluster (key "uri"). $patch: delete removes the index
+# volumeMount and the volume itself -- there is no PVC to mount under
+# Postgres. strategy goes back to the apps/v1 default (RollingUpdate): with
+# no local volume to serialize access to, indexarr.replicas may be more than
+# 1, and indexarr's own leader election (keyed on CLUSTARR_INDEX_DSN, not a
+# flag) is what keeps its controllers and retention sweep a cluster
+# singleton regardless of replica count.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: indexarr
+spec:
+  strategy:
+    type: RollingUpdate
+  template:
+    spec:
+      containers:
+      - name: indexarr
+        env:
+        - name: CLUSTARR_INDEX_DSN
+          valueFrom:
+            secretKeyRef:
+              name: clustarr-postgres-app
+              key: uri
+        volumeMounts:
+        # volumeMounts' merge key is mountPath, not name -- deleting by name
+        # alone drops the whole list instead of the one entry, silently, in
+        # kustomize's patch application (no error, unlike kubectl patch
+        # --local, which refuses a $patch: delete missing its actual merge
+        # key outright).
+        - mountPath: /var/lib/clustarr/index
+          $patch: delete
+      volumes:
+      - name: index
+        $patch: delete

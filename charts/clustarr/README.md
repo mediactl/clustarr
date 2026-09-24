@@ -22,17 +22,18 @@ upstream `nats` chart (clustered R3, config reloader,
 | Helm | 3.x (this chart ships `values.schema.json`, validated by every Helm 3 release) |
 | Storage | One `ReadWriteMany`-capable `StorageClass` (CephFS preferred; NFS or Longhorn RWX acceptable) for `/data`, or a claim you already run. See [Storage](#storage). |
 
-The chart declares three conditional dependencies (`nats`, `nack`, `keda`);
-`helm dependency build charts/clustarr` must run before `lint`/`template`/
-`install`, even with all three left at their defaults, because Helm checks
-that every declared dependency is present under `charts/` regardless of
-whether its `condition` is true.
+The chart declares three conditional dependencies (`nats`, `cloudnative-pg`,
+`keda`); `helm dependency build charts/clustarr` must run before
+`lint`/`template`/`install`, even with all three left at their defaults,
+because Helm checks that every declared dependency is present under
+`charts/` regardless of whether its `condition` is true.
 
 ## Installing
 
 ```sh
 helm repo add nats https://nats-io.github.io/k8s/helm/charts/
 helm repo add kedacore https://kedacore.github.io/charts
+helm repo add cloudnative-pg https://cloudnative-pg.github.io/charts
 helm dependency build charts/clustarr
 
 # CRDs are not managed by Helm (see Upgrading below) -- apply them first.
@@ -108,8 +109,52 @@ kubectl -n clustarr-system get pvc clustarr-data
 
 indexarr's release index (`storage.index`, `5Gi` default, `ReadWriteOnce`)
 is a second, separate PVC: it is why `indexarr.replicas` is pinned to `1`
-(`clustarr.validate` fails the render on any other value) -- a second replica
-could neither bind an RWO volume nor safely share the SQLite database.
+unless `postgres.enabled` (`clustarr.validate` fails the render on any other
+value) -- a second replica could neither bind an RWO volume nor safely share
+the SQLite database. See [Postgres release index](#postgres-release-index)
+for the alternative that lifts that pin.
+
+## Postgres release index
+
+`postgres.enabled=false` is the default: indexarr keeps its local SQLite FTS5
+database on the `storage.index` PVC above, one replica, `Recreate` (ADR-0003).
+Set `postgres.enabled=true` to run the release index on a
+[CloudNativePG](https://cloudnative-pg.io/) `Cluster` instead (ADR-0010):
+indexarr gets `CLUSTARR_INDEX_DSN` from a Secret rather than a volume, the
+`storage.index` PVC is not rendered at all, the Deployment drops `Recreate`
+for the default rolling strategy, and `indexarr.replicas` may be more than
+`1` -- indexarr's own leader election is keyed on that DSN being set, not on
+a flag, so every controller and the retention sweep stay a cluster singleton
+regardless of replica count.
+
+This chart renders the `Cluster` itself
+(`templates/postgres-cluster.yaml`, named `<release>-postgres`) whenever
+`postgres.enabled`, with `postgres.cluster.instances` Postgres replicas (CNPG's
+own streaming replication, unrelated to `indexarr.replicas`) and a
+`postgres.cluster.storage.size` volume. It bootstraps a `clustarr` database
+owned by a `clustarr` role and creates `<release>-postgres-app` holding that
+role's DSN under key `uri` -- what indexarr reads by default;
+`postgres.existingSecret` points it at a DSN Secret you already have instead.
+
+**CloudNativePG must be running before that `Cluster` can be created.** Its
+admission webhook fails closed until its own Deployment is `Ready`, so the
+`Cluster` template is a `post-install,post-upgrade` Helm hook rather than a
+plain resource (ruling R2) -- **always install or upgrade with `--wait`**
+so the operator started by the `cloudnative-pg` dependency (when
+`cloudnative-pg.enabled=true`; see [Requirements](#requirements) for its
+`helm repo add`) is `Ready` before the hook fires:
+
+```sh
+helm install clustarr charts/clustarr --namespace clustarr-system \
+  --create-namespace --set postgres.enabled=true \
+  --set cloudnative-pg.enabled=true --wait
+```
+
+Most clusters install the CNPG operator once, cluster-wide, rather than per
+Clustarr release; leave `cloudnative-pg.enabled=false` (the default) and set
+only `postgres.enabled=true` when one is already running -- `--wait` still
+applies, since the hook still waits on the webhook regardless of who started
+the operator.
 
 ## GOMEMLIMIT
 
@@ -232,7 +277,11 @@ template.
 | `nats.enabled` | Install the bundled `nats` subchart. | `true` |
 | `nats.config.cluster.replicas` | NATS cluster size; R3 in production, drop to 1 on kind. | `3` |
 | `nats.config.jetstream.fileStore.pvc.size` | JetStream file store PVC size. | `20Gi` |
-| `nack.enabled` | Install the NATS Kubernetes controller (not required; `pkg/events` provisions its own topology). | `false` |
+| `postgres.enabled` | Run indexarr's release index on a CloudNativePG `Cluster` instead of local SQLite. See [Postgres release index](#postgres-release-index). | `false` |
+| `postgres.cluster.instances` | CNPG `Cluster.spec.instances` (Postgres streaming replicas; unrelated to `indexarr.replicas`). | `1` |
+| `postgres.cluster.storage.size`/`.storageClass` | The `Cluster`'s own PVC. | `5Gi`, `""` |
+| `postgres.existingSecret` | An existing Secret (key `uri`) to use instead of the one CNPG's `bootstrap.initdb` creates. | `""` |
+| `cloudnative-pg.enabled` | Install the CloudNativePG operator as a chart dependency. Most clusters install it once, cluster-wide, instead -- leave this `false` and set only `postgres.enabled=true` in that case. | `false` |
 | `keda.enabled` | Install KEDA and the Clustarr `ScaledObject`s. See [Autoscaling](#autoscaling-keda). | `false` |
 | `keda.prometheusAddress` | Prometheus queried for JetStream consumer lag; **required** when `keda.enabled=true`. | `http://prometheus-operated.monitoring.svc:9090` |
 | `keda.captionarrWorker.minReplicas`/`.maxReplicas`/`.threshold` | Scaling bounds for the subtitle fetch consumer. | `1`, `8`, `20` |
@@ -241,11 +290,11 @@ template.
 | `storage.data.storageClass` | `StorageClass` for the chart-provisioned `/data` claim. **Read [Storage](#storage) before installing for real.** | `""` |
 | `storage.data.accessMode` | Must be `ReadWriteMany` when `existingClaim` is unset (`clustarr.validate` fails otherwise). | `ReadWriteMany` |
 | `storage.data.size` | `/data` PVC size. | `100Gi` |
-| `storage.index.existingClaim`/`.storageClass`/`.size` | indexarr's `ReadWriteOnce` SQLite index PVC. | `""`, `""`, `5Gi` |
+| `storage.index.existingClaim`/`.storageClass`/`.size` | indexarr's `ReadWriteOnce` SQLite index PVC. Not rendered when `postgres.enabled`. | `""`, `""`, `5Gi` |
 | `podSecurityContext` | Pod-level `securityContext` for every PVC-mounting workload (`fsGroup` chowns a fresh PVC root to uid 1000). | see `values.yaml` |
 | `securityContext` | Container-level `securityContext` (non-root, read-only rootfs, all capabilities dropped). | see `values.yaml` |
 | `<service>.enabled` | Render this service's Deployment at all. | `true` |
-| `<service>.replicas` | Replica count. `catalogarrMetadata.replicas` and `indexarr.replicas` are pinned to `1` by both the schema and `clustarr.validate`. | see `values.yaml` |
+| `<service>.replicas` | Replica count. `catalogarrMetadata.replicas` is always pinned to `1` by both the schema and `clustarr.validate`; `indexarr.replicas` is pinned to `1` by `clustarr.validate` unless `postgres.enabled`. | see `values.yaml` |
 | `<service>.resources` | Standard `requests`/`limits`; also the input to [GOMEMLIMIT](#gomemlimit). | see `values.yaml` |
 | `<service>.nodeSelector`/`.tolerations`/`.affinity` | Standard Kubernetes scheduling knobs. | `{}`, `[]`, `{}` |
 | `indexarr.facade.service.type`/`.port` | The Torznab facade Service (`/{indexer}/api`, `/{indexer}/download`, `/search/api`). | `ClusterIP`, `8080` |

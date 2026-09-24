@@ -1,0 +1,26 @@
+# CloudNativePG Cluster for indexarr's Postgres-backed release index (design
+# spec 2026-09-24 §A.3-A.4; ADR-0010). Same shape as
+# charts/clustarr/templates/postgres-cluster.yaml, minus the Helm templating:
+# instances, storage size, and the bootstrap database/owner match that
+# template's defaults so TestChartAndKustomizeAgreePerComponent's
+# postgres-enabled case can compare the two Cluster specs directly.
+#
+# Requires the CloudNativePG operator installed and Ready FIRST -- see
+# config/postgres/kustomization.yaml and config/README.md. Its admission
+# webhook fails closed until then, so this Cluster is rejected if it is
+# applied in the same pass as the operator (ruling R2).
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: clustarr-postgres
+  labels:
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: postgres
+spec:
+  instances: 1
+  storage:
+    size: 5Gi
+  bootstrap:
+    initdb:
+      database: clustarr
+      owner: clustarr

@@ -139,6 +139,7 @@ jobs:
         run: |
           helm repo add nats https://nats-io.github.io/k8s/helm/charts/
           helm repo add kedacore https://kedacore.github.io/charts
+          helm repo add cloudnative-pg https://cloudnative-pg.github.io/charts
           helm dependency build charts/clustarr
 
       - name: Media root

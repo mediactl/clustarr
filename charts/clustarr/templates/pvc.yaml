@@ -1,6 +1,9 @@
 {{/*
 §11. One RWX volume at /data shared by every media-touching pod, plus
-indexarr's RWO SQLite volume. Skipped when you bring your own claim.
+indexarr's RWO SQLite volume. Skipped when you bring your own claim, or (the
+index volume only) when postgres.enabled selects a Postgres-backed release
+index instead (design spec 2026-09-24 §A; ADR-0010) -- see
+templates/postgres-cluster.yaml.
 */}}
 {{- if not .Values.storage.data.existingClaim }}
 apiVersion: v1
@@ -23,7 +26,7 @@ spec:
     requests:
       storage: {{ .Values.storage.data.size }}
 {{- end }}
-{{- if and .Values.indexarr.enabled (not .Values.storage.index.existingClaim) }}
+{{- if and .Values.indexarr.enabled (not .Values.postgres.enabled) (not .Values.storage.index.existingClaim) }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

@@ -78,9 +78,42 @@ nats:
           cpu: "1"
           memory: 1Gi
 
-# NATS controller for Kubernetes. Not required: pkg/events provisions its own
-# streams, consumers and KV buckets via events.Topology.Ensure.
-nack:
+# --------------------------------------------------------------------------
+# Release index on Postgres (optional, design spec 2026-09-24 §A; ADR-0010)
+# --------------------------------------------------------------------------
+# indexarr's release index is SQLite FTS5 on the RWO storage.index PVC below
+# by default (ADR-0003), which pins indexarr.replicas to 1. Set
+# postgres.enabled=true to run it on a CloudNativePG Cluster instead: indexarr
+# then reads CLUSTARR_INDEX_DSN, drops the index PVC entirely and indexarr's
+# own leader election (already unconditional in the binary, keyed on the DSN
+# being set) makes more than one replica safe.
+postgres:
+  enabled: false
+  cluster:
+    # CNPG Cluster.spec.instances -- the number of Postgres replicas CNPG
+    # itself runs (streaming replication), unrelated to indexarr.replicas.
+    instances: 1
+    storage:
+      size: 5Gi
+      # Empty binds against the cluster's default StorageClass, same as
+      # storage.data.storageClass and storage.index.storageClass below.
+      storageClass: ""
+  # An existing Secret carrying the DSN under key "uri", instead of the
+  # "<release>-postgres-app" Secret CNPG's bootstrap.initdb creates
+  # automatically for the "clustarr" database's "clustarr" owner role. Set
+  # this to point indexarr at a Postgres CNPG did not create.
+  existingSecret: ""
+
+# CloudNativePG: the Postgres operator itself. A separate toggle from
+# postgres.enabled on purpose -- most clusters install an operator like this
+# one once, cluster-wide, rather than per Clustarr release; enable this only
+# when this chart should install it too. See Chart.yaml for the pinned
+# version. Ruling R2: the Cluster this chart renders (templates/
+# postgres-cluster.yaml) is a post-install/post-upgrade Helm hook, because
+# CNPG's admission webhook fails closed until its Deployment is Ready --
+# install with `helm install --wait` so the operator is up before the hook
+# fires.
+cloudnative-pg:
   enabled: false
 
 # --------------------------------------------------------------------------
@@ -129,7 +162,8 @@ storage:
     accessMode: ReadWriteMany
     size: 100Gi
   # indexarr's SQLite release index. RWO on purpose, which is also why
-  # indexarr is pinned to one replica with strategy Recreate.
+  # indexarr is pinned to one replica with strategy Recreate. Unused, and not
+  # rendered, when postgres.enabled selects a Postgres-backed index instead.
   index:
     existingClaim: ""
     storageClass: ""
@@ -227,9 +261,12 @@ importarrWorker:
   tolerations: []
   affinity: {}
 
-# Indexer controllers, search RPC, RSS worker, SQLite release index, Torznab
-# facade. MUST be 1: the index is a local SQLite database on an RWO PVC. The
-# chart fails the render on any other value.
+# Indexer controllers, search RPC, RSS worker, release index, Torznab facade.
+# MUST be 1 unless postgres.enabled: the default index is a local SQLite
+# database on an RWO PVC, and the chart fails the render on any other value
+# in that case. A Postgres-backed index (see postgres.enabled above) may run
+# more than one replica -- indexarr's own leader election, keyed on
+# CLUSTARR_INDEX_DSN, makes it safe.
 indexarr:
   enabled: true
   replicas: 1

@@ -1,0 +1,26 @@
+# OPTIONAL kustomize Component: adds a CloudNativePG Cluster, re-points
+# indexarr at Postgres instead of its local SQLite volume, and drops the RWO
+# index PVC config/default/pvc.yaml otherwise renders unconditionally
+# (design spec 2026-09-24 §A; ADR-0010). It is a Component rather than a
+# plain Kustomization because it only makes sense composed INTO an overlay
+# that already has config/manager's indexarr Deployment and config/default's
+# PVCs to patch -- see config/README.md for how to wire it into one.
+#
+# Install the CloudNativePG operator FIRST and wait for it to be Ready
+# (https://cloudnative-pg.io/documentation/current/installation_upgrade/).
+# Its admission webhook fails closed until then, so the Cluster this
+# component adds is rejected if applied in the same pass as the operator
+# (ruling R2 -- the same ordering constraint charts/clustarr/templates/
+# postgres-cluster.yaml's Helm hook exists for):
+#
+#   kubectl wait --for=condition=Available deployment/cnpg-controller-manager \
+#     -n cnpg-system --timeout=120s
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+- cluster.yaml
+
+patches:
+- path: indexarr-patch.yaml
+- path: delete-index-pvc.yaml

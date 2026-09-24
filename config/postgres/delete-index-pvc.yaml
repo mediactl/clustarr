@@ -1,0 +1,12 @@
+# Deletes the RWO SQLite index PVC config/default/pvc.yaml renders
+# unconditionally: under postgres.enabled (design spec 2026-09-24 §A.3-A.4;
+# ADR-0010) the release index lives in the CloudNativePG Cluster this
+# component adds instead, and there is nothing left to claim the volume.
+# $patch: delete on a bare apiVersion/kind/metadata.name removes the whole
+# resource, matched by that identity against config/default's PVC of the
+# same name.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: clustarr-index
+$patch: delete

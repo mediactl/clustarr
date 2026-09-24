@@ -114,7 +114,7 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
 
 - **`make test` cannot pass in a fresh clone or a new git worktree until
   `helm dependency build` has run.** `charts/clustarr/charts/` holds three
-  vendored dependency tarballs (`nats`, `nack`, `keda`) and is gitignored by
+  vendored dependency tarballs (`nats`, `cloudnative-pg`, `keda`) and is gitignored by
   `charts/clustarr/.gitignore`, so a clean checkout does not have them.
   `TestChartAndKustomizeAgreePerComponent` shells out to real `helm template`,
   which refuses with "found in Chart.yaml, but missing in charts/ directory"

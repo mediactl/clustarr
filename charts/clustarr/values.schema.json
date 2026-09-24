@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "clustarr",
-  "description": "Values for the clustarr umbrella chart. Checks shapes (types, enums, known number/string formats) so a bad values file fails at `helm install`/`helm template`/`helm lint` -- with a schema-path error pointing at the exact key -- rather than deep inside a template with a `nil pointer` or a silently wrong render. See charts/clustarr/README.md for the field-by-field reference and charts/clustarr/templates/_helpers.tpl's clustarr.validate for the cross-field invariants (e.g. catalogarrMetadata.replicas/indexarr.replicas below duplicate two of those checks on purpose, so they fail here, earlier and with a clearer message, before the template-level fail ever runs). nats/nack/keda are validated only shallowly: those objects pass straight through to the bundled subcharts, which ship no values.schema.json of their own for this chart to defer to, and duplicating their whole value surface here would drift the moment either chart adds a value.",
+  "description": "Values for the clustarr umbrella chart. Checks shapes (types, enums, known number/string formats) so a bad values file fails at `helm install`/`helm template`/`helm lint` -- with a schema-path error pointing at the exact key -- rather than deep inside a template with a `nil pointer` or a silently wrong render. See charts/clustarr/README.md for the field-by-field reference and charts/clustarr/templates/_helpers.tpl's clustarr.validate for the cross-field invariants (e.g. catalogarrMetadata.replicas/indexarr.replicas below duplicate two of those checks on purpose, so they fail here, earlier and with a clearer message, before the template-level fail ever runs). nats/cloudnative-pg/keda are validated only shallowly: those objects pass straight through to the bundled subcharts, which ship no values.schema.json of their own for this chart to defer to, and duplicating their whole value surface here would drift the moment either chart adds a value.",
   "type": "object",
   "required": ["image", "storage", "podSecurityContext", "securityContext"],
   "properties": {
@@ -42,7 +42,30 @@
         "container": { "type": "object" }
       }
     },
-    "nack": {
+    "postgres": {
+      "type": "object",
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "cluster": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "instances": { "type": "integer", "minimum": 1 },
+            "storage": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "size": { "$ref": "#/$defs/quantity" },
+                "storageClass": { "type": "string" }
+              }
+            }
+          }
+        },
+        "existingSecret": { "type": "string" }
+      }
+    },
+    "cloudnative-pg": {
       "type": "object",
       "required": ["enabled"],
       "properties": { "enabled": { "type": "boolean" } }
@@ -135,8 +158,9 @@
       "properties": {
         "enabled": { "type": "boolean" },
         "replicas": {
-          "const": 1,
-          "description": "Pinned: the release index is a local SQLite database on a ReadWriteOnce PVC (see clustarr.validate's fail)."
+          "type": "integer",
+          "minimum": 1,
+          "description": "Pinned to 1 unless postgres.enabled: the default release index is a local SQLite database on a ReadWriteOnce PVC. This is a cross-field invariant (depends on postgres.enabled) so it is enforced only by clustarr.validate's fail, not by a const here."
         },
         "facade": {
           "type": "object",

@@ -72,6 +72,17 @@ asked for them, so they can never be chart templates.
       (dict "name" "CLUSTARR_FACADE_API_KEY_SECRET" "value" (include "clustarr.facadeAPIKeySecret" $)) }}
 {{- $indexVolumes := list }}
 {{- $indexMounts := list }}
+{{- /* Postgres-backed release index (design spec 2026-09-24 §A.3-A.4;
+     ADR-0010): CLUSTARR_INDEX_DSN points indexarr at the CNPG Cluster's app
+     Secret instead of the local SQLite file, and no PVC is mounted at all --
+     the index lives in the Cluster templates/postgres-cluster.yaml renders.
+     CLUSTARR_INDEX_PATH above is harmless: indexarr logs and ignores it once
+     a DSN is set (spec §A.3). */}}
+{{- if .Values.postgres.enabled }}
+{{- $indexEnv = append $indexEnv (dict "name" "CLUSTARR_INDEX_DSN" "valueFrom" (dict "secretKeyRef" (dict
+      "name" (default (printf "%s-postgres-app" (include "clustarr.fullname" $)) .Values.postgres.existingSecret)
+      "key" "uri"))) }}
+{{- end }}
 {{- /* --cardigann-bundled defaults on in the binary, so only "off" is
      rendered: the default render stays byte-identical to config/manager. */}}
 {{- if not .Values.indexarr.cardigann.bundled }}
@@ -97,7 +108,10 @@ asked for them, so they can never be chart templates.
 {{- end }}
 {{- end }}
 {{- end }}
-{{/* Recreate + RWO index PVC: one SQLite writer, one PVC holder. */}}
+{{/* Recreate + RWO index PVC under SQLite: one writer, one PVC holder. Under
+     postgres.enabled there is no volume and no pinned strategy -- indexarr's
+     leader election (keyed on CLUSTARR_INDEX_DSN, unconditional once it is
+     set) makes indexarr.replicas > 1 safe there. */}}
 {{- include "clustarr.workload" (dict
       "root" $
       "component" "indexarr"
@@ -105,8 +119,8 @@ asked for them, so they can never be chart templates.
       "image" "controller"
       "args" (list "indexarr" "--role" "all")
       "data" false
-      "index" true
-      "strategy" "Recreate"
+      "index" (not .Values.postgres.enabled)
+      "strategy" (ternary "" "Recreate" .Values.postgres.enabled)
       "grace" 60
       "httpPort" true
       "extraEnv" $indexEnv

@@ -14,7 +14,7 @@ Services in this release:
   importarr-worker     {{ .Values.importarrWorker.replicas }}  scan, list and fileimport consumers
 {{- end }}
 {{- if .Values.indexarr.enabled }}
-  indexarr             1  search/RSS/Torznab (pinned to 1: RWO SQLite index)
+  indexarr             {{ .Values.indexarr.replicas }}  search/RSS/Torznab{{ if .Values.postgres.enabled }} (release index on Postgres){{ else }} (pinned to 1: RWO SQLite index){{ end }}
 {{- end }}
 {{- if .Values.grabarr.enabled }}
   grabarr              {{ .Values.grabarr.replicas }}  download controllers (engines are created per DownloadClient)

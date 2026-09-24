@@ -1,6 +1,6 @@
 # ADR-0003: The release index is SQLite FTS5 on an RWO volume, behind a Store interface
 
-**Status:** Accepted, 2026-09-18
+**Status:** Superseded by ADR-0010, 2026-09-24
 
 ## Context
 

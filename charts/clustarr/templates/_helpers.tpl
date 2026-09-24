@@ -149,8 +149,8 @@ preferences, so they fail the render rather than warn.
 {{- if ne (int .Values.catalogarrMetadata.replicas) 1 -}}
 {{- fail "catalogarrMetadata.replicas must be exactly 1: the metadata gateway holds its provider rate-limiter windows in process memory, so a second replica doubles the outbound request rate against TMDB/TVDB/MusicBrainz and will get you banned, not throttled." -}}
 {{- end -}}
-{{- if ne (int .Values.indexarr.replicas) 1 -}}
-{{- fail "indexarr.replicas must be exactly 1: the release index is a local SQLite database (WAL+FTS5) on a ReadWriteOnce PVC. A second replica cannot bind the volume and must not share the database." -}}
+{{- if and (not .Values.postgres.enabled) (ne (int .Values.indexarr.replicas) 1) -}}
+{{- fail "indexarr.replicas must be exactly 1 unless postgres.enabled: the default release index is a local SQLite database (WAL+FTS5) on a ReadWriteOnce PVC, and a second replica cannot bind the volume or share the database. Set postgres.enabled=true (CloudNativePG) to run more than one replica." -}}
 {{- end -}}
 {{- if and (not .Values.storage.data.existingClaim) (ne .Values.storage.data.accessMode "ReadWriteMany") -}}
 {{- fail "storage.data.accessMode must be ReadWriteMany: /data is one volume shared by catalogarr, grabarr, squasharr and captionarr, and import is a hardlink or rename inside that single filesystem. Use CephFS, or NFS/Longhorn RWX. Never exFAT or SMB -- neither can represent the hardlinks and atomic renames the importer depends on." -}}
