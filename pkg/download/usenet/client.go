@@ -643,6 +643,23 @@ func (c *Client) Add(ctx context.Context, req download.AddRequest) (string, erro
 		}
 		return existing.id, nil
 	}
+	// The same Download, a different body. A newznab indexer serves a
+	// slightly different .nzb on every fetch (nzbgeek varies the obfuscated
+	// title and password metas), so the payload hash alone let a reconcile
+	// that re-resolved after a failed status write add the release a second
+	// time: two transfers of one Download, the first an orphan (2026-09-24).
+	// A Download is one transfer; its name is the key that survives the
+	// indexer's whims.
+	if req.Name != "" {
+		for _, existing := range c.jobs {
+			if existing.name == req.Name {
+				if req.Paused {
+					existing.paused.Store(true)
+				}
+				return existing.id, nil
+			}
+		}
+	}
 
 	category := req.Category
 	if category == "" {
@@ -1199,6 +1216,27 @@ func (c *Client) Get(_ context.Context, id string) (download.Item, error) {
 }
 
 // List returns every transfer the client holds, re-attached ones included.
+// FindByName implements [download.ByName]: the transfer added under name,
+// or [download.ErrNotFound].
+func (c *Client) FindByName(_ context.Context, name string) (download.Item, error) {
+	if name == "" {
+		return download.Item{}, download.ErrNotFound
+	}
+	c.mu.Lock()
+	var found *job
+	for _, j := range c.jobs {
+		if j.name == name {
+			found = j
+			break
+		}
+	}
+	c.mu.Unlock()
+	if found == nil {
+		return download.Item{}, download.ErrNotFound
+	}
+	return found.item(), nil
+}
+
 func (c *Client) List(_ context.Context) ([]download.Item, error) {
 	c.mu.Lock()
 	jobs := make([]*job, 0, len(c.jobs))

@@ -472,6 +472,17 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   /data/usenet/complete` (ADR-0014; `existingClaim`, `volumeName` and
   `accessModes` cover a claim of the operator's own). The controller
   refuses a path off the data mount with `Ready=False, InvalidSpec`.
+- **A newznab .nzb is not byte-stable across fetches, so a payload hash
+  cannot tell a re-add from a new transfer.** nzbgeek varies the obfuscated
+  `title` and `password` metas on every download of the same release; the
+  usenet engine re-resolved a Download whose status did not yet carry its
+  id (a status write had failed) and added the release a second time under
+  a second hash -- two 10 GB transfers of one Download, the first an orphan
+  until the reaper's 10-minute grace (2026-09-24). `usenet.Client.Add` now
+  dedupes on `AddRequest.Name` as well as on the payload, and the engine
+  asks the client (`download.ByName`) before fetching a payload again --
+  every fetch is a grab the indexer counts. Torrents are unaffected: an
+  info hash is the content.
 - **Every cache strips `managedFields`, and the cache-sync timeout is ten
   minutes.** On the owner's library (15,630 Episodes, a 57 MB list that
   `kubectl` alone takes 40 s to fetch) captionarr crash-looped on

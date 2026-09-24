@@ -383,3 +383,48 @@ func TestReconcileSkipsADownloadLabelledForAnotherEngine(t *testing.T) {
 	assert.Zero(t, res.RequeueAfter)
 	assert.Empty(t, fc.addCalls)
 }
+
+// namedFake adds download.ByName to the fake: the transfers it knows by the
+// Download name they were added under.
+type namedFake struct {
+	*fakeDownloadClient
+	names map[string]string
+}
+
+func (n *namedFake) FindByName(ctx context.Context, name string) (download.Item, error) {
+	id, ok := n.names[name]
+	if !ok {
+		return download.Item{}, download.ErrNotFound
+	}
+	return n.Get(ctx, id)
+}
+
+// A status write that fails after Add, or a cached object behind it, left a
+// Download with no downloadID while the client already ran its transfer;
+// the engine then fetched the payload again and, nzbgeek's .nzb differing
+// per fetch, added it a second time (2026-09-24). The engine now asks the
+// client by name first and adopts what it finds, fetching nothing.
+func TestReconcileAdoptsARunningTransferByNameInsteadOfFetchingAgain(t *testing.T) {
+	ctx := context.Background()
+	c := newTestClient(t)
+
+	fetches := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fetches++
+		_, _ = w.Write([]byte("<nzb>fetched-again</nzb>"))
+	}))
+	t.Cleanup(srv.Close)
+	dl := newUsenetDownload("movie-adopt", "sabnzbd-0", srv.URL)
+	require.NoError(t, c.Create(ctx, dl))
+
+	fc := &namedFake{fakeDownloadClient: newFakeDownloadClient(), names: map[string]string{"movie-adopt": "id-existing"}}
+	fc.setItem(download.Item{ID: "id-existing", Status: download.StatusDownloading, Stage: "transferring", TotalBytes: 100, DownloadedBytes: 40})
+
+	r := &usenetengine.Reconciler{Client: c, Download: fc, Resolver: &usenetengine.Resolver{}, Engine: "sabnzbd-0"}
+	reconcileEngine(t, r, "default", "movie-adopt")
+
+	assert.Empty(t, fc.addCalls, "the running transfer is adopted, not re-added")
+	assert.Zero(t, fetches, "no payload is fetched for a transfer the client already runs")
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "movie-adopt"}, dl))
+	assert.Equal(t, "id-existing", dl.Status.DownloadID)
+}

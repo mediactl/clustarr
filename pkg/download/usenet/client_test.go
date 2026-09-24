@@ -187,6 +187,43 @@ func TestClientPublishesUnderPublishDir(t *testing.T) {
 	require.True(t, os.IsNotExist(err), "the published content is removed with the transfer")
 }
 
+// nzbgeek serves a slightly different .nzb on every fetch of the same
+// release, so the payload hash cannot tell a re-add from a new transfer;
+// the Download's name can (2026-09-24: two transfers of one Download).
+func TestAddIsIdempotentOnTheDownloadNameAcrossDifferingPayloads(t *testing.T) {
+	srv := newStubServer(t)
+	parts := [][]byte{partPayload(1, 900), partPayload(2, 512)}
+	first := buildNZB(t, srv, "Some.Movie.2026.1080p", []fileSpec{{name: "movie.mkv", parts: parts}})
+	second := append([]byte(nil), first...)
+	second = append(second, []byte("\n<!-- fetched again -->")...)
+	require.NotEqual(t, nzbID(first), nzbID(second), "the fixture must differ by hash, or this test proves nothing")
+
+	c, scratch, _ := newTestClient(t, Config{Providers: []Provider{srv.provider("solo", 4, 1)}})
+	req := download.AddRequest{Name: "some-movie-abc123", Payload: first, Category: "movies", Paused: true}
+	id1, err := c.Add(context.Background(), req)
+	require.NoError(t, err)
+	req.Payload = second
+	id2, err := c.Add(context.Background(), req)
+	require.NoError(t, err)
+	require.Equal(t, id1, id2, "the same Download must not start a second transfer")
+
+	entries, err := os.ReadDir(filepath.Join(scratch, "movies"))
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "one job directory")
+
+	it, err := c.FindByName(context.Background(), "some-movie-abc123")
+	require.NoError(t, err)
+	require.Equal(t, id1, it.ID)
+	_, err = c.FindByName(context.Background(), "nobody")
+	require.ErrorIs(t, err, download.ErrNotFound)
+
+	// A different Download with the same body is still the same transfer:
+	// the payload rule is unchanged.
+	id3, err := c.Add(context.Background(), download.AddRequest{Name: "other", Payload: first, Category: "movies", Paused: true})
+	require.NoError(t, err)
+	require.Equal(t, id1, id3)
+}
+
 func TestClientDownloadsAnNZBAndPublishesIt(t *testing.T) {
 	srv := newStubServer(t)
 	parts := [][]byte{partPayload(1, 900), partPayload(2, 900), partPayload(3, 512)}

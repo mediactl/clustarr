@@ -255,6 +255,18 @@ func (r *Reconciler) getOrAdd(ctx context.Context, log *slog.Logger, dl *downloa
 		log.Warn("usenet engine: previously reported download id is unknown to the client; re-adding", "id", id)
 	}
 
+	// The client may already run this Download under an id the object does
+	// not carry yet: the status write that records it failed, or the cached
+	// object is behind it. Ask before fetching the payload again -- every
+	// fetch is a grab the indexer counts, and the client's own Add dedupes
+	// by name anyway, so a second fetch buys nothing.
+	if byName, ok := r.Download.(download.ByName); ok {
+		if it, err := byName.FindByName(ctx, dl.Name); err == nil {
+			log.Info("usenet engine: transfer already running for this download; adopting it", "id", it.ID)
+			return it, nil
+		}
+	}
+
 	resolveCtx, cancel := context.WithTimeout(ctx, r.resolveTimeout())
 	payload, err := r.Resolver.Resolve(resolveCtx, dl.Namespace, dl.Spec.Source)
 	cancel()

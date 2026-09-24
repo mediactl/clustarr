@@ -140,6 +140,17 @@ type File struct {
 	Skipped bool
 }
 
+// ByName is implemented by a client that can find the transfer it runs for
+// a Download by the AddRequest.Name it was added under. An engine asks it
+// before fetching a payload again for a Download whose status does not yet
+// carry an id -- the write that records it failed, or the cached object is
+// behind it -- because a second fetch is a grab the indexer counts and, on
+// usenet, need not even be byte-identical to the first. FindByName reports
+// ErrNotFound when no transfer carries the name.
+type ByName interface {
+	FindByName(ctx context.Context, name string) (Item, error)
+}
+
 // Item is one transfer as the client currently sees it. It is a snapshot: a
 // client returns a copy and never a live view, so a caller may hold one across
 // a slow status apply without racing the engine.
@@ -508,7 +519,9 @@ type Client interface {
 	// re-attach path safe -- an engine that restarted mid-transfer re-attaches
 	// from persisted state, and a controller that did not observe the
 	// re-attach and calls Add again gets the running transfer back rather
-	// than a second copy of it.
+	// than a second copy of it. It is idempotent on AddRequest.Name as well:
+	// a Download is one transfer, and a payload fetched twice from an
+	// indexer need not be byte-identical (usenet, 2026-09-24).
 	Add(ctx context.Context, req AddRequest) (string, error)
 
 	// Get returns one transfer by id, or [ErrNotFound].
