@@ -103,7 +103,12 @@ templ Layout(title string) {
 // bar can sit exactly beneath them and fill the rest of the viewport.
 templ Shell(c Chrome) {
 	<!DOCTYPE html>
-	<html lang="en" data-scrollbar?={ scrollbarAttr(c.HideScrollbar) }>
+	<html
+			lang="en"
+			if c.HideScrollbar {
+				data-scrollbar="hidden"
+			}
+		>
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -206,12 +211,4 @@ templ topTabs(current projection.Tab) {
 			}
 		}
 	}
-}
-
-// scrollbarAttr is data-scrollbar's value: "hidden" or none.
-func scrollbarAttr(hide bool) string {
-	if hide {
-		return "hidden"
-	}
-	return ""
 }
