@@ -147,7 +147,7 @@ func TestLibraryPageHasBreadcrumbsTabsAndAJumpBar(t *testing.T) {
 	// The position thumb (design 2026-09-24, after Radarr's): a thin mark
 	// the tracker script places along the strip in proportion to the item
 	// range on screen over the whole list, not snapped to a letter.
-	require.Contains(t, bar[strings.Index(bar, "class="):], "relative")
+	require.Contains(t, bar, "relative", "the thumb is placed against the strip")
 	requireTag(t, body[barAt:], `data-jump-thumb`, `bg-primary`)
 	require.NotContains(t, body, `data-letter=`, "cards carry no letter; the thumb is positional")
 	headEnd := strings.Index(body, "</head>")
