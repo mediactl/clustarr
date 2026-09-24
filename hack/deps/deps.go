@@ -61,14 +61,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // driver for real, so the entry had already outlived its task and was removed
 // then, because the rule at the top of this comment is "the moment a real
 // importer lands".
+//
+// M7's pgx/v5 and embedded-postgres entries, pre-added in W0-1 for Task A1,
+// were retired by A1 itself: pkg/relindex/postgres.go imports
+// github.com/jackc/pgx/v5/stdlib for real (OpenPostgres, spec §A.1) and
+// pkg/relindex/postgres_test.go imports github.com/fergusstrange/
+// embedded-postgres for real (TestPostgresStoreContract, spec §A.2).
+// x/image stays -- C2 (pkg/overlay) has not landed yet.
 package deps
 
 // M7 (plan docs/superpowers/plans/2026-09-24-index-artwork-ratings-plex.md)
-// pre-adds three modules in W0-1; each entry is retired by the task that
-// imports it for real: pgx/v5 by A1 (pkg/relindex's Postgres store),
-// embedded-postgres by A1 (its test) and x/image by C2 (pkg/overlay).
+// pre-adds x/image in W0-1; it is retired by the task that imports it for
+// real: x/image by C2 (pkg/overlay).
 import (
-	_ "github.com/fergusstrange/embedded-postgres"
-	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "golang.org/x/image/draw"
 )

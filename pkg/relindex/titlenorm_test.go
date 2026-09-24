@@ -27,12 +27,17 @@ import (
 	"github.com/mediactl/clustarr/pkg/relindex"
 )
 
-// The store does not normalise (doc.go): the caller runs Release.TitleNorm
-// and Query.Text through one function. These tests run the whole contract
-// with release.TitleNorm on both sides against a real SQLite FTS5 index --
-// the only place a normaliser and the unicode61 tokenizer meet -- because
-// release.CleanTitle, which kept only [a-z0-9 ], left a non-Latin release
-// either unindexable or findable only by its ASCII residue.
+// The title-normalisation round trip through release.TitleNorm on both
+// sides of a real index now lives in pkg/relindex/storetest and runs
+// against both engines (store_test.go, postgres_test.go). This file keeps
+// only the one case that is SQLite-specific: a raw NUL byte embedded in
+// release CONTENT (Title, GUID), not in Query.Text. Postgres' text type
+// cannot store a NUL byte at all -- the server rejects the INSERT outright
+// -- where SQLite stores it as an ordinary byte, so this is not part of the
+// portable Store contract. storetest's own hostileQueryText cases already
+// cover a NUL arriving in Query.Text, which both engines DO have to agree
+// on (splitControls turns it into a separator before it reaches either
+// engine).
 
 func indexNormalised(t *testing.T, s relindex.Store, titles ...string) {
 	t.Helper()
@@ -56,39 +61,6 @@ func searchNormalised(t *testing.T, s relindex.Store, text string) []string {
 		titles = append(titles, r.Title)
 	}
 	return titles
-}
-
-func TestTitleNormIndexesAWhollyNonLatinTitle(t *testing.T) {
-	s := newStore(t)
-	// Under CleanTitle each of these normalised to "" and Upsert refused the
-	// whole batch with "TitleNorm is empty".
-	indexNormalised(t, s, "Матрица", "日本語のタイトル", "마마마")
-
-	require.Equal(t, []string{"Матрица"}, searchNormalised(t, s, "МАТРИЦА"))
-	require.Equal(t, []string{"日本語のタイトル"}, searchNormalised(t, s, "日本語のタイトル"))
-	require.Equal(t, []string{"마마마"}, searchNormalised(t, s, "마마마"))
-}
-
-func TestTitleNormFindsAMixedTitleByItsNonLatinWords(t *testing.T) {
-	s := newStore(t)
-	indexNormalised(t, s, "Матрица.1999.1080p.BluRay", "The.Matrix.1999.1080p.BluRay")
-
-	// CleanTitle indexed the first as "1999 1080p bluray", so its own title
-	// could not find it.
-	require.Equal(t, []string{"Матрица.1999.1080p.BluRay"}, searchNormalised(t, s, "матрица 1999"))
-	// And a Latin query still finds the Latin release through the same
-	// function, exactly as it did through CleanTitle.
-	require.Equal(t, []string{"The.Matrix.1999.1080p.BluRay"}, searchNormalised(t, s, "The Matrix"))
-}
-
-// A non-Latin query used to normalise to its ASCII residue, so
-// "日本語のタイトル 2026" searched for "2026" and silently matched every
-// release published that year.
-func TestTitleNormDoesNotDegradeANonLatinQueryToItsASCIIResidue(t *testing.T) {
-	s := newStore(t)
-	indexNormalised(t, s, "Dune Part Two 2026 1080p", "Severance 2026 S03E01")
-
-	require.Empty(t, searchNormalised(t, s, "日本語のタイトル 2026"))
 }
 
 // A control rune separates terms on both sides, as pkg/relindex's
