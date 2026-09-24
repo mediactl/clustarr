@@ -73,7 +73,10 @@ Each item should show the cover art, monitored status and selected quality profi
   `status.file`/`status.probe` and `catalogarr` `status.quality`/
   `status.formatScore`. No such fields exist — `MediaFileStatus` is flat and
   the decided fields are spec, frozen at import per spec §8.4. Nothing had
-  reconciled yet, so no code ever contradicted the claim.)
+  reconciled yet, so no code ever contradicted the claim.) `TranscodeJob.status`
+  is squasharr's alone, under one field manager, `k8s.ManagerSquasharr`: the
+  reconciler and the `squasharr-transcode-results` consumer both write it, but
+  through one compare-and-swap path, not as two managers (Gotchas, below).
 - **All status writes go through `pkg/k8s.PatchStatus`** (server-side apply with a
   named field manager). `.Status().Update()` and `.Status().Patch()` are banned
   outside `pkg/k8s` and golangci-lint's forbidigo rule enforces it.
@@ -353,6 +356,16 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   lookaround). Set `IgnoreCase` and a `MatchTimeout`.
 - **Quality profiles are TRaSH-only and opinionated.** Built-in profiles ship as
   embedded data; custom-format editing is deliberately not exposed.
+- **Two write paths under one manager need compare-and-swap.** squasharr writes
+  `TranscodeJob.status` from its reconciler and from its results consumer. Both go through
+  `writeStatus`/`patchCAS`, which carry the read `resourceVersion`, so a race is a Conflict and
+  is redone from a fresh read, not a silent rollback. Any new status writer must use the same
+  path.
+- **A running Job's template is re-sent, not re-rendered.** An SSA manager that stops sending
+  a template field releases it, and a released field on a running Job is a rejected write. So
+  `app/squash/controller/pool.Render` re-sends the template recorded in
+  `squasharr.clustarr.io/applied-template`, and judges drift against that annotation rather
+  than the stored template, which carries apiserver defaults.
 
 ## Code conventions
 
@@ -547,9 +560,10 @@ Reconciles against envtest; not proven end to end.
 
 Phase E (done): M4 transcode — `squasharr`. `app/squash/status` declares the
 disjoint sets on `TranscodeJob.status` — `ControllerFields`
-(`k8s.ManagerSquasharr`) and `WorkerFields` (`k8s.ManagerSquasharrWorker`:
-`progress`, `result`, `stderrTail`) — plus `ProfileFields`/`PatchProfile`, and
-`Patch` refuses any other manager. `app/squash/controller/transcodeprofile`
+(`k8s.ManagerSquasharr`) and a worker-owned field set for `progress`,
+`result` and `stderrTail` — plus `ProfileFields`/`PatchProfile`, and `Patch`
+refuses any other manager (the transcode-worker-pools plan later retired the
+worker manager; see below). `app/squash/controller/transcodeprofile`
 computes `status.hash` through `app/squash/worker.ProfileSpec`, the same
 conversion the worker renders from
 (`TestStatusHashChangesWithEveryRenderField` fails if a render field stops
@@ -568,12 +582,18 @@ recycle bin (`fsops.RecycleLink`) and rename the output over the source, so
 the library path is never empty; a retry after a crash past the swap finds the
 `CLUSTARR_PROFILE` tag and exits 0.
 `TestSquasharrWorkerExitCodeReachesTheProcess` runs the real `main` to prove
-the exit codes survive; the Job runs as its own `squasharr-worker`
+the exit codes survive; at Phase E the Job ran as its own `squasharr-worker`
 ServiceAccount with a generated role
 (`config/rbac/squasharr_worker_role.yaml`); `--worker-image`,
 `--worker-image-cuda` and `--data-claim` are threaded through config and
 chart. (The gap fixes reversed two of Phase E's rulings: a container change
-and `replaceSource: false` are transcoded now, ruling R-11, below.) Defects a
+and `replaceSource: false` are transcoded now, ruling R-11, below. The
+transcode-worker-pools plan, 2026-09-23/24, replaced this per-TranscodeJob
+Job with one long-lived pool Job per (TranscodeProfile, hardware class): see
+`docs/superpowers/plans/2026-09-23-transcode-worker-pools.md` and design spec
+§6.4/ADR-0009. The `squasharr-worker` ServiceAccount and role above are gone;
+the worker is now the separate, credential-less `cmd/squasharr-worker`
+binary.) Defects a
 future reader must know: `maxOutputToSourcePercent` was an
 `int32` defaulted to `1.0`, so **every real transcode would have exited 4**;
 `policy.replaceSource`/`recycleBin` could not be set false from Go and

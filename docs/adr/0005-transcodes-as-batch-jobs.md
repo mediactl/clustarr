@@ -1,6 +1,6 @@
 # ADR-0005: Transcodes run as batch/v1 Jobs gated by suspend and slot budgets
 
-**Status:** Accepted, 2026-09-18
+**Status:** Superseded by ADR-0009, 2026-09-24
 
 ## Context
 
