@@ -211,13 +211,8 @@ func TestListPagesTellTheirStreamWhichPageToPush(t *testing.T) {
 // and ?per slices every push to that window, so a 120-row list pushes 20
 // rows to a reader on the last page, not 120.
 func TestListStreamsPushOnlyTheRequestedWindow(t *testing.T) {
-	entries := make(chan []pipeline.Entry, 1)
-	entries <- pipelineFixture(120)
-	items := make(chan []projection.LibraryItem, 1)
-	items <- libraryFixture(120)
-	unmatched := make(chan []projection.UnmatchedEntry, 1)
-	unmatched <- unmatchedFixture(120)
-	downloads := make(chan []downloadv1.Download, 1)
+	// Every subscription gets a channel of its own holding one push, so a
+	// case never waits on a push an earlier case's handler took.
 	dl := make([]downloadv1.Download, 120)
 	for i := range dl {
 		dl[i] = downloadv1.Download{
@@ -225,13 +220,28 @@ func TestListStreamsPushOnlyTheRequestedWindow(t *testing.T) {
 			Spec:       downloadv1.DownloadSpec{Protocol: commonv1.ProtocolTorrent},
 		}
 	}
-	downloads <- dl
 
 	srv := ui.NewServer(t.Context(), ui.Options{
-		Subscribe:          func() (<-chan []pipeline.Entry, func()) { return entries, func() {} },
-		SubscribeLibrary:   func() (<-chan []projection.LibraryItem, func()) { return items, func() {} },
-		SubscribeUnmatched: func() (<-chan []projection.UnmatchedEntry, func()) { return unmatched, func() {} },
-		SubscribeDownloads: func() (<-chan []downloadv1.Download, func()) { return downloads, func() {} },
+		Subscribe: func() (<-chan []pipeline.Entry, func()) {
+			ch := make(chan []pipeline.Entry, 1)
+			ch <- pipelineFixture(120)
+			return ch, func() {}
+		},
+		SubscribeLibrary: func() (<-chan []projection.LibraryItem, func()) {
+			ch := make(chan []projection.LibraryItem, 1)
+			ch <- libraryFixture(120)
+			return ch, func() {}
+		},
+		SubscribeUnmatched: func() (<-chan []projection.UnmatchedEntry, func()) {
+			ch := make(chan []projection.UnmatchedEntry, 1)
+			ch <- unmatchedFixture(120)
+			return ch, func() {}
+		},
+		SubscribeDownloads: func() (<-chan []downloadv1.Download, func()) {
+			ch := make(chan []downloadv1.Download, 1)
+			ch <- dl
+			return ch, func() {}
+		},
 	})
 	httpSrv := httptest.NewServer(srv.Handler())
 	defer httpSrv.Close()
@@ -250,23 +260,6 @@ func TestListStreamsPushOnlyTheRequestedWindow(t *testing.T) {
 		"downloads":      {"/events/downloads?page=1&per=25", `data-download="`, 25, `d-024`, `d-025`},
 	} {
 		t.Run(name, func(t *testing.T) {
-			// Each channel holds one push; an earlier case may have taken it.
-			select {
-			case items <- libraryFixture(120):
-			default:
-			}
-			select {
-			case entries <- pipelineFixture(120):
-			default:
-			}
-			select {
-			case unmatched <- unmatchedFixture(120):
-			default:
-			}
-			select {
-			case downloads <- dl:
-			default:
-			}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, httpSrv.URL+tc.path, nil)
