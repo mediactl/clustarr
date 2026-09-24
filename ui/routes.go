@@ -273,7 +273,7 @@ func (s *Server) handleLibraryItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := views.LibraryDetail(item).Render(r.Context(), w); err != nil {
+	if err := views.LibraryDetail(s.itemDetail(r.Context(), item)).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render library detail page", "error", err)
 	}
 }
@@ -334,8 +334,16 @@ func (s *Server) handleRefreshMetadata(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid form", http.StatusBadRequest)
 		return
 	}
-	_, err := s.opts.Actions.RefreshMetadata(r.Context(),
-		r.PathValue("namespace"), commonv1.MediaKind(r.PathValue("kind")), r.PathValue("name"))
+	ns, kind, name := r.PathValue("namespace"), commonv1.MediaKind(r.PathValue("kind")), r.PathValue("name")
+	_, err := s.opts.Actions.RefreshMetadata(r.Context(), ns, kind, name)
+	// Radarr's "Refresh & Scan" (design 2026-09-24): scan=true also
+	// rescans the item's own folder under its RootFolder, when it has one
+	// on disk; an item with no folder yet gets the refresh alone.
+	if err == nil && r.FormValue("scan") == "true" {
+		if root, sub, ok := s.itemFolder(r.Context(), ns, kind, name); ok {
+			_, err = s.opts.Actions.RescanPath(r.Context(), ns, root, sub)
+		}
+	}
 	s.finishAction(w, r, err)
 }
 

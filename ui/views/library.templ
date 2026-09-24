@@ -50,10 +50,11 @@ import (
 // placement.
 templ Library(tab projection.Tab, p paging.Page, items []projection.LibraryItem, tb LibraryToolbar, rootFolders []catalogv1.RootFolder, jumpsFor []Jump) {
 	@Shell("Library", []Crumb{{Label: "Library", Href: "/library"}, {Label: tabLabel(tab)}}) {
-		<div id="library-page" class="flex gap-4">
+		<div id="library-page">
+			@libraryToolbar(tb, rootFolders)
+			<div class="flex gap-4">
 			<div class="min-w-0 flex-1 space-y-4">
 				@libraryTabs(tab)
-				@libraryToolbar(tb, rootFolders)
 				<div
 					id="library-rows"
 					data-tab={ string(tab) }
@@ -66,6 +67,7 @@ templ Library(tab projection.Tab, p paging.Page, items []projection.LibraryItem,
 				</div>
 			</div>
 			@jumpBar(jumpsFor)
+			</div>
 		</div>
 	}
 }
@@ -245,19 +247,6 @@ templ poster(url, title string) {
 	}
 }
 
-// LibraryDetail renders one catalog item's detail view (amendment §A3.4's
-// "detail modal" -- rendered here as its own page rather than a client-side
-// modal, since ui has no client-side framework and everything it does must
-// stay reachable without JavaScript, same as every other page): its
-// monitored state and phase, and the two per-item actions, monitor/unmonitor
-// and search now (§A3.2). "Rescan" is RootFolder-scoped, not per-item, so it
-// lives only on the Library page's own toolbar.
-templ LibraryDetail(li projection.LibraryItem) {
-	@Shell(li.Title, itemCrumbs(li)) {
-		@itemHeader(li)
-	}
-}
-
 // itemCrumbs is an item's trail: Library, its tab, itself.
 func itemCrumbs(li projection.LibraryItem) []Crumb {
 	return []Crumb{
@@ -300,7 +289,7 @@ type LibraryToolbar struct {
 	Filters []Choice
 }
 
-// libraryToolbar is Radarr's toolbar row (design 2026-09-24): the actions
+// libraryToolbar is Radarr's toolbar row (design 2026-09-24, views/toolbar.templ): the actions
 // on the left -- one "Rescan" form per known RootFolder, §A3.2's third
 // action, reading config-like data that needs no live stream of its own,
 // as downloads.templ's client cards do -- and the Sort and Filter menus on
@@ -308,25 +297,17 @@ type LibraryToolbar struct {
 // when the reader chooses, and every menu link swaps the whole page as the
 // tabs do so the stream reconnects with the new view.
 templ libraryToolbar(tb LibraryToolbar, rootFolders []catalogv1.RootFolder) {
-	<div data-toolbar data-current-sort={ tb.Sort } data-current-dir={ tb.Dir } data-current-filter={ tb.Filter } class="flex flex-wrap items-center justify-between gap-3">
-		<div class="flex flex-wrap items-center gap-2">
+	@toolbar(templ.Attributes{"data-current-sort": tb.Sort, "data-current-dir": tb.Dir, "data-current-filter": tb.Filter}) {
+		@toolbarGroup() {
 			for _, rf := range rootFolders {
-				<form method="post" action="/library/rescan" data-root-folder={ rf.Name }>
-					<input type="hidden" name="namespace" value={ rf.Namespace }/>
-					<input type="hidden" name="rootFolder" value={ rf.Name }/>
-					<input type="hidden" name="return" value="/library"/>
-					@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline, Size: button.SizeSm, Attributes: templ.Attributes{"data-action": "rescan"}}) {
-						@icon.Icon("folder-sync")()
-						Rescan { rf.Name }
-					}
-				</form>
+				@toolbarForm("/library/rescan", []Field{{"namespace", rf.Namespace}, {"rootFolder", rf.Name}, {"return", "/library"}}, "refresh-cw", "Rescan "+rf.Name, "rescan", templ.Attributes{"data-root-folder": rf.Name})
 			}
-		</div>
-		<div class="flex items-center gap-2">
+		}
+		@toolbarGroup() {
 			@viewMenu("Sort", "arrow-up-down", "Sort by", "data-sort", tb.Sorts)
 			@viewMenu("Filter", "funnel", "Filter", "data-filter", tb.Filters)
-		</div>
-	</div>
+		}
+	}
 }
 
 // viewMenu is one toolbar menu: a button trigger and a dropdown of links,
@@ -334,10 +315,7 @@ templ libraryToolbar(tb LibraryToolbar, rootFolders []catalogv1.RootFolder) {
 // attr names the data attribute each entry carries its key in.
 templ viewMenu(label, iconName, heading, attr string, choices []Choice) {
 	@dropdownmenu.DropdownMenu() {
-		@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Attributes: dropdownmenu.Trigger(ctx)}) {
-			@icon.Icon(iconName)()
-			{ label }
-		}
+		@toolbarTrigger(iconName, label, dropdownmenu.Trigger(ctx))
 		@dropdownmenu.Content(dropdownmenu.ContentProps{Align: dropdownmenu.AlignEnd}) {
 			@dropdownmenu.Label() {
 				{ heading }
@@ -418,20 +396,26 @@ func posterState(url string) string {
 	return "none"
 }
 
-// stripeClass is the stripe's colour for a projection.LibraryStatus.
+// stripeClass is a card's stripe for a projection.LibraryStatus.
 func stripeClass(status string) string {
-	const base = "h-1 w-full "
+	return "h-1 w-full " + stripeColour(status)
+}
+
+// stripeColour is the background colour a projection.LibraryStatus takes:
+// green on disk, amber on disk below the cutoff, blue in flight, red
+// monitored and missing, gray unmonitored.
+func stripeColour(status string) string {
 	switch status {
 	case "downloaded":
-		return base + "bg-emerald-500"
+		return "bg-emerald-500"
 	case "cutoff-unmet":
-		return base + "bg-amber-500"
+		return "bg-amber-500"
 	case "downloading":
-		return base + "bg-sky-500"
+		return "bg-sky-500"
 	case "missing":
-		return base + "bg-red-500"
+		return "bg-red-500"
 	default:
-		return base + "bg-slate-500"
+		return "bg-slate-500"
 	}
 }
 

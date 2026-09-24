@@ -22,7 +22,6 @@ import (
 
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/item"
-	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // ParentDetail is an artist's or an author's page (spec
@@ -30,9 +29,11 @@ import (
 // loads the children -- albums or books -- on first expand, the series
 // page's shape with one component instead of one per season. label names
 // the children ("Albums", "Books").
-templ ParentDetail(li projection.LibraryItem, label string) {
+templ ParentDetail(d Detail, label string) {
+	{{ li := d.Item }}
 	@Shell(li.Title, itemCrumbs(li)) {
-		@itemHeader(li)
+		@itemToolbar(d)
+		@hero(d)
 		<div class="mt-6 rounded-md border border-border bg-card">
 			<details
 				hx-get={ ChildrenURL(li.Ref.Namespace, string(li.Kind), li.Ref.Name) }
@@ -50,9 +51,11 @@ templ ParentDetail(li projection.LibraryItem, label string) {
 }
 
 // ChildrenPage is a parent's children on their own page.
-templ ChildrenPage(li projection.LibraryItem, label string, children []ChildRow) {
+templ ChildrenPage(d Detail, label string, children []ChildRow) {
+	{{ li := d.Item }}
 	@Shell(fmt.Sprintf("%s · %s", li.Title, label), childCrumbs(li, label)) {
-		@itemHeader(li)
+		@itemToolbar(d)
+		@hero(d)
 		<div class="mt-6 rounded-md border border-border bg-card">
 			<h2 class="px-4 py-3 font-medium">{ label }</h2>
 			<div class="children border-t border-border">

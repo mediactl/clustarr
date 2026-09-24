@@ -1,0 +1,80 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/icon"
+)
+
+// Radarr's page toolbar (design 2026-09-24): a full-width bar under the
+// page header holding icon-over-label buttons -- the page's actions on the
+// left, its view controls on the right. Every button is shadcn-templ's
+// button in its ghost variant, laid out as a column, so the bar composes
+// forms (an action), links and dropdown triggers alike.
+
+// toolbarButtonClass turns a button into Radarr's toolbar button: the
+// icon above a small label, the whole thing a hover target.
+const toolbarButtonClass = "h-auto min-w-16 flex-col gap-1 px-2 py-1.5 text-[11px] leading-tight font-normal text-muted-foreground hover:text-foreground [&_svg]:size-5"
+
+// Field is one hidden input of a toolbar action's form.
+type Field struct {
+	Name  string
+	Value string
+}
+
+// toolbar is the bar itself: full-bleed under the header (the page's
+// padding is undone), its groups pushed to the edges. attrs land on the
+// bar, beside data-toolbar.
+templ toolbar(attrs templ.Attributes) {
+	<div data-toolbar class="-mx-6 -mt-6 mb-6 flex flex-wrap items-stretch justify-between gap-2 border-b border-border bg-card px-2 py-1" { attrs... }>
+		{ children... }
+	</div>
+}
+
+// toolbarGroup is one run of buttons.
+templ toolbarGroup() {
+	<div class="flex flex-wrap items-stretch gap-0.5">
+		{ children... }
+	</div>
+}
+
+// toolbarForm is one action: a form posting to action with fields, whose
+// only control is an icon-over-label submit button carrying data-action
+// for the tests. formAttrs land on the form.
+templ toolbarForm(action string, fields []Field, iconName, label, dataAction string, formAttrs templ.Attributes) {
+	<form method="post" action={ templ.URL(action) } { formAttrs... }>
+		for _, f := range fields {
+			<input type="hidden" name={ f.Name } value={ f.Value }/>
+		}
+		@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantGhost, Class: toolbarButtonClass, Attributes: templ.Attributes{"data-action": dataAction, "data-toolbar-button": true}}) {
+			@icon.Icon(iconName)()
+			<span>{ label }</span>
+		}
+	</form>
+}
+
+// toolbarTrigger is an icon-over-label button that opens something --
+// the Sort and Filter menus -- rather than posting; attrs are the
+// trigger's (a dropdown menu's Trigger(ctx)).
+templ toolbarTrigger(iconName, label string, attrs templ.Attributes) {
+	@button.Button(button.Props{Variant: button.VariantGhost, Class: toolbarButtonClass, Attributes: attrs}) {
+		@icon.Icon(iconName)()
+		<span>{ label }</span>
+	}
+}

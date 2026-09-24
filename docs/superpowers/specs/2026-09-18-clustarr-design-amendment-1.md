@@ -536,6 +536,34 @@ sort, where it means something. Each menu entry swaps `#library-page`
 through htmx the way the tabs do, so the stream reconnects in the new
 view and the URL follows.
 
+**Item page and the page toolbar (as built, 2026-09-24).** An item's
+page follows Radarr's movie page. The toolbar row every library page now
+carries (`ui/views/toolbar.templ`) is Radarr's: a full-width bar under
+the header of icon-over-label ghost `button`s, actions on the left and
+view controls on the right; the library page's holds one "Rescan" per
+RootFolder and the Sort and Filter menu triggers, an item's page holds
+"Refresh & Scan" and "Search <kind>". "Refresh & Scan" posts the refresh
+form with `scan=true`, which the handler turns into the refresh
+annotation plus a LibraryScan of the RootFolder restricted to the item's
+own folder (`actions.RescanPath`; an item with nothing on disk gets the
+refresh alone). Below the toolbar the hero: the item's fanart behind
+everything, the poster, Radarr's bookmark beside the title as the
+monitored toggle, previous and next arrows to the neighbours on the tab,
+the certification `badge`, year, runtime and provider links (TMDB or
+TVDB, IMDb), then the facts (path, status with its stripe, quality
+profile, size, original language, a series' network, genres) and the
+overview; then, for a movie, its file as a `table` (path relative to the
+movie's folder, video codec, first audio track, size, languages,
+quality, release group, matched formats and score, from the MediaFile's
+spec and probe), its extra files (sidecar subtitles, or Radarr's "No
+extra files to manage." as an `empty`) and its alternative titles as a
+`table`. Everything is read from what the item already carries -- the
+Movie, Series, Artist or Author and, for a movie, the MediaFile named by
+`status.fileRef` -- so what the metadata does not gather (ratings,
+studio, cast, crew) and the actions that do not exist (interactive
+search, rename, manage files, history, edit, delete) are not on the page.
+Series, artist and author pages share the toolbar and the hero.
+
 **Pagination (as built, 2026-09-23).** The pipeline, downloads, unmatched
 and library pages each show one window of rows: `?page=N&per=M`, 1-based,
 `per` defaulting to 50 and capped at 500, a page past the end clamping to

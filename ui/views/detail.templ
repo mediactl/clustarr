@@ -1,0 +1,454 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"fmt"
+	"strings"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/empty"
+	"github.com/mediactl/clustarr/ui/components/icon"
+	"github.com/mediactl/clustarr/ui/components/table"
+	"github.com/mediactl/clustarr/ui/projection"
+)
+
+// An item's page follows Radarr's movie page (design 2026-09-24): the
+// toolbar, a hero on the item's fanart -- poster, title with its monitored
+// bookmark, certification, year, runtime, provider links, the facts row,
+// genres, overview -- then, for a movie, its file, its extra files and its
+// alternative titles. Everything comes from the metadata the item already
+// carries (Detail is filled by the ui package from the Movie, Series,
+// Artist or Author and, for a movie, its MediaFile); what the metadata
+// does not carry -- ratings, studio, cast, crew -- is not shown.
+
+// Link is one provider page for the item.
+type Link struct {
+	Label string
+	Href  string
+}
+
+// FileRow is one row of the Files table: a MediaFile as Radarr lists it.
+type FileRow struct {
+	Name         string
+	RelativePath string
+	VideoCodec   string
+	Audio        string
+	SizeBytes    int64
+	Languages    []string
+	Quality      string
+	ReleaseGroup string
+	Formats      []string
+	Score        int32
+}
+
+// ExtraRow is one extra file beside the media file: a sidecar subtitle.
+type ExtraRow struct {
+	Path     string
+	Kind     string
+	Language string
+}
+
+// Detail is everything an item's page shows beyond its library card.
+type Detail struct {
+	Item          projection.LibraryItem
+	Backdrop      string
+	Certification string
+	Runtime       string
+	Overview      string
+	Genres        []string
+	Language      string
+	Network       string
+	Path          string
+	Links         []Link
+	AltTitles     []string
+	// ShowFiles is whether the page has the Files and extra-files
+	// sections: a movie's; a series' files live on its seasons.
+	ShowFiles bool
+	Files     []FileRow
+	Extras    []ExtraRow
+	// CanScan is whether "Refresh & Scan" can scan a folder of the item's
+	// own: the kinds with a path under a RootFolder.
+	CanScan bool
+	// Prev and Next are the neighbouring items on the tab, in its order.
+	Prev string
+	Next string
+}
+
+// DetailPath is the item's page.
+func DetailPath(li projection.LibraryItem) string { return libraryDetailPath(li) }
+
+// LibraryDetail is a movie's (or any other standalone item's) page.
+templ LibraryDetail(d Detail) {
+	@Shell(d.Item.Title, itemCrumbs(d.Item)) {
+		@itemToolbar(d)
+		@hero(d)
+		if d.ShowFiles {
+			@filesSection(d)
+			@extrasSection(d)
+		}
+		@titlesSection(d)
+	}
+}
+
+// itemToolbar is the item page's toolbar: Radarr's "Refresh & Scan" (the
+// metadata refresh plus a scan of the item's own folder, when it has one)
+// and "Search <kind>". Monitoring is the bookmark on the title, as in
+// Radarr, not a toolbar button.
+templ itemToolbar(d Detail) {
+	@toolbar(nil) {
+		@toolbarGroup() {
+			if d.CanScan {
+				@toolbarForm(libraryActionURL(d.Item, "refresh"), []Field{{"return", libraryDetailPath(d.Item)}, {"scan", "true"}}, "refresh-cw", "Refresh & Scan", "refresh-metadata", nil)
+			} else {
+				@toolbarForm(libraryActionURL(d.Item, "refresh"), []Field{{"return", libraryDetailPath(d.Item)}}, "refresh-cw", "Refresh", "refresh-metadata", nil)
+			}
+			@toolbarForm(libraryActionURL(d.Item, "search"), []Field{{"return", libraryDetailPath(d.Item)}}, "search", "Search "+kindLabel(d.Item.Kind), "search-now", nil)
+		}
+	}
+}
+
+// kindLabel is the kind as Radarr names it in a button.
+func kindLabel(kind commonv1.MediaKind) string {
+	switch kind {
+	case commonv1.MediaKindMovie:
+		return "Movie"
+	case commonv1.MediaKindSeries:
+		return "Series"
+	case commonv1.MediaKindArtist:
+		return "Artist"
+	case commonv1.MediaKindAuthor:
+		return "Author"
+	case commonv1.MediaKindBook:
+		return "Book"
+	default:
+		return strings.ToUpper(string(kind)[:1]) + string(kind)[1:]
+	}
+}
+
+// hero is Radarr's header: the fanart behind everything, the poster, the
+// bookmark and title, the certification, year, runtime and provider links,
+// the facts, the genres and the overview. It carries the card's data
+// attributes (ruling R8) so the tests key on them, not on copy.
+templ hero(d Detail) {
+	{{ li := d.Item }}
+	<section
+		data-hero
+		data-ref={ li.Ref.String() }
+		data-kind={ string(li.Kind) }
+		data-monitored={ fmt.Sprintf("%t", li.Monitored) }
+		data-phase={ li.Phase }
+		data-hasfile={ fmt.Sprintf("%t", li.HasFile) }
+		data-year={ fmt.Sprint(li.Year) }
+		data-profile={ li.QualityProfileRef }
+		data-poster={ posterState(li.Poster) }
+		class="relative -mx-6 mb-8 overflow-hidden bg-card"
+	>
+		if d.Backdrop != "" {
+			<img data-backdrop src={ templ.URL(d.Backdrop) } alt="" loading="lazy" referrerpolicy="no-referrer" class="absolute inset-0 h-full w-full object-cover opacity-30"/>
+		}
+		<div class="absolute inset-0 bg-gradient-to-r from-background/95 via-background/80 to-background/50"></div>
+		<div class="relative flex flex-col gap-6 p-8 md:flex-row md:gap-10">
+			<div class="w-40 shrink-0 md:w-56">
+				<div class="overflow-hidden rounded-md shadow-lg">
+					@poster(li.Poster, li.Title)
+				</div>
+			</div>
+			<div class="min-w-0 flex-1">
+				<div class="flex items-start justify-between gap-4">
+					<div class="flex min-w-0 items-center gap-3">
+						@monitorBookmark(li)
+						<h1 class="truncate text-4xl font-light tracking-tight md:text-5xl">{ li.Title }</h1>
+					</div>
+					@neighbours(d)
+				</div>
+				<div class="mt-3 flex flex-wrap items-center gap-3 text-xl text-muted-foreground">
+					if d.Certification != "" {
+						@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "text-base"}) { { d.Certification } }
+					}
+					if li.Year > 0 {
+						<span>{ fmt.Sprint(li.Year) }</span>
+					}
+					if d.Runtime != "" {
+						<span>{ d.Runtime }</span>
+					}
+					for _, l := range d.Links {
+						<a href={ templ.URL(l.Href) } target="_blank" rel="noreferrer" title={ l.Label } class="[&_svg]:size-5 hover:text-foreground">
+							@icon.Icon("external-link")()
+							<span class="sr-only">{ l.Label }</span>
+						</a>
+					}
+				</div>
+				<dl class="mt-6 flex flex-wrap gap-x-10 gap-y-4 text-lg">
+					if d.Path != "" {
+						@fact("path", "Path") {
+							<span class="break-all">{ d.Path }</span>
+						}
+					}
+					@fact("status", "Status") {
+						<span class="flex items-center gap-2">
+							<span data-status={ projection.LibraryStatus(li) } class={ "inline-block h-5 w-1 rounded-sm " + stripeColour(projection.LibraryStatus(li)) }></span>
+							{ statusLabel(li) }
+						</span>
+					}
+					if li.QualityProfileRef != "" {
+						@fact("profile", "Quality Profile") {
+							@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-sm"}) { { li.QualityProfileRef } }
+						}
+					}
+					if size := totalSize(d.Files); size > 0 {
+						@fact("size", "Size") {
+							{ formatBytes(size) }
+						}
+					}
+					if d.Language != "" {
+						@fact("language", "Original Language") {
+							{ d.Language }
+						}
+					}
+					if d.Network != "" {
+						@fact("network", "Network") {
+							{ d.Network }
+						}
+					}
+					if len(d.Genres) > 0 {
+						@fact("genres", "Genres") {
+							{ strings.Join(d.Genres, ", ") }
+						}
+					}
+				</dl>
+				if d.Overview != "" {
+					<p data-overview class="mt-6 max-w-5xl text-base leading-relaxed">{ d.Overview }</p>
+				}
+			</div>
+		</div>
+	</section>
+}
+
+// fact is one labelled value of the hero's facts row.
+templ fact(key, label string) {
+	<div data-fact={ key }>
+		<dt class="text-xs text-muted-foreground">{ label }</dt>
+		<dd>
+			{ children... }
+		</dd>
+	</div>
+}
+
+// monitorBookmark is Radarr's bookmark beside the title: filled when
+// monitored, hollow when not, and the form that flips it.
+templ monitorBookmark(li projection.LibraryItem) {
+	<form method="post" action={ templ.URL(libraryActionURL(li, "monitor")) } class="contents">
+		<input type="hidden" name="return" value={ libraryDetailPath(li) }/>
+		<input type="hidden" name="monitored" value={ fmt.Sprintf("%t", !li.Monitored) }/>
+		@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantGhost, Size: button.SizeIconLg, Attributes: templ.Attributes{"data-action": "set-monitored", "aria-label": bookmarkLabel(li.Monitored), "title": bookmarkLabel(li.Monitored)}}) {
+			if li.Monitored {
+				<span class="[&_svg]:size-8 [&_svg]:fill-current">
+					@icon.Icon("bookmark")()
+				</span>
+			} else {
+				<span class="[&_svg]:size-8">
+					@icon.Icon("bookmark")()
+				</span>
+			}
+		}
+	</form>
+}
+
+// bookmarkLabel is what pressing the bookmark does.
+func bookmarkLabel(monitored bool) string {
+	if monitored {
+		return "Unmonitor"
+	}
+	return "Monitor"
+}
+
+// neighbours are Radarr's previous and next arrows: the items either side
+// of this one on its tab.
+templ neighbours(d Detail) {
+	if d.Prev != "" || d.Next != "" {
+		<div class="flex shrink-0 gap-2">
+			if d.Prev != "" {
+				@button.Button(button.Props{Href: d.Prev, Variant: button.VariantSecondary, Size: button.SizeIcon, Class: "rounded-full", Attributes: templ.Attributes{"data-nav": "prev", "aria-label": "Previous"}}) {
+					@icon.Icon("arrow-left")()
+				}
+			}
+			if d.Next != "" {
+				@button.Button(button.Props{Href: d.Next, Variant: button.VariantSecondary, Size: button.SizeIcon, Class: "rounded-full", Attributes: templ.Attributes{"data-nav": "next", "aria-label": "Next"}}) {
+					@icon.Icon("arrow-right")()
+				}
+			}
+		</div>
+	}
+}
+
+// statusLabel is Radarr's Status fact: the file's state in words.
+func statusLabel(li projection.LibraryItem) string {
+	switch projection.LibraryStatus(li) {
+	case "cutoff-unmet":
+		return "Cutoff Unmet"
+	case "downloaded":
+		if li.Phase == "Transcoded" {
+			return "Transcoded"
+		}
+		return "Downloaded"
+	case "downloading":
+		return "Downloading"
+	default:
+		return "Missing"
+	}
+}
+
+// totalSize is the size of the item's files together.
+func totalSize(files []FileRow) int64 {
+	var total int64
+	for _, f := range files {
+		total += f.SizeBytes
+	}
+	return total
+}
+
+// sectionTitle is Radarr's ruled section heading.
+templ sectionTitle(title string) {
+	<h2 class="mb-3 border-b border-border pb-2 text-2xl font-light">{ title }</h2>
+}
+
+// filesSection is Radarr's Files table: the movie's file as importarr
+// froze it (path relative to the movie's folder, quality, languages,
+// release group, matched formats and score) and as it was probed (video
+// codec, first audio track).
+templ filesSection(d Detail) {
+	<section data-section="files" class="mb-8">
+		@sectionTitle("Files")
+		if len(d.Files) == 0 {
+			<p class="rounded-md border border-border bg-card px-4 py-3 text-sm text-muted-foreground">No file on disk.</p>
+		} else {
+			<div class="rounded-md border border-border bg-card">
+				@table.Table() {
+					@table.Header() {
+						@table.Row() {
+							@table.Head() { { "Relative Path" } }
+							@table.Head() { { "Video Codec" } }
+							@table.Head() { { "Audio Info" } }
+							@table.Head() { { "Size" } }
+							@table.Head() { { "Languages" } }
+							@table.Head() { { "Quality" } }
+							@table.Head() { { "Release Group" } }
+							@table.Head() { { "Formats" } }
+							@table.Head(table.HeadProps{Class: "text-right"}) { { "Score" } }
+						}
+					}
+					@table.Body() {
+						for _, f := range d.Files {
+							@table.Row(table.RowProps{Attributes: templ.Attributes{"data-file": f.Name}}) {
+								@table.Cell(table.CellProps{Class: "max-w-md break-all whitespace-normal"}) { { f.RelativePath } }
+								@table.Cell() { { f.VideoCodec } }
+								@table.Cell() { { f.Audio } }
+								@table.Cell() { { formatBytes(f.SizeBytes) } }
+								@table.Cell() {
+									<span class="flex flex-wrap gap-1">
+										for _, l := range f.Languages {
+											@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { l } }
+										}
+									</span>
+								}
+								@table.Cell() {
+									if f.Quality != "" {
+										@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { f.Quality } }
+									}
+								}
+								@table.Cell() { { f.ReleaseGroup } }
+								@table.Cell() {
+									<span class="flex flex-wrap gap-1">
+										for _, format := range f.Formats {
+											@badge.Badge() { { format } }
+										}
+									</span>
+								}
+								@table.Cell(table.CellProps{Class: "text-right"}) { { fmt.Sprint(f.Score) } }
+							}
+						}
+					}
+				}
+			</div>
+		}
+	</section>
+}
+
+// extrasSection is Radarr's extra files: the sidecars beside the media
+// file, or its "No extra files to manage."
+templ extrasSection(d Detail) {
+	<section data-section="extras" class="mb-8">
+		if len(d.Extras) == 0 {
+			@empty.Empty(empty.Props{Class: "border border-border bg-card py-6"}) {
+				@empty.Header() {
+					@empty.Title() { { "No extra files to manage." } }
+				}
+			}
+		} else {
+			<div class="rounded-md border border-border bg-card">
+				@table.Table() {
+					@table.Header() {
+						@table.Row() {
+							@table.Head() { { "Relative Path" } }
+							@table.Head() { { "Type" } }
+							@table.Head() { { "Language" } }
+						}
+					}
+					@table.Body() {
+						for _, e := range d.Extras {
+							@table.Row(table.RowProps{Attributes: templ.Attributes{"data-extra": e.Path}}) {
+								@table.Cell(table.CellProps{Class: "break-all whitespace-normal"}) { { e.Path } }
+								@table.Cell() { { e.Kind } }
+								@table.Cell() { { e.Language } }
+							}
+						}
+					}
+				}
+			</div>
+		}
+	</section>
+}
+
+// titlesSection is Radarr's Titles table: the alternative titles the
+// metadata lists, when it lists any.
+templ titlesSection(d Detail) {
+	if len(d.AltTitles) > 0 {
+		<section data-section="titles" class="mb-8">
+			@sectionTitle("Titles")
+			<div class="rounded-md border border-border bg-card">
+				@table.Table() {
+					@table.Header() {
+						@table.Row() {
+							@table.Head() { { "Alternative Title" } }
+						}
+					}
+					@table.Body() {
+						for _, title := range d.AltTitles {
+							@table.Row() {
+								@table.Cell() { { title } }
+							}
+						}
+					}
+				}
+			</div>
+		</section>
+	}
+}

@@ -22,7 +22,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"slices"
+	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -191,17 +193,24 @@ func SearchNow(
 	return search, nil
 }
 
-// Rescan is "rescan" (§A3.2): it creates a LibraryScan of the RootFolder
-// rootFolder in namespace and returns it as the apiserver accepted it.
-//
-// The scan is named "<rootFolder>-<random>", carries
-// [LabelOrigin]=[OriginUI], and leaves mode (incremental), subpath and TTL
-// to their CRD defaults -- the same request the RootFolder schedule makes on
-// a tick, minus the schedule's own label.
+// Rescan is the "rescan" action (§A3.2): one LibraryScan of the whole
+// RootFolder, [RescanPath] with no subpath.
 func Rescan(
 	ctx context.Context, c Creator, namespace, rootFolder string,
 ) (*catalogv1alpha1.LibraryScan, error) {
-	ctx, span := tracing.Start(ctx, "ui.actions.Rescan")
+	return RescanPath(ctx, c, namespace, rootFolder, "")
+}
+
+// RescanPath creates a LibraryScan of rootFolder restricted to subpath, a
+// folder beneath the root (Radarr's "Refresh & Scan" on one item rescans
+// that item's own folder); an empty subpath scans the whole root. The
+// scan carries only the origin label, so the RootFolder schedule never
+// mistakes it for one of its own. A subpath that is absolute or climbs
+// out of the root is [ErrInvalid] and writes nothing.
+func RescanPath(
+	ctx context.Context, c Creator, namespace, rootFolder, subpath string,
+) (*catalogv1alpha1.LibraryScan, error) {
+	ctx, span := tracing.Start(ctx, "ui.actions.RescanPath")
 	defer span.End()
 
 	if namespace == "" || rootFolder == "" {
@@ -210,6 +219,15 @@ func Rescan(
 		tracing.RecordError(span, err)
 		return nil, err
 	}
+	if subpath != "" {
+		clean := path.Clean(subpath)
+		if path.IsAbs(subpath) || clean == ".." || strings.HasPrefix(clean, "../") {
+			err := fmt.Errorf("%w: rescan subpath %q is not a folder beneath the RootFolder", ErrInvalid, subpath)
+			tracing.RecordError(span, err)
+			return nil, err
+		}
+		subpath = clean
+	}
 
 	scan := &catalogv1alpha1.LibraryScan{
 		ObjectMeta: metav1.ObjectMeta{
@@ -217,7 +235,7 @@ func Rescan(
 			Namespace:    namespace,
 			Labels:       map[string]string{LabelOrigin: OriginUI},
 		},
-		Spec: catalogv1alpha1.LibraryScanSpec{RootFolderRef: rootFolder},
+		Spec: catalogv1alpha1.LibraryScanSpec{RootFolderRef: rootFolder, Subpath: subpath},
 	}
 	if err := c.Create(ctx, scan, client.FieldOwner(FieldManager)); err != nil {
 		err = fmt.Errorf("actions: create LibraryScan of RootFolder %s/%s: %w", namespace, rootFolder, err)
@@ -226,7 +244,7 @@ func Rescan(
 	}
 
 	logging.FromContext(ctx).Info("ui action: rescan requested",
-		"libraryScan", scan.Name, "namespace", namespace, "rootFolder", rootFolder)
+		"libraryScan", scan.Name, "namespace", namespace, "rootFolder", rootFolder, "subpath", subpath)
 	return scan, nil
 }
 
@@ -326,6 +344,14 @@ func (a *Actions) Rescan(ctx context.Context, namespace, rootFolder string) (*ca
 		return nil, ErrNoWriter
 	}
 	return Rescan(ctx, a.w, namespace, rootFolder)
+}
+
+// RescanPath is [RescanPath] over the Actions' writer.
+func (a *Actions) RescanPath(ctx context.Context, namespace, rootFolder, subpath string) (*catalogv1alpha1.LibraryScan, error) {
+	if a == nil || a.w == nil {
+		return nil, ErrNoWriter
+	}
+	return RescanPath(ctx, a.w, namespace, rootFolder, subpath)
 }
 
 // SetMonitored is [SetMonitored] over the Actions' writer.

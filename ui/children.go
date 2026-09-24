@@ -55,7 +55,7 @@ func childrenLabel(kind commonv1.MediaKind) (string, bool) {
 // handleLibraryItem.
 func (s *Server) renderParentPage(w http.ResponseWriter, r *http.Request, item projection.LibraryItem, label string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := views.ParentDetail(item, label).Render(r.Context(), w); err != nil {
+	if err := views.ParentDetail(s.itemDetail(r.Context(), item), label).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render parent page", "error", err)
 	}
 }
@@ -89,7 +89,7 @@ func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if err := views.ChildrenPage(item, label, rows).Render(r.Context(), w); err != nil {
+	if err := views.ChildrenPage(s.itemDetail(r.Context(), item), label, rows).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render children page", "error", err)
 	}
 }

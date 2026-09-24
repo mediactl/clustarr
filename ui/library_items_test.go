@@ -53,7 +53,7 @@ func requireTag(t *testing.T, body, anchor string, attrs ...string) string {
 // data attribute the earlier tests key on stays on the item element, and a
 // row's monitor toggle swaps the item it sits in.
 
-func TestDetailHeaderIsAnItemWithActions(t *testing.T) {
+func TestDetailHeaderIsRadarrsHeroWithTheActionsInTheToolbar(t *testing.T) {
 	arrival := projection.LibraryItem{
 		Ref: types.NamespacedName{Namespace: "default", Name: "arrival"}, Kind: commonv1.MediaKindMovie,
 		Tab: projection.TabMovies, Title: "Arrival", Year: 2016, Monitored: true, Phase: "Imported", HasFile: true,
@@ -67,18 +67,22 @@ func TestDetailHeaderIsAnItemWithActions(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
 
-	header := requireTag(t, body, `data-ref="default/arrival"`, `data-slot="item"`, `data-kind="movie"`,
+	// The header is Radarr's hero (design 2026-09-24): every data attribute
+	// the earlier tests key on stays on it, and it is not a link to itself.
+	header := requireTag(t, body, `data-ref="default/arrival"`, `data-hero`, `data-kind="movie"`,
 		`data-monitored="true"`, `data-phase="Imported"`, `data-hasfile="true"`, `data-year="2016"`, `data-profile="hd-bluray-web"`)
 	require.False(t, strings.HasPrefix(header, "<a "), "the header is not a link to itself")
-	require.Contains(t, body, `data-slot="item-media"`, "the header shows the poster slot")
-	at := strings.Index(body, `data-slot="item-actions"`)
-	require.GreaterOrEqual(t, at, 0, "the header has an actions slot")
-	actions := body[at:]
-	for _, a := range []string{`data-action="set-monitored"`, `data-action="search-now"`, `data-action="refresh-metadata"`} {
-		require.Contains(t, actions, a, "the actions live in the item's actions slot")
+	require.NotContains(t, body, `data-slot="item-actions"`, "the actions moved to the toolbar")
+	at := strings.Index(body, `data-toolbar`)
+	require.GreaterOrEqual(t, at, 0, "the page has a toolbar")
+	bar := body[at:strings.Index(body, `data-hero`)]
+	for _, a := range []string{`data-action="search-now"`, `data-action="refresh-metadata"`} {
+		require.Contains(t, bar, a, "the actions live in the toolbar")
 	}
-	require.Regexp(t, `data-slot="badge"[^>]*>monitored<`, body)
-	require.Regexp(t, `data-slot="badge"[^>]*>Imported<`, body)
+	heroAt := strings.Index(body, `data-hero`)
+	require.GreaterOrEqual(t, heroAt, 0)
+	require.Contains(t, body[heroAt:], `data-action="set-monitored"`, "the bookmark on the title toggles monitoring")
+	require.Regexp(t, `data-slot="badge"[^>]*>[^<]*hd-bluray-web`, body, "the quality profile is a badge in the facts")
 }
 
 func TestSeasonHeadersAndEpisodeRowsAreItems(t *testing.T) {
@@ -88,7 +92,7 @@ func TestSeasonHeadersAndEpisodeRowsAreItems(t *testing.T) {
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/library/default/series/andor", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	page := rec.Body.String()
-	requireTag(t, page, `data-ref="default/andor"`, `data-slot="item"`)
+	requireTag(t, page, `data-ref="default/andor"`, `data-hero`)
 	requireTag(t, page, `data-season="1"`, `data-slot="item"`, `season-header`, `data-monitored="true"`, `data-episodes="12"`, `data-files="8"`)
 	requireTag(t, page, `data-season="2"`, `data-slot="item"`, `data-monitored="false"`)
 	require.Contains(t, page, `data-action="set-season-monitored"`)

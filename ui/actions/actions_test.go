@@ -167,6 +167,33 @@ func TestRescanCreatesALabelledLibraryScan(t *testing.T) {
 	require.Equal(t, actions.FieldManager, w.creates[0].opts.FieldManager)
 }
 
+// TestRescanPathRestrictsTheScanToAFolder: Radarr's "Refresh & Scan" on
+// an item rescans its own folder, so RescanPath creates the same
+// LibraryScan as Rescan with Subpath set to the folder under the
+// RootFolder; an empty subpath is Rescan itself, and a subpath that
+// escapes the root is refused without writing.
+func TestRescanPathRestrictsTheScanToAFolder(t *testing.T) {
+	w := &fakeWriter{}
+	scan, err := actions.RescanPath(t.Context(), w, "media", "movies", "Nerve (2016) {tmdb-328387}")
+	require.NoError(t, err)
+	require.Len(t, w.creates, 1)
+	require.Equal(t, "movies-", scan.GenerateName)
+	require.Equal(t, catalogv1alpha1.LibraryScanSpec{RootFolderRef: "movies", Subpath: "Nerve (2016) {tmdb-328387}"}, scan.Spec)
+	require.Equal(t, map[string]string{actions.LabelOrigin: actions.OriginUI}, scan.Labels)
+
+	w = &fakeWriter{}
+	scan, err = actions.RescanPath(t.Context(), w, "media", "movies", "")
+	require.NoError(t, err)
+	require.Equal(t, catalogv1alpha1.LibraryScanSpec{RootFolderRef: "movies"}, scan.Spec, "no subpath is a whole-root rescan")
+
+	for _, bad := range []string{"../elsewhere", "/abs", "a/../../b"} {
+		w = &fakeWriter{}
+		_, err = actions.RescanPath(t.Context(), w, "media", "movies", bad)
+		require.ErrorIs(t, err, actions.ErrInvalid, bad)
+		require.Empty(t, w.creates, bad)
+	}
+}
+
 func TestActionsRejectInvalidInputWithoutWriting(t *testing.T) {
 	cases := map[string]func(*fakeWriter) error{
 		"search: no namespace": func(w *fakeWriter) error {

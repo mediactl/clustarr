@@ -54,7 +54,7 @@ func (s *Server) renderSeriesPage(w http.ResponseWriter, r *http.Request, item p
 		seasons = seasonRows(series)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := views.SeriesDetail(item, seasons).Render(r.Context(), w); err != nil {
+	if err := views.SeriesDetail(s.itemDetail(r.Context(), item), seasons).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render series page", "error", err)
 	}
 }
@@ -95,7 +95,7 @@ func (s *Server) handleSeason(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if err := views.SeasonPage(item, seasonRow(series, int32(n)), rows).Render(r.Context(), w); err != nil {
+	if err := views.SeasonPage(s.itemDetail(r.Context(), item), seasonRow(series, int32(n)), rows).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render season page", "error", err)
 	}
 }
