@@ -127,6 +127,48 @@ func TestSuspendWithdrawsAQueuedTaskAndRedispatchesAsANewAttempt(t *testing.T) {
 	assert.EqualValues(t, 2, tasks[0].Attempt)
 }
 
+// TestWithdrawPurgesTheTaskWhenTheProfileIsGone is ruling R23: a
+// TranscodeJob carries no owner reference to its TranscodeProfile, so a
+// profile can be deleted out from under a still-dispatched job. Before R23,
+// withdraw resolved the profile first and skipped the purge whenever that
+// failed -- gone, or merely a transient read error, looked identical to a
+// bare two-value read -- so a job withdrawn in that state leaked its task
+// subject forever: the sweep protects any UID with a live TranscodeJob
+// behind it, and suspending this job does not delete it. Withdrawal now
+// needs no TranscodeProfile at all: the purge uses a wildcard in the
+// profile's place (WorkTranscodeTaskSubjectAnyProfile), since the job's own
+// UID already names the subject uniquely.
+func TestWithdrawPurgesTheTaskWhenTheProfileIsGone(t *testing.T) {
+	const ns = "tj-withdraw-no-profile"
+	f := newDispatched(t, ns, map[string]int32{"cpu": 1})
+	f.r.Admin = f.r.Bus.(events.StreamAdmin)
+	ctx := context.Background()
+	profileUID := f.tp.UID // captured before deletion: proves the exact old subject is gone too
+
+	require.NoError(t, f.c.Delete(ctx, f.tp))
+
+	setSuspend(t, f, true)
+	reconcileTJ(t, f.r, f.ns, f.tj.Name)
+
+	got := f.get(t)
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, got.Status.Phase, "message: %s", got.Status.Message)
+	assert.Equal(t, "paused by spec.suspend", got.Status.Message)
+
+	e, err := f.r.Leases.Get(ctx, events.TranscodeLeaseKey(string(f.tj.UID)))
+	require.NoError(t, err)
+	var lease task.Lease
+	require.NoError(t, json.Unmarshal(e.Value, &lease))
+	assert.Equal(t, task.LeaseCancelled, lease.State)
+
+	subs, err := f.r.Admin.Subjects(ctx, events.StreamWorkSquasharr, events.FilterTranscodeTasks(string(profileUID), "cpu"))
+	require.NoError(t, err)
+	assert.Empty(t, subs, "the subject the deleted profile's own UID would have named is gone too")
+
+	all, err := f.r.Admin.Subjects(ctx, events.StreamWorkSquasharr, "clustarr.work.transcode.task.>")
+	require.NoError(t, err)
+	assert.Empty(t, all, "nothing of this job's is left leaked on the stream")
+}
+
 // TestDeleteWithdrawsThenReleasesTheFinalizer is spec §8's finalizer
 // protocol on the happy path: deleting a dispatched job cancels its lease
 // and purges its task, and only then releases the finalizer -- so the

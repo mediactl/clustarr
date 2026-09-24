@@ -311,13 +311,17 @@ func (s *stream) forgetDurable(durable string) {
 	}
 }
 
-// purgeSubject removes every stored message whose subject equals subject.
+// purgeSubject removes every stored message whose subject matches subject,
+// which may itself be a wildcard filter (events.StreamAdmin.PurgeSubject):
+// the same matcher subjects(filter) uses below, so "*" and a trailing ">"
+// work here exactly as they do there and as natsbus's real PurgeSubject
+// (jetstream.WithPurgeSubject) honours them.
 func (s *stream) purgeSubject(subject string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	keep := s.msgs[:0]
 	for _, m := range s.msgs {
-		if !m.removed && m.subject == subject {
+		if !m.removed && events.SubjectMatches(subject, m.subject) {
 			m.removed = true
 			s.bytes -= m.size
 			continue

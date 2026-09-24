@@ -368,12 +368,10 @@ func (r *Reconciler) advance(ctx context.Context, tj *transcodev1alpha1.Transcod
 			// User pause (spec §8): withdraw the dispatched task, then go
 			// back to Planned so admission holds it there (it already skips
 			// a Planned job with spec.suspend=true) until the field flips
-			// back, which re-dispatches it as a new attempt.
-			tp, _, err := r.profile(ctx, tj)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-			if err := r.withdraw(ctx, tj, tp); err != nil {
+			// back, which re-dispatches it as a new attempt. withdraw needs
+			// no TranscodeProfile (ruling R23), so a job whose profile was
+			// deleted is still withdrawn cleanly.
+			if err := r.withdraw(ctx, tj); err != nil {
 				return ctrl.Result{}, fmt.Errorf("transcodejob: withdraw for spec.suspend: %w", err)
 			}
 			st.Phase, st.WorkerPod, st.Progress, st.NextAttemptAt = transcodev1alpha1.TranscodeJobPhasePlanned, "", nil, nil

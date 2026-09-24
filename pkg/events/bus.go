@@ -178,7 +178,10 @@ type StreamAdmin interface {
 	// DeleteSubscription deletes the durable and its dead-letter watcher.
 	// A missing one is not an error.
 	DeleteSubscription(ctx context.Context, stream, durable string) error
-	// PurgeSubject removes every stored message on subject.
+	// PurgeSubject removes every stored message on subject, which may be a
+	// wildcard filter ("*" for one token, a trailing ">" for the rest) as
+	// well as a literal subject -- every implementation matches it as
+	// [SubjectMatches] does.
 	PurgeSubject(ctx context.Context, stream, subject string) error
 	// Subjects lists the subjects under filter that hold stored messages.
 	Subjects(ctx context.Context, stream, filter string) ([]string, error)

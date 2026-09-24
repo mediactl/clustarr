@@ -76,13 +76,19 @@ const ReasonSuspended = "Suspended"
 // that fetched the task just before the purge still finds it cancelled when
 // it claims (squasharr/worker/lease.go's claim and renew).
 //
-// tp may be nil -- the profile is gone, or could not be read: the lease is
-// still cancelled unconditionally, but there is nothing to build the task's
-// subject from, so the purge is skipped. That is not a correctness gap: the
-// periodic sweep (below) purges an orphaned task once the job itself is
-// gone, and a live job with no readable profile cannot be dispatching a new
-// attempt to race the stale one anyway (dispatch needs the same profile).
-func (r *Reconciler) withdraw(ctx context.Context, tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.TranscodeProfile) error {
+// The purge needs no TranscodeProfile (ruling R23): tj.UID alone already
+// identifies the subject uniquely, so it is purged with a wildcard in the
+// profile's place (events.WorkTranscodeTaskSubjectAnyProfile), which every
+// events.StreamAdmin honours. Resolving the profile first -- as an earlier
+// version of this function did -- was the bug R23 fixed: a job whose
+// profile had been deleted skipped the purge (nil profile) or, on a merely
+// transient read error, wrongly reported success (a "gone" and an
+// "unreadable" profile look identical to a bare two-value read); either way
+// a suspended or deleted job's task never left the stream. It is DiscardNew
+// with no MaxAge, so a leaked task never expires on its own and only grows
+// the stream toward its cap. A never-dispatched job (status.hardware=="")
+// still has nothing to purge.
+func (r *Reconciler) withdraw(ctx context.Context, tj *transcodev1alpha1.TranscodeJob) error {
 	uid := string(tj.UID)
 	b, err := json.Marshal(task.Lease{
 		Job:     schema.Ref{Namespace: tj.Namespace, Name: tj.Name, UID: uid},
@@ -96,11 +102,11 @@ func (r *Reconciler) withdraw(ctx context.Context, tj *transcodev1alpha1.Transco
 	if _, err := r.Leases.Put(ctx, events.TranscodeLeaseKey(uid), b); err != nil {
 		return fmt.Errorf("transcodejob: cancel lease: %w", err)
 	}
-	if tj.Status.Hardware == "" || tp == nil {
+	if tj.Status.Hardware == "" {
 		return nil
 	}
 	if err := r.Admin.PurgeSubject(ctx, events.StreamWorkSquasharr,
-		events.WorkTranscodeTaskSubject(string(tp.UID), string(tj.Status.Hardware), uid)); err != nil {
+		events.WorkTranscodeTaskSubjectAnyProfile(string(tj.Status.Hardware), uid)); err != nil {
 		return fmt.Errorf("transcodejob: purge task: %w", err)
 	}
 	return nil
@@ -120,10 +126,7 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, tj *transcodev1alpha1.
 	log := logging.FromContext(ctx)
 	key := client.ObjectKeyFromObject(tj)
 
-	// The profile may be gone, or unreadable for some other reason: withdraw
-	// still cancels the lease, and only the purge is skipped.
-	tp, _, _ := r.profile(ctx, tj)
-	werr := r.withdraw(ctx, tj, tp)
+	werr := r.withdraw(ctx, tj)
 	timedOut := r.now().Sub(tj.DeletionTimestamp.Time) > withdrawalTimeout
 	if werr != nil && !timedOut {
 		log.WarnContext(ctx, "transcodejob: withdrawal failed; retrying", "transcodeJob", key.String(), "error", werr)

@@ -445,6 +445,17 @@ func WorkTranscodeTaskSubject(profileUID, class, jobUID string) string {
 	return fmt.Sprintf("clustarr.work.transcode.task.%s.%s.%s", tok(profileUID), tok(class), tok(jobUID))
 }
 
+// WorkTranscodeTaskSubjectAnyProfile is jobUID's task subject with a
+// wildcard in place of the profile token: the job UID alone already
+// identifies the subject uniquely, so withdrawal (ruling R23) does not need
+// to resolve the TranscodeProfile -- which may be gone, or momentarily
+// unreadable -- just to purge a task it dispatched. A caller passes it to
+// PurgeSubject, which every [StreamAdmin] implementation purges as a
+// wildcard, not a literal subject.
+func WorkTranscodeTaskSubjectAnyProfile(class, jobUID string) string {
+	return fmt.Sprintf("clustarr.work.transcode.task.*.%s.%s", tok(class), tok(jobUID))
+}
+
 // WorkTranscodeResultSubject is where a worker publishes a job's status
 // events; squasharr-transcode-results consumes them.
 func WorkTranscodeResultSubject(jobUID string) string {

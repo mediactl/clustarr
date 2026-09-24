@@ -33,6 +33,7 @@ func RunPullContract(t *testing.T, newBus func() events.Bus) {
 	t.Run("PullRedeliversANakedMessage", func(t *testing.T) { testPullRedelivers(t, newBus) })
 	t.Run("InProgressHoldsAPulledMessage", func(t *testing.T) { testPullInProgress(t, newBus) })
 	t.Run("PurgeSubjectRemovesOnlyThatSubject", func(t *testing.T) { testPurgeSubject(t, newBus) })
+	t.Run("PurgeSubjectWildcardMatchesAcrossTheWildcardTokenOnly", func(t *testing.T) { testPurgeSubjectWildcard(t, newBus) })
 	t.Run("DeleteSubscriptionIsIdempotentAndKeepsQueuedWork", func(t *testing.T) { testDeleteSubscription(t, newBus) })
 	t.Run("StreamAdminReportsAMissingStream", func(t *testing.T) { testStreamAdminMissingStream(t, newBus) })
 }
@@ -177,6 +178,54 @@ func testPurgeSubject(t *testing.T, newBus func() events.Bus) {
 		t.Fatalf("got %s after purging gone, want kept", m.Envelope().ID)
 	}
 	nothingWithin(ctx, t, p, 500*time.Millisecond)
+}
+
+// testPurgeSubjectWildcard is ruling R23: withdraw purges a TranscodeJob's
+// task with a wildcard in place of the profile token
+// (events.WorkTranscodeTaskSubjectAnyProfile), since it does not resolve
+// the TranscodeProfile any more. The purge must match every subject that
+// differs only in the wildcarded token -- across profiles here -- and leave
+// a sibling that differs in a token the filter does NOT wildcard (the job
+// here) alone.
+func testPurgeSubjectWildcard(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+	ps, sa := pullBus(t, bus)
+	publishTask(ctx, t, bus, "profA", "job1") // matches: only the profile token differs from the filter
+	publishTask(ctx, t, bus, "profB", "job1") // matches, under an entirely different profile
+	publishTask(ctx, t, bus, "profA", "job2") // sibling: the job token differs -- must survive
+
+	if err := sa.PurgeSubject(ctx, events.StreamWorkSquasharr,
+		events.WorkTranscodeTaskSubjectAnyProfile("cpu", "job1")); err != nil {
+		t.Fatalf("PurgeSubject (wildcard): %v", err)
+	}
+
+	subjects, err := sa.Subjects(ctx, events.StreamWorkSquasharr, "clustarr.work.transcode.task.>")
+	if err != nil {
+		t.Fatalf("Subjects: %v", err)
+	}
+	want := events.WorkTranscodeTaskSubject("profA", "cpu", "job2")
+	if len(subjects) != 1 || subjects[0] != want {
+		t.Fatalf("Subjects after wildcard purge = %v, want only [%s]", subjects, want)
+	}
+
+	// The survivor is still deliverable, not just still named in Subjects.
+	kept, err := ps.Pull(ctx, events.TranscodeTaskConsumer("profA", "cpu").Subscription())
+	if err != nil {
+		t.Fatalf("Pull profA: %v", err)
+	}
+	defer kept.Stop()
+	if m := next(ctx, t, kept, 5*time.Second); m.Envelope().ID != "job2" {
+		t.Fatalf("got %s from profA after wildcard purge, want job2", m.Envelope().ID)
+	}
+	nothingWithin(ctx, t, kept, 500*time.Millisecond)
+
+	// The other profile's matching subject is gone, not merely re-homed.
+	gone, err := ps.Pull(ctx, events.TranscodeTaskConsumer("profB", "cpu").Subscription())
+	if err != nil {
+		t.Fatalf("Pull profB: %v", err)
+	}
+	defer gone.Stop()
+	nothingWithin(ctx, t, gone, 500*time.Millisecond)
 }
 
 func testDeleteSubscription(t *testing.T, newBus func() events.Bus) {
