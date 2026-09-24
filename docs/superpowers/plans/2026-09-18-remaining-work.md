@@ -1559,6 +1559,16 @@ after the gap fixes" started before later waves ticked items off. Design:
 - [ ] Final fix wave: the Plex provider's catalogue index is memoised for `projection.IndexTTL` (5 s) and invalidated on TTL only. The value is a guess sized to a PMS scan burst; tune it against a real PMS scan in Phase H (a shorter TTL shows a catalogue edit sooner, a longer one lists less during a scan), or invalidate on the projection's own tick instead.
 - [ ] Scenario 18's thumb-fetch leg skips by name instead of asserting: `config/e2e` has no egress and no in-cluster fixture serves image bytes (`test/fixtures/tmdbstub` serves JSON only; `pkg/metadata/clients/tmdb` hard-codes `posterBaseURL` to the real CDN). Phase H follow-up: an image-serving fixture (extend `tmdbstub` or add one) plus a TMDB image base-URL override (a flag or a `MetadataProvider` spec field) so the leg can assert a 200 `image/*` response; until then the art round trip is proven only by `ui/art.go`'s membus tests and B2's envtests.
 
+### Deferred by decision: the unified manager topology (2026-09-24)
+
+- [ ] Adopt `docs/superpowers/specs/2026-09-24-unified-manager-design.md`
+      (one `clustarr manager` Deployment hosting every reconciler under one
+      lease and one cache; domain workers `clustarr-catalogarr`,
+      `-importarr`, `-indexarr`, `-captionarr` with their own
+      ServiceAccounts; metadata gateway, ui, engines and pools unchanged)
+      once the system is production ready and battle tested — ADR-0013.
+      Not before Phase H is green. Tasks are listed in the design's §5.
+
 ## Self-review notes
 
 Checked against both specs on 2026-09-18.

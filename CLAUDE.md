@@ -984,7 +984,12 @@ has. Phase H runs them, builds the second deploy path scenario 16's Helm and
 `clustarr all` legs need, extends scenario 1's trace check to all four
 services, and owns the open items left under "Carried defects" in
 `docs/superpowers/plans/2026-09-18-remaining-work.md`. Milestone detail is in
-the spec's §16 and amendment §A4.
+the spec's §16 and amendment §A4. The unified-manager topology (one
+manager Deployment for every reconciler, domain workers with their own
+ServiceAccounts) is designed in
+`docs/superpowers/specs/2026-09-24-unified-manager-design.md` and deferred
+by ADR-0013 until the system is production ready; keep landing controllers
+in their service's Deployment until then.
 
 **Nothing is finished until it is proven end to end on a kind cluster.** Every
 phase from C onward lands its milestone's scenarios in `test/e2e` (real CRs,
