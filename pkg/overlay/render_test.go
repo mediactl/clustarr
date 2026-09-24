@@ -184,15 +184,151 @@ func TestRenderOnASmallPosterDoesNotPanicAndKeepsPosterBounds(t *testing.T) {
 	}()
 	require.NoError(t, err)
 
-	// Render must not resize the poster, and by construction (every draw
-	// call above goes through image/draw, which clips to the destination's
-	// own Bounds()) every pixel it touched is inside got -- there is no
-	// "outside the image" coordinate for a badge pixel to land on. What
-	// this test actually guards is the precondition: a stack of 4 boxes at
-	// the 24px floor plus gaps (96+px) taller than the 90px poster, which
-	// without the recover() above could have driven a coordinate negative
-	// enough to misbehave.
+	// Render must not resize the poster. This alone does not prove the
+	// badge's pixels landed inside it, though: image/draw clips every draw
+	// call above to got's own Bounds(), so a pixel walk over got can never
+	// find an "outside the image" pixel by construction -- that would be
+	// true even if layoutBoxes had a sign error that pointed every badge at
+	// the wrong poster edge entirely. TestRenderOnASmallPosterBadgeBoxesStayInBounds
+	// and TestRenderOnASmallPosterPixelsNeverLeaveThePosterRectangle below
+	// are the assertions that can actually fail on a geometry regression;
+	// this one is the narrower "did not panic" guard the recover() exists
+	// for -- a stack of 4 boxes at the 24px floor plus gaps (96+px) is
+	// taller than the 90px poster, which without the recover() above could
+	// have driven a coordinate negative enough to misbehave.
 	require.Equal(t, base.Bounds(), got.Bounds())
+}
+
+// TestRenderOnASmallPosterBadgeBoxesStayInBounds is C2 review round 1's
+// fix: the finding was that a pixel walk on Render's *output* cannot fail by
+// construction (image/draw clips to the destination it is given), so it is
+// not a meaningful proof that the geometry is correct. This asserts against
+// layoutBoxes directly -- the function that decides where each badge goes,
+// before any clipping happens -- which a sign error, a swapped axis, or a
+// wrong flush edge would actually move, and so would actually fail this
+// test.
+func TestRenderOnASmallPosterBadgeBoxesStayInBounds(t *testing.T) {
+	bounds := image.Rect(0, 0, 60, 90)
+	tmpl := DefaultTemplate()
+
+	// The one-badge case is the task brief's literal wording ("a 60x90
+	// poster renders ... the badge stays within bounds", singular): one
+	// badge always fits fully inside the poster. It is flush against the
+	// anchored corner by construction, and its box (boxW == boxH ==
+	// minBoxPx here, since 60*14/100 == 8 < minBoxPx) is smaller than both
+	// poster dimensions.
+	one := layoutBoxes(bounds, 1, tmpl)
+	require.Len(t, one, 1)
+	require.Truef(t, one[0].In(bounds), "the single badge's box %v must be fully inside the poster bounds %v", one[0], bounds)
+	require.GreaterOrEqual(t, one[0].Dx(), minBoxPx)
+	require.GreaterOrEqual(t, one[0].Dy(), minBoxPx)
+
+	// The four-badge case is what TestRenderOnASmallPosterDoesNotPanicAndKeepsPosterBounds
+	// and TestRenderOnASmallPosterPixelsNeverLeaveThePosterRectangle drive
+	// through Render/drawBadge. Every box is still at least minBoxPx in
+	// both dimensions -- the floor in layoutBoxes clamps width
+	// unconditionally, and height equals width (boxH := boxW; see
+	// overlay.go's "square badge" design decision) -- and the box nearest
+	// the anchor corner (index 0) is always fully contained, for the same
+	// reason the single-badge case is.
+	four := layoutBoxes(bounds, 4, tmpl)
+	require.Len(t, four, 4)
+	for i, b := range four {
+		require.GreaterOrEqualf(t, b.Dx(), minBoxPx, "badge %d width", i)
+		require.GreaterOrEqualf(t, b.Dy(), minBoxPx, "badge %d height", i)
+	}
+	require.Truef(t, four[0].In(bounds), "the badge nearest the anchor corner, %v, must be fully inside the poster bounds %v", four[0], bounds)
+
+	// In(bounds) alone would still pass a badge stacked in the wrong
+	// direction (up instead of down, say) as long as it happened to land
+	// somewhere inside the poster -- it says nothing about which edge the
+	// anchor badge is flush against. DefaultTemplate's corner is
+	// bottomRight, so badge 0's box must be flush with the poster's bottom
+	// and right edges exactly (spec §C.5: "outer corner square and flush
+	// with the poster edge").
+	require.Equal(t, bounds.Max.Y, four[0].Max.Y, "badge 0 must be flush with the poster's bottom edge")
+	require.Equal(t, bounds.Max.X, four[0].Max.X, "badge 0 must be flush with the poster's right edge")
+
+	// And each later badge must step strictly away from that edge (toward
+	// smaller Y, for the bottomRight corner) by exactly boxH+gap -- not by
+	// some other amount, and not in the opposite direction.
+	boxH := four[0].Dy()
+	gap := scalePct(bounds.Dx(), tmpl.PaddingPct)
+	for i := 1; i < len(four); i++ {
+		wantY := four[0].Min.Y - i*(boxH+gap)
+		require.Equalf(t, wantY, four[i].Min.Y, "badge %d should be exactly %d px above badge 0", i, i*(boxH+gap))
+	}
+
+	// four[3] (the topmost, farthest from the anchor corner) is
+	// deliberately not asserted to be fully inside bounds: 4 badges at the
+	// 24px floor already sum to 4*24 = 96px of stack height, before any
+	// gap is even added, against a 90px-tall poster. No choice of padding
+	// removes that 6px deficit -- it is a real tension between three of
+	// this task's own mandatory constants (Review Focus 4's 24px box
+	// floor, OverlayProfileSpec.Badges' 4-badge MaxItems, and this test's
+	// mandated 60x90 size), not a defect in layoutBoxes. Render's clipping
+	// (TestRenderOnASmallPosterDoesNotPanicAndKeepsPosterBounds and
+	// TestRenderOnASmallPosterPixelsNeverLeaveThePosterRectangle) is what
+	// makes drawing it safe; geometry containment cannot, for this exact
+	// combination of inputs. Logged, not asserted either way, so a future
+	// change to the geometry that happens to make it fit is not a failure.
+	t.Logf("badge 3 (topmost) box = %v, In(bounds)=%v -- 4*minBoxPx=%d alone exceeds the %d poster px available",
+		four[3], four[3].In(bounds), 4*minBoxPx, bounds.Dy())
+}
+
+// TestRenderOnASmallPosterPixelsNeverLeaveThePosterRectangle is C2 review
+// round 1's fix, part (b): it draws through drawBadge -- the same function
+// Render calls per badge -- onto a canvas twice the poster's size in each
+// direction, with the poster positioned at an offset inside it, rather than
+// onto a canvas exactly the poster's own size. Because the writable canvas
+// is now strictly larger than the poster rectangle, a pixel walk over the
+// area outside the poster rectangle but inside the canvas *can* fail: it is
+// no longer protected by image/draw clipping to "the destination", since
+// the destination here deliberately extends beyond the poster. This is the
+// closest this package gets to X-raying drawBadge's actual pixel output
+// against the rectangle it is contractually confined to.
+func TestRenderOnASmallPosterPixelsNeverLeaveThePosterRectangle(t *testing.T) {
+	const posterW, posterH = 60, 90
+	const marginX, marginY = posterW / 2, posterH / 2 // canvas is 2x the poster in each direction
+	posterBounds := image.Rect(marginX, marginY, marginX+posterW, marginY+posterH)
+	canvasBounds := image.Rect(0, 0, marginX*2+posterW, marginY*2+posterH)
+
+	// A color drawBadge's fill (#1F1F1F), the white score text and every
+	// embedded logo's palette cannot plausibly produce, so any sighting of
+	// it after drawing means that pixel was never touched.
+	sentinel := color.NRGBA{R: 0xFF, G: 0x00, B: 0xFF, A: 0xFF}
+	canvas := image.NewNRGBA(canvasBounds)
+	for y := canvasBounds.Min.Y; y < canvasBounds.Max.Y; y++ {
+		for x := canvasBounds.Min.X; x < canvasBounds.Max.X; x++ {
+			canvas.SetNRGBA(x, y, sentinel)
+		}
+	}
+
+	tmpl := DefaultTemplate()
+	box := layoutBoxes(posterBounds, 1, tmpl)[0] // 1 badge: TestRenderOnASmallPosterBadgeBoxesStayInBounds proves this box is fully inside posterBounds
+	require.Truef(t, box.In(posterBounds), "precondition: the badge box %v must be inside the poster rectangle %v for this test to prove anything", box, posterBounds)
+
+	paddingPx := scalePct(posterW, tmpl.PaddingPct)
+	radiusPx := scalePct(posterW, tmpl.RadiusPct)
+	badge := testBadge(t, SourceMetacritic, 7600)
+	require.NoError(t, drawBadge(canvas, box, paddingPx, radiusPx, badge, tmpl))
+
+	var touchedOutside int
+	for y := canvasBounds.Min.Y; y < canvasBounds.Max.Y; y++ {
+		for x := canvasBounds.Min.X; x < canvasBounds.Max.X; x++ {
+			p := image.Point{X: x, Y: y}
+			if p.In(posterBounds) {
+				continue // drawBadge is expected (and, per the badge box, required) to change pixels in here
+			}
+			if got := canvas.NRGBAAt(x, y); got != sentinel {
+				touchedOutside++
+				if touchedOutside <= 5 {
+					t.Logf("pixel (%d,%d), outside poster rectangle %v, changed to %+v", x, y, posterBounds, got)
+				}
+			}
+		}
+	}
+	require.Zerof(t, touchedOutside, "%d pixels outside the poster rectangle %v were modified by drawBadge", touchedOutside, posterBounds)
 }
 
 // --- Badge edge cases --------------------------------------------------------
