@@ -53,6 +53,11 @@ func EnsureTopology(ctx context.Context, js jetstream.JetStream, t Topology) err
 			return fmt.Errorf("events: ensure bucket %s: %w", b.Name, err)
 		}
 	}
+	for _, o := range t.ObjectStores {
+		if _, err := js.CreateOrUpdateObjectStore(ctx, ObjectStoreConfig(o)); err != nil {
+			return fmt.Errorf("events: ensure object store %s: %w", o.Name, err)
+		}
+	}
 	return nil
 }
 
@@ -137,6 +142,18 @@ func KeyValueConfig(b BucketSpec) jetstream.KeyValueConfig {
 		Storage:        natsStorage(b.Storage),
 		Replicas:       max(b.Replicas, 1),
 		LimitMarkerTTL: b.LimitMarkerTTL,
+	}
+}
+
+// ObjectStoreConfig renders an ObjectStoreSpec as a JetStream object-store
+// configuration, spec §B.1.
+func ObjectStoreConfig(o ObjectStoreSpec) jetstream.ObjectStoreConfig {
+	return jetstream.ObjectStoreConfig{
+		Bucket:      o.Name,
+		Description: o.Description,
+		Storage:     natsStorage(o.Storage),
+		MaxBytes:    o.MaxBytes,
+		Replicas:    max(o.Replicas, 1),
 	}
 }
 

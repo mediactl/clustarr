@@ -70,12 +70,13 @@ type Bus struct {
 	clock clockwork.Clock
 	opts  options
 
-	mu         sync.Mutex
-	closed     bool
-	topology   events.Topology
-	streams    map[string]*stream
-	buckets    map[string]*bucket
-	responders map[string][]*responder
+	mu           sync.Mutex
+	closed       bool
+	topology     events.Topology
+	streams      map[string]*stream
+	buckets      map[string]*bucket
+	objectStores map[string]*objectBucket
+	responders   map[string][]*responder
 
 	stopOnce sync.Once
 	done     chan struct{}
@@ -99,12 +100,13 @@ func New(clock clockwork.Clock, opts ...Option) *Bus {
 		fn(&o)
 	}
 	return &Bus{
-		clock:      clock,
-		opts:       o,
-		streams:    map[string]*stream{},
-		buckets:    map[string]*bucket{},
-		responders: map[string][]*responder{},
-		done:       make(chan struct{}),
+		clock:        clock,
+		opts:         o,
+		streams:      map[string]*stream{},
+		buckets:      map[string]*bucket{},
+		objectStores: map[string]*objectBucket{},
+		responders:   map[string][]*responder{},
+		done:         make(chan struct{}),
 	}
 }
 
@@ -142,6 +144,15 @@ func (b *Bus) Ensure(_ context.Context, t events.Topology) error {
 			continue
 		}
 		b.buckets[spec.Name] = &bucket{spec: spec, vals: map[string]*kvValue{}}
+	}
+	for _, spec := range t.ObjectStores {
+		if existing, ok := b.objectStores[spec.Name]; ok {
+			existing.mu.Lock()
+			existing.spec = spec
+			existing.mu.Unlock()
+			continue
+		}
+		b.objectStores[spec.Name] = &objectBucket{spec: spec, objects: map[string]*memObject{}}
 	}
 	b.topology = t
 	return nil
@@ -223,6 +234,19 @@ func (b *Bus) KV(name string) events.KV {
 		return &kvHandle{bus: b, bucket: bk}
 	}
 	return &kvHandle{bus: b, name: name}
+}
+
+// ObjectStore binds to a bucket created by Ensure. An unknown bucket yields
+// an ObjectStore whose every method returns ErrBucketNotFound, matching KV
+// and matching natsbus, which cannot discover the bucket is missing until
+// the first call either.
+func (b *Bus) ObjectStore(name string) events.ObjectStore {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if bk, ok := b.objectStores[name]; ok {
+		return &objectHandle{bus: b, bucket: bk, name: name}
+	}
+	return &objectHandle{bus: b, name: name}
 }
 
 // Subscribe starts a durable consumer over an in-memory stream.

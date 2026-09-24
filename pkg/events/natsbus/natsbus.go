@@ -93,12 +93,13 @@ type Bus struct {
 	js   jetstream.JetStream
 	opts options
 
-	mu         sync.Mutex
-	closed     bool
-	topology   events.Topology
-	buckets    map[string]jetstream.KeyValue
-	responders []*nats.Subscription
-	subs       []*subscription
+	mu           sync.Mutex
+	closed       bool
+	topology     events.Topology
+	buckets      map[string]jetstream.KeyValue
+	objectStores map[string]jetstream.ObjectStore
+	responders   []*nats.Subscription
+	subs         []*subscription
 }
 
 var _ events.Bus = (*Bus)(nil)
@@ -129,10 +130,11 @@ func New(nc *nats.Conn, opts ...Option) (*Bus, error) {
 		return nil, fmt.Errorf("natsbus: open jetstream: %w", err)
 	}
 	return &Bus{
-		nc:      nc,
-		js:      js,
-		opts:    o,
-		buckets: map[string]jetstream.KeyValue{},
+		nc:           nc,
+		js:           js,
+		opts:         o,
+		buckets:      map[string]jetstream.KeyValue{},
+		objectStores: map[string]jetstream.ObjectStore{},
 	}, nil
 }
 

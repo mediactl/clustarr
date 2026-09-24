@@ -25,10 +25,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package contracttest
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"testing"
 	"time"
@@ -88,6 +92,13 @@ func RunBusContract(t *testing.T, newBus func() events.Bus) {
 	t.Run("KeyValueDeleteRevision", func(t *testing.T) { testKVDeleteRevision(t, newBus) })
 	t.Run("KeyValueTTL", func(t *testing.T) { testKVTTL(t, newBus) })
 	t.Run("KeyValueWatch", func(t *testing.T) { testKVWatch(t, newBus) })
+	t.Run("ObjectStorePutGetRoundTrip", func(t *testing.T) { testObjectStorePutGet(t, newBus) })
+	t.Run("ObjectStoreOverwriteChangesDigestAndModTime", func(t *testing.T) {
+		testObjectStoreOverwrite(t, newBus)
+	})
+	t.Run("ObjectStoreInfoMissing", func(t *testing.T) { testObjectStoreInfoMissing(t, newBus) })
+	t.Run("ObjectStoreDeleteThenGet", func(t *testing.T) { testObjectStoreDeleteThenGet(t, newBus) })
+	t.Run("ObjectStoreListByPrefix", func(t *testing.T) { testObjectStoreListByPrefix(t, newBus) })
 	t.Run("RequestReply", func(t *testing.T) { testRequestReply(t, newBus) })
 	t.Run("UnknownSubject", func(t *testing.T) { testUnknownSubject(t, newBus) })
 }
@@ -1291,6 +1302,201 @@ func testKVWatch(t *testing.T, newBus func() events.Bus) {
 			return
 		case <-deadline:
 			t.Fatal("timed out waiting for a watch update")
+		}
+	}
+}
+
+// testObjectStorePutGet proves a Put/Get round trip preserves the exact
+// bytes and headers, and that Digest is the hex SHA-256 of the content spec
+// §B.1 documents, not an opaque bus-specific form.
+func testObjectStorePutGet(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+	store := bus.ObjectStore(events.BucketArtwork)
+
+	content := []byte("poster bytes for movie/uid-1")
+	sum := sha256.Sum256(content)
+	wantDigest := hex.EncodeToString(sum[:])
+	headers := map[string]string{
+		"Content-Type":    "image/jpeg",
+		"Clustarr-Source": "provider",
+	}
+
+	info, err := store.Put(ctx, "movie/uid-1/poster/original", bytes.NewReader(content), headers)
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if len(info.Digest) != 64 {
+		t.Errorf("Put Digest %q is %d chars, want 64 hex chars", info.Digest, len(info.Digest))
+	}
+	if info.Digest != wantDigest {
+		t.Errorf("Put Digest = %q, want %q", info.Digest, wantDigest)
+	}
+	if info.Size != int64(len(content)) {
+		t.Errorf("Put Size = %d, want %d", info.Size, len(content))
+	}
+
+	gotInfo, rc, err := store.Get(ctx, "movie/uid-1/poster/original")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	defer func() { _ = rc.Close() }()
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("read Get content: %v", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("Get content = %q, want %q", got, content)
+	}
+	if gotInfo.Digest != wantDigest {
+		t.Errorf("Get Digest = %q, want %q", gotInfo.Digest, wantDigest)
+	}
+	for k, v := range headers {
+		if gotInfo.Headers[k] != v {
+			t.Errorf("Get Headers[%q] = %q, want %q", k, gotInfo.Headers[k], v)
+		}
+	}
+}
+
+// testObjectStoreOverwrite proves a second Put to the same name changes both
+// the digest and ModTime, so a caller can detect a changed source without
+// comparing bytes (spec §B.4's "source URL differs" check reads
+// status.artwork, not the object, but the reaper and any future diffing
+// depend on ModTime and Digest actually moving on a real overwrite).
+func testObjectStoreOverwrite(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+	store := bus.ObjectStore(events.BucketArtwork)
+	name := "movie/uid-2/poster/original"
+
+	first, err := store.Put(ctx, name, bytes.NewReader([]byte("v1")), nil)
+	if err != nil {
+		t.Fatalf("first Put: %v", err)
+	}
+	// A real clock's resolution is fine-grained enough that two sequential
+	// calls virtually never tie, but this removes any doubt rather than
+	// leaving the assertion to chance.
+	time.Sleep(2 * time.Millisecond)
+	second, err := store.Put(ctx, name, bytes.NewReader([]byte("v2, a longer body")), nil)
+	if err != nil {
+		t.Fatalf("second Put: %v", err)
+	}
+
+	if second.Digest == first.Digest {
+		t.Errorf("Digest did not change across overwrite: %q", second.Digest)
+	}
+	if !second.ModTime.After(first.ModTime) {
+		t.Errorf("ModTime did not advance across overwrite: first=%v second=%v",
+			first.ModTime, second.ModTime)
+	}
+
+	info, err := store.Info(ctx, name)
+	if err != nil {
+		t.Fatalf("Info: %v", err)
+	}
+	if info.Digest != second.Digest {
+		t.Errorf("Info Digest = %q after overwrite, want %q", info.Digest, second.Digest)
+	}
+	// Info's ModTime need not be bit-identical to what the second Put
+	// returned: on a real server, jetstream.ObjectStore.Put stamps its
+	// returned ObjectInfo with a client-side time.Now() taken before the
+	// object is durably written (nats.go's object.go says so verbatim --
+	// "This time is not actually the correct time"), while a later Info
+	// reads the persisted meta message's own server-side timestamp; the two
+	// were observed a few dozen microseconds apart. What the contract
+	// promises is that Info moves forward with the overwrite, not that it
+	// echoes Put's estimate.
+	if !info.ModTime.After(first.ModTime) {
+		t.Errorf("Info ModTime = %v did not advance past the pre-overwrite value %v",
+			info.ModTime, first.ModTime)
+	}
+}
+
+// testObjectStoreInfoMissing proves Info and Get on an object that was never
+// written both fail ErrObjectNotFound rather than returning a zero value.
+func testObjectStoreInfoMissing(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+	store := bus.ObjectStore(events.BucketArtwork)
+	name := "movie/uid-does-not-exist/poster/original"
+
+	if _, err := store.Info(ctx, name); !errors.Is(err, events.ErrObjectNotFound) {
+		t.Fatalf("Info on a missing object error = %v, want ErrObjectNotFound", err)
+	}
+	if _, _, err := store.Get(ctx, name); !errors.Is(err, events.ErrObjectNotFound) {
+		t.Fatalf("Get on a missing object error = %v, want ErrObjectNotFound", err)
+	}
+}
+
+// testObjectStoreDeleteThenGet proves a deleted object is gone from both Get
+// and Info, and that deleting an object that was never written at all is
+// ErrObjectNotFound, not a silent no-op.
+//
+// A second Delete of the SAME now-deleted object is deliberately not
+// asserted here: on a real server jetstream.ObjectStore.Delete treats an
+// already-deleted object (a soft-delete tombstone still on record) as
+// idempotent and returns nil, reserving ErrObjectNotFound for a name that
+// was never Put at all -- verified against the embedded server, not assumed.
+// membus has no tombstone and returns ErrObjectNotFound for both cases; the
+// two buses agree on every case this suite actually asserts.
+func testObjectStoreDeleteThenGet(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+	store := bus.ObjectStore(events.BucketArtwork)
+	name := "movie/uid-3/poster/original"
+	neverWritten := "movie/uid-3/poster/never-written"
+
+	if _, err := store.Put(ctx, name, bytes.NewReader([]byte("v1")), nil); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if err := store.Delete(ctx, name); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, _, err := store.Get(ctx, name); !errors.Is(err, events.ErrObjectNotFound) {
+		t.Fatalf("Get after Delete error = %v, want ErrObjectNotFound", err)
+	}
+	if _, err := store.Info(ctx, name); !errors.Is(err, events.ErrObjectNotFound) {
+		t.Fatalf("Info after Delete error = %v, want ErrObjectNotFound", err)
+	}
+	if err := store.Delete(ctx, neverWritten); !errors.Is(err, events.ErrObjectNotFound) {
+		t.Fatalf("Delete of a name never written error = %v, want ErrObjectNotFound", err)
+	}
+}
+
+// testObjectStoreListByPrefix proves List("movie/") returns only objects
+// under that prefix, in name order, leaving siblings under other prefixes
+// out -- the property the reaper (spec §B.5) depends on to walk one kind at
+// a time.
+func testObjectStoreListByPrefix(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+	store := bus.ObjectStore(events.BucketArtwork)
+
+	put := func(name string) {
+		t.Helper()
+		if _, err := store.Put(ctx, name, bytes.NewReader([]byte(name)), nil); err != nil {
+			t.Fatalf("Put %s: %v", name, err)
+		}
+	}
+	put("movie/uid-5/poster/original")
+	put("movie/uid-5/fanart/original")
+	put("movie/uid-6/poster/original")
+	put("series/uid-7/poster/original")
+
+	got, err := store.List(ctx, "movie/")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	want := []string{
+		"movie/uid-5/fanart/original",
+		"movie/uid-5/poster/original",
+		"movie/uid-6/poster/original",
+	}
+	if len(got) != len(want) {
+		names := make([]string, len(got))
+		for i, info := range got {
+			names[i] = info.Name
+		}
+		t.Fatalf("List(%q) = %v, want %v", "movie/", names, want)
+	}
+	for i, w := range want {
+		if got[i].Name != w {
+			t.Errorf("List(%q)[%d] = %q, want %q", "movie/", i, got[i].Name, w)
 		}
 	}
 }

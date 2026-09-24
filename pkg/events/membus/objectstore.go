@@ -18,48 +18,185 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package membus
 
 import (
+	"bytes"
 	"context"
-	"errors"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"io"
+	"sort"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/mediactl/clustarr/pkg/events"
 )
 
-// errObjectStoreNotImplemented is what every notImplementedObjectStore
-// method returns. Task B1 replaces this stub with a real in-memory object
-// store; task W0-3 only needs membus to keep satisfying the extended
-// events.Bus interface.
-var errObjectStoreNotImplemented = errors.New("object store: not implemented until B1")
-
-// ObjectStore returns bucket's object store. Every method of the result
-// fails with errObjectStoreNotImplemented until task B1 lands membus's real
-// implementation.
-func (b *Bus) ObjectStore(bucket string) events.ObjectStore {
-	return notImplementedObjectStore{}
+// memObject is one stored object, spec §B.1.
+type memObject struct {
+	data    []byte
+	digest  string
+	headers map[string]string
+	modTime time.Time
 }
 
-// notImplementedObjectStore satisfies events.ObjectStore so membus compiles
-// against the Bus interface task W0-3 added. See errObjectStoreNotImplemented.
-type notImplementedObjectStore struct{}
-
-var _ events.ObjectStore = notImplementedObjectStore{}
-
-func (notImplementedObjectStore) Get(context.Context, string) (events.ObjectInfo, io.ReadCloser, error) {
-	return events.ObjectInfo{}, nil, errObjectStoreNotImplemented
+// objectBucket is one in-memory object-store bucket.
+type objectBucket struct {
+	mu      sync.Mutex
+	spec    events.ObjectStoreSpec
+	objects map[string]*memObject
 }
 
-func (notImplementedObjectStore) Put(context.Context, string, io.Reader, map[string]string) (events.ObjectInfo, error) {
-	return events.ObjectInfo{}, errObjectStoreNotImplemented
+// objectHandle is the events.ObjectStore view of one bucket. A handle for a
+// bucket that Ensure never created carries a nil bucket and fails every call
+// with ErrBucketNotFound, matching kvHandle.
+type objectHandle struct {
+	bus    *Bus
+	bucket *objectBucket
+	name   string
 }
 
-func (notImplementedObjectStore) Delete(context.Context, string) error {
-	return errObjectStoreNotImplemented
+var _ events.ObjectStore = (*objectHandle)(nil)
+
+func (o *objectHandle) resolve() (*objectBucket, error) {
+	if o.bucket == nil {
+		return nil, fmt.Errorf("membus: object store %q: %w", o.name, events.ErrBucketNotFound)
+	}
+	if o.bus.isClosed() {
+		return nil, events.ErrClosed
+	}
+	return o.bucket, nil
 }
 
-func (notImplementedObjectStore) Info(context.Context, string) (events.ObjectInfo, error) {
-	return events.ObjectInfo{}, errObjectStoreNotImplemented
+// infoOf renders obj as the events.ObjectInfo view. The caller holds the
+// bucket's mutex.
+func infoOf(name string, obj *memObject) events.ObjectInfo {
+	return events.ObjectInfo{
+		Name:    name,
+		Size:    int64(len(obj.data)),
+		Digest:  obj.digest,
+		ModTime: obj.modTime,
+		Headers: cloneHeaders(obj.headers),
+	}
 }
 
-func (notImplementedObjectStore) List(context.Context, string) ([]events.ObjectInfo, error) {
-	return nil, errObjectStoreNotImplemented
+func cloneHeaders(h map[string]string) map[string]string {
+	if len(h) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(h))
+	for k, v := range h {
+		out[k] = v
+	}
+	return out
+}
+
+// Get returns name's current info and its content. A missing object is
+// ErrObjectNotFound.
+func (o *objectHandle) Get(ctx context.Context, name string) (events.ObjectInfo, io.ReadCloser, error) {
+	if err := ctx.Err(); err != nil {
+		return events.ObjectInfo{}, nil, err
+	}
+	b, err := o.resolve()
+	if err != nil {
+		return events.ObjectInfo{}, nil, err
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	obj, ok := b.objects[name]
+	if !ok {
+		return events.ObjectInfo{}, nil, fmt.Errorf("membus: get %s/%s: %w", o.name, name, events.ErrObjectNotFound)
+	}
+	data := append([]byte(nil), obj.data...)
+	return infoOf(name, obj), io.NopCloser(bytes.NewReader(data)), nil
+}
+
+// Put writes name unconditionally, computing the hex SHA-256 digest of the
+// content read from r.
+func (o *objectHandle) Put(ctx context.Context, name string, r io.Reader,
+	headers map[string]string,
+) (events.ObjectInfo, error) {
+	if err := ctx.Err(); err != nil {
+		return events.ObjectInfo{}, err
+	}
+	b, err := o.resolve()
+	if err != nil {
+		return events.ObjectInfo{}, err
+	}
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return events.ObjectInfo{}, fmt.Errorf("membus: put %s/%s: %w", o.name, name, err)
+	}
+	sum := sha256.Sum256(data)
+	obj := &memObject{
+		data:    data,
+		digest:  hex.EncodeToString(sum[:]),
+		headers: cloneHeaders(headers),
+		modTime: o.bus.clock.Now(),
+	}
+	b.mu.Lock()
+	b.objects[name] = obj
+	b.mu.Unlock()
+	return infoOf(name, obj), nil
+}
+
+// Delete removes name. Unlike KV's Delete, deleting an absent object is
+// ErrObjectNotFound, matching jetstream.ObjectStore.Delete.
+func (o *objectHandle) Delete(ctx context.Context, name string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	b, err := o.resolve()
+	if err != nil {
+		return err
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if _, ok := b.objects[name]; !ok {
+		return fmt.Errorf("membus: delete %s/%s: %w", o.name, name, events.ErrObjectNotFound)
+	}
+	delete(b.objects, name)
+	return nil
+}
+
+// Info returns name's current metadata without its content. A missing
+// object is ErrObjectNotFound.
+func (o *objectHandle) Info(ctx context.Context, name string) (events.ObjectInfo, error) {
+	if err := ctx.Err(); err != nil {
+		return events.ObjectInfo{}, err
+	}
+	b, err := o.resolve()
+	if err != nil {
+		return events.ObjectInfo{}, err
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	obj, ok := b.objects[name]
+	if !ok {
+		return events.ObjectInfo{}, fmt.Errorf("membus: info %s/%s: %w", o.name, name, events.ErrObjectNotFound)
+	}
+	return infoOf(name, obj), nil
+}
+
+// List returns the info of every object whose name starts with prefix,
+// sorted by name.
+func (o *objectHandle) List(ctx context.Context, prefix string) ([]events.ObjectInfo, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	b, err := o.resolve()
+	if err != nil {
+		return nil, err
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out := make([]events.ObjectInfo, 0, len(b.objects))
+	for name, obj := range b.objects {
+		if !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		out = append(out, infoOf(name, obj))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
 }
