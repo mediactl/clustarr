@@ -189,7 +189,7 @@ func TestEnrichRatingsHigherPriorityWins(t *testing.T) {
 		},
 	}}
 
-	got := enrichRatings(context.Background(), reg, commonv1.MediaKindMovie, pkgmetadata.ExternalIDs{"tmdb": "603"}, nil)
+	got := enrichRatings(context.Background(), reg, commonv1.MediaKindMovie, pkgmetadata.ExternalIDs{"tmdb": "603"}, nil, nil)
 
 	require.Equal(t, 1, firstCalls)
 	require.Equal(t, 1, secondCalls, "second is still called for trakt, which only it declares")
@@ -212,7 +212,7 @@ func TestEnrichRatingsFailingProviderBlanksNothing(t *testing.T) {
 		stubRatingsProvider{name: "down", declared: []string{"trakt"}, calls: &failCalls, err: errors.New("mdblist: unexpected status 502")},
 	}}
 
-	got := enrichRatings(context.Background(), reg, commonv1.MediaKindMovie, pkgmetadata.ExternalIDs{"tmdb": "603"}, nil)
+	got := enrichRatings(context.Background(), reg, commonv1.MediaKindMovie, pkgmetadata.ExternalIDs{"tmdb": "603"}, nil, nil)
 
 	require.Equal(t, 1, failCalls)
 	byS := ratingsBySource(got)
@@ -239,7 +239,7 @@ func TestEnrichRatingsNeverAsksAProviderForASourceItDoesNotDeclare(t *testing.T)
 		},
 	}}
 
-	enrichRatings(context.Background(), reg, commonv1.MediaKindMovie, pkgmetadata.ExternalIDs{"tmdb": "603"}, nil)
+	enrichRatings(context.Background(), reg, commonv1.MediaKindMovie, pkgmetadata.ExternalIDs{"tmdb": "603"}, nil, nil)
 
 	require.Equal(t, 0, neverCalls, "everything redundant declares was already filled by first; it must never be asked")
 }
@@ -257,7 +257,7 @@ func TestEnrichRatingsCarriesForwardOnTotalFailure(t *testing.T) {
 		{Source: catalogv1alpha1.RatingSourceTMDB, ValueCentis: 810, Votes: 500},
 	}
 
-	got := enrichRatings(context.Background(), reg, commonv1.MediaKindMovie, pkgmetadata.ExternalIDs{"tmdb": "603"}, prior)
+	got := enrichRatings(context.Background(), reg, commonv1.MediaKindMovie, pkgmetadata.ExternalIDs{"tmdb": "603"}, nil, prior)
 
 	require.ElementsMatch(t, prior, got)
 }
@@ -273,7 +273,7 @@ func TestEnrichRatingsOmitsAZeroValueWithZeroVotes(t *testing.T) {
 		},
 	}}
 
-	got := enrichRatings(context.Background(), reg, commonv1.MediaKindMovie, pkgmetadata.ExternalIDs{"tmdb": "603"}, nil)
+	got := enrichRatings(context.Background(), reg, commonv1.MediaKindMovie, pkgmetadata.ExternalIDs{"tmdb": "603"}, nil, nil)
 
 	require.Empty(t, got, "a zero value with zero votes must be omitted, not sent as an empty rating")
 }
@@ -283,8 +283,79 @@ func TestEnrichRatingsOmitsAZeroValueWithZeroVotes(t *testing.T) {
 // empty Registry.Ratings is a no-op over prior.
 func TestEnrichRatingsWithNoRegisteredProvidersReturnsPriorUnchanged(t *testing.T) {
 	prior := []catalogv1alpha1.Rating{{Source: catalogv1alpha1.RatingSourceIMDb, ValueCentis: 833, Votes: 900}}
-	got := enrichRatings(context.Background(), &pkgmetadata.Registry{}, commonv1.MediaKindMovie, pkgmetadata.ExternalIDs{"tmdb": "603"}, prior)
+	got := enrichRatings(context.Background(), &pkgmetadata.Registry{}, commonv1.MediaKindMovie, pkgmetadata.ExternalIDs{"tmdb": "603"}, nil, prior)
 	require.Equal(t, prior, got)
+}
+
+// TestEnrichRatingsNeverCallsAProviderForASourceTheSeedAlreadyFilled is fix
+// round 1's regression guard: seed (the document's own Ratings, from the
+// primary fetch that already ran) fills "tmdb" for free, so a provider
+// declaring only "tmdb" -- exactly tmdb.Client's own shape -- must never be
+// called at all. Before this fix, enrichRatings always found "tmdb"
+// unfilled and called the provider regardless of seed, doubling TMDB
+// traffic on every refresh (fresh fetch or cache hit) despite the document
+// already carrying the answer.
+func TestEnrichRatingsNeverCallsAProviderForASourceTheSeedAlreadyFilled(t *testing.T) {
+	var calls int
+	reg := &pkgmetadata.Registry{Ratings: []pkgmetadata.RatingsProvider{
+		stubRatingsProvider{
+			name: "tmdb", declared: []string{"tmdb"}, calls: &calls,
+			ratings: pkgmetadata.Ratings{"tmdb": {Source: "tmdb", ValueCentis: 100, Votes: 1}},
+		},
+	}}
+	seed := pkgmetadata.Ratings{"tmdb": {Source: "tmdb", ValueCentis: 837, Votes: 36892}}
+
+	got := enrichRatings(context.Background(), reg, commonv1.MediaKindMovie, pkgmetadata.ExternalIDs{"tmdb": "27205"}, seed, nil)
+
+	require.Equal(t, 0, calls, "the seed already answered \"tmdb\"; the provider must never be asked")
+	byS := ratingsBySource(got)
+	require.Equal(t, int32(837), byS[catalogv1alpha1.RatingSourceTMDB].ValueCentis, "seed's value, not the provider's -- the provider was never even called")
+}
+
+// TestEnrichRatingsSeedStillLeavesRoomForASourceItDidNotCover proves seed
+// only pre-fills what it actually carries: a provider declaring a source
+// seed lacks is still called for that source, and its own declared source
+// seed already covered is excluded from need.
+func TestEnrichRatingsSeedStillLeavesRoomForASourceItDidNotCover(t *testing.T) {
+	var calls int
+	reg := &pkgmetadata.Registry{Ratings: []pkgmetadata.RatingsProvider{
+		stubRatingsProvider{
+			name: "mdblist-stub", declared: []string{"tmdb", "imdb"}, calls: &calls,
+			ratings: pkgmetadata.Ratings{
+				"tmdb": {Source: "tmdb", ValueCentis: 100, Votes: 1}, // must be ignored: seed already has tmdb
+				"imdb": {Source: "imdb", ValueCentis: 833, Votes: 900},
+			},
+		},
+	}}
+	seed := pkgmetadata.Ratings{"tmdb": {Source: "tmdb", ValueCentis: 837, Votes: 36892}}
+
+	got := enrichRatings(context.Background(), reg, commonv1.MediaKindMovie, pkgmetadata.ExternalIDs{"tmdb": "27205"}, seed, nil)
+
+	require.Equal(t, 1, calls, "the provider is still called -- it declares imdb, which seed does not cover")
+	byS := ratingsBySource(got)
+	require.Equal(t, int32(837), byS[catalogv1alpha1.RatingSourceTMDB].ValueCentis, "seed's tmdb value is never overwritten by the provider's result")
+	require.Equal(t, int32(833), byS[catalogv1alpha1.RatingSourceIMDb].ValueCentis, "the provider still fills the source seed did not cover")
+}
+
+// TestEnrichRatingsSeedZeroValueIsOmittedLikeAProviderResults is Review
+// Focus 5 applied to seed too: a zero-value, zero-vote entry in the
+// document's own Ratings map is "nothing to report", not a real zero, and
+// must not block a registered provider from being asked for that source.
+func TestEnrichRatingsSeedZeroValueIsOmittedLikeAProviderResults(t *testing.T) {
+	var calls int
+	reg := &pkgmetadata.Registry{Ratings: []pkgmetadata.RatingsProvider{
+		stubRatingsProvider{
+			name: "tmdb", declared: []string{"tmdb"}, calls: &calls,
+			ratings: pkgmetadata.Ratings{"tmdb": {Source: "tmdb", ValueCentis: 837, Votes: 36892}},
+		},
+	}}
+	seed := pkgmetadata.Ratings{"tmdb": {Source: "tmdb", ValueCentis: 0, Votes: 0}}
+
+	got := enrichRatings(context.Background(), reg, commonv1.MediaKindMovie, pkgmetadata.ExternalIDs{"tmdb": "27205"}, seed, nil)
+
+	require.Equal(t, 1, calls, "seed's zero-value tmdb entry must not count as filled")
+	byS := ratingsBySource(got)
+	require.Equal(t, int32(837), byS[catalogv1alpha1.RatingSourceTMDB].ValueCentis, "the provider's real value fills what seed could not")
 }
 
 func ratingsBySource(ratings []catalogv1alpha1.Rating) map[catalogv1alpha1.RatingSource]catalogv1alpha1.Rating {

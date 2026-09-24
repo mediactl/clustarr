@@ -215,8 +215,11 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		// v.IDs, not the outer ids: enrich (above) has already merged in
 		// whatever the Resolvers crosswalked, and a ratings provider keyed
 		// by a crosswalked id (mdblist by tmdb, omdb by imdb) needs that,
-		// not the bare spec id externalIDs(target) returned.
-		ratings := enrichRatings(ctx, h.Registry, task.MediaRef.Kind, v.IDs, knownRatings(target))
+		// not the bare spec id externalIDs(target) returned. v.Ratings is
+		// the seed: whatever the primary MovieProvider.Movie fetch already
+		// produced (tmdb's mapMovie always sets "tmdb"), so enrichRatings
+		// never re-fetches a source this same call already has for free.
+		ratings := enrichRatings(ctx, h.Registry, task.MediaRef.Kind, v.IDs, v.Ratings, knownRatings(target))
 		md := buildMovieMetadataAC(v, ratings, now())
 		images = imagesOf(md.Images)
 		build = func(_ client.Object, art []*catalogac.ArtworkEntryApplyConfiguration) (k8s.ApplyConfiguration, error) {
@@ -225,7 +228,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		}
 	case *pkgmetadata.Series:
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindSeries, seriesRefreshState(v, now()), refreshedAt(target))
-		ratings := enrichRatings(ctx, h.Registry, task.MediaRef.Kind, v.IDs, knownRatings(target))
+		ratings := enrichRatings(ctx, h.Registry, task.MediaRef.Kind, v.IDs, v.Ratings, knownRatings(target))
 		md := buildSeriesMetadataAC(v, ratings, now())
 		images = imagesOf(md.Images)
 		build = func(_ client.Object, art []*catalogac.ArtworkEntryApplyConfiguration) (k8s.ApplyConfiguration, error) {

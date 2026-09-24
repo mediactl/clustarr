@@ -283,6 +283,22 @@ func (c *Client) RatingSources(kind commonv1.MediaKind) []string {
 // lookup (FindMovie's imdb_id/tvdb_id fallback exists for the primary fetch
 // path, not this one, so a caller wanting mdblist- or omdb-style
 // imdb-keyed rating lookups uses those providers instead).
+//
+// When this table calls it: app/catalog/metadata's enrichRatings seeds
+// itself from the document's own Ratings map before asking any
+// RatingsProvider anything (fix round 1) -- and that document, for a
+// Movie, was itself just produced by this same client's Movie method
+// (Registry.Lookup calls the registered MovieProvider first), which
+// already set Ratings["tmdb"]. So in the registry shape this codebase
+// actually builds today -- this *tmdb.Client registered as both the
+// Movie's MovieProvider and a RatingsProvider -- this method is never
+// reached in production: its declared source is always pre-filled by the
+// primary fetch, cache hit or not, and enrichRatings skips a provider with
+// nothing left to ask for. It still has a real caller: a Registry where
+// this client is registered as a RatingsProvider without also being the
+// document's primary provider (a different MovieProvider fetched it, so
+// Ratings["tmdb"] was never set) would find "tmdb" unfilled and call this,
+// exactly once, for exactly that gap.
 func (c *Client) Ratings(ctx context.Context, kind commonv1.MediaKind, ids metadata.ExternalIDs) (metadata.Ratings, error) {
 	if kind != commonv1.MediaKindMovie {
 		return nil, metadata.ErrUnsupported

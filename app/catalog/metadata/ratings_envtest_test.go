@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -89,7 +90,9 @@ func TestHandlerLandsRatingsOnAMovieRefreshWithoutReleasingOtherMetadata(t *test
 
 	movie, err := os.ReadFile("../../../test/data/metadata/tmdb/movie_27205.json")
 	require.NoError(t, err)
+	var movieRequests int32
 	tmdbSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&movieRequests, 1)
 		_, _ = w.Write(movie)
 	}))
 	t.Cleanup(tmdbSrv.Close)
@@ -109,7 +112,17 @@ func TestHandlerLandsRatingsOnAMovieRefreshWithoutReleasingOtherMetadata(t *test
 		Cache:    noopCache{},
 	}
 
+	// Fix round 1: enrichRatings seeds "tmdb" from the document
+	// Registry.Lookup's own MovieProvider.Movie call just produced, so tmdb
+	// (also registered as a RatingsProvider, exactly as the gateway wires
+	// it in production -- app/catalog/metadata/registry.go's BuildRegistry)
+	// must never be asked a second time for the same movie. Before the fix,
+	// this Handle call made two requests to /movie/27205 per invocation
+	// (Registry.Lookup's own fetch, then enrichRatings' redundant
+	// RatingsProvider.Ratings call); it must now make exactly one.
 	require.NoError(t, handleTask(t, h, ns, name, commonv1.MediaKindMovie))
+	require.EqualValues(t, 1, atomic.LoadInt32(&movieRequests),
+		"one request to TMDB's movie endpoint per Handle -- Lookup's own fetch, not a second Ratings() call")
 
 	var got catalogv1alpha1.Movie
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
@@ -121,6 +134,8 @@ func TestHandlerLandsRatingsOnAMovieRefreshWithoutReleasingOtherMetadata(t *test
 
 	up = false // the stub is now down, as mdblist/omdb are under R5
 	require.NoError(t, handleTask(t, h, ns, name, commonv1.MediaKindMovie))
+	require.EqualValues(t, 2, atomic.LoadInt32(&movieRequests),
+		"exactly one more request this Handle call -- still no second call from enrichRatings")
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
 	require.Equal(t, "Inception", got.Status.Metadata.Title, "an unrelated metadata leaf must not be released by a ratings-only concern")
 	byS = ratingsBySourceCRD(got.Status.Metadata.Ratings)

@@ -116,7 +116,6 @@ Per the task brief:
   (mixed scales across entries in the same array, per the metadata.md note's own listed sources)
   -- ValueCentis' int32 0-1000/0-10000 split (per `api/catalog/v1alpha1/shared_types.go`'s doc
   comment) requires knowing this per source before any conversion is written.
-  fields.
 - MDBList's not-found response's HTTP status and body shape.
 - MDBList's quota/rate-limit header names on a live response (metadata.md lists
   `X-RateLimit-Limit|Remaining|Reset` and `Retry-After`, carried over from the general research
