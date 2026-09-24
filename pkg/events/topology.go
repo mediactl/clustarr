@@ -115,8 +115,13 @@ func (c ConsumerSpec) Subscription() Subscription {
 }
 
 // TranscodeTaskConsumer is one pool's durable. It is not in Default(): pools
-// come and go with profiles, so the worker's Pull creates it and squasharr's
-// StreamAdmin deletes it. There is no Heartbeat: the worker sends InProgress
+// come and go with profiles, so the worker's Pull creates it, and
+// squasharr's periodic sweep deletes it -- through StreamAdmin's
+// Subscriptions and DeleteSubscription, which removes its dead-letter
+// watcher too -- once no TranscodeProfile with its UID exists (the sweep in
+// app/squash/controller/transcodejob/withdraw.go; spec §6.4). A profile
+// that still exists keeps every class's durable, idle or not. There is no
+// Heartbeat: the worker sends InProgress
 // itself while it renews its lease (spec §17.3). AckWait governs redelivery
 // of a crashed worker's task; every other redelivery is an explicit Nak (a
 // held lease's HeldRetry, a drain, a fence's Nak(0) left to lapse instead),

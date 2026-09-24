@@ -69,6 +69,24 @@ func (b *Bus) PurgeSubject(ctx context.Context, stream, subject string) error {
 	return nil
 }
 
+// Subscriptions implements events.StreamAdmin.
+func (b *Bus) Subscriptions(ctx context.Context, stream string) ([]string, error) {
+	st, err := b.lookupStream(ctx, stream)
+	if err != nil {
+		return nil, err
+	}
+	names := st.ConsumerNames(ctx)
+	var out []string
+	for name := range names.Name() {
+		out = append(out, name)
+	}
+	if err := names.Err(); err != nil {
+		return nil, fmt.Errorf("natsbus: list consumers of %s: %w", stream, err)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
 // Subjects implements events.StreamAdmin.
 func (b *Bus) Subjects(ctx context.Context, stream, filter string) ([]string, error) {
 	st, err := b.lookupStream(ctx, stream)

@@ -100,6 +100,13 @@ type stream struct {
 	msgs  []*memMsg
 	bytes int64
 	dedup map[string]dedupRecord
+
+	// durables is every durable a Subscribe or Pull has bound on this
+	// stream and no DeleteSubscription has forgotten since: JetStream's
+	// consumer list, which events.StreamAdmin.Subscriptions reports. A
+	// JetStream durable outlives the subscription that created it, and so
+	// does an entry here.
+	durables map[string]struct{}
 }
 
 // publish appends a message, honouring deduplication and DiscardNew
@@ -296,19 +303,43 @@ func (s *stream) inProgress(m *memMsg, durable string, now time.Time,
 	cs.ackDeadline = now.Add(ackWait(cs.attempts))
 }
 
-// forgetDurable drops every claim and delivery record durable holds on this
-// stream: events.StreamAdmin.DeleteSubscription's membus half. A durable that
-// never claimed anything is a no-op, matching natsbus deleting an absent
+// forgetDurable drops durable from this stream, with every claim and
+// delivery record it holds: events.StreamAdmin.DeleteSubscription's membus
+// half. An unknown durable is a no-op, matching natsbus deleting an absent
 // consumer.
 func (s *stream) forgetDurable(durable string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	delete(s.durables, durable)
 	for _, m := range s.msgs {
 		if m.claim == durable {
 			m.claim = ""
 		}
 		delete(m.state, durable)
 	}
+}
+
+// bindDurable records durable as existing on this stream, as JetStream
+// creates a consumer on its first Subscribe or Pull.
+func (s *stream) bindDurable(durable string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.durables == nil {
+		s.durables = map[string]struct{}{}
+	}
+	s.durables[durable] = struct{}{}
+}
+
+// subscriptions returns the sorted durables bound on this stream.
+func (s *stream) subscriptions() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, 0, len(s.durables))
+	for d := range s.durables {
+		out = append(out, d)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // purgeSubject removes every stored message whose subject matches subject,

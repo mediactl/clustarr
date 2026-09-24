@@ -243,6 +243,7 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 		return nil, fmt.Errorf("membus: stream %s not ensured: %w",
 			sub.Stream, events.ErrStreamNotFound)
 	}
+	st.bindDurable(sub.Durable)
 
 	loopCtx, cancel := context.WithCancel(ctx)
 	inFlight := sub.MaxInFlight

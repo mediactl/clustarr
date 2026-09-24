@@ -52,6 +52,17 @@ func (b *Bus) PurgeSubject(_ context.Context, stream, subject string) error {
 	return nil
 }
 
+// Subscriptions implements events.StreamAdmin.
+func (b *Bus) Subscriptions(_ context.Context, stream string) ([]string, error) {
+	b.mu.Lock()
+	st := b.streams[stream]
+	b.mu.Unlock()
+	if st == nil {
+		return nil, fmt.Errorf("membus: stream %s: %w", stream, events.ErrStreamNotFound)
+	}
+	return st.subscriptions(), nil
+}
+
 // Subjects implements events.StreamAdmin.
 func (b *Bus) Subjects(_ context.Context, stream, filter string) ([]string, error) {
 	b.mu.Lock()

@@ -55,6 +55,10 @@ func (erroringAdmin) Subjects(context.Context, string, string) ([]string, error)
 	return nil, events.ErrClosed
 }
 
+func (erroringAdmin) Subscriptions(context.Context, string) ([]string, error) {
+	return nil, events.ErrClosed
+}
+
 var _ events.StreamAdmin = erroringAdmin{}
 
 // setSuspend flips f's TranscodeJob's spec.suspend and persists it, as

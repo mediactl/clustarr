@@ -185,6 +185,13 @@ type StreamAdmin interface {
 	PurgeSubject(ctx context.Context, stream, subject string) error
 	// Subjects lists the subjects under filter that hold stored messages.
 	Subjects(ctx context.Context, stream, filter string) ([]string, error)
+	// Subscriptions lists the durable consumers that exist on stream,
+	// sorted: every durable a Subscribe or Pull created and no
+	// DeleteSubscription has removed since. It is how an owner finds the
+	// durables of things that are gone (squasharr's pool sweep). A
+	// dead-letter watcher lives on StreamAdvisories, not on stream, so it
+	// is not listed here. A missing stream is ErrStreamNotFound.
+	Subscriptions(ctx context.Context, stream string) ([]string, error)
 }
 
 // Requester is the micro-style request/reply half of the bus: a single reply

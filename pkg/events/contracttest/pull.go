@@ -35,6 +35,7 @@ func RunPullContract(t *testing.T, newBus func() events.Bus) {
 	t.Run("PurgeSubjectRemovesOnlyThatSubject", func(t *testing.T) { testPurgeSubject(t, newBus) })
 	t.Run("PurgeSubjectWildcardMatchesAcrossTheWildcardTokenOnly", func(t *testing.T) { testPurgeSubjectWildcard(t, newBus) })
 	t.Run("DeleteSubscriptionIsIdempotentAndKeepsQueuedWork", func(t *testing.T) { testDeleteSubscription(t, newBus) })
+	t.Run("SubscriptionsListsEachDurableUntilItIsDeleted", func(t *testing.T) { testSubscriptions(t, newBus) })
 	t.Run("StreamAdminReportsAMissingStream", func(t *testing.T) { testStreamAdminMissingStream(t, newBus) })
 }
 
@@ -254,11 +255,66 @@ func testDeleteSubscription(t *testing.T, newBus func() events.Bus) {
 	}
 }
 
+// testSubscriptions is what squasharr's pool sweep stands on (final-review
+// M1): Subscriptions lists every durable a Pull or a Subscribe created on a
+// stream -- after its puller or subscription stopped, since a durable
+// outlives both -- and a durable DeleteSubscription removed is gone from
+// the list, while a sibling on the same stream is not.
+func testSubscriptions(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+	ps, sa := pullBus(t, bus)
+	gone := events.TranscodeTaskConsumer("profGone", "cpu").Subscription()
+	kept := events.TranscodeTaskConsumer("profKept", "nvidia").Subscription()
+
+	p, err := ps.Pull(ctx, gone)
+	if err != nil {
+		t.Fatalf("Pull %s: %v", gone.Durable, err)
+	}
+	p.Stop()
+	stop, err := bus.Subscribe(ctx, kept, func(context.Context, events.Message) error { return nil })
+	if err != nil {
+		t.Fatalf("Subscribe %s: %v", kept.Durable, err)
+	}
+	stop()
+
+	has := func(names []string, want string) bool {
+		for _, n := range names {
+			if n == want {
+				return true
+			}
+		}
+		return false
+	}
+	names, err := sa.Subscriptions(ctx, events.StreamWorkSquasharr)
+	if err != nil {
+		t.Fatalf("Subscriptions: %v", err)
+	}
+	if !has(names, gone.Durable) || !has(names, kept.Durable) {
+		t.Fatalf("Subscriptions = %v, want both %s and %s: a durable outlives its puller and its subscription",
+			names, gone.Durable, kept.Durable)
+	}
+
+	if err := sa.DeleteSubscription(ctx, gone.Stream, gone.Durable); err != nil {
+		t.Fatalf("DeleteSubscription: %v", err)
+	}
+	names, err = sa.Subscriptions(ctx, events.StreamWorkSquasharr)
+	if err != nil {
+		t.Fatalf("Subscriptions after delete: %v", err)
+	}
+	if has(names, gone.Durable) {
+		t.Fatalf("Subscriptions = %v after deleting %s, want it gone", names, gone.Durable)
+	}
+	if !has(names, kept.Durable) {
+		t.Fatalf("Subscriptions = %v after deleting %s, want %s kept", names, gone.Durable, kept.Durable)
+	}
+}
+
 // testStreamAdminMissingStream holds every StreamAdmin method to one error
-// contract for a stream nothing ensured: PurgeSubject and Subjects must fail
-// with an error satisfying errors.Is(err, events.ErrStreamNotFound), the
-// sentinel Subscribe and Pull already report for the same condition, so a
-// caller can switch on one error whichever StreamAdmin call it made. natsbus
+// contract for a stream nothing ensured: PurgeSubject, Subjects and
+// Subscriptions must fail with an error satisfying errors.Is(err,
+// events.ErrStreamNotFound), the sentinel Subscribe and Pull already report
+// for the same condition, so a caller can switch on one error whichever
+// StreamAdmin call it made. natsbus
 // wrapping the raw jetstream.ErrStreamNotFound instead of remapping it, while
 // membus already used the sentinel, is exactly the drift this guards.
 // DeleteSubscription is different by design (see its doc comment: a missing
@@ -273,6 +329,9 @@ func testStreamAdminMissingStream(t *testing.T, newBus func() events.Bus) {
 	}
 	if _, err := sa.Subjects(ctx, missing, "clustarr.>"); !errors.Is(err, events.ErrStreamNotFound) {
 		t.Fatalf("Subjects on a missing stream = %v, want errors.Is ErrStreamNotFound", err)
+	}
+	if _, err := sa.Subscriptions(ctx, missing); !errors.Is(err, events.ErrStreamNotFound) {
+		t.Fatalf("Subscriptions on a missing stream = %v, want errors.Is ErrStreamNotFound", err)
 	}
 	if err := sa.DeleteSubscription(ctx, missing, "some-durable"); err != nil {
 		t.Fatalf("DeleteSubscription on a missing stream = %v, want nil", err)

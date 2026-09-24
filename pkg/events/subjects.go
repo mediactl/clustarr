@@ -456,6 +456,16 @@ func WorkTranscodeTaskSubjectAnyProfile(class, jobUID string) string {
 	return fmt.Sprintf("clustarr.work.transcode.task.*.%s.%s", tok(class), tok(jobUID))
 }
 
+// WorkTranscodeTaskSubjectAnyPool is jobUID's task subject with wildcards in
+// place of both the profile and the class token: every task of the job, on
+// every pool it could have been dispatched to. Deleting a TranscodeJob
+// purges with it (final-review M6), since a dispatch whose Queued write was
+// lost published a task under a class status.hardware never recorded. Like
+// [WorkTranscodeTaskSubjectAnyProfile], it is for PurgeSubject.
+func WorkTranscodeTaskSubjectAnyPool(jobUID string) string {
+	return "clustarr.work.transcode.task.*.*." + tok(jobUID)
+}
+
 // WorkTranscodeResultSubject is where a worker publishes a job's status
 // events; squasharr-transcode-results consumes them.
 func WorkTranscodeResultSubject(jobUID string) string {
