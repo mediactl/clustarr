@@ -45,6 +45,18 @@ func TestMetadataMovieNotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
+// TestMetadataMalformedRatingKeyNotFound is TestMetadataMovieNotFound's
+// twin for a ratingKey that is not even shaped like one:
+// [ratingKeyPattern] (ui/plex/ratingkey.go) never matches a Kubernetes
+// name's periods, so ParseRatingKey fails before any lookup runs, and the
+// handler answers 404 the same as any other unresolvable ratingKey --
+// never a 500 or a panic on a malformed path segment straight off the URL.
+func TestMetadataMalformedRatingKeyNotFound(t *testing.T) {
+	h := newTestHandler(t, externalURLFixture, fixtureMovie())
+	rec := getJSON(t, h, "/plex/movies/library/metadata/not..a..key")
+	require.Equal(t, http.StatusNotFound, rec.Code)
+}
+
 // TestMetadataShowIncludeChildren is GET .../{ratingKey}?includeChildren=1
 // for the show: Children holds one Metadata per season (research §5.2, "a
 // show returns its seasons"), not the seasons' own episodes.

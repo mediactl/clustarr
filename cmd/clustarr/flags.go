@@ -137,9 +137,16 @@ const (
 	// externalURLEnv is the default for ui's --external-url (design spec
 	// §D.1): the absolute base every thumb, art and Image[].url the Plex
 	// Custom Metadata Provider hands Plex is built on. No shipped manifest
-	// sets it -- an operator's own reachable hostname is not something a
-	// default here could ever guess -- but the chart accepts it as
-	// `ui.plex.externalURL`.
+	// sets it as of this task (D1) -- an operator's own reachable hostname
+	// is not something a default here could ever guess -- but Task D2 is
+	// wiring both installers to it: the chart will pass it through
+	// `ui.plex.externalURL` (`charts/clustarr/templates/deployments.yaml`,
+	// alongside `ui.plex.enabled` for `--plex-provider`), and the kustomize
+	// ui Deployment (`config/manager/ui.yaml`) will set the flag directly,
+	// a literal arg with no templating, the same way it already sets
+	// --auth-mode. TestExternalURLFlagReachesTheChart (cmd/clustarr) guards
+	// the chart side once D2 adds `ui.plex` to values.yaml, so this comment
+	// cannot drift out of sync with the chart again.
 	externalURLEnv = "CLUSTARR_EXTERNAL_URL"
 )
 
