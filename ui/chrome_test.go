@@ -167,7 +167,16 @@ func TestLibraryPageHasBreadcrumbsTabsAndAJumpBar(t *testing.T) {
 	require.Contains(t, letter, "flex-1", "the letters share the height evenly")
 	require.Contains(t, letter, "w-full", "and the strip's width")
 	require.Equal(t, 27, strings.Count(body, `data-jump="`), "# and A-Z")
-	requireTag(t, body, `data-jump="M"`, `href="/library/movies?jump=M&amp;per=25"`)
+	// Each letter carries the page it begins on and the index of its first
+	// title, so ui/static/jump.js can widen the loaded window to it and
+	// scroll there instead of restarting the window; the href stays as the
+	// fallback without JavaScript. A-P have five titles: M is the 13th
+	// letter, index 60, page 3 of 25.
+	requireTag(t, body, `data-jump="M"`, `href="/library/movies?jump=M&amp;per=25"`, `data-page="3"`, `data-index="60"`)
+	requireTag(t, body, `data-jump="A"`, `data-page="1"`, `data-index="0"`)
+	requireTag(t, body, `data-jump="Z"`, `data-page="5"`, `data-index="116"`)
+	require.NotContains(t, tagWith(t, body, `data-jump="#"`), `data-page=`, "an absent letter has no page to go to")
+	requireTag(t, body, `id="library-rows"`, `data-page="1"`, `data-pages="1"`, `data-per="25"`)
 	hash := tagWith(t, body, `data-jump="#"`)
 	require.NotContains(t, hash, `href=`, "a letter no title starts with is not a link")
 	require.Contains(t, hash, `disabled`)

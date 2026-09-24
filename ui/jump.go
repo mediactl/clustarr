@@ -36,19 +36,26 @@ func jumpKey(title string) byte { return projection.JumpLetter(title)[0] }
 // letter or later sits, given items in title order; the last page when no
 // title does.
 func jumpPage(items []projection.LibraryItem, letter byte, per int) int {
-	idx := len(items) - 1
+	return paging.Paginate(len(items), jumpIndex(items, letter)/max(per, 1)+1, per).Number
+}
+
+// jumpIndex is the index of the first title filing under letter or
+// later, given items in title order; the last index when no title does,
+// 0 for no items.
+func jumpIndex(items []projection.LibraryItem, letter byte) int {
 	for i, it := range items {
 		if jumpKey(it.Title) >= letter {
-			idx = i
-			break
+			return i
 		}
 	}
-	return paging.Paginate(len(items), max(idx, 0)/max(per, 1)+1, per).Number
+	return max(len(items)-1, 0)
 }
 
 // jumps builds the bar for a tab at base: a link per letter some title
 // files under, carrying the page's size and view (p.Params) with jump in
-// place of page, and a disabled entry per letter none does.
+// place of page -- plus the page the letter begins on and the index of
+// its first title, for ui/static/jump.js to widen the loaded window to it
+// -- and a disabled entry per letter none does.
 func jumps(items []projection.LibraryItem, base string, p paging.Page) []views.Jump {
 	present := map[byte]bool{}
 	for _, it := range items {
@@ -63,6 +70,8 @@ func jumps(items []projection.LibraryItem, base string, p paging.Page) []views.J
 			q.Del("page")
 			q.Set("jump", string(letter))
 			j.Href = base + "?" + q.Encode()
+			j.Page = jumpPage(items, letter, p.Per)
+			j.Index = jumpIndex(items, letter)
 		}
 		out = append(out, j)
 	}

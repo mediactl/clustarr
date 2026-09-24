@@ -56,6 +56,9 @@ templ Library(tab projection.Tab, p paging.Page, items []projection.LibraryItem,
 				data-tab={ string(tab) }
 				data-offset={ fmt.Sprint(p.Offset) }
 				data-total={ fmt.Sprint(p.Total) }
+				data-page={ fmt.Sprint(p.Number) }
+				data-pages={ fmt.Sprint(p.Pages) }
+				data-per={ fmt.Sprint(p.Per) }
 				hx-ext="sse"
 				sse-connect={ "/events/library/" + string(tab) + p.Query(p.Number) }
 				sse-swap="library"
@@ -74,6 +77,12 @@ type Jump struct {
 	Letter  string
 	Enabled bool
 	Href    string
+	// Page is the page the letter's titles begin on and Index the index
+	// of its first title (data-page, data-index): ui/static/jump.js widens
+	// the loaded window to the page and scrolls to the title, keeping what
+	// is already loaded; Href is the fallback without JavaScript.
+	Page  int
+	Index int
 }
 
 // jumpButtonClass makes every letter share the bar's height evenly and
@@ -99,7 +108,7 @@ templ jumpBar(jumpsFor []Jump) {
 			@buttongroup.ButtonGroup(buttongroup.Props{Orientation: buttongroup.OrientationVertical, Class: "h-full w-full"}) {
 				for _, j := range jumpsFor {
 					if j.Enabled {
-						@button.Button(button.Props{Href: j.Href, Size: button.SizeXs, Variant: button.VariantOutline, Class: jumpButtonClass, Attributes: templ.Attributes{"data-jump": j.Letter}}) { { j.Letter } }
+						@button.Button(button.Props{Href: j.Href, Size: button.SizeXs, Variant: button.VariantOutline, Class: jumpButtonClass, Attributes: templ.Attributes{"data-jump": j.Letter, "data-page": fmt.Sprint(j.Page), "data-index": fmt.Sprint(j.Index)}}) { { j.Letter } }
 					} else {
 						@button.Button(button.Props{Size: button.SizeXs, Variant: button.VariantOutline, Disabled: true, Class: jumpButtonClass + " pointer-events-none", Attributes: templ.Attributes{"data-jump": j.Letter}}) { { j.Letter } }
 					}
