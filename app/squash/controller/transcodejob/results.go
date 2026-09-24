@@ -206,13 +206,35 @@ func (r *Reconciler) handleEvent(ctx context.Context, m events.Message) error {
 		log.InfoContext(ctx, "squasharr: adopted an attempt whose dispatch write was lost, from its worker's event",
 			"hardware", string(after.Status.Hardware))
 	}
-	if after != nil {
-		r.afterWrite(ctx, after, &before)
-		if dispatched(before.Phase) && !dispatched(after.Status.Phase) {
-			r.wakeAdmission() // a slot is free, or a requeued job wants one
-		}
+	if after == nil {
+		log.DebugContext(ctx, "squasharr: a transcode status event changed nothing", "pod", ev.Pod)
+		return nil
+	}
+	r.afterWrite(ctx, after, &before)
+	logApplied(ctx, ev, after)
+	if dispatched(before.Phase) && !dispatched(after.Status.Phase) {
+		r.wakeAdmission() // a slot is free, or a requeued job wants one
 	}
 	return nil
+}
+
+// logApplied is the operator's line for a worker's event whose write
+// landed: INFO for a claim and a finish, Debug for progress, which arrives
+// every few seconds per running job. ctx already names the job, the attempt
+// and the event kind (handleEvent).
+func logApplied(ctx context.Context, ev task.StatusEvent, after *transcodev1alpha1.TranscodeJob) {
+	log := logging.FromContext(ctx)
+	switch ev.Kind {
+	case task.EventClaimed:
+		log.InfoContext(ctx, "squasharr: a worker claimed a transcode task", "pod", ev.Pod, "node", ev.Node,
+			"class", string(after.Status.Hardware), "phase", string(after.Status.Phase))
+	case task.EventFinished:
+		log.InfoContext(ctx, "squasharr: a worker finished a transcode task", "pod", ev.Pod,
+			"outcome", string(ev.Outcome), "reason", string(ev.Reason), "phase", string(after.Status.Phase),
+			"message", after.Status.Message)
+	default:
+		log.DebugContext(ctx, "squasharr: transcode progress", "pod", ev.Pod, "phase", string(after.Status.Phase))
+	}
 }
 
 // dispatched reports whether a job in phase p holds a slot: its task is on a

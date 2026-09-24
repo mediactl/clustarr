@@ -428,23 +428,29 @@ func (r *Reconciler) pools(ctx context.Context, stored map[string]*batchv1.Job,
 			continue
 		}
 		want := pool.Want(tp, k.Class, r.Pool)
-		d, act := pool.Next(cur, n, r.drift(cur, want))
+		drift := r.drift(cur, want)
+		d, act := pool.Next(cur, n, drift)
 		switch act {
 		case pool.ActionDelete:
-			errs = append(errs, r.deletePool(ctx, tp, cur))
+			why := "drained for recreation after a profile change"
+			if pool.Failed(cur) {
+				why = "failed"
+			}
+			errs = append(errs, r.deletePool(ctx, tp, cur, why))
 		case pool.ActionApply:
 			if cur == nil && !r.poolBackoffOver(name) {
 				continue // a Failed pool waits out its backoff; its tasks stay queued
 			}
-			errs = append(errs, r.applyPool(ctx, k, tp, want, d, cur, n))
+			errs = append(errs, r.applyPool(ctx, k, tp, want, d, cur, n, drift))
 		}
 	}
 	return errors.Join(errs...)
 }
 
-// applyPool renders and applies one pool's desired shape d.
+// applyPool renders and applies one pool's desired shape d. drift is how
+// far cur is from want, which only the log line's reason reads.
 func (r *Reconciler) applyPool(ctx context.Context, k pool.Key, tp *transcodev1alpha1.TranscodeProfile,
-	want pool.Spec, d pool.Desired, cur *batchv1.Job, n int32,
+	want pool.Spec, d pool.Desired, cur *batchv1.Job, n int32, drift pool.Drift,
 ) error {
 	log := logging.FromContext(ctx)
 	name := pool.Name(k)
@@ -456,7 +462,7 @@ func (r *Reconciler) applyPool(ctx context.Context, k pool.Key, tp *transcodev1a
 		// with. Next asks that only of a running pool with nothing
 		// dispatched to it, so no work is lost: recreate it now rather than
 		// wedge it.
-		return r.deletePool(ctx, tp, cur)
+		return r.deletePool(ctx, tp, cur, "lost its applied-template annotation")
 	}
 	if err != nil {
 		return fmt.Errorf("transcodejob: render pool %s: %w", name, err)
@@ -473,27 +479,53 @@ func (r *Reconciler) applyPool(ctx context.Context, k pool.Key, tp *transcodev1a
 		// otherwise it drains first, holding new work, and is deleted once
 		// its work is done.
 		if n == 0 || pool.Mutable(cur) {
-			return r.deletePool(ctx, tp, cur)
+			return r.deletePool(ctx, tp, cur, "created with a spec the apiserver will not change")
 		}
 		r.recreate[name] = true
 		log.InfoContext(ctx, "squasharr: the pool was created with a spec the apiserver will not change; draining it for recreation",
-			"pool", name)
+			"pool", name, "parallelism", ptr.Deref(cur.Spec.Parallelism, 0), "dispatched", n, "error", err)
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("transcodejob: apply pool %s: %w", name, err)
 	}
-	log.DebugContext(ctx, "squasharr: applied pool", "pool", name, "parallelism", d.Parallelism, "suspend", d.Suspend,
-		"dispatched", n, "created", cur == nil)
+	log.InfoContext(ctx, "squasharr: applied pool", "pool", name, "action", poolApplyAction(cur, d, drift),
+		"parallelism", d.Parallelism, "suspend", d.Suspend, "dispatched", n)
 	return nil
+}
+
+// poolApplyAction names what one pool apply did, for its log line: create
+// it, suspend it (idle, or to drain for a profile change), resume it (and
+// reshape it, when its template drifted), reshape it while it stays
+// suspended, resize it, or re-send what it already has.
+func poolApplyAction(cur *batchv1.Job, d pool.Desired, drift pool.Drift) string {
+	if cur == nil {
+		return "create"
+	}
+	suspended := ptr.Deref(cur.Spec.Suspend, false)
+	switch {
+	case d.Suspend && !suspended && drift != pool.DriftNone:
+		return "suspend to drain for a profile change"
+	case d.Suspend && !suspended:
+		return "suspend: nothing dispatched"
+	case !d.Suspend && suspended && drift != pool.DriftNone:
+		return "reshape and resume"
+	case !d.Suspend && suspended:
+		return "resume"
+	case drift != pool.DriftNone:
+		return "reshape"
+	case d.Parallelism != ptr.Deref(cur.Spec.Parallelism, 1):
+		return "resize"
+	}
+	return "reapply"
 }
 
 // deletePool deletes a pool Job so the next pass with work recreates it:
 // with background propagation, so its pods go after it, and conditional on
 // its UID, so a pool recreated since the pass listed it survives. A Failed
 // pool also gets a Warning Event on its TranscodeProfile and a backoff
-// before it is recreated (spec §7).
-func (r *Reconciler) deletePool(ctx context.Context, tp *transcodev1alpha1.TranscodeProfile, j *batchv1.Job) error {
+// before it is recreated (spec §7). why is the log line's reason.
+func (r *Reconciler) deletePool(ctx context.Context, tp *transcodev1alpha1.TranscodeProfile, j *batchv1.Job, why string) error {
 	log := logging.FromContext(ctx)
 	err := r.Client.Delete(ctx, j, client.PropagationPolicy(metav1.DeletePropagationBackground),
 		client.Preconditions{UID: ptr.To(j.UID)})
@@ -502,17 +534,19 @@ func (r *Reconciler) deletePool(ctx context.Context, tp *transcodev1alpha1.Trans
 	}
 	delete(r.recreate, j.Name)
 	if !pool.Failed(j) {
-		log.InfoContext(ctx, "squasharr: deleted pool for recreation", "pool", j.Name)
+		log.InfoContext(ctx, "squasharr: deleted pool for recreation", "pool", j.Name,
+			"parallelism", ptr.Deref(j.Spec.Parallelism, 0), "reason", why)
 		return nil
 	}
 	delay := r.backOffPool(j.Name, failedAt(j, r.now().Time))
-	why := "it failed"
+	why = "it failed"
 	for _, c := range j.Status.Conditions {
 		if c.Type == batchv1.JobFailed && c.Status == corev1.ConditionTrue {
 			why = fmt.Sprintf("%s: %s", c.Reason, c.Message)
 		}
 	}
-	log.WarnContext(ctx, "squasharr: pool failed; recreating it after a backoff", "pool", j.Name, "reason", why, "backoff", delay)
+	log.WarnContext(ctx, "squasharr: pool failed; recreating it after a backoff", "pool", j.Name,
+		"parallelism", ptr.Deref(j.Spec.Parallelism, 0), "reason", why, "backoff", delay)
 	if r.Recorder != nil {
 		r.Recorder.Eventf(tp, nil, corev1.EventTypeWarning, ReasonPoolFailed, "RecreatePool",
 			"pool Job %s failed (%s); it is recreated in %s", j.Name, why, delay)
