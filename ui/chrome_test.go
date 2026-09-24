@@ -76,17 +76,32 @@ func TestLayoutHasASidebarAndTheComponentScripts(t *testing.T) {
 	require.Regexp(t, activeAttr, tagWith(t, body, `href="/pipeline"`), "the current page's entry is active")
 	require.NotRegexp(t, activeAttr, tagWith(t, body, `href="/downloads"`))
 
-	// The library's tabs live in the top bar of every page (design
-	// 2026-09-24, after Radarr's top nav), the breadcrumbs beneath it inside
-	// the swapped page body; on a page that is no library tab none is active.
+	// The library's four media entries are the Library entry's sub-menu in
+	// the sidebar (2026-09-24, after shadcn's sidebar-07: MenuSub under the
+	// MenuItem), on every page; each swaps the page body through htmx so
+	// the sidebar stays put. The top bar holds the trigger alone, and the
+	// breadcrumbs sit beneath it inside the swapped page body; on a page
+	// that is no library tab no sub-entry is active.
+	headerStart := strings.Index(body, "<header")
 	headerEnd := strings.Index(body, "</header>")
-	require.GreaterOrEqual(t, headerEnd, 0)
-	header := body[:headerEnd]
-	require.Equal(t, 4, strings.Count(header, `data-tui-tabs-trigger`), "the four library tabs sit in the top bar")
+	require.GreaterOrEqual(t, headerStart, 0)
+	require.Greater(t, headerEnd, headerStart)
+	header := body[headerStart:headerEnd]
+	require.NotContains(t, header, `data-tui-tabs-trigger`, "no tab strip in the top bar")
+	require.NotContains(t, header, `hx-get="/library/`)
+	inset := strings.Index(body, `data-slot="sidebar-inset"`)
+	require.Greater(t, inset, 0)
+	sidebarHTML := body[:inset]
+	libraryEntry := strings.Index(sidebarHTML, `href="/library"`)
+	pipelineEntry := strings.Index(sidebarHTML, `href="/pipeline"`)
+	sub := strings.Index(sidebarHTML, `data-slot="sidebar-menu-sub"`)
+	require.Greater(t, sub, libraryEntry, "the sub-menu follows the Library entry")
+	require.Less(t, sub, pipelineEntry, "the sub-menu sits inside the Library item, before Pipeline")
+	require.Equal(t, 4, strings.Count(sidebarHTML, `data-slot="sidebar-menu-sub-button"`), "one sub-entry per library tab")
 	for _, tab := range projection.Tabs() {
-		trigger := requireTag(t, header, `hx-get="/library/`+string(tab)+`"`, `data-tui-tabs-trigger`, `hx-push-url="true"`,
-			`hx-select="#page-body"`, `hx-target="#page-body"`, `hx-swap="outerHTML"`)
-		require.NotRegexp(t, regexp.MustCompile(`\sdata-active(\s|>)`), trigger, "no tab is active on the pipeline page")
+		entry := requireTag(t, sidebarHTML, `href="/library/`+string(tab)+`"`, `data-slot="sidebar-menu-sub-button"`,
+			`hx-get="/library/`+string(tab)+`"`, `hx-push-url="true"`, `hx-select="#page-body"`, `hx-target="#page-body"`, `hx-swap="outerHTML"`)
+		require.NotRegexp(t, activeAttr, entry, "no library sub-entry is active on the pipeline page")
 	}
 	pageBody := strings.Index(body, `id="page-body"`)
 	require.Greater(t, pageBody, headerEnd, "the page body follows the top bar")
@@ -110,7 +125,7 @@ func TestLayoutHasASidebarAndTheComponentScripts(t *testing.T) {
 	}
 }
 
-func TestLibraryPageHasBreadcrumbsTabsAndAJumpBar(t *testing.T) {
+func TestLibraryPageHasBreadcrumbsSidebarSubEntriesAndAJumpBar(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{
 		Library: func(context.Context) []projection.LibraryItem { return letteredLibrary(120) },
 	})
@@ -124,13 +139,15 @@ func TestLibraryPageHasBreadcrumbsTabsAndAJumpBar(t *testing.T) {
 	require.Regexp(t, regexp.MustCompile(`data-slot="breadcrumb-link"[^>]*>[^<]*Library`), body)
 	require.Regexp(t, regexp.MustCompile(`data-slot="breadcrumb-page"[^>]*>[^<]*TV`), body, "the current tab is the breadcrumb's page")
 
-	require.Contains(t, body, `data-tui-tabs-value="tv"`, "the tabs component marks the current tab")
+	require.NotContains(t, body, `data-tui-tabs-trigger`, "the library has no tab strip; its media entries are the sidebar's")
 	for _, tab := range projection.Tabs() {
-		requireTag(t, body, `hx-get="/library/`+string(tab)+`"`, `data-tui-tabs-trigger`, `data-tui-tabs-value="`+string(tab)+`"`,
+		requireTag(t, body, `hx-get="/library/`+string(tab)+`"`, `data-slot="sidebar-menu-sub-button"`, `href="/library/`+string(tab)+`"`,
 			`hx-push-url="true"`, `hx-select="#page-body"`, `hx-target="#page-body"`)
 	}
-	require.Less(t, strings.Index(body, `data-tui-tabs-trigger`), strings.Index(body, "</header>"), "the tabs are in the top bar")
-	require.Regexp(t, regexp.MustCompile(`\sdata-active(\s|>)`), tagWith(t, body, `hx-get="/library/tv"`), "the TV trigger is active")
+	require.Less(t, strings.Index(body, `data-slot="sidebar-menu-sub-button"`), strings.Index(body, `data-slot="sidebar-inset"`), "the sub-entries are in the sidebar")
+	require.Regexp(t, regexp.MustCompile(`\sdata-active(\s|>)`), tagWith(t, body, `hx-get="/library/tv"`), "the TV sub-entry is active")
+	require.NotRegexp(t, regexp.MustCompile(`\sdata-active(\s|>)`), tagWith(t, body, `hx-get="/library/movies"`))
+	require.Regexp(t, regexp.MustCompile(`\sdata-active(\s|>)`), tagWith(t, body, `href="/library"`), "the Library entry is active on its tab pages")
 	require.NotRegexp(t, regexp.MustCompile(`\sdata-active(\s|>)`), tagWith(t, body, `hx-get="/library/movies"`))
 
 	rec = httptest.NewRecorder()

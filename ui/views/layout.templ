@@ -27,13 +27,12 @@ import (
 	"github.com/mediactl/clustarr/ui/components/breadcrumb"
 	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/sidebar"
-	"github.com/mediactl/clustarr/ui/components/tabs"
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // Chrome is what a page tells the Shell: its title, its breadcrumb trail
-// and, when it belongs to a library tab, that tab, which the top bar
-// marks.
+// and, when it belongs to a library tab, that tab, which the sidebar's
+// Library sub-menu marks.
 type Chrome struct {
 	Title  string
 	Crumbs []Crumb
@@ -94,11 +93,12 @@ templ Layout(title string) {
 // and the component script bundle, all vendored and served from the
 // embedded static files so a cluster without Internet egress still has a
 // working UI; then shadcn-templ's sidebar with every page, collapsible to
-// icons, and its inset holding the top bar -- the sidebar trigger and the
-// library's tabs, as Radarr's top nav -- and the page body: the
-// breadcrumb row and the page. The active sidebar entry is derived from
-// the title (activeFor); a tab's trigger swaps the page body through
-// htmx, so the top bar stays and the URL follows. The top bar and the
+// icons, the Library entry carrying the four media tabs as its sub-menu
+// (librarySubMenu), and its inset holding the top bar -- the sidebar
+// trigger -- and the page body: the breadcrumb row and the page. The
+// active sidebar entry is derived from the title (activeFor); a tab's
+// sub-entry swaps the page body through htmx, so the sidebar and the top
+// bar stay and the URL follows. The top bar and the
 // breadcrumb row are sticky, as is a page's toolbar, so the library's A-Z
 // bar can sit exactly beneath them and fill the rest of the viewport.
 templ Shell(c Chrome) {
@@ -139,6 +139,9 @@ templ Shell(c Chrome) {
 												@icon.Icon(n.Icon)()
 												<span>{ n.Label }</span>
 											}
+											if n.Href == "/library" {
+												@librarySubMenu(c.Tab)
+											}
 										}
 									}
 								}
@@ -150,7 +153,6 @@ templ Shell(c Chrome) {
 				@sidebar.Inset() {
 					<header class="sticky top-0 z-20 flex h-12 shrink-0 items-center gap-4 border-b border-border bg-background px-4">
 						@sidebar.Trigger()
-						@topTabs(c.Tab)
 					</header>
 					<div id="page-body" class="flex flex-1 flex-col">
 						<div class="sticky top-12 z-10 flex h-9 shrink-0 items-center border-b border-border bg-background px-4 text-sm">
@@ -189,16 +191,20 @@ templ breadcrumbs(crumbs []Crumb) {
 	}
 }
 
-// topTabs is the library's tab strip in the top bar (design 2026-09-24,
-// after Radarr's top nav): one trigger per projection.Tab, the current
-// one marked, each swapping the page body through htmx (hx-select of
-// #page-body, URL pushed) so the sidebar and the bar itself stay put.
-templ topTabs(current projection.Tab) {
-	@tabs.Tabs(tabs.Props{DefaultValue: string(current), Attributes: templ.Attributes{"data-tabs": true}}) {
-		@tabs.List(tabs.ListProps{Variant: tabs.VariantLine}) {
-			for _, tab := range projection.Tabs() {
-				@tabs.Trigger(tabs.TriggerProps{
-					Value: string(tab),
+// librarySubMenu is the Library entry's sub-menu (2026-09-24, after
+// shadcn's sidebar-07, replacing the top bar's tab strip): one sub-entry
+// per projection.Tab, the current one marked, each swapping the page body
+// through htmx (hx-select of #page-body, URL pushed) so the sidebar and
+// the top bar stay put. The component hides the sub-menu while the
+// sidebar is collapsed to icons; the Library entry itself still opens the
+// library then.
+templ librarySubMenu(current projection.Tab) {
+	@sidebar.MenuSub() {
+		for _, tab := range projection.Tabs() {
+			@sidebar.MenuSubItem() {
+				@sidebar.MenuSubButton(sidebar.MenuSubButtonProps{
+					Href:     "/library/" + string(tab),
+					IsActive: tab == current,
 					Attributes: templ.Attributes{
 						"hx-get":      "/library/" + string(tab),
 						"hx-push-url": "true",
@@ -207,7 +213,7 @@ templ topTabs(current projection.Tab) {
 						"hx-swap":     "outerHTML",
 					},
 				}) {
-					{ tabLabel(tab) }
+					<span>{ tabLabel(tab) }</span>
 				}
 			}
 		}

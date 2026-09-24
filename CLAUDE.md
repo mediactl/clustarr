@@ -50,8 +50,11 @@ The predicate is `app/catalog/controller/rollup.Transcoded` -- `spec.original` f
 
 ## UI
 
-The library UI page should contain tabs for each media type:
-(Movies) (TV) (Music) (Books)
+The library's media types -- Movies, TV, Music, Books -- are the Library
+entry's sub-menu in the sidebar (shadcn-templ `sidebar.MenuSub` under the
+Library `sidebar.MenuItem`, since 2026-09-24; before that a tab strip in
+the top bar). Each sub-entry swaps the page body through htmx so the
+sidebar stays put.
 In the TV pane, only series should be shown. Clicking a series should present a page with the seasons and episodes.
 
 Each item should show the cover art, monitored status and selected quality profile
