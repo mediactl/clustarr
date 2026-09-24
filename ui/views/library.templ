@@ -89,7 +89,9 @@ const jumpButtonClass = "min-h-0 w-full flex-1 px-0 py-0 text-[11px]"
 // (data-jump-thumb) along it in proportion to the items on screen over
 // the whole list, from #library-rows' data-offset and data-total: a link per
 // letter that has titles, a disabled button per letter that does not,
-// each carrying data-jump for the tests.
+// each carrying data-jump for the tests. A disabled letter lets pointer
+// events through: Chromium swallows wheel events over a disabled button,
+// which stalled scrolling whenever the pointer rested on one.
 templ jumpBar(jumpsFor []Jump) {
 	if len(jumpsFor) > 0 {
 		<div data-jump-bar class="fixed top-[8.75rem] right-0 bottom-0 z-10 hidden w-8 lg:block">
@@ -99,7 +101,7 @@ templ jumpBar(jumpsFor []Jump) {
 					if j.Enabled {
 						@button.Button(button.Props{Href: j.Href, Size: button.SizeXs, Variant: button.VariantOutline, Class: jumpButtonClass, Attributes: templ.Attributes{"data-jump": j.Letter}}) { { j.Letter } }
 					} else {
-						@button.Button(button.Props{Size: button.SizeXs, Variant: button.VariantOutline, Disabled: true, Class: jumpButtonClass, Attributes: templ.Attributes{"data-jump": j.Letter}}) { { j.Letter } }
+						@button.Button(button.Props{Size: button.SizeXs, Variant: button.VariantOutline, Disabled: true, Class: jumpButtonClass + " pointer-events-none", Attributes: templ.Attributes{"data-jump": j.Letter}}) { { j.Letter } }
 					}
 				}
 			}

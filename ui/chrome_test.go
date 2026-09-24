@@ -171,6 +171,7 @@ func TestLibraryPageHasBreadcrumbsTabsAndAJumpBar(t *testing.T) {
 	hash := tagWith(t, body, `data-jump="#"`)
 	require.NotContains(t, hash, `href=`, "a letter no title starts with is not a link")
 	require.Contains(t, hash, `disabled`)
+	require.Contains(t, hash, "pointer-events-none", "a disabled button swallows wheel events in Chromium; scrolling must pass through it")
 }
 
 func TestLibraryJumpRedirectsToTheLetterPage(t *testing.T) {
