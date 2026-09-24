@@ -58,10 +58,14 @@ const (
 )
 
 var (
-	// par2VolumeRE matches "name.vol000+01.par2"; the second number is how
-	// many recovery blocks the volume carries (parchive spec, research note
-	// §2.4).
-	par2VolumeRE = regexp.MustCompile(`(?i)^(.*)\.vol(\d+)[+\-](\d+)\.par2$`)
+	// par2VolumeRE matches "name.vol000+01.par2", where the second number is
+	// how many recovery blocks the volume carries (parchive spec, research
+	// note §2.4), and the block-less "name.vol-01.par2" scheme real posts
+	// use (nzbgeek, 2026-09-24: seven volumes named vol-01..vol-07, the
+	// first of them the 65 KB index). Group 3 is the block count, empty when
+	// the name carries none; criticalHealthPercent then estimates from the
+	// volumes' size instead of reading the set as unrepairable.
+	par2VolumeRE = regexp.MustCompile(`(?i)^(.*)\.vol[+\-]?(\d+)(?:[+\-](\d+))?\.par2$`)
 
 	// rarVolumeRE matches both multi-volume naming schemes: name.partNN.rar
 	// and the old name.rNN.
@@ -270,14 +274,42 @@ func (j *nzbJob) criticalHealthPercent() int32 {
 	if j.TotalSegments == 0 {
 		return 100
 	}
-	blocks := j.recoveryBlocks()
-	if blocks <= 0 {
-		// Nothing to repair with: one missing article is fatal.
+	if blocks := j.recoveryBlocks(); blocks > 0 {
+		// A recovery block replaces roughly one article-sized slice, so the
+		// floor is the share of articles that must survive.
+		recoverable := min(blocks, j.TotalSegments)
+		survive := j.TotalSegments - recoverable
+		return int32(survive * 100 / j.TotalSegments) //nolint:gosec // bounded by 100.
+	}
+	// No volume names its block count (the "name.vol-01.par2" scheme), so
+	// estimate the capacity from the volumes' size the way NZBGet's
+	// NzbInfo::CalcCriticalHealth does: recovery data replaces about one
+	// byte per byte of itself, and the volumes can be damaged too, so their
+	// size counts twice against the total. Before this fallback such a set
+	// read as unrepairable and the first failed article of 14,169 paused a
+	// 10 GB transfer at 1% (2026-09-24). Nothing to estimate from means one
+	// missing article really is fatal.
+	parBytes := j.par2VolumeBytes()
+	if parBytes <= 0 || j.TotalBytes <= 0 {
 		return 100
 	}
-	// A recovery block replaces roughly one article-sized slice, so the floor
-	// is the share of articles that must survive.
-	recoverable := min(blocks, j.TotalSegments)
-	survive := j.TotalSegments - recoverable
-	return int32(survive * 100 / j.TotalSegments) //nolint:gosec // bounded by 100.
+	if 2*parBytes >= j.TotalBytes {
+		return 0
+	}
+	pct := (j.TotalBytes - 2*parBytes) * 100 / (j.TotalBytes - parBytes)
+	// NZBGet caps an estimated floor at 999 per mille: a set that carries
+	// recovery data is never "one article is fatal".
+	return int32(min(pct, 99)) //nolint:gosec // bounded by 99.
+}
+
+// par2VolumeBytes totals the size of the recovery volumes, the fallback
+// measure of repair capacity when their names carry no block counts.
+func (j *nzbJob) par2VolumeBytes() int64 {
+	var total int64
+	for _, f := range j.Files {
+		if f.Kind == kindPar2Volume {
+			total += f.Bytes
+		}
+	}
+	return total
 }

@@ -417,6 +417,36 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   `TestEnsureSingleNodeTopologyFitsTheKindServersLimits` runs the same
   Ensure against a server capped like the cluster's. Anything new in the
   topology must fit that server.
+- **The Helm chart's NATS ran the server's 1 MiB `max_payload` default
+  while `config/nats` has always set 8Mi, and natsbus dropped the refused
+  reply on the floor.** indexarr answers `rpc.indexarr.download` with the
+  .nzb inline (base64 in JSON, so 4/3 of its size); a 1080p movie's
+  ~1.3 MB .nzb is over 1 MiB, nats.go refused the reply client-side with
+  `ErrMaxPayload`, `Serve` discarded that error, and the usenet engine
+  waited out its 45 s deadline on every attempt -- the first real NZB
+  grab on the owner's cluster sat in `Assigned` with "context deadline
+  exceeded" while indexarr's metrics counted a grab (2026-09-24). Two
+  fixes: `nats.config.merge.max_payload: "<< 8Mi >>"` in the chart, held
+  to kustomize by `TestBothInstallersRaiseTheNATSMaxPayload`; and `Serve`
+  answers a reply it cannot send with a header-only service error, so the
+  requester fails at once naming the cause
+  (`TestServeReportsAReplyTheServerRefuses`). Operational trap on top: a
+  `max_payload` reload updates the server, but a connected nats.go client
+  keeps the `INFO` it read at connect, so the publisher (indexarr) had to
+  be restarted before the raised limit took effect.
+- **A par2 set named `name.vol-01.par2`..`vol-07.par2` carries no block
+  counts, and the usenet engine read it as unrepairable.** `par2VolumeRE`
+  only knew `vol000+01`, so those volumes classified as *index* files with
+  zero blocks, `criticalHealthPercent` came out at 100, and the first failed
+  article of 14,169 paused a 10 GB transfer at 1% under `healthAction:
+  pause` ("health 99% is below the floor (abort 90%, critical 100%)") -- the
+  same grab as above, once the payload reached the engine. The regex now
+  takes the block-less form, `criticalHealthPercent` falls back to NZBGet's
+  size-based estimate (`(size - 2*par) / (size - par)`, capped at 99) when
+  no volume names its blocks, and `par2IndexFile` hands par2cmdline the
+  smallest volume when the set has no separate index, since every volume
+  carries the main packet. Real subjects from that post are the fixture
+  (`TestCriticalHealthPercentEstimatesFromVolumeSizesWithoutBlockCounts`).
 - **Every cache strips `managedFields`, and the cache-sync timeout is ten
   minutes.** On the owner's library (15,630 Episodes, a 57 MB list that
   `kubectl` alone takes 40 s to fetch) captionarr crash-looped on

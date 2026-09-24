@@ -233,7 +233,13 @@ func par2IndexFile(files []nzbFile) string {
 		}
 	}
 	if len(indexes) == 0 {
-		return ""
+		// A set posted as "name.vol-01.par2".."vol-07.par2" has no separate
+		// index: its smallest volume is the index-sized one (65 KB on the
+		// 2026-09-24 nzbgeek post) and every volume carries the main and
+		// file-description packets, so par2cmdline takes any of them as the
+		// set's entry point. Returning "" here skipped repair for such a
+		// set with 76 articles missing.
+		return smallestPar2Volume(files)
 	}
 	sort.Strings(indexes)
 	best, bestBlocks := indexes[0], -1
@@ -241,6 +247,22 @@ func par2IndexFile(files []nzbFile) string {
 		base := strings.ToLower(strings.TrimSuffix(idx, ".par2"))
 		if b := blocks[base]; b > bestBlocks {
 			best, bestBlocks = idx, b
+		}
+	}
+	return best
+}
+
+// smallestPar2Volume names the smallest recovery volume, or "" without one.
+// Ties break on name so the choice is stable across runs.
+func smallestPar2Volume(files []nzbFile) string {
+	best := ""
+	var bestBytes int64
+	for _, f := range files {
+		if f.Kind != kindPar2Volume {
+			continue
+		}
+		if best == "" || f.Bytes < bestBytes || (f.Bytes == bestBytes && f.Name < best) {
+			best, bestBytes = f.Name, f.Bytes
 		}
 	}
 	return best

@@ -1559,6 +1559,42 @@ after the gap fixes" started before later waves ticked items off. Design:
 - [ ] Final fix wave: the Plex provider's catalogue index is memoised for `projection.IndexTTL` (5 s) and invalidated on TTL only. The value is a guess sized to a PMS scan burst; tune it against a real PMS scan in Phase H (a shorter TTL shows a catalogue edit sooner, a longer one lists less during a scan), or invalidate on the projection's own tick instead.
 - [ ] Scenario 18's thumb-fetch leg skips by name instead of asserting: `config/e2e` has no egress and no in-cluster fixture serves image bytes (`test/fixtures/tmdbstub` serves JSON only; `pkg/metadata/clients/tmdb` hard-codes `posterBaseURL` to the real CDN). Phase H follow-up: an image-serving fixture (extend `tmdbstub` or add one) plus a TMDB image base-URL override (a flag or a `MetadataProvider` spec field) so the leg can assert a 200 `image/*` response; until then the art round trip is proven only by `ui/art.go`'s membus tests and B2's envtests.
 
+### Found by the first real NZB grab on kind-cluster-plex (2026-09-24)
+
+An interactive Search against nzbgeek, a grab through `spec.grab`, and the
+`frugal` usenet DownloadClient. The blocker (NATS `max_payload`, a reply
+natsbus dropped silently) is fixed in the chart and in natsbus; these are
+what it left behind.
+
+- [ ] **indexarr's download budget should follow the connection's real
+  limit.** `app/indexer/download.MaxPayloadBytes` is a 4 MiB constant; the
+  reply that matters must fit `nc.MaxPayload()`, which a Bus could expose.
+  When the .nzb would not fit, hand back `RedirectURL` (the engine already
+  fetches one directly) instead of attempting a reply the connection
+  refuses -- then a misconfigured server degrades to a direct fetch rather
+  than a stranded grab, and `TestServeReportsAReplyTheServerRefuses` is
+  the backstop rather than the behaviour.
+- [ ] **A newznab download URL carries the API key in the clear inside CR
+  fields.** `Search.status.results[].downloadURL` and
+  `Download.spec.source.indexerDownload.url` hold nzbgeek's
+  `apikey=` query parameter, readable by anyone who can read Searches or
+  Downloads (the ui role included) and visible in `kubectl get -o yaml`.
+  The error-string rule ("API keys never in error strings") does not
+  cover object fields. Options: strip the key when the ReleaseDecision is
+  recorded and let indexarr re-append it from the Indexer's Secret when it
+  fetches (it already resolves the Indexer), or record only the guid and
+  resolve the URL at grab time (blocked today: "release has no download
+  URL; indexarr cannot resolve a guid without one").
+- [ ] **The engine's requeue backoff after a failed payload resolve grows
+  to many minutes** (controller-runtime's per-item exponential backoff,
+  reached ~5 min by the twentieth attempt), so a fixed upstream is not
+  retried promptly; a bounded backoff (or a `RequeueAfter` of the poll
+  interval) for the resolve step would recover within a minute.
+- [ ] **A connected nats.go client does not see a reloaded `max_payload`**
+  (it keeps the `INFO` from connect); document in the chart README that
+  raising it needs the publishers restarted, or reconnect on the reload
+  advisory.
+
 ### Deferred by decision: the unified manager topology (2026-09-24)
 
 - [ ] Adopt `docs/superpowers/specs/2026-09-24-unified-manager-design.md`
