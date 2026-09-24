@@ -39,10 +39,11 @@ var creds = map[string][]byte{
 }
 
 // TestEveryProviderTypeBuildsAClient is the X6b guard: each of the eight
-// types that used to be ErrProviderNotImplemented builds a client and
-// fills exactly the Registry slots its client serves.
+// types that used to be ErrProviderNotImplemented, and mdblist since its
+// shapes were recorded, builds a client and fills exactly the Registry
+// slots its client serves.
 func TestEveryProviderTypeBuildsAClient(t *testing.T) {
-	type slots struct{ artwork, books, comics, resolvers int }
+	type slots struct{ artwork, books, comics, resolvers, ratings int }
 	tests := []struct {
 		typ  catalogv1alpha1.MetadataProviderType
 		want slots
@@ -55,12 +56,13 @@ func TestEveryProviderTypeBuildsAClient(t *testing.T) {
 		{catalogv1alpha1.MetadataProviderAniList, slots{resolvers: 1}},
 		{catalogv1alpha1.MetadataProviderKitsu, slots{resolvers: 1}},
 		{catalogv1alpha1.MetadataProviderAnimeLists, slots{resolvers: 1}},
+		{catalogv1alpha1.MetadataProviderMDBList, slots{ratings: 1}},
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.typ), func(t *testing.T) {
 			reg := &metadata.Registry{}
 			require.NoError(t, addToRegistry(reg, catalogv1alpha1.MetadataProviderSpec{Type: tt.typ}, creds, http.DefaultClient))
-			require.Equal(t, tt.want, slots{len(reg.Artwork), len(reg.Books), len(reg.Comics), len(reg.Resolvers)})
+			require.Equal(t, tt.want, slots{len(reg.Artwork), len(reg.Books), len(reg.Comics), len(reg.Resolvers), len(reg.Ratings)})
 			require.Empty(t, reg.Movies)
 			require.Empty(t, reg.Series)
 			require.Empty(t, reg.Artists)
@@ -76,6 +78,7 @@ func TestEveryProviderTypeBuildsAClient(t *testing.T) {
 func TestSupplementaryProvidersRefuseAMissingCredential(t *testing.T) {
 	for typ, key := range map[catalogv1alpha1.MetadataProviderType]string{
 		catalogv1alpha1.MetadataProviderFanart:    catalogv1alpha1.MetadataSecretKeyAPIKey,
+		catalogv1alpha1.MetadataProviderMDBList:   catalogv1alpha1.MetadataSecretKeyAPIKey,
 		catalogv1alpha1.MetadataProviderHardcover: catalogv1alpha1.MetadataSecretKeyBearer,
 		catalogv1alpha1.MetadataProviderMetron:    catalogv1alpha1.MetadataSecretKeyBearer,
 	} {
@@ -100,17 +103,18 @@ func TestAnUnknownTypeIsStillNotImplemented(t *testing.T) {
 	require.ErrorIs(t, err, ErrProviderNotImplemented)
 }
 
-// TestMDBListAndOMDbAreRecognisedButBlockedUnderR5 proves both new
-// MetadataProviderType enum members are accepted (not
-// ErrProviderNotImplemented -- this package knows the type) but refuse
+// TestOMDbIsRecognisedButBlockedUnderR5 proves the omdb
+// MetadataProviderType enum member is accepted (not
+// ErrProviderNotImplemented -- this package knows the type) but refuses
 // client construction with ErrProviderAwaitingFixtures, per ruling R5
-// (spec §C.3): neither client is written without a recorded response
-// shape, and MDBLIST_API_KEY/OMDB_API_KEY were unset at task C1's
-// dispatch. Both addToRegistry and newSupplementaryProber (the two
-// construction paths, registry-build and CR-probe) must agree.
-func TestMDBListAndOMDbAreRecognisedButBlockedUnderR5(t *testing.T) {
+// (spec §C.3): no client is written without a recorded response shape,
+// and OMDB_API_KEY was unset at task C1's dispatch (mdblist's shapes were
+// recorded on 2026-09-24; see TestEveryProviderTypeBuildsAClient). Both
+// addToRegistry and newSupplementaryProber (the two construction paths,
+// registry-build and CR-probe) must agree.
+func TestOMDbIsRecognisedButBlockedUnderR5(t *testing.T) {
 	for _, typ := range []catalogv1alpha1.MetadataProviderType{
-		catalogv1alpha1.MetadataProviderMDBList, catalogv1alpha1.MetadataProviderOMDb,
+		catalogv1alpha1.MetadataProviderOMDb,
 	} {
 		t.Run(string(typ), func(t *testing.T) {
 			err := addToRegistry(&metadata.Registry{}, catalogv1alpha1.MetadataProviderSpec{Type: typ}, creds, http.DefaultClient)
@@ -142,6 +146,31 @@ func TestSupplementaryProberReportsReachabilityAndRejectedCredentials(t *testing
 	require.NoError(t, err)
 	_, err = p.Probe(context.Background())
 	require.True(t, isAuthError(err), "a rejected key must read as CredentialsRejected, got %v", err)
+
+	// mdblist probes GET /user with every key, the call that reports the
+	// quota without spending it; a rejected second key fails the probe too.
+	var probed []string
+	mdbl := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		probed = append(probed, r.URL.Path+"?"+r.URL.Query().Get("apikey"))
+		if r.URL.Query().Get("apikey") == "bad" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		_, _ = w.Write([]byte(`{"api_requests":1000,"api_requests_count":4}`))
+	}))
+	defer mdbl.Close()
+	two := map[string][]byte{catalogv1alpha1.MetadataSecretKeyAPIKey: []byte("k1"), catalogv1alpha1.MetadataSecretKeyAPIKeySecondary: []byte("k2")}
+	p, err = newSupplementaryProber(catalogv1alpha1.MetadataProviderSpec{Type: catalogv1alpha1.MetadataProviderMDBList, BaseURL: &mdbl.URL}, two, mdbl.Client())
+	require.NoError(t, err)
+	_, err = p.Probe(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, []string{"/user?k1", "/user?k2"}, probed)
+
+	two[catalogv1alpha1.MetadataSecretKeyAPIKeySecondary] = []byte("bad")
+	p, err = newSupplementaryProber(catalogv1alpha1.MetadataProviderSpec{Type: catalogv1alpha1.MetadataProviderMDBList, BaseURL: &mdbl.URL}, two, mdbl.Client())
+	require.NoError(t, err)
+	_, err = p.Probe(context.Background())
+	require.True(t, isAuthError(err), "a rejected second key must read as CredentialsRejected, got %v", err)
 }
 
 func TestSupplementaryProvidersLoseAPriorityTieToPrimaryOnes(t *testing.T) {

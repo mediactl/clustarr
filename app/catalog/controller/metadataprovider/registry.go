@@ -40,6 +40,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/metadata/clients/hardcover"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/kitsu"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/mangadex"
+	"github.com/mediactl/clustarr/pkg/metadata/clients/mdblist"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/metron"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/musicbrainz"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/openlibrary"
@@ -211,8 +212,8 @@ func isSupplementary(t catalogv1alpha1.MetadataProviderType) bool {
 	}
 }
 
-// supplementary is one of the eight clients task X6b added, plus (once C1's
-// follow-up records mdblist and omdb's shapes) a ratings client, with each
+// supplementary is one of the eight clients task X6b added, or mdblist's
+// ratings client (omdb's waits on its recorded shapes), with each
 // Registry slot it fills (nil where it fills none) and the cheapest call
 // that proves it reachable.
 type supplementary struct {
@@ -229,8 +230,9 @@ type supplementary struct {
 // Books; metron and mangadex are Comics and Resolvers; anilist, kitsu and
 // animelists are Resolvers (AniList is a ComicProvider too, but a Comic's
 // source can only be ComicVine or MangaDex, so it is not registered as a
-// comic source). fanart needs secretRef key "apiKey"; hardcover and metron
-// need "bearer". spec.contactUserAgent is sent as the User-Agent when set.
+// comic source); mdblist is Ratings. fanart and mdblist need secretRef key
+// "apiKey" (mdblist also reads an optional "apiKeySecondary"); hardcover and
+// metron need "bearer". spec.contactUserAgent is sent as the User-Agent when set.
 // With no spec.rateLimit each client gets its own package's DefaultRate and
 // DefaultBurst. Any other type is ErrProviderNotImplemented.
 func buildSupplementary(spec catalogv1alpha1.MetadataProviderSpec, secret map[string][]byte, httpClient *http.Client) (*supplementary, error) {
@@ -269,7 +271,16 @@ func buildSupplementary(spec catalogv1alpha1.MetadataProviderSpec, secret map[st
 	case catalogv1alpha1.MetadataProviderAnimeLists:
 		c := animelists.New(animelists.Config{HTTPClient: httpClient, URL: baseURL(spec), Limiter: limiterFor(spec, animelists.DefaultRate, animelists.DefaultBurst), UserAgent: ua})
 		return &supplementary{resolver: c, ping: c.Ping}, nil
-	case catalogv1alpha1.MetadataProviderMDBList, catalogv1alpha1.MetadataProviderOMDb:
+	case catalogv1alpha1.MetadataProviderMDBList:
+		c, err := mdblist.New(mdblist.Config{
+			HTTPClient: httpClient, BaseURL: baseURL(spec), Limiter: limiterFor(spec, mdblist.DefaultRate, mdblist.DefaultBurst), UserAgent: ua,
+			APIKeys: []string{string(secret[catalogv1alpha1.MetadataSecretKeyAPIKey]), string(secret[catalogv1alpha1.MetadataSecretKeyAPIKeySecondary])},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("mdblist requires secretRef key %s: %w", catalogv1alpha1.MetadataSecretKeyAPIKey, err)
+		}
+		return &supplementary{ratings: c, ping: c.Ping}, nil
+	case catalogv1alpha1.MetadataProviderOMDb:
 		// Ruling R5 (spec §C.3): the CRD enum member and secretRef shape
 		// exist, but no client is written against no recorded response
 		// shape. See ErrProviderAwaitingFixtures' doc comment (prober.go).

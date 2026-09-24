@@ -40,6 +40,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/metadata/clients/hardcover"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/kitsu"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/mangadex"
+	"github.com/mediactl/clustarr/pkg/metadata/clients/mdblist"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/metron"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/musicbrainz"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/openlibrary"
@@ -150,14 +151,14 @@ func addProvider(ctx context.Context, c client.Client, reg *pkgmetadata.Registry
 // catalog CR is ever keyed by either), or a pure crosswalk (anilist, kitsu,
 // animelists). mangadex is primary: a Comic can name it as its source.
 //
-// mdblist and omdb have no case in addSupplementary below: ruling R5 (spec
-// §C.3) blocks writing either client without a recorded response shape,
-// with neither MDBLIST_API_KEY nor OMDB_API_KEY set as of task C1. A
-// MetadataProvider of either type therefore falls through addSupplementary
-// silently -- no client, no error, matching every other type this switch
-// does not yet know -- and is included here only so its priority-tie
-// position is correct once C1's follow-up adds the case. The CR itself
-// still reports NotReady with an explicit reason: see the sibling
+// omdb has no case in addSupplementary below: ruling R5 (spec §C.3) blocks
+// writing its client without a recorded response shape (mdblist's shapes
+// were recorded on 2026-09-24, and it has one). A MetadataProvider of type
+// omdb therefore falls through addSupplementary silently -- no client, no
+// error, matching every other type this switch does not yet know -- and is
+// included here only so its priority-tie position is correct once its
+// client lands. The CR itself still reports NotReady with an explicit
+// reason: see the sibling
 // buildSupplementary in app/catalog/controller/metadataprovider/registry.go,
 // which this package does not share code with but must stay consistent
 // with (CLAUDE.md: "grep for the other copies of the thing you fixed").
@@ -175,7 +176,8 @@ func isSupplementary(t catalogv1alpha1.MetadataProviderType) bool {
 }
 
 // addSupplementary wires the eight provider types that shipped without a
-// client until task X6b, each into every Registry slot its client fills:
+// client until task X6b, and mdblist, each into every Registry slot its
+// client fills:
 //
 //   - coverart, fanart: Artwork.
 //   - hardcover: Books.
@@ -184,8 +186,10 @@ func isSupplementary(t catalogv1alpha1.MetadataProviderType) bool {
 //     too, but not registered as one: a Comic's source can only be
 //     ComicVine or MangaDex, so AniList hits in a comic search would be
 //     titles no Comic can be created from.
+//   - mdblist: Ratings.
 //
-// Credentials: fanart reads secretRef's "apiKey"; hardcover and metron read
+// Credentials: fanart reads secretRef's "apiKey", and mdblist "apiKey" plus
+// an optional "apiKeySecondary"; hardcover and metron read
 // "bearer" (both authenticate with a Bearer token). spec.contactUserAgent,
 // when set, is every client's User-Agent. With no spec.rateLimit each
 // client gets its package's documented (or, where the provider publishes
@@ -246,6 +250,24 @@ func addSupplementary(ctx context.Context, c client.Client, reg *pkgmetadata.Reg
 		})
 		reg.Comics = append(reg.Comics, cl)
 		reg.Resolvers = append(reg.Resolvers, cl)
+	case catalogv1alpha1.MetadataProviderMDBList:
+		key, err := secretValue(ctx, c, p, catalogv1alpha1.MetadataSecretKeyAPIKey)
+		if err != nil {
+			return err
+		}
+		secondary, err := optionalSecretValue(ctx, c, p, catalogv1alpha1.MetadataSecretKeyAPIKeySecondary)
+		if err != nil {
+			return err
+		}
+		cl, err := mdblist.New(mdblist.Config{
+			HTTPClient: httpClient, BaseURL: baseURL(p, mdblist.DefaultBaseURL),
+			Limiter: supplementaryLimiter(p, mdblist.DefaultRate, mdblist.DefaultBurst), UserAgent: ua,
+			APIKeys: []string{key, secondary},
+		})
+		if err != nil {
+			return fmt.Errorf("metadata: build mdblist client for %s/%s: %w", p.Namespace, p.Name, err)
+		}
+		reg.Ratings = append(reg.Ratings, cl)
 	case catalogv1alpha1.MetadataProviderAniList:
 		reg.Resolvers = append(reg.Resolvers, anilist.New(anilist.Config{
 			HTTPClient: httpClient, BaseURL: baseURL(p, anilist.DefaultBaseURL),
@@ -285,6 +307,20 @@ func baseURL(p catalogv1alpha1.MetadataProvider, def string) string {
 // read: no secretRef, a Secret that is not there, or one without the key
 // its type reads. BuildRegistry skips such a provider rather than failing.
 var ErrProviderCredentials = errors.New("metadata: provider credentials cannot be read")
+
+// optionalSecretValue is secretValue for a key the provider can do without:
+// "" when the Secret has no such key, an error only when the Secret itself
+// cannot be read.
+func optionalSecretValue(ctx context.Context, c client.Client, p catalogv1alpha1.MetadataProvider, key string) (string, error) {
+	if p.Spec.SecretRef == nil {
+		return "", nil
+	}
+	var s corev1.Secret
+	if err := c.Get(ctx, types.NamespacedName{Namespace: p.Namespace, Name: p.Spec.SecretRef.Name}, &s); err != nil {
+		return "", fmt.Errorf("%w: get secret %s/%s: %w", ErrProviderCredentials, p.Namespace, p.Spec.SecretRef.Name, err)
+	}
+	return string(s.Data[key]), nil
+}
 
 func secretValue(ctx context.Context, c client.Client, p catalogv1alpha1.MetadataProvider, key string) (string, error) {
 	if p.Spec.SecretRef == nil {

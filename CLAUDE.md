@@ -1047,9 +1047,11 @@ dropping every provider hotlink (ADR-0011); both installers give the ui
 `status.metadata.ratings` from TMDB for **movies only** — series carry no
 ratings in M7: TMDB declares its source for movies only, TVDB (the series
 provider) supplies none, and MDBList and OMDb, declared as fallthrough, were
-not built (ruling R5: no API keys at hand; both `MetadataProviderType`s
-report `Ready=False, InvalidSpec` until they are), so series stay unrated
-until TMDB TV ratings (a recorded `/tv/{id}` fixture) or MDBList/OMDb land;
+not built (ruling R5: no API keys at hand). MDBList has since landed
+(2026-09-24, `pkg/metadata/clients/mdblist`, built against responses
+recorded from the live API): every source for movies and series, with an
+optional second key spent once the first's daily quota is out; OMDb still
+reports `Ready=False, InvalidSpec`;
 `OverlayProfile` and `pkg/overlay` composite Kometa-style rating badges
 onto posters, rendered by the same `--role artwork` worker for Movie and
 Series only, bounded to 2 concurrent renders by default and drawn at most

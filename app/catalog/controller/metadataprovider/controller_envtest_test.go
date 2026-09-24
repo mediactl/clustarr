@@ -247,16 +247,17 @@ func TestReconcileAnAddedTypeWithARejectedCredentialIsNotReady(t *testing.T) {
 	}
 }
 
-// TestReconcileMDBListAndOMDbAreNotReadyUnderR5 is ruling R5's CR-level
-// contract (spec §C.3): with neither client written (no recorded response
-// shape; MDBLIST_API_KEY/OMDB_API_KEY unset at task C1's dispatch), a
-// MetadataProvider naming either type must not read as merely unimplemented
+// TestReconcileOMDbIsNotReadyUnderR5 is ruling R5's CR-level contract
+// (spec §C.3): with its client not written (no recorded response shape;
+// OMDB_API_KEY unset at task C1's dispatch -- mdblist's shapes were
+// recorded on 2026-09-24 and it has a client), a MetadataProvider naming
+// the type must not read as merely unimplemented
 // (Ready=Unknown/ProviderNotImplemented, the fate of a type this package
 // has genuinely never heard of) -- it is a real MetadataProviderType the
 // CRD enum and this Reconciler both know, so it reports a definite
 // Ready=False/InvalidSpec, with the message naming exactly what blocks it,
 // through the real Reconciler and a real apiserver.
-func TestReconcileMDBListAndOMDbAreNotReadyUnderR5(t *testing.T) {
+func TestReconcileOMDbIsNotReadyUnderR5(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
 	ns := "mdp-ratings-blocked"
@@ -265,7 +266,7 @@ func TestReconcileMDBListAndOMDbAreNotReadyUnderR5(t *testing.T) {
 	}
 
 	for _, typ := range []catalogv1alpha1.MetadataProviderType{
-		catalogv1alpha1.MetadataProviderMDBList, catalogv1alpha1.MetadataProviderOMDb,
+		catalogv1alpha1.MetadataProviderOMDb,
 	} {
 		t.Run(string(typ), func(t *testing.T) {
 			name := string(typ)

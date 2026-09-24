@@ -47,12 +47,15 @@ type Image struct {
 	Season *int32 `json:"season,omitempty"`
 }
 
-// Rating is a single source's rating of an entity, on a 0-10 scale scaled
-// by 100 (hundredths) -- ValueCentis 837 means 8.37/10. A source with a
-// different native scale is normalized to /10 before scaling: MusicBrainz
-// (0-5) multiplies by 2, Metacritic/Rotten Tomatoes (0-100) divide by 10 --
-// so every entry in a Ratings map is comparable on the same axis without a
-// caller needing to know each source's convention. This is int32, not
+// Rating is a single source's rating of an entity, scaled by 100
+// (hundredths) on the scale catalogv1alpha1.Rating stores: out of 10 for
+// imdb, tmdb, trakt and letterboxd (ValueCentis 837 means 8.37/10; a source
+// reported on another scale is normalized to /10 first -- MusicBrainz and
+// Letterboxd (0-5) multiply by 2), and out of 100 for metacritic and the
+// Rotten Tomatoes pair (ValueCentis 7400 means 74/100). pkg/overlay's
+// FormatScore and ui/plex read it back on exactly those two scales. (Until
+// 2026-09-24 this comment said every source was normalized to /10; nothing
+// had filled a /100 source to contradict it.) This is int32, not
 // float64, so a rating value can be copied into a CRD status field without
 // crossing CLAUDE.md's "no float32/float64 under api/" line and so it
 // round-trips through JSON and etcd without drift.

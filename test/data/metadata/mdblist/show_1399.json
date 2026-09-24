@@ -1,0 +1,325 @@
+{
+  "title": "Game of Thrones",
+  "year": 2011,
+  "released": "2011-04-17",
+  "released_digital": null,
+  "description": "Seven noble families fight for control of the mythical land of Westeros. Friction between the houses leads to full-scale war. All while a very ancient evil awakens in the farthest north. Amidst the war, a neglected military order of misfits, the Night's Watch, is all that stands between the realms of men and icy horrors beyond.",
+  "tagline": "Winter is coming.",
+  "runtime": 4232,
+  "budget": null,
+  "revenue": null,
+  "score": 87,
+  "score_average": 87,
+  "ids": {
+    "imdb": "tt0944947",
+    "trakt": 1390,
+    "tmdb": 1399,
+    "tvdb": 121361,
+    "mal": null,
+    "mdblist": "8pll"
+  },
+  "type": "show",
+  "updated": "2026-09-19T11:28:12.000Z",
+  "ratings": [
+    {
+      "source": "imdb",
+      "value": 9.2,
+      "score": 92,
+      "votes": 2665117,
+      "url": 14
+    },
+    {
+      "source": "metacritic",
+      "value": 86,
+      "score": 86,
+      "votes": 171,
+      "url": "/game-of-thrones"
+    },
+    {
+      "source": "metacriticuser",
+      "value": 8.4,
+      "score": 84.0,
+      "votes": 20200,
+      "url": null
+    },
+    {
+      "source": "trakt",
+      "value": 89,
+      "score": 89,
+      "votes": 74138,
+      "url": null
+    },
+    {
+      "source": "tomatoes",
+      "value": 89,
+      "score": 89,
+      "votes": 338,
+      "url": "/tv/game_of_thrones",
+      "fresh": 1
+    },
+    {
+      "source": "popcorn",
+      "value": 85,
+      "score": 85,
+      "votes": null,
+      "url": "/tv/game_of_thrones"
+    },
+    {
+      "source": "tmdb",
+      "value": 84,
+      "score": 84,
+      "votes": 27783,
+      "url": null
+    },
+    {
+      "source": "letterboxd",
+      "value": null,
+      "score": null,
+      "votes": null,
+      "url": null
+    },
+    {
+      "source": "rogerebert",
+      "value": null,
+      "score": null,
+      "votes": null,
+      "url": null
+    },
+    {
+      "source": "myanimelist",
+      "value": null,
+      "score": null,
+      "votes": null,
+      "url": null
+    }
+  ],
+  "genres": [
+    {
+      "id": 1,
+      "title": "Action"
+    },
+    {
+      "id": 6,
+      "title": "Drama"
+    },
+    {
+      "id": 8,
+      "title": "Fantasy"
+    },
+    {
+      "id": 16,
+      "title": "Science Fiction"
+    }
+  ],
+  "streams": [
+    {
+      "id": 7,
+      "name": "HBO"
+    },
+    {
+      "id": 8,
+      "name": "HBO MAX"
+    }
+  ],
+  "watch_providers": [
+    {
+      "id": 2,
+      "name": "Apple TV Store"
+    },
+    {
+      "id": 3,
+      "name": "Google Play Movies"
+    },
+    {
+      "id": 7,
+      "name": "Fandango At Home"
+    },
+    {
+      "id": 10,
+      "name": "Amazon Video"
+    },
+    {
+      "id": 1825,
+      "name": "HBO Max Amazon Channel"
+    },
+    {
+      "id": 1899,
+      "name": "HBO Max"
+    }
+  ],
+  "production_companies": [
+    {
+      "id": 76043,
+      "name": "Revolution Sun Studios"
+    },
+    {
+      "id": 12525,
+      "name": "Television 360"
+    },
+    {
+      "id": 5820,
+      "name": "Generator Entertainment"
+    },
+    {
+      "id": 12526,
+      "name": "Bighead Littlehead"
+    },
+    {
+      "id": 286828,
+      "name": "Grok! Television"
+    },
+    {
+      "id": 3268,
+      "name": "HBO"
+    }
+  ],
+  "network": "HBO",
+  "seasons": [
+    {
+      "id": 64189,
+      "name": "Specials",
+      "tmdbid": 3627,
+      "air_date": "2010-12-05T00:00:00",
+      "overview": null,
+      "poster_path": "/aos6lC1JGYt6ZRL85lgstNsfSeY.jpg",
+      "tomatofresh": null,
+      "vote_average": 0.0,
+      "episode_count": 300,
+      "season_number": 0,
+      "aired_episode_count": 295,
+      "stored_episode_count": 295
+    },
+    {
+      "id": 64190,
+      "name": "Season 1",
+      "tmdbid": 3624,
+      "air_date": "2011-04-17T00:00:00",
+      "overview": "Trouble is brewing in the Seven Kingdoms of Westeros. For the driven inhabitants of this visionary world, control of Westeros' Iron Throne holds the lure of great power. But in a land where the seasons can last a lifetime, winter is coming...and beyond the Great Wall that protects them, an ancient evil has returned. In Season One, the story centers on three primary areas: the Stark and the Lannister families, whose designs on controlling the throne threaten a tenuous peace; the dragon princess Daenerys, heir to the former dynasty, who waits just over the Narrow Sea with her malevolent brother Viserys; and the Great Wall--a massive barrier of ice where a forgotten danger is stirring.",
+      "poster_path": "/wgfKiqzuMrFIkU1M68DDDY8kGC1.jpg",
+      "tomatofresh": null,
+      "vote_average": 8.4,
+      "episode_count": 10,
+      "season_number": 1,
+      "aired_episode_count": 10,
+      "stored_episode_count": 10
+    },
+    {
+      "id": 64191,
+      "name": "Season 2",
+      "tmdbid": 3625,
+      "air_date": "2012-04-01T00:00:00",
+      "overview": "The cold winds of winter are rising in Westeros...war is coming...and five kings continue their savage quest for control of the all-powerful Iron Throne. With winter fast approaching, the coveted Iron Throne is occupied by the cruel Joffrey, counseled by his conniving mother Cersei and uncle Tyrion. But the Lannister hold on the Throne is under assault on many fronts. Meanwhile, a new leader is rising among the wildings outside the Great Wall, adding new perils for Jon Snow and the order of the Night's Watch.",
+      "poster_path": "/9xfNkPwDOqyeUvfNhs1XlWA0esP.jpg",
+      "tomatofresh": null,
+      "vote_average": 8.3,
+      "episode_count": 10,
+      "season_number": 2,
+      "aired_episode_count": 10,
+      "stored_episode_count": 10
+    },
+    {
+      "id": 64192,
+      "name": "Season 3",
+      "tmdbid": 3626,
+      "air_date": "2013-03-31T00:00:00",
+      "overview": "Duplicity and treachery...nobility and honor...conquest and triumph...and, of course, dragons. In Season 3, family and loyalty are the overarching themes as many critical storylines from the first two seasons come to a brutal head. Meanwhile, the Lannisters maintain their hold on King's Landing, though stirrings in the North threaten to alter the balance of power; Robb Stark, King of the North, faces a major calamity as he tries to build on his victories; a massive army of wildlings led by Mance Rayder march for the Wall; and Daenerys Targaryen--reunited with her dragons--attempts to raise an army in her quest for the Iron Throne.",
+      "poster_path": "/5MkZjRnCKiIGn3bkXrXfndEzqOU.jpg",
+      "tomatofresh": null,
+      "vote_average": 8.4,
+      "episode_count": 10,
+      "season_number": 3,
+      "aired_episode_count": 10,
+      "stored_episode_count": 10
+    },
+    {
+      "id": 64193,
+      "name": "Season 4",
+      "tmdbid": 3628,
+      "air_date": "2014-04-06T00:00:00",
+      "overview": "The War of the Five Kings is drawing to a close, but new intrigues and plots are in motion, and the surviving factions must contend with enemies not only outside their ranks, but within.",
+      "poster_path": "/jXIMScXE4J4EVHUba1JgxZnWbo4.jpg",
+      "tomatofresh": null,
+      "vote_average": 8.5,
+      "episode_count": 10,
+      "season_number": 4,
+      "aired_episode_count": 10,
+      "stored_episode_count": 10
+    },
+    {
+      "id": 64195,
+      "name": "Season 5",
+      "tmdbid": 62090,
+      "air_date": "2015-04-12T00:00:00",
+      "overview": "The War of the Five Kings, once thought to be drawing to a close, is instead entering a new and more chaotic phase. Westeros is on the brink of collapse, and many are seizing what they can while the realm implodes, like a corpse making a feast for crows.",
+      "poster_path": "/7Q1Hy1AHxAzA2lsmzEMBvuWTX0x.jpg",
+      "tomatofresh": null,
+      "vote_average": 8.2,
+      "episode_count": 10,
+      "season_number": 5,
+      "aired_episode_count": 10,
+      "stored_episode_count": 10
+    },
+    {
+      "id": 64197,
+      "name": "Season 6",
+      "tmdbid": 71881,
+      "air_date": "2016-04-24T00:00:00",
+      "overview": "Following the shocking developments at the conclusion of season five, survivors from all parts of Westeros and Essos regroup to press forward, inexorably, towards their uncertain individual fates. Familiar faces will forge new alliances to bolster their strategic chances at survival, while new characters will emerge to challenge the balance of power in the east, west, north and south.",
+      "poster_path": "/p1udLh0gfqyZFmXBGa393gk8go5.jpg",
+      "tomatofresh": null,
+      "vote_average": 8.3,
+      "episode_count": 10,
+      "season_number": 6,
+      "aired_episode_count": 10,
+      "stored_episode_count": 10
+    },
+    {
+      "id": 64198,
+      "name": "Season 7",
+      "tmdbid": 81266,
+      "air_date": "2017-07-16T00:00:00",
+      "overview": "The long winter is here. And with it comes a convergence of armies and attitudes that have been brewing for years.",
+      "poster_path": "/oX51n32QyHeFP5kErksemJsJljL.jpg",
+      "tomatofresh": null,
+      "vote_average": 8.2,
+      "episode_count": 7,
+      "season_number": 7,
+      "aired_episode_count": 7,
+      "stored_episode_count": 7
+    },
+    {
+      "id": 64199,
+      "name": "Season 8",
+      "tmdbid": 107971,
+      "air_date": "2019-04-14T00:00:00",
+      "overview": "The Great War has come, the Wall has fallen and the Night King's army of the dead marches towards Westeros. The end is here, but who will take the Iron Throne?",
+      "poster_path": "/yToCshWmirenreC6mrHwFAScFNJ.jpg",
+      "tomatofresh": null,
+      "vote_average": 6.2,
+      "episode_count": 6,
+      "season_number": 8,
+      "aired_episode_count": 6,
+      "stored_episode_count": 6
+    }
+  ],
+  "language": "en",
+  "spoken_language": "en",
+  "country": "US",
+  "certification": "TV-MA",
+  "commonsense": true,
+  "age_rating": 18,
+  "commonsense_media": {
+    "common_sense": 18,
+    "common_sense_selection": false,
+    "parental_source": 1,
+    "parental_violence": 5,
+    "parental_nudity": 5,
+    "parental_language": 4,
+    "parental_drinking": 3
+  },
+  "awards": "Won: BAFTA, 2013. Plus 50 more wins & 72 nominations.",
+  "status": "Ended",
+  "trailer": "https://www.youtube.com/watch?v=KPLWWIOCOOQ",
+  "poster": "https://image.tmdb.org/t/p/original/1XS1oqL89opfnbLl8WnZY1O1uJx.jpg",
+  "backdrop": "https://image.tmdb.org/t/p/w1920_and_h800_multi_faces/zZqpAXxVSBtxV9qPBcscfXBcL2w.jpg"
+}

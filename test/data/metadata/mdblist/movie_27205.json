@@ -1,0 +1,184 @@
+{
+  "title": "Inception",
+  "year": 2010,
+  "released": "2010-07-15",
+  "released_digital": "2020-08-13",
+  "description": "Cobb, a skilled thief who commits corporate espionage by infiltrating the subconscious of his targets is offered a chance to regain his old life as payment for a task considered to be impossible: \"inception\", the implantation of another person's idea into a target's subconscious.",
+  "tagline": "Your mind is the scene of the crime.",
+  "runtime": 148,
+  "budget": 160000000,
+  "revenue": 839030630,
+  "score": 86,
+  "score_average": 86,
+  "ids": {
+    "imdb": "tt1375666",
+    "trakt": 16662,
+    "tmdb": 27205,
+    "tvdb": 113,
+    "mal": null,
+    "mdblist": "8n"
+  },
+  "type": "movie",
+  "updated": "2026-09-24T10:35:07.000Z",
+  "ratings": [
+    {
+      "source": "imdb",
+      "value": 8.8,
+      "score": 88,
+      "votes": 2871757,
+      "url": 96
+    },
+    {
+      "source": "metacritic",
+      "value": 74,
+      "score": 74,
+      "votes": 42,
+      "url": "/inception"
+    },
+    {
+      "source": "metacriticuser",
+      "value": 8.8,
+      "score": 88.0,
+      "votes": 4168,
+      "url": null
+    },
+    {
+      "source": "trakt",
+      "value": 87,
+      "score": 87,
+      "votes": 68590,
+      "url": null
+    },
+    {
+      "source": "tomatoes",
+      "value": 86,
+      "score": 86,
+      "votes": 364,
+      "url": "/m/inception",
+      "fresh": 1
+    },
+    {
+      "source": "popcorn",
+      "value": 91,
+      "score": 91,
+      "votes": 41618,
+      "url": "/m/inception"
+    },
+    {
+      "source": "tmdb",
+      "value": 83,
+      "score": 83,
+      "votes": 40254,
+      "url": null
+    },
+    {
+      "source": "letterboxd",
+      "value": 4.2,
+      "score": 84,
+      "votes": 4470284,
+      "url": "/film/inception/"
+    },
+    {
+      "source": "rogerebert",
+      "value": 4.0,
+      "score": null,
+      "votes": null,
+      "url": "inception-2010"
+    },
+    {
+      "source": "myanimelist",
+      "value": null,
+      "score": null,
+      "votes": null,
+      "url": null
+    }
+  ],
+  "genres": [
+    {
+      "id": 1,
+      "title": "Action"
+    },
+    {
+      "id": 25,
+      "title": "Adventure"
+    },
+    {
+      "id": 67,
+      "title": "Sci-Fi"
+    },
+    {
+      "id": 16,
+      "title": "Science Fiction"
+    },
+    {
+      "id": 21,
+      "title": "Thriller"
+    }
+  ],
+  "streams": [
+    {
+      "id": 8,
+      "name": "HBO MAX"
+    }
+  ],
+  "watch_providers": [
+    {
+      "id": 2,
+      "name": "Apple TV Store"
+    },
+    {
+      "id": 3,
+      "name": "Google Play Movies"
+    },
+    {
+      "id": 7,
+      "name": "Fandango At Home"
+    },
+    {
+      "id": 10,
+      "name": "Amazon Video"
+    },
+    {
+      "id": 192,
+      "name": "YouTube"
+    },
+    {
+      "id": 486,
+      "name": "Spectrum On Demand"
+    },
+    {
+      "id": 538,
+      "name": "Plex"
+    },
+    {
+      "id": 1866,
+      "name": "ViX Premium Amazon Channel"
+    }
+  ],
+  "production_companies": [
+    {
+      "id": 174,
+      "name": "Warner Bros. Pictures"
+    }
+  ],
+  "language": "en",
+  "spoken_language": "en",
+  "country": "US",
+  "certification": "PG-13",
+  "commonsense": true,
+  "age_rating": 14,
+  "commonsense_media": {
+    "common_sense": 14,
+    "common_sense_selection": false,
+    "parental_source": 1,
+    "parental_violence": 4,
+    "parental_nudity": 1,
+    "parental_language": 2,
+    "parental_drinking": 1
+  },
+  "awards": "Won: Best Achievement in Cinematography (Oscars, 2011). Plus 3 more Oscars, 4 Oscar nominations, 3 wins & 8 nominations.",
+  "status": "released",
+  "trailer": "https://www.youtube.com/watch?v=JE9z-gy4De4",
+  "poster": "https://image.tmdb.org/t/p/original/xlaY2zyzMfkhk0HSC5VUwzoZPU1.jpg",
+  "backdrop": "https://image.tmdb.org/t/p/w1920_and_h800_multi_faces/8ZTVqvKDQ8emSGUEMjsS4yHAwrp.jpg"
+}

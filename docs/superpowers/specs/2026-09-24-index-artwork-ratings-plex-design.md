@@ -524,6 +524,19 @@ on; the implementation task blocks on the recording.
 > built (follow-up, `docs/superpowers/plans/2026-09-18-remaining-work.md`'s
 > M7 carried items). TMDB ratings ship for movies only: series get none in
 > M7 (§C.2's as-built note).
+>
+> **As built (2026-09-24, later): MDBList.** Its shapes were recorded from
+> the live API into `test/data/metadata/mdblist/` and
+> `docs/research/ratings-providers.md`, and `pkg/metadata/clients/mdblist`
+> was built against them. It declares all seven sources for movies and
+> series, keys a movie by TMDB id and a series by TMDB or else TVDB id
+> (`/tvdb/show/{id}` answers the same document), and so gives Series their
+> first ratings. Two departures from §C.1/§C.2: MDBList reports Rotten
+> Tomatoes as two sources, `tomatoes` (critic) and `popcorn` (audience),
+> and each `value` on the source's own scale (imdb /10, letterboxd /5,
+> everything else /100), which the client converts to §C.1's centis; and
+> the Secret takes an optional second key, `apiKeySecondary`, because the
+> quota is 1000 requests a day per key. OMDb is still unbuilt.
 
 ### C.4 OverlayProfile
 

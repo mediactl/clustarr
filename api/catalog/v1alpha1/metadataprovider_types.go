@@ -56,7 +56,9 @@ const (
 	MetadataProviderAnimeLists  MetadataProviderType = "animelists"
 	// MetadataProviderMDBList is ratings-only (spec §C.2): imdb, tmdb,
 	// rottenTomatoesCritic, rottenTomatoesAudience, metacritic, trakt,
-	// letterboxd. Takes secretRef key apiKey.
+	// letterboxd. Takes secretRef key apiKey, and optionally
+	// apiKeySecondary: MDBList's quota is per key per day, and the second
+	// key is spent once the first is out.
 	MetadataProviderMDBList MetadataProviderType = "mdblist"
 	// MetadataProviderOMDb is ratings-only (spec §C.2): imdb,
 	// rottenTomatoesCritic, metacritic. Takes secretRef key apiKey.
@@ -66,8 +68,11 @@ const (
 // Secret keys recognised in MetadataProviderSpec.SecretRef.
 const (
 	MetadataSecretKeyAPIKey = "apiKey"
-	MetadataSecretKeyPin    = "pin"
-	MetadataSecretKeyBearer = "bearer"
+	// MetadataSecretKeyAPIKeySecondary is an optional second key, read by
+	// mdblist only.
+	MetadataSecretKeyAPIKeySecondary = "apiKeySecondary"
+	MetadataSecretKeyPin             = "pin"
+	MetadataSecretKeyBearer          = "bearer"
 )
 
 // RateLimit caps how fast a provider may be called.

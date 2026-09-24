@@ -20,6 +20,7 @@ package metadata
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -28,7 +29,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 )
 
 func enabled() *bool { b := true; return &b }
@@ -172,6 +175,55 @@ func TestBuildRegistryWiresTMDBAsARatingsProviderToo(t *testing.T) {
 	require.Len(t, reg.Ratings, 1)
 	require.Equal(t, "tmdb", reg.Ratings[0].Name())
 	require.Equal(t, reg.Movies[0], reg.Ratings[0], "the same client instance fills both slots")
+}
+
+// TestBuildRegistryWiresMDBListWithBothKeys proves an mdblist
+// MetadataProvider lands in reg.Ratings after tmdb and reads the Secret's
+// optional apiKeySecondary: the stand-in server refuses the first key with
+// a 429, and the ratings still arrive, through the second.
+func TestBuildRegistryWiresMDBListWithBothKeys(t *testing.T) {
+	var used []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := r.URL.Query().Get("apikey")
+		used = append(used, key)
+		if key == "first" {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		_, _ = w.Write([]byte(`{"ratings":[{"source":"metacritic","value":74,"score":74,"votes":42,"url":"/inception"}]}`))
+	}))
+	defer srv.Close()
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "keys", Namespace: "clustarr"},
+		Data: map[string][]byte{
+			catalogv1alpha1.MetadataSecretKeyAPIKey:          []byte("first"),
+			catalogv1alpha1.MetadataSecretKeyAPIKeySecondary: []byte("second"),
+		},
+	}
+	mp := func(typ catalogv1alpha1.MetadataProviderType, priority int32, base *string) catalogv1alpha1.MetadataProvider {
+		return catalogv1alpha1.MetadataProvider{
+			ObjectMeta: metav1.ObjectMeta{Name: string(typ), Namespace: "clustarr"},
+			Spec: catalogv1alpha1.MetadataProviderSpec{
+				Type: typ, Enabled: enabled(), Priority: priority, BaseURL: base,
+				SecretRef: &corev1.LocalObjectReference{Name: "keys"},
+			},
+		}
+	}
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(secret).Build()
+	reg, err := BuildRegistry(context.Background(), c, []catalogv1alpha1.MetadataProvider{
+		mp(catalogv1alpha1.MetadataProviderMDBList, 60, &srv.URL),
+		mp(catalogv1alpha1.MetadataProviderTMDB, 50, nil),
+	}, srv.Client())
+	require.NoError(t, err)
+	require.Len(t, reg.Ratings, 2)
+	require.Equal(t, "tmdb", reg.Ratings[0].Name())
+	require.Equal(t, "mdblist", reg.Ratings[1].Name())
+
+	got, err := reg.Ratings[1].Ratings(context.Background(), commonv1.MediaKindMovie, pkgmetadata.ExternalIDs{pkgmetadata.KeyTMDB: "27205"})
+	require.NoError(t, err)
+	require.EqualValues(t, 7400, got[pkgmetadata.RatingSourceMetacritic].ValueCentis)
+	require.Equal(t, []string{"first", "second"}, used)
 }
 
 func TestBuildRegistryAnExplicitPriorityBeatsTheTieBreak(t *testing.T) {

@@ -247,8 +247,8 @@ leaves whatever a previous refresh already had (spec §C.2).
 | `spec.type` | Sources | `secretRef` key | Status |
 | --- | --- | --- | --- |
 | `tmdb` | `tmdb` (movies only -- reuses the same fetch that fills `status.metadata` itself; this client has no TMDB series lookup, so it never rates a Series) | `apiKey` | implemented |
-| `mdblist` | `imdb`, `tmdb`, `rottenTomatoesCritic`, `rottenTomatoesAudience`, `metacritic`, `trakt`, `letterboxd` | `apiKey` | **not yet implemented** -- the CRD accepts the type, but ruling R5 (`docs/superpowers/specs/2026-09-24-index-artwork-ratings-plex-design.md` §C.3) blocks writing the client until a response shape is recorded (`docs/research/ratings-providers.md`); a CR of this type reports `Ready=False` with a message naming the block |
-| `omdb` | `imdb`, `rottenTomatoesCritic`, `metacritic` | `apiKey` | **not yet implemented**, same reason as `mdblist` |
+| `mdblist` | `imdb`, `tmdb`, `rottenTomatoesCritic`, `rottenTomatoesAudience`, `metacritic`, `trakt`, `letterboxd`, for movies (by TMDB id) and series (by TMDB, else TVDB id) | `apiKey`, optional `apiKeySecondary` | implemented. The quota is per key per day (1000 on the free plan); a second key is spent once the first is out, and a key that is out rests until its `X-RateLimit-Reset`. The probe (`GET /user`) spends no quota |
+| `omdb` | `imdb`, `rottenTomatoesCritic`, `metacritic` | `apiKey` | **not yet implemented** -- the CRD accepts the type, but ruling R5 (`docs/superpowers/specs/2026-09-24-index-artwork-ratings-plex-design.md` §C.3) blocks writing the client until a response shape is recorded (`docs/research/ratings-providers.md`); a CR of this type reports `Ready=False` with a message naming the block |
 
 `spec.baseURL` overrides apply the same way they do for every other provider (an e2e stub can
 point at itself); `spec.rateLimit` overrides the per-host limiter the controller holds, as for

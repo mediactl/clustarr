@@ -1,0 +1,11 @@
+{
+  "api_requests": 1000,
+  "api_requests_count": 4,
+  "user_id": 0,
+  "username": "example",
+  "plan": "Free",
+  "rate_limit": 1000,
+  "rate_limit_remaining": 996,
+  "rate_limit_reset": 1790294400,
+  "auth_method": "apikey"
+}
