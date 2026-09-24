@@ -1569,6 +1569,24 @@ after the gap fixes" started before later waves ticked items off. Design:
       once the system is production ready and battle tested — ADR-0013.
       Not before Phase H is green. Tasks are listed in the design's §5.
 
+### Settings CRUD (2026-09-24, `docs/superpowers/specs/2026-09-24-settings-crud-design.md`)
+
+- [ ] **The metadata gateway reads MetadataProviders once, at start.** A
+      provider added, edited or deleted from the Settings page (or with
+      kubectl) is used only after `catalogarr-metadata` restarts; the
+      controller's Ready probe runs on every change, the gateway's registry
+      does not. Rebuild the registry on a MetadataProvider or Secret change.
+- [ ] **Per-definition Cardigann settings in the Indexer form.** The form
+      offers a definition picker, the credential entries and a free
+      settings map; the definition's own `settings:` fields (text, password,
+      checkbox, select with options and defaults, from the
+      IndexerDefinition's YAML) are not yet rendered as typed inputs. A
+      password-type setting should go to the Secret, the rest to
+      `spec.settings`.
+- [ ] **Copy a built-in quality profile.** The CRD refuses edits to a
+      built-in; the form renders it read-only, but a "copy" that opens the
+      new form prefilled from it is not there yet.
+
 ## Self-review notes
 
 Checked against both specs on 2026-09-18.
