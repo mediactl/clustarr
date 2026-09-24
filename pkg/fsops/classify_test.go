@@ -223,17 +223,31 @@ func TestIsPartCoversATranscodesPartialOutput(t *testing.T) {
 
 // TestIsPartCoversAPerAttemptTranscodePart pins final review I2's
 // <stem>.part-<uid8>-<attempt>.<ext> form, unique per job and attempt, so a
-// scan or a sibling attempt's cleanup still recognizes it as in-progress and
-// never mistakes a merely similar name ("...partial...", a hyphenated title
-// token) for one.
+// scan or a sibling attempt's cleanup still recognizes it as in-progress.
+// R29 fix 3: the match is the exact form uniquePartPath generates -- 8
+// lowercase hex characters, a literal "-", then a decimal attempt number --
+// not any "<stem>.part-<anything>.<ext>", so a real release name shaped
+// like the same infix ("Movie.part-two.mkv", "Film.part-1.mkv", a
+// hyphenated title token) is never mistaken for one.
 func TestIsPartCoversAPerAttemptTranscodePart(t *testing.T) {
 	for name, want := range map[string]bool{
-		"Heat (1995).part-a1b2c3d4-1.mkv": true,
-		"Heat (1995).part-a1b2c3d4-2.mkv": true,
-		"Heat (1995).part-deadbeef-1.mp4": true,
+		// Positive: the exact generated form.
+		"Heat (1995).part-a1b2c3d4-1.mkv":  true,
+		"Heat (1995).part-a1b2c3d4-2.mkv":  true,
+		"Heat (1995).part-deadbeef-1.mp4":  true,
+		"Heat (1995).part-00000000-10.mkv": true, // multi-digit attempt, all-zero uid8
+
+		// Negative: close to the form, but not exactly it.
 		"Heat (1995).PART-a1b2c3d4-1.MKV": false, // lower case only, as the plain ".part" form already requires for the infix
 		"Heat (1995).partial.mkv":         false,
 		"Deathly.Hallows.Part-1.2010.mkv": false,
+		"Movie.part-two.mkv":              false, // R29 fix 3: not 8 hex chars
+		"Film.part-1.mkv":                 false, // R29 fix 3: no uid8 segment at all
+		"Movie.part-a1b2c3d4.mkv":         false, // uid8 but no "-<attempt>"
+		"Movie.part-a1b2c3d.mkv":          false, // 7 hex chars, one short
+		"Movie.part-a1b2c3d45-1.mkv":      false, // 9 hex chars, one too many
+		"Movie.part-A1B2C3D4-1.mkv":       false, // uppercase hex
+		"Movie.part-a1b2c3d4-1x.mkv":      false, // attempt is not pure decimal
 	} {
 		assert.Equalf(t, want, fsops.IsPart("/lib/"+name), "%s", name)
 	}

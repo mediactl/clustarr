@@ -50,15 +50,22 @@ type ServeOptions struct {
 	// PullRetryBackoffCap and PullRetryWindow bound how Serve tolerates a
 	// transient pull error -- a JetStream consumer-leader move (409) or a
 	// 503 during a node restart, either of which every idle worker's
-	// pending pull can see. Each retry backs off starting at 1s (clamped to
+	// pending pull can see (including the very first one, at startup: R29
+	// fix 2). Each retry backs off starting at 1s (clamped to
 	// PullRetryBackoffCap when that is smaller), doubling up to
-	// PullRetryBackoffCap (default 30s) each time, and the failure streak
-	// resets the instant a pull succeeds. Serve gives up and returns the
-	// error -- which the binary maps to a process exit, spending one
-	// attempt of the pool Job's lifetime backoffLimit -- only once failures
-	// persist for PullRetryWindow (default 5m) with no successful pull in
-	// between (final review I1). Zero means the default; a test shrinks
-	// both to keep cases fast.
+	// PullRetryBackoffCap (default 30s) each time. A failure streak resets
+	// -- so PullRetryWindow starts counting fresh -- once a pull has been
+	// healthy (Next delivering a task, or a Pull/re-Pull merely acquiring a
+	// live puller with nothing yet to deliver) for longer than
+	// PullRetryBackoffCap: a re-Pull that only briefly succeeds before the
+	// very next Next fails again does not each time look like a fresh
+	// problem, but an isolated error after a long healthy idle period does
+	// (R29 fix 1 -- it must not inherit an unrelated failure's clock and
+	// give up on the spot). Serve gives up and returns the error -- which
+	// the binary maps to a process exit, spending one attempt of the pool
+	// Job's lifetime backoffLimit -- only once the current streak has
+	// lasted PullRetryWindow (default 5m). Zero means the default; a test
+	// shrinks both to keep cases fast.
 	PullRetryBackoffCap, PullRetryWindow time.Duration
 
 	// Clock overrides time for tests; nil means the real clock.
@@ -79,18 +86,90 @@ const (
 	pullRetryBackoffStart      = time.Second
 )
 
+// pullRetry is Serve's transient-pull-error backoff/give-up state (final
+// review I1; R29 fix 1 for the streak-reset defect the re-review reproduced,
+// falsified as `next task: nats: leadership change #2`). One pullRetry is
+// shared by every pull attempt within one Serve call, so a failure that
+// spans a Next call and the re-Pull(s) that follow it accrues against the
+// same streak rather than resetting on each individual retry.
+//
+// The naive fix -- reset failSince on any successful pull, whether that is
+// Next delivering a task or merely a Pull/re-Pull recreating a dead
+// subscription -- breaks give-up entirely: a subscription that can always
+// be recreated but whose every Next then fails at once (a real, reproduced
+// shape: JetStream accepts CreateOrUpdateConsumer but Fetch keeps erroring)
+// resets the streak every single cycle and never reaches PullRetryWindow
+// (TestServeGivesUpOnAPullThatNeverRecovers, added for R29, caught this
+// directly -- it hung instead of returning). So ok() only records lastOK,
+// the moment of the last success, of either kind; wait decides whether the
+// streak in front of it is a continuation or something fresh by asking how
+// long ago that was: less than backoffCap ago (one retry cycle) is still
+// the same ongoing trouble, so failSince is left alone and keeps
+// accumulating toward the window; longer ago -- the long healthy idle gap
+// in the reviewer's reproduction, where Next blocked without error for
+// minutes with nothing to pull -- starts a fresh streak instead of
+// inheriting one that was already resolved.
+type pullRetry struct {
+	clock              clockwork.Clock
+	backoffCap, window time.Duration
+	lastOK             time.Time // the last successful Next or Pull/re-Pull
+	failSince          time.Time
+	backoff            time.Duration
+}
+
+func newPullRetry(clock clockwork.Clock, backoffCap, window time.Duration) *pullRetry {
+	return &pullRetry{
+		clock: clock, backoffCap: backoffCap, window: window,
+		lastOK:  clock.Now(),
+		backoff: min(pullRetryBackoffStart, backoffCap),
+	}
+}
+
+// ok records a successful pull (Next delivering a task, or a Pull/re-Pull
+// acquiring a live puller). See the type doc for why this alone does not
+// end a failure streak already in progress -- wait's gap check decides that.
+func (r *pullRetry) ok() {
+	r.lastOK = r.clock.Now()
+}
+
+// wait waits out one retry's backoff for a transient pull error op names,
+// logging it, and reports whether the failure streak has now lasted
+// r.window -- in which case the caller gives up. A cancelled ctx during the
+// wait returns its own error instead.
+func (r *pullRetry) wait(ctx context.Context, op string, cause error) (giveUp bool, cancelled error) {
+	now := r.clock.Now()
+	if r.failSince.IsZero() || now.Sub(r.lastOK) > r.backoffCap {
+		r.failSince = now
+		r.backoff = min(pullRetryBackoffStart, r.backoffCap)
+	}
+	if now.Sub(r.failSince) >= r.window {
+		return true, nil
+	}
+	logging.FromContext(ctx).WarnContext(ctx, "squasharr worker: pull failed; retrying",
+		"op", op, "error", cause, "backoff", r.backoff, "failingSince", r.failSince)
+	select {
+	case <-r.clock.After(r.backoff):
+	case <-ctx.Done():
+		return false, ctx.Err()
+	}
+	r.backoff = min(r.backoff*2, r.backoffCap)
+	return false, nil
+}
+
 // Serve pulls this pool's tasks one at a time and runs each to a settled
 // message (spec §9, §18.1). It never returns on its own except for a
 // worker-level failure; a cancelled ctx (SIGTERM) returns ctx.Err() once
 // in-flight work is drained, and the binary maps that to WorkerExitDrained.
 //
-// A pull error that is not ctx cancellation -- p.Next failing, or Serve
-// having to recreate p because the pull subscription itself died -- is
-// retried with backoff rather than returned at once (final review I1): a
-// JetStream consumer-leader move or a 503 during a node restart must not
-// spend an attempt of the pool Job's lifetime backoffLimit and kill every
-// other healthy encode sharing it. Serve gives up only once the failure
-// streak lasts o.PullRetryWindow with no successful pull in between.
+// A pull error that is not ctx cancellation -- the initial Pull, p.Next
+// failing, or Serve having to recreate p because the pull subscription
+// itself died -- is retried with backoff rather than returned at once
+// (final review I1): a JetStream consumer-leader move or a 503 during a
+// node restart, including one that lands before Serve ever gets its first
+// puller (R29 fix 2), must not spend an attempt of the pool Job's lifetime
+// backoffLimit and kill every other healthy encode sharing it. Serve gives
+// up only once the failure streak lasts o.PullRetryWindow with no
+// successful pull in between.
 func Serve(ctx context.Context, bus events.Bus, o ServeOptions) error {
 	s := &server{o: o.withDefaults()}
 	s.clock = s.o.Clock
@@ -100,28 +179,24 @@ func Serve(ctx context.Context, bus events.Bus, o ServeOptions) error {
 	}
 	s.bus, s.sub = bus, events.TranscodeTaskConsumer(o.ProfileUID, o.Class).Subscription()
 
-	p, err := ps.Pull(ctx, s.sub)
+	retry := newPullRetry(s.clock, s.o.PullRetryBackoffCap, s.o.PullRetryWindow)
+	p, err := s.pull(ctx, ps, retry)
 	if err != nil {
-		return fmt.Errorf("squasharr worker: pull %s: %w", s.sub.Durable, err)
+		return err
 	}
 	defer func() { p.Stop() }()
 
-	var failSince time.Time // zero while the pull is healthy
-	backoff := min(pullRetryBackoffStart, s.o.PullRetryBackoffCap)
 	for {
 		mctx, m, nerr := p.Next(ctx)
 		if nerr == nil {
-			failSince, backoff = time.Time{}, min(pullRetryBackoffStart, s.o.PullRetryBackoffCap)
+			retry.ok()
 			s.handle(mctx, m)
 			continue
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if failSince.IsZero() {
-			failSince = s.clock.Now()
-		}
-		if giveUp, cerr := s.pullRetryWait(ctx, failSince, &backoff, "next task", nerr); cerr != nil {
+		if giveUp, cerr := retry.wait(ctx, "next task", nerr); cerr != nil {
 			return cerr
 		} else if giveUp {
 			return fmt.Errorf("squasharr worker: next task: %w", nerr)
@@ -129,44 +204,35 @@ func Serve(ctx context.Context, bus events.Bus, o ServeOptions) error {
 
 		// The failed Next may mean the pull subscription itself is dead
 		// (its consumer gone from under it); recreate it so the next
-		// iteration has a live one, without spending the failure streak's
-		// own budget twice for what is really one ongoing outage.
+		// iteration has a live one.
 		p.Stop()
-		for {
-			np, perr := ps.Pull(ctx, s.sub)
-			if perr == nil {
-				p = np
-				break
-			}
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if giveUp, cerr := s.pullRetryWait(ctx, failSince, &backoff, "pull "+s.sub.Durable, perr); cerr != nil {
-				return cerr
-			} else if giveUp {
-				return fmt.Errorf("squasharr worker: pull %s: %w", s.sub.Durable, perr)
-			}
+		p, err = s.pull(ctx, ps, retry)
+		if err != nil {
+			return err
 		}
 	}
 }
 
-// pullRetryWait waits out one retry's backoff for a transient pull error,
-// logging it, and reports whether the failure streak beginning at failSince
-// has now lasted o.PullRetryWindow -- in which case Serve gives up. A
-// cancelled ctx during the wait returns its own error instead.
-func (s *server) pullRetryWait(ctx context.Context, failSince time.Time, backoff *time.Duration, op string, cause error) (giveUp bool, cancelled error) {
-	if s.clock.Since(failSince) >= s.o.PullRetryWindow {
-		return true, nil
+// pull acquires a Puller from ps, retrying a transient error with retry's
+// backoff (R29 fix 2: the very first Pull gets exactly the treatment every
+// later re-Pull already did, not an immediate return). A success calls
+// retry.ok(), ending whatever failure streak was in progress.
+func (s *server) pull(ctx context.Context, ps events.PullSubscriber, retry *pullRetry) (events.Puller, error) {
+	for {
+		p, err := ps.Pull(ctx, s.sub)
+		if err == nil {
+			retry.ok()
+			return p, nil
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if giveUp, cerr := retry.wait(ctx, "pull "+s.sub.Durable, err); cerr != nil {
+			return nil, cerr
+		} else if giveUp {
+			return nil, fmt.Errorf("squasharr worker: pull %s: %w", s.sub.Durable, err)
+		}
 	}
-	logging.FromContext(ctx).WarnContext(ctx, "squasharr worker: pull failed; retrying",
-		"op", op, "error", cause, "backoff", *backoff, "failingSince", failSince)
-	select {
-	case <-s.clock.After(*backoff):
-	case <-ctx.Done():
-		return false, ctx.Err()
-	}
-	*backoff = min(*backoff*2, s.o.PullRetryBackoffCap)
-	return false, nil
 }
 
 type server struct {

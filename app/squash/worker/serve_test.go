@@ -822,6 +822,91 @@ func TestServeGivesUpOnAPullThatNeverRecovers(t *testing.T) {
 	assert.ErrorIs(t, err, sentinel)
 }
 
+// R29 fix 1: reproduces the re-review's finding exactly, directly against
+// pullRetry (the component the bug lives in) rather than through the full
+// Serve/Puller stack -- Serve's own p.Next blocks inside the real puller
+// with no way to interrupt it mid-call from outside, so an integration-level
+// repro of "idle for a long time, then one more error" cannot be driven
+// deterministically; pullRetry's wait/ok are exactly the sequence that
+// matters and are cheap to drive precisely with BlockUntil.
+//
+// The sequence: a transient error (wait, starting a streak), a successful
+// re-Pull (ok), then a long healthy gap with nothing calling wait (no task
+// -- Next just blocks), then one isolated error. The re-review reproduced
+// the pre-fix bug as `next task: nats: leadership change #2`: failSince
+// stayed at the first error's time, so the second, unrelated error already
+// looked like it was PullRetryWindow old and gave up at once.
+func TestPullRetryStartsAFreshStreakAfterALongHealthyGap(t *testing.T) {
+	clock := clockwork.NewFakeClock()
+	r := newPullRetry(clock, 10*time.Millisecond, 100*time.Millisecond)
+
+	// waitOnce drives one r.wait call to completion: it registers a single
+	// timer waiter (BlockUntil(1) proves it, so there is no race between the
+	// goroutine reaching the select and this advancing the clock), then
+	// advances well past any possible backoff to fire it.
+	waitOnce := func(cause error) (giveUp bool, err error) {
+		t.Helper()
+		type result struct {
+			giveUp bool
+			err    error
+		}
+		done := make(chan result, 1)
+		go func() {
+			g, e := r.wait(context.Background(), "test", cause)
+			done <- result{g, e}
+		}()
+		// wait either returns at once (already past the window, so no timer
+		// is ever registered) or blocks on a backoff timer -- give it a
+		// moment to reach one or the other, and only advance the clock (to
+		// fire that timer) if it is actually waiting on one, so a broken
+		// pullRetry that gives up immediately fails this helper's caller's
+		// assertion instead of hanging here.
+		bctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if clock.BlockUntilContext(bctx, 1) == nil {
+			clock.Advance(time.Second) // always > backoffCap here
+		}
+		res := <-done
+		return res.giveUp, res.err
+	}
+
+	giveUp, err := waitOnce(errors.New("nats: leadership change #1"))
+	require.NoError(t, err)
+	require.False(t, giveUp, "the first isolated failure must not give up at once")
+	first := r.failSince
+	require.False(t, first.IsZero())
+
+	r.ok() // the re-Pull that recreates the puller succeeds
+
+	clock.Advance(time.Second) // a long healthy gap: nothing calls wait while Next just blocks
+
+	giveUp, err = waitOnce(errors.New("nats: leadership change #2"))
+	require.NoError(t, err)
+	assert.False(t, giveUp,
+		"an isolated failure after a long healthy gap must start its own streak, not inherit one already past the window")
+	assert.True(t, r.failSince.After(first), "the streak must have restarted at the second failure, not the first")
+}
+
+// R29 fix 2: the very first Pull -- a pod starting during a JetStream
+// leader election -- gets retried exactly like any later re-Pull, not
+// returned at once.
+func TestServeRetriesTheInitialPull(t *testing.T) {
+	h := newHarness(t)
+	flaky := wrapForFlakyPull(h.tracking, errors.New("nats: no suitable servers"))
+	flaky.pullFails.Store(2) // the very first Pull, and one retry, both fail
+	h.serveOnBusWithOptions(flaky, func(o *ServeOptions) {
+		o.PullRetryBackoffCap = 20 * time.Millisecond
+		o.PullRetryWindow = time.Minute
+	})
+	h.publish(1, 0)
+	<-h.started
+	h.release <- Outcome{Code: ExitOK, Result: &transcodev1alpha1.Result{}}
+	fin := h.next(task.EventFinished)
+	assert.Equal(t, task.OutcomeSucceeded, fin.Outcome)
+	assert.Equal(t, settleAck, h.nextSettlement().kind)
+	assert.Zero(t, flaky.pullFails.Load(), "both injected initial-Pull failures were consumed before Serve gave up")
+}
+
 // wrapForFlakyPull decorates bus's Pull for I1's tests: nextFails counts
 // down failures the returned Puller's Next reports before behaving
 // normally (a negative count never runs out, for a "fails forever" case),

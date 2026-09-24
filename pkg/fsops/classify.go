@@ -80,6 +80,15 @@ var MediaExtensions = map[Kind]map[string]bool{
 	KindComic:     {".cbz": true, ".cbr": true, ".cb7": true, ".cbt": true, ".pdf": true},
 }
 
+// partAttemptRE matches exactly the infix pkg/transcode's uniquePartPath
+// generates -- ".part-" followed by the first 8 characters of the job's
+// (lower-case hex) Kubernetes UID and the decimal attempt number, nothing
+// looser. Final review R29 fix 3: a HasPrefix(ext, ".part-") check matched
+// any "<stem>.part-<anything>.<ext>", so a real release name shaped like
+// "Movie.part-two.mkv" or "Film.part-1.mkv" was silently skipped by rescan
+// as though it were an in-progress transcode.
+var partAttemptRE = regexp.MustCompile(`^\.part-[0-9a-f]{8}-[0-9]+$`)
+
 // IsPart reports whether path names an in-progress partial file, in any
 // convention the stack writes:
 //
@@ -87,13 +96,15 @@ var MediaExtensions = map[Kind]map[string]bool{
 //     download.md §1.6) writes every incomplete file as <name>.part;
 //   - pkg/transcode writes a transcode's output as <stem>.part.<ext>
 //     beside its final path (Plan.Output) until the worker renames it into
-//     place, or, since final review I2, <stem>.part-<uid8>-<attempt>.<ext>
+//     place, or, since final review I2, the per-job-and-attempt
+//     <stem>.part-<8 lowercase hex>-<decimal attempt>.<ext> (partAttemptRE)
 //     -- unique per job and attempt, so a withdrawn attempt's cleanup can
 //     never unlink a different attempt's in-progress file. Either form's
 //     extension is a media one, so without this rule a scan that ran
-//     during a transcode classified the half-written output as media. The
-//     infix is matched exactly as pkg/transcode writes it, lower case, so a
-//     title word such as "The.Movie.Part.mkv" is not mistaken for one.
+//     during a transcode classified the half-written output as media. Both
+//     forms are matched exactly as pkg/transcode writes them, lower case,
+//     so a title word such as "The.Movie.Part.mkv" or a release name such
+//     as "Movie.part-two.mkv" is never mistaken for one (R29 fix 3).
 func IsPart(path string) bool {
 	base := filepath.Base(path)
 	if strings.EqualFold(filepath.Ext(base), ".part") {
@@ -101,7 +112,7 @@ func IsPart(path string) bool {
 	}
 	stem := strings.TrimSuffix(base, filepath.Ext(base))
 	ext := filepath.Ext(stem)
-	return ext == ".part" || strings.HasPrefix(ext, ".part-")
+	return ext == ".part" || partAttemptRE.MatchString(ext)
 }
 
 var extraDirs = map[string]bool{
