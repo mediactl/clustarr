@@ -9,9 +9,11 @@
 # Install the CloudNativePG operator FIRST and wait for it to be Ready
 # (https://cloudnative-pg.io/documentation/current/installation_upgrade/).
 # Its admission webhook fails closed until then, so the Cluster this
-# component adds is rejected if applied in the same pass as the operator
-# (ruling R2 -- the same ordering constraint charts/clustarr/templates/
-# postgres-cluster.yaml's Helm hook exists for):
+# component adds is rejected if applied in the same pass as the operator --
+# the same webhook-ordering constraint charts/clustarr/templates/
+# postgres-cluster.yaml's README section and clustarr.validate guard exist
+# for (that chart renders the Cluster as a normal, kept resource, not a
+# hook -- a hook would be deleted and recreated on every upgrade):
 #
 #   kubectl wait --for=condition=Available deployment/cnpg-controller-manager \
 #     -n cnpg-system --timeout=120s

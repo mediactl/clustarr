@@ -108,11 +108,11 @@ postgres:
 # postgres.enabled on purpose -- most clusters install an operator like this
 # one once, cluster-wide, rather than per Clustarr release; enable this only
 # when this chart should install it too. See Chart.yaml for the pinned
-# version. Ruling R2: the Cluster this chart renders (templates/
-# postgres-cluster.yaml) is a post-install/post-upgrade Helm hook, because
-# CNPG's admission webhook fails closed until its Deployment is Ready --
-# install with `helm install --wait` so the operator is up before the hook
-# fires.
+# version. CNPG's admission webhook fails closed until its own Deployment is
+# Ready, so setting this AND postgres.enabled together on a first install is
+# refused by clustarr.validate -- install this operator alone first, then
+# add postgres.enabled=true in a second `helm upgrade` (see README.md's
+# "Postgres release index" section for the exact commands).
 cloudnative-pg:
   enabled: false
 

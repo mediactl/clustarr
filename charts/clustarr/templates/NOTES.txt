@@ -75,6 +75,18 @@ Storage: /data is {{ if .Values.storage.data.existingClaim }}your claim "{{ .Val
 {{- end }}
 {{- end }}
 
+{{- if .Values.postgres.enabled }}
+
+Release index: CloudNativePG Cluster "{{ include "clustarr.fullname" . }}-postgres",
+kept (helm.sh/resource-policy: keep) across upgrades and `helm uninstall`.
+It is never deleted for you -- remove it yourself once you no longer want
+the database. If this install just ran cloudnative-pg.enabled=true and
+postgres.enabled=true together on a FIRST install, clustarr.validate would
+have already failed the render (the operator cannot be Ready yet in the same
+pass); seeing this note at all means either that combination was not used,
+or the operator was already Ready beforehand.
+{{- end }}
+
 {{- if not .Values.metrics.serviceMonitor.enabled }}
 
 Metrics are served on :8443 but nothing scrapes them. Set

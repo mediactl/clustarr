@@ -2,15 +2,31 @@
 CloudNativePG Cluster for indexarr's Postgres-backed release index (design
 spec 2026-09-24 §A.3-A.4; ADR-0010). Rendered only when postgres.enabled.
 
-Ruling R2: this is a post-install/post-upgrade Helm hook, not a plain
-resource. CNPG's admission webhook fails closed until its own Deployment is
-Ready, so a Cluster submitted in the same pass that installs the operator
-(the cloudnative-pg dependency above, when cloudnative-pg.enabled) is
-rejected outright -- install with `helm install --wait` (or `helm upgrade
---wait`) so the operator is up before this hook fires. There is deliberately
-no helm.sh/hook-delete-policy: this is the database, and a hook resource with
-no delete policy survives `helm uninstall` like every other object here
-(pvc.yaml's helm.sh/resource-policy: keep is the same posture for /data).
+This is a NORMAL templated resource, not a Helm hook -- an earlier version
+made it a post-install/post-upgrade hook (ruling R2), which review caught as
+a plan-mandated defect: Helm's default hook-delete-policy, when no
+helm.sh/hook-delete-policy annotation says otherwise, is
+before-hook-creation, so a hook of this kind is DELETED and recreated on
+every single helm upgrade -- destroying the database ruling R2 was trying to
+protect. The controller ruling (superseding R2) is instead: a plain
+resource, held onto the same way pvc.yaml holds /data, via
+helm.sh/resource-policy: keep, so neither `helm uninstall` nor any upgrade
+ever deletes it.
+
+That leaves the original problem R2 existed for -- CNPG's admission webhook
+fails closed until its own Deployment is Ready, so this Cluster is rejected
+outright if it lands in the same apply pass as an operator that isn't running
+yet -- unhandled by the object itself. It is handled by documentation and a
+render-time guard instead: charts/clustarr/README.md's Postgres release
+index section spells out that CloudNativePG must already be Ready before
+postgres.enabled=true is applied, which is a two-step first install when this
+chart also installs the operator (cloudnative-pg.enabled=true) -- install
+with cloudnative-pg.enabled=true and postgres.enabled=false first, wait for
+the operator, then upgrade with postgres.enabled=true -- or a single step
+against an operator already running elsewhere. clustarr.validate's `fail`
+turns skipping that ordering into a clear render error instead of a webhook
+rejection mid-install: see the postgres.enabled/cloudnative-pg.enabled/
+Release.IsInstall check in templates/_helpers.tpl.
 
 CNPG's bootstrap.initdb creates the "clustarr" database owned by role
 "clustarr" and a Secret named "<this Cluster's name>-app" holding that role's
@@ -27,8 +43,10 @@ metadata:
     {{- include "clustarr.labels" . | nindent 4 }}
     app.kubernetes.io/component: postgres
   annotations:
-    helm.sh/hook: post-install,post-upgrade
-    helm.sh/hook-weight: "0"
+    # Keep the database when the release goes away, exactly like pvc.yaml's
+    # /data claim -- deleting a Postgres-backed release index should take
+    # more than `helm uninstall`.
+    helm.sh/resource-policy: keep
 spec:
   instances: {{ .Values.postgres.cluster.instances }}
   storage:

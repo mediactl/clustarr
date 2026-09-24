@@ -128,33 +128,56 @@ a flag, so every controller and the retention sweep stay a cluster singleton
 regardless of replica count.
 
 This chart renders the `Cluster` itself
-(`templates/postgres-cluster.yaml`, named `<release>-postgres`) whenever
-`postgres.enabled`, with `postgres.cluster.instances` Postgres replicas (CNPG's
-own streaming replication, unrelated to `indexarr.replicas`) and a
-`postgres.cluster.storage.size` volume. It bootstraps a `clustarr` database
-owned by a `clustarr` role and creates `<release>-postgres-app` holding that
-role's DSN under key `uri` -- what indexarr reads by default;
-`postgres.existingSecret` points it at a DSN Secret you already have instead.
+(`templates/postgres-cluster.yaml`, named `<release>-postgres`) as a normal
+resource whenever `postgres.enabled`, with `postgres.cluster.instances`
+Postgres replicas (CNPG's own streaming replication, unrelated to
+`indexarr.replicas`) and a `postgres.cluster.storage.size` volume. It
+bootstraps a `clustarr` database owned by a `clustarr` role and creates
+`<release>-postgres-app` holding that role's DSN under key `uri` -- what
+indexarr reads by default; `postgres.existingSecret` points it at a DSN
+Secret you already have instead. Like `pvc.yaml`'s `/data` claim, it carries
+`helm.sh/resource-policy: keep`, so neither `helm uninstall` nor any upgrade
+ever deletes your database -- remove it yourself when you actually want it
+gone.
 
-**CloudNativePG must be running before that `Cluster` can be created.** Its
-admission webhook fails closed until its own Deployment is `Ready`, so the
-`Cluster` template is a `post-install,post-upgrade` Helm hook rather than a
-plain resource (ruling R2) -- **always install or upgrade with `--wait`**
-so the operator started by the `cloudnative-pg` dependency (when
-`cloudnative-pg.enabled=true`; see [Requirements](#requirements) for its
-`helm repo add`) is `Ready` before the hook fires:
+**CloudNativePG must already be `Ready` before `postgres.enabled=true` is
+applied.** Its admission webhook fails closed until its own Deployment is
+up, so a `Cluster` submitted while the operator isn't running yet is
+rejected outright. `--wait` does **not** solve this on its own: it only
+waits on the resources *this release* creates, so `helm install --set
+cloudnative-pg.enabled=true --set postgres.enabled=true --wait` still
+submits the `Cluster` in the very same pass as the operator's own
+Deployment, before `--wait` has anything to wait *for* yet -- the render
+below fails immediately rather than let you find that out from a rejected
+apply. There are two supported paths:
 
-```sh
-helm install clustarr charts/clustarr --namespace clustarr-system \
-  --create-namespace --set postgres.enabled=true \
-  --set cloudnative-pg.enabled=true --wait
-```
+- **This chart also installs the operator** (`cloudnative-pg.enabled=true`):
+  install it first, alone, then add the Postgres index in a second step.
+  `clustarr.validate` refuses the render outright if you set both
+  `cloudnative-pg.enabled=true` and `postgres.enabled=true` on a first
+  install, with this same two-step instruction in the error message.
 
-Most clusters install the CNPG operator once, cluster-wide, rather than per
-Clustarr release; leave `cloudnative-pg.enabled=false` (the default) and set
-only `postgres.enabled=true` when one is already running -- `--wait` still
-applies, since the hook still waits on the webhook regardless of who started
-the operator.
+  ```sh
+  helm install clustarr charts/clustarr --namespace clustarr-system \
+    --create-namespace --set cloudnative-pg.enabled=true \
+    --set postgres.enabled=false --wait
+
+  helm upgrade clustarr charts/clustarr --namespace clustarr-system \
+    --set cloudnative-pg.enabled=true --set postgres.enabled=true
+  ```
+
+- **CloudNativePG already runs elsewhere in the cluster** (the common case;
+  see [Requirements](#requirements)): leave `cloudnative-pg.enabled=false`
+  and wait on the existing operator's own Deployment yourself before
+  installing with `postgres.enabled=true`:
+
+  ```sh
+  kubectl wait --for=condition=Available deployment/cnpg-controller-manager \
+    -n cnpg-system --timeout=120s
+
+  helm install clustarr charts/clustarr --namespace clustarr-system \
+    --create-namespace --set postgres.enabled=true
+  ```
 
 ## GOMEMLIMIT
 

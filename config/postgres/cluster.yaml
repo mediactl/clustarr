@@ -2,13 +2,22 @@
 # spec 2026-09-24 §A.3-A.4; ADR-0010). Same shape as
 # charts/clustarr/templates/postgres-cluster.yaml, minus the Helm templating:
 # instances, storage size, and the bootstrap database/owner match that
-# template's defaults so TestChartAndKustomizeAgreePerComponent's
-# postgres-enabled case can compare the two Cluster specs directly.
+# template's defaults so TestChartAndKustomizePostgresAgree
+# (cmd/clustarr/postgres_parity_test.go) can compare the two Cluster specs
+# directly.
 #
 # Requires the CloudNativePG operator installed and Ready FIRST -- see
 # config/postgres/kustomization.yaml and config/README.md. Its admission
 # webhook fails closed until then, so this Cluster is rejected if it is
-# applied in the same pass as the operator (ruling R2).
+# applied in the same pass as the operator.
+#
+# No helm.sh/resource-policy: keep here -- that annotation is Helm-specific
+# and kubectl/kustomize ignore it outright, so porting it would only be
+# decorative. kubectl never deletes a resource you did not ask it to delete
+# (there is no kustomize equivalent of `helm uninstall`), so this Cluster is
+# already only ever removed by an explicit `kubectl delete`; protect it the
+# way you would any other database, e.g. RBAC and/or a deletion webhook, not
+# an annotation nothing here reads.
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:

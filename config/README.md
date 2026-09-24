@@ -58,9 +58,9 @@ kustomize build config/my-postgres-overlay | kubectl apply --server-side -f -
 before applying anything that includes this component.** Its admission
 webhook fails closed until its own Deployment is up, so the `Cluster` this
 component adds (`config/postgres/cluster.yaml`, named `clustarr-postgres`)
-is rejected if it lands in the same pass as the operator (ruling R2 of the
-2026-09-24 design; `charts/clustarr/templates/postgres-cluster.yaml` carries
-the same ordering constraint as a Helm hook instead). See
+is rejected if it lands in the same pass as the operator -- the same
+webhook-ordering constraint `charts/clustarr/templates/postgres-cluster.yaml`
+and its `clustarr.validate` guard exist for, on the Helm side. See
 [cloudnative-pg.io's installation docs](https://cloudnative-pg.io/documentation/current/installation_upgrade/),
 then:
 
