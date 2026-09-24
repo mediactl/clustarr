@@ -46,10 +46,14 @@ import (
 func TestPipelineRowsAreItems(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{Entries: func(context.Context) []pipeline.Entry {
 		return []pipeline.Entry{
-			{Ref: types.NamespacedName{Namespace: "default", Name: "arrival"}, Kind: commonv1.MediaKindMovie,
-				Title: "Arrival", Stage: pipeline.StageDownloading, Percent: 42, Detail: "1.2 GiB of 2.9 GiB"},
-			{Ref: types.NamespacedName{Namespace: "default", Name: "heat"}, Kind: commonv1.MediaKindMovie,
-				Title: "Heat", Stage: pipeline.StageFailed, Percent: -1, Failure: "no seeders"},
+			{
+				Ref: types.NamespacedName{Namespace: "default", Name: "arrival"}, Kind: commonv1.MediaKindMovie,
+				Title: "Arrival", Stage: pipeline.StageDownloading, Percent: 42, Detail: "1.2 GiB of 2.9 GiB",
+			},
+			{
+				Ref: types.NamespacedName{Namespace: "default", Name: "heat"}, Kind: commonv1.MediaKindMovie,
+				Title: "Heat", Stage: pipeline.StageFailed, Percent: -1, Failure: "no seeders",
+			},
 		}
 	}})
 	rec := httptest.NewRecorder()

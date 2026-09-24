@@ -207,7 +207,7 @@ func downloadPhaseLabel(phase downloadv1.DownloadPhase) string {
 // downloadPhaseBadgeClass returns the Tailwind utility classes for a phase's
 // badge, grouped by what the phase means (failed, blocklisted, settled, or
 // still moving) rather than by its exact name -- mirroring
-// helpers.go's stageBadgeClass -- so a phase this switch does not
+// helpers.go's stageTone -- so a phase this switch does not
 // specifically list (including the R5 zero value) still renders with a
 // sensible look instead of unstyled text.
 func downloadPhaseBadgeClass(phase downloadv1.DownloadPhase) string {

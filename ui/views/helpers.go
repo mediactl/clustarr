@@ -32,18 +32,9 @@ func clampPercent(p int32) int32 {
 	}
 }
 
-// stageBadgeClass returns the Tailwind utility classes for a stage's badge,
-// grouped by what the stage means (failed, blocked, complete, or still
-// moving) rather than by its exact name, so a stage this switch does not
-// know about still renders with the "in progress" look instead of unstyled
-// text.
-func stageBadgeClass(stage pipeline.Stage) string {
-	return "rounded-full px-2 py-0.5 text-xs font-medium " + stageTone(stage)
-}
-
-// stageTone is the colour alone, for a badge component that brings its own
-// shape: the pipeline row's stage badge keeps these semantics over the
-// component's neutral secondary colours.
+// stageTone is the colour of a stage's badge, for the badge component that
+// brings its own shape: the pipeline row's stage badge keeps these
+// semantics over the component's neutral secondary colours.
 func stageTone(stage pipeline.Stage) string {
 	switch stage {
 	case pipeline.StageFailed:
