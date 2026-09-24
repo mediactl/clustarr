@@ -391,13 +391,17 @@ func (h *handler) handleMetadata(root rootDef) http.HandlerFunc {
 }
 
 // resolveMetadata looks ratingKey up in idx and builds its Metadata object,
-// false when ratingKey names nothing this index knows.
+// false when ratingKey names nothing this index knows or names a type root
+// does not declare ([rootDef.declares]).
 func (h *handler) resolveMetadata(root rootDef, idx *projection.Index, ratingKey string, includeChildren bool) (Metadata, bool) {
 	uid, season, isSeason, ok := ParseRatingKey(ratingKey)
 	if !ok {
 		return Metadata{}, false
 	}
 	if isSeason {
+		if !root.declares(typeSeason) {
+			return Metadata{}, false
+		}
 		s, ok := idx.SeriesByUID(uid)
 		if !ok {
 			return Metadata{}, false
@@ -406,7 +410,7 @@ func (h *handler) resolveMetadata(root rootDef, idx *projection.Index, ratingKey
 	}
 
 	obj, ok := idx.ByUID(uid)
-	if !ok {
+	if !ok || !root.declares(providerType(obj)) {
 		return Metadata{}, false
 	}
 	switch v := obj.(type) {
@@ -422,5 +426,21 @@ func (h *handler) resolveMetadata(root rootDef, idx *projection.Index, ratingKey
 		return buildEpisodeMetadata(root, h.opts.ExternalURL, s, v), true
 	default:
 		return Metadata{}, false
+	}
+}
+
+// providerType is obj's numeric Plex provider type (spec §D.1): 1 for a
+// Movie, 2 for a Series, 4 for an Episode, 0 for anything else. A season
+// has no object; its ratingKey is checked against typeSeason directly.
+func providerType(obj any) int {
+	switch obj.(type) {
+	case *catalogv1.Movie:
+		return typeMovie
+	case *catalogv1.Series:
+		return typeShow
+	case *catalogv1.Episode:
+		return typeEpisode
+	default:
+		return 0
 	}
 }

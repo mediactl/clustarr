@@ -22,6 +22,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/mediactl/clustarr/ui/plex"
 )
 
 // TestMetadataMovie is GET /plex/movies/library/metadata/{ratingKey}: the
@@ -89,4 +92,51 @@ func TestMetadataEpisode(t *testing.T) {
 	rec := getJSON(t, h, "/plex/tv/library/metadata/"+string(episodes[0].UID))
 	require.Equal(t, http.StatusOK, rec.Code)
 	requireGolden(t, rec, "metadata_episode")
+}
+
+// TestRootsResolveOnlyTheirOwnTypes: each root answers only the types spec
+// §D.1 gives it -- /plex/movies type 1, /plex/tv types 2, 3 and 4 -- on
+// every route that resolves a ratingKey or a match. A show fetched through
+// the movies root came back as a show under the movies identifier, which
+// Plex would then attach to a movie library.
+func TestRootsResolveOnlyTheirOwnTypes(t *testing.T) {
+	series, episodes := fixtureSeriesAndEpisodes()
+	objs := []client.Object{fixtureMovie(), series}
+	for _, e := range episodes {
+		objs = append(objs, e)
+	}
+	h := newTestHandler(t, externalURLFixture, objs...)
+	season := plex.SeasonKey(seriesUID, 1)
+	episode := string(episodes[0].UID)
+
+	for _, tc := range []struct {
+		path string
+		want int
+	}{
+		{"/plex/movies/library/metadata/" + string(movieUID), http.StatusOK},
+		{"/plex/movies/library/metadata/" + string(seriesUID), http.StatusNotFound},
+		{"/plex/movies/library/metadata/" + season, http.StatusNotFound},
+		{"/plex/movies/library/metadata/" + episode, http.StatusNotFound},
+		{"/plex/movies/library/metadata/" + string(seriesUID) + "/images", http.StatusNotFound},
+		{"/plex/movies/library/metadata/" + season + "/images", http.StatusNotFound},
+		{"/plex/tv/library/metadata/" + string(seriesUID), http.StatusOK},
+		{"/plex/tv/library/metadata/" + season, http.StatusOK},
+		{"/plex/tv/library/metadata/" + episode, http.StatusOK},
+		{"/plex/tv/library/metadata/" + string(movieUID), http.StatusNotFound},
+		{"/plex/tv/library/metadata/" + string(movieUID) + "/images", http.StatusNotFound},
+	} {
+		require.Equal(t, tc.want, getJSON(t, h, tc.path).Code, "GET %s", tc.path)
+	}
+
+	for _, tc := range []struct {
+		path string
+		body map[string]any
+	}{
+		{"/plex/movies/library/metadata/matches", map[string]any{"type": 2, "title": "Harborview"}},
+		{"/plex/tv/library/metadata/matches", map[string]any{"type": 1, "title": "Skyfall Protocol"}},
+	} {
+		rec := postJSON(t, h, tc.path, tc.body)
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.Empty(t, matchedYears(t, rec.Body.Bytes()), "POST %s type %v", tc.path, tc.body["type"])
+	}
 }

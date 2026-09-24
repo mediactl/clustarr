@@ -68,8 +68,12 @@ const (
 // the season number a [SeasonKey] encoded into it. Spec §D.3: ratingKey
 // charset is [A-Za-z0-9_-], which excludes the periods a Kubernetes name may
 // carry, so every ratingKey here is a UID (36-character UUID form) optionally
-// followed by "-s<NN>".
-var ratingKeyPattern = regexp.MustCompile(`^([0-9a-f-]{36})(?:-s(\d{2}))?$`)
+// followed by "-s<NN>". NN is two to four digits: %02d pads to two and never
+// truncates, so a season numbered by year (2024, a daily show's) mints
+// "-s2024", which a two-digit pattern refused and so could never round-trip.
+// [ParseRatingKey] then refuses any spelling [SeasonKey] would not mint
+// ("-s007"), keeping one key per season.
+var ratingKeyPattern = regexp.MustCompile(`^([0-9a-f-]{36})(?:-s(\d{2,4}))?$`)
 
 // RatingKey is a Movie, Series or Episode's ratingKey: its own UID, exactly
 // (spec §D.3). It exists so every call site reads "this is a ratingKey", not
@@ -79,9 +83,10 @@ func RatingKey(uid types.UID) string {
 }
 
 // SeasonKey is a season's ratingKey (spec §D.3): the owning Series' UID plus
-// "-s<NN>", NN zero-padded to two digits. A season has no object of its own
-// -- it is a slice of the Series' status.seasons -- so this is the only
-// place a season's identity is minted.
+// "-s<NN>", NN zero-padded to at least two digits (seasons 0-9999 parse
+// back). A season has no object of its own -- it is a slice of the Series'
+// status.seasons -- so this is the only place a season's identity is
+// minted.
 func SeasonKey(seriesUID types.UID, number int32) string {
 	return fmt.Sprintf("%s-s%02d", seriesUID, number)
 }
@@ -100,7 +105,9 @@ func ParseRatingKey(key string) (uid types.UID, season int32, isSeason bool, ok 
 		return types.UID(m[1]), 0, false, true
 	}
 	n, err := strconv.Atoi(m[2])
-	if err != nil {
+	if err != nil || fmt.Sprintf("%02d", n) != m[2] {
+		// Not a spelling SeasonKey mints: "-s007" would otherwise name
+		// season 7 beside the canonical "-s07".
 		return "", 0, false, false
 	}
 	return types.UID(m[1]), int32(n), true, true

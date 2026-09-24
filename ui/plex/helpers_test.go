@@ -47,8 +47,8 @@ func testScheme(t *testing.T) *runtime.Scheme {
 
 // newTestHandler builds a plex.Handler over a fake client seeded with objs,
 // wired to externalURL. h.opts.Index -> projection.BuildIndex over the fake
-// client is exactly cmd/clustarr's own wiring (ui/routes.go), so a test here
-// exercises the same path production does.
+// client is the build ui/routes.go memoises (projection.IndexMemo), so a
+// test here exercises the same lookups production does, rebuilt per request.
 func newTestHandler(t *testing.T, externalURL string, objs ...client.Object) http.Handler {
 	t.Helper()
 	c := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(objs...).Build()

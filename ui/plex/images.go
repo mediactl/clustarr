@@ -139,7 +139,7 @@ func (h *handler) handleImages(root rootDef) http.HandlerFunc {
 			return
 		}
 
-		af, ok := resolveArtwork(idx, r.PathValue("ratingKey"))
+		af, ok := resolveArtwork(root, idx, r.PathValue("ratingKey"))
 		if !ok {
 			http.NotFound(w, r)
 			return
@@ -160,13 +160,17 @@ func (h *handler) handleImages(root rootDef) http.HandlerFunc {
 // resolves to: a season's own resolves to its show's artwork (spec §D.5,
 // "show's"); an episode resolves to an empty artworkFor, since
 // EpisodeStatus has no artwork field ([buildEpisodeImages]'s own doc
-// comment). false means ratingKey names nothing this index knows.
-func resolveArtwork(idx *projection.Index, ratingKey string) (artworkFor, bool) {
+// comment). false means ratingKey names nothing this index knows, or a type
+// root does not declare ([rootDef.declares]).
+func resolveArtwork(root rootDef, idx *projection.Index, ratingKey string) (artworkFor, bool) {
 	uid, _, isSeason, ok := ParseRatingKey(ratingKey)
 	if !ok {
 		return artworkFor{}, false
 	}
 	if isSeason {
+		if !root.declares(typeSeason) {
+			return artworkFor{}, false
+		}
 		s, ok := idx.SeriesByUID(uid)
 		if !ok {
 			return artworkFor{}, false
@@ -175,7 +179,7 @@ func resolveArtwork(idx *projection.Index, ratingKey string) (artworkFor, bool) 
 	}
 
 	obj, ok := idx.ByUID(uid)
-	if !ok {
+	if !ok || !root.declares(providerType(obj)) {
 		return artworkFor{}, false
 	}
 	switch v := obj.(type) {

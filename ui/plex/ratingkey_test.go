@@ -27,8 +27,8 @@ import (
 )
 
 // TestSeasonKeyRoundTrips proves [plex.SeasonKey] and [plex.ParseRatingKey]
-// invert each other, per the brief's own regex
-// `^([0-9a-f-]{36})(?:-s(\d{2}))?$`.
+// invert each other, per ratingKeyPattern
+// `^([0-9a-f-]{36})(?:-s(\d{2,4}))?$`.
 func TestSeasonKeyRoundTrips(t *testing.T) {
 	uid := types.UID("22222222-2222-2222-2222-222222222222")
 	key := plex.SeasonKey(uid, 7)
@@ -76,4 +76,37 @@ func TestSeasonKeyZeroPads(t *testing.T) {
 	require.True(t, ok)
 	require.True(t, isSeason)
 	require.Zero(t, season)
+}
+
+// TestSeasonKeyRoundTripsEverySeasonWidth is the review's season-100 case:
+// SeasonKey's %02d pads to two digits but never truncates, so seasons 100
+// and up (and a daily show's year-numbered 2024) mint a wider key, which the
+// old two-digit pattern refused -- the key Plex was handed could never be
+// fetched back.
+func TestSeasonKeyRoundTripsEverySeasonWidth(t *testing.T) {
+	uid := types.UID("22222222-2222-2222-2222-222222222222")
+	for _, n := range []int32{0, 1, 99, 100, 2024, 9999} {
+		key := plex.SeasonKey(uid, n)
+		gotUID, season, isSeason, ok := plex.ParseRatingKey(key)
+		require.True(t, ok, "SeasonKey(%d) = %q does not parse", n, key)
+		require.True(t, isSeason, "key %q", key)
+		require.Equal(t, uid, gotUID, "key %q", key)
+		require.Equal(t, n, season, "key %q", key)
+	}
+	require.Equal(t, "22222222-2222-2222-2222-222222222222-s2024", plex.SeasonKey(uid, 2024))
+}
+
+// TestParseRatingKeyRefusesNonCanonicalSeasons: widening the pattern must not
+// admit a second spelling of one season, nor a UID that is not anchored.
+func TestParseRatingKeyRefusesNonCanonicalSeasons(t *testing.T) {
+	for _, key := range []string{
+		"22222222-2222-2222-2222-222222222222-s0100", // 100 is minted -s100
+		"22222222-2222-2222-2222-222222222222-s00007",
+		"22222222-2222-2222-2222-222222222222-s12345",
+		"x22222222-2222-2222-2222-222222222222-s01",
+		"22222222-2222-2222-2222-222222222222-s01x",
+	} {
+		_, _, _, ok := plex.ParseRatingKey(key)
+		require.False(t, ok, "key %q should not parse", key)
+	}
 }

@@ -334,6 +334,10 @@ func authModeList() string {
 // cluster state, or its absence, without a cluster.
 type Server struct {
 	opts Options
+
+	// plexIndex memoises the catalogue index the Plex provider reads
+	// through, one per Server so every Handler() shares it.
+	plexIndex *projection.IndexMemo
 }
 
 // NewServer builds a Server from opts and logs [authWarning] through the
@@ -392,7 +396,7 @@ func NewServer(ctx context.Context, opts Options) *Server {
 	if opts.Plex != nil && opts.Plex.ExternalURL == "" {
 		logging.FromContext(ctx).Warn(plexExternalURLWarning)
 	}
-	return &Server{opts: opts}
+	return &Server{opts: opts, plexIndex: projection.NewIndexMemo(opts.Reader)}
 }
 
 // Handler returns the composed HTTP handler for every route this service

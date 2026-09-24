@@ -21,16 +21,17 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // IndexFunc returns the current [projection.Index] this package's routes
-// look up Movie, Series and Episode objects through. cmd/clustarr wires it
-// to a func that lists straight through Options.Reader
-// (projection.BuildIndex); a test wires it to a fixture built the same way,
-// over a fake client.
+// look up Movie, Series and Episode objects through. ui/routes.go wires it
+// to a projection.IndexMemo over Options.Reader, so every request inside
+// projection.IndexTTL shares one build (the Index is read-only); a test
+// wires it to projection.BuildIndex over a fake client.
 type IndexFunc func(context.Context) (*projection.Index, error)
 
 // Options configures [Handler].
@@ -91,6 +92,16 @@ var tvRoot = rootDef{
 	identifier: TVIdentifier,
 	types:      []int{typeShow, typeSeason, typeEpisode},
 	tv:         true,
+}
+
+// declares reports whether the root declares the numeric provider type t
+// (spec §D.1's table): 1 on the movies root; 2, 3 and 4 on the tv root.
+// Every route resolves only what its root declares -- a ratingKey or a
+// match request naming another root's type is not found here -- so the
+// movies provider never hands Plex a show, nor the tv provider a movie,
+// under its own identifier.
+func (r rootDef) declares(t int) bool {
+	return slices.Contains(r.types, t)
 }
 
 // register wires one root's six routes (spec §D.2) onto mux.

@@ -245,12 +245,13 @@ func searchRank(s *catalogv1.Search) int {
 // Episode objects: by object UID (Plex's ratingKey, D.3), by the external
 // ids a Plex match request's guid carries (tmdb, tvdb, imdb -- D.4), and a
 // series' episodes (for the /children and /grandchildren routes, D.2). It is
-// built fresh per Plex request (BuildIndex) rather than riding the shared
-// Projection ticker: unlike the streamed pages, the Plex provider is an
-// occasional, unauthenticated protocol call from Plex Media Server, not an
-// open SSE connection, so there is no steady subscriber to broadcast to --
-// the same reasoning ui/routes.go's listDownloads and listRootFolders
-// already apply to their own direct, per-request reads.
+// built on demand (BuildIndex) rather than riding the shared Projection
+// ticker: unlike the streamed pages, the Plex provider is an occasional,
+// unauthenticated protocol call from Plex Media Server, not an open SSE
+// connection, so there is no steady subscriber to broadcast to. Plex asks
+// in bursts, though, so ui memoises one Index for [IndexTTL]
+// ([IndexMemo]): an Index is shared by concurrent requests and must be
+// treated as read-only.
 type Index struct {
 	movies   map[types.UID]*catalogv1.Movie
 	series   map[types.UID]*catalogv1.Series
@@ -279,8 +280,9 @@ type Index struct {
 // [Index] ui/plex's routes look everything up through. A nil reader (no
 // cluster configured) returns an empty, still-usable Index rather than an
 // error, matching every other read-only seam in this package (a nil
-// Options.Reader renders "nothing to show", never a 500).
-func BuildIndex(ctx context.Context, r client.Reader) (*Index, error) {
+// Options.Reader renders "nothing to show", never a 500). opts are passed to
+// every List ([NewIndexMemo] passes client.UnsafeDisableDeepCopy).
+func BuildIndex(ctx context.Context, r client.Reader, opts ...client.ListOption) (*Index, error) {
 	idx := &Index{
 		movies:           map[types.UID]*catalogv1.Movie{},
 		series:           map[types.UID]*catalogv1.Series{},
@@ -297,7 +299,7 @@ func BuildIndex(ctx context.Context, r client.Reader) (*Index, error) {
 	}
 
 	var movies catalogv1.MovieList
-	if err := r.List(ctx, &movies); err != nil {
+	if err := r.List(ctx, &movies, opts...); err != nil {
 		return nil, fmt.Errorf("projection: list movies: %w", err)
 	}
 	for i := range movies.Items {
@@ -314,7 +316,7 @@ func BuildIndex(ctx context.Context, r client.Reader) (*Index, error) {
 	}
 
 	var series catalogv1.SeriesList
-	if err := r.List(ctx, &series); err != nil {
+	if err := r.List(ctx, &series, opts...); err != nil {
 		return nil, fmt.Errorf("projection: list series: %w", err)
 	}
 	for i := range series.Items {
@@ -331,7 +333,7 @@ func BuildIndex(ctx context.Context, r client.Reader) (*Index, error) {
 	}
 
 	var episodes catalogv1.EpisodeList
-	if err := r.List(ctx, &episodes); err != nil {
+	if err := r.List(ctx, &episodes, opts...); err != nil {
 		return nil, fmt.Errorf("projection: list episodes: %w", err)
 	}
 	for i := range episodes.Items {
@@ -441,9 +443,11 @@ func (idx *Index) AllSeries() []*catalogv1.Series {
 // Episodes returns every Episode owned by the Series with the given UID,
 // for the /children (a season's episodes) and /grandchildren (a show's
 // episodes) routes. Order is unspecified; ui/plex/children.go sorts it by
-// season and episode number.
+// season and episode number. The slice is a copy: an Index is shared by
+// every request inside [IndexTTL], and a caller sorting the index's own
+// slice in place would race every other reader.
 func (idx *Index) Episodes(seriesUID types.UID) []*catalogv1.Episode {
-	return idx.episodesBySeries[seriesUID]
+	return append([]*catalogv1.Episode(nil), idx.episodesBySeries[seriesUID]...)
 }
 
 // SeriesOfEpisode returns the Series that owns the Episode with the given

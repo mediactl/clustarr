@@ -85,6 +85,11 @@ func (h *handler) handleMatch(root rootDef) http.HandlerFunc {
 // §4's table), building every result as a full Metadata object (spec §D.4:
 // "results are full Metadata objects").
 func (h *handler) match(root rootDef, idx *projection.Index, req matchRequest) []Metadata {
+	if !root.declares(req.Type) {
+		// A type another root declares (a show asked of the movies root):
+		// no match, the same empty container as an unknown title.
+		return nil
+	}
 	includeChildren := req.IncludeChildren == 1
 	manual := req.Manual == 1
 
@@ -98,7 +103,7 @@ func (h *handler) match(root rootDef, idx *projection.Index, req matchRequest) [
 		return out
 
 	case typeShow:
-		shows := matchShows(idx, req.Title, req.Year, req.Guid, manual)
+		shows := matchShows(idx, req.Title, req.Year, req.Guid, manual, !manual)
 		out := make([]Metadata, len(shows))
 		for i, s := range shows {
 			out[i] = buildShowMetadata(root, h.opts.ExternalURL, s, idx, includeChildren)
@@ -142,7 +147,7 @@ func resolveShow(idx *projection.Index, title string, year int32, guid string) *
 			return s
 		}
 	}
-	shows := matchShows(idx, title, year, "", false)
+	shows := matchShows(idx, title, year, "", false, false)
 	if len(shows) == 0 {
 		return nil
 	}
@@ -250,11 +255,19 @@ func matchMovies(idx *projection.Index, req matchRequest, manual bool) []*catalo
 	return matchMoviesByTitle(idx, req.Title, req.Year, manual)
 }
 
+// matchMoviesByTitle is D.4 rule 2 for movies. An automatic match (manual
+// absent) that names a year takes only an exact or ±1 year: the "any year"
+// tier bound an automatic Dune (2021) request to Dune (1984) whenever the
+// 2021 film was not in the catalogue, and Plex applies an automatic match
+// without asking. The any-year tier stays for a request with no year, which
+// cannot be ranked by one, and for manual=1, where Plex shows the user a
+// ranked list to choose from.
 func matchMoviesByTitle(idx *projection.Index, title string, year int32, manual bool) []*catalogv1.Movie {
 	if title == "" {
 		return nil
 	}
 	norm := release.TitleNorm(title)
+	strict := !manual
 
 	type candidate struct {
 		movie *catalogv1.Movie
@@ -269,7 +282,11 @@ func matchMoviesByTitle(idx *projection.Index, title string, year int32, manual 
 		if !titleMatches(norm, meta.Title, meta.AlternateTitles) {
 			continue
 		}
-		candidates = append(candidates, candidate{movie: m, tier: yearTier(meta.Year, year)})
+		tier := yearTier(meta.Year, year)
+		if !admitsTier(tier, year, strict) {
+			continue
+		}
+		candidates = append(candidates, candidate{movie: m, tier: tier})
 	}
 	sort.Slice(candidates, func(i, j int) bool {
 		if candidates[i].tier != candidates[j].tier {
@@ -299,8 +316,16 @@ func movieTitle(m *catalogv1.Movie) string {
 	return m.Status.Metadata.Title
 }
 
-// matchShows is the show half of D.4, matchMovies' twin.
-func matchShows(idx *projection.Index, title string, year int32, guid string, manual bool) []*catalogv1.Series {
+// matchShows is the show half of D.4, matchMovies' twin, with the same
+// year rule: strict (exact or ±1 only, when a year is given) for an
+// automatic type-2 match, the any-year tier kept for manual=1.
+//
+// strictYear is separate from manual because rule 3 resolves a season's or
+// an episode's show through here too (resolveShow), and there the request's
+// year is the season's or episode's own release year (research §4: "release
+// year"), not the show's -- season 5 of a 2015 show arrives with 2020. It
+// may order candidates but must never exclude the show.
+func matchShows(idx *projection.Index, title string, year int32, guid string, manual, strictYear bool) []*catalogv1.Series {
 	if guid != "" {
 		if s, ok := showByGuid(idx, guid); ok {
 			return []*catalogv1.Series{s}
@@ -328,7 +353,11 @@ func matchShows(idx *projection.Index, title string, year int32, guid string, ma
 		if !titleMatches(norm, meta.Title, alts) {
 			continue
 		}
-		candidates = append(candidates, candidate{series: s, tier: yearTier(meta.Year, year)})
+		tier := yearTier(meta.Year, year)
+		if !admitsTier(tier, year, strictYear) {
+			continue
+		}
+		candidates = append(candidates, candidate{series: s, tier: tier})
 	}
 	sort.Slice(candidates, func(i, j int) bool {
 		if candidates[i].tier != candidates[j].tier {
@@ -370,6 +399,13 @@ func titleMatches(norm, title string, alternates []string) bool {
 		}
 	}
 	return false
+}
+
+// admitsTier reports whether a candidate in tier may be returned at all:
+// always, unless strict and the request named a year, when only the exact
+// (0) and ±1 (1) tiers are -- D.4's "then any when no year was given".
+func admitsTier(tier int, requestedYear int32, strict bool) bool {
+	return !strict || requestedYear == 0 || tier < 2
 }
 
 // yearTier ranks a candidate's own year against the requested one (D.4 rule
