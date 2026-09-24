@@ -20,6 +20,7 @@ package transcodejob_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -40,6 +41,7 @@ import (
 	"github.com/mediactl/clustarr/app/squash/task"
 	"github.com/mediactl/clustarr/app/squash/worker"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/transcode"
 )
@@ -735,4 +737,73 @@ func TestAReplanThatCannotUseTheChosenClassPublishesNothing(t *testing.T) {
 	assert.Equal(t, transcodev1alpha1.PlanModeSkip, short.Status.Plan.Mode)
 	assert.Zero(t, short.Status.Attempts)
 	assert.Empty(t, takeTasks(t, r.Bus, tp.UID, "nvidia", 300*time.Millisecond))
+}
+
+// claimOnPublish is a bus whose first task publish is claimed at once: the
+// pool worker's claimed event reaches the results consumer, and its
+// adoption lands, before Publish even returns to dispatch -- an idle pod
+// claiming within milliseconds, ahead of dispatch's own Queued write.
+type claimOnPublish struct {
+	events.Bus
+	t       *testing.T
+	r       *transcodejob.Reconciler
+	claimed bool
+}
+
+func (b *claimOnPublish) Publish(ctx context.Context, subject string, env *events.Envelope, opts ...events.PublishOption) (events.Receipt, error) {
+	rcpt, err := b.Bus.Publish(ctx, subject, env, opts...)
+	if err != nil || b.claimed || !strings.HasPrefix(subject, "clustarr.work.transcode.task.") {
+		return rcpt, err
+	}
+	b.claimed = true
+	var tk task.Task
+	require.NoError(b.t, schema.Decode(env.Schema, env.Data, &tk))
+	ev := task.StatusEvent{
+		Kind: task.EventClaimed, Job: tk.Job, Attempt: tk.Attempt, Class: transcodev1alpha1.Hardware(tk.Class),
+		Pod: "pool-fast", Node: "gpu-1", At: time.Now(),
+	}
+	sch, data, encErr := schema.Encode(ev)
+	require.NoError(b.t, encErr)
+	require.NoError(b.t, transcodejob.HandleEventForTest(b.r, ctx, fakeMsg{&events.Envelope{Schema: sch, Data: data}}))
+	return rcpt, err
+}
+
+// TestADispatchAdoptedFirstStillRecordsItsReplan is the re-rated plan drop
+// (ruling R27). An auto job planned for cpu is sent to nvidia, so dispatch
+// plans it again for nvidia and publishes that plan. The worker's claim is
+// adopted before dispatch's Queued write, which then finds the attempt
+// already recorded. It must still record the plan it published -- and only
+// that -- rather than leave status.plan and the Planned condition naming the
+// cpu plan the task does not carry.
+func TestADispatchAdoptedFirstStillRecordsItsReplan(t *testing.T) {
+	_, c := startEnv(t)
+	const ns = "tj-adopted-first"
+	newNamespace(t, c, ns)
+	newRootFolder(t, c, ns, "/data/media/movies")
+	tp := newProfile(t, c, "hevc", "hash1", nil)
+	nvidiaNode(t, c, "gpu-1", "1")
+	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
+	r := newReconciler(t, c, map[string]int32{"cpu": 1, "nvidia": 1})
+	inner := r.Bus
+	bus := &claimOnPublish{Bus: inner, t: t, r: r}
+	r.Bus = bus
+
+	reconcileTJ(t, r, ns, "heat-hevc")
+	require.True(t, bus.claimed, "setup: the task was published and claimed")
+	got := getTJ(t, c, ns, "heat-hevc")
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, got.Status.Phase, "message: %s", got.Status.Message)
+	assert.EqualValues(t, 1, got.Status.Attempts, "adopted once, never dispatched twice")
+	assert.Equal(t, transcodev1alpha1.HardwareNVIDIA, got.Status.Hardware)
+	assert.Equal(t, "pool-fast", got.Status.WorkerPod, "the adoption's own fields stand")
+	assert.Equal(t, "attempt 1 running on pool-fast", got.Status.Message, "the re-plan write changed nothing else")
+	require.NotNil(t, got.Status.Plan)
+	assert.Equal(t, "hevc_nvenc", got.Status.Plan.Encoder, "status.plan is the plan the task carries")
+	planned := k8s.FindCondition(got.Status.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned)
+	require.NotNil(t, planned)
+	assert.Contains(t, planned.Message, "hevc_nvenc", "the Planned condition names it too")
+
+	tasks := takeTasks(t, inner, tp.UID, "nvidia", 5*time.Second)
+	require.Len(t, tasks, 1)
+	assert.Equal(t, got.Status.Plan.ArgsHash, tasks[0].ArgsHash)
 }

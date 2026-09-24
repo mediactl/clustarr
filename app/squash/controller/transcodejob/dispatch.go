@@ -226,18 +226,49 @@ func (r *Reconciler) dispatch(ctx context.Context, key types.NamespacedName, cla
 	// Planned: the worker's first event for this attempt adopts it
 	// (results.go), and until then a re-dispatch republishes under the same
 	// Msg-Id, which the stream absorbs.
+	//
+	// The worker's event can also simply be first: an idle pool pod claims
+	// within milliseconds of the publish, and its claimed event's adoption
+	// may land before this write. Then the job already reads this attempt,
+	// dispatched to this class, and only the re-plan is left to record --
+	// the plan the task was built from, which adoption cannot know. Dropping
+	// it (as this write once did) left status.plan, the Planned condition
+	// and the history's encoder naming the plan for the class admission did
+	// not choose.
+	uid := tj.UID
+	adoptedFirst := false
 	before, after, err := r.writeStatus(ctx, key, func(tj *transcodev1alpha1.TranscodeJob, st *transcodev1alpha1.TranscodeJobStatus) bool {
-		if st.Phase != transcodev1alpha1.TranscodeJobPhasePlanned || st.Attempts != attempt-1 {
-			return false // someone else moved it; the published task is a duplicate the Msg-Id absorbs
+		adoptedFirst = false // this may run again, from a fresh read, after a Conflict
+		if st.Phase == transcodev1alpha1.TranscodeJobPhasePlanned && st.Attempts == attempt-1 {
+			if replanned != nil {
+				r.recordPlan(tj, st, *replanned, tp.Spec.Container) // the plan the task was built from
+			}
+			markQueued(tj, st, attempt, class, pool.Name(k))
+			return true
 		}
-		if replanned != nil {
-			r.recordPlan(tj, st, *replanned, tp.Spec.Container) // the plan the task was built from
+		if replanned != nil && tj.UID == uid && dispatched(st.Phase) && st.Attempts == attempt && st.Hardware == class {
+			markPlanned(tj, st, *replanned, tp.Spec.Container) // adopted first: the re-plan, and nothing else
+			adoptedFirst = true
+			return true
 		}
-		markQueued(tj, st, attempt, class, pool.Name(k))
-		return true
+		return false // someone else moved it; the published task is a duplicate the Msg-Id absorbs
 	})
 	if after != nil {
 		r.afterWrite(ctx, after, &before)
+		log := logging.FromContext(ctx)
+		encoder := ""
+		if after.Status.Plan != nil {
+			encoder = after.Status.Plan.Encoder
+		}
+		if adoptedFirst {
+			log.InfoContext(ctx, "squasharr: recorded the re-plan of a dispatch its worker's claim adopted first",
+				"transcodeJob", key.String(), "attempt", attempt, "class", string(class), "pool", pool.Name(k),
+				"encoder", encoder)
+		} else {
+			log.InfoContext(ctx, "squasharr: dispatched a transcode task",
+				"transcodeJob", key.String(), "attempt", attempt, "class", string(class), "pool", pool.Name(k),
+				"encoder", encoder, "replanned", replanned != nil)
+		}
 	}
 	return err
 }

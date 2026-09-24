@@ -616,19 +616,30 @@ func (r *Reconciler) recordPlan(tj *transcodev1alpha1.TranscodeJob, st *transcod
 		k8s.MarkTrue(tj, &st.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned, ReasonSkipped, "%s", p.result.Reason)
 	default:
 		st.Phase = transcodev1alpha1.TranscodeJobPhasePlanned
-		st.Plan = statusPlan(p.result)
 		st.Message = p.result.Reason
-		reason, where := ReasonPlanned, ""
-		if p.outPath != p.source {
-			where = "; output " + p.outPath
-			if src, want, changed := containerChange(p.source, container); changed {
-				reason = ReasonContainerChange
-				where = fmt.Sprintf("; .%s becomes %s at %s", src, want, p.outPath)
-			}
-		}
-		k8s.MarkTrue(tj, &st.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned, reason,
-			"%s with %s%s", st.Plan.Mode, st.Plan.Encoder, where)
+		markPlanned(tj, st, p, container)
 	}
+}
+
+// markPlanned records p, a plan that encodes or remuxes, as status.plan and
+// Planned=True naming its mode, its encoder and where the output lands --
+// and nothing else about the job. recordPlan uses it for a new plan; dispatch
+// uses it alone for a re-plan whose attempt a worker's event already
+// adopted (dispatch.go).
+func markPlanned(tj *transcodev1alpha1.TranscodeJob, st *transcodev1alpha1.TranscodeJobStatus,
+	p planning, container transcodev1alpha1.Container,
+) {
+	st.Plan = statusPlan(p.result)
+	reason, where := ReasonPlanned, ""
+	if p.outPath != p.source {
+		where = "; output " + p.outPath
+		if src, want, changed := containerChange(p.source, container); changed {
+			reason = ReasonContainerChange
+			where = fmt.Sprintf("; .%s becomes %s at %s", src, want, p.outPath)
+		}
+	}
+	k8s.MarkTrue(tj, &st.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned, reason,
+		"%s with %s%s", st.Plan.Mode, st.Plan.Encoder, where)
 }
 
 // admit is one pass of the slot scheduler: every Planned job that is not
@@ -754,11 +765,10 @@ func (r *Reconciler) admit(ctx context.Context) error {
 	for _, s := range admitted {
 		delete(candidates, s.Key)
 		ns, name, _ := strings.Cut(s.Key, "/")
+		// dispatch logs the dispatch itself, once its Queued write landed.
 		if err := r.dispatch(ctx, types.NamespacedName{Namespace: ns, Name: name}, transcodev1alpha1.Hardware(s.Hardware)); err != nil {
 			errs = append(errs, err)
-			continue
 		}
-		log.Info("dispatched transcode", "transcodeJob", s.Key, "hardware", s.Hardware, "priority", s.Priority)
 	}
 	for _, s := range queued {
 		// A job held by an earlier pass that is free now but found no slot
