@@ -47,7 +47,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     render nothing; record it in status.overlay if it is not already.
 //  4. Otherwise decode the original, overlay.Render, encode JPEG q90, Put
 //     poster/overlay with Content-Type image/jpeg, Clustarr-Source render
-//     and Clustarr-Rendered-From, and record it.
+//     and Clustarr-Rendered-From, and record it. An original that does not
+//     decode is "no overlay", as in step 1.
 //
 // Every status write re-reads the item, its profiles and its original
 // after the slow work and applies only if they still want what was drawn;
@@ -57,9 +58,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // The role is not leader-elected and scales by consumer.
 //
+// Draws are bounded per process by [Handler.MaxConcurrentRenders] (default
+// [DefaultMaxConcurrentRenders]), whatever the consumer's MaxAckPending: a
+// decoded poster is tens of megabytes, and the pod runs every catalogarr
+// controller under the same GOMEMLIMIT.
+//
 // RBAC: the item reads and the status apply (catalogarr already holds both
-// for its reconcilers) and the OverlayProfile list the plan needs, from the
-// manager's cache.
+// for its reconcilers) and the OverlayProfile list the plan needs, read
+// uncached like the item.
 //
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=overlayprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series,verbs=get;list;watch

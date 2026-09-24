@@ -27,6 +27,7 @@ import (
 	_ "image/png" // registers the PNG decoder: originals are stored as the provider served them
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	_ "golang.org/x/image/webp" // registers the WebP decoder, the third type the gateway stores
@@ -79,7 +80,8 @@ const RetryInputsMoved = 5 * time.Second
 var errItemGone = errors.New("artwork: item no longer exists")
 
 // errUndecodable is an original poster that is not an image this role can
-// draw on. The gateway validated it on the way in, so retrying cannot help.
+// draw on. The gateway validated it on the way in, so retrying cannot help;
+// Render treats it as "no overlay".
 var errUndecodable = errors.New("artwork: the original poster is not a decodable image")
 
 // Outcome is what one render task did.
@@ -103,13 +105,14 @@ const (
 // Movie or Series it makes poster/overlay and status.overlay agree with the
 // item's current inputs.
 type Handler struct {
-	// Client applies status.overlay and lists OverlayProfiles -- the
-	// manager's cached client in production.
+	// Client applies status.overlay.
 	Client client.Client
 
-	// Reader reads the item, uncached (mgr.GetAPIReader()): a cache that has
-	// not yet seen the gateway's latest apply would hand the render stale
-	// ratings, and the recheck before the apply exists to see exactly that.
+	// Reader reads the item and lists its OverlayProfiles, uncached
+	// (mgr.GetAPIReader()): a cache that has not yet seen the gateway's
+	// latest apply, or a profile edit, would hand the render stale ratings
+	// or a stale profile hash, and the recheck before the apply exists to
+	// see exactly that.
 	Reader client.Reader
 
 	// Store is events.BucketArtwork.
@@ -121,6 +124,44 @@ type Handler struct {
 
 	// Now is a seam for tests; nil means time.Now.
 	Now func() time.Time
+
+	// MaxConcurrentRenders bounds the draws -- original read, decode,
+	// render, encode and Put -- in flight in this process; 0 means
+	// DefaultMaxConcurrentRenders. Nothing else does: the consumer's
+	// MaxAckPending (32) is how many tasks natsbus hands this process at
+	// once, and a draw holds the original's bytes, its decoded image, the
+	// NRGBA the badges are drawn on and the JPEG, some 35-40 MB for an
+	// ordinary 2000x3000 poster and far more for an 8000px one. The
+	// catalogarr pod runs every controller beside the renderer under a
+	// GOMEMLIMIT of about 80% of its memory limit (819Mi of 1Gi as
+	// shipped), so the budget is renders x the largest poster expected,
+	// kept well inside that. A task waiting for a slot is still being
+	// handled: Handle's heartbeat keeps its delivery alive.
+	MaxConcurrentRenders int
+
+	slotsOnce sync.Once
+	slots     chan struct{}
+}
+
+// DefaultMaxConcurrentRenders is MaxConcurrentRenders when unset: two
+// ordinary posters, under 100 MB, beside the controllers.
+const DefaultMaxConcurrentRenders = 2
+
+// acquire takes a draw slot, or gives up when ctx ends.
+func (h *Handler) acquire(ctx context.Context) (release func(), err error) {
+	h.slotsOnce.Do(func() {
+		n := h.MaxConcurrentRenders
+		if n <= 0 {
+			n = DefaultMaxConcurrentRenders
+		}
+		h.slots = make(chan struct{}, n)
+	})
+	select {
+	case h.slots <- struct{}{}:
+		return func() { <-h.slots }, nil
+	case <-ctx.Done():
+		return nil, fmt.Errorf("artwork: waiting for a render slot: %w", ctx.Err())
+	}
 }
 
 func (h *Handler) now() time.Time {
@@ -198,9 +239,6 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) (err error) {
 	case errors.Is(err, ErrInputsMoved):
 		log.Info("artwork: inputs changed during the render; retrying")
 		return events.Retry(RetryInputsMoved, err)
-	case errors.Is(err, errUndecodable):
-		tracing.RecordError(span, err)
-		return events.Discard("the original poster does not decode", err)
 	case err != nil:
 		tracing.RecordError(span, err)
 		return err
@@ -281,6 +319,22 @@ func (h *Handler) Render(ctx context.Context, key client.ObjectKey, kind commonv
 	}
 
 	entry, err := h.draw(ctx, it, want)
+	if errors.Is(err, errUndecodable) {
+		// An original this role cannot draw on is "no overlay", as a
+		// missing one is: an overlay left in place would go on being
+		// served ahead of the original it no longer describes.
+		logging.FromContext(ctx).Warn("artwork: the original poster cannot be drawn on; removing the overlay",
+			"kind", it.Kind, "item", client.ObjectKeyFromObject(it.Object).String(), "error", err)
+		if err := h.Store.Delete(ctx, overlayKey); err != nil && !errors.Is(err, events.ErrObjectNotFound) {
+			return "", fmt.Errorf("artwork: delete %s: %w", overlayKey, err)
+		}
+		if it.Overlay == nil {
+			return OutcomeCleared, nil
+		}
+		// want, not a Want{}: the recheck must find the same inputs --
+		// the same undecodable original -- before it clears.
+		return OutcomeCleared, h.record(ctx, it, want, nil)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -288,9 +342,15 @@ func (h *Handler) Render(ctx context.Context, key client.ObjectKey, kind commonv
 }
 
 // plan reads the item's profiles and its original's digest and decides.
+//
+// Profiles are listed through the uncached Reader, for the first decision
+// and for record's recheck alike: an informer that has not yet seen a
+// profile edit would have the render drawn, and recorded, under a profile
+// hash the profile no longer has. A namespace's profiles are a handful, so
+// the List per task is cheap.
 func (h *Handler) plan(ctx context.Context, it Item) (Want, error) {
 	var list catalogv1alpha1.OverlayProfileList
-	if err := h.Client.List(ctx, &list, client.InNamespace(it.Object.GetNamespace())); err != nil {
+	if err := h.Reader.List(ctx, &list, client.InNamespace(it.Object.GetNamespace())); err != nil {
 		return Want{}, fmt.Errorf("artwork: list OverlayProfiles: %w", err)
 	}
 	// Skip the store when no profile could want an overlay anyway.
@@ -312,6 +372,12 @@ func (h *Handler) plan(ctx context.Context, it Item) (Want, error) {
 func (h *Handler) draw(ctx context.Context, it Item, want Want) (*catalogv1alpha1.OverlayEntry, error) {
 	ctx, span := tracing.Start(ctx, "artwork.Render.draw")
 	defer span.End()
+
+	release, err := h.acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	originalKey := objectKey(it, events.ArtworkVariantOriginal)
 	info, rc, err := h.Store.Get(ctx, originalKey)

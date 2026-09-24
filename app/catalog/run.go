@@ -538,9 +538,11 @@ func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 
 // setupArtworkWorker registers RoleArtwork's one consumer, the renderer
 // (spec §C.6): catalogarr-artwork-render, on every replica. It reads items
-// through the uncached API reader -- the recheck before each status.overlay
-// apply must see the gateway's latest ratings and poster, which a cache may
-// not have yet -- and lists OverlayProfiles through the manager's cache.
+// and lists OverlayProfiles through the uncached API reader -- the recheck
+// before each status.overlay apply must see the gateway's latest ratings
+// and poster, and the profiles as they are, which a cache may not have yet.
+// MaxConcurrentRenders stays at its default (renderer.DefaultMaxConcurrentRenders):
+// the catalogarr pod runs the controllers beside it under one GOMEMLIMIT.
 func setupArtworkWorker(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	topo := o.BusTopology()
 	h := &renderer.Handler{

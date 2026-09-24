@@ -23,6 +23,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -619,12 +620,156 @@ func TestTasksThatCannotRender(t *testing.T) {
 		var discard *events.DiscardError
 		assert.True(t, errors.As(err, &discard), "%v", err)
 	})
-	t.Run("an original that is not an image is discarded", func(t *testing.T) {
-		_, err := f.store.ObjectStore.Put(ctx, f.originalKey(), strings.NewReader("<html>"), map[string]string{"Content-Type": "image/png"})
-		require.NoError(t, err)
-		err = f.handle()
-		var discard *events.DiscardError
-		assert.True(t, errors.As(err, &discard), "%v", err)
-		assert.Nil(t, f.get().Overlay)
-	})
+}
+
+// An original that no longer decodes is "no overlay", like a missing one:
+// leaving the previous overlay would have the ui keep serving it ahead of
+// the original it no longer describes.
+func TestAnUndecodableOriginalClearsTheOverlay(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t, commonv1.MediaKindMovie, "render-undecodable", catalogv1alpha1.RatingSourceTMDB)
+	require.NoError(t, f.handle())
+	require.NotNil(t, f.get().Overlay, "the steady state has an overlay to remove")
+
+	_, err := f.store.ObjectStore.Put(ctx, f.originalKey(), strings.NewReader("<html>"), map[string]string{"Content-Type": "image/png"})
+	require.NoError(t, err)
+	require.NoError(t, f.handle(), "a clear is the task's outcome, not a failure to retry")
+
+	_, err = f.store.Info(ctx, f.overlayKey())
+	assert.ErrorIs(t, err, events.ErrObjectNotFound, "the overlay object is deleted")
+	got := f.get()
+	assert.Nil(t, got.Overlay, "status.overlay is cleared")
+	assert.Equal(t, f.info.Digest, got.PosterDigest, "status.artwork is the gateway's and stands")
+	f.assertSplit(got)
+
+	rv := got.Object.GetResourceVersion()
+	require.NoError(t, f.handle())
+	assert.Equal(t, rv, f.get().Object.GetResourceVersion(), "nothing left to clear: no write")
+}
+
+// staleProfiles is a lagging informer: it answers OverlayProfile lists with
+// a snapshot taken before the profile was edited.
+type staleProfiles struct {
+	client.Client
+	profiles []catalogv1alpha1.OverlayProfile
+}
+
+func (s staleProfiles) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if l, ok := list.(*catalogv1alpha1.OverlayProfileList); ok {
+		l.Items = nil
+		for i := range s.profiles {
+			l.Items = append(l.Items, *s.profiles[i].DeepCopy())
+		}
+		return nil
+	}
+	return s.Client.List(ctx, list, opts...)
+}
+
+// The render's decision -- and the recheck before its apply above all --
+// reads profiles uncached: a lagging informer must not get an overlay
+// recorded under a profile hash the profile no longer has.
+func TestProfilesAreReadUncached(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t, commonv1.MediaKindMovie, "render-uncached", catalogv1alpha1.RatingSourceTMDB)
+	var before catalogv1alpha1.OverlayProfileList
+	require.NoError(t, f.c.List(ctx, &before, client.InNamespace(f.key.Namespace)))
+	f.h.Client = staleProfiles{Client: f.c, profiles: before.Items}
+
+	p := f.profile()
+	p.Spec.Corner = catalogv1alpha1.OverlayCornerTopLeft
+	require.NoError(t, f.c.Update(ctx, p))
+	fresh := f.wantDigest()
+	require.NotEqual(t, artwork.InputsDigest(f.info.Digest, artwork.ProfileHash(before.Items[0].Spec), f.ratings), fresh,
+		"the edit moves the profile hash, so a stale list is visible")
+
+	require.NoError(t, f.handle())
+	got := f.get()
+	require.NotNil(t, got.Overlay)
+	assert.Equal(t, fresh, got.Overlay.RenderedFrom, "recorded under the profile as it is, not as the informer last saw it")
+	info, err := f.store.Info(ctx, f.overlayKey())
+	require.NoError(t, err)
+	assert.Equal(t, fresh, info.Headers["Clustarr-Rendered-From"])
+}
+
+// addMovie puts a second Movie beside the fixture's, in the same steady
+// state: labelled, its original stored and recorded with a rating.
+func (f *fixture) addMovie(name string) types.NamespacedName {
+	f.t.Helper()
+	ctx := context.Background()
+	m := &catalogv1alpha1.Movie{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: f.key.Namespace, Labels: critics},
+		Spec:       catalogv1alpha1.MovieSpec{TmdbID: 1, QualityProfileRef: "q", RootFolderRef: "r"},
+	}
+	require.NoError(f.t, f.c.Create(ctx, m))
+	info, err := f.store.ObjectStore.Put(ctx, events.ArtworkKey(commonv1.MediaKindMovie, m.UID, "poster", events.ArtworkVariantOriginal),
+		bytes.NewReader(f.poster), map[string]string{"Content-Type": "image/png"})
+	require.NoError(f.t, err)
+	_, err = k8s.PatchStatus(ctx, f.c, catalogstatus.GatewayManager, catalogac.Movie(name, f.key.Namespace).WithStatus(catalogac.MovieStatus().
+		WithMetadata(catalogac.MovieMetadata().WithTitle(name).
+			WithRatings(catalogac.Rating().WithSource(catalogv1alpha1.RatingSourceTMDB).WithValueCentis(700))).
+		WithArtwork(catalogstatus.ArtworkEntries([]catalogv1alpha1.ArtworkEntry{{
+			Type: catalogv1alpha1.ImageTypePoster, Source: catalogv1alpha1.ArtworkSourceProvider,
+			SourceURL: "https://img.example/" + name, Digest: info.Digest, SizeBytes: info.Size, UpdatedAt: refreshed,
+		}})...)))
+	require.NoError(f.t, err)
+	return client.ObjectKeyFromObject(m)
+}
+
+// Nothing but MaxConcurrentRenders bounds the render consumer's
+// concurrency below its MaxAckPending, and a decode, render and encode
+// holds tens of megabytes. With the draw made to block, no more draws run
+// at once than the limit -- 1 when set, DefaultMaxConcurrentRenders when
+// unset -- and every task still completes once they are let go.
+func TestConcurrentDrawsAreBounded(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		limit int
+		tasks int
+		want  int32
+	}{
+		{"one", 1, 2, 1},
+		{"the default", 0, 3, artwork.DefaultMaxConcurrentRenders},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t, commonv1.MediaKindMovie, "render-bounded-"+strings.ReplaceAll(tc.name, " ", "-"), catalogv1alpha1.RatingSourceTMDB)
+			f.h.MaxConcurrentRenders = tc.limit
+			keys := []types.NamespacedName{f.key}
+			for i := 1; i < tc.tasks; i++ {
+				keys = append(keys, f.addMovie(fmt.Sprintf("movie-%d", i)))
+			}
+
+			var active, peak, started atomic.Int32
+			release := make(chan struct{})
+			f.store.onGet = func(name string) { // the draw's first step, inside the bound
+				if !strings.HasSuffix(name, "/original") {
+					return
+				}
+				started.Add(1)
+				n := active.Add(1)
+				for {
+					p := peak.Load()
+					if n <= p || peak.CompareAndSwap(p, n) {
+						break
+					}
+				}
+				<-release
+				active.Add(-1)
+			}
+
+			errs := make(chan error, len(keys))
+			for _, k := range keys {
+				msg := renderTask(t, commonv1.MediaKindMovie, k.Namespace, k.Name) // require, not in the goroutine
+				go func() { errs <- f.h.Handle(context.Background(), msg) }()
+			}
+			require.Eventually(t, func() bool { return started.Load() >= tc.want }, 10*time.Second, 5*time.Millisecond)
+			time.Sleep(300 * time.Millisecond) // time for a draw past the bound to start, were it allowed to
+			assert.Equal(t, tc.want, started.Load(), "a draw started past MaxConcurrentRenders")
+			close(release)
+			for range keys {
+				require.NoError(t, <-errs)
+			}
+			assert.Equal(t, tc.want, peak.Load(), "peak concurrent draws")
+			assert.EqualValues(t, tc.tasks, started.Load(), "every task drew once let go")
+		})
+	}
 }
