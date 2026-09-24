@@ -86,10 +86,34 @@ func (r *Reconciler) handleEvent(ctx context.Context, m events.Message) error {
 	key := types.NamespacedName{Namespace: ev.Job.Namespace, Name: ev.Job.Name}
 	ctx = logging.With(ctx, "transcodeJob", key.String(), "attempt", ev.Attempt, "event", string(ev.Kind))
 
-	var decideErr error
+	var (
+		decideErr        error
+		adopted, noClass bool
+	)
 	before, after, err := r.writeStatus(ctx, key, func(tj *transcodev1alpha1.TranscodeJob, st *transcodev1alpha1.TranscodeJobStatus) bool {
-		if string(tj.UID) != ev.Job.UID || k8s.IsDeleting(tj) || st.Attempts != ev.Attempt ||
-			(st.Phase != transcodev1alpha1.TranscodeJobPhaseQueued && st.Phase != transcodev1alpha1.TranscodeJobPhaseRunning) {
+		adopted, noClass = false, false // this may run again, from a fresh read, after a Conflict
+		if string(tj.UID) != ev.Job.UID || k8s.IsDeleting(tj) {
+			return false // another incarnation of the job, or one going away
+		}
+		if st.Phase == transcodev1alpha1.TranscodeJobPhasePlanned && ev.Attempt == st.Attempts+1 {
+			// A worker is running the attempt after the job's last recorded
+			// one, so dispatch published it and then lost its Queued write
+			// (R16). Adopt the attempt from the event, in this same write,
+			// rather than drop the worker's report and leave a job that the
+			// next dispatch would mark Queued with no task anywhere.
+			if ev.Class == "" {
+				noClass = true // a worker from before events carried their class
+				return false
+			}
+			poolName, err := r.poolNameFor(ctx, tj, ev.Class)
+			if err != nil {
+				decideErr = err
+				return false
+			}
+			markQueued(tj, st, ev.Attempt, ev.Class, poolName)
+			adopted = true
+		}
+		if st.Attempts != ev.Attempt || !dispatched(st.Phase) {
 			return false // stale, duplicate, or for a job that moved on
 		}
 		at := ev.At
@@ -98,6 +122,20 @@ func (r *Reconciler) handleEvent(ctx context.Context, m events.Message) error {
 		}
 		switch ev.Kind {
 		case task.EventClaimed, task.EventProgress:
+			if ev.Class != "" && ev.Class != st.Hardware {
+				// A re-dispatch to another class was absorbed as a duplicate
+				// of this attempt's first publish: the task is where the
+				// worker took it from.
+				poolName, err := r.poolNameFor(ctx, tj, ev.Class)
+				if err != nil {
+					decideErr = err
+					return false
+				}
+				st.Hardware = ev.Class
+				if poolName != "" {
+					st.JobRef = &poolName
+				}
+			}
 			if st.Phase != transcodev1alpha1.TranscodeJobPhaseRunning {
 				st.Phase = transcodev1alpha1.TranscodeJobPhaseRunning
 				st.Message = fmt.Sprintf("attempt %d running", st.Attempts)
@@ -128,11 +166,18 @@ func (r *Reconciler) handleEvent(ctx context.Context, m events.Message) error {
 				return false
 			}
 			d := Decide(ev, *st, auto)
+			if d.NoOp && adopted {
+				// Cancelled: the withdrawal acted on this attempt, and its
+				// worker acked the task. Recording it Queued now would leave a
+				// dispatched job with no task behind it.
+				return false
+			}
 			applyDecision(tj, st, ev, d, r.now().Time)
-			return !d.NoOp || ev.StderrTail != ""
+			return adopted || !d.NoOp || ev.StderrTail != ""
 		}
-		return false
+		return adopted
 	})
+	log := logging.FromContext(ctx)
 	if decideErr != nil {
 		tracing.RecordError(span, decideErr)
 		return decideErr
@@ -140,9 +185,26 @@ func (r *Reconciler) handleEvent(ctx context.Context, m events.Message) error {
 	if apierrors.IsNotFound(err) {
 		return nil // the job is gone; nothing is left to describe
 	}
+	if apierrors.IsInvalid(err) {
+		// The apiserver will refuse this write however often it is retried,
+		// and the consumer settles one event at a time (MaxAckPending 1):
+		// retrying would hold every other job's status back behind it
+		// until it dead-lettered anyway (R17).
+		log.WarnContext(ctx, "squasharr: a transcode status event makes an invalid status; dead-lettering it",
+			"error", err)
+		return events.Discard("the status this event makes is invalid", err)
+	}
 	if err != nil {
 		tracing.RecordError(span, err)
 		return err
+	}
+	if noClass {
+		log.WarnContext(ctx, "squasharr: an event for an attempt the job never recorded carries no class, so it cannot be adopted; dropping it",
+			"recordedAttempts", before.Attempts)
+	}
+	if adopted && after != nil {
+		log.InfoContext(ctx, "squasharr: adopted an attempt whose dispatch write was lost, from its worker's event",
+			"hardware", string(after.Status.Hardware))
 	}
 	if after != nil {
 		r.afterWrite(ctx, after, &before)

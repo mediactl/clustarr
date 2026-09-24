@@ -182,6 +182,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 						log.Info("replacing a TranscodeJob whose source changed", "transcodeJob", key.String(),
 							"sourceProbeHash", old.Spec.SourceProbeHash, "probeHash", mf.Status.ProbeHash)
 					}
+					continue
 				}
 				// Otherwise the job was made for an earlier probe of this
 				// file and is not done with it: re-applying the new probe
@@ -189,6 +190,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 				// left to its worker, whose SourceChanged report makes it
 				// replaceable above, or -- blocked -- to the user's delete
 				// (spec §18.4).
+				log.Info("leaving a TranscodeJob made for an earlier probe of its file", "mediaFile",
+					mf.Namespace+"/"+mf.Name, "transcodeJob", key.String(), "phase", string(old.Status.Phase),
+					"sourceProbeHash", old.Spec.SourceProbeHash, "probeHash", mf.Status.ProbeHash)
 				continue
 			}
 			if err := r.ensureTranscodeJob(ctx, &tp, mf, hash); err != nil {

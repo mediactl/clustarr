@@ -23,6 +23,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,6 +34,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
@@ -745,6 +747,18 @@ func TestStatusEventsDriveStatusAndOneManagerOwnsIt(t *testing.T) {
 	assert.EqualValues(t, 42, got.Status.Progress.Percent)
 	assert.EqualValues(t, 5000, got.Status.Progress.BitrateKbps)
 
+	// An event whose status the apiserver refuses is dead-lettered at once
+	// (R17): with one event in flight, retrying it would hold every other
+	// job's status back behind it.
+	before := f.get(t)
+	err := deliver(t, f.r, got, task.StatusEvent{
+		Kind: task.EventProgress, Attempt: 1, Pod: "pool-xyz",
+		Progress: &transcodev1alpha1.Progress{Percent: 150, UpdatedAt: metav1.NewTime(updated.Add(time.Minute))},
+	})
+	var discard *events.DiscardError
+	require.ErrorAs(t, err, &discard, "an invalid status is terminal, not a retry")
+	assert.Equal(t, before.ResourceVersion, f.get(t).ResourceVersion)
+
 	// An older progress report, redelivered late, never steps back.
 	require.NoError(t, deliver(t, f.r, got, task.StatusEvent{
 		Kind: task.EventProgress, Attempt: 1, Pod: "pool-xyz",
@@ -896,33 +910,180 @@ func TestAStaleEventChangesNothing(t *testing.T) {
 	require.NoError(t, deliver(t, f.r, done, claimed(2, "pool-x")))
 }
 
-// TestAResultEventRacingAReconcileIsNotLost is Review Focus 5: a result
-// event that lands between a reconcile's read and its write must not be
-// rolled back. The loser's compare-and-swap conflicts and is redone from a
+// interleavingReader runs interleave once, right after the first Get of key
+// returns -- inside the window between writeStatus's fresh read and its
+// compare-and-swap apply -- and counts the Gets of key, so a test sees the
+// write being redone from a new read.
+type interleavingReader struct {
+	client.Reader
+	key        types.NamespacedName
+	gets       atomic.Int32
+	interleave func()
+}
+
+func (r *interleavingReader) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	err := r.Reader.Get(ctx, key, obj, opts...)
+	if key == r.key && r.gets.Add(1) == 1 && r.interleave != nil {
+		r.interleave()
+	}
+	return err
+}
+
+// TestAResultEventRacingAReconcileIsNotLost is Review Focus 5: when the
+// results consumer and a reconcile write one job at once, neither rolls the
+// other back. The loser's compare-and-swap conflicts and is redone from a
 // fresh read.
 func TestAResultEventRacingAReconcileIsNotLost(t *testing.T) {
 	f := newDispatched(t, "tj-race", map[string]int32{"cpu": 1})
 	ctx := context.Background()
 
-	stale := f.get(t) // a reconcile's read: Queued, no worker yet
-	require.NoError(t, deliver(t, f.r, stale, claimed(1, "pool-xyz")))
-	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, f.get(t).Status.Phase)
+	// A spec edit the reconciler has not observed yet: its next write moves
+	// status.observedGeneration.
+	live := f.get(t)
+	live.Spec.Priority = 50
+	require.NoError(t, f.c.Update(ctx, live))
+	require.EqualValues(t, 2, f.get(t).Generation)
 
-	// The reconcile's write, seeded from its now-stale read.
+	// The event's write loses: a reconcile lands inside the results
+	// consumer's read-to-apply window. Its apply must conflict, and the
+	// retry, from a fresh read, must carry both changes.
+	consumer := *f.r
+	racing := &interleavingReader{Reader: f.c, key: types.NamespacedName{Namespace: f.ns, Name: f.tj.Name}}
+	racing.interleave = func() { reconcileTJ(t, f.r, f.ns, f.tj.Name) }
+	consumer.Reader = racing
+	require.NoError(t, deliver(t, &consumer, live, claimed(1, "pool-xyz")))
+	assert.GreaterOrEqual(t, racing.gets.Load(), int32(2), "the event's write must have been redone from a fresh read")
+	got := f.get(t)
+	assert.EqualValues(t, 2, got.Status.ObservedGeneration, "the reconcile's write was not rolled back")
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, got.Status.Phase, "the event's write landed on the retry")
+	assert.Equal(t, "pool-xyz", got.Status.WorkerPod)
+	assert.NotNil(t, got.Status.StartedAt)
+
+	// The reconcile's write loses: seeded from a read the event overtook.
+	stale := f.get(t)
+	require.NoError(t, deliver(t, f.r, stale, task.StatusEvent{
+		Kind: task.EventProgress, Attempt: 1, Pod: "pool-xyz",
+		Progress: &transcodev1alpha1.Progress{Percent: 42, UpdatedAt: metav1.Now()},
+	}))
 	stale.Status.Message = "reconcile error: something transient"
 	err := f.r.PatchCASForTest(ctx, stale, &stale.Status)
 	require.True(t, apierrors.IsConflict(err), "the stale write must conflict, got %v", err)
+	got = f.get(t)
+	require.NotNil(t, got.Status.Progress, "the event's write was not rolled back")
+	assert.EqualValues(t, 42, got.Status.Progress.Percent)
 
-	got := f.get(t)
-	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, got.Status.Phase, "the event's write was not rolled back")
-	assert.Equal(t, "pool-xyz", got.Status.WorkerPod)
-
-	// The retry reads fresh and keeps the event's fields.
+	// The requeued reconcile reads fresh and keeps the event's fields.
 	reconcileTJ(t, f.r, f.ns, f.tj.Name)
 	got = f.get(t)
 	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, got.Status.Phase)
 	assert.Equal(t, "pool-xyz", got.Status.WorkerPod)
-	assert.NotNil(t, got.Status.StartedAt)
+	assert.EqualValues(t, 42, got.Status.Progress.Percent)
+	assert.EqualValues(t, 2, got.Status.ObservedGeneration)
+}
+
+// failQueuedWrite fails the first status apply that records phase Queued,
+// standing in for the apiserver blip -- or a rollout cancelling ctx, or
+// leadership moving -- between dispatch's publish and its Queued write.
+type failQueuedWrite struct {
+	client.Client
+	remaining *atomic.Int32
+}
+
+func (c failQueuedWrite) Status() client.SubResourceWriter {
+	return failQueuedStatus{SubResourceWriter: c.Client.Status(), remaining: c.remaining}
+}
+
+type failQueuedStatus struct {
+	client.SubResourceWriter
+	remaining *atomic.Int32
+}
+
+func (w failQueuedStatus) Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+	if ac, ok := obj.(*transcodeac.TranscodeJobApplyConfiguration); ok && ac.Status != nil && ac.Status.Phase != nil &&
+		*ac.Status.Phase == transcodev1alpha1.TranscodeJobPhaseQueued && w.remaining.Add(-1) >= 0 {
+		return apierrors.NewServiceUnavailable("injected: the Queued write is lost")
+	}
+	return w.SubResourceWriter.Apply(ctx, obj, opts...)
+}
+
+// TestALostDispatchWriteIsAdoptedFromTheWorkersEvent is ruling R16: dispatch
+// published attempt 1 and then lost its Queued write, so the job still reads
+// Planned at attempts 0 while a worker runs the task. The worker's first
+// event proves the attempt was published and is adopted -- Queued, then its
+// own change, in one write -- instead of being dropped as stale, which would
+// leave the next dispatch to mark the job Queued with no task behind it.
+func TestALostDispatchWriteIsAdoptedFromTheWorkersEvent(t *testing.T) {
+	_, c := startEnv(t)
+	ctx := context.Background()
+	const ns = "tj-adopt"
+	newNamespace(t, c, ns)
+	newRootFolder(t, c, ns, "/data/media/movies")
+	tp := newProfile(t, c, "hevc", "hash1", nil)
+	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
+	r := newReconciler(t, c, map[string]int32{"cpu": 1})
+	remaining := &atomic.Int32{}
+	remaining.Store(1)
+	r.Client = failQueuedWrite{Client: c, remaining: remaining}
+
+	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: "heat-hevc"}})
+	require.Error(t, err, "the lost Queued write surfaces as a reconcile error")
+	lost := getTJ(t, c, ns, "heat-hevc")
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, lost.Status.Phase)
+	require.EqualValues(t, 0, lost.Status.Attempts)
+	tasks := takeTasks(t, r.Bus, tp.UID, "cpu", 5*time.Second) // a worker takes it
+	require.Equal(t, []int32{1}, attemptsOf(tasks), "the task was published before the write was lost")
+
+	// An event that does not name its class cannot be adopted: acked, and
+	// nothing changes.
+	require.NoError(t, deliver(t, r, lost, claimed(1, "pool-a")))
+	assert.Equal(t, lost.ResourceVersion, getTJ(t, c, ns, "heat-hevc").ResourceVersion)
+
+	ev := claimed(1, "pool-a")
+	ev.Class = transcodev1alpha1.HardwareCPU
+	require.NoError(t, deliver(t, r, lost, ev))
+	got := getTJ(t, c, ns, "heat-hevc")
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, got.Status.Phase)
+	assert.EqualValues(t, 1, got.Status.Attempts)
+	assert.Equal(t, transcodev1alpha1.HardwareCPU, got.Status.Hardware)
+	require.NotNil(t, got.Status.JobRef)
+	assert.Equal(t, pool.Name(pool.Key{Profile: tp.Name, ProfileUID: tp.UID, Class: "cpu"}), *got.Status.JobRef)
+	assert.Equal(t, "pool-a", got.Status.WorkerPod)
+	assert.True(t, k8s.IsConditionTrue(got.Status.Conditions, transcodev1alpha1.TranscodeJobConditionJobCreated))
+
+	fin := finished(1, task.OutcomeSucceeded, "", "")
+	fin.Class = transcodev1alpha1.HardwareCPU
+	require.NoError(t, deliver(t, r, got, fin))
+	got = getTJ(t, c, ns, "heat-hevc")
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseSucceeded, got.Status.Phase)
+	assert.EqualValues(t, 1, got.Status.Attempts)
+
+	// Admission again: nothing is dispatched a second time, nothing
+	// regresses.
+	reconcileTJ(t, r, ns, "heat-hevc")
+	assert.Empty(t, takeTasks(t, r.Bus, tp.UID, "cpu", 300*time.Millisecond), "no second task for attempt 1")
+	again := getTJ(t, c, ns, "heat-hevc")
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseSucceeded, again.Status.Phase)
+	assert.EqualValues(t, 1, again.Status.Attempts)
+	assert.Equal(t, got.Status.JobRef, again.Status.JobRef)
+}
+
+// TestAClaimFromAnotherClassCorrectsTheRecord: a re-dispatch to another
+// class was absorbed as a duplicate of the attempt's first publish, so the
+// task is on the first class's queue. The worker's claim, which names the
+// class it took the task from, puts the record right.
+func TestAClaimFromAnotherClassCorrectsTheRecord(t *testing.T) {
+	f := newDispatched(t, "tj-reclass", map[string]int32{"cpu": 1})
+	require.Equal(t, transcodev1alpha1.HardwareCPU, f.tj.Status.Hardware)
+
+	ev := claimed(1, "pool-gpu")
+	ev.Class = transcodev1alpha1.HardwareNVIDIA
+	require.NoError(t, deliver(t, f.r, f.tj, ev))
+	got := f.get(t)
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, got.Status.Phase)
+	assert.Equal(t, transcodev1alpha1.HardwareNVIDIA, got.Status.Hardware)
+	require.NotNil(t, got.Status.JobRef)
+	assert.Equal(t, pool.Name(pool.Key{Profile: f.tp.Name, ProfileUID: f.tp.UID, Class: "nvidia"}), *got.Status.JobRef)
 }
 
 // failingPublisher is a bus whose publishes all fail, as NATS does when the

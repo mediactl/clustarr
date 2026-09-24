@@ -21,6 +21,7 @@ import (
 	"context"
 	"sync"
 
+	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/version"
@@ -42,6 +43,7 @@ func (p *reporter) publish(ctx context.Context, ev task.StatusEvent) error {
 	defer p.mu.Unlock()
 	p.seq++
 	ev.Job, ev.Attempt, ev.Delivery, ev.Seq = p.t.Job, p.t.Attempt, p.delivery, p.seq
+	ev.Class = taskClass(p.t)
 	ev.Pod, ev.Node, ev.At = p.s.o.PodName, p.s.o.Node, p.s.clock.Now().UTC()
 	sch, data, err := schema.Encode(ev)
 	if err != nil {
@@ -56,6 +58,18 @@ func (p *reporter) publish(ctx context.Context, ev task.StatusEvent) error {
 	_, err = p.s.bus.Publish(ctx, events.WorkTranscodeResultSubject(p.t.Job.UID), env,
 		events.WithMsgID(id), events.WithExpectStream(events.StreamWorkSquasharr))
 	return err
+}
+
+// taskClass is the class t was dispatched to: BuildTask sets both Class and
+// Profile.Hardware to it.
+func taskClass(t task.Task) transcodev1alpha1.Hardware {
+	if t.Class != "" {
+		return transcodev1alpha1.Hardware(t.Class)
+	}
+	if t.Profile.Hardware != nil {
+		return *t.Profile.Hardware
+	}
+	return ""
 }
 
 // reasonFor names a Process outcome: Process's own reason when it has one

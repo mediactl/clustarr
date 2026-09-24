@@ -161,18 +161,47 @@ func (r *Reconciler) dispatch(ctx context.Context, key types.NamespacedName, cla
 		return fmt.Errorf("transcodejob: publish task %s: %w", id, pubErr)
 	}
 
+	// If this write is lost (an apiserver blip, a rollout cancelling ctx,
+	// leadership moving), the task is on the queue while the job still reads
+	// Planned: the worker's first event for this attempt adopts it
+	// (results.go), and until then a re-dispatch republishes under the same
+	// Msg-Id, which the stream absorbs.
 	before, after, err := r.writeStatus(ctx, key, func(tj *transcodev1alpha1.TranscodeJob, st *transcodev1alpha1.TranscodeJobStatus) bool {
 		if st.Phase != transcodev1alpha1.TranscodeJobPhasePlanned || st.Attempts != attempt-1 {
 			return false // someone else moved it; the published task is a duplicate the Msg-Id absorbs
 		}
-		st.Phase, st.Attempts, st.Hardware = transcodev1alpha1.TranscodeJobPhaseQueued, attempt, class
-		st.JobRef, st.WorkerPod, st.NextAttemptAt, st.Progress = ptr.To(pool.Name(k)), "", nil, nil
-		st.Message = fmt.Sprintf("attempt %d queued for pool %s", attempt, pool.Name(k))
-		k8s.MarkTrue(tj, &st.Conditions, transcodev1alpha1.TranscodeJobConditionJobCreated, ReasonDispatched, "%s", st.Message)
+		markQueued(tj, st, attempt, class, pool.Name(k))
 		return true
 	})
 	if after != nil {
 		r.afterWrite(ctx, after, &before)
 	}
 	return err
+}
+
+// markQueued records attempt as dispatched to class's pool, poolName (empty
+// leaves jobRef as it was). It is the one Queued mutation: dispatch makes it
+// after its publish, and the results consumer makes it when a worker's
+// event proves an attempt was published whose Queued write was lost.
+func markQueued(tj *transcodev1alpha1.TranscodeJob, st *transcodev1alpha1.TranscodeJobStatus,
+	attempt int32, class transcodev1alpha1.Hardware, poolName string,
+) {
+	st.Phase, st.Attempts, st.Hardware = transcodev1alpha1.TranscodeJobPhaseQueued, attempt, class
+	st.WorkerPod, st.NextAttemptAt, st.Progress = "", nil, nil
+	st.Message = fmt.Sprintf("attempt %d queued", attempt)
+	if poolName != "" {
+		st.JobRef = ptr.To(poolName)
+		st.Message = fmt.Sprintf("attempt %d queued for pool %s", attempt, poolName)
+	}
+	k8s.MarkTrue(tj, &st.Conditions, transcodev1alpha1.TranscodeJobConditionJobCreated, ReasonDispatched, "%s", st.Message)
+}
+
+// poolNameFor is the pool Job name of tj's profile for class, or "" when
+// the profile is gone.
+func (r *Reconciler) poolNameFor(ctx context.Context, tj *transcodev1alpha1.TranscodeJob, class transcodev1alpha1.Hardware) (string, error) {
+	tp, ok, err := r.profile(ctx, tj)
+	if err != nil || !ok {
+		return "", err
+	}
+	return pool.Name(poolKeyFor(tp, class)), nil
 }

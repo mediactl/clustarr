@@ -376,16 +376,19 @@ func TestServeReportsClaimedProgressFinishedAndAcks(t *testing.T) {
 	assert.Equal(t, "pool-abc", claimed.Pod)
 	assert.Equal(t, "n1", claimed.Node)
 	assert.Equal(t, int32(1), claimed.Attempt)
+	assert.Equal(t, transcodev1alpha1.HardwareCPU, claimed.Class, "every event names the class the task was dispatched to")
 	assert.False(t, h.leaseGone(), "the lease is held while Process runs")
 	progress := h.next(task.EventProgress)
 	assert.Equal(t, uint64(2), progress.Seq)
 	assert.Equal(t, int32(40), progress.Progress.Percent)
+	assert.Equal(t, transcodev1alpha1.HardwareCPU, progress.Class)
 
 	h.release <- Outcome{Code: ExitOK, Result: &transcodev1alpha1.Result{OutputPath: "/data/x.mkv"}}
 	fin := h.next(task.EventFinished)
 	assert.Equal(t, task.OutcomeSucceeded, fin.Outcome)
 	assert.Equal(t, "/data/x.mkv", fin.Result.OutputPath)
 	assert.Equal(t, uint64(3), fin.Seq)
+	assert.Equal(t, transcodev1alpha1.HardwareCPU, fin.Class)
 	assert.Equal(t, settleAck, h.nextSettlement().kind)
 	require.Eventually(t, h.leaseGone, 5*time.Second, 10*time.Millisecond, "the lease is released after finished")
 	h.clock.Advance(2 * time.Minute) // past AckWait: an acked task never returns

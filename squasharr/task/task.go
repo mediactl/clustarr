@@ -105,9 +105,16 @@ const (
 // StatusEvent is one report from the worker running a delivery of an
 // attempt. Seq counts from 1 within one delivery; the Msg-Id
 // <uid>/<attempt>/<delivery>/<seq> makes a re-publish a duplicate.
+//
+// Class is the hardware class of the pool the task was taken from. With
+// Attempt it proves which dispatch the worker is running, so squasharr can
+// adopt an attempt whose Queued write was lost after the publish, and correct
+// the class when a re-dispatch's publish was absorbed as a duplicate of an
+// earlier one to another pool.
 type StatusEvent struct {
 	Job        schema.Ref                  `json:"job"`
 	Attempt    int32                       `json:"attempt"`
+	Class      transcodev1alpha1.Hardware  `json:"class,omitempty"`
 	Delivery   uint64                      `json:"delivery"`
 	Seq        uint64                      `json:"seq"`
 	Kind       EventKind                   `json:"kind"`

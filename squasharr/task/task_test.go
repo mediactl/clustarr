@@ -57,4 +57,13 @@ func TestSchemasAreVersioned(t *testing.T) {
 	b, err := json.Marshal(task.StatusEvent{Kind: task.EventFinished, Outcome: task.OutcomeFailed, Reason: task.ReasonGPUEncodeFailed})
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"job":{"name":""},"attempt":0,"delivery":0,"seq":0,"kind":"finished","outcome":"failed","reason":"GPUEncodeFailed","at":"0001-01-01T00:00:00Z"}`, string(b))
+
+	// class is additive to v1: an event from a worker that sets it round-trips,
+	// and one that does not decodes with it empty.
+	b, err = json.Marshal(task.StatusEvent{Kind: task.EventClaimed, Attempt: 2, Class: transcodev1alpha1.HardwareNVIDIA})
+	require.NoError(t, err)
+	assert.Contains(t, string(b), `"class":"nvidia"`)
+	var ev task.StatusEvent
+	require.NoError(t, json.Unmarshal(b, &ev))
+	assert.Equal(t, transcodev1alpha1.HardwareNVIDIA, ev.Class)
 }
