@@ -55,6 +55,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.ArtistSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ArtistStatus"):
 		return &catalogv1alpha1.ArtistStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ArtworkEntry"):
+		return &catalogv1alpha1.ArtworkEntryApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ArtworkOverride"):
+		return &catalogv1alpha1.ArtworkOverrideApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Audiobook"):
 		return &catalogv1alpha1.AudiobookApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("AudiobookMetadata"):
@@ -189,6 +193,18 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.NamedRefApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("NamingSpec"):
 		return &catalogv1alpha1.NamingSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("OverlayBadge"):
+		return &catalogv1alpha1.OverlayBadgeApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("OverlayEntry"):
+		return &catalogv1alpha1.OverlayEntryApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("OverlayGeometry"):
+		return &catalogv1alpha1.OverlayGeometryApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("OverlayProfile"):
+		return &catalogv1alpha1.OverlayProfileApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("OverlayProfileSpec"):
+		return &catalogv1alpha1.OverlayProfileSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("OverlayProfileStatus"):
+		return &catalogv1alpha1.OverlayProfileStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PendingGrab"):
 		return &catalogv1alpha1.PendingGrabApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Perms"):
@@ -201,6 +217,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.QualityProfileStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("RateLimit"):
 		return &catalogv1alpha1.RateLimitApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("Rating"):
+		return &catalogv1alpha1.RatingApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("RecycleBin"):
 		return &catalogv1alpha1.RecycleBinApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ReleaseDate"):

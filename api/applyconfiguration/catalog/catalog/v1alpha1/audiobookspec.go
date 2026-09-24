@@ -50,6 +50,8 @@ type AudiobookSpecApplyConfiguration struct {
 	Tags []string `json:"tags,omitempty"`
 	// Source records the ImportList that added the audiobook, if any.
 	Source *commonv1alpha1.AddSource `json:"source,omitempty"`
+	// Artwork overrides the provider's image for a type. One entry per type.
+	Artwork []ArtworkOverrideApplyConfiguration `json:"artwork,omitempty"`
 }
 
 // AudiobookSpecApplyConfiguration constructs a declarative configuration of the AudiobookSpec type for use with
@@ -137,5 +139,18 @@ func (b *AudiobookSpecApplyConfiguration) WithTags(values ...string) *AudiobookS
 // If called multiple times, the Source field is set to the value of the last call.
 func (b *AudiobookSpecApplyConfiguration) WithSource(value commonv1alpha1.AddSource) *AudiobookSpecApplyConfiguration {
 	b.Source = &value
+	return b
+}
+
+// WithArtwork adds the given value to the Artwork field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Artwork field.
+func (b *AudiobookSpecApplyConfiguration) WithArtwork(values ...*ArtworkOverrideApplyConfiguration) *AudiobookSpecApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithArtwork")
+		}
+		b.Artwork = append(b.Artwork, *values[i])
+	}
 	return b
 }

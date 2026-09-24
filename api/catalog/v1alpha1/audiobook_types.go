@@ -214,6 +214,13 @@ type AudiobookSpec struct {
 	// Source records the ImportList that added the audiobook, if any.
 	// +optional
 	Source *commonv1.AddSource `json:"source,omitempty"`
+
+	// Artwork overrides the provider's image for a type. One entry per type.
+	// +optional
+	// +kubebuilder:validation:MaxItems=9
+	// +listType=map
+	// +listMapKey=type
+	Artwork []ArtworkOverride `json:"artwork,omitempty"`
 }
 
 // AudiobookStatus describes the observed state of Audiobook.
@@ -275,6 +282,14 @@ type AudiobookStatus struct {
 	// SearchAttempts counts the searches made for this audiobook.
 	// +optional
 	SearchAttempts commonv1.Attempts `json:"searchAttempts,omitempty"`
+
+	// Artwork lists the images fetched into the artwork store, one per type.
+	// Written by the metadata gateway.
+	// +optional
+	// +kubebuilder:validation:MaxItems=9
+	// +listType=map
+	// +listMapKey=type
+	Artwork []ArtworkEntry `json:"artwork,omitempty"`
 }
 
 // +kubebuilder:object:root=true

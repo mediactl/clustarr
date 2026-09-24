@@ -42,6 +42,8 @@ type BookSpecApplyConfiguration struct {
 	QualityProfileRef *string `json:"qualityProfileRef,omitempty"`
 	// RootFolderRef overrides the Author's RootFolder.
 	RootFolderRef *string `json:"rootFolderRef,omitempty"`
+	// Artwork overrides the provider's image for a type. One entry per type.
+	Artwork []ArtworkOverrideApplyConfiguration `json:"artwork,omitempty"`
 }
 
 // BookSpecApplyConfiguration constructs a declarative configuration of the BookSpec type for use with
@@ -116,5 +118,18 @@ func (b *BookSpecApplyConfiguration) WithQualityProfileRef(value string) *BookSp
 // If called multiple times, the RootFolderRef field is set to the value of the last call.
 func (b *BookSpecApplyConfiguration) WithRootFolderRef(value string) *BookSpecApplyConfiguration {
 	b.RootFolderRef = &value
+	return b
+}
+
+// WithArtwork adds the given value to the Artwork field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Artwork field.
+func (b *BookSpecApplyConfiguration) WithArtwork(values ...*ArtworkOverrideApplyConfiguration) *BookSpecApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithArtwork")
+		}
+		b.Artwork = append(b.Artwork, *values[i])
+	}
 	return b
 }

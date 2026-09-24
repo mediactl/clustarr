@@ -57,6 +57,9 @@ type AudiobookStatusApplyConfiguration struct {
 	LastSearchedAt *metav1.Time `json:"lastSearchedAt,omitempty"`
 	// SearchAttempts counts the searches made for this audiobook.
 	SearchAttempts *commonv1alpha1.Attempts `json:"searchAttempts,omitempty"`
+	// Artwork lists the images fetched into the artwork store, one per type.
+	// Written by the metadata gateway.
+	Artwork []ArtworkEntryApplyConfiguration `json:"artwork,omitempty"`
 }
 
 // AudiobookStatusApplyConfiguration constructs a declarative configuration of the AudiobookStatus type for use with
@@ -173,5 +176,18 @@ func (b *AudiobookStatusApplyConfiguration) WithLastSearchedAt(value metav1.Time
 // If called multiple times, the SearchAttempts field is set to the value of the last call.
 func (b *AudiobookStatusApplyConfiguration) WithSearchAttempts(value commonv1alpha1.Attempts) *AudiobookStatusApplyConfiguration {
 	b.SearchAttempts = &value
+	return b
+}
+
+// WithArtwork adds the given value to the Artwork field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Artwork field.
+func (b *AudiobookStatusApplyConfiguration) WithArtwork(values ...*ArtworkEntryApplyConfiguration) *AudiobookStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithArtwork")
+		}
+		b.Artwork = append(b.Artwork, *values[i])
+	}
 	return b
 }

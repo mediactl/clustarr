@@ -54,6 +54,12 @@ type SeriesStatusApplyConfiguration struct {
 	PreviousAiring *metav1.Time `json:"previousAiring,omitempty"`
 	// LastSearchedAt is when the series was last searched for.
 	LastSearchedAt *metav1.Time `json:"lastSearchedAt,omitempty"`
+	// Artwork lists the images fetched into the artwork store, one per type.
+	// Written by the metadata gateway.
+	Artwork []ArtworkEntryApplyConfiguration `json:"artwork,omitempty"`
+	// Overlay is the rating-badge overlay rendered onto the poster. Written
+	// by the renderer under k8s.ManagerCatalogarrArtwork.
+	Overlay *OverlayEntryApplyConfiguration `json:"overlay,omitempty"`
 }
 
 // SeriesStatusApplyConfiguration constructs a declarative configuration of the SeriesStatus type for use with
@@ -165,5 +171,26 @@ func (b *SeriesStatusApplyConfiguration) WithPreviousAiring(value metav1.Time) *
 // If called multiple times, the LastSearchedAt field is set to the value of the last call.
 func (b *SeriesStatusApplyConfiguration) WithLastSearchedAt(value metav1.Time) *SeriesStatusApplyConfiguration {
 	b.LastSearchedAt = &value
+	return b
+}
+
+// WithArtwork adds the given value to the Artwork field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Artwork field.
+func (b *SeriesStatusApplyConfiguration) WithArtwork(values ...*ArtworkEntryApplyConfiguration) *SeriesStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithArtwork")
+		}
+		b.Artwork = append(b.Artwork, *values[i])
+	}
+	return b
+}
+
+// WithOverlay sets the Overlay field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Overlay field is set to the value of the last call.
+func (b *SeriesStatusApplyConfiguration) WithOverlay(value *OverlayEntryApplyConfiguration) *SeriesStatusApplyConfiguration {
+	b.Overlay = value
 	return b
 }

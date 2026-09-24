@@ -97,6 +97,43 @@ spec:
                     description: SearchForMovie triggers an automatic search on add.
                     type: boolean
                 type: object
+              artwork:
+                description: Artwork overrides the provider's image for a type. One
+                  entry per type.
+                items:
+                  description: |-
+                    ArtworkOverride pins a custom URL for one image type, replacing whatever
+                    the metadata provider published for it. R3: a URL that fails to fetch
+                    never falls back to the provider image -- the entry and object stay as
+                    they were, and an Event says why.
+                  properties:
+                    type:
+                      description: Type classifies the image being overridden.
+                      enum:
+                      - poster
+                      - fanart
+                      - banner
+                      - logo
+                      - clearart
+                      - thumb
+                      - screenshot
+                      - disc
+                      - headshot
+                      type: string
+                    url:
+                      description: URL is where the replacement image is fetched from.
+                      maxLength: 2048
+                      pattern: ^https?://
+                      type: string
+                  required:
+                  - type
+                  - url
+                  type: object
+                maxItems: 9
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               availabilityDelayDays:
                 default: 0
                 description: |-
@@ -218,6 +255,66 @@ spec:
                 description: AddOptionsApplied is true once spec.addOptions has been
                   acted on.
                 type: boolean
+              artwork:
+                description: |-
+                  Artwork lists the images fetched into the artwork store, one per type.
+                  Written by the metadata gateway.
+                items:
+                  description: |-
+                    ArtworkEntry records one artwork image fetched into the artwork store,
+                    whether from the provider or from a spec.artwork override. Written by the
+                    metadata gateway under the manager that already writes status.metadata.
+                  properties:
+                    digest:
+                      description: Digest is the hex SHA-256 of the stored original
+                        image.
+                      type: string
+                    sizeBytes:
+                      description: SizeBytes is the size in bytes of the stored original
+                        image.
+                      format: int64
+                      type: integer
+                    source:
+                      description: |-
+                        Source is whether this image came from the provider or a spec.artwork
+                        override.
+                      enum:
+                      - provider
+                      - custom
+                      type: string
+                    sourceURL:
+                      description: SourceURL is the URL the image was fetched from.
+                      type: string
+                    type:
+                      description: Type classifies the image.
+                      enum:
+                      - poster
+                      - fanart
+                      - banner
+                      - logo
+                      - clearart
+                      - thumb
+                      - screenshot
+                      - disc
+                      - headshot
+                      type: string
+                    updatedAt:
+                      description: UpdatedAt is when the image was last fetched.
+                      format: date-time
+                      type: string
+                  required:
+                  - digest
+                  - sizeBytes
+                  - source
+                  - sourceURL
+                  - type
+                  - updatedAt
+                  type: object
+                maxItems: 9
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               available:
                 description: Available is true once minimumAvailability has been reached.
                 type: boolean
@@ -444,6 +541,49 @@ spec:
                     description: PhysicalRelease is the disc release date.
                     format: date-time
                     type: string
+                  ratings:
+                    description: |-
+                      Ratings lists the scores gathered from the enabled ratings providers,
+                      one entry per source (pkg/metadata.RatingsProvider).
+                    items:
+                      description: Rating is one score reported by one rating source.
+                      properties:
+                        source:
+                          description: Source is the rating provider.
+                          enum:
+                          - imdb
+                          - tmdb
+                          - rottenTomatoesCritic
+                          - rottenTomatoesAudience
+                          - metacritic
+                          - trakt
+                          - letterboxd
+                          type: string
+                        valueCentis:
+                          description: |-
+                            ValueCentis is the score scaled by 100: 0-1000 for a source out of 10
+                            (imdb, tmdb, trakt, letterboxd), 0-10000 for a source out of 100
+                            (rottenTomatoesCritic, rottenTomatoesAudience, metacritic). Scaled
+                            rather than a float -- CLAUDE.md bans float32/float64 in api/.
+                          format: int32
+                          maximum: 10000
+                          minimum: 0
+                          type: integer
+                        votes:
+                          description: Votes is the number of votes behind the score,
+                            when the source reports one.
+                          format: int32
+                          minimum: 0
+                          type: integer
+                      required:
+                      - source
+                      - valueCentis
+                      type: object
+                    maxItems: 7
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - source
+                    x-kubernetes-list-type: map
                   refreshedAt:
                     description: RefreshedAt is when the metadata was last fetched.
                     format: date-time
@@ -515,6 +655,35 @@ spec:
                   status reflects.
                 format: int64
                 type: integer
+              overlay:
+                description: |-
+                  Overlay is the rating-badge overlay rendered onto the poster. Written
+                  by the renderer under k8s.ManagerCatalogarrArtwork.
+                properties:
+                  digest:
+                    description: Digest is the hex SHA-256 of the rendered overlay
+                      image.
+                    type: string
+                  profileRef:
+                    description: ProfileRef is the name of the OverlayProfile the
+                      overlay was rendered from.
+                    type: string
+                  renderedFrom:
+                    description: |-
+                      RenderedFrom is the digest of the source artwork and ratings the
+                      overlay was rendered from, so a later render can tell whether either
+                      input has changed.
+                    type: string
+                  updatedAt:
+                    description: UpdatedAt is when the overlay was last rendered.
+                    format: date-time
+                    type: string
+                required:
+                - digest
+                - profileRef
+                - renderedFrom
+                - updatedAt
+                type: object
               path:
                 description: Path is the resolved folder on disk.
                 type: string

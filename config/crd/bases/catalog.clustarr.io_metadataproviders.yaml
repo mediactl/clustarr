@@ -175,6 +175,8 @@ spec:
                 - anilist
                 - kitsu
                 - animelists
+                - mdblist
+                - omdb
                 type: string
                 x-kubernetes-validations:
                 - message: type is immutable

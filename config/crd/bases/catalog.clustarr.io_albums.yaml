@@ -82,6 +82,43 @@ spec:
                 x-kubernetes-validations:
                 - message: artistRef is immutable
                   rule: self == oldSelf
+              artwork:
+                description: Artwork overrides the provider's image for a type. One
+                  entry per type.
+                items:
+                  description: |-
+                    ArtworkOverride pins a custom URL for one image type, replacing whatever
+                    the metadata provider published for it. R3: a URL that fails to fetch
+                    never falls back to the provider image -- the entry and object stay as
+                    they were, and an Event says why.
+                  properties:
+                    type:
+                      description: Type classifies the image being overridden.
+                      enum:
+                      - poster
+                      - fanart
+                      - banner
+                      - logo
+                      - clearart
+                      - thumb
+                      - screenshot
+                      - disc
+                      - headshot
+                      type: string
+                    url:
+                      description: URL is where the replacement image is fetched from.
+                      maxLength: 2048
+                      pattern: ^https?://
+                      type: string
+                  required:
+                  - type
+                  - url
+                  type: object
+                maxItems: 9
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               monitored:
                 default: true
                 description: Monitored enables automatic searching and importing for
@@ -113,6 +150,66 @@ spec:
                 description: ActiveDownloadRef is the Download currently working on
                   this album.
                 type: string
+              artwork:
+                description: |-
+                  Artwork lists the images fetched into the artwork store, one per type.
+                  Written by the metadata gateway.
+                items:
+                  description: |-
+                    ArtworkEntry records one artwork image fetched into the artwork store,
+                    whether from the provider or from a spec.artwork override. Written by the
+                    metadata gateway under the manager that already writes status.metadata.
+                  properties:
+                    digest:
+                      description: Digest is the hex SHA-256 of the stored original
+                        image.
+                      type: string
+                    sizeBytes:
+                      description: SizeBytes is the size in bytes of the stored original
+                        image.
+                      format: int64
+                      type: integer
+                    source:
+                      description: |-
+                        Source is whether this image came from the provider or a spec.artwork
+                        override.
+                      enum:
+                      - provider
+                      - custom
+                      type: string
+                    sourceURL:
+                      description: SourceURL is the URL the image was fetched from.
+                      type: string
+                    type:
+                      description: Type classifies the image.
+                      enum:
+                      - poster
+                      - fanart
+                      - banner
+                      - logo
+                      - clearart
+                      - thumb
+                      - screenshot
+                      - disc
+                      - headshot
+                      type: string
+                    updatedAt:
+                      description: UpdatedAt is when the image was last fetched.
+                      format: date-time
+                      type: string
+                  required:
+                  - digest
+                  - sizeBytes
+                  - source
+                  - sourceURL
+                  - type
+                  - updatedAt
+                  type: object
+                maxItems: 9
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               conditions:
                 description: Conditions represent the latest available observations
                   of the album's state.

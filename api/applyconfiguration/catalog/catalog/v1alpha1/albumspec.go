@@ -38,6 +38,8 @@ type AlbumSpecApplyConfiguration struct {
 	ReleaseID *string `json:"releaseID,omitempty"`
 	// QualityProfileRef overrides the Artist's QualityProfile.
 	QualityProfileRef *string `json:"qualityProfileRef,omitempty"`
+	// Artwork overrides the provider's image for a type. One entry per type.
+	Artwork []ArtworkOverrideApplyConfiguration `json:"artwork,omitempty"`
 }
 
 // AlbumSpecApplyConfiguration constructs a declarative configuration of the AlbumSpec type for use with
@@ -91,5 +93,18 @@ func (b *AlbumSpecApplyConfiguration) WithReleaseID(value string) *AlbumSpecAppl
 // If called multiple times, the QualityProfileRef field is set to the value of the last call.
 func (b *AlbumSpecApplyConfiguration) WithQualityProfileRef(value string) *AlbumSpecApplyConfiguration {
 	b.QualityProfileRef = &value
+	return b
+}
+
+// WithArtwork adds the given value to the Artwork field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Artwork field.
+func (b *AlbumSpecApplyConfiguration) WithArtwork(values ...*ArtworkOverrideApplyConfiguration) *AlbumSpecApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithArtwork")
+		}
+		b.Artwork = append(b.Artwork, *values[i])
+	}
 	return b
 }

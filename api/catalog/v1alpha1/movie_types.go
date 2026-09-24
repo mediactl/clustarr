@@ -281,6 +281,14 @@ type MovieMetadata struct {
 	// RefreshedAt is when the metadata was last fetched.
 	// +optional
 	RefreshedAt metav1.Time `json:"refreshedAt,omitempty"`
+
+	// Ratings lists the scores gathered from the enabled ratings providers,
+	// one entry per source (pkg/metadata.RatingsProvider).
+	// +optional
+	// +kubebuilder:validation:MaxItems=7
+	// +listType=map
+	// +listMapKey=source
+	Ratings []Rating `json:"ratings,omitempty"`
 }
 
 // MovieSpec defines the desired state of Movie.
@@ -355,6 +363,13 @@ type MovieSpec struct {
 	// Source records the ImportList that added the movie, if any.
 	// +optional
 	Source *commonv1.AddSource `json:"source,omitempty"`
+
+	// Artwork overrides the provider's image for a type. One entry per type.
+	// +optional
+	// +kubebuilder:validation:MaxItems=9
+	// +listType=map
+	// +listMapKey=type
+	Artwork []ArtworkOverride `json:"artwork,omitempty"`
 }
 
 // MovieStatus describes the observed state of Movie.
@@ -431,6 +446,19 @@ type MovieStatus struct {
 	// SearchAttempts counts the searches made for this movie.
 	// +optional
 	SearchAttempts commonv1.Attempts `json:"searchAttempts,omitempty"`
+
+	// Artwork lists the images fetched into the artwork store, one per type.
+	// Written by the metadata gateway.
+	// +optional
+	// +kubebuilder:validation:MaxItems=9
+	// +listType=map
+	// +listMapKey=type
+	Artwork []ArtworkEntry `json:"artwork,omitempty"`
+
+	// Overlay is the rating-badge overlay rendered onto the poster. Written
+	// by the renderer under k8s.ManagerCatalogarrArtwork.
+	// +optional
+	Overlay *OverlayEntry `json:"overlay,omitempty"`
 }
 
 // +kubebuilder:object:root=true

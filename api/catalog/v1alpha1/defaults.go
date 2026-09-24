@@ -38,3 +38,83 @@ func (r RecycleBin) CleanupDaysOrDefault() int32 {
 	}
 	return *r.CleanupDays
 }
+
+// OverlayGeometry's fields are reached through an optional pointer
+// (OverlayProfileSpec.Geometry), unlike RecycleBin and IndexerSpec above, so
+// every accessor below has a pointer receiver and treats a nil *OverlayGeometry
+// the same as one whose own field is nil: both mean "unset, use the default".
+
+// Overlay geometry defaults, each mirroring the +kubebuilder marker its field
+// would carry if a typed Go client could ever reach it (percentages of
+// poster width unless noted; see the field doc comments in
+// overlayprofile_types.go).
+const (
+	// DefaultOverlayWidthPercent mirrors OverlayGeometry.widthPercent's default.
+	DefaultOverlayWidthPercent int32 = 14
+	// DefaultOverlayRadiusPercent mirrors OverlayGeometry.radiusPercent's default.
+	DefaultOverlayRadiusPercent int32 = 2
+	// DefaultOverlayPaddingPercent mirrors OverlayGeometry.paddingPercent's default.
+	DefaultOverlayPaddingPercent int32 = 2
+	// DefaultOverlayLogoPercent mirrors OverlayGeometry.logoPercent's default
+	// (percentage of the badge's box width).
+	DefaultOverlayLogoPercent int32 = 60
+	// DefaultOverlayScorePercent mirrors OverlayGeometry.scorePercent's default
+	// (percentage of the badge's box height).
+	DefaultOverlayScorePercent int32 = 45
+	// DefaultOverlayOpacityPercent mirrors OverlayGeometry.opacityPercent's default.
+	DefaultOverlayOpacityPercent int32 = 90
+)
+
+// WidthPercentOrDefault is geometry.widthPercent; a nil geometry or a nil
+// field means DefaultOverlayWidthPercent.
+func (g *OverlayGeometry) WidthPercentOrDefault() int32 {
+	if g == nil || g.WidthPercent == nil {
+		return DefaultOverlayWidthPercent
+	}
+	return *g.WidthPercent
+}
+
+// RadiusPercentOrDefault is geometry.radiusPercent; a nil geometry or a nil
+// field means DefaultOverlayRadiusPercent.
+func (g *OverlayGeometry) RadiusPercentOrDefault() int32 {
+	if g == nil || g.RadiusPercent == nil {
+		return DefaultOverlayRadiusPercent
+	}
+	return *g.RadiusPercent
+}
+
+// PaddingPercentOrDefault is geometry.paddingPercent; a nil geometry or a nil
+// field means DefaultOverlayPaddingPercent.
+func (g *OverlayGeometry) PaddingPercentOrDefault() int32 {
+	if g == nil || g.PaddingPercent == nil {
+		return DefaultOverlayPaddingPercent
+	}
+	return *g.PaddingPercent
+}
+
+// LogoPercentOrDefault is geometry.logoPercent; a nil geometry or a nil field
+// means DefaultOverlayLogoPercent.
+func (g *OverlayGeometry) LogoPercentOrDefault() int32 {
+	if g == nil || g.LogoPercent == nil {
+		return DefaultOverlayLogoPercent
+	}
+	return *g.LogoPercent
+}
+
+// ScorePercentOrDefault is geometry.scorePercent; a nil geometry or a nil
+// field means DefaultOverlayScorePercent.
+func (g *OverlayGeometry) ScorePercentOrDefault() int32 {
+	if g == nil || g.ScorePercent == nil {
+		return DefaultOverlayScorePercent
+	}
+	return *g.ScorePercent
+}
+
+// OpacityPercentOrDefault is geometry.opacityPercent; a nil geometry or a nil
+// field means DefaultOverlayOpacityPercent.
+func (g *OverlayGeometry) OpacityPercentOrDefault() int32 {
+	if g == nil || g.OpacityPercent == nil {
+		return DefaultOverlayOpacityPercent
+	}
+	return *g.OpacityPercent
+}

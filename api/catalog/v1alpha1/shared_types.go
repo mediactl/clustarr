@@ -164,6 +164,123 @@ type NamedRef struct {
 	ASIN string `json:"asin,omitempty"`
 }
 
+// ArtworkSource records whether an ArtworkEntry was fetched from the
+// metadata provider or from a spec.artwork override.
+//
+// +kubebuilder:validation:Enum=provider;custom
+type ArtworkSource string
+
+// Artwork sources.
+const (
+	ArtworkSourceProvider ArtworkSource = "provider"
+	ArtworkSourceCustom   ArtworkSource = "custom"
+)
+
+// ArtworkOverride pins a custom URL for one image type, replacing whatever
+// the metadata provider published for it. R3: a URL that fails to fetch
+// never falls back to the provider image -- the entry and object stay as
+// they were, and an Event says why.
+type ArtworkOverride struct {
+	// Type classifies the image being overridden.
+	// +required
+	Type ImageType `json:"type"`
+
+	// URL is where the replacement image is fetched from.
+	// +required
+	// +kubebuilder:validation:Pattern=`^https?://`
+	// +kubebuilder:validation:MaxLength=2048
+	URL string `json:"url"`
+}
+
+// ArtworkEntry records one artwork image fetched into the artwork store,
+// whether from the provider or from a spec.artwork override. Written by the
+// metadata gateway under the manager that already writes status.metadata.
+type ArtworkEntry struct {
+	// Type classifies the image.
+	// +required
+	Type ImageType `json:"type"`
+
+	// Source is whether this image came from the provider or a spec.artwork
+	// override.
+	// +required
+	Source ArtworkSource `json:"source"`
+
+	// SourceURL is the URL the image was fetched from.
+	// +required
+	SourceURL string `json:"sourceURL"`
+
+	// Digest is the hex SHA-256 of the stored original image.
+	// +required
+	Digest string `json:"digest"`
+
+	// SizeBytes is the size in bytes of the stored original image.
+	// +required
+	SizeBytes int64 `json:"sizeBytes"`
+
+	// UpdatedAt is when the image was last fetched.
+	// +required
+	UpdatedAt metav1.Time `json:"updatedAt"`
+}
+
+// OverlayEntry records the rating-badge overlay rendered onto a Movie or
+// Series poster. Written by the renderer under k8s.ManagerCatalogarrArtwork.
+type OverlayEntry struct {
+	// ProfileRef is the name of the OverlayProfile the overlay was rendered from.
+	// +required
+	ProfileRef string `json:"profileRef"`
+
+	// Digest is the hex SHA-256 of the rendered overlay image.
+	// +required
+	Digest string `json:"digest"`
+
+	// RenderedFrom is the digest of the source artwork and ratings the
+	// overlay was rendered from, so a later render can tell whether either
+	// input has changed.
+	// +required
+	RenderedFrom string `json:"renderedFrom"`
+
+	// UpdatedAt is when the overlay was last rendered.
+	// +required
+	UpdatedAt metav1.Time `json:"updatedAt"`
+}
+
+// RatingSource is an upstream rating provider.
+//
+// +kubebuilder:validation:Enum=imdb;tmdb;rottenTomatoesCritic;rottenTomatoesAudience;metacritic;trakt;letterboxd
+type RatingSource string
+
+// Rating sources.
+const (
+	RatingSourceIMDb       RatingSource = "imdb"
+	RatingSourceTMDB       RatingSource = "tmdb"
+	RatingSourceRTCritic   RatingSource = "rottenTomatoesCritic"
+	RatingSourceRTAudience RatingSource = "rottenTomatoesAudience"
+	RatingSourceMetacritic RatingSource = "metacritic"
+	RatingSourceTrakt      RatingSource = "trakt"
+	RatingSourceLetterboxd RatingSource = "letterboxd"
+)
+
+// Rating is one score reported by one rating source.
+type Rating struct {
+	// Source is the rating provider.
+	// +required
+	Source RatingSource `json:"source"`
+
+	// ValueCentis is the score scaled by 100: 0-1000 for a source out of 10
+	// (imdb, tmdb, trakt, letterboxd), 0-10000 for a source out of 100
+	// (rottenTomatoesCritic, rottenTomatoesAudience, metacritic). Scaled
+	// rather than a float -- CLAUDE.md bans float32/float64 in api/.
+	// +required
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=10000
+	ValueCentis int32 `json:"valueCentis"`
+
+	// Votes is the number of votes behind the score, when the source reports one.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Votes int32 `json:"votes,omitempty"`
+}
+
 // SeriesLink places a book or audiobook inside a reading order.
 type SeriesLink struct {
 	// Series is the name of the series.

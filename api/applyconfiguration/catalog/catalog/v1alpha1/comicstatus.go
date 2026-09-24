@@ -41,6 +41,9 @@ type ComicStatusApplyConfiguration struct {
 	IssueFileCount *int32 `json:"issueFileCount,omitempty"`
 	// NextPullDate is when the next issue is expected on the pull list.
 	NextPullDate *metav1.Time `json:"nextPullDate,omitempty"`
+	// Artwork lists the images fetched into the artwork store, one per type.
+	// Written by the metadata gateway.
+	Artwork []ArtworkEntryApplyConfiguration `json:"artwork,omitempty"`
 }
 
 // ComicStatusApplyConfiguration constructs a declarative configuration of the ComicStatus type for use with
@@ -99,5 +102,18 @@ func (b *ComicStatusApplyConfiguration) WithIssueFileCount(value int32) *ComicSt
 // If called multiple times, the NextPullDate field is set to the value of the last call.
 func (b *ComicStatusApplyConfiguration) WithNextPullDate(value metav1.Time) *ComicStatusApplyConfiguration {
 	b.NextPullDate = &value
+	return b
+}
+
+// WithArtwork adds the given value to the Artwork field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Artwork field.
+func (b *ComicStatusApplyConfiguration) WithArtwork(values ...*ArtworkEntryApplyConfiguration) *ComicStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithArtwork")
+		}
+		b.Artwork = append(b.Artwork, *values[i])
+	}
 	return b
 }

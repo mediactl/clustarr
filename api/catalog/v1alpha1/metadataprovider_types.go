@@ -35,7 +35,7 @@ const (
 
 // MetadataProviderType is the upstream metadata service a provider talks to.
 //
-// +kubebuilder:validation:Enum=tmdb;tvdb;musicbrainz;coverart;fanart;openlibrary;hardcover;audnexus;comicvine;metron;mangadex;anilist;kitsu;animelists
+// +kubebuilder:validation:Enum=tmdb;tvdb;musicbrainz;coverart;fanart;openlibrary;hardcover;audnexus;comicvine;metron;mangadex;anilist;kitsu;animelists;mdblist;omdb
 type MetadataProviderType string
 
 // Metadata provider types.
@@ -54,6 +54,13 @@ const (
 	MetadataProviderAniList     MetadataProviderType = "anilist"
 	MetadataProviderKitsu       MetadataProviderType = "kitsu"
 	MetadataProviderAnimeLists  MetadataProviderType = "animelists"
+	// MetadataProviderMDBList is ratings-only (spec §C.2): imdb, tmdb,
+	// rottenTomatoesCritic, rottenTomatoesAudience, metacritic, trakt,
+	// letterboxd. Takes secretRef key apiKey.
+	MetadataProviderMDBList MetadataProviderType = "mdblist"
+	// MetadataProviderOMDb is ratings-only (spec §C.2): imdb,
+	// rottenTomatoesCritic, metacritic. Takes secretRef key apiKey.
+	MetadataProviderOMDb MetadataProviderType = "omdb"
 )
 
 // Secret keys recognised in MetadataProviderSpec.SecretRef.

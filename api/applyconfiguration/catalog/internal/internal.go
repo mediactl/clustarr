@@ -132,6 +132,14 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: artistRef
       type:
         scalar: string
+    - name: artwork
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtworkOverride
+          elementRelationship: associative
+          keys:
+          - type
     - name: monitored
       type:
         scalar: boolean
@@ -151,6 +159,14 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: activeDownloadRef
       type:
         scalar: string
+    - name: artwork
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtworkEntry
+          elementRelationship: associative
+          keys:
+          - type
     - name: conditions
       type:
         list:
@@ -317,6 +333,14 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: addOptions
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtistAddOptions
+    - name: artwork
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtworkOverride
+          elementRelationship: associative
+          keys:
+          - type
     - name: delayProfileRef
       type:
         scalar: string
@@ -364,6 +388,14 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: albumFileCount
       type:
         scalar: numeric
+    - name: artwork
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtworkEntry
+          elementRelationship: associative
+          keys:
+          - type
     - name: conditions
       type:
         list:
@@ -381,6 +413,38 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: path
       type:
         scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtworkEntry
+  map:
+    fields:
+    - name: digest
+      type:
+        scalar: string
+    - name: sizeBytes
+      type:
+        scalar: numeric
+    - name: source
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtworkSource
+    - name: sourceURL
+      type:
+        scalar: string
+    - name: type
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImageType
+    - name: updatedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtworkOverride
+  map:
+    fields:
+    - name: type
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImageType
+    - name: url
+      type:
+        scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtworkSource
+  scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.Audiobook
   map:
     fields:
@@ -495,6 +559,14 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudiobookSpec
   map:
     fields:
+    - name: artwork
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtworkOverride
+          elementRelationship: associative
+          keys:
+          - type
     - name: asin
       type:
         scalar: string
@@ -536,6 +608,14 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: activeDownloadRef
       type:
         scalar: string
+    - name: artwork
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtworkEntry
+          elementRelationship: associative
+          keys:
+          - type
     - name: conditions
       type:
         list:
@@ -669,6 +749,14 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: addOptions
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.AuthorAddOptions
+    - name: artwork
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtworkOverride
+          elementRelationship: associative
+          keys:
+          - type
     - name: delayProfileRef
       type:
         scalar: string
@@ -713,6 +801,14 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: addOptionsApplied
       type:
         scalar: boolean
+    - name: artwork
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtworkEntry
+          elementRelationship: associative
+          keys:
+          - type
     - name: bookCount
       type:
         scalar: numeric
@@ -857,6 +953,14 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: boolean
       default: true
+    - name: artwork
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtworkOverride
+          elementRelationship: associative
+          keys:
+          - type
     - name: authorRef
       type:
         scalar: string
@@ -890,6 +994,14 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: activeDownloadRef
       type:
         scalar: string
+    - name: artwork
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtworkEntry
+          elementRelationship: associative
+          keys:
+          - type
     - name: conditions
       type:
         list:
@@ -1080,6 +1192,14 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: addSource
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.AddSource
+    - name: artwork
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtworkOverride
+          elementRelationship: associative
+          keys:
+          - type
     - name: delayProfileRef
       type:
         scalar: string
@@ -1131,6 +1251,14 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ComicStatus
   map:
     fields:
+    - name: artwork
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtworkEntry
+          elementRelationship: associative
+          keys:
+          - type
     - name: conditions
       type:
         list:
@@ -2334,6 +2462,14 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: physicalRelease
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: ratings
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Rating
+          elementRelationship: associative
+          keys:
+          - source
     - name: refreshedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
@@ -2373,6 +2509,14 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: addOptions
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.MovieAddOptions
+    - name: artwork
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtworkOverride
+          elementRelationship: associative
+          keys:
+          - type
     - name: availabilityDelayDays
       type:
         scalar: numeric
@@ -2431,6 +2575,14 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: addOptionsApplied
       type:
         scalar: boolean
+    - name: artwork
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtworkEntry
+          elementRelationship: associative
+          keys:
+          - type
     - name: available
       type:
         scalar: boolean
@@ -2469,6 +2621,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: observedGeneration
       type:
         scalar: numeric
+    - name: overlay
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.OverlayEntry
     - name: path
       type:
         scalar: string
@@ -2542,6 +2697,130 @@ var schemaYAML = typed.YAMLObject(`types:
         map:
           elementType:
             scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.OverlayBadge
+  map:
+    fields:
+    - name: source
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.RatingSource
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.OverlayCorner
+  scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.OverlayEntry
+  map:
+    fields:
+    - name: digest
+      type:
+        scalar: string
+    - name: profileRef
+      type:
+        scalar: string
+    - name: renderedFrom
+      type:
+        scalar: string
+    - name: updatedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.OverlayGeometry
+  map:
+    fields:
+    - name: logoPercent
+      type:
+        scalar: numeric
+    - name: opacityPercent
+      type:
+        scalar: numeric
+    - name: paddingPercent
+      type:
+        scalar: numeric
+    - name: radiusPercent
+      type:
+        scalar: numeric
+    - name: scorePercent
+      type:
+        scalar: numeric
+    - name: widthPercent
+      type:
+        scalar: numeric
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.OverlayProfile
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
+    - name: spec
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.OverlayProfileSpec
+    - name: status
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.OverlayProfileStatus
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.OverlayProfileList
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: items
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.OverlayProfile
+          elementRelationship: atomic
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ListMeta
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.OverlayProfileSpec
+  map:
+    fields:
+    - name: badges
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.OverlayBadge
+          elementRelationship: associative
+          keys:
+          - source
+    - name: corner
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.OverlayCorner
+      default: bottomRight
+    - name: geometry
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.OverlayGeometry
+    - name: kinds
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.common.v1alpha1.MediaKind
+          elementRelationship: atomic
+    - name: selector
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelector
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.OverlayProfileStatus
+  map:
+    fields:
+    - name: conditions
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Condition
+          elementRelationship: associative
+          keys:
+          - type
+    - name: hash
+      type:
+        scalar: string
+    - name: selected
+      type:
+        scalar: numeric
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PendingGrab
   map:
     fields:
@@ -2740,6 +3019,20 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: requestsPerSecond
       type:
         namedType: io.k8s.apimachinery.pkg.api.resource.Quantity
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.Rating
+  map:
+    fields:
+    - name: source
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.RatingSource
+    - name: valueCentis
+      type:
+        scalar: numeric
+    - name: votes
+      type:
+        scalar: numeric
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.RatingSource
+  scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.RecycleBin
   map:
     fields:
@@ -3204,6 +3497,9 @@ var schemaYAML = typed.YAMLObject(`types:
         map:
           elementType:
             scalar: string
+    - name: firstAired
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
     - name: genres
       type:
         list:
@@ -3225,6 +3521,14 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: overview
       type:
         scalar: string
+    - name: ratings
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Rating
+          elementRelationship: associative
+          keys:
+          - source
     - name: refreshedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
@@ -3255,6 +3559,14 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: addOptions
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeriesAddOptions
+    - name: artwork
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtworkOverride
+          elementRelationship: associative
+          keys:
+          - type
     - name: delayProfileRef
       type:
         scalar: string
@@ -3319,6 +3631,14 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: addOptionsApplied
       type:
         scalar: boolean
+    - name: artwork
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtworkEntry
+          elementRelationship: associative
+          keys:
+          - type
     - name: conditions
       type:
         list:
@@ -3345,6 +3665,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: observedGeneration
       type:
         scalar: numeric
+    - name: overlay
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.OverlayEntry
     - name: path
       type:
         scalar: string
@@ -3887,6 +4210,38 @@ var schemaYAML = typed.YAMLObject(`types:
         elementType:
           namedType: __untyped_deduced_
         elementRelationship: separable
+- name: io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelector
+  map:
+    fields:
+    - name: matchExpressions
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelectorRequirement
+          elementRelationship: atomic
+    - name: matchLabels
+      type:
+        map:
+          elementType:
+            scalar: string
+    elementRelationship: atomic
+- name: io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelectorOperator
+  scalar: string
+- name: io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelectorRequirement
+  map:
+    fields:
+    - name: key
+      type:
+        scalar: string
+    - name: operator
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelectorOperator
+    - name: values
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
 - name: io.k8s.apimachinery.pkg.apis.meta.v1.ListMeta
   map:
     fields:

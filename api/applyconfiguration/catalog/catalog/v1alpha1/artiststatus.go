@@ -42,6 +42,9 @@ type ArtistStatusApplyConfiguration struct {
 	AlbumFileCount *int32 `json:"albumFileCount,omitempty"`
 	// AddOptionsApplied is true once spec.addOptions has been acted on.
 	AddOptionsApplied *bool `json:"addOptionsApplied,omitempty"`
+	// Artwork lists the images fetched into the artwork store, one per type.
+	// Written by the metadata gateway.
+	Artwork []ArtworkEntryApplyConfiguration `json:"artwork,omitempty"`
 }
 
 // ArtistStatusApplyConfiguration constructs a declarative configuration of the ArtistStatus type for use with
@@ -108,5 +111,18 @@ func (b *ArtistStatusApplyConfiguration) WithAlbumFileCount(value int32) *Artist
 // If called multiple times, the AddOptionsApplied field is set to the value of the last call.
 func (b *ArtistStatusApplyConfiguration) WithAddOptionsApplied(value bool) *ArtistStatusApplyConfiguration {
 	b.AddOptionsApplied = &value
+	return b
+}
+
+// WithArtwork adds the given value to the Artwork field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Artwork field.
+func (b *ArtistStatusApplyConfiguration) WithArtwork(values ...*ArtworkEntryApplyConfiguration) *ArtistStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithArtwork")
+		}
+		b.Artwork = append(b.Artwork, *values[i])
+	}
 	return b
 }

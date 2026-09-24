@@ -20,7 +20,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Episode, Artist, Album, Author, Book, Audiobook, Comic, Issue), the files
 // backing it (MediaFile), the configuration that drives it (RootFolder,
 // QualityProfile, DelayProfile, MetadataProvider, ImportList,
-// ImportExclusion) and interactive Search (owned by catalogarr).
+// ImportExclusion, OverlayProfile) and interactive Search (owned by
+// catalogarr).
 //
 // +kubebuilder:object:generate=true
 // +kubebuilder:ac:generate=true

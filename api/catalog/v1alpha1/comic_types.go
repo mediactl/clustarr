@@ -197,6 +197,13 @@ type ComicSpec struct {
 	// metadata provider.
 	// +optional
 	AddSource *commonv1.AddSource `json:"addSource,omitempty"`
+
+	// Artwork overrides the provider's image for a type. One entry per type.
+	// +optional
+	// +kubebuilder:validation:MaxItems=9
+	// +listType=map
+	// +listMapKey=type
+	Artwork []ArtworkOverride `json:"artwork,omitempty"`
 }
 
 // ComicStatus describes the observed state of Comic.
@@ -229,6 +236,14 @@ type ComicStatus struct {
 	// NextPullDate is when the next issue is expected on the pull list.
 	// +optional
 	NextPullDate *metav1.Time `json:"nextPullDate,omitempty"`
+
+	// Artwork lists the images fetched into the artwork store, one per type.
+	// Written by the metadata gateway.
+	// +optional
+	// +kubebuilder:validation:MaxItems=9
+	// +listType=map
+	// +listMapKey=type
+	Artwork []ArtworkEntry `json:"artwork,omitempty"`
 }
 
 // +kubebuilder:object:root=true

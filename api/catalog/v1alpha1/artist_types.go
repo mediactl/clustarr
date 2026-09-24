@@ -196,6 +196,13 @@ type ArtistSpec struct {
 	// Source records the ImportList that added the artist, if any.
 	// +optional
 	Source *commonv1.AddSource `json:"source,omitempty"`
+
+	// Artwork overrides the provider's image for a type. One entry per type.
+	// +optional
+	// +kubebuilder:validation:MaxItems=9
+	// +listType=map
+	// +listMapKey=type
+	Artwork []ArtworkOverride `json:"artwork,omitempty"`
 }
 
 // ArtistStatus describes the observed state of Artist.
@@ -232,6 +239,14 @@ type ArtistStatus struct {
 	// AddOptionsApplied is true once spec.addOptions has been acted on.
 	// +optional
 	AddOptionsApplied bool `json:"addOptionsApplied,omitempty"`
+
+	// Artwork lists the images fetched into the artwork store, one per type.
+	// Written by the metadata gateway.
+	// +optional
+	// +kubebuilder:validation:MaxItems=9
+	// +listType=map
+	// +listMapKey=type
+	Artwork []ArtworkEntry `json:"artwork,omitempty"`
 }
 
 // +kubebuilder:object:root=true

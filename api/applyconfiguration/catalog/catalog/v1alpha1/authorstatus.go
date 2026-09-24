@@ -42,6 +42,9 @@ type AuthorStatusApplyConfiguration struct {
 	BookFileCount *int32 `json:"bookFileCount,omitempty"`
 	// AddOptionsApplied is true once spec.addOptions has been acted on.
 	AddOptionsApplied *bool `json:"addOptionsApplied,omitempty"`
+	// Artwork lists the images fetched into the artwork store, one per type.
+	// Written by the metadata gateway.
+	Artwork []ArtworkEntryApplyConfiguration `json:"artwork,omitempty"`
 }
 
 // AuthorStatusApplyConfiguration constructs a declarative configuration of the AuthorStatus type for use with
@@ -108,5 +111,18 @@ func (b *AuthorStatusApplyConfiguration) WithBookFileCount(value int32) *AuthorS
 // If called multiple times, the AddOptionsApplied field is set to the value of the last call.
 func (b *AuthorStatusApplyConfiguration) WithAddOptionsApplied(value bool) *AuthorStatusApplyConfiguration {
 	b.AddOptionsApplied = &value
+	return b
+}
+
+// WithArtwork adds the given value to the Artwork field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Artwork field.
+func (b *AuthorStatusApplyConfiguration) WithArtwork(values ...*ArtworkEntryApplyConfiguration) *AuthorStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithArtwork")
+		}
+		b.Artwork = append(b.Artwork, *values[i])
+	}
 	return b
 }

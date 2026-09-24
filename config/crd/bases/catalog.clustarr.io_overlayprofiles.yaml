@@ -1,0 +1,315 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: overlayprofiles.catalog.clustarr.io
+spec:
+  group: catalog.clustarr.io
+  names:
+    categories:
+    - clustarr
+    - catalog
+    kind: OverlayProfile
+    listKind: OverlayProfileList
+    plural: overlayprofiles
+    shortNames:
+    - ovp
+    singular: overlayprofile
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.hash
+      name: Hash
+      type: string
+    - jsonPath: .status.selected
+      name: Selected
+      type: integer
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: OverlayProfile selects Movies and Series to render rating-badge
+          overlays onto.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              OverlayProfileSpec defines the desired state of OverlayProfile.
+
+              Kinds is restricted to movie and series by CEL rather than a narrower
+              schema enum: MediaKind's own +kubebuilder:validation:Enum already lists
+              every catalog kind, and controller-gen has no way to generate a tighter
+              items enum for a field whose element type is a shared named type that
+              already carries its own type-level Enum marker (confirmed empirically
+              against controller-gen v0.22.0: a field- or items-level Enum marker on
+              such a field is silently ignored, unlike on a plain []string as
+              ImportListSpec.Kinds uses).
+            properties:
+              badges:
+                description: |-
+                  Badges are drawn bottom-up along the chosen corner. Unset means one
+                  badge, metacritic.
+                items:
+                  description: OverlayBadge is one rating source drawn as a badge
+                    in the stack.
+                  properties:
+                    source:
+                      description: Source is the rating source this badge renders.
+                      enum:
+                      - imdb
+                      - tmdb
+                      - rottenTomatoesCritic
+                      - rottenTomatoesAudience
+                      - metacritic
+                      - trakt
+                      - letterboxd
+                      type: string
+                  required:
+                  - source
+                  type: object
+                maxItems: 4
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - source
+                x-kubernetes-list-type: map
+              corner:
+                default: bottomRight
+                description: Corner is where the badge stack is anchored.
+                enum:
+                - bottomRight
+                - bottomLeft
+                - topRight
+                - topLeft
+                type: string
+              geometry:
+                description: Geometry overrides the badge stack's size and position.
+                properties:
+                  logoPercent:
+                    description: |-
+                      LogoPercent is the provider logo's width, as a percentage of the
+                      badge's box width. Unset means 60 (LogoPercentOrDefault,
+                      DefaultOverlayLogoPercent).
+                    format: int32
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                  opacityPercent:
+                    description: |-
+                      OpacityPercent is the badge stack's background opacity. Unset means 90
+                      (OpacityPercentOrDefault, DefaultOverlayOpacityPercent).
+                    format: int32
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                  paddingPercent:
+                    description: |-
+                      PaddingPercent is the padding inside each badge, as a percentage of
+                      poster width. Unset means 2 (PaddingPercentOrDefault,
+                      DefaultOverlayPaddingPercent).
+                    format: int32
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                  radiusPercent:
+                    description: |-
+                      RadiusPercent is each badge's corner radius, as a percentage of poster
+                      width. Unset means 2 (RadiusPercentOrDefault, DefaultOverlayRadiusPercent).
+                    format: int32
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                  scorePercent:
+                    description: |-
+                      ScorePercent is the score text's size, as a percentage of the badge's
+                      box height. Unset means 45 (ScorePercentOrDefault,
+                      DefaultOverlayScorePercent).
+                    format: int32
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                  widthPercent:
+                    description: |-
+                      WidthPercent is the badge stack's width, as a percentage of poster
+                      width. Unset means 14 (WidthPercentOrDefault, DefaultOverlayWidthPercent).
+                    format: int32
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                type: object
+              kinds:
+                description: |-
+                  Kinds limits the selection; unset means both movie and series. Only
+                  movie and series are accepted; see the CEL rule on OverlayProfileSpec.
+                items:
+                  description: MediaKind identifies what kind of catalog item a reference
+                    points at.
+                  enum:
+                  - movie
+                  - series
+                  - episode
+                  - artist
+                  - album
+                  - author
+                  - book
+                  - audiobook
+                  - comic
+                  - issue
+                  type: string
+                maxItems: 2
+                type: array
+              selector:
+                description: Selector matches Movie and Series labels. Nil selects
+                  nothing.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+            type: object
+            x-kubernetes-validations:
+            - message: kinds accepts only movie and series
+              rule: '!has(self.kinds) || self.kinds.all(k, k == ''movie'' || k ==
+                ''series'')'
+          status:
+            description: OverlayProfileStatus describes the observed state of OverlayProfile.
+            properties:
+              conditions:
+                description: Conditions holds Ready and Overlap.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                maxItems: 8
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              hash:
+                description: |-
+                  Hash is the sha256 of the render-relevant spec (overlay.TemplateSpec),
+                  the same conversion the renderer draws from.
+                type: string
+              selected:
+                description: Selected is the number of Movies and Series this profile
+                  currently selects.
+                format: int32
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

@@ -73,6 +73,9 @@ type MovieMetadataApplyConfiguration struct {
 	AlternateTitles []string `json:"alternateTitles,omitempty"`
 	// RefreshedAt is when the metadata was last fetched.
 	RefreshedAt *v1.Time `json:"refreshedAt,omitempty"`
+	// Ratings lists the scores gathered from the enabled ratings providers,
+	// one entry per source (pkg/metadata.RatingsProvider).
+	Ratings []RatingApplyConfiguration `json:"ratings,omitempty"`
 }
 
 // MovieMetadataApplyConfiguration constructs a declarative configuration of the MovieMetadata type for use with
@@ -258,5 +261,18 @@ func (b *MovieMetadataApplyConfiguration) WithAlternateTitles(values ...string) 
 // If called multiple times, the RefreshedAt field is set to the value of the last call.
 func (b *MovieMetadataApplyConfiguration) WithRefreshedAt(value v1.Time) *MovieMetadataApplyConfiguration {
 	b.RefreshedAt = &value
+	return b
+}
+
+// WithRatings adds the given value to the Ratings field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Ratings field.
+func (b *MovieMetadataApplyConfiguration) WithRatings(values ...*RatingApplyConfiguration) *MovieMetadataApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithRatings")
+		}
+		b.Ratings = append(b.Ratings, *values[i])
+	}
 	return b
 }

@@ -65,6 +65,12 @@ type MovieStatusApplyConfiguration struct {
 	LastSearchedAt *metav1.Time `json:"lastSearchedAt,omitempty"`
 	// SearchAttempts counts the searches made for this movie.
 	SearchAttempts *commonv1alpha1.Attempts `json:"searchAttempts,omitempty"`
+	// Artwork lists the images fetched into the artwork store, one per type.
+	// Written by the metadata gateway.
+	Artwork []ArtworkEntryApplyConfiguration `json:"artwork,omitempty"`
+	// Overlay is the rating-badge overlay rendered onto the poster. Written
+	// by the renderer under k8s.ManagerCatalogarrArtwork.
+	Overlay *OverlayEntryApplyConfiguration `json:"overlay,omitempty"`
 }
 
 // MovieStatusApplyConfiguration constructs a declarative configuration of the MovieStatus type for use with
@@ -211,5 +217,26 @@ func (b *MovieStatusApplyConfiguration) WithLastSearchedAt(value metav1.Time) *M
 // If called multiple times, the SearchAttempts field is set to the value of the last call.
 func (b *MovieStatusApplyConfiguration) WithSearchAttempts(value commonv1alpha1.Attempts) *MovieStatusApplyConfiguration {
 	b.SearchAttempts = &value
+	return b
+}
+
+// WithArtwork adds the given value to the Artwork field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Artwork field.
+func (b *MovieStatusApplyConfiguration) WithArtwork(values ...*ArtworkEntryApplyConfiguration) *MovieStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithArtwork")
+		}
+		b.Artwork = append(b.Artwork, *values[i])
+	}
+	return b
+}
+
+// WithOverlay sets the Overlay field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Overlay field is set to the value of the last call.
+func (b *MovieStatusApplyConfiguration) WithOverlay(value *OverlayEntryApplyConfiguration) *MovieStatusApplyConfiguration {
+	b.Overlay = value
 	return b
 }

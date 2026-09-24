@@ -61,6 +61,12 @@ type SeriesMetadataApplyConfiguration struct {
 	AlternateTitles []AltTitleApplyConfiguration `json:"alternateTitles,omitempty"`
 	// RefreshedAt is when the metadata was last fetched.
 	RefreshedAt *v1.Time `json:"refreshedAt,omitempty"`
+	// FirstAired is the date the series first aired, from TVDB firstAired or
+	// TMDB first_air_date. Plex requires it.
+	FirstAired *v1.Time `json:"firstAired,omitempty"`
+	// Ratings lists the scores gathered from the enabled ratings providers,
+	// one entry per source (pkg/metadata.RatingsProvider).
+	Ratings []RatingApplyConfiguration `json:"ratings,omitempty"`
 }
 
 // SeriesMetadataApplyConfiguration constructs a declarative configuration of the SeriesMetadata type for use with
@@ -204,5 +210,26 @@ func (b *SeriesMetadataApplyConfiguration) WithAlternateTitles(values ...*AltTit
 // If called multiple times, the RefreshedAt field is set to the value of the last call.
 func (b *SeriesMetadataApplyConfiguration) WithRefreshedAt(value v1.Time) *SeriesMetadataApplyConfiguration {
 	b.RefreshedAt = &value
+	return b
+}
+
+// WithFirstAired sets the FirstAired field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the FirstAired field is set to the value of the last call.
+func (b *SeriesMetadataApplyConfiguration) WithFirstAired(value v1.Time) *SeriesMetadataApplyConfiguration {
+	b.FirstAired = &value
+	return b
+}
+
+// WithRatings adds the given value to the Ratings field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Ratings field.
+func (b *SeriesMetadataApplyConfiguration) WithRatings(values ...*RatingApplyConfiguration) *SeriesMetadataApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithRatings")
+		}
+		b.Ratings = append(b.Ratings, *values[i])
+	}
 	return b
 }

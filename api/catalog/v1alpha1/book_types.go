@@ -196,6 +196,13 @@ type BookSpec struct {
 	// RootFolderRef overrides the Author's RootFolder.
 	// +optional
 	RootFolderRef *string `json:"rootFolderRef,omitempty"`
+
+	// Artwork overrides the provider's image for a type. One entry per type.
+	// +optional
+	// +kubebuilder:validation:MaxItems=9
+	// +listType=map
+	// +listMapKey=type
+	Artwork []ArtworkOverride `json:"artwork,omitempty"`
 }
 
 // BookStatus describes the observed state of Book.
@@ -256,6 +263,14 @@ type BookStatus struct {
 	// SearchAttempts counts the searches made for this book.
 	// +optional
 	SearchAttempts commonv1.Attempts `json:"searchAttempts,omitempty"`
+
+	// Artwork lists the images fetched into the artwork store, one per type.
+	// Written by the metadata gateway.
+	// +optional
+	// +kubebuilder:validation:MaxItems=9
+	// +listType=map
+	// +listMapKey=type
+	Artwork []ArtworkEntry `json:"artwork,omitempty"`
 }
 
 // +kubebuilder:object:root=true
