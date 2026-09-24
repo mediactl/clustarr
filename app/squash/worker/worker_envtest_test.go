@@ -20,10 +20,12 @@ package worker
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,6 +46,7 @@ import (
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/squash/status"
 	"github.com/mediactl/clustarr/app/squash/task"
+	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/transcode"
@@ -322,11 +325,22 @@ func (f *fixture) binEntries(t *testing.T) []string {
 	return out
 }
 
+// partFiles lists every in-progress transcode part file beside the source,
+// in either naming convention pkg/fsops.IsPart recognizes -- the shared
+// <stem>.part.<ext> form and, since final review I2, the per-job-and-attempt
+// <stem>.part-<uid8>-<attempt>.<ext> form -- rather than a glob of its own
+// that would go blind to whichever one it does not spell out.
 func (f *fixture) partFiles(t *testing.T) []string {
 	t.Helper()
-	m, err := filepath.Glob(filepath.Join(filepath.Dir(f.local), "*.part.*"))
+	entries, err := os.ReadDir(filepath.Dir(f.local))
 	require.NoError(t, err)
-	return m
+	var out []string
+	for _, e := range entries {
+		if !e.IsDir() && fsops.IsPart(e.Name()) {
+			out = append(out, filepath.Join(filepath.Dir(f.local), e.Name()))
+		}
+	}
+	return out
 }
 
 func (f *fixture) requireSourceUntouched(t *testing.T) {
@@ -850,4 +864,74 @@ func TestRunWritesAnExplicitOutputPath(t *testing.T) {
 	require.Error(t, out2.Err)
 	assert.Equal(t, ExitInvalidSource, out2.Code)
 	f2.requireSourceUntouched(t)
+}
+
+// I2c: a lease that cannot be reasserted immediately before the swap must
+// abort it outright -- run never renames the verified output over the
+// source when it cannot prove this attempt still holds the lease. The
+// encode and verification run for real; only the pre-swap check is faked,
+// so this proves run's own cleanup (removePart, via the beforeSwap helper)
+// rather than anything about Serve's settlement (serve_test.go's harness
+// covers that, against a fake bus, without a real encode).
+func TestRunAbortsTheSwapAndRemovesThePartWhenBeforeSwapFails(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	f := newFixture(t, c)
+
+	sentinel := errors.New("lease could not be reasserted")
+	o := f.options()
+	o.BeforeSwap = func(context.Context) error { return sentinel }
+	out := f.processWith(t, c, o)
+
+	require.Error(t, out.Err)
+	assert.ErrorIs(t, out.Err, sentinel, "the hook's own error reaches the caller unchanged")
+	assert.NotEqual(t, ExitOK, out.Code, "the swap that never happened must never be reported as a success")
+	assert.Nil(t, out.Result)
+
+	f.requireSourceUntouched(t) // byte-identical source, no part file left, nothing recycled
+	seed, err := os.ReadFile(f.seed)
+	require.NoError(t, err)
+	assert.True(t, bytes.Equal(f.original, seed), "the seeding copy must be untouched")
+}
+
+// I2a/I2b: two attempts of the same job never share an in-progress part
+// path, and a part file this run did not create -- standing in for a
+// sibling attempt's, exactly as uniquePartPath would name it -- survives
+// run's own cleanup untouched when this attempt's swap aborts. Before final
+// review I2, both attempts wrote the same <stem>.part.<ext>, so this run's
+// cleanup would have deleted a still-live sibling's output.
+func TestARunThatAbortsNeverTouchesAnotherAttemptsPartFile(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	f := newFixture(t, c)
+
+	ext := filepath.Ext(f.local)
+	generic := strings.TrimSuffix(f.local, ext) + ".part" + ext
+	jobUID := string(f.get(t, c).UID)
+	require.NotEmpty(t, jobUID)
+
+	// Attempt 2's own in-progress file: nothing in this test run (attempt
+	// 1, via f.processWith below) may ever create or remove it.
+	sibling := uniquePartPath(generic, jobUID, 2)
+	require.NoError(t, os.WriteFile(sibling, []byte("attempt 2's in-progress data"), 0o644))
+	t.Cleanup(func() { _ = os.Remove(sibling) })
+
+	sentinel := errors.New("lease could not be reasserted")
+	o := f.options()
+	o.BeforeSwap = func(context.Context) error { return sentinel }
+	out := f.processWith(t, c, o) // attempt 1, per processWith
+	require.Error(t, out.Err)
+	assert.NotEqual(t, ExitOK, out.Code)
+
+	got, err := os.ReadFile(f.local)
+	require.NoError(t, err, "the source must still exist")
+	assert.True(t, bytes.Equal(f.original, got), "the source must be byte-identical")
+	assert.Empty(t, f.binEntries(t), "nothing may have been recycled")
+
+	siblingData, err := os.ReadFile(sibling)
+	require.NoError(t, err, "a different attempt's part file must survive this attempt's own abort")
+	assert.Equal(t, "attempt 2's in-progress data", string(siblingData))
+
+	assert.Equal(t, []string{sibling}, f.partFiles(t),
+		"attempt 1's own part file is gone; only attempt 2's stray survives")
 }

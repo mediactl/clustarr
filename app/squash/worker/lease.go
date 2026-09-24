@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 
 	"github.com/mediactl/clustarr/app/squash/task"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -100,12 +101,36 @@ func (s *server) held(t task.Task) task.Lease {
 	}
 }
 
+// leaseRev is the current revision handle knows this task's lease is at,
+// shared between the renewal goroutine below and Options.BeforeSwap's
+// pre-swap reassert (final review I2c): Process runs synchronously on
+// handle's own goroutine while renew's ticks fire concurrently on its own,
+// so both readers and writers of the revision need this mutex -- the KV
+// store itself already serializes the actual Update calls by revision, this
+// only protects the local copy from a data race.
+type leaseRev struct {
+	mu sync.Mutex
+	v  uint64
+}
+
+func (r *leaseRev) get() uint64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.v
+}
+
+func (r *leaseRev) set(v uint64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.v = v
+}
+
 // renew keeps the lease and the ack window alive until ctx ends. A revision
 // it did not write means squasharr cancelled the task, or the lease lapsed
 // and someone else took it: stop at once. Plain errors are tolerated until
 // FenceAfter since the last good renewal, then the work is stopped: FenceAfter
 // is 30s short of the lease TTL, so the work ends before anyone can claim it.
-func (s *server) renew(ctx context.Context, stop context.CancelCauseFunc, m events.Message, t task.Task, rev *uint64) <-chan struct{} {
+func (s *server) renew(ctx context.Context, stop context.CancelCauseFunc, m events.Message, t task.Task, rev *leaseRev) <-chan struct{} {
 	done := make(chan struct{})
 	key := events.TranscodeLeaseKey(t.Job.UID)
 	val, _ := json.Marshal(s.held(t))
@@ -131,10 +156,11 @@ func (s *server) renew(ctx context.Context, stop context.CancelCauseFunc, m even
 			case <-tick.Chan():
 			}
 			_ = m.InProgress(ctx)
-			next, err := s.o.Leases.Update(ctx, key, val, *rev)
+			next, err := s.o.Leases.Update(ctx, key, val, rev.get())
 			switch {
 			case err == nil:
-				*rev, lastOK = next, s.clock.Now()
+				rev.set(next)
+				lastOK = s.clock.Now()
 			case errors.Is(err, events.ErrRevisionMismatch) || errors.Is(err, events.ErrKeyNotFound):
 				e, gerr := s.o.Leases.Get(ctx, key)
 				if gerr != nil {
@@ -156,7 +182,8 @@ func (s *server) renew(ctx context.Context, stop context.CancelCauseFunc, m even
 					// never saw the new revision come back. Adopt it and
 					// keep renewing instead of fencing ourselves off a lease
 					// we still hold.
-					*rev, lastOK = e.Revision, s.clock.Now()
+					rev.set(e.Revision)
+					lastOK = s.clock.Now()
 				default:
 					stop(errFenced)
 					return
@@ -170,4 +197,58 @@ func (s *server) renew(ctx context.Context, stop context.CancelCauseFunc, m even
 		}
 	}()
 	return done
+}
+
+// errBeforeSwapAborted is what run() gets back from Options.BeforeSwap when
+// reassertBeforeSwap could not confirm this attempt still holds the lease;
+// the message adds nothing handle doesn't already know from cause
+// (context.Cause(work), set by the stop(...) call below before this
+// returns), so it stays terse.
+var errBeforeSwapAborted = errors.New("squasharr worker: lease could not be reasserted before the swap")
+
+// reassertBeforeSwap is Options.BeforeSwap: immediately before Process
+// renames the verified output over the source, it re-asserts this attempt's
+// lease with a revision-checked Update instead of trusting the last
+// periodic renewal, which can be up to Renew (20s) stale -- long enough for
+// squasharr to have withdrawn the attempt, or for another worker to have
+// fenced it out, without renew's own tick having noticed yet (final review
+// I2c). A failure here is handled exactly like renew's own: a confirmed
+// cancel marker stops work with errCancelled; our own write landing but its
+// reply getting lost adopts the new revision and lets the swap proceed
+// (renew's fix round 1, item 5 case, reached here too); anything else --
+// someone else's lease, an unreadable lease, a plain transport error even
+// after a Get to disambiguate -- stops work with errFenced, since a fenced
+// worker cannot safely report anything either way (serve.go's handle
+// already treats it that way for the renewal path). Either stop makes
+// context.Cause(work) report the cause before this returns, so handle's
+// switch settles the task the same way it would have if renew's own tick
+// had caught it first.
+func (s *server) reassertBeforeSwap(ctx context.Context, stop context.CancelCauseFunc, t task.Task, rev *leaseRev) error {
+	key := events.TranscodeLeaseKey(t.Job.UID)
+	val, _ := json.Marshal(s.held(t))
+	next, err := s.o.Leases.Update(ctx, key, val, rev.get())
+	if err == nil {
+		rev.set(next)
+		return nil
+	}
+	e, gerr := s.o.Leases.Get(ctx, key)
+	if gerr != nil {
+		stop(errFenced)
+		return errBeforeSwapAborted
+	}
+	var cur task.Lease
+	if json.Unmarshal(e.Value, &cur) != nil {
+		stop(errFenced)
+		return errBeforeSwapAborted
+	}
+	switch {
+	case cur.State == task.LeaseCancelled && cur.Attempt >= t.Attempt:
+		stop(errCancelled)
+	case cur.State == task.LeaseHeld && cur.Pod == s.o.PodName && cur.Attempt == t.Attempt:
+		rev.set(e.Revision) // our own write landed; only the reply was lost
+		return nil
+	default:
+		stop(errFenced)
+	}
+	return errBeforeSwapAborted
 }

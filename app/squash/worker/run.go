@@ -146,6 +146,20 @@ type Options struct {
 
 	// Now overrides time.Now. Tests only.
 	Now func() time.Time
+
+	// BeforeSwap, when set, is called immediately before run renames the
+	// verified output over the source (or, for an elsewhere output,
+	// immediately before it takes its own name) -- the pool worker's Serve
+	// supplies it to re-assert this attempt's lease with a
+	// revision-checked Update, since the last periodic renewal can be up to
+	// Renew (20s) stale (final review I2c). An error aborts the swap: run
+	// removes this attempt's in-progress part file and returns the error
+	// unchanged, so the caller settles the task exactly as the renewal
+	// path's own fence/cancel would -- it must never proceed to swap a file
+	// it can no longer prove it still holds the lease for. Nil (the
+	// default, and every test that does not exercise this path) runs no
+	// check and the swap always proceeds.
+	BeforeSwap func(context.Context) error
 }
 
 // ThreadsFromEnv reads [CPULimitEnv]. The Downward API renders limits.cpu
@@ -386,6 +400,20 @@ func (r *runner) run(ctx context.Context) error {
 		return invalidSource("squasharr worker: plan: %w", err)
 	}
 	r.compareWithRecordedPlan(ctx, r.t.ArgsHash, plan)
+
+	// The physical scratch file this attempt writes to is unique per job
+	// and attempt (final review I2a), substituted only now -- after the
+	// parity check above already compared the worker's plan against
+	// status.plan.argsHash using the generic <stem>.part.<ext> path
+	// transcode.Plan rendered from an OutputPath the controller can
+	// reproduce without knowing the attempt. The controller never sees
+	// this path, only that hash, so mutating plan.Output here changes
+	// nothing it needs to reproduce, while making sure a withdrawn
+	// attempt's cleanup -- it learns of cancellation only at its next 20s
+	// renewal -- can never unlink a different attempt's in-progress file,
+	// and an old- and a new-hash job for the same source never encode into
+	// the same inode.
+	plan.Output = uniquePartPath(plan.Output, r.t.Job.UID, r.t.Attempt)
 	if plan.Decision == transcode.DecisionSkip || plan.Decision == transcode.DecisionReject {
 		// The controller planned this file for work from the stored probe
 		// of the same bytes. Exiting 0 would report a transcode that never
@@ -440,6 +468,9 @@ func (r *runner) run(ctx context.Context) error {
 	// 6. The swap. See the package doc for why each order and what a crash
 	// between any two steps leaves.
 	if !sw.inPlace() {
+		if err := r.beforeSwap(ctx, plan.Output); err != nil {
+			return err
+		}
 		// Elsewhere (R-11): the verified output takes its own name first, so
 		// the library holds a complete file at every instant, then the source
 		// is retired -- or, with replaceSource=false, kept.
@@ -454,11 +485,17 @@ func (r *runner) run(ctx context.Context) error {
 		return r.finish(ctx, sw.out, sw.localOut, st.Size())
 	}
 
-	// In place (R5). Link the original into the bin, then rename the
-	// verified output over the source path. With policy.recycleBin=false
-	// there is no link: the rename alone drops the library's name for the
-	// original, and a seeding hard link elsewhere keeps its inode alive
-	// regardless.
+	// In place (R5). Re-assert the lease, then link the original into the
+	// bin, then rename the verified output over the source path. The
+	// reassert comes first: RecycleLink is itself a side effect on the
+	// library (a new name in the recycle bin) that an aborted swap must
+	// not leave behind either, not only the rename. With
+	// policy.recycleBin=false there is no link: the rename alone drops the
+	// library's name for the original, and a seeding hard link elsewhere
+	// keeps its inode alive regardless.
+	if err := r.beforeSwap(ctx, plan.Output); err != nil {
+		return err
+	}
 	var recycled string
 	if sw.recycle {
 		recycled, err = fsops.RecycleLink(bin, local)
@@ -474,6 +511,41 @@ func (r *runner) run(ctx context.Context) error {
 	log.InfoContext(ctx, "squasharr worker: swapped", "recycled", recycled)
 
 	return r.finish(ctx, source, local, st.Size())
+}
+
+// beforeSwap runs o.BeforeSwap, the pool worker's pre-swap lease reassert
+// (final review I2c), immediately before the rename that makes this
+// attempt's output the library's file. A nil hook (Process's own tests, and
+// every caller that does not need this) always succeeds. On error, this
+// attempt's part file is removed -- the swap never happens -- and the error
+// is returned unchanged so the caller settles it exactly as the hook
+// decided (cancelled, fenced, or an ordinary retriable failure).
+func (r *runner) beforeSwap(ctx context.Context, partPath string) error {
+	if r.o.BeforeSwap == nil {
+		return nil
+	}
+	if err := r.o.BeforeSwap(ctx); err != nil {
+		removePart(ctx, partPath)
+		return err
+	}
+	return nil
+}
+
+// uniquePartPath rewrites generic -- the "<stem>.part.<ext>" pkg/transcode.
+// Plan rendered from a controller-reproducible OutputPath -- into the
+// physical scratch file this attempt actually writes to:
+// "<stem>.part-<uid8>-<attempt>.<ext>" (final review I2a). Called only
+// after compareWithRecordedPlan has already compared the generic form's
+// argsHash against status.plan.argsHash, so the substitution changes
+// nothing the controller needs to reproduce.
+func uniquePartPath(generic, jobUID string, attempt int32) string {
+	ext := filepath.Ext(generic)
+	stem := strings.TrimSuffix(strings.TrimSuffix(generic, ext), ".part")
+	uid8 := jobUID
+	if len(uid8) > 8 {
+		uid8 = uid8[:8]
+	}
+	return fmt.Sprintf("%s.part-%s-%d%s", stem, uid8, attempt, ext)
 }
 
 // swap is where one run's output goes and what happens to its source.

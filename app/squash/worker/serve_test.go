@@ -20,6 +20,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -250,6 +251,14 @@ func (h *harness) serve() {
 }
 
 func (h *harness) serveOnBus(bus events.Bus) {
+	h.serveOnBusWithOptions(bus, nil)
+}
+
+// serveOnBusWithOptions is serveOnBus, with mutate given a chance to
+// override the ServeOptions Serve runs with -- I1's tests use it to shrink
+// PullRetryBackoffCap/PullRetryWindow so a retry-and-give-up case stays
+// fast under the fake clock.
+func (h *harness) serveOnBusWithOptions(bus events.Bus, mutate func(*ServeOptions)) {
 	process := h.processOverride
 	if process == nil {
 		process = func(ctx context.Context, _ task.Task, o Options) Outcome {
@@ -271,13 +280,17 @@ func (h *harness) serveOnBus(bus events.Bus) {
 			}
 		}
 	}
+	o := ServeOptions{
+		ProfileUID: "puid", Class: "cpu", Node: "n1",
+		Options: Options{PodName: "pool-abc"},
+		Leases:  h.leases, Clock: h.clock,
+		Process: process,
+	}
+	if mutate != nil {
+		mutate(&o)
+	}
 	go func() {
-		err := Serve(h.ctx, bus, ServeOptions{
-			ProfileUID: "puid", Class: "cpu", Node: "n1",
-			Options: Options{PodName: "pool-abc"},
-			Leases:  h.leases, Clock: h.clock,
-			Process: process,
-		})
+		err := Serve(h.ctx, bus, o)
 		h.doneOnce.Do(func() {
 			h.doneErr = err
 			close(h.doneCh)
@@ -672,6 +685,66 @@ func TestServeReleasesTheLeaseWhenTheFinishedPublishFails(t *testing.T) {
 	assert.True(t, h.leaseGone(), "the lease is released once the retry's finished event is stored")
 }
 
+// I2c: Serve wires Options.BeforeSwap to reassertBeforeSwap, so a process
+// stub that calls it right where run() would -- immediately before the
+// swap -- gets exactly renew's own settlement when it finds a confirmed
+// cancel marker for this attempt: cancelled, reported, acked. (run.go's own
+// envtest, TestRunAbortsTheSwapAndRemovesThePartWhenBeforeSwapFails, proves
+// the filesystem side with a real encode; this proves the settlement
+// plumbing against the fake bus and clock, cheaply.)
+func TestServeSettlesAsCancelledWhenBeforeSwapFindsAConfirmedCancelMarker(t *testing.T) {
+	h := newHarness(t)
+	h.processOverride = func(ctx context.Context, _ task.Task, o Options) Outcome {
+		h.calls.Add(1)
+		h.started <- struct{}{}
+		defer func() { h.ended <- struct{}{} }()
+		// squasharr withdrew this attempt between the last renewal and the
+		// swap -- the window I2c closes.
+		h.putLease(task.Lease{Job: schema.Ref{UID: "juid"}, Attempt: 1, State: task.LeaseCancelled})
+		err := o.BeforeSwap(ctx)
+		assert.Error(t, err, "the hook must abort once the marker names this attempt")
+		// A real run() never reaches ExitOK once BeforeSwap aborts the swap;
+		// the stub mirrors that so the switch is exercised the way handle()
+		// would actually see it.
+		return Outcome{Code: ExitRetriable, Err: err}
+	}
+	h.serve()
+	h.publish(1, 0)
+	<-h.started
+	<-h.ended
+	fin := h.next(task.EventFinished)
+	assert.Equal(t, task.OutcomeCancelled, fin.Outcome)
+	assert.Equal(t, task.ReasonCancelled, fin.Reason)
+	assert.Equal(t, settleAck, h.nextSettlement().kind)
+}
+
+// I2c, the other branch: BeforeSwap finding a healthy lease held by
+// somebody else -- a second worker adopted the job after fencing this one
+// out, without this pod's own renewal noticing yet -- settles exactly as a
+// renewal-time fence would: nothing reported, Nak(0), the lease left for
+// its holder rather than released.
+func TestServeSettlesAsFencedWhenBeforeSwapFindsAnotherWorkersLease(t *testing.T) {
+	h := newHarness(t)
+	h.processOverride = func(ctx context.Context, _ task.Task, o Options) Outcome {
+		h.calls.Add(1)
+		h.started <- struct{}{}
+		defer func() { h.ended <- struct{}{} }()
+		h.putLease(task.Lease{Job: schema.Ref{UID: "juid"}, Attempt: 1, State: task.LeaseHeld, Pod: "other"})
+		err := o.BeforeSwap(ctx)
+		assert.Error(t, err, "the hook must abort once another pod holds the lease")
+		return Outcome{Code: ExitRetriable, Err: err}
+	}
+	h.serve()
+	h.publish(1, 0)
+	<-h.started
+	<-h.ended
+	h.noEvent(task.EventFinished, 300*time.Millisecond)
+	s := h.nextSettlement()
+	assert.Equal(t, settleNak, s.kind)
+	assert.Zero(t, s.delay)
+	assert.False(t, h.leaseGone(), "a fenced worker's lease is left to lapse, not released")
+}
+
 // Fix round 1, item 3: an undecodable task is dead-lettered, not silently
 // dropped or endlessly redelivered.
 func TestServeDeadLettersAnUndecodableTask(t *testing.T) {
@@ -702,6 +775,117 @@ func TestServeDeadLettersAnUndecodableTask(t *testing.T) {
 		assert.NotEmpty(t, env.Headers[events.HeaderDLQReason])
 	case <-time.After(5 * time.Second):
 		t.Fatal("no DLQ envelope published for the undecodable task")
+	}
+}
+
+// I1: a transient pull error -- a JetStream consumer-leader move (409) or a
+// 503 during a node restart -- must not make Serve return at once: every
+// idle worker sharing the pool would see one and exit, spending an attempt
+// of the pool Job's lifetime backoffLimit each, and killing every other
+// healthy encode sharing it. Serve retries with backoff, recreating the
+// puller each time (flakyPull's Pull is itself flaky, exercising that
+// path), and a task published while it is retrying is still claimed once
+// the run of failures ends.
+func TestServeRetriesTransientPullErrorsThenClaimsTheTask(t *testing.T) {
+	h := newHarness(t)
+	flaky := wrapForFlakyPull(h.tracking, errors.New("nats: leadership change"))
+	flaky.nextFails.Store(3)
+	h.serveOnBusWithOptions(flaky, func(o *ServeOptions) {
+		o.PullRetryBackoffCap = 20 * time.Millisecond
+		o.PullRetryWindow = time.Minute
+	})
+	h.publish(1, 0)
+	<-h.started
+	h.release <- Outcome{Code: ExitOK, Result: &transcodev1alpha1.Result{}}
+	fin := h.next(task.EventFinished)
+	assert.Equal(t, task.OutcomeSucceeded, fin.Outcome)
+	assert.Equal(t, settleAck, h.nextSettlement().kind)
+	assert.LessOrEqual(t, flaky.nextFails.Load(), int32(0), "the injected failures were exhausted before the task was pulled")
+	assert.GreaterOrEqual(t, flaky.pullCalls.Load(), int32(2), "a failed Next recreates the puller, so Pull ran more than once")
+}
+
+// I1, the give-up case: a pull that never recovers must still end Serve --
+// so the pod restarts and the pool Job's own machinery (podFailurePolicy,
+// backoffLimit) takes over -- but only once the failure streak has lasted
+// PullRetryWindow, never on the first error.
+func TestServeGivesUpOnAPullThatNeverRecovers(t *testing.T) {
+	h := newHarness(t)
+	sentinel := errors.New("nats: no suitable servers")
+	flaky := wrapForFlakyPull(h.tracking, sentinel)
+	flaky.nextFails.Store(-1) // fails forever
+	h.serveOnBusWithOptions(flaky, func(o *ServeOptions) {
+		o.PullRetryBackoffCap = 10 * time.Millisecond
+		o.PullRetryWindow = 100 * time.Millisecond
+	})
+	err := h.waitDone(5 * time.Second)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, sentinel)
+}
+
+// wrapForFlakyPull decorates bus's Pull for I1's tests: nextFails counts
+// down failures the returned Puller's Next reports before behaving
+// normally (a negative count never runs out, for a "fails forever" case),
+// and pullFails does the same for Pull itself, so Serve's "recreate the
+// dead puller" path is exercised too, not only Next's own retry.
+func wrapForFlakyPull(bus interface {
+	events.Bus
+	events.PullSubscriber
+}, err error,
+) *flakyPullBus {
+	return &flakyPullBus{Bus: bus, ps: bus, nextFails: new(atomic.Int32), pullFails: new(atomic.Int32), err: err}
+}
+
+type flakyPullBus struct {
+	events.Bus
+	ps                   events.PullSubscriber
+	nextFails, pullFails *atomic.Int32
+	err                  error
+	pullCalls            atomic.Int32
+}
+
+var _ events.PullSubscriber = (*flakyPullBus)(nil)
+
+func (b *flakyPullBus) Pull(ctx context.Context, s events.Subscription) (events.Puller, error) {
+	b.pullCalls.Add(1)
+	if consumeFlakyFailure(b.pullFails) {
+		return nil, b.err
+	}
+	p, err := b.ps.Pull(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	return &flakyPuller{Puller: p, fails: b.nextFails, err: b.err}, nil
+}
+
+type flakyPuller struct {
+	events.Puller
+	fails *atomic.Int32
+	err   error
+}
+
+func (p *flakyPuller) Next(ctx context.Context) (context.Context, events.Message, error) {
+	if consumeFlakyFailure(p.fails) {
+		return ctx, nil, p.err
+	}
+	return p.Puller.Next(ctx)
+}
+
+// consumeFlakyFailure reports whether this call should fail: a positive
+// counter decrements and fails, zero never fails, and a negative counter
+// fails forever without ever reaching zero.
+func consumeFlakyFailure(n *atomic.Int32) bool {
+	for {
+		cur := n.Load()
+		switch {
+		case cur == 0:
+			return false
+		case cur < 0:
+			return true
+		default:
+			if n.CompareAndSwap(cur, cur-1) {
+				return true
+			}
+		}
 	}
 }
 

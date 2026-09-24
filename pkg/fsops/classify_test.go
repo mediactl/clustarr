@@ -221,6 +221,24 @@ func TestIsPartCoversATranscodesPartialOutput(t *testing.T) {
 	}
 }
 
+// TestIsPartCoversAPerAttemptTranscodePart pins final review I2's
+// <stem>.part-<uid8>-<attempt>.<ext> form, unique per job and attempt, so a
+// scan or a sibling attempt's cleanup still recognizes it as in-progress and
+// never mistakes a merely similar name ("...partial...", a hyphenated title
+// token) for one.
+func TestIsPartCoversAPerAttemptTranscodePart(t *testing.T) {
+	for name, want := range map[string]bool{
+		"Heat (1995).part-a1b2c3d4-1.mkv": true,
+		"Heat (1995).part-a1b2c3d4-2.mkv": true,
+		"Heat (1995).part-deadbeef-1.mp4": true,
+		"Heat (1995).PART-a1b2c3d4-1.MKV": false, // lower case only, as the plain ".part" form already requires for the infix
+		"Heat (1995).partial.mkv":         false,
+		"Deathly.Hallows.Part-1.2010.mkv": false,
+	} {
+		assert.Equalf(t, want, fsops.IsPart("/lib/"+name), "%s", name)
+	}
+}
+
 func TestIsSampleIsAMarkerNotAWordSearch(t *testing.T) {
 	for name, want := range map[string]bool{
 		// Titles that contain the word.

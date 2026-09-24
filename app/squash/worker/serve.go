@@ -47,6 +47,20 @@ type ServeOptions struct {
 	// Renew, FenceAfter and HeldRetry default to 20s, 60s and 30s.
 	Renew, FenceAfter, HeldRetry time.Duration
 
+	// PullRetryBackoffCap and PullRetryWindow bound how Serve tolerates a
+	// transient pull error -- a JetStream consumer-leader move (409) or a
+	// 503 during a node restart, either of which every idle worker's
+	// pending pull can see. Each retry backs off starting at 1s (clamped to
+	// PullRetryBackoffCap when that is smaller), doubling up to
+	// PullRetryBackoffCap (default 30s) each time, and the failure streak
+	// resets the instant a pull succeeds. Serve gives up and returns the
+	// error -- which the binary maps to a process exit, spending one
+	// attempt of the pool Job's lifetime backoffLimit -- only once failures
+	// persist for PullRetryWindow (default 5m) with no successful pull in
+	// between (final review I1). Zero means the default; a test shrinks
+	// both to keep cases fast.
+	PullRetryBackoffCap, PullRetryWindow time.Duration
+
 	// Clock overrides time for tests; nil means the real clock.
 	Clock clockwork.Clock
 
@@ -54,10 +68,29 @@ type ServeOptions struct {
 	Process func(context.Context, task.Task, Options) Outcome
 }
 
+// defaultPullRetryBackoffCap and defaultPullRetryWindow are
+// ServeOptions.PullRetryBackoffCap/PullRetryWindow's zero-value defaults.
+// pullRetryBackoffStart is Serve's fixed starting backoff (clamped to
+// PullRetryBackoffCap when that is configured smaller, so a test can shrink
+// both together and stay fast).
+const (
+	defaultPullRetryBackoffCap = 30 * time.Second
+	defaultPullRetryWindow     = 5 * time.Minute
+	pullRetryBackoffStart      = time.Second
+)
+
 // Serve pulls this pool's tasks one at a time and runs each to a settled
 // message (spec §9, §18.1). It never returns on its own except for a
 // worker-level failure; a cancelled ctx (SIGTERM) returns ctx.Err() once
 // in-flight work is drained, and the binary maps that to WorkerExitDrained.
+//
+// A pull error that is not ctx cancellation -- p.Next failing, or Serve
+// having to recreate p because the pull subscription itself died -- is
+// retried with backoff rather than returned at once (final review I1): a
+// JetStream consumer-leader move or a 503 during a node restart must not
+// spend an attempt of the pool Job's lifetime backoffLimit and kill every
+// other healthy encode sharing it. Serve gives up only once the failure
+// streak lasts o.PullRetryWindow with no successful pull in between.
 func Serve(ctx context.Context, bus events.Bus, o ServeOptions) error {
 	s := &server{o: o.withDefaults()}
 	s.clock = s.o.Clock
@@ -66,21 +99,74 @@ func Serve(ctx context.Context, bus events.Bus, o ServeOptions) error {
 		return fmt.Errorf("squasharr worker: %T cannot pull one message at a time", bus)
 	}
 	s.bus, s.sub = bus, events.TranscodeTaskConsumer(o.ProfileUID, o.Class).Subscription()
+
 	p, err := ps.Pull(ctx, s.sub)
 	if err != nil {
 		return fmt.Errorf("squasharr worker: pull %s: %w", s.sub.Durable, err)
 	}
-	defer p.Stop()
+	defer func() { p.Stop() }()
+
+	var failSince time.Time // zero while the pull is healthy
+	backoff := min(pullRetryBackoffStart, s.o.PullRetryBackoffCap)
 	for {
-		mctx, m, err := p.Next(ctx)
-		if err != nil {
+		mctx, m, nerr := p.Next(ctx)
+		if nerr == nil {
+			failSince, backoff = time.Time{}, min(pullRetryBackoffStart, s.o.PullRetryBackoffCap)
+			s.handle(mctx, m)
+			continue
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if failSince.IsZero() {
+			failSince = s.clock.Now()
+		}
+		if giveUp, cerr := s.pullRetryWait(ctx, failSince, &backoff, "next task", nerr); cerr != nil {
+			return cerr
+		} else if giveUp {
+			return fmt.Errorf("squasharr worker: next task: %w", nerr)
+		}
+
+		// The failed Next may mean the pull subscription itself is dead
+		// (its consumer gone from under it); recreate it so the next
+		// iteration has a live one, without spending the failure streak's
+		// own budget twice for what is really one ongoing outage.
+		p.Stop()
+		for {
+			np, perr := ps.Pull(ctx, s.sub)
+			if perr == nil {
+				p = np
+				break
+			}
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			return fmt.Errorf("squasharr worker: next task: %w", err)
+			if giveUp, cerr := s.pullRetryWait(ctx, failSince, &backoff, "pull "+s.sub.Durable, perr); cerr != nil {
+				return cerr
+			} else if giveUp {
+				return fmt.Errorf("squasharr worker: pull %s: %w", s.sub.Durable, perr)
+			}
 		}
-		s.handle(mctx, m)
 	}
+}
+
+// pullRetryWait waits out one retry's backoff for a transient pull error,
+// logging it, and reports whether the failure streak beginning at failSince
+// has now lasted o.PullRetryWindow -- in which case Serve gives up. A
+// cancelled ctx during the wait returns its own error instead.
+func (s *server) pullRetryWait(ctx context.Context, failSince time.Time, backoff *time.Duration, op string, cause error) (giveUp bool, cancelled error) {
+	if s.clock.Since(failSince) >= s.o.PullRetryWindow {
+		return true, nil
+	}
+	logging.FromContext(ctx).WarnContext(ctx, "squasharr worker: pull failed; retrying",
+		"op", op, "error", cause, "backoff", *backoff, "failingSince", failSince)
+	select {
+	case <-s.clock.After(*backoff):
+	case <-ctx.Done():
+		return false, ctx.Err()
+	}
+	*backoff = min(*backoff*2, s.o.PullRetryBackoffCap)
+	return false, nil
 }
 
 type server struct {
@@ -99,6 +185,12 @@ func (o ServeOptions) withDefaults() ServeOptions {
 	}
 	if o.HeldRetry == 0 {
 		o.HeldRetry = 30 * time.Second
+	}
+	if o.PullRetryBackoffCap == 0 {
+		o.PullRetryBackoffCap = defaultPullRetryBackoffCap
+	}
+	if o.PullRetryWindow == 0 {
+		o.PullRetryWindow = defaultPullRetryWindow
 	}
 	if o.Clock == nil {
 		o.Clock = clockwork.NewRealClock()
@@ -125,7 +217,7 @@ func (s *server) handle(ctx context.Context, m events.Message) {
 		_ = m.Term(sctx, "undecodable task")
 		return
 	}
-	cur, rev, ok, err := s.claim(ctx, t)
+	cur, rev0, ok, err := s.claim(ctx, t)
 	switch {
 	case err != nil || (!ok && cur.State == task.LeaseHeld):
 		sctx, cancel := settle()
@@ -138,6 +230,7 @@ func (s *server) handle(ctx context.Context, m events.Message) {
 		_ = m.Ack(sctx)
 		return
 	}
+	rev := &leaseRev{v: rev0}
 
 	rep := &reporter{s: s, t: t, delivery: m.Attempt()}
 	if err := rep.publish(ctx, task.StatusEvent{Kind: task.EventClaimed}); err != nil {
@@ -154,7 +247,10 @@ func (s *server) handle(ctx context.Context, m events.Message) {
 		timer := s.clock.AfterFunc(d, func() { stop(errDeadline) })
 		defer timer.Stop()
 	}
-	renewed := s.renew(work, stop, m, t, &rev)
+	renewed := s.renew(work, stop, m, t, rev)
+	opts.BeforeSwap = func(bctx context.Context) error {
+		return s.reassertBeforeSwap(bctx, stop, t, rev)
+	}
 	out := s.o.Process(work, t, opts)
 	cause := context.Cause(work)
 	stop(nil)
@@ -201,7 +297,7 @@ func (s *server) handle(ctx context.Context, m events.Message) {
 			"job", t.Job.Key(), "attempt", t.Attempt)
 		sctx, cancel := settle()
 		defer cancel()
-		_ = s.o.Leases.DeleteRevision(sctx, events.TranscodeLeaseKey(t.Job.UID), rev)
+		_ = s.o.Leases.DeleteRevision(sctx, events.TranscodeLeaseKey(t.Job.UID), rev.get())
 		_ = m.Nak(sctx, 0)
 		return
 	default:
@@ -215,10 +311,10 @@ func (s *server) handle(ctx context.Context, m events.Message) {
 		log.WarnContext(ctx, "squasharr worker: finished event not published; redelivery will redo it", "error", err)
 		// Release the lease now rather than leave a redelivery waiting out
 		// the full lease TTL for it to lapse (fix round 1, item 8).
-		_ = s.o.Leases.DeleteRevision(sctx, events.TranscodeLeaseKey(t.Job.UID), rev)
+		_ = s.o.Leases.DeleteRevision(sctx, events.TranscodeLeaseKey(t.Job.UID), rev.get())
 		_ = m.Nak(sctx, 0)
 		return
 	}
-	_ = s.o.Leases.DeleteRevision(sctx, events.TranscodeLeaseKey(t.Job.UID), rev)
+	_ = s.o.Leases.DeleteRevision(sctx, events.TranscodeLeaseKey(t.Job.UID), rev.get())
 	_ = m.Ack(sctx)
 }

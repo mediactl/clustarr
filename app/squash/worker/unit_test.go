@@ -41,6 +41,7 @@ import (
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/squash/task"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/transcode"
 )
@@ -472,4 +473,33 @@ func TestTraceParentRoundTrips(t *testing.T) {
 	for _, bad := range []string{"", "not-a-traceparent"} {
 		assert.False(t, trace.SpanContextFromContext(ContextWithTraceParent(context.Background(), bad)).IsValid())
 	}
+}
+
+// I2a: the physical scratch file one attempt writes to is unique per job
+// and attempt, so a withdrawn attempt's cleanup -- it learns of
+// cancellation only at its next 20s renewal -- can never unlink a
+// different attempt's in-progress file, and an old- and a new-hash job for
+// the same source never encode into the same inode.
+func TestUniquePartPathIsDistinctPerJobAndAttempt(t *testing.T) {
+	const generic = "/data/media/movies/Film (2020)/Film.2020.1080p.part.mkv"
+	const jobA, jobB = "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "ffffffff-e5f6-7890-abcd-ef1234567890"
+
+	p1 := uniquePartPath(generic, jobA, 1)
+	p2 := uniquePartPath(generic, jobA, 2)
+	other := uniquePartPath(generic, jobB, 1)
+
+	assert.NotEqual(t, p1, p2, "two attempts of the same job must never share a part path")
+	assert.NotEqual(t, p1, other, "two jobs must never share a part path")
+	assert.Equal(t, "/data/media/movies/Film (2020)/Film.2020.1080p.part-a1b2c3d4-1.mkv", p1)
+	assert.Equal(t, "/data/media/movies/Film (2020)/Film.2020.1080p.part-a1b2c3d4-2.mkv", p2)
+	for _, p := range []string{p1, p2, other} {
+		assert.True(t, fsops.IsPart(p), "the unique form must still classify as an in-progress part: %s", p)
+	}
+
+	// A UID under 8 characters never happens in practice -- Kubernetes UIDs
+	// are 36 -- but uniquePartPath must not panic on one.
+	assert.Equal(t, "/x.part-ab-1.mkv", uniquePartPath("/x.part.mkv", "ab", 1))
+
+	// The mp4 container's extension round-trips too.
+	assert.Equal(t, "/x.part-a1b2c3d4-3.mp4", uniquePartPath("/x.part.mp4", jobA, 3))
 }
