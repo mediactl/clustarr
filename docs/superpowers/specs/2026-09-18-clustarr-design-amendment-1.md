@@ -487,7 +487,13 @@ an attribute sequence. The pipeline, downloads and unmatched rows, and
 the download client cards, are items too: the stage or phase badge keeps
 its meaning colour (`stageTone`, `downloadPhaseTone`), the progress bar is
 one shared `progressBar` whose fill carries `data-progress`, and the
-unmatched row's manual-assign form is the item's footer.
+unmatched row's manual-assign form is the item's footer. The theme's Open
+Sans is self-hosted: the latin and latin-ext variable woff2 subsets Google
+Fonts serves for v44 live under `ui/static/fonts` with the OFL, are
+embedded and served under `/static/fonts`, and `input.css` declares their
+`@font-face` rules with each subset's unicode-range, so no page fetches
+its text face from a third party and a script neither subset covers falls
+through to the system faces.
 
 **Pagination (as built, 2026-09-23).** The pipeline, downloads, unmatched
 and library pages each show one window of rows: `?page=N&per=M`, 1-based,

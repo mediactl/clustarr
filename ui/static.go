@@ -20,6 +20,7 @@ package ui
 import (
 	"embed"
 	"io/fs"
+	"mime"
 	"net/http"
 )
 
@@ -27,13 +28,24 @@ import (
 // binary: ui/static/app.css, built ahead of time from ui/static/input.css
 // by the standalone Tailwind CLI (Makefile's `css` target, Phase G ruling
 // R4 -- no Node, no CDN, no client fetch to a server this binary is not
-// running), and the vendored htmx.min.js / htmx-ext-sse.js that
-// ui/views/layout.templ links. input.css itself is deliberately not
-// embedded or served -- it is a build-time input, consumed only by `make
-// css`, not a runtime asset.
+// running), the vendored htmx.min.js / htmx-ext-sse.js that
+// ui/views/layout.templ links, and the Open Sans face the Plex theme names
+// (ui/theme/plex.json): the latin and latin-ext variable woff2 subsets under
+// static/fonts, self-hosted so a page never fetches its text face from a
+// third party, with the OFL beside them. input.css itself is deliberately
+// not embedded or served -- it is a build-time input, consumed only by
+// `make css`, not a runtime asset.
 //
-//go:embed static/app.css static/htmx.min.js static/htmx-ext-sse.js
+//go:embed static/app.css static/htmx.min.js static/htmx-ext-sse.js static/fonts/*.woff2
 var staticFiles embed.FS
+
+// The distroless image has no /etc/mime.types, so Go's table would serve a
+// woff2 as application/octet-stream and a strict browser would refuse it.
+func init() {
+	if err := mime.AddExtensionType(".woff2", "font/woff2"); err != nil {
+		panic("ui: register woff2 media type: " + err.Error())
+	}
+}
 
 // staticCacheControl is set on every response staticHandler serves. These
 // assets change only when a new clustarr binary is deployed (they are
