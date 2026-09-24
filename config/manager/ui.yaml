@@ -87,6 +87,10 @@ spec:
         # provider is unauthenticated by protocol.
         args: ["ui", "--auth-mode=anonymous", "--plex-provider=true"]
         env:
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
         # ui holds a read-only bus connection (design M7 §B.8): /art and
         # every Plex thumb read the clustarr-artwork object store through
         # it. Without this the binary dials its built-in default, a Service
