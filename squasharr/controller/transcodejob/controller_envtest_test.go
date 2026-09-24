@@ -20,8 +20,8 @@ package transcodejob_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -30,12 +30,10 @@ import (
 	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	batchac "k8s.io/client-go/applyconfigurations/batch/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -50,10 +48,15 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/membus"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
+	"github.com/mediactl/clustarr/squasharr/controller/pool"
 	"github.com/mediactl/clustarr/squasharr/controller/transcodejob"
 	squasharrstatus "github.com/mediactl/clustarr/squasharr/status"
+	"github.com/mediactl/clustarr/squasharr/task"
 )
 
 func startEnv(t *testing.T) (*rest.Config, client.Client) {
@@ -78,6 +81,16 @@ func newNamespace(t *testing.T, c client.Client, ns string) {
 	t.Helper()
 	require.NoError(t, client.IgnoreAlreadyExists(
 		c.Create(context.Background(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})))
+}
+
+// newRootFolder creates the library root every fixture's source lives
+// under: dispatch refuses a source under none (spec §17.5).
+func newRootFolder(t *testing.T, c client.Client, ns, path string) {
+	t.Helper()
+	require.NoError(t, c.Create(context.Background(), &catalogv1alpha1.RootFolder{
+		ObjectMeta: metav1.ObjectMeta{Name: "movies", Namespace: ns},
+		Spec:       catalogv1alpha1.RootFolderSpec{Path: path, Kind: catalogv1alpha1.RootFolderKindMovie},
+	}))
 }
 
 // newProfile creates a TranscodeProfile (CRD defaults fill the spec) and,
@@ -139,7 +152,7 @@ func newMediaFile(t *testing.T, c client.Client, ns, name, probeHash string, mi 
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 		Spec: catalogv1alpha1.MediaFileSpec{
 			MediaRef:  commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name},
-			Path:      "/data/movies/" + name + ".mkv",
+			Path:      "/data/media/movies/" + name + ".mkv",
 			SizeBytes: 4 << 30,
 		},
 	}
@@ -165,7 +178,7 @@ func newTJ(t *testing.T, c client.Client, ns, name, mediaFile, profile, probeHas
 		Spec: transcodev1alpha1.TranscodeJobSpec{
 			MediaFileRef:    mediaFile,
 			ProfileRef:      profile,
-			SourcePath:      "/data/movies/" + mediaFile + ".mkv",
+			SourcePath:      "/data/media/movies/" + mediaFile + ".mkv",
 			SourceProbeHash: probeHash,
 		},
 	}
@@ -176,14 +189,26 @@ func newTJ(t *testing.T, c client.Client, ns, name, mediaFile, profile, probeHas
 	return tj
 }
 
-func newReconciler(c client.Client, slots map[string]int32) *transcodejob.Reconciler {
+// newBus is an in-memory bus carrying the shipped topology: the
+// CLUSTARR_WORK_SQUASHARR stream dispatch publishes to, and the history
+// stream the job events go to.
+func newBus(t *testing.T) events.Bus {
+	t.Helper()
+	bus := membus.New(nil)
+	require.NoError(t, bus.Ensure(context.Background(), events.Default().ForSingleNode()))
+	t.Cleanup(func() { _ = bus.Close() })
+	return bus
+}
+
+func newReconciler(t *testing.T, c client.Client, slots map[string]int32) *transcodejob.Reconciler {
+	t.Helper()
+	bus := newBus(t)
 	return &transcodejob.Reconciler{
 		Client: c,
 		Slots:  slots,
-		Job: transcodejob.JobConfig{
-			Image: "ghcr.io/mediactl/clustarr/media:test", ImageCUDA: "ghcr.io/mediactl/clustarr/media-cuda:test",
-			NATSURL: "nats://nats.test:4222", ServiceAccountName: "squasharr-worker",
-		},
+		Pool:   pool.Config{Namespace: "default", Image: "transcoder:test", ImageCUDA: "transcoder-cuda:test"},
+		Bus:    bus,
+		Leases: bus.KV(events.BucketTranscodeLeases),
 	}
 }
 
@@ -201,187 +226,185 @@ func getTJ(t *testing.T, c client.Client, ns, name string) *transcodev1alpha1.Tr
 	return &tj
 }
 
-func getJob(t *testing.T, c client.Client, ns, name string) *batchv1.Job {
+// fakeMsg is one delivery of a status event, straight to the results
+// consumer's handler.
+type fakeMsg struct{ env *events.Envelope }
+
+func (fakeMsg) Ack(context.Context) error                { return nil }
+func (fakeMsg) Nak(context.Context, time.Duration) error { return nil }
+func (fakeMsg) Term(context.Context, string) error       { return nil }
+func (fakeMsg) InProgress(context.Context) error         { return nil }
+func (f fakeMsg) Envelope() *events.Envelope             { return f.env }
+func (fakeMsg) Subject() string                          { return "" }
+func (fakeMsg) Attempt() uint64                          { return 1 }
+
+// deliver hands ev, as a pool worker reports it for tj, to the results
+// consumer's handler, and returns its settlement: nil acks.
+func deliver(t *testing.T, r *transcodejob.Reconciler, tj *transcodev1alpha1.TranscodeJob, ev task.StatusEvent) error {
 	t.Helper()
-	var j batchv1.Job
-	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: name}, &j))
-	return &j
+	ev.Job = schema.Ref{Namespace: tj.Namespace, Name: tj.Name, UID: string(tj.UID)}
+	if ev.At.IsZero() {
+		ev.At = time.Now()
+	}
+	sch, data, err := schema.Encode(ev)
+	require.NoError(t, err)
+	return transcodejob.HandleEventForTest(r, context.Background(), fakeMsg{&events.Envelope{Schema: sch, Data: data}})
 }
 
-// completeJob and failJob stand in for the Job controller, which envtest
-// does not run. They use Status().Apply under a test-only owner, not
-// pkg/k8s.PatchStatus: no Clustarr field manager writes Job status.
-func completeJob(t *testing.T, c client.Client, ns, name string) {
-	t.Helper()
-	now := metav1.Now()
-	ac := batchac.Job(name, ns).WithStatus(batchac.JobStatus().
-		WithStartTime(metav1.NewTime(now.Add(-time.Minute))).
-		WithCompletionTime(now).
-		WithSucceeded(1).
-		WithConditions(
-			batchac.JobCondition().WithType(batchv1.JobSuccessCriteriaMet).WithStatus(corev1.ConditionTrue).
-				WithLastTransitionTime(now).WithLastProbeTime(now),
-			batchac.JobCondition().WithType(batchv1.JobComplete).WithStatus(corev1.ConditionTrue).
-				WithLastTransitionTime(now).WithLastProbeTime(now)))
-	require.NoError(t, c.Status().Apply(context.Background(), ac, client.FieldOwner("test-job-controller"), client.ForceOwnership))
+func claimed(attempt int32, pod string) task.StatusEvent {
+	return task.StatusEvent{Kind: task.EventClaimed, Attempt: attempt, Pod: pod, Node: "node-1"}
 }
 
-func failJob(t *testing.T, c client.Client, ns, name string) {
-	t.Helper()
-	now := metav1.Now()
-	msg := "Container transcode for pod x failed with exit code 3 matching FailJob rule at index 1"
-	ac := batchac.Job(name, ns).WithStatus(batchac.JobStatus().
-		WithStartTime(metav1.NewTime(now.Add(-time.Minute))).
-		WithFailed(1).
-		WithConditions(
-			batchac.JobCondition().WithType(batchv1.JobFailureTarget).WithStatus(corev1.ConditionTrue).
-				WithReason(batchv1.JobReasonPodFailurePolicy).WithMessage(msg).
-				WithLastTransitionTime(now).WithLastProbeTime(now),
-			batchac.JobCondition().WithType(batchv1.JobFailed).WithStatus(corev1.ConditionTrue).
-				WithReason(batchv1.JobReasonPodFailurePolicy).WithMessage(msg).
-				WithLastTransitionTime(now).WithLastProbeTime(now)))
-	require.NoError(t, c.Status().Apply(context.Background(), ac, client.FieldOwner("test-job-controller"), client.ForceOwnership))
+func finished(attempt int32, o task.Outcome, reason task.Reason, msg string) task.StatusEvent {
+	return task.StatusEvent{Kind: task.EventFinished, Attempt: attempt, Outcome: o, Reason: reason, Message: msg}
 }
 
-// TestPlanQueueAdmitRun walks the happy path: one reconcile plans, creates
-// the Job suspended and admits it; the next mirrors it into Running.
-func TestPlanQueueAdmitRun(t *testing.T) {
-	_, c := startEnv(t)
-	const ns = "tj-happy"
-	newNamespace(t, c, ns)
-	// A Go client sends activeDeadline and resources as present-but-zero,
-	// so the CRD defaults a kubectl-applied profile gets do not apply here;
-	// set them as the defaults would.
-	newProfile(t, c, "hevc", "hash1", func(p *transcodev1alpha1.TranscodeProfile) {
-		p.Spec.ActiveDeadline = metav1.Duration{Duration: 48 * time.Hour}
-		p.Spec.Resources.Limits = corev1.ResourceList{
-			corev1.ResourceCPU: resource.MustParse("8"), corev1.ResourceMemory: resource.MustParse("4Gi"),
+// takeTasks pulls every task on the (profile, class) pool's queue, acking
+// each as a worker would, and returns them in order. It waits up to within
+// for the first one and then only briefly, so an empty queue returns none.
+func takeTasks(t *testing.T, bus events.Bus, profileUID types.UID, class string, within time.Duration) []task.Task {
+	t.Helper()
+	p, err := bus.(events.PullSubscriber).Pull(context.Background(),
+		events.TranscodeTaskConsumer(string(profileUID), class).Subscription())
+	require.NoError(t, err)
+	defer p.Stop()
+	var out []task.Task
+	for wait := within; ; wait = 200 * time.Millisecond {
+		ctx, cancel := context.WithTimeout(context.Background(), wait)
+		_, m, err := p.Next(ctx)
+		cancel()
+		if err != nil {
+			return out
 		}
-	})
-	newMediaFile(t, c, ns, "arrival", "probe1", ptr.To(h264Probe()))
-	newTJ(t, c, ns, "arrival-hevc", "arrival", "hevc", "probe1", nil)
-
-	r := newReconciler(c, map[string]int32{"cpu": 2, "nvidia": 1, "intel": 1})
-	reconcileTJ(t, r, ns, "arrival-hevc")
-
-	tj := getTJ(t, c, ns, "arrival-hevc")
-	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, tj.Status.Phase)
-	require.NotNil(t, tj.Status.Plan)
-	assert.Equal(t, transcodev1alpha1.PlanModeTranscode, tj.Status.Plan.Mode)
-	assert.Equal(t, "libx265", tj.Status.Plan.Encoder)
-	assert.NotEmpty(t, tj.Status.Plan.VideoArgs)
-	assert.Len(t, tj.Status.Plan.ArgsHash, 64)
-	require.Len(t, tj.Status.Plan.AudioTracks, 1)
-	assert.Equal(t, transcodev1alpha1.AudioActionEncode, tj.Status.Plan.AudioTracks[0].Action)
-	assert.Equal(t, tj.Generation, tj.Status.ObservedGeneration)
-	assert.True(t, k8s.IsConditionTrue(tj.Status.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned))
-	assert.True(t, k8s.IsConditionTrue(tj.Status.Conditions, transcodev1alpha1.TranscodeJobConditionJobCreated))
-	require.NotNil(t, tj.Status.JobRef)
-
-	job := getJob(t, c, ns, *tj.Status.JobRef)
-	// Admission ran after the status landed and unsuspended it.
-	require.NotNil(t, job.Spec.Suspend)
-	assert.False(t, *job.Spec.Suspend, "a free cpu slot must admit the job")
-	assert.True(t, metav1.IsControlledBy(job, tj))
-	assert.Equal(t, "cpu", job.Labels[transcodejob.LabelHardware])
-
-	// Ruling R4 and §6.4's Job shape.
-	assert.Equal(t, ptr.To(int32(2)), job.Spec.BackoffLimit)
-	assert.Equal(t, ptr.To(batchv1.Failed), job.Spec.PodReplacementPolicy)
-	assert.Equal(t, ptr.To(int64(48*3600)), job.Spec.ActiveDeadlineSeconds)
-	assert.Equal(t, ptr.To(int32(86400)), job.Spec.TTLSecondsAfterFinished)
-	require.NotNil(t, job.Spec.PodFailurePolicy)
-	rules := job.Spec.PodFailurePolicy.Rules
-	require.Len(t, rules, 2)
-	assert.Equal(t, batchv1.PodFailurePolicyActionIgnore, rules[0].Action)
-	require.Len(t, rules[0].OnPodConditions, 1)
-	assert.Equal(t, corev1.DisruptionTarget, rules[0].OnPodConditions[0].Type)
-	assert.Equal(t, batchv1.PodFailurePolicyActionFailJob, rules[1].Action)
-	require.NotNil(t, rules[1].OnExitCodes)
-	assert.Equal(t, batchv1.PodFailurePolicyOnExitCodesOpIn, rules[1].OnExitCodes.Operator)
-	assert.Equal(t, []int32{3, 4}, rules[1].OnExitCodes.Values)
-
-	pod := job.Spec.Template.Spec
-	assert.Equal(t, corev1.RestartPolicyNever, pod.RestartPolicy)
-	assert.Equal(t, "squasharr-worker", pod.ServiceAccountName)
-	require.Len(t, pod.Containers, 1)
-	ctr := pod.Containers[0]
-	assert.Equal(t, "ghcr.io/mediactl/clustarr/media:test", ctr.Image)
-	assert.Equal(t, []string{"squasharr", "--role", "worker", "--job", "arrival-hevc", "--data-dir", "/data"}, ctr.Args)
-	assert.Equal(t, "8", ctr.Resources.Limits.Cpu().String(), "profile resources carried onto the container")
-	var dataMounted bool
-	for _, m := range ctr.VolumeMounts {
-		dataMounted = dataMounted || (m.Name == "data" && m.MountPath == "/data")
+		var tk task.Task
+		require.NoError(t, schema.Decode(m.Envelope().Schema, m.Envelope().Data, &tk))
+		require.NoError(t, m.Ack(context.Background()))
+		out = append(out, tk)
 	}
-	assert.True(t, dataMounted)
-	env := map[string]string{}
-	for _, e := range ctr.Env {
-		env[e.Name] = e.Value
-	}
-	assert.Equal(t, "nats://nats.test:4222", env["NATS_URL"])
-	assert.Contains(t, env, "POD_NAMESPACE")
-	assert.Contains(t, env, "CLUSTARR_CPU_LIMIT")
-
-	reconcileTJ(t, r, ns, "arrival-hevc")
-	tj = getTJ(t, c, ns, "arrival-hevc")
-	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, tj.Status.Phase)
-	assert.NotNil(t, tj.Status.StartedAt)
-
-	completeJob(t, c, ns, job.Name)
-	reconcileTJ(t, r, ns, "arrival-hevc")
-	tj = getTJ(t, c, ns, "arrival-hevc")
-	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseSucceeded, tj.Status.Phase)
-	assert.NotNil(t, tj.Status.FinishedAt, "catalogarr's latestUnincorporatedTranscode requires finishedAt")
-	assert.True(t, k8s.IsConditionTrue(tj.Status.Conditions, transcodev1alpha1.TranscodeJobConditionSucceeded))
-	assert.True(t, k8s.IsConditionTrue(tj.Status.Conditions, transcodev1alpha1.TranscodeJobConditionVerified))
-	assert.EqualValues(t, 1, tj.Status.Attempts)
 }
 
-// A profile created through a typed Go client -- the way every controller
-// and test in this tree creates one -- sends activeDeadline "0s",
-// resources {} and scratch "0" present, so the apiserver's defaults (48h,
-// cpu 8 / 4Gi, 20Gi) never apply to it. The premise is asserted on the
-// stored object first; then the Job built from it must carry the defaults
-// anyway, rather than no deadline, no limits and an unbounded scratch.
-func TestJobFromATypedClientProfileGetsTheCRDDefaults(t *testing.T) {
-	_, c := startEnv(t)
-	const ns = "tj-typed-defaults"
-	newNamespace(t, c, ns)
-	p := newProfile(t, c, "typed", "hash1", nil)
-	require.Zero(t, p.Spec.ActiveDeadline.Duration, "premise: a typed create sends activeDeadline present and zero")
-	require.Empty(t, p.Spec.Resources.Limits, "premise: a typed create sends resources present and empty")
-	require.True(t, p.Spec.Scratch.IsZero(), "premise: a typed create sends scratch present and zero")
+func attemptsOf(tasks []task.Task) []int32 {
+	out := []int32{}
+	for _, tk := range tasks {
+		out = append(out, tk.Attempt)
+	}
+	return out
+}
 
-	newMediaFile(t, c, ns, "arrival", "probe1", ptr.To(h264Probe()))
-	newTJ(t, c, ns, "arrival-typed", "arrival", "typed", "probe1", nil)
-	r := newReconciler(c, map[string]int32{"cpu": 1})
-	reconcileTJ(t, r, ns, "arrival-typed")
-
-	tj := getTJ(t, c, ns, "arrival-typed")
-	require.NotNil(t, tj.Status.JobRef)
-	job := getJob(t, c, ns, *tj.Status.JobRef)
-	require.NotNil(t, job.Spec.ActiveDeadlineSeconds, "a Job with no deadline can run forever")
-	assert.Equal(t, int64(48*3600), *job.Spec.ActiveDeadlineSeconds)
-	ctr := job.Spec.Template.Spec.Containers[0]
-	assert.Equal(t, "8", ctr.Resources.Limits.Cpu().String())
-	assert.Equal(t, "4Gi", ctr.Resources.Limits.Memory().String())
-	var scratch *resource.Quantity
-	for _, v := range job.Spec.Template.Spec.Volumes {
-		if v.Name == "scratch" && v.EmptyDir != nil {
-			scratch = v.EmptyDir.SizeLimit
+// statusOwners is every manager owning a field of obj's status.
+func statusOwners(obj metav1.Object) []string {
+	var out []string
+	for _, e := range obj.GetManagedFields() {
+		if e.Subresource == "status" && e.FieldsV1 != nil && strings.Contains(string(e.FieldsV1.GetRawBytes()), `"f:status"`) {
+			out = append(out, e.Manager)
 		}
 	}
-	require.NotNil(t, scratch)
-	assert.Equal(t, "20Gi", scratch.String())
+	sort.Strings(out)
+	return out
+}
+
+func statusFieldsOf(t *testing.T, obj metav1.Object, mgr k8s.FieldManager) map[string]any {
+	t.Helper()
+	for _, e := range obj.GetManagedFields() {
+		if e.Manager != mgr.String() || e.Subresource != "status" || e.FieldsV1 == nil {
+			continue
+		}
+		var fields map[string]any
+		require.NoError(t, json.Unmarshal(e.FieldsV1.GetRawBytes(), &fields))
+		st, _ := fields["f:status"].(map[string]any)
+		return st
+	}
+	t.Fatalf("no status managedFields entry for %s", mgr)
+	return nil
+}
+
+// dispatchedFixture is one job reconciled to Queued at attempt 1 on the
+// cpu pool.
+type dispatchedFixture struct {
+	c  client.Client
+	r  *transcodejob.Reconciler
+	ns string
+	tp *transcodev1alpha1.TranscodeProfile
+	tj *transcodev1alpha1.TranscodeJob
+}
+
+func newDispatched(t *testing.T, ns string, slots map[string]int32) dispatchedFixture {
+	t.Helper()
+	_, c := startEnv(t)
+	newNamespace(t, c, ns)
+	newRootFolder(t, c, ns, "/data/media/movies")
+	tp := newProfile(t, c, "hevc", "hash1", nil)
+	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
+	r := newReconciler(t, c, slots)
+	reconcileTJ(t, r, ns, "heat-hevc")
+	tj := getTJ(t, c, ns, "heat-hevc")
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, tj.Status.Phase, "setup: message %s", tj.Status.Message)
+	require.EqualValues(t, 1, tj.Status.Attempts)
+	return dispatchedFixture{c: c, r: r, ns: ns, tp: tp, tj: tj}
+}
+
+func (f dispatchedFixture) get(t *testing.T) *transcodev1alpha1.TranscodeJob {
+	t.Helper()
+	return getTJ(t, f.c, f.ns, f.tj.Name)
+}
+
+// TestDispatchPublishesTheTaskThenQueues is spec §8's dispatch order: the
+// task is on its (profile, class) pool's queue, built by worker.BuildTask,
+// before the job reads Queued with attempts 1 and jobRef naming the pool.
+func TestDispatchPublishesTheTaskThenQueues(t *testing.T) {
+	_, c := startEnv(t)
+	const ns = "tj-dispatch"
+	newNamespace(t, c, ns)
+	newRootFolder(t, c, ns, "/data/media/movies")
+	tp := newProfile(t, c, "hevc", "hash1", nil)
+	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
+	r := newReconciler(t, c, map[string]int32{"cpu": 1})
+
+	reconcileTJ(t, r, ns, "heat-hevc") // Pending -> Planned -> admitted -> Queued
+	got := getTJ(t, c, ns, "heat-hevc")
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, got.Status.Phase, "message: %s", got.Status.Message)
+	assert.EqualValues(t, 1, got.Status.Attempts)
+	assert.Equal(t, transcodev1alpha1.HardwareCPU, got.Status.Hardware)
+	require.NotNil(t, got.Status.JobRef)
+	assert.Equal(t, pool.Name(pool.Key{Profile: tp.Name, ProfileUID: tp.UID, Class: "cpu"}), *got.Status.JobRef)
+	require.NotNil(t, got.Status.Plan)
+	assert.Equal(t, "libx265", got.Status.Plan.Encoder)
+	assert.Len(t, got.Status.Plan.ArgsHash, 64)
+	assert.Equal(t, got.Generation, got.Status.ObservedGeneration)
+	assert.True(t, k8s.IsConditionTrue(got.Status.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned))
+	cond := k8s.FindCondition(got.Status.Conditions, transcodev1alpha1.TranscodeJobConditionJobCreated)
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionTrue, cond.Status)
+	assert.Equal(t, transcodejob.ReasonDispatched, cond.Reason)
+
+	tasks := takeTasks(t, r.Bus, tp.UID, "cpu", 5*time.Second)
+	require.Len(t, tasks, 1, "Queued means the task is on the queue")
+	tk := tasks[0]
+	assert.Equal(t, schema.Ref{Namespace: ns, Name: "heat-hevc", UID: string(got.UID)}, tk.Job)
+	assert.Equal(t, got.Status.Plan.ArgsHash, tk.ArgsHash)
+	assert.EqualValues(t, 1, tk.Attempt)
+	assert.Equal(t, "cpu", tk.Class)
+	assert.Equal(t, "/data/media/movies/heat.mkv", tk.SourcePath)
+	assert.Equal(t, "probe1", tk.SourceProbeHash)
+	assert.Equal(t, "/data/media/movies", tk.Root.Path)
+	assert.Equal(t, "hash1", tk.Profile.Hash)
+
+	// A second pass dispatches nothing more: the job is Queued.
+	reconcileTJ(t, r, ns, "heat-hevc")
+	assert.Empty(t, takeTasks(t, r.Bus, tp.UID, "cpu", 300*time.Millisecond))
+	assert.EqualValues(t, 1, getTJ(t, c, ns, "heat-hevc").Status.Attempts)
 }
 
 // TestSkipAndRejectAreSkipped covers ruling R1: skip records a plan with
-// mode=skip; reject leaves status.plan unset. Neither creates a Job.
+// mode=skip; reject leaves status.plan unset. Neither is dispatched.
 func TestSkipAndRejectAreSkipped(t *testing.T) {
 	_, c := startEnv(t)
 	ctx := context.Background()
 	const ns = "tj-skip"
 	newNamespace(t, c, ns)
+	newRootFolder(t, c, ns, "/data/media/movies")
 	newProfile(t, c, "hevc", "hash1", nil)
 	newProfile(t, c, "strict", "hash2", func(p *transcodev1alpha1.TranscodeProfile) {
 		p.Spec.HDR.DolbyVision = transcodev1alpha1.DolbyVisionReject
@@ -391,7 +414,7 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 	newTJ(t, c, ns, "compliant-hevc", "compliant", "hevc", "p1", nil)
 	newTJ(t, c, ns, "dovi-strict", "dovi", "strict", "p2", nil)
 
-	r := newReconciler(c, map[string]int32{"cpu": 2})
+	r := newReconciler(t, c, map[string]int32{"cpu": 10})
 
 	t.Run("skip", func(t *testing.T) {
 		reconcileTJ(t, r, ns, "compliant-hevc")
@@ -481,10 +504,10 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 	t.Run("container change mp4 to mkv", func(t *testing.T) {
 		newMediaFile(t, c, ns, "mp4src", "p3", ptr.To(h264Probe()))
 		newTJ(t, c, ns, "mp4src-hevc", "mp4src", "hevc", "p3", func(tj *transcodev1alpha1.TranscodeJob) {
-			tj.Spec.SourcePath = "/data/movies/Film (2020)/Film.2020.MP4"
+			tj.Spec.SourcePath = "/data/media/movies/Film (2020)/Film.2020.MP4"
 		})
 		reconcileTJ(t, r, ns, "mp4src-hevc")
-		assertContainerChangePlanned(t, getTJ(t, c, ns, "mp4src-hevc"), "/data/movies/Film (2020)/Film.2020.mkv")
+		assertContainerChangePlanned(t, getTJ(t, c, ns, "mp4src-hevc"), "/data/media/movies/Film (2020)/Film.2020.mkv")
 	})
 	t.Run("container change mkv to mp4", func(t *testing.T) {
 		newProfile(t, c, "mp4out", "hash3", func(p *transcodev1alpha1.TranscodeProfile) {
@@ -493,12 +516,12 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 		newMediaFile(t, c, ns, "mkvsrc", "p4", ptr.To(h264Probe()))
 		newTJ(t, c, ns, "mkvsrc-mp4out", "mkvsrc", "mp4out", "p4", nil)
 		reconcileTJ(t, r, ns, "mkvsrc-mp4out")
-		assertContainerChangePlanned(t, getTJ(t, c, ns, "mkvsrc-mp4out"), "/data/movies/mkvsrc.mp4")
+		assertContainerChangePlanned(t, getTJ(t, c, ns, "mkvsrc-mp4out"), "/data/media/movies/mkvsrc.mp4")
 	})
 	t.Run("same container in a different case is not a change", func(t *testing.T) {
 		newMediaFile(t, c, ns, "upper", "p5", ptr.To(h264Probe()))
 		newTJ(t, c, ns, "upper-hevc", "upper", "hevc", "p5", func(tj *transcodev1alpha1.TranscodeJob) {
-			tj.Spec.SourcePath = "/data/movies/Film (2020)/Film.2020.MKV"
+			tj.Spec.SourcePath = "/data/media/movies/Film (2020)/Film.2020.MKV"
 		})
 		reconcileTJ(t, r, ns, "upper-hevc")
 		tj := getTJ(t, c, ns, "upper-hevc")
@@ -520,14 +543,14 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 		assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, tj.Status.Phase)
 		cond := k8s.FindCondition(tj.Status.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned)
 		require.NotNil(t, cond)
-		assert.Contains(t, cond.Message, "/data/movies/kept - keep.mkv")
+		assert.Contains(t, cond.Message, "/data/media/movies/kept - keep.mkv")
 	})
 	// An explicit output path the profile's container contradicts cannot be
 	// honoured: failed at plan time, without spending a pod.
 	t.Run("an output path with the wrong container fails", func(t *testing.T) {
 		newMediaFile(t, c, ns, "wrongext", "p7", ptr.To(h264Probe()))
 		newTJ(t, c, ns, "wrongext-hevc", "wrongext", "hevc", "p7", func(tj *transcodev1alpha1.TranscodeJob) {
-			tj.Spec.OutputPath = ptr.To("/data/movies/wrongext.mp4")
+			tj.Spec.OutputPath = ptr.To("/data/media/movies/wrongext.mp4")
 		})
 		reconcileTJ(t, r, ns, "wrongext-hevc")
 		tj := getTJ(t, c, ns, "wrongext-hevc")
@@ -538,14 +561,16 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 		assert.Nil(t, tj.Status.JobRef)
 	})
 
-	var jobs batchv1.JobList
-	require.NoError(t, c.List(ctx, &jobs, client.InNamespace(ns)))
-	var withJobs []string
-	for _, j := range jobs.Items {
-		withJobs = append(withJobs, j.Annotations[transcodejob.AnnotationTranscodeJob])
+	var tjs transcodev1alpha1.TranscodeJobList
+	require.NoError(t, c.List(ctx, &tjs, client.InNamespace(ns)))
+	var dispatched []string
+	for _, j := range tjs.Items {
+		if j.Status.Attempts > 0 {
+			dispatched = append(dispatched, j.Name)
+		}
 	}
-	assert.ElementsMatch(t, []string{"tag-tagged-by-another-hash", "mp4src-hevc", "mkvsrc-mp4out", "upper-hevc", "kept-keep"}, withJobs,
-		"every planned job, container changes included, creates a Job; the failed one does not")
+	assert.ElementsMatch(t, []string{"tag-tagged-by-another-hash", "mp4src-hevc", "mkvsrc-mp4out", "upper-hevc", "kept-keep"}, dispatched,
+		"every planned job, container changes included, is dispatched; the skipped and failed ones are not")
 }
 
 // assertContainerChangePlanned: the job is planned and queued like any
@@ -574,7 +599,7 @@ func TestPendingUntilDependenciesAndSourceChange(t *testing.T) {
 	newProfile(t, c, "hevc", "", nil)
 	newMediaFile(t, c, ns, "arrival", "", nil)
 	newTJ(t, c, ns, "arrival-hevc", "arrival", "hevc", "probe1", nil)
-	r := newReconciler(c, map[string]int32{"cpu": 2})
+	r := newReconciler(t, c, map[string]int32{"cpu": 2})
 
 	res := reconcileTJ(t, r, ns, "arrival-hevc")
 	assert.Positive(t, res.RequeueAfter)
@@ -600,63 +625,65 @@ func TestPendingUntilDependenciesAndSourceChange(t *testing.T) {
 }
 
 // TestAdmissionHonoursTheBudget: with one cpu slot, the higher-priority job
-// runs first, the other waits suspended, and it is admitted by the pass
-// that sees the first one finish.
+// is dispatched first, the other waits Planned, a paused one is never
+// dispatched, and the waiting one is dispatched by the pass that sees the
+// first one finish.
 func TestAdmissionHonoursTheBudget(t *testing.T) {
 	_, c := startEnv(t)
 	const ns = "tj-admit"
 	newNamespace(t, c, ns)
+	newRootFolder(t, c, ns, "/data/media/movies")
 	newProfile(t, c, "hevc", "hash1", nil)
-	newMediaFile(t, c, ns, "a", "pa", ptr.To(h264Probe()))
-	newMediaFile(t, c, ns, "b", "pb", ptr.To(h264Probe()))
+	for _, name := range []string{"a", "b", "p"} {
+		newMediaFile(t, c, ns, name, "p"+name, ptr.To(h264Probe()))
+	}
 	newTJ(t, c, ns, "low", "a", "hevc", "pa", func(tj *transcodev1alpha1.TranscodeJob) { tj.Spec.Priority = 10 })
 	newTJ(t, c, ns, "high", "b", "hevc", "pb", func(tj *transcodev1alpha1.TranscodeJob) { tj.Spec.Priority = 90 })
+	newTJ(t, c, ns, "paused", "p", "hevc", "pp", func(tj *transcodev1alpha1.TranscodeJob) {
+		tj.Spec.Priority, tj.Spec.Suspend = 100, ptr.To(true)
+	})
 
-	// Queue both with a zero cpu budget, low first, so neither is admitted
-	// and reconcile order cannot decide the outcome ...
-	queue := newReconciler(c, map[string]int32{"cpu": 0})
-	reconcileTJ(t, queue, ns, "low")
-	reconcileTJ(t, queue, ns, "high")
-	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, getTJ(t, c, ns, "low").Status.Phase)
+	// Plan all three with a zero cpu budget, low first, so none is
+	// dispatched and reconcile order cannot decide the outcome ...
+	queue := newReconciler(t, c, map[string]int32{"cpu": 0})
+	for _, name := range []string{"low", "high", "paused"} {
+		reconcileTJ(t, queue, ns, name)
+		require.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, getTJ(t, c, ns, name).Status.Phase)
+	}
 
 	// ... then one pass with one cpu slot (and a legal zero nvidia budget)
-	// from the LOW job's reconcile must still admit the HIGH one.
-	r := newReconciler(c, map[string]int32{"cpu": 1, "nvidia": 0})
+	// from the LOW job's reconcile must dispatch the HIGH one.
+	r := newReconciler(t, c, map[string]int32{"cpu": 1, "nvidia": 0})
 	reconcileTJ(t, r, ns, "low")
+	attempts := func(name string) int32 { return getTJ(t, c, ns, name).Status.Attempts }
+	assert.EqualValues(t, 1, attempts("high"))
+	assert.EqualValues(t, 0, attempts("low"), "one cpu slot: the second job must wait")
+	assert.EqualValues(t, 0, attempts("paused"), "spec.suspend keeps a job out of admission")
+
+	reconcileTJ(t, r, ns, "low")
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, getTJ(t, c, ns, "low").Status.Phase)
 
 	high := getTJ(t, c, ns, "high")
-	low := getTJ(t, c, ns, "low")
-	highJob := getJob(t, c, ns, *high.Status.JobRef)
-	lowJob := getJob(t, c, ns, *low.Status.JobRef)
-	assert.False(t, *highJob.Spec.Suspend)
-	assert.True(t, *lowJob.Spec.Suspend, "one cpu slot: the second job must stay suspended")
-
-	reconcileTJ(t, r, ns, "low")
-	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, getTJ(t, c, ns, "low").Status.Phase)
-	reconcileTJ(t, r, ns, "high")
-	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, getTJ(t, c, ns, "high").Status.Phase)
-
-	failJob(t, c, ns, highJob.Name)
-	reconcileTJ(t, r, ns, "high")
+	require.NoError(t, deliver(t, r, high, claimed(1, "pool-a")))
+	require.NoError(t, deliver(t, r, high, finished(1, task.OutcomeFailed, task.ReasonVerifyFailed, "output too large")))
 	high = getTJ(t, c, ns, "high")
 	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseFailed, high.Status.Phase)
-	cond := k8s.FindCondition(high.Status.Conditions, transcodev1alpha1.TranscodeJobConditionFailed)
-	require.NotNil(t, cond)
-	assert.Equal(t, batchv1.JobReasonPodFailurePolicy, cond.Reason)
 
-	lowJob = getJob(t, c, ns, *low.Status.JobRef)
-	assert.False(t, *lowJob.Spec.Suspend, "the pass that saw the slot free must admit the waiting job")
+	reconcileTJ(t, r, ns, "low")
+	assert.EqualValues(t, 1, attempts("low"), "the pass that saw the slot free must dispatch the waiting job")
+	assert.EqualValues(t, 0, attempts("paused"))
 }
 
 // TestAdmissionHonoursProfileMaxConcurrent: a profile's spec.maxConcurrent
-// caps its own running transcodes below a hardware budget that would admit
-// more, a profile with none (0) is capped only by the budget, and raising the
-// cap admits the waiting job on the next pass.
+// caps its own dispatched transcodes below a hardware budget that would
+// admit more, a profile with none (0) is capped only by the budget, and
+// raising the cap dispatches the waiting job on the next pass.
 func TestAdmissionHonoursProfileMaxConcurrent(t *testing.T) {
 	_, c := startEnv(t)
 	ctx := context.Background()
 	const ns = "tj-maxconc"
 	newNamespace(t, c, ns)
+	newRootFolder(t, c, ns, "/data/media/movies")
 	newProfile(t, c, "capped", "hashc", func(p *transcodev1alpha1.TranscodeProfile) { p.Spec.MaxConcurrent = 1 })
 	newProfile(t, c, "open", "hasho", nil)
 	for _, name := range []string{"c1", "c2", "o1", "o2"} {
@@ -667,109 +694,399 @@ func TestAdmissionHonoursProfileMaxConcurrent(t *testing.T) {
 	newTJ(t, c, ns, "o1", "o1", "open", "po1", nil)
 	newTJ(t, c, ns, "o2", "o2", "open", "po2", nil)
 
-	queue := newReconciler(c, map[string]int32{"cpu": 0})
+	queue := newReconciler(t, c, map[string]int32{"cpu": 0})
 	for _, name := range []string{"c1", "c2", "o1", "o2"} {
 		reconcileTJ(t, queue, ns, name)
 	}
 
-	r := newReconciler(c, map[string]int32{"cpu": 10})
+	r := newReconciler(t, c, map[string]int32{"cpu": 10})
 	reconcileTJ(t, r, ns, "o1")
-	suspended := func(name string) bool {
-		return *getJob(t, c, ns, *getTJ(t, c, ns, name).Status.JobRef).Spec.Suspend
+	dispatched := func(name string) bool {
+		return getTJ(t, c, ns, name).Status.Phase == transcodev1alpha1.TranscodeJobPhaseQueued
 	}
-	assert.False(t, suspended("o1"), "a profile with no maxConcurrent is capped only by the budget")
-	assert.False(t, suspended("o2"), "a profile with no maxConcurrent is capped only by the budget")
-	assert.NotEqual(t, suspended("c1"), suspended("c2"),
-		"maxConcurrent 1 with ten free cpu slots must admit exactly one of the profile's two jobs")
+	assert.True(t, dispatched("o1"), "a profile with no maxConcurrent is capped only by the budget")
+	assert.True(t, dispatched("o2"), "a profile with no maxConcurrent is capped only by the budget")
+	assert.NotEqual(t, dispatched("c1"), dispatched("c2"),
+		"maxConcurrent 1 with ten free cpu slots must dispatch exactly one of the profile's two jobs")
 
 	var capped transcodev1alpha1.TranscodeProfile
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "capped"}, &capped))
 	capped.Spec.MaxConcurrent = 2
 	require.NoError(t, c.Update(ctx, &capped))
 	reconcileTJ(t, r, ns, "o1")
-	assert.False(t, suspended("c1"), "raising maxConcurrent must admit the waiting job")
-	assert.False(t, suspended("c2"), "raising maxConcurrent must admit the waiting job")
+	assert.True(t, dispatched("c1"), "raising maxConcurrent must dispatch the waiting job")
+	assert.True(t, dispatched("c2"), "raising maxConcurrent must dispatch the waiting job")
 }
 
-// TestUserSuspendPausesAndResumes: spec.suspend re-suspends a running Job
-// and keeps it out of admission until cleared.
-func TestUserSuspendPausesAndResumes(t *testing.T) {
-	_, c := startEnv(t)
-	ctx := context.Background()
-	const ns = "tj-suspend"
-	newNamespace(t, c, ns)
-	newProfile(t, c, "hevc", "hash1", nil)
-	newMediaFile(t, c, ns, "a", "pa", ptr.To(h264Probe()))
-	newTJ(t, c, ns, "a-hevc", "a", "hevc", "pa", nil)
-	r := newReconciler(c, map[string]int32{"cpu": 2})
-	reconcileTJ(t, r, ns, "a-hevc")
-	reconcileTJ(t, r, ns, "a-hevc")
-	tj := getTJ(t, c, ns, "a-hevc")
-	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, tj.Status.Phase)
+// TestStatusEventsDriveStatusAndOneManagerOwnsIt is spec §18.2: claimed and
+// progress events move a job to Running and set workerPod, startedAt and
+// progress; finished sets the outcome, result and stderr tail -- all of it
+// written by squasharr, the one manager on TranscodeJob.status.
+func TestStatusEventsDriveStatusAndOneManagerOwnsIt(t *testing.T) {
+	f := newDispatched(t, "tj-events-drive", map[string]int32{"cpu": 1})
 
-	tj.Spec.Suspend = ptr.To(true)
-	require.NoError(t, c.Update(ctx, tj))
-	reconcileTJ(t, r, ns, "a-hevc")
-	tj = getTJ(t, c, ns, "a-hevc")
+	require.NoError(t, deliver(t, f.r, f.tj, claimed(1, "pool-xyz")))
+	got := f.get(t)
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, got.Status.Phase)
+	assert.Equal(t, "pool-xyz", got.Status.WorkerPod)
+	assert.NotNil(t, got.Status.StartedAt)
+	assert.Contains(t, got.Status.Message, "pool-xyz")
+
+	updated := metav1.NewTime(time.Now().UTC().Truncate(time.Second))
+	require.NoError(t, deliver(t, f.r, got, task.StatusEvent{
+		Kind: task.EventProgress, Attempt: 1, Pod: "pool-xyz",
+		Progress: &transcodev1alpha1.Progress{
+			Percent: 42, Frame: 1000, FPSMilli: 24000, SpeedMilli: 1500,
+			OutTimeMillis: 41000, BitrateKbps: 5000, UpdatedAt: updated,
+		},
+	}))
+	got = f.get(t)
+	require.NotNil(t, got.Status.Progress)
+	assert.EqualValues(t, 42, got.Status.Progress.Percent)
+	assert.EqualValues(t, 5000, got.Status.Progress.BitrateKbps)
+
+	// An older progress report, redelivered late, never steps back.
+	require.NoError(t, deliver(t, f.r, got, task.StatusEvent{
+		Kind: task.EventProgress, Attempt: 1, Pod: "pool-xyz",
+		Progress: &transcodev1alpha1.Progress{Percent: 10, UpdatedAt: metav1.NewTime(updated.Add(-time.Minute))},
+	}))
+	assert.EqualValues(t, 42, f.get(t).Status.Progress.Percent)
+
+	ev := finished(1, task.OutcomeSucceeded, "", "")
+	ev.Result = &transcodev1alpha1.Result{OutputPath: "/data/media/movies/heat.mkv", OutputSizeBytes: 10, OutputToSourcePercent: 40}
+	ev.StderrTail = "ok"
+	require.NoError(t, deliver(t, f.r, got, ev))
+	got = f.get(t)
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseSucceeded, got.Status.Phase)
+	require.NotNil(t, got.Status.Result)
+	assert.EqualValues(t, 10, got.Status.Result.OutputSizeBytes)
+	assert.Equal(t, "/data/media/movies/heat.mkv", got.Status.Result.OutputPath)
+	assert.Equal(t, "ok", got.Status.StderrTail)
+	assert.NotNil(t, got.Status.FinishedAt, "catalogarr's latestUnincorporatedTranscode requires finishedAt")
+	assert.True(t, k8s.IsConditionTrue(got.Status.Conditions, transcodev1alpha1.TranscodeJobConditionSucceeded))
+	assert.True(t, k8s.IsConditionTrue(got.Status.Conditions, transcodev1alpha1.TranscodeJobConditionVerified))
+	assert.EqualValues(t, 100, got.Status.Progress.Percent)
+	assert.Equal(t, "pool-xyz", got.Status.WorkerPod, "the pod that ran it stays named, for kubectl logs")
+
+	assert.Equal(t, []string{string(k8s.ManagerSquasharr)}, statusOwners(got), "squasharr is the one status writer")
+	owned := statusFieldsOf(t, got, k8s.ManagerSquasharr)
+	for _, fld := range []string{
+		"f:phase", "f:plan", "f:jobRef", "f:attempts", "f:startedAt", "f:finishedAt", "f:message",
+		"f:conditions", "f:observedGeneration", "f:workerPod", "f:hardware", "f:progress", "f:result", "f:stderrTail",
+	} {
+		assert.Contains(t, owned, fld)
+	}
+}
+
+// TestRetriableRequeuesWithBackoffThenBlocks is spec §18.3's retry row: each
+// Retriable failure goes back to Planned, held until nextAttemptAt (1m, 5m,
+// 15m, 30m), and the fifth is blocked as RetriesExhausted.
+func TestRetriableRequeuesWithBackoffThenBlocks(t *testing.T) {
+	f := newDispatched(t, "tj-retry", map[string]int32{"cpu": 1})
+	now := time.Now()
+	f.r.Now = func() time.Time { return now }
+	require.Equal(t, []int32{1}, attemptsOf(takeTasks(t, f.r.Bus, f.tp.UID, "cpu", 5*time.Second)))
+
+	waits := []time.Duration{time.Minute, 5 * time.Minute, 15 * time.Minute, 30 * time.Minute}
+	for attempt := int32(1); attempt < transcodejob.MaxAttempts; attempt++ {
+		tj := f.get(t)
+		require.NoError(t, deliver(t, f.r, tj, claimed(attempt, "pool-a")))
+		require.NoError(t, deliver(t, f.r, tj, finished(attempt, task.OutcomeFailed, task.ReasonRetriable, "ffmpeg exited 1")))
+		tj = f.get(t)
+		require.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, tj.Status.Phase, "attempt %d", attempt)
+		require.NotNil(t, tj.Status.NextAttemptAt)
+		wait := waits[attempt-1]
+		assert.WithinDuration(t, now.Add(wait), tj.Status.NextAttemptAt.Time, time.Second, "attempt %d", attempt)
+		assert.Contains(t, tj.Status.Message, "failed (Retriable)")
+		assert.Empty(t, tj.Status.WorkerPod)
+		assert.Nil(t, tj.Status.Progress)
+
+		// Before nextAttemptAt: stays Planned, nothing is published, and the
+		// reconcile asks to come back when the wait is over.
+		res := reconcileTJ(t, f.r, f.ns, tj.Name)
+		assert.Positive(t, res.RequeueAfter)
+		assert.LessOrEqual(t, res.RequeueAfter, wait)
+		assert.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, f.get(t).Status.Phase)
+		assert.Empty(t, takeTasks(t, f.r.Bus, f.tp.UID, "cpu", 300*time.Millisecond), "a waiting job is not dispatched")
+
+		now = now.Add(wait + time.Second)
+		reconcileTJ(t, f.r, f.ns, tj.Name)
+		tj = f.get(t)
+		require.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, tj.Status.Phase, "attempt %d", attempt+1)
+		assert.Equal(t, attempt+1, tj.Status.Attempts)
+		assert.Nil(t, tj.Status.NextAttemptAt)
+		assert.Equal(t, []int32{attempt + 1}, attemptsOf(takeTasks(t, f.r.Bus, f.tp.UID, "cpu", 5*time.Second)))
+	}
+
+	tj := f.get(t)
+	require.EqualValues(t, transcodejob.MaxAttempts, tj.Status.Attempts)
+	require.NoError(t, deliver(t, f.r, tj, finished(transcodejob.MaxAttempts, task.OutcomeFailed, task.ReasonRetriable, "again")))
+	tj = f.get(t)
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseFailed, tj.Status.Phase)
+	blocked := k8s.FindCondition(tj.Status.Conditions, transcodev1alpha1.ConditionBlocked)
+	require.NotNil(t, blocked)
+	assert.Equal(t, metav1.ConditionTrue, blocked.Status)
+	assert.Equal(t, string(task.ReasonRetriesExhausted), blocked.Reason)
+	assert.Contains(t, blocked.Message, "5 attempts")
+	assert.Contains(t, blocked.Message, "delete the TranscodeJob to retry")
+
+	reconcileTJ(t, f.r, f.ns, tj.Name)
+	assert.Empty(t, takeTasks(t, f.r.Bus, f.tp.UID, "cpu", 300*time.Millisecond), "a blocked job is never dispatched again")
+}
+
+// TestVerifyFailedBlocks: a failure no retry can fix is Failed with
+// Blocked=True, and nothing dispatches it again.
+func TestVerifyFailedBlocks(t *testing.T) {
+	f := newDispatched(t, "tj-verify", map[string]int32{"cpu": 1})
+	require.Len(t, takeTasks(t, f.r.Bus, f.tp.UID, "cpu", 5*time.Second), 1)
+
+	require.NoError(t, deliver(t, f.r, f.tj, finished(1, task.OutcomeFailed, task.ReasonVerifyFailed, "duration off by 12s")))
+	got := f.get(t)
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseFailed, got.Status.Phase)
+	for _, typ := range []string{transcodev1alpha1.TranscodeJobConditionFailed, transcodev1alpha1.ConditionBlocked} {
+		c := k8s.FindCondition(got.Status.Conditions, typ)
+		require.NotNil(t, c, typ)
+		assert.Equal(t, metav1.ConditionTrue, c.Status, typ)
+		assert.Equal(t, string(task.ReasonVerifyFailed), c.Reason, typ)
+	}
+	assert.Contains(t, got.Status.Message, "duration off by 12s")
+
+	reconcileTJ(t, f.r, f.ns, f.tj.Name)
+	assert.Empty(t, takeTasks(t, f.r.Bus, f.tp.UID, "cpu", 300*time.Millisecond))
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseFailed, f.get(t).Status.Phase)
+}
+
+// TestAStaleEventChangesNothing: an event for an earlier attempt, or for a
+// job that is no longer dispatched, is acked and changes nothing (spec
+// §18.2).
+func TestAStaleEventChangesNothing(t *testing.T) {
+	f := newDispatched(t, "tj-stale", map[string]int32{"cpu": 1})
+	now := time.Now()
+	f.r.Now = func() time.Time { return now }
+	require.NoError(t, deliver(t, f.r, f.tj, finished(1, task.OutcomeFailed, task.ReasonRetriable, "blip")))
+	now = now.Add(2 * time.Minute)
+	reconcileTJ(t, f.r, f.ns, f.tj.Name)
+	queued := f.get(t)
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, queued.Status.Phase)
+	require.EqualValues(t, 2, queued.Status.Attempts)
+
+	require.NoError(t, deliver(t, f.r, queued, finished(1, task.OutcomeSucceeded, "", "")), "a stale event is acked")
+	require.NoError(t, deliver(t, f.r, queued, claimed(1, "pool-old")), "a stale event is acked")
+	got := f.get(t)
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, got.Status.Phase)
+	assert.EqualValues(t, 2, got.Status.Attempts)
+	assert.Empty(t, got.Status.WorkerPod)
+	assert.Equal(t, queued.ResourceVersion, got.ResourceVersion, "a stale event writes nothing")
+
+	// Another incarnation of the job (same name, new UID) is stale too.
+	other := queued.DeepCopy()
+	other.UID = "someone-else"
+	require.NoError(t, deliver(t, f.r, other, claimed(2, "pool-x")))
+	assert.Equal(t, queued.ResourceVersion, f.get(t).ResourceVersion)
+
+	// A duplicate finished for a terminal job is acked and ignored.
+	require.NoError(t, deliver(t, f.r, queued, finished(2, task.OutcomeSucceeded, "", "")))
+	done := f.get(t)
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseSucceeded, done.Status.Phase)
+	require.NoError(t, deliver(t, f.r, done, finished(2, task.OutcomeFailed, task.ReasonVerifyFailed, "late")))
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseSucceeded, f.get(t).Status.Phase, "the first final result wins")
+
+	// A job that is gone is acked: there is nothing left to describe.
+	require.NoError(t, f.c.Delete(context.Background(), done))
+	require.NoError(t, deliver(t, f.r, done, claimed(2, "pool-x")))
+}
+
+// TestAResultEventRacingAReconcileIsNotLost is Review Focus 5: a result
+// event that lands between a reconcile's read and its write must not be
+// rolled back. The loser's compare-and-swap conflicts and is redone from a
+// fresh read.
+func TestAResultEventRacingAReconcileIsNotLost(t *testing.T) {
+	f := newDispatched(t, "tj-race", map[string]int32{"cpu": 1})
+	ctx := context.Background()
+
+	stale := f.get(t) // a reconcile's read: Queued, no worker yet
+	require.NoError(t, deliver(t, f.r, stale, claimed(1, "pool-xyz")))
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, f.get(t).Status.Phase)
+
+	// The reconcile's write, seeded from its now-stale read.
+	stale.Status.Message = "reconcile error: something transient"
+	err := f.r.PatchCASForTest(ctx, stale, &stale.Status)
+	require.True(t, apierrors.IsConflict(err), "the stale write must conflict, got %v", err)
+
+	got := f.get(t)
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, got.Status.Phase, "the event's write was not rolled back")
+	assert.Equal(t, "pool-xyz", got.Status.WorkerPod)
+
+	// The retry reads fresh and keeps the event's fields.
+	reconcileTJ(t, f.r, f.ns, f.tj.Name)
+	got = f.get(t)
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, got.Status.Phase)
+	assert.Equal(t, "pool-xyz", got.Status.WorkerPod)
+	assert.NotNil(t, got.Status.StartedAt)
+}
+
+// failingPublisher is a bus whose publishes all fail, as NATS does when the
+// work stream is full or the broker is down.
+type failingPublisher struct{ events.Bus }
+
+func (failingPublisher) Publish(context.Context, string, *events.Envelope, ...events.PublishOption) (events.Receipt, error) {
+	return events.Receipt{}, events.ErrQueueFull
+}
+
+// TestNoQueuedWithoutAPublish is spec §8: nothing is marked Queued that was
+// not published. A failed publish leaves the job Planned at attempts 0,
+// saying why, and the next pass dispatches it once the bus is back.
+func TestNoQueuedWithoutAPublish(t *testing.T) {
+	_, c := startEnv(t)
+	const ns = "tj-nopublish"
+	newNamespace(t, c, ns)
+	newRootFolder(t, c, ns, "/data/media/movies")
+	tp := newProfile(t, c, "hevc", "hash1", nil)
+	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
+	r := newReconciler(t, c, map[string]int32{"cpu": 1})
+	bus := r.Bus
+	r.Bus = failingPublisher{Bus: bus}
+
+	_, err := r.Reconcile(context.Background(), reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: "heat-hevc"}})
+	require.ErrorIs(t, err, events.ErrQueueFull)
+	got := getTJ(t, c, ns, "heat-hevc")
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, got.Status.Phase)
+	assert.EqualValues(t, 0, got.Status.Attempts)
+	assert.Nil(t, got.Status.JobRef)
+	assert.Contains(t, got.Status.Message, "work queue full")
+
+	r.Bus = bus
+	reconcileTJ(t, r, ns, "heat-hevc")
+	got = getTJ(t, c, ns, "heat-hevc")
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, got.Status.Phase)
+	assert.Equal(t, []int32{1}, attemptsOf(takeTasks(t, bus, tp.UID, "cpu", 5*time.Second)))
+}
+
+// TestASourceUnderNoRootFolderBlocksAtDispatch is spec §17.5: the worker
+// never touches a file outside a RootFolder, so a source under none is
+// blocked InvalidSource at dispatch, without publishing a task.
+func TestASourceUnderNoRootFolderBlocksAtDispatch(t *testing.T) {
+	_, c := startEnv(t)
+	const ns = "tj-noroot"
+	newNamespace(t, c, ns)
+	tp := newProfile(t, c, "hevc", "hash1", nil)
+	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
+	r := newReconciler(t, c, map[string]int32{"cpu": 1})
+
+	reconcileTJ(t, r, ns, "heat-hevc")
+	got := getTJ(t, c, ns, "heat-hevc")
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseFailed, got.Status.Phase)
+	blocked := k8s.FindCondition(got.Status.Conditions, transcodev1alpha1.ConditionBlocked)
+	require.NotNil(t, blocked)
+	assert.Equal(t, metav1.ConditionTrue, blocked.Status)
+	assert.Equal(t, string(task.ReasonInvalidSource), blocked.Reason)
+	assert.Contains(t, got.Status.Message, "not under any RootFolder")
+	assert.EqualValues(t, 0, got.Status.Attempts)
+	assert.Empty(t, takeTasks(t, r.Bus, tp.UID, "cpu", 300*time.Millisecond), "nothing is published")
+}
+
+// TestADeadLetteredTaskBlocksTheJob is spec §18.3's last row: a task the
+// queue dead-lettered will never be reported on, so the DLQ projector's
+// annotation naming it blocks the job, reason DeadLettered.
+func TestADeadLetteredTaskBlocksTheJob(t *testing.T) {
+	f := newDispatched(t, "tj-dlq-task", map[string]int32{"cpu": 1})
+	ctx := context.Background()
+	live := f.get(t)
+	subject := events.WorkTranscodeTaskSubject(string(f.tp.UID), "cpu", string(live.UID))
+	live.Annotations = map[string]string{k8s.AnnotationDeadLettered: subject + "@2026-09-23T10:00:00Z"}
+	require.NoError(t, f.c.Update(ctx, live))
+
+	reconcileTJ(t, f.r, f.ns, f.tj.Name)
+	got := f.get(t)
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseFailed, got.Status.Phase)
+	blocked := k8s.FindCondition(got.Status.Conditions, transcodev1alpha1.ConditionBlocked)
+	require.NotNil(t, blocked)
+	assert.Equal(t, string(task.ReasonDeadLettered), blocked.Reason)
+	assert.True(t, k8s.IsConditionTrue(got.Status.Conditions, k8s.ConditionDeadLettered), "the annotation is folded too")
+}
+
+// TestAnAutoGPUFailureFallsBackToCPU is spec §18.5's fallback: an auto job
+// whose GPU attempt reports GPUEncodeFailed records why, goes back to
+// Planned with no wait, and is dispatched again to the profile's CPU pool.
+func TestAnAutoGPUFailureFallsBackToCPU(t *testing.T) {
+	_, c := startEnv(t)
+	const ns = "tj-fallback"
+	newNamespace(t, c, ns)
+	newRootFolder(t, c, ns, "/data/media/movies")
+	tp := newProfile(t, c, "nvenc", "hash1", func(p *transcodev1alpha1.TranscodeProfile) {
+		p.Spec.Hardware = transcodev1alpha1.HardwareNVIDIA
+	})
+	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newTJ(t, c, ns, "heat-nvenc", "heat", "nvenc", "probe1", func(tj *transcodev1alpha1.TranscodeJob) {
+		tj.Spec.Hardware = ptr.To(transcodev1alpha1.HardwareAuto)
+	})
+	r := newReconciler(t, c, map[string]int32{"cpu": 1, "nvidia": 1})
+
+	reconcileTJ(t, r, ns, "heat-nvenc")
+	tj := getTJ(t, c, ns, "heat-nvenc")
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, tj.Status.Phase, "message: %s", tj.Status.Message)
+	require.Equal(t, transcodev1alpha1.HardwareNVIDIA, tj.Status.Hardware)
+	require.Equal(t, []int32{1}, attemptsOf(takeTasks(t, r.Bus, tp.UID, "nvidia", 5*time.Second)))
+
+	require.NoError(t, deliver(t, r, tj, claimed(1, "pool-gpu")))
+	require.NoError(t, deliver(t, r, tj, finished(1, task.OutcomeFailed, task.ReasonGPUEncodeFailed, "nvenc: no capable devices")))
+	tj = getTJ(t, c, ns, "heat-nvenc")
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, tj.Status.Phase)
+	assert.Nil(t, tj.Status.NextAttemptAt, "a fallback does not wait")
+	assert.Contains(t, tj.Status.FallbackReason, "GPUEncodeFailed")
+
+	reconcileTJ(t, r, ns, "heat-nvenc")
+	tj = getTJ(t, c, ns, "heat-nvenc")
 	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, tj.Status.Phase)
-	assert.Equal(t, "paused by spec.suspend", tj.Status.Message)
-	assert.True(t, *getJob(t, c, ns, *tj.Status.JobRef).Spec.Suspend)
-
-	tj.Spec.Suspend = ptr.To(false)
-	require.NoError(t, c.Update(ctx, tj))
-	reconcileTJ(t, r, ns, "a-hevc")
-	assert.False(t, *getJob(t, c, ns, *tj.Status.JobRef).Spec.Suspend)
+	assert.Equal(t, transcodev1alpha1.HardwareCPU, tj.Status.Hardware)
+	assert.EqualValues(t, 2, tj.Status.Attempts)
+	assert.Equal(t, pool.Name(pool.Key{Profile: tp.Name, ProfileUID: tp.UID, Class: "cpu"}), *tj.Status.JobRef)
+	cpuTasks := takeTasks(t, r.Bus, tp.UID, "cpu", 5*time.Second)
+	require.Len(t, cpuTasks, 1)
+	assert.EqualValues(t, 2, cpuTasks[0].Attempt)
+	assert.Equal(t, "cpu", cpuTasks[0].Class)
 }
 
-// failingReader fails every Job read, standing in for an apiserver blip.
-type failingReader struct{ client.Reader }
-
-func (failingReader) Get(context.Context, client.ObjectKey, client.Object, ...client.GetOption) error {
-	return errors.New("injected: apiserver unavailable")
-}
-
-func (failingReader) List(context.Context, client.ObjectList, ...client.ListOption) error {
-	return errors.New("injected: apiserver unavailable")
-}
-
-// TestTransientFailureDoesNotReleaseStatus drives a job to a populated
-// steady state -- controller fields AND the worker's progress -- then makes
-// the next reconcile fail half way. The error-path apply must re-declare
-// every controller leaf (nothing released), must not claim the worker's
-// fields (managedFields), and must leave the worker's progress standing.
+// TestTransientFailureDoesNotReleaseStatus drives a job, through real
+// status events, to a populated steady state -- a requeued attempt with its
+// plan, hardware, stderr tail, nextAttemptAt and conditions -- then makes
+// the next dispatch fail half way. The error-path write must re-declare
+// every leaf (nothing released), and squasharr must stay the only owner.
 func TestTransientFailureDoesNotReleaseStatus(t *testing.T) {
-	_, c := startEnv(t)
+	f := newDispatched(t, "tj-release", map[string]int32{"cpu": 2})
 	ctx := context.Background()
-	const ns = "tj-release"
-	newNamespace(t, c, ns)
-	newProfile(t, c, "hevc", "hash1", nil)
-	newMediaFile(t, c, ns, "a", "pa", ptr.To(h264Probe()))
-	newTJ(t, c, ns, "a-hevc", "a", "hevc", "pa", nil)
-	r := newReconciler(c, map[string]int32{"cpu": 2})
-	reconcileTJ(t, r, ns, "a-hevc")
-	reconcileTJ(t, r, ns, "a-hevc")
+	now := time.Now()
+	f.r.Now = func() time.Time { return now }
+	require.NoError(t, deliver(t, f.r, f.tj, claimed(1, "pool-a")))
+	require.NoError(t, deliver(t, f.r, f.tj, task.StatusEvent{
+		Kind: task.EventProgress, Attempt: 1,
+		Progress: &transcodev1alpha1.Progress{Percent: 42, UpdatedAt: metav1.Now()},
+	}))
+	ev := finished(1, task.OutcomeFailed, task.ReasonRetriable, "ffmpeg exited 1")
+	ev.StderrTail = "frame=1000 error"
+	require.NoError(t, deliver(t, f.r, f.tj, ev))
 
-	steady := getTJ(t, c, ns, "a-hevc")
-	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, steady.Status.Phase)
-	require.NoError(t, squasharrstatus.Patch(ctx, c, k8s.ManagerSquasharrWorker, steady,
-		func(ac *transcodeac.TranscodeJobStatusApplyConfiguration) {
-			ac.WithProgress(transcodeac.Progress().WithPercent(42).WithFrame(1000).WithFPSMilli(24000).
-				WithSpeedMilli(1000).WithOutTimeMillis(41000).WithBitrateKbps(5000).WithUpdatedAt(metav1.Now())).
-				WithStderrTail("frame=1000")
-		}))
-	steady = getTJ(t, c, ns, "a-hevc")
+	steady := f.get(t)
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, steady.Status.Phase)
+	require.NotNil(t, steady.Status.NextAttemptAt)
 
-	broken := newReconciler(c, map[string]int32{"cpu": 2})
-	broken.Reader = failingReader{}
-	_, err := broken.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: "a-hevc"}})
+	now = now.Add(2 * time.Minute)
+	broken := *f.r
+	broken.Bus = failingPublisher{Bus: f.r.Bus}
+	_, err := broken.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: f.ns, Name: f.tj.Name}})
 	require.Error(t, err)
 
-	got := getTJ(t, c, ns, "a-hevc")
-	assert.Contains(t, got.Status.Message, "injected")
+	got := f.get(t)
+	assert.Contains(t, got.Status.Message, "work queue full")
 	assert.Equal(t, steady.Status.Phase, got.Status.Phase)
 	assert.Equal(t, steady.Status.JobRef, got.Status.JobRef)
 	assert.Equal(t, steady.Status.Attempts, got.Status.Attempts)
 	assert.Equal(t, steady.Status.StartedAt, got.Status.StartedAt)
+	assert.Equal(t, steady.Status.NextAttemptAt, got.Status.NextAttemptAt)
+	assert.Equal(t, steady.Status.Hardware, got.Status.Hardware)
+	assert.Equal(t, "frame=1000 error", got.Status.StderrTail)
 	assert.Equal(t, steady.Status.ObservedGeneration, got.Status.ObservedGeneration)
 	// Every leaf of the plan, not only the parent.
 	require.NotNil(t, got.Status.Plan)
@@ -781,45 +1098,26 @@ func TestTransientFailureDoesNotReleaseStatus(t *testing.T) {
 		assert.Equal(t, want.Status, gotC.Status, want.Type)
 		assert.Equal(t, want.Reason, gotC.Reason, want.Type)
 	}
-	// The worker's fields survive and stay the worker's.
-	require.NotNil(t, got.Status.Progress)
-	assert.EqualValues(t, 42, got.Status.Progress.Percent)
-	assert.Equal(t, "frame=1000", got.Status.StderrTail)
-
+	assert.Equal(t, []string{string(k8s.ManagerSquasharr)}, statusOwners(got))
 	owned := statusFieldsOf(t, got, k8s.ManagerSquasharr)
-	for _, f := range []string{"f:progress", "f:result", "f:stderrTail"} {
-		assert.NotContains(t, owned, f, "squasharr must not claim the worker's %s", f)
+	for _, fld := range []string{
+		"f:phase", "f:plan", "f:jobRef", "f:attempts", "f:startedAt", "f:message", "f:conditions",
+		"f:observedGeneration", "f:hardware", "f:nextAttemptAt", "f:stderrTail",
+	} {
+		assert.Contains(t, owned, fld)
 	}
-	for _, f := range []string{"f:phase", "f:plan", "f:jobRef", "f:attempts", "f:startedAt", "f:message", "f:conditions", "f:observedGeneration"} {
-		assert.Contains(t, owned, f)
-	}
-	assert.Contains(t, statusFieldsOf(t, got, k8s.ManagerSquasharrWorker), "f:progress")
 }
 
-func statusFieldsOf(t *testing.T, obj metav1.Object, mgr k8s.FieldManager) map[string]any {
-	t.Helper()
-	for _, e := range obj.GetManagedFields() {
-		if e.Manager != mgr.String() || e.Subresource != "status" || e.FieldsV1 == nil {
-			continue
-		}
-		var fields map[string]any
-		require.NoError(t, json.Unmarshal(e.FieldsV1.GetRawBytes(), &fields))
-		st, _ := fields["f:status"].(map[string]any)
-		return st
-	}
-	t.Fatalf("no status managedFields entry for %s", mgr)
-	return nil
-}
-
-// TestWatchesWakeTheController runs the real manager and never calls
-// Reconcile by hand. Each step is only reachable through one watch:
-//   - the profile's status.hash landing wakes a Pending job (profile watch);
-//   - admission's unsuspend moves Queued to Running (owned-Job watch on
-//     spec.suspend -- a generation change on the Job, but only because
-//     this controller patched it);
-//   - the Job controller's STATUS write moves Running to Succeeded. Status
-//     writes by another manager never bump metadata.generation, so this
-//     step fails under a generation-only predicate: the D2-8a trap.
+// TestWatchesWakeTheController runs the real manager, with the results
+// consumer subscribed on the bus, and never calls Reconcile by hand. Each
+// step is only reachable through one wake:
+//   - the profile's status.hash landing wakes a Pending job (profile watch),
+//     which is planned and dispatched;
+//   - a finished event published on the results subject moves that job to
+//     Succeeded (the results consumer);
+//   - and frees its slot, so the second job -- waiting Planned behind a
+//     one-slot budget, its own periodic requeue a minute away -- is
+//     dispatched by the consumer's admission wake.
 func TestWatchesWakeTheController(t *testing.T) {
 	cfg, c := startEnv(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -832,39 +1130,59 @@ func TestWatchesWakeTheController(t *testing.T) {
 		Controller:             config.Controller{SkipNameValidation: ptr.To(true)},
 	})
 	require.NoError(t, err)
-	r := newReconciler(mgr.GetClient(), map[string]int32{"cpu": 2})
+	r := newReconciler(t, mgr.GetClient(), map[string]int32{"cpu": 1})
 	r.Reader = mgr.GetAPIReader()
 	require.NoError(t, r.SetupWithManager(mgr))
-	go func() { _ = mgr.Start(ctx) }()
+	require.NoError(t, mgr.Add(r.ResultsConsumer()))
+	done := make(chan struct{})
+	go func() { defer close(done); _ = mgr.Start(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
 
 	const ns = "tj-watch"
 	newNamespace(t, c, ns)
+	newRootFolder(t, c, ns, "/data/media/movies")
 	newProfile(t, c, "hevc", "", nil)
 	newMediaFile(t, c, ns, "a", "pa", ptr.To(h264Probe()))
+	newMediaFile(t, c, ns, "b", "pb", ptr.To(h264Probe()))
 	newTJ(t, c, ns, "a-hevc", "a", "hevc", "pa", nil)
 
-	phase := func() transcodev1alpha1.TranscodeJobPhase { return getTJ(t, c, ns, "a-hevc").Status.Phase }
-	require.Eventually(t, func() bool { return phase() == transcodev1alpha1.TranscodeJobPhasePending },
+	phase := func(name string) transcodev1alpha1.TranscodeJobPhase { return getTJ(t, c, ns, name).Status.Phase }
+	require.Eventually(t, func() bool { return phase("a-hevc") == transcodev1alpha1.TranscodeJobPhasePending },
 		20*time.Second, 100*time.Millisecond)
 
 	setProfileHash(t, c, "hevc", "hash1")
-	require.Eventually(t, func() bool { return phase() == transcodev1alpha1.TranscodeJobPhaseRunning },
-		20*time.Second, 100*time.Millisecond, "profile hash + admission should reach Running without a manual reconcile")
+	require.Eventually(t, func() bool { return phase("a-hevc") == transcodev1alpha1.TranscodeJobPhaseQueued },
+		20*time.Second, 100*time.Millisecond, "the profile hash must wake the job, which is dispatched")
 
-	// Let the events this controller's own writes produced (the Job create
-	// and the unsuspend patch, each queued once more behind the reconcile
-	// already running) drain. Without this, a trailing reconcile can race
-	// the status write below and see the Job complete by accident, which
-	// made this step pass even under a generation-only Owns predicate.
-	time.Sleep(2 * time.Second)
+	newTJ(t, c, ns, "b-hevc", "b", "hevc", "pb", nil)
+	require.Eventually(t, func() bool { return phase("b-hevc") == transcodev1alpha1.TranscodeJobPhasePlanned },
+		20*time.Second, 100*time.Millisecond)
+	require.Never(t, func() bool { return phase("b-hevc") != transcodev1alpha1.TranscodeJobPhasePlanned },
+		time.Second, 100*time.Millisecond, "one cpu slot, held by the first job")
 
-	completeJob(t, c, ns, *getTJ(t, c, ns, "a-hevc").Status.JobRef)
-	require.Eventually(t, func() bool { return phase() == transcodev1alpha1.TranscodeJobPhaseSucceeded },
-		20*time.Second, 100*time.Millisecond, "a Job status write must wake the owner")
+	// The pool worker's report, on the stream, as Serve publishes it.
+	a := getTJ(t, c, ns, "a-hevc")
+	ev := task.StatusEvent{
+		Job: schema.Ref{Namespace: ns, Name: a.Name, UID: string(a.UID)}, Attempt: 1, Delivery: 1, Seq: 1,
+		Kind: task.EventFinished, Outcome: task.OutcomeSucceeded, At: time.Now().UTC(),
+		Result: &transcodev1alpha1.Result{OutputPath: "/data/media/movies/a.mkv", OutputSizeBytes: 1, OutputToSourcePercent: 50},
+	}
+	sch, data, err := schema.Encode(ev)
+	require.NoError(t, err)
+	id := events.MsgIDForTranscodeEvent(ev.Job.UID, 1, 1, 1)
+	_, err = r.Bus.Publish(ctx, events.WorkTranscodeResultSubject(ev.Job.UID),
+		&events.Envelope{ID: id, Type: "transcode.StatusEvent", Schema: sch, Key: ns + "/" + a.Name, Time: ev.At, Data: data},
+		events.WithMsgID(id), events.WithExpectStream(events.StreamWorkSquasharr))
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool { return phase("a-hevc") == transcodev1alpha1.TranscodeJobPhaseSucceeded },
+		20*time.Second, 100*time.Millisecond, "the results consumer must apply the finished event")
+	require.Eventually(t, func() bool { return phase("b-hevc") == transcodev1alpha1.TranscodeJobPhaseQueued },
+		20*time.Second, 100*time.Millisecond, "the freed slot must wake admission at once, not after a minute")
 }
 
 // staleClient serves one TranscodeJob from a fixed snapshot, standing in for
-// an informer that has not yet seen this controller's own terminal write.
+// an informer that has not yet seen the terminal write.
 type staleClient struct {
 	client.Client
 	snapshot *transcodev1alpha1.TranscodeJob
@@ -886,43 +1204,31 @@ func histogramCount(t *testing.T, vec *prometheus.HistogramVec, labels ...string
 }
 
 // TestTerminalMetricsObservedOnce is ruling R9: duration and size ratio are
-// observed exactly once per job, on the transition to a terminal phase --
-// not again when a lagging cache hands the same transition back.
+// observed exactly once per job, on the write that made it terminal -- not
+// again when the finished event is redelivered, nor when a lagging cache
+// hands the Running job back to a reconcile.
 func TestTerminalMetricsObservedOnce(t *testing.T) {
-	_, c := startEnv(t)
-	ctx := context.Background()
-	const ns = "tj-metrics"
-	newNamespace(t, c, ns)
-	newProfile(t, c, "hevc", "hash1", nil)
-	newMediaFile(t, c, ns, "a", "pa", ptr.To(h264Probe()))
-	newTJ(t, c, ns, "a-hevc", "a", "hevc", "pa", nil)
-	r := newReconciler(c, map[string]int32{"cpu": 2})
-	reconcileTJ(t, r, ns, "a-hevc")
-	reconcileTJ(t, r, ns, "a-hevc")
-	running := getTJ(t, c, ns, "a-hevc")
+	f := newDispatched(t, "tj-metrics", map[string]int32{"cpu": 2})
+	require.NoError(t, deliver(t, f.r, f.tj, claimed(1, "pool-a")))
+	running := f.get(t)
 	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, running.Status.Phase)
-
-	// The worker's result, as it writes it before exiting 0.
-	require.NoError(t, squasharrstatus.Patch(ctx, c, k8s.ManagerSquasharrWorker, running,
-		func(ac *transcodeac.TranscodeJobStatusApplyConfiguration) {
-			ac.WithResult(transcodeac.Result().WithOutputPath(running.Spec.SourcePath).
-				WithOutputSizeBytes(1 << 30).WithOutputToSourcePercent(45))
-		}))
-	running = getTJ(t, c, ns, "a-hevc")
 
 	durBefore := histogramCount(t, metrics.TranscodeDuration, "cpu", "hd", "succeeded")
 	sizeBefore := histogramCount(t, metrics.TranscodeSizeRatio, "cpu", "hd")
 
-	completeJob(t, c, ns, *running.Status.JobRef)
-	reconcileTJ(t, r, ns, "a-hevc")
-	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseSucceeded, getTJ(t, c, ns, "a-hevc").Status.Phase)
+	ev := finished(1, task.OutcomeSucceeded, "", "")
+	ev.Result = &transcodev1alpha1.Result{OutputPath: running.Spec.SourcePath, OutputSizeBytes: 1 << 30, OutputToSourcePercent: 45}
+	require.NoError(t, deliver(t, f.r, running, ev))
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseSucceeded, f.get(t).Status.Phase)
 
-	// The same transition again, from a cache that still says Running.
-	stale := newReconciler(staleClient{Client: c, snapshot: running}, map[string]int32{"cpu": 2})
-	stale.Reader = c
-	reconcileTJ(t, stale, ns, "a-hevc")
+	// The same event again, as a redelivery would bring it.
+	require.NoError(t, deliver(t, f.r, running, ev))
+	// A reconcile whose cache still says Running: it reads through Reader.
+	stale := newReconciler(t, staleClient{Client: f.c, snapshot: running}, map[string]int32{"cpu": 2})
+	stale.Reader = f.c
+	reconcileTJ(t, stale, f.ns, running.Name)
 	// And an ordinary re-reconcile of the terminal object.
-	reconcileTJ(t, r, ns, "a-hevc")
+	reconcileTJ(t, f.r, f.ns, running.Name)
 
 	assert.Equal(t, durBefore+1, histogramCount(t, metrics.TranscodeDuration, "cpu", "hd", "succeeded"))
 	assert.Equal(t, sizeBefore+1, histogramCount(t, metrics.TranscodeSizeRatio, "cpu", "hd"))

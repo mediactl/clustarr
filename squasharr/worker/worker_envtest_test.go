@@ -281,10 +281,10 @@ func (f *fixture) get(t *testing.T, c client.Client) *transcodev1alpha1.Transcod
 
 // processWith runs Process on the task BuildTask renders from the fixture's
 // real, apiserver-defaulted objects: the same producer squasharr dispatches
-// with (runWorkerJob, squasharr/run.go), under the caller-supplied options --
-// for a test that needs to override one (a wrapped ffmpeg, a failing
-// verifier). A BuildTask error is reported the way runWorkerJob reports one:
-// ExitInvalidSource, before Process is ever called.
+// with (transcodejob's dispatch), under the caller-supplied options -- for a
+// test that needs to override one (a wrapped ffmpeg, a failing verifier). A
+// BuildTask error is reported as ExitInvalidSource, before Process is ever
+// called, as dispatch blocks such a job InvalidSource without a task.
 func (f *fixture) processWith(t *testing.T, c client.Client, o Options) Outcome {
 	t.Helper()
 	ctx := context.Background()
@@ -385,14 +385,13 @@ func TestRunTranscodesVerifiesAndSwapsOverTheSource(t *testing.T) {
 
 	// Process makes no Kubernetes client of its own (spec §9): the
 	// TranscodeJob's controller-owned fields, and its managedFields, are
-	// exactly as createJob left them. Task 10's status tests hold the
-	// single-writer split once runWorkerJob (squasharr/run.go) is the one
-	// applying the worker's fields again.
+	// exactly as createJob left them. squasharr alone writes status, from
+	// the events Serve publishes (squasharr/controller/transcodejob).
 	tj := f.get(t, c)
 	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, tj.Status.Phase)
 	require.NotNil(t, tj.Status.Plan)
 	assert.Equal(t, "libx265", tj.Status.Plan.Encoder)
-	assert.Nil(t, tj.Status.Result, "Process writes no status; the caller (runWorkerJob) does")
+	assert.Nil(t, tj.Status.Result, "Process writes no status; squasharr does, from Serve's events")
 	assert.Nil(t, tj.Status.Progress)
 }
 
@@ -497,7 +496,7 @@ func TestProcessReportsSourceChangedWhenTheSourceIsEditedAfterPlanning(t *testin
 
 // The dangerous crash: the swap completed but the pod died before the
 // result was recorded. Process itself never touches Kubernetes any more --
-// the caller does that (runWorkerJob, squasharr/run.go) -- so what this
+// squasharr does that, from Serve's events -- so what this
 // exercises is purely file-system-level: a retry of the same task finds a
 // source whose probe hash no longer matches -- which would be exit 3, a
 // permanently failed task for a transcode that in fact succeeded -- unless
@@ -545,10 +544,9 @@ func TestRunAfterACrashPostSwapRecordsTheResultWithoutTranscodingAgain(t *testin
 //
 // Two cases from before Process existed are gone rather than ported: a
 // missing TranscodeJob and an unhashed TranscodeProfile are now caught by
-// the orchestrator BEFORE it can even build a task.Task -- runWorkerJob
-// (squasharr/run.go), exercised at the process level by
-// TestSquasharrWorkerExitCodeReachesTheProcess's "invalid source" case, and
-// (for the unhashed profile) by runWorkerJob's own tp.Status.Hash=="" check.
+// squasharr BEFORE it can even build a task.Task -- dispatch reads the job
+// and refuses a profile with no status.hash
+// (squasharr/controller/transcodejob).
 // Process, given a task, no longer has Kubernetes objects to fail a Get
 // against.
 func TestRunClassifiesInputFailures(t *testing.T) {

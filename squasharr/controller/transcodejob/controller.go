@@ -22,26 +22,24 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
-	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	k8sevents "k8s.io/client-go/tools/events"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	transcodeac "github.com/mediactl/clustarr/api/applyconfiguration/transcode/transcode/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -50,7 +48,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/squasharr/controller/pool"
-	squasharrstatus "github.com/mediactl/clustarr/squasharr/status"
+	"github.com/mediactl/clustarr/squasharr/task"
 	"github.com/mediactl/clustarr/squasharr/worker"
 )
 
@@ -63,16 +61,30 @@ const (
 )
 
 // Requeue intervals. Both are safety nets, not the primary wake path: the
-// watches in SetupWithManager are.
+// watches in SetupWithManager and the results consumer's admission wake are.
 const (
 	// requeueWaiting re-checks a Pending job whose MediaFile probe or
 	// profile hash has not landed yet.
 	requeueWaiting = 30 * time.Second
 
-	// requeueQueued re-runs admission for a Queued job, so a job can never
-	// starve if the event that freed its slot was missed.
+	// requeueQueued re-runs admission for a Planned, Queued or Running job,
+	// so a job can never starve if the event that freed its slot was missed.
 	requeueQueued = time.Minute
 )
+
+// admissionRequest is the request the results consumer enqueues when a job
+// leaves Queued or Running: a slot is free, or a requeued job wants one.
+// Reconcile runs one admission pass for it, inside the controller's single
+// worker, so admission stays serialised (MaxConcurrentReconciles 1). A
+// TranscodeJob is namespaced, so no real object has an empty namespace.
+var admissionRequest = types.NamespacedName{Name: "(admission)"}
+
+// deadLetteredTaskPrefix is the subject prefix of a dead-lettered task in
+// the DLQ projector's annotation value ("<original-subject>@<RFC3339>"). A
+// dead-lettered history event (clustarr.evt.transcode.job.*) about the same
+// job folds into the DeadLettered condition only: it is not the job's work
+// that failed.
+const deadLetteredTaskPrefix = "clustarr.work.transcode.task."
 
 // Condition reasons local to TranscodeJob.
 const (
@@ -84,45 +96,56 @@ const (
 	ReasonWaiting         = "Waiting"
 	ReasonSourceChanged   = "SourceChanged"
 	ReasonPlanError       = "PlanError"
-	ReasonJobCreated      = "JobCreated"
-	ReasonJobDeleted      = "JobDeleted"
 	ReasonJobSucceeded    = "JobSucceeded"
 	ReasonJobFailed       = "JobFailed"
 	ReasonWorkerVerified  = "WorkerVerified"
 )
 
 // Reconciler drives a TranscodeJob Pending -> Planned -> Queued -> Running ->
-// Succeeded|Failed, or straight to Skipped, and runs the slot scheduler.
-// Field manager: k8s.ManagerSquasharr, and only the controller half of
-// TranscodeJob.status (squasharr/status.ControllerFields). See doc.go.
+// Succeeded|Failed, or straight to Skipped, and runs the slot scheduler. It
+// plans, admits and dispatches; the worker status events its results
+// consumer (results.go) reads move a dispatched job on. Field manager:
+// k8s.ManagerSquasharr, all of TranscodeJob.status, through one
+// compare-and-swap write (write.go). See doc.go.
 type Reconciler struct {
-	// Client reads TranscodeJobs, TranscodeProfiles and MediaFiles (cached
-	// under a manager) and writes Jobs and status.
+	// Client reads TranscodeProfiles and MediaFiles (cached under a
+	// manager) and writes status.
 	Client client.Client
 
-	// Reader reads batch Jobs for admission and phase mirroring. Under a
-	// manager this must be mgr.GetAPIReader(): the slot count has to see a
-	// Job this controller unsuspended a moment ago, and a cache lagging by
-	// one event would admit past the budget -- exactly the failure ADR-0005
-	// warns about. Nil means Client.
+	// Reader reads every TranscodeJob this controller writes and the
+	// TranscodeJobs admission counts. Under a manager it must be
+	// mgr.GetAPIReader(): a status write is conditional on the
+	// resourceVersion it was read at, so a cached read would conflict on
+	// every write the cache has not caught up with, and the slot count has
+	// to see a job dispatched a moment ago (ADR-0005). Nil means Client.
 	Reader client.Reader
 
 	// Slots is the per-hardware budget, squasharr.Options.Slots.
 	Slots map[string]int32
 
-	// Job is the deployment-level half of every Job this creates.
-	Job JobConfig
+	// Pool is the deployment-level half of every pool Job (Task 11 renders
+	// them).
+	Pool pool.Config
 
 	// Recorder emits a Kubernetes Event on the TranscodeJob for each
 	// lifecycle edge (events.go). Nil records none.
 	Recorder k8sevents.EventRecorder
 
-	// Bus publishes clustarr.evt.transcode.job.<action> (§5) for each edge
-	// §5 names (events.go). Nil publishes none.
+	// Bus publishes each dispatched job's task and the
+	// clustarr.evt.transcode.job.<action> history (§5), and the results
+	// consumer subscribes squasharr-transcode-results on it.
 	Bus events.Bus
+
+	// Leases is clustarr-transcode-leases, where withdrawal writes its
+	// cancel markers (Task 12).
+	Leases events.KV
 
 	// Now is the clock. Nil means time.Now.
 	Now func() time.Time
+
+	// wake carries the results consumer's admission wake to the
+	// controller (SetupWithManager); nil outside a manager.
+	wake chan event.GenericEvent
 }
 
 func (r *Reconciler) now() metav1.Time {
@@ -151,35 +174,42 @@ func terminal(p transcodev1alpha1.TranscodeJobPhase) bool {
 
 // Reconcile advances one TranscodeJob, then runs one admission pass.
 //
-// Every status write is ONE apply of a status seeded from the live object
+// The job is read fresh, through Reader (ruling R2), and every status write
+// is ONE compare-and-swap apply (patchCAS) of a status seeded from that read
 // (desired := tj.Status.DeepCopy()), mutated by whichever phase steps ran,
 // and rendered once at the end -- on the error path too. So a transient
-// failure half way through (the apiserver refusing a Job create, a Get that
-// times out) still declares every field this manager owns, carrying forward
-// what was there, rather than applying a partial status that releases the
-// plan, jobRef and timestamps of a healthy job. That is the single most
-// repeated bug in this project; the shape makes it structural here rather
-// than something each early return has to remember.
+// failure half way through still declares every field this manager owns,
+// carrying forward what was there, rather than applying a partial status
+// that releases the plan, jobRef and timestamps of a healthy job. And a
+// result event that landed since the read makes the write conflict instead
+// of being rolled back: the Conflict is returned, and the retry reads again.
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
 	ctx, span := tracing.Start(ctx, "transcodejob.Reconciler.Reconcile")
 	defer span.End()
 
+	if req.NamespacedName == admissionRequest {
+		if err := r.admit(ctx); err != nil {
+			tracing.RecordError(span, err)
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
 	var tj transcodev1alpha1.TranscodeJob
-	if err := r.Client.Get(ctx, req.NamespacedName, &tj); err != nil {
+	if err := r.reader().Get(ctx, req.NamespacedName, &tj); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if k8s.IsDeleting(&tj) {
 		return ctrl.Result{}, nil
 	}
 	if terminal(tj.Status.Phase) {
-		// A finished job's Job is TTL-collected by Kubernetes, and nothing
-		// about the transcode changes once the phase is terminal -- except
-		// the DLQ projector's annotation, which lands mostly on FINISHED
-		// jobs (their succeeded/failed/skipped events are what reach the
-		// history consumer). apply folds it and writes only if that changed
-		// the conditions, from a seed of the live status, so every other
-		// field is re-declared as it stands.
-		return ctrl.Result{}, r.apply(ctx, &tj, tj.Status.DeepCopy())
+		// Nothing about the transcode changes once the phase is terminal --
+		// except the DLQ projector's annotation, which lands mostly on
+		// FINISHED jobs (their succeeded/failed/skipped events are what
+		// reach the history consumer). write folds it and writes only if
+		// that changed the conditions, from a seed of the live status, so
+		// every other field is re-declared as it stands.
+		return ctrl.Result{}, r.write(ctx, &tj, tj.Status.DeepCopy())
 	}
 
 	desired := tj.Status.DeepCopy()
@@ -193,48 +223,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		tracing.RecordError(span, stepErr)
 		desired.Message = "reconcile error: " + stepErr.Error()
 	}
-
-	// Ruling R9: a job that ran and just finished is observed into the
-	// transcode metrics exactly once. The object above came from the cache,
-	// which can lag this controller's own terminal write by an event; a
-	// fresh read decides whether this pass is the transition, and supplies
-	// the worker's status.result as it is now.
-	var finished *transcodev1alpha1.TranscodeJob
-	if stepErr == nil && ranToCompletion(desired) {
-		var fresh transcodev1alpha1.TranscodeJob
-		if err := r.reader().Get(ctx, req.NamespacedName, &fresh); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-		if terminal(fresh.Status.Phase) {
-			return ctrl.Result{}, nil // an earlier pass already made (and counted) the transition
-		}
-		finished = &fresh
-	}
-
-	// History for the edges this pass crossed, published before the apply
-	// that records them (see publishJobEvents for why before, and why best
-	// effort); the Kubernetes Events follow the apply.
-	edges := transitions(&tj.Status, desired)
-	var result *transcodev1alpha1.Result
-	if finished != nil {
-		result = finished.Status.Result
-	}
-	r.publishJobEvents(ctx, &tj, desired, result, edges)
-
-	if err := r.apply(ctx, &tj, desired); err != nil {
+	if err := r.write(ctx, &tj, desired); err != nil {
+		tracing.RecordError(span, err)
 		return ctrl.Result{}, errors.Join(stepErr, err)
 	}
-	r.recordEvents(&tj, edges)
 	if stepErr != nil {
 		return ctrl.Result{}, stepErr
 	}
-	if finished != nil {
-		r.observeFinished(ctx, finished, desired)
-	}
 
 	// Admission runs after this job's status has landed, on every
-	// non-terminal pass -- including the one that just moved this job to
-	// Succeeded or Failed, which is the pass that freed a slot.
+	// non-terminal pass -- including the one that just made this job
+	// Planned, which dispatches it when a slot is free.
 	if err := r.admit(ctx); err != nil {
 		tracing.RecordError(span, err)
 		return ctrl.Result{}, err
@@ -242,8 +241,67 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	return res, nil
 }
 
+// write is Reconcile's status write: the dead-letter fold, nothing at all
+// when that leaves the status as read, else patchCAS against the
+// resourceVersion tj was read at, then afterWrite for the edges it crossed.
+func (r *Reconciler) write(ctx context.Context, tj *transcodev1alpha1.TranscodeJob, desired *transcodev1alpha1.TranscodeJobStatus) error {
+	k8s.MarkDeadLettered(tj, &desired.Conditions)
+	if equality.Semantic.DeepEqual(tj.Status, *desired) {
+		return nil
+	}
+	before := *tj.Status.DeepCopy()
+	if err := r.patchCAS(ctx, tj, desired); err != nil {
+		return err
+	}
+	after := tj.DeepCopy()
+	after.Status = *desired
+	r.afterWrite(ctx, after, &before)
+	return nil
+}
+
+// afterWrite runs once a status write has landed, whichever path made it:
+// the history and Kubernetes Events for each edge before -> after crossed,
+// and, on the write that finished a job that ran, the transcode metrics.
+//
+// It is called only after the write, never before: every write is
+// conditional (patchCAS), and one that loses its race to the other path
+// never happened, so announcing its edges first would publish a transition
+// -- a "failed" the results consumer overtook with "succeeded" -- that the
+// object never made. The cost is an event lost to a crash between the write
+// and the publish; history is best effort, status is the record.
+//
+// before is the status the conditional write replaced, exactly: a second
+// writer seeded from the same read would have conflicted. So the terminal
+// edge, and the metrics observed on it (ruling R9), happen once per job.
+func (r *Reconciler) afterWrite(ctx context.Context, after *transcodev1alpha1.TranscodeJob, before *transcodev1alpha1.TranscodeJobStatus) {
+	edges := transitions(before, &after.Status)
+	r.publishJobEvents(ctx, after, &after.Status, after.Status.Result, edges)
+	r.recordEvents(after, edges)
+	if !terminal(before.Phase) && ranToCompletion(&after.Status) {
+		r.observeFinished(ctx, after, &after.Status)
+	}
+}
+
+// wakeAdmission asks the controller for one admission pass, without
+// blocking: a wake already pending covers this one.
+func (r *Reconciler) wakeAdmission() {
+	if r.wake == nil {
+		return
+	}
+	select {
+	case r.wake <- event.GenericEvent{Object: &transcodev1alpha1.TranscodeJob{}}:
+	default:
+	}
+}
+
 // advance runs as many phase steps as can complete in this pass, mutating
 // st. It never writes status itself.
+//
+//   - Pending is planned (plan).
+//   - Planned waits for admission, which dispatches it (admit, dispatch):
+//     until nextAttemptAt for a requeued job, else requeueQueued.
+//   - Queued and Running are moved on by worker status events (results.go);
+//     the pass only checks that their task was not dead-lettered.
 func (r *Reconciler) advance(ctx context.Context, tj *transcodev1alpha1.TranscodeJob, st *transcodev1alpha1.TranscodeJobStatus) (ctrl.Result, error) {
 	if st.Phase == transcodev1alpha1.TranscodeJobPhasePending {
 		res, err := r.plan(ctx, tj, st)
@@ -251,13 +309,51 @@ func (r *Reconciler) advance(ctx context.Context, tj *transcodev1alpha1.Transcod
 			return res, err
 		}
 	}
-	if st.Phase == transcodev1alpha1.TranscodeJobPhasePlanned || st.JobRef == nil {
-		res, err := r.ensureJob(ctx, tj, st)
-		if err != nil || st.Phase != transcodev1alpha1.TranscodeJobPhaseQueued {
-			return res, err
+	switch st.Phase {
+	case transcodev1alpha1.TranscodeJobPhasePlanned:
+		if st.Plan == nil {
+			// Only reachable for an object whose status was hand-edited;
+			// plan again rather than guess a hardware class.
+			st.Phase = transcodev1alpha1.TranscodeJobPhasePending
+			return ctrl.Result{RequeueAfter: time.Second}, nil
 		}
+		if st.NextAttemptAt != nil {
+			if wait := st.NextAttemptAt.Sub(r.now().Time); wait > 0 {
+				return ctrl.Result{RequeueAfter: wait}, nil
+			}
+		}
+		return ctrl.Result{RequeueAfter: requeueQueued}, nil
+	case transcodev1alpha1.TranscodeJobPhaseQueued, transcodev1alpha1.TranscodeJobPhaseRunning:
+		if subject, ok := deadLetteredTask(tj); ok {
+			// The queue gave up on the task (spec §13, §18.3): no worker will
+			// report on it, so nothing else would ever move the job on.
+			now := r.now().Time
+			applyDecision(tj, st, task.StatusEvent{At: now}, Decision{
+				Phase: transcodev1alpha1.TranscodeJobPhaseFailed, Block: true, Reason: string(task.ReasonDeadLettered),
+				Message: fmt.Sprintf("the task was dead-lettered after its last delivery (%s)", subject),
+			}, now)
+			return ctrl.Result{}, nil
+		}
+		return ctrl.Result{RequeueAfter: requeueQueued}, nil
 	}
-	return r.observe(ctx, tj, st)
+	return ctrl.Result{}, nil
+}
+
+// deadLetteredTask reports whether tj carries the DLQ projector's annotation
+// for one of its own tasks, and that task's subject.
+func deadLetteredTask(tj *transcodev1alpha1.TranscodeJob) (string, bool) {
+	v, ok := tj.Annotations[k8s.AnnotationDeadLettered]
+	if !ok {
+		return "", false
+	}
+	subject := v
+	if i := strings.LastIndex(v, "@"); i >= 0 {
+		subject = v[:i]
+	}
+	if !strings.HasPrefix(subject, deadLetteredTaskPrefix) || !strings.HasSuffix(subject, "."+string(tj.UID)) {
+		return "", false
+	}
+	return subject, true
 }
 
 // plan is Pending -> Planned, or -> Skipped/Failed for a decision not to
@@ -373,215 +469,72 @@ func (r *Reconciler) plan(ctx context.Context, tj *transcodev1alpha1.TranscodeJo
 	return ctrl.Result{}, nil
 }
 
-// ensureJob is Planned -> Queued: create the suspended Job, create-if-absent
-// by deterministic name. It also recreates a Job that vanished while the
-// TranscodeJob was still Queued (deleted by hand before it ever ran).
-func (r *Reconciler) ensureJob(ctx context.Context, tj *transcodev1alpha1.TranscodeJob, st *transcodev1alpha1.TranscodeJobStatus) (ctrl.Result, error) {
-	ctx, span := tracing.Start(ctx, "transcodejob.Reconciler.ensureJob")
-	defer span.End()
-
-	if st.Plan == nil {
-		// Only reachable for an object whose status was hand-edited; plan
-		// again rather than guess a hardware class.
-		st.Phase = transcodev1alpha1.TranscodeJobPhasePending
-		return ctrl.Result{RequeueAfter: time.Second}, nil
-	}
-	profile, ok, err := r.profile(ctx, tj)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if !ok {
-		st.Message = fmt.Sprintf("waiting for TranscodeProfile %s", tj.Spec.ProfileRef)
-		return ctrl.Result{RequeueAfter: requeueWaiting}, nil
-	}
-
-	hardware := hardwareForEncoder(st.Plan.Encoder)
-	cfg := r.Job
-	cfg.TraceParent = worker.TraceParent(ctx) // the worker's spans continue this reconcile's trace
-	job := buildJob(tj, profile, hardware, cfg)
-	if err := k8s.SetControllerReference(tj, job, r.Client.Scheme()); err != nil {
-		return ctrl.Result{}, fmt.Errorf("transcodejob: owner reference: %w", err)
-	}
-	if err := r.Client.Create(ctx, job, client.FieldOwner(k8s.ManagerSquasharr.String())); err != nil {
-		if !apierrors.IsAlreadyExists(err) {
-			return ctrl.Result{}, fmt.Errorf("transcodejob: create Job %s: %w", job.Name, err)
-		}
-		var existing batchv1.Job
-		if err := r.reader().Get(ctx, client.ObjectKeyFromObject(job), &existing); err != nil {
-			return ctrl.Result{}, fmt.Errorf("transcodejob: get existing Job %s: %w", job.Name, err)
-		}
-		if !metav1.IsControlledBy(&existing, tj) {
-			return ctrl.Result{}, reconcile.TerminalError(
-				fmt.Errorf("transcodejob: Job %s/%s exists and is not controlled by this TranscodeJob", job.Namespace, job.Name))
-		}
-	}
-
-	st.Phase = transcodev1alpha1.TranscodeJobPhaseQueued
-	st.JobRef = ptr.To(job.Name)
-	st.Message = fmt.Sprintf("queued for a %s slot", hardware)
-	k8s.MarkTrue(tj, &st.Conditions, transcodev1alpha1.TranscodeJobConditionJobCreated, ReasonJobCreated,
-		"Job %s created suspended", job.Name)
-	return ctrl.Result{RequeueAfter: requeueQueued}, nil
-}
-
-// observe mirrors the Job into phase: Queued while suspended, Running once
-// unsuspended, Succeeded/Failed from the Job's terminal condition. It also
-// honours spec.suspend, the user's pause.
-func (r *Reconciler) observe(ctx context.Context, tj *transcodev1alpha1.TranscodeJob, st *transcodev1alpha1.TranscodeJobStatus) (ctrl.Result, error) {
-	ctx, span := tracing.Start(ctx, "transcodejob.Reconciler.observe")
-	defer span.End()
-
-	var job batchv1.Job
-	if err := r.reader().Get(ctx, types.NamespacedName{Namespace: tj.Namespace, Name: *st.JobRef}, &job); err != nil {
-		if !apierrors.IsNotFound(err) {
-			return ctrl.Result{}, fmt.Errorf("transcodejob: get Job %s: %w", *st.JobRef, err)
-		}
-		if st.Phase == transcodev1alpha1.TranscodeJobPhaseQueued {
-			// Never started: recreating it loses nothing.
-			return r.ensureJob(ctx, tj, st)
-		}
-		r.fail(tj, st, ReasonJobDeleted, "Job %s was deleted while the transcode was %s", *st.JobRef, st.Phase)
-		return ctrl.Result{}, nil
-	}
-
-	if n := job.Status.Failed + job.Status.Succeeded + job.Status.Active; n > st.Attempts {
-		st.Attempts = n
-	}
-
-	if done, ok, cond := jobFinished(&job); done {
-		finished := r.now()
-		if job.Status.CompletionTime != nil {
-			finished = *job.Status.CompletionTime
-		} else if !cond.LastTransitionTime.IsZero() {
-			finished = cond.LastTransitionTime
-		}
-		st.FinishedAt = &finished
-		if ok {
-			st.Phase = transcodev1alpha1.TranscodeJobPhaseSucceeded
-			st.Message = "transcode succeeded"
-			// The worker exits 0 only after Verifier.Verify passed and the
-			// swap completed, so a Complete Job is a verified one.
-			k8s.MarkTrue(tj, &st.Conditions, transcodev1alpha1.TranscodeJobConditionVerified, ReasonWorkerVerified,
-				"the worker verified the output before exiting 0")
-			k8s.MarkTrue(tj, &st.Conditions, transcodev1alpha1.TranscodeJobConditionSucceeded, ReasonJobSucceeded,
-				"Job %s completed", job.Name)
-			return ctrl.Result{}, nil
-		}
-		reason := cond.Reason
-		if reason == "" {
-			reason = ReasonJobFailed
-		}
-		st.Phase = transcodev1alpha1.TranscodeJobPhaseFailed
-		st.Message = fmt.Sprintf("Job %s failed: %s", job.Name, strings.TrimSpace(reason+": "+cond.Message))
-		k8s.MarkTrue(tj, &st.Conditions, transcodev1alpha1.TranscodeJobConditionFailed, reason, "Job %s failed: %s", job.Name, cond.Message)
-		return ctrl.Result{}, nil
-	}
-
-	userSuspended := tj.Spec.Suspend != nil && *tj.Spec.Suspend
-	if userSuspended && !jobSuspended(&job) {
-		if err := r.setSuspend(ctx, &job, true); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-	if userSuspended || jobSuspended(&job) {
-		st.Phase = transcodev1alpha1.TranscodeJobPhaseQueued
-		st.Message = fmt.Sprintf("queued for a %s slot", job.Labels[LabelHardware])
-		if userSuspended {
-			st.Message = "paused by spec.suspend"
-		}
-		return ctrl.Result{RequeueAfter: requeueQueued}, nil
-	}
-
-	st.Phase = transcodev1alpha1.TranscodeJobPhaseRunning
-	st.Message = fmt.Sprintf("running on a %s slot", job.Labels[LabelHardware])
-	if st.StartedAt == nil {
-		started := r.now()
-		if job.Status.StartTime != nil {
-			started = *job.Status.StartTime
-		}
-		st.StartedAt = &started
-	}
-	return ctrl.Result{}, nil
-}
-
-// admit is one pass of the slot scheduler: every suspended, unfinished
-// squasharr Job whose TranscodeJob is not paused competes, under [Admit],
-// for the slots the unsuspended, unfinished ones leave free.
+// admit is one pass of the slot scheduler: every Planned job that is not
+// paused, deleting or waiting out its nextAttemptAt competes, under
+// [Admit], for the slots the dispatched (Queued or Running) jobs leave free,
+// and each one admitted is dispatched.
 //
-// Jobs are read through Reader (uncached) so the running count includes a
-// Job unsuspended by the previous pass even if the informer has not caught
-// up; with MaxConcurrentReconciles pinned to 1 in SetupWithManager, that
-// makes over-admission impossible from inside one process.
+// TranscodeJobs are listed through Reader (uncached) so the count includes a
+// job the previous pass dispatched even if the informer has not caught up;
+// with MaxConcurrentReconciles pinned to 1 in SetupWithManager, and the
+// results consumer's wake routed through the same queue, that makes
+// over-admission impossible from inside one process.
 func (r *Reconciler) admit(ctx context.Context) error {
 	ctx, span := tracing.Start(ctx, "transcodejob.Reconciler.admit")
 	defer span.End()
 	log := logging.FromContext(ctx)
 
-	var jobs batchv1.JobList
-	if err := r.reader().List(ctx, &jobs, client.MatchingLabels{LabelManagedBy: ManagedByValue}); err != nil {
-		return fmt.Errorf("transcodejob: list Jobs: %w", err)
-	}
 	var tjs transcodev1alpha1.TranscodeJobList
-	if err := r.Client.List(ctx, &tjs); err != nil {
+	if err := r.reader().List(ctx, &tjs); err != nil {
 		return fmt.Errorf("transcodejob: list TranscodeJobs: %w", err)
 	}
 	var profiles transcodev1alpha1.TranscodeProfileList
 	if err := r.Client.List(ctx, &profiles); err != nil {
 		return fmt.Errorf("transcodejob: list TranscodeProfiles: %w", err)
 	}
-
-	owners := make(map[types.UID]*transcodev1alpha1.TranscodeJob, len(tjs.Items))
-	for i := range tjs.Items {
-		owners[tjs.Items[i].UID] = &tjs.Items[i]
+	byName := make(map[string]*transcodev1alpha1.TranscodeProfile, len(profiles.Items))
+	for i := range profiles.Items {
+		byName[profiles.Items[i].Name] = &profiles.Items[i]
 	}
-	profilePriority := make(map[string]int32, len(profiles.Items))
-	for _, p := range profiles.Items {
-		profilePriority[p.Name] = p.Spec.Priority
-	}
-	limits := profileLimits(profiles.Items)
 
+	now := r.now().Time
 	var queued, running []Slot
-	byKey := map[string]*batchv1.Job{}
-	for i := range jobs.Items {
-		job := &jobs.Items[i]
-		if done, _, _ := jobFinished(job); done || !job.DeletionTimestamp.IsZero() {
-			continue
+	for i := range tjs.Items {
+		tj := &tjs.Items[i]
+		key := tj.Namespace + "/" + tj.Name
+		switch {
+		case dispatched(tj.Status.Phase):
+			running = append(running, Slot{Key: key, Hardware: string(tj.Status.Hardware), Profile: tj.Spec.ProfileRef})
+		case tj.Status.Phase == transcodev1alpha1.TranscodeJobPhasePlanned:
+			if k8s.IsDeleting(tj) || (tj.Spec.Suspend != nil && *tj.Spec.Suspend) ||
+				(tj.Status.NextAttemptAt != nil && tj.Status.NextAttemptAt.After(now)) {
+				continue
+			}
+			tp, ok := byName[tj.Spec.ProfileRef]
+			if !ok {
+				continue
+			}
+			slot := Slot{
+				Key: key, Hardware: string(r.classFor(tj, tp)), Profile: tj.Spec.ProfileRef,
+				Priority: tj.Spec.Priority, Created: tj.CreationTimestamp.Time,
+			}
+			if slot.Priority == 0 {
+				slot.Priority = tp.Spec.Priority
+			}
+			queued = append(queued, slot)
 		}
-		slot := Slot{Hardware: job.Labels[LabelHardware], Profile: job.Annotations[AnnotationProfile]}
-		if !jobSuspended(job) {
-			slot.Key = job.Namespace + "/" + job.Name
-			running = append(running, slot)
-			continue
-		}
-		ref := metav1.GetControllerOf(job)
-		if ref == nil {
-			continue
-		}
-		owner, ok := owners[ref.UID]
-		if !ok || terminal(owner.Status.Phase) || (owner.Spec.Suspend != nil && *owner.Spec.Suspend) {
-			continue
-		}
-		slot.Key = owner.Namespace + "/" + owner.Name
-		slot.Priority = owner.Spec.Priority
-		if slot.Priority == 0 {
-			slot.Priority = profilePriority[owner.Spec.ProfileRef]
-		}
-		slot.Created = owner.CreationTimestamp.Time
-		queued = append(queued, slot)
-		byKey[slot.Key] = job
 	}
 
-	admitted := Admit(queued, running, Budget{Slots: r.Slots, ProfileLimits: limits})
+	admitted := Admit(queued, running, Budget{Slots: r.Slots, ProfileLimits: profileLimits(profiles.Items)})
 	setActive(r.Slots, running, admitted)
 	var errs []error
 	for _, s := range admitted {
-		job := byKey[s.Key]
-		if err := r.setSuspend(ctx, job, false); err != nil {
+		ns, name, _ := strings.Cut(s.Key, "/")
+		if err := r.dispatch(ctx, types.NamespacedName{Namespace: ns, Name: name}, transcodev1alpha1.Hardware(s.Hardware)); err != nil {
 			errs = append(errs, err)
 			continue
 		}
-		log.Info("admitted transcode", "transcodeJob", s.Key, "job", job.Name, "hardware", s.Hardware,
-			"priority", s.Priority)
+		log.Info("dispatched transcode", "transcodeJob", s.Key, "hardware", s.Hardware, "priority", s.Priority)
 	}
 	return errors.Join(errs...)
 }
@@ -597,19 +550,6 @@ func profileLimits(profiles []transcodev1alpha1.TranscodeProfile) map[string]int
 		}
 	}
 	return out
-}
-
-// setSuspend flips spec.suspend on a Job with a merge patch of that one
-// field. Not server-side apply: an apply configuration holding only
-// spec.suspend would, under the manager that created the Job, release the
-// whole pod template it no longer declares.
-func (r *Reconciler) setSuspend(ctx context.Context, job *batchv1.Job, suspend bool) error {
-	orig := job.DeepCopy()
-	job.Spec.Suspend = ptr.To(suspend)
-	if err := r.Client.Patch(ctx, job, client.MergeFrom(orig), client.FieldOwner(k8s.ManagerSquasharr.String())); err != nil {
-		return fmt.Errorf("transcodejob: set suspend=%t on Job %s/%s: %w", suspend, job.Namespace, job.Name, err)
-	}
-	return nil
 }
 
 // profile returns the job's TranscodeProfile, reporting false if it does not
@@ -641,61 +581,6 @@ func (r *Reconciler) fail(tj *transcodev1alpha1.TranscodeJob, st *transcodev1alp
 	k8s.MarkTrue(tj, &st.Conditions, transcodev1alpha1.TranscodeJobConditionFailed, reason, "%s", st.Message)
 }
 
-// controllerView is the part of a status this manager owns, for the
-// "anything to write?" comparison.
-func controllerView(st transcodev1alpha1.TranscodeJobStatus) transcodev1alpha1.TranscodeJobStatus {
-	st.Progress, st.Result, st.StderrTail = nil, nil, ""
-	return st
-}
-
-// apply writes desired as ONE complete ControllerFields declaration. The
-// seed is desired itself -- the live status plus this pass's changes -- so
-// every field this manager owns is sent whichever path got here.
-// Conditions are rendered once, in full: squasharr/status seeds none of
-// them, and the generated WithConditions appends.
-//
-// It is also the one place the DLQ projector's annotation is folded into
-// the conditions (pkg/k8s.MarkDeadLettered): DeadLettered=True while the
-// object carries clustarr.io/dead-lettered, absent once it does not. Every
-// path that writes status comes through here, so no apply can release the
-// condition another one set.
-func (r *Reconciler) apply(ctx context.Context, tj *transcodev1alpha1.TranscodeJob, desired *transcodev1alpha1.TranscodeJobStatus) error {
-	k8s.MarkDeadLettered(tj, &desired.Conditions)
-	if equality.Semantic.DeepEqual(controllerView(tj.Status), controllerView(*desired)) {
-		return nil
-	}
-	sort.SliceStable(desired.Conditions, func(i, j int) bool { return desired.Conditions[i].Type < desired.Conditions[j].Type })
-	seed := tj.DeepCopy()
-	seed.Status = *desired
-	return squasharrstatus.Patch(ctx, r.Client, k8s.ManagerSquasharr, seed,
-		func(ac *transcodeac.TranscodeJobStatusApplyConfiguration) {
-			if len(desired.Conditions) > 0 {
-				ac.WithConditions(k8s.ConditionACs(desired.Conditions)...)
-			}
-		})
-}
-
-// jobSignal is what, on an owned Job, is worth waking for: the suspend flag
-// (admission flipped it), the pod counters and the terminal conditions.
-// Job status is written by the Job controller, never by this reconciler, so
-// a generation predicate would never fire on it -- the D2-8a trap.
-func jobSignal(o client.Object) string {
-	j, ok := o.(*batchv1.Job)
-	if !ok {
-		return ""
-	}
-	var conds []string
-	for _, c := range j.Status.Conditions {
-		if c.Status == "True" {
-			conds = append(conds, string(c.Type))
-		}
-	}
-	sort.Strings(conds)
-	return fmt.Sprintf("suspend=%t active=%d failed=%d succeeded=%d started=%t conds=%s",
-		jobSuspended(j), j.Status.Active, j.Status.Failed, j.Status.Succeeded, j.Status.StartTime != nil,
-		strings.Join(conds, ","))
-}
-
 // profileSignal wakes Pending jobs when their profile's hash first lands
 // (or changes).
 func profileSignal(o client.Object) string {
@@ -718,8 +603,9 @@ func mediaFileSignal(o client.Object) string {
 // create and spec change (GenerationChanged), plus the DLQ projector's
 // annotation appearing, changing or being removed, which touches neither
 // generation nor status (DeadLetteredAnnotationChanged). NOT its own status:
-// the worker writes progress every ~10s and that is none of this
-// controller's business.
+// the results consumer writes progress every ~10s per running job, and what
+// the reconciler needs from those writes -- a freed slot -- it gets from the
+// consumer's admission wake instead.
 func transcodeJobPredicate() predicate.Predicate {
 	return k8s.Or(k8s.GenerationChanged(), k8s.DeadLetteredAnnotationChanged())
 }
@@ -729,17 +615,19 @@ func transcodeJobPredicate() predicate.Predicate {
 // What wakes it, and why each is needed:
 //   - TranscodeJob create and spec change (spec.suspend, spec.priority), and
 //     the DLQ projector's annotation ([transcodeJobPredicate]).
-//   - An owned Job's suspend flag, pod counters or terminal conditions
-//     ([jobSignal]). The Job controller writes those as status, which never
-//     moves metadata.generation, so a generation predicate here would leave
-//     every TranscodeJob stuck in Running forever.
 //   - A TranscodeProfile's spec or status.hash ([profileSignal]), mapped to
 //     its non-terminal jobs, for a job Pending on the hash.
 //   - A MediaFile's probe ([mediaFileSignal]), mapped to its non-terminal
 //     jobs, for a job Pending on the probe.
+//   - The results consumer's admission wake (results.go), when a job leaves
+//     Queued or Running: one admission pass, [admissionRequest].
+//
+// Worker status events are not a watch: they arrive through the results
+// consumer, a separate runnable (ResultsConsumer) the caller adds to the
+// manager.
 //
 // MaxConcurrentReconciles is pinned to 1: admission counts slots then
-// unsuspends, and two concurrent passes could both see the same free slot.
+// dispatches, and two concurrent passes could both see the same free slot.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	idx := mgr.GetFieldIndexer()
 	if err := idx.IndexField(context.Background(), &transcodev1alpha1.TranscodeJob{}, indexMediaFileRef,
@@ -761,16 +649,20 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 
+	r.wake = make(chan event.GenericEvent, 1)
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("transcodejob").
 		For(&transcodev1alpha1.TranscodeJob{}, builder.WithPredicates(transcodeJobPredicate())).
-		Owns(&batchv1.Job{}, builder.WithPredicates(k8s.StatusFieldChanged(jobSignal))).
 		Watches(&transcodev1alpha1.TranscodeProfile{},
 			handler.EnqueueRequestsFromMapFunc(r.mapIndexed(indexProfileRef, false)),
 			builder.WithPredicates(k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(profileSignal)))).
 		Watches(&catalogv1alpha1.MediaFile{},
 			handler.EnqueueRequestsFromMapFunc(r.mapIndexed(indexMediaFileRef, true)),
 			builder.WithPredicates(k8s.StatusFieldChanged(mediaFileSignal))).
+		WatchesRawSource(source.Channel(r.wake, handler.EnqueueRequestsFromMapFunc(
+			func(context.Context, client.Object) []reconcile.Request {
+				return []reconcile.Request{{NamespacedName: admissionRequest}}
+			}))).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 1}).
 		Complete(r)
 }

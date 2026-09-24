@@ -451,8 +451,8 @@ func TestSquasharrWorkerSettingsComeFromTheEnvironment(t *testing.T) {
 // the flag, from $CLUSTARR_INTEL_RENDER_GROUPS (which the chart sets), empty
 // by default because the host render GID varies per install, and a typo
 // refused at startup rather than at every Job's pod creation.
-// squasharr's TestJobConfigCarriesTheControllerOptions holds the next link,
-// Options to the Job.
+// squasharr's TestPoolConfigCarriesTheControllerOptions holds the next link,
+// Options to the pool.
 func TestSquasharrIntelRenderGroups(t *testing.T) {
 	got := stub(t, &runSquasharr)
 	if _, err := execute(t, "squasharr", "--namespace", "clustarr", "--worker-image", "m:1",

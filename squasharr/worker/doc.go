@@ -19,13 +19,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // it never talks to Kubernetes (spec §9) -- every input it needs is resolved
 // onto the task by [BuildTask] before Process is ever called, and every
 // output (progress, the result, stderr) comes back on the returned Outcome
-// for the caller to do something with. In this transitional phase the only
-// caller is `clustarr squasharr --role worker --job <name>`
-// (squasharr/run.go's runWorkerJob, removed in Task 10 of
-// docs/superpowers/plans/2026-09-23-transcode-worker-pools.md), which reads
-// the TranscodeJob/TranscodeProfile/MediaFile/RootFolders BuildTask needs and
-// applies the worker's status fields from Outcome; a pool worker (Task 6)
-// will be the next.
+// for the caller to do something with. The caller is [Serve], the pool
+// worker loop cmd/squasharr-worker runs, which reports each Outcome to
+// squasharr as a finished status event (spec §18.1).
 //
 // # Sequence
 //
@@ -135,13 +131,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // This package writes none: [Process] reads and writes files only, and
 // reports progress, the result and stderr on the returned Outcome (and, for
-// progress, through [Options.OnProgress] as it happens). The transitional
-// in-cluster caller (runWorkerJob, squasharr/run.go) is what applies
-// squasharr/status.WorkerFields -- progress, result and stderrTail -- under
-// k8s.ManagerSquasharrWorker, always through squasharr/status.Patch, always
-// from a freshly read object; status.progress is the record there. The 1 Hz
-// telemetry in clustarr-progress is best effort for UIs, needs no RBAC, and
-// a worker without a bus (Phase E ruling R6: none is required) writes none.
+// progress, through [Options.OnProgress] as it happens). [Serve] publishes
+// them as status events on squasharr-transcode-results, and squasharr --
+// the only writer of TranscodeJob.status -- records them. The 1 Hz
+// telemetry in clustarr-progress is best effort for UIs and needs no RBAC.
 //
 // # RBAC: these markers are the Job pod's whole Role
 //

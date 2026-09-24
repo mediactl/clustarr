@@ -20,6 +20,7 @@ package transcodejob
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
 
@@ -32,8 +33,8 @@ import (
 	"github.com/mediactl/clustarr/pkg/version"
 )
 
-// ReasonStarted is the Event reason for a job whose Job was admitted to a
-// slot and started running.
+// ReasonStarted is the Event reason for a job a pool worker claimed and
+// started encoding.
 const ReasonStarted = "Started"
 
 // transition is one edge a reconcile moved a TranscodeJob across, as both
@@ -46,15 +47,17 @@ type transition struct {
 	message   string
 }
 
-// transitions lists the edges between the status this reconcile read (old)
-// and the one it is about to apply (st), in lifecycle order. Each is keyed
-// on the field that records it, so a level re-run over unchanged state finds
-// none:
+// transitions lists the edges between the status a write replaced (old) and
+// the one it wrote (st), in lifecycle order. Each is keyed on the field that
+// records it, so a level re-run over unchanged state finds none:
 //
 //   - planned:   phase left Pending with a plan (Planned=True)
 //   - skipped:   phase became Skipped (§5 "skipped")
-//   - queued:    jobRef was set -- the suspended Job was created (§5 "queued")
-//   - started:   startedAt was set -- the Job was admitted (§5 "started")
+//   - queued:    attempts increased -- a task was dispatched (§5 "queued"),
+//     once per attempt
+//   - started:   startedAt was set -- a worker claimed the job (§5 "started")
+//   - requeued:  a dispatched job went back to Planned (a Warning Event; §5
+//     has no action for it)
 //   - succeeded: phase became Succeeded (§5 "succeeded")
 //   - failed:    phase became Failed (§5 "failed")
 func transitions(old, st *transcodev1alpha1.TranscodeJobStatus) []transition {
@@ -74,20 +77,24 @@ func transitions(old, st *transcodev1alpha1.TranscodeJobStatus) []transition {
 			action: events.ActionSkipped, eventType: corev1.EventTypeNormal, reason: ReasonSkipped, message: st.Message,
 		})
 	}
-	if old.JobRef == nil && st.JobRef != nil {
+	if st.Attempts > old.Attempts {
 		out = append(out, transition{
-			action: events.ActionQueued, eventType: corev1.EventTypeNormal, reason: ReasonJobCreated,
-			message: fmt.Sprintf("created Job %s suspended; %s", *st.JobRef, st.Message),
+			action: events.ActionQueued, eventType: corev1.EventTypeNormal, reason: ReasonDispatched,
+			message: st.Message,
 		})
 	}
 	if old.StartedAt == nil && st.StartedAt != nil {
 		msg := "the encode started"
-		if st.JobRef != nil {
-			msg = fmt.Sprintf("Job %s was admitted to a slot and started", *st.JobRef)
+		if st.WorkerPod != "" {
+			msg = fmt.Sprintf("attempt %d was claimed by %s", st.Attempts, st.WorkerPod)
 		}
 		out = append(out, transition{
 			action: events.ActionStarted, eventType: corev1.EventTypeNormal, reason: ReasonStarted, message: msg,
 		})
+	}
+	if phaseBecame(transcodev1alpha1.TranscodeJobPhasePlanned) &&
+		(old.Phase == transcodev1alpha1.TranscodeJobPhaseQueued || old.Phase == transcodev1alpha1.TranscodeJobPhaseRunning) {
+		out = append(out, transition{eventType: corev1.EventTypeWarning, reason: ReasonRequeued, message: st.Message})
 	}
 	if phaseBecame(transcodev1alpha1.TranscodeJobPhaseSucceeded) {
 		out = append(out, transition{
@@ -112,18 +119,18 @@ func transitions(old, st *transcodev1alpha1.TranscodeJobStatus) []transition {
 // (catalogarr/history) turns into an Event and the DLQ projector resolves
 // back to this TranscodeJob. Until this, the subject had no producer.
 //
-// It runs on the reconcile that OBSERVES the edge, before the status apply
-// that records it, with an Envelope id of "<uid>:<action>" -- the shape
-// grabarr's DownloadEvent producer uses: a crash or a failed apply after the
-// publish re-observes the same edge next time and republishes the same id,
-// which the EVENTS stream's duplicate window absorbs. Publishing after the
-// apply would lose the event on exactly that crash instead.
+// It runs from afterWrite, once the conditional status write that records
+// the edge has landed (see afterWrite for why after, not before), with an
+// Envelope id of "<uid>:<action>" -- the shape grabarr's DownloadEvent
+// producer uses, so a re-announced edge dedups in the EVENTS stream's
+// duplicate window -- or "<uid>:queued:<attempt>", since a job is queued
+// once per dispatch.
 //
 // It is best effort. The event is history and status is the record, so a
 // lost event must not hold a transcode back. A nil Bus publishes nothing.
 //
-// result is the worker's status.result as read fresh for a job that just
-// finished, or nil; it supplies the output figures of a "succeeded".
+// result is the worker's status.result for a job that just finished, or
+// nil; it supplies the output figures of a "succeeded".
 func (r *Reconciler) publishJobEvents(ctx context.Context, tj *transcodev1alpha1.TranscodeJob,
 	st *transcodev1alpha1.TranscodeJobStatus, result *transcodev1alpha1.Result, edges []transition,
 ) {
@@ -178,8 +185,14 @@ func (r *Reconciler) publishJobEvent(ctx context.Context, tj *transcodev1alpha1.
 		log.Warn("transcodejob: could not encode the job event", "action", e.action, "error", err)
 		return
 	}
+	id := string(tj.UID) + ":" + e.action
+	if e.action == events.ActionQueued {
+		// One per dispatch: a requeued job's next attempt is a new edge,
+		// not a re-announcement for the duplicate window to absorb.
+		id += ":" + strconv.Itoa(int(st.Attempts))
+	}
 	env := &events.Envelope{
-		ID:     string(tj.UID) + ":" + e.action,
+		ID:     id,
 		Type:   "transcode.JobEvent",
 		Schema: schemaName,
 		Source: "squasharr-controller@" + version.String(),
@@ -194,7 +207,7 @@ func (r *Reconciler) publishJobEvent(ctx context.Context, tj *transcodev1alpha1.
 }
 
 // recordEvents emits each transition as a Kubernetes Event on the
-// TranscodeJob, after the status apply that recorded it landed, so
+// TranscodeJob, after the status write that recorded it landed, so
 // `kubectl describe transcodejob` tells the job's story. A nil Recorder
 // records nothing.
 func (r *Reconciler) recordEvents(tj *transcodev1alpha1.TranscodeJob, edges []transition) {

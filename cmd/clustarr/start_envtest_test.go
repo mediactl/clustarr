@@ -396,11 +396,9 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		// of work: the profile controller hashing a profile, and the job
 		// controller moving a TranscodeJob to Pending.
 		//
-		// The worker role is absent on purpose, not by omission: it is a
-		// Job pod's entrypoint, starts no manager and serves no probes (the
-		// Job has none), so it has no /readyz to reach. Its proof is that
-		// its exit code reaches the process --
-		// TestSquasharrWorkerExitCodeReachesTheProcess.
+		// There is no worker role: the pool pods run cmd/squasharr-worker,
+		// which starts no manager and serves no probes, and whose exit
+		// codes cmd/squasharr-worker's own tests hold to the process.
 		{
 			name: "squasharr/controller",
 			run: func(ctx context.Context, o k8s.Options) error {

@@ -260,10 +260,10 @@ type runner struct {
 // CheckFFmpeg verifies o.FFmpegPath and o.FFprobePath (and "ffprobe" on
 // PATH, which pkg/mediainfo.Probe always uses) are runnable. A missing
 // binary is retriable -- it is the image, not the task's inputs -- and a
-// caller that orchestrates around Process (runWorkerJob, squasharr/run.go;
-// a future pool worker) should call this before doing anything else, so a
-// missing binary is never misclassified by whatever its other setup (an
-// apiserver Get, a lease claim) happens to fail with first. [Process] also
+// caller that orchestrates around Process (cmd/squasharr-worker, before it
+// serves) should call this before doing anything else, so a missing binary
+// is never misclassified by whatever its other setup (a lease claim)
+// happens to fail with first. [Process] also
 // checks, so calling it here is an optimization, not a requirement for
 // correctness.
 func CheckFFmpeg(o Options) error {

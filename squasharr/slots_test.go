@@ -95,11 +95,17 @@ func TestFormatSlotsRoundTrips(t *testing.T) {
 }
 
 func TestRolesAndValidate(t *testing.T) {
-	if !RoleController.RunsControllers() || RoleWorker.RunsControllers() {
-		t.Error("only the controller role should run controllers")
+	if !RoleController.RunsControllers() {
+		t.Error("the controller role should run controllers")
+	}
+	if Role("worker").Valid() {
+		t.Error("--role worker is gone: the pools run cmd/squasharr-worker")
 	}
 	if Role("nonsense").Valid() {
 		t.Error("an unknown role reported valid")
+	}
+	if got := Roles(); len(got) != 1 || got[0] != RoleController {
+		t.Errorf("Roles() = %v, want only %s", got, RoleController)
 	}
 
 	o := DefaultOptions()
@@ -112,7 +118,7 @@ func TestRolesAndValidate(t *testing.T) {
 		t.Errorf("DefaultOptions lost the worker ServiceAccount or data claim: %+v", o)
 	}
 
-	// The controller stamps the worker image onto every Job it creates.
+	// The controller stamps the worker image onto every pool it creates.
 	o.WorkerImage = ""
 	if err := o.Validate(); err == nil {
 		t.Error("a controller without --worker-image was accepted")
@@ -120,29 +126,16 @@ func TestRolesAndValidate(t *testing.T) {
 	o.WorkerImage = "ghcr.io/mediactl/clustarr/media:dev"
 	o.WorkerServiceAccount = ""
 	if err := o.Validate(); err == nil {
-		t.Error("a controller without --worker-service-account was accepted; its Jobs would run as the namespace default")
+		t.Error("a controller without --worker-service-account was accepted; its pods would run as the namespace default")
 	}
 
-	// A worker is the entrypoint of one Job and has to know which.
+	// Tasks are dispatched on the bus: a controller without one could
+	// dispatch nothing.
 	o = DefaultOptions()
 	o.Namespace = "clustarr"
-	o.Role = RoleWorker
-	if err := o.Validate(); err == nil {
-		t.Error("a worker without --job was accepted")
-	}
-	o.JobName = "inception-abc1234567"
-	if err := o.Validate(); err != nil {
-		t.Errorf("a worker with --job was rejected: %v", err)
-	}
-
-	// Ruling R6: the worker needs no bus (it writes telemetry only when
-	// given one), so it must not demand one.
+	o.WorkerImage = "ghcr.io/mediactl/clustarr/media:dev"
 	o.NATSURL = ""
-	if err := o.Validate(); err != nil {
-		t.Errorf("a worker without --nats-url was rejected: %v", err)
-	}
-	o.Namespace = ""
 	if err := o.Validate(); err == nil {
-		t.Error("a worker with no namespace was accepted; it could not name its TranscodeJob")
+		t.Error("a controller without --nats-url was accepted")
 	}
 }

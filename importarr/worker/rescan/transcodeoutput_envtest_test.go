@@ -38,7 +38,7 @@ import (
 )
 
 // finishedJob creates a TranscodeJob for mediaFile that ended in phase,
-// having written output, as squasharr's worker reports it.
+// having written output, as squasharr records it.
 func finishedJob(t *testing.T, ctx context.Context, f *fixture, name, mediaFile, source, output string,
 	phase transcodev1alpha1.TranscodeJobPhase,
 ) {
@@ -47,7 +47,7 @@ func finishedJob(t *testing.T, ctx context.Context, f *fixture, name, mediaFile,
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: f.ns},
 		Spec:       transcodev1alpha1.TranscodeJobSpec{MediaFileRef: mediaFile, ProfileRef: "hevc-1080p", SourcePath: source},
 	}))
-	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerSquasharrWorker, transcodeac.TranscodeJob(name, f.ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerSquasharr, transcodeac.TranscodeJob(name, f.ns).WithStatus(
 		transcodeac.TranscodeJobStatus().WithPhase(phase).WithResult(transcodeac.Result().WithOutputPath(output))))
 	require.NoError(t, err)
 	waitFor(t, 10*time.Second, func() bool {

@@ -32,17 +32,16 @@ import (
 	"github.com/mediactl/clustarr/squasharr/status"
 )
 
-// The TranscodeJob split, restated as data so that a field added to
-// TranscodeJobStatus later cannot quietly belong to nobody. Mirrors
-// grabarr/status/split_test.go's controllerOwned/engineOwned pair.
-var (
-	jobControllerOwned = []string{
-		"ObservedGeneration", "Phase", "Plan", "JobRef", "Attempts",
-		"StartedAt", "FinishedAt", "Message", "Conditions",
-		"WorkerPod", "Hardware", "FallbackReason", "NextAttemptAt",
-	}
-	jobWorkerOwned = []string{"Progress", "Result", "StderrTail"}
-)
+// What squasharr owns on TranscodeJob.status -- all of it, since the pools
+// report on the results stream instead of writing the object (spec §18.2) --
+// restated as data so that a field added to TranscodeJobStatus later cannot
+// quietly go unsent by [status.ControllerFields].
+var jobControllerOwned = []string{
+	"ObservedGeneration", "Phase", "Plan", "JobRef", "Attempts",
+	"StartedAt", "FinishedAt", "Message", "Conditions",
+	"WorkerPod", "Hardware", "FallbackReason", "NextAttemptAt",
+	"Progress", "Result", "StderrTail",
+}
 
 // TranscodeProfile has exactly one writer, so there is no split to restate --
 // but the field list is still worth asserting complete, so a field added
@@ -133,35 +132,29 @@ func setFields(ac any) []string {
 	return out
 }
 
-// Every field of TranscodeJobStatus must be accounted for by exactly one of
-// jobControllerOwned or jobWorkerOwned. Without this, a field added to the
-// CRD later would be owned by nobody: no writer sends it, so it can never be
-// released, and the defect is invisible until someone notices the field is
-// always empty -- or, worse, a later task adds it to BOTH declarations and
-// each apply starts deleting the other's value.
+// Every field of TranscodeJobStatus must be in jobControllerOwned. Without
+// this, a field added to the CRD later would be owned by nobody: no writer
+// sends it, so it can never be released, and the defect is invisible until
+// someone notices the field is always empty.
 func TestEveryTranscodeJobStatusFieldIsAccountedFor(t *testing.T) {
 	typ := reflect.TypeOf(transcodev1alpha1.TranscodeJobStatus{})
 
 	claimed := map[string]int{}
-	for _, list := range [][]string{jobControllerOwned, jobWorkerOwned} {
-		for _, name := range list {
-			claimed[name]++
-		}
+	for _, name := range jobControllerOwned {
+		claimed[name]++
 	}
 
 	for i := range typ.NumField() {
 		name := typ.Field(i).Name
 		assert.Equalf(t, 1, claimed[name],
-			"TranscodeJobStatus.%s is claimed by %d of {squasharr, squasharr-worker}; "+
-				"it must be exactly one", name, claimed[name])
+			"TranscodeJobStatus.%s is claimed %d times by squasharr; it must be exactly once", name, claimed[name])
 	}
 	for name := range claimed {
 		_, ok := typ.FieldByName(name)
-		assert.Truef(t, ok, "%s is claimed by the split but is not a field of TranscodeJobStatus", name)
+		assert.Truef(t, ok, "%s is claimed by squasharr but is not a field of TranscodeJobStatus", name)
 	}
-	require.Len(t, jobControllerOwned, 13)
-	require.Len(t, jobWorkerOwned, 3)
-	assert.Equal(t, typ.NumField(), len(jobControllerOwned)+len(jobWorkerOwned))
+	require.Len(t, jobControllerOwned, 16)
+	assert.Equal(t, typ.NumField(), len(jobControllerOwned))
 }
 
 // Every field of TranscodeProfileStatus must be in profileOwned. There is
@@ -202,35 +195,8 @@ func TestControllerFieldsDeclaresExactlyItsOwnSet(t *testing.T) {
 	assert.Equal(t, want, got)
 }
 
-// WorkerFields must declare its whole set and nothing else -- in particular
-// not any of the controller's fields, even though the worker is the thing
-// actually running the encode the controller planned.
-func TestWorkerFieldsDeclaresExactlyItsOwnSet(t *testing.T) {
-	got := setFields(status.WorkerFields(fullJobStatus()))
-
-	want := append([]string(nil), jobWorkerOwned...)
-	sort.Strings(want)
-
-	assert.Equal(t, want, got)
-}
-
-// The two TranscodeJob halves must not overlap. An overlap would not fail
-// loudly at runtime: pkg/k8s.PatchStatus applies with ForceOwnership, so the
-// apiserver transfers a contested field in silence and the losing manager's
-// next apply simply takes it back.
-func TestTheTwoJobDeclarationsAreDisjoint(t *testing.T) {
-	st := fullJobStatus()
-	worker := map[string]bool{}
-	for _, n := range setFields(status.WorkerFields(st)) {
-		worker[n] = true
-	}
-	for _, n := range setFields(status.ControllerFields(st)) {
-		assert.Falsef(t, worker[n], "%s is declared by BOTH squasharr and squasharr-worker", n)
-	}
-}
-
 // ProfileFields must declare its whole set and nothing else. Conditions is
-// the same documented exception as the TranscodeJob halves.
+// the same documented exception as ControllerFields'.
 func TestProfileFieldsDeclaresExactlyItsOwnSet(t *testing.T) {
 	got := setFields(status.ProfileFields(fullProfileStatus()))
 

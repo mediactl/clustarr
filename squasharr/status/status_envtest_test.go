@@ -30,6 +30,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -83,17 +84,19 @@ func newTranscodeProfile(t *testing.T, ctx context.Context, c client.Client, nam
 
 // This is the test the TranscodeJob half of this package exists for.
 //
-// TranscodeJob.status has two writers. Server-side apply replaces a field
-// manager's ownership set on every apply, so if the controller and the
-// worker did not have disjoint, completely-declared sets, each apply would
-// release the other's fields -- and nothing would log it, because
-// pkg/k8s.PatchStatus applies with ForceOwnership and the apiserver never
-// reports a conflict.
+// squasharr owns all of TranscodeJob.status, and server-side apply replaces
+// a manager's ownership set on every apply, so [status.ControllerFields]
+// must re-declare every field on every write -- the reconciler's AND the
+// results consumer's -- or a write that changes one field releases the
+// others. progress, result and stderrTail are the fields most at risk: until
+// the pools, a separate worker manager owned them, and a renderer that still
+// left them out would zero the encode's progress on every reconcile.
 //
-// The object is driven to a populated steady state FIRST, by both writers,
-// before either applies again. A test that starts from a blank object cannot
-// observe a release, because there is nothing to release.
-func TestTheTwoJobManagersDoNotReleaseEachOthersFields(t *testing.T) {
+// The object is driven to a populated steady state FIRST, every field set,
+// before any apply that changes only one of them. A test that starts from a
+// blank object cannot observe a release, because there is nothing to
+// release.
+func TestTheJobDeclarationIsComplete(t *testing.T) {
 	c := newTestClient(t)
 	ctx := context.Background()
 
@@ -105,7 +108,7 @@ func TestTheTwoJobManagersDoNotReleaseEachOthersFields(t *testing.T) {
 	now := metav1.NewTime(time.Now().UTC().Truncate(time.Second))
 	jobRef := "split-a1b2c3d4"
 
-	// Steady state: the controller's thirteen fields.
+	// Steady state: every field squasharr owns.
 	require.NoError(t, status.Patch(ctx, c, k8s.ManagerSquasharr, tj,
 		func(ac *transcodeac.TranscodeJobStatusApplyConfiguration) {
 			ac.WithObservedGeneration(1).
@@ -124,90 +127,80 @@ func TestTheTwoJobManagersDoNotReleaseEachOthersFields(t *testing.T) {
 				WithHardware(transcodev1alpha1.HardwareNVIDIA).
 				WithFallbackReason("gpuBusy: no free nvidia slot").
 				WithNextAttemptAt(now).
+				WithProgress(transcodeac.Progress().
+					WithPercent(42).
+					WithFrame(1200).
+					WithFPSMilli(23976).
+					WithSpeedMilli(1500).
+					WithOutTimeMillis(60000).
+					WithBitrateKbps(4500).
+					WithUpdatedAt(now)).
+				WithResult(transcodeac.Result().
+					WithOutputPath("/data/movies/Arrival (2016)/Arrival.2016.1080p.mkv").
+					WithOutputSizeBytes(4 << 30).
+					WithOutputToSourcePercent(45).
+					WithVMAFCentis(9542)).
+				WithStderrTail("frame=1200 fps=24 speed=1.5x").
 				WithConditions(k8s.ConditionAC(metav1.Condition{
 					Type: transcodev1alpha1.TranscodeJobConditionJobCreated, Status: metav1.ConditionTrue,
 					Reason: "JobCreated", LastTransitionTime: now, ObservedGeneration: 1,
 				}))
 		}))
 
-	// Steady state: the worker's three fields.
-	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(tj), tj))
-	require.NoError(t, status.Patch(ctx, c, k8s.ManagerSquasharrWorker, tj,
-		func(ac *transcodeac.TranscodeJobStatusApplyConfiguration) {
-			ac.WithProgress(transcodeac.Progress().
-				WithPercent(42).
-				WithFrame(1200).
-				WithFPSMilli(23976).
-				WithSpeedMilli(1500).
-				WithOutTimeMillis(60000).
-				WithBitrateKbps(4500).
-				WithUpdatedAt(now)).
-				WithResult(transcodeac.Result().
-					WithOutputPath("/data/movies/Arrival (2016)/Arrival.2016.1080p.mkv").
-					WithOutputSizeBytes(4 << 30).
-					WithOutputToSourcePercent(45).
-					WithVMAFCentis(9542)).
-				WithStderrTail("frame=1200 fps=24 speed=1.5x")
-		}))
-
 	var seeded transcodev1alpha1.TranscodeJob
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(tj), &seeded))
-	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, seeded.Status.Phase, "setup: the controller half did not land")
-	require.NotNil(t, seeded.Status.Result, "setup: the worker half did not land")
-	require.EqualValues(t, 45, seeded.Status.Result.OutputToSourcePercent, "setup: the worker half did not land")
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, seeded.Status.Phase, "setup: the steady state did not land")
+	require.NotNil(t, seeded.Status.Result, "setup: the steady state did not land")
+	require.EqualValues(t, 45, seeded.Status.Result.OutputToSourcePercent, "setup: the steady state did not land")
 
-	// Now each manager applies again, changing only one of its own fields.
-	require.NoError(t, status.Patch(ctx, c, k8s.ManagerSquasharr, &seeded,
+	// Re-apply changing only observedGeneration and a condition's reason --
+	// the reconciler's kind of write -- through the CAS path both of
+	// squasharr's writers use.
+	require.NoError(t, status.PatchCAS(ctx, c, &seeded,
 		func(ac *transcodeac.TranscodeJobStatusApplyConfiguration) {
 			ac.WithObservedGeneration(2).WithConditions(k8s.ConditionAC(metav1.Condition{
 				Type: transcodev1alpha1.TranscodeJobConditionJobCreated, Status: metav1.ConditionTrue,
 				Reason: "StillCreated", LastTransitionTime: now, ObservedGeneration: 2,
 			}))
 		}))
+	var afterReconcile transcodev1alpha1.TranscodeJob
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(tj), &afterReconcile))
+	assertJobIntact(t, afterReconcile.Status, "a write that changed only observedGeneration")
+	assert.EqualValues(t, 2, afterReconcile.Status.ObservedGeneration, "the write's own field did not update")
 
-	var afterController transcodev1alpha1.TranscodeJob
-	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(tj), &afterController))
-	assertWorkerHalfIntact(t, afterController.Status, "the controller apply")
-
-	require.NoError(t, status.Patch(ctx, c, k8s.ManagerSquasharrWorker, &afterController,
+	// Re-apply changing only stderrTail -- the results consumer's kind of
+	// write -- with the conditions sent again, once, as every writer does.
+	afterReconcile.Status.StderrTail = "frame=2400 fps=24 speed=1.5x"
+	require.NoError(t, status.PatchCAS(ctx, c, &afterReconcile,
 		func(ac *transcodeac.TranscodeJobStatusApplyConfiguration) {
-			ac.WithStderrTail("frame=2400 fps=24 speed=1.5x")
+			ac.WithConditions(k8s.ConditionACs(afterReconcile.Status.Conditions)...)
 		}))
-
-	var afterWorker transcodev1alpha1.TranscodeJob
-	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(tj), &afterWorker))
-	assertControllerHalfIntact(t, afterWorker.Status, "the worker apply")
-	assert.Equal(t, "frame=2400 fps=24 speed=1.5x", afterWorker.Status.StderrTail, "the worker's own field did not update")
-
-	// And the half a manager owns must survive ITS OWN re-apply. This is the
-	// assertion grabarr/status's first version of this test lacked: it
-	// checked only that each manager left the OTHER's half alone, so a
-	// declaration that forgot one of its own fields passed cleanly while
-	// deleting it on every write.
-	assertWorkerHalfIntact(t, afterWorker.Status, "the worker's own re-apply")
-	assertControllerHalfIntact(t, afterController.Status, "the controller's own re-apply")
-	assert.EqualValues(t, 2, afterController.Status.ObservedGeneration, "the controller's own field did not update")
+	var afterEvent transcodev1alpha1.TranscodeJob
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(tj), &afterEvent))
+	assertJobIntact(t, afterEvent.Status, "a write that changed only stderrTail")
+	assert.Equal(t, "frame=2400 fps=24 speed=1.5x", afterEvent.Status.StderrTail, "the write's own field did not update")
 
 	// status.plan, status.progress and status.result are structs, and server-
 	// side apply tracks ownership per LEAF inside them rather than for the
 	// sub-object as a whole. A renderer that sent only one leaf would pass a
 	// NotNil check while silently releasing the others on every write.
-	if p := afterWorker.Status.Plan; assert.NotNil(t, p, "the controller apply released status.plan") {
+	if p := afterEvent.Status.Plan; assert.NotNil(t, p, "released status.plan") {
 		assert.Equal(t, "libx265", p.Encoder, "released plan.encoder")
 		assert.Equal(t, transcodev1alpha1.PlanModeTranscode, p.Mode, "released plan.mode")
 		assert.Equal(t, "hdr10", p.HDRMode, "released plan.hdrMode")
 		assert.Equal(t, []string{"-c:v", "libx265", "-crf", "22"}, p.VideoArgs, "released plan.videoArgs")
 		assert.Equal(t, "deadbeef", p.ArgsHash, "released plan.argsHash")
 	}
-	if pr := afterWorker.Status.Progress; assert.NotNil(t, pr, "the worker's own re-apply released status.progress") {
+	if pr := afterEvent.Status.Progress; assert.NotNil(t, pr, "released status.progress") {
 		assert.EqualValues(t, 42, pr.Percent, "released progress.percent")
 		assert.EqualValues(t, 1200, pr.Frame, "released progress.frame")
 		assert.EqualValues(t, 23976, pr.FPSMilli, "released progress.fpsMilli")
 		assert.EqualValues(t, 1500, pr.SpeedMilli, "released progress.speedMilli")
 		assert.EqualValues(t, 60000, pr.OutTimeMillis, "released progress.outTimeMillis")
 		assert.EqualValues(t, 4500, pr.BitrateKbps, "released progress.bitrateKbps")
+		assert.False(t, pr.UpdatedAt.IsZero(), "released progress.updatedAt")
 	}
-	if r := afterWorker.Status.Result; assert.NotNil(t, r, "the worker's own re-apply released status.result") {
+	if r := afterEvent.Status.Result; assert.NotNil(t, r, "released status.result") {
 		assert.Equal(t, "/data/movies/Arrival (2016)/Arrival.2016.1080p.mkv", r.OutputPath, "released result.outputPath")
 		assert.EqualValues(t, 4<<30, r.OutputSizeBytes, "released result.outputSizeBytes")
 		assert.EqualValues(t, 45, r.OutputToSourcePercent, "released result.outputToSourcePercent")
@@ -219,33 +212,18 @@ func TestTheTwoJobManagersDoNotReleaseEachOthersFields(t *testing.T) {
 	// Conditions is a listType=map too, and ControllerFields leaves it
 	// unseeded so the caller sets it exactly once. Re-applying with a
 	// changed reason must update the entry rather than duplicate or drop it.
-	if assert.Len(t, afterWorker.Status.Conditions, 1, "the conditions list did not survive") {
-		assert.Equal(t, "StillCreated", afterWorker.Status.Conditions[0].Reason)
+	if assert.Len(t, afterEvent.Status.Conditions, 1, "the conditions list did not survive") {
+		assert.Equal(t, "StillCreated", afterEvent.Status.Conditions[0].Reason)
 	}
 
-	// Finally, assert OWNERSHIP rather than values.
-	//
-	// Every assertion above compares what is on the object, and that class of
-	// assertion structurally cannot see an over-claim: if squasharr started
-	// declaring status.progress, server-side apply would hand the leaf over
-	// under ForceOwnership, the value would be identical, and nothing on the
-	// object would change. That is the co-owner false pass, and managedFields
-	// is the only place it is visible.
-	assertJobManagedFieldsSplit(t, &afterWorker)
+	// Finally, assert OWNERSHIP rather than values: managedFields is the only
+	// place an over-claim or a stray second manager is visible.
+	assertJobManagedFields(t, &afterEvent)
 }
 
-func assertWorkerHalfIntact(t *testing.T, st transcodev1alpha1.TranscodeJobStatus, who string) {
-	t.Helper()
-	if assert.NotNil(t, st.Progress, who+" released status.progress") {
-		assert.EqualValues(t, 42, st.Progress.Percent, who+" released progress.percent")
-	}
-	if assert.NotNil(t, st.Result, who+" released status.result") {
-		assert.EqualValues(t, 45, st.Result.OutputToSourcePercent, who+" released result.outputToSourcePercent")
-	}
-	assert.NotEmpty(t, st.StderrTail, who+" released stderrTail")
-}
-
-func assertControllerHalfIntact(t *testing.T, st transcodev1alpha1.TranscodeJobStatus, who string) {
+// assertJobIntact checks every field the steady state set survived a write
+// that did not mean to change it.
+func assertJobIntact(t *testing.T, st transcodev1alpha1.TranscodeJobStatus, who string) {
 	t.Helper()
 	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseRunning, st.Phase, who+" released phase")
 	assert.NotNil(t, st.Plan, who+" released plan")
@@ -260,49 +238,78 @@ func assertControllerHalfIntact(t *testing.T, st transcodev1alpha1.TranscodeJobS
 	assert.Equal(t, transcodev1alpha1.HardwareNVIDIA, st.Hardware, who+" released hardware")
 	assert.Equal(t, "gpuBusy: no free nvidia slot", st.FallbackReason, who+" released fallbackReason")
 	assert.NotNil(t, st.NextAttemptAt, who+" released nextAttemptAt")
+	if assert.NotNil(t, st.Progress, who+" released status.progress") {
+		assert.EqualValues(t, 42, st.Progress.Percent, who+" released progress.percent")
+	}
+	if assert.NotNil(t, st.Result, who+" released status.result") {
+		assert.EqualValues(t, 45, st.Result.OutputToSourcePercent, who+" released result.outputToSourcePercent")
+	}
+	assert.NotEmpty(t, st.StderrTail, who+" released stderrTail")
 }
 
-// assertJobManagedFieldsSplit reads the apiserver's own record of who owns
-// what and holds it to the declared split, leaf for leaf.
-func assertJobManagedFieldsSplit(t *testing.T, tj *transcodev1alpha1.TranscodeJob) {
+// assertJobManagedFields reads the apiserver's own record of who owns what
+// on TranscodeJob.status: squasharr, and only squasharr, owns exactly the
+// set it declares.
+func assertJobManagedFields(t *testing.T, tj *transcodev1alpha1.TranscodeJob) {
 	t.Helper()
 
-	// finishedAt is absent from the controller's half here because the job
-	// used in this test never leaves phase=Running -- a finishedAt would be
-	// a fabricated value, not something either apply in this test set. That
-	// is the field's documented absence (ControllerFields omits it while
-	// nil), not a release, so it is excluded from what an apply that never
-	// set it is expected to own. Compare grabarr/status's ETASeconds.
-	want := map[string][]string{
-		string(k8s.ManagerSquasharr):       without(jobControllerOwned, "FinishedAt"),
-		string(k8s.ManagerSquasharrWorker): jobWorkerOwned,
-	}
+	// finishedAt is absent here because the job in this test never leaves
+	// phase=Running -- a finishedAt would be a fabricated value, not
+	// something either apply set. That is the field's documented absence
+	// (ControllerFields omits it while nil), not a release.
+	want := jsonNames(transcodev1alpha1.TranscodeJobStatus{}, without(jobControllerOwned, "FinishedAt"))
 
-	seen := map[string]bool{}
+	var seen bool
 	for _, entry := range tj.ManagedFields {
 		if entry.Subresource != "status" || entry.FieldsV1 == nil {
 			continue
 		}
-		expected, ok := want[entry.Manager]
-		require.Truef(t, ok, "%q owns fields on TranscodeJob.status but is no part of the split", entry.Manager)
-		seen[entry.Manager] = true
+		require.Equalf(t, string(k8s.ManagerSquasharr), entry.Manager,
+			"%q owns fields on TranscodeJob.status; only squasharr may", entry.Manager)
+		seen = true
 
 		var fields map[string]any
 		require.NoError(t, json.Unmarshal(entry.FieldsV1.GetRawBytes(), &fields))
 		st, ok := fields["f:status"].(map[string]any)
-		require.Truef(t, ok, "%q has a status managedFields entry with no f:status", entry.Manager)
+		require.True(t, ok, "squasharr has a status managedFields entry with no f:status")
 
 		var got []string
 		for key := range st {
 			got = append(got, strings.TrimPrefix(key, "f:"))
 		}
 		sort.Strings(got)
-		assert.Equalf(t, jsonNames(transcodev1alpha1.TranscodeJobStatus{}, expected), got,
-			"the apiserver records %q as owning a different set than it declares", entry.Manager)
+		assert.Equal(t, want, got, "the apiserver records squasharr as owning a different set than it declares")
 	}
-	for manager := range want {
-		assert.Truef(t, seen[manager], "%q owns nothing on TranscodeJob.status; its apply never landed", manager)
-	}
+	assert.True(t, seen, "squasharr owns nothing on TranscodeJob.status; its apply never landed")
+}
+
+// PatchCAS is the lost-update guard of spec §18.2: a write seeded from a
+// read that another write has since overtaken must fail with a Conflict, not
+// roll that other write back.
+func TestPatchCASRejectsAStaleResourceVersion(t *testing.T) {
+	c := newTestClient(t)
+	ctx := context.Background()
+	const ns = "squasharr-status-cas"
+	require.NoError(t, client.IgnoreAlreadyExists(
+		c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})))
+	job := newTranscodeJob(t, ctx, c, ns, "cas")
+	stale := job.DeepCopy()
+
+	job.Status.Message = "first"
+	require.NoError(t, status.PatchCAS(ctx, c, job, nil))
+
+	stale.Status.Message = "second"
+	err := status.PatchCAS(ctx, c, stale, nil)
+	require.True(t, apierrors.IsConflict(err), "a stale write must conflict, got %v", err)
+
+	var got transcodev1alpha1.TranscodeJob
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(job), &got))
+	assert.Equal(t, "first", got.Status.Message, "the stale write must not have landed")
+
+	// Without a resourceVersion there is nothing to be conditional on, so
+	// PatchCAS refuses rather than silently applying unconditionally.
+	got.ResourceVersion = ""
+	require.ErrorContains(t, status.PatchCAS(ctx, c, &got, nil), "no resourceVersion")
 }
 
 // This is the test the TranscodeProfile half of this package exists for.
@@ -363,8 +370,8 @@ func TestTheProfileManagerDeclarationIsComplete(t *testing.T) {
 	assertProfileManagedFields(t, &after)
 }
 
-// assertProfileManagedFields is assertJobManagedFieldsSplit's counterpart for
-// the single-writer TranscodeProfile.
+// assertProfileManagedFields is assertJobManagedFields' counterpart for
+// TranscodeProfile.
 func assertProfileManagedFields(t *testing.T, tp *transcodev1alpha1.TranscodeProfile) {
 	t.Helper()
 
@@ -418,21 +425,21 @@ func jsonNames(typ any, goNames []string) []string {
 	return out
 }
 
-// A manager outside the split must be refused rather than allowed to claim
-// fields that neither half accounts for.
+// A manager other than squasharr must be refused rather than allowed to
+// claim fields -- the retired squasharr-worker manager included.
 func TestPatchRefusesAManagerOutsideTheSplit(t *testing.T) {
-	for _, mgr := range []k8s.FieldManager{k8s.ManagerCatalogarr, k8s.ManagerGrabarr, k8s.FieldManager("nonsense")} {
+	for _, mgr := range []k8s.FieldManager{
+		k8s.ManagerCatalogarr, k8s.ManagerGrabarr, k8s.FieldManager("squasharr-worker"), k8s.FieldManager("nonsense"),
+	} {
 		err := status.Patch(context.Background(), nil, mgr,
 			&transcodev1alpha1.TranscodeJob{ObjectMeta: metav1.ObjectMeta{Name: "x", Namespace: "y"}}, nil)
 		require.ErrorContains(t, err, "owns no part of TranscodeJob.status")
 	}
 }
 
-// PatchProfile must refuse every manager but k8s.ManagerSquasharr, including
-// k8s.ManagerSquasharrWorker -- TranscodeProfile has no worker-owned fields
-// at all.
+// PatchProfile must refuse every manager but k8s.ManagerSquasharr.
 func TestPatchProfileRefusesAManagerOutsideTheSplit(t *testing.T) {
-	for _, mgr := range []k8s.FieldManager{k8s.ManagerSquasharrWorker, k8s.ManagerCatalogarr, k8s.FieldManager("nonsense")} {
+	for _, mgr := range []k8s.FieldManager{k8s.ManagerSquasharrPool, k8s.ManagerCatalogarr, k8s.FieldManager("nonsense")} {
 		err := status.PatchProfile(context.Background(), nil, mgr,
 			&transcodev1alpha1.TranscodeProfile{ObjectMeta: metav1.ObjectMeta{Name: "x"}}, nil)
 		require.ErrorContains(t, err, "owns no part of TranscodeProfile.status")

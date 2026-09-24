@@ -28,16 +28,17 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/transcode"
+	"github.com/mediactl/clustarr/squasharr/controller/pool"
 	"github.com/mediactl/clustarr/squasharr/worker"
 )
 
@@ -45,9 +46,9 @@ import (
 // arguments [the controller] renders into status.plan may differ from the
 // worker's": for a real HDR10 source with mastering metadata, the
 // controller plans from the probe summary catalogarr stores, the worker's
-// own path (FromProbe of a live probe, ProbeCapabilities, ThreadsFromEnv
-// from the Downward API value, OutputPath) plans from the file, and the two
-// argv are the same -- status.plan.argsHash IS the hash of what the worker
+// own path (the task worker.BuildTask renders, FromProbe of a live probe,
+// ProbeCapabilities, ThreadsFromEnv from the pool template's value) plans
+// from the file, and the two argv are the same -- status.plan.argsHash IS the hash of what the worker
 // runs, HDR arguments and all, for an in-place job, a container change and
 // a kept source (whose .part is beside its own " - <profile>" name) alike.
 func TestStatusPlanIsTheArgvTheWorkerRenders(t *testing.T) {
@@ -112,23 +113,30 @@ func TestStatusPlanIsTheArgvTheWorkerRenders(t *testing.T) {
 			newTJ(t, c, ns, mfName, mf.Name, profile, "probe-"+name, func(tj *transcodev1alpha1.TranscodeJob) {
 				tj.Spec.SourcePath = src
 			})
-			reconcileTJ(t, newReconciler(c, map[string]int32{"cpu": 0}), ns, mfName)
+			reconcileTJ(t, newReconciler(t, c, map[string]int32{"cpu": 0}), ns, mfName)
 			tj := getTJ(t, c, ns, mfName)
 			require.NotNil(t, tj.Status.Plan, "message: %s", tj.Status.Message)
 			assert.Equal(t, "hdr10", tj.Status.Plan.HDRMode)
+			require.Equal(t, "libx265", tj.Status.Plan.Encoder)
+			class := transcodev1alpha1.HardwareCPU // the class a libx265 plan dispatches to
 
-			// The worker's own path, as squasharr/worker.Run takes it, with
-			// CLUSTARR_CPU_LIMIT as the Job the controller created delivers it.
-			t.Setenv(worker.CPULimitEnv, cpuLimitEnv(t, getJob(t, c, ns, *tj.Status.JobRef)))
+			// The worker's own inputs, as squasharr dispatches them: the task
+			// worker.BuildTask renders, and CLUSTARR_CPU_LIMIT as the class's
+			// pool template delivers it.
+			folders := []catalogv1alpha1.RootFolder{{Spec: catalogv1alpha1.RootFolderSpec{Path: dir}}}
+			tk, err := worker.BuildTask(tj, tp, mf, folders, 1, class)
+			require.NoError(t, err)
+			cfg := pool.Config{Image: "transcoder:test"}
+			t.Setenv(worker.CPULimitEnv, cpuLimitEnv(t, pool.Template(tp, class, cfg)))
+
+			// The worker's own path, as squasharr/worker.Process takes it.
 			info, err := transcode.FromProbe(mi, raw)
 			require.NoError(t, err)
 			info.Path = src
 			caps, err := transcode.ProbeCapabilities(ctx, "/usr/bin/ffmpeg")
 			require.NoError(t, err)
-			outPath, err := worker.OutputPath(tj.Spec, tp.Name, tp.Spec.Container, worker.ReplaceSource(tp.Spec.Policy))
-			require.NoError(t, err)
-			plan, err := transcode.Plan(info, worker.ProfileSpec(tp.Spec, tj.Spec.Hardware), caps, transcode.PlanMeta{
-				ProfileName: tp.Name, ProfileHash: "hash-" + name, Threads: worker.ThreadsFromEnv(), OutputPath: outPath,
+			plan, err := transcode.Plan(info, worker.ProfileSpec(tk.Profile.Spec, tk.Profile.Hardware), caps, transcode.PlanMeta{
+				ProfileName: tk.Profile.Name, ProfileHash: tk.Profile.Hash, Threads: worker.ThreadsFromEnv(), OutputPath: tk.OutputPath,
 			})
 			require.NoError(t, err)
 			require.Equal(t, transcode.DecisionEncode, plan.Decision)
@@ -140,14 +148,14 @@ func TestStatusPlanIsTheArgvTheWorkerRenders(t *testing.T) {
 	}
 }
 
-// cpuLimitEnv is worker.CPULimitEnv as the kubelet hands it to job's
+// cpuLimitEnv is worker.CPULimitEnv as the kubelet hands it to a pool pod's
 // container: a literal value as written, or the Downward API's limits.cpu
 // with divisor 1, which rounds up to whole cores. With no CPU limit the
 // Downward API would report the node's allocatable CPU, which no plan can
-// know -- so a Job without one must carry a literal.
-func cpuLimitEnv(t *testing.T, job *batchv1.Job) string {
+// know -- so a pool without one must carry a literal.
+func cpuLimitEnv(t *testing.T, tmpl corev1.PodTemplateSpec) string {
 	t.Helper()
-	ctr := job.Spec.Template.Spec.Containers[0]
+	ctr := tmpl.Spec.Containers[0]
 	for _, e := range ctr.Env {
 		if e.Name != worker.CPULimitEnv {
 			continue
@@ -161,6 +169,6 @@ func cpuLimitEnv(t *testing.T, job *batchv1.Job) string {
 		require.True(t, ok, "the Downward API is wired only when the container has a CPU limit")
 		return strconv.FormatInt((cpu.MilliValue()+999)/1000, 10)
 	}
-	t.Fatalf("job %s has no %s", job.Name, worker.CPULimitEnv)
+	t.Fatalf("the pool template has no %s", worker.CPULimitEnv)
 	return ""
 }

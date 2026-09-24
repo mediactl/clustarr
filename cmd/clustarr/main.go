@@ -25,13 +25,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 
 	ctrl "sigs.k8s.io/controller-runtime"
-
-	"github.com/mediactl/clustarr/squasharr"
 )
 
 func main() {
@@ -47,20 +44,7 @@ func main() {
 	}
 }
 
-// exitCode is the process exit status for an error from any subcommand: 1,
-// except for a squasharr transcode worker, whose code is the contract with
-// its Job's podFailurePolicy (Phase E ruling R4) and must reach the kubelet
-// unchanged. Exit 3 (invalid source) and 4 (verification failed) fail the
-// Job outright; a 1 in their place would be retried backoffLimit times,
-// re-transcoding a bad source for the same answer.
-//
-// It matches the concrete *squasharr.ExitError rather than any error with an
-// ExitCode method: *exec.ExitError has one too, and an ffmpeg exit status
-// wrapped somewhere in another service's error must not become clustarr's.
-func exitCode(err error) int {
-	var ee *squasharr.ExitError
-	if errors.As(err, &ee) && ee.Code > 0 {
-		return ee.Code
-	}
-	return 1
-}
+// exitCode is the process exit status for an error from any subcommand: 1.
+// The transcode worker, whose exit codes are a contract with its pool Job,
+// is its own binary (cmd/squasharr-worker) and does not come through here.
+func exitCode(error) int { return 1 }

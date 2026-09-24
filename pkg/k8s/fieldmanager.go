@@ -221,9 +221,6 @@ const (
 	// ManagerSquasharr is the squasharr controller manager.
 	ManagerSquasharr FieldManager = "squasharr"
 
-	// ManagerSquasharrWorker is a squasharr transcode Job pod.
-	ManagerSquasharrWorker FieldManager = "squasharr-worker"
-
 	// ManagerSquasharrPool is squasharr's transcode pool Jobs: the sole
 	// writer of their spec, including spec.scheduling.schedulingPolicy.gang.minCount.
 	ManagerSquasharrPool FieldManager = "squasharr-pool"
@@ -300,7 +297,6 @@ func FieldManagers() []FieldManager {
 		ManagerGrabarr,
 		ManagerGrabarrEngine,
 		ManagerSquasharr,
-		ManagerSquasharrWorker,
 		ManagerSquasharrPool,
 		ManagerCaptionarr,
 		ManagerCaptionarrWorker,

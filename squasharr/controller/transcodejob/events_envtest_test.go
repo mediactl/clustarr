@@ -31,15 +31,13 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	transcodeac "github.com/mediactl/clustarr/api/applyconfiguration/transcode/transcode/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
-	squasharrstatus "github.com/mediactl/clustarr/squasharr/status"
-	"github.com/mediactl/clustarr/squasharr/worker"
+	"github.com/mediactl/clustarr/squasharr/task"
 )
 
 type capturedJobEvent struct {
@@ -115,24 +113,25 @@ func reasonsOf(recorded []string) []string {
 }
 
 // TestJobEventsFollowTheLifecycle drives one TranscodeJob from creation to
-// Succeeded and proves the TranscodeJobSubject producer and the Kubernetes
-// Events: each edge reaches the real history consumer exactly once, on the
-// subject §5 names, with the job's identity and plan in the payload, the
-// success carries the worker's output figures, and a level re-run over
-// unchanged state -- including after the job is terminal -- publishes and
-// records nothing new.
+// Succeeded -- dispatch, then the pool worker's claimed and finished events
+// -- and proves the TranscodeJobSubject producer and the Kubernetes Events:
+// each edge reaches the real history consumer exactly once, on the subject
+// §5 names, with the job's identity and plan in the payload, the success
+// carries the worker's output figures, and a level re-run over unchanged
+// state -- including after the job is terminal -- publishes and records
+// nothing new.
 func TestJobEventsFollowTheLifecycle(t *testing.T) {
 	_, c := startEnv(t)
-	ctx := context.Background()
 	const ns = "tj-events"
 	newNamespace(t, c, ns)
+	newRootFolder(t, c, ns, "/data/media/movies")
 	newProfile(t, c, "hevc", "hash1", nil)
 	newMediaFile(t, c, ns, "arrival", "probe1", ptr.To(h264Probe()))
 	newTJ(t, c, ns, "arrival-hevc", "arrival", "hevc", "probe1", nil)
 
 	bus, captured := subscribeHistory(t)
 	rec := k8sevents.NewFakeRecorder(50)
-	r := newReconciler(c, map[string]int32{"cpu": 2})
+	r := newReconciler(t, c, map[string]int32{"cpu": 2})
 	r.Bus, r.Recorder = bus, rec
 	waitFor := func(n int) []capturedJobEvent {
 		require.Eventually(t, func() bool { return len(captured()) >= n }, 5*time.Second, 10*time.Millisecond,
@@ -140,25 +139,22 @@ func TestJobEventsFollowTheLifecycle(t *testing.T) {
 		return captured()
 	}
 
-	reconcileTJ(t, r, ns, "arrival-hevc") // plan, create the Job, admit
+	reconcileTJ(t, r, ns, "arrival-hevc") // plan, admit, dispatch
 	assert.Equal(t, []string{events.ActionQueued}, jobActions(waitFor(1)))
-	assert.Equal(t, []string{"Normal Planned", "Normal JobCreated"}, reasonsOf(drainRecorder(rec)))
+	assert.Equal(t, []string{"Normal Planned", "Normal Dispatched"}, reasonsOf(drainRecorder(rec)))
 
-	reconcileTJ(t, r, ns, "arrival-hevc") // mirrors the unsuspended Job: Running
-	reconcileTJ(t, r, ns, "arrival-hevc") // level re-run: nothing new
+	tj := getTJ(t, c, ns, "arrival-hevc")
+	require.NoError(t, deliver(t, r, tj, claimed(1, "pool-a"))) // Running
+	reconcileTJ(t, r, ns, "arrival-hevc")                       // level re-run: nothing new
 	assert.Equal(t, []string{events.ActionQueued, events.ActionStarted}, jobActions(waitFor(2)))
 	assert.Equal(t, []string{"Normal Started"}, reasonsOf(drainRecorder(rec)))
 
-	// The worker's result, as it writes it, then the Job completing.
-	tj := getTJ(t, c, ns, "arrival-hevc")
-	require.NoError(t, squasharrstatus.Patch(ctx, c, k8s.ManagerSquasharrWorker, tj,
-		func(ac *transcodeac.TranscodeJobStatusApplyConfiguration) {
-			ac.WithResult(transcodeac.Result().WithOutputPath("/data/movies/arrival.mkv").
-				WithOutputSizeBytes(1 << 30).WithOutputToSourcePercent(25))
-		}))
-	completeJob(t, c, ns, *tj.Status.JobRef)
-	reconcileTJ(t, r, ns, "arrival-hevc")
-	reconcileTJ(t, r, ns, "arrival-hevc") // terminal: nothing new
+	// The worker's finished report, with its result.
+	ev := finished(1, task.OutcomeSucceeded, "", "")
+	ev.Result = &transcodev1alpha1.Result{OutputPath: "/data/media/movies/arrival.mkv", OutputSizeBytes: 1 << 30, OutputToSourcePercent: 25}
+	require.NoError(t, deliver(t, r, tj, ev))
+	require.NoError(t, deliver(t, r, tj, ev)) // redelivered: nothing new
+	reconcileTJ(t, r, ns, "arrival-hevc")     // terminal: nothing new
 	got := waitFor(3)
 	require.Never(t, func() bool { return len(captured()) > 3 }, 300*time.Millisecond, 20*time.Millisecond,
 		"an edge is announced once: %v", jobActions(captured()))
@@ -168,17 +164,21 @@ func TestJobEventsFollowTheLifecycle(t *testing.T) {
 	live := getTJ(t, c, ns, "arrival-hevc")
 	for _, e := range got {
 		assert.Equal(t, events.TranscodeJobSubject(e.payload.Action, string(live.UID)), e.subject)
-		assert.Equal(t, string(live.UID)+":"+e.payload.Action, e.env.ID, "per-action id, so a re-observed edge dedups")
+		wantID := string(live.UID) + ":" + e.payload.Action
+		if e.payload.Action == events.ActionQueued {
+			wantID += ":1" // one per dispatch
+		}
+		assert.Equal(t, wantID, e.env.ID, "per-edge id, so a re-observed edge dedups")
 		assert.Equal(t, ns+"/arrival-hevc", e.env.Key)
 		assert.Equal(t, schema.Ref{Namespace: ns, Name: "arrival-hevc", UID: string(live.UID)}, e.payload.JobRef)
 		require.NotNil(t, e.payload.ProfileRef)
 		assert.Equal(t, "hevc", e.payload.ProfileRef.Name)
-		assert.Equal(t, "/data/movies/arrival.mkv", e.payload.InputPath)
+		assert.Equal(t, "/data/media/movies/arrival.mkv", e.payload.InputPath)
 		assert.Equal(t, "transcode", e.payload.Mode)
 		assert.Equal(t, "libx265", e.payload.Encoder)
 	}
 	succeeded := got[2].payload
-	assert.Equal(t, "/data/movies/arrival.mkv", succeeded.OutputPath)
+	assert.Equal(t, "/data/media/movies/arrival.mkv", succeeded.OutputPath)
 	assert.Equal(t, int64(1<<30), succeeded.OutputBytes)
 	assert.Equal(t, int32(75), succeeded.SavedPercent)
 }
@@ -198,7 +198,7 @@ func TestSkippedAndFailedEventsCarryTheReason(t *testing.T) {
 
 	bus, captured := subscribeHistory(t)
 	rec := k8sevents.NewFakeRecorder(50)
-	r := newReconciler(c, map[string]int32{"cpu": 2})
+	r := newReconciler(t, c, map[string]int32{"cpu": 2})
 	r.Bus, r.Recorder = bus, rec
 
 	reconcileTJ(t, r, ns, "done-hevc")
@@ -227,24 +227,27 @@ func TestSkippedAndFailedEventsCarryTheReason(t *testing.T) {
 // jobs -- their succeeded/failed/skipped events are what the history
 // consumer dead-letters -- so the fold is proved on a job already at
 // Succeeded, in steady state: the annotation adds DeadLettered=True and
-// changes nothing else, and removing it removes the condition. A queued
-// job folds it on its ordinary pass too.
+// changes nothing else, and removing it removes the condition. A job still
+// waiting, and one dispatched, fold it on their ordinary passes too -- and a
+// dead-lettered HISTORY event does not block a dispatched job: only its own
+// dead-lettered task does (TestADeadLetteredTaskBlocksTheJob).
 func TestDeadLetteredFoldsIntoTranscodeJobStatus(t *testing.T) {
 	_, c := startEnv(t)
 	ctx := context.Background()
 	const ns = "tj-dlq"
 	newNamespace(t, c, ns)
+	newRootFolder(t, c, ns, "/data/media/movies")
 	newProfile(t, c, "hevc", "hash1", nil)
 	newMediaFile(t, c, ns, "arrival", "probe1", ptr.To(h264Probe()))
 	newMediaFile(t, c, ns, "waiting", "probe2", ptr.To(h264Probe()))
 	newTJ(t, c, ns, "arrival-hevc", "arrival", "hevc", "probe1", nil)
 	newTJ(t, c, ns, "waiting-hevc", "waiting", "hevc", "probe2", nil)
 
-	r := newReconciler(c, map[string]int32{"cpu": 1})
+	r := newReconciler(t, c, map[string]int32{"cpu": 1})
 	reconcileTJ(t, r, ns, "arrival-hevc")
-	reconcileTJ(t, r, ns, "arrival-hevc")
-	completeJob(t, c, ns, *getTJ(t, c, ns, "arrival-hevc").Status.JobRef)
-	reconcileTJ(t, r, ns, "arrival-hevc")
+	arrival := getTJ(t, c, ns, "arrival-hevc")
+	require.NoError(t, deliver(t, r, arrival, claimed(1, "pool-a")))
+	require.NoError(t, deliver(t, r, arrival, finished(1, task.OutcomeSucceeded, "", "")))
 	steady := getTJ(t, c, ns, "arrival-hevc")
 	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseSucceeded, steady.Status.Phase)
 	require.Nil(t, k8s.FindCondition(steady.Status.Conditions, k8s.ConditionDeadLettered))
@@ -284,19 +287,28 @@ func TestDeadLetteredFoldsIntoTranscodeJobStatus(t *testing.T) {
 	assert.Nil(t, k8s.FindCondition(cleared.Status.Conditions, k8s.ConditionDeadLettered), "removing the annotation clears it")
 	assert.Equal(t, withoutDLQ(steady.Status), withoutDLQ(cleared.Status))
 
-	// A job still queued (no cpu slot at all) folds it on its own pass.
-	queueOnly := newReconciler(c, map[string]int32{"cpu": 0})
+	// A job still waiting (no cpu slot at all) folds it on its own pass.
+	queueOnly := newReconciler(t, c, map[string]int32{"cpu": 0})
 	reconcileTJ(t, queueOnly, ns, "waiting-hevc")
 	annotate("waiting-hevc", &v)
 	reconcileTJ(t, queueOnly, ns, "waiting-hevc")
 	waiting := getTJ(t, c, ns, "waiting-hevc")
-	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, waiting.Status.Phase)
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhasePlanned, waiting.Status.Phase)
 	assert.True(t, k8s.IsConditionTrue(waiting.Status.Conditions, k8s.ConditionDeadLettered))
-	assert.True(t, k8s.IsConditionTrue(waiting.Status.Conditions, transcodev1alpha1.TranscodeJobConditionJobCreated))
+	assert.True(t, k8s.IsConditionTrue(waiting.Status.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned))
+
+	// Dispatched, it keeps the fold -- and a dead-lettered history event is
+	// not its task: the job is not blocked.
+	reconcileTJ(t, r, ns, "waiting-hevc")
+	reconcileTJ(t, r, ns, "waiting-hevc")
+	dispatched := getTJ(t, c, ns, "waiting-hevc")
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, dispatched.Status.Phase)
+	assert.True(t, k8s.IsConditionTrue(dispatched.Status.Conditions, k8s.ConditionDeadLettered))
+	assert.Nil(t, k8s.FindCondition(dispatched.Status.Conditions, transcodev1alpha1.ConditionBlocked))
 }
 
 // assertConditionsOwnedBy checks status.conditions is claimed by manager on
-// metadata.managedFields -- the controller's, never the worker's.
+// metadata.managedFields.
 func assertConditionsOwnedBy(t *testing.T, obj client.Object, manager string) {
 	t.Helper()
 	for _, mf := range obj.GetManagedFields() {
@@ -310,11 +322,13 @@ func assertConditionsOwnedBy(t *testing.T, obj client.Object, manager string) {
 	t.Errorf("status.conditions is not owned by %s: %+v", manager, obj.GetManagedFields())
 }
 
-// TestJobCarriesTheReconcileTraceParent: with tracing set up as the binary
-// sets it up, the Job ensureJob creates carries the reconcile span's W3C
-// traceparent, which the worker continues (worker.ContextWithTraceParent) --
-// so an ffmpeg run's spans land in the trace of the reconcile that queued it.
-func TestJobCarriesTheReconcileTraceParent(t *testing.T) {
+// TestTheTaskCarriesTheReconcileTrace: with tracing set up as the binary
+// sets it up, the task dispatch publishes carries the reconcile's W3C
+// traceparent (Envelope.Trace, the Clustarr-Trace header), which the pool
+// worker continues -- so an ffmpeg run's spans land in the trace of the
+// reconcile that dispatched it, as the per-task Job's CLUSTARR_TRACEPARENT
+// once made them.
+func TestTheTaskCarriesTheReconcileTrace(t *testing.T) {
 	_, c := startEnv(t)
 	ctx := context.Background()
 	shutdown, err := tracing.Setup(ctx, tracing.Options{ServiceName: "squasharr-test", SampleRatio: 1})
@@ -323,17 +337,20 @@ func TestJobCarriesTheReconcileTraceParent(t *testing.T) {
 
 	const ns = "tj-trace"
 	newNamespace(t, c, ns)
-	newProfile(t, c, "hevc", "hash1", nil)
+	newRootFolder(t, c, ns, "/data/media/movies")
+	tp := newProfile(t, c, "hevc", "hash1", nil)
 	newMediaFile(t, c, ns, "arrival", "probe1", ptr.To(h264Probe()))
 	newTJ(t, c, ns, "arrival-hevc", "arrival", "hevc", "probe1", nil)
-	reconcileTJ(t, newReconciler(c, map[string]int32{"cpu": 0}), ns, "arrival-hevc")
+	r := newReconciler(t, c, map[string]int32{"cpu": 1})
+	reconcileTJ(t, r, ns, "arrival-hevc")
 
-	job := getJob(t, c, ns, *getTJ(t, c, ns, "arrival-hevc").Status.JobRef)
-	var tp string
-	for _, e := range job.Spec.Template.Spec.Containers[0].Env {
-		if e.Name == worker.TraceParentEnv {
-			tp = e.Value
-		}
-	}
-	assert.Regexp(t, `^00-[0-9a-f]{32}-[0-9a-f]{16}-01$`, tp, "the Job must carry the reconcile's sampled traceparent")
+	p, err := r.Bus.(events.PullSubscriber).Pull(ctx, events.TranscodeTaskConsumer(string(tp.UID), "cpu").Subscription())
+	require.NoError(t, err)
+	defer p.Stop()
+	within, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_, m, err := p.Next(within)
+	require.NoError(t, err)
+	assert.Regexp(t, `^00-[0-9a-f]{32}-[0-9a-f]{16}-01$`, m.Envelope().Trace,
+		"the task must carry the reconcile's sampled traceparent")
 }

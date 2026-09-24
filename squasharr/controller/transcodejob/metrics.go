@@ -28,16 +28,17 @@ import (
 )
 
 // Ruling R9: the controller owns the transcode metrics. The worker runs in a
-// Job pod that exits with nothing scraping it, so anything it sets is lost.
+// pool pod nothing scrapes for them, so anything it sets is lost.
 //
 // Every "tier" label here is the SLOT class -- cpu, nvidia or intel -- the
 // same three values --slots budgets, never an encoder or a title. The
 // resolution label is sd/hd/uhd, the same classes squasharr/worker uses.
 
-// setActive sets clustarr_transcode_jobs_active{tier} to the Jobs holding a
-// slot after this admission pass: those already running plus those just
-// admitted. Every budgeted class is set, so a class that drained to zero
-// reads 0 rather than keeping its last value.
+// setActive sets clustarr_transcode_jobs_active{tier} to the TranscodeJobs
+// holding a slot after this admission pass: those already dispatched
+// (Queued or Running) plus those just admitted. Every budgeted class is set,
+// so a class that drained to zero reads 0 rather than keeping its last
+// value.
 func setActive(slots map[string]int32, running, admitted []Slot) {
 	count := map[string]int{}
 	for hw := range slots {
@@ -57,10 +58,11 @@ func setActive(slots map[string]int32, running, admitted []Slot) {
 	}
 }
 
-// ranToCompletion reports whether st is a terminal phase reached by a Job
-// that actually ran -- Succeeded, or Failed after it started. Skipped jobs
-// and jobs that failed before ever running (source changed, plan error)
-// took no slot and encoded nothing, so they are not transcode observations.
+// ranToCompletion reports whether st is a terminal phase reached by a job
+// that actually ran -- Succeeded, or Failed after a worker claimed it.
+// Skipped jobs and jobs that failed before ever running (source changed,
+// plan error, blocked at dispatch) encoded nothing, so they are not
+// transcode observations.
 func ranToCompletion(st *transcodev1alpha1.TranscodeJobStatus) bool {
 	switch st.Phase {
 	case transcodev1alpha1.TranscodeJobPhaseSucceeded, transcodev1alpha1.TranscodeJobPhaseFailed:
@@ -70,11 +72,15 @@ func ranToCompletion(st *transcodev1alpha1.TranscodeJobStatus) bool {
 }
 
 // observeFinished records duration, speed ratio and size ratio for a job
-// that just finished. fresh is the TranscodeJob read uncached immediately
-// before the terminal apply -- its status.result is the worker's; st is the
-// controller's terminal status.
+// that just finished. fresh is the TranscodeJob as the terminal write left
+// it -- its status.result is the worker's report; st is that status.
 func (r *Reconciler) observeFinished(ctx context.Context, fresh *transcodev1alpha1.TranscodeJob, st *transcodev1alpha1.TranscodeJobStatus) {
-	tier := string(hardwareForEncoder(st.Plan.Encoder))
+	// The class the last attempt ran on: after a CPU fallback that is not
+	// the plan's GPU encoder's.
+	tier := string(st.Hardware)
+	if tier == "" {
+		tier = string(hardwareForEncoder(st.Plan.Encoder))
+	}
 	// Both timestamps are whole seconds once they have round-tripped the
 	// apiserver, so a very short job can read as zero; clamp rather than
 	// drop the observation.

@@ -24,33 +24,37 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // now is RELEASED, and a released field nobody else owns is deleted from the
 // object. That reads as "reset to zero" on the object. It took eight distinct
 // forms in Phase C and three more in D1, and the remedy that worked every
-// time was distinct managers with disjoint, completely-declared sets.
+// time was one complete declaration per manager.
 //
 // pkg/k8s.PatchStatus applies with ForceOwnership, so a genuine double-claim
 // does NOT surface as a conflict: the apiserver hands the field over in
 // silence. There is no loud failure waiting to catch a mistake here. The
-// split below is the only thing enforcing it.
+// declarations below are the only thing enforcing it.
 //
-// # TranscodeJob has two writers
+// # TranscodeJob has one writer, on two paths
 //
-// This package makes the split enforceable: the controller
-// (k8s.ManagerSquasharr) owns phase, plan, jobRef, attempts, the two
-// timestamps, message, conditions, observedGeneration, workerPod, hardware,
-// fallbackReason and nextAttemptAt -- everything that is a statement about
-// the JOB OBJECT, decided by something watching it (spec §18.6: the four
-// dispatch fields are controller-owned too, since the controller is what
-// records where and on what class a task was dispatched). The worker
-// (k8s.ManagerSquasharrWorker) owns progress, result and stderrTail --
-// everything that is an observation of the ENCODE ITSELF, which only the Job
-// pod running ffmpeg can produce. [ControllerFields] and [WorkerFields] are
-// the two complete declarations; [Patch] is the only way either is applied.
+// squasharr (k8s.ManagerSquasharr) owns ALL of TranscodeJob.status (spec
+// §18.2, §18.6): phase, plan, jobRef, attempts, the two timestamps,
+// message, conditions, observedGeneration, workerPod, hardware,
+// fallbackReason, nextAttemptAt -- and, since the transcode pools report on
+// the squasharr-transcode-results stream instead of writing the object,
+// progress, result and stderrTail too. No pool pod holds a Kubernetes
+// client; there is no worker manager any more.
+//
+// Two code paths inside squasharr write it: the TranscodeJob reconciler and
+// the results consumer that turns worker status events into status. Both
+// write through [PatchCAS] -- the one complete declaration, [ControllerFields],
+// applied conditional on the resourceVersion the status was read at -- so
+// when the two race, the loser's apply fails with a Conflict and is redone
+// from a fresh read, rather than silently rolling the winner's write back
+// (the lost update CLAUDE.md warns no release test can see). [Patch] is the
+// unconditional form, for callers with nothing to race.
 //
 // # TranscodeProfile has one writer
 //
-// Unlike TranscodeJob, TranscodeProfile.status has exactly one writer: the
-// squasharr controller, computing hash, matchingFiles, pendingJobs and
-// runningJobs on every reconcile. There is no second manager to release
-// fields out from under -- but [PatchProfile] still refuses every manager but
+// TranscodeProfile.status has exactly one writer too: the squasharr
+// controller, computing hash, matchingFiles, pendingJobs and runningJobs on
+// every reconcile. [PatchProfile] refuses every manager but
 // k8s.ManagerSquasharr, for the same reason grabarr/status.Patch refuses
 // k8s.ManagerImportarr even though it legitimately writes Download.status.import:
 // a write that belongs to a specific piece of code should be routed through
@@ -59,13 +63,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # One declaration per manager, not one per caller
 //
-// [ControllerFields], [WorkerFields] and [ProfileFields] are complete
-// declarations seeded from the live status, so an apply that changes one
-// field still re-sends the others. Callers mutate the seeded configuration
-// rather than building one, which is what makes the complete-declaration rule
-// enforceable in a single place.
+// [ControllerFields] and [ProfileFields] are complete declarations seeded
+// from the live status, so an apply that changes one field still re-sends
+// the others. Callers mutate the seeded configuration (or the status they
+// seed it from) rather than building one, which is what makes the
+// complete-declaration rule enforceable in a single place.
 //
-// All three deliberately do NOT seed Conditions. The generated WithConditions
+// Both deliberately do NOT seed Conditions. The generated WithConditions
 // APPENDS rather than replaces, so a seeded set plus the caller's set is
 // rejected outright with `duplicate entries for key [type="Planned"]`.
 // Conditions are set in exactly one place per apply: the caller's mutate.
@@ -75,25 +79,24 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // status.plan, status.progress and status.result are themselves structs, and
 // server-side apply tracks ownership per leaf inside them, not for the
 // sub-object as a whole -- the same hazard indexarr/status.capsAC exists to
-// avoid. [ControllerFields] and [WorkerFields] therefore render every field
-// of a non-nil Plan, Progress or Result through planAC, progressAC and
-// resultAC rather than only the leaves a particular reconcile happened to
-// compute, so a re-apply that changes only jobRef cannot silently zero half
-// of an already-decided plan.
+// avoid. [ControllerFields] therefore renders every field of a non-nil Plan,
+// Progress or Result through planAC, progressAC and resultAC rather than
+// only the leaves a particular write happened to compute, so a re-apply
+// that changes only jobRef cannot silently zero half of an already-decided
+// plan.
 //
 // # Hazards this package does not remove
 //
 //   - A lost update is not a release, and no release-regression test can see
-//     one. Any path that Gets an object, does slow work and then applies must
-//     re-Get immediately before the apply. The worker's progress loop, which
-//     patches at most every 10s while ffmpeg runs for hours, is exactly that
-//     shape (ruling from the Phase E plan's Global Constraints).
-//   - Two managers can CO-OWN a field. Server-side apply only needs force when
-//     their values differ, so while a second manager keeps applying the same
-//     value, a release by the first leaves the field standing and the bug is
-//     invisible. A release test that does not deliberately drop the co-owner
-//     reports a false pass. (Does not apply to TranscodeProfile today, since
-//     it has one writer -- but would apply the moment a second one is added.)
+//     one. [PatchCAS] turns it into a Conflict, but only for a caller that
+//     seeds it from a FRESH read: a status read before slow work carries an
+//     old resourceVersion and conflicts forever, and one read from a cache
+//     conflicts on every write the cache has not caught up with.
+//   - A manager can CO-OWN a field with another. Server-side apply only needs
+//     force when their values differ, so while a second manager keeps
+//     applying the same value, a release by the first leaves the field
+//     standing and the bug is invisible. A release test that does not
+//     deliberately drop the co-owner reports a false pass.
 package status
 
 import (
@@ -108,20 +111,21 @@ import (
 )
 
 // ControllerFields returns the complete set k8s.ManagerSquasharr owns on
-// TranscodeJob.status, seeded from the live status so that an apply which
-// changes one field still declares the other twelve.
+// TranscodeJob.status -- all of it but Conditions -- seeded from the live
+// status so that an apply which changes one field still declares the rest.
 //
-// observedGeneration, attempts, message, workerPod and fallbackReason are
-// sent unconditionally, even at their zero value: all five are always
-// computable by the reconciler on every pass (a freshly created job has
-// observed generation 0, zero attempts, no message, no worker pod yet and no
-// fallback reason yet, and each is a meaningful value in its own right, not
-// an absence). phase, plan, jobRef, startedAt, finishedAt and nextAttemptAt
-// are omitted while empty, and that is a property of the object's SHAPE: a
-// job that has not yet been planned has no plan, one that has not yet
-// started has no startedAt, and phase additionally could not be sent empty
-// -- it is a CRD enum that rejects "". Omitting one of these because THIS
-// reconcile could not compute it would be the outcome case, and that is the
+// observedGeneration, attempts, message, workerPod, fallbackReason and
+// stderrTail are sent unconditionally, even at their zero value: each is
+// always computable (a freshly created job has observed generation 0, zero
+// attempts, no message, no worker pod, no fallback reason and no stderr
+// yet, and each is a meaningful value in its own right, not an absence).
+// phase, plan, jobRef, startedAt, finishedAt, nextAttemptAt, progress and
+// result are omitted while empty, and that is a property of the object's
+// SHAPE: a job that has not yet been planned has no plan, one that has not
+// yet started has no startedAt, one not yet encoding has no progress, one
+// not yet finished has no result, and phase additionally could not be sent
+// empty -- it is a CRD enum that rejects "". Omitting one of these because
+// THIS write could not compute it would be the outcome case, and that is the
 // release bug.
 //
 // hardware joins phase in that exception rather than the unconditional
@@ -130,17 +134,18 @@ import (
 // as it rejects phase at "" -- a job dispatch has not chosen a class yet has
 // no hardware, not hardware="".
 //
-// To CLEAR a field rather than carry it forward, assign the apply
+// To CLEAR a field rather than carry it forward, clear it in the status the
+// seed is taken from (st.Progress = nil), or assign the apply
 // configuration's field directly (ac.JobRef = nil). A With* helper cannot
-// express "clear this", and the seed means omission by the caller is not a
-// clear either: it is "keep what is there".
+// express "clear this".
 func ControllerFields(st transcodev1alpha1.TranscodeJobStatus) *transcodeac.TranscodeJobStatusApplyConfiguration {
 	ac := transcodeac.TranscodeJobStatus().
 		WithObservedGeneration(st.ObservedGeneration).
 		WithAttempts(st.Attempts).
 		WithMessage(st.Message).
 		WithWorkerPod(st.WorkerPod).
-		WithFallbackReason(st.FallbackReason)
+		WithFallbackReason(st.FallbackReason).
+		WithStderrTail(st.StderrTail)
 	if st.Phase != "" {
 		ac = ac.WithPhase(st.Phase)
 	}
@@ -162,21 +167,6 @@ func ControllerFields(st transcodev1alpha1.TranscodeJobStatus) *transcodeac.Tran
 	if st.NextAttemptAt != nil {
 		ac = ac.WithNextAttemptAt(*st.NextAttemptAt)
 	}
-	return ac
-}
-
-// WorkerFields returns the complete set k8s.ManagerSquasharrWorker owns on
-// TranscodeJob.status, seeded from the live status.
-//
-// stderrTail is sent unconditionally, even empty, for the same reason
-// message is in [ControllerFields]: it is always a meaningful value, not an
-// absence. progress and result are omitted while nil -- a job that has not
-// started encoding has no progress, and one that has not finished has no
-// result -- but once either is present its own fields are rendered
-// completely by progressAC/resultAC, because status.progress and
-// status.result are themselves leaf-tracked by server-side apply.
-func WorkerFields(st transcodev1alpha1.TranscodeJobStatus) *transcodeac.TranscodeJobStatusApplyConfiguration {
-	ac := transcodeac.TranscodeJobStatus().WithStderrTail(st.StderrTail)
 	if st.Progress != nil {
 		ac = ac.WithProgress(progressAC(st.Progress))
 	}
@@ -186,19 +176,20 @@ func WorkerFields(st transcodev1alpha1.TranscodeJobStatus) *transcodeac.Transcod
 	return ac
 }
 
-// Patch applies a complete TranscodeJob status declaration under mgr.
+// Patch applies a complete TranscodeJob status declaration under mgr,
+// unconditionally.
 //
 // The caller mutates the seeded apply configuration rather than building one,
 // which is what makes the complete-declaration rule enforceable in one place.
-// mgr must be k8s.ManagerSquasharr or k8s.ManagerSquasharrWorker; anything
-// else is a programming error and is refused rather than allowed to claim
-// fields no part of the split accounts for.
+// mgr must be k8s.ManagerSquasharr, the only manager that owns any of
+// TranscodeJob.status; anything else is a programming error and is refused
+// rather than allowed to claim fields.
 //
 // job is both the seed and the target. It must be FRESHLY READ: the seed is
 // only as complete as the status it was taken from, so an object fetched
-// before slow work (an ffmpeg run that takes hours) re-declares stale values
-// and silently reverts whatever landed in between. A lost update is not a
-// release and no release-regression test can see one.
+// before slow work re-declares stale values and silently reverts whatever
+// landed in between. squasharr's own two write paths race each other, so
+// they use [PatchCAS], which turns that revert into a Conflict.
 //
 // Conditions is a seeded-nowhere, appending list and must not be re-sent
 // through WithConditions inside mutate more than once per apply: the
@@ -211,21 +202,39 @@ func Patch(
 	job *transcodev1alpha1.TranscodeJob,
 	mutate func(*transcodeac.TranscodeJobStatusApplyConfiguration),
 ) error {
-	var ac *transcodeac.TranscodeJobStatusApplyConfiguration
-	switch mgr {
-	case k8s.ManagerSquasharr:
-		ac = ControllerFields(job.Status)
-	case k8s.ManagerSquasharrWorker:
-		ac = WorkerFields(job.Status)
-	default:
+	if mgr != k8s.ManagerSquasharr {
 		return fmt.Errorf("status: %q owns no part of TranscodeJob.status", mgr)
 	}
+	ac := ControllerFields(job.Status)
 	if mutate != nil {
 		mutate(ac)
 	}
 
 	obj := transcodeac.TranscodeJob(job.Name, job.Namespace).WithStatus(ac)
 	_, err := k8s.PatchStatus(ctx, c, mgr, obj)
+	return err
+}
+
+// PatchCAS applies squasharr's complete status for job, conditional on
+// job.ResourceVersion: a write that raced another returns a Conflict instead
+// of silently rolling that other write back (spec §18.2). It is
+// catalogarr/worker/grab's applyWorkerStatus pattern -- the apply carries the
+// resourceVersion the status was read at as a precondition.
+//
+// job must carry the resourceVersion of the read its status was seeded
+// from; an empty one would make the apply unconditional and is refused.
+func PatchCAS(ctx context.Context, c client.Client, job *transcodev1alpha1.TranscodeJob,
+	mutate func(*transcodeac.TranscodeJobStatusApplyConfiguration),
+) error {
+	if job.ResourceVersion == "" {
+		return fmt.Errorf("status: TranscodeJob %s/%s has no resourceVersion to apply against", job.Namespace, job.Name)
+	}
+	ac := ControllerFields(job.Status)
+	if mutate != nil {
+		mutate(ac)
+	}
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerSquasharr,
+		transcodeac.TranscodeJob(job.Name, job.Namespace).WithResourceVersion(job.ResourceVersion).WithStatus(ac))
 	return err
 }
 

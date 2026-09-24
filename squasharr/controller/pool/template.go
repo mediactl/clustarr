@@ -68,8 +68,6 @@ const (
 )
 
 // Pod-shape constants: volume names and mount paths every pool pod carries.
-// Exported so transcodejob/job.go's aliases can keep buildJob compiling
-// (ruling R3) until Task 10 deletes it.
 const (
 	DataVolumeName    = "data"
 	ScratchVolumeName = "scratch"
