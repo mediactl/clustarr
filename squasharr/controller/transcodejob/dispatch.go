@@ -127,6 +127,20 @@ func (r *Reconciler) dispatch(ctx context.Context, key types.NamespacedName, cla
 		return fmt.Errorf("transcodejob: build task: %w", buildErr)
 	}
 
+	// The finalizer is added before publishing (spec §8): once a task exists
+	// on the queue, deletion must withdraw it, never just vanish the object
+	// out from under a worker that might claim it. For attempt > 1, a stale
+	// cancelled lease from an earlier withdrawal is cleared first -- an
+	// optimisation, not a requirement, since the worker's own attempt rule
+	// (squasharr/worker/lease.go's claim) already replaces a cancelled
+	// marker from an earlier attempt and proceeds.
+	if _, err := k8s.EnsureFinalizer(ctx, r.Client, &tj, FinalizerTaskWithdrawal); err != nil {
+		return fmt.Errorf("transcodejob: add the withdrawal finalizer: %w", err)
+	}
+	if attempt > 1 {
+		_ = r.Leases.Delete(ctx, events.TranscodeLeaseKey(string(tj.UID)))
+	}
+
 	sch, data, err := schema.Encode(t)
 	if err != nil {
 		return err

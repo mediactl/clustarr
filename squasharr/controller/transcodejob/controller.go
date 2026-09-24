@@ -141,6 +141,14 @@ type Reconciler struct {
 	// cancel markers (Task 12).
 	Leases events.KV
 
+	// Admin purges withdrawn and orphaned task subjects and is the sweep's
+	// source of truth for what is stored (withdraw.go). Nil disables both:
+	// a Reconciler built without it (a test that does not exercise
+	// withdrawal) still runs, since withdraw and sweep are only ever called
+	// from paths a bus-less test does not reach, except sweep itself, which
+	// no-ops when Admin is nil.
+	Admin events.StreamAdmin
+
 	// Now is the clock. Nil means time.Now.
 	Now func() time.Time
 
@@ -151,10 +159,12 @@ type Reconciler struct {
 	// recreate names the pool Jobs the apiserver refused a gang minCount
 	// on (created before WorkloadWithJob was enabled): each drains and is
 	// recreated. poolBackoff is each Failed pool's recreation backoff.
-	// Only admission touches either, and MaxConcurrentReconciles 1
-	// serialises it, so admit initialises them lazily.
+	// nextSweep is when admit's backstop sweep (withdraw.go) is next due.
+	// Only admission touches any of these, and MaxConcurrentReconciles 1
+	// serialises it, so admit initialises the maps lazily.
 	recreate    map[string]bool
 	poolBackoff map[string]poolBackoff
+	nextSweep   time.Time
 }
 
 func (r *Reconciler) now() metav1.Time {
@@ -209,7 +219,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if k8s.IsDeleting(&tj) {
-		return ctrl.Result{}, nil
+		return r.reconcileDelete(ctx, &tj)
 	}
 	if terminal(tj.Status.Phase) {
 		// Nothing about the transcode changes once the phase is terminal --
@@ -218,6 +228,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		// reach the history consumer). write folds it and writes only if
 		// that changed the conditions, from a seed of the live status, so
 		// every other field is re-declared as it stands.
+		//
+		// The withdrawal finalizer is released here too, as a backstop for a
+		// release afterWrite's own attempt failed: a terminal job never
+		// needs it again, whatever reconcile brought this pass about.
+		if _, err := k8s.RemoveFinalizer(ctx, r.Client, &tj, FinalizerTaskWithdrawal); err != nil {
+			return ctrl.Result{}, err
+		}
 		return ctrl.Result{}, r.write(ctx, &tj, tj.Status.DeepCopy())
 	}
 
@@ -289,6 +306,20 @@ func (r *Reconciler) afterWrite(ctx context.Context, after *transcodev1alpha1.Tr
 	if !terminal(before.Phase) && ranToCompletion(&after.Status) {
 		r.observeFinished(ctx, after, &after.Status)
 	}
+	if !terminal(before.Phase) && terminal(after.Status.Phase) {
+		// A finished event, a block, or a plan-time skip: nothing dispatched
+		// can still be running, so the withdrawal finalizer is released at
+		// once rather than waiting for a delete to hit reconcileDelete's
+		// protocol. Re-read fresh (releaseFinalizerIfTerminal): after's own
+		// resourceVersion predates the status write that just landed (write
+		// builds it from the pre-write object plus the desired status,
+		// never re-Gets), so removing the finalizer from it directly would
+		// conflict against the write it is meant to follow.
+		if err := r.releaseFinalizerIfTerminal(ctx, client.ObjectKeyFromObject(after)); err != nil {
+			logging.FromContext(ctx).WarnContext(ctx, "transcodejob: could not release the withdrawal finalizer",
+				"transcodeJob", client.ObjectKeyFromObject(after).String(), "error", err)
+		}
+	}
 }
 
 // wakeAdmission asks the controller for one admission pass, without
@@ -333,6 +364,23 @@ func (r *Reconciler) advance(ctx context.Context, tj *transcodev1alpha1.Transcod
 		}
 		return ctrl.Result{RequeueAfter: requeueQueued}, nil
 	case transcodev1alpha1.TranscodeJobPhaseQueued, transcodev1alpha1.TranscodeJobPhaseRunning:
+		if tj.Spec.Suspend != nil && *tj.Spec.Suspend {
+			// User pause (spec §8): withdraw the dispatched task, then go
+			// back to Planned so admission holds it there (it already skips
+			// a Planned job with spec.suspend=true) until the field flips
+			// back, which re-dispatches it as a new attempt.
+			tp, _, err := r.profile(ctx, tj)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if err := r.withdraw(ctx, tj, tp); err != nil {
+				return ctrl.Result{}, fmt.Errorf("transcodejob: withdraw for spec.suspend: %w", err)
+			}
+			st.Phase, st.WorkerPod, st.Progress, st.NextAttemptAt = transcodev1alpha1.TranscodeJobPhasePlanned, "", nil, nil
+			st.Message = "paused by spec.suspend"
+			k8s.MarkFalse(tj, &st.Conditions, transcodev1alpha1.TranscodeJobConditionJobCreated, ReasonSuspended, "%s", st.Message)
+			return ctrl.Result{}, nil
+		}
 		if subject, ok := deadLetteredTask(tj); ok {
 			// The queue gave up on the task (spec §13, §18.3): no worker will
 			// report on it, so nothing else would ever move the job on.
@@ -522,6 +570,10 @@ func (r *Reconciler) admit(ctx context.Context) error {
 		queued, running []Slot
 		errs            []error
 	)
+	// The backstop sweep (withdraw.go), due at most once per sweepInterval:
+	// every TranscodeJob that exists, of any phase, protects its own task
+	// subject from it.
+	errs = append(errs, r.sweep(ctx, tjs.Items))
 	candidates := map[string]*transcodev1alpha1.TranscodeJob{}
 	for i := range tjs.Items {
 		tj := &tjs.Items[i]

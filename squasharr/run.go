@@ -379,6 +379,12 @@ func setupControllers(mgr ctrl.Manager, o Options, bus events.Bus) error {
 		Bus:      bus,
 		Leases:   bus.KV(events.BucketTranscodeLeases),
 	}
+	// natsbus and membus both implement events.StreamAdmin; the comma-ok
+	// form only keeps a bus that does not (a narrower test double) from
+	// panicking a real run.
+	if admin, ok := bus.(events.StreamAdmin); ok {
+		rec.Admin = admin
+	}
 	if err := rec.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("squasharr: transcodejob: %w", err)
 	}

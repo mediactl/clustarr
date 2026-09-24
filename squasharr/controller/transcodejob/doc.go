@@ -135,10 +135,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // declaration, and envtest does not enforce RBAC. batch/v1 Jobs are the
 // pools (squasharr/controller/pool), deleted to recreate one; the Warning
 // Event on a Failed pool's TranscodeProfile is an events.k8s.io Event;
-// rootfolders are listed at dispatch to place the task's source.
+// rootfolders are listed at dispatch to place the task's source. update and
+// the finalizers subresource are for FinalizerTaskWithdrawal (withdraw.go,
+// Task 12): dispatch.go adds it and afterWrite/reconcileDelete remove it
+// through k8s.EnsureFinalizer/RemoveFinalizer's plain object Update, not the
+// status subresource.
 //
-// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch
+// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs/finalizers,verbs=update
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodeprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=list
