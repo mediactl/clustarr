@@ -786,8 +786,8 @@ func setupMetadataGateway(mgr ctrl.Manager, bus events.Bus) error {
 		return fmt.Errorf("catalogarr: add the metadata gateway: %w", err)
 	}
 
-	// The ImportArtwork durable (spec §B.7): a reconciler saw spec.artwork
-	// drift from status.artwork. Same Fetcher, so the same per-item lock.
+	// The ImportArtwork durable (spec §B.7): a reconciler saw status.artwork
+	// drift from its sources (artwork.Drift). Same Fetcher, so the same per-item lock.
 	spec, ok := events.Default().Consumer(events.ConsumerCatalogArtworkFetch)
 	if !ok {
 		return fmt.Errorf("catalogarr: consumer %q missing from the default topology", events.ConsumerCatalogArtworkFetch)

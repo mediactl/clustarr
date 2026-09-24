@@ -192,7 +192,7 @@ func TestArtworkTaskReDeclaresOnlyWhatTheGatewayOwns(t *testing.T) {
 		assert.Equal(t, catalogv1alpha1.ArtworkSourceCustom, e.Source)
 		assert.Equal(t, customURL, e.SourceURL)
 		assert.Equal(t, digestOf(customBody), e.Digest)
-		_, drifted := artwork.Drift(got.Spec.Artwork, got.Status.Artwork)
+		_, drifted := artwork.Drift(got.Spec.Artwork, got.Status.Metadata.Images, got.Status.Artwork)
 		assert.False(t, drifted, "the pass clears the drift that triggered it")
 		assertMetadataIntactAndSplit(got)
 		assert.Empty(t, rec.Events)

@@ -18,7 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package artwork is the metadata gateway's half of the artwork store (spec
 // §B.3-§B.7): it fetches every item's artwork originals into
 // events.BucketArtwork, records them in status.artwork, re-fetches when an
-// item's spec.artwork drifts from what was stored, and reaps the originals
+// item's sources (spec.artwork, status.metadata.images) drift from what
+// was stored, and reaps the originals
 // and overlays of items that no longer exist.
 //
 // # Writers
@@ -38,7 +39,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // Two consumers write the same leaves: the metadata work queue (after every
 // successful metadata fetch) and the artwork-fetch queue ([Handler], on a
-// spec.artwork drift). Both hold [Fetcher.Lock] for the item from before
+// [Drift]). Both hold [Fetcher.Lock] for the item from before
 // they decide what to fetch until after they apply, and both re-read the
 // object from the apiserver, uncached, after the slow fetches and immediately
 // before the apply -- CLAUDE.md's lost-update rule -- merging only what their

@@ -337,7 +337,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if _, err := k8s.EnsureFinalizer(ctx, r.Client, &m, name); err != nil {
 		return ctrl.Result{}, err
 	}
-	// spec.artwork drifted from status.artwork: ask the metadata gateway to
+	// status.artwork drifted from its sources: ask the metadata gateway to
 	// re-fetch (spec §B.7). Before any status apply, so a failed publish
 	// returns without writing and the requeue retries it.
 	if err := artwork.PublishFetch(ctx, r.Bus, &m, commonv1.MediaKindMovie); err != nil {

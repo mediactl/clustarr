@@ -265,8 +265,8 @@ func (p Pass) read(ctx context.Context, kind commonv1.MediaKind, key client.Obje
 }
 
 // Handler is the catalogarr-artwork-fetch consumer (spec §B.7): the
-// ImportArtwork task a reconciler publishes when spec.artwork drifts from
-// status.artwork. It runs the same [Pass] the metadata handler runs after
+// ImportArtwork task a reconciler publishes when status.artwork drifts from
+// its sources ([Drift]: spec.artwork and status.metadata.images). It runs the same [Pass] the metadata handler runs after
 // a metadata fetch, without fetching metadata: the images it resolves
 // against are the item's own status.metadata.images, and the
 // status.metadata it must re-declare is [ExtractGatewayStatus]'s.

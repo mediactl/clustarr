@@ -22,7 +22,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"sort"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,39 +33,54 @@ import (
 	"github.com/mediactl/clustarr/pkg/version"
 )
 
-// Drift compares spec.artwork against status.artwork (spec §B.7). It
-// reports drift when any override's URL differs from its type's entry's
-// sourceURL (no entry counts as different), or when an entry says custom
-// but no override of that type exists any more.
+// Drift compares the sources a pass would store against status.artwork
+// (spec §B.7). The sources are ResolveSources' -- each type's override, else
+// the first fetchable provider image in status.metadata.images -- the very
+// map Fetcher.Sync fetches from, so drift is never something a pass would
+// not act on. It reports drift when any type's source differs from its
+// entry's sourceURL or source (no entry counts as different), or when an
+// entry says custom but no override of that type exists any more. A
+// provider entry whose image the metadata no longer lists is not drift:
+// Sync keeps it.
 //
-// specHash is the hex SHA-256 of spec.artwork sorted by type, whether or
-// not it drifted: the Msg-Id suffix that lets a hot reconcile loop publish
-// one fetch per spec (schema.MsgIDForArtworkFetch).
+// Provider images are sources as much as overrides are. An item whose
+// metadata was fetched before the gateway stored artwork has images and
+// no entries, and the metadata TTL (7 days for a released movie, 30 for an
+// ended series) may not bring another fetch for weeks; a provider image
+// whose fetch failed keeps its old entry, or none. Both drift here, so the
+// reconciler's fetch task stores them from the stored images without
+// refetching metadata.
 //
-// A custom URL that keeps failing keeps drifting -- R3 leaves its entry as
-// it was -- and so is republished once per duplicate window at most, on
+// specHash is the hex SHA-256 of the resolved sources sorted by type,
+// whether or not they drifted: the Msg-Id suffix that lets a hot reconcile
+// loop publish one fetch per set of sources (schema.MsgIDForArtworkFetch),
+// and gives a changed override or provider URL a fetch of its own.
+//
+// A source that keeps failing keeps drifting -- R3 leaves its entry as it
+// was -- and so is republished once per duplicate window at most, on
 // whatever reconcile next sees it.
-func Drift(overrides []catalogv1alpha1.ArtworkOverride, entries []catalogv1alpha1.ArtworkEntry) (specHash string, drifted bool) {
-	sorted := append([]catalogv1alpha1.ArtworkOverride(nil), overrides...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Type < sorted[j].Type })
-	h := sha256.New()
-	for _, o := range sorted {
-		// NUL-separated: neither an enum token nor a URL admits one, so no
-		// two specs share a byte stream.
-		_, _ = fmt.Fprintf(h, "%s\x00%s\x00", o.Type, o.URL)
-	}
-	specHash = hex.EncodeToString(h.Sum(nil))
-
+func Drift(overrides []catalogv1alpha1.ArtworkOverride, images []catalogv1alpha1.Image,
+	entries []catalogv1alpha1.ArtworkEntry,
+) (specHash string, drifted bool) {
+	sources := ResolveSources(overrides, images)
 	byType := index(entries)
-	wanted := make(map[catalogv1alpha1.ImageType]bool, len(overrides))
-	for _, o := range overrides {
-		wanted[o.Type] = true
-		if e, ok := byType[o.Type]; !ok || e.SourceURL != o.URL {
+	h := sha256.New()
+	for _, t := range imageTypes {
+		src, ok := sources[t]
+		if !ok {
+			continue
+		}
+		// NUL-separated: neither an enum token nor a URL admits one, so no
+		// two source sets share a byte stream.
+		_, _ = fmt.Fprintf(h, "%s\x00%s\x00%s\x00", t, src.Kind, src.URL)
+		if e, ok := byType[t]; !ok || e.SourceURL != src.URL || e.Source != src.Kind {
 			drifted = true
 		}
 	}
+	specHash = hex.EncodeToString(h.Sum(nil))
+
 	for _, e := range entries {
-		if e.Source == catalogv1alpha1.ArtworkSourceCustom && !wanted[e.Type] {
+		if e.Source == catalogv1alpha1.ArtworkSourceCustom && sources[e.Type].Kind != catalogv1alpha1.ArtworkSourceCustom {
 			drifted = true
 		}
 	}
@@ -74,7 +88,8 @@ func Drift(overrides []catalogv1alpha1.ArtworkOverride, entries []catalogv1alpha
 }
 
 // PublishFetch is the one call each of the eight item reconcilers makes: when
-// obj's spec.artwork has drifted from its status.artwork it publishes one
+// obj's artwork sources (spec.artwork and status.metadata.images, see
+// [Drift]) have drifted from its status.artwork it publishes one
 // schema.ArtworkFetchTask on events.WorkArtworkFetchSubject, for the
 // gateway's catalogarr-artwork-fetch durable, under
 // schema.MsgIDForArtworkFetch(uid, specHash) -- so a reconcile loop that
@@ -91,7 +106,7 @@ func PublishFetch(ctx context.Context, bus events.Publisher, obj client.Object, 
 	if it.kind != kind {
 		return fmt.Errorf("artwork: PublishFetch for kind %q given a %T", kind, obj)
 	}
-	specHash, drifted := Drift(it.overrides, it.entries)
+	specHash, drifted := Drift(it.overrides, it.images, it.entries)
 	if !drifted {
 		return nil
 	}

@@ -379,6 +379,20 @@ gateway's `catalogarr-artwork-fetch` durable. Msg-Id is
 `<uid>/artwork/<hash of spec.artwork>` so a hot reconcile loop publishes
 once.
 
+*As built (2026-09-24):* the comparison is between `status.artwork` and
+every source a pass would store -- each type's override, else the first
+fetchable provider image in `status.metadata.images`
+(`artwork.ResolveSources`, the map `Fetcher.Sync` fetches from) -- and the
+Msg-Id hash covers those resolved sources, not `spec.artwork` alone. Drift
+over overrides only left every item whose metadata was fetched before the
+gateway stored artwork with no `status.artwork` until its metadata TTL ran
+out (7 days for a released movie, 30 for an ended series): 810 of 819
+Movies and 68 of 147 Series on kind-cluster-plex, each drawn as a
+placeholder once the ui stopped hotlinking. The fetch task now backfills
+them from the stored images without refetching metadata, and retries a
+provider image whose fetch failed once per duplicate window, as a custom
+URL already was.
+
 ### B.8 Serving
 
 The ui service gains a read-only bus. `cmd/clustarr`'s ui command connects
