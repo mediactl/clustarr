@@ -223,9 +223,10 @@ func (t Topology) StreamForSubject(subject string) (StreamSpec, bool) {
 // room for the buckets and for NATS' own overhead inside that ceiling.
 const singleNodeMemoryBudget = 64 * MiB
 
-// ForSingleNode returns a copy of t with one replica per stream and bucket
-// and memory storage throughout. It is what tests and single-node dev
-// clusters apply; production applies Default unchanged.
+// ForSingleNode returns a copy of t with one replica per stream, bucket and
+// object store, and memory storage for the streams and buckets; object
+// stores stay on file storage (see the loop below). It is what tests and
+// single-node dev clusters apply; production applies Default unchanged.
 //
 // Stream MaxBytes is scaled to fit singleNodeMemoryBudget, keeping the
 // relative sizing the production topology chose rather than flattening every
@@ -244,9 +245,14 @@ func (t Topology) ForSingleNode() Topology {
 		out.Buckets[i].Replicas = 1
 		out.Buckets[i].Storage = StorageMemory
 	}
+	// Object stores keep their file storage: the artwork bucket reserves
+	// 5 GiB (ArtworkMaxBytes), which no single node's memory store holds --
+	// config/nats caps it at 256Mi, and mapping the bucket to memory
+	// crash-looped every controller on kind (2026-09-24). Its bytes are
+	// artwork originals, which belong on the NATS volume anyway; only the
+	// replica count drops.
 	for i := range out.ObjectStores {
 		out.ObjectStores[i].Replicas = 1
-		out.ObjectStores[i].Storage = StorageMemory
 	}
 	return out
 }

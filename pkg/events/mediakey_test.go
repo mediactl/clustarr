@@ -99,6 +99,14 @@ func TestForSingleNodeFitsTheMemoryCeiling(t *testing.T) {
 	assert.LessOrEqual(t, total, int64(singleNodeMemoryBudget),
 		"single-node streams reserve %d bytes, over the %d-byte budget that fits config/nats' max_memory_store",
 		total, int64(singleNodeMemoryBudget))
+
+	// Object stores are not scaled and must not be memory-backed: the
+	// artwork bucket reserves 5 GiB, which no single node's memory store
+	// holds (every controller crash-looped on kind, 2026-09-24).
+	for _, o := range single.ObjectStores {
+		assert.Equal(t, StorageFile, o.Storage, "object store %s must stay on file storage on a single node", o.Name)
+		assert.Equal(t, 1, o.Replicas, "object store %s replicas", o.Name)
+	}
 }
 
 // Scaling must keep the relative sizing the production topology chose rather

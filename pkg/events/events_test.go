@@ -632,8 +632,12 @@ func TestDefaultObjectStoreIsArtwork(t *testing.T) {
 		t.Errorf("Replicas = %d, want 3", o.Replicas)
 	}
 
+	// A single node keeps the object store on file storage: 5 GiB of
+	// artwork originals never fit config/nats' 256Mi max_memory_store, and
+	// every controller crash-looped on kind the first time it was memory
+	// (2026-09-24). Only the replica count drops.
 	single := top.ForSingleNode().ObjectStores[0]
-	if single.Replicas != 1 || single.Storage != events.StorageMemory {
-		t.Errorf("ForSingleNode object store = %+v", single)
+	if single.Replicas != 1 || single.Storage != events.StorageFile || single.MaxBytes != events.ArtworkMaxBytes {
+		t.Errorf("ForSingleNode object store = %+v, want replicas 1, file storage, %d bytes", single, events.ArtworkMaxBytes)
 	}
 }

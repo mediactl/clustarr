@@ -351,6 +351,16 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   passed. natsbus now naks for `d - (BackOff[n-1] - BackOff[0])`
   (`natsbus.nakDelay`), and the contract test measures the real gap between
   deliveries on both buses.
+- **`ForSingleNode` keeps object stores on file storage.** It maps streams
+  and KV buckets to memory (scaled into a 64 MiB budget under config/nats'
+  256Mi `max_memory_store`), but the artwork object store reserves 5 GiB,
+  and mapping it to memory made every controller crash-loop on kind at
+  start (`ensure object store clustarr-artwork: insufficient memory
+  resources available`, 2026-09-24). `TestEnsureDefaultTopology`'s embedded
+  server has no memory ceiling, so it never saw it;
+  `TestEnsureSingleNodeTopologyFitsTheKindServersLimits` runs the same
+  Ensure against a server capped like the cluster's. Anything new in the
+  topology must fit that server.
 - **Every cache strips `managedFields`, and the cache-sync timeout is ten
   minutes.** On the owner's library (15,630 Episodes, a 57 MB list that
   `kubectl` alone takes 40 s to fetch) captionarr crash-looped on
