@@ -27,6 +27,7 @@ import (
 
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/obsflags"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
@@ -195,22 +196,11 @@ func bindCommonFlags(fs *pflag.FlagSet) *k8s.Options {
 // The two returned pointers must come from a single NewRootCommand call and
 // never be shared across calls: a package-level pair would let flag values
 // parsed by one `execute` in a test leak into the next.
+//
+// The body lives in pkg/obs/obsflags.Bind, so cmd/squasharr-worker -- which
+// must not import pkg/obs or pkg/k8s -- can bind the same flags.
 func bindObservabilityFlags(fs *pflag.FlagSet) (*logging.Options, *tracing.Options) {
-	lo := &logging.Options{}
-	logging.BindFlags(fs, lo)
-
-	to := &tracing.Options{SampleRatio: 1}
-	fs.BoolVar(&to.Enabled, "tracing-enabled", to.Enabled,
-		"Export spans over OTLP gRPC. Sampling still runs when this is off; only the exporter is skipped.")
-	fs.StringVar(&to.Endpoint, "tracing-endpoint", to.Endpoint,
-		`OTLP gRPC collector endpoint, e.g. "otel-collector:4317". Read only when --tracing-enabled.`)
-	fs.BoolVar(&to.Insecure, "tracing-insecure", to.Insecure,
-		"Disable transport security on the OTLP gRPC connection. Read only when --tracing-enabled.")
-	fs.Float64Var(&to.SampleRatio, "tracing-sample-ratio", to.SampleRatio,
-		"Fraction (0..1) of root spans sampled. A span whose parent was sampled is always sampled "+
-			"regardless of this ratio; collector-side tail sampling is what keeps every erroring span, "+
-			"not this SDK-side setting (docs/observability.md).")
-	return lo, to
+	return obsflags.Bind(fs)
 }
 
 // offsetAddress shifts the port of a "host:port" bind address by n, leaving

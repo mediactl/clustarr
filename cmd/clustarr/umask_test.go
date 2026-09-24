@@ -24,6 +24,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/mediactl/clustarr/pkg/fsops"
 )
 
 // TestEveryCommandAppliesUMASK is design §11's "UMASK 002 in every
@@ -35,11 +37,15 @@ import (
 // only observable that matters -- rather than by reading the mask back.
 //
 // The umask is process state, so the test restores the one it found.
+//
+// pkg/fsops.ParseUmask itself is tested in pkg/fsops/umask_test.go; this
+// test is left here because it exercises the root command's
+// PersistentPreRunE wiring to fsops.ApplyUmaskFromEnv, not the parser.
 func TestEveryCommandAppliesUMASK(t *testing.T) {
 	previous := syscall.Umask(0o022)
 	t.Cleanup(func() { syscall.Umask(previous) })
 
-	t.Setenv(umaskEnv, "002")
+	t.Setenv(fsops.UmaskEnv, "002")
 	if _, err := execute(t, "version"); err != nil {
 		t.Fatalf("clustarr version: %v", err)
 	}
@@ -50,37 +56,7 @@ func TestEveryCommandAppliesUMASK(t *testing.T) {
 	require.Equal(t, os.FileMode(0o664), st.Mode().Perm(),
 		"a file created after `clustarr` started with UMASK=002 is not group-writable: the umask was not applied")
 
-	t.Setenv(umaskEnv, "nonsense")
+	t.Setenv(fsops.UmaskEnv, "nonsense")
 	_, err = execute(t, "version")
 	require.ErrorContains(t, err, "UMASK", "an unparseable UMASK must stop the process, not fall back silently")
-}
-
-func TestParseUmask(t *testing.T) {
-	for _, tc := range []struct {
-		in   string
-		want int
-		ok   bool
-		bad  bool
-	}{
-		{in: "", ok: false},
-		{in: "  ", ok: false},
-		{in: "002", want: 0o002, ok: true},
-		{in: "0002", want: 0o002, ok: true},
-		{in: "0o027", want: 0o027, ok: true},
-		{in: "22", want: 0o022, ok: true},
-		{in: "777", want: 0o777, ok: true},
-		{in: "1000", bad: true},
-		{in: "008", bad: true},
-		{in: "-1", bad: true},
-		{in: "u=rwx", bad: true},
-	} {
-		got, ok, err := parseUmask(tc.in)
-		if tc.bad {
-			require.Error(t, err, "parseUmask(%q)", tc.in)
-			continue
-		}
-		require.NoError(t, err, "parseUmask(%q)", tc.in)
-		require.Equal(t, tc.ok, ok, "parseUmask(%q) ok", tc.in)
-		require.Equal(t, tc.want, got, "parseUmask(%q)", tc.in)
-	}
 }

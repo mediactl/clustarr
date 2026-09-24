@@ -24,6 +24,7 @@ import (
 	"github.com/spf13/cobra"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
+	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/version"
 )
@@ -86,7 +87,7 @@ func NewRootCommand() *cobra.Command {
 		// service's file writes inherit, so it is set here, once, before
 		// any subcommand runs, rather than by each service.
 		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
-			if err := applyUmaskFromEnv(); err != nil {
+			if err := fsops.ApplyUmaskFromEnv(); err != nil {
 				return err
 			}
 			if err := registerMetrics(); err != nil {
