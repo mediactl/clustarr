@@ -45,8 +45,8 @@ model, metadata, and release decisions.
 "Import" means two different things in the *arr world: importing a finished
 download into the library, and import lists of things you want. Both now live in
 `importarr`, which removes the ambiguity rather than creating it. The base
-design's `catalogarr/worker/importer` is **deleted**; its logic moves to
-`importarr/worker/fileimport`. Nothing named "importer" remains in `catalogarr`.
+design's `app/catalog/worker/importer` is **deleted**; its logic moves to
+`app/import/worker/fileimport`. Nothing named "importer" remains in `catalogarr`.
 
 ### A1.3 Ownership
 
@@ -577,9 +577,15 @@ window one page wider and swaps `#library-rows` whole -- the wider grid,
 the next sentinel and the stream element, which reconnects for the wider
 window so every live frame carries everything on screen; the sentinel
 goes once the window reaches the end. A jump still lands on the letter's
-page and scrolls on from there. The A–Z bar is sticky under the top bar
-and as tall as the viewport, its letters sharing the height, as Radarr's.
-The pipeline, downloads and unmatched pages keep the pager.
+page and scrolls on from there. The A–Z bar is fixed to the right edge of
+the screen, from beneath the top bar, the breadcrumb row and the toolbar
+(all three sticky) to the bottom of the viewport, outside the grid's flow,
+its letters sharing the height, as Radarr's; every card files under its
+letter (`projection.JumpLetter`) and a vendored tracker
+(`ui/static/jump.js`) marks the letter of the first card in view
+`data-current` on scroll and after every htmx swap, which `app.css` draws
+as Radarr's small line beside the letter. The pipeline, downloads and
+unmatched pages keep the pager.
 
 **Pagination (as built, 2026-09-23).** The pipeline, downloads, unmatched
 and library pages each show one window of rows: `?page=N&per=M`, 1-based,
