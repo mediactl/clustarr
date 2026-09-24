@@ -19,6 +19,7 @@ package download
 
 import (
 	"time"
+	"unicode/utf8"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -101,7 +102,7 @@ func ApplyStatus(item Item) *downloadac.DownloadStatusApplyConfiguration {
 		WithCanBeRemoved(item.CanBeRemoved).
 		WithSeedGoalReached(item.SeedGoalMet).
 		WithHealthPaused(item.HealthPaused).
-		WithMessage(item.Message)
+		WithMessage(clampMessage(item.Message))
 
 	// Stage is an enum whose generated CRD does not admit "". An engine that
 	// has not decided on a stage yet omits the field instead of sending a
@@ -243,6 +244,26 @@ func clampPercent(v int32) int32 {
 	default:
 		return v
 	}
+}
+
+// maxMessageLength is DownloadStatus.message's MaxLength in the CRD.
+const maxMessageLength = 2048
+
+// clampMessage cuts an engine's message to the CRD's bound, on a rune
+// boundary so the apiserver's UTF-8 check passes too. The usenet engine's
+// par2 failure text -- its 2048-byte output tail behind a prefix -- was
+// over it, and the apiserver rejected EVERY status apply for that Download
+// ("status.message: Too long"), so a finished, failed transfer stayed
+// "Downloading" in the object for as long as it lived (2026-09-24). The
+// same reasoning as clampPercent: one oversized leaf must not take the
+// whole telemetry write with it.
+func clampMessage(s string) string {
+	if utf8.RuneCountInString(s) <= maxMessageLength {
+		return s
+	}
+	const marker = "…"
+	runes := []rune(s)
+	return string(runes[:maxMessageLength-utf8.RuneCountInString(marker)]) + marker
 }
 
 // clampNonNegative32 holds v at or above zero and inside int32, for the CRD

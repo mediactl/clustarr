@@ -124,7 +124,17 @@ func (r Par2Runner) Repair(ctx context.Context, dir, indexFile string) (Par2Resu
 	// -q once: one level of quiet still prints the verdict lines but not the
 	// per-percent progress spam. "--" stops par2 reading a file name that
 	// begins with a dash as a flag; NZB-supplied names are untrusted.
-	cmd := exec.CommandContext(ctx, bin, "r", "-q", "--", indexFile)
+	//
+	// Every other file in the directory follows the index as an extra file
+	// to scan, the way SABnzbd and NZBGet run par2. A set whose recovery
+	// data describes obfuscated names ("z75QO...part070.rar") while the
+	// files on disk carry the subjects' names ("13th.2016...part070.rar")
+	// otherwise reports every target as missing and repair fails outright
+	// -- the first real grab on the owner's cluster, 2026-09-24, after a
+	// complete 10 GB transfer. Given the extras, par2 matches them by
+	// content and repairs under the recorded names.
+	args := append([]string{"r", "-q", "--", indexFile}, extraFiles(dir, indexFile)...)
+	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = dir
 
 	// A ring, not a cap that errors: an io.Writer that refuses further output
@@ -209,6 +219,24 @@ func tail(s string, n int) string {
 		return s
 	}
 	return "..." + s[len(s)-n:]
+}
+
+// extraFiles lists the regular files in dir other than indexFile, sorted,
+// for par2 to scan as candidates for the set's targets. An unreadable dir
+// yields none: par2 then judges the names it knows, as it did before.
+func extraFiles(dir, indexFile string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, e := range entries {
+		if e.Type().IsRegular() && e.Name() != indexFile {
+			names = append(names, e.Name())
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 // par2IndexFile picks the index volume of a par2 set: the ".par2" with no

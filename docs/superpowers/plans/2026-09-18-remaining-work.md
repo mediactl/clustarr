@@ -1595,6 +1595,22 @@ what it left behind.
   raising it needs the publishers restarted, or reconnect on the reload
   advisory.
 
+- [ ] **A failed usenet job re-downloads from scratch on retry; the
+  10 GB of articles that were on `/scratch` are discarded.** The
+  2026-09-24 grab failed only in post-processing (par2 could not match
+  obfuscated names). Once a manifest records `Failed` at stage `done`, an
+  operator fix (a new image, a par2 binary) should be able to re-run
+  post-processing over the content that is already there -- a
+  `clustarr.io/retry-postprocess` annotation, or re-queueing a job whose
+  transfer completed at the post-process stage rather than at `Add`.
+- [ ] **The usenet engine logged one `Failed to watch downloads ... cannot
+  watch resource "downloads" ... at the cluster scope` under
+  `clustarr-grabarr-engine`** while a helm upgrade re-applied the release's
+  RBAC and the apiserver was saturated (18:54:43, 2026-09-24). The
+  ClusterRole grants `watch`; the message was not repeated. Check whether a
+  ClusterRole re-apply can produce a window in which its rules are empty,
+  and whether the engine's informer recovers without a restart.
+
 ### Deferred by decision: the unified manager topology (2026-09-24)
 
 - [ ] Adopt `docs/superpowers/specs/2026-09-24-unified-manager-design.md`

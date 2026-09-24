@@ -103,6 +103,49 @@ func TestPar2RunnerRepairsADamagedFile(t *testing.T) {
 	require.Equal(t, data, fixed, "the repaired file must match the original byte for byte")
 }
 
+// TestPar2RunnerRepairsASetWhoseFilesCarryOtherNames pins the first real
+// grab on the owner's cluster (2026-09-24): the par2 set described
+// obfuscated names while the files on disk carried the NZB subjects' names,
+// and "par2 r index" with no extra files reported every target missing after
+// a complete 10 GB transfer. Given the directory's files as extras, par2
+// matches them by content and restores the recorded names.
+func TestPar2RunnerRepairsASetWhoseFilesCarryOtherNames(t *testing.T) {
+	bin := par2Binary(t)
+	dir := t.TempDir()
+
+	data := make([]byte, 128<<10)
+	rnd := rand.New(rand.NewSource(3))
+	_, _ = rnd.Read(data)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "movie.mkv"), data, 0o644))
+
+	create := exec.Command(bin, "c", "-q", "-b16", "-r20", "--", "movie.mkv.par2", "movie.mkv")
+	create.Dir = dir
+	out, err := create.CombinedOutput()
+	require.NoErrorf(t, err, "par2 create failed: %s", out)
+
+	// The poster's subject named it differently from the par2 set.
+	require.NoError(t, os.Rename(filepath.Join(dir, "movie.mkv"),
+		filepath.Join(dir, "13th.2016.1080p.WEBRip.X264-DEFLATE.part01.rar")))
+
+	res, err := Par2Runner{Path: bin}.Repair(context.Background(), dir, "movie.mkv.par2")
+	require.NoError(t, err, "output: %s", res.Output)
+	require.True(t, res.Repaired || res.AllCorrect, "output: %s", res.Output)
+
+	fixed, err := os.ReadFile(filepath.Join(dir, "movie.mkv"))
+	require.NoError(t, err, "the target must exist under the name the set records")
+	require.Equal(t, data, fixed)
+}
+
+func TestExtraFilesListsRegularFilesButNotTheIndex(t *testing.T) {
+	dir := t.TempDir()
+	for _, n := range []string{"b.rar", "a.rar", "set.par2", "set.vol-01.par2"} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, n), []byte("x"), 0o644))
+	}
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "sub"), 0o755))
+	require.Equal(t, []string{"a.rar", "b.rar", "set.vol-01.par2"}, extraFiles(dir, "set.par2"))
+	require.Nil(t, extraFiles(filepath.Join(dir, "missing"), "set.par2"))
+}
+
 func TestTailWriterBoundsASubprocessThatTalksTooMuch(t *testing.T) {
 	// The bound must not fail the write: an io.Writer that refuses output
 	// makes exec.Cmd.Run return THAT error instead of par2's verdict.

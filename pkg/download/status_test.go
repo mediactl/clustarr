@@ -21,8 +21,10 @@ import (
 	"encoding/json"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -181,6 +183,20 @@ func TestApplyStatusClampsToTheCRDsBounds(t *testing.T) {
 	require.NotNil(t, got.Health)
 	assert.EqualValues(t, 100, got.Health.HealthPercent)
 	assert.EqualValues(t, 0, got.Health.CriticalHealthPercent)
+}
+
+// status.message carries MaxLength=2048; the usenet engine's par2 failure
+// text was longer, and the apiserver rejected every telemetry apply for that
+// Download, so a finished, failed transfer read "Downloading" for good.
+func TestApplyStatusClampsTheMessageToTheCRDsMaxLength(t *testing.T) {
+	long := strings.Repeat("é", 3000)
+	got := statusFromAC(t, download.ApplyStatus(download.Item{Message: long}))
+	assert.Equal(t, 2048, utf8.RuneCountInString(got.Message))
+	assert.True(t, utf8.ValidString(got.Message))
+	assert.True(t, strings.HasSuffix(got.Message, "…"), "a cut message says so")
+
+	short := statusFromAC(t, download.ApplyStatus(download.Item{Message: "transferring"}))
+	assert.Equal(t, "transferring", short.Message)
 }
 
 // status.files carries MaxItems=200 and a discography or full-series pack

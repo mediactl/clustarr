@@ -447,6 +447,20 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   smallest volume when the set has no separate index, since every volume
   carries the main packet. Real subjects from that post are the fixture
   (`TestCriticalHealthPercentEstimatesFromVolumeSizesWithoutBlockCounts`).
+- **`par2 r index.par2` alone reports every target missing when the set
+  records other names than the files on disk carry, and the engine's
+  failure text then overflowed `status.message`.** The same grab's set
+  described obfuscated names (`z75QO...part070.rar`) while the files were
+  written under the subjects' names; SABnzbd and NZBGet pass the
+  directory's files as extras so par2 matches them by content, and
+  `Par2Runner.Repair` now does too (`extraFiles`;
+  `TestPar2RunnerRepairsASetWhoseFilesCarryOtherNames` runs real par2).
+  The failure message -- par2's 2048-byte output tail behind a prefix --
+  was over the CRD's `MaxLength=2048`, so the apiserver rejected every
+  status apply and a finished, failed transfer read `Downloading` for
+  good; `pkg/download.clampMessage` cuts it on a rune boundary, the same
+  class as `clampPercent`. Any string an engine writes into a bounded CRD
+  field must be clamped at the `pkg/download` boundary, not trusted.
 - **Every cache strips `managedFields`, and the cache-sync timeout is ten
   minutes.** On the owner's library (15,630 Episodes, a 57 MB list that
   `kubectl` alone takes 40 s to fetch) captionarr crash-looped on
