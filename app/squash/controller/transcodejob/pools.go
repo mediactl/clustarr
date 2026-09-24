@@ -457,18 +457,22 @@ func (r *Reconciler) applyPool(ctx context.Context, k pool.Key, tp *transcodev1a
 		return fmt.Errorf("transcodejob: render pool %s: %w", name, err)
 	}
 	_, err = k8s.Apply(ctx, r.Client, k8s.ManagerSquasharrPool, ac)
-	if cur != nil && pool.IsSchedulingImmutable(err) {
-		// The gang minCount every apply carries cannot be added to a Job
-		// created before WorkloadWithJob was enabled (spec §7). That is
-		// immutable drift, and no apply -- not even a suspend -- is
-		// accepted on this Job again. With nothing dispatched to it, or
-		// nothing running, it is recreated now; otherwise it drains first,
-		// holding new work, and is deleted once its work is done.
+	if cur != nil && pool.IsRecreateOnly(err) {
+		// The Job was created with something the apiserver never lets
+		// change: a pod failure policy an upgrade changed (I1's exit-137
+		// rule), or no gang minCount -- which every apply carries and
+		// cannot be added to a Job created before WorkloadWithJob was
+		// enabled (spec §7). That is immutable drift, and no apply -- not
+		// even a suspend -- is accepted on this Job again. With nothing
+		// dispatched to it, or nothing running, it is recreated now;
+		// otherwise it drains first, holding new work, and is deleted once
+		// its work is done.
 		if n == 0 || pool.Mutable(cur) {
 			return r.deletePool(ctx, tp, cur)
 		}
 		r.recreate[name] = true
-		log.InfoContext(ctx, "squasharr: the pool predates gang scheduling; draining it for recreation", "pool", name)
+		log.InfoContext(ctx, "squasharr: the pool was created with a spec the apiserver will not change; draining it for recreation",
+			"pool", name)
 		return nil
 	}
 	if err != nil {

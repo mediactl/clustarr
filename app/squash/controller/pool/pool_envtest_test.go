@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/squash/worker"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -194,4 +195,28 @@ func TestAGateEnabledLaterReadsAsRecreate(t *testing.T) {
 	err = apply(t, c, tp, Desired{Parallelism: 1}, get(t, c, tp))
 	require.Error(t, err)
 	assert.True(t, IsSchedulingImmutable(err), "%v", err)
+}
+
+// TestAnOlderPodFailurePolicyReadsAsRecreateOnly is final-review I1's
+// upgrade path. A Job's podFailurePolicy is immutable, so a pool created
+// before the exit-137 rule refuses every apply that carries the new policy
+// -- even a suspend -- and IsRecreateOnly must say so, or the reconciler
+// would retry that apply forever and the profile's work would wedge.
+func TestAnOlderPodFailurePolicyReadsAsRecreateOnly(t *testing.T) {
+	c := startEnv(t, false)
+	tp := newProfile(t, c)
+	k := Key{Profile: tp.Name, ProfileUID: tp.UID, Class: "cpu"}
+	ac, err := Render(k, tp, Want(tp, "cpu", cfg), Desired{Parallelism: 1}, nil, cfg)
+	require.NoError(t, err)
+	// The pool as the release before I1 created it: exit 10 ignored, 137 not.
+	require.Equal(t, []int32{worker.WorkerExitDrained, ExitOOMKilled}, ac.Spec.PodFailurePolicy.Rules[1].OnExitCodes.Values)
+	ac.Spec.PodFailurePolicy.Rules[1].OnExitCodes.Values = []int32{worker.WorkerExitDrained}
+	_, err = k8s.Apply(context.Background(), c, k8s.ManagerSquasharrPool, ac)
+	require.NoError(t, err)
+
+	err = apply(t, c, tp, Desired{Parallelism: 1, Suspend: true}, get(t, c, tp))
+	require.Error(t, err, "the apiserver never lets a Job's podFailurePolicy change")
+	assert.True(t, IsPodFailurePolicyImmutable(err), "%v", err)
+	assert.True(t, IsRecreateOnly(err), "%v", err)
+	assert.False(t, IsSchedulingImmutable(err), "%v", err)
 }

@@ -41,3 +41,25 @@ func IsSchedulingImmutable(err error) bool {
 	return apierrors.IsInvalid(err) && strings.Contains(msg, "spec.scheduling") &&
 		(strings.Contains(msg, "cannot be set once created") || strings.Contains(msg, "field is immutable"))
 }
+
+// IsPodFailurePolicyImmutable reports the apiserver refusing an apply that
+// changes .spec.podFailurePolicy, which a Job never lets change: a pool
+// created before the policy did (final-review I1 added the exit-137 rule)
+// takes no apply again until it is recreated.
+func IsPodFailurePolicyImmutable(err error) bool {
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
+	return apierrors.IsInvalid(err) && strings.Contains(msg, "spec.podFailurePolicy") &&
+		strings.Contains(msg, "field is immutable")
+}
+
+// IsRecreateOnly reports an apply refused because the stored pool Job was
+// created with something the apiserver never lets change and every apply
+// sends: no gang minCount ([IsSchedulingImmutable]) or an older pod failure
+// policy ([IsPodFailurePolicyImmutable]). Such a pool is drained and
+// recreated.
+func IsRecreateOnly(err error) bool {
+	return IsSchedulingImmutable(err) || IsPodFailurePolicyImmutable(err)
+}

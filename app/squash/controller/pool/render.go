@@ -57,7 +57,20 @@ const (
 	// BackoffLimit bounds worker-level pod failures only (NATS unreachable,
 	// bad environment): task failures never fail a pod, and the worker never
 	// exits 0, so the pool Job would otherwise fail on legitimate drains.
+	// A pool never finishes, so the limit is spent over the pool's whole
+	// life, and a Failed pool takes its healthy pods' encodes with it: what
+	// can recur over a long life without being the pool's fault -- a drain,
+	// an eviction, an OOM kill -- is ignored by podFailurePolicy rather
+	// than counted here.
 	BackoffLimit = int32(6)
+
+	// ExitOOMKilled is the exit code the kubelet reports for a container
+	// killed by SIGKILL (128+9) -- the OOM killer, above all. One encode
+	// that outgrows the pod's memory limit is that task's problem, not the
+	// pool's: podFailurePolicy ignores it, and a task that OOMs on every
+	// delivery is still bounded, by its consumer's MaxDeliver, then the
+	// dead letter, then Blocked (final-review I1).
+	ExitOOMKilled = int32(137)
 )
 
 // ProfileLabelValue is a profile name as a label value. A TranscodeProfile
@@ -246,11 +259,16 @@ func toApply(job *batchv1.Job) (*batchv1ac.JobApplyConfiguration, error) {
 // podFailurePolicy is ruling R4 for a pool pod, against the process-level
 // exit codes app/squash/worker declares: a pod evicted, preempted or drained
 // (DisruptionTarget) is replaced without spending a retry; a worker that
-// exits WorkerExitDrained (SIGTERM: scaling the pool down) is ignored too, so
-// it never counts against backoffLimit; and WorkerExitMisconfigured fails the
-// whole Job at once, because retrying would restart into the same bad
-// environment. Every other non-zero exit, WorkerExitRetriable included, is
-// retried up to BackoffLimit.
+// exits WorkerExitDrained (SIGTERM: scaling the pool down) or is OOM-killed
+// (ExitOOMKilled; final-review I1) is ignored too, so neither counts against
+// backoffLimit; and WorkerExitMisconfigured fails the whole Job at once,
+// because retrying would restart into the same bad environment. Every other
+// non-zero exit, WorkerExitRetriable included, is retried up to
+// BackoffLimit.
+//
+// A Job's podFailurePolicy is immutable, so a change here reaches an
+// existing pool only by recreating it: the apiserver refuses the apply, and
+// IsRecreateOnly sends the pool through the drain-and-recreate path.
 func podFailurePolicy() *batchv1.PodFailurePolicy {
 	return &batchv1.PodFailurePolicy{Rules: []batchv1.PodFailurePolicyRule{
 		{Action: batchv1.PodFailurePolicyActionIgnore, OnPodConditions: []batchv1.PodFailurePolicyOnPodConditionsPattern{
@@ -258,7 +276,7 @@ func podFailurePolicy() *batchv1.PodFailurePolicy {
 		}},
 		{Action: batchv1.PodFailurePolicyActionIgnore, OnExitCodes: &batchv1.PodFailurePolicyOnExitCodesRequirement{
 			ContainerName: ptr.To(ContainerName), Operator: batchv1.PodFailurePolicyOnExitCodesOpIn,
-			Values: []int32{worker.WorkerExitDrained},
+			Values: []int32{worker.WorkerExitDrained, ExitOOMKilled}, // ascending, as the apiserver requires
 		}},
 		{Action: batchv1.PodFailurePolicyActionFailJob, OnExitCodes: &batchv1.PodFailurePolicyOnExitCodesRequirement{
 			ContainerName: ptr.To(ContainerName), Operator: batchv1.PodFailurePolicyOnExitCodesOpIn,

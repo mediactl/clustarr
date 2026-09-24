@@ -529,6 +529,45 @@ func TestAGateEnabledLaterDrainsAndRecreatesThePool(t *testing.T) {
 	assert.False(t, *fresh.Spec.Suspend)
 }
 
+// TestAPoolWithAnOlderFailurePolicyIsRecreatedForItsWork is final-review
+// I1's upgrade path. A Job's podFailurePolicy is immutable, so a pool
+// created before the exit-137 rule refuses the apply that resumes it for
+// new work. That refusal is immutable drift: the idle pool is deleted in
+// the same pass, and the next one creates it again with the new policy,
+// while the job stays Queued throughout. Before, the apply's error failed
+// every admission pass and the profile's work never ran.
+func TestAPoolWithAnOlderFailurePolicyIsRecreatedForItsWork(t *testing.T) {
+	_, c := startEnv(t)
+	ctx := context.Background()
+	const ns = "tj-old-policy"
+	newNamespace(t, c, ns)
+	newRootFolder(t, c, ns, "/data/media/movies")
+	tp := newProfile(t, c, "hevc", "hash1", nil)
+	r := newReconciler(t, c, map[string]int32{"cpu": 1})
+
+	// The idle pool as squasharr-pool made it before I1: exit 137 not ignored.
+	k := pool.Key{Profile: tp.Name, ProfileUID: tp.UID, Class: "cpu"}
+	ac, err := pool.Render(k, tp, pool.Want(tp, "cpu", r.Pool), pool.Desired{Parallelism: 1, Suspend: true}, nil, r.Pool)
+	require.NoError(t, err)
+	ac.Spec.PodFailurePolicy.Rules[1].OnExitCodes.Values = []int32{10}
+	_, err = k8s.Apply(ctx, c, k8s.ManagerSquasharrPool, ac)
+	require.NoError(t, err)
+	old := getPool(t, c, tp, "cpu")
+
+	newMediaFile(t, c, ns, "heat", "probe1", ptr.To(h264Probe()))
+	newTJ(t, c, ns, "heat-hevc", "heat", "hevc", "probe1", nil)
+	reconcileTJ(t, r, ns, "heat-hevc")
+	require.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, getTJ(t, c, ns, "heat-hevc").Status.Phase)
+	assert.True(t, poolGone(t, c, tp, "cpu"), "an idle pool the apiserver will not change is deleted at once")
+
+	admitPass(t, r)
+	fresh := getPool(t, c, tp, "cpu")
+	assert.NotEqual(t, old.UID, fresh.UID)
+	assert.Equal(t, []int32{10, pool.ExitOOMKilled}, fresh.Spec.PodFailurePolicy.Rules[1].OnExitCodes.Values)
+	assert.False(t, *fresh.Spec.Suspend, "recreated for the work dispatched to it")
+	assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, getTJ(t, c, ns, "heat-hevc").Status.Phase)
+}
+
 // TestAPoolJobChangeWakesAdmission runs the real manager, its Job cache
 // restricted as squasharr's is: a pool Job deleted by hand while its task is
 // queued is recreated by the pass the Job watch wakes, not by the job's own
