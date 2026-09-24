@@ -26,6 +26,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -265,18 +266,11 @@ func mapSeriesStatus(name string) metadata.SeriesStatus {
 }
 
 // episodesResponse is TheTVDB v4's episode-list envelope, shared by every
-// season-order endpoint (/series/{id}/episodes/{order}).
+// season-order endpoint (/series/{id}/episodes/{order}) and its translated
+// form (/series/{id}/episodes/{order}/{lang}).
 type episodesResponse struct {
 	Data struct {
-		Episodes []struct {
-			Name           string `json:"name"`
-			Aired          string `json:"aired"`
-			Runtime        int32  `json:"runtime"`
-			Overview       string `json:"overview"`
-			SeasonNumber   int32  `json:"seasonNumber"`
-			Number         int32  `json:"number"`
-			AbsoluteNumber *int32 `json:"absoluteNumber"`
-		} `json:"episodes"`
+		Episodes []rawEpisode `json:"episodes"`
 	} `json:"data"`
 	// Links pages the list: v4 returns page_size (500) episodes per page
 	// and names the next page in next, null on the last.
@@ -285,50 +279,103 @@ type episodesResponse struct {
 	} `json:"links"`
 }
 
+// rawEpisode is one entry of the list, kept with its id so a translated
+// list can be filled from the untranslated one. A null name decodes to "".
+type rawEpisode struct {
+	ID             int64  `json:"id"`
+	Name           string `json:"name"`
+	Aired          string `json:"aired"`
+	Runtime        int32  `json:"runtime"`
+	Overview       string `json:"overview"`
+	SeasonNumber   int32  `json:"seasonNumber"`
+	Number         int32  `json:"number"`
+	AbsoluteNumber *int32 `json:"absoluteNumber"`
+}
+
 // Episodes fetches a series' episode list under the given season order
 // (one of SeasonOrder's values: default|official|dvd|absolute|alternate|
-// regional -- passed through verbatim, the caller's to validate).
+// regional -- passed through verbatim, the caller's to validate), with
+// each episode's name and overview in titleLanguage: the untranslated
+// list carries the original-language names (デス・ビリヤード), so the
+// walk is of TheTVDB's translated list, /episodes/{order}/eng. Where
+// TheTVDB has no English name it substitutes its own placeholder
+// ("Episode 1"), which stands; a null name -- allowed by the API, though
+// the placeholder usually covers it -- is filled from the untranslated
+// list by episode id, walked once and only then.
 func (c *Client) Episodes(ctx context.Context, tvdbID string, order string) ([]metadata.Episode, error) {
 	ctx, span := tracing.Start(ctx, "metadata.tvdb.Episodes")
 	defer span.End()
 	logger := logging.FromContext(ctx)
 
-	// The list is paged (episodesResponse.Links): every page is fetched, by
-	// number rather than by following links.next's own text, until next is
-	// null. An empty page ends the walk whatever next says, so a provider
-	// that kept naming one could not run the limiter's budget down on
-	// nothing.
-	var episodes []metadata.Episode
 	base := "/series/" + tvdbID + "/episodes/" + order
-	for page := 0; ; page++ {
-		var raw episodesResponse
-		path := base + "?page=" + strconv.Itoa(page)
-		if err := c.doRequest(ctx, http.MethodGet, path, &raw); err != nil {
+	translated, err := c.walkEpisodes(ctx, base+"/"+titleLanguage, tvdbID, order)
+	if err != nil {
+		tracing.RecordError(span, err)
+		return nil, err
+	}
+	if slices.ContainsFunc(translated, func(e rawEpisode) bool { return e.Name == "" }) {
+		original, err := c.walkEpisodes(ctx, base, tvdbID, order)
+		if err != nil {
 			tracing.RecordError(span, err)
-			logger.ErrorContext(ctx, "tvdb: episodes fetch failed", "tvdb_id", tvdbID, "order", order, "page", page, "error", err)
 			return nil, err
 		}
-		for _, e := range raw.Data.Episodes {
-			ep := metadata.Episode{
-				SeasonNumber:   e.SeasonNumber,
-				EpisodeNumber:  e.Number,
-				AbsoluteNumber: e.AbsoluteNumber,
-				Title:          e.Name,
-				Overview:       e.Overview,
-				Runtime:        e.Runtime,
-			}
-			if t, ok := parseDate(e.Aired); ok {
-				ep.AirDate = &t
-			}
-			episodes = append(episodes, ep)
+		byID := make(map[int64]rawEpisode, len(original))
+		for _, e := range original {
+			byID[e.ID] = e
 		}
-		if len(raw.Data.Episodes) == 0 || raw.Links.Next == nil || *raw.Links.Next == "" {
-			break
+		for i := range translated {
+			if translated[i].Name != "" {
+				continue
+			}
+			if o, ok := byID[translated[i].ID]; ok {
+				translated[i].Name = o.Name
+				if translated[i].Overview == "" {
+					translated[i].Overview = o.Overview
+				}
+			}
 		}
+	}
+
+	episodes := make([]metadata.Episode, 0, len(translated))
+	for _, e := range translated {
+		ep := metadata.Episode{
+			SeasonNumber:   e.SeasonNumber,
+			EpisodeNumber:  e.Number,
+			AbsoluteNumber: e.AbsoluteNumber,
+			Title:          e.Name,
+			Overview:       e.Overview,
+			Runtime:        e.Runtime,
+		}
+		if t, ok := parseDate(e.Aired); ok {
+			ep.AirDate = &t
+		}
+		episodes = append(episodes, ep)
 	}
 
 	logger.DebugContext(ctx, "tvdb: episodes fetched", "tvdb_id", tvdbID, "order", order, "count", len(episodes))
 	return episodes, nil
+}
+
+// walkEpisodes fetches every page of the episode list at path. The list
+// is paged (episodesResponse.Links): every page is fetched, by number
+// rather than by following links.next's own text, until next is null. An
+// empty page ends the walk whatever next says, so a provider that kept
+// naming one could not run the limiter's budget down on nothing.
+func (c *Client) walkEpisodes(ctx context.Context, path, tvdbID, order string) ([]rawEpisode, error) {
+	logger := logging.FromContext(ctx)
+	var out []rawEpisode
+	for page := 0; ; page++ {
+		var raw episodesResponse
+		if err := c.doRequest(ctx, http.MethodGet, path+"?page="+strconv.Itoa(page), &raw); err != nil {
+			logger.ErrorContext(ctx, "tvdb: episodes fetch failed", "tvdb_id", tvdbID, "order", order, "path", path, "page", page, "error", err)
+			return nil, err
+		}
+		out = append(out, raw.Data.Episodes...)
+		if len(raw.Data.Episodes) == 0 || raw.Links.Next == nil || *raw.Links.Next == "" {
+			break
+		}
+	}
+	return out, nil
 }
 
 // updatesResponse is TheTVDB v4's /updates envelope.

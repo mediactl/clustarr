@@ -76,7 +76,7 @@ func TestEpisodesUsesTheRequestedSeasonOrder(t *testing.T) {
 		switch r.URL.Path {
 		case "/login":
 			_, _ = w.Write(login)
-		case "/series/121361/episodes/default":
+		case "/series/121361/episodes/default/eng":
 			_, _ = w.Write(episodes)
 		default:
 			t.Fatalf("unexpected request: %s", r.URL.Path)
@@ -123,7 +123,7 @@ func TestEpisodesFollowsEveryPage(t *testing.T) {
 		switch r.URL.Path {
 		case "/login":
 			_, _ = w.Write(login)
-		case "/series/71663/episodes/official":
+		case "/series/71663/episodes/official/eng":
 			page := r.URL.Query().Get("page")
 			pages = append(pages, page)
 			switch page {
@@ -168,7 +168,7 @@ func TestEpisodesStopsAtAnEmptyPage(t *testing.T) {
 		switch r.URL.Path {
 		case "/login":
 			_, _ = w.Write(login)
-		case "/series/71663/episodes/official":
+		case "/series/71663/episodes/official/eng":
 			page := r.URL.Query().Get("page")
 			pages = append(pages, page)
 			switch page {
@@ -439,6 +439,84 @@ func TestSeriesTakesThePrimaryEnglishTranslationAsItsTitle(t *testing.T) {
 		{Title: "유부녀 킬러", Language: "ko"},
 		{Title: "Married Woman Killer", Language: "en"},
 	}, s.AlternateTitles, "the original name leads the alternate titles; the aliases follow as before")
+}
+
+// TestEpisodesTakeTheirEnglishTranslation: the untranslated episode list
+// carries original-language names (デス・ビリヤード), so the client walks
+// /series/{id}/episodes/{order}/eng -- TheTVDB's translated list, same
+// paging, same fields -- and never the untranslated one while every name
+// is translated. Where TheTVDB has no English name it substitutes its own
+// placeholder ("Episode 1"), which stands as returned.
+func TestEpisodesTakeTheirEnglishTranslation(t *testing.T) {
+	login, _ := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
+	episodes, err := os.ReadFile("../../../../testdata/metadata/tvdb/episodes_289177_default_eng.json")
+	require.NoError(t, err)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/login":
+			_, _ = w.Write(login)
+		case "/series/289177/episodes/default/eng":
+			_, _ = w.Write(episodes)
+		case "/series/289177/episodes/default":
+			t.Errorf("the untranslated list must not be fetched when every name is translated")
+		default:
+			t.Errorf("unexpected request: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	c := tvdb.New("test-key", "test-pin", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+
+	eps, err := c.Episodes(context.Background(), "289177", "default")
+	require.NoError(t, err)
+	require.Len(t, eps, 3)
+	require.Equal(t, "Death Billiards", eps[0].Title)
+	require.Equal(t, "Death Seven Darts", eps[1].Title)
+	require.Equal(t, "A young couple, Takashi and Machiko, arrive at the bar Quindecim.", eps[1].Overview)
+	require.Equal(t, "Death Reverse", eps[2].Title)
+}
+
+// TestEpisodesFillANullNameFromTheUntranslatedList: the translated list
+// may carry a null name for an episode nobody has translated (the API
+// allows it even where TheTVDB usually substitutes a placeholder). Then,
+// and only then, the client walks the untranslated list once and fills
+// that episode's name and overview by id; the others keep their English.
+func TestEpisodesFillANullNameFromTheUntranslatedList(t *testing.T) {
+	login, _ := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
+	eng := []byte(`{"data":{"episodes":[
+		{"id":1,"name":"Death Billiards","seasonNumber":0,"number":1},
+		{"id":2,"name":null,"overview":null,"seasonNumber":1,"number":1},
+		{"id":3,"name":"Death Reverse","seasonNumber":1,"number":2}]},
+		"links":{"next":null}}`)
+	original := []byte(`{"data":{"episodes":[
+		{"id":1,"name":"デス・ビリヤード","seasonNumber":0,"number":1},
+		{"id":2,"name":"デス・セブンダーツ","overview":"BAR「クイーンデキム」に一組の夫婦が訪れる。","seasonNumber":1,"number":1},
+		{"id":3,"name":"デス・リバース","seasonNumber":1,"number":2}]},
+		"links":{"next":null}}`)
+	var untranslatedFetches atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/login":
+			_, _ = w.Write(login)
+		case "/series/289177/episodes/default/eng":
+			_, _ = w.Write(eng)
+		case "/series/289177/episodes/default":
+			untranslatedFetches.Add(1)
+			_, _ = w.Write(original)
+		default:
+			t.Errorf("unexpected request: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	c := tvdb.New("test-key", "test-pin", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+
+	eps, err := c.Episodes(context.Background(), "289177", "default")
+	require.NoError(t, err)
+	require.Len(t, eps, 3)
+	require.Equal(t, "Death Billiards", eps[0].Title)
+	require.Equal(t, "デス・セブンダーツ", eps[1].Title, "a null English name falls back to the untranslated one, by id")
+	require.Equal(t, "BAR「クイーンデキム」に一組の夫婦が訪れる。", eps[1].Overview)
+	require.Equal(t, "Death Reverse", eps[2].Title)
+	require.EqualValues(t, 1, untranslatedFetches.Load(), "the untranslated list is walked once, only because a name was null")
 }
 
 // TestSeriesKeepsTheRecordNameWithoutAnEnglishTranslation: with no primary

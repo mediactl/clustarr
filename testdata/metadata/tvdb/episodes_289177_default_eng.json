@@ -1,0 +1,43 @@
+{
+  "data": {
+    "id": 289177,
+    "name": "デス・パレード",
+    "originalLanguage": "jpn",
+    "episodes": [
+      {
+        "id": 5087155,
+        "seriesId": 289177,
+        "name": "Death Billiards",
+        "aired": "2013-03-02",
+        "runtime": 25,
+        "overview": "An old and a young man find themselves in a bar with no memory of how they got there.",
+        "seasonNumber": 0,
+        "number": 1,
+        "absoluteNumber": null
+      },
+      {
+        "id": 5079012,
+        "seriesId": 289177,
+        "name": "Death Seven Darts",
+        "aired": "2015-01-10",
+        "runtime": 24,
+        "overview": "A young couple, Takashi and Machiko, arrive at the bar Quindecim.",
+        "seasonNumber": 1,
+        "number": 1,
+        "absoluteNumber": 1
+      },
+      {
+        "id": 5079015,
+        "seriesId": 289177,
+        "name": "Death Reverse",
+        "aired": "2015-01-17",
+        "runtime": 24,
+        "overview": "A black-haired woman awakens in an unfamiliar place.",
+        "seasonNumber": 1,
+        "number": 2,
+        "absoluteNumber": 2
+      }
+    ]
+  },
+  "links": {"prev": null, "self": "/series/289177/episodes/default/eng?page=0", "next": null, "total_items": 3, "page_size": 500}
+}
