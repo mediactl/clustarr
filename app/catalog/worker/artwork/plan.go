@@ -220,16 +220,29 @@ func Badges(spec catalogv1alpha1.OverlayProfileSpec, ratings []catalogv1alpha1.R
 	return out
 }
 
+// RenderVersion is the renderer's own input to every InputsDigest: a
+// change to what the renderer draws from the same inputs -- a new layout,
+// font, resampling or MaxRenderWidth -- bumps it, and every stored overlay's
+// Clustarr-Rendered-From stops matching, so each is re-rendered on its next
+// task rather than served stale forever. 1 was the unversioned renderer
+// through M7's first cut; 2 downscales originals to MaxRenderWidth.
+const RenderVersion = 2
+
 // InputsDigest is spec §C.6 step 2: the hex SHA-256 over the original
 // poster's digest, the profile hash and the item's ratings sorted by
-// source. A rating contributes its source and value; its vote count is
-// never drawn, so it stays out -- a count ticking over on every metadata
-// refresh would otherwise re-render every poster for no visible change.
+// source -- and [RenderVersion], so a renderer upgrade re-renders. A rating
+// contributes its source and value; its vote count is never drawn, so it
+// stays out -- a count ticking over on every metadata refresh would
+// otherwise re-render every poster for no visible change.
 func InputsDigest(originalDigest, profileHash string, ratings []catalogv1alpha1.Rating) string {
+	return inputsDigest(RenderVersion, originalDigest, profileHash, ratings)
+}
+
+func inputsDigest(version int, originalDigest, profileHash string, ratings []catalogv1alpha1.Rating) string {
 	sorted := append([]catalogv1alpha1.Rating(nil), ratings...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Source < sorted[j].Source })
 	var b strings.Builder
-	fmt.Fprintf(&b, "original=%s\nprofile=%s\n", originalDigest, profileHash)
+	fmt.Fprintf(&b, "render=%d\noriginal=%s\nprofile=%s\n", version, originalDigest, profileHash)
 	for _, r := range sorted {
 		fmt.Fprintf(&b, "rating=%s:%d\n", r.Source, r.ValueCentis)
 	}

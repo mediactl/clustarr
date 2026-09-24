@@ -30,6 +30,7 @@ import (
 	"sync"
 	"time"
 
+	xdraw "golang.org/x/image/draw"
 	_ "golang.org/x/image/webp" // registers the WebP decoder, the third type the gateway stores
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -131,12 +132,20 @@ type Handler struct {
 	// MaxAckPending (32) is how many tasks natsbus hands this process at
 	// once, and a draw holds the original's bytes, its decoded image, the
 	// NRGBA the badges are drawn on and the JPEG, some 35-40 MB for an
-	// ordinary 2000x3000 poster and far more for an 8000px one. The
-	// catalogarr pod runs every controller beside the renderer under a
-	// GOMEMLIMIT of about 80% of its memory limit (819Mi of 1Gi as
-	// shipped), so the budget is renders x the largest poster expected,
-	// kept well inside that. A task waiting for a slot is still being
-	// handled: Handle's heartbeat keeps its delivery alive.
+	// ordinary 2000x3000 poster. The catalogarr pod runs every controller
+	// beside the renderer under a GOMEMLIMIT of about 80% of its memory
+	// limit (819Mi of 1Gi as shipped), so the budget is renders x the
+	// largest poster expected, kept well inside that. A task waiting for a
+	// slot is still being handled: Handle's heartbeat keeps its delivery
+	// alive.
+	//
+	// The other half of that budget is MaxRenderWidth: a decoded original
+	// wider than it is downscaled before anything is drawn, so the canvas,
+	// the badges and the JPEG are never larger than a 2000px-wide poster.
+	// Only the decode itself still holds the full original -- at most
+	// gateway.MaxImageDimension (8000) square, 96 MB as 4:2:0 JPEG and
+	// 256 MB as PNG -- where an 8000x8000 original used to hold that and a
+	// second full-size NRGBA canvas besides, some 512 MB per render.
 	MaxConcurrentRenders int
 
 	slotsOnce sync.Once
@@ -146,6 +155,15 @@ type Handler struct {
 // DefaultMaxConcurrentRenders is MaxConcurrentRenders when unset: two
 // ordinary posters, under 100 MB, beside the controllers.
 const DefaultMaxConcurrentRenders = 2
+
+// MaxRenderWidth is the widest an overlay is drawn: a decoded original
+// wider than this is downscaled to it, aspect preserved, before
+// overlay.Render (see MaxConcurrentRenders for the memory it bounds). A
+// poster is shown at a few hundred pixels wide by every client this serves
+// (the library grid, Plex), and TMDB's own "original" size is 2000 wide,
+// so the cap costs nothing visible. Changing it changes every render's
+// output: bump RenderVersion with it.
+const MaxRenderWidth = 2000
 
 // acquire takes a draw slot, or gives up when ctx ends.
 func (h *Handler) acquire(ctx context.Context) (release func(), err error) {
@@ -417,6 +435,9 @@ func (h *Handler) draw(ctx context.Context, it Item, want Want) (*catalogv1alpha
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s: %w", errUndecodable, originalKey, err)
 	}
+	// Reassigned, not shadowed: the full-size decode is unreachable from
+	// here on, so it can be collected before Render allocates its canvas.
+	base = FitWidth(base, MaxRenderWidth)
 
 	img, err := overlay.Render(base, want.Badges, overlay.TemplateSpec(want.Profile.Spec))
 	if err != nil {
@@ -447,6 +468,22 @@ func (h *Handler) draw(ctx context.Context, it Item, want Want) (*catalogv1alpha
 		RenderedFrom: want.InputsDigest,
 		UpdatedAt:    metav1.NewTime(h.now().UTC()),
 	}, nil
+}
+
+// FitWidth returns img unchanged when it is at most maxWidth wide, else a
+// copy scaled down to exactly maxWidth wide with its aspect ratio kept
+// (height rounded, at least 1), resampled with Catmull-Rom -- a poster is
+// downscaled by up to 4x here, and a cheaper kernel aliases the fine detail
+// artwork is full of.
+func FitWidth(img image.Image, maxWidth int) image.Image {
+	b := img.Bounds()
+	if b.Dx() <= maxWidth {
+		return img
+	}
+	h := max((b.Dy()*maxWidth+b.Dx()/2)/b.Dx(), 1)
+	dst := image.NewNRGBA(image.Rect(0, 0, maxWidth, h))
+	xdraw.CatmullRom.Scale(dst, dst.Bounds(), img, b, xdraw.Src, nil)
+	return dst
 }
 
 // record is every status.overlay write: after the slow work (store reads,

@@ -163,6 +163,21 @@ func TestInputsDigest(t *testing.T) {
 	assert.Equal(t, base, artwork.InputsDigest("orig", "hash", []catalogv1alpha1.Rating{voted, r2}))
 }
 
+// TestRenderVersionMovesTheDigest: a renderer that draws differently from
+// the same inputs must re-render every stored overlay, and the only way the
+// renderer learns an overlay is stale is its Clustarr-Rendered-From no
+// longer matching. InputsDigest is the current version's; bumping
+// RenderVersion changes every digest.
+func TestRenderVersionMovesTheDigest(t *testing.T) {
+	ratings := []catalogv1alpha1.Rating{{Source: catalogv1alpha1.RatingSourceTMDB, ValueCentis: 781}}
+	current := artwork.InputsDigest("orig", "hash", ratings)
+	assert.Equal(t, current, artwork.InputsDigestAt(artwork.RenderVersion, "orig", "hash", ratings))
+	assert.NotEqual(t, current, artwork.InputsDigestAt(artwork.RenderVersion+1, "orig", "hash", ratings),
+		"a bumped RenderVersion must change the digest")
+	assert.NotEqual(t, current, artwork.InputsDigestAt(artwork.RenderVersion-1, "orig", "hash", ratings),
+		"an overlay drawn by the previous renderer is stale")
+}
+
 func TestPlan(t *testing.T) {
 	crit := map[string]string{"overlay": "critics"}
 	rated := catalogv1alpha1.Rating{Source: catalogv1alpha1.RatingSourceTMDB, ValueCentis: 781}

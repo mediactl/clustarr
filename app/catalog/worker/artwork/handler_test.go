@@ -602,6 +602,58 @@ func TestAnOriginalReplacedBeforeTheDrawIsNotRenderedUnderItsOldDigest(t *testin
 	assert.Equal(t, want, f.get().Overlay.RenderedFrom)
 }
 
+// largePNG is a w x h opaque poster, filled directly rather than pixel by
+// pixel so a 24-megapixel fixture costs a PNG encode, not 24M Set calls.
+func largePNG(t *testing.T, w, h int) []byte {
+	t.Helper()
+	img := image.NewNRGBA(image.Rect(0, 0, w, h))
+	copy(img.Pix, bytes.Repeat([]byte{0x30, 0x60, 0x90, 0xFF}, w*h))
+	var buf bytes.Buffer
+	require.NoError(t, (&png.Encoder{CompressionLevel: png.BestSpeed}).Encode(&buf, img))
+	return buf.Bytes()
+}
+
+// TestALargeOriginalIsDrawnAtMaxRenderWidth is the review's OOM case: an
+// original wider than MaxRenderWidth is downscaled, aspect kept, before
+// anything is drawn, so the canvas and the JPEG are a 2000px poster's
+// whatever the provider served.
+func TestALargeOriginalIsDrawnAtMaxRenderWidth(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t, commonv1.MediaKindMovie, "render-large", catalogv1alpha1.RatingSourceTMDB)
+	var err error
+	f.info, err = f.store.ObjectStore.Put(ctx, f.originalKey(), bytes.NewReader(largePNG(t, 4000, 6000)),
+		map[string]string{"Content-Type": "image/png", "Clustarr-Source": "provider", "Clustarr-Source-URL": "https://img.example/p.png"})
+	require.NoError(t, err)
+	f.gateway(f.ratings, true) // status.artwork now records the large original
+
+	require.NoError(t, f.handle())
+	_, rc, err := f.store.Get(ctx, f.overlayKey())
+	require.NoError(t, err)
+	defer func() { _ = rc.Close() }()
+	cfg, format, err := image.DecodeConfig(rc)
+	require.NoError(t, err)
+	assert.Equal(t, "jpeg", format)
+	assert.Equal(t, artwork.MaxRenderWidth, cfg.Width)
+	assert.Equal(t, 3000, cfg.Height, "the aspect ratio is kept")
+	assert.Equal(t, f.wantDigest(), f.get().Overlay.RenderedFrom)
+}
+
+// TestFitWidth: at or under the cap is returned as is; over it is scaled to
+// exactly the cap, height rounded and never zero.
+func TestFitWidth(t *testing.T) {
+	small := image.NewNRGBA(image.Rect(0, 0, 2000, 3000))
+	assert.Same(t, small, artwork.FitWidth(small, 2000))
+
+	for _, tc := range []struct{ w, h, wantH int }{
+		{4000, 6000, 3000},
+		{3000, 1001, 667},
+		{8000, 1, 1},
+	} {
+		got := artwork.FitWidth(image.NewNRGBA(image.Rect(0, 0, tc.w, tc.h)), 2000).Bounds()
+		assert.Equal(t, image.Rect(0, 0, 2000, tc.wantH), got, "%dx%d", tc.w, tc.h)
+	}
+}
+
 func TestTasksThatCannotRender(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, commonv1.MediaKindMovie, "render-edge", catalogv1alpha1.RatingSourceTMDB)
