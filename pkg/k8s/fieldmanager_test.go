@@ -26,7 +26,7 @@ func TestFieldManagersAreTheOnesTheSpecLists(t *testing.T) {
 		"importarr", "importarr-worker",
 		"indexarr",
 		"indexarr-worker", "grabarr", "grabarr-engine",
-		"squasharr", "squasharr-worker", "captionarr", "captionarr-worker",
+		"squasharr", "squasharr-worker", "squasharr-pool", "captionarr", "captionarr-worker",
 		"clustarr-dlq-projector", "clustarr-ui",
 	}
 	got := FieldManagers()
