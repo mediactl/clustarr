@@ -259,7 +259,8 @@ func allServices(
 			// ui.Options left nil.
 			reader, waitForSync, acts := buildUICluster(ctx)
 			proj := buildUIProjection(ctx, reader)
-			artwork := buildUIArtwork(ctx, o.NATSURL)
+			artwork, closeBus := buildUIArtwork(ctx, o.NATSURL)
+			defer closeBus()
 			return runUI(ctx, ui.Options{
 				BindAddress:          uiAddr,
 				AuthMode:             uiAuthMode,

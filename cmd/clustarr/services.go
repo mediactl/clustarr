@@ -501,14 +501,30 @@ func buildUIProjection(ctx context.Context, reader client.Reader) *projection.Pr
 // `clustarr ui` with no NATS endpoint reachable still gets a working UI,
 // only with placeholder art everywhere spec.metadata has not published a
 // poster for yet.
-func buildUIArtwork(ctx context.Context, natsURL string) events.ObjectStore {
+//
+// An unreachable endpoint is NOT a ConnectBus failure: k8s.ConnectBus sets
+// nats.RetryOnFailedConnect, so it hands back a connection still
+// reconnecting in the background, and every object-store read through it
+// blocks until its own deadline. That is how a ui Deployment the installers
+// gave no NATS_URL dialled the binary's default Service forever with nothing
+// in its log (M7 final review). So the connection's state is logged once
+// here, at startup, naming the URL it is trying.
+//
+// The returned stop closes the connection; both call sites defer it around
+// runUI, so the connection is drained when ui shuts down rather than left
+// to the process exit. It is never nil.
+func buildUIArtwork(ctx context.Context, natsURL string) (events.ObjectStore, func()) {
 	log := ctrl.LoggerFrom(ctx).WithName("ui")
-	bus, _, err := k8s.ConnectBus(natsURL, "ui", k8s.WithBusHooks(obs.BusHooks()))
+	bus, nc, err := k8s.ConnectBus(natsURL, "ui", k8s.WithBusHooks(obs.BusHooks()))
 	if err != nil {
 		log.Error(err, "connect ui to NATS; ui will serve placeholder art for every item")
-		return nil
+		return nil, func() {}
 	}
-	return bus.ObjectStore(events.BucketArtwork)
+	if !nc.IsConnected() {
+		log.Info("NATS is not connected yet; /art and every Plex image will fail until it is -- "+
+			"check --nats-url or $"+natsURLEnv, "url", natsURL, "status", nc.Status().String())
+	}
+	return bus.ObjectStore(events.BucketArtwork), nc.Close
 }
 
 // buildUIPlexOptions builds ui.Options.Plex from --plex-provider and
@@ -567,7 +583,8 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 		ctx := cmd.Context()
 		reader, waitForSync, acts := buildUICluster(ctx)
 		proj := buildUIProjection(ctx, reader)
-		artwork := buildUIArtwork(ctx, natsURL)
+		artwork, closeBus := buildUIArtwork(ctx, natsURL)
+		defer closeBus()
 		// Every cluster-derived field, in the same order as all.go's ui
 		// closure; ui_options_wiring_test.go executes both commands and fails
 		// on any func, pointer or interface field of ui.Options left nil.

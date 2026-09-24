@@ -87,6 +87,15 @@ spec:
         # provider is unauthenticated by protocol.
         args: ["ui", "--auth-mode=anonymous", "--plex-provider=true"]
         env:
+        # ui holds a read-only bus connection (design M7 §B.8): /art and
+        # every Plex thumb read the clustarr-artwork object store through
+        # it. Without this the binary dials its built-in default, a Service
+        # no installer creates, and nats.go's retry-on-failed-connect never
+        # reports an error -- every image request hangs, then 500s.
+        # cmd/clustarr/nats_url_deploy_test.go holds every Deployment whose
+        # command takes --nats-url to carrying this.
+        - name: NATS_URL
+          value: nats://nats.clustarr-system.svc:4222
         # §12: GOMEMLIMIT = 80% of 256Mi, in bytes (see catalogarr.yaml).
         - name: GOMEMLIMIT
           value: "214748365"

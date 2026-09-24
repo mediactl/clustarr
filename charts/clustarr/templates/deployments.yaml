@@ -208,9 +208,14 @@ asked for them, so they can never be chart templates.
 {{- end }}
 {{- if .Values.ui.enabled }}
 {{/* ui does not fit clustarr.workload: it runs no controller-runtime
-     manager, so it has no NATS_URL, no --leader-elect/--nats-single-node,
-     and no separate metrics/health ports -- /healthz is served on the same
-     port as everything else (design spec amendment §A3). */}}
+     manager, so it has no --leader-elect/--nats-single-node and no
+     separate metrics/health ports -- /healthz is served on the same port
+     as everything else (design spec amendment §A3). It does take NATS_URL,
+     from the same clustarr.natsUrl helper every other Deployment uses: it
+     holds a read-only bus connection to serve /art and every Plex image
+     from the clustarr-artwork object store (M7 design §B.8, ADR-0011).
+     cmd/clustarr/nats_url_deploy_test.go fails the render if it is
+     dropped. */}}
 {{- $name := printf "%s-%s" (include "clustarr.fullname" $) "ui" }}
 ---
 apiVersion: v1
@@ -278,8 +283,10 @@ spec:
         {{- end }}
         args:
           {{- toYaml $uiArgs | nindent 8 }}
-        {{- with dig "resources" "limits" "memory" "" .Values.ui }}
         env:
+        - name: NATS_URL
+          value: {{ include "clustarr.natsUrl" $ | quote }}
+        {{- with dig "resources" "limits" "memory" "" .Values.ui }}
         - name: GOMEMLIMIT
           value: {{ include "clustarr.gomemlimit" . | quote }}
         {{- end }}
