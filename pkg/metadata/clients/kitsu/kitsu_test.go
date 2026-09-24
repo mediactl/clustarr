@@ -35,7 +35,7 @@ import (
 // Live Kitsu responses captured 2026-09-23 (included items trimmed), plus
 // mappings_ambiguous.json: the AoT response with a second item appended,
 // since no live TVDB series id maps to two Kitsu anime.
-const fixtures = "../../../../testdata/metadata/kitsu/"
+const fixtures = "../../../../test/data/metadata/kitsu/"
 
 // serve routes by path and, for /mappings, the filtered site and id.
 func serve(t *testing.T, routes map[string]string) (*httptest.Server, *[]string) {

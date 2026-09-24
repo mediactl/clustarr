@@ -1,4 +1,4 @@
-# The in-cluster tmdb stub: it re-serves testdata/metadata/tmdb's recorded JSON
+# The in-cluster tmdb stub: it re-serves test/data/metadata/tmdb's recorded JSON
 # and nothing else, so no controller in the e2e cluster ever reaches the real
 # Internet. The readiness probe is a real fixture route, which means a pod that
 # was built without the recorded JSON never goes Ready instead of failing a

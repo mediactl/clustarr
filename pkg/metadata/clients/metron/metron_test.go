@@ -37,7 +37,7 @@ import (
 // api/v1_0/serializers/series.py) and mokkari's test data for series 1,
 // "Death of the Inhumans"; the API needs an account, so no live response
 // was captured.
-const fixtures = "../../../../testdata/metadata/metron/"
+const fixtures = "../../../../test/data/metadata/metron/"
 
 // serve routes "path?rawquery" to a fixture; the "next" links inside the
 // fixtures point at metron.cloud and must be rewritten onto this server by

@@ -35,7 +35,7 @@ import (
 // Closed, the first 40 of 1,225 rows), all_80644 (whole), all_73388 (six
 // rows mapping TVDB specials onto scene "1x0"), havemap (15 of 1,882 ids),
 // allnames (five series), and the "no show" failure for TVDB 81797.
-const fixtures = "../../../testdata/metadata/thexem/"
+const fixtures = "../../../test/data/metadata/thexem/"
 
 type xemServer struct {
 	*httptest.Server

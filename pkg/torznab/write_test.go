@@ -30,7 +30,7 @@ import (
 )
 
 func TestWriteCapsRoundTrips(t *testing.T) {
-	f, err := os.Open("../../testdata/torznab/caps.xml")
+	f, err := os.Open("../../test/data/torznab/caps.xml")
 	require.NoError(t, err)
 	want, err := torznab.ParseCaps(f)
 	require.NoError(t, err)
@@ -46,7 +46,7 @@ func TestWriteCapsRoundTrips(t *testing.T) {
 }
 
 func TestWriteCapsUsenetVariantRoundTrips(t *testing.T) {
-	f, err := os.Open("../../testdata/newznab/caps.xml")
+	f, err := os.Open("../../test/data/newznab/caps.xml")
 	require.NoError(t, err)
 	want, err := torznab.ParseCaps(f)
 	require.NoError(t, err)
@@ -61,7 +61,7 @@ func TestWriteCapsUsenetVariantRoundTrips(t *testing.T) {
 }
 
 func TestWriteResultsRoundTrips(t *testing.T) {
-	rels := parseResultsFile(t, "../../testdata/torznab/search_with_attrs.xml")
+	rels := parseResultsFile(t, "../../test/data/torznab/search_with_attrs.xml")
 
 	var buf bytes.Buffer
 	require.NoError(t, torznab.WriteResults(&buf, rels))
@@ -73,7 +73,7 @@ func TestWriteResultsRoundTrips(t *testing.T) {
 }
 
 func TestWriteResultsUsenetRoundTrips(t *testing.T) {
-	rels := parseResultsFile(t, "../../testdata/newznab/usenet_search.xml")
+	rels := parseResultsFile(t, "../../test/data/newznab/usenet_search.xml")
 
 	var buf bytes.Buffer
 	require.NoError(t, torznab.WriteResults(&buf, rels))
@@ -133,7 +133,7 @@ func TestWriteResultsSynthesizesAttrsFromTypedFieldsAlone(t *testing.T) {
 // through Attrs, repeated author included) and from a Release built in code,
 // as pkg/cardigann builds one, where only the typed field is set.
 func TestWriteResultsRoundTripsNonVideoFields(t *testing.T) {
-	f, err := os.Open("../../testdata/torznab/nonvideo_search.xml")
+	f, err := os.Open("../../test/data/torznab/nonvideo_search.xml")
 	require.NoError(t, err)
 	want, err := torznab.ParseResults(f)
 	require.NoError(t, err)

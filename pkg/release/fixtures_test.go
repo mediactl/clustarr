@@ -82,7 +82,7 @@ func loadFixtures(t *testing.T, path string) []fixture {
 }
 
 func TestFixtureCorpusParsesToExpectedFields(t *testing.T) {
-	files, err := filepath.Glob("../../testdata/releases/*.json")
+	files, err := filepath.Glob("../../test/data/releases/*.json")
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(files), 10)
 

@@ -12,12 +12,12 @@
 # Adapt the podTemplate to your profile before using this.
 #
 # What a worker pod needs, and why each line below is there (the same
-# contract squasharr/controller/transcodejob/job.go renders for its own
+# contract app/squash/controller/transcodejob/job.go renders for its own
 # Jobs; test/e2e's TestKEDATranscodeScaledJobRenders holds the first two):
 #
 #   * serviceAccountName squasharr-worker. The worker's RBAC is its own
 #     ClusterRole (config/rbac/squasharr_worker_role.yaml, generated from
-#     squasharr/worker's markers) bound to that account only; the controller's
+#     app/squash/worker's markers) bound to that account only; the controller's
 #     `squasharr` account holds none of it.
 #   * --job <TranscodeJob name>. `squasharr --role worker` refuses to start
 #     without it (squasharr.Options.Validate): a worker transcodes exactly the

@@ -36,7 +36,7 @@ type dialectGolden struct {
 }
 
 func TestDialectGoldens(t *testing.T) {
-	raw, err := os.ReadFile("../../testdata/naming/dialects.json")
+	raw, err := os.ReadFile("../../test/data/naming/dialects.json")
 	require.NoError(t, err)
 	var goldens []dialectGolden
 	require.NoError(t, json.Unmarshal(raw, &goldens))

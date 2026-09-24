@@ -30,12 +30,12 @@ One Go module, one cobra binary: `clustarr <service> --role <role>`.
 
 | Dir | Owns |
 | --- | --- |
-| `catalogarr/` | Media domain (movies, series, music, books, comics, audiobooks), metadata gateway, release decisions |
-| `importarr/` | Everything entering the library: root-folder rescan, import lists, completed-download import |
-| `indexarr/` | Indexer aggregation, Cardigann engine, local release index (SQLite FTS5) |
-| `grabarr/` | Download clients: torrent (anacrolix) and usenet engines |
-| `squasharr/` | Transcode to HEVC 10-bit + AAC, as batch Jobs |
-| `captionarr/` | Subtitles, Bazarr-equivalent, distributed |
+| `app/catalog/` | Media domain (movies, series, music, books, comics, audiobooks), metadata gateway, release decisions |
+| `app/import/` | Everything entering the library: root-folder rescan, import lists, completed-download import |
+| `app/indexer/` | Indexer aggregation, Cardigann engine, local release index (SQLite FTS5) |
+| `app/grab/` | Download clients: torrent (anacrolix) and usenet engines |
+| `app/squash/` | Transcode to HEVC 10-bit + AAC, as batch Jobs |
+| `app/caption/` | Subtitles, Bazarr-equivalent, distributed |
 | `ui/` | Server-rendered web UI (templ + htmx + SSE); never writes status |
 
 API groups: `{catalog,index,download,transcode,subtitle}.clustarr.io/v1alpha1`.
@@ -46,7 +46,7 @@ Bazarr logic verbatim — keep the header on every file).
 
 A transcoded media file should be the final destination. If we detect a transcoded profile, we should not mark the media "CutoffUnmet" - instead it should be marked `Transcoded`.
 
-The predicate is `catalogarr/controller/rollup.Transcoded` -- `spec.original` false, or the probe's `status.mediaInfo.transcodeProfile` (the `CLUSTARR_PROFILE` tag) -- and such a Movie or Episode reads phase `Transcoded`, with `CutoffMet=True` reason `Transcoded`; `pkg/decision` rejects every automatic upgrade of it as `TranscodedFinal` (spec §4.2).
+The predicate is `app/catalog/controller/rollup.Transcoded` -- `spec.original` false, or the probe's `status.mediaInfo.transcodeProfile` (the `CLUSTARR_PROFILE` tag) -- and such a Movie or Episode reads phase `Transcoded`, with `CutoffMet=True` reason `Transcoded`; `pkg/decision` rejects every automatic upgrade of it as `TranscodedFinal` (spec §4.2).
 
 ## UI
 
@@ -99,7 +99,7 @@ make manifests     # CRDs + RBAC into config/
 make build         # binary into bin/  (never bare `go build` — it drops a binary in the repo root)
 make test          # unit + envtest, sets KUBEBUILDER_ASSETS
 make lint          # golangci-lint v2
-make cardigann-bundle  # re-pack .data/Definitions into indexarr/bundle/embedded/definitions.zip
+make cardigann-bundle  # re-pack .data/Definitions into app/indexer/bundle/embedded/definitions.zip
 make kind-up       # local cluster with NATS, then: make install deploy
 make e2e           # end-to-end suite against that kind cluster (test/e2e, tag e2e)
 ```
@@ -221,7 +221,7 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   object it seeds from is the one it wrote, so there is no window. The
   distinguishing test interleaves a *real* second writer mid-operation; the
   rule is that any path which reads, works slowly, then applies must re-`Get`
-  immediately before the apply. `indexarr/worker/rss/worker.go` does this with
+  immediately before the apply. `app/indexer/worker/rss/worker.go` does this with
   the comment "the poll closes the window".
 - **Server-side apply tracks ownership per leaf inside a struct**, not for the
   sub-object as a whole. A renderer that sent only `caps.modes` released
@@ -253,7 +253,7 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   five times across Phases D-F before G4-0 swept it, the worst an `int32`
   `maxOutputToSourcePercent` defaulted to `1.0` that would have failed every
   real transcode. Fix with a pointer plus an accessor that applies the
-  default to nil (`squasharr/worker.ReplaceSource`,
+  default to nil (`app/squash/worker.ReplaceSource`,
   `Revision.EffectiveVersion`), or a floor in code, documented on the field,
   where zero means nothing (`Indexer.spec.timeout`). `pkg/crdcheck`'s
   `TestNoCRDDefaultIsUnreachableFromGo` and `TestEveryStatusListIsCapped`
@@ -364,7 +364,7 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   run; propagation rides the `Clustarr-Trace` header already in `pkg/events`.
 - Prometheus metrics use the `clustarr_` prefix and base units. **Never label by
   title, path or release name** — unbounded cardinality.
-- Tests: table-driven, testify, fixtures under `testdata/`. Pure functions where
+- Tests: table-driven, testify, fixtures under `test/data/`. Pure functions where
   the logic is tricky (`pkg/pipeline.Project`, `pkg/transcode.Plan`) so it is
   testable without a cluster.
 
@@ -378,7 +378,7 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   warns against -- `Config.Limiter == nil` silently got `rate.NewLimiter(5,
   5)` -- so a caller with no Limiter configured got a private 5 req/s
   allowance per `Provider` instance instead of the shared budget captionarr's
-  KV token bucket (`captionarr/throttle`) provides; fixed under ruling R3,
+  KV token bucket (`app/caption/throttle`) provides; fixed under ruling R3,
   alongside giving `providers/gestdown` the injection point it had never had.
 - **Every HTTP response body is read through a cap** — a package-level max, an
   `io.LimitReader(body, max+1)` and an `ErrResponseTooLarge` sentinel.
@@ -415,7 +415,7 @@ runner, cleanup, verify); `torznab`/`newznab`; `cardigann` (v11, 25 filters,
 five logins, HTML/JSON/XML); `subtitles` (Bazarr scoring, cue-aware
 post-processing, OpenSubtitles, Gestdown, embedded); `metadata` (six clients);
 `importlist` (five lists, Dedupe, ApplySyncLevel); `fsops`/`ratelimit`.
-Fixtures under `testdata/<pkg>/`, no network in tests, ffmpeg tests skip
+Fixtures under `test/data/<pkg>/`, no network in tests, ffmpeg tests skip
 without it.
 
 Phase C (done): M1 catalog core and library rescan — the first phase that
@@ -436,17 +436,17 @@ land scenarios 5, 7 and 8 on kind.
 
 Phase D1 (done): M2 indexers — `indexarr` controllers for `Indexer`,
 `IndexerDefinition` and `IndexerProxy`; the caps probe with its 12-hour
-refresh (`capsTTL`, `indexarr/controller/indexer/controller.go`); the
-health/backoff escalation ladder in `indexarr/status/health.go` (Prowlarr's
+refresh (`capsTTL`, `app/indexer/controller/indexer/controller.go`); the
+health/backoff escalation ladder in `app/indexer/status/health.go` (Prowlarr's
 ten-rung `EscalationBackOff` periods, 0s to 24h, with a 15-minute startup
 grace); the SQLite FTS5 release index (`pkg/relindex`, external-content FTS5,
 pure-Go `modernc.org/sqlite`, no cgo); the federated search
-(`indexarr/search`) with its dedupe (infohash, then per-indexer
+(`app/indexer/search`) with its dedupe (infohash, then per-indexer
 `(indexer, guid)`) and the KV-backed query-limit window
 (`clustarr-indexer-limits`); the RSS poll worker and release firehose
-(`indexarr/worker/rss`); the three RPC verbs `rpc.indexarr.search|download|query`
-that make `catalogarr/worker/search`'s calls reach a real server for the first
-time; `indexarr/status` as the single declaration of each field manager's
+(`app/indexer/worker/rss`); the three RPC verbs `rpc.indexarr.search|download|query`
+that make `app/catalog/worker/search`'s calls reach a real server for the first
+time; `app/indexer/status` as the single declaration of each field manager's
 owned set (`ControllerFields`/`WorkerFields`). E2E scenario 17
 (`test/e2e/indexer_test.go`, against the Torznab fixture under
 `test/fixtures/torznabstub/`) is written — Indexer health and caps, ranked
@@ -465,24 +465,24 @@ already-satisfied state, anacrolix state mapped onto `download.Status`);
 own bounded connection pool, 430-failover across configured servers,
 pipelining and quota accounting, then PAR2-verifies/repairs (shelling out to
 `par2cmdline-turbo`, no Go module) and unpacks with
-`github.com/nwaples/rardecode/v2`. `grabarr/status` declares the two disjoint
+`github.com/nwaples/rardecode/v2`. `app/grab/status` declares the two disjoint
 field-manager sets on `Download.status` — `ControllerFields`
 (`k8s.ManagerGrabarr`, nine fields) and `EngineFields`
 (`k8s.ManagerGrabarrEngine`, twenty-three then, twenty-five since gap fix
 Y2 added `engineFailureReason` and `seedGoalReached`, twenty-six since Z1
 added `healthPaused`) — and `Patch` refuses any other
-manager. `grabarr/controller/downloadclient` reconciles `DownloadClient` into
+manager. `app/grab/controller/downloadclient` reconciles `DownloadClient` into
 its engine workload (a `StatefulSet` per torrent client, a `Deployment` for
 usenet), `DiskSpaceOK` and the blocklist sweep.
-`grabarr/controller/download` picks a `ClientRef`, waits for `EngineReady`,
+`app/grab/controller/download` picks a `ClientRef`, waits for `EngineReady`,
 pins the choice into `status.engine` once and never recomputes it, and runs
-the `removeDataOnDelete` finalizer. `grabarr/engine/torrent` and
-`grabarr/engine/usenet` gate readiness on re-attach completing first (R4) and
+the `removeDataOnDelete` finalizer. `app/grab/engine/torrent` and
+`app/grab/engine/usenet` gate readiness on re-attach completing first (R4) and
 write only `EngineFields` telemetry; each carries a level-driven `Reaper`
 (`torrent.Reaper`, `usenet.Reaper`) that lists client transfers against
 owned Downloads and removes orphans past a grace period, proved by deleting a
 `Download` with the engine's watch deliberately not firing.
-`importarr/worker/fileimport` consumes `ConsumerImportFile`
+`app/import/worker/fileimport` consumes `ConsumerImportFile`
 (`"importarr-fileimport"`) and creates `MediaFile`, writing only
 `MediaFileSpec` per the spec/status split; it also settled the
 `Download.status.import` ownership question three comments disagreed on,
@@ -491,12 +491,12 @@ onto `k8s.ManagerImportarr`. D2-4, D2-5 and D2-6 could not advance
 engine can write — so `grep -rn WorkFileImportSubject` found the subject
 builder and the consumer but no publisher, and the phase→import handoff that
 is D2's own gate could not complete until D2-8a
-(`grabarr/controller/download`) added phase derivation from engine telemetry
+(`app/grab/controller/download`) added phase derivation from engine telemetry
 (`Assigned`→`Queued`→`Downloading`→`Completed`→`Seeding`→`Imported`, plus
 `Paused`/`Failed`/`Blocklisted`/`Removing`) and published exactly one
 `schema.ImportTask` per completion. Separately, D2-8 found the grabarr
 reconcilers, both engines, both reapers and the file-import worker
-registered nowhere and wired them into `grabarr/run.go` and
+registered nowhere and wired them into `app/grab/run.go` and
 `cmd/clustarr`, added `grabarr` to the registration guard's
 `runnableServices`, and regenerated RBAC. A CEL defect found along the way
 was Critical: the `Download` release-identity rule
@@ -545,24 +545,24 @@ below narrows both). E2E scenario 14 (`test/e2e/ui_test.go`: the pipeline and
 downloads pages) is **written and never executed**, deferred the same way.
 Reconciles against envtest; not proven end to end.
 
-Phase E (done): M4 transcode — `squasharr`. `squasharr/status` declares the
+Phase E (done): M4 transcode — `squasharr`. `app/squash/status` declares the
 disjoint sets on `TranscodeJob.status` — `ControllerFields`
 (`k8s.ManagerSquasharr`) and `WorkerFields` (`k8s.ManagerSquasharrWorker`:
 `progress`, `result`, `stderrTail`) — plus `ProfileFields`/`PatchProfile`, and
-`Patch` refuses any other manager. `squasharr/controller/transcodeprofile`
-computes `status.hash` through `squasharr/worker.ProfileSpec`, the same
+`Patch` refuses any other manager. `app/squash/controller/transcodeprofile`
+computes `status.hash` through `app/squash/worker.ProfileSpec`, the same
 conversion the worker renders from
 (`TestStatusHashChangesWithEveryRenderField` fails if a render field stops
 moving it), marks the loser of two overlapping selectors with an `Overlap`
 condition, and creates one TranscodeJob per selected MediaFile not already
 tagged `CLUSTARR_PROFILE=<profile>@<hash>`, named `<mediafile>-<hash[:8]>` so
-a re-run creates nothing. `squasharr/controller/transcodejob` plans from the
+a re-run creates nothing. `app/squash/controller/transcodejob` plans from the
 MediaFile's stored probe (a Dolby Vision `reject` or a container change lands
 as `Skipped` with a reason, rulings R1 and R8), creates a suspended `batch/v1`
 Job whose `podFailurePolicy` fails on exit codes 3 and 4 and ignores
 `DisruptionTarget`, unsuspends through the pure `Admit` slot scheduler, and
 owns the transcode metrics, observed once per terminal transition (R9).
-`squasharr/worker` runs in the Job pod: re-probe and refuse a changed source
+`app/squash/worker` runs in the Job pod: re-probe and refuse a changed source
 (exit 3), encode, verify (exit 4), then hard-link the original into the
 recycle bin (`fsops.RecycleLink`) and rename the output over the source, so
 the library path is never empty; a retry after a crash past the swap finds the
@@ -587,13 +587,13 @@ fixture gap) are **written and never executed**, deferred by user instruction.
 Reconciles against envtest, real libx265 encodes included; not proven end to
 end.
 
-Phase F (done): M5 subtitles — `captionarr`. `captionarr/status` declares each
+Phase F (done): M5 subtitles — `captionarr`. `app/caption/status` declares each
 manager's set: `RequestControllerFields`/`RequestWorkerFields` behind
 `PatchRequest`, `ProfileFields`, and `ProviderFields` behind a `PatchProvider`
 that refuses the worker's manager — the SubtitleProvider controller is the
 only writer of provider status (ruling R2), and workers record throttle, quota
 and auth into the `clustarr-provider-throttle` KV bucket instead
-(`captionarr/throttle`: a per-provider token bucket shared by every replica,
+(`app/caption/throttle`: a per-provider token bucket shared by every replica,
 keys through `events.KVKeyToken`, contract-tested against a real embedded NATS
 server). `SubtitleRequest.status.items` is split per leaf between the two
 managers (R4), and the split needed a liveness protocol to work at all: an
@@ -607,12 +607,12 @@ missing-subtitle `Plan` and right-to-left `SidecarName`/`ParseSidecar`;
 `pkg/lang.Normalize` maps ffprobe's ISO 639-2 onto the profiles' BCP-47 — the
 third instance of the language-vocabulary class, and it also fixed TVDB's
 original language. The three controllers
-(`captionarr/controller/subtitleprofile`, `subtitleprovider`,
-`subtitlerequest`) and the fetch worker (`captionarr/worker/fetch` over
-`captionarr/providerset`, never leader-elected) are registered behind
+(`app/caption/controller/subtitleprofile`, `subtitleprovider`,
+`subtitlerequest`) and the fetch worker (`app/caption/worker/fetch` over
+`app/caption/providerset`, never leader-elected) are registered behind
 `captionarr`'s role flags; one `providerset.Validate` now serves controller
 and worker (the two copies had drifted — a Gestdown provider with a missing
-Secret reported Ready), and `captionarr/datapath` gives both one `/data`
+Secret reported Ready), and `app/caption/datapath` gives both one `/data`
 mapping. Fixed along the way: the embedded provider claimed
 hash-verifiability, so embedded tracks scored 0-1 and were never taken;
 OpenSubtitles.com defaulted a private 5 req/s limiter and read JSON uncapped
@@ -630,20 +630,20 @@ end.
 
 Phase G (done): M6 parity, import lists, non-video inventory and the rest of
 the UI. **Indexers.** A Cardigann definition is one more `Client` behind
-`indexarr/controller/indexer`'s `ClientCache.For` (ruling R5), so it inherits
+`app/indexer/controller/indexer`'s `ClientCache.For` (ruling R5), so it inherits
 the fan-out's dedupe, query-limit window and backoff; a `SearchBlock.Error`
 match is now a `*cardigann.SearchError` (`ErrSearchFailed`) that escalates the
 indexer instead of reading as "no results" (R6); sessions live in the
 `clustarr-indexer-sessions` KV bucket (`SessionKey`, real-NATS contract test)
 plus an owned `<indexer>-session` Secret; `IndexerProxy` http/socks5 is
-applied; `cardigann.Engine` takes an injected limiter. `indexarr/facade`
+applied; `cardigann.Engine` takes an injected limiter. `app/indexer/facade`
 serves the Torznab facade (`/{indexer}/api`, `/{indexer}/download`,
 `/search/api`) on `--facade-bind-address` (`:9696` under `clustarr all`) and
 **fails closed** without a key from `--facade-api-key-secret` (created with
 one random key if absent); a Search with `spec.query` runs through
 `rpc.indexarr.query`. Automatic search falls back to a title query:
 `BuildSearchRequest` fills `SearchRequest.Text` from the resolved title and
-`indexarr/search` uses it only for an indexer that supports none of the
+`app/indexer/search` uses it only for an indexer that supports none of the
 request's ids (`SearchOutcome.QueryMode` records which). That made live the
 absence of any release-identity check — a text fallback could approve the
 wrong film — so `pkg/decision/identity.go` now rejects `WrongItem` (ids decide
@@ -718,7 +718,7 @@ its owned non-terminal Downloads (`rollup.ActiveDownload`,
 `rollup.DownloadNonTerminal`) on all six grabbable kinds, and
 `rollup.DownloadOverlay` reads every Download phase before Imported as
 Downloading; the grab path has one source resolver shared with Search-CR grabs
-(`catalogarr/worker/grab/downloads.ResolveSource`), a double-grab guard that
+(`app/catalog/worker/grab/downloads.ResolveSource`), a double-grab guard that
 lists Downloads through the uncached APIReader, reclaimable and re-enterable
 leases, CAS status writes, and grabs albums, books, audiobooks and issues,
 which automatic search now covers too (text queries after Lidarr, Readarr and
@@ -740,7 +740,7 @@ ReleaseGroupParser, MULTi is not a language, an untagged release takes the
 item's original language, non-video qualities on Lidarr's music ladder,
 multi-episode names per Sonarr. **Indexers:** every field the Cardigann schema
 decodes, XML queried with CSS, cookie and form logins that work,
-session-expiry re-login, `indexarr/proxy` (selector, FlareSolverr, SOCKS4;
+session-expiry re-login, `app/indexer/proxy` (selector, FlareSolverr, SOCKS4;
 an empty selector matches nothing and ambiguity fails closed),
 `minimumSeeders`, RSS pages and direct grabs counted into their windows,
 `alsoOn`. **Downloads:** torrent file selection by `spec.target.keys`, usenet
@@ -749,7 +749,7 @@ removes files only after the engine lets go. **Import:** best file first per
 single-file item, episode and series-root imports, honest rescan counters,
 redelivery resume, `fileimport.RecycleSweeper`, `removeAndDelete` through the
 recycle bin, `automaticAdd=false`. **Transcode:** one output rule
-(`squasharr/worker.OutputPath`), `status.plan` equal to the worker's argv,
+(`app/squash/worker.OutputPath`), `status.plan` equal to the worker's argv,
 per-profile `maxConcurrent`, Job pods with the Deployments' securityContext,
 `--intel-render-groups`, the Intel QSV/VAAPI runtime in the media image.
 **Subtitles:** SubDL and SubSource clients, Bazarr pooling, an effective
@@ -764,7 +764,7 @@ ServiceAccount (`--engine-service-account`), namespace, NATS URL, UMASK,
 `--plex-base-url`, `--ui-bind-address`; ui `/readyz` after the first
 projection round. **The Cardigann corpus** (`7b6fc4a`): the project owner
 added Prowlarr's Cardigann definitions on 2026-09-23 — 752 files packed by
-`hack/pack-cardigann` into `indexarr/bundle/embedded/definitions.zip`
+`hack/pack-cardigann` into `app/indexer/bundle/embedded/definitions.zip`
 (`go:embed`, read through `archive/zip` as an `fs.FS`), 749 of which load;
 indexarr applies them at startup (`--cardigann-bundled`, default true), and
 `--cardigann-definitions-dir` (chart: `indexarr.cardigann.*`) replaces them.

@@ -148,7 +148,7 @@ cannot drift. The per-profile consumer is deleted with its pool.
 - `clustarr-transcode-leases` (new): bucket TTL 90s, history 1. Expiry is
   judged by the server, so worker clock skew is irrelevant. Keys are
   `events.KVKeyToken(<jobUID>)`.
-- `clustarr-progress` (existing): unchanged. `squasharr/worker.ProgressKey`.
+- `clustarr-progress` (existing): unchanged. `app/squash/worker.ProgressKey`.
 
 **New bus operations**, in both `natsbus` and `membus` and under the contract
 suite: ensure and delete a durable without subscribing, and purge one subject
@@ -161,7 +161,7 @@ used to read from the apiserver, snapshotted at dispatch:
 
 - `jobRef` (namespace, name, uid) and `attempt`;
 - `profile`: name, `status.hash` (the `CLUSTARR_PROFILE=<name>@<hash>` tag)
-  and the render spec `squasharr/worker.ProfileSpec`;
+  and the render spec `app/squash/worker.ProfileSpec`;
 - `sourcePath`, `sourceProbeHash`, and `outputPath` resolved by
   `worker.OutputPath`;
 - `rootFolder`: the one containing the source, with its recycle-bin setting.
@@ -326,7 +326,7 @@ successful pod ends the pool.
 | 3 `ExitMisconfigured` | bad or missing environment | FailJob |
 | 10 `ExitDrained` | SIGTERM (suspend, drain, eviction, pool deletion) | Ignore |
 
-**Per task.** The handler reuses `squasharr/worker`'s sequence (re-probe
+**Per task.** The handler reuses `app/squash/worker`'s sequence (re-probe
 against `sourceProbeHash`, plan, free space, encode, verify, swap), fed by the
 task instead of the apiserver. Its steps:
 
@@ -360,7 +360,7 @@ task instead of the apiserver. Its steps:
 lease, Nak with no delay, exit 10. After the result is published: finish the
 ack, then exit 10. If the ack is lost anyway, the redelivered task finds the
 `CLUSTARR_PROFILE` tag, re-publishes its result and acks. The crash matrix in
-`squasharr/worker/doc.go` is unchanged, because the swap order is unchanged.
+`app/squash/worker/doc.go` is unchanged, because the swap order is unchanged.
 
 **Idempotence.** The existing tag checks (`producedEarlier`,
 `finishElsewhere`) are what make redelivery safe after a swap. They stay.
@@ -415,10 +415,10 @@ scheduler's gang gates) and `scheduling.k8s.io/v1alpha3`, for Phase H.
 
 - `squasharr --role worker`, `squasharr.Options.Validate`'s `--job` path, and
   `--worker-service-account`.
-- `squasharr/worker`'s client code and RBAC markers.
+- `app/squash/worker`'s client code and RBAC markers.
 - `config/rbac/squasharr_worker_role.yaml` and the `squasharr-worker`
   ServiceAccount, Role and binding, in config and chart.
-- `k8s.ManagerSquasharrWorker`, `squasharr/status.WorkerFields`, and `Patch`'s
+- `k8s.ManagerSquasharrWorker`, `app/squash/status.WorkerFields`, and `Patch`'s
   worker branch.
 - The per-TranscodeJob Job path (`ensureJob`, `setSuspend`, and `job.go`'s
   per-task Job; the pod-shape helpers move to the pool renderer).
@@ -500,7 +500,7 @@ scheduler's gang gates) and `scheduling.k8s.io/v1alpha3`, for Phase H.
   `docs/adr/README.md`.
 - **Design spec:** §5 (stream, consumers, buckets), §6.4 (rewritten as built),
   §12 (pools replace the KEDA note), §19 (ADR summary).
-- **Other:** `config/keda/README.md`, `squasharr/worker/doc.go`, `README.md`
+- **Other:** `config/keda/README.md`, `app/squash/worker/doc.go`, `README.md`
   (images), and CLAUDE.md's Phase E paragraph and squasharr invariants.
 
 ## 16. Deferred, named
@@ -542,7 +542,7 @@ wins.**
    - pool env `CLUSTARR_POOL_CLASS` beside `CLUSTARR_POOL_PROFILE_UID`.
 3. **The worker sends `InProgress` itself.** `natsbus` never extends an ack.
    `Subscription.Heartbeat` is the broker's idle heartbeat
-   (`indexarr/worker/rss/worker.go:57`) and is not used here. The worker's
+   (`app/indexer/worker/rss/worker.go:57`) and is not used here. The worker's
    renewal loop sends `InProgress` every 20s beside the lease `Update`.
 4. **Two optional bus interfaces, not new `Bus` methods,** so no existing
    fake breaks:
@@ -555,7 +555,7 @@ wins.**
      suite.
    - Dispatch does not pre-create the consumer: work-queue retention keeps a
      task until a consumer exists, and the worker's `Pull` creates it.
-5. **The task, result and lease types live in `squasharr/task`, not
+5. **The task, result and lease types live in `app/squash/task`, not
    `pkg/events/schema`.** The schema package imports nothing from `api/`,
    and the task carries `TranscodeProfileSpec`.
    - `worker.BuildTask` is the one builder. The controller dispatches with
@@ -614,7 +614,7 @@ The owner added three requirements after §17. This section supersedes
   1. read the object fresh, through the uncached reader;
   2. change a copy of its status;
   3. apply it with the read `resourceVersion` as a precondition. This is the
-     compare-and-swap pattern in `catalogarr/worker/grab/kindops.go:181`.
+     compare-and-swap pattern in `app/catalog/worker/grab/kindops.go:181`.
 
   A write that races the other path fails with Conflict and is redone from a
   fresh read. It is never silently rolled back.

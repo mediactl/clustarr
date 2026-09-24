@@ -39,9 +39,9 @@ func TestFetchPagesUntilAShortPage(t *testing.T) {
 		assert.Equal(t, "tok", r.URL.Query().Get("X-Plex-Token"))
 		assert.Equal(t, "1", r.URL.Query().Get("type"))
 		start, _ := strconv.Atoi(r.URL.Query().Get("X-Plex-Container-Start"))
-		fixture := "../../../testdata/importlist/plex/watchlist_page1.json"
+		fixture := "../../../test/data/importlist/plex/watchlist_page1.json"
 		if start != 0 {
-			fixture = "../../../testdata/importlist/plex/watchlist_page2.json"
+			fixture = "../../../test/data/importlist/plex/watchlist_page2.json"
 		}
 		b, err := os.ReadFile(fixture)
 		require.NoError(t, err)
@@ -64,7 +64,7 @@ func TestFetchPagesUntilAShortPage(t *testing.T) {
 func TestFetchSeriesUsesTypeFilter2(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "2", r.URL.Query().Get("type"))
-		b, err := os.ReadFile("../../../testdata/importlist/plex/watchlist_series_page1.json")
+		b, err := os.ReadFile("../../../test/data/importlist/plex/watchlist_series_page1.json")
 		require.NoError(t, err)
 		_, _ = w.Write(b)
 	}))

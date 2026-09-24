@@ -37,7 +37,7 @@ import (
 )
 
 func TestParseProgressBlockMatchesTheVerifiedNoteExample(t *testing.T) {
-	b, err := os.ReadFile("../../testdata/transcode/fixtures/progress-block.txt")
+	b, err := os.ReadFile("../../test/data/transcode/fixtures/progress-block.txt")
 	require.NoError(t, err)
 
 	var got []transcode.Progress

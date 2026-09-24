@@ -38,7 +38,7 @@ func skipIfNoFFprobe(t *testing.T) {
 func TestProbeH264MP4(t *testing.T) {
 	skipIfNoFFprobe(t)
 
-	mi, raw, err := Probe(context.Background(), "../../testdata/mediainfo/sample_h264_8bit.mp4")
+	mi, raw, err := Probe(context.Background(), "../../test/data/mediainfo/sample_h264_8bit.mp4")
 	require.NoError(t, err)
 
 	assert.Equal(t, "mp4", mi.Container)
@@ -61,7 +61,7 @@ func TestProbeH264MP4(t *testing.T) {
 func TestProbeHEVC10bitMKV(t *testing.T) {
 	skipIfNoFFprobe(t)
 
-	mi, raw, err := Probe(context.Background(), "../../testdata/mediainfo/sample_hevc_10bit.mkv")
+	mi, raw, err := Probe(context.Background(), "../../test/data/mediainfo/sample_hevc_10bit.mkv")
 	require.NoError(t, err)
 
 	assert.Equal(t, "mkv", mi.Container)
@@ -83,6 +83,6 @@ func TestProbeHEVC10bitMKV(t *testing.T) {
 func TestProbeMissingFileReturnsWrappedError(t *testing.T) {
 	skipIfNoFFprobe(t)
 
-	_, _, err := Probe(context.Background(), "../../testdata/mediainfo/does-not-exist.mkv")
+	_, _, err := Probe(context.Background(), "../../test/data/mediainfo/does-not-exist.mkv")
 	require.Error(t, err)
 }

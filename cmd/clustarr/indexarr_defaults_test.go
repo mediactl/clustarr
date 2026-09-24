@@ -25,7 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mediactl/clustarr/indexarr"
+	indexarr "github.com/mediactl/clustarr/app/indexer"
 )
 
 // Both of these constants shipped disagreeing with the manifest, and neither

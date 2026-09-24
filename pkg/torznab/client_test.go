@@ -39,7 +39,7 @@ func TestClientSearchAgainstAnHTTPTestServer(t *testing.T) {
 		require.Equal(t, "movie", r.URL.Query().Get("t"))
 		require.Equal(t, "secret", r.URL.Query().Get("apikey"))
 		w.Header().Set("Content-Type", "application/rss+xml")
-		f, err := os.Open("../../testdata/torznab/search_with_attrs.xml")
+		f, err := os.Open("../../test/data/torznab/search_with_attrs.xml")
 		require.NoError(t, err)
 		defer func() { _ = f.Close() }()
 		_, _ = io.Copy(w, f)
@@ -160,7 +160,7 @@ func TestClientCapsAgainstAnHTTPTestServer(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "caps", r.URL.Query().Get("t"))
 		w.Header().Set("Content-Type", "application/xml")
-		f, err := os.Open("../../testdata/torznab/caps.xml")
+		f, err := os.Open("../../test/data/torznab/caps.xml")
 		require.NoError(t, err)
 		defer func() { _ = f.Close() }()
 		_, _ = io.Copy(w, f)
@@ -178,7 +178,7 @@ func TestClientCapsAgainstAnHTTPTestServer(t *testing.T) {
 func TestClientCapsXMLErrorBodyBecomesError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
-		_, _ = io.Copy(w, mustOpen(t, "../../testdata/torznab/error.xml"))
+		_, _ = io.Copy(w, mustOpen(t, "../../test/data/torznab/error.xml"))
 	}))
 	defer srv.Close()
 
@@ -223,7 +223,7 @@ func TestWithRateLimitUsesTheCallersLimiter(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		w.Header().Set("Content-Type", "application/xml")
-		_, _ = io.Copy(w, mustOpen(t, "../../testdata/torznab/caps.xml"))
+		_, _ = io.Copy(w, mustOpen(t, "../../test/data/torznab/caps.xml"))
 	}))
 	defer srv.Close()
 
@@ -254,7 +254,7 @@ func TestOneLimiterIsSharedAcrossSeveralClients(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&calls, 1)
 		w.Header().Set("Content-Type", "application/xml")
-		_, _ = io.Copy(w, mustOpen(t, "../../testdata/torznab/caps.xml"))
+		_, _ = io.Copy(w, mustOpen(t, "../../test/data/torznab/caps.xml"))
 	}))
 	defer srv.Close()
 

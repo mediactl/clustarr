@@ -509,7 +509,7 @@ rules:
      DownloadClient controller creates runs its pod as this ServiceAccount
      (grabarr's --engine-service-account, $CLUSTARR_ENGINE_SERVICE_ACCOUNT in
      deployments.yaml), never as grabarr's own. Its ClusterRole is generated
-     from grabarr/engine's markers alone. */}}
+     from app/grab/engine's markers alone. */}}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -922,7 +922,7 @@ subjects:
      $CLUSTARR_WORKER_SERVICE_ACCOUNT, set in deployments.yaml), never as
      squasharr's own. Its ClusterRole's rules are a VERBATIM copy of
      config/rbac/squasharr_worker_role.yaml, which `make manifests` generates
-     from squasharr/worker's +kubebuilder:rbac markers alone;
+     from app/squash/worker's +kubebuilder:rbac markers alone;
      cmd/clustarr.TestChartWorkerRBACMatchesTheGeneratedRole holds the copy
      to it. A ClusterRole because TranscodeProfile is cluster-scoped. */}}
 apiVersion: v1

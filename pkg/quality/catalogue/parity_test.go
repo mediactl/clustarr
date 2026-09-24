@@ -44,7 +44,7 @@ type corpusSpecification struct {
 // whose trash_id matches id and returns its raw specifications.
 func corpusFormatByTrashID(t *testing.T, app, id string) []corpusSpecification {
 	t.Helper()
-	dir := filepath.Join("..", "..", "..", "testdata", "trash", "docs", "json", app, "cf")
+	dir := filepath.Join("..", "..", "..", "test", "data", "trash", "docs", "json", app, "cf")
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
 	for _, e := range entries {

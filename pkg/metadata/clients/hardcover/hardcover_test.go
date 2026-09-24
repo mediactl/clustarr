@@ -39,7 +39,7 @@ import (
 // Hardcover test uses for "Out of My Mind" (book 141397, author 51942,
 // edition 30405274): the API sits behind a token and Cloudflare, so no
 // live response could be captured.
-const fixtures = "../../../../testdata/metadata/hardcover/"
+const fixtures = "../../../../test/data/metadata/hardcover/"
 
 var opName = regexp.MustCompile(`^query (\w+)`)
 

@@ -39,7 +39,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
-	"github.com/mediactl/clustarr/importarr/worker/fileimport"
+	"github.com/mediactl/clustarr/app/import/worker/fileimport"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -85,7 +85,7 @@ func startFakeMetadataProviders(t *testing.T) *fakeMetadataProviders {
 				http.NotFound(w, r)
 				return
 			}
-			body, err := os.ReadFile(filepath.Join("../../testdata/metadata", fixture))
+			body, err := os.ReadFile(filepath.Join("../../test/data/metadata", fixture))
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return

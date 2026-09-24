@@ -34,7 +34,7 @@ import (
 
 // Live MangaDex responses captured 2026-09-23, trimmed.
 const (
-	fixtures = "../../../../testdata/metadata/mangadex/"
+	fixtures = "../../../../test/data/metadata/mangadex/"
 	berserk  = "801513ba-a712-498c-8f57-cae55b38cc92"
 )
 

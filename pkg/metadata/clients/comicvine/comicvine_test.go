@@ -75,7 +75,7 @@ func failIfCalledServer(t *testing.T) *httptest.Server {
 }
 
 func TestVolumeMapsComicVineFieldsIntoTheNormalizedModel(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/comicvine/volume_18257.json")
+	body, err := os.ReadFile("../../../../test/data/metadata/comicvine/volume_18257.json")
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// The trailing slash is the canonical form; without it ComicVine
@@ -137,7 +137,7 @@ func TestVolumeRequiresAComicVineID(t *testing.T) {
 // TestSearchVolumesMapsComicVineFieldsIntoSearchHits exercises
 // search?resources=volume, documented in docs/research/metadata.md §2.5.
 func TestSearchVolumesMapsComicVineFieldsIntoSearchHits(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/comicvine/search_batman.json")
+	body, err := os.ReadFile("../../../../test/data/metadata/comicvine/search_batman.json")
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/search/", r.URL.Path)
@@ -163,7 +163,7 @@ func TestSearchVolumesMapsComicVineFieldsIntoSearchHits(t *testing.T) {
 // TestIssuesMapsAVolumesIssues exercises /issues/?filter=volume:{id},
 // documented in docs/research/metadata.md §2.5.
 func TestIssuesMapsAVolumesIssues(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/comicvine/issues_volume_18257.json")
+	body, err := os.ReadFile("../../../../test/data/metadata/comicvine/issues_volume_18257.json")
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/issues/", r.URL.Path)
@@ -203,7 +203,7 @@ func TestIssuesMapsAVolumesIssues(t *testing.T) {
 func TestOneCanonicalSourceIDDrivesBothVolumeAndIssues(t *testing.T) {
 	const sourceID = "4050-18257" // Comic.spec.sourceID, unchanged
 
-	volumeBody, err := os.ReadFile("../../../../testdata/metadata/comicvine/volume_18257.json")
+	volumeBody, err := os.ReadFile("../../../../test/data/metadata/comicvine/volume_18257.json")
 	require.NoError(t, err)
 	volSrv := strictVolumeServer(t, volumeBody)
 	defer volSrv.Close()
@@ -213,7 +213,7 @@ func TestOneCanonicalSourceIDDrivesBothVolumeAndIssues(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "Batman", v.Title)
 
-	issuesBody, err := os.ReadFile("../../../../testdata/metadata/comicvine/issues_volume_18257.json")
+	issuesBody, err := os.ReadFile("../../../../test/data/metadata/comicvine/issues_volume_18257.json")
 	require.NoError(t, err)
 	issSrv := strictIssuesServer(t, issuesBody)
 	defer issSrv.Close()
@@ -230,7 +230,7 @@ func TestOneCanonicalSourceIDDrivesBothVolumeAndIssues(t *testing.T) {
 // /volume/{guid} with the full guid, and the returned ComicVolume.IDs
 // reports the canonical, prefixed form -- not the bare id it was given.
 func TestVolumeAcceptsABareNumericIDAndNormalizesToTheGuid(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/comicvine/volume_18257.json")
+	body, err := os.ReadFile("../../../../test/data/metadata/comicvine/volume_18257.json")
 	require.NoError(t, err)
 	srv := strictVolumeServer(t, body)
 	defer srv.Close()
@@ -247,7 +247,7 @@ func TestVolumeAcceptsABareNumericIDAndNormalizesToTheGuid(t *testing.T) {
 // still reaches /issues/?filter=volume:{num} with the bare numeric id the
 // filter syntax requires.
 func TestIssuesAcceptsAPrefixedGuidAndNormalizesToTheBareID(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/comicvine/issues_volume_18257.json")
+	body, err := os.ReadFile("../../../../test/data/metadata/comicvine/issues_volume_18257.json")
 	require.NoError(t, err)
 	srv := strictIssuesServer(t, body)
 	defer srv.Close()
@@ -429,7 +429,7 @@ func TestErrorsNeverCarryTheAPIKey(t *testing.T) {
 // and answers that issue with storeDate (or statusCode when non-zero).
 func volumeStatusServer(t *testing.T, storeDate string, issueStatus int, issueRequests *int) *httptest.Server {
 	t.Helper()
-	volume, err := os.ReadFile("../../../../testdata/metadata/comicvine/volume_with_last_issue.json")
+	volume, err := os.ReadFile("../../../../test/data/metadata/comicvine/volume_with_last_issue.json")
 	require.NoError(t, err)
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -495,7 +495,7 @@ func TestVolumeStatusIsUnknownWhenTheLatestIssueFetchFails(t *testing.T) {
 }
 
 func TestVolumeWithNoLastIssueMakesNoIssueRequest(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/comicvine/volume_18257.json")
+	body, err := os.ReadFile("../../../../test/data/metadata/comicvine/volume_18257.json")
 	require.NoError(t, err)
 	srv := strictVolumeServer(t, body)
 	defer srv.Close()

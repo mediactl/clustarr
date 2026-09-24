@@ -31,13 +31,13 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/spf13/pflag"
 
+	"github.com/mediactl/clustarr/app/squash/worker"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/obsflags"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
-	"github.com/mediactl/clustarr/squasharr/worker"
 )
 
 func main() { os.Exit(run(os.Args[1:], os.Getenv)) }

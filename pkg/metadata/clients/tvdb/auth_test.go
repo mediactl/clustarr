@@ -33,8 +33,8 @@ import (
 )
 
 func TestSeriesReAuthenticatesOnceOnA401(t *testing.T) {
-	login, _ := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
-	series, _ := os.ReadFile("../../../../testdata/metadata/tvdb/series_121361.json")
+	login, _ := os.ReadFile("../../../../test/data/metadata/tvdb/login.json")
+	series, _ := os.ReadFile("../../../../test/data/metadata/tvdb/series_121361.json")
 	var seriesCalls int32
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -63,7 +63,7 @@ func TestSeriesReAuthenticatesOnceOnA401(t *testing.T) {
 }
 
 func TestSeriesGivesUpWithErrAuthAfterASecondConsecutive401(t *testing.T) {
-	login, _ := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
+	login, _ := os.ReadFile("../../../../test/data/metadata/tvdb/login.json")
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

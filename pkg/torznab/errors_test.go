@@ -28,7 +28,7 @@ import (
 )
 
 func TestParseErrorXMLBody(t *testing.T) {
-	f, err := os.Open("../../testdata/torznab/error.xml")
+	f, err := os.Open("../../test/data/torznab/error.xml")
 	require.NoError(t, err)
 	defer func() { _ = f.Close() }()
 
@@ -41,7 +41,7 @@ func TestParseErrorXMLBody(t *testing.T) {
 }
 
 func TestParseErrorReturnsNilNilForANonErrorDocument(t *testing.T) {
-	f, err := os.Open("../../testdata/torznab/caps.xml")
+	f, err := os.Open("../../test/data/torznab/caps.xml")
 	require.NoError(t, err)
 	defer func() { _ = f.Close() }()
 

@@ -12,7 +12,7 @@
 
 **Source research (read these, they carry exact values):**
 - `docs/research/phase-d1-indexarr-spec.md` — spec sections verbatim, all three CRDs field by field, the RPC payload types, the shipped `pkg/events` topology, and §12's eight contradictions.
-- `docs/research/phase-d1-libraries-api.md` — exact public APIs of `pkg/torznab`, `pkg/newznab`, `pkg/cardigann`, `pkg/ratelimit`, `pkg/release`, plus the caller-side contract `catalogarr/worker/search` already pins.
+- `docs/research/phase-d1-libraries-api.md` — exact public APIs of `pkg/torznab`, `pkg/newznab`, `pkg/cardigann`, `pkg/ratelimit`, `pkg/release`, plus the caller-side contract `app/catalog/worker/search` already pins.
 
 ---
 
@@ -31,13 +31,13 @@ Copied from the spec and `CLAUDE.md`. Every task's requirements implicitly inclu
 - **A NATS KV key must match `^[-/_=\.a-zA-Z0-9]+$`.** Build every key through `events.KVKeyToken`. Two separate illegal-key defects escaped in Phase C; the second left an object undeletable.
 - Controllers: `RequeueAfter` only, `reconcile.TerminalError` for an invalid spec, `RecoverPanic`, conditions carrying `observedGeneration`, Events through the manager's recorder, a 5-minute reconciliation timeout. Workers: `events.Retry(after)` → nak with delay, a generic error → backoff nak, `events.Discard` → DLQ, **heartbeats on long tasks**.
 - Logging is `slog` through `context` (`pkg/obs/logging.FromContext`); no package-level logger, no logger struct field. Spans wrap every `Reconcile`, work handler and outbound provider call. Metrics use the `clustarr_` prefix and base units and are **never labelled by title, path, release name or indexer-supplied string**.
-- Tests are table-driven with testify; fixtures under `testdata/`. **No network in tests.** envtest suites need `KUBEBUILDER_ASSETS`; a suite finishing in milliseconds **skipped**, which is not a pass.
+- Tests are table-driven with testify; fixtures under `test/data/`. **No network in tests.** envtest suites need `KUBEBUILDER_ASSETS`; a suite finishing in milliseconds **skipped**, which is not a pass.
 - Generated code stays clean: `make generate && make manifests` must leave no diff.
 
 ### Rules for parallel agents
 
 1. **Never run `go get` or `go mod tidy` from a worker.** Task D1-0 adds every dependency serially, up front.
-2. **Each task owns disjoint paths**, listed per task. `go.mod`, `go.sum`, `api/`, `pkg/events/`, `pkg/k8s/`, `config/`, `charts/` and `indexarr/run.go` belong to the controller unless a task says otherwise.
+2. **Each task owns disjoint paths**, listed per task. `go.mod`, `go.sum`, `api/`, `pkg/events/`, `pkg/k8s/`, `config/`, `charts/` and `app/indexer/run.go` belong to the controller unless a task says otherwise.
 3. **Commit path-scoped:** `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "<msg>" -- <your paths>`. Never `git add -A`, never `git commit -a`.
 4. **Never `go build` without `-o`** — a bare `go build` drops a binary in the repo root. Use `go build ./<pkg>/...`.
 5. **Never `git stash`** — it is process-global and will sweep up another agent's uncommitted work. Use a throwaway `git worktree` if you need a clean baseline.
@@ -50,7 +50,7 @@ Copied from the spec and `CLAUDE.md`. Every task's requirements implicitly inclu
 Research found eight contradictions between the spec, the shipped code and the manifests **before implementation began**. Phase C's evidence is that each such conflict costs a fix round when an implementer meets it mid-task. All eight are ruled on here. **Do not relitigate these**; if you believe one is wrong, say so with reasoning rather than implementing something you think is incorrect.
 
 **R1 — `DefaultIndexPath` becomes `/var/lib/clustarr/index/releases.db`.**
-`indexarr/run.go:52` compiles in `/index/releases.db`, which `readOnlyRootFilesystem: true` makes unwritable, and which contradicts the env var (`config/manager/indexarr.yaml:84-85`), the PVC mount (`:124`) and an existing assertion (`cmd/clustarr/deploy_args_test.go:290`). Only the compiled-in fallback is wrong, and only for someone running the binary with no env var — `clustarr all` on a dev box. One answer, not two: change the constant. Cost if wrong: a dev-box default moves into a directory that may not exist locally, which is a clear error rather than a silent read-only failure.
+`app/indexer/run.go:52` compiles in `/index/releases.db`, which `readOnlyRootFilesystem: true` makes unwritable, and which contradicts the env var (`config/manager/indexarr.yaml:84-85`), the PVC mount (`:124`) and an existing assertion (`cmd/clustarr/deploy_args_test.go:290`). Only the compiled-in fallback is wrong, and only for someone running the binary with no env var — `clustarr all` on a dev box. One answer, not two: change the constant. Cost if wrong: a dev-box default moves into a directory that may not exist locally, which is a clear error rather than a silent read-only failure.
 
 **R2 — `DefaultFacadeBindAddress` becomes `:8080`.**
 Code binds `:9696` (Prowlarr's port); the manifest, the Service's named port and `charts/clustarr/values.yaml:229` all use 8080, and **no flag exists to override it**. As shipped the facade would bind a port nothing routes. The facade itself is M6 and is **not built in D1** — but the constant is a landmine sitting in a file D1 edits, and fixing it is one line. Pin it with a test asserting the constant matches the manifest's containerPort, so the two cannot drift again.
@@ -88,14 +88,14 @@ It currently builds a private `*rate.Limiter` internally, so it **cannot** accep
 Two independent section writers converged on the same gap in the interface contract, and one found a multi-tenancy hole in a frozen payload. Both are ruled here.
 
 **R10 — `SearchRequest` gains an optional `Namespace`, populated caller-side, in Task D1-0.**
-`schema.SearchRequest` carries no namespace. `IndexerRefs []Ref` does carry one — `schema.Ref` has `Namespace`, `Name`, `UID` — but `catalogarr/worker/search` only populates `IndexerRefs` for **interactive** searches (`worker.go:471-482`). So an automatic search arrives at indexarr with no namespace anywhere, and indexarr would have to list `Indexer` objects **cluster-wide**, letting namespace A's Movie be served by namespace B's Indexer, with B's credentials, counted against B's grab limit.
+`schema.SearchRequest` carries no namespace. `IndexerRefs []Ref` does carry one — `schema.Ref` has `Namespace`, `Name`, `UID` — but `app/catalog/worker/search` only populates `IndexerRefs` for **interactive** searches (`worker.go:471-482`). So an automatic search arrives at indexarr with no namespace anywhere, and indexarr would have to list `Indexer` objects **cluster-wide**, letting namespace A's Movie be served by namespace B's Indexer, with B's credentials, counted against B's grab limit.
 
 Shipping that silently is not acceptable, and "indexarr lists cluster-wide" is not a decision a task should make by accident because a field was missing. Adding an **optional** field to a versioned payload is backward compatible — an old producer simply omits it — so:
 - add `Namespace string \`json:"namespace,omitempty"\`` to `SearchRequest` with a doc comment saying why it exists;
-- populate it in `catalogarr/worker/search`'s `buildRequest` from the namespace the worker already recovers from the envelope key;
+- populate it in `app/catalog/worker/search`'s `buildRequest` from the namespace the worker already recovers from the envelope key;
 - indexarr scopes its `Indexer` list to it, and when it is **empty** falls back to cluster-wide **with a logged warning naming the request**, so the old behaviour is observable rather than silent.
 
-This is controller work in D1-0 because it spans `pkg/events/schema` and `catalogarr/` — neither is an indexarr task's path. Cost if wrong: one optional field on a payload that is not yet consumed by anything outside this repo.
+This is controller work in D1-0 because it spans `pkg/events/schema` and `app/catalog/` — neither is an indexarr task's path. Cost if wrong: one optional field on a payload that is not yet consumed by anything outside this repo.
 
 **R11 — a caps-gated indexer that supports only `search` is skipped, with a named reason.**
 Spec §6.2 describes a `t=search&q=` fallback for indexers that do not support id-based search. It is **unreachable as shipped**: the caller never sets `Text` (searches are ids-only), so there is nothing to fall back *with*. Do not build a fallback that cannot execute. Skip the indexer and emit a `SearchOutcome` whose reason names the real cause — "indexer supports only free-text search; request carries ids only" — so an operator sees why an indexer never contributes. Record the missing free-text path as a carried item; it becomes reachable when something populates `Text`.
@@ -107,7 +107,7 @@ Spec §6.2 mentions recording which other indexers also carried a release. Neith
 Spec §6.2's sketch uses `errgroup`, but `golang.org/x/sync` is an **indirect** dependency, and no worker may touch `go.mod` (rule 1). More importantly `errgroup`'s first-error-cancels semantics are wrong here: a fan-out wants **every** indexer's outcome, including the failures, because each one becomes a named `SearchOutcome` the operator reads. Use `sync.WaitGroup` and collect all results.
 
 **R14 — the `indexarr-worker` owned-field set is pinned in exactly one place.**
-D1-5 and D1-7 both apply under `ManagerIndexarrWorker`, so if their two applies declare different field sets, each release the other's — the eighth SSA form, which in Phase C was one sibling never getting the fix its siblings had. The set is defined **once**, in `indexarr/status.WorkerFields` (interface contract C5), and both tasks call it. Neither task hand-builds an apply configuration for that manager. Any test for either task's failure path must drive the Indexer to a **real steady state first**.
+D1-5 and D1-7 both apply under `ManagerIndexarrWorker`, so if their two applies declare different field sets, each release the other's — the eighth SSA form, which in Phase C was one sibling never getting the fix its siblings had. The set is defined **once**, in `app/indexer/status.WorkerFields` (interface contract C5), and both tasks call it. Neither task hand-builds an apply configuration for that manager. Any test for either task's failure path must drive the Indexer to a **real steady state first**.
 
 **R15 — R6's split stands; spec §6.2's controller sentence is amended to match.**
 §6.2 has two clauses that disagree with each other. Its *controller* clause says the `indexer` controller "mirrors KV health/limits into status with Prowlarr's escalation table"; its *search-service* clause names `RecordSuccess`/`RecordFailure` in the fan-out. R6 follows the second, because the escalation is computed where the failure is observed — in the fan-out and the RSS poll, not in a reconcile that has no idea a query just failed. The reconciler **reads** the escalation fields and writes none of them.
@@ -130,13 +130,13 @@ Two findings, one ruling, because they share a mechanism.
 
 `status.protocol` carries `enum: [torrent, usenet]` in the generated CRD, so an Indexer whose protocol is not yet resolvable (a definition-backed indexer, M6) must **omit** the field rather than send `""`, which the apiserver would reject. That is a legitimate variation in the owned set — and the formulation one section writer proposed is the right one to adopt project-wide: **the owned set may vary with the spec's shape, never with a transient outcome.** Omitting `protocol` because the spec cannot resolve it is shape. Omitting `caps` because this reconcile's probe failed is outcome, and that is the release bug.
 
-Separately, §8.2 requires `schema.IndexerEvent` on `clustarr.evt.index.indexer.disabled|recovered|limited.<uid>`, and **no D1 task was going to publish it** — the reconciler has no bus handle and both worker paths assumed the other would. Put the publish inside `indexarr/status.Patch` (interface contract C5), where the escalation transition is already detected. One detection site, one event, and neither caller can forget it.
+Separately, §8.2 requires `schema.IndexerEvent` on `clustarr.evt.index.indexer.disabled|recovered|limited.<uid>`, and **no D1 task was going to publish it** — the reconciler has no bus handle and both worker paths assumed the other would. Put the publish inside `app/indexer/status.Patch` (interface contract C5), where the escalation transition is already detected. One detection site, one event, and neither caller can forget it.
 
 **R19 — `Query.Since` filters `fetched_at`, not `published_at`.**
 The interface contract left `Since` uncommented, which is my omission. Filtering on `published_at` would **silently drop every dateless release**, because a nil publish date cannot satisfy a `>=` comparison — and dateless releases are common and legitimate. `fetched_at` is always set by the store and means what a caller actually wants: "what has this index seen since". D1-5 and D1-6 both build `Query` values and must assume the same answer; it is settled here so neither has to guess.
 
 **R20 — the package stays `pkg/relindex`; spec §6.2 is amended.**
-§6.2 names `indexarr/releaseindex`. The store has no controller-runtime dependency and no cluster dependency at all, which is exactly the property the project's `pkg/` convention exists for — it keeps the store testable with `go test ./pkg/relindex/...` and no envtest, and Phase B put every such package in `pkg/`. Three task sections are already written against `pkg/relindex`. Amend the spec in D1-0 rather than churn four sections for a placement the convention already decides.
+§6.2 names `app/indexer/releaseindex`. The store has no controller-runtime dependency and no cluster dependency at all, which is exactly the property the project's `pkg/` convention exists for — it keeps the store testable with `go test ./pkg/relindex/...` and no envtest, and Phase B put every such package in `pkg/`. Three task sections are already written against `pkg/relindex`. Amend the spec in D1-0 rather than churn four sections for a placement the convention already decides.
 
 **R21 — the four-method `Store` stands; the filters the spec and ADR sketch beyond it are carried, and `rpc.indexarr.query` is correspondingly limited.**
 ADR-0003 fixes `Store` at `Upsert, Search, Prune, Stats`, and the contract's `Query` can express text, indexers, categories, protocol, since and limit — nothing more. But §6.2 lists twelve `pkg/release` columns that the fixed `Release` struct does not carry, and ADR-0003's own context promises size and seeder filters, ranking and paging that `Query` cannot express.
@@ -155,13 +155,13 @@ Add `CLUSTARR_INDEXER_STARTUP_GRACE` (default `15m`), wired in D1-8 alongside th
 
 *Dedup windows constrain ordering, not just correctness.* `CLUSTARR_RELEASES` dedups on `MsgIDForRelease(indexerName, guid)` for two hours. The single fixture item publishes once with no second chance, so the Movie must be fully settled **before** the RSS-enabled Indexer is created, and the Indexer name must be per-run unique or a rerun inside two hours hangs on a message the stream has already seen. Both are ordering requirements that look like nondeterminism when violated.
 
-**R24 — `indexarr/status` is created by D1-0, and no other task builds an apply for `ManagerIndexarrWorker`. This plan violated its own rule; here is the correction.**
+**R24 — `app/indexer/status` is created by D1-0, and no other task builds an apply for `ManagerIndexarrWorker`. This plan violated its own rule; here is the correction.**
 R14 put the worker's owned field set in exactly one place. Three sections then claimed it: D1-0's text (written before correction C5) never creates the package, D1-5 hand-builds a `recordOutcome`, and D1-7 exports `rss.WorkerStatus` describing *itself* as "the one constructor" the others must call. That is precisely the duplication R14 exists to prevent, reproduced inside the document that states R14 — which is worth recording plainly, because it is the same failure mode as Phase C's two tasks independently building one mapping, and it survived right up until a fourth section tried to consume it.
 
-**The package is `indexarr/status`, shipped in wave 0 by D1-0** (added to that task below). D1-5 deletes its `recordOutcome`; D1-7's `WorkerStatus` becomes a thin call into it, not a second definition. No task under `ManagerIndexarrWorker` constructs an apply configuration by hand.
+**The package is `app/indexer/status`, shipped in wave 0 by D1-0** (added to that task below). D1-5 deletes its `recordOutcome`; D1-7's `WorkerStatus` becomes a thin call into it, not a second definition. No task under `ManagerIndexarrWorker` constructs an apply configuration by hand.
 
 **R25 — D1-0 also carries R10's `SearchRequest.Namespace`.**
-Same cause: D1-0 was written before R10 existed. The optional field and its caller-side population are controller work in wave 0, because they span `pkg/events/schema` and `catalogarr/`, neither of which is an indexarr task's path.
+Same cause: D1-0 was written before R10 existed. The optional field and its caller-side population are controller work in wave 0, because they span `pkg/events/schema` and `app/catalog/`, neither of which is an indexarr task's path.
 
 **R26 — export `cardigann`'s redaction helpers rather than writing a third copy.**
 `redactURL` and `redactErr` are unexported in `pkg/cardigann`, so D1-6 would hand-roll its own — a third implementation of "strip the passkey before this string reaches a log, an error, or a status condition". Secret redaction is the worst possible thing to have three of, because the copies drift silently and the failure is a credential on someone's screen. Export them from `pkg/cardigann` (it is the package that already got this right) and have D1-6 call them. This is a small additive change to a Phase B package; fold it into D1-1, which is already the "adjust a Phase B library" task.
@@ -242,7 +242,7 @@ type Stats struct {
 ```
 
 ```go
-// ---- D1-3 owns: indexarr/controller/indexer ----
+// ---- D1-3 owns: app/indexer/controller/indexer ----
 // Health and backoff, ported from Prowlarr's verified algorithm. Exported
 // because D1-5's search fan-out records every outcome through them, and D1-7's
 // RSS worker records its own. They are PURE -- they compute the next status
@@ -280,9 +280,9 @@ func SupportsMode(caps indexv1alpha1.Caps, mode string) bool
 ```
 
 ```go
-// ---- D1-7 owns: indexarr/worker/rss ----
+// ---- D1-7 owns: app/indexer/worker/rss ----
 // The firehose publisher. D1-5 does NOT publish releases; only the RSS worker
-// does. catalogarr/worker/rssmatcher already consumes this and its handler
+// does. app/catalog/worker/rssmatcher already consumes this and its handler
 // pins two requirements, both load-bearing:
 //
 //   1. Subject: events.ReleaseSubject(protocol, indexerName, newznabTop)
@@ -301,10 +301,10 @@ func PublishReleases(ctx context.Context, bus events.Bus, ns, indexerName string
 ```
 
 ```go
-// ---- D1-5 owns: indexarr/search ----
+// ---- D1-5 owns: app/indexer/search ----
 // The RPC server half. The request and response types ALREADY EXIST in
 // pkg/events/schema/index.go and are ALREADY CALLED by
-// catalogarr/worker/search/rpc.go:38-45. Do not redefine them; do not change
+// app/catalog/worker/search/rpc.go:38-45. Do not redefine them; do not change
 // their shape. The caller pins: Limit is always 500 (schema.MaxSearchReleases),
 // Kind is only ever movie or episode, Text is never set (ids-only), and anime
 // arrives as an absolute number in Episode with Season nil.
@@ -326,7 +326,7 @@ func Serve(ctx context.Context, bus events.Bus, s *Service) (stop func(), err er
 Writing the D1-7 section surfaced five defects in the contract above. They are corrected here rather than in place, so the record shows the contract was wrong and how.
 
 **C1 — the second subject/key segment is the Indexer's OBJECT name, not its display name.**
-`ReleaseInfo` carries both `IndexerRef` (the CR's `metadata.name`) and `IndexerName` (a human display name), and the text above said only "indexerName", which is ambiguous in the worst possible way. The shipped matcher keys indexer priority off `rel.Info.IndexerRef` (`catalogarr/worker/rssmatcher/resolve.go:216`) and logs that field (`handler.go:175`). So **all three must be the object name**: the subject's second token, the envelope key's second segment, and `ReleaseInfo.IndexerRef`. Using the display name would break priority resolution silently — a release would arrive, match, and rank against a priority that resolves to nothing.
+`ReleaseInfo` carries both `IndexerRef` (the CR's `metadata.name`) and `IndexerName` (a human display name), and the text above said only "indexerName", which is ambiguous in the worst possible way. The shipped matcher keys indexer priority off `rel.Info.IndexerRef` (`app/catalog/worker/rssmatcher/resolve.go:216`) and logs that field (`handler.go:175`). So **all three must be the object name**: the subject's second token, the envelope key's second segment, and `ReleaseInfo.IndexerRef`. Using the display name would break priority resolution silently — a release would arrive, match, and rank against a priority that resolves to nothing.
 
 **C2 — `Escalation` must carry `InitialFailureAt`.**
 `IndexerStatus.InitialFailureAt` records when the current failure streak began, and the complete-declaration rule (R6) means whoever applies the escalation must send it — otherwise it is released on the first failure apply, which resets the streak and defeats the backoff ladder. The struct in this contract omitted it. Corrected:
@@ -359,10 +359,10 @@ func KindForCategories(cats []int) (commonv1.MediaKind, bool)
 `CLUSTARR_RELEASES` (the firehose) dedups for **2 hours**; `CLUSTARR_WORK_INDEXARR` (where the scheduled `RssTask` lives) dedups for **1 hour**. So a duplicate *schedule* is suppressed by the 1h window, while the 2h window is what makes a duplicate *poll* harmless downstream. Task D1-7's schedule msg-id must be quantised to a slot shorter than 1 hour for the dedup to mean anything.
 
 **C5 — the shared status-apply helper belongs to the controller, not to whichever task writes it first.**
-Three tasks (D1-3, D1-5, D1-7) all apply `IndexerStatus` and all schedule bus work. Left unowned, each would build its own — which is precisely how Phase C ended up with two tasks building the same projection and disagreeing on an immutable field. Task **D1-0** ships a small shared package `indexarr/status` before wave 1:
+Three tasks (D1-3, D1-5, D1-7) all apply `IndexerStatus` and all schedule bus work. Left unowned, each would build its own — which is precisely how Phase C ended up with two tasks building the same projection and disagreeing on an immutable field. Task **D1-0** ships a small shared package `app/indexer/status` before wave 1:
 
 ```go
-package status // indexarr/status
+package status // app/indexer/status
 
 // Patch applies a complete IndexerStatus declaration under mgr. It exists so
 // that the three writer paths cannot each invent their own apply, and so the
@@ -406,7 +406,7 @@ Eleven tasks in six waves. Tasks inside a wave own disjoint paths and run in par
 | RSS poll | D1-7 | `indexarr-worker` | lastRssAt, lastRssNewCount, indexedReleases, + escalation |
 | search fan-out | D1-5 | `indexarr-worker` | queriesInWindow, grabsInWindow, + escalation |
 
-D1-5 and D1-7 **share** a manager, so their applies must declare the identical field set or each releases the other's — which is the eighth form of the hazard `CLAUDE.md` catalogues, and in Phase C it took the shape of one sibling never receiving the fix its siblings got. Ruling R14 puts that set in exactly one function, `indexarr/status.WorkerFields`, shipped by D1-0 in wave 0 so both tasks import it rather than each writing an apply. Neither task hand-builds an apply configuration for that manager.
+D1-5 and D1-7 **share** a manager, so their applies must declare the identical field set or each releases the other's — which is the eighth form of the hazard `CLAUDE.md` catalogues, and in Phase C it took the shape of one sibling never receiving the fix its siblings got. Ruling R14 puts that set in exactly one function, `app/indexer/status.WorkerFields`, shipped by D1-0 in wave 0 so both tasks import it rather than each writing an apply. Neither task hand-builds an apply configuration for that manager.
 
 ### Review discipline
 
@@ -434,7 +434,7 @@ The gate is not green tests. It is: `catalogarr`'s search path — built in Phas
 - Modify: `pkg/k8s/fieldmanager_test.go` (`want` list)
 - Modify: `docs/superpowers/specs/2026-09-18-clustarr-design.md` (§2 field-manager table; §5's `indexarr-rss` AckWait row)
 - Modify: `pkg/events/topology.go` (`ConsumerIndexRSS`: AckWait 120s → 60s, add `Heartbeat: 30s`)
-- Modify: `indexarr/run.go` (two constants only — `DefaultIndexPath`, `DefaultFacadeBindAddress`)
+- Modify: `app/indexer/run.go` (two constants only — `DefaultIndexPath`, `DefaultFacadeBindAddress`)
 - Modify: `api/index/v1alpha1/indexer_types.go`, `indexerdefinition_types.go` (the two wrong `Caps.Modes` doc comments)
 - Create: `cmd/clustarr/indexarr_defaults_test.go` (pins the two constants against the manifest)
 - Modify: `docs/research/indexers.md` (dated superseded-by note on §10)
@@ -505,7 +505,7 @@ Then edit spec §5's consumer table so it says 60s too. The spec pins this value
 
 - [ ] **Step 7: Fix the two constants and pin them**
 
-Rulings R1 and R2, in `indexarr/run.go`:
+Rulings R1 and R2, in `app/indexer/run.go`:
 
 ```go
 	// DefaultIndexPath is the SQLite release index. It must match the PVC
@@ -529,9 +529,9 @@ Ruling R5. Both `api/index/v1alpha1/indexer_types.go:226-227` and `indexerdefini
 
 Ruling R8. Add a dated note at the top of `docs/research/indexers.md` §10 recording that its Postgres recommendation predates ADR-0003, which chose SQLite FTS5 on an RWO volume, and that Postgres is the documented rejected alternative. The note is the point: the next reader should not have to rediscover which document won.
 
-- [ ] **Step 10: Ship `indexarr/status`, the one place the worker's owned set is declared**
+- [ ] **Step 10: Ship `app/indexer/status`, the one place the worker's owned set is declared**
 
-Ruling R24. Three tasks write `IndexerStatus`; two of them share `ManagerIndexarrWorker`, so their applies must declare an identical field set or each releases the other's. Create `indexarr/status` now, in wave 0, so wave 2 and wave 3 import it instead of each inventing one:
+Ruling R24. Three tasks write `IndexerStatus`; two of them share `ManagerIndexarrWorker`, so their applies must declare an identical field set or each releases the other's. Create `app/indexer/status` now, in wave 0, so wave 2 and wave 3 import it instead of each inventing one:
 
 ```go
 // Package status is the single place indexarr declares what each field
@@ -559,7 +559,7 @@ Write a test that drives an Indexer to a populated steady state, applies through
 
 - [ ] **Step 10b: Add `SearchRequest.Namespace` and populate it**
 
-Ruling R10. Add the optional field to `pkg/events/schema/index.go` with a doc comment explaining that without it an automatic search carries no namespace at all, then populate it in `catalogarr/worker/search`'s `buildRequest` from the namespace the worker already recovers from the envelope key. Optional, so an old producer simply omits it.
+Ruling R10. Add the optional field to `pkg/events/schema/index.go` with a doc comment explaining that without it an automatic search carries no namespace at all, then populate it in `app/catalog/worker/search`'s `buildRequest` from the namespace the worker already recovers from the envelope key. Optional, so an old producer simply omits it.
 
 - [ ] **Step 11: Regenerate and gate**
 
@@ -574,7 +574,7 @@ go mod tidy -diff
 - [ ] **Step 12: Commit**
 
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "chore(d1): add the SQLite driver, split the indexarr field managers, and fix six recorded conflicts" -- go.mod go.sum hack/deps pkg/k8s pkg/events docs indexarr/run.go api/index cmd/clustarr
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "chore(d1): add the SQLite driver, split the indexarr field managers, and fix six recorded conflicts" -- go.mod go.sum hack/deps pkg/k8s pkg/events docs app/indexer/run.go api/index cmd/clustarr
 ```
 
 **Done when:** `modernc.org/sqlite` is in `go.mod`; `indexarr-worker` exists in the code, the allow-list, the guard test and spec §2; `ConsumerIndexRSS` is 60s/30s and spec §5 agrees; both constants match the manifest and a test parses the manifest to prove it; both `Caps.Modes` doc comments name the real vocabulary; the research note is marked superseded; the gate is green and `make generate && make manifests` leaves no diff.
@@ -701,7 +701,7 @@ that does not exist. The CRD has spec.requestDelay and spec.limits." -- pkg/torz
 - Test: `pkg/relindex/concurrency_test.go`
 
 **Path ownership:** `pkg/relindex/` and nothing else. Do **not** touch `go.mod`,
-`go.sum`, `indexarr/`, `api/` or `config/`. Task D1-0 has already added
+`go.sum`, `app/indexer/`, `api/` or `config/`. Task D1-0 has already added
 `modernc.org/sqlite` in a single serial `go get`; if it is missing, stop and tell
 the controller rather than running `go get` yourself (`CLAUDE.md`: parallel
 `go get` corrupts `go.mod`).
@@ -3301,7 +3301,7 @@ tasks' paths):
 
 **Where the sources disagree — flagged, not papered over:**
 
-1. **Package name.** Spec §6.2 says `indexarr/releaseindex.Store`;
+1. **Package name.** Spec §6.2 says `app/indexer/releaseindex.Store`;
    `02-interfaces.md` says `pkg/relindex` and this task is titled for it. The
    interface contract is the one two tasks share, so `pkg/relindex` wins here —
    but a `pkg/` location also makes the store importable by the M6 facade and by
@@ -3342,10 +3342,10 @@ tasks' paths):
 ### Task D1-4: the `IndexerDefinition` and `IndexerProxy` controllers
 
 **Files:**
-- Create: `indexarr/controller/indexerdefinition/{doc,controller}.go`, `controller_envtest_test.go`
-- Create: `indexarr/controller/indexerproxy/{doc,controller}.go`, `controller_envtest_test.go`
+- Create: `app/indexer/controller/indexerdefinition/{doc,controller}.go`, `controller_envtest_test.go`
+- Create: `app/indexer/controller/indexerproxy/{doc,controller}.go`, `controller_envtest_test.go`
 
-**Path ownership:** `indexarr/controller/indexerdefinition/` and `indexarr/controller/indexerproxy/`. Nothing else — `indexarr/run.go` is Task D1-8's.
+**Path ownership:** `app/indexer/controller/indexerdefinition/` and `app/indexer/controller/indexerproxy/`. Nothing else — `app/indexer/run.go` is Task D1-8's.
 
 **Interfaces — Consumes:** `pkg/k8s.PatchStatus`, `k8s.ManagerIndexarr` (these two objects have **one** writer each, so the D1-0 split does not apply to them), `pkg/obs/logging`, `pkg/obs/tracing`.
 **Interfaces — Produces:** `indexerdefinition.NewReconciler(...).SetupWithManager(mgr)` and `indexerproxy.NewReconciler(...).SetupWithManager(mgr)`, documented in each package's `doc.go` as the exact call Task D1-8 must make.
@@ -3380,7 +3380,7 @@ func TestIndexerDefinitionReportsReadyAndSummary(t *testing.T) {
 
 ```bash
 export KUBEBUILDER_ASSETS=$(/home/appkins/go/bin/setup-envtest use 1.37.0 -p path)
-go test -count=1 -run TestIndexerDefinitionReportsReadyAndSummary ./indexarr/controller/indexerdefinition/
+go test -count=1 -run TestIndexerDefinitionReportsReadyAndSummary ./app/indexer/controller/indexerdefinition/
 ```
 
 Expected: FAIL on the `Eventually` — no reconciler exists, so nothing ever sets the status.
@@ -3427,8 +3427,8 @@ Same shape, its own owned set (`observedGeneration`, conditions, and the reachab
 ```bash
 make manifests && git status --short   # controller-gen UNIONS into existing rules;
                                        # expect a few merged lines, not new blocks
-go test -count=1 -race ./indexarr/controller/...
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(indexarr): IndexerDefinition and IndexerProxy controllers" -- indexarr/controller/indexerdefinition indexarr/controller/indexerproxy config/rbac charts
+go test -count=1 -race ./app/indexer/controller/...
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(indexarr): IndexerDefinition and IndexerProxy controllers" -- app/indexer/controller/indexerdefinition app/indexer/controller/indexerproxy config/rbac charts
 ```
 
 **Done when:** both controllers reconcile, both declare a complete owned set on every path including early returns, both have a regression test that drives real steady state first and provably fails against a partial apply, RBAC markers are package-level and generated, and the envtest genuinely ran (seconds, not milliseconds).
@@ -3460,15 +3460,15 @@ D1-8 (`NewReconciler` + `SetupWithManager` from `setupControllers`).
 
 | Path | Holds |
 | --- | --- |
-| `indexarr/controller/indexer/doc.go` | package doc; the R6 field-manager ownership table; the SSA rule this package obeys |
-| `indexarr/controller/indexer/health.go` | `StartupGrace`, `EscalationTable`, `Escalation`, `RecordFailure`, `RecordSuccess`, `Healthy` |
-| `indexarr/controller/indexer/health_test.go` | table tests for the ladder, the grace, the cap at 9, `Changed`, `Healthy` |
-| `indexarr/controller/indexer/caps.go` | `SupportsMode`, `projectCaps` (`torznab.Caps` → `indexv1alpha1.Caps`), `capsAC` |
-| `indexarr/controller/indexer/caps_test.go` | the R5 vocabulary pin, truncation and projection tests |
-| `indexarr/controller/indexer/source.go` | `resolveSource`, `protocolFor`, `privacyFor`, `sessionSecretName`, `readSecret`, `rpsFor`, `buildClient`, `classify` |
-| `indexarr/controller/indexer/source_test.go` | table tests for all of the above (no network, no cluster) |
-| `indexarr/controller/indexer/controller.go` | `Reconciler`, `NewReconciler`, `Reconcile`, `patch`, RBAC markers, `SetupWithManager` |
-| `indexarr/controller/indexer/controller_envtest_test.go` | envtest suite, incl. the two SSA-release regressions |
+| `app/indexer/controller/indexer/doc.go` | package doc; the R6 field-manager ownership table; the SSA rule this package obeys |
+| `app/indexer/controller/indexer/health.go` | `StartupGrace`, `EscalationTable`, `Escalation`, `RecordFailure`, `RecordSuccess`, `Healthy` |
+| `app/indexer/controller/indexer/health_test.go` | table tests for the ladder, the grace, the cap at 9, `Changed`, `Healthy` |
+| `app/indexer/controller/indexer/caps.go` | `SupportsMode`, `projectCaps` (`torznab.Caps` → `indexv1alpha1.Caps`), `capsAC` |
+| `app/indexer/controller/indexer/caps_test.go` | the R5 vocabulary pin, truncation and projection tests |
+| `app/indexer/controller/indexer/source.go` | `resolveSource`, `protocolFor`, `privacyFor`, `sessionSecretName`, `readSecret`, `rpsFor`, `buildClient`, `classify` |
+| `app/indexer/controller/indexer/source_test.go` | table tests for all of the above (no network, no cluster) |
+| `app/indexer/controller/indexer/controller.go` | `Reconciler`, `NewReconciler`, `Reconcile`, `patch`, RBAC markers, `SetupWithManager` |
+| `app/indexer/controller/indexer/controller_envtest_test.go` | envtest suite, incl. the two SSA-release regressions |
 
 **Modify (generated — never hand-edited)**
 
@@ -3477,13 +3477,13 @@ D1-8 (`NewReconciler` + `SetupWithManager` from `setupControllers`).
 | `config/rbac/role.yaml` | `make manifests` picks up this package's new markers |
 | `charts/clustarr/templates/rbac.yaml` | the chart copy between the `BEGIN`/`END` sentinels; `cmd/clustarr`'s `TestChartRBACMatchesTheGeneratedRole` compares it byte-for-byte |
 
-**Do not touch:** `indexarr/run.go` (D1-8 registers this reconciler),
+**Do not touch:** `app/indexer/run.go` (D1-8 registers this reconciler),
 `api/index/**` (D1-0 owns the doc-comment fix), `pkg/torznab/**` (D1-1),
 `pkg/k8s/fieldmanager.go` (D1-0), `go.mod` / `go.sum` (D1-0, serially).
 
 #### Path ownership
 
-`indexarr/controller/indexer/**` is exclusively this task's. The two generated
+`app/indexer/controller/indexer/**` is exclusively this task's. The two generated
 files above are shared with every other D1 task that adds RBAC markers, so
 regenerate them **last** (step 37) and commit them path-scoped in the same
 commit as the markers that produced them.
@@ -3621,7 +3621,7 @@ them.
 
 **Scaffolding**
 
-- [ ] 1. Create `indexarr/controller/indexer/doc.go` with the GPL header from
+- [ ] 1. Create `app/indexer/controller/indexer/doc.go` with the GPL header from
   `hack/boilerplate.go.txt` and the package doc. It carries the ownership table,
   because R6 requires the split to be written into both packages' doc comments:
 
@@ -3645,8 +3645,8 @@ them.
   //	k8s.ManagerIndexarr ("indexarr", this package):
   //	    observedGeneration, conditions, protocol, privacy, caps,
   //	    sessionSecretRef
-  //	k8s.ManagerIndexarrWorker ("indexarr-worker", indexarr/worker/rss and
-  //	indexarr/search):
+  //	k8s.ManagerIndexarrWorker ("indexarr-worker", app/indexer/worker/rss and
+  //	app/indexer/search):
   //	    escalationLevel, disabledUntil, initialFailureAt, lastFailureAt,
   //	    lastFailure, queriesInWindow, grabsInWindow, lastRssAt,
   //	    lastRssNewCount, indexedReleases
@@ -3656,7 +3656,7 @@ them.
   package indexer
   ```
 
-  Run `go build ./indexarr/...` and see it succeed.
+  Run `go build ./app/indexer/...` and see it succeed.
 
 **Health and backoff — pure, no client, no cluster (TDD)**
 
@@ -3677,7 +3677,7 @@ them.
   }
   ```
 
-- [ ] 3. Run `go test ./indexarr/controller/indexer/...` and see it fail to build
+- [ ] 3. Run `go test ./app/indexer/controller/indexer/...` and see it fail to build
   with `undefined: EscalationTable`. That failure is the point: confirm it before
   writing any implementation.
 
@@ -3785,7 +3785,7 @@ them.
   }
   ```
 
-  Run `go test ./indexarr/controller/indexer/...`; it still only exercises the
+  Run `go test ./app/indexer/controller/indexer/...`; it still only exercises the
   ladder. Commit nothing yet.
 
 - [ ] 6. Add the escalation tests to `health_test.go` and see them pass:
@@ -3940,8 +3940,8 @@ them.
 
 - [ ] 10. Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com
   commit -m "feat(indexarr): Prowlarr's escalation ladder as pure functions" --
-  indexarr/controller/indexer/doc.go indexarr/controller/indexer/health.go
-  indexarr/controller/indexer/health_test.go`
+  app/indexer/controller/indexer/doc.go app/indexer/controller/indexer/health.go
+  app/indexer/controller/indexer/health_test.go`
 
 **Caps — the R5 vocabulary and the projection (TDD)**
 
@@ -4139,11 +4139,11 @@ them.
   }
   ```
 
-  Run `go test ./indexarr/controller/indexer/...` and see everything still pass.
+  Run `go test ./app/indexer/controller/indexer/...` and see everything still pass.
 
 - [ ] 16. Commit path-scoped: `... commit -m "feat(indexarr): project Torznab
   caps onto the CRD with the R5 mode vocabulary" --
-  indexarr/controller/indexer/caps.go indexarr/controller/indexer/caps_test.go`
+  app/indexer/controller/indexer/caps.go app/indexer/controller/indexer/caps_test.go`
 
 **Spec resolution, the session reference and the per-host limiter (TDD)**
 
@@ -4461,8 +4461,8 @@ them.
   `&torznab.Error{Code: 501}`, `&torznab.Error{HTTPStatus: 410}`.
 
 - [ ] 22. Commit: `... commit -m "feat(indexarr): resolve an Indexer's source,
-  protocol, privacy and per-host limiter" -- indexarr/controller/indexer/source.go
-  indexarr/controller/indexer/source_test.go`
+  protocol, privacy and per-host limiter" -- app/indexer/controller/indexer/source.go
+  app/indexer/controller/indexer/source_test.go`
 
 **The reconciler**
 
@@ -4872,13 +4872,13 @@ them.
   }
   ```
 
-  Run `go build ./indexarr/...` and `go vet ./indexarr/...` and see both clean.
+  Run `go build ./app/indexer/...` and `go vet ./app/indexer/...` and see both clean.
 
 **envtest — including the two SSA regressions**
 
 - [ ] 32. Create `controller_envtest_test.go` (package `indexer_test`) with the
   standard `newTestClient` helper, copied from
-  `catalogarr/controller/rootfolder/controller_envtest_test.go:37`. The
+  `app/catalog/controller/rootfolder/controller_envtest_test.go:37`. The
   `KUBEBUILDER_ASSETS` skip is mandatory and so is noticing it:
 
   ```go
@@ -4902,7 +4902,7 @@ them.
 
   Add a `capsServer(t *testing.T, body string, status int) *httptest.Server`
   helper serving a fixed `<caps>` document, and put the XML fixture in
-  `indexarr/controller/indexer/testdata/caps.xml` — one `<search available="yes"
+  `app/indexer/controller/indexer/testdata/caps.xml` — one `<search available="yes"
   supportedParams="q" searchEngine="raw"/>`, one `<tv-search available="yes"
   supportedParams="q,season,ep,tvdbid"/>`, one `<movie-search available="yes"
   supportedParams="q,imdbid"/>`, a `<limits max="100" default="50"/>` and a
@@ -4915,7 +4915,7 @@ them.
       ctx := context.Background()
       c := newTestClient(t)
       ns := mustNamespace(t, ctx, c, "idx-ready")
-      srv := capsServer(t, readFixture(t, "testdata/caps.xml"), http.StatusOK)
+      srv := capsServer(t, readFixture(t, "test/data/caps.xml"), http.StatusOK)
 
       require.NoError(t, c.Create(ctx, &indexv1alpha1.Indexer{
           ObjectMeta: metav1.ObjectMeta{Name: "nzbgeek", Namespace: ns},
@@ -4973,7 +4973,7 @@ them.
               return
           }
           w.Header().Set("Content-Type", "application/xml")
-          _, _ = io.WriteString(w, readFixture(t, "testdata/caps.xml"))
+          _, _ = io.WriteString(w, readFixture(t, "test/data/caps.xml"))
       }))
       t.Cleanup(srv.Close)
 
@@ -5076,9 +5076,9 @@ them.
   indexer's query budget.
 
 - [ ] 37. Commit: `... commit -m "feat(indexarr): reconcile Indexer caps, health
-  and conditions" -- indexarr/controller/indexer/controller.go
-  indexarr/controller/indexer/controller_envtest_test.go
-  indexarr/controller/indexer/testdata/`
+  and conditions" -- app/indexer/controller/indexer/controller.go
+  app/indexer/controller/indexer/controller_envtest_test.go
+  app/indexer/controller/indexer/testdata/`
 
 **Manifests and verification**
 
@@ -5097,7 +5097,7 @@ them.
   a substitute — `newTestClient` calls `t.Skip` when `KUBEBUILDER_ASSETS` is
   unset, and `pkg/crdcheck` skips the same way, so a green `go test` proves
   nothing about the CEL rules or the `status.protocol` enum. Check the reported
-  time for `indexarr/controller/indexer`: envtest starts a real apiserver, so a
+  time for `app/indexer/controller/indexer`: envtest starts a real apiserver, so a
   passing run takes **seconds**. A result in **milliseconds means the suite
   skipped**, not that it passed. If it did, export the assets path
   (`KUBEBUILDER_ASSETS=$(setup-envtest use 1.37.0 -p path)`) and run again.
@@ -5105,7 +5105,7 @@ them.
 - [ ] 41. Run `make lint` and see it clean. Confirm specifically that forbidigo
   reports nothing: `.Status().Update()` and `.Status().Patch()` are banned
   outside `pkg/k8s`, and `grep -rn 'Status()\.\(Update\|Patch\)'
-  indexarr/controller/indexer/` must return nothing.
+  app/indexer/controller/indexer/` must return nothing.
 
 - [ ] 42. Run `make generate && make manifests` once more and confirm
   `git status --porcelain` is empty. Generated code that drifts is a broken
@@ -5139,28 +5139,28 @@ them.
 
 ### Task D1-7: the RSS worker and the release firehose
 
-This is the **producer for a consumer that already ships**. `catalogarr/worker/rssmatcher`
+This is the **producer for a consumer that already ships**. `app/catalog/worker/rssmatcher`
 was written in Phase C, is registered, is subscribed to `clustarr.rel.>`, and today
 receives nothing because nothing publishes. Every shape below is pinned by that
 handler's source, not by a preference. Read
-`catalogarr/worker/rssmatcher/handler.go:155-200` before Step 1; two of its comments
+`app/catalog/worker/rssmatcher/handler.go:155-200` before Step 1; two of its comments
 are requirements written down verbatim, and both are load-bearing.
 
 **Files:**
-- Create: `indexarr/worker/rss/doc.go` (package doc: ownership, the two pinned requirements, the registration D1-8 performs)
-- Create: `indexarr/worker/rss/project.go` (`ProjectRelease`, the flag mapping, the index-row projection)
-- Create: `indexarr/worker/rss/project_test.go` (pure, table-driven, no bus, no cluster)
-- Create: `indexarr/worker/rss/publish.go` (`PublishReleases`)
-- Create: `indexarr/worker/rss/publish_test.go` (embedded NATS JetStream; publish → consume through the **shipped** matcher subscription)
-- Create: `indexarr/worker/rss/worker.go` (`Worker`, `Deps`, `Searcher`, `Subscription`, `SetupWithManager`, `Handle`, the poll loop, the heartbeat, the reschedule)
-- Create: `indexarr/worker/rss/status.go` (`WorkerStatus` — the complete `indexarr-worker` declaration)
-- Create: `indexarr/worker/rss/worker_test.go` (fake `Searcher`, fake `events.Message` counting `InProgress`)
-- Create: `indexarr/worker/rss/suite_envtest_test.go` (envtest bootstrap, copied from `catalogarr/worker/rssmatcher/suite_envtest_test.go`)
-- Create: `indexarr/worker/rss/worker_envtest_test.go` (status applies against a real apiserver, steady-state first)
-- Create: `indexarr/worker/rss/testdata/torznab-feed.xml`, `testdata/torznab-feed-nodate.xml`, `testdata/newznab-feed.xml`
+- Create: `app/indexer/worker/rss/doc.go` (package doc: ownership, the two pinned requirements, the registration D1-8 performs)
+- Create: `app/indexer/worker/rss/project.go` (`ProjectRelease`, the flag mapping, the index-row projection)
+- Create: `app/indexer/worker/rss/project_test.go` (pure, table-driven, no bus, no cluster)
+- Create: `app/indexer/worker/rss/publish.go` (`PublishReleases`)
+- Create: `app/indexer/worker/rss/publish_test.go` (embedded NATS JetStream; publish → consume through the **shipped** matcher subscription)
+- Create: `app/indexer/worker/rss/worker.go` (`Worker`, `Deps`, `Searcher`, `Subscription`, `SetupWithManager`, `Handle`, the poll loop, the heartbeat, the reschedule)
+- Create: `app/indexer/worker/rss/status.go` (`WorkerStatus` — the complete `indexarr-worker` declaration)
+- Create: `app/indexer/worker/rss/worker_test.go` (fake `Searcher`, fake `events.Message` counting `InProgress`)
+- Create: `app/indexer/worker/rss/suite_envtest_test.go` (envtest bootstrap, copied from `app/catalog/worker/rssmatcher/suite_envtest_test.go`)
+- Create: `app/indexer/worker/rss/worker_envtest_test.go` (status applies against a real apiserver, steady-state first)
+- Create: `app/indexer/worker/rss/testdata/torznab-feed.xml`, `test/data/torznab-feed-nodate.xml`, `test/data/newznab-feed.xml`
 
-**Path ownership:** `indexarr/worker/rss/**` and nothing else. This task does **not**
-touch `indexarr/run.go` (D1-8 wires it), `pkg/events/`, `pkg/k8s/`, `api/`, `config/`
+**Path ownership:** `app/indexer/worker/rss/**` and nothing else. This task does **not**
+touch `app/indexer/run.go` (D1-8 wires it), `pkg/events/`, `pkg/k8s/`, `api/`, `config/`
 or `go.mod`. `ConsumerIndexRSS`'s AckWait and Heartbeat were already changed by
 Task D1-0; do not change them again.
 
@@ -5190,7 +5190,7 @@ newznab.CategoryID.Parent()
 **Interfaces — Produces (verbatim — D1-5 imports these; do not redeclare them there):**
 
 ```go
-// ---- indexarr/worker/rss ----
+// ---- app/indexer/worker/rss ----
 package rss
 
 // PublishReleases publishes each release to the firehose. It is exported so
@@ -5230,7 +5230,7 @@ func TaskMsgID(uid string, generation int64, slot time.Time) string
 
 - [ ] **Step 1: Create the package and write down the two pinned requirements**
 
-Create `indexarr/worker/rss/doc.go` with the GPL-3.0 header from
+Create `app/indexer/worker/rss/doc.go` with the GPL-3.0 header from
 `hack/boilerplate.go.txt` and a package doc that states, in the package where a future
 reader will look, what the consumer requires. Quote the consumer, do not paraphrase it:
 
@@ -5238,7 +5238,7 @@ reader will look, what the consumer requires. Quote the consumer, do not paraphr
 // Package rss polls each Indexer's feed and publishes what it finds to the
 // release firehose, clustarr.rel.<protocol>.<indexerName>.<newznabTop>.
 //
-// The consumer already ships. catalogarr/worker/rssmatcher has been
+// The consumer already ships. app/catalog/worker/rssmatcher has been
 // subscribed to clustarr.rel.> since Phase C and has received nothing,
 // because nothing published. Its handler pins two requirements:
 //
@@ -5271,7 +5271,7 @@ package rss
 ```
 
 ```bash
-cd /home/appkins/src/mediactl/clustarr && go vet ./indexarr/...
+cd /home/appkins/src/mediactl/clustarr && go vet ./app/indexer/...
 ```
 
 - [ ] **Step 2: Failing test — the wire fields `ApplyTo` does not fill**
@@ -5279,7 +5279,7 @@ cd /home/appkins/src/mediactl/clustarr && go vet ./indexarr/...
 `(*ParsedRelease).ApplyTo` fills exactly six fields plus IDs (`pkg/release/convert.go:24`:
 Quality, Revision, ReleaseGroup, Edition, Languages, ReleaseType). Everything else on
 `commonv1.ReleaseInfo` is this package's job. Write the test first, in
-`indexarr/worker/rss/project_test.go`:
+`app/indexer/worker/rss/project_test.go`:
 
 ```go
 func TestProjectReleaseFillsTheIndexerSourcedFields(t *testing.T) {
@@ -5318,7 +5318,7 @@ func TestProjectReleaseFillsTheIndexerSourcedFields(t *testing.T) {
 ```
 
 ```bash
-go test -count=1 -run TestProjectRelease ./indexarr/worker/rss/
+go test -count=1 -run TestProjectRelease ./app/indexer/worker/rss/
 ```
 
 Expected: **FAIL to build** — `rss.ProjectRelease` is undefined. That is the failure you
@@ -5326,7 +5326,7 @@ want; it proves the test is reaching the symbol under test.
 
 - [ ] **Step 3: Implement the wire half of `ProjectRelease`**
 
-In `indexarr/worker/rss/project.go`. Only the hand-filled fields for now; the parsed
+In `app/indexer/worker/rss/project.go`. Only the hand-filled fields for now; the parsed
 half arrives in Step 7.
 
 ```go
@@ -5376,7 +5376,7 @@ is ever wanted, the **caller** overwrites `Info.IndexerName` after projection an
 `Info.IndexerRef`, which the matcher keys on.
 
 ```bash
-go test -count=1 -run TestProjectRelease ./indexarr/worker/rss/
+go test -count=1 -run TestProjectRelease ./app/indexer/worker/rss/
 ```
 
 Expected: PASS.
@@ -5428,7 +5428,7 @@ func TestProjectReleaseNilPublishedAtSurvivesJSONRoundTrip(t *testing.T) {
 ```
 
 ```bash
-go test -count=1 -run TestProjectReleasePublishedAt ./indexarr/worker/rss/
+go test -count=1 -run TestProjectReleasePublishedAt ./app/indexer/worker/rss/
 ```
 
 Expected: FAIL — `PublishedAt` is nil in every case, so the first two subtests fail.
@@ -5457,7 +5457,7 @@ Add to `ProjectRelease`, before the `schema.Release` is returned:
 ```
 
 ```bash
-go test -count=1 -run TestProjectRelease ./indexarr/worker/rss/
+go test -count=1 -run TestProjectRelease ./app/indexer/worker/rss/
 ```
 
 Expected: PASS, all four subtests plus the round trip.
@@ -5504,7 +5504,7 @@ func TestProjectReleaseSeriesFields(t *testing.T) {
 ```
 
 ```bash
-go test -count=1 -run TestProjectRelease ./indexarr/worker/rss/
+go test -count=1 -run TestProjectRelease ./app/indexer/worker/rss/
 ```
 
 Expected: FAIL — `ParsedTitle`, `Year`, `Kind`, `Seasons`, `Episodes` are all zero.
@@ -5561,7 +5561,7 @@ parameter-free field set by the caller in Step 10 — for now leave it zero and 
 publisher stamp it.
 
 ```bash
-go test -count=1 -run TestProjectRelease ./indexarr/worker/rss/
+go test -count=1 -run TestProjectRelease ./app/indexer/worker/rss/
 ```
 
 Expected: PASS.
@@ -5599,7 +5599,7 @@ func TestProjectReleaseIndexerFlagsStayInsideTheEnum(t *testing.T) {
 ```
 
 ```bash
-go test -count=1 -run TestProjectReleaseIndexerFlags ./indexarr/worker/rss/
+go test -count=1 -run TestProjectReleaseIndexerFlags ./app/indexer/worker/rss/
 ```
 
 Expected: FAIL — `IndexerFlags` is nil everywhere.
@@ -5642,7 +5642,7 @@ func indexerFlags(r torznab.Release) []string {
 Set `info.IndexerFlags = indexerFlags(r)` in `ProjectRelease`.
 
 ```bash
-go test -count=1 -run TestProjectRelease ./indexarr/worker/rss/ && go test -count=1 ./indexarr/worker/rss/
+go test -count=1 -run TestProjectRelease ./app/indexer/worker/rss/ && go test -count=1 ./app/indexer/worker/rss/
 ```
 
 Expected: PASS.
@@ -5663,8 +5663,8 @@ of stamping it (Step 20) and assert here only that `ProjectRelease` leaves it ze
 one place owns it. Add a one-line doc note on `ProjectRelease` saying so.
 
 ```bash
-go test -count=1 ./indexarr/worker/rss/ && go vet ./indexarr/...
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(indexarr): project a torznab release onto the firehose payload" -- indexarr/worker/rss
+go test -count=1 ./app/indexer/worker/rss/ && go vet ./app/indexer/...
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(indexarr): project a torznab release onto the firehose payload" -- app/indexer/worker/rss
 ```
 
 - [ ] **Step 11: Failing test — the envelope key is cuttable and resolves to the right namespace**
@@ -5674,7 +5674,7 @@ reads it**, with the same `strings.Cut`, not by string equality alone — a test
 compares to `"ns/name"` passes for a key the consumer would still discard if the
 convention ever moved.
 
-In `indexarr/worker/rss/publish_test.go`:
+In `app/indexer/worker/rss/publish_test.go`:
 
 ```go
 func TestPublishReleasesEnvelopeKeyIsNamespaceSlashIndexerName(t *testing.T) {
@@ -5700,7 +5700,7 @@ func TestPublishReleasesEnvelopeKeyIsNamespaceSlashIndexerName(t *testing.T) {
 	require.Equal(t, 1, n)
 	require.Eventually(t, func() bool { return len(got) == 1 }, 5*time.Second, 10*time.Millisecond)
 
-	// Exactly what catalogarr/worker/rssmatcher/handler.go:171 does.
+	// Exactly what app/catalog/worker/rssmatcher/handler.go:171 does.
 	ns, indexer, ok := strings.Cut(got[0].Key, "/")
 	require.True(t, ok, "key %q has no slash: the matcher Discards it STRAIGHT TO THE DLQ, bypassing MaxDeliver", got[0].Key)
 	require.Equal(t, "media", ns)
@@ -5715,14 +5715,14 @@ func TestPublishReleasesEnvelopeKeyIsNamespaceSlashIndexerName(t *testing.T) {
 ```
 
 ```bash
-go test -count=1 -run TestPublishReleases ./indexarr/worker/rss/
+go test -count=1 -run TestPublishReleases ./app/indexer/worker/rss/
 ```
 
 Expected: FAIL to build — `rss.PublishReleases` is undefined.
 
 - [ ] **Step 12: Implement `PublishReleases`**
 
-In `indexarr/worker/rss/publish.go`:
+In `app/indexer/worker/rss/publish.go`:
 
 ```go
 // PublishReleases publishes each release to the firehose. It is exported so
@@ -5778,7 +5778,7 @@ func PublishReleases(ctx context.Context, bus events.Bus, ns, indexerName string
 ```
 
 ```bash
-go test -count=1 -run TestPublishReleasesEnvelopeKey ./indexarr/worker/rss/
+go test -count=1 -run TestPublishReleasesEnvelopeKey ./app/indexer/worker/rss/
 ```
 
 Expected: FAIL — `subjectFor` is undefined. Next step.
@@ -5820,7 +5820,7 @@ func subjectFor(rel schema.Release, indexerName string) string {
 ```
 
 ```bash
-go test -count=1 -run 'TestPublishReleases|TestSubject' ./indexarr/worker/rss/
+go test -count=1 -run 'TestPublishReleases|TestSubject' ./app/indexer/worker/rss/
 ```
 
 Expected: PASS.
@@ -5861,7 +5861,7 @@ func TestPublishReleasesDedupsOnIndexerAndGUID(t *testing.T) {
 ```
 
 ```bash
-go test -count=1 -run TestPublishReleasesDedups ./indexarr/worker/rss/
+go test -count=1 -run TestPublishReleasesDedups ./app/indexer/worker/rss/
 ```
 
 Expected: PASS if Step 12 is right; if `published` counts attempts rather than stored
@@ -5922,13 +5922,13 @@ The ten fields the matcher actually reads are `Kind`, `Info.IDs["tmdb"]`,
 fixture exercises; the episode/season ones get their own subtest with a series fixture.
 
 ```bash
-go test -count=1 -race ./indexarr/worker/rss/
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(indexarr): publish parsed releases to the firehose with a cuttable envelope key" -- indexarr/worker/rss
+go test -count=1 -race ./app/indexer/worker/rss/
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(indexarr): publish parsed releases to the firehose with a cuttable envelope key" -- app/indexer/worker/rss
 ```
 
 - [ ] **Step 16: The worker skeleton and its subscription**
 
-In `indexarr/worker/rss/worker.go`. The `Searcher` seam is a local interface so D1-5 and
+In `app/indexer/worker/rss/worker.go`. The `Searcher` seam is a local interface so D1-5 and
 D1-7 do not share a symbol neither owns — the concrete client comes from D1-3's
 reconciler at wiring time (D1-8), already carrying that host's single
 `ratelimit.Limiter`. **This package never constructs a limiter.**
@@ -5989,7 +5989,7 @@ func TestSubscriptionFitsThePodsGracePeriod(t *testing.T) {
 ```
 
 ```bash
-go test -count=1 -run TestSubscription ./indexarr/worker/rss/
+go test -count=1 -run TestSubscription ./app/indexer/worker/rss/
 ```
 
 Expected: PASS once D1-0's topology change is in; FAIL with `AckWait 120s` if it is not,
@@ -6021,7 +6021,7 @@ func TestHandleDiscardsUnusableTasks(t *testing.T) {
 no slash and dead-letter every release it publishes. Refuse it at the door.
 
 ```bash
-go test -count=1 -run TestHandleDiscards ./indexarr/worker/rss/
+go test -count=1 -run TestHandleDiscards ./app/indexer/worker/rss/
 ```
 
 Expected: FAIL to build — `Handle` is undefined.
@@ -6056,7 +6056,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 ```
 
 ```bash
-go test -count=1 -run TestHandleDiscards ./indexarr/worker/rss/
+go test -count=1 -run TestHandleDiscards ./app/indexer/worker/rss/
 ```
 
 Expected: PASS.
@@ -6065,7 +6065,7 @@ Expected: PASS.
 
 Ruling R7: `AckWait` is 60s because `terminationGracePeriodSeconds` is 60, and an RSS poll
 of a slow indexer can plausibly exceed it. `fakeMessage.InProgress` counts beats
-(`importarr/worker/rescan/helpers_envtest_test.go:211` has the pattern —
+(`app/import/worker/rescan/helpers_envtest_test.go:211` has the pattern —
 `m.heartbeats.Add(1)`).
 
 ```go
@@ -6101,7 +6101,7 @@ func TestPollAtSigtermRetriesWithoutEscalatingTheIndexer(t *testing.T) {
 ```
 
 ```bash
-go test -count=1 -run 'TestPoll' ./indexarr/worker/rss/
+go test -count=1 -run 'TestPoll' ./app/indexer/worker/rss/
 ```
 
 Expected: FAIL — no poll loop yet.
@@ -6189,7 +6189,7 @@ then does:
 no partial state to reconcile.
 
 ```bash
-go test -count=1 -run TestPoll ./indexarr/worker/rss/
+go test -count=1 -run TestPoll ./app/indexer/worker/rss/
 ```
 
 Expected: PASS.
@@ -6221,7 +6221,7 @@ func TestLastRssNewCountComesFromTheIndexNotTheFeed(t *testing.T) {
 ```
 
 ```bash
-go test -count=1 -run TestLastRssNewCount ./indexarr/worker/rss/
+go test -count=1 -run TestLastRssNewCount ./app/indexer/worker/rss/
 ```
 
 Expected: FAIL.
@@ -6268,14 +6268,14 @@ Expected: FAIL.
 `FetchedAt`, and `InfoJSON` = `json.Marshal(rel)` so a replay needs no re-query.
 
 ```bash
-go test -count=1 -run TestLastRssNewCount ./indexarr/worker/rss/
+go test -count=1 -run TestLastRssNewCount ./app/indexer/worker/rss/
 ```
 
 Expected: PASS.
 
 - [ ] **Step 23: Implement `WorkerStatus` — the complete `indexarr-worker` declaration**
 
-In `indexarr/worker/rss/status.go`. Read this before writing it: server-side apply
+In `app/indexer/worker/rss/status.go`. Read this before writing it: server-side apply
 **replaces** a field manager's ownership set on every apply. Anything the manager sent
 before and omits now is *released*, which reads as "reset to zero" on the object. Three
 writers share `indexarr-worker` — this RSS worker, D1-5's search fan-out and D1-6's
@@ -6346,7 +6346,7 @@ This project has hit the release hazard **eight times**, and every time the test
 missed it acted on a blank object. A blank object has nothing to release, so it cannot
 observe a release. Drive the `Indexer` to a real steady state **first**.
 
-Create `suite_envtest_test.go` by copying `catalogarr/worker/rssmatcher/suite_envtest_test.go`
+Create `suite_envtest_test.go` by copying `app/catalog/worker/rssmatcher/suite_envtest_test.go`
 — `TestMain` starting envtest, `requireEnvtest(t)` skipping on an unset
 `KUBEBUILDER_ASSETS`, `newTestManager`, `newNamespace`.
 
@@ -6401,7 +6401,7 @@ func TestStatusApplyDoesNotReleaseWhatItDidNotChange(t *testing.T) {
 
 ```bash
 export KUBEBUILDER_ASSETS=$(/home/appkins/go/bin/setup-envtest use 1.37.0 -p path)
-go test -count=1 -v -run TestStatusApplyDoesNotRelease ./indexarr/worker/rss/
+go test -count=1 -v -run TestStatusApplyDoesNotRelease ./app/indexer/worker/rss/
 ```
 
 **Check the elapsed time.** A suite that finishes in milliseconds **skipped**;
@@ -6438,7 +6438,7 @@ func TestFailedPollKeepsTheRssFieldsItDidNotChange(t *testing.T) {
 ```
 
 ```bash
-go test -count=1 -run TestFailedPollKeeps ./indexarr/worker/rss/
+go test -count=1 -run TestFailedPollKeeps ./app/indexer/worker/rss/
 ```
 
 Expected: FAIL until the failure path routes through `WorkerStatus` like every other path.
@@ -6493,7 +6493,7 @@ indexer are possible only when a duplicate schedule fires, and the lost update i
 one poll's `inserted` and self-corrects at the next poll. Do not add a CAS loop for it.
 
 ```bash
-go test -count=1 -run 'TestFailedPollKeeps|TestStatusApply|TestLastRss' ./indexarr/worker/rss/
+go test -count=1 -run 'TestFailedPollKeeps|TestStatusApply|TestLastRss' ./app/indexer/worker/rss/
 ```
 
 Expected: PASS.
@@ -6541,7 +6541,7 @@ inside its backoff window, so acknowledge, reschedule for `disabledUntil`, and d
 query.
 
 ```bash
-go test -count=1 -run 'TestOneFailing|TestHandleNeverLists' ./indexarr/worker/rss/
+go test -count=1 -run 'TestOneFailing|TestHandleNeverLists' ./app/indexer/worker/rss/
 ```
 
 - [ ] **Step 28: Failing test then implement — `ScheduleNext` and the slot msg-id**
@@ -6626,7 +6626,7 @@ func TestScheduleNextDedupsPerSlotAndAdvancesBetweenSlots(t *testing.T) {
 ```
 
 ```bash
-go test -count=1 -run TestScheduleNext ./indexarr/worker/rss/
+go test -count=1 -run TestScheduleNext ./app/indexer/worker/rss/
 ```
 
 - [ ] **Step 29: Metrics, span attributes and RBAC**
@@ -6660,10 +6660,10 @@ make manifests && git status --short   # config/rbac must show the two new rules
 ```bash
 cd /home/appkins/src/mediactl/clustarr
 export KUBEBUILDER_ASSETS=$(/home/appkins/go/bin/setup-envtest use 1.37.0 -p path)
-go test -count=1 -race -v ./indexarr/worker/rss/ 2>&1 | tail -40
+go test -count=1 -race -v ./app/indexer/worker/rss/ 2>&1 | tail -40
 make lint
 make generate && make manifests && git status --short   # clean
-go build ./indexarr/...                                 # never a bare `go build`
+go build ./app/indexer/...                                 # never a bare `go build`
 ```
 
 Confirm in the `-v` output that **no envtest reported SKIP** and that the envtest tests
@@ -6673,7 +6673,7 @@ without `KUBEBUILDER_ASSETS`, and a suite that finishes instantly did not run.
 - [ ] **Step 31: Commit**
 
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(indexarr): poll indexer feeds and publish new releases to the firehose" -- indexarr/worker/rss
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(indexarr): poll indexer feeds and publish new releases to the firehose" -- app/indexer/worker/rss
 ```
 
 **Done when:** `ProjectRelease` fills every indexer-sourced field, leaves `FormatScore`
@@ -6698,9 +6698,9 @@ others untouched; the next poll is scheduled with a slot-quantised msg-id; `make
    first schedule; D1-5 and D1-6 write under `indexarr-worker`). The contract file pins
    only `PublishReleases` and `ProjectRelease` for this package, and says a task needing
    an unlisted shape must ask rather than invent one. This task implements them in
-   `indexarr/worker/rss` because it is the field manager's first writer — but if three
+   `app/indexer/worker/rss` because it is the field manager's first writer — but if three
    writers sharing one manager is the real shape, `WorkerStatus` arguably belongs in
-   D1-3's pure `indexarr/controller/indexer` package next to `Escalation`. **Rule before
+   D1-3's pure `app/indexer/controller/indexer` package next to `Escalation`. **Rule before
    D1-3, D1-5 and D1-6 start.** If it stays here, add all three to `02-interfaces.md`
    verbatim; if it moves, D1-7 imports it instead.
 
@@ -6743,11 +6743,11 @@ others untouched; the next poll is scheduled with a slot-quantised msg-id; `make
 
 **Why this task is different from every other task in D1.** The wire contract is
 not being designed here — it shipped in Phase C and is *already being called*.
-`catalogarr/worker/search` builds a `schema.SearchRequest`, sends it to
+`app/catalog/worker/search` builds a `schema.SearchRequest`, sends it to
 `clustarr.rpc.indexarr.search`, gets `events.ErrNoResponders` and retries in 15 s,
 forever. This task is the server that answers. Every payload type is frozen in
 `pkg/events/schema/index.go`; **do not add a field, do not rename a field, do not
-"fix" a tag**. The client half (`catalogarr/worker/search/rpc.go:38-45`) states it
+"fix" a tag**. The client half (`app/catalog/worker/search/rpc.go:38-45`) states it
 in the source: *"indexarr (Phase D) MUST serve that subject with exactly
 schema.SearchRequest -> schema.SearchResponse"*.
 
@@ -6765,35 +6765,35 @@ limiter belongs to D1-3.
 
 | Path | Contents |
 | --- | --- |
-| `indexarr/search/doc.go` | Package doc: the frozen contract, the field-manager ownership set, the two things this package must not build. |
-| `indexarr/search/service.go` | `Service`, `IndexerClient`, `ClientFor`, `DownloadFn`, `QueryFn`, `Serve`, `Search`, the three bus handlers. |
-| `indexarr/search/select.go` | `candidate`, `selectCandidates`, the closed set of skip reasons. Pure. |
-| `indexarr/search/query.go` | `modeFor`, `paramSupported`, `queryCategories`, `buildQuery`. Pure. |
-| `indexarr/search/merge.go` | `indexerResult`, `mergeReleases` — dedupe, rank, cap. Pure. |
-| `indexarr/search/status.go` | `recordOutcome` — the complete ten-field `indexarr-worker` declaration. |
-| `indexarr/search/fanout.go` | `fanOut` — budgets, parallelism, pre-named outcome slots, metrics, relindex upsert. |
+| `app/indexer/search/doc.go` | Package doc: the frozen contract, the field-manager ownership set, the two things this package must not build. |
+| `app/indexer/search/service.go` | `Service`, `IndexerClient`, `ClientFor`, `DownloadFn`, `QueryFn`, `Serve`, `Search`, the three bus handlers. |
+| `app/indexer/search/select.go` | `candidate`, `selectCandidates`, the closed set of skip reasons. Pure. |
+| `app/indexer/search/query.go` | `modeFor`, `paramSupported`, `queryCategories`, `buildQuery`. Pure. |
+| `app/indexer/search/merge.go` | `indexerResult`, `mergeReleases` — dedupe, rank, cap. Pure. |
+| `app/indexer/search/status.go` | `recordOutcome` — the complete ten-field `indexarr-worker` declaration. |
+| `app/indexer/search/fanout.go` | `fanOut` — budgets, parallelism, pre-named outcome slots, metrics, relindex upsert. |
 
 **Create (tests)**
 
 | Path | Contents |
 | --- | --- |
-| `indexarr/search/query_test.go` | R5 vocabulary pin, id-param gating, anime inference, category intersection. |
-| `indexarr/search/select_test.go` | Every gate and every skip reason, table-driven. |
-| `indexarr/search/merge_test.go` | Infohash collapse, `(indexer, guid)` collapse, priority/seeders tiebreak, cap + `Truncated`. |
-| `indexarr/search/fanout_test.go` | Deadline division, slow-indexer timeout outcome, partial failure, relindex failure is non-fatal. |
-| `indexarr/search/serve_bus_test.go` | **The contract test.** Drives `Serve` over `membus` using the *shipped caller's own* `NewBusSearchRPC` and `BuildSearchRequest`. |
-| `indexarr/search/suite_envtest_test.go` | envtest bootstrap, `requireEnvtest`, `newTestManager`, `eventually`. |
-| `indexarr/search/status_envtest_test.go` | The SSA release test: steady state first, then the failure path. |
+| `app/indexer/search/query_test.go` | R5 vocabulary pin, id-param gating, anime inference, category intersection. |
+| `app/indexer/search/select_test.go` | Every gate and every skip reason, table-driven. |
+| `app/indexer/search/merge_test.go` | Infohash collapse, `(indexer, guid)` collapse, priority/seeders tiebreak, cap + `Truncated`. |
+| `app/indexer/search/fanout_test.go` | Deadline division, slow-indexer timeout outcome, partial failure, relindex failure is non-fatal. |
+| `app/indexer/search/serve_bus_test.go` | **The contract test.** Drives `Serve` over `membus` using the *shipped caller's own* `NewBusSearchRPC` and `BuildSearchRequest`. |
+| `app/indexer/search/suite_envtest_test.go` | envtest bootstrap, `requireEnvtest`, `newTestManager`, `eventually`. |
+| `app/indexer/search/status_envtest_test.go` | The SSA release test: steady state first, then the failure path. |
 
-**Modify:** none. `indexarr/run.go` is wired by **D1-8**; do not touch it.
+**Modify:** none. `app/indexer/run.go` is wired by **D1-8**; do not touch it.
 
 #### Path ownership
 
-- **Owns:** `indexarr/search/**` — nothing else.
-- **Must not touch:** `indexarr/run.go` (D1-8), `indexarr/controller/indexer/**` (D1-3),
-  `indexarr/worker/rss/**` (D1-7), `pkg/relindex/**` (D1-2), `go.mod`/`go.sum`,
+- **Owns:** `app/indexer/search/**` — nothing else.
+- **Must not touch:** `app/indexer/run.go` (D1-8), `app/indexer/controller/indexer/**` (D1-3),
+  `app/indexer/worker/rss/**` (D1-7), `pkg/relindex/**` (D1-2), `go.mod`/`go.sum`,
   `api/**`, `pkg/events/**`, `pkg/k8s/**`, `config/**`, `charts/**` (all D1-0).
-- **Commit path-scoped:** `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "<msg>" -- indexarr/search`
+- **Commit path-scoped:** `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "<msg>" -- app/indexer/search`
 
 #### Interfaces — Consumes
 
@@ -6852,7 +6852,7 @@ const (
 )
 type Ref struct { Namespace string `json:"namespace,omitempty"`; Name string `json:"name"`; UID string `json:"uid,omitempty"` }
 
-// ---- indexarr/controller/indexer (D1-3) -- PURE, never writes to the apiserver ----
+// ---- app/indexer/controller/indexer (D1-3) -- PURE, never writes to the apiserver ----
 func Healthy(st indexv1alpha1.IndexerStatus, now time.Time) bool
 func SupportsMode(caps indexv1alpha1.Caps, mode string) bool
 func RecordSuccess(cur indexv1alpha1.IndexerStatus, now time.Time) Escalation
@@ -6865,7 +6865,7 @@ type Escalation struct {
     Changed        bool
 }
 
-// ---- indexarr/worker/rss (D1-7) -- the ONE release projection ----
+// ---- app/indexer/worker/rss (D1-7) -- the ONE release projection ----
 func ProjectRelease(r torznab.Release, indexerName, protocol string) schema.Release
 
 // ---- pkg/relindex (D1-2) ----
@@ -6922,7 +6922,7 @@ var metrics.IndexerReleasesReturned // clustarr_indexer_releases_returned{indexe
 #### Interfaces — Produces
 
 ```go
-package search // indexarr/search
+package search // app/indexer/search
 
 // IndexerClient is the one call the fan-out makes against a live indexer. It is
 // an interface, not *torznab.Client, so the fan-out is testable without a
@@ -7070,16 +7070,16 @@ reach a label.
 
 **Package skeleton and the R5 vocabulary**
 
-- [ ] 1. Create `indexarr/search/doc.go`: the GPL-3.0 header from
+- [ ] 1. Create `app/indexer/search/doc.go`: the GPL-3.0 header from
   `hack/boilerplate.go.txt`, then `package search` with a doc comment stating (a) the
   payload types are frozen in `pkg/events/schema/index.go` and already called by
-  `catalogarr/worker/search`, (b) the ten `Indexer.status` fields owned by
+  `app/catalog/worker/search`, (b) the ten `Indexer.status` fields owned by
   `k8s.ManagerIndexarrWorker` listed verbatim from D5 above, and (c) the two things
   this package must not build: *"the torznab.Release -> schema.Release projection is
   rss.ProjectRelease (D1-7); the per-host rate limiter is built by D1-3's reconciler
-  and arrives through ClientFor."* Run `go build ./indexarr/...` — it compiles.
+  and arrives through ClientFor."* Run `go build ./app/indexer/...` — it compiles.
 
-- [ ] 2. Write `indexarr/search/query_test.go` with the vocabulary pin, and only it:
+- [ ] 2. Write `app/indexer/search/query_test.go` with the vocabulary pin, and only it:
 
   ```go
   func TestModeForUsesTorznabWireValues(t *testing.T) {
@@ -7094,9 +7094,9 @@ reach a label.
   }
   ```
 
-- [ ] 3. Run `go test ./indexarr/search/...`. Expect `undefined: modeFor`.
+- [ ] 3. Run `go test ./app/indexer/search/...`. Expect `undefined: modeFor`.
 
-- [ ] 4. Create `indexarr/search/query.go` (GPL header) with `modeFor` only:
+- [ ] 4. Create `app/indexer/search/query.go` (GPL header) with `modeFor` only:
 
   ```go
   // modeFor maps the request's media kind onto the Torznab t= mode. Ruling R5:
@@ -7115,7 +7115,7 @@ reach a label.
   }
   ```
 
-- [ ] 5. Run `go test ./indexarr/search/...`. It passes. Commit:
+- [ ] 5. Run `go test ./app/indexer/search/...`. It passes. Commit:
   `feat(indexarr): map media kind to the torznab search mode (R5)`.
 
 **Query building: id params, anime, categories**
@@ -7214,7 +7214,7 @@ reach a label.
   // buildQuery renders one SearchRequest against one Indexer's caps. ok is false
   // when the indexer advertises the mode but none of the request's id parameters,
   // because the request is ids-only: catalogarr NEVER sets Text
-  // (catalogarr/worker/search/request.go:65-102), so spec §6.2's
+  // (app/catalog/worker/search/request.go:65-102), so spec §6.2's
   // "fallback t=search&q=" has no title to fall back to. Carried item: text
   // fallback needs a resolved title that the payload has no field for.
   //
@@ -7258,13 +7258,13 @@ reach a label.
 
   Run it; it passes.
 
-- [ ] 12. Run `go vet ./indexarr/search/...` and `golangci-lint-v2 run ./indexarr/search/...`.
+- [ ] 12. Run `go vet ./app/indexer/search/...` and `golangci-lint-v2 run ./app/indexer/search/...`.
   Fix anything reported. Commit:
   `feat(indexarr): build a torznab query from a frozen SearchRequest`.
 
 **Candidate selection**
 
-- [ ] 13. Write `indexarr/search/select_test.go` as one table over
+- [ ] 13. Write `app/indexer/search/select_test.go` as one table over
   `selectCandidates(idxs []indexv1alpha1.Indexer, req schema.SearchRequest, mode torznab.SearchMode, now time.Time) []candidate`,
   with one row per gate and the expected `Skip` string:
   `spec.enabled=false` → `"disabled"`; `enableAutomaticSearch=false` with
@@ -7280,7 +7280,7 @@ reach a label.
   result entirely** (not skipped), and a ref whose namespace differs is also absent.
   Run it; expect `undefined: selectCandidates`.
 
-- [ ] 14. Create `indexarr/search/select.go` (GPL header) with the type and the
+- [ ] 14. Create `app/indexer/search/select.go` (GPL header) with the type and the
   closed reason set:
 
   ```go
@@ -7288,7 +7288,7 @@ reach a label.
   // it will not be queried and gets a named "skipped" outcome; an Indexer the
   // request did not ask for is not a candidate at all and produces no outcome,
   // because the caller caps outcomes at 100 and first-wins
-  // (catalogarr/worker/search/worker.go:682-708).
+  // (app/catalog/worker/search/worker.go:682-708).
   type candidate struct {
       Indexer *indexv1alpha1.Indexer
       Skip    string
@@ -7375,7 +7375,7 @@ reach a label.
   }
   ```
 
-  Run `go test ./indexarr/search/...`. Every row passes.
+  Run `go test ./app/indexer/search/...`. Every row passes.
 
 - [ ] 16. Add the `skipNoIDParam` gate: it cannot live in `selectCandidates` because
   it needs `buildQuery`'s verdict, so add a second pure helper to `select.go` and a
@@ -7397,12 +7397,12 @@ reach a label.
 
   Run the tests; they pass.
 
-- [ ] 17. Run `golangci-lint-v2 run ./indexarr/search/...`. Commit:
+- [ ] 17. Run `golangci-lint-v2 run ./app/indexer/search/...`. Commit:
   `feat(indexarr): gate search candidates on health, caps and limits`.
 
 **Merge: dedupe, rank, cap**
 
-- [ ] 18. Write `indexarr/search/merge_test.go` with four cases:
+- [ ] 18. Write `app/indexer/search/merge_test.go` with four cases:
   (a) the same `InfoHash` from indexers `a` (priority 10, seeders 5) and `b`
   (priority 25, seeders 900) collapses to one release and the survivor is `a`'s —
   **priority beats seeders**; (b) the same `InfoHash` from two indexers at equal
@@ -7411,7 +7411,7 @@ reach a label.
   500 with `truncated == true`, 500 give `truncated == false`. Run it; expect
   `undefined: mergeReleases`.
 
-- [ ] 19. Create `indexarr/search/merge.go` (GPL header) with the input type and the
+- [ ] 19. Create `app/indexer/search/merge.go` (GPL header) with the input type and the
   key function:
 
   ```go
@@ -7447,7 +7447,7 @@ reach a label.
   // mergeReleases collapses duplicates, orders the survivors and caps the set.
   // The order decides WHICH releases survive the cap, not how they are ranked:
   // catalogarr re-scores everything through pkg/decision
-  // (catalogarr/worker/search/worker.go:311-320). It is fully deterministic so
+  // (app/catalog/worker/search/worker.go:311-320). It is fully deterministic so
   // the same inputs always truncate the same way.
   func mergeReleases(results []indexerResult, limit int) ([]schema.Release, bool) {
       type entry struct {
@@ -7509,7 +7509,7 @@ reach a label.
   }
   ```
 
-  Run `go test ./indexarr/search/...`. All four cases pass.
+  Run `go test ./app/indexer/search/...`. All four cases pass.
 
 - [ ] 21. Add a fifth case to `merge_test.go` pinning the cap constant against the
   schema, so a future change to either is caught:
@@ -7532,7 +7532,7 @@ reach a label.
 
 **Status: the ten-field declaration under `indexarr-worker`**
 
-- [ ] 22. Create `indexarr/search/status.go` (GPL header) with **only** the doc
+- [ ] 22. Create `app/indexer/search/status.go` (GPL header) with **only** the doc
   comment enumerating the owned set, and no code yet:
 
   ```go
@@ -7544,7 +7544,7 @@ reach a label.
   //
   // Server-side apply REPLACES a manager's ownership set on every apply; it does
   // not merge. A field this manager sent last time and omits this time is
-  // released, which reads as "reset to zero" on the object. indexarr/worker/rss
+  // released, which reads as "reset to zero" on the object. app/indexer/worker/rss
   // writes the same ten under the same manager, so BOTH packages must declare all
   // ten on every apply, carrying through the ones they did not change. CLAUDE.md
   // records eight distinct forms this failure has already taken in this repo.
@@ -7608,7 +7608,7 @@ reach a label.
   func (s *Service) recordOutcome(ctx context.Context, ref schema.Ref, ok bool, reason string, queried bool, newlyIndexed int64) error {
       var live indexv1alpha1.Indexer
       if err := s.Client.Get(ctx, client.ObjectKey{Namespace: ref.Namespace, Name: ref.Name}, &live); err != nil {
-          return fmt.Errorf("indexarr/search: get indexer %s: %w", ref, err)
+          return fmt.Errorf("app/indexer/search: get indexer %s: %w", ref, err)
       }
       cur := live.Status
       now := s.now()
@@ -7654,10 +7654,10 @@ reach a label.
   ```
 
   Imports: `indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/index/v1alpha1"`.
-  Run `go build ./indexarr/...`; it compiles once `Service` exists — if it does not
+  Run `go build ./app/indexer/...`; it compiles once `Service` exists — if it does not
   yet, park this step's build check until step 40 and move on.
 
-- [ ] 26. Run `golangci-lint-v2 run ./indexarr/search/...` and confirm **forbidigo
+- [ ] 26. Run `golangci-lint-v2 run ./app/indexer/search/...` and confirm **forbidigo
   reports nothing** — the only status write in the package goes through
   `k8s.PatchStatus`. Commit:
   `feat(indexarr): record search outcomes under the indexarr-worker manager`.
@@ -7687,7 +7687,7 @@ reach a label.
 
   Run it; expect `undefined: fanoutBudget`.
 
-- [ ] 28. Create `indexarr/search/fanout.go` (GPL header) with the constants and both
+- [ ] 28. Create `app/indexer/search/fanout.go` (GPL header) with the constants and both
   budget functions:
 
   ```go
@@ -7758,7 +7758,7 @@ reach a label.
 
   ```go
   // newOutcome names the outcome BEFORE the indexer is touched. The caller drops
-  // a nameless outcome silently (catalogarr/worker/search/worker.go:658-661:
+  // a nameless outcome silently (app/catalog/worker/search/worker.go:658-661:
   // status.indexerOutcomes is listType=map keyed by name), so an indexer that
   // fails while its client is being built would otherwise vanish from the
   // operator's view entirely. Both IndexerRef.Name and IndexerName are set: the
@@ -8027,16 +8027,16 @@ reach a label.
 
 - [ ] 37. Add a test to `fanout_test.go` proving D8: a `Store` stub whose `Upsert`
   always returns an error still yields an `ok` outcome with the full release count.
-  Run `go test ./indexarr/search/...`; everything passes.
+  Run `go test ./app/indexer/search/...`; everything passes.
 
-- [ ] 38. Run `golangci-lint-v2 run ./indexarr/search/...`, then
-  `go test -race ./indexarr/search/...` — the straggler path is exactly what `-race`
+- [ ] 38. Run `golangci-lint-v2 run ./app/indexer/search/...`, then
+  `go test -race ./app/indexer/search/...` — the straggler path is exactly what `-race`
   exists for. Commit:
   `feat(indexarr): fan out searches across healthy indexers with a divided deadline`.
 
 **`Service` and `Serve`**
 
-- [ ] 39. Create `indexarr/search/service.go` (GPL header) with the types from
+- [ ] 39. Create `app/indexer/search/service.go` (GPL header) with the types from
   Interfaces — Produces: `IndexerClient`, `ClientFor`, `DownloadFn`, `QueryFn` and
   `Service` (add unexported `srvCtx context.Context`, `stopOnce sync.Once`,
   `inflight sync.WaitGroup`), plus:
@@ -8050,7 +8050,7 @@ reach a label.
   }
   ```
 
-  Run `go build ./indexarr/...`; the package now compiles as a whole.
+  Run `go build ./app/indexer/...`; the package now compiles as a whole.
 
 - [ ] 40. Add a `Search` test to `fanout_test.go` covering D9's four success-shaped
   rows against a `fake.NewClientBuilder().WithScheme(k8s.MustNewScheme())` client:
@@ -8065,7 +8065,7 @@ reach a label.
   ```go
   // Search is the body of clustarr.rpc.indexarr.search. It NEVER returns an
   // error, by design: the caller returns immediately on an RPC error
-  // (catalogarr/worker/search/worker.go:284-287) and therefore never writes
+  // (app/catalog/worker/search/worker.go:284-287) and therefore never writes
   // status.indexerOutcomes, so an error reply would throw away the only record of
   // WHY nothing was found. Every failure is a named outcome instead.
   func (s *Service) Search(ctx context.Context, req schema.SearchRequest) schema.SearchResponse {
@@ -8193,7 +8193,7 @@ reach a label.
   // Serve registers all three RPC verbs under queue group "indexarr". D1-6
   // supplies Download and Query; D1-8 calls this once from run.go, BEFORE the
   // readiness probe passes -- until it does, every caller gets
-  // events.ErrNoResponders and retries in 15s (catalogarr/worker/search/rpc.go:36).
+  // events.ErrNoResponders and retries in 15s (app/catalog/worker/search/rpc.go:36).
   //
   // stop drains in-flight fan-outs. It cannot deregister the responder:
   // events.Requester.Serve has no unsubscribe and its handlers "run until the bus
@@ -8201,11 +8201,11 @@ reach a label.
   func Serve(ctx context.Context, bus events.Bus, s *Service) (func(), error) {
       switch {
       case s == nil:
-          return nil, errors.New("indexarr/search: nil Service")
+          return nil, errors.New("app/indexer/search: nil Service")
       case s.Client == nil:
-          return nil, errors.New("indexarr/search: nil Service.Client")
+          return nil, errors.New("app/indexer/search: nil Service.Client")
       case s.ClientFor == nil:
-          return nil, errors.New("indexarr/search: nil Service.ClientFor")
+          return nil, errors.New("app/indexer/search: nil Service.ClientFor")
       }
       srvCtx, cancel := context.WithCancel(ctx)
       s.srvCtx = srvCtx
@@ -8231,7 +8231,7 @@ reach a label.
               return out, err
           }); err != nil {
               cancel()
-              return nil, fmt.Errorf("indexarr/search: serve %s: %w", v.subject, err)
+              return nil, fmt.Errorf("app/indexer/search: serve %s: %w", v.subject, err)
           }
       }
       return func() { s.stopOnce.Do(func() { cancel(); s.inflight.Wait() }) }, nil
@@ -8248,10 +8248,10 @@ reach a label.
           // error: the caller naks, its 30s/2m/10m ladder runs out at
           // MaxDeliver 5 and the message lands in the DLQ, which is correct for
           // an input that cannot be parsed.
-          return nil, fmt.Errorf("indexarr/search: decode SearchRequest: %w", err)
+          return nil, fmt.Errorf("app/indexer/search: decode SearchRequest: %w", err)
       }
       if req.Kind == "" {
-          return nil, errors.New("indexarr/search: SearchRequest.kind is required")
+          return nil, errors.New("app/indexer/search: SearchRequest.kind is required")
       }
       return json.Marshal(s.Search(ctx, req))
   }
@@ -8259,7 +8259,7 @@ reach a label.
   func (s *Service) handleDownload(ctx context.Context, data []byte) ([]byte, error) {
       var req schema.DownloadRequest
       if err := json.Unmarshal(data, &req); err != nil {
-          return nil, fmt.Errorf("indexarr/search: decode DownloadRequest: %w", err)
+          return nil, fmt.Errorf("app/indexer/search: decode DownloadRequest: %w", err)
       }
       if s.Download == nil {
           return json.Marshal(schema.DownloadResponse{Error: "indexarr: download verb is not configured"})
@@ -8270,7 +8270,7 @@ reach a label.
   func (s *Service) handleQuery(ctx context.Context, data []byte) ([]byte, error) {
       var req schema.QueryRequest
       if err := json.Unmarshal(data, &req); err != nil {
-          return nil, fmt.Errorf("indexarr/search: decode QueryRequest: %w", err)
+          return nil, fmt.Errorf("app/indexer/search: decode QueryRequest: %w", err)
       }
       if s.Query == nil {
           return json.Marshal(schema.QueryResponse{Error: "indexarr: query verb is not configured"})
@@ -8279,13 +8279,13 @@ reach a label.
   }
   ```
 
-- [ ] 47. Run `go test -race ./indexarr/search/...` and
-  `golangci-lint-v2 run ./indexarr/search/...`. Commit:
+- [ ] 47. Run `go test -race ./app/indexer/search/...` and
+  `golangci-lint-v2 run ./app/indexer/search/...`. Commit:
   `feat(indexarr): serve rpc.indexarr.search, .download and .query`.
 
 **The bus contract test — the one that catches a cross-task mismatch**
 
-- [ ] 48. Create `indexarr/search/serve_bus_test.go` (GPL header, package
+- [ ] 48. Create `app/indexer/search/serve_bus_test.go` (GPL header, package
   `search_test`) that wires the **shipped caller's own client** to this server over
   an in-memory bus. Nothing in this test may construct a `schema.SearchRequest`
   literal — it must come from `BuildSearchRequest`, or the test cannot catch a
@@ -8335,7 +8335,7 @@ reach a label.
   }
   ```
 
-- [ ] 49. Run `go test ./indexarr/search/... -run TestServeAnswersTheShippedCaller -v`.
+- [ ] 49. Run `go test ./app/indexer/search/... -run TestServeAnswersTheShippedCaller -v`.
   Fix whatever it reports — **this failing is the point of the task**; a mismatch here
   is a mismatch in production.
 
@@ -8352,14 +8352,14 @@ reach a label.
 
 **envtest: the SSA release hazard**
 
-- [ ] 52. Create `indexarr/search/suite_envtest_test.go` (GPL header, package
+- [ ] 52. Create `app/indexer/search/suite_envtest_test.go` (GPL header, package
   `search_test`) copying the bootstrap from
-  `catalogarr/worker/search/suite_envtest_test.go`: `TestMain` that returns early
+  `app/catalog/worker/search/suite_envtest_test.go`: `TestMain` that returns early
   when `KUBEBUILDER_ASSETS` is unset, an `envtest.Environment{CRDDirectoryPaths:
   []string{"../../config/crd/bases"}, ErrorIfCRDPathMissing: true}`, `requireEnvtest`
   that skips with *"KUBEBUILDER_ASSETS is unset; run via `make test`"*, a
   `newTestManager` and an `eventually` poller. Run
-  `KUBEBUILDER_ASSETS=$(setup-envtest use -p path) go test ./indexarr/search/...` and
+  `KUBEBUILDER_ASSETS=$(setup-envtest use -p path) go test ./app/indexer/search/...` and
   confirm it does **not** skip.
 
 - [ ] 53. Add to `status_envtest_test.go` the steady-state helper — this is what makes
@@ -8369,7 +8369,7 @@ reach a label.
   // steadyState creates an Indexer and drives its status to a REAL steady state:
   // a completed RSS poll (lastRssAt, lastRssNewCount), a release count and a grab
   // count, all applied under the SAME indexarr-worker manager the search path
-  // uses, exactly as indexarr/worker/rss would. A test that skips this and acts on
+  // uses, exactly as app/indexer/worker/rss would. A test that skips this and acts on
   // a blank object CANNOT observe a field-manager release, because there is
   // nothing to release -- that is how this class of bug reached main three times
   // in Phase C.
@@ -8421,18 +8421,18 @@ reach a label.
   disjoint sets, no re-assertion. Run it.
 
 - [ ] 57. Run the whole suite with assets and `-race`:
-  `KUBEBUILDER_ASSETS=$(setup-envtest use -p path) go test -race ./indexarr/search/...`.
+  `KUBEBUILDER_ASSETS=$(setup-envtest use -p path) go test -race ./app/indexer/search/...`.
   Confirm the output shows the envtests **running**, not skipping. Commit:
   `test(indexarr): prove the indexarr-worker apply releases nothing`.
 
 **Gates**
 
-- [ ] 58. Run `make lint`. Fix every finding in `indexarr/search`. In particular
+- [ ] 58. Run `make lint`. Fix every finding in `app/indexer/search`. In particular
   confirm forbidigo flags nothing — `.Status().Update()` and `.Status().Patch()` must
   not appear anywhere in this package.
 
 - [ ] 59. Run `make test` (it sets `KUBEBUILDER_ASSETS` itself) and confirm the
-  `indexarr/search` line does not finish in milliseconds — a millisecond suite
+  `app/indexer/search` line does not finish in milliseconds — a millisecond suite
   skipped, which is not a pass.
 
 - [ ] 60. Run `make generate && make manifests && git status --porcelain` and confirm
@@ -8455,7 +8455,7 @@ reach a label.
 
 #### Verification (what "done" means for this task)
 
-1. `KUBEBUILDER_ASSETS=$(setup-envtest use -p path) go test -race ./indexarr/search/...`
+1. `KUBEBUILDER_ASSETS=$(setup-envtest use -p path) go test -race ./app/indexer/search/...`
    runs — not skips — and is green.
 2. `TestServeAnswersTheShippedCaller` passes **using
    `searchworker.NewBusSearchRPC` and `searchworker.BuildSearchRequest`**, not a
@@ -8502,48 +8502,48 @@ concept of — is the temptation to ship an API nothing will ever exercise. Resi
 
 | Path | Contents |
 | --- | --- |
-| `indexarr/download/doc.go` | Package doc: the `Error`-field contract, the worker-owned field set, the R3 limitation, the "never mutate the URL" rule. |
-| `indexarr/download/redact.go` | `redactRawURL`, `redactURL`, `redactErr`, `truncate`, `scrub`. |
-| `indexarr/download/payload.go` | `MaxPayloadBytes`, `ErrResponseTooLarge`, `readPayload`, `sniffKind`, `contentTypeFor`. Pure. |
-| `indexarr/download/fetch.go` | `Fetcher`, `FetchResult`, `FetcherFor`, `NewFetcherFor`, `sameOrigin`, the `CheckRedirect` policy. |
-| `indexarr/download/grabs.go` | `grabEntry`, `GrabRingKey`, `pruneRing`, `CountGrab`, `grabWindow`. |
-| `indexarr/download/service.go` | `Service`, `Handle`, `resolveIndexer`, the single status apply, spans and metrics. |
-| `indexarr/query/doc.go` | Package doc: local index only, the closed filter vocabulary, the cluster-wide carried item. |
-| `indexarr/query/filters.go` | `filterKeys`, `buildQuery`, `DefaultLimit`, `MaxScanRows`, `MaxReplyBytes`. Pure. |
-| `indexarr/query/service.go` | `Service`, `Handle`, `decodeRows`, the reply byte budget. |
+| `app/indexer/download/doc.go` | Package doc: the `Error`-field contract, the worker-owned field set, the R3 limitation, the "never mutate the URL" rule. |
+| `app/indexer/download/redact.go` | `redactRawURL`, `redactURL`, `redactErr`, `truncate`, `scrub`. |
+| `app/indexer/download/payload.go` | `MaxPayloadBytes`, `ErrResponseTooLarge`, `readPayload`, `sniffKind`, `contentTypeFor`. Pure. |
+| `app/indexer/download/fetch.go` | `Fetcher`, `FetchResult`, `FetcherFor`, `NewFetcherFor`, `sameOrigin`, the `CheckRedirect` policy. |
+| `app/indexer/download/grabs.go` | `grabEntry`, `GrabRingKey`, `pruneRing`, `CountGrab`, `grabWindow`. |
+| `app/indexer/download/service.go` | `Service`, `Handle`, `resolveIndexer`, the single status apply, spans and metrics. |
+| `app/indexer/query/doc.go` | Package doc: local index only, the closed filter vocabulary, the cluster-wide carried item. |
+| `app/indexer/query/filters.go` | `filterKeys`, `buildQuery`, `DefaultLimit`, `MaxScanRows`, `MaxReplyBytes`. Pure. |
+| `app/indexer/query/service.go` | `Service`, `Handle`, `decodeRows`, the reply byte budget. |
 
 **Create (tests)**
 
 | Path | Contents |
 | --- | --- |
-| `indexarr/download/redact_test.go` | Query strings, userinfo, unparseable URLs, `*url.Error` unwrapping, secret scrubbing. |
-| `indexarr/download/payload_test.go` | The broker-payload arithmetic, the cap, the three sniffs, the HTML interstitial. |
-| `indexarr/download/fetch_test.go` | `httptest` servers: same-origin chain, cross-origin stop, magnet redirect, hop limit, cookie scoping, `Content-Length` short circuit. |
-| `indexarr/download/grabs_test.go` | `membus` KV: first count, redelivery, distinct GUIDs, window prune, ring cap, CAS retry. |
-| `indexarr/download/service_test.go` | The error-mapping table, the magnet short circuit, the missing-namespace refusal, metric label bounding. |
-| `indexarr/download/suite_envtest_test.go` | envtest bootstrap, `newTestClient`, `newNamespace`. |
-| `indexarr/download/status_envtest_test.go` | **The SSA release test**: steady state first, then a grab, then assert nothing else was released. |
-| `indexarr/query/filters_test.go` | The closed vocabulary, every filter, hostile FTS5 text, clamping, negative inputs. |
-| `indexarr/query/service_test.go` | Fake store: paging, `Total` semantics, undecodable row, byte budget, store error, no outbound calls. |
+| `app/indexer/download/redact_test.go` | Query strings, userinfo, unparseable URLs, `*url.Error` unwrapping, secret scrubbing. |
+| `app/indexer/download/payload_test.go` | The broker-payload arithmetic, the cap, the three sniffs, the HTML interstitial. |
+| `app/indexer/download/fetch_test.go` | `httptest` servers: same-origin chain, cross-origin stop, magnet redirect, hop limit, cookie scoping, `Content-Length` short circuit. |
+| `app/indexer/download/grabs_test.go` | `membus` KV: first count, redelivery, distinct GUIDs, window prune, ring cap, CAS retry. |
+| `app/indexer/download/service_test.go` | The error-mapping table, the magnet short circuit, the missing-namespace refusal, metric label bounding. |
+| `app/indexer/download/suite_envtest_test.go` | envtest bootstrap, `newTestClient`, `newNamespace`. |
+| `app/indexer/download/status_envtest_test.go` | **The SSA release test**: steady state first, then a grab, then assert nothing else was released. |
+| `app/indexer/query/filters_test.go` | The closed vocabulary, every filter, hostile FTS5 text, clamping, negative inputs. |
+| `app/indexer/query/service_test.go` | Fake store: paging, `Total` semantics, undecodable row, byte budget, store error, no outbound calls. |
 
-**Modify:** none. `indexarr/run.go` is wired by **D1-8**; `pkg/obs/metrics` is not
+**Modify:** none. `app/indexer/run.go` is wired by **D1-8**; `pkg/obs/metrics` is not
 touched (see D11); `pkg/events/schema` is frozen.
 
 #### Path ownership
 
-- **Owns:** `indexarr/download/**` and `indexarr/query/**` — nothing else.
-- **Must not touch:** `indexarr/search/**` (D1-5), `indexarr/status/**` (D1-0),
-  `indexarr/controller/indexer/**` (D1-3), `indexarr/worker/rss/**` (D1-7),
-  `indexarr/run.go` (D1-8), `pkg/relindex/**` (D1-2), `pkg/torznab/**` (D1-1),
+- **Owns:** `app/indexer/download/**` and `app/indexer/query/**` — nothing else.
+- **Must not touch:** `app/indexer/search/**` (D1-5), `app/indexer/status/**` (D1-0),
+  `app/indexer/controller/indexer/**` (D1-3), `app/indexer/worker/rss/**` (D1-7),
+  `app/indexer/run.go` (D1-8), `pkg/relindex/**` (D1-2), `pkg/torznab/**` (D1-1),
   `go.mod`/`go.sum`, `api/**`, `pkg/events/**`, `pkg/obs/**`, `pkg/k8s/**`,
   `config/**`, `charts/**`.
 - **Commit path-scoped:**
-  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "<msg>" -- indexarr/download indexarr/query`
+  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "<msg>" -- app/indexer/download app/indexer/query`
 
 > **Hard dependency, do not work around it.** Both handlers need
-> `indexarr/status` (interface contract C5, Ruling R14). D1-0's written section
+> `app/indexer/status` (interface contract C5, Ruling R14). D1-0's written section
 > does **not** list that package among its files — that is a recorded gap, flagged
-> to the plan controller. If `indexarr/status` does not exist when this task
+> to the plan controller. If `app/indexer/status` does not exist when this task
 > starts, **stop and ask**; do not build a local copy of `WorkerFields`. Three
 > copies of a "complete declaration" is the exact defect R14 exists to prevent.
 
@@ -8608,7 +8608,7 @@ var ErrKeyNotFound, ErrKeyExists, ErrRevisionMismatch error // errors.go:45-54
 // KVKeyToken escapes s into [0-9A-Za-z-]. EVERY KV key goes through it.
 func KVKeyToken(s string) string // kvkey.go:47
 
-// ---- indexarr/status (D1-0, interface contract C5; Ruling R14) ----
+// ---- app/indexer/status (D1-0, interface contract C5; Ruling R14) ----
 func Patch(ctx context.Context, c client.Client, mgr k8s.FieldManager,
     idx *indexv1alpha1.Indexer, mutate func(*indexac.IndexerStatusApplyConfiguration)) error
 func WorkerFields(st indexv1alpha1.IndexerStatus) *indexac.IndexerStatusApplyConfiguration
@@ -8659,7 +8659,7 @@ type IndexerStatus struct { /* ... */ GrabsInWindow int32; SessionSecretRef stri
 #### Interfaces — Produces
 
 ```go
-package download // indexarr/download
+package download // app/indexer/download
 
 // MaxPayloadBytes bounds a proxied .torrent/.nzb body. It is NOT pkg/torznab's
 // 8 MiB: this body is base64-encoded into a JSON reply and sent as one NATS
@@ -8669,7 +8669,7 @@ const MaxPayloadBytes = 4 << 20 // 4 MiB
 
 // ErrResponseTooLarge follows the pkg/torznab convention: a package-level max,
 // an io.LimitReader(body, max+1) and a sentinel, so errors.Is works.
-var ErrResponseTooLarge = errors.New("indexarr/download: response body exceeds size limit")
+var ErrResponseTooLarge = errors.New("app/indexer/download: response body exceeds size limit")
 
 // FetchResult is one authenticated GET, with the redirect chain ALREADY
 // classified by the fetcher. Exactly one of Body, MagnetURL and OffHostURL is
@@ -8726,7 +8726,7 @@ func CountGrab(ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexer, gu
 ```
 
 ```go
-package query // indexarr/query
+package query // app/indexer/query
 
 const (
     DefaultLimit  = 100      // QueryRequest.Limit == 0
@@ -8831,7 +8831,7 @@ use no indexer credentials — but it means grab-limit *enforcement* cannot be b
 this counter alone. Carried item.
 
 **D6. The status write declares the complete `indexarr-worker` set, through
-`indexarr/status` and nothing else.** This verb changes exactly one field,
+`app/indexer/status` and nothing else.** This verb changes exactly one field,
 `grabsInWindow`, and must still send all ten the manager owns:
 
 ```
@@ -8965,7 +8965,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
 
 **Package skeleton and redaction — before anything can produce a message**
 
-- [ ] 1. Create `indexarr/download/doc.go`: the GPL-3.0 header from
+- [ ] 1. Create `app/indexer/download/doc.go`: the GPL-3.0 header from
   `hack/boilerplate.go.txt`, then `package download` with a doc comment stating
   (a) the payload types are frozen in `pkg/events/schema/index.go`; (b) the
   `Error`-field rule from D9 in one sentence — *"after a successful decode every
@@ -8985,9 +8985,9 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   // ENFORCEMENT cannot be built on this counter alone.
   ```
 
-  Run `go build ./indexarr/...`. It compiles.
+  Run `go build ./app/indexer/...`. It compiles.
 
-- [ ] 2. Create `indexarr/download/redact_test.go` (GPL header, package `download`)
+- [ ] 2. Create `app/indexer/download/redact_test.go` (GPL header, package `download`)
   with the URL cases only:
 
   ```go
@@ -9010,9 +9010,9 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   }
   ```
 
-- [ ] 3. Run `go test ./indexarr/download/...`. Expect `undefined: redactRawURL`.
+- [ ] 3. Run `go test ./app/indexer/download/...`. Expect `undefined: redactRawURL`.
 
-- [ ] 4. Create `indexarr/download/redact.go` (GPL header) with `redactURL` and
+- [ ] 4. Create `app/indexer/download/redact.go` (GPL header) with `redactURL` and
   `redactRawURL`, following `pkg/cardigann/engine.go:145-170`. The doc comment must
   say **why**, not just what:
 
@@ -9055,7 +9055,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   }
   ```
 
-- [ ] 5. Run `go test ./indexarr/download/...`. Green.
+- [ ] 5. Run `go test ./app/indexer/download/...`. Green.
 
 - [ ] 6. Append to `redact_test.go` the error and scrubbing cases:
 
@@ -9134,12 +9134,12 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   }
   ```
 
-- [ ] 8. Run `go test ./indexarr/download/...`; green. Commit:
+- [ ] 8. Run `go test ./app/indexer/download/...`; green. Commit:
   `feat(indexarr): redaction helpers for the download verb`.
 
 **The payload cap — the number that must match the broker**
 
-- [ ] 9. Create `indexarr/download/payload_test.go` with the arithmetic pin first.
+- [ ] 9. Create `app/indexer/download/payload_test.go` with the arithmetic pin first.
   This is the test that stops someone "harmonising" the cap with `pkg/torznab`:
 
   ```go
@@ -9158,9 +9158,9 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   }
   ```
 
-- [ ] 10. Run `go test ./indexarr/download/...`. Expect `undefined: MaxPayloadBytes`.
+- [ ] 10. Run `go test ./app/indexer/download/...`. Expect `undefined: MaxPayloadBytes`.
 
-- [ ] 11. Create `indexarr/download/payload.go` (GPL header) with the constants and
+- [ ] 11. Create `app/indexer/download/payload.go` (GPL header) with the constants and
   the sentinel, doc comments carrying the arithmetic:
 
   ```go
@@ -9180,10 +9180,10 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   // package-level max, an io.LimitReader(body, max+1) and a sentinel, so
   // errors.Is works through the wrapping. pkg/metadata/clients reads bodies with
   // no cap at all; that is a recorded defect, not a second convention.
-  var ErrResponseTooLarge = errors.New("indexarr/download: response body exceeds size limit")
+  var ErrResponseTooLarge = errors.New("app/indexer/download: response body exceeds size limit")
   ```
 
-- [ ] 12. Run `go test ./indexarr/download/...`. Green.
+- [ ] 12. Run `go test ./app/indexer/download/...`. Green.
 
 - [ ] 13. Append the cap test to `payload_test.go`:
 
@@ -9211,7 +9211,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
 - [ ] 14. Run it; expect `undefined: readPayload`. Add to `payload.go`:
 
   ```go
-  var errEmptyBody = errors.New("indexarr/download: indexer returned an empty body")
+  var errEmptyBody = errors.New("app/indexer/download: indexer returned an empty body")
 
   // readPayload reads r through the cap. One byte past the limit is read so a
   // body exactly at the limit is accepted while anything larger is detected
@@ -9231,7 +9231,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   }
   ```
 
-- [ ] 15. Run `go test ./indexarr/download/...`. Green.
+- [ ] 15. Run `go test ./app/indexer/download/...`. Green.
 
 - [ ] 16. Append the sniff test. The HTML case is the valuable one: a tracker whose
   session expired answers a download link with a login page and HTTP 200, and without
@@ -9326,13 +9326,13 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   }
   ```
 
-- [ ] 18. Run `go test ./indexarr/download/...`; green. Run
-  `golangci-lint-v2 run ./indexarr/download/...`. Commit:
+- [ ] 18. Run `go test ./app/indexer/download/...`; green. Run
+  `golangci-lint-v2 run ./app/indexer/download/...`. Commit:
   `feat(indexarr): capped, sniffed download payload handling`.
 
 **The fetcher and the redirect policy**
 
-- [ ] 19. Create `indexarr/download/fetch_test.go` (GPL header, package `download`)
+- [ ] 19. Create `app/indexer/download/fetch_test.go` (GPL header, package `download`)
   with the origin table:
 
   ```go
@@ -9358,7 +9358,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   `strings.HasSuffix`, or a look-alike domain harvests the session cookie.
 
 - [ ] 20. Run it; expect `undefined: sameOrigin`. Create
-  `indexarr/download/fetch.go` (GPL header) with:
+  `app/indexer/download/fetch.go` (GPL header) with:
 
   ```go
   // sameOrigin reports whether target may be reached with this indexer's
@@ -9381,7 +9381,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   }
   ```
 
-- [ ] 21. Run `go test ./indexarr/download/...`. Green.
+- [ ] 21. Run `go test ./app/indexer/download/...`. Green.
 
 - [ ] 22. Append the redirect-classification test, driven through real `httptest`
   servers so the policy is proved against Go's actual client:
@@ -9447,7 +9447,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   ```go
   const maxRedirects = 5
 
-  var errTooManyRedirects = errors.New("indexarr/download: too many redirects")
+  var errTooManyRedirects = errors.New("app/indexer/download: too many redirects")
 
   type FetchResult struct {
       Status     int
@@ -9498,7 +9498,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
       default:
           // The scheme is named; the URL is not, because a data: URL can carry
           // anything and a file: URL names a path.
-          return fmt.Errorf("indexarr/download: refusing to follow a %q redirect", req.URL.Scheme)
+          return fmt.Errorf("app/indexer/download: refusing to follow a %q redirect", req.URL.Scheme)
       }
   }
   ```
@@ -9513,14 +9513,14 @@ as a carried item for M6. Do not invent the field now (R4/R12).
 
       u, err := url.Parse(rawURL)
       if err != nil {
-          return nil, fmt.Errorf("indexarr/download: parse download URL: %w", redactErr(err))
+          return nil, fmt.Errorf("app/indexer/download: parse download URL: %w", redactErr(err))
       }
       // A magnet link is already the payload. Never fetch it.
       if u.Scheme == "magnet" {
           return &FetchResult{MagnetURL: rawURL, FinalURL: u}, nil
       }
       if u.Scheme != "http" && u.Scheme != "https" {
-          return nil, fmt.Errorf("indexarr/download: refusing a %q download URL", u.Scheme)
+          return nil, fmt.Errorf("app/indexer/download: refusing a %q download URL", u.Scheme)
       }
 
       // The caller owns rate limiting (CLAUDE.md); this waits on the limiter
@@ -9532,7 +9532,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
           }
       }
 
-      logging.FromContext(ctx).Debug("indexarr/download: fetching", "url", redactURL(u))
+      logging.FromContext(ctx).Debug("app/indexer/download: fetching", "url", redactURL(u))
       req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
       if err != nil {
           return nil, redactErr(err)
@@ -9540,7 +9540,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
       resp, err := f.hc.Do(req)
       if err != nil {
           tracing.RecordError(span, err)
-          return nil, fmt.Errorf("indexarr/download: get %s: %w", redactURL(u), redactErr(err))
+          return nil, fmt.Errorf("app/indexer/download: get %s: %w", redactURL(u), redactErr(err))
       }
 
       res := &FetchResult{
@@ -9551,7 +9551,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
           defer func() { _ = resp.Body.Close() }()
           loc, lerr := resp.Location()
           if lerr != nil {
-              return nil, fmt.Errorf("indexarr/download: %d with no usable Location: %w", resp.StatusCode, redactErr(lerr))
+              return nil, fmt.Errorf("app/indexer/download: %d with no usable Location: %w", resp.StatusCode, redactErr(lerr))
           }
           if loc.Scheme == "magnet" {
               res.MagnetURL = loc.String()
@@ -9578,7 +9578,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   }
   ```
 
-  `go test ./indexarr/download/...` — the five subtests pass.
+  `go test ./app/indexer/download/...` — the five subtests pass.
 
 - [ ] 26. Append the `Content-Length` short-circuit test. The point is that a link
   which can only be spent once must not be spent on a body we will refuse:
@@ -9654,7 +9654,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   }
   ```
 
-- [ ] 29. Run `go test ./indexarr/download/...`. Green.
+- [ ] 29. Run `go test ./app/indexer/download/...`. Green.
 
 - [ ] 30. Add `NewFetcherFor` to `fetch.go`. It reads the two Secrets and builds the
   client; it does **not** touch the URL (D1):
@@ -9672,7 +9672,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
       return func(ctx context.Context, idx *indexv1alpha1.Indexer) (Fetcher, error) {
           base, err := url.Parse(idx.Spec.BaseURL)
           if err != nil || base.Host == "" {
-              return nil, fmt.Errorf("indexarr/download: indexer %s/%s has an unusable spec.baseURL", idx.Namespace, idx.Name)
+              return nil, fmt.Errorf("app/indexer/download: indexer %s/%s has an unusable spec.baseURL", idx.Namespace, idx.Name)
           }
           secret, err := readSecretData(ctx, c, idx.Namespace, idx.Spec.SecretRef)
           if err != nil {
@@ -9717,7 +9717,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
       }
       var s corev1.Secret
       if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: ref.Name}, &s); err != nil {
-          return nil, fmt.Errorf("indexarr/download: read secret %s/%s: %w", ns, ref.Name, err)
+          return nil, fmt.Errorf("app/indexer/download: read secret %s/%s: %w", ns, ref.Name, err)
       }
       return s.Data, nil
   }
@@ -9734,18 +9734,18 @@ as a carried item for M6. Do not invent the field now (R4/R12).
           if apierrors.IsNotFound(err) {
               return nil, nil
           }
-          return nil, fmt.Errorf("indexarr/download: read session secret %s/%s: %w", ns, name, err)
+          return nil, fmt.Errorf("app/indexer/download: read session secret %s/%s: %w", ns, name, err)
       }
       return s.Data, nil
   }
   ```
 
-- [ ] 31. Run `go build ./indexarr/...` and `go test ./indexarr/download/...`; green.
+- [ ] 31. Run `go build ./app/indexer/...` and `go test ./app/indexer/download/...`; green.
   Commit: `feat(indexarr): authenticated fetcher with a classified redirect policy`.
 
 **The grab ring — idempotent under redelivery**
 
-- [ ] 32. Create `indexarr/download/grabs_test.go` (GPL header, package `download`)
+- [ ] 32. Create `app/indexer/download/grabs_test.go` (GPL header, package `download`)
   with the idempotency test first. This is the test the whole mechanism exists for:
 
   ```go
@@ -9794,7 +9794,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   }
   ```
 
-- [ ] 34. Create `indexarr/download/grabs.go` (GPL header) with the ring type, the
+- [ ] 34. Create `app/indexer/download/grabs.go` (GPL header) with the ring type, the
   key and the window. The doc comment records why the UID comes from the object:
 
   ```go
@@ -9874,7 +9874,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
               // here would wedge counting for this indexer for the bucket's
               // whole 2d TTL.
               if uerr := json.Unmarshal(ent.Value, &ring); uerr != nil {
-                  logging.FromContext(ctx).Warn("indexarr/download: replacing an undecodable grab ring",
+                  logging.FromContext(ctx).Warn("app/indexer/download: replacing an undecodable grab ring",
                       "indexer", idx.Name, "err", uerr)
                   ring = nil
               }
@@ -9910,11 +9910,11 @@ as a carried item for M6. Do not invent the field now (R4/R12).
               return 0, false, err
           }
       }
-      return 0, false, fmt.Errorf("indexarr/download: grab ring CAS gave up after %d attempts: %w", casAttempts, lastErr)
+      return 0, false, fmt.Errorf("app/indexer/download: grab ring CAS gave up after %d attempts: %w", casAttempts, lastErr)
   }
   ```
 
-- [ ] 36. Run `go test -run TestCountGrab ./indexarr/download/`. Green.
+- [ ] 36. Run `go test -run TestCountGrab ./app/indexer/download/`. Green.
 
 - [ ] 37. Append the window and cap tests to `grabs_test.go`:
 
@@ -9954,13 +9954,13 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   }
   ```
 
-- [ ] 38. Run `go test ./indexarr/download/...`; green. Run
-  `golangci-lint-v2 run ./indexarr/download/...`. Commit:
+- [ ] 38. Run `go test ./app/indexer/download/...`; green. Run
+  `golangci-lint-v2 run ./app/indexer/download/...`. Commit:
   `feat(indexarr): idempotent grab accounting in the indexer-limits ring`.
 
 **The download handler**
 
-- [ ] 39. Create `indexarr/download/service.go` (GPL header) with the struct, the
+- [ ] 39. Create `app/indexer/download/service.go` (GPL header) with the struct, the
   closed result vocabulary and the reply constructors:
 
   ```go
@@ -10015,7 +10015,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   }
   ```
 
-- [ ] 40. Create `indexarr/download/service_test.go` (GPL header, package `download`)
+- [ ] 40. Create `app/indexer/download/service_test.go` (GPL header, package `download`)
   with the validation table. Every row asserts a **populated reply**, not an error —
   that is the contract D9 pins:
 
@@ -10096,7 +10096,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   }
   ```
 
-- [ ] 42. Run `go test -run TestHandleRejects ./indexarr/download/`. Green.
+- [ ] 42. Run `go test -run TestHandleRejects ./app/indexer/download/`. Green.
 
 - [ ] 43. Append the indexer-resolution test to `service_test.go`:
 
@@ -10183,14 +10183,14 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   func (s *Service) classify(ctx context.Context, f Fetcher, res *FetchResult, log *slog.Logger) (schema.DownloadResponse, string) {
       switch {
       case res.MagnetURL != "":
-          log.Debug("indexarr/download: magnet link")
+          log.Debug("app/indexer/download: magnet link")
           return schema.DownloadResponse{MagnetURL: res.MagnetURL}, resultMagnet
 
       case res.OffHostURL != "":
           // Cause 1 of RedirectURL: the chain left the indexer's origin, where
           // our session cookie would not be sent anyway. Returned INTACT --
           // grabarr needs it -- and logged redacted, because it may carry a passkey.
-          log.Debug("indexarr/download: handing back an off-host link", "url", redactRawURL(res.OffHostURL))
+          log.Debug("app/indexer/download: handing back an off-host link", "url", redactRawURL(res.OffHostURL))
           return schema.DownloadResponse{RedirectURL: res.OffHostURL}, resultRedirect
       }
 
@@ -10209,7 +10209,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
       // ALONE, before the body is touched, so a one-shot link is not spent on
       // bytes we would refuse.
       if res.ContentLen > MaxPayloadBytes {
-          log.Info("indexarr/download: body exceeds the broker payload budget; handing back the link",
+          log.Info("app/indexer/download: body exceeds the broker payload budget; handing back the link",
               "contentLength", res.ContentLen, "max", MaxPayloadBytes)
           return schema.DownloadResponse{RedirectURL: res.FinalURL.String()}, resultRedirect
       }
@@ -10233,7 +10233,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   }
   ```
 
-- [ ] 45. Run `go test ./indexarr/download/...`. Green for the resolution subtests.
+- [ ] 45. Run `go test ./app/indexer/download/...`. Green for the resolution subtests.
 
 - [ ] 46. Append the payload-classification table to `service_test.go`, driven through
   `stubFetcherFor` so each branch is exercised without a network:
@@ -10283,7 +10283,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   }
   ```
 
-- [ ] 47. Run `go test ./indexarr/download/...`; green.
+- [ ] 47. Run `go test ./app/indexer/download/...`; green.
 
 - [ ] 48. Append the leak test. It is worth its own name because it is the failure the
   operator sees, and it must fail loudly if someone drops `Scrub` from an error path:
@@ -10328,7 +10328,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
       }
       n, counted, err := CountGrab(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, guid, s.now())
       if err != nil {
-          log.Warn("indexarr/download: grab accounting failed", "err", err)
+          log.Warn("app/indexer/download: grab accounting failed", "err", err)
           metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, resultGrabFailed).Inc()
           tracing.RecordError(span, err)
           return
@@ -10355,12 +10355,12 @@ as a carried item for M6. Do not invent the field now (R4/R12).
               *ac = *idxstatus.WorkerFields(idx.Status)
               ac.WithGrabsInWindow(n)
           }); err != nil {
-          log.Warn("indexarr/download: grabsInWindow apply failed", "err", err)
+          log.Warn("app/indexer/download: grabsInWindow apply failed", "err", err)
       }
   }
   ```
 
-- [ ] 51. Create `indexarr/download/suite_envtest_test.go` (GPL header, package
+- [ ] 51. Create `app/indexer/download/suite_envtest_test.go` (GPL header, package
   `download_test`) with the shared control plane. A skip is **not** a pass — these
   tests only run under `make test`:
 
@@ -10406,7 +10406,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   }
   ```
 
-- [ ] 52. Create `indexarr/download/status_envtest_test.go` with **the** test this
+- [ ] 52. Create `app/indexer/download/status_envtest_test.go` with **the** test this
   whole design point exists for. It drives the object to a real steady state first —
   a blank object cannot observe a release, because there was nothing to release:
 
@@ -10489,12 +10489,12 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   }
   ```
 
-- [ ] 55. Run `golangci-lint-v2 run ./indexarr/download/...`. Commit:
+- [ ] 55. Run `golangci-lint-v2 run ./app/indexer/download/...`. Commit:
   `feat(indexarr): count grabs in the download verb, idempotently`.
 
 **The query verb**
 
-- [ ] 56. Create `indexarr/query/doc.go` (GPL header, `package query`) with a doc
+- [ ] 56. Create `app/indexer/query/doc.go` (GPL header, `package query`) with a doc
   comment stating: (a) this verb reads the **local index only** — no HTTP, no bus, no
   `Indexer` lookup, no fan-out; (b) `Text` is attacker-controlled and passed **raw**
   because `pkg/relindex` owns FTS5 escaping and two escapers compose into a query
@@ -10515,7 +10515,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   // either now -- an API field with no consumer is how a field ships wrong.
   ```
 
-- [ ] 57. Create `indexarr/query/filters_test.go` (GPL header, package `query`) with
+- [ ] 57. Create `app/indexer/query/filters_test.go` (GPL header, package `query`) with
   the vocabulary test. The unknown-key row is the load-bearing one:
 
   ```go
@@ -10571,9 +10571,9 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   }
   ```
 
-- [ ] 58. Run `go test ./indexarr/query/...`. Expect `undefined: buildQuery`.
+- [ ] 58. Run `go test ./app/indexer/query/...`. Expect `undefined: buildQuery`.
 
-- [ ] 59. Create `indexarr/query/filters.go` (GPL header) with the constants and the
+- [ ] 59. Create `app/indexer/query/filters.go` (GPL header) with the constants and the
   vocabulary:
 
   ```go
@@ -10685,7 +10685,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   }
   ```
 
-- [ ] 61. Run `go test ./indexarr/query/...`. Green.
+- [ ] 61. Run `go test ./app/indexer/query/...`. Green.
 
 - [ ] 62. Append the clamping and hostile-text tests to `filters_test.go`:
 
@@ -10726,10 +10726,10 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   }
   ```
 
-- [ ] 63. Run `go test ./indexarr/query/...`; green. Commit:
+- [ ] 63. Run `go test ./app/indexer/query/...`; green. Commit:
   `feat(indexarr): the query verb's filter vocabulary`.
 
-- [ ] 64. Create `indexarr/query/service_test.go` (GPL header, package `query`) with
+- [ ] 64. Create `app/indexer/query/service_test.go` (GPL header, package `query`) with
   the handler's contract:
 
   ```go
@@ -10794,7 +10794,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   }
   ```
 
-- [ ] 65. Run it; expect `undefined: Service`. Create `indexarr/query/service.go`
+- [ ] 65. Run it; expect `undefined: Service`. Create `app/indexer/query/service.go`
   (GPL header):
 
   ```go
@@ -10888,7 +10888,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
       for _, r := range rows[offset:] {
           var rel schema.Release
           if err := json.Unmarshal(r.InfoJSON, &rel); err != nil {
-              log.Warn("indexarr/query: skipping a row whose infoJSON will not decode",
+              log.Warn("app/indexer/query: skipping a row whose infoJSON will not decode",
                   "indexer", r.Indexer, "err", err)
               continue
           }
@@ -10904,7 +10904,7 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   }
   ```
 
-- [ ] 66. Run `go test ./indexarr/query/...`. All six tests pass.
+- [ ] 66. Run `go test ./app/indexer/query/...`. All six tests pass.
 
 - [ ] 67. Append the two guard tests that pin the properties R4 asks for:
 
@@ -10933,8 +10933,8 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   }
   ```
 
-- [ ] 68. Run `go test -race ./indexarr/query/... ./indexarr/download/...` and
-  `golangci-lint-v2 run ./indexarr/query/... ./indexarr/download/...`. Commit:
+- [ ] 68. Run `go test -race ./app/indexer/query/... ./app/indexer/download/...` and
+  `golangci-lint-v2 run ./app/indexer/query/... ./app/indexer/download/...`. Commit:
   `feat(indexarr): serve rpc.indexarr.query against the local index`.
 
 **Handing off**
@@ -10945,21 +10945,21 @@ as a carried item for M6. Do not invent the field now (R4/R12).
   than in D1-8:
 
   ```go
-  // In indexarr/download/doc.go:
+  // In app/indexer/download/doc.go:
   //   var _ func(context.Context, schema.DownloadRequest) schema.DownloadResponse = (&Service{}).Handle
-  // In indexarr/query/doc.go:
+  // In app/indexer/query/doc.go:
   //   var _ func(context.Context, schema.QueryRequest) schema.QueryResponse = (&Service{}).Handle
   ```
 
-  Do **not** import `indexarr/search` to reference `search.DownloadFn` directly: a
+  Do **not** import `app/indexer/search` to reference `search.DownloadFn` directly: a
   named func type accepts a plain func of the same signature, and the import would
   couple two packages that have no other reason to know about each other.
 
-- [ ] 70. Write the wiring note for **D1-8** into `indexarr/download/doc.go`, so the
+- [ ] 70. Write the wiring note for **D1-8** into `app/indexer/download/doc.go`, so the
   next task does not have to infer it:
 
   ```go
-  // Wiring (Task D1-8, in indexarr/run.go):
+  // Wiring (Task D1-8, in app/indexer/run.go):
   //
   //	dl := &download.Service{Client: mgr.GetClient(), Bus: bus,
   //	    Fetch: download.NewFetcherFor(mgr.GetClient(), limiters)}
@@ -11017,8 +11017,8 @@ does not have to reverse-engineer it:
 ### Task D1-8: wiring, RBAC, readiness
 
 **Files:**
-- Modify: `indexarr/run.go` (`setupControllers`, `setupWorkers`, the RPC server, readiness)
-- Create: `indexarr/wiring_envtest_test.go`
+- Modify: `app/indexer/run.go` (`setupControllers`, `setupWorkers`, the RPC server, readiness)
+- Create: `app/indexer/wiring_envtest_test.go`
 - Modify: `config/rbac/role.yaml`, `charts/clustarr/templates/rbac.yaml` (generated + the drift test)
 
 **Path ownership:** controller only. No worker is running.
@@ -11037,7 +11037,7 @@ Write the guard **first**, as a test that discovers rather than lists:
 // A hand-maintained list is the anti-pattern: the next component added to
 // indexarr would simply not be added to it. Walk the packages instead.
 func TestEveryIndexarrRunnableIsRegistered(t *testing.T) {
-	// AST-walk indexarr/**, collect every exported type with Start and
+	// AST-walk app/indexer/**, collect every exported type with Start and
 	// NeedLeaderElection, and every SetupWithManager; assert run.go names
 	// each one. require.Positive on the count so it cannot pass vacuously.
 }
@@ -11170,7 +11170,7 @@ with this one.
 
 #### Interfaces — Consumes
 
-From **D1-3** (`indexarr/controller/indexer`), through the apiserver only:
+From **D1-3** (`app/indexer/controller/indexer`), through the apiserver only:
 
 - `IndexerStatus.Caps` populated from a real `torznab.Caps` fetch, with
   `Modes` keyed by `torznab.SearchMode` **wire** values (R5: `search`,
@@ -11181,7 +11181,7 @@ From **D1-3** (`indexarr/controller/indexer`), through the apiserver only:
 - `spec.secretRef` → the `apikey` key, forwarded as the `apikey` query
   parameter.
 
-From **D1-5** (`indexarr/search`), through `rpc.indexarr.search`:
+From **D1-5** (`app/indexer/search`), through `rpc.indexarr.search`:
 
 - `schema.SearchResponse.Outcomes[].IndexerRef.Name` and
   `Releases[].Info.IndexerRef` are the Indexer's **object name** (correction
@@ -11189,7 +11189,7 @@ From **D1-5** (`indexarr/search`), through `rpc.indexarr.search`:
 - `SearchOutcomeSkipped` for an indexer inside its backoff window
   (`indexer.Healthy` false).
 
-From **D1-7** (`indexarr/worker/rss`), through NATS and then through
+From **D1-7** (`app/indexer/worker/rss`), through NATS and then through
 catalogarr:
 
 - subject `events.ReleaseSubject(protocol, indexerObjectName, newznabTop)`;
@@ -11198,7 +11198,7 @@ catalogarr:
   cannot `strings.Cut` on `/`, so a wrong key fails silently and invisibly;
 - `Msg-Id = events.MsgIDForRelease(indexerObjectName, guid)`, deduped for 2h.
 
-From **D1-8** (`indexarr/run.go`) — **a new interface this task requires, and
+From **D1-8** (`app/indexer/run.go`) — **a new interface this task requires, and
 the only thing here that is not already in the contract:**
 
 - environment variable `CLUSTARR_INDEXER_STARTUP_GRACE`, a `time.Duration`
@@ -11217,10 +11217,10 @@ the only thing here that is not already in the contract:**
   named precondition, so a missing env var reads as "indexarr was not built
   with CLUSTARR_INDEXER_STARTUP_GRACE" rather than as "escalation never moved".
 
-From **Phase C**, unchanged and only read: `catalogarr/controller/search`
-(`SearchRunningTimeout` = 5m), `catalogarr/worker/search` (`RankAndCap`,
-1-based `Rank`, approved-before-rejected), `catalogarr/worker/rssmatcher`,
-`catalogarr/worker/grab.Decide`.
+From **Phase C**, unchanged and only read: `app/catalog/controller/search`
+(`SearchRunningTimeout` = 5m), `app/catalog/worker/search` (`RankAndCap`,
+1-based `Rank`, approved-before-rejected), `app/catalog/worker/rssmatcher`,
+`app/catalog/worker/grab.Decide`.
 
 #### The two channels, and why every assertion uses one of them
 
@@ -11427,7 +11427,7 @@ merely consistent.
   ```
 
 - [ ] **5. Add two fixture-owned TMDB movies.** Copy
-  `testdata/metadata/tmdb/movie_27205.json` to
+  `test/data/metadata/tmdb/movie_27205.json` to
   `test/fixtures/tmdbstub/testdata/movie_900100.json` and `movie_900101.json`,
   editing **only** `id`, `title`, `original_title`, `imdb_id`, `release_date`
   and `overview` — every other field stays exactly as recorded, so
@@ -11447,10 +11447,10 @@ merely consistent.
   `serveBytes` to this package; `tvdbstub` already has the identical helper):
 
   ```go
-  //go:embed testdata/movie_900100.json
+  //go:embed test/data/movie_900100.json
   var movie900100 []byte
 
-  //go:embed testdata/movie_900101.json
+  //go:embed test/data/movie_900101.json
   var movie900101 []byte
   ```
 
@@ -11566,7 +11566,7 @@ merely consistent.
   ```go
   // Package torznabstub serves a real Torznab upstream -- a real t=caps
   // document and real <rss><channel><item> result feeds, byte for byte the
-  // XML in testdata/, parsed by pkg/torznab's own ParseCaps/ParseResults.
+  // XML in test/data/, parsed by pkg/torznab's own ParseCaps/ParseResults.
   // It never reaches the Internet; the e2e cluster has no egress.
   //
   // Three personalities, selected by path, so one Deployment covers every
@@ -11589,19 +11589,19 @@ merely consistent.
       "net/http"
   )
 
-  //go:embed testdata/caps.xml
+  //go:embed test/data/caps.xml
   var capsXML []byte
 
-  //go:embed testdata/movie_900100.xml
+  //go:embed test/data/movie_900100.xml
   var movie900100XML []byte
 
-  //go:embed testdata/rss.xml
+  //go:embed test/data/rss.xml
   var rssXML []byte
 
-  //go:embed testdata/empty.xml
+  //go:embed test/data/empty.xml
   var emptyXML []byte
 
-  //go:embed testdata/error_100.xml
+  //go:embed test/data/error_100.xml
   var error100XML []byte
 
   // APIKey is the key the healthy personality demands. It matches the
@@ -12035,7 +12035,7 @@ merely consistent.
   const indexerReadyTimeout = 2 * time.Minute
 
   // searchCompletedTimeout is bounded by the CONTROLLER, not by the queue:
-  // catalogarr/controller/search's SearchRunningTimeout (5 minutes) fails a
+  // app/catalog/controller/search's SearchRunningTimeout (5 minutes) fails a
   // Search that has sat in Running that long, so no wait past it can ever
   // observe a Completed that was not already going to arrive.
   //
@@ -12300,14 +12300,14 @@ tag, the GPL-3.0 header, and a package comment naming scenario 17.
       require.NotEmpty(t, live.Status.Privacy,
           "status.privacy must be resolved for a generic indexer, not left blank")
 
-      // The caps document, field by field, against testdata/caps.xml. These
+      // The caps document, field by field, against test/data/caps.xml. These
       // numbers exist in exactly one place in the repo, so they cannot have
       // come from a default.
       caps := live.Status.Caps
       require.EqualValues(t, 100, caps.LimitsMax)
       require.EqualValues(t, 50, caps.LimitsDefault)
       require.True(t, caps.SupportsRawSearch,
-          `testdata/caps.xml sets searchEngine="raw" on <search>`)
+          `test/data/caps.xml sets searchEngine="raw" on <search>`)
 
       // RULING R5, and the single most regression-prone assertion here.
       // Caps.Modes is keyed by torznab.SearchMode's WIRE values, which are
@@ -12440,7 +12440,7 @@ tag, the GPL-3.0 header, and a package comment naming scenario 17.
       require.Equal(t, idx.Name, out.Name,
           "the outcome must be keyed by the Indexer's object name, not its display name (C1)")
       require.Equal(t, catalogv1alpha1.IndexerOutcomeOK, out.State, "error=%q", out.Error)
-      require.EqualValues(t, 3, out.Count, "testdata/movie_900100.xml holds three items")
+      require.EqualValues(t, 3, out.Count, "test/data/movie_900100.xml holds three items")
 
       // Three results, ranked 1..3, approved before rejected.
       require.Len(t, done.Status.Results, 3)
@@ -12450,7 +12450,7 @@ tag, the GPL-3.0 header, and a package comment naming scenario 17.
           require.Equal(t, commonv1.ProtocolTorrent, r.Protocol)
       }
 
-      // The ordering assertion, and the reason testdata/movie_900100.xml is
+      // The ordering assertion, and the reason test/data/movie_900100.xml is
       // deliberately WORST-FIRST. The feed's arrival order is 480p, 720p,
       // 1080p; the ranked order must be the reverse. A decision engine that
       // regressed to a pass-through -- or a fan-out that forwarded the

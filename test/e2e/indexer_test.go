@@ -54,7 +54,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
-	idxstatus "github.com/mediactl/clustarr/indexarr/status"
+	idxstatus "github.com/mediactl/clustarr/app/indexer/status"
 	"github.com/mediactl/clustarr/pkg/torznab"
 	"github.com/mediactl/clustarr/test/fixtures/torznabstub"
 )

@@ -119,8 +119,8 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	transcodejobctrl "github.com/mediactl/clustarr/app/squash/controller/transcodejob"
 	"github.com/mediactl/clustarr/pkg/pipeline"
-	transcodejobctrl "github.com/mediactl/clustarr/squasharr/controller/transcodejob"
 )
 
 const (

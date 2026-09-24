@@ -29,13 +29,13 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 
-	"github.com/mediactl/clustarr/captionarr"
-	"github.com/mediactl/clustarr/catalogarr"
-	"github.com/mediactl/clustarr/grabarr"
-	"github.com/mediactl/clustarr/importarr"
-	"github.com/mediactl/clustarr/indexarr"
+	captionarr "github.com/mediactl/clustarr/app/caption"
+	catalogarr "github.com/mediactl/clustarr/app/catalog"
+	grabarr "github.com/mediactl/clustarr/app/grab"
+	importarr "github.com/mediactl/clustarr/app/import"
+	indexarr "github.com/mediactl/clustarr/app/indexer"
+	squasharr "github.com/mediactl/clustarr/app/squash"
 	"github.com/mediactl/clustarr/pkg/events"
-	"github.com/mediactl/clustarr/squasharr"
 	"github.com/mediactl/clustarr/ui"
 )
 

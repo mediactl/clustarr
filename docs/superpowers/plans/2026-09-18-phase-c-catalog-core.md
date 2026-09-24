@@ -23,7 +23,7 @@ Copied from the spec and `CLAUDE.md`. Every task's requirements implicitly inclu
 - **The scanner never guesses.** An unattributable file goes to `LibraryScan.status.unmatched` with a reason, never a speculative item.
 - Controllers: `RequeueAfter` only, `reconcile.TerminalError` for an invalid spec, `RecoverPanic`, conditions carrying `observedGeneration`, Events through the manager's recorder, a 5-minute reconciliation timeout. Workers: `events.Retry(after)` → nak with delay, a generic error → backoff nak, `events.Discard` → DLQ, heartbeats on long tasks. (Spec §8.8.)
 - Logging is `slog` through `context` (`pkg/obs/logging.FromContext`); no package-level logger, no logger struct field. Spans wrap every `Reconcile`, work handler and outbound provider call. Metrics use the `clustarr_` prefix and base units and are **never labelled by title, path or release name**.
-- Tests are table-driven with testify; fixtures under `testdata/`. **No network in tests.** envtest suites need `KUBEBUILDER_ASSETS`; a suite finishing in milliseconds **skipped**, which is not a pass. Anything that shells out to `ffprobe`/`ffmpeg` skips when the binary is absent AND has a fixture-driven path that runs without it.
+- Tests are table-driven with testify; fixtures under `test/data/`. **No network in tests.** envtest suites need `KUBEBUILDER_ASSETS`; a suite finishing in milliseconds **skipped**, which is not a pass. Anything that shells out to `ffprobe`/`ffmpeg` skips when the binary is absent AND has a fixture-driven path that runs without it.
 - Generated code stays clean: `make generate && make manifests` must leave no diff.
 
 ### Rules for parallel agents
@@ -52,16 +52,16 @@ Wave 1's tasks are decoupled by design: C6 publishes metadata work and C5 consum
 | --- | --- | --- |
 | C0 (serial) | `go.mod`, `go.sum`, `hack/deps/`, `hack/gen-catalogue/`, `pkg/quality`, `pkg/release`, `api/common/v1alpha1` | this plan |
 | C1 | `pkg/events/`, `pkg/obs/bootstrap.go`, `docs/observability.md` | work order, §A2.2 |
-| C2 | `pkg/decision/`, `testdata/decision/` | spec §7, §8.2, §9 |
-| C4 | `catalogarr/controller/{rootfolder,qualityprofile,delayprofile,metadataprovider,importexclusion}/` | spec §4, §6.1 |
-| C5 | `catalogarr/metadata/` | spec §6.1, §8.1 |
-| C6 | `catalogarr/controller/{movie,series,episode}/` | spec §8.1 |
-| C7 | `catalogarr/controller/mediafile/` | spec §8.4–8.6, §A1.3 |
-| C8 | `catalogarr/controller/search/`, `catalogarr/worker/search/` | spec §8.2 |
-| C9 | `catalogarr/worker/{grab,rssmatcher}/`, `catalogarr/controller/wantedcron/` | spec §8.2, §8.7 |
-| C10 | `importarr/controller/{libraryscan,rootfolderschedule}/`, `importarr/worker/rescan/` | amendment §A1 |
+| C2 | `pkg/decision/`, `test/data/decision/` | spec §7, §8.2, §9 |
+| C4 | `app/catalog/controller/{rootfolder,qualityprofile,delayprofile,metadataprovider,importexclusion}/` | spec §4, §6.1 |
+| C5 | `app/catalog/metadata/` | spec §6.1, §8.1 |
+| C6 | `app/catalog/controller/{movie,series,episode}/` | spec §8.1 |
+| C7 | `app/catalog/controller/mediafile/` | spec §8.4–8.6, §A1.3 |
+| C8 | `app/catalog/controller/search/`, `app/catalog/worker/search/` | spec §8.2 |
+| C9 | `app/catalog/worker/{grab,rssmatcher}/`, `app/catalog/controller/wantedcron/` | spec §8.2, §8.7 |
+| C10 | `app/import/controller/{libraryscan,rootfolderschedule}/`, `app/import/worker/rescan/` | amendment §A1 |
 | C11 | `test/e2e/`, `test/fixtures/`, `config/e2e/`, `images/Dockerfile.e2e-fixtures`, `hack/e2e.sh` | Phase H in the remaining-work plan |
-| C12 (serial) | `catalogarr/run.go`, `importarr/run.go`, `config/rbac/`, `charts/`, `CLAUDE.md` | this plan |
+| C12 (serial) | `app/catalog/run.go`, `app/import/run.go`, `config/rbac/`, `charts/`, `CLAUDE.md` | this plan |
 
 **The search RPC is a seam, not a dependency.** `indexarr` does not exist until Phase D. Task C8 defines the search interface it needs, ships a fake for tests, and states the contract Phase D must satisfy. No Phase C task builds an indexarr client.
 
@@ -88,7 +88,7 @@ Version verified 2026-09-18 with `cd /tmp && go list -m -versions github.com/rob
 
 - [ ] **Step 2: `hack/gen-catalogue` (carried out of Phase B)**
 
-Spec §7 and §9 say `pkg/quality/catalogue`'s embedded data is *generated* from `testdata/trash/docs/json/{radarr,sonarr}/cf`; Phase B hand-authored it instead and proved equivalence with a parity test. Write the generator so the data has a reproducible source: read the vendored corpus at the commit in `testdata/trash/COMMIT`, emit the same JSON shape the loader already consumes, and write it into `pkg/quality/catalogue/data/`. The existing `parity_test.go` is the acceptance test — after generating, it must still pass unchanged, and `git status` must show no diff against the hand-authored files. If a file does differ, the generator is wrong (or found a real transcription error); investigate before overwriting, and record which it was.
+Spec §7 and §9 say `pkg/quality/catalogue`'s embedded data is *generated* from `test/data/trash/docs/json/{radarr,sonarr}/cf`; Phase B hand-authored it instead and proved equivalence with a parity test. Write the generator so the data has a reproducible source: read the vendored corpus at the commit in `test/data/trash/COMMIT`, emit the same JSON shape the loader already consumes, and write it into `pkg/quality/catalogue/data/`. The existing `parity_test.go` is the acceptance test — after generating, it must still pass unchanged, and `git status` must show no diff against the hand-authored files. If a file does differ, the generator is wrong (or found a real transcription error); investigate before overwriting, and record which it was.
 
 - [ ] **Step 3: Evaluate `Condition.ExceptLanguage`**
 
@@ -279,9 +279,9 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(events
   - `pkg/decision/evaluate_test.go`
   - `pkg/decision/rank_test.go`
 - Fixture:
-  - `testdata/decision/releases.json`
+  - `test/data/decision/releases.json`
 
-**Path ownership:** `pkg/decision/` and `testdata/decision/` only. No other Phase C task, and no file under `api/`, `pkg/quality/`, `pkg/release/` or `hack/`, may be touched by this task.
+**Path ownership:** `pkg/decision/` and `test/data/decision/` only. No other Phase C task, and no file under `api/`, `pkg/quality/`, `pkg/release/` or `hack/`, may be touched by this task.
 
 **Read first:**
 - `/home/appkins/src/mediactl/clustarr/CLAUDE.md` in full — the float ban does not apply here (this package emits nothing under `api/`), but the GPL header, the no-package-level-logger rule and "pure functions where the logic is tricky" apply directly; this whole package *is* that pure-function layer.
@@ -1409,7 +1409,7 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(decisi
 
 - [ ] **Step 11: Failing test — `Evaluate` wires every check together and populates `RankKey` for approved decisions**
 
-Create `testdata/decision/releases.json`:
+Create `test/data/decision/releases.json`:
 ```json
 [
   {
@@ -1478,11 +1478,11 @@ import (
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
 
-// loadReleases reads testdata/decision/releases.json the same way
-// pkg/quality/trash_corpus_test.go reads testdata/trash: os.ReadFile with a
+// loadReleases reads test/data/decision/releases.json the same way
+// pkg/quality/trash_corpus_test.go reads test/data/trash: os.ReadFile with a
 // filepath.Join("..", "..", "testdata", ...) relative path, not go:embed --
 // an embed pattern cannot contain ".." (it may only reach files inside its
-// own package directory), so it cannot see a repo-root testdata/ directory
+// own package directory), so it cannot see a repo-root test/data/ directory
 // from pkg/decision/.
 func loadReleases(t *testing.T) []common.ReleaseInfo {
 	t.Helper()
@@ -1652,7 +1652,7 @@ func buildRankKey(p quality.Profile, o Options, t Target, parsed *release.Parsed
 ```bash
 cd /home/appkins/src/mediactl/clustarr && go test ./pkg/decision/... -run TestEvaluateFullPipeline -v
 # expect: PASS
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(decision): wire Evaluate end to end over the full §8.2 checklist" -- pkg/decision/evaluate.go pkg/decision/evaluate_test.go testdata/decision/releases.json
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(decision): wire Evaluate end to end over the full §8.2 checklist" -- pkg/decision/evaluate.go pkg/decision/evaluate_test.go test/data/decision/releases.json
 ```
 
 - [ ] **Step 12: Failing test — `Rank`'s primary key (quality index, revision, custom-format score)**
@@ -2115,7 +2115,7 @@ grep -rn 'http.Get\|http.Post\|net.Dial\|os.Open' pkg/decision/*.go | grep -v _t
 golangci-lint-v2 run ./pkg/decision/...
 
 # Nothing outside this task's two owned paths changed.
-git diff --stat HEAD~15 -- . ':!pkg/decision' ':!testdata/decision'   # expect: empty; adjust ~15 to this task's actual commit count once merged
+git diff --stat HEAD~15 -- . ':!pkg/decision' ':!test/data/decision'   # expect: empty; adjust ~15 to this task's actual commit count once merged
 ```
 
 **Done when:**
@@ -2124,13 +2124,13 @@ git diff --stat HEAD~15 -- . ':!pkg/decision' ':!testdata/decision'   # expect: 
 - [ ] `TestEveryReasonIsPermanent` and `TestVerdictReasonTableIsExhaustive` (Step 1) pass -- every `Reason` is typed and every non-`Upgrade` `quality.Verdict` maps to one.
 - [ ] `TestTargetRuntimeMinutes` and `TestSizeRejections` (Steps 2-3) pass, including the season-pack summed-runtime case (171 minutes) and the real 50.8 MB/min Bluray-1080p floor.
 - [ ] Every individual check in the §8.2 list has its own passing test: protocol (Step 4), availability (Step 4), size (Step 3), quality-in-profile + MinFormatScore (Step 5), language (Step 6), sample (Step 7), blocklist + already-imported by hash/name (Step 8), queue preference (Step 9), and the Upgradable table via `quality.Profile.UpgradeDecision` (Step 10).
-- [ ] `TestEvaluateFullPipeline` (Step 11) passes against the real `testdata/decision/releases.json` fixture, proving `Evaluate` composes every check and that `Rank` (Step 13's addition to the same test) orders the two approved releases correctly.
+- [ ] `TestEvaluateFullPipeline` (Step 11) passes against the real `test/data/decision/releases.json` fixture, proving `Evaluate` composes every check and that `Rank` (Step 13's addition to the same test) orders the two approved releases correctly.
 - [ ] `TestRankPrimaryKey` and `TestRankSecondaryKeys` (Steps 12-13) pass, covering every key in the comparator chain: quality index, revision (gated by `PreferRevision`), custom-format score, preferred-protocol match, episode count, indexer priority (including the documented default of 25), indexer-flag score (freeleech/doubleupload/internal +2, halfleech +1), seeders (torrent), and both size branches (closest-to-preferred and prefer-largest).
 - [ ] `TestEvaluateAdversarial` (Step 14) passes: an unparseable title produces exactly one rejection and a nil `Parsed`; `Evaluate` never returns a nil slice; `Rank` never panics on an empty or nil input.
 - [ ] No test performs network I/O or depends on wall-clock time (the `seedersOrAgeScore` usenet-age test, if added beyond what's specified above, must inject a fixed `PublishedAt` rather than relying on `time.Now()` drift across the assertion).
 - [ ] `pkg/decision` imports no Kubernetes client package and no `api/catalog/v1alpha1` (Disagreement 1) -- confirmed by the two `grep` checks above.
 - [ ] Every new `.go` file starts with the GPL-3.0 header from `hack/boilerplate.go.txt`.
-- [ ] No file outside `pkg/decision/` or `testdata/decision/` was created or modified; `git diff --stat` against this task's first commit confirms it.
+- [ ] No file outside `pkg/decision/` or `test/data/decision/` was created or modified; `git diff --stat` against this task's first commit confirms it.
 - [ ] `go.mod`/`go.sum` are untouched -- this task added no dependency.
 - [ ] Every commit in this task's range was made with `-c user.name=appkins -c user.email=nbatkins@gmail.com` and touches only the paths listed in its own step.
 - [ ] Each of the seven numbered disagreements above is reflected in a code comment at its point of impact: `types.go`'s doc comment on `Current` (3) and on `Queued` (4) and on `Target.FreeBytes` (5); `evaluate.go`'s package-level absence of any `api/catalog/v1alpha1` import (1); `checks.go`'s doc comments on `upgradeRejection` and `queueRejection` (2); `reasons.go`'s doc comment on the `Reason` var block (6); `rank.go`'s doc comments on `indexerFlagScore` and `seedersOrAgeScore` (7) -- a reviewer should not have to trust this plan document once the code exists, the code should say it too.
@@ -2147,11 +2147,11 @@ Amendment §A1.3's ownership table is explicit:
 > `ImportExclusion` | `catalog.clustarr.io` | `importarr` (was `catalogarr`)
 
 `pkg/k8s`'s own `ManagerImportarr` doc comment agrees ("It owns ImportList,
-ImportExclusion and LibraryScan status"), and `catalogarr/run.go`'s
+ImportExclusion and LibraryScan status"), and `app/catalog/run.go`'s
 `setupControllers` doc comment is a third, independent confirmation: *"The
 importer, importlist and importexclusion controllers are NOT here: amendment
 §A1.2/§A1.3 moved them to importarr... Building them here would break the
-MediaFile single-writer split."* `importarr/controller/doc.go` lists
+MediaFile single-writer split."* `app/import/controller/doc.go` lists
 `ImportExclusion` among what it will hold. Three independent sources in the
 merged codebase agree with the amendment against the brief; per the shared
 context's own rule ("Amendment... WINS where they disagree") and "generated
@@ -2174,31 +2174,31 @@ enforce beyond not fighting them.
 ---
 
 **Files:**
-- Create: `catalogarr/controller/rootfolder/controller.go`
-- Create: `catalogarr/controller/rootfolder/probe.go`
-- Create: `catalogarr/controller/rootfolder/probe_test.go`
-- Create: `catalogarr/controller/rootfolder/controller_envtest_test.go`
-- Create: `catalogarr/controller/qualityprofile/controller.go`
-- Create: `catalogarr/controller/qualityprofile/bootstrap.go`
-- Create: `catalogarr/controller/qualityprofile/controller_envtest_test.go`
-- Create: `catalogarr/controller/qualityprofile/bootstrap_envtest_test.go`
-- Create: `catalogarr/controller/delayprofile/resolve.go`
-- Create: `catalogarr/controller/delayprofile/resolve_test.go`
-- Create: `catalogarr/controller/delayprofile/controller.go`
-- Create: `catalogarr/controller/delayprofile/controller_envtest_test.go`
-- Create: `catalogarr/controller/metadataprovider/prober.go`
-- Create: `catalogarr/controller/metadataprovider/prober_test.go`
-- Create: `catalogarr/controller/metadataprovider/registry.go`
-- Create: `catalogarr/controller/metadataprovider/registry_test.go`
-- Create: `catalogarr/controller/metadataprovider/controller.go`
-- Create: `catalogarr/controller/metadataprovider/controller_envtest_test.go`
-- Modify: none. `catalogarr/run.go` is out of this task's path ownership —
+- Create: `app/catalog/controller/rootfolder/controller.go`
+- Create: `app/catalog/controller/rootfolder/probe.go`
+- Create: `app/catalog/controller/rootfolder/probe_test.go`
+- Create: `app/catalog/controller/rootfolder/controller_envtest_test.go`
+- Create: `app/catalog/controller/qualityprofile/controller.go`
+- Create: `app/catalog/controller/qualityprofile/bootstrap.go`
+- Create: `app/catalog/controller/qualityprofile/controller_envtest_test.go`
+- Create: `app/catalog/controller/qualityprofile/bootstrap_envtest_test.go`
+- Create: `app/catalog/controller/delayprofile/resolve.go`
+- Create: `app/catalog/controller/delayprofile/resolve_test.go`
+- Create: `app/catalog/controller/delayprofile/controller.go`
+- Create: `app/catalog/controller/delayprofile/controller_envtest_test.go`
+- Create: `app/catalog/controller/metadataprovider/prober.go`
+- Create: `app/catalog/controller/metadataprovider/prober_test.go`
+- Create: `app/catalog/controller/metadataprovider/registry.go`
+- Create: `app/catalog/controller/metadataprovider/registry_test.go`
+- Create: `app/catalog/controller/metadataprovider/controller.go`
+- Create: `app/catalog/controller/metadataprovider/controller_envtest_test.go`
+- Modify: none. `app/catalog/run.go` is out of this task's path ownership —
   see "For the wiring task" at the end.
 
-**Path ownership:** `catalogarr/controller/rootfolder/`,
-`catalogarr/controller/qualityprofile/`, `catalogarr/controller/delayprofile/`,
-`catalogarr/controller/metadataprovider/`. No file outside these four
-directories. In particular, do not create `catalogarr/controller/doc.go` — a
+**Path ownership:** `app/catalog/controller/rootfolder/`,
+`app/catalog/controller/qualityprofile/`, `app/catalog/controller/delayprofile/`,
+`app/catalog/controller/metadataprovider/`. No file outside these four
+directories. In particular, do not create `app/catalog/controller/doc.go` — a
 package-overview file at that level is a shared resource another Phase C
 catalogarr task (movie/series/episode/mediafile/search) may also want, and it
 is outside this task's disjoint ownership.
@@ -2312,13 +2312,13 @@ func NewFakeRecorder(bufferSize int) *FakeRecorder
 
 **Interfaces — Produces** (what later tasks import):
 ```go
-// catalogarr/controller/delayprofile
+// app/catalog/controller/delayprofile
 // Task C9 (the grab worker) imports this directly. Pure, no client.
 func Resolve(ref *string, itemTags []string, profiles []catalogv1alpha1.DelayProfile) (*catalogv1alpha1.DelayProfile, error)
 var ErrNoProfiles = errors.New("delayprofile: no profiles given")
 var ErrNoMatch = errors.New("delayprofile: no profile matches and no catch-all is configured")
 
-// catalogarr/controller/metadataprovider
+// app/catalog/controller/metadataprovider
 // Task C5 (the metadata gateway, a SEPARATE process/Deployment --
 // `catalogarr-metadata`, §3/§12, pinned to 1 replica -- from the `catalogarr`
 // Deployment this task's controller runs in) imports this and calls it with
@@ -2331,14 +2331,14 @@ func NewProber(spec catalogv1alpha1.MetadataProviderSpec, secret map[string][]by
 type Prober interface { Probe(ctx context.Context) (ProbeResult, error) }
 type ProbeResult struct { QuotaRemaining *int32 }
 
-// catalogarr/controller/{rootfolder,qualityprofile,delayprofile,metadataprovider}
+// app/catalog/controller/{rootfolder,qualityprofile,delayprofile,metadataprovider}
 // One constructor + SetupWithManager per package, for the wiring task:
 func NewReconciler(c client.Client, recorder events.EventRecorder) *Reconciler                              // rootfolder, delayprofile
 func NewReconciler(c client.Client, cat *catalogue.Catalogue, recorder events.EventRecorder) *Reconciler     // qualityprofile
 func NewReconciler(c client.Client, recorder events.EventRecorder, httpClient *http.Client) *Reconciler      // metadataprovider
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error                                                // all four
 
-// catalogarr/controller/qualityprofile
+// app/catalog/controller/qualityprofile
 // A one-shot startup bootstrap, registered via mgr.Add, not part of the
 // watch-driven Reconciler.
 func SeedBuiltins(ctx context.Context, c client.Client, cat *catalogue.Catalogue) error
@@ -2367,7 +2367,7 @@ the CEL prefix, because no CRD is involved in that test at all).
 - [ ] **Step 1: `checkPath`'s real implementation, unit-tested against a real
       temp directory.**
 
-  Test first (`catalogarr/controller/rootfolder/probe_test.go`):
+  Test first (`app/catalog/controller/rootfolder/probe_test.go`):
   ```go
   package rootfolder
 
@@ -2419,10 +2419,10 @@ the CEL prefix, because no CRD is involved in that test at all).
   	}
   }
   ```
-  Run: `go test ./catalogarr/controller/rootfolder/... -run TestCheckPath -v`
+  Run: `go test ./app/catalog/controller/rootfolder/... -run TestCheckPath -v`
   — expect a compile failure (`checkPath` undefined).
 
-  Implement (`catalogarr/controller/rootfolder/probe.go`):
+  Implement (`app/catalog/controller/rootfolder/probe.go`):
   ```go
   package rootfolder
 
@@ -2464,19 +2464,19 @@ the CEL prefix, because no CRD is involved in that test at all).
   	return true, usage.Free, usage.Total, nil
   }
   ```
-  Run: `go test ./catalogarr/controller/rootfolder/... -run TestCheckPath -v`
+  Run: `go test ./app/catalog/controller/rootfolder/... -run TestCheckPath -v`
   — expect PASS on all three.
 
   Commit (path-scoped):
   ```bash
   git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m \
     "feat(catalogarr): rootfolder filesystem probe" -- \
-    catalogarr/controller/rootfolder/probe.go catalogarr/controller/rootfolder/probe_test.go
+    app/catalog/controller/rootfolder/probe.go app/catalog/controller/rootfolder/probe_test.go
   ```
 
 - [ ] **Step 2: the Reconciler, envtest-verified end to end.**
 
-  Test first (`catalogarr/controller/rootfolder/controller_envtest_test.go`):
+  Test first (`app/catalog/controller/rootfolder/controller_envtest_test.go`):
   ```go
   package rootfolder_test
 
@@ -2644,10 +2644,10 @@ the CEL prefix, because no CRD is involved in that test at all).
   }
   ```
   Run: `KUBEBUILDER_ASSETS="$(setup-envtest use 1.37.0 -p path)" go test
-  ./catalogarr/controller/rootfolder/... -run TestReconcile -v` — expect a
+  ./app/catalog/controller/rootfolder/... -run TestReconcile -v` — expect a
   compile failure (`rootfolder.NewReconciler` undefined).
 
-  Implement (`catalogarr/controller/rootfolder/controller.go`):
+  Implement (`app/catalog/controller/rootfolder/controller.go`):
   ```go
   package rootfolder
 
@@ -2785,7 +2785,7 @@ the CEL prefix, because no CRD is involved in that test at all).
   ship the placeholder line.)
 
   Run: `KUBEBUILDER_ASSETS="$(setup-envtest use 1.37.0 -p path)" go test
-  ./catalogarr/controller/rootfolder/... -v` — expect all tests PASS, and the
+  ./app/catalog/controller/rootfolder/... -v` — expect all tests PASS, and the
   three `TestReconcile*` tests to take on the order of a second each (real
   apiserver round trips), never single-digit milliseconds — a millisecond
   runtime means `KUBEBUILDER_ASSETS` was unset and the test skipped silently.
@@ -2794,7 +2794,7 @@ the CEL prefix, because no CRD is involved in that test at all).
   ```bash
   git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m \
     "feat(catalogarr): rootfolder controller" -- \
-    catalogarr/controller/rootfolder/controller.go catalogarr/controller/rootfolder/controller_envtest_test.go
+    app/catalog/controller/rootfolder/controller.go app/catalog/controller/rootfolder/controller_envtest_test.go
   ```
 
 ---
@@ -2818,7 +2818,7 @@ bump can change, so it is the one comparison this needs.
 - [ ] **Step 1: the reconciler resolves a profile and reports `Invalid` for
       what CEL cannot check (an unknown quality name inside a tier).**
 
-  Test first (`catalogarr/controller/qualityprofile/controller_envtest_test.go`):
+  Test first (`app/catalog/controller/qualityprofile/controller_envtest_test.go`):
   ```go
   package qualityprofile_test
 
@@ -2943,10 +2943,10 @@ bump can change, so it is the one comparison this needs.
   }
   ```
   Run: `KUBEBUILDER_ASSETS="$(setup-envtest use 1.37.0 -p path)" go test
-  ./catalogarr/controller/qualityprofile/... -run TestReconcile -v` — expect
+  ./app/catalog/controller/qualityprofile/... -run TestReconcile -v` — expect
   a compile failure (`qualityprofile.NewReconciler` undefined).
 
-  Implement (`catalogarr/controller/qualityprofile/controller.go`):
+  Implement (`app/catalog/controller/qualityprofile/controller.go`):
   ```go
   package qualityprofile
 
@@ -3061,14 +3061,14 @@ bump can change, so it is the one comparison this needs.
   ```bash
   git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m \
     "feat(catalogarr): qualityprofile controller" -- \
-    catalogarr/controller/qualityprofile/controller.go catalogarr/controller/qualityprofile/controller_envtest_test.go
+    app/catalog/controller/qualityprofile/controller.go app/catalog/controller/qualityprofile/controller_envtest_test.go
   ```
 
 - [ ] **Step 2: the built-in bootstrap — creates the 13 profiles once, is a
       no-op when nothing changed, and deletes+recreates a profile whose seed
       content drifted.**
 
-  Test first (`catalogarr/controller/qualityprofile/bootstrap_envtest_test.go`,
+  Test first (`app/catalog/controller/qualityprofile/bootstrap_envtest_test.go`,
   reuses `newTestClient` from Step 1's file, same package):
   ```go
   package qualityprofile_test
@@ -3181,10 +3181,10 @@ bump can change, so it is the one comparison this needs.
   }
   ```
   Run: `KUBEBUILDER_ASSETS="$(setup-envtest use 1.37.0 -p path)" go test
-  ./catalogarr/controller/qualityprofile/... -run TestSeedBuiltins -v` —
+  ./app/catalog/controller/qualityprofile/... -run TestSeedBuiltins -v` —
   expect a compile failure (`qualityprofile.SeedBuiltins` undefined).
 
-  Implement (`catalogarr/controller/qualityprofile/bootstrap.go`):
+  Implement (`app/catalog/controller/qualityprofile/bootstrap.go`):
   ```go
   package qualityprofile
 
@@ -3292,7 +3292,7 @@ bump can change, so it is the one comparison this needs.
   ```bash
   git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m \
     "feat(catalogarr): seed the 13 built-in QualityProfiles at startup" -- \
-    catalogarr/controller/qualityprofile/bootstrap.go catalogarr/controller/qualityprofile/bootstrap_envtest_test.go
+    app/catalog/controller/qualityprofile/bootstrap.go app/catalog/controller/qualityprofile/bootstrap_envtest_test.go
   ```
 
 ---
@@ -3302,7 +3302,7 @@ bump can change, so it is the one comparison this needs.
 - [ ] **Step 1: `Resolve` — pure, no client, table-driven, unit-tested
       without envtest.**
 
-  Test first (`catalogarr/controller/delayprofile/resolve_test.go`):
+  Test first (`app/catalog/controller/delayprofile/resolve_test.go`):
   ```go
   package delayprofile
 
@@ -3432,10 +3432,10 @@ bump can change, so it is the one comparison this needs.
   	}
   }
   ```
-  Run: `go test ./catalogarr/controller/delayprofile/... -run TestResolve -v`
+  Run: `go test ./app/catalog/controller/delayprofile/... -run TestResolve -v`
   — expect a compile failure (`Resolve` undefined).
 
-  Implement (`catalogarr/controller/delayprofile/resolve.go`):
+  Implement (`app/catalog/controller/delayprofile/resolve.go`):
   ```go
   package delayprofile
 
@@ -3508,14 +3508,14 @@ bump can change, so it is the one comparison this needs.
   	return false
   }
   ```
-  Run: `go test ./catalogarr/controller/delayprofile/... -run TestResolve -v`
+  Run: `go test ./app/catalog/controller/delayprofile/... -run TestResolve -v`
   — expect all PASS.
 
   Commit:
   ```bash
   git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m \
     "feat(catalogarr): delay-profile resolution order" -- \
-    catalogarr/controller/delayprofile/resolve.go catalogarr/controller/delayprofile/resolve_test.go
+    app/catalog/controller/delayprofile/resolve.go app/catalog/controller/delayprofile/resolve_test.go
   ```
 
 - [ ] **Step 2: the reconciler — thin, since DelayProfile carries no CEL
@@ -3529,7 +3529,7 @@ bump can change, so it is the one comparison this needs.
   recompute it via a watch is Task C9's decision to make and document, not
   this task's — flag it to whoever writes that task.
 
-  Test first (`catalogarr/controller/delayprofile/controller_envtest_test.go`):
+  Test first (`app/catalog/controller/delayprofile/controller_envtest_test.go`):
   ```go
   package delayprofile_test
 
@@ -3606,10 +3606,10 @@ bump can change, so it is the one comparison this needs.
   namespace already exists on most clusters but envtest starts clean.)
 
   Run: `KUBEBUILDER_ASSETS="$(setup-envtest use 1.37.0 -p path)" go test
-  ./catalogarr/controller/delayprofile/... -run TestReconcile -v` — expect a
+  ./app/catalog/controller/delayprofile/... -run TestReconcile -v` — expect a
   compile failure (`delayprofile.NewReconciler` undefined).
 
-  Implement (`catalogarr/controller/delayprofile/controller.go`):
+  Implement (`app/catalog/controller/delayprofile/controller.go`):
   ```go
   package delayprofile
 
@@ -3682,7 +3682,7 @@ bump can change, so it is the one comparison this needs.
   ```bash
   git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m \
     "feat(catalogarr): delayprofile controller" -- \
-    catalogarr/controller/delayprofile/controller.go catalogarr/controller/delayprofile/controller_envtest_test.go
+    app/catalog/controller/delayprofile/controller.go app/catalog/controller/delayprofile/controller_envtest_test.go
   ```
 
 ---
@@ -3704,7 +3704,7 @@ silent lie).
       (`tmdb`, keyed; `openlibrary`, unauthenticated) against a local
       `httptest.Server` — no real network, per the testing constraint.**
 
-  Test first (`catalogarr/controller/metadataprovider/prober_test.go`):
+  Test first (`app/catalog/controller/metadataprovider/prober_test.go`):
   ```go
   package metadataprovider
 
@@ -3798,7 +3798,7 @@ silent lie).
   	}
   }
   ```
-  Run: `go test ./catalogarr/controller/metadataprovider/... -run
+  Run: `go test ./app/catalog/controller/metadataprovider/... -run
   'TestTMDBProber|TestOpenLibraryProber|TestUnimplementedProviderType' -v` —
   expect a compile failure (`NewProber` undefined; also
   `metadata.IsAuthError` — check `go doc ./pkg/metadata` for the exact
@@ -3808,7 +3808,7 @@ silent lie).
   sentinels this task already verified exist, and drop the invented helper
   name).
 
-  Implement (`catalogarr/controller/metadataprovider/prober.go`):
+  Implement (`app/catalog/controller/metadataprovider/prober.go`):
   ```go
   package metadataprovider
 
@@ -3947,7 +3947,7 @@ silent lie).
   // tvdbProber, musicbrainzProber, comicvineProber and audnexusProber follow
   // in Step 2, same shape.
   ```
-  Run: `go test ./catalogarr/controller/metadataprovider/... -run
+  Run: `go test ./app/catalog/controller/metadataprovider/... -run
   'TestTMDBProber|TestOpenLibraryProber|TestUnimplementedProviderType' -v` —
   expect all PASS. Note: this step deliberately leaves `tvdbProber` etc.
   referenced by nothing yet but declared in Step 2 — `go build` of the
@@ -4051,7 +4051,7 @@ silent lie).
   	}
   }
   ```
-  Run: `go test ./catalogarr/controller/metadataprovider/... -run
+  Run: `go test ./app/catalog/controller/metadataprovider/... -run
   'TestTVDBProber|TestMusicBrainzProber|TestComicVineProber|TestAudnexusProber' -v`
   — expect a compile failure (the four `case`s in `NewProber` are missing
   their prober types).
@@ -4091,7 +4091,7 @@ silent lie).
   	return ProbeResult{}, err
   }
   ```
-  Run: full `go test ./catalogarr/controller/metadataprovider/... -run
+  Run: full `go test ./app/catalog/controller/metadataprovider/... -run
   Prober -v` — expect all PASS.
 
   Commit (both prober steps together, since the package does not build until
@@ -4099,13 +4099,13 @@ silent lie).
   ```bash
   git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m \
     "feat(catalogarr): metadata provider credential/reachability probes" -- \
-    catalogarr/controller/metadataprovider/prober.go catalogarr/controller/metadataprovider/prober_test.go
+    app/catalog/controller/metadataprovider/prober.go app/catalog/controller/metadataprovider/prober_test.go
   ```
 
 - [ ] **Step 3: `BuildRegistry` — the function Task C5's gateway process
       calls with its own client.**
 
-  Test first (`catalogarr/controller/metadataprovider/registry_test.go`,
+  Test first (`app/catalog/controller/metadataprovider/registry_test.go`,
   envtest — building a real `metadata.Registry` needs real `MetadataProvider`
   and `Secret` objects, not fakes, since ordering-by-priority is the thing
   under test):
@@ -4209,7 +4209,7 @@ silent lie).
   func boolPtr(b bool) *bool { return &b }
   ```
   Run: `KUBEBUILDER_ASSETS="$(setup-envtest use 1.37.0 -p path)" go test
-  ./catalogarr/controller/metadataprovider/... -run TestBuildRegistry -v` —
+  ./app/catalog/controller/metadataprovider/... -run TestBuildRegistry -v` —
   expect a compile failure (`BuildRegistry` undefined). Before implementing,
   resolve the ordering-assertion note in the test above: check `go doc
   ./pkg/metadata Registry` for anything that exposes provider identity beyond
@@ -4220,7 +4220,7 @@ silent lie).
   purely to make `reg.Movies[i]` identifiable in assertions; that wrapper
   lives in `_test.go`, never in `registry.go`.
 
-  Implement (`catalogarr/controller/metadataprovider/registry.go`):
+  Implement (`app/catalog/controller/metadataprovider/registry.go`):
   ```go
   package metadataprovider
 
@@ -4354,13 +4354,13 @@ silent lie).
   ```bash
   git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m \
     "feat(catalogarr): metadata provider registry construction for the gateway" -- \
-    catalogarr/controller/metadataprovider/registry.go catalogarr/controller/metadataprovider/registry_test.go
+    app/catalog/controller/metadataprovider/registry.go app/catalog/controller/metadataprovider/registry_test.go
   ```
 
 - [ ] **Step 4: the reconciler — probes on a timer, reports
       Ready/Authenticated/Throttled, RBAC for Secrets.**
 
-  Test first (`catalogarr/controller/metadataprovider/controller_envtest_test.go`,
+  Test first (`app/catalog/controller/metadataprovider/controller_envtest_test.go`,
   reuses `newTestClient` from Step 3's file, same package
   `metadataprovider_test`):
   ```go
@@ -4492,10 +4492,10 @@ silent lie).
   }
   ```
   Run: `KUBEBUILDER_ASSETS="$(setup-envtest use 1.37.0 -p path)" go test
-  ./catalogarr/controller/metadataprovider/... -run TestReconcile -v` —
+  ./app/catalog/controller/metadataprovider/... -run TestReconcile -v` —
   expect a compile failure (`metadataprovider.NewReconciler` undefined).
 
-  Implement (`catalogarr/controller/metadataprovider/controller.go`):
+  Implement (`app/catalog/controller/metadataprovider/controller.go`):
   ```go
   package metadataprovider
 
@@ -4657,7 +4657,7 @@ silent lie).
   commit, and make them pass for real.
 
   Run: `KUBEBUILDER_ASSETS="$(setup-envtest use 1.37.0 -p path)" go test
-  ./catalogarr/controller/metadataprovider/... -v` — expect every test in the
+  ./app/catalog/controller/metadataprovider/... -v` — expect every test in the
   package PASS, including the two new `isAuthError`/`isRateLimited` unit
   tests.
 
@@ -4665,12 +4665,12 @@ silent lie).
   ```bash
   git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m \
     "feat(catalogarr): metadataprovider controller" -- \
-    catalogarr/controller/metadataprovider/controller.go catalogarr/controller/metadataprovider/prober_test.go catalogarr/controller/metadataprovider/controller_envtest_test.go
+    app/catalog/controller/metadataprovider/controller.go app/catalog/controller/metadataprovider/prober_test.go app/catalog/controller/metadataprovider/controller_envtest_test.go
   ```
 
 ---
 
-**For the wiring task (not this one — `catalogarr/run.go` is out of this
+**For the wiring task (not this one — `app/catalog/run.go` is out of this
 task's path ownership).** `setupControllers(mgr ctrl.Manager, o Options)
 error` needs, once this task's packages exist:
 ```go
@@ -4713,10 +4713,10 @@ C tasks).
 
 **Verification:**
 ```bash
-go build ./catalogarr/...
-KUBEBUILDER_ASSETS="$(setup-envtest use 1.37.0 -p path)" go test ./catalogarr/controller/... -v
-go vet ./catalogarr/...
-golangci-lint-v2 run ./catalogarr/...
+go build ./app/catalog/...
+KUBEBUILDER_ASSETS="$(setup-envtest use 1.37.0 -p path)" go test ./app/catalog/controller/... -v
+go vet ./app/catalog/...
+golangci-lint-v2 run ./app/catalog/...
 ```
 Every `*_envtest_test.go` needs `KUBEBUILDER_ASSETS` set (via `setup-envtest
 use 1.37.0 -p path`, matching `Makefile`'s `ENVTEST_K8S_VERSION`) or it skips
@@ -4726,25 +4726,25 @@ a non-trivial duration (envtest starts a real, if minimal, apiserver — each
 such test takes on the order of hundreds of milliseconds to low seconds, not
 microseconds); a `--- SKIP` line or an entire suite finishing in under 50ms
 means the assets were not found and nothing was proved.
-`go test ./catalogarr/...` with `KUBEBUILDER_ASSETS` unset must still pass
+`go test ./app/catalog/...` with `KUBEBUILDER_ASSETS` unset must still pass
 (every envtest file skips cleanly rather than failing) per the shared
 context's rule 4.
 
 **Done when:**
-- [ ] `catalogarr/controller/{rootfolder,qualityprofile,delayprofile,
+- [ ] `app/catalog/controller/{rootfolder,qualityprofile,delayprofile,
       metadataprovider}/` exist with a `Reconciler`, `NewReconciler` and
       `SetupWithManager` each; `qualityprofile` additionally has
       `SeedBuiltins`/`Bootstrap`; `metadataprovider` additionally has
       `Prober`/`NewProber` and `BuildRegistry`; `delayprofile` additionally
       has the pure, exported `Resolve`.
-- [ ] No `catalogarr/controller/importexclusion/` directory exists anywhere
+- [ ] No `app/catalog/controller/importexclusion/` directory exists anywhere
       in the tree this task produced.
 - [ ] Every status write in all four packages goes through
       `k8s.PatchStatus(..., k8s.ManagerCatalogarr, ...)` — `grep -rn
-      "Status().Update\|Status().Patch" catalogarr/controller/` returns
+      "Status().Update\|Status().Patch" app/catalog/controller/` returns
       nothing (and `golangci-lint-v2 run` would fail the build if it did,
       per `.golangci.yml`'s forbidigo rule).
-- [ ] `go test ./catalogarr/controller/... -v` with `KUBEBUILDER_ASSETS` set
+- [ ] `go test ./app/catalog/controller/... -v` with `KUBEBUILDER_ASSETS` set
       passes every test, each envtest test taking a real, non-trivial
       duration; the same command with `KUBEBUILDER_ASSETS` unset passes with
       every envtest test reported skipped.
@@ -4760,12 +4760,12 @@ context's rule 4.
       comicvine audnexus`) and return `ErrProviderNotImplemented` (never a
       crash, never a silent success) for the other eight.
 - [ ] `make manifests` (from repo root, after this task's code exists) picks
-      up the new `+kubebuilder:rbac` markers under `catalogarr/...` without
+      up the new `+kubebuilder:rbac` markers under `app/catalog/...` without
       any change to `Makefile` — `RBAC_DIRS` already includes `catalogarr`.
-- [ ] `go build ./catalogarr/...`, `go vet ./catalogarr/...` and
-      `golangci-lint-v2 run ./catalogarr/...` are clean.
+- [ ] `go build ./app/catalog/...`, `go vet ./app/catalog/...` and
+      `golangci-lint-v2 run ./app/catalog/...` are clean.
 - [ ] This document's "For the wiring task" section is enough, on its own,
-      for someone editing `catalogarr/run.go` to add the four
+      for someone editing `app/catalog/run.go` to add the four
       `SetupWithManager` calls and the `qualityprofile.Bootstrap` `mgr.Add`
       correctly, without re-deriving `mgr.GetEventRecorder`'s correct name
       or re-discovering the `RoleMetadata`/`RoleController` process split.
@@ -4775,29 +4775,29 @@ context's rule 4.
 ### Task C5: the catalogarr metadata gateway
 
 **Files:**
-- Create: `catalogarr/metadata/settle.go`
-- Create: `catalogarr/metadata/settle_test.go`
-- Create: `catalogarr/metadata/cache.go`
-- Create: `catalogarr/metadata/cache_test.go`
-- Create: `catalogarr/metadata/tieredcache.go`
-- Create: `catalogarr/metadata/tieredcache_test.go`
-- Create: `catalogarr/metadata/limiter.go`
-- Create: `catalogarr/metadata/limiter_test.go`
-- Create: `catalogarr/metadata/target.go`
-- Create: `catalogarr/metadata/target_test.go`
-- Create: `catalogarr/metadata/patch.go`
-- Create: `catalogarr/metadata/patch_test.go`
-- Create: `catalogarr/metadata/registry.go`
-- Create: `catalogarr/metadata/registry_test.go`
-- Create: `catalogarr/metadata/worker.go`
-- Create: `catalogarr/metadata/worker_envtest_test.go`
-- Create: `catalogarr/metadata/rpc.go`
-- Create: `catalogarr/metadata/rpc_test.go`
-- Create: `catalogarr/metadata/gateway.go`
-- Create: `catalogarr/metadata/gateway_envtest_test.go`
+- Create: `app/catalog/metadata/settle.go`
+- Create: `app/catalog/metadata/settle_test.go`
+- Create: `app/catalog/metadata/cache.go`
+- Create: `app/catalog/metadata/cache_test.go`
+- Create: `app/catalog/metadata/tieredcache.go`
+- Create: `app/catalog/metadata/tieredcache_test.go`
+- Create: `app/catalog/metadata/limiter.go`
+- Create: `app/catalog/metadata/limiter_test.go`
+- Create: `app/catalog/metadata/target.go`
+- Create: `app/catalog/metadata/target_test.go`
+- Create: `app/catalog/metadata/patch.go`
+- Create: `app/catalog/metadata/patch_test.go`
+- Create: `app/catalog/metadata/registry.go`
+- Create: `app/catalog/metadata/registry_test.go`
+- Create: `app/catalog/metadata/worker.go`
+- Create: `app/catalog/metadata/worker_envtest_test.go`
+- Create: `app/catalog/metadata/rpc.go`
+- Create: `app/catalog/metadata/rpc_test.go`
+- Create: `app/catalog/metadata/gateway.go`
+- Create: `app/catalog/metadata/gateway_envtest_test.go`
 - Modify: `pkg/obs/metrics/domain.go` (append one new var block; see "Judgment calls" below — this is the one file outside this task's path ownership it must touch, because `newCounterVec` is unexported to `pkg/obs/metrics`)
 
-**Path ownership:** `catalogarr/metadata/` — every file under it, this task only. The single exception is the append-only addition to `pkg/obs/metrics/domain.go` noted above and justified below; nothing else outside `catalogarr/metadata/` is touched, and `catalogarr/run.go` (another Phase C task's path — it currently has an empty `setupWorkers` with a `TODO(M1): ... the metadata gateway (RoleMetadata) ...` comment) is left alone. This task produces `metadata.Setup`, the function that task is expected to call.
+**Path ownership:** `app/catalog/metadata/` — every file under it, this task only. The single exception is the append-only addition to `pkg/obs/metrics/domain.go` noted above and justified below; nothing else outside `app/catalog/metadata/` is touched, and `app/catalog/run.go` (another Phase C task's path — it currently has an empty `setupWorkers` with a `TODO(M1): ... the metadata gateway (RoleMetadata) ...` comment) is left alone. This task produces `metadata.Setup`, the function that task is expected to call.
 
 **Read first:**
 - Spec §5 (`docs/superpowers/specs/2026-09-18-clustarr-design.md:531-613`): streams/subjects/consumers/KV buckets table. In particular the `catalogarr-metadata` consumer row (line 589: `AckWait 60s, MaxDeliver 8, BackOff 30s,2m,10m,1h,6h, MaxAckPending 32`) and the `clustarr-metadata-cache` KV bucket row (line 609: `<provider>.<kind>.<id>` JSON with `expiresAt`, 30d bucket, "per-entry expiry checked by gateway").
@@ -4817,7 +4817,7 @@ context's rule 4.
 - `pkg/k8s/patch.go` in full (`PatchStatus`, `ApplyConfiguration`) and `pkg/k8s/fieldmanager.go` (`ManagerCatalogarrWorker = "catalogarr-worker"` already exists — you do not add it).
 - `pkg/k8s/patch_envtest_test.go` in full — this is the exact envtest pattern (fixture builder, `newTestClient`, `managesField`/`fieldManagerNames` helpers) to mirror for this task's envtest files. Copy its `newTestClient`-style helper rather than inventing a new one.
 - `pkg/events/contracttest/contracttest.go` lines 1-95 and 150-230 for the membus test pattern (`events.Default().ForSingleNode()`, `bus.Ensure`, `bus.Subscribe`, `envelope(...)` helper).
-- `pkg/metadata/clients/tmdb/tmdb_test.go` in full, and `testdata/metadata/tmdb/movie_27205.json` — reuse this exact fixture (do not invent new TMDB JSON; golang-tmdb's response shape is easy to get subtly wrong, and this fixture is already verified against the real client). Known-good values from it: `Title` "Inception", `Runtime` 148, `IDs[metadata.KeyTMDB]` "27205", `IDs[metadata.KeyIMDb]` "tt1375666", `InCinemas` 2010-07-16 UTC, `Status` "released".
+- `pkg/metadata/clients/tmdb/tmdb_test.go` in full, and `test/data/metadata/tmdb/movie_27205.json` — reuse this exact fixture (do not invent new TMDB JSON; golang-tmdb's response shape is easy to get subtly wrong, and this fixture is already verified against the real client). Known-good values from it: `Title` "Inception", `Runtime` 148, `IDs[metadata.KeyTMDB]` "27205", `IDs[metadata.KeyIMDb]` "tt1375666", `InCinemas` 2010-07-16 UTC, `Status` "released".
 - `cmd/clustarr/start_envtest_test.go` only if you need another example of the `KUBEBUILDER_ASSETS`-skip pattern; `pkg/k8s/patch_envtest_test.go` already has it.
 
 **Dependencies:** none new. Every package this task imports is already in `go.mod`: `github.com/hashicorp/golang-lru/v2 v2.0.7`, `github.com/jonboulle/clockwork v0.5.0`, `github.com/prometheus/client_golang v1.24.1`, `golang.org/x/time v0.16.0`, `go.opentelemetry.io/otel v1.46.0` (via `pkg/obs/tracing`), `k8s.io/apimachinery v0.37.0`, `k8s.io/client-go v0.37.0`, `sigs.k8s.io/controller-runtime v0.25.1`, `github.com/stretchr/testify v1.12.1`. Do not run `go get` or `go mod tidy`.
@@ -4870,14 +4870,14 @@ func PatchStatus[T ApplyConfiguration](ctx, c client.Client, fm FieldManager, ac
 const ManagerCatalogarrWorker FieldManager = "catalogarr-worker"  // already exists
 ```
 
-**Interfaces — Produces** (what a later task — the movie/series controllers, and whichever task fills in `catalogarr/run.go`'s `setupWorkers` — relies on):
+**Interfaces — Produces** (what a later task — the movie/series controllers, and whichever task fills in `app/catalog/run.go`'s `setupWorkers` — relies on):
 ```go
-package metadata // catalogarr/metadata
+package metadata // app/catalog/metadata
 
-// Setup is RoleMetadata's entire job. catalogarr/run.go's setupWorkers,
+// Setup is RoleMetadata's entire job. app/catalog/run.go's setupWorkers,
 // guarded by o.Role.Has(catalogarr.RoleMetadata), calls this once and keeps
 // stop for shutdown. (reconciled by controller: the caller in
-// catalogarr/run.go is a different Phase C task; this signature is the
+// app/catalog/run.go is a different Phase C task; this signature is the
 // assumed shape it must match.)
 type Options struct {
     Client     client.Client   // required
@@ -4949,18 +4949,18 @@ comment noted above.
 **Assumption about the producer side (a different task):** `MetadataTask.MediaRef` (`{Kind, Name, Keys}`, see `api/common/v1alpha1/media_types.go:41`) has no `Namespace` field. This task's `Handler.Handle` gets the namespace from `events.Envelope.Key`, documented in `pkg/events` as `"<namespace>/<name>"` of the owning CR, and the name from `MediaRef.Name` (trusting the payload over re-parsing `Key`, since `Key` is generic infrastructure and `MediaRef.Name` is the typed field). The producer (the Movie/Series controller task) must therefore publish with `Envelope.Key` set to the item's `"<namespace>/<name>"`, exactly as `schema.Ref.String()` already renders it (`pkg/events/schema/catalog.go`) — state this explicitly if that task's plan doesn't already.
 
 **Judgment calls (spec/research-note/generated-type disagreements, resolved):**
-1. **pkg/obs/metrics touch.** The task brief and spec §13 require `clustarr_metadata_cache_hits_total{tier}`. `pkg/obs/metrics`'s `newCounterVec`/`newGaugeVec`/`newHistogramVec` helpers are unexported to that package (`pkg/obs/metrics/metrics.go`), so there is no way to add a new series from `catalogarr/metadata/` without either bypassing the package's registration/cardinality-guard convention or editing `pkg/obs/metrics/domain.go`. This task edits it, appending one new `var (...)` block at the end of the file, touching no existing line. Flag this to whoever assembles the full Phase C plan: other tasks (search, transcode, subtitle workers) may hit the same wall for their own §13 series and also need to append to this file — a real cross-task collision point on one shared file that this document cannot resolve by itself.
+1. **pkg/obs/metrics touch.** The task brief and spec §13 require `clustarr_metadata_cache_hits_total{tier}`. `pkg/obs/metrics`'s `newCounterVec`/`newGaugeVec`/`newHistogramVec` helpers are unexported to that package (`pkg/obs/metrics/metrics.go`), so there is no way to add a new series from `app/catalog/metadata/` without either bypassing the package's registration/cardinality-guard convention or editing `pkg/obs/metrics/domain.go`. This task edits it, appending one new `var (...)` block at the end of the file, touching no existing line. Flag this to whoever assembles the full Phase C plan: other tasks (search, transcode, subtitle workers) may hit the same wall for their own §13 series and also need to append to this file — a real cross-task collision point on one shared file that this document cannot resolve by itself.
 2. **Cache key drops the provider segment.** §5's KV table documents the `clustarr-metadata-cache` key as `<provider>.<kind>.<id>`. But `Registry.Lookup` (the real, merged `pkg/metadata` code) is a first-provider-that-succeeds call: the caller does not know which provider will answer *before* calling it, so a pre-fetch cache lookup cannot be keyed by provider. This task uses `<kind>:<key>=<id>[,<key>=<id>...]` (built by `cacheKey`, sorted by `ExternalIDs` key) instead — an item-level key, not a provider-level one. This is what `RefreshTTL`'s "a fresh item is not refetched" actually needs; a provider-qualified key would make a request that failed on provider A and later succeeds on provider B miss the cache for no benefit.
 3. **tmdb is Movies-only, not Series-too.** `docs/research/metadata.md` §4.5 lists Series providers as `[tvdb, tmdb]` ("tmdb for backdrops/keywords"). The real, already-merged `pkg/metadata/clients/tmdb` package doc says it "wraps ... as a metadata.MovieProvider" and implements no `SeriesProvider` method. `BuildRegistry` follows the merged code: `tmdb.Client` only ever populates `Registry.Movies`.
 4. **Image type is narrowed, not passed through.** `pkg/metadata.ImageType` has nine values (poster, fanart, banner, logo, clearart, thumb, screenshot, disc, headshot); the generated `catalogv1alpha1.ImageType` CRD enum allows only `poster;fanart;logo` (`api/catalog/v1alpha1/shared_types.go:51`). Per "the generated type wins", `mapImageType` passes through the three that match and drops the rest — a wrong label is worse than a missing image.
-5. **M1 kind scope.** `Handler`'s CR-fetch/patch path (`newTarget`, `externalIDs`, `buildMovieMetadataAC`/`buildSeriesMetadataAC`) only wires `Movie` and `Series`. This matches `catalogarr/run.go`'s own `setupControllers` comment (`TODO(M1): movie, series, ...` / `TODO(M6): artist, album, author, book, audiobook, comic, issue.`) and CLAUDE.md's milestone plan. The **RPC** path (`lookup`/`search`/`resolve` in `rpc.go`) is not CR-shaped at all — it returns opaque JSON — so it supports every kind `Registry` already supports (movie, series, artist, album, book, audiobook, comic) with no extra work; only the work-queue/CR side is scoped to M1.
+5. **M1 kind scope.** `Handler`'s CR-fetch/patch path (`newTarget`, `externalIDs`, `buildMovieMetadataAC`/`buildSeriesMetadataAC`) only wires `Movie` and `Series`. This matches `app/catalog/run.go`'s own `setupControllers` comment (`TODO(M1): movie, series, ...` / `TODO(M6): artist, album, author, book, audiobook, comic, issue.`) and CLAUDE.md's milestone plan. The **RPC** path (`lookup`/`search`/`resolve` in `rpc.go`) is not CR-shaped at all — it returns opaque JSON — so it supports every kind `Registry` already supports (movie, series, artist, album, book, audiobook, comic) with no extra work; only the work-queue/CR side is scoped to M1.
 6. **Rate-limited vs not-found vs auth.** The task brief says "handles the rate-limited and not-found cases as retry-with-delay versus terminal" but doesn't name every `pkg/metadata` sentinel. This task's `settlement` maps: `RateLimitedError`/`ErrRateLimited` → `events.Retry` (honouring `RetryAfter` when present, else a 30s default); `ErrNotFound` → `events.Discard` (the item genuinely has no such external id; retrying every attempt wastes the provider's quota for nothing); `ErrAuth` → `events.Discard` (a bad credential does not fix itself by retrying; the `MetadataProvider` controller, a different task, is expected to reflect `Authenticated=False` from the same failure independently); anything else (`ErrDecode`, `ErrUnsupported`, a bare transport error) → returned unwrapped, so the bus applies the subscription's own backoff schedule.
 
 ---
 
 - [ ] **Step 1: error settlement is a pure function.** Write the failing test first.
 
-  `catalogarr/metadata/settle_test.go`:
+  `app/catalog/metadata/settle_test.go`:
   ```go
   package metadata
 
@@ -5007,7 +5007,7 @@ comment noted above.
       })
   }
   ```
-  Run `go test ./catalogarr/metadata/... -run TestSettlement` — expect a build failure (`settlement` undefined). Implement `catalogarr/metadata/settle.go`:
+  Run `go test ./app/catalog/metadata/... -run TestSettlement` — expect a build failure (`settlement` undefined). Implement `app/catalog/metadata/settle.go`:
   ```go
   package metadata
 
@@ -5052,12 +5052,12 @@ comment noted above.
       return err
   }
   ```
-  Run `go test ./catalogarr/metadata/... -run TestSettlement -v` — expect PASS.
-  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr/metadata): map provider errors to bus settlement" -- catalogarr/metadata/settle.go catalogarr/metadata/settle_test.go`
+  Run `go test ./app/catalog/metadata/... -run TestSettlement -v` — expect PASS.
+  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(app/catalog/metadata): map provider errors to bus settlement" -- app/catalog/metadata/settle.go app/catalog/metadata/settle_test.go`
 
 - [ ] **Step 2: the KV-backed L2 cache.** Failing test first, against `membus` (no network, no apiserver).
 
-  `catalogarr/metadata/cache_test.go`:
+  `app/catalog/metadata/cache_test.go`:
   ```go
   package metadata
 
@@ -5110,7 +5110,7 @@ comment noted above.
       require.False(t, hit, "an entry past its own expiresAt must miss even though the bucket TTL (30d) has not elapsed")
   }
   ```
-  Run `go test ./catalogarr/metadata/... -run TestKVCache` — expect a build failure (`newKVCache` undefined). Implement `catalogarr/metadata/cache.go`:
+  Run `go test ./app/catalog/metadata/... -run TestKVCache` — expect a build failure (`newKVCache` undefined). Implement `app/catalog/metadata/cache.go`:
   ```go
   package metadata
 
@@ -5184,8 +5184,8 @@ comment noted above.
 
   var _ pkgmetadata.Cache = (*kvCache)(nil)
   ```
-  Run `go test ./catalogarr/metadata/... -run TestKVCache -v` — expect PASS.
-  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr/metadata): KV-backed L2 metadata cache" -- catalogarr/metadata/cache.go catalogarr/metadata/cache_test.go`
+  Run `go test ./app/catalog/metadata/... -run TestKVCache -v` — expect PASS.
+  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(app/catalog/metadata): KV-backed L2 metadata cache" -- app/catalog/metadata/cache.go app/catalog/metadata/cache_test.go`
 
 - [ ] **Step 3: the two-tier cache and its metric.** First add the metric series (append-only) to `pkg/obs/metrics/domain.go`, at the end of the file:
   ```go
@@ -5202,7 +5202,7 @@ comment noted above.
   ```
   Run `go test ./pkg/obs/metrics/...` — expect PASS already (this alone is not yet exercised by a failing test; `TestNoMetricIsLabelledByAnUnboundedDimension` in that package must still pass with the new series, confirming `tier` is an accepted bounded label).
 
-  Now the failing test for the cache itself, `catalogarr/metadata/tieredcache_test.go`:
+  Now the failing test for the cache itself, `app/catalog/metadata/tieredcache_test.go`:
   ```go
   package metadata
 
@@ -5256,7 +5256,7 @@ comment noted above.
       require.Equal(t, beforeL2+1, testutil.ToFloat64(metrics.MetadataCacheHitsTotal.WithLabelValues("l2")))
   }
   ```
-  Add a small `newTestLRU` helper alongside `newTestKV` in `cache_test.go` (`pkgmetadata.NewLRUCache(64, clock)`, `require.NoError`). Run `go test ./catalogarr/metadata/... -run TestTieredCache` — expect a build failure (`newTieredCache` undefined). Implement `catalogarr/metadata/tieredcache.go`:
+  Add a small `newTestLRU` helper alongside `newTestKV` in `cache_test.go` (`pkgmetadata.NewLRUCache(64, clock)`, `require.NoError`). Run `go test ./app/catalog/metadata/... -run TestTieredCache` — expect a build failure (`newTieredCache` undefined). Implement `app/catalog/metadata/tieredcache.go`:
   ```go
   package metadata
 
@@ -5314,12 +5314,12 @@ comment noted above.
 
   var _ pkgmetadata.Cache = (*tieredCache)(nil)
   ```
-  Run `go test ./catalogarr/metadata/... -run TestTieredCache -v` and `go test ./pkg/obs/metrics/...` — expect both PASS.
-  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr/metadata): two-tier cache with the cache-hit metric" -- catalogarr/metadata/tieredcache.go catalogarr/metadata/tieredcache_test.go catalogarr/metadata/cache_test.go pkg/obs/metrics/domain.go`
+  Run `go test ./app/catalog/metadata/... -run TestTieredCache -v` and `go test ./pkg/obs/metrics/...` — expect both PASS.
+  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(app/catalog/metadata): two-tier cache with the cache-hit metric" -- app/catalog/metadata/tieredcache.go app/catalog/metadata/tieredcache_test.go app/catalog/metadata/cache_test.go pkg/obs/metrics/domain.go`
 
 - [ ] **Step 4: per-provider rate limiter resolution.** Failing test first.
 
-  `catalogarr/metadata/limiter_test.go`:
+  `app/catalog/metadata/limiter_test.go`:
   ```go
   package metadata
 
@@ -5355,7 +5355,7 @@ comment noted above.
       require.Equal(t, 1, l.Burst())
   }
   ```
-  Run `go test ./catalogarr/metadata/... -run TestResolveLimiter` — expect a build failure. Implement `catalogarr/metadata/limiter.go`:
+  Run `go test ./app/catalog/metadata/... -run TestResolveLimiter` — expect a build failure. Implement `app/catalog/metadata/limiter.go`:
   ```go
   package metadata
 
@@ -5402,12 +5402,12 @@ comment noted above.
       }
   }
   ```
-  Run `go test ./catalogarr/metadata/... -run TestResolveLimiter -v` — expect PASS.
-  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr/metadata): per-provider rate limiter resolution" -- catalogarr/metadata/limiter.go catalogarr/metadata/limiter_test.go`
+  Run `go test ./app/catalog/metadata/... -run TestResolveLimiter -v` — expect PASS.
+  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(app/catalog/metadata): per-provider rate limiter resolution" -- app/catalog/metadata/limiter.go app/catalog/metadata/limiter_test.go`
 
 - [ ] **Step 5: target dispatch — which CR, which external id.** Failing test first, using the controller-runtime fake client (no apiserver needed for a plain `Get`).
 
-  `catalogarr/metadata/target_test.go`:
+  `app/catalog/metadata/target_test.go`:
   ```go
   package metadata
 
@@ -5459,7 +5459,7 @@ comment noted above.
       require.True(t, refreshedAt(m).Equal(when.Time))
   }
   ```
-  Run `go test ./catalogarr/metadata/... -run 'TestNewTarget|TestExternalIDs|TestRefreshedAt'` — expect a build failure. Implement `catalogarr/metadata/target.go`:
+  Run `go test ./app/catalog/metadata/... -run 'TestNewTarget|TestExternalIDs|TestRefreshedAt'` — expect a build failure. Implement `app/catalog/metadata/target.go`:
   ```go
   package metadata
 
@@ -5477,7 +5477,7 @@ comment noted above.
   )
 
   // errUnsupportedKind marks a MediaKind this M1 worker does not yet fetch
-  // metadata for. catalogarr/run.go's own setupControllers comment carries
+  // metadata for. app/catalog/run.go's own setupControllers comment carries
   // the matching TODO(M6): artist, album, author, book, audiobook, comic,
   // issue — this switch grows a case, not a redesign, when that lands.
   var errUnsupportedKind = errors.New("metadata: unsupported media kind for the metadata worker")
@@ -5525,12 +5525,12 @@ comment noted above.
       return time.Time{}
   }
   ```
-  Run `go test ./catalogarr/metadata/... -run 'TestNewTarget|TestExternalIDs|TestRefreshedAt' -v` — expect PASS.
-  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr/metadata): Movie/Series target dispatch" -- catalogarr/metadata/target.go catalogarr/metadata/target_test.go`
+  Run `go test ./app/catalog/metadata/... -run 'TestNewTarget|TestExternalIDs|TestRefreshedAt' -v` — expect PASS.
+  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(app/catalog/metadata): Movie/Series target dispatch" -- app/catalog/metadata/target.go app/catalog/metadata/target_test.go`
 
 - [ ] **Step 6: refresh-state derivation.** Failing test first (pure functions, no I/O).
 
-  Append to `catalogarr/metadata/target_test.go`:
+  Append to `app/catalog/metadata/target_test.go`:
   ```go
   func TestMovieRefreshState(t *testing.T) {
       now := time.Date(2026, 9, 18, 0, 0, 0, 0, time.UTC)
@@ -5558,7 +5558,7 @@ comment noted above.
       require.Equal(t, pkgmetadata.RefreshStateAnnounced, seriesRefreshState(&pkgmetadata.Series{Status: pkgmetadata.SeriesStatusUpcoming}, now))
   }
   ```
-  Run `go test ./catalogarr/metadata/... -run 'TestMovieRefreshState|TestSeriesRefreshState'` — expect a build failure. Implement in `catalogarr/metadata/target.go` (append):
+  Run `go test ./app/catalog/metadata/... -run 'TestMovieRefreshState|TestSeriesRefreshState'` — expect a build failure. Implement in `app/catalog/metadata/target.go` (append):
   ```go
   // movieRefreshState derives the RefreshTTL state bucket from a fetched
   // Movie's own fields — RefreshTTL does not know about CRDs or providers,
@@ -5606,12 +5606,12 @@ comment noted above.
       }
   }
   ```
-  Run `go test ./catalogarr/metadata/... -run 'TestMovieRefreshState|TestSeriesRefreshState' -v` — expect PASS.
-  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr/metadata): refresh-state derivation for RefreshTTL" -- catalogarr/metadata/target.go catalogarr/metadata/target_test.go`
+  Run `go test ./app/catalog/metadata/... -run 'TestMovieRefreshState|TestSeriesRefreshState' -v` — expect PASS.
+  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(app/catalog/metadata): refresh-state derivation for RefreshTTL" -- app/catalog/metadata/target.go app/catalog/metadata/target_test.go`
 
-- [ ] **Step 7: build `MovieMetadataApplyConfiguration` from a fetched `*pkgmetadata.Movie`.** Failing test first, with the real values from `testdata/metadata/tmdb/movie_27205.json` (via the already-recorded fixture, not invented ones) plus enough extra fields to exercise the cap/filter logic.
+- [ ] **Step 7: build `MovieMetadataApplyConfiguration` from a fetched `*pkgmetadata.Movie`.** Failing test first, with the real values from `test/data/metadata/tmdb/movie_27205.json` (via the already-recorded fixture, not invented ones) plus enough extra fields to exercise the cap/filter logic.
 
-  `catalogarr/metadata/patch_test.go`:
+  `app/catalog/metadata/patch_test.go`:
   ```go
   package metadata
 
@@ -5695,7 +5695,7 @@ comment noted above.
       require.Nil(t, ac.Collection, "CollectionRef.TmdbID is +required; without one, omit the collection rather than send a zero id")
   }
   ```
-  Run `go test ./catalogarr/metadata/... -run TestBuildMovieMetadataAC` — expect a build failure (`buildMovieMetadataAC`, `mapImageType` undefined). Implement `catalogarr/metadata/patch.go`:
+  Run `go test ./app/catalog/metadata/... -run TestBuildMovieMetadataAC` — expect a build failure (`buildMovieMetadataAC`, `mapImageType` undefined). Implement `app/catalog/metadata/patch.go`:
   ```go
   package metadata
 
@@ -5791,12 +5791,12 @@ comment noted above.
       return ac
   }
   ```
-  Run `go test ./catalogarr/metadata/... -run TestBuildMovieMetadataAC -v` — expect PASS.
-  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr/metadata): map fetched Movie into MovieMetadata's apply configuration" -- catalogarr/metadata/patch.go catalogarr/metadata/patch_test.go`
+  Run `go test ./app/catalog/metadata/... -run TestBuildMovieMetadataAC -v` — expect PASS.
+  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(app/catalog/metadata): map fetched Movie into MovieMetadata's apply configuration" -- app/catalog/metadata/patch.go app/catalog/metadata/patch_test.go`
 
 - [ ] **Step 8: the same for Series.** Failing test first — Series' CRD `AlternateTitles` is `[]AltTitle` (not `[]string` like Movie's), so this is a genuinely different mapping, not a copy-paste.
 
-  Append to `catalogarr/metadata/patch_test.go`:
+  Append to `app/catalog/metadata/patch_test.go`:
   ```go
   func TestBuildSeriesMetadataACMapsAlternateTitlesAsStructsNotStrings(t *testing.T) {
       scene := int32(1)
@@ -5829,7 +5829,7 @@ comment noted above.
       require.Len(t, ac.AlternateTitles, 100, "SeriesMetadata.AlternateTitles: +kubebuilder:validation:MaxItems=100")
   }
   ```
-  Run `go test ./catalogarr/metadata/... -run TestBuildSeriesMetadataAC` — expect a build failure. Implement in `catalogarr/metadata/patch.go` (append):
+  Run `go test ./app/catalog/metadata/... -run TestBuildSeriesMetadataAC` — expect a build failure. Implement in `app/catalog/metadata/patch.go` (append):
   ```go
   // buildSeriesMetadataAC maps a fetched provider Series onto
   // SeriesStatus.metadata. Unlike Movie, Series' CRD AlternateTitles is
@@ -5876,12 +5876,12 @@ comment noted above.
       return ac
   }
   ```
-  Run `go test ./catalogarr/metadata/... -run TestBuildSeriesMetadataAC -v` — expect PASS.
-  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr/metadata): map fetched Series into SeriesMetadata's apply configuration" -- catalogarr/metadata/patch.go catalogarr/metadata/patch_test.go`
+  Run `go test ./app/catalog/metadata/... -run TestBuildSeriesMetadataAC -v` — expect PASS.
+  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(app/catalog/metadata): map fetched Series into SeriesMetadata's apply configuration" -- app/catalog/metadata/patch.go app/catalog/metadata/patch_test.go`
 
 - [ ] **Step 9: build the `Registry` from `MetadataProvider` CRs.** Failing test first, using the controller-runtime fake client for `Get` (secrets) — no network, since provider construction never calls out.
 
-  `catalogarr/metadata/registry_test.go`:
+  `app/catalog/metadata/registry_test.go`:
   ```go
   package metadata
 
@@ -5955,7 +5955,7 @@ comment noted above.
       require.Error(t, err)
   }
   ```
-  Run `go test ./catalogarr/metadata/... -run TestBuildRegistry` — expect a build failure. Implement `catalogarr/metadata/registry.go`:
+  Run `go test ./app/catalog/metadata/... -run TestBuildRegistry` — expect a build failure. Implement `app/catalog/metadata/registry.go`:
   ```go
   package metadata
 
@@ -6059,12 +6059,12 @@ comment noted above.
       return string(v), nil
   }
   ```
-  Run `go test ./catalogarr/metadata/... -run TestBuildRegistry -v` — expect PASS.
-  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr/metadata): build the provider Registry from MetadataProvider CRs" -- catalogarr/metadata/registry.go catalogarr/metadata/registry_test.go`
+  Run `go test ./app/catalog/metadata/... -run TestBuildRegistry -v` — expect PASS.
+  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(app/catalog/metadata): build the provider Registry from MetadataProvider CRs" -- app/catalog/metadata/registry.go app/catalog/metadata/registry_test.go`
 
 - [ ] **Step 10: the work-queue `Handler`, happy path.** This needs a real apiserver for `k8s.PatchStatus`'s SSA semantics, so it is an envtest file (mirror `pkg/k8s/patch_envtest_test.go`'s `newTestClient` helper) combined with an `httptest` TMDB stub reusing the verified fixture. Failing test first.
 
-  `catalogarr/metadata/worker_envtest_test.go`:
+  `app/catalog/metadata/worker_envtest_test.go`:
   ```go
   package metadata_test
 
@@ -6188,7 +6188,7 @@ comment noted above.
   func (m testMessage) Term(context.Context, string) error       { return nil }
   func (m testMessage) InProgress(context.Context) error         { return nil }
   ```
-  Run `go test ./catalogarr/metadata/... -run TestHandlerFetchesFromTheProvider` with `KUBEBUILDER_ASSETS` unset — expect **SKIP** (confirms the guard works) and a build failure on `metadata.Handler`/`Handle` (not yet implemented) once you fix the skip by running under `make test`. Implement `catalogarr/metadata/worker.go`:
+  Run `go test ./app/catalog/metadata/... -run TestHandlerFetchesFromTheProvider` with `KUBEBUILDER_ASSETS` unset — expect **SKIP** (confirms the guard works) and a build failure on `metadata.Handler`/`Handle` (not yet implemented) once you fix the skip by running under `make test`. Implement `app/catalog/metadata/worker.go`:
   ```go
   package metadata
 
@@ -6323,7 +6323,7 @@ comment noted above.
       return nil
   }
   ```
-  Add the `cacheKey` helper to `catalogarr/metadata/cache.go` (append):
+  Add the `cacheKey` helper to `app/catalog/metadata/cache.go` (append):
   ```go
   // cacheKey builds an item-level cache key: <kind>:<sorted k=v external ids>.
   // See this task's "Judgment calls" for why this deliberately drops the
@@ -6341,8 +6341,8 @@ comment noted above.
       return string(kind) + ":" + strings.Join(parts, ",")
   }
   ```
-  (add `"sort"`, `"strings"` and `commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"` to `cache.go`'s imports). Add a small `cacheKey` unit test to `cache_test.go` asserting a deterministic, sorted key for a multi-key `ExternalIDs` map. Run `KUBEBUILDER_ASSETS=$(setup-envtest use 1.37.0 -p path) go test ./catalogarr/metadata/... -run TestHandlerFetchesFromTheProvider -v` — expect PASS.
-  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr/metadata): work-queue Handler happy path" -- catalogarr/metadata/worker.go catalogarr/metadata/worker_envtest_test.go catalogarr/metadata/cache.go catalogarr/metadata/cache_test.go`
+  (add `"sort"`, `"strings"` and `commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"` to `cache.go`'s imports). Add a small `cacheKey` unit test to `cache_test.go` asserting a deterministic, sorted key for a multi-key `ExternalIDs` map. Run `KUBEBUILDER_ASSETS=$(setup-envtest use 1.37.0 -p path) go test ./app/catalog/metadata/... -run TestHandlerFetchesFromTheProvider -v` — expect PASS.
+  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(app/catalog/metadata): work-queue Handler happy path" -- app/catalog/metadata/worker.go app/catalog/metadata/worker_envtest_test.go app/catalog/metadata/cache.go app/catalog/metadata/cache_test.go`
 
 - [ ] **Step 11: `Handler` cache-hit path skips the provider entirely.** Failing test first, using a fake `MovieProvider` that fails the test if called.
 
@@ -6400,8 +6400,8 @@ comment noted above.
       require.Equal(t, "Inception (cached)", got.Status.Metadata.Title)
   }
   ```
-  Run it — it should already PASS against Step 10's implementation (this step is a regression guard, not new production code; if it fails, the cache-check-before-Lookup ordering in `Handle` is wrong and needs fixing). Run `KUBEBUILDER_ASSETS=... go test ./catalogarr/metadata/... -run TestHandlerSkipsTheProviderOnACacheHit -v` — expect PASS with no changes to `worker.go`.
-  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "test(catalogarr/metadata): cache hit must not call the provider" -- catalogarr/metadata/worker_envtest_test.go`
+  Run it — it should already PASS against Step 10's implementation (this step is a regression guard, not new production code; if it fails, the cache-check-before-Lookup ordering in `Handle` is wrong and needs fixing). Run `KUBEBUILDER_ASSETS=... go test ./app/catalog/metadata/... -run TestHandlerSkipsTheProviderOnACacheHit -v` — expect PASS with no changes to `worker.go`.
+  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "test(app/catalog/metadata): cache hit must not call the provider" -- app/catalog/metadata/worker_envtest_test.go`
 
 - [ ] **Step 12: `Handler` settlement and unsupported-kind paths.** Failing test first, using a fake provider returning `pkgmetadata` sentinels.
 
@@ -6484,12 +6484,12 @@ comment noted above.
       require.ErrorAs(t, err, &de)
   }
   ```
-  These should already PASS given Steps 1 and 10's implementations (settlement mapping is already wired into `Handle`, and `newTarget` already returns an error for `MediaKindArtist` that `Handle` turns into `events.Discard`). Run `KUBEBUILDER_ASSETS=... go test ./catalogarr/metadata/... -run 'TestHandlerMaps|TestHandlerDiscards' -v` — expect PASS with no `worker.go` changes; if any fails, fix the specific ordering bug in `Handle` it exposes (do not weaken the test).
-  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "test(catalogarr/metadata): Handler settlement and unsupported-kind coverage" -- catalogarr/metadata/worker_envtest_test.go`
+  These should already PASS given Steps 1 and 10's implementations (settlement mapping is already wired into `Handle`, and `newTarget` already returns an error for `MediaKindArtist` that `Handle` turns into `events.Discard`). Run `KUBEBUILDER_ASSETS=... go test ./app/catalog/metadata/... -run 'TestHandlerMaps|TestHandlerDiscards' -v` — expect PASS with no `worker.go` changes; if any fails, fix the specific ordering bug in `Handle` it exposes (do not weaken the test).
+  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "test(app/catalog/metadata): Handler settlement and unsupported-kind coverage" -- app/catalog/metadata/worker_envtest_test.go`
 
 - [ ] **Step 13: the RPC `lookup` responder.** Failing test first, over `membus` (no CRs involved — this path never touches Kubernetes).
 
-  `catalogarr/metadata/rpc_test.go`:
+  `app/catalog/metadata/rpc_test.go`:
   ```go
   package metadata
 
@@ -6555,7 +6555,7 @@ comment noted above.
       require.NotEmpty(t, resp.Error)
   }
   ```
-  (add `"encoding/json"` to the imports.) Run `go test ./catalogarr/metadata/... -run TestServeRPCLookup` — expect a build failure (`ServeRPC` undefined). Implement `catalogarr/metadata/rpc.go` (lookup only for this step):
+  (add `"encoding/json"` to the imports.) Run `go test ./app/catalog/metadata/... -run TestServeRPCLookup` — expect a build failure (`ServeRPC` undefined). Implement `app/catalog/metadata/rpc.go` (lookup only for this step):
   ```go
   package metadata
 
@@ -6627,8 +6627,8 @@ comment noted above.
       }
   }
   ```
-  Run `go test ./catalogarr/metadata/... -run TestServeRPCLookup -v` — expect PASS.
-  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr/metadata): RPC lookup responder" -- catalogarr/metadata/rpc.go catalogarr/metadata/rpc_test.go`
+  Run `go test ./app/catalog/metadata/... -run TestServeRPCLookup -v` — expect PASS.
+  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(app/catalog/metadata): RPC lookup responder" -- app/catalog/metadata/rpc.go app/catalog/metadata/rpc_test.go`
 
 - [ ] **Step 14: RPC `search` and `resolve`.** Failing test first.
 
@@ -6694,7 +6694,7 @@ comment noted above.
       require.Equal(t, "tt1375666", resp.IDs["imdb"])
   }
   ```
-  Run `go test ./catalogarr/metadata/... -run 'TestServeRPCSearch|TestServeRPCResolve'` — expect a build failure (only `lookup` is registered). Implement in `catalogarr/metadata/rpc.go` (extend the `handlers` map and add the two functions):
+  Run `go test ./app/catalog/metadata/... -run 'TestServeRPCSearch|TestServeRPCResolve'` — expect a build failure (only `lookup` is registered). Implement in `app/catalog/metadata/rpc.go` (extend the `handlers` map and add the two functions):
   ```go
   // add to the handlers map in ServeRPC:
   events.RPCMetadataSearch:  func(ctx context.Context, req schema.MetadataRequest) schema.MetadataResponse { return search(ctx, reg, req) },
@@ -6761,8 +6761,8 @@ comment noted above.
       return out
   }
   ```
-  Run `go test ./catalogarr/metadata/... -run 'TestServeRPCSearch|TestServeRPCResolve' -v` — expect PASS.
-  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr/metadata): RPC search and resolve responders" -- catalogarr/metadata/rpc.go catalogarr/metadata/rpc_test.go`
+  Run `go test ./app/catalog/metadata/... -run 'TestServeRPCSearch|TestServeRPCResolve' -v` — expect PASS.
+  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(app/catalog/metadata): RPC search and resolve responders" -- app/catalog/metadata/rpc.go app/catalog/metadata/rpc_test.go`
 
 - [ ] **Step 15: episode listing on the `lookup` subject — the Task C6 contract.** Failing test first.
 
@@ -6824,7 +6824,7 @@ comment noted above.
       require.NotEmpty(t, resp.Error)
   }
   ```
-  (add `"fmt"` and `"time"` to `rpc_test.go`'s imports.) Run `go test ./catalogarr/metadata/... -run TestServeRPCLookupListsEpisodes -v` and `-run TestServeRPCLookupEpisodesRequiresATVDBID` — expect a build failure (`lookupEpisodes` undefined; the existing `lookup()` sends `MediaKindEpisode` into `Registry.Lookup`, which has no such case and returns a generic "does not support kind" error, so the first test fails on `resp.Provider` being empty rather than on a build error — either way, red). Implement in `catalogarr/metadata/rpc.go`:
+  (add `"fmt"` and `"time"` to `rpc_test.go`'s imports.) Run `go test ./app/catalog/metadata/... -run TestServeRPCLookupListsEpisodes -v` and `-run TestServeRPCLookupEpisodesRequiresATVDBID` — expect a build failure (`lookupEpisodes` undefined; the existing `lookup()` sends `MediaKindEpisode` into `Registry.Lookup`, which has no such case and returns a generic "does not support kind" error, so the first test fails on `resp.Provider` being empty rather than on a build error — either way, red). Implement in `app/catalog/metadata/rpc.go`:
   ```go
   // lookup answers rpc.catalogarr.metadata.lookup. MediaKindEpisode is a
   // verb Task C6 needs and pkg/metadata.Registry.Lookup does not support
@@ -6874,12 +6874,12 @@ comment noted above.
       return schema.MetadataResponse{Kind: req.Kind, Error: lastErr.Error()}
   }
   ```
-  This replaces the earlier, simpler `lookup` from Step 13 in place — the new version wraps the old body unchanged except for the `MediaKindEpisode` branch at the top. Run `go test ./catalogarr/metadata/... -run 'TestServeRPCLookup' -v` (covers both the Step 13 fixture-based test and these two) — expect PASS.
-  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr/metadata): episode listing on rpc.catalogarr.metadata.lookup (Task C6 contract)" -- catalogarr/metadata/rpc.go catalogarr/metadata/rpc_test.go`
+  This replaces the earlier, simpler `lookup` from Step 13 in place — the new version wraps the old body unchanged except for the `MediaKindEpisode` branch at the top. Run `go test ./app/catalog/metadata/... -run 'TestServeRPCLookup' -v` (covers both the Step 13 fixture-based test and these two) — expect PASS.
+  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(app/catalog/metadata): episode listing on rpc.catalogarr.metadata.lookup (Task C6 contract)" -- app/catalog/metadata/rpc.go app/catalog/metadata/rpc_test.go`
 
 - [ ] **Step 16: `Setup` wiring.** Failing test first — a smoke test that `Setup` builds a registry, subscribes and serves RPC without error, using membus + envtest client (this is the one place both are needed together).
 
-  `catalogarr/metadata/gateway_envtest_test.go` (part 1):
+  `app/catalog/metadata/gateway_envtest_test.go` (part 1):
   ```go
   package metadata_test
 
@@ -6914,7 +6914,7 @@ comment noted above.
       require.Error(t, err)
   }
   ```
-  Run `go test ./catalogarr/metadata/... -run TestSetup` — expect a build failure (`metadata.Setup` undefined). Implement `catalogarr/metadata/gateway.go`:
+  Run `go test ./app/catalog/metadata/... -run TestSetup` — expect a build failure (`metadata.Setup` undefined). Implement `app/catalog/metadata/gateway.go`:
   ```go
   package metadata
 
@@ -6943,7 +6943,7 @@ comment noted above.
   // Setup builds the metadata gateway (the Registry from every enabled
   // MetadataProvider, the two-tier cache, the work-queue Handler and the RPC
   // responders) and starts consuming. It is RoleMetadata's entire job;
-  // catalogarr/run.go's setupWorkers is expected to call this once, guarded
+  // app/catalog/run.go's setupWorkers is expected to call this once, guarded
   // by o.Role.Has(catalogarr.RoleMetadata) (a different Phase C task's path
   // — see "Interfaces — Produces").
   func Setup(ctx context.Context, o Options) (stop func(), err error) {
@@ -6995,8 +6995,8 @@ comment noted above.
       return stopSub, nil
   }
   ```
-  (add `"sigs.k8s.io/controller-runtime/pkg/client"` to the imports). Run `KUBEBUILDER_ASSETS=... go test ./catalogarr/metadata/... -run TestSetup -v` — expect PASS.
-  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr/metadata): Setup wires the registry, cache, worker and RPC" -- catalogarr/metadata/gateway.go catalogarr/metadata/gateway_envtest_test.go`
+  (add `"sigs.k8s.io/controller-runtime/pkg/client"` to the imports). Run `KUBEBUILDER_ASSETS=... go test ./app/catalog/metadata/... -run TestSetup -v` — expect PASS.
+  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(app/catalog/metadata): Setup wires the registry, cache, worker and RPC" -- app/catalog/metadata/gateway.go app/catalog/metadata/gateway_envtest_test.go`
 
 - [ ] **Step 17: the two-manager SSA no-clobber proof.** This is the specific envtest case the task brief calls for. Mirror `pkg/k8s/patch_envtest_test.go`'s `TestPatchStatusTwoManagersDoNotClobber` exactly, but for `Movie`: `catalogarr` (a different task's controller) owns `status.phase`/`status.conditions`; this task's `catalogarr-worker` owns `status.metadata`; applying one must never erase the other. Write the test first (it should fail only if `k8s.PatchStatus`'s SSA behaviour or the two apply configurations overlap a field — which they must not, by construction — so this step is a proof, and failure here means a real bug to fix, not a test to weaken).
 
@@ -7068,23 +7068,23 @@ comment noted above.
       require.True(t, sawCatalogarr && sawWorker, "both field managers must own a status entry")
   }
   ```
-  Add `catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"` and `metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"` (matching `pkg/k8s/patch.go`'s own import of that package) to the imports. Run `KUBEBUILDER_ASSETS=... go test ./catalogarr/metadata/... -run TestTwoManagerSSASplitDoesNotClobberEitherSide -v` — expect PASS (SSA field-level ownership makes this pass by construction once `buildMovieMetadataAC`/`Handle` never touch `phase`/`conditions`, which Step 7/10 already established; if it fails, the bug is in this task's code, not the test).
-  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "test(catalogarr/metadata): prove the catalogarr/catalogarr-worker SSA split on Movie" -- catalogarr/metadata/gateway_envtest_test.go`
+  Add `catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"` and `metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"` (matching `pkg/k8s/patch.go`'s own import of that package) to the imports. Run `KUBEBUILDER_ASSETS=... go test ./app/catalog/metadata/... -run TestTwoManagerSSASplitDoesNotClobberEitherSide -v` — expect PASS (SSA field-level ownership makes this pass by construction once `buildMovieMetadataAC`/`Handle` never touch `phase`/`conditions`, which Step 7/10 already established; if it fails, the bug is in this task's code, not the test).
+  Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "test(app/catalog/metadata): prove the app/catalog/catalogarr-worker SSA split on Movie" -- app/catalog/metadata/gateway_envtest_test.go`
 
 ---
 
 **Verification:**
 ```bash
-go build ./catalogarr/...
-go vet ./catalogarr/...
-go test ./catalogarr/metadata/...                              # envtest suites SKIP here — confirm the SKIP lines appear, don't mistake them for a pass
-KUBEBUILDER_ASSETS="$(setup-envtest use 1.37.0 -p path)" go test ./catalogarr/metadata/... -v   # every test, including the envtest ones, must run and PASS
+go build ./app/catalog/...
+go vet ./app/catalog/...
+go test ./app/catalog/metadata/...                              # envtest suites SKIP here — confirm the SKIP lines appear, don't mistake them for a pass
+KUBEBUILDER_ASSETS="$(setup-envtest use 1.37.0 -p path)" go test ./app/catalog/metadata/... -v   # every test, including the envtest ones, must run and PASS
 go test ./pkg/obs/metrics/...                                  # the new series must not break the cardinality guard
-golangci-lint-v2 run ./catalogarr/metadata/... ./pkg/obs/metrics/...   # forbidigo must show zero Status().Update/Patch calls
+golangci-lint-v2 run ./app/catalog/metadata/... ./pkg/obs/metrics/...   # forbidigo must show zero Status().Update/Patch calls
 ```
 
 **Done when:**
-- [ ] `catalogarr/metadata/` builds and every unit test (`settle`, `cache`, `tieredcache`, `limiter`, `target`, `patch`, `registry`, `rpc`) passes with no `KUBEBUILDER_ASSETS` set, and the file-level `_test.go`s that don't need an apiserver actually run rather than skip.
+- [ ] `app/catalog/metadata/` builds and every unit test (`settle`, `cache`, `tieredcache`, `limiter`, `target`, `patch`, `registry`, `rpc`) passes with no `KUBEBUILDER_ASSETS` set, and the file-level `_test.go`s that don't need an apiserver actually run rather than skip.
 - [ ] Every `*_envtest_test.go` (`worker_envtest_test.go`, `gateway_envtest_test.go`) passes under `make test` / `KUBEBUILDER_ASSETS` set — not silently skipped.
 - [ ] `Handler.Handle` never calls `k8s.PatchStatus` with anything but a `status.metadata`-only apply configuration under `k8s.ManagerCatalogarrWorker` — verified by `TestTwoManagerSSASplitDoesNotClobberEitherSide` and by inspection of `worker.go`.
 - [ ] A rate-limited provider error becomes `events.Retry` honouring the provider's `RetryAfter`; a not-found error becomes `events.Discard`; an unsupported `MediaKind` becomes `events.Discard`; any other error passes through for the subscription's own backoff.
@@ -7092,10 +7092,10 @@ golangci-lint-v2 run ./catalogarr/metadata/... ./pkg/obs/metrics/...   # forbidi
 - [ ] `BuildRegistry` wires exactly the six implemented provider types (tmdb, tvdb, musicbrainz, openlibrary, audnexus, comicvine), skips disabled providers and unimplemented types, and errors clearly on a missing/short secret.
 - [ ] `ServeRPC` answers `lookup`, `search` and `resolve` on `clustarr.rpc.catalogarr.metadata.*` without touching any Kubernetes object.
 - [ ] `lookup` answers the Task C6 episode-listing contract: `Kind: MediaKindEpisode, IDs: {"tvdb": ..., "order": ...}` → `Results` of JSON-encoded `pkg/metadata.Episode`, routed to `SeriesProvider.Episodes`, not through `Registry.Lookup` (which has no `MediaKindEpisode` case) — confirmed by `TestServeRPCLookupListsEpisodesForTaskC6`.
-- [ ] `Setup` is the single exported entry point another task's `catalogarr/run.go` needs to wire `RoleMetadata` — confirmed by `TestSetupBuildsAndStartsTheGatewayWithNoProvidersConfigured`.
+- [ ] `Setup` is the single exported entry point another task's `app/catalog/run.go` needs to wire `RoleMetadata` — confirmed by `TestSetupBuildsAndStartsTheGatewayWithNoProvidersConfigured`.
 - [ ] `pkg/obs/metrics/domain.go`'s diff is exactly one appended `var (...)` block — no existing line touched.
 - [ ] Every file carries the GPL-3.0 header from `hack/boilerplate.go.txt`.
-- [ ] `golangci-lint-v2 run ./catalogarr/metadata/...` is clean, in particular forbidigo (no `Status().Update`/`Status().Patch` outside `pkg/k8s`).
+- [ ] `golangci-lint-v2 run ./app/catalog/metadata/...` is clean, in particular forbidigo (no `Status().Update`/`Status().Patch` outside `pkg/k8s`).
 
 ---
 
@@ -7103,17 +7103,17 @@ golangci-lint-v2 run ./catalogarr/metadata/... ./pkg/obs/metrics/...   # forbidi
 
 > **Controller amendments (binding; they override the text below where they differ).**
 >
-> 1. **Do not duplicate `FileState`/`DownloadOverlay` between `movie/` and `episode/`.** The section flags this as the one deliberate duplication because the task owns no shared directory — so this amendment gives it one. Task C6 additionally owns **`catalogarr/controller/rollup/`**; put both pure functions there, with their table tests, and import them from both controllers. Verbatim duplication of a logic block is a named review defect in this project (Phase B's reviews raised it twice), and a shared package of pure functions costs nothing.
+> 1. **Do not duplicate `FileState`/`DownloadOverlay` between `movie/` and `episode/`.** The section flags this as the one deliberate duplication because the task owns no shared directory — so this amendment gives it one. Task C6 additionally owns **`app/catalog/controller/rollup/`**; put both pure functions there, with their table tests, and import them from both controllers. Verbatim duplication of a logic block is a named review defect in this project (Phase B's reviews raised it twice), and a shared package of pure functions costs nothing.
 > 2. Everything else in the amended section stands, including: Series takes `Owns(&Episode{})` guarded by `StatusFieldChanged` on `HasFile` rather than a direct watch (its status has no `HasFile`/`ActiveDownloadRef` fields); the `Download` leg is built and unit-tested here but only exercised end to end in Phase D; `MonitorSpecials`/`UnmonitorSpecials` touch season 0 only; and the recency windows are named exported constants documented as chosen defaults.
 
 
 **Files:**
-- Create: `catalogarr/controller/movie/doc.go`, `catalogarr/controller/movie/availability.go`, `catalogarr/controller/movie/availability_test.go`, `catalogarr/controller/movie/path.go`, `catalogarr/controller/movie/path_test.go`, `catalogarr/controller/movie/phase.go`, `catalogarr/controller/movie/phase_test.go`, `catalogarr/controller/movie/filestate.go`, `catalogarr/controller/movie/filestate_test.go`, `catalogarr/controller/movie/downloadoverlay.go`, `catalogarr/controller/movie/downloadoverlay_test.go`, `catalogarr/controller/movie/reconciler.go`, `catalogarr/controller/movie/reconciler_test.go`
-- Create: `catalogarr/controller/series/doc.go`, `catalogarr/controller/series/order.go`, `catalogarr/controller/series/order_test.go`, `catalogarr/controller/series/fanout.go`, `catalogarr/controller/series/fanout_test.go`, `catalogarr/controller/series/path.go`, `catalogarr/controller/series/path_test.go`, `catalogarr/controller/series/rollup.go`, `catalogarr/controller/series/rollup_test.go`, `catalogarr/controller/series/phase.go`, `catalogarr/controller/series/phase_test.go`, `catalogarr/controller/series/reconciler.go`, `catalogarr/controller/series/reconciler_test.go`
-- Create: `catalogarr/controller/episode/doc.go`, `catalogarr/controller/episode/phase.go`, `catalogarr/controller/episode/phase_test.go`, `catalogarr/controller/episode/filestate.go`, `catalogarr/controller/episode/filestate_test.go`, `catalogarr/controller/episode/downloadoverlay.go`, `catalogarr/controller/episode/downloadoverlay_test.go`, `catalogarr/controller/episode/reconciler.go`, `catalogarr/controller/episode/reconciler_test.go`
-- Do NOT modify: `catalogarr/run.go` (see "Registration lines for C12" at the end), `api/**`, `pkg/**`.
+- Create: `app/catalog/controller/movie/doc.go`, `app/catalog/controller/movie/availability.go`, `app/catalog/controller/movie/availability_test.go`, `app/catalog/controller/movie/path.go`, `app/catalog/controller/movie/path_test.go`, `app/catalog/controller/movie/phase.go`, `app/catalog/controller/movie/phase_test.go`, `app/catalog/controller/movie/filestate.go`, `app/catalog/controller/movie/filestate_test.go`, `app/catalog/controller/movie/downloadoverlay.go`, `app/catalog/controller/movie/downloadoverlay_test.go`, `app/catalog/controller/movie/reconciler.go`, `app/catalog/controller/movie/reconciler_test.go`
+- Create: `app/catalog/controller/series/doc.go`, `app/catalog/controller/series/order.go`, `app/catalog/controller/series/order_test.go`, `app/catalog/controller/series/fanout.go`, `app/catalog/controller/series/fanout_test.go`, `app/catalog/controller/series/path.go`, `app/catalog/controller/series/path_test.go`, `app/catalog/controller/series/rollup.go`, `app/catalog/controller/series/rollup_test.go`, `app/catalog/controller/series/phase.go`, `app/catalog/controller/series/phase_test.go`, `app/catalog/controller/series/reconciler.go`, `app/catalog/controller/series/reconciler_test.go`
+- Create: `app/catalog/controller/episode/doc.go`, `app/catalog/controller/episode/phase.go`, `app/catalog/controller/episode/phase_test.go`, `app/catalog/controller/episode/filestate.go`, `app/catalog/controller/episode/filestate_test.go`, `app/catalog/controller/episode/downloadoverlay.go`, `app/catalog/controller/episode/downloadoverlay_test.go`, `app/catalog/controller/episode/reconciler.go`, `app/catalog/controller/episode/reconciler_test.go`
+- Do NOT modify: `app/catalog/run.go` (see "Registration lines for C12" at the end), `api/**`, `pkg/**`.
 
-**Path ownership:** `catalogarr/controller/movie/`, `catalogarr/controller/series/`, `catalogarr/controller/episode/`, and nothing else. These three packages are disjoint from every other Phase C task's paths.
+**Path ownership:** `app/catalog/controller/movie/`, `app/catalog/controller/series/`, `app/catalog/controller/episode/`, and nothing else. These three packages are disjoint from every other Phase C task's paths.
 
 **Read first:**
 - Spec §8.1 (Want) in full — it is quoted and walked step by step below, so read it once for the shape, then follow this section's breakdown rather than re-deriving it.
@@ -7225,7 +7225,7 @@ If Task C5 lands a different shape, this is the seam to reconcile — flag it in
 ## Interfaces — Produces
 
 ```go
-// catalogarr/controller/movie
+// app/catalog/controller/movie
 func Availability(min catalogv1alpha1.MinimumAvailability, meta *catalogv1alpha1.MovieMetadata, delayDays int32, now time.Time) (available bool, availableAt time.Time)
 // Phase gained hasFile/cutoffMet in review (Steps 20-22): a file already
 // imported outranks availability entirely, so the hasFile checks are
@@ -7238,7 +7238,7 @@ func DownloadOverlay(dl *downloadv1alpha1.Download) (phase catalogv1alpha1.Movie
 type Reconciler struct { client.Client; Scheme *runtime.Scheme; Recorder record.EventRecorder; Bus events.Publisher }
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error
 
-// catalogarr/controller/series
+// app/catalog/controller/series
 func EffectiveEpisodeOrder(seriesType catalogv1alpha1.SeriesType, order catalogv1alpha1.EpisodeOrder) catalogv1alpha1.EpisodeOrder
 func EpisodeName(seriesName string, seriesType catalogv1alpha1.SeriesType, season, episode int32, airDate *time.Time) string
 func InitialEpisodeMonitored(mode catalogv1alpha1.SeriesMonitorMode, ep EpisodeCandidate, all []EpisodeCandidate, runStatus catalogv1alpha1.SeriesRunStatus, now time.Time) bool
@@ -7251,7 +7251,7 @@ type Reconciler struct { client.Client; Scheme *runtime.Scheme; Recorder record.
 // controller's own MediaFile watch, Steps 24-25) re-triggers Series's Rollup.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error
 
-// catalogarr/controller/episode
+// app/catalog/controller/episode
 // Phase gained hasFile/cutoffMet in review (Steps 20, 25), same reasoning as Movie's.
 func Phase(monitored bool, airDate *metav1.Time, hasFile, cutoffMet bool, now time.Time) catalogv1alpha1.EpisodePhase
 // FileState and DownloadOverlay: new in review, Step 24 -- same shape as
@@ -7292,7 +7292,7 @@ Note the delay is applied to *every* known date, including the `InCinemas`-known
 
 - [ ] **Step 1: `Availability` — failing test, real cases**
 
-`catalogarr/controller/movie/availability_test.go`:
+`app/catalog/controller/movie/availability_test.go`:
 ```go
 package movie_test
 
@@ -7353,10 +7353,10 @@ func TestAvailability(t *testing.T) {
 	}
 }
 ```
-Run: `go test ./catalogarr/controller/movie/... -run TestAvailability` — fails, package does not exist yet.
+Run: `go test ./app/catalog/controller/movie/... -run TestAvailability` — fails, package does not exist yet.
 
 Implement `availability.go` to the pseudocode above (delay as `time.Duration(delayDays) * 24 * time.Hour`; "known" tracks whether a date was found at all, distinct from the zero `time.Time{}` returned for TBA/Announced/never so callers can tell "always" from "never" — a `RequeueAfter` computed from a zero `availableAt` must never be used; see Step 5). Run again: green.
-`git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): port Radarr's Movie.IsAvailable as a pure function" -- catalogarr/controller/movie/availability.go catalogarr/controller/movie/availability_test.go`
+`git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): port Radarr's Movie.IsAvailable as a pure function" -- app/catalog/controller/movie/availability.go app/catalog/controller/movie/availability_test.go`
 
 - [ ] **Step 2: `Phase` (Movie) — failing test, then implementation**
 
@@ -7414,7 +7414,7 @@ Before asserting the exact literal, run `go doc -all ./pkg/naming` is not enough
 
 - [ ] **Step 4: envtest harness + finalizer, no early return**
 
-`reconciler_test.go` — copy `newTestClient` verbatim from `pkg/k8s/patch_envtest_test.go` (adjust `CRDDirectoryPaths` to `"../../../config/crd/bases"` — three levels up from `catalogarr/controller/movie/`), but this suite also needs a *running manager* (not just a client) because two of this task's required assertions are about watch predicates, which only fire through the real informer/workqueue path:
+`reconciler_test.go` — copy `newTestClient` verbatim from `pkg/k8s/patch_envtest_test.go` (adjust `CRDDirectoryPaths` to `"../../../config/crd/bases"` — three levels up from `app/catalog/controller/movie/`), but this suite also needs a *running manager* (not just a client) because two of this task's required assertions are about watch predicates, which only fire through the real informer/workqueue path:
 
 ```go
 func startManager(t *testing.T, ctx context.Context, cfg *rest.Config, bus events.Publisher) (client.Client, *reconcileCounter) {
@@ -7555,7 +7555,7 @@ k8s.Or(
 ```
 Test (uses the `reconcileCounter` from Step 4):
 1. Create the `Movie`, `require.Eventually` the counter is `>= 1` (initial create always passes both predicates), let it settle (`require.Never` further growth for e.g. 300ms).
-2. Record the counter value `n`. Patch `status.metadata` via `k8s.PatchStatus` under `k8s.ManagerCatalogarrWorker` (simulating the gateway — this task must NOT import `catalogarr/metadata`, Task C5's package; build the apply configuration directly with `catalogac.Movie(...).WithStatus(catalogac.MovieStatus().WithMetadata(...))`). `require.Eventually` the counter grows past `n` — the gateway's write must wake this controller.
+2. Record the counter value `n`. Patch `status.metadata` via `k8s.PatchStatus` under `k8s.ManagerCatalogarrWorker` (simulating the gateway — this task must NOT import `app/catalog/metadata`, Task C5's package; build the apply configuration directly with `catalogac.Movie(...).WithStatus(catalogac.MovieStatus().WithMetadata(...))`). `require.Eventually` the counter grows past `n` — the gateway's write must wake this controller.
 3. Record the new counter value `n2`. Reconcile naturally settles and this controller's own `PatchStatus` call (Step 6/7, under `ManagerCatalogarr`, touching `Phase`/`Conditions`/`AddOptionsApplied`/`Available`/`AvailableAt`/`Path` — never `Metadata`) fires. `require.Never` the counter grows past `n2` for e.g. 500ms — the controller's own write, which does not touch `status.metadata.refreshedAt`, must not pass the predicate and cause another reconcile. (If this flakes because the controller's *first* reconcile after the gateway's write itself bumps the counter once as part of step 2's expected growth, account for that — the counter growth from step 2 to step 3 should be exactly 1, not more; assert that precisely rather than just "some growth happened".)
 
 This is the concrete proof that `StatusFieldChanged` scoped to `Metadata.RefreshedAt` (not a blanket "any status changed") is what avoids the self-loop — a naïve `predicate.ResourceVersionChangedPredicate` here would fail this test by looping forever. Wire this predicate into `SetupWithManager`'s `For()` call. Commit.
@@ -7580,7 +7580,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 ```
-`go build ./catalogarr/...` (do not modify `run.go` — it will not compile-reference this package until C12; that's fine, `go build ./catalogarr/controller/...` is what you verify). Commit.
+`go build ./app/catalog/...` (do not modify `run.go` — it will not compile-reference this package until C12; that's fine, `go build ./app/catalog/controller/...` is what you verify). Commit.
 
 ---
 
@@ -7807,7 +7807,7 @@ Second case: reconcile again with the *same* fake (still returning the same 2 ep
 
 Third case (RPC error): fake returns `err: errors.New("timeout")`. Assert the reconcile does not fail catastrophically (`ctrl.Result{RequeueAfter: ...}` with a short backoff, e.g. 30s — pick a concrete value and assert it exactly, do not leave it "some backoff"), `conditions[EpisodesSynced]` stays `False`/`Unknown` with a reason surfacing the RPC failure, and — critically — that this failure does NOT block the Series' own `Phase`/`Path`/`MetadataReady` from having been set correctly in the same reconcile (episode sync is the last step, per the ordering this task inherited from §8.1's sentence structure).
 
-Implement: build the request as specified in "ASSUMED CONTRACT" above using `series.EffectiveEpisodeOrder(s.Spec.SeriesType, s.Spec.EpisodeOrder)` for `IDs["order"]`; `bus.Request(ctx, events.RPCMetadataLookup, req, &resp)` with a bounded `context.WithTimeout(ctx, 30*time.Second)`; unmarshal `resp.Results` into `[]metadata.Episode`; `r.List(ctx, &episodeList, client.InNamespace(s.Namespace), client.MatchingFields{ownerIndexKey: s.Name})` — add a field index in `SetupWithManager` (`mgr.GetFieldIndexer().IndexField(ctx, &catalogv1alpha1.Episode{}, ownerIndexKey, func(o client.Object) []string { ep := o.(*catalogv1alpha1.Episode); return []string{ep.Spec.SeriesRef} })`, per `docs/research/k8s.md` §5 rule 8) rather than listing every Episode in the namespace and filtering client-side; feed the existing names into `series.DesiredEpisodes`; for each desired row, `Get`-or-`Create` (set `Spec.SeriesRef/SeasonNumber/EpisodeNumber`, `Spec.Monitored` only when the row's `Monitored *bool != nil`, `k8s.SetControllerReference(s, &ep, r.Scheme)`); after create-or-confirm, `k8s.PatchStatus` each Episode's provider-sourced status fields (`TvdbID`, `Title`, `Overview`, `AirDate`, `RuntimeMinutes`, `AbsoluteNumber`) under `k8s.ManagerCatalogarr` — this is legal even though Episode has its *own* controller/package, because it is still the same conceptual "catalogarr" writer and the same field manager string; the Episode reconciler (Step 19) must never write these same fields itself, only `Phase`/`conditions[Aired]`, so the two stay on disjoint fields the same way grabarr/grabarr-engine do on `Download`. State this split explicitly in the Episode reconciler's own doc comment so it is not rediscovered by accident. Then call `series.Rollup` over the fetched `Episode` list and `PatchStatus` the `Series`'s `Seasons`/`EpisodeCount`/`EpisodeFileCount`. Commit.
+Implement: build the request as specified in "ASSUMED CONTRACT" above using `series.EffectiveEpisodeOrder(s.Spec.SeriesType, s.Spec.EpisodeOrder)` for `IDs["order"]`; `bus.Request(ctx, events.RPCMetadataLookup, req, &resp)` with a bounded `context.WithTimeout(ctx, 30*time.Second)`; unmarshal `resp.Results` into `[]metadata.Episode`; `r.List(ctx, &episodeList, client.InNamespace(s.Namespace), client.MatchingFields{ownerIndexKey: s.Name})` — add a field index in `SetupWithManager` (`mgr.GetFieldIndexer().IndexField(ctx, &catalogv1alpha1.Episode{}, ownerIndexKey, func(o client.Object) []string { ep := o.(*catalogv1alpha1.Episode); return []string{ep.Spec.SeriesRef} })`, per `docs/research/k8s.md` §5 rule 8) rather than listing every Episode in the namespace and filtering client-side; feed the existing names into `series.DesiredEpisodes`; for each desired row, `Get`-or-`Create` (set `Spec.SeriesRef/SeasonNumber/EpisodeNumber`, `Spec.Monitored` only when the row's `Monitored *bool != nil`, `k8s.SetControllerReference(s, &ep, r.Scheme)`); after create-or-confirm, `k8s.PatchStatus` each Episode's provider-sourced status fields (`TvdbID`, `Title`, `Overview`, `AirDate`, `RuntimeMinutes`, `AbsoluteNumber`) under `k8s.ManagerCatalogarr` — this is legal even though Episode has its *own* controller/package, because it is still the same conceptual "catalogarr" writer and the same field manager string; the Episode reconciler (Step 19) must never write these same fields itself, only `Phase`/`conditions[Aired]`, so the two stay on disjoint fields the same way app/grab/grabarr-engine do on `Download`. State this split explicitly in the Episode reconciler's own doc comment so it is not rediscovered by accident. Then call `series.Rollup` over the fetched `Episode` list and `PatchStatus` the `Series`'s `Seasons`/`EpisodeCount`/`EpisodeFileCount`. Commit.
 
 ---
 
@@ -7864,7 +7864,7 @@ Implement `reconciler.go` mirroring Movie's finalizer skeleton (no `Bus` field �
 
 Ruling: add these now, in this task, rather than leaving them for an unassigned future one — see "Scope boundary" above for why single-writer forces it here. Movie and Episode each get both watches; Series gets neither directly (it has no `HasFile`/`ActiveDownloadRef` fields) and instead gets `Owns(&Episode{})` so its existing `Rollup` (Step 14) stays live.
 
-- [ ] **Step 20: `FileState` — failing test, then implementation (write it once, land it twice: `catalogarr/controller/movie/filestate.go` and `catalogarr/controller/episode/filestate.go`)**
+- [ ] **Step 20: `FileState` — failing test, then implementation (write it once, land it twice: `app/catalog/controller/movie/filestate.go` and `app/catalog/controller/episode/filestate.go`)**
 
 Identical logic in both packages — this is the one deliberate duplication in this task. `movie` and `episode` are disjoint path-owned packages with no third, shared directory in this task's ownership to put a common helper in; ~20 lines duplicated once is cheaper than inventing a new shared package outside the three this task owns. Flag it as a candidate for a future `pkg/` extraction if a third consumer ever needs it.
 
@@ -7921,7 +7921,7 @@ func TestFileState(t *testing.T) {
 	})
 }
 ```
-(Build the `quality.Profile` fixture by hand rather than through `quality.FromCRD` here — this test is about `FileState`'s wiring, not `Profile.CutoffMet`'s own correctness, which is Phase B's already-tested territory.) Run red, implement, run green, commit each package path-scoped separately (`-- catalogarr/controller/movie/filestate*.go` and `-- catalogarr/controller/episode/filestate*.go`).
+(Build the `quality.Profile` fixture by hand rather than through `quality.FromCRD` here — this test is about `FileState`'s wiring, not `Profile.CutoffMet`'s own correctness, which is Phase B's already-tested territory.) Run red, implement, run green, commit each package path-scoped separately (`-- app/catalog/controller/movie/filestate*.go` and `-- app/catalog/controller/episode/filestate*.go`).
 
 - [ ] **Step 21: `DownloadOverlay` — failing test, then implementation (same duplication rule as Step 20)**
 
@@ -8080,7 +8080,7 @@ envtest: reuse Step 17's fan-out fixture; after two `Episode`s exist, `k8s.Patch
 
 - [ ] **Step 24: Episode's own `FileState`/`DownloadOverlay`**
 
-Same as Steps 20-21, landed in `catalogarr/controller/episode/`, with `DownloadOverlay` returning `catalogv1alpha1.EpisodePhase` (`EpisodePhaseDelayed`/`EpisodePhaseDownloading` instead of Movie's `MoviePhase` equivalents — same switch). Commit path-scoped.
+Same as Steps 20-21, landed in `app/catalog/controller/episode/`, with `DownloadOverlay` returning `catalogv1alpha1.EpisodePhase` (`EpisodePhaseDelayed`/`EpisodePhaseDownloading` instead of Movie's `MoviePhase` equivalents — same switch). Commit path-scoped.
 
 - [ ] **Step 25: wire both watches into the Episode reconciler**
 
@@ -8095,7 +8095,7 @@ Same `Phase`/`ActiveDownloadRef`/`HasFile`/`FileRef`/`FileQuality`/`FileFormatSc
 
 ---
 
-## Registration lines for C12 (`catalogarr/run.go`) — you do not own this file, do not edit it
+## Registration lines for C12 (`app/catalog/run.go`) — you do not own this file, do not edit it
 
 `setupControllers`'s current signature is `func setupControllers(mgr ctrl.Manager, o Options) error` and its call site in `Run` is `setupControllers(mgr, o)`. Both this task's Movie/Series controllers need the bus (`events.Publisher`/`events.Bus`), which today only `setupWorkers` receives. C12 must:
 
@@ -8128,10 +8128,10 @@ with imports `moviecontroller "github.com/mediactl/clustarr/catalogarr/controlle
 
 **Verification:**
 ```bash
-go build ./catalogarr/... && go vet ./catalogarr/...
-go test -count=1 -race ./catalogarr/controller/movie/... ./catalogarr/controller/series/... ./catalogarr/controller/episode/... -run 'TestAvailability|TestPhase|TestPath|TestEffectiveEpisodeOrder|TestEpisodeName|TestInitialEpisodeMonitored|TestDesiredEpisodes|TestRollup|TestFileState|TestDownloadOverlay'
+go build ./app/catalog/... && go vet ./app/catalog/...
+go test -count=1 -race ./app/catalog/controller/movie/... ./app/catalog/controller/series/... ./app/catalog/controller/episode/... -run 'TestAvailability|TestPhase|TestPath|TestEffectiveEpisodeOrder|TestEpisodeName|TestInitialEpisodeMonitored|TestDesiredEpisodes|TestRollup|TestFileState|TestDownloadOverlay'
 export KUBEBUILDER_ASSETS=$(/home/appkins/go/bin/setup-envtest use 1.37.0 -p path)
-go test -count=1 -race ./catalogarr/controller/movie/... ./catalogarr/controller/series/... ./catalogarr/controller/episode/...
+go test -count=1 -race ./app/catalog/controller/movie/... ./app/catalog/controller/series/... ./app/catalog/controller/episode/...
 make lint
 ```
 Every envtest (`TestMovieReconciler...`, `TestSeriesReconciler...`, `TestEpisodeReconciler...` — name them so `go test -v` output makes the finalizer/addOptions/fanout/predicate/MediaFile-watch/Download-watch cases individually visible) must take real wall-clock time (multiple seconds, from spinning up `envtest.Environment` and a real manager) — a suite finishing in milliseconds means `KUBEBUILDER_ASSETS` was not picked up and it skipped silently; check the `go test -v` output for `--- SKIP`, not just exit code 0.
@@ -8145,7 +8145,7 @@ Every envtest (`TestMovieReconciler...`, `TestSeriesReconciler...`, `TestEpisode
 - [ ] A gateway-style `status.metadata` patch (`ManagerCatalogarrWorker`) demonstrably re-triggers this controller's own reconcile; this controller's own status patch (`ManagerCatalogarr`) demonstrably does not re-trigger itself. The same self-loop guard is proven for Series's `Owns(&Episode{})` watch (Step 23) and (implicitly, by using the same `GenerationChanged` predicate) for the Movie/Episode `MediaFile`/`Download` watches.
 - [ ] `ErrQueueFull` from a publish sets `QueueFull=True` and requeues after exactly 1 minute.
 - [ ] Movie and Episode both roll up `HasFile`/`FileRef`/`FileQuality`/`FileFormatScore`/`CutoffMet` from a watched `MediaFile` and reach `Phase=Imported`/`CutoffUnmet`; Series's `EpisodeFileCount`/`Seasons[].EpisodeFileCount` reflect an owned Episode's `HasFile` without a direct watch of its own. Movie and Episode both roll up `Phase=Downloading` and clear `ActiveDownloadRef` from a watched `Download`, proven against synthetic fixtures (no real grabarr exists yet to exercise this end to end — that is expected, not a gap in this task).
-- [ ] `go build ./catalogarr/...`, `go vet ./catalogarr/...`, `make lint` clean; every envtest suite genuinely runs (multi-second wall time, no `--- SKIP`) under `KUBEBUILDER_ASSETS`.
+- [ ] `go build ./app/catalog/...`, `go vet ./app/catalog/...`, `make lint` clean; every envtest suite genuinely runs (multi-second wall time, no `--- SKIP`) under `KUBEBUILDER_ASSETS`.
 - [ ] `movie.ReleasedRecentWindow` and `series.EndedRecentWindow` are named, exported, documented constants (not inline literals), each explicit that they are chosen defaults rather than values ported from Radarr/Sonarr.
 - [ ] `MonitorSpecials`/`UnmonitorSpecials` set only the season-0 monitored flag and leave every other season at its default; the table test proves a season-1 episode is unaffected by either mode.
 - [ ] Still-open items carried into the review rather than silently resolved: the episode-list RPC's assumed request/response shape (Task C5 must match it or this seam breaks); `PendingGrab`/`Phase=Delayed` driven by an actual `DelayProfile` decision (§8.2, still unowned by any task); the `DownloadOverlay` phase-mapping judgment call (Pending→Delayed, Assigned/Queued/Downloading/Paused→Downloading).
@@ -8174,7 +8174,7 @@ Every envtest (`TestMovieReconciler...`, `TestSeriesReconciler...`, `TestEpisode
 > reconcilers beside the fields they describe. See `task-C13-report.md`.
 
 
-> **Controller amendment (binding).** Do NOT make the `api/common/v1alpha1.AudioStream.ChannelLayout` change in this task — Task C0 makes every `api/` change once, serially, so two parallel agents never race on regenerated files. By the time you run, the field exists; populate it where you write MediaFile spec and move on. Your path ownership is `catalogarr/controller/mediafile/` only.
+> **Controller amendment (binding).** Do NOT make the `api/common/v1alpha1.AudioStream.ChannelLayout` change in this task — Task C0 makes every `api/` change once, serially, so two parallel agents never race on regenerated files. By the time you run, the field exists; populate it where you write MediaFile spec and move on. Your path ownership is `app/catalog/controller/mediafile/` only.
 >
 > Your finding that the documented `status.file`/`status.probe` split does not exist is accepted and is now the plan's position: importarr owns `MediaFileSpec`, catalogarr is sole writer of all `MediaFileStatus` and takes over `sizeBytes`/`modTime`/`original` after a transcode swap. C0 corrects CLAUDE.md, the field-manager doc comments and the amendment. The two-writer envtest stays, testing that real split.
 
@@ -8184,22 +8184,22 @@ builds catalogarr's half of that split: probing, label mirroring, the frozen
 release-time fields' guard, the Movie/Episode status rollup, and the watches that
 give squasharr and captionarr somewhere to land their results. It does **not**
 build importarr's half (MediaFile creation) — that is a separate Phase C task on
-`importarr/`. This task's envtest simulates importarr's writes by hand so the
+`app/import/`. This task's envtest simulates importarr's writes by hand so the
 split can be proven without depending on that task landing first.
 
 **Files:**
-- Create: `catalogarr/controller/mediafile/probe.go`
-- Create: `catalogarr/controller/mediafile/probe_test.go`
-- Create: `catalogarr/controller/mediafile/labels.go`
-- Create: `catalogarr/controller/mediafile/labels_test.go`
-- Create: `catalogarr/controller/mediafile/rollup.go`
-- Create: `catalogarr/controller/mediafile/rollup_test.go`
-- Create: `catalogarr/controller/mediafile/sidecars.go`
-- Create: `catalogarr/controller/mediafile/sidecars_test.go`
-- Create: `catalogarr/controller/mediafile/watch.go`
-- Create: `catalogarr/controller/mediafile/watch_test.go`
-- Create: `catalogarr/controller/mediafile/mediafile_controller.go`
-- Create: `catalogarr/controller/mediafile/mediafile_envtest_test.go`
+- Create: `app/catalog/controller/mediafile/probe.go`
+- Create: `app/catalog/controller/mediafile/probe_test.go`
+- Create: `app/catalog/controller/mediafile/labels.go`
+- Create: `app/catalog/controller/mediafile/labels_test.go`
+- Create: `app/catalog/controller/mediafile/rollup.go`
+- Create: `app/catalog/controller/mediafile/rollup_test.go`
+- Create: `app/catalog/controller/mediafile/sidecars.go`
+- Create: `app/catalog/controller/mediafile/sidecars_test.go`
+- Create: `app/catalog/controller/mediafile/watch.go`
+- Create: `app/catalog/controller/mediafile/watch_test.go`
+- Create: `app/catalog/controller/mediafile/mediafile_controller.go`
+- Create: `app/catalog/controller/mediafile/mediafile_envtest_test.go`
 - Modify: `api/common/v1alpha1/media_types.go` (`AudioStream` gains `ChannelLayout`)
 - Modify: `pkg/mediainfo/map.go` (`toAudioStream` populates it)
 - Modify: `pkg/mediainfo/map_test.go` (asserts it)
@@ -8208,13 +8208,13 @@ split can be proven without depending on that task landing first.
 
 Not modified: `api/catalog/v1alpha1/mediafile_types.go` (the shape is already
 generated and correct for this task — see "Resolving the field-manager split"
-below), `catalogarr/run.go`. Every Phase C controller task under `catalogarr/`
+below), `app/catalog/run.go`. Every Phase C controller task under `app/catalog/`
 wants to add one line to `setupControllers`; wiring `(&mediafile.Reconciler{...}).
 SetupWithManager(mgr)` in there is deliberately left to whoever lands last or to
 a separate integration task, not to this one, so this task's commits never touch
 a file every other catalogarr controller task also touches.
 
-**Path ownership:** `catalogarr/controller/mediafile/` entirely, plus the narrow,
+**Path ownership:** `app/catalog/controller/mediafile/` entirely, plus the narrow,
 named `api/common/v1alpha1/media_types.go` change and its regenerated output. The
 media_types.go change makes this task **serial** against any other Phase C task
 that touches `api/common/v1alpha1` (none are known to as of this writing, but
@@ -8222,7 +8222,7 @@ check before starting) — `make generate`/`make manifests` regenerate the whole
 `api/...` tree, so a second uncommitted change there while this task is in
 flight will show up as unrelated diff in this task's regeneration step. Do not
 touch `pkg/mediainfo/*` beyond the one named line in `map.go` (its test package
-is Phase B's and already reviewed) and do not touch `catalogarr/run.go`.
+is Phase B's and already reviewed) and do not touch `app/catalog/run.go`.
 
 ## Read first
 
@@ -8413,7 +8413,7 @@ func EpisodeStatus() *EpisodeStatusApplyConfiguration       // same six methods,
 ## Interfaces — Produces
 
 ```go
-// catalogarr/controller/mediafile
+// app/catalog/controller/mediafile
 type Reconciler struct {
     Client    client.Client
     Scheme    *runtime.Scheme
@@ -8428,7 +8428,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error
 ```
 
-`SetupWithManager` is what the eventual `catalogarr/run.go` integration calls:
+`SetupWithManager` is what the eventual `app/catalog/run.go` integration calls:
 `return mediafile.NewReconciler(mgr.GetClient(), mgr.GetScheme(),
 mgr.GetEventRecorderFor("mediafile-controller")).SetupWithManager(mgr)`. Not
 wired in this task (see "Path ownership").
@@ -8506,7 +8506,7 @@ of scope here and is not this task's to fix.
 
 - [ ] **Step 2: probe staleness — pure function.**
 
-  `catalogarr/controller/mediafile/probe_test.go`:
+  `app/catalog/controller/mediafile/probe_test.go`:
   ```go
   package mediafile
 
@@ -8536,10 +8536,10 @@ of scope here and is not this task's to fix.
   }
   ```
 
-  Run: `go test ./catalogarr/controller/mediafile/... -run TestEvaluateProbe`
+  Run: `go test ./app/catalog/controller/mediafile/... -run TestEvaluateProbe`
   — fails to compile (`evaluateProbe` undefined).
 
-  `catalogarr/controller/mediafile/probe.go`:
+  `app/catalog/controller/mediafile/probe.go`:
   ```go
   package mediafile
 
@@ -8575,14 +8575,14 @@ of scope here and is not this task's to fix.
   }
   ```
 
-  Run: `go test ./catalogarr/controller/mediafile/... -run TestEvaluateProbe`
+  Run: `go test ./app/catalog/controller/mediafile/... -run TestEvaluateProbe`
   — passes.
 
-  Commit: `... -m "feat(catalogarr): MediaFile probe staleness check" -- catalogarr/controller/mediafile/probe.go catalogarr/controller/mediafile/probe_test.go`
+  Commit: `... -m "feat(catalogarr): MediaFile probe staleness check" -- app/catalog/controller/mediafile/probe.go app/catalog/controller/mediafile/probe_test.go`
 
 - [ ] **Step 3: label mirroring — pure function.**
 
-  `catalogarr/controller/mediafile/labels_test.go`:
+  `app/catalog/controller/mediafile/labels_test.go`:
   ```go
   package mediafile
 
@@ -8621,7 +8621,7 @@ of scope here and is not this task's to fix.
 
   Run: fails (`mirrorLabels` undefined).
 
-  `catalogarr/controller/mediafile/labels.go`:
+  `app/catalog/controller/mediafile/labels.go`:
   ```go
   package mediafile
 
@@ -8663,11 +8663,11 @@ of scope here and is not this task's to fix.
 
   Run: passes.
 
-  Commit: `... -m "feat(catalogarr): MediaFile label mirroring" -- catalogarr/controller/mediafile/labels.go catalogarr/controller/mediafile/labels_test.go`
+  Commit: `... -m "feat(catalogarr): MediaFile label mirroring" -- app/catalog/controller/mediafile/labels.go app/catalog/controller/mediafile/labels_test.go`
 
 - [ ] **Step 4: Movie/Episode rollup — pure functions.**
 
-  `catalogarr/controller/mediafile/rollup_test.go`:
+  `app/catalog/controller/mediafile/rollup_test.go`:
   ```go
   package mediafile
 
@@ -8737,7 +8737,7 @@ of scope here and is not this task's to fix.
   Run: fails to compile (`rollupInput`, `computeRollup`,
   `moviePhaseForFile`, `episodePhaseForFile` undefined).
 
-  `catalogarr/controller/mediafile/rollup.go`:
+  `app/catalog/controller/mediafile/rollup.go`:
   ```go
   package mediafile
 
@@ -8803,13 +8803,13 @@ of scope here and is not this task's to fix.
   }
   ```
 
-  Run: `go test ./catalogarr/controller/mediafile/... -run 'TestComputeRollup|TestMoviePhaseForFile|TestEpisodePhaseForFile'` — passes.
+  Run: `go test ./app/catalog/controller/mediafile/... -run 'TestComputeRollup|TestMoviePhaseForFile|TestEpisodePhaseForFile'` — passes.
 
-  Commit: `... -m "feat(catalogarr): MediaFile->Movie/Episode status rollup" -- catalogarr/controller/mediafile/rollup.go catalogarr/controller/mediafile/rollup_test.go`
+  Commit: `... -m "feat(catalogarr): MediaFile->Movie/Episode status rollup" -- app/catalog/controller/mediafile/rollup.go app/catalog/controller/mediafile/rollup_test.go`
 
 - [ ] **Step 5: sidecar feedback — pure function.**
 
-  `catalogarr/controller/mediafile/sidecars_test.go`:
+  `app/catalog/controller/mediafile/sidecars_test.go`:
   ```go
   package mediafile
 
@@ -8849,7 +8849,7 @@ of scope here and is not this task's to fix.
 
   Run: fails (`sidecarsFromSubtitleRequest` undefined).
 
-  `catalogarr/controller/mediafile/sidecars.go`:
+  `app/catalog/controller/mediafile/sidecars.go`:
   ```go
   package mediafile
 
@@ -8895,11 +8895,11 @@ of scope here and is not this task's to fix.
 
   Run: passes.
 
-  Commit: `... -m "feat(catalogarr): MediaFile sidecar feedback from SubtitleRequest" -- catalogarr/controller/mediafile/sidecars.go catalogarr/controller/mediafile/sidecars_test.go`
+  Commit: `... -m "feat(catalogarr): MediaFile sidecar feedback from SubtitleRequest" -- app/catalog/controller/mediafile/sidecars.go app/catalog/controller/mediafile/sidecars_test.go`
 
 - [ ] **Step 6: watch predicates and mapping functions.**
 
-  `catalogarr/controller/mediafile/watch_test.go`:
+  `app/catalog/controller/mediafile/watch_test.go`:
   ```go
   package mediafile
 
@@ -8946,7 +8946,7 @@ of scope here and is not this task's to fix.
   Run: fails to compile (`extractTranscodeJobPhase`, `mediaFileForTranscodeJob`
   undefined).
 
-  `catalogarr/controller/mediafile/watch.go`:
+  `app/catalog/controller/mediafile/watch.go`:
   ```go
   package mediafile
 
@@ -9038,9 +9038,9 @@ of scope here and is not this task's to fix.
   }
   ```
 
-  Run: `go test ./catalogarr/controller/mediafile/... -run 'TestExtractTranscodeJobPhase|TestMediaFileForTranscodeJob'` — passes.
+  Run: `go test ./app/catalog/controller/mediafile/... -run 'TestExtractTranscodeJobPhase|TestMediaFileForTranscodeJob'` — passes.
 
-  Commit: `... -m "feat(catalogarr): MediaFile watch predicates and mapping funcs" -- catalogarr/controller/mediafile/watch.go catalogarr/controller/mediafile/watch_test.go`
+  Commit: `... -m "feat(catalogarr): MediaFile watch predicates and mapping funcs" -- app/catalog/controller/mediafile/watch.go app/catalog/controller/mediafile/watch_test.go`
 
 - [ ] **Step 7: the Reconciler and its Reconcile loop.**
 
@@ -9049,7 +9049,7 @@ of scope here and is not this task's to fix.
   envtest, TDD'd there instead of here (an envtest that doesn't compile is
   still a legitimate "red" state to start Step 9 from).
 
-  `catalogarr/controller/mediafile/mediafile_controller.go`:
+  `app/catalog/controller/mediafile/mediafile_controller.go`:
   ```go
   package mediafile
 
@@ -9386,14 +9386,14 @@ of scope here and is not this task's to fix.
   `rescanSidecars` above uses `filepath.Dir` from the `"path/filepath"`
   import already listed at the top of this file.
 
-  Run: `go build ./catalogarr/...` — compiles clean (the package now has
-  everything Step 9's envtest needs; `go vet ./catalogarr/...` too).
+  Run: `go build ./app/catalog/...` — compiles clean (the package now has
+  everything Step 9's envtest needs; `go vet ./app/catalog/...` too).
 
-  Commit: `... -m "feat(catalogarr): MediaFile Reconciler wiring" -- catalogarr/controller/mediafile/mediafile_controller.go`
+  Commit: `... -m "feat(catalogarr): MediaFile Reconciler wiring" -- app/catalog/controller/mediafile/mediafile_controller.go`
 
 - [ ] **Step 8: shared envtest scaffolding.**
 
-  `catalogarr/controller/mediafile/mediafile_envtest_test.go`, the shared
+  `app/catalog/controller/mediafile/mediafile_envtest_test.go`, the shared
   helpers every test in this file and the next three steps use:
   ```go
   package mediafile_test
@@ -9515,7 +9515,7 @@ of scope here and is not this task's to fix.
 
   This step
   produces no new passing test on its own — it is scaffolding Steps 9–13
-  consume — but must compile: `go vet ./catalogarr/controller/mediafile/...`
+  consume — but must compile: `go vet ./app/catalog/controller/mediafile/...`
   with `KUBEBUILDER_ASSETS` unset still type-checks the file even though every
   test that calls `startEnv` will skip.
 
@@ -9688,13 +9688,13 @@ of scope here and is not this task's to fix.
   still not this task's production code path.)
 
   Run: `KUBEBUILDER_ASSETS=$(setup-envtest use 1.37.0 -p path) go test
-  ./catalogarr/controller/mediafile/... -run
+  ./app/catalog/controller/mediafile/... -run
   TestMediaFileFieldManagersStayDisjoint -v` — passes. Without
   `KUBEBUILDER_ASSETS` set, the same command SKIPs (not passes) — confirm the
   skip message names `KUBEBUILDER_ASSETS`, matching the mandatory-gate
   requirement that this is visibly a skip, never a silent green.
 
-  Commit: `... -m "test(catalogarr): MediaFile two-writer field-manager gate" -- catalogarr/controller/mediafile/mediafile_envtest_test.go`
+  Commit: `... -m "test(catalogarr): MediaFile two-writer field-manager gate" -- app/catalog/controller/mediafile/mediafile_envtest_test.go`
 
 - [ ] **Step 10: fixture-driven full reconcile, Movie and Episode rollup, no ffprobe required.**
 
@@ -9717,9 +9717,9 @@ of scope here and is not this task's to fix.
   `episodePhaseForFile` end-to-end against a real apiserver rather than in
   isolation the way Step 4 already did in memory.
 
-  Run: `KUBEBUILDER_ASSETS=... go test ./catalogarr/controller/mediafile/... -run TestReconcileFixtureDriven -v` — passes; unset `KUBEBUILDER_ASSETS`, same command SKIPs.
+  Run: `KUBEBUILDER_ASSETS=... go test ./app/catalog/controller/mediafile/... -run TestReconcileFixtureDriven -v` — passes; unset `KUBEBUILDER_ASSETS`, same command SKIPs.
 
-  Commit: `... -m "test(catalogarr): MediaFile fixture-driven rollup, no ffprobe" -- catalogarr/controller/mediafile/mediafile_envtest_test.go`
+  Commit: `... -m "test(catalogarr): MediaFile fixture-driven rollup, no ffprobe" -- app/catalog/controller/mediafile/mediafile_envtest_test.go`
 
 - [ ] **Step 11: real-ffprobe reconcile, skipped when the binary is absent.**
 
@@ -9742,7 +9742,7 @@ of scope here and is not this task's to fix.
   with either environment variable absent — SKIPs with a message naming which
   one.
 
-  Commit: `... -m "test(catalogarr): MediaFile reconcile against real ffprobe" -- catalogarr/controller/mediafile/mediafile_envtest_test.go`
+  Commit: `... -m "test(catalogarr): MediaFile reconcile against real ffprobe" -- app/catalog/controller/mediafile/mediafile_envtest_test.go`
 
 - [ ] **Step 12: TranscodeJob watch wiring, hand-created resource, full manager.**
 
@@ -9768,9 +9768,9 @@ of scope here and is not this task's to fix.
   `Reconcile` call, proving the mapping function and predicate actually fire
   end to end.
 
-  Run: `KUBEBUILDER_ASSETS=... go test ./catalogarr/controller/mediafile/... -run TestTranscodeJobWatchTriggersReconcile -v` — passes.
+  Run: `KUBEBUILDER_ASSETS=... go test ./app/catalog/controller/mediafile/... -run TestTranscodeJobWatchTriggersReconcile -v` — passes.
 
-  Commit: `... -m "test(catalogarr): MediaFile TranscodeJob watch, hand-created resource" -- catalogarr/controller/mediafile/mediafile_envtest_test.go`
+  Commit: `... -m "test(catalogarr): MediaFile TranscodeJob watch, hand-created resource" -- app/catalog/controller/mediafile/mediafile_envtest_test.go`
 
 - [ ] **Step 13: SubtitleRequest watch wiring, hand-created resource.**
 
@@ -9786,16 +9786,16 @@ of scope here and is not this task's to fix.
   `mediaFileForSubtitleRequest` mapping proven end to end, and is the last
   piece §8.6 asks for: "this is the sidecar feedback path."
 
-  Run: `KUBEBUILDER_ASSETS=... go test ./catalogarr/controller/mediafile/... -run TestSubtitleRequestWatchTriggersReconcile -v` — passes.
+  Run: `KUBEBUILDER_ASSETS=... go test ./app/catalog/controller/mediafile/... -run TestSubtitleRequestWatchTriggersReconcile -v` — passes.
 
-  Commit: `... -m "test(catalogarr): MediaFile SubtitleRequest watch, hand-created resource" -- catalogarr/controller/mediafile/mediafile_envtest_test.go`
+  Commit: `... -m "test(catalogarr): MediaFile SubtitleRequest watch, hand-created resource" -- app/catalog/controller/mediafile/mediafile_envtest_test.go`
 
 **Verification:**
 ```
-go build ./catalogarr/... ./api/...
-go vet ./catalogarr/... ./pkg/mediainfo/...
-go test ./catalogarr/controller/mediafile/... ./pkg/mediainfo/...             # envtest suites SKIP here, not pass
-KUBEBUILDER_ASSETS=$(setup-envtest use 1.37.0 -p path) go test ./catalogarr/controller/mediafile/... -v   # must show 0 skips among the *_envtest_test.go tests except the deliberate ffprobe-absent one if ffprobe is not installed on this machine
+go build ./app/catalog/... ./api/...
+go vet ./app/catalog/... ./pkg/mediainfo/...
+go test ./app/catalog/controller/mediafile/... ./pkg/mediainfo/...             # envtest suites SKIP here, not pass
+KUBEBUILDER_ASSETS=$(setup-envtest use 1.37.0 -p path) go test ./app/catalog/controller/mediafile/... -v   # must show 0 skips among the *_envtest_test.go tests except the deliberate ffprobe-absent one if ffprobe is not installed on this machine
 make generate && make manifests && git status --porcelain              # must be empty except this task's own staged/committed files
 make lint     # golangci-lint v2, including forbidigo on Status().Update/Status().Patch outside pkg/k8s and outside _test.go files per Step 9's note
 ```
@@ -9826,7 +9826,7 @@ make lint     # golangci-lint v2, including forbidigo on Status().Update/Status(
       `TestSubtitleRequestWatchTriggersReconcile` drive a real manager against
       hand-created `TranscodeJob`/`SubtitleRequest` fixtures and observe the
       watch (not a direct `Reconcile` call) produce the effect.
-- [ ] `catalogarr/run.go` is untouched; `Reconciler.SetupWithManager`'s exact
+- [ ] `app/catalog/run.go` is untouched; `Reconciler.SetupWithManager`'s exact
       call shape is documented in "Interfaces — Produces" for whoever wires it.
 - [ ] Every new file carries the GPL-3.0 header from `hack/boilerplate.go.txt`.
 
@@ -9837,25 +9837,25 @@ make lint     # golangci-lint v2, including forbidigo on Status().Update/Status(
 ### Task C8: the Search controller and the search worker
 
 **Files:**
-- Create: `catalogarr/controller/search/applyconfiguration.go`
-- Create: `catalogarr/controller/search/applyconfiguration_envtest_test.go`
-- Create: `catalogarr/controller/search/grab.go`
-- Create: `catalogarr/controller/search/grab_test.go`
-- Create: `catalogarr/controller/search/reconciler.go`
-- Create: `catalogarr/controller/search/reconciler_envtest_test.go`
-- Create: `catalogarr/worker/search/rpc.go`
-- Create: `catalogarr/worker/search/rpc_test.go`
-- Create: `catalogarr/worker/search/request.go`
-- Create: `catalogarr/worker/search/request_test.go`
-- Create: `catalogarr/worker/search/rank.go`
-- Create: `catalogarr/worker/search/rank_test.go`
-- Create: `catalogarr/worker/search/snapshot.go`
-- Create: `catalogarr/worker/search/blocklist.go`
-- Create: `catalogarr/worker/search/worker.go`
-- Create: `catalogarr/worker/search/worker_envtest_test.go`
+- Create: `app/catalog/controller/search/applyconfiguration.go`
+- Create: `app/catalog/controller/search/applyconfiguration_envtest_test.go`
+- Create: `app/catalog/controller/search/grab.go`
+- Create: `app/catalog/controller/search/grab_test.go`
+- Create: `app/catalog/controller/search/reconciler.go`
+- Create: `app/catalog/controller/search/reconciler_envtest_test.go`
+- Create: `app/catalog/worker/search/rpc.go`
+- Create: `app/catalog/worker/search/rpc_test.go`
+- Create: `app/catalog/worker/search/request.go`
+- Create: `app/catalog/worker/search/request_test.go`
+- Create: `app/catalog/worker/search/rank.go`
+- Create: `app/catalog/worker/search/rank_test.go`
+- Create: `app/catalog/worker/search/snapshot.go`
+- Create: `app/catalog/worker/search/blocklist.go`
+- Create: `app/catalog/worker/search/worker.go`
+- Create: `app/catalog/worker/search/worker_envtest_test.go`
 - Test: (all `_test.go`/`_envtest_test.go` files above)
 
-**Path ownership:** `catalogarr/controller/search/` and `catalogarr/worker/search/`, and nothing else. In particular this task does **not** modify `catalogarr/run.go` — `setupControllers`/`setupWorkers` are shared registration points every Phase C controller/worker task touches, so wiring `search.Reconciler` and `search.Worker` into them is left to a later integration pass outside any single task's path ownership. This task instead exposes `search.NewReconciler(...).SetupWithManager(mgr)` and `search.NewWorker(...).SetupWithManager(mgr, bus)` as the two calls that integration step will make.
+**Path ownership:** `app/catalog/controller/search/` and `app/catalog/worker/search/`, and nothing else. In particular this task does **not** modify `app/catalog/run.go` — `setupControllers`/`setupWorkers` are shared registration points every Phase C controller/worker task touches, so wiring `search.Reconciler` and `search.Worker` into them is left to a later integration pass outside any single task's path ownership. This task instead exposes `search.NewReconciler(...).SetupWithManager(mgr)` and `search.NewWorker(...).SetupWithManager(mgr, bus)` as the two calls that integration step will make.
 
 ## Scope note: which trigger this task wires
 
@@ -9871,7 +9871,7 @@ every trigger's task ultimately lands on:
   is **Task C9**. This task does not schedule anything.
 - The `Search` CR's own reconciler — validate, publish, TTL-delete, handle `spec.grab` — is
   **this task**.
-- The **worker** (`catalogarr/worker/search`) is shared infrastructure: it consumes every
+- The **worker** (`app/catalog/worker/search`) is shared infrastructure: it consumes every
   `catalog.SearchTask.v1` on `catalogarr-search-high`/`catalogarr-search-normal` regardless of
   which task published it, so it is built once, here, for all six triggers. What differs by
   trigger is the *sink* for its ranked output (see "Interfaces — Produces" below): for an
@@ -10052,7 +10052,7 @@ func Evaluate(ctx context.Context, in Input) Decision
 ## Interfaces — Produces
 
 ```go
-// catalogarr/worker/search — the indexer search RPC boundary. indexarr (Phase D) MUST serve
+// app/catalog/worker/search — the indexer search RPC boundary. indexarr (Phase D) MUST serve
 // clustarr.rpc.indexarr.search with exactly the schema.SearchRequest -> schema.SearchResponse
 // contract already pinned in pkg/events/schema/index.go (this task adds no new payload type,
 // only a thin client and a fake for tests):
@@ -10088,7 +10088,7 @@ func NewWorker(c client.Client, rpc SearchRPC, cat *catalogue.Catalogue) *Worker
 func (w *Worker) Handle(ctx context.Context, m events.Message) error
 func (w *Worker) SetupWithManager(mgr ctrl.Manager, bus events.Bus) error // registers the 3 Download field indexes (blocklist.infoHash, blocklist.title, target) and subscribes catalogarr-search-high/-normal
 
-// catalogarr/controller/search
+// app/catalog/controller/search
 type Reconciler struct { Client client.Client; Bus events.Bus; Recorder record.EventRecorder; Clock clockwork.Clock }
 func NewReconciler(c client.Client, bus events.Bus, rec record.EventRecorder) *Reconciler
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error)
@@ -10122,7 +10122,7 @@ func SearchStatus() *SearchStatusApplyConfiguration
   list in one patch (never a partial update to one element), a plain value slice is correct and
   simpler than reproducing controller-tools' generator for three more types.
 
-  Test first (`catalogarr/controller/search/applyconfiguration_envtest_test.go`, modelled
+  Test first (`app/catalog/controller/search/applyconfiguration_envtest_test.go`, modelled
   exactly on `pkg/k8s/patch_envtest_test.go`'s `TestPatchStatusAppliesToTheStatusSubresource` —
   read that file first):
 
@@ -10215,9 +10215,9 @@ func SearchStatus() *SearchStatusApplyConfiguration
   ```
 
   Run it — it fails to compile (`search.Search`/`search.SearchStatus` do not exist yet):
-  `KUBEBUILDER_ASSETS=$(go env GOPATH)/bin/../../.local/share/kubebuilder-envtest/k8s/1.37.0-linux-amd64 go test ./catalogarr/controller/search/... -run TestSearchApplyConfigurationRoundTripsThroughPatchStatus` (or just `make test` once the Makefile's envtest setup runs — either way this needs `KUBEBUILDER_ASSETS`; without it the test **skips**, which is not a pass — do not conclude success from a skip).
+  `KUBEBUILDER_ASSETS=$(go env GOPATH)/bin/../../.local/share/kubebuilder-envtest/k8s/1.37.0-linux-amd64 go test ./app/catalog/controller/search/... -run TestSearchApplyConfigurationRoundTripsThroughPatchStatus` (or just `make test` once the Makefile's envtest setup runs — either way this needs `KUBEBUILDER_ASSETS`; without it the test **skips**, which is not a pass — do not conclude success from a skip).
 
-  Implement `catalogarr/controller/search/applyconfiguration.go`:
+  Implement `app/catalog/controller/search/applyconfiguration.go`:
 
   ```go
   package search
@@ -10317,11 +10317,11 @@ func SearchStatus() *SearchStatusApplyConfiguration
   ```
 
   Run the test again — it must pass under `make test` (envtest assets set). Commit:
-  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): hand-written Search apply configuration" -- catalogarr/controller/search/applyconfiguration.go catalogarr/controller/search/applyconfiguration_envtest_test.go`.
+  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): hand-written Search apply configuration" -- app/catalog/controller/search/applyconfiguration.go app/catalog/controller/search/applyconfiguration_envtest_test.go`.
 
 - [ ] **Step 2: `RankAndCap` — the pure ranking/capping function, table-tested.**
 
-  Test first (`catalogarr/worker/search/rank_test.go`):
+  Test first (`app/catalog/worker/search/rank_test.go`):
 
   ```go
   package search
@@ -10401,10 +10401,10 @@ func SearchStatus() *SearchStatusApplyConfiguration
   }
   ```
 
-  Run: `go test ./catalogarr/worker/search/... -run TestRankAndCap` — fails to compile
+  Run: `go test ./app/catalog/worker/search/... -run TestRankAndCap` — fails to compile
   (`RankAndCap`/`Scored`/`MaxResults` undefined).
 
-  Implement `catalogarr/worker/search/rank.go`:
+  Implement `app/catalog/worker/search/rank.go`:
 
   ```go
   package search
@@ -10510,12 +10510,12 @@ func SearchStatus() *SearchStatusApplyConfiguration
   }
   ```
 
-  Run again — must pass: `go test ./catalogarr/worker/search/... -run TestRankAndCap -v`. Commit:
-  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): pure release ranking and result capping" -- catalogarr/worker/search/rank.go catalogarr/worker/search/rank_test.go`.
+  Run again — must pass: `go test ./app/catalog/worker/search/... -run TestRankAndCap -v`. Commit:
+  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): pure release ranking and result capping" -- app/catalog/worker/search/rank.go app/catalog/worker/search/rank_test.go`.
 
 - [ ] **Step 3: `BuildSearchRequest` — the item-identity-to-RPC-request pure function, table-tested.**
 
-  Test first (`catalogarr/worker/search/request_test.go`):
+  Test first (`app/catalog/worker/search/request_test.go`):
 
   ```go
   package search
@@ -10597,9 +10597,9 @@ func SearchStatus() *SearchStatusApplyConfiguration
   file, just to keep the test line short — spell it out with the real
   `github.com/mediactl/clustarr/pkg/events/schema` import.)
 
-  Run: `go test ./catalogarr/worker/search/... -run TestBuildSearchRequest` — fails to compile.
+  Run: `go test ./app/catalog/worker/search/... -run TestBuildSearchRequest` — fails to compile.
 
-  Implement `catalogarr/worker/search/request.go`:
+  Implement `app/catalog/worker/search/request.go`:
 
   ```go
   package search
@@ -10689,11 +10689,11 @@ func SearchStatus() *SearchStatusApplyConfiguration
   ```
 
   Run again — must pass. Commit:
-  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): build the federated search RPC request from an item's identity" -- catalogarr/worker/search/request.go catalogarr/worker/search/request_test.go`.
+  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): build the federated search RPC request from an item's identity" -- app/catalog/worker/search/request.go app/catalog/worker/search/request_test.go`.
 
 - [ ] **Step 4: `BuildDownloadSource` — the release-to-DownloadSource pure function, table-tested.**
 
-  Test first (`catalogarr/controller/search/grab_test.go`):
+  Test first (`app/catalog/controller/search/grab_test.go`):
 
   ```go
   package search
@@ -10777,9 +10777,9 @@ func SearchStatus() *SearchStatusApplyConfiguration
   }
   ```
 
-  Run: `go test ./catalogarr/controller/search/... -run 'TestBuildDownloadSource|TestResolveGrab'` — fails to compile.
+  Run: `go test ./app/catalog/controller/search/... -run 'TestBuildDownloadSource|TestResolveGrab'` — fails to compile.
 
-  Implement `catalogarr/controller/search/grab.go`:
+  Implement `app/catalog/controller/search/grab.go`:
 
   ```go
   package search
@@ -10845,11 +10845,11 @@ func SearchStatus() *SearchStatusApplyConfiguration
   ```
 
   Run again — must pass. Commit:
-  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): Download source mapping and Search-CR grab resolution" -- catalogarr/controller/search/grab.go catalogarr/controller/search/grab_test.go`.
+  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): Download source mapping and Search-CR grab resolution" -- app/catalog/controller/search/grab.go app/catalog/controller/search/grab_test.go`.
 
 - [ ] **Step 5: the search RPC client (`SearchRPC`, `NewBusSearchRPC`, `FakeSearchRPC`) against `membus`.**
 
-  Test first (`catalogarr/worker/search/rpc_test.go`):
+  Test first (`app/catalog/worker/search/rpc_test.go`):
 
   ```go
   package search
@@ -10925,9 +10925,9 @@ func SearchStatus() *SearchStatusApplyConfiguration
   }
   ```
 
-  Run: `go test ./catalogarr/worker/search/... -run 'TestBusSearchRPC|TestFakeSearchRPC'` — fails to compile.
+  Run: `go test ./app/catalog/worker/search/... -run 'TestBusSearchRPC|TestFakeSearchRPC'` — fails to compile.
 
-  Implement `catalogarr/worker/search/rpc.go`:
+  Implement `app/catalog/worker/search/rpc.go`:
 
   ```go
   package search
@@ -10992,8 +10992,8 @@ func SearchStatus() *SearchStatusApplyConfiguration
   }
   ```
 
-  Run again — must pass: `go test ./catalogarr/worker/search/... -run 'TestBusSearchRPC|TestFakeSearchRPC' -v`. Commit:
-  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): federated search RPC client and fake" -- catalogarr/worker/search/rpc.go catalogarr/worker/search/rpc_test.go`.
+  Run again — must pass: `go test ./app/catalog/worker/search/... -run 'TestBusSearchRPC|TestFakeSearchRPC' -v`. Commit:
+  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): federated search RPC client and fake" -- app/catalog/worker/search/rpc.go app/catalog/worker/search/rpc_test.go`.
 
 - [ ] **Step 6: Download field indexes for the blocklist and queue informers, proven against envtest.**
 
@@ -11003,7 +11003,7 @@ func SearchStatus() *SearchStatusApplyConfiguration
   catalogarr informer indexed by infohash and normalized title" — build that index here, plus
   one for "is there already an active Download for this exact target" (the queue).
 
-  Test first (`catalogarr/worker/search/blocklist_test.go`, envtest — this needs a real
+  Test first (`app/catalog/worker/search/blocklist_test.go`, envtest — this needs a real
   apiserver because field indexes are a controller-runtime cache feature, not something
   `client.Client.List` alone can fake):
 
@@ -11096,7 +11096,7 @@ func SearchStatus() *SearchStatusApplyConfiguration
   Run — fails to compile (`search.RegisterDownloadIndexes`, `search.IndexBlocklistInfoHash`
   undefined).
 
-  Implement `catalogarr/worker/search/blocklist.go`:
+  Implement `app/catalog/worker/search/blocklist.go`:
 
   ```go
   package search
@@ -11168,13 +11168,13 @@ func SearchStatus() *SearchStatusApplyConfiguration
   ```
 
   Run again — must pass under `make test`. Commit:
-  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): Download field indexes for the blocklist and queue informers" -- catalogarr/worker/search/blocklist.go catalogarr/worker/search/blocklist_test.go`.
+  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): Download field indexes for the blocklist and queue informers" -- app/catalog/worker/search/blocklist.go app/catalog/worker/search/blocklist_test.go`.
 
 - [ ] **Step 7: the item snapshot (Movie and Episode) — fetch, resolved profile, current `MediaFile`.**
 
   This step has no pure function to TDD in isolation (it is a handful of `client.Get` calls
   keyed by `commonv1.MediaRef`); write it test-first against envtest instead, in
-  `catalogarr/worker/search/snapshot_envtest_test.go`, asserting on two fixtures: a Movie with
+  `app/catalog/worker/search/snapshot_envtest_test.go`, asserting on two fixtures: a Movie with
   no file yet (current == nil) and an Episode with a MediaFile (current != nil, revision/quality
   come from the MediaFile, not just the item status). Create both fixtures with `c.Create`
   (Movie needs a `RootFolder` + `QualityProfile` it references only by name string, so no
@@ -11182,7 +11182,7 @@ func SearchStatus() *SearchStatusApplyConfiguration
   plain strings, not enforced references). Follow the `newDownload`-style helper pattern from
   `pkg/k8s/patch_envtest_test.go`.
 
-  Implement `catalogarr/worker/search/snapshot.go` with:
+  Implement `app/catalog/worker/search/snapshot.go` with:
 
   ```go
   // itemSnapshot is what the worker needs from the catalog item and its
@@ -11218,20 +11218,20 @@ func SearchStatus() *SearchStatusApplyConfiguration
   frozen at import.
 
   Run `make test` (envtest) — must pass. Commit:
-  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): search worker item snapshot (Movie and Episode)" -- catalogarr/worker/search/snapshot.go catalogarr/worker/search/snapshot_envtest_test.go`.
+  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): search worker item snapshot (Movie and Episode)" -- app/catalog/worker/search/snapshot.go app/catalog/worker/search/snapshot_envtest_test.go`.
 
 - [ ] **Step 8: `Worker.Handle` — wire RPC, parse+score, `Evaluate`, `RankAndCap`, and the two sinks.**
 
   No new pure function here; this step assembles Steps 2–7 plus `pkg/decision` (real or the
   placeholder from the scope note above) into one handler, test-first against `membus` +
-  `FakeSearchRPC` in `catalogarr/worker/search/worker_envtest_test.go` (envtest for the item
+  `FakeSearchRPC` in `app/catalog/worker/search/worker_envtest_test.go` (envtest for the item
   fixtures, membus for the bus — no NATS needed, matching "Tests use the in-memory bus and the
   fake search RPC"). Two cases: (1) `SearchTask.SearchRef` set → after `Handle` returns nil,
   `Search.status.phase == Completed` and `status.results` is capped/ranked; (2) `SearchRef` nil
   → a recording `Sink` (a tiny test double implementing `Sink`) received the ranked list instead
   of any status write happening.
 
-  Implement `catalogarr/worker/search/worker.go`:
+  Implement `app/catalog/worker/search/worker.go`:
 
   ```go
   func NewWorker(c client.Client, rpc SearchRPC, cat *catalogue.Catalogue) *Worker {
@@ -11334,7 +11334,7 @@ func SearchStatus() *SearchStatusApplyConfiguration
   intentional.
 
   Run `make test` — must pass. Commit:
-  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): search worker Handle -- snapshot, score, decide, rank, dispatch" -- catalogarr/worker/search/worker.go catalogarr/worker/search/worker_envtest_test.go`.
+  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): search worker Handle -- snapshot, score, decide, rank, dispatch" -- app/catalog/worker/search/worker.go app/catalog/worker/search/worker_envtest_test.go`.
 
 - [ ] **Step 9: `Worker.SetupWithManager` — register indexes and subscribe both search consumers.**
 
@@ -11382,11 +11382,11 @@ func SearchStatus() *SearchStatusApplyConfiguration
   within a short poll window.
 
   Run `make test`. Commit:
-  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): wire the search worker's consumers and field indexes into a manager" -- catalogarr/worker/search/worker.go catalogarr/worker/search/worker_envtest_test.go`.
+  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): wire the search worker's consumers and field indexes into a manager" -- app/catalog/worker/search/worker.go app/catalog/worker/search/worker_envtest_test.go`.
 
 - [ ] **Step 10: the `Search` controller — validate, publish, handle Query-mode, set `Running`.**
 
-  Test first (`catalogarr/controller/search/reconciler_envtest_test.go`): create a `Search`
+  Test first (`app/catalog/controller/search/reconciler_envtest_test.go`): create a `Search`
   with `spec.mediaRef` set (movie), start a manager with `Reconciler.SetupWithManager` and a
   `membus.Bus`, assert that within a short poll window `status.phase == Running`,
   `status.startedAt` is set, and exactly one message landed on
@@ -11396,7 +11396,7 @@ func SearchStatus() *SearchStatusApplyConfiguration
   instead and asserts `status.phase == Failed` with a condition explaining query-mode search
   needs indexarr's release index, not yet available.
 
-  Implement `catalogarr/controller/search/reconciler.go`'s first-reconcile branch:
+  Implement `app/catalog/controller/search/reconciler.go`'s first-reconcile branch:
 
   ```go
   func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -11452,7 +11452,7 @@ func SearchStatus() *SearchStatusApplyConfiguration
   `stuck`; `ttlExpired` compares `now` against `FinishedAt.Add(s.Spec.TTL.Duration)`.
 
   Run `make test`. Commit:
-  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): Search controller -- validate, publish, query-mode cutover, TTL" -- catalogarr/controller/search/reconciler.go catalogarr/controller/search/reconciler_envtest_test.go`.
+  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): Search controller -- validate, publish, query-mode cutover, TTL" -- app/catalog/controller/search/reconciler.go app/catalog/controller/search/reconciler_envtest_test.go`.
 
 - [ ] **Step 11: the controller's `handleGrabs` — `spec.grab` to `Download` objects.**
 
@@ -11521,7 +11521,7 @@ func SearchStatus() *SearchStatusApplyConfiguration
   same values and is a no-op, not a conflict.
 
   Run `make test`. Commit:
-  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): Search controller spec.grab handling" -- catalogarr/controller/search/reconciler.go catalogarr/controller/search/reconciler_envtest_test.go catalogarr/controller/search/grab.go catalogarr/controller/search/grab_test.go`.
+  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): Search controller spec.grab handling" -- app/catalog/controller/search/reconciler.go app/catalog/controller/search/reconciler_envtest_test.go app/catalog/controller/search/grab.go app/catalog/controller/search/grab_test.go`.
 
 - [ ] **Step 12: `Reconciler.SetupWithManager` and `NewReconciler`.**
 
@@ -11549,21 +11549,21 @@ func SearchStatus() *SearchStatusApplyConfiguration
   than silently omitting the binding constraint's `reconcile.TerminalError` requirement.
 
   Run `make test` (full package). Commit:
-  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): Search reconciler manager wiring" -- catalogarr/controller/search/reconciler.go`.
+  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(catalogarr): Search reconciler manager wiring" -- app/catalog/controller/search/reconciler.go`.
 
 **Verification:**
-- `go build ./catalogarr/...` (never bare `go build`).
-- `go vet ./catalogarr/controller/search/... ./catalogarr/worker/search/...`.
-- `go test ./catalogarr/worker/search/... ./catalogarr/controller/search/...` — the pure-function
+- `go build ./app/catalog/...` (never bare `go build`).
+- `go vet ./app/catalog/controller/search/... ./app/catalog/worker/search/...`.
+- `go test ./app/catalog/worker/search/... ./app/catalog/controller/search/...` — the pure-function
   tests (Steps 2–5) and `TestBusSearchRPCNoRespondersIsRetryable`/`TestFakeSearchRPC...` run and
   pass with **no** `KUBEBUILDER_ASSETS`; the envtest suites (Steps 1, 6, 7, 8, 9, 10, 11) **skip**
   without it — confirm they are not silently skipped by re-running with assets set:
-  `KUBEBUILDER_ASSETS="$(setup-envtest use 1.37.0 -p path)" go test ./catalogarr/worker/search/... ./catalogarr/controller/search/... -v | grep -c '^=== RUN'` should match the count of `func Test` in the package (i.e. nothing silently skipped), or just run `make test` from the repo root, which sets `KUBEBUILDER_ASSETS` itself.
-- `golangci-lint run ./catalogarr/controller/search/... ./catalogarr/worker/search/...` — confirms
+  `KUBEBUILDER_ASSETS="$(setup-envtest use 1.37.0 -p path)" go test ./app/catalog/worker/search/... ./app/catalog/controller/search/... -v | grep -c '^=== RUN'` should match the count of `func Test` in the package (i.e. nothing silently skipped), or just run `make test` from the repo root, which sets `KUBEBUILDER_ASSETS` itself.
+- `golangci-lint run ./app/catalog/controller/search/... ./app/catalog/worker/search/...` — confirms
   no `client.Status().Patch`/`.Update()` call slipped in outside `pkg/k8s` (forbidigo) and no
   stray `float32`/`float64`.
 - Race detector on the worker (it runs concurrently with the manager's controllers once wired):
-  `go test -race ./catalogarr/worker/search/...`.
+  `go test -race ./app/catalog/worker/search/...`.
 
 **Done when:**
 - [ ] `SearchApplyConfiguration` compiles, satisfies `k8s.ApplyConfiguration`, and
@@ -11584,8 +11584,8 @@ func SearchStatus() *SearchStatusApplyConfiguration
       phase; TTL-deletes once `spec.ttl` has elapsed past `status.finishedAt`; and handles
       `spec.grab`, creating exactly one `Download` per approved/overridden GUID, filling
       `status.grabbed`, and requiring `spec.override` only for a `Permanent` rejection.
-- [ ] No file outside `catalogarr/controller/search/` and `catalogarr/worker/search/` is
-      modified; `catalogarr/run.go` is untouched.
+- [ ] No file outside `app/catalog/controller/search/` and `app/catalog/worker/search/` is
+      modified; `app/catalog/run.go` is untouched.
 - [ ] `make lint` and `make test` (with `KUBEBUILDER_ASSETS` set) are green for these two
       packages.
 
@@ -11594,39 +11594,39 @@ func SearchStatus() *SearchStatusApplyConfiguration
 ### Task C9: the grab path, delay profiles, the wanted cron and the RSS matcher
 
 **Files:**
-- Create: `catalogarr/worker/grab/mediakey.go`
-- Create: `catalogarr/worker/grab/mediakey_test.go`
-- Create: `catalogarr/worker/grab/delay.go`
-- Create: `catalogarr/worker/grab/delay_test.go`
-- Create: `catalogarr/worker/grab/pending.go`
-- Create: `catalogarr/worker/grab/pending_test.go`
-- Create: `catalogarr/worker/grab/lease.go`
-- Create: `catalogarr/worker/grab/lease_test.go`
-- Create: `catalogarr/worker/grab/kindops.go`
-- Create: `catalogarr/worker/grab/perform.go`
-- Create: `catalogarr/worker/grab/perform_envtest_test.go`
-- Create: `catalogarr/worker/grab/decide.go`
-- Create: `catalogarr/worker/grab/decide_envtest_test.go`
-- Create: `catalogarr/worker/grab/handler.go`
-- Create: `catalogarr/worker/grab/handler_envtest_test.go`
-- Create: `catalogarr/controller/wantedcron/backoff.go`
-- Create: `catalogarr/controller/wantedcron/backoff_test.go`
-- Create: `catalogarr/controller/wantedcron/scan.go`
-- Create: `catalogarr/controller/wantedcron/scan_test.go`
-- Create: `catalogarr/controller/wantedcron/runnable.go`
-- Create: `catalogarr/controller/wantedcron/runnable_envtest_test.go`
-- Create: `catalogarr/worker/rssmatcher/index.go`
-- Create: `catalogarr/worker/rssmatcher/index_envtest_test.go`
-- Create: `catalogarr/worker/rssmatcher/match.go`
-- Create: `catalogarr/worker/rssmatcher/match_test.go`
-- Create: `catalogarr/worker/rssmatcher/handler.go`
-- Create: `catalogarr/worker/rssmatcher/handler_envtest_test.go`
-- Modify: `catalogarr/run.go:267-285` (`setupControllers`, `setupWorkers`)
+- Create: `app/catalog/worker/grab/mediakey.go`
+- Create: `app/catalog/worker/grab/mediakey_test.go`
+- Create: `app/catalog/worker/grab/delay.go`
+- Create: `app/catalog/worker/grab/delay_test.go`
+- Create: `app/catalog/worker/grab/pending.go`
+- Create: `app/catalog/worker/grab/pending_test.go`
+- Create: `app/catalog/worker/grab/lease.go`
+- Create: `app/catalog/worker/grab/lease_test.go`
+- Create: `app/catalog/worker/grab/kindops.go`
+- Create: `app/catalog/worker/grab/perform.go`
+- Create: `app/catalog/worker/grab/perform_envtest_test.go`
+- Create: `app/catalog/worker/grab/decide.go`
+- Create: `app/catalog/worker/grab/decide_envtest_test.go`
+- Create: `app/catalog/worker/grab/handler.go`
+- Create: `app/catalog/worker/grab/handler_envtest_test.go`
+- Create: `app/catalog/controller/wantedcron/backoff.go`
+- Create: `app/catalog/controller/wantedcron/backoff_test.go`
+- Create: `app/catalog/controller/wantedcron/scan.go`
+- Create: `app/catalog/controller/wantedcron/scan_test.go`
+- Create: `app/catalog/controller/wantedcron/runnable.go`
+- Create: `app/catalog/controller/wantedcron/runnable_envtest_test.go`
+- Create: `app/catalog/worker/rssmatcher/index.go`
+- Create: `app/catalog/worker/rssmatcher/index_envtest_test.go`
+- Create: `app/catalog/worker/rssmatcher/match.go`
+- Create: `app/catalog/worker/rssmatcher/match_test.go`
+- Create: `app/catalog/worker/rssmatcher/handler.go`
+- Create: `app/catalog/worker/rssmatcher/handler_envtest_test.go`
+- Modify: `app/catalog/run.go:267-285` (`setupControllers`, `setupWorkers`)
 
-**Path ownership:** `catalogarr/worker/grab/`, `catalogarr/worker/rssmatcher/`,
-`catalogarr/controller/wantedcron/`, plus the two named regions of
-`catalogarr/run.go`. Do not touch `catalogarr/worker/search/` (Task C8),
-`catalogarr/controller/delayprofile/` or any other `catalogarr/controller/<kind>/`
+**Path ownership:** `app/catalog/worker/grab/`, `app/catalog/worker/rssmatcher/`,
+`app/catalog/controller/wantedcron/`, plus the two named regions of
+`app/catalog/run.go`. Do not touch `app/catalog/worker/search/` (Task C8),
+`app/catalog/controller/delayprofile/` or any other `app/catalog/controller/<kind>/`
 (Task C4 / C6), or `pkg/decision` (Task C2) — you consume their exported API,
 never their files.
 
@@ -11661,7 +11661,7 @@ them mid-implementation.
    §6.1 sentence that attributes "per-item ≥6h gap and Attempts backoff 6h·2^n
    capped 7d" directly to wantedcron. This task's wantedcron is therefore a
    `manager.Runnable` (confirmed by the comment already in
-   `catalogarr/run.go:265-266`: *"wantedcron ... lands with M1 as a manager
+   `app/catalog/run.go:265-266`: *"wantedcron ... lands with M1 as a manager
    Runnable rather than a reconciler"*) that, on a 12h schedule, lists eligible
    items only to decide **which namespaces** to fire `WantedScan` for, and
    publishes one `WantedScan{Namespace, Kinds:[movie,episode], CutoffUnmet:true,
@@ -11678,7 +11678,7 @@ them mid-implementation.
    `(reconciled by controller — Task C4)` is assumed to export
    `func Resolve(ctx context.Context, c client.Client, namespace string, pinnedRef *string, itemTags []string) (*catalogv1alpha1.DelayProfile, error)`
    from a package this task cannot name for certain — run `go doc
-   ./catalogarr/controller/delayprofile` once C4 has landed and fix the import
+   ./app/catalog/controller/delayprofile` once C4 has landed and fix the import
    in `rssmatcher/handler.go` if the name differs; the call shape (context,
    client, namespace, `*string`, `[]string`, returns `(*DelayProfile, error)`)
    is what to preserve.
@@ -11742,7 +11742,7 @@ them mid-implementation.
   decision 3's sibling note below; reconcile the RSS matcher's call site
   (`rssmatcher/handler.go`) against whatever C2 actually exports before wiring
   it, and record what you found in your final report.
-- `catalogarr/run.go:1-30, 260-285` — service identity, `Role`, the two
+- `app/catalog/run.go:1-30, 260-285` — service identity, `Role`, the two
   registration points you extend, and the comment already there about
   wantedcron being a `Runnable`.
 
@@ -11805,14 +11805,14 @@ func membus.New(clock clockwork.Clock) *membus.Bus   // clockwork.Clock from git
 // type decision.Result struct{ Approved *commonv1.ReleaseInfo; Rejections []commonv1.Rejection }
 // func decision.Evaluate(ctx context.Context, in decision.Input, release schema.Release) decision.Result
 
-// catalogarr/controller/delayprofile — (reconciled by controller, Task C4, not
-// yet built; verify with `go doc ./catalogarr/controller/delayprofile`)
+// app/catalog/controller/delayprofile — (reconciled by controller, Task C4, not
+// yet built; verify with `go doc ./app/catalog/controller/delayprofile`)
 // func delayprofile.Resolve(ctx context.Context, c client.Client, namespace string, pinnedRef *string, itemTags []string) (*catalogv1alpha1.DelayProfile, error)
 ```
 
 **Interfaces — Produces:**
 ```go
-// catalogarr/worker/grab
+// app/catalog/worker/grab
 package grab
 
 type Approved struct {
@@ -11838,7 +11838,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
 var ErrDuplicateGrab error
 var ErrUnsupportedKind error
 
-// catalogarr/controller/wantedcron
+// app/catalog/controller/wantedcron
 package wantedcron
 
 func Backoff(attempts commonv1.Attempts) time.Duration
@@ -11847,7 +11847,7 @@ type Runnable struct{ Client client.Client; Bus events.Bus; Schedule cron.Schedu
 func (r *Runnable) Start(ctx context.Context) error
 func (r *Runnable) NeedLeaderElection() bool
 
-// catalogarr/worker/rssmatcher
+// app/catalog/worker/rssmatcher
 package rssmatcher
 
 func IndexFields(ctx context.Context, mgr ctrl.Manager) error
@@ -11861,7 +11861,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
 
 - [ ] **Step 1: `MediaKey` and `StatusTargets` — the shared key vocabulary.**
 
-  Test first (`catalogarr/worker/grab/mediakey_test.go`, package `grab`):
+  Test first (`app/catalog/worker/grab/mediakey_test.go`, package `grab`):
   ```go
   package grab
 
@@ -11929,16 +11929,16 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
   	}
   }
   ```
-  Run: `go test ./catalogarr/worker/grab/... -run 'TestMediaKey|TestStatusTargets' -v` — fails (package does not exist).
+  Run: `go test ./app/catalog/worker/grab/... -run 'TestMediaKey|TestStatusTargets' -v` — fails (package does not exist).
 
-  Implement `catalogarr/worker/grab/mediakey.go`: `MediaKey` lower-cases `ref.Kind` and joins `kind/namespace/name`. `StatusTargets` switches on `target.Kind`: `MediaKindMovie` or `MediaKindEpisode` with `len(keys)==0` returns `[]commonv1.MediaRef{target}`; `MediaKindSeries` with `keys` returns one `commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: k}` per key; anything else returns `nil, ErrUnsupportedKind` (M1 scope is movie + episode/series only — Design decision context: `IssueStatus` has no `PendingGrab` field, so a delayed grab cannot be represented for comics yet).
+  Implement `app/catalog/worker/grab/mediakey.go`: `MediaKey` lower-cases `ref.Kind` and joins `kind/namespace/name`. `StatusTargets` switches on `target.Kind`: `MediaKindMovie` or `MediaKindEpisode` with `len(keys)==0` returns `[]commonv1.MediaRef{target}`; `MediaKindSeries` with `keys` returns one `commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: k}` per key; anything else returns `nil, ErrUnsupportedKind` (M1 scope is movie + episode/series only — Design decision context: `IssueStatus` has no `PendingGrab` field, so a delayed grab cannot be represented for comics yet).
 
   Run again — passes. Commit:
-  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(grab): media key and pack status-target expansion" -- catalogarr/worker/grab/mediakey.go catalogarr/worker/grab/mediakey_test.go`
+  `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(grab): media key and pack status-target expansion" -- app/catalog/worker/grab/mediakey.go app/catalog/worker/grab/mediakey_test.go`
 
 - [ ] **Step 2: `Bypasses` and `DelayFor` — the pure DelayProfile evaluation.**
 
-  Test first (`catalogarr/worker/grab/delay_test.go`, package `grab`):
+  Test first (`app/catalog/worker/grab/delay_test.go`, package `grab`):
   ```go
   package grab
 
@@ -11991,7 +11991,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
   ```
   Run: fails (no `delay.go`).
 
-  Implement `catalogarr/worker/grab/delay.go`. `Bypasses` treats a nil
+  Implement `app/catalog/worker/grab/delay.go`. `Bypasses` treats a nil
   `*bool` as its CRD default (`BypassIfHighestQuality` defaults `true`,
   `BypassIfAboveFormatScore` defaults `false` — `catalog/v1alpha1/delayprofile_types.go`'s
   `+kubebuilder:default` markers). `DelayFor` switches on `protocol`, minutes to
@@ -12001,7 +12001,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
 
 - [ ] **Step 3: pending-candidate CAS keep-best.**
 
-  Test first (`catalogarr/worker/grab/pending_test.go`, package `grab`):
+  Test first (`app/catalog/worker/grab/pending_test.go`, package `grab`):
   ```go
   package grab
 
@@ -12113,7 +12113,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
   ```
   Run: fails (`pendingValue`/`casKeepBest` undefined).
 
-  Implement `catalogarr/worker/grab/pending.go`: `pendingValue{Target
+  Implement `app/catalog/worker/grab/pending.go`: `pendingValue{Target
   commonv1.MediaRef; Keys []string; Release commonv1.ReleaseInfo; FirstSeen
   time.Time}` (JSON tags `target`, `keys,omitempty`, `release`, `firstSeen`).
   `casKeepBest(ctx, kv events.KV, key string, profile quality.Profile,
@@ -12134,7 +12134,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
 
 - [ ] **Step 4: all-or-nothing lease acquisition — the double-grab guard.**
 
-  Test first (`catalogarr/worker/grab/lease_test.go`, package `grab`) — this is
+  Test first (`app/catalog/worker/grab/lease_test.go`, package `grab`) — this is
   the "real concurrency test, not a happy-path one" the shared context requires
   for this task (spec §14's "grab lease race, two workers, one Download"):
   ```go
@@ -12238,7 +12238,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
   ```
   Run: fails (`acquireLeases`/`releaseLeases`/`ErrDuplicateGrab` undefined).
 
-  Implement `catalogarr/worker/grab/lease.go`: `ErrDuplicateGrab =
+  Implement `app/catalog/worker/grab/lease.go`: `ErrDuplicateGrab =
   errors.New("grab: lease already held")`. `acquireLeases(ctx, kv events.KV,
   keys []string, downloadName string) (acquired []string, err error)` iterates
   `keys`, `kv.Create(ctx, key, []byte(downloadName))`; on
@@ -12249,14 +12249,14 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
   `acquired`, logging (not failing) individual delete errors.
 
   Run — passes, including the race test under `-race`:
-  `go test ./catalogarr/worker/grab/... -run TestAcquireLeases -race -v`.
+  `go test ./app/catalog/worker/grab/... -run TestAcquireLeases -race -v`.
   Commit.
 
 - [ ] **Step 5: `kindOps` — the Movie/Episode glue `Decide` and the grab
       handler share.**
 
   No test yet (pure plumbing exercised by Steps 6-7's envtest suites).
-  Implement `catalogarr/worker/grab/kindops.go`:
+  Implement `app/catalog/worker/grab/kindops.go`:
   ```go
   package grab
 
@@ -12285,7 +12285,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
 - [ ] **Step 6: `performGrab` — leases, optimistic re-read, Download creation,
       status patch, `release.grabbed`.**
 
-  Test first (`catalogarr/worker/grab/perform_envtest_test.go`, package
+  Test first (`app/catalog/worker/grab/perform_envtest_test.go`, package
   `grab_test`, mirroring `pkg/k8s/patch_envtest_test.go`'s `newTestClient`
   helper — skips without `KUBEBUILDER_ASSETS`):
   ```go
@@ -12464,7 +12464,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
   `Decide`/`Handle` as the only genuinely public entry points.)
 
   Run: fails (package/function undefined). Implement
-  `catalogarr/worker/grab/perform.go`:
+  `app/catalog/worker/grab/perform.go`:
   - `chooseSource(release commonv1.ReleaseInfo, indexerRequiresAuth bool)
     downloadv1alpha1.DownloadSource`: magnet first (never needs indexer auth);
     else, when the indexer needs no auth (`Indexer.Spec.SecretRef == nil`) and a
@@ -12519,12 +12519,12 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
         string(ownerObj.GetUID()))`, `Envelope.Key = ns + "/" + target.Name`.
 
   Run — passes:
-  `KUBEBUILDER_ASSETS="$(setup-envtest use 1.37.0 -p path)" go test ./catalogarr/worker/grab/... -run TestPerformGrab -v`.
+  `KUBEBUILDER_ASSETS="$(setup-envtest use 1.37.0 -p path)" go test ./app/catalog/worker/grab/... -run TestPerformGrab -v`.
   Commit.
 
 - [ ] **Step 7: `Decide` — bypass-or-delay, wired to Steps 1-6.**
 
-  Test first (`catalogarr/worker/grab/decide_envtest_test.go`, package
+  Test first (`app/catalog/worker/grab/decide_envtest_test.go`, package
   `grab_test`, reusing `newTestClient`): two cases against the same envtest
   apiserver plus a membus with a real `clockwork.NewFakeClock()`:
   1. `TestDecide_BypassGrabsImmediately`: a `DelayProfileSpec{TorrentDelayMinutes:
@@ -12544,7 +12544,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
      *target* subject, not the scheduling/holding one.
   Both assert the created/patched Movie never has `status.phase` set.
 
-  Run: fails. Implement `catalogarr/worker/grab/decide.go`:
+  Run: fails. Implement `app/catalog/worker/grab/decide.go`:
   ```go
   func Decide(ctx context.Context, d Deps, profile quality.Profile, delay catalogv1alpha1.DelayProfileSpec, a Approved) error {
   	now := d.now()
@@ -12604,7 +12604,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
 
 - [ ] **Step 8: the grab work-queue handler.**
 
-  Test first (`catalogarr/worker/grab/handler_envtest_test.go`, package
+  Test first (`app/catalog/worker/grab/handler_envtest_test.go`, package
   `grab_test`): publish a `schema.GrabTask` directly to
   `events.WorkGrabSubject(mediaKey)` after seeding `clustarr-pending` with a
   `pendingValue` (simulating Step 7's delayed path having already run), start
@@ -12616,7 +12616,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
   creates no second Download, because `kv.Get(PendingKey(...))` now returns
   `events.ErrKeyNotFound`.
 
-  Run: fails. Implement `catalogarr/worker/grab/handler.go`:
+  Run: fails. Implement `app/catalog/worker/grab/handler.go`:
   ```go
   type Handler struct{ Deps Deps }
   func NewHandler(d Deps) *Handler { return &Handler{Deps: d} }
@@ -12664,9 +12664,9 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
   guessing now.
 
   Run — passes. Commit
-  (`catalogarr/worker/grab/handler.go`, `handler_envtest_test.go`).
+  (`app/catalog/worker/grab/handler.go`, `handler_envtest_test.go`).
 
-- [ ] **Step 9: `+kubebuilder:rbac` markers and `catalogarr/run.go` wiring for
+- [ ] **Step 9: `+kubebuilder:rbac` markers and `app/catalog/run.go` wiring for
       the grab worker.**
 
   Add above `NewHandler` in `handler.go`:
@@ -12676,7 +12676,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
   // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch;create;patch
   // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch
   ```
-  In `catalogarr/run.go`'s `setupWorkers` (line 284), inside the existing
+  In `app/catalog/run.go`'s `setupWorkers` (line 284), inside the existing
   `RoleWorker`-implied path, add:
   ```go
   grabHandler := grab.NewHandler(grab.Deps{Client: mgr.GetClient(), Bus: bus})
@@ -12689,13 +12689,13 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
   it — do not invent a second convention.) Update the `setupWorkers` doc
   comment's `TODO(M1)` line to drop "grab" from the list.
 
-  Verify: `go build ./catalogarr/...`. Commit (path-scoped to
-  `catalogarr/run.go` plus the two files this step touched).
+  Verify: `go build ./app/catalog/...`. Commit (path-scoped to
+  `app/catalog/run.go` plus the two files this step touched).
 
 - [ ] **Step 10: wantedcron `Backoff`/`NextEligible` — pure, exported for
       Task C8.**
 
-  Test first (`catalogarr/controller/wantedcron/backoff_test.go`, package
+  Test first (`app/catalog/controller/wantedcron/backoff_test.go`, package
   `wantedcron`):
   ```go
   package wantedcron
@@ -12740,7 +12740,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
   	}
   }
   ```
-  Run: fails. Implement `catalogarr/controller/wantedcron/backoff.go`:
+  Run: fails. Implement `app/catalog/controller/wantedcron/backoff.go`:
   `Backoff(a commonv1.Attempts)`: `n := a.Count; if n < 1 { n = 1 }`, `d := 6 *
   time.Hour * time.Duration(1<<(n-1))`, cap at `7*24*time.Hour`. `NextEligible`
   returns the zero `time.Time` when `a.Latest == nil` (always eligible), else
@@ -12753,7 +12753,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
 
 - [ ] **Step 11: eligible-namespace sweep — pure function.**
 
-  Test first (`catalogarr/controller/wantedcron/scan_test.go`, package
+  Test first (`app/catalog/controller/wantedcron/scan_test.go`, package
   `wantedcron`): build a small slice of `catalogv1alpha1.Movie` and
   `catalogv1alpha1.Episode` fixtures across two namespaces with varying
   `Phase`, `Status.LastSearchedAt`, `Status.SearchAttempts`, and assert
@@ -12764,7 +12764,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
   searched item is always eligible) is at or before `now`, sorted for
   deterministic output.
 
-  Implement `catalogarr/controller/wantedcron/scan.go`:
+  Implement `app/catalog/controller/wantedcron/scan.go`:
   `func eligibleNamespaces(movies []catalogv1alpha1.Movie, episodes
   []catalogv1alpha1.Episode, now time.Time) []string`.
 
@@ -12772,7 +12772,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
 
 - [ ] **Step 12: the `Runnable` — cron schedule, list, publish `WantedScan`.**
 
-  Test first (`catalogarr/controller/wantedcron/runnable_envtest_test.go`,
+  Test first (`app/catalog/controller/wantedcron/runnable_envtest_test.go`,
   package `wantedcron_test`, using `newTestClient` per Step 6's pattern plus a
   fresh `Movie` in `Phase: Wanted`): call the unexported tick body directly
   (export a small `RunOnceForTest(ctx, r *Runnable) error` or keep `runOnce`
@@ -12785,7 +12785,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
   needed for this assertion) confirms the parsed schedule fires at hour 0 and
   12 daily.
 
-  Implement `catalogarr/controller/wantedcron/runnable.go`:
+  Implement `app/catalog/controller/wantedcron/runnable.go`:
   ```go
   type Runnable struct {
   	Client     client.Client
@@ -12829,7 +12829,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
 
   Run — passes. Commit.
 
-- [ ] **Step 13: register `wantedcron` in `catalogarr/run.go`.**
+- [ ] **Step 13: register `wantedcron` in `app/catalog/run.go`.**
 
   In `setupControllers` (line 267), replace the stub body:
   ```go
@@ -12842,7 +12842,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
   }
   ```
   `setupControllers(mgr, o)` today does not receive `bus` (only `setupWorkers`
-  does — see `catalogarr/run.go:284`). Since `wantedcron` needs `events.Bus`,
+  does — see `app/catalog/run.go:284`). Since `wantedcron` needs `events.Bus`,
   either (a) change `setupControllers`' signature to also take `bus
   events.Bus` and update its one call site in `Run` (line ~236), or (b) move
   the `mgr.Add(&wantedcron.Runnable{...})` call into `Run` directly, after both
@@ -12853,12 +12853,12 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
   `setupControllers` doc comment to remove the forward-reference to this not-
   yet-built code.
 
-  Verify: `go build ./catalogarr/...`. Commit
-  (`catalogarr/run.go` scoped to this step's lines).
+  Verify: `go build ./app/catalog/...`. Commit
+  (`app/catalog/run.go` scoped to this step's lines).
 
 - [ ] **Step 14: rss-matcher field indices.**
 
-  Test first (`catalogarr/worker/rssmatcher/index_envtest_test.go`, package
+  Test first (`app/catalog/worker/rssmatcher/index_envtest_test.go`, package
   `rssmatcher_test`): build a real `ctrl.NewManager` against the envtest
   config (mirroring `cmd/clustarr/start_envtest_test.go`'s setup — read that
   file for the exact manager-bring-up shape before writing this), call
@@ -12869,7 +12869,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
   "status.normalizedTitleYear": release.Normalize("The Thing") + "|1982"}` each
   return exactly that Movie.
 
-  Implement `catalogarr/worker/rssmatcher/index.go`:
+  Implement `app/catalog/worker/rssmatcher/index.go`:
   ```go
   func IndexFields(ctx context.Context, mgr ctrl.Manager) error {
   	idx := mgr.GetFieldIndexer()
@@ -12899,7 +12899,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
 
 - [ ] **Step 15: `Match` — release → monitored items.**
 
-  Test first (`catalogarr/worker/rssmatcher/match_test.go`, package
+  Test first (`app/catalog/worker/rssmatcher/match_test.go`, package
   `rssmatcher`, using a `sigs.k8s.io/controller-runtime/pkg/client/fake` client
   seeded with a couple of Movies — field-index matching by IDs needs a real
   indexed cache (Step 14's envtest concern), but the *selection logic* given a
@@ -12909,7 +12909,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
   IDs-based match over a title/year one when both are supplied", called by...
   ):
 
-  Implement `catalogarr/worker/rssmatcher/match.go`:
+  Implement `app/catalog/worker/rssmatcher/match.go`:
   ```go
   func Match(ctx context.Context, c client.Client, namespace string, rel schema.Release) ([]commonv1.MediaRef, error) {
   	if id, ok := rel.Info.IDs[commonv1.IDKeyTMDB]; ok && rel.Kind == commonv1.MediaKindMovie {
@@ -12957,7 +12957,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
   names are almost certainly `k8s.ChildName`/a deterministic scheme off
   `SeriesRef`+season+episode); `(reconciled by controller — Task C6)`: until
   that naming function is confirmed via `go doc
-  ./catalogarr/controller/episode` (or wherever it lands), list Episodes by
+  ./app/catalog/controller/episode` (or wherever it lands), list Episodes by
   `client.MatchingFields` on `spec.seriesRef`+`spec.seasonNumber`+
   `spec.episodeNumber` instead of guessing a name string — add the matching
   three-field composite index alongside Step 14's if Task C6 has not exported
@@ -12966,7 +12966,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
 
 - [ ] **Step 16: the rss-matcher work-queue handler.**
 
-  Test first (`catalogarr/worker/rssmatcher/handler_envtest_test.go`, package
+  Test first (`app/catalog/worker/rssmatcher/handler_envtest_test.go`, package
   `rssmatcher_test`): publish a `schema.Release` (payload `Schema() ==
   "index.Release.v1"`) to `events.ReleaseSubject(...)` for a release matching a
   seeded Movie, with the DelayProfile resolver stub
@@ -12976,7 +12976,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
   takes the same delay/lease/grab path" clause end to end, modulo `decision.Evaluate`
   itself being stubbed (see below).
 
-  Implement `catalogarr/worker/rssmatcher/handler.go`:
+  Implement `app/catalog/worker/rssmatcher/handler.go`:
   ```go
   type Deps struct {
   	Client             client.Client
@@ -12997,7 +12997,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
   	}
   	ns, _, ok := strings.Cut(m.Envelope().Key, "/")
   	if !ok || ns == "" {
-  		ns = "default" // (reconciled by controller — indexarr/Task C4/C6): confirm what Key indexarr actually sets on clustarr.rel.> envelopes and drop this fallback if it always carries a namespace.
+  		ns = "default" // (reconciled by controller — app/indexer/Task C4/C6): confirm what Key indexarr actually sets on clustarr.rel.> envelopes and drop this fallback if it always carries a namespace.
   	}
   	targets, err := Match(ctx, h.Deps.Client, ns, rel)
   	if err != nil {
@@ -13027,12 +13027,12 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
   envtest, using a fake/zero-reject `decision.Evaluate` stand-in if C2 truly
   is not merged yet — do not block this task's completion on C2 landing; land
   with the wiring commented and both TODOs pointing at `go doc ./pkg/decision`
-  and `go doc ./catalogarr/controller/delayprofile`) green.
+  and `go doc ./app/catalog/controller/delayprofile`) green.
 
   Run — the parts that do not depend on C2/C4 pass; note in your final report
   exactly which assertions you could and could not exercise.
 
-- [ ] **Step 17: register rss-matcher in `catalogarr/run.go`.**
+- [ ] **Step 17: register rss-matcher in `app/catalog/run.go`.**
 
   In `setupWorkers` (line 284), alongside Step 9's grab registration:
   ```go
@@ -13049,25 +13049,25 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error
   Update the `setupWorkers` doc comment to drop "rss-matcher" from its
   `TODO(M1)` line.
 
-  Verify: `go build ./catalogarr/...` (this will fail to compile against
-  `catalogarr/controller/delayprofile.Resolve` until Task C4 lands — that
+  Verify: `go build ./app/catalog/...` (this will fail to compile against
+  `app/catalog/controller/delayprofile.Resolve` until Task C4 lands — that
   import is exactly the cross-task dependency Design decision 3 calls out; if
   C4 has not merged when you reach this step, leave the wiring in place but
   note the expected compile failure and the exact function it is waiting on
   in your final report rather than stubbing it out silently). Commit
-  (`catalogarr/run.go` scoped to this step's lines, plus
-  `catalogarr/worker/rssmatcher/handler.go`).
+  (`app/catalog/run.go` scoped to this step's lines, plus
+  `app/catalog/worker/rssmatcher/handler.go`).
 
 ---
 
 **Verification:**
 ```bash
 cd /home/appkins/src/mediactl/clustarr
-go build ./catalogarr/... ./pkg/...
-go vet ./catalogarr/worker/grab/... ./catalogarr/worker/rssmatcher/... ./catalogarr/controller/wantedcron/...
-go test ./catalogarr/worker/grab/... ./catalogarr/controller/wantedcron/... -race -v
+go build ./app/catalog/... ./pkg/...
+go vet ./app/catalog/worker/grab/... ./app/catalog/worker/rssmatcher/... ./app/catalog/controller/wantedcron/...
+go test ./app/catalog/worker/grab/... ./app/catalog/controller/wantedcron/... -race -v
 KUBEBUILDER_ASSETS="$(setup-envtest use 1.37.0 -p path)" \
-  go test ./catalogarr/worker/grab/... ./catalogarr/worker/rssmatcher/... ./catalogarr/controller/wantedcron/... -race -v
+  go test ./app/catalog/worker/grab/... ./app/catalog/worker/rssmatcher/... ./app/catalog/controller/wantedcron/... -race -v
 make lint
 ```
 The second `go test` run is not optional: every `*_envtest_test.go` file in
@@ -13104,19 +13104,19 @@ task as done.
       falling back to normalized title+year, over a real indexed
       controller-runtime cache (envtest), and `Match`'s pure candidate-selection
       logic is separately unit-tested.
-- [ ] `catalogarr/run.go`'s `setupControllers`/`setupWorkers` register
+- [ ] `app/catalog/run.go`'s `setupControllers`/`setupWorkers` register
       wantedcron, the grab handler and the rss-matcher handler; `go build
-      ./catalogarr/...` succeeds except for the one documented cross-task
+      ./app/catalog/...` succeeds except for the one documented cross-task
       dependency on Task C4's `delayprofile.Resolve` if C4 has not yet landed —
       in which case the exact failing import is named in the final report, not
       silently worked around.
 - [ ] Every place this task assumed another Phase C task's API
-      (`pkg/decision.Evaluate`/`Rank`, `catalogarr/controller/delayprofile.Resolve`,
+      (`pkg/decision.Evaluate`/`Rank`, `app/catalog/controller/delayprofile.Resolve`,
       Episode naming for season-pack matching) is marked
       `(reconciled by controller — Task Cn)` in code comments at the call site,
       not just in this plan.
-- [ ] `go test ./catalogarr/worker/grab/... ./catalogarr/worker/rssmatcher/...
-      ./catalogarr/controller/wantedcron/... -race` is green both with and
+- [ ] `go test ./app/catalog/worker/grab/... ./app/catalog/worker/rssmatcher/...
+      ./app/catalog/controller/wantedcron/... -race` is green both with and
       without `KUBEBUILDER_ASSETS`, and `make lint` passes (no `forbidigo`
       hits — every status write goes through `k8s.PatchStatus`/`k8s.Apply`).
 
@@ -13126,32 +13126,32 @@ task as done.
 
 **Scope corrections from the plan controller (mid-task, both addressed below):**
 
-1. `ImportExclusion` belongs to `importarr`, not `catalogarr` — the catalogarr configuration-controllers task's brief wrongly assigned it. Amendment §A1.3's ownership table, `pkg/k8s.ManagerImportarr`'s own doc comment ("owns ImportList, ImportExclusion and LibraryScan status") and `catalogarr/run.go`'s `setupControllers` comment agree. It is added here as a fourth, self-contained component.
+1. `ImportExclusion` belongs to `importarr`, not `catalogarr` — the catalogarr configuration-controllers task's brief wrongly assigned it. Amendment §A1.3's ownership table, `pkg/k8s.ManagerImportarr`'s own doc comment ("owns ImportList, ImportExclusion and LibraryScan status") and `app/catalog/run.go`'s `setupControllers` comment agree. It is added here as a fourth, self-contained component.
 2. **`MediaFile.status.file` and `status.probe` do not exist.** The original brief (and CLAUDE.md's invariant paragraph, and amendment §A1.3) describe importarr owning those two status groups. `api/catalog/v1alpha1/mediafile_types.go` has no such fields: `MediaFileStatus` is flat (`ObservedGeneration`, `Conditions`, `ProbeHash`, `ProbedAt`, `MediaInfo`, `Sidecars`, `Transcode`), and the six "decided" fields (`Quality`, `Revision`, `ReleaseType`, `ReleaseGroup`... `FormatScore`, `MatchedFormats`, `ProfileHash`) are all on **`MediaFileSpec`**, frozen at import — matching spec §8.4's own words ("quality/revision/formatScore/matchedFormats/releaseType frozen"). The real split, confirmed against the generated type: **importarr creates the `MediaFile` and owns all of `MediaFileSpec`** (the observed facts plus the release identity frozen from what `pkg/release` parsed); **catalogarr (Task C7) is the sole writer of all of `MediaFileStatus`** (it probes, sets `probeHash`/`mediaInfo`, mirrors sidecars and transcode state), and it additionally takes over three spec fields — `sizeBytes`, `modTime`, `original` — but only *after* it incorporates a transcode swap (spec §8.5). This task is rewritten below to write spec only, never status, and never call `pkg/mediainfo.Probe` (there is nowhere on `MediaFileSpec` for a probe result to go — probing is entirely catalogarr's job now). The field manager for every rescan-worker write to `Movie` and `MediaFile` is `k8s.ManagerImportarr`, per the controller's explicit instruction; `k8s.ManagerImportarrWorker`'s doc comment in `pkg/k8s/fieldmanager.go` ("applies `status.file` and `status.probe` only") describes the same non-existent fields and is stale — this task does not use it, and flags the comment for correction outside this task's path ownership.
 
 **Files:**
-- Create: `importarr/controller/libraryscan/libraryscan_controller.go`
-- Create: `importarr/controller/libraryscan/libraryscan_controller_envtest_test.go`
-- Create: `importarr/controller/rootfolderschedule/rootfolderschedule_controller.go`
-- Create: `importarr/controller/rootfolderschedule/rootfolderschedule_controller_envtest_test.go`
-- Create: `importarr/controller/importexclusion/importexclusion_controller.go`
-- Create: `importarr/controller/importexclusion/importexclusion_controller_envtest_test.go`
-- Create: `importarr/worker/rescan/match.go`
-- Create: `importarr/worker/rescan/match_test.go`
-- Create: `importarr/worker/rescan/progress.go`
-- Create: `importarr/worker/rescan/progress_test.go`
-- Create: `importarr/worker/rescan/worker.go`
-- Create: `importarr/worker/rescan/mediafile.go`
-- Create: `importarr/worker/rescan/index.go`
-- Create: `importarr/worker/rescan/worker_envtest_test.go`
+- Create: `app/import/controller/libraryscan/libraryscan_controller.go`
+- Create: `app/import/controller/libraryscan/libraryscan_controller_envtest_test.go`
+- Create: `app/import/controller/rootfolderschedule/rootfolderschedule_controller.go`
+- Create: `app/import/controller/rootfolderschedule/rootfolderschedule_controller_envtest_test.go`
+- Create: `app/import/controller/importexclusion/importexclusion_controller.go`
+- Create: `app/import/controller/importexclusion/importexclusion_controller_envtest_test.go`
+- Create: `app/import/worker/rescan/match.go`
+- Create: `app/import/worker/rescan/match_test.go`
+- Create: `app/import/worker/rescan/progress.go`
+- Create: `app/import/worker/rescan/progress_test.go`
+- Create: `app/import/worker/rescan/worker.go`
+- Create: `app/import/worker/rescan/mediafile.go`
+- Create: `app/import/worker/rescan/index.go`
+- Create: `app/import/worker/rescan/worker_envtest_test.go`
 - Create: `pkg/events/schema/importarr.go`
 - Create: `pkg/events/exclusion.go`
 - Modify: `pkg/events/schema/schema_test.go` (append `schema.ScanTask{}` to `allPayloads()`)
 - Modify: `pkg/events/subjects.go` (add `BucketImportExclusions` to the bucket-name const block)
 - Modify: `pkg/events/topology.go` (register `BucketImportExclusions` in `defaultBuckets()`)
-- Modify: `importarr/run.go` (`setupControllers`, `setupWorkers`, and the one call site of `setupControllers` in `Run`)
+- Modify: `app/import/run.go` (`setupControllers`, `setupWorkers`, and the one call site of `setupControllers` in `Run`)
 
-**Path ownership:** `importarr/controller/libraryscan/`, `importarr/controller/rootfolderschedule/`, `importarr/controller/importexclusion/`, `importarr/worker/rescan/`, plus `importarr/run.go` and four small, additive touches to shared bus infrastructure: the new files `pkg/events/schema/importarr.go` and `pkg/events/exclusion.go`, one appended line in `pkg/events/schema/schema_test.go`, one constant in `pkg/events/subjects.go`, and one entry in `pkg/events/topology.go`'s `defaultBuckets()`. No other Phase C task (C0–C2, C4–C9, C11) works inside `importarr/` or touches `pkg/events`'s payload/bucket vocabulary — the eight sibling tasks are catalogarr/indexarr/e2e scoped and every schema type or bucket they need already exists from Phase A. This is the only Phase C task that reaches into `pkg/events`.
+**Path ownership:** `app/import/controller/libraryscan/`, `app/import/controller/rootfolderschedule/`, `app/import/controller/importexclusion/`, `app/import/worker/rescan/`, plus `app/import/run.go` and four small, additive touches to shared bus infrastructure: the new files `pkg/events/schema/importarr.go` and `pkg/events/exclusion.go`, one appended line in `pkg/events/schema/schema_test.go`, one constant in `pkg/events/subjects.go`, and one entry in `pkg/events/topology.go`'s `defaultBuckets()`. No other Phase C task (C0–C2, C4–C9, C11) works inside `app/import/` or touches `pkg/events`'s payload/bucket vocabulary — the eight sibling tasks are app/catalog/indexarr/e2e scoped and every schema type or bucket they need already exists from Phase A. This is the only Phase C task that reaches into `pkg/events`.
 
 **Read first:**
 - Amendment §A1 in full (`docs/superpowers/specs/2026-09-18-clustarr-design-amendment-1.md` lines 19–163): §A1.3 the ownership table, §A1.4 the `LibraryScan` kind, §A1.5 matching files to items (the never-guess rule), §A1.6 process topology (work-queue subjects, the "chunked by directory... one message is not a multi-hour unit of work" line).
@@ -13161,9 +13161,9 @@ task as done.
 - The real generated types, which is where this task's design corrects both the amendment's pseudocode and the original brief: `api/catalog/v1alpha1/libraryscan_types.go`, `api/catalog/v1alpha1/rootfolder_types.go`, `api/catalog/v1alpha1/mediafile_types.go` (read this one especially carefully — see correction 2), `api/catalog/v1alpha1/movie_types.go`, `api/catalog/v1alpha1/importexclusion_types.go`, `api/common/v1alpha1/media_types.go`.
 - `pkg/k8s/fieldmanager.go` in full — `ManagerImportarr`'s doc comment ("owns ImportList, ImportExclusion and LibraryScan status") is accurate and this task follows it for every controller AND for the rescan worker's writes (see correction 2); `ManagerImportarrWorker`'s doc comment is stale (references the non-existent status split) and is not used by this task.
 - `pkg/events/topology.go` lines ~460–495 (the `importarr` consumer block: `ConsumerImportScan` AckWait 60s/MaxDeliver 4/BackOff 30s,2m,10m/MaxAckPending 4/Heartbeat 30s, and the comment above it about in-progress acks) and ~538–560 (`defaultBuckets()`, the `b(name, ttl, desc)` helper this task's new `BucketImportExclusions` entry follows) and `pkg/events/subjects.go` (`WorkScanSubject`, `StreamWorkImportarr`, `FilterImportScan`, `LeaseKey`/`PendingKey` — the existing precedent this task's `ExclusionKey` follows).
-- `go doc ./pkg/fsops`, `go doc ./pkg/release`, `go doc ./pkg/events`, `go doc ./pkg/k8s` — all read in full for this task; signatures used below are exact. (`pkg/mediainfo` is **not** consumed by this task per correction 2 — do not add it as a dependency of `importarr/worker/rescan`.)
+- `go doc ./pkg/fsops`, `go doc ./pkg/release`, `go doc ./pkg/events`, `go doc ./pkg/k8s` — all read in full for this task; signatures used below are exact. (`pkg/mediainfo` is **not** consumed by this task per correction 2 — do not add it as a dependency of `app/import/worker/rescan`.)
 - `pkg/k8s/patch_envtest_test.go` — the `newTestClient(t)` helper (envtest + `KUBEBUILDER_ASSETS` skip + `config/crd/bases`) is the established pattern every envtest suite in this repo follows; mirror it rather than inventing a new one.
-- `importarr/run.go` in full, especially the `setupControllers`/`setupWorkers` TODO comments.
+- `app/import/run.go` in full, especially the `setupControllers`/`setupWorkers` TODO comments.
 
 **Dependencies:** `github.com/robfig/cron/v3` at **v3.0.1** — already verified and pre-added to `go.mod` by Task C0 (`/tmp/.../phase-c/deps-verified.txt`: `github.com/robfig/cron/v3@v3.0.1`), which runs and commits before any of C1–C11 are dispatched. **Do not `go get` it.** No other new dependency — everything else (`sigs.k8s.io/controller-runtime`, `k8s.io/apimachinery`, the `api/applyconfiguration/...` packages, `pkg/fsops`, `pkg/release`, `pkg/events`, `pkg/k8s`) is already in `go.mod` from Phases A/B. `pkg/mediainfo` is explicitly **not** a dependency of this task (correction 2).
 
@@ -13364,7 +13364,7 @@ func DecodeExclusionEntry(data []byte) (ExclusionEntry, error)
 // events.ErrKeyNotFound means not excluded; any other successful Get means excluded,
 // and DecodeExclusionEntry(entry.Value) gives the reason to surface to the user.
 
-// importarr/worker/rescan
+// app/import/worker/rescan
 type Progress struct {
     Done bool; Error string
     FilesSeen, FilesMatched, ItemsCreated, ItemsUpdated, FilesSkipped int64
@@ -13393,21 +13393,21 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error // satisfie
 const MediaFilePathIndexKey = "spec.path"
 func IndexMediaFileByPath(ctx context.Context, mgr ctrl.Manager) error
 
-// importarr/controller/libraryscan
+// app/import/controller/libraryscan
 type Reconciler struct { /* Client client.Client; Bus events.Bus; Clock func() time.Time */ }
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error
 
-// importarr/controller/rootfolderschedule
+// app/import/controller/rootfolderschedule
 const LabelRootFolder = "catalog.clustarr.io/root-folder"
 type Reconciler struct { /* Client client.Client; Recorder record.EventRecorder; Clock func() time.Time */ }
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error
 
-// importarr/controller/importexclusion
+// app/import/controller/importexclusion
 type Reconciler struct { /* Client client.Client; Bus events.Bus; Clock func() time.Time */ }
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error
 ```
 
-Nothing here is consumed by another Phase C task (C2/C4–C9/C11 are catalogarr/indexarr/e2e scoped). `pkg/events.BucketImportExclusions`/`ExclusionKey`/`ExclusionEntry` are the explicit handoff for Phase D (import-list sync) and Phase G (search) — both `(reconciled by a later task)`, consuming the KV contract directly, not this task's controller package. The deferred completed-download-import worker (`importarr/worker/fileimport`, amendment §A1.6, M3, not in this Phase C batch) will also need to write `MediaFileSpec` — it is `(reconciled by a later task)` and must follow the same "spec only, `k8s.ManagerImportarr`" rule this task establishes.
+Nothing here is consumed by another Phase C task (C2/C4–C9/C11 are app/catalog/indexarr/e2e scoped). `pkg/events.BucketImportExclusions`/`ExclusionKey`/`ExclusionEntry` are the explicit handoff for Phase D (import-list sync) and Phase G (search) — both `(reconciled by a later task)`, consuming the KV contract directly, not this task's controller package. The deferred completed-download-import worker (`app/import/worker/fileimport`, amendment §A1.6, M3, not in this Phase C batch) will also need to write `MediaFileSpec` — it is `(reconciled by a later task)` and must follow the same "spec only, `k8s.ManagerImportarr`" rule this task establishes.
 
 ---
 
@@ -13497,7 +13497,7 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(events
 
 - [ ] **Step 2: `rescan.Progress` checkpoint type, failing test first**
 
-`importarr/worker/rescan/progress_test.go`:
+`app/import/worker/rescan/progress_test.go`:
 
 ```go
 func TestProgressEncodeDecodeRoundTrip(t *testing.T) {
@@ -13527,10 +13527,10 @@ func TestProgressKeyIsNamespacedUnderScan(t *testing.T) {
 ```
 
 ```bash
-go test ./importarr/worker/rescan/...
+go test ./app/import/worker/rescan/...
 ```
 
-Fails: package does not exist. Implement `importarr/worker/rescan/progress.go`:
+Fails: package does not exist. Implement `app/import/worker/rescan/progress.go`:
 
 ```go
 package rescan
@@ -13594,13 +13594,13 @@ func ProgressKey(scanUID string) string { return "scan." + scanUID }
 ```
 
 ```bash
-go test ./importarr/worker/rescan/...
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importarr): rescan progress checkpoint type" -- importarr/worker/rescan/progress.go importarr/worker/rescan/progress_test.go
+go test ./app/import/worker/rescan/...
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importarr): rescan progress checkpoint type" -- app/import/worker/rescan/progress.go app/import/worker/rescan/progress_test.go
 ```
 
 - [ ] **Step 3: `MatchMovie`, the pure never-guess matcher — failing tests first**
 
-This is the function the "must NOT match" cases live in. `importarr/worker/rescan/match_test.go`:
+This is the function the "must NOT match" cases live in. `app/import/worker/rescan/match_test.go`:
 
 ```go
 func TestMatchMovieUsesEmbeddedTmdbIDAgainstExistingMovie(t *testing.T) {
@@ -13719,16 +13719,16 @@ func failResolve(t *testing.T) rescan.ResolveIMDb {
 }
 ```
 
-Run: `go test ./importarr/worker/rescan/...` — fails, `rescan.MatchMovie` undefined. Implement `importarr/worker/rescan/match.go` per the exact logic given in the "Interfaces — Produces" block and disagreement note 6: embedded `tmdb` id used directly; embedded `imdb` id resolved via `resolve`; otherwise exact `release.CleanTitle` (+year when both sides have one) against `existing`, zero hits → unmatched "no embedded provider id and no confident title match among N existing movies", 2+ hits → unmatched "ambiguous: N existing movies share title %q" with `Candidates` set, exactly one hit → matched. Run the tests green.
+Run: `go test ./app/import/worker/rescan/...` — fails, `rescan.MatchMovie` undefined. Implement `app/import/worker/rescan/match.go` per the exact logic given in the "Interfaces — Produces" block and disagreement note 6: embedded `tmdb` id used directly; embedded `imdb` id resolved via `resolve`; otherwise exact `release.CleanTitle` (+year when both sides have one) against `existing`, zero hits → unmatched "no embedded provider id and no confident title match among N existing movies", 2+ hits → unmatched "ambiguous: N existing movies share title %q" with `Candidates` set, exactly one hit → matched. Run the tests green.
 
 ```bash
-go test ./importarr/worker/rescan/... -run TestMatchMovie
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importarr): pure MatchMovie — the rescan never-guess matcher" -- importarr/worker/rescan/match.go importarr/worker/rescan/match_test.go
+go test ./app/import/worker/rescan/... -run TestMatchMovie
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importarr): pure MatchMovie — the rescan never-guess matcher" -- app/import/worker/rescan/match.go app/import/worker/rescan/match_test.go
 ```
 
 - [ ] **Step 4: RootFolder scan-schedule controller — first tick, failing envtest first**
 
-`importarr/controller/rootfolderschedule/rootfolderschedule_controller_envtest_test.go`, following `pkg/k8s/patch_envtest_test.go`'s `newTestClient(t)` pattern (`CRDDirectoryPaths: []string{"../../../config/crd/bases"}`, skip when `KUBEBUILDER_ASSETS` is unset):
+`app/import/controller/rootfolderschedule/rootfolderschedule_controller_envtest_test.go`, following `pkg/k8s/patch_envtest_test.go`'s `newTestClient(t)` pattern (`CRDDirectoryPaths: []string{"../../../config/crd/bases"}`, skip when `KUBEBUILDER_ASSETS` is unset):
 
 ```go
 func TestReconcileCreatesLibraryScanOnFirstTick(t *testing.T) {
@@ -13776,12 +13776,12 @@ func TestReconcileCreatesLibraryScanOnFirstTick(t *testing.T) {
 }
 ```
 
-Fails: `rootfolderschedule` package does not exist. Implement `importarr/controller/rootfolderschedule/rootfolderschedule_controller.go` per the Reconcile design above (deterministic `k8s.ChildName(rf.Name, "scan", tick.UTC().Format(time.RFC3339))` name; `cron.ParseStandard`; List existing scans by `LabelRootFolder`; `last` = max `CreationTimestamp` or zero value; `next := sched.Next(last)`; create via `k8s.Apply` with `k8s.ManagerImportarr` when `!next.After(now)`, else `RequeueAfter: next.Sub(now)`). `SetupWithManager` uses `.Named("rootfolderschedule").For(&catalogv1alpha1.RootFolder{}, builder.WithPredicates(k8s.GenerationChanged()))` — no `Owns()`/`Watches()` on `LibraryScan`: the schedule is entirely self-timed via `RequeueAfter`, and no owner reference is set (a `LibraryScan`'s lifecycle is independent of the `RootFolder` that triggered it — it deletes itself on its own TTL, not on `RootFolder` deletion).
+Fails: `rootfolderschedule` package does not exist. Implement `app/import/controller/rootfolderschedule/rootfolderschedule_controller.go` per the Reconcile design above (deterministic `k8s.ChildName(rf.Name, "scan", tick.UTC().Format(time.RFC3339))` name; `cron.ParseStandard`; List existing scans by `LabelRootFolder`; `last` = max `CreationTimestamp` or zero value; `next := sched.Next(last)`; create via `k8s.Apply` with `k8s.ManagerImportarr` when `!next.After(now)`, else `RequeueAfter: next.Sub(now)`). `SetupWithManager` uses `.Named("rootfolderschedule").For(&catalogv1alpha1.RootFolder{}, builder.WithPredicates(k8s.GenerationChanged()))` — no `Owns()`/`Watches()` on `LibraryScan`: the schedule is entirely self-timed via `RequeueAfter`, and no owner reference is set (a `LibraryScan`'s lifecycle is independent of the `RootFolder` that triggered it — it deletes itself on its own TTL, not on `RootFolder` deletion).
 
 ```bash
 KUBEBUILDER_ASSETS=$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest use -p path 1.37.0) \
-  go test ./importarr/controller/rootfolderschedule/... -run TestReconcileCreatesLibraryScanOnFirstTick
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importarr): RootFolder scan-schedule controller creates the first LibraryScan tick" -- importarr/controller/rootfolderschedule/rootfolderschedule_controller.go importarr/controller/rootfolderschedule/rootfolderschedule_controller_envtest_test.go
+  go test ./app/import/controller/rootfolderschedule/... -run TestReconcileCreatesLibraryScanOnFirstTick
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importarr): RootFolder scan-schedule controller creates the first LibraryScan tick" -- app/import/controller/rootfolderschedule/rootfolderschedule_controller.go app/import/controller/rootfolderschedule/rootfolderschedule_controller_envtest_test.go
 ```
 
 - [ ] **Step 5: schedule idempotency and invalid-cron handling**
@@ -13852,13 +13852,13 @@ func TestReconcileEmitsEventAndTerminalErrorOnInvalidCron(t *testing.T) {
 Implement the cron-parse-failure branch: `r.Recorder.Eventf(rf, nil, corev1.EventTypeWarning, "InvalidScanSchedule", "TriggerScan", "cron expression %q is invalid: %v", rf.Spec.ScanSchedule, err)` then `return ctrl.Result{}, reconcile.TerminalError(fmt.Errorf(...))`.
 
 ```bash
-KUBEBUILDER_ASSETS=... go test ./importarr/controller/rootfolderschedule/...
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importarr): schedule idempotency and invalid-cron event handling" -- importarr/controller/rootfolderschedule
+KUBEBUILDER_ASSETS=... go test ./app/import/controller/rootfolderschedule/...
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importarr): schedule idempotency and invalid-cron event handling" -- app/import/controller/rootfolderschedule
 ```
 
 - [ ] **Step 6: LibraryScan controller — start phase, failing envtest first**
 
-`importarr/controller/libraryscan/libraryscan_controller_envtest_test.go`:
+`app/import/controller/libraryscan/libraryscan_controller_envtest_test.go`:
 
 ```go
 func TestReconcileStartPublishesScanTaskAndSetsRunning(t *testing.T) {
@@ -13915,7 +13915,7 @@ func TestReconcileStartPublishesScanTaskAndSetsRunning(t *testing.T) {
 
 (`newCollector` is a small test helper subscribing to `events.ConsumerImportScan`'s subscription and decoding the first `ScanTask` it receives — write it alongside the test, mirroring `pkg/events/contracttest`'s collector pattern.)
 
-Fails: package does not exist. Implement `importarr/controller/libraryscan/libraryscan_controller.go`:
+Fails: package does not exist. Implement `app/import/controller/libraryscan/libraryscan_controller.go`:
 
 - `Reconcile`: `Get` the scan, `client.IgnoreNotFound`; `k8s.IsDeleting` → no-op (no finalizer: the only side effects — one bus publish and one KV key — are dedup-protected and TTL-bounded respectively, so nothing leaks on delete); dispatch on `Status.Phase` (`""`/`Pending` → `start`, `Running` → `poll`, else → `maybeExpire`).
 - `start`: `Get` the `RootFolder` named by `Spec.RootFolderRef`; if missing, `MarkFalse` `Ready`/`ReasonDependencyNotReady`, `PatchStatus`, `RequeueAfter(15s)`; if present but not `RootFolderConditionReady`, same; else build `Path = filepath.Join(rf.Spec.Path, scan.Spec.Subpath)`, publish via `bus.Publish` on `events.WorkScanSubject(rf.Name)` with `&events.Envelope{ID: events.MsgIDForObject(string(scan.UID), scan.Generation, "scan"), Type: "importarr.scan", Schema: schemaName, Source: "importarr@" + version.String(), Key: scan.Namespace + "/" + scan.Name, Data: data}` (schemaName/data from `schema.Encode(schema.ScanTask{...})`), then `PatchStatus` `Phase: Running, StartedAt: now` under `k8s.ManagerImportarr`.
@@ -13924,8 +13924,8 @@ Fails: package does not exist. Implement `importarr/controller/libraryscan/libra
 - `SetupWithManager`: `.Named("libraryscan").For(&catalogv1alpha1.LibraryScan{}, builder.WithPredicates(k8s.GenerationChanged())).Complete(r)`.
 
 ```bash
-KUBEBUILDER_ASSETS=... go test ./importarr/controller/libraryscan/... -run TestReconcileStartPublishesScanTaskAndSetsRunning
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importarr): LibraryScan controller — start phase publishes the scan task" -- importarr/controller/libraryscan
+KUBEBUILDER_ASSETS=... go test ./app/import/controller/libraryscan/... -run TestReconcileStartPublishesScanTaskAndSetsRunning
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importarr): LibraryScan controller — start phase publishes the scan task" -- app/import/controller/libraryscan
 ```
 
 - [ ] **Step 7: LibraryScan controller — poll aggregation and the 200-cap, failing test first**
@@ -13998,8 +13998,8 @@ func TestReconcilePollAggregatesProgressAndCapsUnmatchedAt200(t *testing.T) {
 Implement the sort-and-cap in `poll`: `slices.SortFunc(unmatched, func(a, b rescan.UnmatchedFile) int { return b.SeenAt.Compare(a.SeenAt) })`, then `if len(unmatched) > 200 { unmatched = unmatched[:200] }`, converting each to `catalogac.UnmatchedFile().WithPath(...).WithReason(...).WithCandidates(...).WithSeenAt(metav1.NewTime(...))` for `LibraryScanStatusApplyConfiguration.WithUnmatched(...)`.
 
 ```bash
-KUBEBUILDER_ASSETS=... go test ./importarr/controller/libraryscan/...
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importarr): LibraryScan controller — poll aggregation and the 200-item unmatched cap" -- importarr/controller/libraryscan
+KUBEBUILDER_ASSETS=... go test ./app/import/controller/libraryscan/...
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importarr): LibraryScan controller — poll aggregation and the 200-item unmatched cap" -- app/import/controller/libraryscan
 ```
 
 - [ ] **Step 8: LibraryScan controller — TTL expiry, failing test first**
@@ -14034,13 +14034,13 @@ func TestReconcileDeletesAfterTTL(t *testing.T) {
 ```
 
 ```bash
-KUBEBUILDER_ASSETS=... go test ./importarr/controller/libraryscan/...
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importarr): LibraryScan controller — delete once ttlSecondsAfterFinished elapses" -- importarr/controller/libraryscan
+KUBEBUILDER_ASSETS=... go test ./app/import/controller/libraryscan/...
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importarr): LibraryScan controller — delete once ttlSecondsAfterFinished elapses" -- app/import/controller/libraryscan
 ```
 
 - [ ] **Step 9: rescan worker — fsops classification, failing test first**
 
-`importarr/worker/rescan/worker_envtest_test.go` (needs a real client for `k8s.Apply`, per `pkg/k8s/patch_envtest_test.go`'s precedent — the fake client does not exercise SSA apply the way these tests need):
+`app/import/worker/rescan/worker_envtest_test.go` (needs a real client for `k8s.Apply`, per `pkg/k8s/patch_envtest_test.go`'s precedent — the fake client does not exercise SSA apply the way these tests need):
 
 ```go
 func TestHandleSkipsPartExtraAndSampleFiles(t *testing.T) {
@@ -14097,11 +14097,11 @@ func TestHandleSkipsPartExtraAndSampleFiles(t *testing.T) {
 
 (`mustWriteFile`, `newFakeMessage` are small local test helpers: `mustWriteFile` writes N zero bytes via `os.WriteFile`; `newFakeMessage` wraps a `schema.Encode`d envelope and no-ops `Ack`/`Nak`/`Term`/`InProgress` so `Handle` can be called directly without a live bus subscription.)
 
-Fails: package/`Handle` do not exist. Implement `importarr/worker/rescan/worker.go`'s `Handle` skeleton (decode `ScanTask`, get `RootFolder` + `LibraryScan`, `fsops.Walk` with the `ClassPart/ClassExtra/ClassSample/ClassOther → FilesSkipped++` / `ClassMedia → FilesSeen++`, dispatch) and `importarr/worker/rescan/index.go`'s `IndexMediaFileByPath` (registers a field indexer on `MediaFilePathIndexKey = "spec.path"`, extracting `mf.Spec.Path`). Get this test green with `handleMediaFile` still a stub that always appends to `Unmatched` with reason `"not yet implemented"` — Step 10 replaces the stub.
+Fails: package/`Handle` do not exist. Implement `app/import/worker/rescan/worker.go`'s `Handle` skeleton (decode `ScanTask`, get `RootFolder` + `LibraryScan`, `fsops.Walk` with the `ClassPart/ClassExtra/ClassSample/ClassOther → FilesSkipped++` / `ClassMedia → FilesSeen++`, dispatch) and `app/import/worker/rescan/index.go`'s `IndexMediaFileByPath` (registers a field indexer on `MediaFilePathIndexKey = "spec.path"`, extracting `mf.Spec.Path`). Get this test green with `handleMediaFile` still a stub that always appends to `Unmatched` with reason `"not yet implemented"` — Step 10 replaces the stub.
 
 ```bash
-KUBEBUILDER_ASSETS=... go test ./importarr/worker/rescan/... -run TestHandleSkipsPartExtraAndSampleFiles
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importarr): rescan worker walk/classify skeleton" -- importarr/worker/rescan/worker.go importarr/worker/rescan/index.go importarr/worker/rescan/worker_envtest_test.go
+KUBEBUILDER_ASSETS=... go test ./app/import/worker/rescan/... -run TestHandleSkipsPartExtraAndSampleFiles
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importarr): rescan worker walk/classify skeleton" -- app/import/worker/rescan/worker.go app/import/worker/rescan/index.go app/import/worker/rescan/worker_envtest_test.go
 ```
 
 - [ ] **Step 10: rescan worker — Movie upsert and `MediaFileSpec` (spec only, no probe), failing test first**
@@ -14259,7 +14259,7 @@ func TestHandleDoesNotReclaimFieldsCatalogarrOwnsPostTranscode(t *testing.T) {
 }
 ```
 
-Implement `importarr/worker/rescan/mediafile.go`'s `applyMovieAndMediaFile` (the `handleMediaFile` logic from the design above):
+Implement `app/import/worker/rescan/mediafile.go`'s `applyMovieAndMediaFile` (the `handleMediaFile` logic from the design above):
 
 1. Look up an existing `MediaFile` by the `spec.path` index. If found and `Spec.Original != nil && !*Spec.Original` → `FilesSkipped++`, return without touching anything (disagreement note 10).
 2. If found, `mode == "incremental"`, and `Spec.SizeBytes == info.Size() && Spec.ModTime.Time.Equal(info.ModTime())` → `FilesSkipped++`, return (the incremental fingerprint is `spec.sizeBytes`+`spec.modTime` directly — no separate hash needed now that probing is not this task's job).
@@ -14269,13 +14269,13 @@ Implement `importarr/worker/rescan/mediafile.go`'s `applyMovieAndMediaFile` (the
 6. `name := k8s.ChildName(movieName, "mediafile", path)`; `k8s.Apply` a `catalogac.MediaFile(name, ns).WithSpec(catalogac.MediaFileSpec().WithMediaRef(commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movieName}).WithPath(path).WithSizeBytes(info.Size()).WithModTime(metav1.NewTime(info.ModTime())).WithQuality(parsed.Quality).WithRevision(parsed.Revision).WithReleaseType(parsed.ReleaseType).WithReleaseGroup(parsed.Group).WithEdition(parsed.Edition).WithLanguages(parsed.Languages...))` under `k8s.ManagerImportarr` — **no `PatchStatus` call, no `pkg/mediainfo` import** (disagreement notes 1, 8: `FormatScore`/`MatchedFormats`/`ProfileHash` setters are deliberately not called, left at the CRD zero value). `p.FilesMatched++`.
 
 ```bash
-KUBEBUILDER_ASSETS=... go test ./importarr/worker/rescan/...
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importarr): rescan worker — Movie upsert and MediaFileSpec under k8s.ManagerImportarr" -- importarr/worker/rescan/mediafile.go importarr/worker/rescan/worker.go importarr/worker/rescan/worker_envtest_test.go
+KUBEBUILDER_ASSETS=... go test ./app/import/worker/rescan/...
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importarr): rescan worker — Movie upsert and MediaFileSpec under k8s.ManagerImportarr" -- app/import/worker/rescan/mediafile.go app/import/worker/rescan/worker.go app/import/worker/rescan/worker_envtest_test.go
 ```
 
-- [ ] **Step 11: wire the rescan components into `importarr/run.go`**
+- [ ] **Step 11: wire the rescan components into `app/import/run.go`**
 
-Modify `setupControllers`'s signature to `func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error` (it currently only takes `mgr, o` — the `LibraryScan` and `ImportExclusion` controllers need the bus) and update its one call site in `Run` from `setupControllers(mgr, o)` to `setupControllers(mgr, bus, o)` (the call already happens after `bus, nc, err := k8s.ConnectBus(...)`, so `bus` is in scope). Add a `newTestClientAndManager(t) (client.Client, ctrl.Manager)` helper next to `newTestClient` in `importarr/worker/rescan`'s test file, building a `ctrl.Manager` from the same envtest `cfg` (`ctrl.NewManager(cfg, ctrl.Options{Scheme: k8s.MustNewScheme(), Metrics: metricsserver.Options{BindAddress: "0"}})`) so Steps 9–10's `rescan.IndexMediaFileByPath(ctx, mgr)` calls have a real manager to index against; return `mgr.GetClient()` so tests share one cache-backed client. Replace the two TODO bodies (ImportExclusion wiring included, per the scope correction):
+Modify `setupControllers`'s signature to `func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error` (it currently only takes `mgr, o` — the `LibraryScan` and `ImportExclusion` controllers need the bus) and update its one call site in `Run` from `setupControllers(mgr, o)` to `setupControllers(mgr, bus, o)` (the call already happens after `bus, nc, err := k8s.ConnectBus(...)`, so `bus` is in scope). Add a `newTestClientAndManager(t) (client.Client, ctrl.Manager)` helper next to `newTestClient` in `app/import/worker/rescan`'s test file, building a `ctrl.Manager` from the same envtest `cfg` (`ctrl.NewManager(cfg, ctrl.Options{Scheme: k8s.MustNewScheme(), Metrics: metricsserver.Options{BindAddress: "0"}})`) so Steps 9–10's `rescan.IndexMediaFileByPath(ctx, mgr)` calls have a real manager to index against; return `mgr.GetClient()` so tests share one cache-backed client. Replace the two TODO bodies (ImportExclusion wiring included, per the scope correction):
 
 ```go
 func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
@@ -14313,14 +14313,14 @@ func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 ```
 
 ```bash
-go build ./importarr/...
-KUBEBUILDER_ASSETS=... go test ./importarr/...
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importarr): wire the rescan controllers and worker into setupControllers/setupWorkers" -- importarr/run.go importarr/worker/rescan/worker_envtest_test.go
+go build ./app/import/...
+KUBEBUILDER_ASSETS=... go test ./app/import/...
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importarr): wire the rescan controllers and worker into setupControllers/setupWorkers" -- app/import/run.go app/import/worker/rescan/worker_envtest_test.go
 ```
 
 - [ ] **Step 12: combined envtest — plant a file, prove the CRD-visible outcome the brief asks for**
 
-`importarr/controller/libraryscan/libraryscan_controller_envtest_test.go`, one more test that drives the worker and the controller together end-to-end:
+`app/import/controller/libraryscan/libraryscan_controller_envtest_test.go`, one more test that drives the worker and the controller together end-to-end:
 
 ```go
 func TestScanEndToEndCreatesMediaFileAndRecordsUnmatched(t *testing.T) {
@@ -14415,8 +14415,8 @@ func TestScanEndToEndCreatesMediaFileAndRecordsUnmatched(t *testing.T) {
 `waitFor`, `drainOneScanTask`, `findManager`, `findStatusManager` are small local helpers (`waitFor` polls a `func() bool` with a short sleep and `t.Fatal`s on timeout, mirroring `pkg/events/contracttest`'s `waitUntil`; `findManager`/`findStatusManager` walk `metav1.ManagedFieldsEntry` for the entry whose `FieldsV1` mentions the given JSON path — `findStatusManager` filters to `Subresource == "status"` — returning its `Manager`, or `""` if none).
 
 ```bash
-KUBEBUILDER_ASSETS=... go test ./importarr/... -run TestScanEndToEnd -v
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "test(importarr): combined LibraryScan+rescan-worker envtest — MediaFile spec owner, unmatched with reason" -- importarr/controller/libraryscan/libraryscan_controller_envtest_test.go
+KUBEBUILDER_ASSETS=... go test ./app/import/... -run TestScanEndToEnd -v
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "test(importarr): combined LibraryScan+rescan-worker envtest — MediaFile spec owner, unmatched with reason" -- app/import/controller/libraryscan/libraryscan_controller_envtest_test.go
 ```
 
 - [ ] **Step 13: `pkg/events`'s exclusion-index contract, failing test first**
@@ -14511,7 +14511,7 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(events
 
 - [ ] **Step 14: ImportExclusion controller — validate and index, failing envtest first**
 
-`importarr/controller/importexclusion/importexclusion_controller_envtest_test.go`:
+`app/import/controller/importexclusion/importexclusion_controller_envtest_test.go`:
 
 ```go
 func TestReconcilePutsAnIndexKeyPerRecognizedExternalID(t *testing.T) {
@@ -14563,11 +14563,11 @@ func TestReconcilePutsAnIndexKeyPerRecognizedExternalID(t *testing.T) {
 }
 ```
 
-Fails: package does not exist. Implement `importarr/controller/importexclusion/importexclusion_controller.go`: `Reconcile` gets the object, `client.IgnoreNotFound`; on delete with the finalizer present, removes every previously-applied index key (Step 15) then `RemoveFinalizer`; otherwise `EnsureFinalizer`, validates at least one `ExternalIDs` key is recognized (`ExclusionIDKeyTMDB/TVDB/IMDB/MusicBrainz/OpenLibrary/ASIN/ComicVine/MangaDex`) — none recognized → `PatchStatus` `Ready=False/ReasonInvalidSpec` then `reconcile.TerminalError`; else `Put`s `events.ExclusionEntry{Namespace, Name, Kind: string(spec.Kind), Reason: spec.Reason}` under `events.ExclusionKey(key, value)` for every recognized pair, `PatchStatus` `Ready=True/ReasonReconciled` under `k8s.ManagerImportarr`.
+Fails: package does not exist. Implement `app/import/controller/importexclusion/importexclusion_controller.go`: `Reconcile` gets the object, `client.IgnoreNotFound`; on delete with the finalizer present, removes every previously-applied index key (Step 15) then `RemoveFinalizer`; otherwise `EnsureFinalizer`, validates at least one `ExternalIDs` key is recognized (`ExclusionIDKeyTMDB/TVDB/IMDB/MusicBrainz/OpenLibrary/ASIN/ComicVine/MangaDex`) — none recognized → `PatchStatus` `Ready=False/ReasonInvalidSpec` then `reconcile.TerminalError`; else `Put`s `events.ExclusionEntry{Namespace, Name, Kind: string(spec.Kind), Reason: spec.Reason}` under `events.ExclusionKey(key, value)` for every recognized pair, `PatchStatus` `Ready=True/ReasonReconciled` under `k8s.ManagerImportarr`.
 
 ```bash
-KUBEBUILDER_ASSETS=... go test ./importarr/controller/importexclusion/... -run TestReconcilePutsAnIndexKeyPerRecognizedExternalID
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importarr): ImportExclusion controller — validate and index recognized external ids" -- importarr/controller/importexclusion/importexclusion_controller.go importarr/controller/importexclusion/importexclusion_controller_envtest_test.go
+KUBEBUILDER_ASSETS=... go test ./app/import/controller/importexclusion/... -run TestReconcilePutsAnIndexKeyPerRecognizedExternalID
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importarr): ImportExclusion controller — validate and index recognized external ids" -- app/import/controller/importexclusion/importexclusion_controller.go app/import/controller/importexclusion/importexclusion_controller_envtest_test.go
 ```
 
 - [ ] **Step 15: ImportExclusion controller — stale-key cleanup on spec edit and on delete, failing test first**
@@ -14652,8 +14652,8 @@ func TestReconcileRemovesIndexKeysOnDelete(t *testing.T) {
 Implement the stale-key tracking: the controller records the keys it last applied in an annotation (`catalog.clustarr.io/exclusion-keys`, a comma-joined, sorted `key:value` list — metadata, not status, so writing it does not touch the single-writer-restricted subresource) via `k8s.Apply` on the main resource; on each reconcile it diffs the new key set against the annotation's, `Delete`s anything dropped, `Put`s anything added or changed, then re-applies the annotation. On delete (with the finalizer present), it `Delete`s every key named in the annotation before removing the finalizer. A finalizer is required here (unlike `LibraryScan`): these KV entries are durable, not TTL'd, so skipping cleanup would leave an exclusion silently in force forever after the user deleted it — a real correctness bug, not a cosmetic one.
 
 ```bash
-KUBEBUILDER_ASSETS=... go test ./importarr/controller/importexclusion/...
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importarr): ImportExclusion controller — stale-key cleanup on edit and finalizer cleanup on delete" -- importarr/controller/importexclusion
+KUBEBUILDER_ASSETS=... go test ./app/import/controller/importexclusion/...
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importarr): ImportExclusion controller — stale-key cleanup on edit and finalizer cleanup on delete" -- app/import/controller/importexclusion
 ```
 
 - [ ] **Step 16: wire ImportExclusion into `setupControllers` (already added in Step 11's snippet) — verify the build**
@@ -14661,10 +14661,10 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(import
 Step 11 already added the `importexclusion.Reconciler` registration to `setupControllers`. This step is the checkpoint that it actually compiles and starts cleanly once `importexclusion` exists (Step 11 was written before Steps 13–15 existed, so this is where the wiring first has a real package to point at):
 
 ```bash
-go build ./importarr/...
-go vet ./importarr/...
-KUBEBUILDER_ASSETS=... go test ./importarr/...
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "chore(importarr): confirm ImportExclusion wiring in setupControllers builds and passes" -- importarr/run.go
+go build ./app/import/...
+go vet ./app/import/...
+KUBEBUILDER_ASSETS=... go test ./app/import/...
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "chore(importarr): confirm ImportExclusion wiring in setupControllers builds and passes" -- app/import/run.go
 ```
 
 (If Step 11's commit already included a working `importexclusion` import — it will, since these steps are executed in order by the same implementer — this step is a no-op verification; commit only if `git status` shows a diff.)
@@ -14672,11 +14672,11 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "chore(impor
 - [ ] **Step 17: full gate**
 
 ```bash
-go build ./importarr/... ./pkg/events/...
-go vet ./importarr/... ./pkg/events/...
-go test -count=1 -race ./importarr/... ./pkg/events/...
+go build ./app/import/... ./pkg/events/...
+go vet ./app/import/... ./pkg/events/...
+go test -count=1 -race ./app/import/... ./pkg/events/...
 KUBEBUILDER_ASSETS=$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest use -p path 1.37.0) \
-  go test -count=1 ./importarr/... ./pkg/events/... -v 2>&1 | grep -c SKIP   # must print 0 envtest skips for this task's packages
+  go test -count=1 ./app/import/... ./pkg/events/... -v 2>&1 | grep -c SKIP   # must print 0 envtest skips for this task's packages
 make lint
 ```
 
@@ -14687,11 +14687,11 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "chore(impor
 ```
 
 **Verification:**
-- `go build ./importarr/... ./pkg/events/...` — never bare `go build`.
-- `go vet ./importarr/... ./pkg/events/...`.
-- `go test -count=1 -race ./importarr/... ./pkg/events/...` without `KUBEBUILDER_ASSETS` — the pure-function tests (`match_test.go`, `progress_test.go`, `importarr_test.go`, `exclusion_test.go`) pass; every `*_envtest_test.go` in the four new packages SKIPs (that is expected and is not the gate).
-- `KUBEBUILDER_ASSETS=$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest use -p path 1.37.0) go test -count=1 ./importarr/...` — this is the real gate; every `*_envtest_test.go` must actually RUN (not skip) and pass, per CLAUDE.md's documented gotcha that a millisecond-fast "pass" without this env var means the suite never touched a real apiserver.
-- `make lint` — forbidigo must show zero hits for `Status().Update`/`Status().Patch()` outside `pkg/k8s` (the test-fixture-seeding `c.Status().Update(ctx, ...)` calls in Steps 6–8/12 are test files seeding a starting state, not production code path; confirm golangci's forbidigo config excludes `_test.go`, and if it does not, seed status via a second `k8s.PatchStatus` call under a throwaway field manager instead — check `.golangci.yml`'s forbidigo exclude rules first before changing the test). Confirm separately that `go list -deps ./importarr/worker/rescan/...` does **not** include `pkg/mediainfo` (correction 2).
+- `go build ./app/import/... ./pkg/events/...` — never bare `go build`.
+- `go vet ./app/import/... ./pkg/events/...`.
+- `go test -count=1 -race ./app/import/... ./pkg/events/...` without `KUBEBUILDER_ASSETS` — the pure-function tests (`match_test.go`, `progress_test.go`, `importarr_test.go`, `exclusion_test.go`) pass; every `*_envtest_test.go` in the four new packages SKIPs (that is expected and is not the gate).
+- `KUBEBUILDER_ASSETS=$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest use -p path 1.37.0) go test -count=1 ./app/import/...` — this is the real gate; every `*_envtest_test.go` must actually RUN (not skip) and pass, per CLAUDE.md's documented gotcha that a millisecond-fast "pass" without this env var means the suite never touched a real apiserver.
+- `make lint` — forbidigo must show zero hits for `Status().Update`/`Status().Patch()` outside `pkg/k8s` (the test-fixture-seeding `c.Status().Update(ctx, ...)` calls in Steps 6–8/12 are test files seeding a starting state, not production code path; confirm golangci's forbidigo config excludes `_test.go`, and if it does not, seed status via a second `k8s.PatchStatus` call under a throwaway field manager instead — check `.golangci.yml`'s forbidigo exclude rules first before changing the test). Confirm separately that `go list -deps ./app/import/worker/rescan/...` does **not** include `pkg/mediainfo` (correction 2).
 
 **Done when:**
 - [ ] `pkg/events/schema.ScanTask` exists, round-trips, and is unique/versioned per `TestSchemaNamesAreUniqueAndVersioned`.
@@ -14703,7 +14703,7 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "chore(impor
 - [ ] The worker never reclaims `spec.sizeBytes`/`spec.modTime`/`spec.original` on a `MediaFile` whose `Original` is already `false` (catalogarr owns those three post-transcode) — proven by `TestHandleDoesNotReclaimFieldsCatalogarrOwnsPostTranscode`.
 - [ ] The combined envtest (Step 12) proves a planted file becomes a `MediaFile` (spec-only, field manager `importarr`, no status written) linked to the `Movie` it was matched/created against, and a second, unmatchable planted file lands in `LibraryScan.status.unmatched` with a non-empty reason.
 - [ ] `importexclusion.Reconciler` validates that `ExternalIDs` has at least one recognized provider key, indexes every recognized pair into `clustarr-import-exclusions` (`ExclusionKey` → `ExclusionEntry`), removes stale keys on a spec edit, and removes all of its keys via a finalizer before the object is actually deleted.
-- [ ] `importarr/run.go`'s `setupControllers`/`setupWorkers` register all three controllers and the rescan worker's subscription; `go build ./...` (via `go build ./importarr/...`, never bare) succeeds.
+- [ ] `app/import/run.go`'s `setupControllers`/`setupWorkers` register all three controllers and the rescan worker's subscription; `go build ./...` (via `go build ./app/import/...`, never bare) succeeds.
 - [ ] `make lint` clean; `go test -race` clean; the envtest run (with `KUBEBUILDER_ASSETS` set) actually executes every `*_envtest_test.go` in the four owned packages rather than skipping.
 
 ---
@@ -14716,7 +14716,7 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "chore(impor
 > the text below; the harness as built is right and the plan is wrong.
 >
 > 1. **TMDB 27205 is *Inception*, not Fight Club** — verified against
->    `testdata/metadata/tmdb/movie_27205.json` (`"title": "Inception"`,
+>    `test/data/metadata/tmdb/movie_27205.json` (`"title": "Inception"`,
 >    released 2010-07-16). Any fixture or assertion naming Fight Club for that
 >    id is wrong.
 > 2. **`{tmdbid-N}` is not a pattern `pkg/release` recognises.** `ids.go:33-34`
@@ -14729,7 +14729,7 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "chore(impor
 >    every scenario would pass its way to an empty catalog. The baked clip is
 >    56.7 MiB and its size is asserted at image-build and at seed time.
 > 4. **Scenario 5's file leg is not implementable as described.**
->    `importarr/worker/rescan` refuses any non-`movie` root folder
+>    `app/import/worker/rescan` refuses any non-`movie` root folder
 >    (`unsupported_root_kind`) and its own comment defers series to M6, which
 >    contradicts "in Phase C the files arrive through the rescan". The
 >    scenario is split: the catalog leg asserts the real standard/daily/anime
@@ -14783,7 +14783,7 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "chore(impor
 - `pkg/k8s/scheme.go:82-89` — `func MustNewScheme() *runtime.Scheme`, the scheme this task's client must use.
 - `pkg/metadata/clients/tvdb/tvdb.go` (full) and `auth.go` (full), plus `tvdb_test.go:37-138` for the exact mock-server route shapes already exercised in Phase B: `POST /login` → `{"data":{"token":"..."}}`; `GET /series/{id}/extended` → the `seriesExtendedResponse` envelope; `GET /series/{id}/episodes/{order}` → the `episodesResponse` envelope. `test/fixtures/tvdbstub` reuses these exact field names.
 - `pkg/metadata/clients/tmdb/tmdb.go:1-90` and `tmdb_test.go:38,139-145` — endpoints are `/movie/{id}` and `/find/{imdb_id}` relative to `baseURL` (golang-tmdb strips any `/3` prefix internally), verified against `movie_27205.json` and `find_imdb_tt1375666.json`.
-- `testdata/metadata/tvdb/{login,series_121361,episodes_121361_default,updates_since}.json` and `testdata/metadata/tmdb/{movie_27205,find_imdb_tt1375666,find_imdb_notfound}.json` — the recorded fixtures this task's stubs re-serve verbatim for TVDB series 121361 (Game of Thrones) and TMDB movie 27205 (Fight Club).
+- `test/data/metadata/tvdb/{login,series_121361,episodes_121361_default,updates_since}.json` and `test/data/metadata/tmdb/{movie_27205,find_imdb_tt1375666,find_imdb_notfound}.json` — the recorded fixtures this task's stubs re-serve verbatim for TVDB series 121361 (Game of Thrones) and TMDB movie 27205 (Fight Club).
 - `api/catalog/v1alpha1/{libraryscan,rootfolder,series,episode,mediafile,metadataprovider,qualityprofile,movie}_types.go` (full) and `api/common/v1alpha1/{media_types,release_types,quality_types}.go` — every field name and enum value used below is copied from these files, not guessed.
 - `pkg/events/subjects.go:29-66,254-277` — `StreamEvents`, `StreamWorkImportarr`, `StreamDLQ`, `FilterWorkImportarr`, `WorkScanSubject` (used only in the failure-dump section of `hack/e2e.sh`, via the NATS monitor HTTP endpoint, not from Go).
 - `docs/research/naming.md:72` — `standard | daily | anime` series types; anime uses `{absolute:000}`, daily uses `{Air-Date}`. Confirms `SeriesType` values used below.
@@ -14889,7 +14889,7 @@ func managedFieldsTouch(entry metav1.ManagedFieldsEntry, dottedPaths ...string) 
   ```go
   // Package tmdbstub serves TMDB's /movie/{id} and /find/{imdb_id} shapes
   // (pkg/metadata/clients/tmdb/tmdb.go, verified against tmdb_test.go) from
-  // the recorded JSON under testdata/metadata/tmdb/. It never talks to the
+  // the recorded JSON under test/data/metadata/tmdb/. It never talks to the
   // real TMDB API -- Phase H's harness runs with no Internet access at all.
   package tmdbstub
 
@@ -14901,7 +14901,7 @@ func managedFieldsTouch(entry metav1.ManagedFieldsEntry, dottedPaths ...string) 
   )
 
   // NewHandler builds the stub. recordedDir holds tmdb's login/movie/find
-  // JSON copied verbatim from testdata/metadata/tmdb (images/Dockerfile.e2e-fixtures
+  // JSON copied verbatim from test/data/metadata/tmdb (images/Dockerfile.e2e-fixtures
   // COPYs it there at image-build time; local `go run` callers point
   // --recorded-dir at ../../testdata/metadata/tmdb instead).
   func NewHandler(recordedDir string, logger *slog.Logger) http.Handler {
@@ -14966,7 +14966,7 @@ func managedFieldsTouch(entry metav1.ManagedFieldsEntry, dottedPaths ...string) 
   Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "e2e: TMDB stub serving recorded fixtures" -- test/fixtures/tmdbstub test/fixtures/tmdbstub_cmd.go`
 
 - [ ] **Step 3: TVDB stub — recorded series 121361, plus two fixture-owned series for the daily and anime cases.**
-  First write the three fixture-owned JSON files this stub needs beyond what's recorded in `testdata/metadata/`. These live under `test/fixtures/tvdbstub/testdata/` (this task's own path, embedded via `go:embed`, not a modification of `testdata/metadata/` which Phase B owns) and use the **exact wire shape** verified from `tvdb.go`'s `seriesExtendedResponse`/`episodesResponse` structs — only the content is invented, and it is invented from real, publicly known facts about the shows named, not guessed at the API level.
+  First write the three fixture-owned JSON files this stub needs beyond what's recorded in `test/data/metadata/`. These live under `test/fixtures/tvdbstub/testdata/` (this task's own path, embedded via `go:embed`, not a modification of `test/data/metadata/` which Phase B owns) and use the **exact wire shape** verified from `tvdb.go`'s `seriesExtendedResponse`/`episodesResponse` structs — only the content is invented, and it is invented from real, publicly known facts about the shows named, not guessed at the API level.
 
   `test/fixtures/tvdbstub/testdata/episodes_121361_extended.json` — the real recorded S01E01 plus a second, real S01E02 (TVDB doesn't change ids we don't already reference; content is public fact, format matches `episodes_121361_default.json` verbatim):
   ```json
@@ -15049,7 +15049,7 @@ func managedFieldsTouch(entry metav1.ManagedFieldsEntry, dottedPaths ...string) 
   // Package tvdbstub serves TheTVDB v4's login/series/episodes shapes
   // (pkg/metadata/clients/tvdb/{tvdb,auth}.go) for one real, recorded series
   // (121361, Game of Thrones) and two fixture-owned series this task adds to
-  // exercise daily and anime absolute numbering, which testdata/metadata/tvdb
+  // exercise daily and anime absolute numbering, which test/data/metadata/tvdb
   // does not record. No credential is ever checked -- the fixture answers
   // any /login body, matching "no Internet, closed network" (Phase H).
   package tvdbstub
@@ -15062,24 +15062,24 @@ func managedFieldsTouch(entry metav1.ManagedFieldsEntry, dottedPaths ...string) 
       "path/filepath"
   )
 
-  //go:embed testdata/episodes_121361_extended.json
+  //go:embed test/data/episodes_121361_extended.json
   var episodes121361 []byte
 
-  //go:embed testdata/series_900001.json
+  //go:embed test/data/series_900001.json
   var series900001 []byte
 
-  //go:embed testdata/episodes_900001.json
+  //go:embed test/data/episodes_900001.json
   var episodes900001 []byte
 
-  //go:embed testdata/series_900002.json
+  //go:embed test/data/series_900002.json
   var series900002 []byte
 
-  //go:embed testdata/episodes_900002.json
+  //go:embed test/data/episodes_900002.json
   var episodes900002 []byte
 
   // NewHandler builds the stub. recordedDir holds the real recorded
   // login.json and series_121361.json, copied verbatim from
-  // testdata/metadata/tvdb by images/Dockerfile.e2e-fixtures.
+  // test/data/metadata/tvdb by images/Dockerfile.e2e-fixtures.
   func NewHandler(recordedDir string, logger *slog.Logger) http.Handler {
       mux := http.NewServeMux()
       mux.HandleFunc("POST /login", serveFile(filepath.Join(recordedDir, "login.json"), logger))
@@ -15250,7 +15250,7 @@ func managedFieldsTouch(entry metav1.ManagedFieldsEntry, dottedPaths ...string) 
 
   COPY --from=build /out/clustarr-e2e-fixtures /clustarr-e2e-fixtures
   COPY --from=clipgen /out/tiny.mkv /fixtures/media/tiny.mkv
-  COPY testdata/metadata /fixtures/testdata/metadata
+  COPY test/data/metadata /fixtures/testdata/metadata
 
   USER 65532:65532
   ENTRYPOINT ["/clustarr-e2e-fixtures"]
@@ -15716,7 +15716,7 @@ func managedFieldsTouch(entry metav1.ManagedFieldsEntry, dottedPaths ...string) 
   )
 
   // TestSeriesAndEpisodes is Phase H scenario 5. Three Series exercise three
-  // numbering schemes catalogarr/importarr must all handle: standard (real
+  // numbering schemes app/catalog/importarr must all handle: standard (real
   // TVDB data, a two-file season pack), daily and anime absolute (fixture-
   // owned TVDB data, amendment §A1.5's file-to-episode matching).
   func TestSeriesAndEpisodes(t *testing.T) {
@@ -16278,7 +16278,7 @@ func managedFieldsTouch(entry metav1.ManagedFieldsEntry, dottedPaths ...string) 
   Commit: `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "e2e: hack/e2e.sh, the one-command harness" -- hack/e2e.sh`
 
 - [ ] **Step 20: the first live run.**
-  This step cannot be simulated; it is the actual proof the harness works, and it depends on every catalogarr/importarr controller sibling Phase C tasks are landing in parallel. Run it only once those tasks report their own gates green (their envtest suites passing with `KUBEBUILDER_ASSETS` set), and expect to iterate on this step as their real behaviour surfaces gaps in the `(reconciled by controller)` assumptions above.
+  This step cannot be simulated; it is the actual proof the harness works, and it depends on every app/catalog/importarr controller sibling Phase C tasks are landing in parallel. Run it only once those tasks report their own gates green (their envtest suites passing with `KUBEBUILDER_ASSETS` set), and expect to iterate on this step as their real behaviour surfaces gaps in the `(reconciled by controller)` assumptions above.
   Run: `hack/e2e.sh`
   Expected on first success: exit 0, `PASS` for all four `Test*` functions in the `make e2e` output, and no files written under `test/e2e/artifacts/` (a clean run leaves it holding only `.gitkeep`).
   If it fails: read the dumped logs under `test/e2e/artifacts/`, fix the affected scenario file or (if the gap is in the harness itself) this task's own code, and re-run — do not weaken an assertion to make it pass without understanding why the real behaviour differs from the documented assumption.
@@ -16312,7 +16312,7 @@ func managedFieldsTouch(entry metav1.ManagedFieldsEntry, dottedPaths ...string) 
 ### Task C12: Wiring, RBAC, readiness and the phase gate (serial, after C1–C11 are merged)
 
 **Files:**
-- Modify: `catalogarr/run.go`, `importarr/run.go` (the `setupControllers`/`setupWorkers` registration points, empty since Phase A)
+- Modify: `app/catalog/run.go`, `app/import/run.go` (the `setupControllers`/`setupWorkers` registration points, empty since Phase A)
 - Modify: `config/rbac/role.yaml` (regenerated from markers), `charts/clustarr/templates/rbac.yaml` (stop the copy drifting)
 - Modify: `CLAUDE.md` Status
 - Modify: `docs/superpowers/plans/2026-09-18-remaining-work.md` (carried items)
@@ -16324,7 +16324,7 @@ func managedFieldsTouch(entry metav1.ManagedFieldsEntry, dottedPaths ...string) 
 
 - [ ] **Step 1: Register every controller and worker**
 
-Each task's section lists the registration lines it needs. Wire them into `catalogarr/run.go` and `importarr/run.go` behind their existing role flags, so `--role controller`, `--role worker` and `--role all` each start the right set, and `clustarr all` still stands every service up in one process.
+Each task's section lists the registration lines it needs. Wire them into `app/catalog/run.go` and `app/import/run.go` behind their existing role flags, so `--role controller`, `--role worker` and `--role all` each start the right set, and `clustarr all` still stands every service up in one process.
 
 - [ ] **Step 2: RBAC from markers (a carried defect, now unblocked)**
 
@@ -16386,7 +16386,7 @@ Rewrite `CLAUDE.md`'s Status for Phase C — keep the whole section under about 
 - [ ] **Step 7: Commit**
 
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat: wire the catalog controllers and workers; RBAC from markers; record Phase C as done" -- catalogarr/run.go importarr/run.go config CLAUDE.md docs charts
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat: wire the catalog controllers and workers; RBAC from markers; record Phase C as done" -- app/catalog/run.go app/import/run.go config CLAUDE.md docs charts
 ```
 
 **Done when:** the services reconcile with every controller and worker registered; RBAC is generated and the chart cannot drift from it; readiness reflects each service's real dependencies; the full gate is green with envtest genuinely running; `hack/e2e.sh` passes scenarios 5, 7 and 8 on kind; the Status section and the carried list are current.
@@ -16401,14 +16401,14 @@ Checked by the controller on 2026-09-18 after assembly.
 - **Cross-task interfaces.** Every `(reconciled by controller)` assumption is resolved in the table below. The two that mattered: C6's episode-listing RPC, which C5 adopted symbol for symbol; and `pkg/decision`'s shape, which C8 and C9 both consume behind a single named seam so a signature change is a one-line fix rather than a rewrite.
 - **The search RPC is a seam, not a dependency.** C8 owns the interface and a fake; Phase D's indexarr satisfies the already-shipped `schema.SearchRequest`/`SearchResponse` contract.
 - **Shared paths are serialized into C0**, not raced: every `api/` change, the new `pkg/events` KV names, the one new metric series, and the documentation corrections. No wave task touches `api/`, `pkg/obs/metrics`, `go.mod` or a service's `run.go`.
-- **Placeholder scan.** The only `TODO` strings in the plan are quotations of existing `TODO(M1)`/`TODO(M6)` comments in `catalogarr/run.go` and `importarr/run.go` that tasks are told to update. No step is left unspecified.
+- **Placeholder scan.** The only `TODO` strings in the plan are quotations of existing `TODO(M1)`/`TODO(M6)` comments in `app/catalog/run.go` and `app/import/run.go` that tasks are told to update. No step is left unspecified.
 - **Known gap, stated rather than hidden.** The library scanner sets `Quality` from the parsed release but leaves `FormatScore` at zero, so a scanned file reads as score 0 until Phase D scores it from the parsed release name. Tier comparisons stay correct; only within-tier tie-breaks are affected.
 
 ### Cross-task reconciliation (controller, 2026-09-18)
 
 | Item | Finding | Resolution |
 | --- | --- | --- |
-| ImportExclusion ownership | My C4 brief assigned it to catalogarr. Amendment §A1.3, `pkg/k8s.ManagerImportarr`'s doc and `catalogarr/run.go`'s own comment all assign it to **importarr**. | **Ruling: the amendment wins — my brief was wrong.** C4 builds four controllers. ImportExclusion moves to C10 (importarr). Cost if wrong: one controller relocated. |
+| ImportExclusion ownership | My C4 brief assigned it to catalogarr. Amendment §A1.3, `pkg/k8s.ManagerImportarr`'s doc and `app/catalog/run.go`'s own comment all assign it to **importarr**. | **Ruling: the amendment wins — my brief was wrong.** C4 builds four controllers. ImportExclusion moves to C10 (importarr). Cost if wrong: one controller relocated. |
 | RootFolder "built-in protection" | My brief asked for it; `RootFolderSpec` has no such field (only QualityProfile does). | Ruling: implement only what the generated type has (path/kind immutability CEL, /data/media prefix CEL). Brief mixup, correctly ignored. |
 | Built-in profile count | §6.1 says 12, §9 lists 13, merged `pkg/quality.BuiltinProfiles` has 13. | Ruling: 13 — the merged code and §9 agree against §6.1's prose. |
 | QualityProfile re-seeding | `builtIn:true` CEL makes the spec immutable, so §9's "re-seeded on version bump" cannot be an in-place apply. | Ruling: delete-then-recreate keyed off an annotation hash, not `k8s.Apply`. Accepted as the only shape the CEL allows. |
@@ -16428,11 +16428,11 @@ Checked by the controller on 2026-09-18 after assembly.
 | C2 `Target.FreeBytes` | §7 declares it; §8.2's checklist has no free-space check, and §8.4 puts that check in the import path. | **Ruling: drop the field.** Phase B's reviews repeatedly flagged dead exported surface, and an unread field is exactly that. CARRY: if Phase D wants a pre-grab disk check, add it to `decision` with its own rejection reason rather than reviving a silent field. |
 | C2 rejection permanence | Verified against the vendored Radarr/Sonarr source, not assumed: every reason this package emits is Permanent. | Accepted — this is what a Search CR's `Override` requirement hangs on, so it had to be checked rather than guessed. |
 | C2 `Rank` comparator | `docs/research/naming.md` §A6 flags its own summary "unverified order" and omits two real steps (episode count, indexer flags). | Ruling: the writer's re-verification against `DownloadDecisionComparer.cs`/`ScoreFlags` wins over the note. Fix the note's §A6 in a later docs pass. |
-| C2 fixture loading | `//go:embed` cannot contain `..`, so a repo-root `testdata/` fixture cannot be embedded from a package. | Accepted: `os.ReadFile(filepath.Join("..","..","testdata",…))`, matching `pkg/quality/trash_corpus_test.go`'s existing convention. |
+| C2 fixture loading | `//go:embed` cannot contain `..`, so a repo-root `test/data/` fixture cannot be embedded from a package. | Accepted: `os.ReadFile(filepath.Join("..","..","testdata",…))`, matching `pkg/quality/trash_corpus_test.go`'s existing convention. |
 | C11: my "§A5" citation | §A5 is "Risks this adds"; the ownership spec is §A1.3. | Ruling: my error. Fixed in `remaining-work.md` (1 reference). |
 | C11: scenario 5's grab leg | Phase H's scenario 5 says "a season pack is grabbed once", but nothing in Phase C can grab (grabarr is Phase D). | **Ruling: split the scenario.** Phase C covers Series/Episode coverage via the rescan path importarr actually owns; the grab leg moves to Phase D. Amend Phase H's scenario 5 text accordingly. |
-| C11: TVDB fixture coverage | `testdata/metadata/tvdb/` records one standard-numbered series; scenario 5 needs daily and anime cases. | Ruling: serve the real recorded JSON verbatim for the real series, plus two fixture-owned synthetic series in the wire shape verified from the TVDB client's response structs. Synthetic data the fixture owns is fine; silently reshaping Phase B's recorded fixtures would not be. |
-| C8: `Search` has `ac:generate=false` | controller-tools v0.22.0 panics on the embedded `commonv1.ReleaseInfo`, so no apply configuration is generated and `pkg/k8s.PatchStatus` has nothing to take. | **Ruling: hand-write the apply configuration**, mirroring controller-gen's output for a comparable kind, and keep the status write going through `PatchStatus` — the invariant is SSA through `pkg/k8s` with a named manager, which this preserves. Require a test that FAILS if controller-gen ever starts generating one, so we never carry two. CARRY to Phase D: restructure the `ReleaseInfo` embedding so the generator works, then delete the hand-written file. **Done at gap fix X1 (`36fd3e7`):** `ReleaseDecision` moved to `api/common/v1alpha1` beside `ReleaseInfo`, controller-gen now generates `catalogac.Search`, and `catalogarr/controller/search/applyconfiguration.go` is deleted. The "fails if controller-gen ever generates one" test this ruling required was never written. |
+| C11: TVDB fixture coverage | `test/data/metadata/tvdb/` records one standard-numbered series; scenario 5 needs daily and anime cases. | Ruling: serve the real recorded JSON verbatim for the real series, plus two fixture-owned synthetic series in the wire shape verified from the TVDB client's response structs. Synthetic data the fixture owns is fine; silently reshaping Phase B's recorded fixtures would not be. |
+| C8: `Search` has `ac:generate=false` | controller-tools v0.22.0 panics on the embedded `commonv1.ReleaseInfo`, so no apply configuration is generated and `pkg/k8s.PatchStatus` has nothing to take. | **Ruling: hand-write the apply configuration**, mirroring controller-gen's output for a comparable kind, and keep the status write going through `PatchStatus` — the invariant is SSA through `pkg/k8s` with a named manager, which this preserves. Require a test that FAILS if controller-gen ever starts generating one, so we never carry two. CARRY to Phase D: restructure the `ReleaseInfo` embedding so the generator works, then delete the hand-written file. **Done at gap fix X1 (`36fd3e7`):** `ReleaseDecision` moved to `api/common/v1alpha1` beside `ReleaseInfo`, controller-gen now generates `catalogac.Search`, and `app/catalog/controller/search/applyconfiguration.go` is deleted. The "fails if controller-gen ever generates one" test this ruling required was never written. |
 | C8: `SearchRequest` has no `Absolute` | Spec §8.2 says "tvdb plus season/episode/absolute"; the already-shipped `pkg/events/schema` type has `Season`/`Episode` only. | Ruling: generated type wins — anime folds the absolute number into `Episode` and omits `Season`. |
 | C8: the RPC contract already exists | Phase A's `pkg/events/schema` already implements `SearchTask`/`SearchRequest`/`SearchResponse`/`GrabTask`/`WantedScan`. | Ruling: reuse them; do not re-design. This is the exact contract Phase D's indexarr must satisfy. |
 | C9: who writes `Phase` | §8.2 says the grab path sets `Phase=Delayed`, but `ManagerCatalogarr` owns phase on every catalog kind and one writer per resource is the binding invariant. | **Ruling: the invariant wins.** The grab worker patches only `activeDownloadRef`, `pendingGrab`, `lastSearchedAt` and `searchAttempts`; C6's controller derives `Phase`. The spec's prose is describing the outcome, not the writer. |
@@ -16443,12 +16443,12 @@ Checked by the controller on 2026-09-18 after assembly.
 | C5: metadata cache key | The spec's KV table shows `<provider>.<kind>.<id>`, but `Registry.Lookup` is first-provider-wins, so the provider is unknown before the fetch. | Ruling: key on `<kind>:<sorted ids>`. The spec's table assumed a provider-pinned lookup the real registry does not do. |
 | C5: tmdb as a Series provider | `docs/research/metadata.md` lists it; the merged `pkg/metadata/clients/tmdb` implements `MovieProvider` only. | Ruling: merged code wins. |
 | C5: `ImageType` breadth | `pkg/metadata.ImageType` has 9 values; the generated CRD enum allows `poster;fanart;logo`. | Ruling: generated type wins — drop the other six rather than mislabel them. CARRY to Phase G: widen the CRD enum if the extra image types are actually wanted. |
-| C5: which kinds the work queue serves | Scoped to Movie and Series, matching `catalogarr/run.go`'s own `TODO(M6)` for the other seven kinds; the RPC side serves every kind the registry knows, since it touches no CR. | Accepted — the split is the existing code's, not an invention. |
+| C5: which kinds the work queue serves | Scoped to Movie and Series, matching `app/catalog/run.go`'s own `TODO(M6)` for the other seven kinds; the RPC side serves every kind the registry knows, since it touches no CR. | Accepted — the split is the existing code's, not an invention. |
 | C5 ↔ C6 episode lookup | C5 adopted C6's proposed shape as-is after reading the real `Registry.Lookup` (whose switch has no Episode case), routing to `SeriesProvider.Episodes` directly. | **Reconciled: the two sections now agree symbol for symbol.** Non-blocking wrinkle recorded: `MetadataResponse.Results`' doc comment says "hits of a search request", which a listing slightly repurposes — fix the comment in C5's step. |
 | **C7: the two-writer MediaFile split as documented does not exist** | CLAUDE.md's invariant, amendment §A1.3 and `pkg/k8s/fieldmanager.go`'s doc comments all describe `importarr` owning `status.file`/`status.probe` and `catalogarr` owning `status.quality`/`status.formatScore`. **Controller verified directly:** `MediaFileStatus` is flat (`ObservedGeneration`, `Conditions`, `ProbeHash`, `ProbedAt`, `MediaInfo`, `Sidecars`, `Transcode`) — no `file`, no `probe` — and all six "decided" fields live in `MediaFileSpec`, frozen at import, exactly as spec §8.4 says. The documented split described an API we never shipped; it survived three phases because nothing reconciled yet, so no code ever tried to write those fields. | **Ruling: the generated type wins, and §8.4 agrees with it.** Real ownership: importarr creates the MediaFile and owns `MediaFileSpec` (observed facts + the frozen decided fields); catalogarr is sole writer of all `MediaFileStatus`, and additionally takes over `sizeBytes`/`modTime`/`original` after it incorporates a transcode swap (those fields' own doc comments and §8.5). The two-writer discipline and its envtest REMAIN — the split is spec-vs-status plus that three-field handover, not status-vs-status. Actions: correct CLAUDE.md's invariant; add an erratum to amendment §A1.3 rather than silently rewriting a design of record; fix `pkg/k8s/fieldmanager.go`'s doc comments in C0; C10's brief corrected mid-flight. |
 | C7: rollup scope | The status rollup to the owning item was unscoped by kind in my brief. | Ruling: Movie and Episode only — CLAUDE.md puts non-video inventory in M6. Stated, not silently narrowed. |
 | C7: "rescans sidecars" (§8.6) | `pkg/subtitles`' own doc says sidecar naming belongs to captionarr (Phase F). | Ruling: mirror `SubtitleRequest.status.items` into `MediaFile.status.sidecars` rather than scanning the filesystem from catalogarr. |
-| C6: duplicated rollup helpers | `FileState`/`DownloadOverlay` duplicated between `movie/` and `episode/` because the task owned no shared directory. | **Ruling: give it one.** C6 also owns `catalogarr/controller/rollup/`; both pure functions live there with their tests. Verbatim duplication is a named review defect here and was raised twice in Phase B. |
+| C6: duplicated rollup helpers | `FileState`/`DownloadOverlay` duplicated between `movie/` and `episode/` because the task owned no shared directory. | **Ruling: give it one.** C6 also owns `app/catalog/controller/rollup/`; both pure functions live there with their tests. Verbatim duplication is a named review defect here and was raised twice in Phase B. |
 | C6: Series watch shape | `SeriesStatus` has no `HasFile`/`ActiveDownloadRef`, so a direct MediaFile/Download watch has nothing to write. | Accepted: `Owns(&Episode{})` guarded by `StatusFieldChanged` on `HasFile`, reusing the existing self-loop-avoidance shape. |
 | C6: `CutoffMet` | Uses the merged `quality.Profile.CutoffMet` rather than a hand-rolled comparison. | Accepted — reuse over reimplementation. |
 | **C10: force-ownership hazard created by my own MediaFile ruling** | `k8s.Apply` always forces ownership, so a rescan re-applying `MediaFileSpec` would silently reclaim `sizeBytes`/`modTime`/`original` from catalogarr after the post-transcode handover. | **Accepted, and a genuinely good catch.** The worker checks `Spec.Original` first and skips such files, with a dedicated test. CARRY to Phase E: define what a rescan should do when a transcoded file's bytes legitimately changed on disk — skipping is right for Phase C but is not the final answer. |

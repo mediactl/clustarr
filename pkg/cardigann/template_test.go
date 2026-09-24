@@ -88,7 +88,7 @@ func TestResolveSettingsCheckboxSentinelsRoundTripThroughEqTemplate(t *testing.T
 // well-formed sibling paths' own occurrence of the exact same action —
 // not merely "no longer erroring".
 func TestBalanceActionParensFixesTheReal1337xTypo(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "cardigann", "1337x.yml"))
+	data, err := os.ReadFile(filepath.Join("..", "..", "test", "data", "cardigann", "1337x.yml"))
 	require.NoError(t, err)
 	def, err := Load(data)
 	require.NoError(t, err)

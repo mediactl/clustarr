@@ -31,17 +31,17 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"github.com/mediactl/clustarr/captionarr"
-	"github.com/mediactl/clustarr/catalogarr"
-	"github.com/mediactl/clustarr/grabarr"
-	"github.com/mediactl/clustarr/importarr"
-	"github.com/mediactl/clustarr/indexarr"
+	captionarr "github.com/mediactl/clustarr/app/caption"
+	catalogarr "github.com/mediactl/clustarr/app/catalog"
+	grabarr "github.com/mediactl/clustarr/app/grab"
+	importarr "github.com/mediactl/clustarr/app/import"
+	indexarr "github.com/mediactl/clustarr/app/indexer"
+	squasharr "github.com/mediactl/clustarr/app/squash"
+	"github.com/mediactl/clustarr/app/squash/controller/pool"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/version"
-	"github.com/mediactl/clustarr/squasharr"
-	"github.com/mediactl/clustarr/squasharr/controller/pool"
 	"github.com/mediactl/clustarr/ui"
 )
 

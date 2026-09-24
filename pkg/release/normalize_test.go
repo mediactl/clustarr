@@ -113,7 +113,7 @@ func TestTitleNormKeepsEveryScript(t *testing.T) {
 // (all Latin), the two produce the same key, so a row written through
 // CleanTitle is still found by a query normalised through TitleNorm.
 func TestTitleNormAgreesWithCleanTitleOnLatinTitles(t *testing.T) {
-	files, err := filepath.Glob("../../testdata/releases/*.json")
+	files, err := filepath.Glob("../../test/data/releases/*.json")
 	require.NoError(t, err)
 	require.NotEmpty(t, files)
 	n := 0

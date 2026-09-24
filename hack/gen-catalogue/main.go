@@ -25,7 +25,7 @@ import (
 )
 
 func main() {
-	corpusDir := flag.String("corpus", "testdata/trash/docs/json", "vendored TRaSH corpus root (contains radarr/ and sonarr/)")
+	corpusDir := flag.String("corpus", "test/data/trash/docs/json", "vendored TRaSH corpus root (contains radarr/ and sonarr/)")
 	manifestDir := flag.String("manifest", "hack/gen-catalogue/manifest", "curated selection manifest (which corpus formats/conditions to embed, and in what order)")
 	outDir := flag.String("out", "pkg/quality/catalogue/data/formats", "output directory for the generated family files")
 	flag.Parse()

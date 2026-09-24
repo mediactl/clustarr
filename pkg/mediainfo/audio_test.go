@@ -81,15 +81,15 @@ func TestProbeAudioReadsTheFixtures(t *testing.T) {
 	skipIfNoFFprobe(t)
 	ctx := context.Background()
 
-	mp3, err := ProbeAudio(ctx, "../../testdata/mediainfo/audio_mp3_cbr320.mp3")
+	mp3, err := ProbeAudio(ctx, "../../test/data/mediainfo/audio_mp3_cbr320.mp3")
 	require.NoError(t, err)
 	assert.Equal(t, AudioProbe{Codec: "mp3", BitrateKbps: 320}, mp3)
 
-	flac, err := ProbeAudio(ctx, "../../testdata/mediainfo/audio_flac_24bit.flac")
+	flac, err := ProbeAudio(ctx, "../../test/data/mediainfo/audio_flac_24bit.flac")
 	require.NoError(t, err)
 	assert.Equal(t, "flac", flac.Codec)
 	assert.Equal(t, 24, flac.SampleBits)
 
-	_, err = ProbeAudio(ctx, "../../testdata/mediainfo/does-not-exist.mp3")
+	_, err = ProbeAudio(ctx, "../../test/data/mediainfo/does-not-exist.mp3")
 	require.Error(t, err)
 }

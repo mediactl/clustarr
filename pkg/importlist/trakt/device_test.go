@@ -43,15 +43,15 @@ func TestDeviceFlowStartThenPollPendingThenAuthorized(t *testing.T) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/oauth/device/code":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write(mustReadFile(t, "../../../testdata/importlist/trakt/device_code.json"))
+			_, _ = w.Write(mustReadFile(t, "../../../test/data/importlist/trakt/device_code.json"))
 		case r.Method == http.MethodPost && r.URL.Path == "/oauth/device/token":
 			polls++
 			if polls == 1 {
 				w.WriteHeader(http.StatusBadRequest)
-				_, _ = w.Write(mustReadFile(t, "../../../testdata/importlist/trakt/device_token_pending.json"))
+				_, _ = w.Write(mustReadFile(t, "../../../test/data/importlist/trakt/device_token_pending.json"))
 				return
 			}
-			_, _ = w.Write(mustReadFile(t, "../../../testdata/importlist/trakt/device_token_authorized.json"))
+			_, _ = w.Write(mustReadFile(t, "../../../test/data/importlist/trakt/device_token_authorized.json"))
 		default:
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
@@ -118,7 +118,7 @@ func TestDeviceFlowRefresh(t *testing.T) {
 		// out-of-band placeholder, the conventional redirect_uri for a
 		// device/PIN flow that has no browser to redirect.
 		assert.Equal(t, "urn:ietf:wg:oauth:2.0:oob", body["redirect_uri"])
-		_, _ = w.Write(mustReadFile(t, "../../../testdata/importlist/trakt/token_refresh.json"))
+		_, _ = w.Write(mustReadFile(t, "../../../test/data/importlist/trakt/token_refresh.json"))
 	}))
 	defer srv.Close()
 

@@ -38,7 +38,7 @@ import (
 // endpoint, and the call must fail with ErrResponseTooLarge rather than
 // buffer it whole and decode it.
 func TestOversizedJSONResponsesAreRefused(t *testing.T) {
-	login, err := os.ReadFile("../../../../testdata/subtitles/opensubtitles/login.json")
+	login, err := os.ReadFile("../../../../test/data/subtitles/opensubtitles/login.json")
 	require.NoError(t, err)
 	huge := []byte(`{"padding":"` + strings.Repeat("a", 5<<20) + `"}`)
 

@@ -32,15 +32,15 @@ import (
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
 
-// loadReleases reads testdata/decision/releases.json the same way
-// pkg/quality/trash_corpus_test.go reads testdata/trash: os.ReadFile with a
-// filepath.Join("..", "..", "testdata", ...) relative path, not go:embed --
+// loadReleases reads test/data/decision/releases.json the same way
+// pkg/quality/trash_corpus_test.go reads test/data/trash: os.ReadFile with a
+// filepath.Join("..", "..", "test", "data", ...) relative path, not go:embed --
 // an embed pattern cannot contain ".." (it may only reach files inside its
-// own package directory), so it cannot see a repo-root testdata/ directory
+// own package directory), so it cannot see a repo-root test/data/ directory
 // from pkg/decision/.
 func loadReleases(t *testing.T) []common.ReleaseInfo {
 	t.Helper()
-	doc, err := os.ReadFile(filepath.Join("..", "..", "testdata", "decision", "releases.json"))
+	doc, err := os.ReadFile(filepath.Join("..", "..", "test", "data", "decision", "releases.json"))
 	require.NoError(t, err)
 	var rels []common.ReleaseInfo
 	require.NoError(t, json.Unmarshal(doc, &rels))

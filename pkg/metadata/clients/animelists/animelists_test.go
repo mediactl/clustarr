@@ -35,7 +35,7 @@ import (
 )
 
 // 35 real entries of the live file, 2026-09-23.
-const fixture = "../../../../testdata/metadata/animelists/anime-list-full.json"
+const fixture = "../../../../test/data/metadata/animelists/anime-list-full.json"
 
 type server struct {
 	*httptest.Server

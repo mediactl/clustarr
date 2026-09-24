@@ -45,7 +45,7 @@ func TestFetchWatchlistMovies(t *testing.T) {
 		assert.Equal(t, "2", r.Header.Get("trakt-api-version"))
 		assert.Equal(t, "cid", r.Header.Get("trakt-api-key"))
 		assert.Equal(t, "Bearer access-tok", r.Header.Get("Authorization"))
-		_, _ = w.Write(mustReadFile(t, "../../../testdata/importlist/trakt/watchlist_movies.json"))
+		_, _ = w.Write(mustReadFile(t, "../../../test/data/importlist/trakt/watchlist_movies.json"))
 	}))
 	defer srv.Close()
 
@@ -76,10 +76,10 @@ func TestFetchRefreshesTokenOnceOn401(t *testing.T) {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
-			_, _ = w.Write(mustReadFile(t, "../../../testdata/importlist/trakt/watchlist_movies.json"))
+			_, _ = w.Write(mustReadFile(t, "../../../test/data/importlist/trakt/watchlist_movies.json"))
 		case "/oauth/token":
 			refreshes++
-			_, _ = w.Write(mustReadFile(t, "../../../testdata/importlist/trakt/token_refresh.json"))
+			_, _ = w.Write(mustReadFile(t, "../../../test/data/importlist/trakt/token_refresh.json"))
 		default:
 			t.Fatalf("unexpected path %s", r.URL.Path)
 		}
@@ -107,7 +107,7 @@ func TestFetchRefreshesTokenOnceOn401(t *testing.T) {
 func TestFetchWatchlistShows(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/users/nbatkins/watchlist/shows", r.URL.Path)
-		_, _ = w.Write(mustReadFile(t, "../../../testdata/importlist/trakt/watchlist_shows.json"))
+		_, _ = w.Write(mustReadFile(t, "../../../test/data/importlist/trakt/watchlist_shows.json"))
 	}))
 	defer srv.Close()
 

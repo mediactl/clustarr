@@ -113,7 +113,7 @@ below), which covers the grabarr *controller* pod but not the torrent/usenet
 engine StatefulSets and Deployments it creates per DownloadClient at runtime
 -- those get their resources from DownloadClient.spec.resources, a CRD field
 this chart never sees, so the identical 80% calculation has to be made again
-in grabarr/controller/downloadclient (Go, not a template); see the gap-fixes
+in app/grab/controller/downloadclient (Go, not a template); see the gap-fixes
 X12a report.
 
 Call with the raw resources.limits.memory string. Handles the binary

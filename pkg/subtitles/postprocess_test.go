@@ -50,7 +50,7 @@ func TestDecodeToUTF8HandlesUTF8BOM(t *testing.T) {
 }
 
 func TestPostProcessOnAMojibakeFixture(t *testing.T) {
-	raw, err := os.ReadFile("../../testdata/subtitles/postprocess/mojibake_latin1.srt")
+	raw, err := os.ReadFile("../../test/data/subtitles/postprocess/mojibake_latin1.srt")
 	require.NoError(t, err)
 
 	out, err := subtitles.PostProcess(raw, "en", nil, true)
@@ -66,7 +66,7 @@ func wrapSRT(text []byte) []byte {
 }
 
 func TestPostProcessConvertsASSToSRTAndAppliesRemoveHI(t *testing.T) {
-	raw, err := os.ReadFile("../../testdata/subtitles/postprocess/hi_sample.ass")
+	raw, err := os.ReadFile("../../test/data/subtitles/postprocess/hi_sample.ass")
 	require.NoError(t, err)
 
 	out, err := subtitles.PostProcess(raw, "en", []string{subtitles.ModRemoveHI}, true)
@@ -80,7 +80,7 @@ func TestPostProcessConvertsASSToSRTAndAppliesRemoveHI(t *testing.T) {
 }
 
 func TestPostProcessKeepsOriginalFormatWhenToSRTIsFalse(t *testing.T) {
-	raw, err := os.ReadFile("../../testdata/subtitles/postprocess/hi_sample.ass")
+	raw, err := os.ReadFile("../../test/data/subtitles/postprocess/hi_sample.ass")
 	require.NoError(t, err)
 
 	out, err := subtitles.PostProcess(raw, "en", nil, false)
@@ -138,7 +138,7 @@ func TestPostProcessDropsAWhollyHICueAndKeepsCueStructureValid(t *testing.T) {
 }
 
 func TestPostProcessOnHISampleASSProducesAWellFormedSingleCueSRT(t *testing.T) {
-	raw, err := os.ReadFile("../../testdata/subtitles/postprocess/hi_sample.ass")
+	raw, err := os.ReadFile("../../test/data/subtitles/postprocess/hi_sample.ass")
 	require.NoError(t, err)
 
 	out, err := subtitles.PostProcess(raw, "en", []string{subtitles.ModRemoveHI}, true)

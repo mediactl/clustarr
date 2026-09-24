@@ -2,7 +2,7 @@
 # workers that run on *every* replica (search, grab, rss-matcher) + the
 # history sink and DLQ projector (leader only). The import and importlist
 # consumers are importarr's, not catalogarr's (amendment §A1.2, §A1.3;
-# catalogarr/run.go's RoleWorker doc comment).
+# app/catalog/run.go's RoleWorker doc comment).
 # Design spec §3 (process topology), §6.1.
 #
 # Scale-out is allowed: the controllers stay leader-only, the workers are

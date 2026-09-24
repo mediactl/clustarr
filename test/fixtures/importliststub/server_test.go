@@ -33,7 +33,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/importlist/trakt"
 )
 
-const recordedDir = "../../../testdata/importlist"
+const recordedDir = "../../data/importlist"
 
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))

@@ -27,20 +27,20 @@
 ## Rulings made before implementation
 
 **R1 — `DownloadPhase` transitions are a pinned contract, not a free choice.**
-`catalogarr/controller/rollup/downloadoverlay.go:61` already maps every phase onto a catalog overlay, and its own comment says only the first two rows are exercised today and the rest are "wired for when grabarr lands". D2's transitions must match that switch exactly; a divergence silently corrupts catalogarr's phase computation. Any change belongs in both files in one commit.
+`app/catalog/controller/rollup/downloadoverlay.go:61` already maps every phase onto a catalog overlay, and its own comment says only the first two rows are exercised today and the rest are "wired for when grabarr lands". D2's transitions must match that switch exactly; a divergence silently corrupts catalogarr's phase computation. Any change belongs in both files in one commit.
 
-**R2 — the grab handoff is object creation.** `catalogarr/worker/grab/perform.go:246` server-side-applies a `Download` under `k8s.ManagerCatalogarrGrab`. No NATS subject mentions grabarr. grabarr watches; it does not subscribe for this.
+**R2 — the grab handoff is object creation.** `app/catalog/worker/grab/perform.go:246` server-side-applies a `Download` under `k8s.ManagerCatalogarrGrab`. No NATS subject mentions grabarr. grabarr watches; it does not subscribe for this.
 
 **R3 — two field managers, two disjoint owned sets, one declaration each.**
-`ManagerGrabarr` owns phase and conditions; `ManagerGrabarrEngine` owns *only* the telemetry fields. Both are declared and neither has a writer yet. **D2-0 creates `grabarr/status` holding both declarations plus a `Patch` that refuses any other manager**, exactly as `indexarr/status` does — that package exists because D1 proved that two writers hand-building applies for one object is how each deletes the other's fields.
+`ManagerGrabarr` owns phase and conditions; `ManagerGrabarrEngine` owns *only* the telemetry fields. Both are declared and neither has a writer yet. **D2-0 creates `app/grab/status` holding both declarations plus a `Patch` that refuses any other manager**, exactly as `app/indexer/status` does — that package exists because D1 proved that two writers hand-building applies for one object is how each deletes the other's fields.
 
-**R4 — an engine must not report ready before re-attach completes.** `grabarr/run.go:216` already says so: reporting ready early lets the controller hand an engine work it would double-download. Readiness gates on re-attach, and a test proves it with leader election on.
+**R4 — an engine must not report ready before re-attach completes.** `app/grab/run.go:216` already says so: reporting ready early lets the controller hand an engine work it would double-download. Readiness gates on re-attach, and a test proves it with leader election on.
 
-**R5 — creating a `DownloadClient` changes existing behaviour.** `catalogarr/worker/search/worker.go:498` already lists live `DownloadClient` objects and fails *closed* for protocols with no enabled client. Automatic search is inert today for that reason; the first enabled client turns it on. Expect e2e behaviour to change the moment D2-3 lands.
+**R5 — creating a `DownloadClient` changes existing behaviour.** `app/catalog/worker/search/worker.go:498` already lists live `DownloadClient` objects and fails *closed* for protocols with no enabled client. Automatic search is inert today for that reason; the first enabled client turns it on. Expect e2e behaviour to change the moment D2-3 lands.
 
 **R6 — the import consumer is pre-tuned.** `ConsumerImportFile` ("importarr-fileimport") exists with AckWait 60s, MaxDeliver 5, BackOff 30s/2m/10m/1h, MaxAckPending 4, Heartbeat 30s. Read it from the topology; do not restate or retune it.
 
-**R7 — mirror `importarr/worker/rescan`, do not invent.** It already solves heartbeat-to-extend-AckWait, progress checkpointing into `BucketProgress`, `finalAttempt` against MaxDeliver, and terminal-vs-retry. File import is the same shape.
+**R7 — mirror `app/import/worker/rescan`, do not invent.** It already solves heartbeat-to-extend-AckWait, progress checkpointing into `BucketProgress`, `finalAttempt` against MaxDeliver, and terminal-vs-retry. File import is the same shape.
 
 **R8 — these payload types exist with zero producers: `schema.DownloadEvent`, `schema.DownloadProgress`, `schema.ImportTask`.** Use them as defined; if a field is wrong, change it deliberately and say so. `events.BucketDedup` ("import fingerprints for re-import no-ops") is likewise declared and unused — D2-7 is its first user.
 
@@ -61,10 +61,10 @@
 
 ## Tasks
 
-### D2-0 — dependencies, `pkg/download`, `grabarr/status` (SERIAL, blocks everything)
-**Nothing else may run until this lands.** Adds every module the phase needs in one `go get` pass: `github.com/anacrolix/torrent`, and for usenet the set `docs/research/download.md` recommends after evaluation — verify each still resolves and record the chosen versions. Creates `pkg/download` (the `Client` interface from spec §7 plus `ApplyStatus`), and `grabarr/status` per R3. `hack/deps/deps.go` gets an entry per module not yet imported, with the task that retires it.
+### D2-0 — dependencies, `pkg/download`, `app/grab/status` (SERIAL, blocks everything)
+**Nothing else may run until this lands.** Adds every module the phase needs in one `go get` pass: `github.com/anacrolix/torrent`, and for usenet the set `docs/research/download.md` recommends after evaluation — verify each still resolves and record the chosen versions. Creates `pkg/download` (the `Client` interface from spec §7 plus `ApplyStatus`), and `app/grab/status` per R3. `hack/deps/deps.go` gets an entry per module not yet imported, with the task that retires it.
 
-Landed: `4ee4d76` (`pkg/download`), `6b2cdbd` (`grabarr/status`), `c0043e9` (six modules), `458ec3c` (RBAC). See R9 for the NNTP departure it forced.
+Landed: `4ee4d76` (`pkg/download`), `6b2cdbd` (`app/grab/status`), `c0043e9` (six modules), `458ec3c` (RBAC). See R9 for the NNTP departure it forced.
 
 ### D2-1 — `pkg/download` torrent client (anacrolix)
 
@@ -102,20 +102,20 @@ Tests use an in-process NNTP stub over loopback. **Prove the 430 failover by hav
 
 ### D2-3 — `DownloadClient` controller (engine workload, DiskSpaceOK, blocklist sweep)
 
-**Files:** create `grabarr/controller/downloadclient/`. **Field manager:** `ManagerGrabarr` only — the engine's set is disjoint and belongs to D2-5/D2-6.
+**Files:** create `app/grab/controller/downloadclient/`. **Field manager:** `ManagerGrabarr` only — the engine's set is disjoint and belongs to D2-5/D2-6.
 
 Reconciles `DownloadClient` into the engine workload it describes: a StatefulSet per torrent client (stable identity, because a torrent client owns on-disk state it must re-attach to) and a Deployment for usenet (stateless fetchers). Owns `status.conditions` including `DiskSpaceOK`, and the blocklist sweep.
 
-**R5 binds here and changes live behaviour the moment this lands:** `catalogarr/worker/search/worker.go:498` already lists `DownloadClient` objects and fails *closed* for protocols with no enabled client. Automatic search is inert today for exactly that reason, so the first enabled client switches it on. Say so in the report.
+**R5 binds here and changes live behaviour the moment this lands:** `app/catalog/worker/search/worker.go:498` already lists `DownloadClient` objects and fails *closed* for protocols with no enabled client. Automatic search is inert today for exactly that reason, so the first enabled client switches it on. Say so in the report.
 
-Status writes go through `grabarr/status.Patch` (R3) — **every apply is a complete declaration of `ControllerFields`**. Note that a double-claim against the engine's manager will NOT surface as a conflict: `pkg/k8s` forces ownership unconditionally, so an over-claim is silent and visible only in `metadata.managedFields`. Assert there, not on values.
+Status writes go through `app/grab/status.Patch` (R3) — **every apply is a complete declaration of `ControllerFields`**. Note that a double-claim against the engine's manager will NOT surface as a conflict: `pkg/k8s` forces ownership unconditionally, so an over-claim is silent and visible only in `metadata.managedFields`. Assert there, not on values.
 ### D2-4 — `Download` controller (ClientRef pick, EngineReady wait, `status.engine` pin, finalizer)
 
-**Files:** create `grabarr/controller/download/`. **Field manager:** `ManagerGrabarr`, `ControllerFields` only.
+**Files:** create `app/grab/controller/download/`. **Field manager:** `ManagerGrabarr`, `ControllerFields` only.
 
 Owns the `Download` lifecycle: pick a `DownloadClient` matching `spec.protocol` and category, wait for that client's engine to report ready, pin the choice into `status.engine` so a later reconcile cannot silently migrate a running transfer, and run a finalizer honouring `spec.removeDataOnDelete`.
 
-**The phase set is closed and pinned (R1).** The eleven values are `Pending`, `Assigned`, `Queued`, `Downloading`, `Paused`, `Completed`, `Seeding`, `Imported`, `Failed`, `Blocklisted`, `Removing` (`api/download/v1alpha1/download_types.go:75-98`). `catalogarr/controller/rollup/downloadoverlay.go:66-76` already switches on all of them and its `default` branch silently means "no overlay" — so an unhandled or invented phase does not error, it makes the movie's rollup quietly wrong. Your transitions must match that switch exactly, and any change to either file belongs in **both, in one commit**.
+**The phase set is closed and pinned (R1).** The eleven values are `Pending`, `Assigned`, `Queued`, `Downloading`, `Paused`, `Completed`, `Seeding`, `Imported`, `Failed`, `Blocklisted`, `Removing` (`api/download/v1alpha1/download_types.go:75-98`). `app/catalog/controller/rollup/downloadoverlay.go:66-76` already switches on all of them and its `default` branch silently means "no overlay" — so an unhandled or invented phase does not error, it makes the movie's rollup quietly wrong. Your transitions must match that switch exactly, and any change to either file belongs in **both, in one commit**.
 
 **R4 binds here:** wait for `EngineReady` before handing work over. An engine that reports ready before re-attach completes gets handed a transfer it is already running, and downloads it twice.
 
@@ -123,20 +123,20 @@ Test against envtest with a fake `download.Client`. Prove: the engine pin surviv
 
 ### D2-5 — torrent engine (re-attach first, per-download dir, telemetry under `ManagerGrabarrEngine`)
 
-**Files:** create `grabarr/engine/torrent/`. **Field manager:** `ManagerGrabarrEngine` — **telemetry fields only**, and nothing the controller owns.
+**Files:** create `app/grab/engine/torrent/`. **Field manager:** `ManagerGrabarrEngine` — **telemetry fields only**, and nothing the controller owns.
 
 Runs as the StatefulSet workload D2-3 creates. **Re-attach is the first thing it does and readiness gates on it** (R4). Consumes `pkg/download/torrent` from D2-1.
 
 Three traps, all already paid for once:
 - **`Files` and `Conditions` append.** `EngineFields` seeds `Files`, so a `mutate` needing a different list must **assign `ac.Files`**, never call `WithFiles` — D2-0 documented this on `Patch` after `MediaFileStatus` hit the identical bug in Phase C.
-- **Re-`Get` immediately before applying.** Any path that reads an object, does slow work, then applies a status seeded from that read will silently roll back whatever another writer did meanwhile. This is a *lost update*, not an SSA release: every field is declared, just with stale values, and **no release-regression test in this tree can see it**. `indexarr/worker/rss/worker.go` does the re-Get with the comment "the poll closes the window".
+- **Re-`Get` immediately before applying.** Any path that reads an object, does slow work, then applies a status seeded from that read will silently roll back whatever another writer did meanwhile. This is a *lost update*, not an SSA release: every field is declared, just with stale values, and **no release-regression test in this tree can see it**. `app/indexer/worker/rss/worker.go` does the re-Get with the comment "the poll closes the window".
 - **An over-claim is silent**, because `pkg/k8s` forces ownership. Assert the controller/engine split on `metadata.managedFields`, never on object values — values catch under-declaration only.
 
 D2-1's carried notes land here: seed-criteria and `CanBeRemoved` are implemented but untested until a real controller loop drives them, and the `DownloadPriority` → anacrolix connection-budget mapping is an unsourced judgement call to confirm or correct.
 
 ### D2-6 — usenet engine (scratch, repair, extract, atomic rename into DataDir)
 
-**Files:** create `grabarr/engine/usenet/`. **Field manager:** `ManagerGrabarrEngine`, telemetry only. Consumes `pkg/download/usenet` from D2-2.
+**Files:** create `app/grab/engine/usenet/`. **Field manager:** `ManagerGrabarrEngine`, telemetry only. Consumes `pkg/download/usenet` from D2-2.
 
 Runs as the Deployment D2-3 creates — stateless fetchers, unlike torrent's StatefulSet, because a usenet transfer owns no long-lived on-disk identity. Downloads into a scratch area, PAR2-verifies and repairs, extracts, then **renames atomically into `DataDir`** so a partially-extracted release is never visible to the import worker. Use `pkg/fsops` (`MoveAtomic`, `AtomicWrite`, `EnsureFreeSpace`) — do not reimplement.
 
@@ -144,7 +144,7 @@ The same three traps as D2-5 apply verbatim; re-read them there. `status.health`
 
 ### D2-7 — `importarr` file-import worker (`ConsumerImportFile`, `Download.status.import`, MediaFile)
 
-**Files:** create `importarr/worker/fileimport/`. **The only cross-group status write in the project** — R6, R7 and R8 all bind here.
+**Files:** create `app/import/worker/fileimport/`. **The only cross-group status write in the project** — R6, R7 and R8 all bind here.
 
 Consumes `ConsumerImportFile` (`"importarr-fileimport"`, `pkg/events/subjects.go:84`, durable pull consumer on `StreamWorkImportarr`, `topology.go:526`). Imports a completed download into its root folder and creates the `MediaFile`.
 
@@ -156,12 +156,12 @@ Consumes `ConsumerImportFile` (`"importarr-fileimport"`, `pkg/events/subjects.go
 
 ### D2-8a — phase advancement and the import handoff (the phase gate depends on it)
 
-**Files:** modify `grabarr/controller/download/`; `pkg/events/schema/catalog.go` (one stale doc comment).
+**Files:** modify `app/grab/controller/download/`; `pkg/events/schema/catalog.go` (one stale doc comment).
 
 **This task exists because three correctly-scoped tasks each saw one edge of the same hole.** D2-4 implemented only `Pending`↔`Assigned`, because the plan named four deliverables and every later phase needs engine telemetry that did not exist yet. D2-5 and D2-6 write telemetry under `ManagerGrabarrEngine` but **cannot** write `status.phase` — it belongs to `ControllerFields`. D2-7 built the file-import consumer. The result: **nothing advances a Download past `Assigned`, and nothing ever publishes the work item that triggers import.** `grep -rn WorkFileImportSubject` finds the subject builder, the consumer, and no publisher at all. So D2's own gate — a release grabbed, downloaded, imported, `MediaFile` created — cannot complete, and would have failed at the first e2e run with no obvious owner.
 
 - [ ] Derive `status.phase` in the Download controller from engine-owned telemetry (`status.stage`, `status.progressPercent`, the item's reported status), advancing `Assigned` → `Queued` → `Downloading` → `Completed` → `Seeding` → `Imported`, plus `Paused`, `Failed`, `Blocklisted`, `Removing`.
-- [ ] **R1 still binds and is the sharp edge.** `catalogarr/controller/rollup/downloadoverlay.go:66-76` switches on every phase and its `default` branch means "no overlay" — so an unhandled or mistyped phase does not error, it makes the movie's rollup quietly wrong. Any change to either file belongs in **both, in one commit**.
+- [ ] **R1 still binds and is the sharp edge.** `app/catalog/controller/rollup/downloadoverlay.go:66-76` switches on every phase and its `default` branch means "no overlay" — so an unhandled or mistyped phase does not error, it makes the movie's rollup quietly wrong. Any change to either file belongs in **both, in one commit**.
 - [ ] On reaching a phase where content is complete on disk, publish `schema.ImportTask` to `events.WorkFileImportSubject(<download-uid>)`. `Envelope.Key` is `<namespace>/<name>` — the consumer `strings.Cut`s on `/` and dead-letters on failure.
 - [ ] **Publish exactly once per completion.** A level-driven reconciler re-runs; a naive publish-on-observe floods the consumer with duplicate import tasks for one download. D2-7's worker is idempotent via a dedup fingerprint, so a duplicate is survivable, not free — make the producer idempotent too and say how.
 - [ ] Fix `pkg/events/schema/catalog.go:226`'s subject comment: it claims `clustarr.work.catalogarr.import.normal.<download-uid>` while `ConsumerImportFile` listens on `clustarr.work.importarr.fileimport.<uid>` (`subjects.go:277`). A stale subject in a doc comment is how the next task builds the wrong publisher.
@@ -169,7 +169,7 @@ Consumes `ConsumerImportFile` (`"importarr-fileimport"`, `pkg/events/subjects.go
 
 ### D2-8b — orphan reaping: nothing guarantees the engine ever tears a transfer down
 
-**Files:** modify `grabarr/engine/torrent/` and `grabarr/engine/usenet/`. **Do not touch `grabarr/controller/download/`** — D2-8a owns it.
+**Files:** modify `app/grab/engine/torrent/` and `app/grab/engine/usenet/`. **Do not touch `app/grab/controller/download/`** — D2-8a owns it.
 
 **Three tasks converged on "best effort" independently, and the convergence is the bug.** D2-4's finalizer calls `fsops.SafeRemove` against `status.outputPath` from the controller's own DataDir mount and drops the finalizer, deliberately not waiting for any engine — its `doc.go` argues "the finalizer needs no live engine", which is true for **disk** and not for **client state**. D2-6 owns no finalizer at all. D2-5 initially wrote its own, then read both siblings mid-task and removed it to match them. So on delete: the controller reaps the files and lets the object go, and if the engine has not yet observed the deletion it never calls `Client.Remove` — leaving a transfer the client keeps running forever. A torrent goes on seeding; a usenet fetch goes on consuming the provider's connection budget. Neither is visible in any CR, because the CR is gone.
 
@@ -180,7 +180,7 @@ Consumes `ConsumerImportFile` (`"importarr-fileimport"`, `pkg/events/subjects.go
 
 ### D2-8 — wiring, RBAC, readiness (SERIAL, after D2-1..D2-7)
 
-**Files:** `grabarr/run.go`, `cmd/clustarr/services.go`, `cmd/clustarr/all.go`, `Makefile` (`RBAC_DIRS`), `config/`, `charts/`.
+**Files:** `app/grab/run.go`, `cmd/clustarr/services.go`, `cmd/clustarr/all.go`, `Makefile` (`RBAC_DIRS`), `config/`, `charts/`.
 
 **Three specific things that are inert until you wire them, and one that is already flagged:**
 

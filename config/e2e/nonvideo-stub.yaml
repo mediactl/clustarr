@@ -11,7 +11,7 @@ metadata:
   namespace: clustarr-system
 stringData:
   # Must equal nonvideostub.ComicVineAPIKey. MusicBrainz, Open Library and
-  # Audnexus need no secretRef at all (catalogarr/metadata/registry.go's
+  # Audnexus need no secretRef at all (app/catalog/metadata/registry.go's
   # BuildRegistry only reads one for tmdb, tvdb and comicvine).
   apiKey: e2e-fixture-key
 ---

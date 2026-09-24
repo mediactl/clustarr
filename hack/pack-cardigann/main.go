@@ -16,10 +16,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Command pack-cardigann packs a directory of Cardigann definitions into the
-// zip archive indexarr embeds (indexarr/bundle/embedded/definitions.zip).
+// zip archive indexarr embeds (app/indexer/bundle/embedded/definitions.zip).
 //
 //	go run ./hack/pack-cardigann -src .data/Definitions \
-//	    -out indexarr/bundle/embedded/definitions.zip
+//	    -out app/indexer/bundle/embedded/definitions.zip
 //
 // The archive is deterministic, so re-packing an unchanged directory produces
 // a byte-identical file and a clean git diff: entries are the *.yml and
@@ -50,7 +50,7 @@ var epoch = time.Date(1980, time.January, 1, 0, 0, 0, 0, time.UTC)
 
 func main() {
 	src := flag.String("src", ".data/Definitions", "directory of Cardigann *.yml/*.yaml definitions")
-	out := flag.String("out", "indexarr/bundle/embedded/definitions.zip", "zip archive to write")
+	out := flag.String("out", "app/indexer/bundle/embedded/definitions.zip", "zip archive to write")
 	flag.Parse()
 
 	n, err := pack(*src, *out)

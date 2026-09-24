@@ -34,7 +34,7 @@ import (
 // The fixtures are written to the v3.2 shape fanart.tv's official client
 // documents (fanart-tv/fanart.tv-api src/index.d.ts): the API refuses any
 // request without a key, so no live response could be captured.
-const fixtures = "../../../../testdata/metadata/fanart/"
+const fixtures = "../../../../test/data/metadata/fanart/"
 
 type request struct{ path, apiKey, clientKey string }
 

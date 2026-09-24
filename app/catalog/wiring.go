@@ -1,0 +1,237 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package catalogarr
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/jonboulle/clockwork"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/controller/delayprofile"
+	"github.com/mediactl/clustarr/app/catalog/worker/rssmatcher"
+	"github.com/mediactl/clustarr/app/catalog/worker/search"
+	"github.com/mediactl/clustarr/pkg/k8s"
+	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/metadata/scenemap"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/quality/catalogue"
+)
+
+// resolveQualityProfile turns a QualityProfile name into a resolved
+// quality.Profile. It is the production ResolveProfile for
+// catalogarr/worker/grab.Sink.
+//
+// QualityProfile is cluster-scoped (qualityprofile_types.go), so the lookup
+// takes no namespace.
+func resolveQualityProfile(ctx context.Context, c client.Client, name string, cat *catalogue.Catalogue) (quality.Profile, error) {
+	var qp catalogv1alpha1.QualityProfile
+	if err := c.Get(ctx, client.ObjectKey{Name: name}, &qp); err != nil {
+		if apierrors.IsNotFound(err) {
+			return quality.Profile{}, fmt.Errorf("catalogarr: quality profile %q not found", name)
+		}
+		return quality.Profile{}, err
+	}
+	profile, errs := quality.FromCRD(&qp, cat)
+	if len(errs) > 0 {
+		return quality.Profile{}, fmt.Errorf("catalogarr: resolve quality profile %q: %w", name, errs[0])
+	}
+	return profile, nil
+}
+
+// resolveDelayProfile runs §8.2's resolution order (item ref -> tag match ->
+// lowest order) over the namespace's DelayProfiles, through the delayprofile
+// controller's own pure Resolve. It is the production ResolveDelay for
+// catalogarr/worker/grab.Sink.
+//
+// A namespace with no catch-all profile yields ErrNoMatch, which is "no
+// delay", not a failure: the chart installs a catch-all, and an operator who
+// removed it meant grabs to be immediate. This matches what the RSS matcher
+// does with the same situation, deliberately -- §8.7 requires an RSS hit and
+// a search hit to take the same delay/lease/grab path.
+func resolveDelayProfile(ctx context.Context, c client.Client, ns string, ref *string, tags []string) (catalogv1alpha1.DelayProfileSpec, error) {
+	var list catalogv1alpha1.DelayProfileList
+	if err := c.List(ctx, &list, client.InNamespace(ns)); err != nil {
+		return catalogv1alpha1.DelayProfileSpec{}, fmt.Errorf("catalogarr: list delay profiles: %w", err)
+	}
+	dp, err := delayprofile.Resolve(ref, tags, list.Items)
+	if err != nil {
+		logging.FromContext(ctx).Debug("catalogarr: no delay profile applies; grabbing without a delay",
+			"namespace", ns, "reason", err)
+		return catalogv1alpha1.DelayProfileSpec{}, nil
+	}
+	return dp.Spec, nil
+}
+
+// workerIndexes are every field index the catalogarr queue workers read,
+// paired with the object kind they are registered on.
+//
+// They exist as data, not just as a sequence of calls, because
+// [assertWorkerIndexes] has to prove at startup that each one actually
+// reached the manager's cache.
+var workerIndexes = []struct {
+	name string
+	// list returns an empty list of the kind the index is registered on.
+	list func() client.ObjectList
+}{
+	// catalogarr/worker/search's Download target index: the per-target live
+	// queue the search worker and the RSS matcher both read. It is the only
+	// Download index left: the blocklist is one labelled List per decision
+	// since X4b (search.LoadBlocklist), and the two blocklist indexes nothing
+	// read any more were pruned.
+	{search.IndexDownloadTarget, func() client.ObjectList { return &downloadv1alpha1.DownloadList{} }},
+
+	// catalogarr/worker/rssmatcher's thirteen matching indexes -- §6.1's
+	// "informer-backed in-memory map". The absolute-number one (X4b) is what
+	// lets an absolute-only anime release match at all.
+	{rssmatcher.IndexMovieTmdbID, func() client.ObjectList { return &catalogv1alpha1.MovieList{} }},
+	{rssmatcher.IndexMovieTitleYear, func() client.ObjectList { return &catalogv1alpha1.MovieList{} }},
+	{rssmatcher.IndexSeriesTvdbID, func() client.ObjectList { return &catalogv1alpha1.SeriesList{} }},
+	{rssmatcher.IndexSeriesTitleYear, func() client.ObjectList { return &catalogv1alpha1.SeriesList{} }},
+	{rssmatcher.IndexEpisodeSeriesSeason, func() client.ObjectList { return &catalogv1alpha1.EpisodeList{} }},
+	{rssmatcher.IndexEpisodeSeriesAbsolute, func() client.ObjectList { return &catalogv1alpha1.EpisodeList{} }},
+	// The seven non-video ones (Z3). A missing one is louder than a missing
+	// queue index -- every release of its kind retries into the DLQ -- but
+	// only once such a release arrives; asserting it here finds it at start.
+	{rssmatcher.IndexArtistName, func() client.ObjectList { return &catalogv1alpha1.ArtistList{} }},
+	{rssmatcher.IndexAlbumArtistTitle, func() client.ObjectList { return &catalogv1alpha1.AlbumList{} }},
+	{rssmatcher.IndexAuthorName, func() client.ObjectList { return &catalogv1alpha1.AuthorList{} }},
+	{rssmatcher.IndexBookAuthorTitle, func() client.ObjectList { return &catalogv1alpha1.BookList{} }},
+	{rssmatcher.IndexAudiobookAuthorTitle, func() client.ObjectList { return &catalogv1alpha1.AudiobookList{} }},
+	{rssmatcher.IndexComicTitle, func() client.ObjectList { return &catalogv1alpha1.ComicList{} }},
+	{rssmatcher.IndexIssueComicNumber, func() client.ObjectList { return &catalogv1alpha1.IssueList{} }},
+}
+
+// registerWorkerIndexes registers every index in [workerIndexes], once, on
+// one manager.
+//
+// It is deliberately NOT a side effect of whichever worker happens to be
+// enabled. catalogarr/worker/rssmatcher reads the live queue through
+// catalogarr/worker/search's Download target index, and if it is absent the
+// lookup degrades to "empty queue" with a WARNING rather than an error -- so
+// a wiring mistake leaves the RSS path deciding as if nothing were already
+// downloading, for as long as nobody reads the logs. Registering both sets
+// here, from one call, is what makes the dependency an ordering fact instead
+// of a coincidence; [assertWorkerIndexes] is what proves it held.
+//
+// A field index name is global to a manager's cache and registering one twice
+// is an error, so this must be the only caller of either function.
+func registerWorkerIndexes(ctx context.Context, mgr manager.Manager) error {
+	if err := search.RegisterDownloadIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
+		return fmt.Errorf("catalogarr: register Download indexes: %w", err)
+	}
+	if err := rssmatcher.IndexFields(ctx, mgr.GetFieldIndexer()); err != nil {
+		return fmt.Errorf("catalogarr: register RSS matcher indexes: %w", err)
+	}
+	return nil
+}
+
+// assertWorkerIndexes adds a Runnable that, once the caches have synced,
+// issues one cached List per entry in [workerIndexes] and fails the manager
+// if any of them is missing.
+//
+// This is the startup assertion the degraded path needs. controller-runtime's
+// cache answers a client.MatchingFields lookup for an unregistered index with
+// "no index with name <n> has been registered", and the RSS matcher's queue
+// lookup swallows that error by design (an unreadable queue must not stop
+// the firehose). So the only moment the difference between "live" and
+// "silently inert" is observable is here, at startup, before any of it
+// matters.
+//
+// It costs one empty, cache-served List per entry, once per process.
+func assertWorkerIndexes(mgr manager.Manager) error {
+	// k8s.EveryReplica, not manager.RunnableFunc: the latter has no
+	// NeedLeaderElection method and controller-runtime therefore puts it
+	// behind the leader lease. --role worker does not elect, and a
+	// non-electing process is treated as elected, so the assertion did run
+	// there; the gap was catalogarr's combined controller,worker,history
+	// Deployment, which elects, where every non-leader replica skipped the
+	// check and the degraded path it exists to catch was back.
+	return mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
+		if !mgr.GetCache().WaitForCacheSync(ctx) {
+			// The manager is shutting down; nothing to assert.
+			return nil
+		}
+		c := mgr.GetClient()
+		for _, idx := range workerIndexes {
+			list := idx.list()
+			if err := c.List(ctx, list, client.MatchingFields{idx.name: "startup-probe"}); err != nil {
+				return fmt.Errorf(
+					"catalogarr: field index %q is not registered on this manager, so the queue workers "+
+						"would run degraded -- an unregistered queue index reads as an empty queue: %w",
+					idx.name, err)
+			}
+		}
+		logging.FromContext(ctx).Info("catalogarr: worker field indexes are live", "indexes", len(workerIndexes))
+		<-ctx.Done()
+		return nil
+	}))
+}
+
+// defaultHTTPClient is the outbound client the MetadataProvider reconciler
+// probes with. It is a named value rather than http.DefaultClient so a
+// misbehaving provider cannot hang a reconcile for the manager's whole
+// five-minute ReconciliationTimeout.
+var defaultHTTPClient = &http.Client{Timeout: metadataProbeTimeout}
+
+// metadataProbeTimeout bounds one MetadataProvider credential probe.
+const metadataProbeTimeout = 30 * time.Second
+
+// sceneMapCacheSize bounds the in-process TheXEM cache: two whole-catalogue
+// entries (havemap and the scene names) plus one row set per mapped series
+// asked about. TheXEM maps a few thousand series in all.
+const sceneMapCacheSize = 4096
+
+// newSceneMaps builds the one TheXEM scene-numbering source a catalogarr
+// worker process shares between its search worker and its RSS matcher
+// (x4b-report, x6b-report "W2 decides the cache").
+//
+// The cache is a per-process metadata.LRUCache rather than the metadata
+// gateway's tiered L1/L2: that cache lives in the catalogarr-metadata
+// process, and the worker reads TheXEM through its own client. The cost is
+// that each worker replica asks TheXEM itself -- the havemap and names
+// every three hours, a mapped series' rows every twelve (scenemap.Cached's
+// Sonarr-matching TTLs), and nothing at all for the unmapped series that
+// are almost all of them -- which is well inside TheXEM's undocumented
+// limit and the client's own 1 req/s limiter.
+//
+// The limiter is this process's, per the caller-owns-rate-limiting rule:
+// scenemap.NewXEM never defaults one on.
+func newSceneMaps() (scenemap.Source, error) {
+	cache, err := pkgmetadata.NewLRUCache(sceneMapCacheSize, clockwork.NewRealClock())
+	if err != nil {
+		return nil, fmt.Errorf("catalogarr: scene-map cache: %w", err)
+	}
+	xem := scenemap.NewXEM(scenemap.XEMConfig{
+		HTTPClient: &http.Client{Timeout: sceneMapTimeout},
+		Limiter:    pkgmetadata.NewLimiter(scenemap.DefaultRate, scenemap.DefaultBurst),
+	})
+	return scenemap.NewCached(xem, cache, scenemap.Options{}), nil
+}
+
+// sceneMapTimeout bounds one TheXEM request, so a hung upstream cannot hold
+// a search or an RSS decision for the consumer's whole AckWait.
+const sceneMapTimeout = 30 * time.Second

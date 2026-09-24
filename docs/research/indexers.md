@@ -422,7 +422,7 @@ Recommended shape:
 
 ## 11. Go-oriented data model for Clustarr (`indexarr`)
 
-Package layout suggestion: `pkg/newznab` (categories + protocol types, no I/O), `pkg/cardigann` (definition structs + engine), `pkg/indexer` (interfaces, release model, search request), `indexarr/` (controllers, fan-out, cache, HTTP façade).
+Package layout suggestion: `pkg/newznab` (categories + protocol types, no I/O), `pkg/cardigann` (definition structs + engine), `pkg/indexer` (interfaces, release model, search request), `app/indexer/` (controllers, fan-out, cache, HTTP façade).
 
 ```go
 // pkg/newznab/category.go
@@ -746,7 +746,7 @@ type IndexerStatus struct {
 type IndexerProxySpec struct { Type string; Host string; Port int; RequestTimeout metav1.Duration; SecretRef *corev1.LocalObjectReference /* username/password */ }
 ```
 
-Torznab façade (`indexarr/torznab`): `GET /{indexerName}/api?t=…` and `GET /{indexerName}/download?link=&file=`; `GET /search/api?t=…&indexers=name1,name2` for the aggregate (Jackett-style filter grammar optional). `pkg/torznab` holds `Caps`, `Feed`, `Item`, `Attr` XML structs (both namespaces), `ParseFeed(r io.Reader) ([]Release, error)` for consuming upstream Torznab/Newznab (incl. Prowlarr/Jackett), and `WriteFeed`.
+Torznab façade (`app/indexer/torznab`): `GET /{indexerName}/api?t=…` and `GET /{indexerName}/download?link=&file=`; `GET /search/api?t=…&indexers=name1,name2` for the aggregate (Jackett-style filter grammar optional). `pkg/torznab` holds `Caps`, `Feed`, `Item`, `Attr` XML structs (both namespaces), `ParseFeed(r io.Reader) ([]Release, error)` for consuming upstream Torznab/Newznab (incl. Prowlarr/Jackett), and `WriteFeed`.
 
 ---
 

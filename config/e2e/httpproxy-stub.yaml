@@ -1,7 +1,7 @@
 # A minimal plain-HTTP forward proxy (test/fixtures/httpproxystub), so
 # scenario 10 can create a real IndexerProxy (type: http) and prove an
 # Indexer's login/search traffic actually routes through it -- ruling-free,
-# in-cluster, no egress. See indexarr/controller/indexer/proxy.go's
+# in-cluster, no egress. See app/indexer/controller/indexer/proxy.go's
 # resolveProxy for exactly how an Indexer's spec.proxyRef becomes an
 # http.Transport.Proxy pointed at this Service.
 apiVersion: apps/v1

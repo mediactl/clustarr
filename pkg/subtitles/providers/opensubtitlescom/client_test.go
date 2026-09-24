@@ -32,7 +32,7 @@ import (
 
 func TestLoginCachesTheTokenAndDoesNotReLoginOnASecondCall(t *testing.T) {
 	loginCalls := 0
-	fixture, err := os.ReadFile("../../../../testdata/subtitles/opensubtitles/login.json")
+	fixture, err := os.ReadFile("../../../../test/data/subtitles/opensubtitles/login.json")
 	require.NoError(t, err)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

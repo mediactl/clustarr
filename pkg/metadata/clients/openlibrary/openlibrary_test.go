@@ -34,7 +34,7 @@ import (
 )
 
 func TestEditionMapsAnISBNLookupIntoTheNormalizedModel(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/openlibrary/isbn_9780141439518.json")
+	body, err := os.ReadFile("../../../../test/data/metadata/openlibrary/isbn_9780141439518.json")
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/isbn/9780141439518.json", r.URL.Path)
@@ -80,7 +80,7 @@ func TestEditionRequiresAnISBN13(t *testing.T) {
 // TestAuthorMapsAnOpenLibraryAuthorRecord exercises /authors/{OLID}.json,
 // documented in docs/research/metadata.md §2.4.
 func TestAuthorMapsAnOpenLibraryAuthorRecord(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/openlibrary/author_OL21594A.json")
+	body, err := os.ReadFile("../../../../test/data/metadata/openlibrary/author_OL21594A.json")
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/authors/OL21594A.json", r.URL.Path)
@@ -108,7 +108,7 @@ func TestAuthorMapsAnOpenLibraryAuthorRecord(t *testing.T) {
 // record, and is mapped as fully as Book maps one -- it used to yield ids
 // and a title only.
 func TestBooksListsAnAuthorsWorks(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/openlibrary/works_OL21594A.json")
+	body, err := os.ReadFile("../../../../test/data/metadata/openlibrary/works_OL21594A.json")
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/authors/OL21594A/works.json", r.URL.Path)
@@ -153,7 +153,7 @@ func TestBooksToleratesALegacyAuthorShapeAndFallsBackToTheListedAuthor(t *testin
 // the editions request's query.
 func openLibraryServer(t *testing.T, work []byte, editionsQuery *string) *httptest.Server {
 	t.Helper()
-	editions, err := os.ReadFile("../../../../testdata/metadata/openlibrary/editions_OL138052W.json")
+	editions, err := os.ReadFile("../../../../test/data/metadata/openlibrary/editions_OL138052W.json")
 	require.NoError(t, err)
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -175,7 +175,7 @@ func openLibraryServer(t *testing.T, work []byte, editionsQuery *string) *httpte
 // /works/{OLID}/editions.json, documented in docs/research/metadata.md
 // §2.4.
 func TestBookMapsAWorkRecord(t *testing.T) {
-	work, err := os.ReadFile("../../../../testdata/metadata/openlibrary/work_OL138052W.json")
+	work, err := os.ReadFile("../../../../test/data/metadata/openlibrary/work_OL138052W.json")
 	require.NoError(t, err)
 	var editionsQuery string
 	srv := openLibraryServer(t, work, &editionsQuery)
@@ -198,7 +198,7 @@ func TestBookMapsAWorkRecord(t *testing.T) {
 // filling Editions or FirstPublished, which made the metadata profile's
 // SkipMissingDate and SkipMissingISBN documented no-ops.
 func TestBookFillsEditionsAndFirstPublished(t *testing.T) {
-	work, err := os.ReadFile("../../../../testdata/metadata/openlibrary/work_OL138052W.json")
+	work, err := os.ReadFile("../../../../test/data/metadata/openlibrary/work_OL138052W.json")
 	require.NoError(t, err)
 	srv := openLibraryServer(t, work, nil)
 	defer srv.Close()
@@ -248,7 +248,7 @@ func TestBookTakesTheEarliestEditionWhenTheWorkHasNoDateOrALaterOne(t *testing.T
 }
 
 func TestBookFailsWhenTheEditionsFetchFails(t *testing.T) {
-	work, err := os.ReadFile("../../../../testdata/metadata/openlibrary/work_OL138052W.json")
+	work, err := os.ReadFile("../../../../test/data/metadata/openlibrary/work_OL138052W.json")
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/works/OL138052W.json" {
@@ -285,7 +285,7 @@ func TestEditionRejectsAnOversizedBody(t *testing.T) {
 // TestSearchBooksMapsGeneralSearchResults exercises /search.json?q=,
 // documented in docs/research/metadata.md §2.4.
 func TestSearchBooksMapsGeneralSearchResults(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/openlibrary/search_pride_and_prejudice.json")
+	body, err := os.ReadFile("../../../../test/data/metadata/openlibrary/search_pride_and_prejudice.json")
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/search.json", r.URL.Path)

@@ -30,12 +30,12 @@ import (
 // busServices are the service packages whose Run connects to the bus. ui is
 // absent: it has no bus of its own.
 var busServices = []string{
-	"catalogarr",
-	"importarr",
-	"indexarr",
-	"grabarr",
-	"squasharr",
-	"captionarr",
+	"app/catalog",
+	"app/import",
+	"app/indexer",
+	"app/grab",
+	"app/squash",
+	"app/caption",
 }
 
 // TestEveryServicePassesBusHooks is the guard behind Task C12a's step 2b

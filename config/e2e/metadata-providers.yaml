@@ -8,7 +8,7 @@
 # at the ONE nonvideo-stub Service (nonvideo-stub.yaml), differing only in
 # spec.baseURL's path prefix -- see that Service's own doc comment for why
 # one process can serve all four real upstream shapes. Only comicvine needs
-# a secretRef; the other three need none (catalogarr/metadata/registry.go's
+# a secretRef; the other three need none (app/catalog/metadata/registry.go's
 # BuildRegistry).
 apiVersion: v1
 kind: Secret

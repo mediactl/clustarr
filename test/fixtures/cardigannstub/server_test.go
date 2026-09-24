@@ -40,7 +40,7 @@ func discardLogger() *slog.Logger {
 // source of truth this stub's own doc comment names, never a copy.
 func loginFormDefinition(t *testing.T) *cardigann.Definition {
 	t.Helper()
-	raw, err := os.ReadFile("../../../testdata/cardigann/login-form.yml")
+	raw, err := os.ReadFile("../../data/cardigann/login-form.yml")
 	require.NoError(t, err)
 	def, err := cardigann.Load(raw)
 	require.NoError(t, err)
@@ -54,7 +54,7 @@ func loginFormDefinition(t *testing.T) *cardigann.Definition {
 // server and login-form.yml fails `make test` today, not twenty minutes
 // into hack/e2e.sh as an Indexer that never authenticates.
 func TestRealEngineLogsInAndSearches(t *testing.T) {
-	srv := httptest.NewServer(NewHandler("../../../testdata/cardigann", discardLogger()))
+	srv := httptest.NewServer(NewHandler("../../data/cardigann", discardLogger()))
 	defer srv.Close()
 
 	def := loginFormDefinition(t)
@@ -89,7 +89,7 @@ func TestRealEngineLogsInAndSearches(t *testing.T) {
 // form, not merely on reaching /login -- the negative half of the same
 // login.error check TestRealEngineLogsInAndSearches's happy path exercises.
 func TestWrongCredentialsFail(t *testing.T) {
-	srv := httptest.NewServer(NewHandler("../../../testdata/cardigann", discardLogger()))
+	srv := httptest.NewServer(NewHandler("../../data/cardigann", discardLogger()))
 	defer srv.Close()
 
 	def := loginFormDefinition(t)
@@ -112,7 +112,7 @@ func TestWrongCredentialsFail(t *testing.T) {
 // NewFetcherFor, which seeds a cookie jar from the Indexer's stored
 // session Secret before making exactly this request.
 func TestTorrentIsSessionGated(t *testing.T) {
-	srv := httptest.NewServer(NewHandler("../../../testdata/cardigann", discardLogger()))
+	srv := httptest.NewServer(NewHandler("../../data/cardigann", discardLogger()))
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + ResultDownloadPath) //nolint:noctx,gosec // test-local fixture URL, not user input
@@ -136,7 +136,7 @@ func TestTorrentIsSessionGated(t *testing.T) {
 // logout link only to a session, so the test Login runs after the form
 // login proves the login worked.
 func TestDashboardIsSessionGated(t *testing.T) {
-	srv := httptest.NewServer(NewHandler("../../../testdata/cardigann", discardLogger()))
+	srv := httptest.NewServer(NewHandler("../../data/cardigann", discardLogger()))
 	defer srv.Close()
 	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 

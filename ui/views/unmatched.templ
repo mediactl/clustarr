@@ -35,7 +35,7 @@ import (
 // LibraryScan.status.unmatched -- files the scanner could not attribute to a
 // catalog item (A1.5's never-guess rule) -- flattened across every current
 // scan, with the reason and any candidates the scanner considered, plus
-// (Task G3-4, G2-4's mechanism: importarr/worker/rescan/doc.go, "Manual
+// (Task G3-4, G2-4's mechanism: app/import/worker/rescan/doc.go, "Manual
 // assignment") a per-row manual-assign form.
 //
 // #unmatched-rows is the sse-swap target, mirroring every other live page:
@@ -117,7 +117,7 @@ templ unmatchedRow(e projection.UnmatchedEntry) {
 }
 
 // manualAssignForm renders one unmatched entry's "assign" form
-// (importarr/worker/rescan/doc.go, "Manual assignment"): a name field with
+// (app/import/worker/rescan/doc.go, "Manual assignment"): a name field with
 // the row's own candidates offered through a <datalist> -- a native,
 // no-JavaScript picker-plus-free-form-text hybrid, since ui ships no
 // client-side framework -- a kind select restricted to
@@ -202,7 +202,7 @@ func manualAssignRowID(e projection.UnmatchedEntry) string {
 // file/item counts, and -- once the worker has ruled on a manual assignment
 // -- the Ready condition's reason and message, which is where a refusal
 // (bad target, subpath outside the root, a path already recorded elsewhere)
-// shows up (importarr/worker/rescan/doc.go: "a malformed or unusable
+// shows up (app/import/worker/rescan/doc.go: "a malformed or unusable
 // annotation ... end the scan Done with the reason (the LibraryScan
 // controller reports it as Failed)"). This is a plain GET of one resource
 // the UI already had create access to -- the UI never writes status, and

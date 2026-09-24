@@ -33,11 +33,11 @@ import (
 	"github.com/mediactl/clustarr/pkg/subtitles/providers/gestdown"
 )
 
-const resolvedShowID = "31ffb6ce-c000-4079-8912-b3f72057baed" // matches testdata/subtitles/gestdown/shows.json
+const resolvedShowID = "31ffb6ce-c000-4079-8912-b3f72057baed" // matches test/data/subtitles/gestdown/shows.json
 
 func readFixture(t *testing.T, name string) []byte {
 	t.Helper()
-	b, err := os.ReadFile("../../../../testdata/subtitles/gestdown/" + name)
+	b, err := os.ReadFile("../../../../test/data/subtitles/gestdown/" + name)
 	require.NoError(t, err)
 	return b
 }

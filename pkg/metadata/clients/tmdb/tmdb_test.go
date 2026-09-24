@@ -36,7 +36,7 @@ import (
 )
 
 func TestMovieMapsTMDBFieldsIntoTheNormalizedModel(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/tmdb/movie_27205.json")
+	body, err := os.ReadFile("../../../../test/data/metadata/tmdb/movie_27205.json")
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/movie/27205", r.URL.Path)
@@ -68,7 +68,7 @@ func TestMovieMapsTMDBFieldsIntoTheNormalizedModel(t *testing.T) {
 // follow TMDB's documented shape (golang-tmdb's AlternativeTitle); they are
 // not a recorded live response.
 func TestMovieMapsAlternativeTitles(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/tmdb/movie_27205.json")
+	body, err := os.ReadFile("../../../../test/data/metadata/tmdb/movie_27205.json")
 	require.NoError(t, err)
 	var appended string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -126,7 +126,7 @@ func TestMovieMapsA429WithRetryAfterToRateLimitedError(t *testing.T) {
 }
 
 func TestMovieRequestsTheRegionAwareLanguage(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/tmdb/movie_27205.json")
+	body, err := os.ReadFile("../../../../test/data/metadata/tmdb/movie_27205.json")
 	require.NoError(t, err)
 	var gotLanguage string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -146,7 +146,7 @@ func TestMovieRequestsTheRegionAwareLanguage(t *testing.T) {
 }
 
 func TestMovieDefaultsToEnUSLanguageWhenRegionIsEmpty(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/tmdb/movie_27205.json")
+	body, err := os.ReadFile("../../../../test/data/metadata/tmdb/movie_27205.json")
 	require.NoError(t, err)
 	var gotLanguage string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -166,9 +166,9 @@ func TestMovieDefaultsToEnUSLanguageWhenRegionIsEmpty(t *testing.T) {
 }
 
 func TestFindMovieResolvesByIMDbID(t *testing.T) {
-	findBody, err := os.ReadFile("../../../../testdata/metadata/tmdb/find_imdb_tt1375666.json")
+	findBody, err := os.ReadFile("../../../../test/data/metadata/tmdb/find_imdb_tt1375666.json")
 	require.NoError(t, err)
-	movieBody, err := os.ReadFile("../../../../testdata/metadata/tmdb/movie_27205.json")
+	movieBody, err := os.ReadFile("../../../../test/data/metadata/tmdb/movie_27205.json")
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -195,7 +195,7 @@ func TestFindMovieResolvesByIMDbID(t *testing.T) {
 }
 
 func TestFindMovieWithNoResultsReturnsErrNotFound(t *testing.T) {
-	findBody, err := os.ReadFile("../../../../testdata/metadata/tmdb/find_imdb_notfound.json")
+	findBody, err := os.ReadFile("../../../../test/data/metadata/tmdb/find_imdb_notfound.json")
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/find/tt9999999", r.URL.Path)
@@ -257,7 +257,7 @@ func TestMovieRejectsMalformedResponseBodies(t *testing.T) {
 }
 
 func TestMovieDerivesSecondaryYearFromAPriorYearPremiere(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/tmdb/movie_premiere_prior_year.json")
+	body, err := os.ReadFile("../../../../test/data/metadata/tmdb/movie_premiere_prior_year.json")
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -275,7 +275,7 @@ func TestMovieDerivesSecondaryYearFromAPriorYearPremiere(t *testing.T) {
 }
 
 func TestMovieHasNoSecondaryYearWhenThePremiereIsInTheSameYear(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/tmdb/movie_27205.json")
+	body, err := os.ReadFile("../../../../test/data/metadata/tmdb/movie_27205.json")
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -291,7 +291,7 @@ func TestMovieHasNoSecondaryYearWhenThePremiereIsInTheSameYear(t *testing.T) {
 }
 
 func TestSearchMoviesMapsHitsAndSendsTheYearFilter(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/tmdb/search_movie_inception.json")
+	body, err := os.ReadFile("../../../../test/data/metadata/tmdb/search_movie_inception.json")
 	require.NoError(t, err)
 	var gotQuery, gotYear, gotAdult string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -425,7 +425,7 @@ func TestMovieRejectsAnOversizedBodyWithoutLeakingTheAPIKey(t *testing.T) {
 // keep the previous response's 200 across a failed round trip, so mapError
 // read it and called a refused connection a decode failure.
 func TestATransportFailureAfterASuccessIsNotADecodeError(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/tmdb/movie_27205.json")
+	body, err := os.ReadFile("../../../../test/data/metadata/tmdb/movie_27205.json")
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -462,7 +462,7 @@ func withImages(t *testing.T, body []byte, poster, backdrop any) []byte {
 // status.metadata.images has a poster for the library page to show; null
 // paths yield no images rather than a URL with nothing after the size.
 func TestMovieMapsPosterAndBackdropIntoImages(t *testing.T) {
-	recorded, err := os.ReadFile("../../../../testdata/metadata/tmdb/movie_27205.json")
+	recorded, err := os.ReadFile("../../../../test/data/metadata/tmdb/movie_27205.json")
 	require.NoError(t, err)
 	body := withImages(t, recorded, "/inception-poster.jpg", "/inception-backdrop.jpg")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

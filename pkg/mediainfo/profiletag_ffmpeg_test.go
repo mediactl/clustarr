@@ -52,7 +52,7 @@ func TestProbeReadsTheTagSquasharrWrites(t *testing.T) {
 	}
 
 	const tag = "hevc-main10@0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	src := "../../testdata/mediainfo/sample_hevc_10bit.mkv"
+	src := "../../test/data/mediainfo/sample_hevc_10bit.mkv"
 	for _, c := range []struct {
 		container transcode.Container
 		file      string

@@ -29,7 +29,7 @@ import (
 // this generator's own curated selection manifest from a test binary
 // running inside hack/gen-catalogue.
 const (
-	realCorpusDir   = "../../testdata/trash/docs/json"
+	realCorpusDir   = "../../test/data/trash/docs/json"
 	realManifestDir = "manifest"
 	realDataDir     = "../../pkg/quality/catalogue/data/formats"
 )

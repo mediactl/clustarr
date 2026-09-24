@@ -43,7 +43,7 @@ func newTestServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 
 func readFixture(t *testing.T, name string) []byte {
 	t.Helper()
-	b, err := os.ReadFile("../../../../testdata/subtitles/opensubtitles/" + name)
+	b, err := os.ReadFile("../../../../test/data/subtitles/opensubtitles/" + name)
 	require.NoError(t, err)
 	return b
 }

@@ -1,4 +1,4 @@
-# indexarr/status.StartupGrace is 15 minutes from PROCESS START, and it
+# app/indexer/status.StartupGrace is 15 minutes from PROCESS START, and it
 # suppresses escalation for failures inside that window (ruling R17). `make
 # e2e` has a 30-minute budget, and how old indexarr's process is when
 # scenario 17 runs depends entirely on how long the scenarios before it took
@@ -7,7 +7,7 @@
 #
 # NOTE, and read it before deleting this as dead configuration: indexarr does
 # NOT read this variable yet. StartupGrace is a const in
-# indexarr/status/health.go and nothing in indexarr/run.go plumbs an override
+# app/indexer/status/health.go and nothing in app/indexer/run.go plumbs an override
 # (task D1-9 verified this against the tree; the D1-9 brief listed the
 # variable as an interface D1-8 would provide, and D1-8 did not). It is
 # declared here so the plumbing lands configured the day it exists.

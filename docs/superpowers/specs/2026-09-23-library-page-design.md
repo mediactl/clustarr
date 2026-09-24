@@ -110,7 +110,7 @@ forces a refresh"; this fills in the trigger.
   `ui/actions.RefreshMetadata` writes it as a merge patch under `clustarr-ui`
   (the item's existing patch grant; `Grants()` unchanged) from a "Refresh
   metadata" button on every item page; `kubectl annotate` does the same.
-- **Consumer:** `catalogarr/metadata.Refresher`, one metadata-only controller
+- **Consumer:** `app/catalog/metadata.Refresher`, one metadata-only controller
   per kind, modelled on `history.Replayer`, under catalogarr's controller
   role. It publishes `MetadataTask{mediaRef, refreshEpoch}` on the
   high-priority metadata subject with id

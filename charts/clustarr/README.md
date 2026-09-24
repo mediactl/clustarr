@@ -132,7 +132,7 @@ Deployments `grabarr`'s controller creates per `DownloadClient` at runtime --
 those get their resources from `DownloadClient.spec.resources`, a CRD field
 this chart never renders and has no visibility into. The identical 80%
 calculation needs to be made again in
-`grabarr/controller/downloadclient` (Go, not a template) from whatever
+`app/grab/controller/downloadclient` (Go, not a template) from whatever
 memory limit that `DownloadClient` actually carries; see the gap-fixes
 X12a report for the exact citation.
 

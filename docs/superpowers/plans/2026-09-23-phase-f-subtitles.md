@@ -30,10 +30,10 @@
 
 - `pkg/subtitles`: the `Provider` interface (`provider.go:38-44`), `Registry` with `For(kind)`, Bazarr `Score`/`MinScore`/`CandidateMatches`/`GuessMatches` with the weight tables verbatim, `PostProcess` (cue-scoped mods, SRT/ASS), `FixMojibake`, `RemoveHI`, `ThrottleFor(provider, err)` with Bazarr's duration table, `ProviderError` and sentinels, `Writer.Write` (atomic via `fsops.AtomicWrite`), `ParseLangKey`/`FormatLangKey`.
 - Providers: `providers/opensubtitlescom`, `providers/gestdown`, `providers/embedded`.
-- **catalogarr's half is done.** `catalogarr/controller/mediafile/mediafile_controller.go:468-503` `scanSidecars` lists SubtitleRequests for the file and `sidecars.go:36-57` turns items with state `downloaded|upgradable` and a non-empty `path` into `MediaFile.status.sidecars`, inside catalogarr's single status apply. `items[].path` is **relative to the media file's directory**.
+- **catalogarr's half is done.** `app/catalog/controller/mediafile/mediafile_controller.go:468-503` `scanSidecars` lists SubtitleRequests for the file and `sidecars.go:36-57` turns items with state `downloaded|upgradable` and a non-empty `path` into `MediaFile.status.sidecars`, inside catalogarr's single status apply. `items[].path` is **relative to the media file's directory**.
 - `pkg/pipeline` derives all four subtitle stages from `SubtitleRequest.status`, and `ui/projection` already indexes SubtitleRequests by owner. The pipeline page will light up as soon as requests exist.
 - Plumbing: `ManagerCaptionarr`, `ManagerCaptionarrWorker`; `StreamWorkCaptionarr`, consumers `captionarr-fetch-high`/`-normal`, `FetchTaskSubject`, `MsgIDForSubtitle(requestUID, langKey, probeHash)`; `schema.FetchTask`, `schema.SubtitleEvent`; KV bucket `BucketProviderThrottle` = `clustarr-provider-throttle` (provisioned, **unused**).
-- Secret-reading precedent: `catalogarr/controller/metadataprovider/registry.go:87,105`.
+- Secret-reading precedent: `app/catalog/controller/metadataprovider/registry.go:87,105`.
 
 ## Rulings
 
@@ -53,15 +53,15 @@
 
 ## Tasks
 
-### F-0 — `captionarr/status` (SERIAL, blocks everything)
+### F-0 — `app/caption/status` (SERIAL, blocks everything)
 
-**Files:** create `captionarr/status/`. Mirror `grabarr/status` — read it first.
+**Files:** create `app/caption/status/`. Mirror `app/grab/status` — read it first.
 
 Declarations: `ControllerFields` for SubtitleRequest (`phase`, `profileGeneration`, `probeHash`, `fileFingerprint`, `existing`, `conditions`, `observedGeneration`, and per item **only** `nextSearchAt`/`attempts`); `WorkerFields` for SubtitleRequest (every other item leaf); SubtitleProfile's and SubtitleProvider's status sets. `Patch` refuses any other manager. Test the split on `managedFields`, **including the per-leaf item split under R4** against an object whose items were written by both managers.
 
 ### F-1 — the shared provider throttle, and the limiter fixes
 
-**Files:** create `captionarr/throttle/`; modify `pkg/subtitles/providers/opensubtitlescom/`, `pkg/subtitles/providers/gestdown/`.
+**Files:** create `app/caption/throttle/`; modify `pkg/subtitles/providers/opensubtitlescom/`, `pkg/subtitles/providers/gestdown/`.
 
 A KV-backed throttle over `clustarr-provider-throttle`: a token bucket per provider so N workers together never exceed the provider's `requestsPerSecondMilli`, plus the throttle table (`ThrottleFor` durations, "5 errors in 120s") and OpenSubtitles' JWT/quota. Keys via `events.KVKeyToken`. **A contract test against a real embedded NATS server**, per the Global Constraints. Then **R3**.
 
@@ -73,19 +73,19 @@ A KV-backed throttle over `clustarr-provider-throttle`: a token bucket per provi
 
 ### F-3 — SubtitleProfile and SubtitleProvider controllers
 
-**Files:** `captionarr/controller/subtitleprofile/`, `captionarr/controller/subtitleprovider/`.
+**Files:** `app/caption/controller/subtitleprofile/`, `app/caption/controller/subtitleprovider/`.
 
-Profile: watch video-kind MediaFiles, ensure **one SubtitleRequest per file** (deterministic name, owner = MediaFile), keep `wantedKeys`/`matchingFiles`. Trigger on `status.probeHash` changes via `k8s.StatusFieldChanged` (`captionarr/run.go:207-208` names it). Provider: read the Secret by `secretRef` (keys `apiKey`/`username`/`password`, constants already declared), validate, and project KV throttle state into status per **R2**.
+Profile: watch video-kind MediaFiles, ensure **one SubtitleRequest per file** (deterministic name, owner = MediaFile), keep `wantedKeys`/`matchingFiles`. Trigger on `status.probeHash` changes via `k8s.StatusFieldChanged` (`app/caption/run.go:207-208` names it). Provider: read the Secret by `secretRef` (keys `apiKey`/`username`/`password`, constants already declared), validate, and project KV throttle state into status per **R2**.
 
 ### F-4 — SubtitleRequest controller
 
-**Files:** `captionarr/controller/subtitlerequest/`.
+**Files:** `app/caption/controller/subtitlerequest/`.
 
 Replan when `profileGeneration` or `probeHash` is stale, using F-2's planner. For items with `nextSearchAt <= now`, publish a `schema.FetchTask` with `MsgIDForSubtitle` (**R6**) and move to `Searching`. Adaptive gate per §6.5 (`initial+3w > now` full cadence, else `latest+1w <= now`), and the **12h upgrade pass** (`score < outOf−3`, `minScore = score+1`). Owns `ControllerFields` only, including the two item leaves.
 
 ### F-5 — the fetch worker
 
-**Files:** `captionarr/worker/fetch/`; fill `setupWorkers`.
+**Files:** `app/caption/worker/fetch/`; fill `setupWorkers`.
 
 Consume the two fetch consumers. For a task: build a `subtitles.Query` from the MediaFile, ask each provider from `Registry.For(kind)` in priority order **through F-1's throttle**, score with `CandidateMatches`/`Score`, reject below `MinScore`, download the winner, `PostProcess`, `Writer.Write` the sidecar next to the media file, then patch the item under `ManagerCaptionarrWorker` — **re-`Get` first**, since provider searches are slow. Map provider errors through `ThrottleFor` into the KV throttle, never into SubtitleProvider status (**R2**). Publish a `schema.SubtitleEvent`. Workers are **never leader-elected** (§6.5).
 

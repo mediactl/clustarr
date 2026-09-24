@@ -31,7 +31,7 @@
 - `pkg/fsops`: `MoveAtomic`, `AtomicWrite`, `Recycle`, `SweepRecycleBin`, `EnsureFreeSpace`.
 - `pkg/pipeline`: `StageTranscoding`/`StageTranscodeDone` and `Related.Jobs` are already derived.
 - `pkg/obs/metrics/domain.go:189-224`: `TranscodeJobsActive`, `TranscodeDuration`, `TranscodeSpeedRatio`, `TranscodeSizeRatio` — declared, registered, incremented nowhere.
-- **catalogarr's half of the swap is done**: `catalogarr/controller/mediafile/mediafile_controller.go:434` `latestUnincorporatedTranscode` finds the newest `Succeeded` TranscodeJob after `status.probedAt`, re-probes, and takes over `spec.sizeBytes/modTime/original`. It is dead code in production only because nothing creates a TranscodeJob.
+- **catalogarr's half of the swap is done**: `app/catalog/controller/mediafile/mediafile_controller.go:434` `latestUnincorporatedTranscode` finds the newest `Succeeded` TranscodeJob after `status.probedAt`, re-probes, and takes over `spec.sizeBytes/modTime/original`. It is dead code in production only because nothing creates a TranscodeJob.
 - Field managers `ManagerSquasharr` / `ManagerSquasharrWorker` exist (`pkg/k8s/fieldmanager.go:180,183`). `TranscodeJob`'s own doc (`transcodejob_types.go:247-250`) already states the split: controller owns phase/plan/jobRef/attempts/conditions; worker owns progress/result/stderrTail.
 
 ## Rulings
@@ -46,7 +46,7 @@
 
 **R5 — the swap is: verify, recycle the source, atomic-move the output over the source path.** Never delete the source before the output is verified and in place. "Transcoding replaces the library hardlink only; a seeding copy in `/data/torrents` is untouched" (§6.4) — so replace the path, never touch anything outside the root folder.
 
-*Superseded in mechanism by E-3 (`797d9f3`), deliberately and for the better:* recycle-then-move leaves an instant where the library path does not exist, and a crash there leaves a hole no retry can repair. The worker instead **hard-links** the original into the recycle bin (`fsops.RecycleLink`, same bin layout as `Recycle`) and then renames the output over the source, so the path always holds a complete file. A retry after a crash **past** the swap sees a probe-hash mismatch, finds the file already tagged `CLUSTARR_PROFILE=<profile>@<status.hash>`, records the result and exits 0 rather than failing the Job permanently. The crash-state table is in `squasharr/worker/doc.go`.
+*Superseded in mechanism by E-3 (`797d9f3`), deliberately and for the better:* recycle-then-move leaves an instant where the library path does not exist, and a crash there leaves a hole no retry can repair. The worker instead **hard-links** the original into the recycle bin (`fsops.RecycleLink`, same bin layout as `Recycle`) and then renames the output over the source, so the path always holds a complete file. A retry after a crash **past** the swap sees a probe-hash mismatch, finds the file already tagged `CLUSTARR_PROFILE=<profile>@<status.hash>`, records the result and exits 0 rather than failing the Job permanently. The crash-state table is in `app/squash/worker/doc.go`.
 
 **R6 — no progress over NATS; the worker needs no bus.** `ProgressTranscodeSubject` exists and nothing uses it, same as downloads (D3 R7). Progress goes to `status.progress` under `ManagerSquasharrWorker`, throttled. The UI already reads status. *Amended by gap fixes Z5 (`feaa4f1`):* a worker given `NATS_URL` (the controller passes its own `--nats-url` to every Job) also writes 1 Hz telemetry into the `clustarr-progress` KV bucket (design spec §5, §6.4); it connects only when given one, so the worker still needs no bus, and nothing is published on the subject.
 
@@ -60,9 +60,9 @@
 
 ## Tasks
 
-### E-0 — `squasharr/status` (SERIAL, blocks everything)
+### E-0 — `app/squash/status` (SERIAL, blocks everything)
 
-**Files:** create `squasharr/status/`. Mirror `grabarr/status` exactly — read it first.
+**Files:** create `app/squash/status/`. Mirror `app/grab/status` exactly — read it first.
 
 One declaration per manager: `ControllerFields` (TranscodeJob `phase`, `plan`, `jobRef`, `attempts`, `startedAt`, `finishedAt`, `message`, `conditions`, `observedGeneration`) and `WorkerFields` (`progress`, `result`, `stderrTail`), plus TranscodeProfile's status set. A `Patch` that refuses any other manager. Test the split on `metadata.managedFields`.
 
@@ -70,17 +70,17 @@ Also add `+kubebuilder:validation:MaxItems` to `TranscodeProfileStatus.Condition
 
 ### E-1 — TranscodeProfile controller, and the mapper that creates TranscodeJobs
 
-**Files:** create `squasharr/controller/transcodeprofile/`.
+**Files:** create `app/squash/controller/transcodeprofile/`.
 
 Reconcile each profile: compute `status.hash` with `pkg/transcode.ProfileHash`, validate (`Invalid` condition), and count `matchingFiles`, `pendingJobs`, `runningJobs`.
 
 **The mapper is the part that makes the phase do anything.** For every MediaFile the profile selects (`spec.selector`, or `spec.default` when no other profile selects it), create a TranscodeJob if and only if the file has not already been transcoded to this profile hash — catalogarr writes the `CLUSTARR_PROFILE=<name>@<hash>` tag (`mediafile_controller.go:460`), which is how you tell. **Name the TranscodeJob deterministically** from the MediaFile UID and the profile hash so a re-run creates nothing new. Set `sourcePath` and `sourceProbeHash` from the MediaFile. Owner reference: the MediaFile.
 
-Watch MediaFiles and map them to profiles. Status writes under `ManagerSquasharr` via `squasharr/status.Patch`.
+Watch MediaFiles and map them to profiles. Status writes under `ManagerSquasharr` via `app/squash/status.Patch`.
 
 ### E-2 — slot scheduler (pure) and TranscodeJob controller
 
-**Files:** create `squasharr/controller/transcodejob/`, including a pure `admit.go`.
+**Files:** create `app/squash/controller/transcodejob/`, including a pure `admit.go`.
 
 `Pending → Planned → Queued → Running → Succeeded|Failed|Skipped`, per §6.4.
 
@@ -93,7 +93,7 @@ Controller owns `ControllerFields` only. Watch owned Jobs.
 
 ### E-3 — the worker (runs inside the Job pod)
 
-**Files:** `squasharr/worker/`; fill `squasharr/run.go`'s `setupWorker`.
+**Files:** `app/squash/worker/`; fill `app/squash/run.go`'s `setupWorker`.
 
 `clustarr squasharr --role worker --job <name>`: `Get` the TranscodeJob, `mediainfo.Probe` the live source, compare `ProbeHash` to `spec.sourceProbeHash` (**R3**, exit 3 on mismatch), `ProbeCapabilities`, `Plan`, `EnsureFreeSpace` for scratch, `Runner.Run` with a progress callback that patches `status.progress` under `ManagerSquasharrWorker` **throttled and re-`Get`-before-apply**, `Verifier.Verify` (exit 4 on failure, **R2**), then the swap per **R5** (`Recycle` the source, `MoveAtomic` the output over it), then `status.result`. Populate the four metrics. Exit codes per **R4**.
 
@@ -107,13 +107,13 @@ Tests: a **real** transcode of a small clip generated with ffmpeg's `lavfi` (`te
 - **`TranscodeJobStatus.Conditions` has no `MaxItems`** (E-0 capped only the profile's).
 - **`setupWorker` must not start a manager.** Per E-3: build a **direct** `client.New(ctrl.GetConfig(), …)` (not the cache — every apply re-reads the job), call `worker.Run(ctx, c, worker.Options{JobName, Namespace, DataDir, Threads: worker.ThreadsFromEnv()})`, and **make the process exit with the returned code**. A plain `return err` becomes exit 1, which `podFailurePolicy` retries — so exits 3 and 4 would never fail the Job, and a bad source would transcode `backoffLimit` times.
 - **Drop `--nats-url` from the worker role's `Validate`** — per R6 the worker needs no bus.
-- **The Job pod's ServiceAccount needs the worker's RBAC**: `squasharr/worker/doc.go` declares `transcodejobs` get, `transcodeprofiles` get, `mediafiles` get, `rootfolders` list. A marker grants the *manager's* role; the Job runs as whatever ServiceAccount E-2's Job spec names. Make sure those match, and say how.
+- **The Job pod's ServiceAccount needs the worker's RBAC**: `app/squash/worker/doc.go` declares `transcodejobs` get, `transcodeprofiles` get, `mediafiles` get, `rootfolders` list. A marker grants the *manager's* role; the Job runs as whatever ServiceAccount E-2's Job spec names. Make sure those match, and say how.
 - `--worker-image` / `--worker-image-cuda` flags threaded through manifests and chart; `TestChartImagesMatchConfig` holds them together.
 - **Profile defaults never reach a profile created by a Go client** (E-2, `0ffda37`): `activeDeadline`, `resources` and `scratch` are marshalled present-but-zero, so the CRD's kubebuilder defaults (48h, 8 CPU / 4 GiB, 20 GiB) apply only to kubectl YAML, and the Job runs with **no deadline and no resource or scratch limit**. Follow the precedent D1 set for `Indexer.spec.timeout`/`rssInterval`: where zero has no coherent meaning, **floor it in code** to the documented default at the point E-2's `JobConfig` builds the Job, and say so in the field's doc comment. A zero deadline, a zero CPU request and a zero scratch size are all meaningless, so all three qualify. Add a test that builds a Job from a profile created through the typed client.
-- **Wire E-2** (`0ffda37`): `Reconciler{Client, Reader: mgr.GetAPIReader(), Slots: o.Slots, Job: JobConfig{Image, ImageCUDA, DataClaimName, DataDir, ServiceAccountName, ExtraArgs}}`. Leave `NATSURL` empty once `--nats-url` is dropped from the worker role. **`ServiceAccountName` must name an account that holds the worker's RBAC** (`squasharr/worker/doc.go`); empty means the namespace default, which holds none of it and makes every worker fail on its first `Get`.
+- **Wire E-2** (`0ffda37`): `Reconciler{Client, Reader: mgr.GetAPIReader(), Slots: o.Slots, Job: JobConfig{Image, ImageCUDA, DataClaimName, DataDir, ServiceAccountName, ExtraArgs}}`. Leave `NATSURL` empty once `--nats-url` is dropped from the worker role. **`ServiceAccountName` must name an account that holds the worker's RBAC** (`app/squash/worker/doc.go`); empty means the namespace default, which holds none of it and makes every worker fail on its first `Get`.
 - **Wire E-1** (its report has the constructor).
 
-**Files:** `squasharr/run.go` (`setupControllers`), `cmd/clustarr/`, `config/`, `charts/`.
+**Files:** `app/squash/run.go` (`setupControllers`), `cmd/clustarr/`, `config/`, `charts/`.
 
 Register both reconcilers; add squasharr's RBAC markers (TranscodeJob/TranscodeProfile incl. `/status`, `batch/v1` jobs, MediaFiles read) and run `make manifests`, then **sync `charts/clustarr/templates/rbac.yaml` between its BEGIN/END sentinels**. Readiness on every replica. **Add squasharr to `cmd/clustarr/runnable_registration_test.go`'s `runnableServices`** and verify each role reaches `/readyz` in `cmd/clustarr/start_envtest_test.go`, as D2-8 did — in D2 this task found three whole components registered nowhere. Thread `--worker-image`/`--worker-image-cuda` through the manifests and chart, and `TestChartImagesMatchConfig` will hold them to each other.
 

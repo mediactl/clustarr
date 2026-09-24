@@ -37,8 +37,8 @@ import (
 )
 
 func TestSeriesLogsInOnceAndReusesTheToken(t *testing.T) {
-	login, _ := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
-	series, _ := os.ReadFile("../../../../testdata/metadata/tvdb/series_121361.json")
+	login, _ := os.ReadFile("../../../../test/data/metadata/tvdb/login.json")
+	series, _ := os.ReadFile("../../../../test/data/metadata/tvdb/series_121361.json")
 	var logins int32
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -69,8 +69,8 @@ func TestSeriesLogsInOnceAndReusesTheToken(t *testing.T) {
 }
 
 func TestEpisodesUsesTheRequestedSeasonOrder(t *testing.T) {
-	login, _ := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
-	episodes, _ := os.ReadFile("../../../../testdata/metadata/tvdb/episodes_121361_default.json")
+	login, _ := os.ReadFile("../../../../test/data/metadata/tvdb/login.json")
+	episodes, _ := os.ReadFile("../../../../test/data/metadata/tvdb/episodes_121361_default.json")
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -117,7 +117,7 @@ func episodesPage(t *testing.T, n int, next bool, names ...string) []byte {
 // first. Every page is fetched, in order, by asking for ?page=N until next
 // is null.
 func TestEpisodesFollowsEveryPage(t *testing.T) {
-	login, _ := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
+	login, _ := os.ReadFile("../../../../test/data/metadata/tvdb/login.json")
 	var pages []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -162,7 +162,7 @@ func TestEpisodesFollowsEveryPage(t *testing.T) {
 // nothing more is coming, and following it would spend the limiter's budget
 // against TheTVDB on empty pages.
 func TestEpisodesStopsAtAnEmptyPage(t *testing.T) {
-	login, _ := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
+	login, _ := os.ReadFile("../../../../test/data/metadata/tvdb/login.json")
 	var pages []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -194,8 +194,8 @@ func TestEpisodesStopsAtAnEmptyPage(t *testing.T) {
 }
 
 func TestUpdatesReturnsRecordIDsSinceTheGivenTime(t *testing.T) {
-	login, _ := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
-	updates, _ := os.ReadFile("../../../../testdata/metadata/tvdb/updates_since.json")
+	login, _ := os.ReadFile("../../../../test/data/metadata/tvdb/login.json")
+	updates, _ := os.ReadFile("../../../../test/data/metadata/tvdb/updates_since.json")
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -218,7 +218,7 @@ func TestUpdatesReturnsRecordIDsSinceTheGivenTime(t *testing.T) {
 }
 
 func TestSeriesRejectsMalformedResponseBodies(t *testing.T) {
-	login, err := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
+	login, err := os.ReadFile("../../../../test/data/metadata/tvdb/login.json")
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -262,8 +262,8 @@ func TestSeriesRejectsMalformedResponseBodies(t *testing.T) {
 // it against a release's language and failed open with a warning on every
 // evaluation: language conditions were silently inert for every TVDB series.
 func TestSeriesOriginalLanguageIsBCP47(t *testing.T) {
-	login, _ := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
-	series, _ := os.ReadFile("../../../../testdata/metadata/tvdb/series_121361.json")
+	login, _ := os.ReadFile("../../../../test/data/metadata/tvdb/login.json")
+	series, _ := os.ReadFile("../../../../test/data/metadata/tvdb/series_121361.json")
 	require.Contains(t, string(series), `"originalLanguage": "eng"`,
 		"the fixture must carry TVDB's real ISO 639-3 form, or this test proves nothing")
 
@@ -292,7 +292,7 @@ func oversized(w http.ResponseWriter, prefix string) {
 }
 
 func TestSeriesRejectsAnOversizedBody(t *testing.T) {
-	login, err := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
+	login, err := os.ReadFile("../../../../test/data/metadata/tvdb/login.json")
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/login" {
@@ -328,8 +328,8 @@ func TestLoginRejectsAnOversizedBody(t *testing.T) {
 // type (2 poster, 3 background, 1 banner) -- so status.metadata.images has
 // a poster for the library page to show. The recording carries none.
 func TestSeriesMapsItsImageAndArtworksIntoImages(t *testing.T) {
-	login, _ := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
-	recorded, err := os.ReadFile("../../../../testdata/metadata/tvdb/series_121361.json")
+	login, _ := os.ReadFile("../../../../test/data/metadata/tvdb/login.json")
+	recorded, err := os.ReadFile("../../../../test/data/metadata/tvdb/series_121361.json")
 	require.NoError(t, err)
 	var doc map[string]any
 	require.NoError(t, json.Unmarshal(recorded, &doc))
@@ -374,8 +374,8 @@ func TestSeriesMapsItsImageAndArtworksIntoImages(t *testing.T) {
 // follow SeriesExtendedRecord.aliases' documented shape
 // (docs/research/metadata.md §2.2); they are not a recorded live response.
 func TestSeriesMapsItsAliasesIntoAlternateTitles(t *testing.T) {
-	login, _ := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
-	series, err := os.ReadFile("../../../../testdata/metadata/tvdb/series_121361.json")
+	login, _ := os.ReadFile("../../../../test/data/metadata/tvdb/login.json")
+	series, err := os.ReadFile("../../../../test/data/metadata/tvdb/series_121361.json")
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -409,8 +409,8 @@ func TestSeriesMapsItsAliasesIntoAlternateTitles(t *testing.T) {
 // keeps the original name as an alternate title in its own language, so
 // identity matching still recognises a release named that way.
 func TestSeriesTakesThePrimaryEnglishTranslationAsItsTitle(t *testing.T) {
-	login, _ := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
-	series, err := os.ReadFile("../../../../testdata/metadata/tvdb/series_464930.json")
+	login, _ := os.ReadFile("../../../../test/data/metadata/tvdb/login.json")
+	series, err := os.ReadFile("../../../../test/data/metadata/tvdb/series_464930.json")
 	require.NoError(t, err)
 	var meta atomic.Value
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -448,8 +448,8 @@ func TestSeriesTakesThePrimaryEnglishTranslationAsItsTitle(t *testing.T) {
 // is translated. Where TheTVDB has no English name it substitutes its own
 // placeholder ("Episode 1"), which stands as returned.
 func TestEpisodesTakeTheirEnglishTranslation(t *testing.T) {
-	login, _ := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
-	episodes, err := os.ReadFile("../../../../testdata/metadata/tvdb/episodes_289177_default_eng.json")
+	login, _ := os.ReadFile("../../../../test/data/metadata/tvdb/login.json")
+	episodes, err := os.ReadFile("../../../../test/data/metadata/tvdb/episodes_289177_default_eng.json")
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -481,7 +481,7 @@ func TestEpisodesTakeTheirEnglishTranslation(t *testing.T) {
 // and only then, the client walks the untranslated list once and fills
 // that episode's name and overview by id; the others keep their English.
 func TestEpisodesFillANullNameFromTheUntranslatedList(t *testing.T) {
-	login, _ := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
+	login, _ := os.ReadFile("../../../../test/data/metadata/tvdb/login.json")
 	eng := []byte(`{"data":{"episodes":[
 		{"id":1,"name":"Death Billiards","seasonNumber":0,"number":1},
 		{"id":2,"name":null,"overview":null,"seasonNumber":1,"number":1},
@@ -523,7 +523,7 @@ func TestEpisodesFillANullNameFromTheUntranslatedList(t *testing.T) {
 // English translation the record's own name and overview stand, and the
 // name is not repeated among the alternate titles.
 func TestSeriesKeepsTheRecordNameWithoutAnEnglishTranslation(t *testing.T) {
-	login, _ := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
+	login, _ := os.ReadFile("../../../../test/data/metadata/tvdb/login.json")
 	series := []byte(`{"data":{"id":417478,"name":"Machos Alfa","overview":"Cuatro amigos.","originalLanguage":"spa",
 		"status":{"name":"Continuing"},"aliases":[{"language":"spa","name":"Los machos alfa"}],
 		"translations":{"nameTranslations":[{"name":"Machos Alfa","language":"spa","isPrimary":true},

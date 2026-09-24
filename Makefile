@@ -31,8 +31,8 @@ CRD_DIR := config/crd/bases
 #     as separate pods under their own ServiceAccount: the engine pods the
 #     DownloadClient controller creates, and the transcode Jobs. Their roles
 #     read only their own packages, and grabarr's reads everything under
-#     grabarr/ EXCEPT the engines -- the controller never needs an engine's
-#     grants. squasharr's still reads squasharr/worker: the controller writes
+#     app/grab/ EXCEPT the engines -- the controller never needs an engine's
+#     grants. squasharr's still reads app/squash/worker: the controller writes
 #     the same TranscodeJob status the worker does.
 #
 # cmd/clustarr's guards read RBAC_ROLES and RBAC_PATHS_* from here rather than
@@ -40,14 +40,14 @@ CRD_DIR := config/crd/bases
 # package with markers is in no role, and the chart copies of every role are
 # held byte-identical to these files by TestChartRBACMatchesTheGeneratedRoles.
 RBAC_ROLES := catalogarr importarr indexarr grabarr grabarr-engine squasharr squasharr-worker captionarr
-RBAC_PATHS_catalogarr := ./catalogarr/...
-RBAC_PATHS_importarr := ./importarr/...
-RBAC_PATHS_indexarr := ./indexarr/...
-RBAC_PATHS_grabarr := ./grabarr ./grabarr/controller/... ./grabarr/status
-RBAC_PATHS_grabarr-engine := ./grabarr/engine/... ./grabarr/status
-RBAC_PATHS_squasharr := ./squasharr/...
-RBAC_PATHS_squasharr-worker := ./squasharr/worker
-RBAC_PATHS_captionarr := ./captionarr/...
+RBAC_PATHS_catalogarr := ./app/catalog/...
+RBAC_PATHS_importarr := ./app/import/...
+RBAC_PATHS_indexarr := ./app/indexer/...
+RBAC_PATHS_grabarr := ./app/grab ./app/grab/controller/... ./app/grab/status
+RBAC_PATHS_grabarr-engine := ./app/grab/engine/... ./app/grab/status
+RBAC_PATHS_squasharr := ./app/squash/...
+RBAC_PATHS_squasharr-worker := ./app/squash/worker
+RBAC_PATHS_captionarr := ./app/caption/...
 
 .PHONY: all
 all: generate manifests build
@@ -148,8 +148,8 @@ tidy: ## Tidy go.mod.
 ##@ Build
 
 .PHONY: cardigann-bundle
-cardigann-bundle: ## Re-pack .data/Definitions into the embedded Cardigann corpus (indexarr/bundle/embedded).
-	go run ./hack/pack-cardigann -src .data/Definitions -out indexarr/bundle/embedded/definitions.zip
+cardigann-bundle: ## Re-pack .data/Definitions into the embedded Cardigann corpus (app/indexer/bundle/embedded).
+	go run ./hack/pack-cardigann -src .data/Definitions -out app/indexer/bundle/embedded/definitions.zip
 
 
 .PHONY: build

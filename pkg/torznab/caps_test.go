@@ -31,7 +31,7 @@ import (
 )
 
 func TestParseCaps(t *testing.T) {
-	f, err := os.Open("../../testdata/torznab/caps.xml")
+	f, err := os.Open("../../test/data/torznab/caps.xml")
 	require.NoError(t, err)
 	defer func() { _ = f.Close() }()
 
@@ -65,7 +65,7 @@ func TestParseCaps(t *testing.T) {
 }
 
 func TestParseCapsUsenetVariant(t *testing.T) {
-	f, err := os.Open("../../testdata/newznab/caps.xml")
+	f, err := os.Open("../../test/data/newznab/caps.xml")
 	require.NoError(t, err)
 	defer func() { _ = f.Close() }()
 

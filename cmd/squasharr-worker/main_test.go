@@ -35,9 +35,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mediactl/clustarr/app/squash/worker"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
-	"github.com/mediactl/clustarr/squasharr/worker"
 )
 
 const reexecEnv = "SQUASHARR_WORKER_TEST_REEXEC"

@@ -52,7 +52,7 @@ var regexBearingImplementations = map[string]bool{
 func TestEveryVendoredTRaSHRegexCompilesUnderRegexp2(t *testing.T) {
 	var total int
 	for _, app := range []string{"radarr", "sonarr"} {
-		dir := filepath.Join("..", "..", "testdata", "trash", "docs", "json", app, "cf")
+		dir := filepath.Join("..", "..", "test", "data", "trash", "docs", "json", app, "cf")
 		entries, err := os.ReadDir(dir)
 		require.NoError(t, err)
 		for _, e := range entries {

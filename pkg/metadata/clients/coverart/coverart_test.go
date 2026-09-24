@@ -31,7 +31,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/metadata/clients/coverart"
 )
 
-const fixtures = "../../../../testdata/metadata/coverart/"
+const fixtures = "../../../../test/data/metadata/coverart/"
 
 // serve answers path with the named fixture and 404s everything else,
 // recording every path it was asked for.

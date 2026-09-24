@@ -1,6 +1,6 @@
 # The in-cluster fixture Cardigann tracker: a form login (scraped CSRF
 # token) and a session-gated search/download page, serving
-# testdata/cardigann/login-form.yml's own shape. See
+# test/data/cardigann/login-form.yml's own shape. See
 # test/fixtures/cardigannstub's package doc comment for exactly which
 # routes exist and why. Credentials live in a Secret because that is how a
 # real Indexer's spec.secretRef works (recognised keys: apikey, username,

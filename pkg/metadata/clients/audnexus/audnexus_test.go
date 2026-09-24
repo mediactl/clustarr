@@ -34,7 +34,7 @@ import (
 )
 
 func TestAudiobookMapsAudnexusFieldsIntoTheNormalizedModel(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/audnexus/book_B0036I54I6.json")
+	body, err := os.ReadFile("../../../../test/data/metadata/audnexus/book_B0036I54I6.json")
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/books/B0036I54I6", r.URL.Path)
@@ -76,7 +76,7 @@ func TestAudiobookMapsA404ToErrNotFound(t *testing.T) {
 // TestChaptersMapsTheChapterListing exercises /books/{asin}/chapters,
 // documented in docs/research/metadata.md §2.6.
 func TestChaptersMapsTheChapterListing(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/audnexus/chapters_B0036I54I6.json")
+	body, err := os.ReadFile("../../../../test/data/metadata/audnexus/chapters_B0036I54I6.json")
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/books/B0036I54I6/chapters", r.URL.Path)

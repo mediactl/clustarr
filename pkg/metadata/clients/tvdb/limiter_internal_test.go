@@ -35,9 +35,9 @@ import (
 )
 
 func TestDoRequestWaitsOnTheLimiterAgainBeforeTheRetriedRequest(t *testing.T) {
-	login, err := os.ReadFile("../../../../testdata/metadata/tvdb/login.json")
+	login, err := os.ReadFile("../../../../test/data/metadata/tvdb/login.json")
 	require.NoError(t, err)
-	series, err := os.ReadFile("../../../../testdata/metadata/tvdb/series_121361.json")
+	series, err := os.ReadFile("../../../../test/data/metadata/tvdb/series_121361.json")
 	require.NoError(t, err)
 
 	var seriesCalls int32

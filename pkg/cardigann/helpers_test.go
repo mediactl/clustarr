@@ -29,7 +29,7 @@ import (
 // to load both YAML definitions and the binary/HTML/JSON response fixtures.
 func readTestdata(t *testing.T, name string) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "cardigann", name))
+	data, err := os.ReadFile(filepath.Join("..", "..", "test", "data", "cardigann", name))
 	if err != nil {
 		t.Fatalf("cardigann: read testdata %q: %v", name, err)
 	}

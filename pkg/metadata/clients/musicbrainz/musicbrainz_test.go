@@ -35,7 +35,7 @@ import (
 )
 
 func TestArtistSendsTheMandatoryContactUserAgentAndMapsFields(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/musicbrainz/artist_radiohead.json")
+	body, err := os.ReadFile("../../../../test/data/metadata/musicbrainz/artist_radiohead.json")
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Contains(t, r.Header.Get("User-Agent"), "Clustarr/", "MusicBrainz requires a contact User-Agent or it throttles to the shared anonymous bucket")
@@ -59,7 +59,7 @@ func TestArtistSendsTheMandatoryContactUserAgentAndMapsFields(t *testing.T) {
 }
 
 func TestSearchArtistsSendsAPlainTextDismaxQueryAndMapsHits(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/musicbrainz/search_artist_radiohead.json")
+	body, err := os.ReadFile("../../../../test/data/metadata/musicbrainz/search_artist_radiohead.json")
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/artist/", r.URL.Path)
@@ -99,7 +99,7 @@ func TestSearchArtistsMapsProviderErrors(t *testing.T) {
 // release-group?artist={mbid} browse documented in
 // docs/research/metadata.md §2.3.
 func TestAlbumsBrowsesReleaseGroupsForAnArtist(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/musicbrainz/browse_releasegroups_radiohead.json")
+	body, err := os.ReadFile("../../../../test/data/metadata/musicbrainz/browse_releasegroups_radiohead.json")
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/release-group/", r.URL.Path)
@@ -126,7 +126,7 @@ func TestAlbumsBrowsesReleaseGroupsForAnArtist(t *testing.T) {
 // release-group/{mbid}?inc=... lookup documented in
 // docs/research/metadata.md §2.3.
 func TestAlbumLooksUpASingleReleaseGroup(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/musicbrainz/releasegroup_kid_a.json")
+	body, err := os.ReadFile("../../../../test/data/metadata/musicbrainz/releasegroup_kid_a.json")
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -162,7 +162,7 @@ const theBendsMBID = "b8048f24-c026-3398-b23a-b5e50716cbc7"
 func theBendsServer(t *testing.T, offsets *[]string) *httptest.Server {
 	t.Helper()
 	read := func(name string) []byte {
-		b, err := os.ReadFile("../../../../testdata/metadata/musicbrainz/" + name)
+		b, err := os.ReadFile("../../../../test/data/metadata/musicbrainz/" + name)
 		require.NoError(t, err)
 		return b
 	}
@@ -256,7 +256,7 @@ func TestAlbumPopulatesReleasesMediaAndTracks(t *testing.T) {
 }
 
 func TestAlbumFailsWhenTheReleaseBrowseFails(t *testing.T) {
-	body, err := os.ReadFile("../../../../testdata/metadata/musicbrainz/releasegroup_the_bends.json")
+	body, err := os.ReadFile("../../../../test/data/metadata/musicbrainz/releasegroup_the_bends.json")
 	require.NoError(t, err)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/release-group/"+theBendsMBID {
@@ -278,7 +278,7 @@ func TestAlbumFailsWhenTheReleaseBrowseFails(t *testing.T) {
 }
 
 func TestAlbumStopsBrowsingAfterMaxReleasePages(t *testing.T) {
-	rg, err := os.ReadFile("../../../../testdata/metadata/musicbrainz/releasegroup_the_bends.json")
+	rg, err := os.ReadFile("../../../../test/data/metadata/musicbrainz/releasegroup_the_bends.json")
 	require.NoError(t, err)
 	var browses int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -388,9 +388,9 @@ func TestArtistRejectsMalformedResponseBodies(t *testing.T) {
 // stub server can answer any release browse with (the paging pair above
 // needs offset routing).
 func TestAlbumStopsAfterASinglePageThatHoldsEveryRelease(t *testing.T) {
-	rg, err := os.ReadFile("../../../../testdata/metadata/musicbrainz/releasegroup_the_bends.json")
+	rg, err := os.ReadFile("../../../../test/data/metadata/musicbrainz/releasegroup_the_bends.json")
 	require.NoError(t, err)
-	page, err := os.ReadFile("../../../../testdata/metadata/musicbrainz/browse_releases_the_bends.json")
+	page, err := os.ReadFile("../../../../test/data/metadata/musicbrainz/browse_releases_the_bends.json")
 	require.NoError(t, err)
 	var browses int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

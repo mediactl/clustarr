@@ -88,7 +88,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/importarr/worker/fileimport"
+	"github.com/mediactl/clustarr/app/import/worker/fileimport"
 )
 
 // nonVideoConditionTimeout bounds the wait for a parent's metadata-ready and

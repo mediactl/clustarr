@@ -44,7 +44,7 @@ const apiKey = "sekrit-key-123"
 
 func fixture(t *testing.T, name string) []byte {
 	t.Helper()
-	b, err := os.ReadFile("../../../../testdata/subtitles/subdl/" + name)
+	b, err := os.ReadFile("../../../../test/data/subtitles/subdl/" + name)
 	require.NoError(t, err)
 	return b
 }

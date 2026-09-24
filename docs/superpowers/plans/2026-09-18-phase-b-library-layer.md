@@ -21,7 +21,7 @@ Copied verbatim from the spec, `CLAUDE.md` and the remaining-work plan. Every ta
 - **Quality profiles are TRaSH-only and opinionated.** Built-in profiles ship as embedded data; custom-format editing is not exposed.
 - Logging is `slog` through `context` (`pkg/obs/logging.FromContext`). No package-level logger, no logger struct fields. Outbound provider calls are wrapped in a span via `pkg/obs/tracing.Start`; that is the only `pkg/obs` coupling a Phase B package may have.
 - Prometheus metrics use the `clustarr_` prefix and base units. **Never label by title, path or release name.** Phase B packages do not register collectors; they expose counters/durations through return values or callbacks and the services in later phases record them.
-- Tests are table-driven with testify; fixtures under the repo-root `testdata/<package>/` directory each task owns (Go tests run with the package directory as CWD, so reference them as `../../testdata/<package>/…`). **No network access in tests**; every HTTP client is exercised against `httptest.Server`. Any test that shells out (`ffprobe`, `ffmpeg`) must `t.Skip` when the binary is absent and must also have a fixture-driven path that runs without it.
+- Tests are table-driven with testify; fixtures under the repo-root `test/data/<package>/` directory each task owns (Go tests run with the package directory as CWD, so reference them as `../../testdata/<package>/…`). **No network access in tests**; every HTTP client is exercised against `httptest.Server`. Any test that shells out (`ffprobe`, `ffmpeg`) must `t.Skip` when the binary is absent and must also have a fixture-driven path that runs without it.
 - Every exported function that can block takes a `context.Context` first and honours cancellation.
 - Malformed input never panics: every parser/decoder has at least one test feeding it garbage, truncated and empty input.
 
@@ -39,18 +39,18 @@ These are not style preferences. Violating them corrupts shared state and has al
 
 | Task | Owns (create) | Primary source |
 | --- | --- | --- |
-| B0 (serial, controller) | `go.mod`, `go.sum`, `hack/deps/deps.go`, the three corpus files under `testdata/cardigann/` | this plan |
-| B1 | `pkg/release/`, `testdata/releases/` | `docs/research/quality.md`, spec §7, §9 |
-| B2 | `pkg/quality/` (incl. `catalogue/`), `testdata/quality/` | `docs/research/quality.md` |
-| B3 | `pkg/naming/`, `testdata/naming/` | `docs/research/naming.md` |
-| B4 | `pkg/mediainfo/`, `testdata/mediainfo/` | `docs/research/transcode.md` |
-| B5 | `pkg/transcode/`, `testdata/transcode/` | `docs/research/transcode.md` |
-| B6 | `pkg/torznab/`, `pkg/newznab/`, `testdata/torznab/`, `testdata/newznab/` | `docs/research/indexers.md` |
-| B7 | `pkg/cardigann/`, `testdata/cardigann/` (B0 seeds three files there first) | `docs/research/indexers.md` |
-| B8 | `pkg/subtitles/` (incl. `providers/*`), `testdata/subtitles/` | `docs/research/subtitles.md` |
-| B9 | `pkg/metadata/` (incl. `clients/*`), `testdata/metadata/` | `docs/research/metadata.md` |
-| B10 | `pkg/importlist/` (incl. provider subpackages), `testdata/importlist/` | `docs/research/metadata.md` |
-| B11 | `pkg/fsops/`, `pkg/ratelimit/`, `testdata/fsops/` | `docs/research/naming.md`, `docs/research/download.md` |
+| B0 (serial, controller) | `go.mod`, `go.sum`, `hack/deps/deps.go`, the three corpus files under `test/data/cardigann/` | this plan |
+| B1 | `pkg/release/`, `test/data/releases/` | `docs/research/quality.md`, spec §7, §9 |
+| B2 | `pkg/quality/` (incl. `catalogue/`), `test/data/quality/` | `docs/research/quality.md` |
+| B3 | `pkg/naming/`, `test/data/naming/` | `docs/research/naming.md` |
+| B4 | `pkg/mediainfo/`, `test/data/mediainfo/` | `docs/research/transcode.md` |
+| B5 | `pkg/transcode/`, `test/data/transcode/` | `docs/research/transcode.md` |
+| B6 | `pkg/torznab/`, `pkg/newznab/`, `test/data/torznab/`, `test/data/newznab/` | `docs/research/indexers.md` |
+| B7 | `pkg/cardigann/`, `test/data/cardigann/` (B0 seeds three files there first) | `docs/research/indexers.md` |
+| B8 | `pkg/subtitles/` (incl. `providers/*`), `test/data/subtitles/` | `docs/research/subtitles.md` |
+| B9 | `pkg/metadata/` (incl. `clients/*`), `test/data/metadata/` | `docs/research/metadata.md` |
+| B10 | `pkg/importlist/` (incl. provider subpackages), `test/data/importlist/` | `docs/research/metadata.md` |
+| B11 | `pkg/fsops/`, `pkg/ratelimit/`, `test/data/fsops/` | `docs/research/naming.md`, `docs/research/download.md` |
 | B12 (serial, controller) | `hack/deps/deps.go`, `go.mod`, `go.sum`, `CLAUDE.md` Status | this plan |
 
 ## Execution order: two waves
@@ -87,7 +87,7 @@ Cross-package imports permitted inside Phase B (everything else is forbidden and
 **Files:**
 - Modify: `go.mod`, `go.sum`
 - Create: `hack/deps/deps.go`
-- Create: `testdata/cardigann/schema-v11.json`, `testdata/cardigann/1337x.yml`, `testdata/cardigann/0dayfiles-api.yml`
+- Create: `test/data/cardigann/schema-v11.json`, `test/data/cardigann/1337x.yml`, `test/data/cardigann/0dayfiles-api.yml`
 
 **Path ownership:** controller only. Runs to completion and is committed before any of B1–B11 is dispatched.
 
@@ -170,12 +170,12 @@ Expected: `TIDY_CLEAN`, no `MISSING:` lines, vet clean.
 
 - [ ] **Step 4: Seed the Cardigann corpus**
 
-Copy `schema-v11.json`, `1337x.yml` and `0dayfiles-api.yml` from the controller's research scratch directory into `testdata/cardigann/` (Task B7 adds its own HTML/JSON fixtures beside them). These are the upstream Prowlarr v11 schema and two real definitions (one HTML-selector tracker, one JSON API tracker) that Task B7's tests load.
+Copy `schema-v11.json`, `1337x.yml` and `0dayfiles-api.yml` from the controller's research scratch directory into `test/data/cardigann/` (Task B7 adds its own HTML/JSON fixtures beside them). These are the upstream Prowlarr v11 schema and two real definitions (one HTML-selector tracker, one JSON API tracker) that Task B7's tests load.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "chore(deps): pre-add the Phase B library dependencies and seed the Cardigann corpus" -- go.mod go.sum hack/deps/deps.go testdata/cardigann/
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "chore(deps): pre-add the Phase B library dependencies and seed the Cardigann corpus" -- go.mod go.sum hack/deps/deps.go test/data/cardigann/
 ```
 
 **Done when:** `go build ./... && go vet ./...` clean, `go mod tidy -diff` empty, all seventeen modules in `go.mod`, corpus files present, one commit on the branch.
@@ -229,18 +229,18 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "chore(deps)
   - `pkg/release/age_test.go`
   - `pkg/release/fixtures_test.go`
 - Fixtures (created in the step that needs them, real sample content, no generator scripts):
-  - `testdata/releases/movies.json`
-  - `testdata/releases/tv.json`
-  - `testdata/releases/season_packs.json`
-  - `testdata/releases/multi_episode.json`
-  - `testdata/releases/daily.json`
-  - `testdata/releases/anime.json`
-  - `testdata/releases/music.json`
-  - `testdata/releases/books.json`
-  - `testdata/releases/audiobooks.json`
-  - `testdata/releases/comics.json`
+  - `test/data/releases/movies.json`
+  - `test/data/releases/tv.json`
+  - `test/data/releases/season_packs.json`
+  - `test/data/releases/multi_episode.json`
+  - `test/data/releases/daily.json`
+  - `test/data/releases/anime.json`
+  - `test/data/releases/music.json`
+  - `test/data/releases/books.json`
+  - `test/data/releases/audiobooks.json`
+  - `test/data/releases/comics.json`
 
-**Path ownership:** `pkg/release/` and `testdata/releases/` only.
+**Path ownership:** `pkg/release/` and `test/data/releases/` only.
 
 **Read first:**
 - `docs/superpowers/specs/2026-09-18-clustarr-design.md` §7 lines 667-668 (the `pkg/release` struct/func block) and line 767 (the GPL-port paragraph naming every regex family and library).
@@ -1495,7 +1495,7 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(releas
 
 - [ ] **Step 48: Create the fixture corpus (real sample content, ≥120 titles)**
 
-Create `testdata/releases/movies.json` — 34 entries. Representative excerpt (write the full 34; extend the source/resolution/modifier/group combinations below mechanically, one JSON object per row, using only sources/resolutions/groups/codecs already named in this file or in `docs/research/quality.md` — never a placeholder title):
+Create `test/data/releases/movies.json` — 34 entries. Representative excerpt (write the full 34; extend the source/resolution/modifier/group combinations below mechanically, one JSON object per row, using only sources/resolutions/groups/codecs already named in this file or in `docs/research/quality.md` — never a placeholder title):
 ```json
 [
   {"title": "Dune.Part.Two.2024.2160p.UHD.BluRay.REMUX.HDR.HEVC.TrueHD.7.1.Atmos-FraMeSToR",
@@ -1518,23 +1518,23 @@ Create `testdata/releases/movies.json` — 34 entries. Representative excerpt (w
 ```
 Add 26 more rows covering the remaining combinations of `{source: bluray|webdl|webrip|hdtv|dvd, resolution: 480|576|720|1080|2160, modifier: none|remux|brdisk|screener|rawhd}` crossed against `{group: GROUP|ROVERS|NTb|FLUX|YIFY|DEMAND|CookieMonster}` — enough pairs to reach 34 movie rows without repeating a `(source, resolution, modifier)` triple already covered above, so every `qualityTable` entry from Step 4 is exercised by at least one fixture.
 
-Create `testdata/releases/tv.json` — 24 single/multi-episode entries (standard series, non-anime, non-daily), e.g. `Severance.S02E03...`, `The.Bear.S03E01E02...`, `Fringe.S05E01-E03...`, plus DVD/HDTV/WEBRip variants and one `PROPER`/`REPACK` TV example.
+Create `test/data/releases/tv.json` — 24 single/multi-episode entries (standard series, non-anime, non-daily), e.g. `Severance.S02E03...`, `The.Bear.S03E01E02...`, `Fringe.S05E01-E03...`, plus DVD/HDTV/WEBRip variants and one `PROPER`/`REPACK` TV example.
 
-Create `testdata/releases/season_packs.json` — 10 entries: full-season, multi-season and partial-season patterns as in Steps 14-15, across a few different shows.
+Create `test/data/releases/season_packs.json` — 10 entries: full-season, multi-season and partial-season patterns as in Steps 14-15, across a few different shows.
 
-Create `testdata/releases/multi_episode.json` — 8 entries covering the dual-token (`S01E01E02`) and dash-range (`S01E01-E03`) forms plus a 3+ episode range.
+Create `test/data/releases/multi_episode.json` — 8 entries covering the dual-token (`S01E01E02`) and dash-range (`S01E01-E03`) forms plus a 3+ episode range.
 
-Create `testdata/releases/daily.json` — 8 entries: talk shows / news formats with the `YYYY.MM.DD` pattern from Step 16-17, varying resolution/source.
+Create `test/data/releases/daily.json` — 8 entries: talk shows / news formats with the `YYYY.MM.DD` pattern from Step 16-17, varying resolution/source.
 
-Create `testdata/releases/anime.json` — 16 entries: bracket-group absolute (`[SubsPlease] ... - NN`), bracket-group season+episode, batch ranges (`01-12`), and at least the two `rls`-fails-on-this titles from Step 18/19 verbatim.
+Create `test/data/releases/anime.json` — 16 entries: bracket-group absolute (`[SubsPlease] ... - NN`), bracket-group season+episode, batch ranges (`01-12`), and at least the two `rls`-fails-on-this titles from Step 18/19 verbatim.
 
-Create `testdata/releases/music.json` — 8 entries: FLAC, MP3 with bitrate, MP3 VBR, ALAC, WAV, 24-bit FLAC, across different artists/albums/years.
+Create `test/data/releases/music.json` — 8 entries: FLAC, MP3 with bitrate, MP3 VBR, ALAC, WAV, 24-bit FLAC, across different artists/albums/years.
 
-Create `testdata/releases/books.json` — 6 entries: EPUB/MOBI/AZW3/PDF across different authors.
+Create `test/data/releases/books.json` — 6 entries: EPUB/MOBI/AZW3/PDF across different authors.
 
-Create `testdata/releases/audiobooks.json` — 6 entries: the two from Step 22 plus four more varying narrator/ASIN presence and M4B/MP3 format.
+Create `test/data/releases/audiobooks.json` — 6 entries: the two from Step 22 plus four more varying narrator/ASIN presence and M4B/MP3 format.
 
-Create `testdata/releases/comics.json` — 6 entries: the two from Step 24 plus four more (an annual, a one-shot, two more manga volume/chapter titles).
+Create `test/data/releases/comics.json` — 6 entries: the two from Step 24 plus four more (an annual, a one-shot, two more manga volume/chapter titles).
 
 Total: 34+24+10+8+8+16+8+6+6+6 = 132 titles, all real-world-shaped (public, well-known titles and standard scene/streaming naming conventions — no `Movie.Title`-style placeholders anywhere in the corpus).
 
@@ -1653,7 +1653,7 @@ Run again: `go test ./pkg/release/... -run TestFixtureCorpusParsesToExpectedFiel
 - [ ] **Step 51: Commit the fixture corpus**
 
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "test(release): a 132-title real-world fixture corpus across movies, TV, anime, music, books and comics" -- pkg/release testdata/releases
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "test(release): a 132-title real-world fixture corpus across movies, TV, anime, music, books and comics" -- pkg/release test/data/releases
 ```
 
 - [ ] **Step 52: Adversarial pass — malformed input, no panics, no swallowed errors**
@@ -1719,7 +1719,7 @@ The last command's count must be ≥121 (120 fixture subtests plus the parent `T
 **Done when:**
 - [ ] `pkg/release` builds, vets and passes `go test -race` with zero skips.
 - [ ] Every exported symbol in this document's `Produces` block exists with this exact signature — `grep -n 'func \|^type ' pkg/release/*.go` against the block above, no drift.
-- [ ] `testdata/releases/*.json` holds ≥120 titles total across all ten categories, every one a real-world-shaped title (no `Movie.Title`/`Artist.Name`-style placeholders), each with a `want` block that was verified to pass, not adjusted to whatever the code produced without checking it against the regex intent.
+- [ ] `test/data/releases/*.json` holds ≥120 titles total across all ten categories, every one a real-world-shaped title (no `Movie.Title`/`Artist.Name`-style placeholders), each with a `want` block that was verified to pass, not adjusted to whatever the code produced without checking it against the regex intent.
 - [ ] The two `rls`-failure titles from `docs/research/quality.md` §7.3 (`[SubsPlease] Frieren - 28 ...` and the `Andy Weir ... (Unabridged) [M4B 64kbps]` audiobook) are covered by both a targeted unit test (Steps 18-19, 22-23) and a fixture-corpus entry, and both now parse correctly under this package despite `rls` failing on them directly.
 - [ ] PROPER, REPACK, `REPACK2`, and REAL (case-sensitive) all produce the correct `common.Revision` per Step 6's table, with no `IgnoreCase` regression on `RealRegex`.
 - [ ] No `_, _ = re.FindStringMatch(...)`-style discarded error remains anywhere in `pkg/release` (Step 52's grep, rerun clean).
@@ -1727,7 +1727,7 @@ The last command's count must be ≥121 (120 fixture subtests plus the parent `T
 - [ ] No file in `pkg/release/` is missing the GPL header from `hack/boilerplate.go.txt`.
 - [ ] No exported function in `pkg/release` returns `float32`/`float64` except `MatchTitle`'s `score`, which is a matching-confidence return value, not a telemetry/status field — `Age` and `SizePerMinuteCentiMB` use scaled integers as designed above.
 - [ ] `hack/deps/deps.go` no longer blank-imports `moistari/rls`, `dlclark/regexp2` or `lithammer/fuzzysearch` (Step 54), and `go build ./...` still succeeds at the repo root.
-- [ ] `git log --oneline -8 -- pkg/release testdata/releases hack/deps` shows the eight commits from Steps 26, 31, 36, 47, 51, 53, 54 (plus Step 48's fixtures, folded into 51) in TDD order — test-then-implementation, never the reverse.
+- [ ] `git log --oneline -8 -- pkg/release test/data/releases hack/deps` shows the eight commits from Steps 26, 31, 36, 47, 51, 53, 54 (plus Step 48's fixtures, folded into 51) in TDD order — test-then-implementation, never the reverse.
 
 ---
 
@@ -1763,9 +1763,9 @@ The last command's count must be ≥121 (120 fixture subtests plus the parent `T
   - `pkg/naming/recycle_test.go`
   - `pkg/naming/errors_test.go`
 - Fixtures:
-  - `testdata/naming/dialects.json`
+  - `test/data/naming/dialects.json`
 
-**Path ownership:** `pkg/naming/` and `testdata/naming/` only. No other package's files are touched by this task.
+**Path ownership:** `pkg/naming/` and `test/data/naming/` only. No other package's files are touched by this task.
 
 **Read first:**
 - `CLAUDE.md` — invariants section (field-manager split doesn't apply here; the relevant lines are "No `float32`/`float64` in `api/`" — irrelevant to `pkg/naming` itself, but its `Context` struct must still avoid floats per repo-wide convention — and GPL header on every file).
@@ -3021,7 +3021,7 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(naming
 
 - [ ] **Step 12: dialect presets, Overrides precedence, MovieFolder/MovieFile, BuildFolder/BuildFile**
 
-Fixture (`testdata/naming/dialects.json`) — the golden table spec §16's test matrix asks for ("pkg/naming (dialect goldens for TRaSH formats)", line 808):
+Fixture (`test/data/naming/dialects.json`) — the golden table spec §16's test matrix asks for ("pkg/naming (dialect goldens for TRaSH formats)", line 808):
 ```json
 [
   {
@@ -3240,7 +3240,7 @@ Expected pass: all green, and `TestDialectGoldens`'s four dialect subtests all p
 
 Commit:
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(naming): dialect presets, Overrides precedence, MovieFolder/MovieFile, BuildFolder/BuildFile" -- pkg/naming/preset.go pkg/naming/preset_test.go testdata/naming/dialects.json
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(naming): dialect presets, Overrides precedence, MovieFolder/MovieFile, BuildFolder/BuildFile" -- pkg/naming/preset.go pkg/naming/preset_test.go test/data/naming/dialects.json
 ```
 
 - [ ] **Step 13: global separator/case post-processing (Lidarr/Readarr `replaceSpaces`/`separator`)**
@@ -3675,12 +3675,12 @@ golangci-lint run ./pkg/naming/...                      # if golangci-lint-v2 is
 ```
 
 **Done when:**
-- [ ] Every file under `pkg/naming/` and `testdata/naming/` carries the GPL-3.0 header from `hack/boilerplate.go.txt`.
+- [ ] Every file under `pkg/naming/` and `test/data/naming/` carries the GPL-3.0 header from `hack/boilerplate.go.txt`.
 - [ ] `pkg/naming` imports nothing under `api/catalog`, `api/download`, `api/index`, `api/subtitle`, `api/transcode`, `k8s.io/*`, or `sigs.k8s.io/*` — `go list -deps ./pkg/naming/... | grep -E 'mediactl/clustarr/api/(catalog|download|index|subtitle|transcode)|k8s\.io|sigs\.k8s\.io'` prints nothing.
 - [ ] `go test -count=1 ./pkg/naming/...` is green with no `t.Skip`.
 - [ ] Every one of the spec's nine named `Engine` methods (`MovieFolder`, `MovieFile`, `SeriesFolder`, `SeasonFolder`, `EpisodeFile`, `TrackFile`, `BookFile`, `AudiobookFile`, `IssueFile`) exists with the exact signature `(c Context) (string, error)`.
 - [ ] `BuildFolder`/`BuildFile` cover all ten `commonv1.MediaKind` values without a `default: panic` — the ones with no folder/file return `ErrNoFolder`/`ErrNoFile`, never an empty string with a nil error.
-- [ ] All four dialects (`jellyfin`, `plex`, `emby`, `kodi`) have presets and appear in `testdata/naming/dialects.json`; the file is loaded by `TestDialectGoldens`, not merely present.
+- [ ] All four dialects (`jellyfin`, `plex`, `emby`, `kodi`) have presets and appear in `test/data/naming/dialects.json`; the file is loaded by `TestDialectGoldens`, not merely present.
 - [ ] All six `MultiEpisodeStyle` values produce distinct, note-verified output for a 3-episode pack (Step 7's table).
 - [ ] `SanitizePath` never panics on an empty string, a string that is only illegal characters, or a string longer than `MaxTotalBytes`.
 - [ ] `SubtitlePath` and `RecycleBinPath` do no I/O (`go doc` on both shows no `os`/`io` import reachable from these two functions specifically — a quick `grep -n '"os"' pkg/naming/subtitle.go pkg/naming/recycle.go` should be empty).
@@ -3727,9 +3727,9 @@ golangci-lint run ./pkg/naming/...                      # if golangci-lint-v2 is
 **Files:**
 - Create: `pkg/mediainfo/mediainfo.go`, `pkg/mediainfo/ffprobe.go`, `pkg/mediainfo/classify.go`, `pkg/mediainfo/map.go`, `pkg/mediainfo/hash.go`
 - Test: `pkg/mediainfo/hash_test.go`, `pkg/mediainfo/classify_test.go`, `pkg/mediainfo/ffprobe_test.go`, `pkg/mediainfo/map_test.go`, `pkg/mediainfo/probe_test.go`
-- Test fixtures: `testdata/mediainfo/sample_h264_8bit.mp4`, `testdata/mediainfo/sample_hevc_10bit.mkv`
+- Test fixtures: `test/data/mediainfo/sample_h264_8bit.mp4`, `test/data/mediainfo/sample_hevc_10bit.mkv`
 
-**Path ownership:** `pkg/mediainfo/` and `testdata/mediainfo/` only.
+**Path ownership:** `pkg/mediainfo/` and `test/data/mediainfo/` only.
 
 **Read first:**
 - `docs/superpowers/specs/2026-09-18-clustarr-design.md` lines 689-691 (the `pkg/mediainfo` block in §7 Shared packages) — the exact `Probe`/`ClassifyHDR`/`ProbeHash`/`MovieHash` signatures this task must produce verbatim.
@@ -4043,7 +4043,7 @@ Every new `.go` file begins with the GPL header from `hack/boilerplate.go.txt` (
   }
 
   func TestContainerFromPath(t *testing.T) {
-  	assert.Equal(t, "mp4", containerFromPath("testdata/mediainfo/sample_h264_8bit.mp4"))
+  	assert.Equal(t, "mp4", containerFromPath("test/data/mediainfo/sample_h264_8bit.mp4"))
   	assert.Equal(t, "mkv", containerFromPath("/data/movies/Foo/Foo.MKV"))
   }
   ```
@@ -4935,7 +4935,7 @@ Every new `.go` file begins with the GPL header from `hack/boilerplate.go.txt` (
     -c:v libx264 -pix_fmt yuv420p -preset ultrafast -crf 30 \
     -c:a aac -b:a 64k \
     -movflags +faststart \
-    testdata/mediainfo/sample_h264_8bit.mp4
+    test/data/mediainfo/sample_h264_8bit.mp4
 
   # 10-bit HEVC MKV, 1s, AC-3 audio + an SRT subtitle track.
   cat > /tmp/mediainfo-sub.srt <<'EOF'
@@ -4951,9 +4951,9 @@ Every new `.go` file begins with the GPL header from `hack/boilerplate.go.txt` (
     -c:a ac3 -b:a 128k \
     -c:s srt \
     -map 0:v -map 1:a -map 2:s \
-    testdata/mediainfo/sample_hevc_10bit.mkv
+    test/data/mediainfo/sample_hevc_10bit.mkv
 
-  ls -la testdata/mediainfo/   # both files should be well under 200 KB
+  ls -la test/data/mediainfo/   # both files should be well under 200 KB
   ```
 
   Create `pkg/mediainfo/probe_test.go`:
@@ -5029,7 +5029,7 @@ Every new `.go` file begins with the GPL header from `hack/boilerplate.go.txt` (
   	require.Error(t, err)
   }
   ```
-  Paths are relative to `pkg/mediainfo/` (where `go test` sets its working directory), climbing two levels to the repo root and back down into the shared `testdata/mediainfo/`.
+  Paths are relative to `pkg/mediainfo/` (where `go test` sets its working directory), climbing two levels to the repo root and back down into the shared `test/data/mediainfo/`.
 
   Run: `go test ./pkg/mediainfo/... -run TestProbe -v`
   Expected failure: `undefined: Probe`.
@@ -5083,7 +5083,7 @@ Every new `.go` file begins with the GPL header from `hack/boilerplate.go.txt` (
 
   Commit:
   ```bash
-  git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(mediainfo): wire Probe end to end against real ffprobe fixtures" -- pkg/mediainfo/mediainfo.go pkg/mediainfo/probe_test.go testdata/mediainfo/sample_h264_8bit.mp4 testdata/mediainfo/sample_hevc_10bit.mkv
+  git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(mediainfo): wire Probe end to end against real ffprobe fixtures" -- pkg/mediainfo/mediainfo.go pkg/mediainfo/probe_test.go test/data/mediainfo/sample_h264_8bit.mp4 test/data/mediainfo/sample_hevc_10bit.mkv
   ```
 
 **Verification:**
@@ -5093,8 +5093,8 @@ go build ./pkg/mediainfo/...
 go vet ./pkg/mediainfo/...
 go test -count=1 ./pkg/mediainfo/... -v
 $(go env GOPATH)/bin/golangci-lint-v2 run ./pkg/mediainfo/...
-ls -la testdata/mediainfo/
-git log --oneline -- pkg/mediainfo testdata/mediainfo
+ls -la test/data/mediainfo/
+git log --oneline -- pkg/mediainfo test/data/mediainfo
 ```
 
 **Done when:**
@@ -5102,10 +5102,10 @@ git log --oneline -- pkg/mediainfo testdata/mediainfo
 - [ ] `go test -count=1 ./pkg/mediainfo/... -v` passes every test; on a box without `ffprobe` the three `TestProbe*` cases report `SKIP`, not failure or a panic.
 - [ ] The exported surface matches **Interfaces — Produces** exactly: `Probe`, `ClassifyHDR`, `ProbeHash`, `MovieHash`, `VideoDynamicRangeType`, `AudioChannelsString`, `ResolutionFromDimensions`, `Raw`, `DoviRecord`, `ErrTooSmall` — no more, no fewer exported symbols than listed (unexported helpers are free to differ in shape from this plan as long as behaviour matches).
 - [ ] No test does network I/O; the DOVI/HDR10/HDR10+ fixtures are inline hand-authored JSON strings unmarshaled directly, never a shelled-out `ffprobe` call.
-- [ ] `testdata/mediainfo/sample_h264_8bit.mp4` and `sample_hevc_10bit.mkv` exist, are each under 200 KB, and a real `ffprobe`/`Probe` run against them produces the field values asserted in `probe_test.go`.
+- [ ] `test/data/mediainfo/sample_h264_8bit.mp4` and `sample_hevc_10bit.mkv` exist, are each under 200 KB, and a real `ffprobe`/`Probe` run against them produces the field values asserted in `probe_test.go`.
 - [ ] Every `.go` file under `pkg/mediainfo/` starts with the GPL header from `hack/boilerplate.go.txt`.
 - [ ] No `float32`/`float64` appears in any exported type (`Raw`, `DoviRecord` use `int32`/`bool`/`string`; the only floats in the package are unexported, ffprobe-string-parsing intermediates).
-- [ ] `git log --oneline -- pkg/mediainfo testdata/mediainfo` shows one commit per step above, each touching only `pkg/mediainfo/**` and `testdata/mediainfo/**`.
+- [ ] `git log --oneline -- pkg/mediainfo test/data/mediainfo` shows one commit per step above, each touching only `pkg/mediainfo/**` and `test/data/mediainfo/**`.
 - [ ] `$(go env GOPATH)/bin/golangci-lint-v2 run ./pkg/mediainfo/...` is clean (no forbidigo hits are possible here — this package never touches `client.Object` status — but run it anyway for style/vet-class findings).
 
 ---
@@ -5117,10 +5117,10 @@ git log --oneline -- pkg/mediainfo testdata/mediainfo
 - Create: `pkg/torznab/caps.go`, `pkg/torznab/release.go`, `pkg/torznab/errors.go`, `pkg/torznab/query.go`, `pkg/torznab/client.go`, `pkg/torznab/write.go`
 - Test: `pkg/newznab/category_test.go`, `pkg/newznab/mapper_test.go`
 - Test: `pkg/torznab/caps_test.go`, `pkg/torznab/release_test.go`, `pkg/torznab/errors_test.go`, `pkg/torznab/query_test.go`, `pkg/torznab/client_test.go`, `pkg/torznab/write_test.go`
-- Fixtures: `testdata/torznab/caps.xml`, `testdata/torznab/search_with_attrs.xml`, `testdata/torznab/search_without_attrs.xml`, `testdata/torznab/namespace_variant.xml`, `testdata/torznab/error.xml`
-- Fixtures: `testdata/newznab/caps.xml`, `testdata/newznab/usenet_search.xml`
+- Fixtures: `test/data/torznab/caps.xml`, `test/data/torznab/search_with_attrs.xml`, `test/data/torznab/search_without_attrs.xml`, `test/data/torznab/namespace_variant.xml`, `test/data/torznab/error.xml`
+- Fixtures: `test/data/newznab/caps.xml`, `test/data/newznab/usenet_search.xml`
 
-**Path ownership:** `pkg/torznab/`, `pkg/newznab/`, `testdata/torznab/`, `testdata/newznab/` only.
+**Path ownership:** `pkg/torznab/`, `pkg/newznab/`, `test/data/torznab/`, `test/data/newznab/` only.
 
 **Read first (by heading):**
 - `CLAUDE.md` — "Invariants — do not break these" (GPL header, no status writes here — this package touches no CRDs; the spec-authority rule) and "Code conventions" (`slog` via `pkg/obs/logging.FromContext`, spans via `pkg/obs/tracing.Start`).
@@ -5661,7 +5661,7 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(newzna
 
 - [ ] **Step 10: `torznab` — write the caps fixture and its failing test**
 
-Write `testdata/torznab/caps.xml` (shape verified against note §2.3):
+Write `test/data/torznab/caps.xml` (shape verified against note §2.3):
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <caps>
@@ -5755,7 +5755,7 @@ Run: `go test -count=1 ./pkg/torznab/... -run TestParseCaps -v`
 
 - [ ] **Step 14: write the item fixtures and the failing release-parsing tests**
 
-`testdata/torznab/search_with_attrs.xml` (transcribed from note §4.2, values kept from the example):
+`test/data/torznab/search_with_attrs.xml` (transcribed from note §4.2, values kept from the example):
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"
@@ -5796,7 +5796,7 @@ Run: `go test -count=1 ./pkg/torznab/... -run TestParseCaps -v`
   </channel>
 </rss>
 ```
-`testdata/torznab/search_without_attrs.xml` (same item, base RSS fields only — no `torznab:attr` at all, no `xmlns:torznab` declaration):
+`test/data/torznab/search_without_attrs.xml` (same item, base RSS fields only — no `torznab:attr` at all, no `xmlns:torznab` declaration):
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
@@ -5959,7 +5959,7 @@ Run: `go test -count=1 ./pkg/torznab/... -run TestParseItem -v`
 
 - [ ] **Step 18: write the namespace-variant fixture and its failing test**
 
-`testdata/torznab/namespace_variant.xml` (same item, but declares the non-canonical namespace URI the research note flags on `Kcchouette/cardigann-go` — §9 — instead of the canonical `torznab.com` one):
+`test/data/torznab/namespace_variant.xml` (same item, but declares the non-canonical namespace URI the research note flags on `Kcchouette/cardigann-go` — §9 — instead of the canonical `torznab.com` one):
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:torznab="http://torznab.github.io/schemas/2015/feed">
@@ -5996,7 +5996,7 @@ Expected: PASS with no code change — `wireAttr.XMLName.Local == "attr"` never 
 
 - [ ] **Step 20: write the usenet fixture and its failing test**
 
-`testdata/newznab/usenet_search.xml` (pure Newznab item — `newznab:attr` only, usenet-specific attribute names drawn from note §4.3: `group`, `poster`, `usenetdate`, `password`, `nfo`):
+`test/data/newznab/usenet_search.xml` (pure Newznab item — `newznab:attr` only, usenet-specific attribute names drawn from note §4.3: `group`, `poster`, `usenetdate`, `password`, `nfo`):
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/">
@@ -6042,7 +6042,7 @@ Run (pass): `go test -count=1 ./pkg/torznab/... -run TestParseItemUsenetNzbAttrs
 
 - [ ] **Step 22: write the error fixture and its failing test**
 
-`testdata/torznab/error.xml` (code 500 is Torznab-specific per note §4.5 — "Request limit reached"):
+`test/data/torznab/error.xml` (code 500 is Torznab-specific per note §4.5 — "Request limit reached"):
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <error code="500" description="Request limit reached"/>
@@ -6341,7 +6341,7 @@ Run: `go test -count=1 ./pkg/torznab/... -v`
 
 - [ ] **Step 34: usenet caps fixture and final full-package pass**
 
-Write `testdata/newznab/caps.xml` (same grammar as Step 10's fixture, usenet-flavoured content — `movie-search`/`music-search` available, no raw search):
+Write `test/data/newznab/caps.xml` (same grammar as Step 10's fixture, usenet-flavoured content — `movie-search`/`music-search` available, no raw search):
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <caps>
@@ -6363,7 +6363,7 @@ Write `testdata/newznab/caps.xml` (same grammar as Step 10's fixture, usenet-fla
   </categories>
 </caps>
 ```
-Add one more table case to `TestParseCaps` (or a small `TestParseCapsUsenetVariant`) asserting `music.Available == true` and `caps.Modes[torznab.ModeSearch].SearchEngine == ""` (no `searchEngine` attribute present → raw search unsupported here, unlike the torrent fixture). Run the whole package: `go test -count=1 ./pkg/torznab/... -v`. This exercises `testdata/newznab/` from inside `pkg/torznab`'s own suite, per the task's fixture-directory split — `pkg/newznab` itself stays XML-free.
+Add one more table case to `TestParseCaps` (or a small `TestParseCapsUsenetVariant`) asserting `music.Available == true` and `caps.Modes[torznab.ModeSearch].SearchEngine == ""` (no `searchEngine` attribute present → raw search unsupported here, unlike the torrent fixture). Run the whole package: `go test -count=1 ./pkg/torznab/... -v`. This exercises `test/data/newznab/` from inside `pkg/torznab`'s own suite, per the task's fixture-directory split — `pkg/newznab` itself stays XML-free.
 
 - [ ] **Step 35: `go vet` and `golangci-lint` over both packages**
 
@@ -6376,7 +6376,7 @@ Fix anything flagged (expected: none — no `forbidigo`-banned calls, no uncheck
 - [ ] **Step 36: final commit**
 
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(torznab): Torznab/Newznab client, caps and release parsing, rate-limited Search" -- pkg/torznab testdata/torznab testdata/newznab
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(torznab): Torznab/Newznab client, caps and release parsing, rate-limited Search" -- pkg/torznab test/data/torznab test/data/newznab
 ```
 
 **Verification:**
@@ -6391,15 +6391,15 @@ No `KUBEBUILDER_ASSETS` export is needed — both packages are pure Go with no e
 
 **Done when:**
 - [ ] `pkg/newznab` builds standalone with zero I/O imports; `Tree`, `Parent`, `Expand`, `Custom`, `ByKind`, and `CategoryMapper.Kind` are each covered by a passing table test, including the reverse-mapping round trip.
-- [ ] `pkg/torznab.ParseCaps` correctly reads server title, default/max limits, per-mode availability + supported params + `searchEngine`, and the two-level category tree, against both the torrent (`testdata/torznab/caps.xml`) and usenet (`testdata/newznab/caps.xml`) fixtures.
-- [ ] `pkg/torznab.ParseResults`/`ParseItem` correctly populate every field in **Produces**' `Release` from `testdata/torznab/search_with_attrs.xml`, degrade to nil/zero values with no panic on `search_without_attrs.xml`, tolerate the non-canonical namespace in `namespace_variant.xml`, and correctly populate the usenet-only fields from `testdata/newznab/usenet_search.xml`.
+- [ ] `pkg/torznab.ParseCaps` correctly reads server title, default/max limits, per-mode availability + supported params + `searchEngine`, and the two-level category tree, against both the torrent (`test/data/torznab/caps.xml`) and usenet (`test/data/newznab/caps.xml`) fixtures.
+- [ ] `pkg/torznab.ParseResults`/`ParseItem` correctly populate every field in **Produces**' `Release` from `test/data/torznab/search_with_attrs.xml`, degrade to nil/zero values with no panic on `search_without_attrs.xml`, tolerate the non-canonical namespace in `namespace_variant.xml`, and correctly populate the usenet-only fields from `test/data/newznab/usenet_search.xml`.
 - [ ] `ParseError` distinguishes a real `<error>` body from any other well-formed document (`nil, nil`), and `Client`'s `httpError` correctly produces `HTTPStatus` 410/429 (with `RetryAfter` parsed) for HTTP-level failures that never had an XML body.
 - [ ] `Client.Search`/`Client.Caps` are exercised only against `httptest.Server`s — grep confirms no bare `http.Get`/real hostnames in test files; the rate-limiting test asserts a real minimum elapsed time between two calls; the cancellation test asserts `errors.Is(err, context.Canceled)`.
 - [ ] `WriteCaps`/`WriteResults`/`WriteError` each round-trip through their matching `ParseX` to a value equal to the input (asserted with `require.Equal`, not a byte-for-byte XML diff).
 - [ ] Every new `.go` file starts with the GPL header from `hack/boilerplate.go.txt`.
 - [ ] `go vet` and `golangci-lint-v2` are clean over both packages; `go test -race -count=1 ./pkg/newznab/... ./pkg/torznab/...` passes with no skips.
 - [ ] `go.mod`'s dependency list is untouched by this task (no `go get`, no `go mod tidy` run) — only the stale `// indirect` comments on `golang.org/x/time` and `golang.org/x/net` are left for Phase B's end-of-phase tidy pass to clean up.
-- [ ] Two commits exist, scoped exactly to `pkg/newznab` and to `pkg/torznab`+`testdata/torznab`+`testdata/newznab` respectively, with no unrelated files staged.
+- [ ] Two commits exist, scoped exactly to `pkg/newznab` and to `pkg/torznab`+`test/data/torznab`+`test/data/newznab` respectively, with no unrelated files staged.
 
 ---
 
@@ -6444,15 +6444,15 @@ Test:
 - `pkg/metadata/clients/audnexus/audnexus_test.go`
 - `pkg/metadata/clients/comicvine/comicvine_test.go`
 
-Fixtures (`testdata/metadata/...`):
-- `testdata/metadata/tmdb/movie_27205.json`
-- `testdata/metadata/tvdb/login.json`, `testdata/metadata/tvdb/series_121361.json`, `testdata/metadata/tvdb/episodes_121361_default.json`
-- `testdata/metadata/musicbrainz/artist_radiohead.json`
-- `testdata/metadata/openlibrary/isbn_9780141439518.json`
-- `testdata/metadata/audnexus/book_B0036I54I6.json`
-- `testdata/metadata/comicvine/volume_18257.json`
+Fixtures (`test/data/metadata/...`):
+- `test/data/metadata/tmdb/movie_27205.json`
+- `test/data/metadata/tvdb/login.json`, `test/data/metadata/tvdb/series_121361.json`, `test/data/metadata/tvdb/episodes_121361_default.json`
+- `test/data/metadata/musicbrainz/artist_radiohead.json`
+- `test/data/metadata/openlibrary/isbn_9780141439518.json`
+- `test/data/metadata/audnexus/book_B0036I54I6.json`
+- `test/data/metadata/comicvine/volume_18257.json`
 
-**Path ownership:** `pkg/metadata/` (including `clients/*`) and `testdata/metadata/` only. Do not touch `hack/deps/deps.go` — it is shared across every Phase B package; this task only removes its own entries as a courtesy note to the Phase B tidy task (see Dependencies below), it does not edit the file directly since two parallel agents editing one file corrupts it (Global Constraint #2).
+**Path ownership:** `pkg/metadata/` (including `clients/*`) and `test/data/metadata/` only. Do not touch `hack/deps/deps.go` — it is shared across every Phase B package; this task only removes its own entries as a courtesy note to the Phase B tidy task (see Dependencies below), it does not edit the file directly since two parallel agents editing one file corrupts it (Global Constraint #2).
 
 **Read first:**
 - `CLAUDE.md` — invariants (no floats under `api/`, scaled ints for telemetry, `pkg/obs` logging/tracing conventions, GPL header).
@@ -7906,7 +7906,7 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(metada
 
 `golang-tmdb` has no per-call `context.Context` (confirmed, `docs/research/metadata.md` §2.1: *"No per-call context.Context (wrap our http.Client with a ctx-aware transport / rate limiter)"*) — this task honours `ctx` at the rate-limiter wait (`limiter.Wait(ctx)` returns immediately on cancellation) and with an `ctx.Err()` check before the call, but the in-flight HTTP round-trip itself cannot be cancelled through `ctx`; that is a known, accepted limit of the adopted library, not a gap in this task.
 
-Fixture `testdata/metadata/tmdb/movie_27205.json` (real TMDB field names, `docs/research/metadata.md` §2.1):
+Fixture `test/data/metadata/tmdb/movie_27205.json` (real TMDB field names, `docs/research/metadata.md` §2.1):
 
 ```json
 {
@@ -8025,7 +8025,7 @@ Expected: PASS.
 
 Commit:
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(metadata): TMDB movie provider" -- pkg/metadata/clients/tmdb testdata/metadata/tmdb
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(metadata): TMDB movie provider" -- pkg/metadata/clients/tmdb test/data/metadata/tmdb
 ```
 
 - [ ] **Step 11: TVDB client (`SeriesProvider`) with the apikey+pin → JWT auth flow**
@@ -8034,12 +8034,12 @@ TVDB has no adopted Go client (the task deliberately builds this in-house; see t
 
 Fixtures:
 
-`testdata/metadata/tvdb/login.json`:
+`test/data/metadata/tvdb/login.json`:
 ```json
 {"data": {"token": "eyJhbGciOiJIUzI1NiJ9.test-payload.test-signature"}, "status": "success"}
 ```
 
-`testdata/metadata/tvdb/series_121361.json` (`SeriesExtendedRecord`, real field names from §2.2):
+`test/data/metadata/tvdb/series_121361.json` (`SeriesExtendedRecord`, real field names from §2.2):
 ```json
 {
   "data": {
@@ -8064,7 +8064,7 @@ Fixtures:
 }
 ```
 
-`testdata/metadata/tvdb/episodes_121361_default.json`:
+`test/data/metadata/tvdb/episodes_121361_default.json`:
 ```json
 {
   "data": {
@@ -8253,14 +8253,14 @@ Expected: PASS.
 
 Commit:
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(metadata): TVDB v4 series provider with apikey+pin JWT auth" -- pkg/metadata/clients/tvdb testdata/metadata/tvdb
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(metadata): TVDB v4 series provider with apikey+pin JWT auth" -- pkg/metadata/clients/tvdb test/data/metadata/tvdb
 ```
 
 - [ ] **Step 12: MusicBrainz client (`ArtistProvider`) and the Cover Art Archive URL builder**
 
 `go.uploadedlobster.com/musicbrainzws2 v0.19.0` is pre-added but its exact constructor and call surface were not independently re-verified for this plan (the note recommended writing MusicBrainz by hand; the Phase B dependency list overrides that — see the disagreement note at the end). Before writing `musicbrainz.go`, run `go doc go.uploadedlobster.com/musicbrainzws2` and `go doc go.uploadedlobster.com/musicbrainzws2.Client` to confirm the real constructor and lookup method names, and adjust the calls below to match — do not guess at unverified method names.
 
-Fixture `testdata/metadata/musicbrainz/artist_radiohead.json` (real MusicBrainz WS2 field names, §2.3):
+Fixture `test/data/metadata/musicbrainz/artist_radiohead.json` (real MusicBrainz WS2 field names, §2.3):
 
 ```json
 {
@@ -8357,12 +8357,12 @@ Expected: PASS.
 
 Commit:
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(metadata): MusicBrainz artist provider and Cover Art Archive URLs" -- pkg/metadata/clients/musicbrainz testdata/metadata/musicbrainz
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(metadata): MusicBrainz artist provider and Cover Art Archive URLs" -- pkg/metadata/clients/musicbrainz test/data/metadata/musicbrainz
 ```
 
 - [ ] **Step 13: Open Library client (`BookProvider`)**
 
-Fixture `testdata/metadata/openlibrary/isbn_9780141439518.json` (real field names, §2.4):
+Fixture `test/data/metadata/openlibrary/isbn_9780141439518.json` (real field names, §2.4):
 
 ```json
 {
@@ -8444,12 +8444,12 @@ Expected: PASS.
 
 Commit:
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(metadata): Open Library book provider" -- pkg/metadata/clients/openlibrary testdata/metadata/openlibrary
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(metadata): Open Library book provider" -- pkg/metadata/clients/openlibrary test/data/metadata/openlibrary
 ```
 
 - [ ] **Step 14: Audnexus client (`AudiobookProvider`)**
 
-Fixture `testdata/metadata/audnexus/book_B0036I54I6.json` (real field names, §2.6):
+Fixture `test/data/metadata/audnexus/book_B0036I54I6.json` (real field names, §2.6):
 
 ```json
 {
@@ -8533,12 +8533,12 @@ Expected: PASS.
 
 Commit:
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(metadata): Audnexus audiobook provider" -- pkg/metadata/clients/audnexus testdata/metadata/audnexus
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(metadata): Audnexus audiobook provider" -- pkg/metadata/clients/audnexus test/data/metadata/audnexus
 ```
 
 - [ ] **Step 15: ComicVine client (`ComicProvider`), 404 and 429-with-Retry-After**
 
-Fixture `testdata/metadata/comicvine/volume_18257.json` (real field names and response envelope, §2.5 — ComicVine wraps every result in a status envelope):
+Fixture `test/data/metadata/comicvine/volume_18257.json` (real field names and response envelope, §2.5 — ComicVine wraps every result in a status envelope):
 
 ```json
 {
@@ -8641,7 +8641,7 @@ Expected: PASS.
 
 Commit:
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(metadata): ComicVine comic volume provider" -- pkg/metadata/clients/comicvine testdata/metadata/comicvine
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(metadata): ComicVine comic volume provider" -- pkg/metadata/clients/comicvine test/data/metadata/comicvine
 ```
 
 ---
@@ -8676,7 +8676,7 @@ grep -rn 'api/catalog' pkg/metadata && echo "FORBIDDEN: pkg/metadata imports api
 - [ ] `go build ./pkg/metadata/...` and `go vet ./pkg/metadata/...` are clean.
 - [ ] `go test -count=1 ./pkg/metadata/... -v` is green, including every client package under `pkg/metadata/clients/`.
 - [ ] `golangci-lint-v2 run ./pkg/metadata/...` is clean (forbidigo, errorlint, gocritic, misspell, unconvert, gofumpt, goimports with the `github.com/mediactl/clustarr` local prefix).
-- [ ] No test in the package or its subpackages dials a real host — every HTTP-backed test uses `httptest.NewServer` and a fixture under `testdata/metadata/`.
+- [ ] No test in the package or its subpackages dials a real host — every HTTP-backed test uses `httptest.NewServer` and a fixture under `test/data/metadata/`.
 - [ ] `ExternalIDs` is exactly `map[string]string` with `Merge` and `Validate`, matching the spec's `pkg/metadata` block verbatim (design spec lines 714-721) — `pkg/importlist` (Task B10) imports this type unchanged.
 - [ ] `MovieProvider` and `SeriesProvider` match the spec's method signatures verbatim (no `SearchQuery`/`FetchOptions` struct params on them, no `SearchSeries` — the spec omits it and no method was added to fill the gap).
 - [ ] Every `Rating`/telemetry-shaped value is a scaled `int32` (`ValueCentis`); `grep -rn 'float32\|float64' pkg/metadata` outside `_test.go` shows only local parse variables, never a struct field or return type.
@@ -8685,7 +8685,7 @@ grep -rn 'api/catalog' pkg/metadata && echo "FORBIDDEN: pkg/metadata imports api
 - [ ] Every client method opens a span via `tracing.Start` and logs via `logging.FromContext(ctx)` — no package-level `*slog.Logger`, no logger struct field (`CLAUDE.md`'s logging invariant).
 - [ ] TVDB's login is lazy and cached, re-authenticates exactly once on a `401`, and never logs in on every call.
 - [ ] `hack/deps/deps.go` was not touched by this task (shared file, out of this task's path ownership).
-- [ ] Every commit used the exact `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "..." -- <paths>` form and touched only files under `pkg/metadata/` or `testdata/metadata/`.
+- [ ] Every commit used the exact `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "..." -- <paths>` form and touched only files under `pkg/metadata/` or `test/data/metadata/`.
 
 ---
 
@@ -8739,14 +8739,14 @@ grep -rn 'api/catalog' pkg/metadata && echo "FORBIDDEN: pkg/metadata imports api
   - `pkg/importlist/tmdb/list_test.go`
   - `pkg/importlist/custom/list_test.go`
   - `pkg/importlist/arr/list_test.go`
-- Fixtures (`testdata/importlist/`):
+- Fixtures (`test/data/importlist/`):
   - `trakt/device_code.json`, `trakt/device_token_pending.json`, `trakt/device_token_authorized.json`, `trakt/token_refresh.json`, `trakt/watchlist_movies.json`
   - `plex/watchlist_page1.json`, `plex/watchlist_page2.json`
   - `mdblist/items.json`
   - `stevenlu/movies.json`
   - `imdbcsv/watchlist.csv`
 
-**Path ownership:** `pkg/importlist/` (including the `trakt/`, `plex/`, `mdblist/`, `stevenlu/`, `imdbcsv/`, `tmdb/`, `custom/`, `arr/` subpackages) and `testdata/importlist/` only. No other package writes here; this task does not touch `api/`, `pkg/metadata/`, or `pkg/ratelimit/`.
+**Path ownership:** `pkg/importlist/` (including the `trakt/`, `plex/`, `mdblist/`, `stevenlu/`, `imdbcsv/`, `tmdb/`, `custom/`, `arr/` subpackages) and `test/data/importlist/` only. No other package writes here; this task does not touch `api/`, `pkg/metadata/`, or `pkg/ratelimit/`.
 
 **Read first:**
 - `CLAUDE.md` — GPL header, `slog` through context, table-driven testify, no network in tests.
@@ -9365,7 +9365,7 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(import
 
 - [ ] **Step 18: Write the Trakt device-flow fixtures**
 
-`testdata/importlist/trakt/device_code.json`:
+`test/data/importlist/trakt/device_code.json`:
 ```json
 {
   "device_code": "d2cd6d2481aa4e6b0356839d8ee2b46e30fdb6ec5f96ce6c9c1de56d6a58f9c1",
@@ -9376,12 +9376,12 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(import
 }
 ```
 
-`testdata/importlist/trakt/device_token_pending.json`:
+`test/data/importlist/trakt/device_token_pending.json`:
 ```json
 { "error": "authorization_pending", "error_description": "user has not yet approved this request" }
 ```
 
-`testdata/importlist/trakt/device_token_authorized.json`:
+`test/data/importlist/trakt/device_token_authorized.json`:
 ```json
 {
   "access_token": "dbaf9757982a9e738f05d249b7b5b4a266b3990afb2fFF88e08e2da8bd82c3fb",
@@ -9677,7 +9677,7 @@ func (r traktTokenResponse) toToken() importlist.Token {
 Run: `go test -count=1 ./pkg/importlist/trakt/... -run TestDeviceFlowStartThenPoll -v`
 
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importlist/trakt): device-code flow, pending to authorized" -- pkg/importlist/trakt/client.go pkg/importlist/trakt/device.go pkg/importlist/trakt/device_test.go testdata/importlist/trakt/device_code.json testdata/importlist/trakt/device_token_pending.json testdata/importlist/trakt/device_token_authorized.json
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importlist/trakt): device-code flow, pending to authorized" -- pkg/importlist/trakt/client.go pkg/importlist/trakt/device.go pkg/importlist/trakt/device_test.go test/data/importlist/trakt/device_code.json test/data/importlist/trakt/device_token_pending.json test/data/importlist/trakt/device_token_authorized.json
 ```
 
 - [ ] **Step 23: Write the failing terminal-states table test**
@@ -9720,7 +9720,7 @@ Run: `go test ./pkg/importlist/trakt/... -run TestDeviceFlowPollTerminalStates -
 
 Run: `go test -count=1 ./pkg/importlist/trakt/... -v`
 
-`testdata/importlist/trakt/token_refresh.json`:
+`test/data/importlist/trakt/token_refresh.json`:
 ```json
 {
   "access_token": "e58479e1a76e3b1d2e9b06d7c2e40c0e9c5a4b1d3d9db32d1e97f8e5e2e07c1f",
@@ -9759,12 +9759,12 @@ func TestDeviceFlowRefresh(t *testing.T) {
 Run: `go test -count=1 ./pkg/importlist/trakt/... -v`
 
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importlist/trakt): terminal poll states and single-use refresh tokens" -- pkg/importlist/trakt/device_test.go testdata/importlist/trakt/token_refresh.json
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importlist/trakt): terminal poll states and single-use refresh tokens" -- pkg/importlist/trakt/device_test.go test/data/importlist/trakt/token_refresh.json
 ```
 
 - [ ] **Step 27: Write the Trakt watchlist fixture and the failing fetch test**
 
-`testdata/importlist/trakt/watchlist_movies.json`:
+`test/data/importlist/trakt/watchlist_movies.json`:
 ```json
 [
   {
@@ -9999,7 +9999,7 @@ type traktEntry struct {
 Run: `go test -count=1 ./pkg/importlist/trakt/... -v`
 
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importlist/trakt): watchlist/collection/list/trending/popular fetch" -- pkg/importlist/trakt/list.go pkg/importlist/trakt/list_test.go testdata/importlist/trakt/watchlist_movies.json
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importlist/trakt): watchlist/collection/list/trending/popular fetch" -- pkg/importlist/trakt/list.go pkg/importlist/trakt/list_test.go test/data/importlist/trakt/watchlist_movies.json
 ```
 
 - [ ] **Step 31: Write the failing 401-refresh-and-retry test**
@@ -10060,7 +10060,7 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "test(import
 
 - [ ] **Step 34: Write the Plex fixtures and the failing pagination test**
 
-`testdata/importlist/plex/watchlist_page1.json`:
+`test/data/importlist/plex/watchlist_page1.json`:
 ```json
 {
   "MediaContainer": {
@@ -10075,7 +10075,7 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "test(import
 }
 ```
 
-`testdata/importlist/plex/watchlist_page2.json`:
+`test/data/importlist/plex/watchlist_page2.json`:
 ```json
 {
   "MediaContainer": {
@@ -10288,12 +10288,12 @@ Note: the response's pagination is driven by comparing the returned page length 
 Run: `go test -count=1 ./pkg/importlist/plex/... -v`
 
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importlist/plex): Discover watchlist fetch with container pagination" -- pkg/importlist/plex/watchlist.go pkg/importlist/plex/watchlist_test.go testdata/importlist/plex/watchlist_page1.json testdata/importlist/plex/watchlist_page2.json
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importlist/plex): Discover watchlist fetch with container pagination" -- pkg/importlist/plex/watchlist.go pkg/importlist/plex/watchlist_test.go test/data/importlist/plex/watchlist_page1.json test/data/importlist/plex/watchlist_page2.json
 ```
 
 - [ ] **Step 38: Write the MDBList fixture and the failing mediatype-filter test**
 
-`testdata/importlist/mdblist/items.json`:
+`test/data/importlist/mdblist/items.json`:
 ```json
 [
   { "id": 1, "rank": 1, "title": "The Matrix", "imdb_id": "tt0133093", "tvdb_id": null,
@@ -10458,12 +10458,12 @@ func nonZero(n int) string {
 Run: `go test -count=1 ./pkg/importlist/mdblist/... -v`
 
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importlist/mdblist): thin JSON list fetch filtered by mediatype" -- pkg/importlist/mdblist/list.go pkg/importlist/mdblist/list_test.go testdata/importlist/mdblist/items.json
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importlist/mdblist): thin JSON list fetch filtered by mediatype" -- pkg/importlist/mdblist/list.go pkg/importlist/mdblist/list_test.go test/data/importlist/mdblist/items.json
 ```
 
 - [ ] **Step 42: Write the StevenLu fixture and the failing test**
 
-`testdata/importlist/stevenlu/movies.json`:
+`test/data/importlist/stevenlu/movies.json`:
 ```json
 [
   { "title": "Dune", "imdb_id": "tt1160419", "poster_url": "https://img.stevenlu.com/dune.jpg" },
@@ -10588,12 +10588,12 @@ func (l *List) Fetch(ctx context.Context) ([]importlist.Item, error) {
 Run: `go test -count=1 ./pkg/importlist/stevenlu/... -v`
 
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importlist/stevenlu): popular-movies feed" -- pkg/importlist/stevenlu/list.go pkg/importlist/stevenlu/list_test.go testdata/importlist/stevenlu/movies.json
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importlist/stevenlu): popular-movies feed" -- pkg/importlist/stevenlu/list.go pkg/importlist/stevenlu/list_test.go test/data/importlist/stevenlu/movies.json
 ```
 
 - [ ] **Step 46: Write the IMDb CSV fixture and the failing parse test**
 
-`testdata/importlist/imdbcsv/watchlist.csv`:
+`test/data/importlist/imdbcsv/watchlist.csv`:
 ```csv
 Const,Your Rating,Date Rated,Title,URL,Title Type,IMDb Rating,Runtime (mins),Year,Genres,Num Votes,Release Date,Directors
 tt0133093,,,The Matrix,https://www.imdb.com/title/tt0133093/,movie,8.7,136,1999,"Action, Sci-Fi",2000000,1999-03-31,"Lana Wachowski, Lilly Wachowski"
@@ -10713,7 +10713,7 @@ func Parse(r io.Reader, kind commonv1.MediaKind) ([]importlist.Item, error) {
 Run: `go test -count=1 ./pkg/importlist/imdbcsv/... -run TestParse -v`
 
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importlist/imdbcsv): header-indexed CSV parsing, skip unmapped title types" -- pkg/importlist/imdbcsv/parse.go pkg/importlist/imdbcsv/parse_test.go testdata/importlist/imdbcsv/watchlist.csv
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(importlist/imdbcsv): header-indexed CSV parsing, skip unmapped title types" -- pkg/importlist/imdbcsv/parse.go pkg/importlist/imdbcsv/parse_test.go test/data/importlist/imdbcsv/watchlist.csv
 ```
 
 - [ ] **Step 50: Write the failing `List.Fetch` (URL) test**
@@ -10907,7 +10907,7 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(import
 Run every command in **Verification** below. If `gofmt -l` or `golangci-lint run` flag anything, fix it and commit:
 
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "fix(importlist): gofmt/lint cleanup" -- pkg/importlist testdata/importlist
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "fix(importlist): gofmt/lint cleanup" -- pkg/importlist test/data/importlist
 ```
 
 **Verification:**
@@ -10915,10 +10915,10 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "fix(importl
 cd /home/appkins/src/mediactl/clustarr
 go build ./pkg/importlist/...
 go vet ./pkg/importlist/...
-gofmt -l pkg/importlist testdata/importlist   # must print nothing
+gofmt -l pkg/importlist test/data/importlist   # must print nothing
 go test -count=1 ./pkg/importlist/... -v
 golangci-lint run ./pkg/importlist/...
-git log --oneline -- pkg/importlist testdata/importlist
+git log --oneline -- pkg/importlist test/data/importlist
 ```
 
 **Done when:**
@@ -10929,11 +10929,11 @@ git log --oneline -- pkg/importlist testdata/importlist
 - [ ] The Trakt device-flow test proves a `pending → authorized` transition across two `Poll` calls against one `httptest.Server`, plus the five terminal status mappings (404/409/410/418/429).
 - [ ] The Trakt watchlist test proves a 401 triggers exactly one `Refresh` call and exactly one retried `GET`, and that the refreshed token is persisted through `TokenStore.Save`.
 - [ ] The Plex test proves pagination stops on a page shorter than the requested page size, without depending on an unverified response `totalSize` field.
-- [ ] MDBList, StevenLu and IMDb CSV tests parse the literal fixtures committed under `testdata/importlist/`, and the IMDb CSV parser skips (does not guess) rows whose `Title Type` isn't in its known map.
+- [ ] MDBList, StevenLu and IMDb CSV tests parse the literal fixtures committed under `test/data/importlist/`, and the IMDb CSV parser skips (does not guess) rows whose `Title Type` isn't in its known map.
 - [ ] TMDB, Custom and Arr `Fetch` calls return an error satisfying both `errors.As(err, &importlist.NotImplementedError{})` and `errors.Is(err, importlist.ErrNotImplemented)`, with a `TODO` string naming the deferred list and its spec/note citation.
 - [ ] `Registry.FetchAll` proves one provider's error does not block the others' results.
 - [ ] `gofmt -l` and `golangci-lint run` are clean on `pkg/importlist/...`.
-- [ ] `git log --oneline -- pkg/importlist testdata/importlist` shows one commit per TDD group above, each scoped only to the paths it touched.
+- [ ] `git log --oneline -- pkg/importlist test/data/importlist` shows one commit per TDD group above, each scoped only to the paths it touched.
 
 ---
 
@@ -10957,12 +10957,12 @@ git log --oneline -- pkg/importlist testdata/importlist
   - `pkg/ratelimit/limiter.go`
   - `pkg/ratelimit/backoff.go`
   - `pkg/ratelimit/breaker.go`
-  - `testdata/fsops/classify/Movie.Title.2024.1080p.WEB-DL.mkv` (zero-byte; media by extension)
-  - `testdata/fsops/classify/Movie.Title.2024.1080p.WEB-DL.mkv.part` (zero-byte; in-progress torrent file)
-  - `testdata/fsops/classify/Movie.Title.2024.Sample.mkv` (zero-byte; filename-signature sample)
-  - `testdata/fsops/classify/behind the scenes/short-clip.mkv` (zero-byte; extras-folder content)
-  - `testdata/fsops/classify/samples/Movie.Sample.mkv` (zero-byte; extras-folder wins over the sample filename signature)
-  - `testdata/fsops/classify/notes.txt` (zero-byte; unrecognised extension)
+  - `test/data/fsops/classify/Movie.Title.2024.1080p.WEB-DL.mkv` (zero-byte; media by extension)
+  - `test/data/fsops/classify/Movie.Title.2024.1080p.WEB-DL.mkv.part` (zero-byte; in-progress torrent file)
+  - `test/data/fsops/classify/Movie.Title.2024.Sample.mkv` (zero-byte; filename-signature sample)
+  - `test/data/fsops/classify/behind the scenes/short-clip.mkv` (zero-byte; extras-folder content)
+  - `test/data/fsops/classify/samples/Movie.Sample.mkv` (zero-byte; extras-folder wins over the sample filename signature)
+  - `test/data/fsops/classify/notes.txt` (zero-byte; unrecognised extension)
 
 - Test:
   - `pkg/fsops/atomic_test.go` (package `fsops`)
@@ -10981,11 +10981,11 @@ git log --oneline -- pkg/importlist testdata/importlist
 
 Three fsops test files are white-box (`package fsops`, not `fsops_test`) because they exercise unexported injection seams (`linkFunc`, `renameFunc`, `geteuid`, `chownFunc`) added specifically so EXDEV and non-root behaviour are deterministically testable without a second real filesystem or real root. This mixes with the black-box `fsops_test` files in the same directory, which Go permits (one external test package per directory, plus normal in-package test files).
 
-**Path ownership:** `pkg/fsops/`, `pkg/ratelimit/`, `testdata/fsops/` only.
+**Path ownership:** `pkg/fsops/`, `pkg/ratelimit/`, `test/data/fsops/` only.
 
 **Read first (by heading):**
 
-- `CLAUDE.md` — "Invariants — do not break these" (status/float/list rules do not apply to this non-`api/` package, but the GPL header and `pkg/obs/logging.FromContext` logging rule do) and "Code conventions" (table-driven testify tests under `testdata/`).
+- `CLAUDE.md` — "Invariants — do not break these" (status/float/list rules do not apply to this non-`api/` package, but the GPL header and `pkg/obs/logging.FromContext` logging rule do) and "Code conventions" (table-driven testify tests under `test/data/`).
 - `docs/superpowers/plans/2026-09-18-remaining-work.md` lines 15-45 ("Global Constraints" and "Rules for parallel agents" — especially rule 1, never `go get`/`go mod tidy` from a worker) and "Task A2: pkg/obs/tracing" (lines 251-348, the format this task follows) and the "Phase B: the library layer" section (lines 788-839, especially the `pkg/fsops` + `pkg/ratelimit` row and the "Pre-adding is not enough on its own" `hack/deps/deps.go` note).
 - Spec `docs/superpowers/specs/2026-09-18-clustarr-design.md` §7 "Shared packages (`pkg/`)" — the `pkg/fsops` block (lines 728-730: `HardlinkOrCopy`, `MoveAtomic`, `AtomicWrite`, `Recycle`, `FreeBytes`, `IsPart`/`IsSample`/`IsExtra`) and the `pkg/ratelimit` clause at the end of line 739 ("per-provider limiter table + KV token bucket" — the KV token bucket is indexarr's Phase D concern, layered on top of this package, not part of it). §11 "Storage" (lines 785-796: the `/data` RWX layout, `.recycle/<yyyy-mm-dd>/` naming, `UMASK 002`).
 - `api/catalog/v1alpha1/rootfolder_types.go` — the `Perms` struct (`FileMode`, `DirMode` octal strings, `Group *int64`; **no UID field**) and the `RecycleBin` struct (`Path`, `CleanupDays int32`).
@@ -12435,16 +12435,16 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(fsops)
 
 - [ ] **Step 14: `IsPart`/`IsExtra`/`IsSample` classify a concrete fixture set**
 
-Fixtures live at the repo-root `testdata/fsops/classify/`, matching the project's existing `testdata/{trash,cardigann,releases,...}` layout (spec §15). Run the `mkdir`/`: >` commands below from the repo root. `go test` itself runs with its working directory set to the package's own source directory (`pkg/fsops/`), not the repo root, so every reference to these fixtures inside `_test.go` source uses the relative path `../../testdata/fsops/classify/...` (two levels up: `pkg/fsops` → `pkg` → repo root) -- not `testdata/fsops/classify/...`.
+Fixtures live at the repo-root `test/data/fsops/classify/`, matching the project's existing `test/data/{trash,cardigann,releases,...}` layout (spec §15). Run the `mkdir`/`: >` commands below from the repo root. `go test` itself runs with its working directory set to the package's own source directory (`pkg/fsops/`), not the repo root, so every reference to these fixtures inside `_test.go` source uses the relative path `../../testdata/fsops/classify/...` (two levels up: `pkg/fsops` → `pkg` → repo root) -- not `test/data/fsops/classify/...`.
 
 ```bash
-mkdir -p "testdata/fsops/classify/behind the scenes" "testdata/fsops/classify/samples"
-: > "testdata/fsops/classify/Movie.Title.2024.1080p.WEB-DL.mkv"
-: > "testdata/fsops/classify/Movie.Title.2024.1080p.WEB-DL.mkv.part"
-: > "testdata/fsops/classify/Movie.Title.2024.Sample.mkv"
-: > "testdata/fsops/classify/behind the scenes/short-clip.mkv"
-: > "testdata/fsops/classify/samples/Movie.Sample.mkv"
-: > "testdata/fsops/classify/notes.txt"
+mkdir -p "test/data/fsops/classify/behind the scenes" "test/data/fsops/classify/samples"
+: > "test/data/fsops/classify/Movie.Title.2024.1080p.WEB-DL.mkv"
+: > "test/data/fsops/classify/Movie.Title.2024.1080p.WEB-DL.mkv.part"
+: > "test/data/fsops/classify/Movie.Title.2024.Sample.mkv"
+: > "test/data/fsops/classify/behind the scenes/short-clip.mkv"
+: > "test/data/fsops/classify/samples/Movie.Sample.mkv"
+: > "test/data/fsops/classify/notes.txt"
 ```
 
 ```go
@@ -12531,7 +12531,7 @@ Expected pass.
 
 Commit:
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(fsops): IsPart/IsExtra/IsSample classification predicates" -- pkg/fsops/classify.go pkg/fsops/classify_test.go testdata/fsops/classify
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(fsops): IsPart/IsExtra/IsSample classification predicates" -- pkg/fsops/classify.go pkg/fsops/classify_test.go test/data/fsops/classify
 ```
 
 ---
@@ -13210,7 +13210,7 @@ go vet ./pkg/fsops/... ./pkg/ratelimit/...
 go test -count=1 -race ./pkg/fsops/... ./pkg/ratelimit/... -v
 golangci-lint-v2 run ./pkg/fsops/... ./pkg/ratelimit/...
 gofmt -l pkg/fsops pkg/ratelimit   # must print nothing
-git status --porcelain pkg/fsops pkg/ratelimit testdata/fsops   # must be clean after the final commit
+git status --porcelain pkg/fsops pkg/ratelimit test/data/fsops   # must be clean after the final commit
 ```
 
 **Done when:**
@@ -13224,7 +13224,7 @@ git status --porcelain pkg/fsops pkg/ratelimit testdata/fsops   # must be clean 
 - [ ] `SafeRemove` refuses both a lexical `../` escape and a symlink-mediated escape, and the file outside root is provably untouched by the symlink-escape test.
 - [ ] `IsExtra`'s folder list matches `docs/research/naming.md`'s verified Jellyfin extras row exactly, and `samples/` (an extras folder) is proven in a test to classify as `ClassExtra`, not `ClassSample`, establishing the stated precedence.
 - [ ] No test performs network I/O; `go.mod` is unmodified (`golang.org/x/time` was already present and does not need to move out of `// indirect` for this task to build and test green).
-- [ ] Every commit in this task's history uses the exact `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "..." -- <paths>` form, touches only paths under `pkg/fsops/`, `pkg/ratelimit/`, or `testdata/fsops/`, and each commit's own `go build ./...`/`go test ./pkg/fsops/... ./pkg/ratelimit/...` (checked out at that commit) is green — no commit leaves the package non-building for the next TDD step.
+- [ ] Every commit in this task's history uses the exact `git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "..." -- <paths>` form, touches only paths under `pkg/fsops/`, `pkg/ratelimit/`, or `test/data/fsops/`, and each commit's own `go build ./...`/`go test ./pkg/fsops/... ./pkg/ratelimit/...` (checked out at that commit) is green — no commit leaves the package non-building for the next TDD step.
 
 ---
 
@@ -13232,14 +13232,14 @@ git status --porcelain pkg/fsops pkg/ratelimit testdata/fsops   # must be clean 
 
 ### Task B2: pkg/quality
 
-> **Controller rulings (binding):** (1) **Wave 2** — this task starts after Task B1 (`pkg/release`) has landed and passed review; the `ParsedRelease` quoted under Consumes is documentation, import the real package and read `go doc ./pkg/release` first. (2) `api/catalog/v1alpha1` is an allowed import for this package — types only, never a client. (3) The corpus-vendoring amendment the text below already applies (ownership of `testdata/trash/` and `hack/sync-trash.sh`, the compile-all and parity tests, every tier embedded, `hack/gen-catalogue` and `pkg/decision` carried to Phase C) is confirmed as written.
+> **Controller rulings (binding):** (1) **Wave 2** — this task starts after Task B1 (`pkg/release`) has landed and passed review; the `ParsedRelease` quoted under Consumes is documentation, import the real package and read `go doc ./pkg/release` first. (2) `api/catalog/v1alpha1` is an allowed import for this package — types only, never a client. (3) The corpus-vendoring amendment the text below already applies (ownership of `test/data/trash/` and `hack/sync-trash.sh`, the compile-all and parity tests, every tier embedded, `hack/gen-catalogue` and `pkg/decision` carried to Phase C) is confirmed as written.
 
 
 **Files:**
 - Create:
   - `hack/sync-trash.sh` (vendors the TRaSH corpus at a pinned commit)
-  - `testdata/trash/COMMIT` (pinned commit sha + date)
-  - `testdata/trash/docs/json/radarr/cf/*.json`, `testdata/trash/docs/json/radarr/quality-profiles/*.json`, `testdata/trash/docs/json/sonarr/cf/*.json`, `testdata/trash/docs/json/sonarr/quality-profiles/*.json` (vendored corpus, produced by `hack/sync-trash.sh`, not hand-written)
+  - `test/data/trash/COMMIT` (pinned commit sha + date)
+  - `test/data/trash/docs/json/radarr/cf/*.json`, `test/data/trash/docs/json/radarr/quality-profiles/*.json`, `test/data/trash/docs/json/sonarr/cf/*.json`, `test/data/trash/docs/json/sonarr/quality-profiles/*.json` (vendored corpus, produced by `hack/sync-trash.sh`, not hand-written)
   - `pkg/quality/doc.go`
   - `pkg/quality/definition.go` (video `Definition` table, `Lookup`, Sonarr-name aliasing, non-video tables)
   - `pkg/quality/sizes.go` (`SizeLimit`, movie/series/anime TRaSH size tables, `SizeLimits`)
@@ -13283,11 +13283,11 @@ git status --porcelain pkg/fsops pkg/ratelimit testdata/fsops   # must be clean 
   - `pkg/quality/trash_corpus_test.go` (every corpus regex compiles under regexp2; exact count pinned to the vendored commit)
   - `pkg/quality/catalogue/parity_test.go` (every embedded format is byte-identical to its corpus source; every built-in profile's format set matches its upstream `formatItems`)
 
-**Path ownership:** `pkg/quality/` (including `catalogue/` and its `data/`), `testdata/quality/`, `testdata/trash/` and `hack/sync-trash.sh` only. No other Phase B task, and no other file under `api/` or `hack/`, may be touched by this task.
+**Path ownership:** `pkg/quality/` (including `catalogue/` and its `data/`), `test/data/quality/`, `test/data/trash/` and `hack/sync-trash.sh` only. No other Phase B task, and no other file under `api/` or `hack/`, may be touched by this task.
 
 > **Controller amendment applied (binding).** The Phase B batch controller reviewed a draft of this document alongside its ten siblings (see the batch's `reconciliation.md`) and issued binding amendments before this task starts, recorded here rather than as a separate errata sheet so the document stays self-contained:
 > 1. **Wave 2.** This task starts after Task B1 (`pkg/release`) has landed and passed review. The `ParsedRelease` struct quoted under Consumes below is documentation only, confirmed field-identical to B1's real output by the controller's reconciliation ("B2 quality ↔ B1 release ... shapes identical (B2 reads Title, Group, Quality, Revision, Languages, ReleaseType)") — Step 1 (revised) has the executing agent run `go doc ./pkg/release` and diff it against the quoted struct before writing any code that depends on it.
-> 2. **Path ownership is extended** to `testdata/trash/` and `hack/sync-trash.sh` (already reflected above). Original scope decision 1's premise, "`testdata/trash/` is outside this task's ownership," no longer holds.
+> 2. **Path ownership is extended** to `test/data/trash/` and `hack/sync-trash.sh` (already reflected above). Original scope decision 1's premise, "`test/data/trash/` is outside this task's ownership," no longer holds.
 > 3. **The TRaSH corpus is vendored by this task**, at a pinned commit, via `hack/sync-trash.sh` (new Steps 15a-15b, before the format-family steps). This is the one network fetch anywhere in Phase B, and it happens once at implementation time, never inside a test.
 > 4. **Original scope decision 8 (Tier 01-only) is void.** With the corpus vendored, this task embeds every custom format the 13 built-ins' real upstream `formatItems` reference, for every tier — group lists are read from the vendored corpus JSON at implementation time, not transcribed into this plan document (this plan gives the exact trash_id, target filename and score for each, verified against the real upstream `quality-profiles/*.json` while this document was written; the literal condition list is a mechanical read of a file that will exist once Step 15b runs, and inventing it here would be a fabrication this document's own rules forbid). New Step 23a (release-group Tier 02/03) and Step 23b (the remaining anime formats) cover this. A new `pkg/quality/catalogue/parity_test.go` (Step 23c) proves every embedded format's `trash_id` exists in the corpus and every regex is byte-identical to the corpus's `fields.value` — every built-in profile's format set is already provably correct by construction, since `FromCRD` (Step 30) scores every catalogue format automatically and adding Tier 02/03 or the anime extras to the catalogue requires no change to any profile JSON (scope decisions 2, 6, 7 below are unaffected by this amendment).
 > 5. **`hack/gen-catalogue` stays deferred**, now on a firmer footing: with the parity test in place, this task's hand-authored `data/` is provably equivalent to the corpus, so generating `catalogue_gen.go` from it mechanically is a Phase C nice-to-have, not a Phase B blocker. Say so in `pkg/quality/catalogue/load.go`'s package doc (Step 15's content is amended below).
@@ -13295,7 +13295,7 @@ git status --porcelain pkg/fsops pkg/ratelimit testdata/fsops   # must be clean 
 > 7. `api/catalog/v1alpha1` is confirmed an allowed import for `pkg/quality` (types only, never a client) by controller ruling — already reflected in Consumes below, no change.
 
 **Read first:**
-- `/home/appkins/src/mediactl/clustarr/CLAUDE.md` — the `regexp2` gotcha, the GPL header requirement, no package-level logger / no logger struct fields, table-driven testify tests under `testdata/`.
+- `/home/appkins/src/mediactl/clustarr/CLAUDE.md` — the `regexp2` gotcha, the GPL header requirement, no package-level logger / no logger struct fields, table-driven testify tests under `test/data/`.
 - `docs/superpowers/plans/2026-09-18-remaining-work.md` lines 15-45 (Global Constraints) and the Phase B table + dependency-preadd block (`grep -n 'Phase B'` → read through the `hack/deps/deps.go` explanation). Task A2 (`pkg/obs/tracing`, same file) is the structural model for this document.
 - Spec `docs/superpowers/specs/2026-09-18-clustarr-design.md`:
   - §4.1 `api/common/v1alpha1` (lines 96-121) — `Source`, `Modifier`, `Quality`, `Revision`, `ReleaseType`.
@@ -13309,7 +13309,7 @@ git status --porcelain pkg/fsops pkg/ratelimit testdata/fsops   # must be clean 
 
 **Scope decisions a reviewer should know about before reading further** (each is called out again inline where it matters):
 
-1. **Generation mechanism — superseded, see the controller amendment above.** Originally: spec §7 and §9 both say `pkg/quality/catalogue/catalogue_gen.go` is *generated* by `hack/gen-catalogue` from `testdata/trash/docs/json/{radarr,sonarr}/cf`, and since that generator and corpus did not exist and `testdata/trash/` looked out of scope, this task was going to hand-author a curated JSON subset from `docs/research/quality.md` prose alone. The controller amendment extends path ownership to `testdata/trash/` and has this task vendor the corpus itself (Steps 15a-15b), so the hand-authored `data/` files below are transcribed from and checked against the real corpus, not the note's prose. `hack/gen-catalogue` itself (the code generator that would replace `data/` with `catalogue_gen.go`) is still out of scope — carried to Phase C — but is now a mechanical follow-up rather than a documented gap, because the parity test (Step 23c) already proves hand-authored and corpus agree.
+1. **Generation mechanism — superseded, see the controller amendment above.** Originally: spec §7 and §9 both say `pkg/quality/catalogue/catalogue_gen.go` is *generated* by `hack/gen-catalogue` from `test/data/trash/docs/json/{radarr,sonarr}/cf`, and since that generator and corpus did not exist and `test/data/trash/` looked out of scope, this task was going to hand-author a curated JSON subset from `docs/research/quality.md` prose alone. The controller amendment extends path ownership to `test/data/trash/` and has this task vendor the corpus itself (Steps 15a-15b), so the hand-authored `data/` files below are transcribed from and checked against the real corpus, not the note's prose. `hack/gen-catalogue` itself (the code generator that would replace `data/` with `catalogue_gen.go`) is still out of scope — carried to Phase C — but is now a mechanical follow-up rather than a documented gap, because the parity test (Step 23c) already proves hand-authored and corpus agree.
 2. **`anime-web-1080p` does not exist upstream.** Spec §9 lists it as one of the 13 built-ins ("`anime-remux-1080p` (minFormatScore 100, scoreSet anime-radarr; `anime-web-1080p` uses anime-sonarr)"). The actual TRaSH profile for Sonarr's anime score set is named `[Anime] Remux-1080p` (trash_id `20e0fc959f1f1704bed501f23bdae76f`), cutoff `Bluray 1080p` — a Remux/Bluray-cutoff profile, not a WEB-cutoff one; there is no upstream WEB-cutoff anime profile for either app. Step 36 resolves this by taking the Sonarr `[Anime] Remux-1080p` tier list verbatim and setting `cutoff` to `"WEB 1080p"` (already present in that tier list) instead of `"Bluray 1080p"`, honoring spec's literal profile name while sourcing real content. Flag this as a spec/source disagreement in the final report, quoting both.
 3. **`Match`/`Score` take `ctx context.Context` as their first parameter**, which spec's one-line §7 signature (`func (c *Catalogue) Match(r *release.ParsedRelease, ic ItemContext) []string`) does not show. CLAUDE.md's logging invariant ("no package-level logger, no logger struct fields") leaves context as the only place a regexp2 timeout can be logged (spec §9: "timeout = no match + log"), so `ctx` is added. This is the one place this task's Produces block deviates from spec's literal text; it is additive (one parameter), not a shape change.
 4. **`pkg/mediainfo` is not a dependency of this package.** The task brief that generated this document asked for format matching "against a parsed release plus mediainfo," but spec §9's own list of evaluated fields (ReleaseTitle, ReleaseGroup, Source, Resolution, Modifier, Language, IndexerFlag, ReleaseType) and the literal `Match`/`Score` signatures take only `*release.ParsedRelease` and `ItemContext` — never `common.MediaInfo`. Source/Resolution/Modifier come from `release.ParsedRelease.Quality`, itself parsed from the release title, not from ffprobe. `pkg/mediainfo` is omitted from Consumes below; do not add it.
@@ -14385,7 +14385,7 @@ Run: `go test ./pkg/quality/catalogue/... -run TestLoadFormats -v` — expect co
 
 // Package catalogue is Clustarr's opinionated TRaSH custom-format catalogue.
 //
-// catalogue_gen.go and testdata/trash/ do not exist yet: spec's design
+// catalogue_gen.go and test/data/trash/ do not exist yet: spec's design
 // (docs/superpowers/specs/2026-09-18-clustarr-design.md §7, §9) describes a
 // generator, hack/gen-catalogue, that produces this package's data from a
 // vendored copy of TRaSH-Guides' JSON corpus. That generator and corpus are
@@ -14518,12 +14518,12 @@ Run it once now, picking the commit that was current when this plan's research w
 ```bash
 chmod +x hack/sync-trash.sh
 TRASH_COMMIT=<resolved-sha> hack/sync-trash.sh
-git status testdata/trash   # sanity check: docs/json/{radarr,sonarr}/{cf,quality-profiles} populated, COMMIT present
+git status test/data/trash   # sanity check: docs/json/{radarr,sonarr}/{cf,quality-profiles} populated, COMMIT present
 ```
 
 Commit the corpus with the script — this is data, not generated build output, and every later step's parity test depends on it being present in the tree:
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "chore(quality): vendor the TRaSH-Guides custom-format and quality-profile corpus" -- hack/sync-trash.sh testdata/trash
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "chore(quality): vendor the TRaSH-Guides custom-format and quality-profile corpus" -- hack/sync-trash.sh test/data/trash
 ```
 
 - [ ] **Step 15b: Failing test — every corpus regex compiles under regexp2** *(added by the controller amendment; this is the gate CLAUDE.md's "157 of 2791 patterns" gotcha exists for, now run for real instead of asserted from the research note)*
@@ -14586,7 +14586,7 @@ func TestEveryVendoredTRaSHRegexCompilesUnderRegexp2(t *testing.T) {
 		}
 	}
 	// Record the exact count observed at the pinned commit (see
-	// testdata/trash/COMMIT) here once Step 15a has actually run --
+	// test/data/trash/COMMIT) here once Step 15a has actually run --
 	// spec §14 expects roughly 2791 across both apps, but the real number
 	// depends on the exact commit pinned, so assert what Step 15a produced,
 	// not a number copied from the research note.
@@ -14594,7 +14594,7 @@ func TestEveryVendoredTRaSHRegexCompilesUnderRegexp2(t *testing.T) {
 }
 ```
 
-Run: `go test ./pkg/quality/... -run TestEveryVendoredTRaSHRegexCompiles -v` — expect it to run against the real corpus and fail only on the placeholder `-1` count, printing the actual total in the failure message. Replace `-1` with that number and add a comment noting the commit sha from `testdata/trash/COMMIT`. Run again — expect pass, proving every regex-bearing specification in the entire vendored corpus (not just this task's curated subset) compiles under `regexp2.Compile` with `IgnoreCase`.
+Run: `go test ./pkg/quality/... -run TestEveryVendoredTRaSHRegexCompiles -v` — expect it to run against the real corpus and fail only on the placeholder `-1` count, printing the actual total in the failure message. Replace `-1` with that number and add a comment noting the commit sha from `test/data/trash/COMMIT`. Run again — expect pass, proving every regex-bearing specification in the entire vendored corpus (not just this task's curated subset) compiles under `regexp2.Compile` with `IgnoreCase`.
 
 If any pattern fails to compile, that is a real finding (the note's "2791/2791" claim was accurate as of its own verification date but corpora move) — do not weaken the test; file it as a carried defect the way `docs/superpowers/plans/2026-09-18-remaining-work.md`'s "Carried defects" section already does for other cross-cutting issues, and exclude only that specific `trash_id` from the curated `data/` set in Steps 16-23d, with a comment naming it.
 
@@ -15159,7 +15159,7 @@ for id in c20c8647f2746a1f4c4262b0fbbeeeae 5608c71bcebba0a5e666223bae8c9227 \
           9f98181fe5a3fbeb0cc29340da2a468a 8baaf0b3142bf4d94c42a724f034e27a \
           403816d65392c79236dcb6dd591aeda4 af94e0fe497124d1f9ce732069ec8c3b \
           58790d4e2fdcd9733aa7ae68ba2bb503 d84935abd3f8556dcd51d4f27e22d0a6; do
-  grep -rl "\"trash_id\": \"$id\"" testdata/trash/docs/json/{radarr,sonarr}/cf/
+  grep -rl "\"trash_id\": \"$id\"" test/data/trash/docs/json/{radarr,sonarr}/cf/
 done
 ```
 
@@ -15193,7 +15193,7 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(qualit
 
 - [ ] **Step 23b: `data/formats/anime_extra.json` — Anime BD Tier 02-08, Anime Web Tier 02-06, Anime LQ Groups, Dubs Only, VOSTFR, and the Sonarr-only anime streaming-service formats** *(added by the controller amendment)*
 
-Same corpus-driven procedure as Step 23a: locate each file with `grep -rl "\"trash_id\": \"<id>\"" testdata/trash/docs/json/{radarr,sonarr}/cf/` and transcribe with the Step 22 mapping (these are almost entirely `ReleaseTitleSpecification`/`SourceSpecification` conditions, same shape as `anime-bd-tier-01`/`anime-web-tier-01` already embedded in Step 22). Verified real trash_ids and scores, from the upstream `anime-remux-1080p.json` `formatItems` for both apps and each format's own `trash_scores`:
+Same corpus-driven procedure as Step 23a: locate each file with `grep -rl "\"trash_id\": \"<id>\"" test/data/trash/docs/json/{radarr,sonarr}/cf/` and transcribe with the Step 22 mapping (these are almost entirely `ReleaseTitleSpecification`/`SourceSpecification` conditions, same shape as `anime-bd-tier-01`/`anime-web-tier-01` already embedded in Step 22). Verified real trash_ids and scores, from the upstream `anime-remux-1080p.json` `formatItems` for both apps and each format's own `trash_scores`:
 
 Anime BD Tier 02-08 (scores descend 1300→700 in steps of 100, per `docs/research/quality.md` §5's "Anime BD Tier 01–08 = 1400,1300,...,700"; Tier 01 = 1400 already embedded):
 | Tier | radarr trash_id | sonarr trash_id | Score |
@@ -15265,7 +15265,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
 
-// corpusFormatByTrashID scans testdata/trash/docs/json/<app>/cf for the file
+// corpusFormatByTrashID scans test/data/trash/docs/json/<app>/cf for the file
 // whose trash_id matches id and returns its raw specifications.
 func corpusFormatByTrashID(t *testing.T, app, id string) []struct {
 	Implementation string          `json:"implementation"`
@@ -16691,8 +16691,8 @@ done
 grep -rn 'http.Get\|http.Post\|net.Dial' pkg/quality/ && echo "FAIL: network call found" || echo "OK: no network calls"
 
 # The vendored corpus is present and pinned.
-test -f testdata/trash/COMMIT && cat testdata/trash/COMMIT
-find testdata/trash/docs/json -name '*.json' | wc -l   # should be in the hundreds
+test -f test/data/trash/COMMIT && cat test/data/trash/COMMIT
+find test/data/trash/docs/json -name '*.json' | wc -l   # should be in the hundreds
 
 # lint (project-wide config; run scoped to this package for speed).
 golangci-lint-v2 run ./pkg/quality/...
@@ -16705,7 +16705,7 @@ git diff --stat HEAD~40 -- go.mod go.sum   # only regexp2 and its transitive dep
 - [ ] `go build ./pkg/quality/...` and `go vet ./pkg/quality/...` are clean.
 - [ ] `go test -race -count=1 ./pkg/quality/... -v` passes, and no test finishes suspiciously fast in a way that suggests it skipped (there is no `KUBEBUILDER_ASSETS` gate in this package — pure Go, no envtest — so this concern from the project gotchas does not apply here, but confirm no test is accidentally a no-op, e.g. an empty table-driven loop).
 - [ ] `TestKnownProblematicTRaSHPatternsRejectUnderStdlibRegexp` and its regexp2 counterpart both pass, proving the `regexp2` dependency is load-bearing, not decorative.
-- [ ] `testdata/trash/COMMIT` exists and names a real pinned commit; `hack/sync-trash.sh` reproduces the tree from a clean checkout given that commit.
+- [ ] `test/data/trash/COMMIT` exists and names a real pinned commit; `hack/sync-trash.sh` reproduces the tree from a clean checkout given that commit.
 - [ ] `TestEveryVendoredTRaSHRegexCompilesUnderRegexp2` (Step 15b) passes with a real recorded count, not the `-1` placeholder.
 - [ ] `TestEveryEmbeddedFormatMatchesItsCorpusSource` (Step 23c) passes -- every hand-transcribed condition is byte-identical to its corpus source.
 - [ ] `cat.Formats` from `catalogue.LoadedCatalogue()` has exactly 66 entries (Steps 16-23b), and `quality.BuiltinProfiles` returns exactly 13 profiles (Steps 35-37) with zero errors.
@@ -16714,7 +16714,7 @@ git diff --stat HEAD~40 -- go.mod go.sum   # only regexp2 and its transitive dep
 - [ ] `TestUpgradeDecisionMatchesIsUpgradableTable`'s ten subtests each map to a specific branch of `docs/superpowers/plans/.../docs/research/quality.md` §6.1's decision table; a reviewer can point at any one and find the matching `if` in `upgrade.go`.
 - [ ] No test performs network I/O (`grep` check above is clean) and no test depends on wall-clock time beyond the deliberately-tiny `MatchTimeout` in Step 40's timeout test.
 - [ ] Every new `.go` file starts with the GPL-3.0 header from `hack/boilerplate.go.txt`.
-- [ ] No file outside `pkg/quality/` (including `catalogue/` and its `data/`), `testdata/quality/`, `testdata/trash/` or `hack/sync-trash.sh` was created or modified; `git diff --stat` against the task's first commit confirms this.
+- [ ] No file outside `pkg/quality/` (including `catalogue/` and its `data/`), `test/data/quality/`, `test/data/trash/` or `hack/sync-trash.sh` was created or modified; `git diff --stat` against the task's first commit confirms this.
 - [ ] `go.mod`/`go.sum` gained exactly `github.com/dlclark/regexp2` and its transitive dependencies -- nothing else moved (no accidental `go mod tidy` side effects, per the project's serial-dependency-only rule).
 - [ ] Every commit in this task's range was made with `-c user.name=appkins -c user.email=nbatkins@gmail.com` and touches only the paths listed in its own step.
 - [ ] The eight scope decisions at the top of this document are each reflected in a code comment at their point of impact (`load.go`'s package doc for decision 1, `anime-web-1080p.json`'s `_source` field and its dedicated test assertion for decision 2, `Match`/`Score`'s doc comments for decision 3, the absence of any `common.MediaInfo` import anywhere in `pkg/quality` for decision 4, `upgrade.go`'s doc comment for decision 5, `streaming.json`'s embedded comment for decision 6, `web-1080p.json`/`web-2160p.json`'s `_source` fields for decision 7, and `load.go`'s package doc again for decision 8) -- a reviewer should not have to trust this plan document once the code exists, the code should say it too.
@@ -16776,25 +16776,25 @@ Test:
 - `pkg/transcode/verify_test.go`
 
 Testdata (created by the steps below, then committed):
-- `testdata/transcode/golden/sdr_1080p_h264_cpu.golden`
-- `testdata/transcode/golden/hdr10_2160p_cpu.golden`
-- `testdata/transcode/golden/dolbyvision_p5_passthrough_cpu.golden`
-- `testdata/transcode/golden/already_hevc10_skip.golden`
-- `testdata/transcode/golden/multi_audio_atmos_cpu.golden`
-- `testdata/transcode/golden/forced_subs_cpu.golden`
-- `testdata/transcode/golden/remux_only_audio_cpu.golden`
-- `testdata/transcode/golden/nvenc_tier_hdr10_2160p.golden`
-- `testdata/transcode/golden/qsv_tier_sdr_1080p.golden`
-- `testdata/transcode/golden/vaapi_tier_fallback_sdr_1080p.golden`
-- `testdata/transcode/golden/dolbyvision_p7_downgrade_cpu.golden`
-- `testdata/transcode/golden/dolbyvision_reject_policy.golden`
-- `testdata/transcode/golden/dolbyvision_p5_missing_vbv_reject.golden`
-- `testdata/transcode/golden/hdr10plus_dropped_cpu.golden`
-- `testdata/transcode/golden/remux_container_mkv_to_mp4.golden`
-- `testdata/transcode/fixtures/ffmpeg-encoders.txt` (real `ffmpeg -hide_banner -encoders` capture, see Step 7)
-- `testdata/transcode/fixtures/progress-block.txt` (the verified `-progress` block transcribed from the note, see Step 11)
+- `test/data/transcode/golden/sdr_1080p_h264_cpu.golden`
+- `test/data/transcode/golden/hdr10_2160p_cpu.golden`
+- `test/data/transcode/golden/dolbyvision_p5_passthrough_cpu.golden`
+- `test/data/transcode/golden/already_hevc10_skip.golden`
+- `test/data/transcode/golden/multi_audio_atmos_cpu.golden`
+- `test/data/transcode/golden/forced_subs_cpu.golden`
+- `test/data/transcode/golden/remux_only_audio_cpu.golden`
+- `test/data/transcode/golden/nvenc_tier_hdr10_2160p.golden`
+- `test/data/transcode/golden/qsv_tier_sdr_1080p.golden`
+- `test/data/transcode/golden/vaapi_tier_fallback_sdr_1080p.golden`
+- `test/data/transcode/golden/dolbyvision_p7_downgrade_cpu.golden`
+- `test/data/transcode/golden/dolbyvision_reject_policy.golden`
+- `test/data/transcode/golden/dolbyvision_p5_missing_vbv_reject.golden`
+- `test/data/transcode/golden/hdr10plus_dropped_cpu.golden`
+- `test/data/transcode/golden/remux_container_mkv_to_mp4.golden`
+- `test/data/transcode/fixtures/ffmpeg-encoders.txt` (real `ffmpeg -hide_banner -encoders` capture, see Step 7)
+- `test/data/transcode/fixtures/progress-block.txt` (the verified `-progress` block transcribed from the note, see Step 11)
 
-**Path ownership:** `pkg/transcode/` and `testdata/transcode/` only. Do not touch `pkg/mediainfo/`, `pkg/fsops/`, `pkg/obs/`, or `api/`.
+**Path ownership:** `pkg/transcode/` and `test/data/transcode/` only. Do not touch `pkg/mediainfo/`, `pkg/fsops/`, `pkg/obs/`, or `api/`.
 
 **Read first:**
 - `CLAUDE.md` — "Invariants — do not break these" (no float32/float64 in exported types here either, per this task's own rules below; status writes and `PatchStatus` do not apply, this package has no Kubernetes types; GPL header on every file).
@@ -17670,8 +17670,8 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(transc
 Capture the real fixture first (verified on this box, ffmpeg n9.0.1):
 ```bash
 /usr/bin/ffmpeg -hide_banner -encoders 2>/dev/null | grep -iE 'hevc|libx265' > /tmp/claude-1000/-home-appkins-src-mediactl-clustarr/55489e0d-8512-4ab3-bc91-253f47ae031c/scratchpad/ffmpeg-encoders.txt
-mkdir -p testdata/transcode/fixtures
-cp /tmp/claude-1000/-home-appkins-src-mediactl-clustarr/55489e0d-8512-4ab3-bc91-253f47ae031c/scratchpad/ffmpeg-encoders.txt testdata/transcode/fixtures/ffmpeg-encoders.txt
+mkdir -p test/data/transcode/fixtures
+cp /tmp/claude-1000/-home-appkins-src-mediactl-clustarr/55489e0d-8512-4ab3-bc91-253f47ae031c/scratchpad/ffmpeg-encoders.txt test/data/transcode/fixtures/ffmpeg-encoders.txt
 ```
 It contains exactly:
 ```
@@ -17699,7 +17699,7 @@ import (
 )
 
 func TestParseCapabilitiesFindsOurFourTiersInARealFfmpegEncodersDump(t *testing.T) {
-	b, err := os.ReadFile("testdata/transcode/fixtures/ffmpeg-encoders.txt")
+	b, err := os.ReadFile("test/data/transcode/fixtures/ffmpeg-encoders.txt")
 	require.NoError(t, err)
 
 	caps := transcode.ParseCapabilities(string(b))
@@ -17764,7 +17764,7 @@ Run: `go test ./pkg/transcode/... -run 'TestParseCapabilities|TestProbeCapabilit
 
 Commit:
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(transcode): parse ffmpeg -encoders into tier capabilities" -- pkg/transcode/capabilities.go pkg/transcode/capabilities_test.go testdata/transcode/fixtures/ffmpeg-encoders.txt
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(transcode): parse ffmpeg -encoders into tier capabilities" -- pkg/transcode/capabilities.go pkg/transcode/capabilities_test.go test/data/transcode/fixtures/ffmpeg-encoders.txt
 ```
 
 - [ ] **Step 8: `Args` golden case 1 — SDR 1080p h264, cpu-x265 — failing test**
@@ -17833,7 +17833,7 @@ func TestArgsGoldenSDR1080pH264CPU(t *testing.T) {
 }
 ```
 
-`testdata/transcode/golden/sdr_1080p_h264_cpu.golden` (author by hand from the note, do **not** rely on `UPDATE_GOLDEN=1` for this first one — it is the reference every other golden is checked against):
+`test/data/transcode/golden/sdr_1080p_h264_cpu.golden` (author by hand from the note, do **not** rely on `UPDATE_GOLDEN=1` for this first one — it is the reference every other golden is checked against):
 ```
 -hide_banner
 -nostdin
@@ -17903,7 +17903,7 @@ Run: `go test ./pkg/transcode/... -run TestArgsGoldenSDR1080pH264CPU -v` — exp
 
 Commit:
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(transcode): Args() assembler and the SDR 1080p cpu-x265 encode path" -- pkg/transcode/args.go pkg/transcode/plan.go pkg/transcode/args_test.go testdata/transcode/golden/sdr_1080p_h264_cpu.golden
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(transcode): Args() assembler and the SDR 1080p cpu-x265 encode path" -- pkg/transcode/args.go pkg/transcode/plan.go pkg/transcode/args_test.go test/data/transcode/golden/sdr_1080p_h264_cpu.golden
 ```
 
 - [ ] **Step 9: `Args` golden cases 2-3 — HDR10 2160p and Dolby Vision profile 5 passthrough — failing test**
@@ -17924,7 +17924,7 @@ Run again — expect PASS.
 
 Commit:
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(transcode): HDR10 static metadata and Dolby Vision profile 5 passthrough argv" -- pkg/transcode/plan.go pkg/transcode/args_test.go testdata/transcode/golden/hdr10_2160p_cpu.golden testdata/transcode/golden/dolbyvision_p5_passthrough_cpu.golden
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(transcode): HDR10 static metadata and Dolby Vision profile 5 passthrough argv" -- pkg/transcode/plan.go pkg/transcode/args_test.go test/data/transcode/golden/hdr10_2160p_cpu.golden test/data/transcode/golden/dolbyvision_p5_passthrough_cpu.golden
 ```
 
 - [ ] **Step 10: `Args` golden cases 4-15 — remaining combos — failing test**
@@ -17951,19 +17951,19 @@ Run: `go test ./pkg/transcode/... -run TestArgsGolden -v` — expect FAIL for ea
 Implement the remaining `Plan`/`Args` branches: tier-specific `VideoArgs`/`HWInit`/`Filters` builders for nvenc/qsv/vaapi (one small function per tier, e.g. `nvencArgs(v VideoSpec) []string`, `qsvArgs(v VideoSpec) []string`, `vaapiArgs() []string`, dispatched by `plan.Tier` from `Args`); the mp4-container subtitle-dropping rule and `-tag:v hvc1 -movflags +faststart`; the `KeepOriginal` audio-track-doubling rule; the multi-subtitle map rendering. Then generate the 12 goldens and hand-verify each against its cited note section:
 ```bash
 UPDATE_GOLDEN=1 go test ./pkg/transcode/... -run TestArgsGolden -v
-git diff --stat testdata/transcode/golden/   # eyeball: exactly the 12 new files, nothing already-committed changed
+git diff --stat test/data/transcode/golden/   # eyeball: exactly the 12 new files, nothing already-committed changed
 ```
 
 Run again without `UPDATE_GOLDEN`: `go test ./pkg/transcode/... -run TestArgsGolden -v` — expect PASS, 15/15 subtests green.
 
 Commit:
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(transcode): remaining Args golden combos (tiers, remux, DV7, DV reject, HDR10+, mp4)" -- pkg/transcode/plan.go pkg/transcode/args.go pkg/transcode/args_test.go testdata/transcode/golden
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(transcode): remaining Args golden combos (tiers, remux, DV7, DV reject, HDR10+, mp4)" -- pkg/transcode/plan.go pkg/transcode/args.go pkg/transcode/args_test.go test/data/transcode/golden
 ```
 
 - [ ] **Step 11: `-progress pipe:1` parser — failing test**
 
-Transcribe the note's verified block into `testdata/transcode/fixtures/progress-block.txt` (note §7, byte-for-byte):
+Transcribe the note's verified block into `test/data/transcode/fixtures/progress-block.txt` (note §7, byte-for-byte):
 ```
 frame=72
 fps=0.00
@@ -17996,7 +17996,7 @@ import (
 )
 
 func TestParseProgressBlockMatchesTheVerifiedNoteExample(t *testing.T) {
-	b, err := os.ReadFile("testdata/transcode/fixtures/progress-block.txt")
+	b, err := os.ReadFile("test/data/transcode/fixtures/progress-block.txt")
 	require.NoError(t, err)
 
 	var got []transcode.Progress
@@ -18023,7 +18023,7 @@ Run: `go test ./pkg/transcode/... -run TestParseProgressBlockMatchesTheVerifiedN
 
 Commit:
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(transcode): parse ffmpeg -progress pipe:1 blocks into scaled-int Progress" -- pkg/transcode/runner.go pkg/transcode/runner_test.go testdata/transcode/fixtures/progress-block.txt
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(transcode): parse ffmpeg -progress pipe:1 blocks into scaled-int Progress" -- pkg/transcode/runner.go pkg/transcode/runner_test.go test/data/transcode/fixtures/progress-block.txt
 ```
 
 - [ ] **Step 12: `Runner.Run` error path and stderr tail — failing test**
@@ -18304,7 +18304,7 @@ go build ./pkg/transcode/...
 go vet ./pkg/transcode/...
 gofmt -l pkg/transcode                                    # must print nothing
 go test -count=1 ./pkg/transcode/... -v                   # all tests, including the real-ffmpeg ones, PASS on this box
-UPDATE_GOLDEN=1 go test ./pkg/transcode/... -run TestArgsGolden -v && git status --porcelain testdata/transcode/golden   # must be empty: regenerating goldens changes nothing
+UPDATE_GOLDEN=1 go test ./pkg/transcode/... -run TestArgsGolden -v && git status --porcelain test/data/transcode/golden   # must be empty: regenerating goldens changes nothing
 grep -c '"unsafe"\|k8s.io\|sigs.k8s.io\|/api/' pkg/transcode/*.go   # must print only zeros: no Kubernetes import anywhere in this package
 golangci-lint-v2 run ./pkg/transcode/...                  # if available in $(go env GOPATH)/bin per CLAUDE.md
 ```
@@ -18314,14 +18314,14 @@ golangci-lint-v2 run ./pkg/transcode/...                  # if available in $(go
 - [ ] Every exported type in `ProfileSpec`'s tree mirrors a real field of `api/transcode/v1alpha1.TranscodeProfileSpec` (cross-check field-by-field against `transcodeprofile_types.go`); every field the task asked to omit (Default/Selector/Resources/GPU/Scratch/Priority/ActiveDeadline/TTLSecondsAfterFinished/Chunking) is genuinely absent, not just unused.
 - [ ] `Progress` has exactly `FPSMilli`/`SpeedMilli`/`OutTimeMillis`/`Percent`/`BitrateKbps`/`Frame`, scaled/typed identically to `api/transcode/v1alpha1.Progress`.
 - [ ] `grep -rn 'float32\|float64' pkg/transcode/*.go` shows no match outside the one documented, non-exported, immediately-converted local variable inside `Verify`'s ffprobe JSON decode.
-- [ ] All 15 named golden cases exist under `testdata/transcode/golden/`, each traceable to a specific `docs/research/transcode.md` section cited in Step 10's table or Steps 8-9's prose, and `UPDATE_GOLDEN=1` regenerating them is a no-op (`git status --porcelain` empty).
+- [ ] All 15 named golden cases exist under `test/data/transcode/golden/`, each traceable to a specific `docs/research/transcode.md` section cited in Step 10's table or Steps 8-9's prose, and `UPDATE_GOLDEN=1` regenerating them is a no-op (`git status --porcelain` empty).
 - [ ] The `Plan` decision table (Step 5) covers skip (compliant, tagged, modifier, min-duration), remuxOnly, encode, and reject (DV-policy, missing-VBV) with a distinct, assertable `Reason` substring per row.
 - [ ] `SelectTier`/`FallbackTier` are exercised by a real, captured `ffmpeg -hide_banner -encoders` fixture (Step 7), not a hand-typed one.
 - [ ] `Runner.Run` cancellation (Step 13) sends `SIGINT` before any `SIGKILL` (via `exec.Cmd.Cancel`/`WaitDelay`, not `exec.CommandContext`'s default) and the test proves it returns promptly rather than blocking for the full source duration.
 - [ ] The end-to-end Runner test (Step 14) and the end-to-end Verify test (Step 16) both `t.Skip` cleanly when `/usr/bin/ffmpeg`/`/usr/bin/ffprobe` are absent, and both pass on this box in well under a minute combined.
-- [ ] No test reaches the network; the only binary fixture-like inputs are `testdata/transcode/fixtures/ffmpeg-encoders.txt` (a real capture) and `testdata/transcode/fixtures/progress-block.txt` (transcribed verbatim from the note) — no synthetic media file is committed to the repo, only generated at test time via `lavfi`.
+- [ ] No test reaches the network; the only binary fixture-like inputs are `test/data/transcode/fixtures/ffmpeg-encoders.txt` (a real capture) and `test/data/transcode/fixtures/progress-block.txt` (transcribed verbatim from the note) — no synthetic media file is committed to the repo, only generated at test time via `lavfi`.
 - [ ] Every new `.go` file starts with the exact `hack/boilerplate.go.txt` GPL header.
-- [ ] Each commit's `-- <paths>` list matches exactly the files that step touched; `git log --stat` on this package shows no commit touching a path outside `pkg/transcode/` or `testdata/transcode/`.
+- [ ] Each commit's `-- <paths>` list matches exactly the files that step touched; `git log --stat` on this package shows no commit touching a path outside `pkg/transcode/` or `test/data/transcode/`.
 
 ---
 
@@ -18330,7 +18330,7 @@ golangci-lint-v2 run ./pkg/transcode/...                  # if available in $(go
 > **Controller amendments (binding; they override the text below where they differ).**
 >
 > 1. **Wave 2.** This task starts after Task B6 (`pkg/torznab`, `pkg/newznab`) has landed and passed review. Import the real packages and read `go doc ./pkg/torznab ./pkg/newznab` first; the Produces block this text quotes from B6 is the contract, but the code is the truth.
-> 2. **Corpus location confirmed:** `testdata/cardigann/{schema-v11.json,1337x.yml,0dayfiles-api.yml}` are seeded by Task B0 before you start; every other fixture under `testdata/cardigann/` is yours to create.
+> 2. **Corpus location confirmed:** `test/data/cardigann/{schema-v11.json,1337x.yml,0dayfiles-api.yml}` are seeded by Task B0 before you start; every other fixture under `test/data/cardigann/` is yours to create.
 > 3. `api/common/v1alpha1` is an allowed import (controller ruling); the transitive dependency through `newznab` is fine.
 > 4. **`torznab.Release` has no music/book fields.** Keep those Cardigann-parsed fields in `Attrs` exactly as the text below says; the controller carries "extend `torznab.Release` with Artist/Album/Author/Publisher/… for non-video kinds" to Phase G. Do not add them to `pkg/torznab` from this task.
 
@@ -18338,19 +18338,19 @@ golangci-lint-v2 run ./pkg/transcode/...                  # if available in $(go
 **Files:**
 - Create: `pkg/cardigann/definition.go`, `pkg/cardigann/schema.go`, `pkg/cardigann/schema.json`, `pkg/cardigann/category.go`, `pkg/cardigann/template.go`, `pkg/cardigann/filters.go`, `pkg/cardigann/selector.go`, `pkg/cardigann/engine.go`, `pkg/cardigann/login.go`, `pkg/cardigann/search.go`, `pkg/cardigann/download.go`
 - Test: `pkg/cardigann/helpers_test.go`, `pkg/cardigann/definition_test.go`, `pkg/cardigann/schema_test.go`, `pkg/cardigann/category_test.go`, `pkg/cardigann/template_test.go`, `pkg/cardigann/filters_test.go`, `pkg/cardigann/selector_test.go`, `pkg/cardigann/login_test.go`, `pkg/cardigann/search_test.go`, `pkg/cardigann/download_test.go`
-- Fixtures (created by Step 1, all under `testdata/cardigann/`): `schema-v11.json`, `1337x.yml`, `0dayfiles-api.yml` (copied verbatim from the conformance corpus already on disk at `/tmp/claude-1000/-home-appkins-src-mediactl-clustarr/55489e0d-8512-4ab3-bc91-253f47ae031c/scratchpad/research/{schema-v11.json,1337x.yml,0dayfiles-api.yml}` — not yet in the repo), plus hand-authored `1337x-search.html`, `1337x-details.html`, `0dayfiles-search.json`, `login-form.yml`, `login-form.html`, `login-cookie.yml` (synthetic, minimal — content given verbatim in the steps below, since neither bundled definition exercises `form`/`cookie` login).
+- Fixtures (created by Step 1, all under `test/data/cardigann/`): `schema-v11.json`, `1337x.yml`, `0dayfiles-api.yml` (copied verbatim from the conformance corpus already on disk at `/tmp/claude-1000/-home-appkins-src-mediactl-clustarr/55489e0d-8512-4ab3-bc91-253f47ae031c/scratchpad/research/{schema-v11.json,1337x.yml,0dayfiles-api.yml}` — not yet in the repo), plus hand-authored `1337x-search.html`, `1337x-details.html`, `0dayfiles-search.json`, `login-form.yml`, `login-form.html`, `login-cookie.yml` (synthetic, minimal — content given verbatim in the steps below, since neither bundled definition exercises `form`/`cookie` login).
 
-**Path ownership:** `pkg/cardigann/` and `testdata/cardigann/` only. `go.mod`/`go.sum`/`hack/deps/deps.go` belong to the Phase B controller (serial pre-add step); this task only consumes the modules it lists below and never runs `go get` or `go mod tidy`.
+**Path ownership:** `pkg/cardigann/` and `test/data/cardigann/` only. `go.mod`/`go.sum`/`hack/deps/deps.go` belong to the Phase B controller (serial pre-add step); this task only consumes the modules it lists below and never runs `go get` or `go mod tidy`.
 
-> Note for the controller assembling the full Phase B plan: an earlier coordination file in this directory (`00-header.md`, Task B0) has the Cardigann corpus seeded at `pkg/cardigann/testdata/definitions/` by a separate serial step. This task's own instructions (and Task B6's actual output, which uses repo-root `testdata/torznab/` / `testdata/newznab/`) place fixtures at repo-root `testdata/cardigann/` instead, matching `docs/superpowers/plans/2026-09-18-remaining-work.md`'s own file tree (`testdata/{trash,cardigann,releases,ffprobe,subtitles,nzb}`, line ~830). Treat `00-header.md`'s B0 corpus-seed step as superseded by this task's Step 1 — reconcile in favour of the repo-root path, which is what both this task and B6 already agree on.
+> Note for the controller assembling the full Phase B plan: an earlier coordination file in this directory (`00-header.md`, Task B0) has the Cardigann corpus seeded at `pkg/cardigann/testdata/definitions/` by a separate serial step. This task's own instructions (and Task B6's actual output, which uses repo-root `test/data/torznab/` / `test/data/newznab/`) place fixtures at repo-root `test/data/cardigann/` instead, matching `docs/superpowers/plans/2026-09-18-remaining-work.md`'s own file tree (`test/data/{trash,cardigann,releases,ffprobe,subtitles,nzb}`, line ~830). Treat `00-header.md`'s B0 corpus-seed step as superseded by this task's Step 1 — reconcile in favour of the repo-root path, which is what both this task and B6 already agree on.
 
 **Read first (by heading):**
-- `CLAUDE.md` — "Invariants — do not break these" (GPL header on every file, no status writes here — this package touches no CRDs) and "Code conventions" (`slog` via `pkg/obs/logging.FromContext`, spans via `pkg/obs/tracing.Start`, table-driven testify tests under `testdata/`).
+- `CLAUDE.md` — "Invariants — do not break these" (GPL header on every file, no status writes here — this package touches no CRDs) and "Code conventions" (`slog` via `pkg/obs/logging.FromContext`, spans via `pkg/obs/tracing.Start`, table-driven testify tests under `test/data/`).
 - `docs/superpowers/plans/2026-09-18-remaining-work.md` lines 15-45 ("Global Constraints") and the "Phase B: the library layer" section (~788-825, the pre-add/`hack/deps/deps.go` discipline and the gate). Task A2 (`pkg/obs/tracing`, lines 251-350) is the format model for this document's step structure.
 - Spec `docs/superpowers/specs/2026-09-18-clustarr-design.md` §4.3 "`index.clustarr.io` (owner: indexarr)" (lines 377-410: `IndexerDefinition`, `Indexer`, `IndexerProxy` — the eventual CRD consumers of this package; `IndexerDefinitionStatus.Type` uses camelCase `public|semiPrivate|private` while Cardigann's own schema uses `public|semi-private|private` — the controller maps between them, this package never does) and §7 "Shared packages (`pkg/`)" line 739 (the exact `pkg/cardigann` export list: `Definition, Load, Validate, Engine{Caps, Login, Search, Download}, 25 filters, .NET→Go date translator, GetBytes`) and §16 M6 (line ~844: "HTML/JSON/XML, all 25 filters, form/cookie/post/get login" are all required in this milestone).
 - `api/index/v1alpha1/indexerdefinition_types.go` (the real generated type this package's output eventually feeds — read for the exact status shape, not to import: Phase B is pure Go and imports no `api/...` package).
 - `docs/research/indexers.md` §3 "Cardigann YAML definitions (schema v11)" in full (lines 135-215: §3.1 versioning, §3.2 root fields, §3.3 settings, §3.4 caps, §3.5 login, §3.6 search/rows/fields/filters + the filter semantics table, §3.7 download, §3.8 parser→release mapping, §3.9 the two real examples), §4.3-4.4 (Torznab predefined attributes and the Newznab category table), §9 "Go libraries" (227-250, versions), §11 "Go-oriented data model" (274-410, the `Definition`/engine struct sketch this task's types are drawn from).
-- `testdata/cardigann/schema-v11.json`, `1337x.yml`, `0dayfiles-api.yml` (after Step 1 copies them) — the two real definitions this task's search/download/login tests run against.
+- `test/data/cardigann/schema-v11.json`, `1337x.yml`, `0dayfiles-api.yml` (after Step 1 copies them) — the two real definitions this task's search/download/login tests run against.
 - **`task-B6-torznab.md`** (this directory) — read its **Interfaces — Produces** block in full before writing `category.go` or `search.go`. Task B6 is a sibling, not upstream code that exists yet, but its Produces block is the reconciled contract this task returns from `Engine.Search`; do not re-derive `torznab.Release`'s shape from the research note, use B6's actual struct verbatim (see Consumes below).
 
 **Dependencies:** all pre-added serially by the Phase B controller before this task runs (see `deps-verified.txt` in this directory) — this task only adds imports, never runs `go get`/`go mod tidy`. Versions, each verified 2026-09-18 with `cd /tmp && go list -m -versions <module> | tr ' ' '\n' | tail -1`:
@@ -18836,7 +18836,7 @@ type Release struct {
 
 - [ ] **Step 1: fixtures + the scalar-or-list unmarshal types — failing test**
 
-Create `testdata/cardigann/` and copy the three corpus files verbatim:
+Create `test/data/cardigann/` and copy the three corpus files verbatim:
 ```bash
 mkdir -p /home/appkins/src/mediactl/clustarr/testdata/cardigann
 cp /tmp/claude-1000/-home-appkins-src-mediactl-clustarr/55489e0d-8512-4ab3-bc91-253f47ae031c/scratchpad/research/schema-v11.json \
@@ -18857,7 +18857,7 @@ import (
 	"testing"
 )
 
-// readTestdata reads a file from testdata/cardigann/ (repo-root, two levels
+// readTestdata reads a file from test/data/cardigann/ (repo-root, two levels
 // up from this package) and fails the test on any read error. Every _test.go
 // file in this package uses it, and its byte-identical twin readTestdataBytes,
 // to load both YAML definitions and the binary/HTML/JSON response fixtures.
@@ -19041,7 +19041,7 @@ func Load(data []byte) (*Definition, error) {
 
 - [ ] **Step 5: commit**
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(cardigann): v11 definition types, scalar-or-list decoding, and the conformance corpus" -- pkg/cardigann/definition.go pkg/cardigann/definition_test.go pkg/cardigann/helpers_test.go pkg/cardigann/schema.json testdata/cardigann
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(cardigann): v11 definition types, scalar-or-list decoding, and the conformance corpus" -- pkg/cardigann/definition.go pkg/cardigann/definition_test.go pkg/cardigann/helpers_test.go pkg/cardigann/schema.json test/data/cardigann
 ```
 
 - [ ] **Step 6: schema validation — failing test**
@@ -19706,7 +19706,7 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(cardig
 
 - [ ] **Step 31: login — form and cookie — failing test**
 
-`testdata/cardigann/login-form.yml` (synthetic; a minimal definition whose only purpose is exercising `method: form` with a CSRF token scraped via `selectorinputs`):
+`test/data/cardigann/login-form.yml` (synthetic; a minimal definition whose only purpose is exercising `method: form` with a CSRF token scraped via `selectorinputs`):
 ```yaml
 id: synthetic-form-login
 name: Synthetic Form Login
@@ -19749,7 +19749,7 @@ search:
     category: {text: "1"}
     download: {selector: "td.title a", attribute: href}
 ```
-`testdata/cardigann/login-form.html`:
+`test/data/cardigann/login-form.html`:
 ```html
 <!DOCTYPE html><html><body>
 <form id="loginform" method="post" action="/login">
@@ -19759,7 +19759,7 @@ search:
 </form>
 </body></html>
 ```
-`testdata/cardigann/login-cookie.yml` (method: cookie — no HTTP round trip for the login step itself, per note §3.5: the user supplies the cookie value directly):
+`test/data/cardigann/login-cookie.yml` (method: cookie — no HTTP round trip for the login step itself, per note §3.5: the user supplies the cookie value directly):
 ```yaml
 id: synthetic-cookie-login
 name: Synthetic Cookie Login
@@ -19952,7 +19952,7 @@ func (e Engine) loginForm(ctx context.Context, def *Definition, cfg Config, lb *
 
 - [ ] **Step 35: commit**
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(cardigann): form and cookie login" -- pkg/cardigann/login.go pkg/cardigann/login_test.go testdata/cardigann/login-form.yml testdata/cardigann/login-form.html testdata/cardigann/login-cookie.yml
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(cardigann): form and cookie login" -- pkg/cardigann/login.go pkg/cardigann/login_test.go test/data/cardigann/login-form.yml test/data/cardigann/login-form.html test/data/cardigann/login-cookie.yml
 ```
 
 - [ ] **Step 36: login — get/post/oneurl + captcha + Cloudflare signals — failing test**
@@ -20082,7 +20082,7 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(cardig
 
 - [ ] **Step 41: search — HTML corpus (1337x) — failing test**
 
-`testdata/cardigann/1337x-search.html` (three rows exercising all three `date_*` branches straight from the real definition's own comments — "7am Sep. 14th" and "Apr. 18th '11" are the file's own examples, not invented):
+`test/data/cardigann/1337x-search.html` (three rows exercising all three `date_*` branches straight from the real definition's own comments — "7am Sep. 14th" and "Apr. 18th '11" are the file's own examples, not invented):
 ```html
 <!DOCTYPE html>
 <html>
@@ -20220,12 +20220,12 @@ Key pieces, in prose (full production code here would exceed this document's pur
 
 - [ ] **Step 45: commit**
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(cardigann): HTML search against the 1337x definition" -- pkg/cardigann/search.go pkg/cardigann/search_test.go testdata/cardigann/1337x-search.html
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(cardigann): HTML search against the 1337x definition" -- pkg/cardigann/search.go pkg/cardigann/search_test.go test/data/cardigann/1337x-search.html
 ```
 
 - [ ] **Step 46: search — JSON corpus (0dayfiles-api) — failing test**
 
-`testdata/cardigann/0dayfiles-search.json` (UNIT3D-shaped; the `created_at` value is pre-formatted `MM/dd/yyyy HH:mm:ss` to match what the definition's own `dateparse "MM/dd/yyyy HH:mm:ss zzz"` filter expects to receive — see the step's implementation note on why this, not a literal ISO-8601 string, is the correct fixture value):
+`test/data/cardigann/0dayfiles-search.json` (UNIT3D-shaped; the `created_at` value is pre-formatted `MM/dd/yyyy HH:mm:ss` to match what the definition's own `dateparse "MM/dd/yyyy HH:mm:ss zzz"` filter expects to receive — see the step's implementation note on why this, not a literal ISO-8601 string, is the correct fixture value):
 ```json
 {
   "data": [
@@ -20340,12 +20340,12 @@ Everything from Step 43 already covers the shared row/field machinery; this step
 
 - [ ] **Step 50: commit**
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(cardigann): JSON API search against the 0dayfiles-api definition" -- pkg/cardigann/search.go pkg/cardigann/search_test.go testdata/cardigann/0dayfiles-search.json
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(cardigann): JSON API search against the 0dayfiles-api definition" -- pkg/cardigann/search.go pkg/cardigann/search_test.go test/data/cardigann/0dayfiles-search.json
 ```
 
 - [ ] **Step 51: download — selectors + magnet resolution — failing test**
 
-`testdata/cardigann/1337x-details.html`:
+`test/data/cardigann/1337x-details.html`:
 ```html
 <!DOCTYPE html>
 <html>
@@ -20516,7 +20516,7 @@ func (e Engine) resolveLink(ctx context.Context, cfg Config, val string) (io.Rea
 
 - [ ] **Step 55: commit**
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(cardigann): download link resolution and magnet building" -- pkg/cardigann/download.go pkg/cardigann/download_test.go testdata/cardigann/1337x-details.html
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(cardigann): download link resolution and magnet building" -- pkg/cardigann/download.go pkg/cardigann/download_test.go test/data/cardigann/1337x-details.html
 ```
 
 ---
@@ -20529,12 +20529,12 @@ go vet ./pkg/cardigann/...
 go test -count=1 -race ./pkg/cardigann/... -v
 golangci-lint-v2 run ./pkg/cardigann/...
 grep -rn 'http://\|https://' pkg/cardigann/*_test.go | grep -v 'localhost\|127.0.0.1\|example.invalid\|httptest\|srv.URL' # expect no output: no real hostnames in tests
-git log --oneline -11 -- pkg/cardigann testdata/cardigann
+git log --oneline -11 -- pkg/cardigann test/data/cardigann
 ```
 This task cannot fully build until Task B6 lands `pkg/torznab`/`pkg/newznab` on disk (Steps 11-55 all import them) — that ordering is the Phase B controller's to sequence, not a defect in this plan; every step up through Step 10 (fixtures, scalar types, `Load`, `Validate`) is independently buildable and testable today.
 
 **Done when:**
-- [ ] `Load`/`Validate` accept both `testdata/cardigann/1337x.yml` and `testdata/cardigann/0dayfiles-api.yml`, and `pkg/cardigann/schema.json` is byte-identical to `testdata/cardigann/schema-v11.json`.
+- [ ] `Load`/`Validate` accept both `test/data/cardigann/1337x.yml` and `test/data/cardigann/0dayfiles-api.yml`, and `pkg/cardigann/schema.json` is byte-identical to `test/data/cardigann/schema-v11.json`.
 - [ ] `Filters` has exactly the 25 names the schema's `FilterBlock.name` enum lists — no fewer, no invented extras — each covered by at least one table case in `filters_test.go`, including the two debug-only passthroughs (`hexdump`, `strdump`) and the .NET→Go date translator's lower-case-AM/PM gotcha.
 - [ ] `Doc`/`SelectorBlock.Extract` correctly dispatch across all three response types (HTML via goquery, JSON via gjson, XML via xmlquery), and correctly implement `case` (with `"*"` fallback), `remove`, `default`, and literal/templated `text`.
 - [ ] `Engine.Login` succeeds against the synthetic form-login fixture (CSRF token scraped via `selectorinputs`, not hard-coded) and the synthetic cookie-login fixture, and returns `*CaptchaRequiredError`/`*CloudflareChallengeError` on the two respective synthetic conditions rather than attempting to proceed.
@@ -20589,15 +20589,15 @@ This task cannot fully build until Task B6 lands `pkg/torznab`/`pkg/newznab` on 
   - `pkg/subtitles/providers/gestdown/provider_test.go`
   - `pkg/subtitles/providers/embedded/provider_test.go`
 - Fixtures (written in the step that needs them, real captured/constructed JSON and subtitle content, no generator scripts):
-  - `testdata/subtitles/opensubtitles/login.json`
-  - `testdata/subtitles/opensubtitles/search.json`
-  - `testdata/subtitles/opensubtitles/download.json`
-  - `testdata/subtitles/opensubtitles/quota_exceeded_406.json`
-  - `testdata/subtitles/gestdown/search.json`
-  - `testdata/subtitles/postprocess/hi_sample.ass`
-  - `testdata/subtitles/postprocess/mojibake_latin1.srt`
+  - `test/data/subtitles/opensubtitles/login.json`
+  - `test/data/subtitles/opensubtitles/search.json`
+  - `test/data/subtitles/opensubtitles/download.json`
+  - `test/data/subtitles/opensubtitles/quota_exceeded_406.json`
+  - `test/data/subtitles/gestdown/search.json`
+  - `test/data/subtitles/postprocess/hi_sample.ass`
+  - `test/data/subtitles/postprocess/mojibake_latin1.srt`
 
-**Path ownership:** `pkg/subtitles/` (including the `providers/` subpackages) and `testdata/subtitles/` only. Do not touch `pkg/mediainfo/`, `pkg/naming/`, `pkg/release/`, `api/subtitle/`, or any other Phase B agent's path.
+**Path ownership:** `pkg/subtitles/` (including the `providers/` subpackages) and `test/data/subtitles/` only. Do not touch `pkg/mediainfo/`, `pkg/naming/`, `pkg/release/`, `api/subtitle/`, or any other Phase B agent's path.
 
 **Scope note (read before anything else):** the design spec's `pkg/subtitles` sketch (§7) bundles four concerns into one package: the missing-subtitle *planner* (`Plan`/`Wanted`, §2.2 of the research note), provider search/scoring/post-processing, and sidecar *naming* (`SidecarName`/`ParseSidecar`). This task's own Produces enumeration — Provider, Registry, Query/Candidate, Score/Weights, the typed errors, post-processing funcs, a Sidecar *writer* — deliberately excludes the planner and the naming/parsing functions. Reasons, both from the task's own reading list:
 1. `pkg/naming` (Task B3) owns "sidecar subtitle naming" per the Phase B package table, and this task is told to *consume* an assumed `naming.SubtitlePath(mediaPath, lang, forced, hi string) (string, error)` rather than reproduce it — so path computation is not this package's job; it only writes bytes to an already-resolved path (see `Writer` below).
@@ -21959,7 +21959,7 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(subtit
 
 - [ ] **Step 23: Write the failing charset/mojibake test**
 
-Create `testdata/subtitles/postprocess/mojibake_latin1.srt` containing a Windows-1252-mis-decoded-as-UTF-8 line (the word "café" corrupted to "cafÃ©"):
+Create `test/data/subtitles/postprocess/mojibake_latin1.srt` containing a Windows-1252-mis-decoded-as-UTF-8 line (the word "café" corrupted to "cafÃ©"):
 ```
 1
 00:00:01,000 --> 00:00:02,000
@@ -22125,7 +22125,7 @@ Run: `go test -count=1 ./pkg/subtitles/... -run 'TestFixMojibake|TestDecodeToUTF
 
 - [ ] **Step 25: Write the failing ASS→SRT conversion test**
 
-Create `testdata/subtitles/postprocess/hi_sample.ass` (a minimal, valid ASS file with one hearing-impaired bracketed cue and one plain line):
+Create `test/data/subtitles/postprocess/hi_sample.ass` (a minimal, valid ASS file with one hearing-impaired bracketed cue and one plain line):
 ```
 [Script Info]
 Title: B8 fixture
@@ -22255,7 +22255,7 @@ Delete the `github.com/asticode/go-astisub` blank-import line (this task is its 
 
 ```bash
 go build ./...
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(subtitles): PostProcess (charset, ASS/SSA to SRT, HI stripping, mojibake); retire go-astisub deps.go placeholder" -- pkg/subtitles/postprocess.go pkg/subtitles/postprocess_test.go testdata/subtitles/postprocess hack/deps/deps.go
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(subtitles): PostProcess (charset, ASS/SSA to SRT, HI stripping, mojibake); retire go-astisub deps.go placeholder" -- pkg/subtitles/postprocess.go pkg/subtitles/postprocess_test.go test/data/subtitles/postprocess hack/deps/deps.go
 ```
 
 - [ ] **Step 28: Write the failing Sidecar `Writer` test**
@@ -22359,7 +22359,7 @@ git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(subtit
 
 - [ ] **Step 31: Write the failing OpenSubtitles login/token-caching test**
 
-Create `testdata/subtitles/opensubtitles/login.json` (verbatim shape from research note §4.3):
+Create `test/data/subtitles/opensubtitles/login.json` (verbatim shape from research note §4.3):
 ```json
 {
   "user": {
@@ -22566,7 +22566,7 @@ Run: `go test -count=1 ./pkg/subtitles/providers/opensubtitlescom/... -run TestL
 
 - [ ] **Step 33: Write the failing Search test (moviehash + ids + languages + hearing_impaired + foreign_parts_only)**
 
-Create `testdata/subtitles/opensubtitles/search.json` (verified shape, research note §4.3, trimmed to one result):
+Create `test/data/subtitles/opensubtitles/search.json` (verified shape, research note §4.3, trimmed to one result):
 ```json
 {
   "total_pages": 1, "total_count": 1, "per_page": 50, "page": 1,
@@ -22845,12 +22845,12 @@ Run: `go test -count=1 ./pkg/subtitles/providers/opensubtitlescom/... -run TestS
 - [ ] **Step 35: Commit**
 
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(subtitles/opensubtitlescom): login/token caching and Search" -- pkg/subtitles/providers/opensubtitlescom testdata/subtitles/opensubtitles/login.json testdata/subtitles/opensubtitles/search.json
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(subtitles/opensubtitlescom): login/token caching and Search" -- pkg/subtitles/providers/opensubtitlescom test/data/subtitles/opensubtitles/login.json test/data/subtitles/opensubtitles/search.json
 ```
 
 - [ ] **Step 36: Write the failing Download test (success path)**
 
-Create `testdata/subtitles/opensubtitles/download.json` (verbatim shape, research note §4.3):
+Create `test/data/subtitles/opensubtitles/download.json` (verbatim shape, research note §4.3):
 ```json
 {
   "link": "REPLACED_AT_TEST_TIME",
@@ -22962,7 +22962,7 @@ Run: `go test -count=1 ./pkg/subtitles/providers/opensubtitlescom/... -run TestD
 
 - [ ] **Step 38: Write the failing quota-exceeded (406) and rate-limited (429) tests**
 
-Create `testdata/subtitles/opensubtitles/quota_exceeded_406.json` (field names per research note §4.3: "406 DownloadLimitExceeded (body has remaining, reset_time)"):
+Create `test/data/subtitles/opensubtitles/quota_exceeded_406.json` (field names per research note §4.3: "406 DownloadLimitExceeded (body has remaining, reset_time)"):
 ```json
 {
   "message": "Not enough download credits.",
@@ -23068,14 +23068,14 @@ Run: `go test -count=1 ./pkg/subtitles/providers/opensubtitlescom/... -v` — ex
 - [ ] **Step 40: Commit**
 
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(subtitles/opensubtitlescom): Download, quota/rate-limit typed errors" -- pkg/subtitles/providers/opensubtitlescom testdata/subtitles/opensubtitles/download.json testdata/subtitles/opensubtitles/quota_exceeded_406.json
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(subtitles/opensubtitlescom): Download, quota/rate-limit typed errors" -- pkg/subtitles/providers/opensubtitlescom test/data/subtitles/opensubtitles/download.json test/data/subtitles/opensubtitles/quota_exceeded_406.json
 ```
 
 - [ ] **Step 41: Write the failing Gestdown test (contract caveat — read before writing)**
 
 Unlike OpenSubtitles, `docs/research/subtitles.md` does not capture Gestdown's response field names (§4.2 only confirms: JSON API, no auth, TV-only, lookup by TVDB id, "423 = refreshing, retry in 30s"; §13.6 item 2 says only "trivial JSON"). The field names below (`matchingSubtitles`, `downloadUri`, `version`, `completed`, `hearingImpaired`) are the implementer's best-documented understanding of `api.gestdown.info`'s real shape, **not** a note-verified contract. Before trusting this fixture, pull the same source the note used for every other provider — Bazarr's own `custom_libs/subliminal_patch/providers/gestdown.py` — into the scratchpad (same technique the note describes in its header) and confirm field names match; adjust the fixture and `provider.go`'s struct tags together if they don't, in this same step, before moving on.
 
-Create `testdata/subtitles/gestdown/search.json`:
+Create `test/data/subtitles/gestdown/search.json`:
 ```json
 {
   "language": { "culture": "en-US", "name": "English" },
@@ -23300,7 +23300,7 @@ Run: `go test -count=1 ./pkg/subtitles/providers/gestdown/... -v` — expected: 
 - [ ] **Step 43: Commit**
 
 ```bash
-git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(subtitles/gestdown): TVDB-keyed search and download (contract per Bazarr's gestdown.py, verify before relying on it in production)" -- pkg/subtitles/providers/gestdown testdata/subtitles/gestdown
+git -c user.name=appkins -c user.email=nbatkins@gmail.com commit -m "feat(subtitles/gestdown): TVDB-keyed search and download (contract per Bazarr's gestdown.py, verify before relying on it in production)" -- pkg/subtitles/providers/gestdown test/data/subtitles/gestdown
 ```
 
 - [ ] **Step 44: Write the failing embedded-provider Search test**
@@ -23536,12 +23536,12 @@ grep -rn 'func \|^type ' pkg/subtitles/*.go | grep -v _test.go
 - [ ] The hash-weight invariant (`hash == sum(other weights) - 1`) holds for both `common.MediaKindEpisode` and `common.MediaKindMovie` (Step 8's test), and `MaxScore` is exactly `{episode: 360, movie: 180}`.
 - [ ] `opensubtitlescom.Provider.Search` sends `moviehash`, `imdb_id`/`tmdb_id`, `languages`, `hearing_impaired` and `foreign_parts_only` exactly as the fixtures assert, and `Download` maps HTTP 406 to `KindDownloadLimitExceeded` and 429 to `KindTooManyRequests`, both satisfying `IsQuotaExceeded`/`IsRateLimited`.
 - [ ] No test in this package opens a real network connection — every provider test uses `httptest.NewServer`; the one process-exec test (embedded `Download`) shells out to a local `ffmpeg` binary, not the network, and skips cleanly when absent.
-- [ ] `testdata/subtitles/` holds real, non-placeholder JSON/SRT/ASS content for every fixture path listed under Files, with field names traceable either to `docs/research/subtitles.md` (OpenSubtitles) or to the Step 41 caveat (Gestdown).
+- [ ] `test/data/subtitles/` holds real, non-placeholder JSON/SRT/ASS content for every fixture path listed under Files, with field names traceable either to `docs/research/subtitles.md` (OpenSubtitles) or to the Step 41 caveat (Gestdown).
 - [ ] No file under `pkg/subtitles/` is missing the GPL header from `hack/boilerplate.go.txt`.
 - [ ] No exported function returns `float32`/`float64`; `Score`/`MinScore`/the weight tables are plain ints (Bazarr's own point scale, already integral — no `Milli`/`Centis` scaling needed since nothing here crosses into `api/`).
 - [ ] `pkg/subtitles` does not import `api/subtitle/v1alpha1`, `pkg/naming`, `pkg/mediainfo`, or `pkg/release` anywhere (`grep -rn 'mediactl/clustarr/\(api/subtitle\|pkg/naming\|pkg/mediainfo\|pkg/release\)' pkg/subtitles/` prints nothing).
 - [ ] `hack/deps/deps.go` no longer blank-imports `github.com/asticode/go-astisub`, and its `github.com/dlclark/regexp2` entry is gone if this task landed after `pkg/release` deleted it, or gone because this task deleted it first (Step 27) — never present twice, never left dangling after both real importers exist.
-- [ ] `git log --oneline -- pkg/subtitles testdata/subtitles hack/deps` shows the TDD-ordered commits from Steps 4, 7, 13, 16, 19, 22, 27, 30, 35, 40, 43, 48(, 49) — test-then-implementation throughout, never the reverse.
+- [ ] `git log --oneline -- pkg/subtitles test/data/subtitles hack/deps` shows the TDD-ordered commits from Steps 4, 7, 13, 16, 19, 22, 27, 30, 35, 40, 43, 48(, 49) — test-then-implementation throughout, never the reverse.
 
 ---
 
@@ -23648,7 +23648,7 @@ Checked by the controller on 2026-09-18 after assembly.
 | B8 subtitles ↔ B4 mediainfo | B8 duplicated `MovieHash` | spec §7: mediainfo owns `MovieHash(path) (string, error)` | Ruling: B8 Steps 5–6 struck; B8's two extra vectors moved into B4. |
 | B8 scope | B8 excludes `Plan`, `SidecarName`, `ParseSidecar` (spec §7 lists them) | — | Ruling: accepted for Phase B; deferred to Phase F (captionarr) and recorded as a carried item. |
 | B7 cardigann ↔ B6 torznab/newznab | B7 quotes B6's real Produces; `Release` lacks music/book fields | B6 `torznab.Release` | Ruling: wave 2 imports real packages; non-video fields ride in `Attrs`; extending `Release` is carried to Phase G. |
-| Fixtures location | header said per-package `testdata/`; B0 seeded `pkg/cardigann/testdata/definitions/` | all 11 tasks own repo-root `testdata/<pkg>/` | Ruling: repo-root `testdata/<pkg>/`; header, table and B0 updated. |
+| Fixtures location | header said per-package `test/data/`; B0 seeded `pkg/cardigann/testdata/definitions/` | all 11 tasks own repo-root `test/data/<pkg>/` | Ruling: repo-root `test/data/<pkg>/`; header, table and B0 updated. |
 | B2 quality ↔ B1 release | B2 quotes B1's `ParsedRelease` as documentation and imports `pkg/release` for real | B1 | Ruling: wave 2; shapes identical (B2 reads Title, Group, Quality, Revision, Languages, ReleaseType). |
 | B2 quality → `api/catalog/v1alpha1` | B2 reuses `QualityProfileSpec` verbatim | CRD group package (pulls controller-runtime `pkg/scheme`) | Ruling: allowed for `pkg/quality` only, types never a client; boundary check adjusted. Cost if wrong: one mirror struct family. |
-| B2 quality scope | hand-transcribed subset; no vendored corpus; Tier 01 only; generator absent | spec §7/§9/§14: generated from `testdata/trash`, all 2791 regexes compile | Ruling (amendment): B2 owns `testdata/trash/` + `hack/sync-trash.sh`, vendors the corpus at a pinned commit, adds the compile-all test and a parity test, embeds every referenced format for every tier; `hack/gen-catalogue` carried to Phase C; `pkg/decision` proper carried to Phase C. |
+| B2 quality scope | hand-transcribed subset; no vendored corpus; Tier 01 only; generator absent | spec §7/§9/§14: generated from `test/data/trash`, all 2791 regexes compile | Ruling (amendment): B2 owns `test/data/trash/` + `hack/sync-trash.sh`, vendors the corpus at a pinned commit, adds the compile-all test and a parity test, embeds every referenced format for every tier; `hack/gen-catalogue` carried to Phase C; `pkg/decision` proper carried to Phase C. |

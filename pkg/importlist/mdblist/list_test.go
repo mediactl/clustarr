@@ -34,7 +34,7 @@ import (
 func TestFetchFiltersByMediaType(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "key123", r.URL.Query().Get("apikey"))
-		b, err := os.ReadFile("../../../testdata/importlist/mdblist/items.json")
+		b, err := os.ReadFile("../../../test/data/importlist/mdblist/items.json")
 		require.NoError(t, err)
 		_, _ = w.Write(b)
 	}))
@@ -54,7 +54,7 @@ func TestFetchFiltersByMediaType(t *testing.T) {
 
 func TestFetchFiltersByMediaTypeSeries(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		b, err := os.ReadFile("../../../testdata/importlist/mdblist/items.json")
+		b, err := os.ReadFile("../../../test/data/importlist/mdblist/items.json")
 		require.NoError(t, err)
 		_, _ = w.Write(b)
 	}))

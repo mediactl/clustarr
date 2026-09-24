@@ -52,21 +52,21 @@ import (
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
-	"github.com/mediactl/clustarr/captionarr"
-	"github.com/mediactl/clustarr/catalogarr"
-	"github.com/mediactl/clustarr/catalogarr/history"
-	"github.com/mediactl/clustarr/grabarr"
-	"github.com/mediactl/clustarr/importarr"
-	importlistworker "github.com/mediactl/clustarr/importarr/worker/importlist"
-	"github.com/mediactl/clustarr/indexarr"
-	"github.com/mediactl/clustarr/indexarr/bundle"
+	captionarr "github.com/mediactl/clustarr/app/caption"
+	catalogarr "github.com/mediactl/clustarr/app/catalog"
+	"github.com/mediactl/clustarr/app/catalog/history"
+	grabarr "github.com/mediactl/clustarr/app/grab"
+	importarr "github.com/mediactl/clustarr/app/import"
+	importlistworker "github.com/mediactl/clustarr/app/import/worker/importlist"
+	indexarr "github.com/mediactl/clustarr/app/indexer"
+	"github.com/mediactl/clustarr/app/indexer/bundle"
+	squasharr "github.com/mediactl/clustarr/app/squash"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
-	"github.com/mediactl/clustarr/squasharr"
 	"github.com/mediactl/clustarr/ui"
 )
 
@@ -571,7 +571,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 				// all` loads one: from $CLUSTARR_CARDIGANN_DEFINITIONS_DIR
 				// (X14, --cardigann-definitions-dir).
 				bundleDir := t.TempDir()
-				def, err := os.ReadFile("../../testdata/cardigann/1337x.yml")
+				def, err := os.ReadFile("../../test/data/cardigann/1337x.yml")
 				if err != nil {
 					t.Fatalf("read the bundle fixture: %v", err)
 				}

@@ -32,11 +32,11 @@ import (
 )
 
 func TestIsPartMatchesTheAnacrolixPartSuffix(t *testing.T) {
-	require.True(t, fsops.IsPart("../../testdata/fsops/classify/Movie.Title.2024.1080p.WEB-DL.mkv.part"))
-	require.False(t, fsops.IsPart("../../testdata/fsops/classify/Movie.Title.2024.1080p.WEB-DL.mkv"))
+	require.True(t, fsops.IsPart("../../test/data/fsops/classify/Movie.Title.2024.1080p.WEB-DL.mkv.part"))
+	require.False(t, fsops.IsPart("../../test/data/fsops/classify/Movie.Title.2024.1080p.WEB-DL.mkv"))
 }
 
-const fixtureRoot = "../../testdata/fsops/classify"
+const fixtureRoot = "../../test/data/fsops/classify"
 
 func TestIsExtraMatchesAKnownExtrasFolder(t *testing.T) {
 	require.True(t, fsops.IsExtra(fsops.KindVideo, fixtureRoot, fixtureRoot+"/behind the scenes/short-clip.mkv"))

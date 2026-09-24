@@ -6,7 +6,7 @@ signature. File:line references are to the working tree at that commit.
 
 **Scope.** `pkg/torznab`, `pkg/newznab`, `pkg/cardigann`, `pkg/ratelimit`, the
 indexer-relevant part of `pkg/release`; plus the three contract questions about
-`catalogarr/worker/search`, `catalogarr/worker/rssmatcher` and the repo's
+`app/catalog/worker/search`, `app/catalog/worker/rssmatcher` and the repo's
 outbound-HTTP conventions.
 
 ---
@@ -37,7 +37,7 @@ Six things the plan author must not get wrong:
    valuable finding in this note.**
 5. **`pkg/cardigann` embeds only the JSON schema, not any indexer definitions.**
    `//go:embed schema.json` is the only embed (`pkg/cardigann/schema.go:31`).
-   `1337x.yml` and `0dayfiles-api.yml` live in `testdata/cardigann/` and are test
+   `1337x.yml` and `0dayfiles-api.yml` live in `test/data/cardigann/` and are test
    fixtures. Sourcing the definition corpus is unbuilt work.
 6. **`torznab.WithRateLimit` does not take a `ratelimit.Limiter`.** It takes
    `(rate.Limit, int)` from `golang.org/x/time/rate` and constructs a private
@@ -316,7 +316,7 @@ func WriteResults(w io.Writer, rels []Release) error   // exact inverse of Parse
 func WriteError(w io.Writer, err *Error) error         // exact inverse of ParseError
 ```
 These are what `indexarr`'s facade (`DefaultFacadeBindAddress = ":9696"`,
-`indexarr/run.go:56`) serves. `WriteResults`' doc notes it round-trips a `Release`
+`app/indexer/run.go:56`) serves. `WriteResults`' doc notes it round-trips a `Release`
 *including its raw `Attrs`*, "because every typed field is written from the
 original wire string in `Release.Attrs` whenever one is available and only falls
 back to reformatting the typed value when it is not (a Release built without going
@@ -401,7 +401,7 @@ Package doc, verbatim:
 
 **Definition-format version: v11**, enforced by `schema.json` (33.5 KB, embedded at
 `pkg/cardigann/schema.go:31` via `//go:embed schema.json`). A byte-identical copy
-lives at `testdata/cardigann/schema-v11.json` and
+lives at `test/data/cardigann/schema-v11.json` and
 `EmbeddedSchemaForTest() []byte` exists solely to assert the two never drift.
 
 ### 3.1 Load and validate
@@ -896,7 +896,7 @@ follows is the precise boundary, so the plan can state it without hand-waving:
 | `IndexerProxy` → SOCKS5 / FlareSolverr `http.RoundTripper` | `Engine.Proxy` doc, `engine.go:35-37`: *"built and owned entirely outside this package, which never dials a proxy itself"* |
 | Cloudflare challenge solving | `CloudflareChallengeError` doc, `engine.go:58-61`: *"that is IndexerProxy's FlareSolverr client, **a later indexarr task**"* |
 | `IndexerDefinition.spec.yaml` ingestion | `Load` doc: *"the indexer controller calls it once per IndexerDefinition.spec.yaml and once per bundled definition at startup"* — no such controller exists |
-| Sourcing the definition corpus | Only `schema.json` is embedded (`schema.go:31`); `1337x.yml`/`0dayfiles-api.yml` are `testdata/` fixtures |
+| Sourcing the definition corpus | Only `schema.json` is embedded (`schema.go:31`); `1337x.yml`/`0dayfiles-api.yml` are `test/data/` fixtures |
 | `DefinitionType` ↔ CRD camelCase mapping | `DefinitionType` doc: *"NOT the IndexerDefinitionStatus CRD's camelCase equivalent; the indexer controller maps between them"* |
 | Captcha solving | `CaptchaRequiredError` doc: *"pkg/cardigann never solves captchas"* |
 | `clustarr-indexer-sessions` KV mirroring | `ErrSessionRequired` doc names the intended flow (login once → owned Secret → KV bucket → reconstructed `Session`), which does not exist |
@@ -1084,7 +1084,7 @@ So `indexarr` must fill, by hand, from the wire release:
 
 And it must **not** fill `FormatScore` / `MatchedFormats`: those are written by
 `pkg/decision.Evaluate` on the consumer side
-(`catalogarr/worker/rssmatcher/handler.go:270-272`: *"Decision.Release already
+(`app/catalog/worker/rssmatcher/handler.go:270-272`: *"Decision.Release already
 carries the resolved FormatScore and MatchedFormats — pkg/decision.Evaluate writes
 both onto it before scoring — so there is nothing to fold back on"*).
 
@@ -1117,7 +1117,7 @@ func SizePerMinuteCentiMB(sizeBytes int64, runtimeMinutes int32) int64 // -1 for
 
 `CleanTitle` is *"the key pkg/decision and the metadata gateway match parsed titles
 against inventory titles with"* — and it is what
-`rssmatcher.TitleYearKey` calls (`catalogarr/worker/rssmatcher/index.go:104`). Use
+`rssmatcher.TitleYearKey` calls (`app/catalog/worker/rssmatcher/index.go:104`). Use
 `CleanTitle`, never `Normalize`, for equality.
 
 `Fingerprint()` is *"a deterministic 16-hex-char sha256 prefix of
@@ -1197,7 +1197,7 @@ but not confuse with these:
   `NotImplementedError{Provider, TODO}` that `Unwrap()`s to it. This is the
   *pattern* for deferred import-list providers (tmdb, custom, arr per spec §17);
   the `indexarr` path does not touch it.
-- `catalogarr/controller/metadataprovider/prober.go:146,180` — a deliberate
+- `app/catalog/controller/metadataprovider/prober.go:146,180` — a deliberate
   Phase-C prober stub that returns `metadata.ErrUnsupported` without a call.
 
 ### 6.3 `pkg/cardigann`'s real gap list — decoded, exposed, never read
@@ -1260,13 +1260,13 @@ That is the complete list. `pkg/torznab`, `pkg/newznab`, `pkg/ratelimit` and
 
 ## 7. The three contract questions
 
-### 7.1 How `catalogarr/worker/search` calls the indexer RPC
+### 7.1 How `app/catalog/worker/search` calls the indexer RPC
 
 **The caller already ships. This is the contract `indexarr` must satisfy exactly.**
 
 #### The interface
 
-`catalogarr/worker/search/rpc.go:38-45`:
+`app/catalog/worker/search/rpc.go:38-45`:
 
 ```go
 // SearchRPC is the federated-search half of clustarr.rpc.indexarr.search that
@@ -1308,7 +1308,7 @@ The responder side is `events.Requester.Serve` (`pkg/events/bus.go:159-161`):
 Serve(subject, queue string, h func(ctx context.Context, data []byte) ([]byte, error)) error
 ```
 
-There is a working example to copy at `catalogarr/metadata/rpc.go:57-91`
+There is a working example to copy at `app/catalog/metadata/rpc.go:57-91`
 (`ServeRPC`): one `bus.Serve` per subject, each handler opening its own span
 (`tracing.Start(ctx, "metadata.rpc.serve."+verb)`), `json.Unmarshal` the request,
 call, `tracing.RecordError` on a non-empty `resp.Error`, `json.Marshal` the
@@ -1321,7 +1321,7 @@ part of Phase C.
 
 #### The exact request built
 
-`SearchDeadline` (`catalogarr/worker/search/request.go:29-31`):
+`SearchDeadline` (`app/catalog/worker/search/request.go:29-31`):
 
 ```go
 // SearchDeadline is the RPC deadline every federated search carries. Spec §5's
@@ -1329,15 +1329,15 @@ part of Phase C.
 const SearchDeadline = 45 * time.Second
 ```
 
-**There is no `context.WithTimeout` anywhere in `catalogarr/worker/search`.** The
+**There is no `context.WithTimeout` anywhere in `app/catalog/worker/search`.** The
 deadline is transmitted as data only, in `SearchRequest.DeadlineMillis = 45000`.
 Verified:
 
 ```
-$ grep -n 'context.WithTimeout\|WithDeadline\|SearchDeadline' catalogarr/worker/search/*.go
-catalogarr/worker/search/request.go:29  // SearchDeadline is the RPC deadline ...
-catalogarr/worker/search/request.go:31  const SearchDeadline = 45 * time.Second
-catalogarr/worker/search/request.go:69  DeadlineMillis: SearchDeadline.Milliseconds(),
+$ grep -n 'context.WithTimeout\|WithDeadline\|SearchDeadline' app/catalog/worker/search/*.go
+app/catalog/worker/search/request.go:29  // SearchDeadline is the RPC deadline ...
+app/catalog/worker/search/request.go:31  const SearchDeadline = 45 * time.Second
+app/catalog/worker/search/request.go:69  DeadlineMillis: SearchDeadline.Milliseconds(),
 ```
 
 The outer bound is therefore the consumer's `AckWait`: `ConsumerCatalogSearchHigh`
@@ -1517,7 +1517,7 @@ not `indexarr`'s, but it means a slow `indexarr` delays the per-item backoff sta
 `Response`, `Err`, and `Requests() []schema.SearchRequest`. `indexarr`'s own tests
 can assert against the same double.
 
-### 7.2 How `catalogarr/worker/rssmatcher` consumes the firehose
+### 7.2 How `app/catalog/worker/rssmatcher` consumes the firehose
 
 #### Subject filter and consumer tuning
 
@@ -1575,7 +1575,7 @@ JSON-encoded `schema.Release`. Use `schema.Encode(p Payload) (schema string, dat
 
 #### **What it requires of `Envelope.Key` — the quote the brief asks for**
 
-`catalogarr/worker/rssmatcher/handler.go:166-174`, verbatim:
+`app/catalog/worker/rssmatcher/handler.go:166-174`, verbatim:
 
 ```go
 // Every catalogarr consumer splits the envelope key on "/" for its
@@ -1768,7 +1768,7 @@ filing as a separate finding against `pkg/metadata`; it is out of scope here.)
 
 ### 8.1 `indexarr` today
 
-`indexarr/run.go` is the only file in the package. It is a complete service
+`app/indexer/run.go` is the only file in the package. It is a complete service
 skeleton with empty registration points:
 
 ```go

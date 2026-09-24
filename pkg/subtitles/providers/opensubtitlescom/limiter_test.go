@@ -44,7 +44,7 @@ import (
 
 func readLoginFixture(t *testing.T) []byte {
 	t.Helper()
-	b, err := os.ReadFile("../../../../testdata/subtitles/opensubtitles/login.json")
+	b, err := os.ReadFile("../../../../test/data/subtitles/opensubtitles/login.json")
 	require.NoError(t, err)
 	return b
 }

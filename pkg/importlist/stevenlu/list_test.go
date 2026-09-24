@@ -32,7 +32,7 @@ import (
 
 func TestFetchParsesPopularMovies(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		b, err := os.ReadFile("../../../testdata/importlist/stevenlu/movies.json")
+		b, err := os.ReadFile("../../../test/data/importlist/stevenlu/movies.json")
 		require.NoError(t, err)
 		_, _ = w.Write(b)
 	}))

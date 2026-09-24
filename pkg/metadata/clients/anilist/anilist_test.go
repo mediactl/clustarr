@@ -36,7 +36,7 @@ import (
 
 // Live AniList responses captured 2026-09-23 for the very queries the
 // client sends.
-const fixtures = "../../../../testdata/metadata/anilist/"
+const fixtures = "../../../../test/data/metadata/anilist/"
 
 var opName = regexp.MustCompile(`^query (\w+)`)
 

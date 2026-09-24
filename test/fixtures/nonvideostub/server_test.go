@@ -34,7 +34,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/metadata/clients/openlibrary"
 )
 
-const recordedDir = "../../../testdata/metadata"
+const recordedDir = "../../data/metadata"
 
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))

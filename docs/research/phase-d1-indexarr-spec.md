@@ -10,9 +10,9 @@ Sources read in full or in the cited ranges:
 - `api/index/v1alpha1/{indexer,indexerdefinition,indexerproxy}_types.go`
 - `pkg/events/{subjects,topology,bus,envelope}.go`, `pkg/events/schema/index.go`
 - `pkg/events/natsbus/natsbus.go`
-- `catalogarr/worker/rssmatcher/*`, `catalogarr/worker/search/{rpc,request}.go`
+- `app/catalog/worker/rssmatcher/*`, `app/catalog/worker/search/{rpc,request}.go`
 - `docs/research/indexers.md`, `docs/research/queue.md`, `docs/adr/0003-*`
-- `indexarr/run.go`, `config/manager/indexarr.yaml`, `config/default/pvc.yaml`,
+- `app/indexer/run.go`, `config/manager/indexarr.yaml`, `config/default/pvc.yaml`,
   `charts/clustarr/values.yaml`, `config/rbac/role.yaml`, `go.mod`
 - `docs/superpowers/plans/2026-09-18-remaining-work.md`
 
@@ -46,7 +46,7 @@ Sources read in full or in the cited ranges:
 
 ### 1.3 Spec §2 naming (design.md:38, :40, :41, :42)
 
-- Service dir / subcommand: `indexarr/`
+- Service dir / subcommand: `app/indexer/`
 - Image: `ghcr.io/mediactl/clustarr` — **"distroless static; indexarr"**
   (design.md:40). This is the ADR-0003 constraint on the SQLite driver.
 - LeaderElectionID: `<service>.clustarr.io` → `indexarr.clustarr.io`
@@ -54,11 +54,11 @@ Sources read in full or in the cited ranges:
   (design.md:42; enumerated and enforced at `pkg/k8s/fieldmanager.go:154`,
   `FieldManagers()` at `:145`, `Valid()` at `:168`). See §12.6.
 
-### 1.4 Already-shipped skeleton — `indexarr/run.go`
+### 1.4 Already-shipped skeleton — `app/indexer/run.go`
 
 | Symbol | Value | Line |
 |---|---|---|
-| `ServiceName` | `"indexarr"` | `indexarr/run.go:45` |
+| `ServiceName` | `"indexarr"` | `app/indexer/run.go:45` |
 | `LeaderElectionID` | `ServiceName + ".clustarr.io"` | `:48` |
 | `DefaultIndexPath` | `"/index/releases.db"` | `:52` |
 | `DefaultFacadeBindAddress` | `":9696"` | `:56` |
@@ -88,13 +88,13 @@ bus)})` → `setupControllers` → `setupWorkers` → `mgr.Start`.
 The two registration points are **empty**:
 
 ```go
-// indexarr/run.go:216
+// app/indexer/run.go:216
 func setupControllers(mgr ctrl.Manager, o Options) error { _, _ = mgr, o; return nil }
-// indexarr/run.go:230
+// app/indexer/run.go:230
 func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error { _, _, _ = mgr, bus, o; return nil }
 ```
 
-Their TODOs are the M2 work list, verbatim (`indexarr/run.go:212-215`,
+Their TODOs are the M2 work list, verbatim (`app/indexer/run.go:212-215`,
 `:225-229`):
 
 > TODO(M2): indexer -- validate the definition, probe caps, test login, own the
@@ -111,7 +111,7 @@ Their TODOs are the M2 work list, verbatim (`indexarr/run.go:212-215`,
 > TODO(M6): the Cardigann engine and the Torznab facade on o.FacadeBindAddress.
 > (§6.2, §16 M6)
 
-And the readiness TODO (`indexarr/run.go:185-187`):
+And the readiness TODO (`app/indexer/run.go:185-187`):
 
 > TODO(M2): add a "releaseindex" readiness check tied to the SQLite handle being
 > open, per §13. Until the store exists the JetStream ping is the whole
@@ -124,7 +124,7 @@ And the readiness TODO (`indexarr/run.go:185-187`):
 `docs/superpowers/specs/2026-09-18-clustarr-design.md:620-621`, reproduced
 **verbatim** (this is the paragraph the plan argues from):
 
-> ### 6.2 indexarr (`indexarr/`, `clustarr indexarr --role all`, exactly one replica)
+> ### 6.2 indexarr (`app/indexer/`, `clustarr indexarr --role all`, exactly one replica)
 >
 > **Controllers:** `indexer` (validate definition/generic, probe caps, login
 > test, owned session Secret, schedule RSS via `WithScheduleAt` on
@@ -142,7 +142,7 @@ And the readiness TODO (`indexarr/run.go:185-187`):
 > `RecordSuccess/RecordFailure`. `rpc.indexarr.download` resolves links with the
 > indexer session. **RSS worker:** `t=search` empty q per Indexer, insert new
 > rows (UNIQUE(indexer, guid)), publish each new row to `CLUSTARR_RELEASES`.
-> **Release index:** `indexarr/releaseindex.Store` interface; SQLite
+> **Release index:** `app/indexer/releaseindex.Store` interface; SQLite
 > (modernc.org/sqlite, WAL, FTS5 on `title_norm, grp`) on PVC `clustarr-index`
 > (RWO, 5Gi), columns from `pkg/release` (source, resolution, modifier, codec,
 > hdr, audio, languages, group, year, season, episode, ids), `expires_at` sweep
@@ -182,7 +182,7 @@ Decomposed into obligations:
 **RSS worker (M2):** `t=search` with an empty `q` per Indexer; insert new rows
 with `UNIQUE(indexer, guid)`; publish each new row to `CLUSTARR_RELEASES`.
 
-**Release index (M2):** interface named **`indexarr/releaseindex.Store`**;
+**Release index (M2):** interface named **`app/indexer/releaseindex.Store`**;
 SQLite `modernc.org/sqlite`, WAL, **FTS5 on `title_norm, grp`**; PVC
 `clustarr-index` RWO 5Gi; columns from `pkg/release`; `expires_at` sweep every
 **10 min**, retention **72h**; readiness tied to the DB open.
@@ -720,9 +720,9 @@ Key implementation facts (`pkg/events/natsbus/natsbus.go`):
   string) and `Nats-Service-Error-Code: 500` (`:389-394`), which the client
   surfaces as an error from `Request`.
 
-### 5.6 The existing caller — `catalogarr/worker/search`
+### 5.6 The existing caller — `app/catalog/worker/search`
 
-`catalogarr/worker/search/rpc.go:38-45`, verbatim:
+`app/catalog/worker/search/rpc.go:38-45`, verbatim:
 
 > SearchRPC is the federated-search half of clustarr.rpc.indexarr.search that
 > this package depends on. **indexarr (Phase D) MUST serve that subject with
@@ -756,7 +756,7 @@ func NewBusSearchRPC(r events.Requester) SearchRPC   // rpc.go:56
   > literal wording.
 - `FakeSearchRPC` (`rpc.go:74-97`) exists and is exported for tests.
 
-`catalogarr/worker/search/worker.go:544` `releaseInfos([]schema.Release)
+`app/catalog/worker/search/worker.go:544` `releaseInfos([]schema.Release)
 []commonv1.ReleaseInfo` — the search path only consumes `Release.Info`; the
 parsed fields matter for the RSS path (§6).
 
@@ -863,7 +863,7 @@ full nested payload indexarr must fill:
 
 ### 6.4 Who consumes it, and the `Envelope.Key` convention — **CONFIRMED**
 
-`catalogarr/worker/rssmatcher` is the consumer, durable
+`app/catalog/worker/rssmatcher` is the consumer, durable
 `events.ConsumerCatalogRSSMatcher = "catalogarr-rss-matcher"`
 (`subjects.go:74`), on `StreamReleases` with filter `FilterAllReleases =
 "clustarr.rel.>"` (`subjects.go:52`).
@@ -872,7 +872,7 @@ full nested payload indexarr must fill:
 `events.Default().Consumer(events.ConsumerCatalogRSSMatcher)` rather than
 restating it.
 
-**The key convention, verbatim** (`catalogarr/worker/rssmatcher/handler.go:167-174`):
+**The key convention, verbatim** (`app/catalog/worker/rssmatcher/handler.go:167-174`):
 
 ```go
 // Every catalogarr consumer splits the envelope key on "/" for its
@@ -907,7 +907,7 @@ if !ok || ns == "" {
 
 ### 6.5 Which `schema.Release` fields the matcher actually reads
 
-From `catalogarr/worker/rssmatcher/match.go` and `handler.go` — indexarr must
+From `app/catalog/worker/rssmatcher/match.go` and `handler.go` — indexarr must
 populate all of these or matching silently fails:
 
 | Field | Read at | Used for |
@@ -943,12 +943,12 @@ ctx, span := tracing.Start(ctx, "rssmatcher.Handler.Handle")
 ```
 
 **indexarr must call `tracing.Inject(ctx, env)` before every `Publish`**, the
-same way `catalogarr/worker/grab/perform.go:364` does, or the RSS leg of every
+same way `app/catalog/worker/grab/perform.go:364` does, or the RSS leg of every
 trace is orphaned.
 
 ### 6.7 Envelope template for a published release
 
-Following `catalogarr/worker/grab/perform.go:355-366`:
+Following `app/catalog/worker/grab/perform.go:355-366`:
 
 ```go
 env := &events.Envelope{
@@ -975,7 +975,7 @@ error` — `schema/schema.go:79`, with an empty schema skipping the check.
 
 ### 7.1 What the spec requires (design.md:621)
 
-Verbatim: "**Release index:** `indexarr/releaseindex.Store` interface; SQLite
+Verbatim: "**Release index:** `app/indexer/releaseindex.Store` interface; SQLite
 (modernc.org/sqlite, WAL, FTS5 on `title_norm, grp`) on PVC `clustarr-index`
 (RWO, 5Gi), columns from `pkg/release` (source, resolution, modifier, codec,
 hdr, audio, languages, group, year, season, episode, ids), `expires_at` sweep
@@ -984,7 +984,7 @@ swap."
 
 Broken out:
 
-- **Package:** `indexarr/releaseindex`, exporting a `Store` interface.
+- **Package:** `app/indexer/releaseindex`, exporting a `Store` interface.
 - **Engine:** SQLite via `modernc.org/sqlite`; **WAL**; **FTS5 over
   `title_norm` and `grp`**.
 - **Volume:** PVC `clustarr-index`, RWO, 5Gi.
@@ -1259,7 +1259,7 @@ GrabLimit**" there. See §12.3 — these three are not consistent.
 `schema.ReleaseEvent` (`pkg/events/schema/catalog.go:85-122`, schema string
 `"catalog.ReleaseEvent.v1"`) carries `IndexerRef *Ref` (`:99`) and `Indexer
 string` (`:96`), so it *is* consumable for accounting. It is published today by
-`catalogarr/worker/grab/perform.go:365` with envelope `Key: ns + "/" +
+`app/catalog/worker/grab/perform.go:365` with envelope `Key: ns + "/" +
 target.Name` (`perform.go:360`) — i.e. keyed by the **media item**, not the
 indexer.
 
@@ -1503,7 +1503,7 @@ The **release** stream (indexarr's publish target), `topology.go:400-411`:
 lives in one place.
 
 > **Inconsistency already flagged in the plan** (remaining-work.md:1112): the
-> catalogarr subscriptions read `events.Default()` while `importarr/run.go`
+> catalogarr subscriptions read `events.Default()` while `app/import/run.go`
 > reads `o.BusTopology()`. "Benign only because `ForSingleNode` never touches
 > `Consumers` — an invariant nothing enforces." Pick one and be consistent.
 
@@ -1578,7 +1578,7 @@ amendment A2.3 `:258`).
 `config/rbac/role.yaml` is a **single shared Role**. Grep results:
 
 - `index.clustarr.io` → `indexers`, verbs `get;list;watch` only
-  (`config/rbac/role.yaml:127-133`). That grant exists for catalogarr/grabarr
+  (`config/rbac/role.yaml:127-133`). That grant exists for app/catalog/grabarr
   readers.
 - `secrets` is granted (`role.yaml:10`).
 - **`indexerdefinitions` and `indexerproxies` are absent. `indexers/status` is
@@ -1734,7 +1734,7 @@ Mapping notes for that function:
 - `schema.Release.Kind` = `release.ClassifyKind(title)` or the pinned
   `Options.Kind`.
 - `ReleaseInfo.FormatScore` / `MatchedFormats` are **left zero by indexarr**;
-  `pkg/decision.Evaluate` computes them (`catalogarr/worker/grab/perform.go:270-272`:
+  `pkg/decision.Evaluate` computes them (`app/catalog/worker/grab/perform.go:270-272`:
   "Decision.Release already carries the resolved FormatScore and MatchedFormats
   -- pkg/decision.Evaluate writes both onto it before scoring").
 - `ReleaseInfo.PublishedAt` is `*metav1.Time` and must stay nil when the
@@ -1755,7 +1755,7 @@ Phase C's lesson was that each of these costs a fix round. Eight found.
 
 ### 12.1 `DefaultIndexPath` contradicts every manifest — **live conflict**
 
-`indexarr/run.go:52` sets `DefaultIndexPath = "/index/releases.db"`, but:
+`app/indexer/run.go:52` sets `DefaultIndexPath = "/index/releases.db"`, but:
 
 - `config/manager/indexarr.yaml:84-85` sets
   `CLUSTARR_INDEX_PATH=/var/lib/clustarr/index/releases.db`
@@ -1771,12 +1771,12 @@ constant is a never-used fallback. Do not leave two answers.
 
 ### 12.2 Facade port: `:9696` in code, `8080` everywhere else — **live conflict**
 
-`indexarr/run.go:56`: `DefaultFacadeBindAddress = ":9696"` (Prowlarr's port).
+`app/indexer/run.go:56`: `DefaultFacadeBindAddress = ":9696"` (Prowlarr's port).
 But `config/manager/indexarr.yaml:28-30,87-89` and
 `charts/clustarr/values.yaml:229` both use **8080**, and the Service's
 `targetPort` is the named port `http` → containerPort 8080. Nothing passes a
 `--facade-bind-address` flag (no such flag is wired in `cmd/clustarr`; grep
-found only the field, `indexarr/run.go:96-97`). As shipped, the facade would
+found only the field, `app/indexer/run.go:96-97`). As shipped, the facade would
 bind 9696 while the Service routes 8080 — the facade would be unreachable.
 The facade is M6, so this can be fixed in D1 cheaply or deferred **with a
 recorded decision**.
@@ -1917,7 +1917,7 @@ the 24h/2h TTLs.
 - **`SearchRequest` has no `Absolute` field** and no "fresh/bypass-cache" flag,
   though §8.2 describes "tvdb plus season/episode/absolute". The absolute case
   is already resolved by convention at
-  `catalogarr/worker/search/request.go:59-64` (absolute goes in `Episode`,
+  `app/catalog/worker/search/request.go:59-64` (absolute goes in `Episode`,
   `Season` nil). **The generated payload type wins.**
 - **No production code calls `events.ReleaseSubject` yet** — only tests
   (`pkg/events/events_test.go:193`, `pkg/events/membus/membus_test.go:93,97`).
@@ -1989,7 +1989,7 @@ metric names and readiness wording, **A2 wins**.
 > - **D1 — `indexarr` (M2).** Generic Torznab/Newznab, caps, health, backoff,
 >   the SQLite FTS5 release index, the RSS worker, and the three RPC verbs
 >   `rpc.indexarr.search|download|query`. **Lands e2e scenarios 2, 3 and 4.**
->   This is what makes Phase C's search path live: `catalogarr/worker/search`
+>   This is what makes Phase C's search path live: `app/catalog/worker/search`
 >   already calls `rpc.indexarr.search` and today reaches no server.
 
 `:887-888`: "The fixture image grows in the phase that needs it: **the

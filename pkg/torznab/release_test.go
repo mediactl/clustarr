@@ -30,7 +30,7 @@ import (
 )
 
 func TestParseItemWithAttrs(t *testing.T) {
-	rels := parseResultsFile(t, "../../testdata/torznab/search_with_attrs.xml")
+	rels := parseResultsFile(t, "../../test/data/torznab/search_with_attrs.xml")
 	require.Len(t, rels, 1)
 	r := rels[0]
 
@@ -62,7 +62,7 @@ func TestParseItemWithAttrs(t *testing.T) {
 }
 
 func TestParseItemWithoutAttrsHasNoPanicAndNilOptionalFields(t *testing.T) {
-	rels := parseResultsFile(t, "../../testdata/torznab/search_without_attrs.xml")
+	rels := parseResultsFile(t, "../../test/data/torznab/search_without_attrs.xml")
 	require.Len(t, rels, 1)
 	r := rels[0]
 
@@ -74,7 +74,7 @@ func TestParseItemWithoutAttrsHasNoPanicAndNilOptionalFields(t *testing.T) {
 }
 
 func TestParseItemToleratesTheNonCanonicalTorznabNamespace(t *testing.T) {
-	rels := parseResultsFile(t, "../../testdata/torznab/namespace_variant.xml")
+	rels := parseResultsFile(t, "../../test/data/torznab/namespace_variant.xml")
 	require.Len(t, rels, 1)
 	require.NotNil(t, rels[0].Seeders)
 	require.Equal(t, int32(4), *rels[0].Seeders)
@@ -82,7 +82,7 @@ func TestParseItemToleratesTheNonCanonicalTorznabNamespace(t *testing.T) {
 }
 
 func TestParseItemUsenetNzbAttrs(t *testing.T) {
-	rels := parseResultsFile(t, "../../testdata/newznab/usenet_search.xml")
+	rels := parseResultsFile(t, "../../test/data/newznab/usenet_search.xml")
 	require.Len(t, rels, 1)
 	r := rels[0]
 	require.Equal(t, "alt.binaries.sounds.flac", r.Group)
@@ -98,7 +98,7 @@ func TestParseItemUsenetNzbAttrs(t *testing.T) {
 // artist/album/author/publisher attrs. They land on typed fields (first value
 // wins) and stay verbatim in Attrs, alongside the attrs with no typed field.
 func TestParseItemNonVideoAttrs(t *testing.T) {
-	rels := parseResultsFile(t, "../../testdata/torznab/nonvideo_search.xml")
+	rels := parseResultsFile(t, "../../test/data/torznab/nonvideo_search.xml")
 	require.Len(t, rels, 2)
 
 	album := rels[0]

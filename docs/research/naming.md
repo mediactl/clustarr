@@ -280,11 +280,11 @@ clustarr/
   go.mod                         # module github.com/mediactl/clustarr
   PROJECT                        # domain: clustarr.io, multigroup: true
   cmd/
-    catalogarr/main.go           # one binary per service (separate scaling + RBAC)
-    indexarr/main.go
-    grabarr/main.go              # controller; workers run the same binary with `worker` subcommand
-    squasharr/main.go
-    captionarr/main.go
+    app/catalog/main.go           # one binary per service (separate scaling + RBAC)
+    app/indexer/main.go
+    app/grab/main.go              # controller; workers run the same binary with `worker` subcommand
+    app/squash/main.go
+    app/caption/main.go
     clustarr/main.go             # optional all-in-one for dev/kind (runs every manager in-process)
   api/
     common/v1alpha1/             # Go-only shared types (no CRDs): MediaRef, QualityModel, Language, Conditions helpers
@@ -294,11 +294,11 @@ clustarr/
     transcode/v1alpha1/          # TranscodeProfile, TranscodeJob
     subtitle/v1alpha1/           # LanguageProfile, SubtitleProvider, SubtitleJob
   internal/
-    catalogarr/{controller,importlist,metadata,naming}/
-    indexarr/{controller,newznab,torznab,cardigann,search,rss}/
-    grabarr/{controller,client/{torrent,usenet,qbittorrent,sabnzbd},importer,queue}/
-    squasharr/{controller,worker,ffmpeg,profile}/
-    captionarr/{controller,provider,scoring,sync}/
+    app/catalog/{controller,importlist,metadata,naming}/
+    app/indexer/{controller,newznab,torznab,cardigann,search,rss}/
+    app/grab/{controller,client/{torrent,usenet,qbittorrent,sabnzbd},importer,queue}/
+    app/squash/{controller,worker,ffmpeg,profile}/
+    app/caption/{controller,provider,scoring,sync}/
     compat/{radarr,sonarr,lidarr,readarr,prowlarr}/   # *arr v3/v1-shaped REST facade (optional, later)
   pkg/                           # importable by other projects
     naming/                      # token engine (Part A2)

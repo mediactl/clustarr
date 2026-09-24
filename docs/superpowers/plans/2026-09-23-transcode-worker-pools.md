@@ -47,14 +47,14 @@ Kubernetes credentials.
 
 - Every new Go file starts with the GPL-3.0 header from `hack/boilerplate.go.txt`.
 - **Status writes:**
-  - All status writes go through `pkg/k8s.PatchStatus` (`squasharr/status.Patch` and
+  - All status writes go through `pkg/k8s.PatchStatus` (`app/squash/status.Patch` and
     `PatchCAS`).
   - `.Status().Update()` and `.Status().Patch()` are banned by forbidigo. The only exception is a
     test that simulates the Job controller or kubelet, with a `//nolint:forbidigo` reason.
 - **One TranscodeJob status write path.** After Task 10, every write to `TranscodeJob.status` goes
   through `(*Reconciler).writeStatus` or `patchCAS`. That means a fresh read through the uncached
   reader, then an apply that carries the read `resourceVersion` (the
-  `catalogarr/worker/grab/kindops.go:181` pattern), under `k8s.ManagerSquasharr`. A Conflict is
+  `app/catalog/worker/grab/kindops.go:181` pattern), under `k8s.ManagerSquasharr`. A Conflict is
   redone from a fresh read, never ignored.
 - **Server-side apply:**
   - Every apply is a complete declaration of everything its manager owns (CLAUDE.md
@@ -126,7 +126,7 @@ covers. Each has a named test in the task that owns it.
 ## Order and ownership
 
 Run the tasks **in order**, one at a time. Several of them edit
-`squasharr/controller/transcodejob/controller.go`, `squasharr/run.go` and `cmd/clustarr`, so no
+`app/squash/controller/transcodejob/controller.go`, `app/squash/run.go` and `cmd/clustarr`, so no
 two tasks run in parallel.
 
 - **Tasks 10 and 11 land back to back.** After Task 10 no pool exists yet, so dispatched tasks
@@ -854,9 +854,9 @@ git commit -m 'feat(events): PullSubscriber and StreamAdmin on natsbus and membu
 ### Task 3: Task, status-event and lease types; `worker.BuildTask`
 
 **Files:**
-- Create: `squasharr/task/task.go`, `squasharr/task/task_test.go`.
-- Create: `squasharr/worker/buildtask.go`, `squasharr/worker/buildtask_test.go`.
-- Modify: `squasharr/worker/profile.go`: add `DefaultActiveDeadline` and `ActiveDeadline`.
+- Create: `app/squash/task/task.go`, `app/squash/task/task_test.go`.
+- Create: `app/squash/worker/buildtask.go`, `app/squash/worker/buildtask_test.go`.
+- Modify: `app/squash/worker/profile.go`: add `DefaultActiveDeadline` and `ActiveDeadline`.
 
 **Interfaces:**
 - Produces:
@@ -885,7 +885,7 @@ git commit -m 'feat(events): PullSubscriber and StreamAdmin on natsbus and membu
 
 - [ ] **Step 1: Write the failing tests**
 
-`squasharr/task/task_test.go`:
+`app/squash/task/task_test.go`:
 
 ```go
 package task_test
@@ -933,7 +933,7 @@ func TestSchemasAreVersioned(t *testing.T) {
 }
 ```
 
-`squasharr/worker/buildtask_test.go` is a pure table test over in-memory objects:
+`app/squash/worker/buildtask_test.go` is a pure table test over in-memory objects:
 
 ```go
 package worker
@@ -1018,10 +1018,10 @@ func TestBuildTask(t *testing.T) {
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `go test ./squasharr/task/ ./squasharr/worker/ -run 'TestTask|TestSchemas|TestBuildTask'`
-Expected: FAIL to compile, "package squasharr/task is not in std".
+Run: `go test ./app/squash/task/ ./app/squash/worker/ -run 'TestTask|TestSchemas|TestBuildTask'`
+Expected: FAIL to compile, "package app/squash/task is not in std".
 
-- [ ] **Step 3: Write `squasharr/task/task.go`**
+- [ ] **Step 3: Write `app/squash/task/task.go`**
 
 ```go
 // Package task holds what crosses NATS between squasharr and its transcode
@@ -1157,7 +1157,7 @@ type Lease struct {
 func (Lease) Schema() string { return "transcode.Lease.v1" }
 ```
 
-- [ ] **Step 4: Write `squasharr/worker/buildtask.go` and the deadline accessor**
+- [ ] **Step 4: Write `app/squash/worker/buildtask.go` and the deadline accessor**
 
 In `profile.go`, add the deadline accessor beside `MinDuration`:
 
@@ -1244,14 +1244,14 @@ planned with (`ProfileSpec(spec, &class)`). Add this assertion to `TestBuildTask
 
 - [ ] **Step 5: Run the tests**
 
-Run: `go test ./squasharr/task/ ./squasharr/worker/`
+Run: `go test ./app/squash/task/ ./app/squash/worker/`
 Expected: PASS. Envtest and ffmpeg suites skip without their assets; that is fine for this step.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add squasharr/task squasharr/worker/buildtask.go squasharr/worker/buildtask_test.go squasharr/worker/profile.go
-git commit -m 'feat(squasharr): task, status-event and lease types; BuildTask resolves what the worker used to read' -- squasharr/task squasharr/worker/buildtask.go squasharr/worker/buildtask_test.go squasharr/worker/profile.go
+git add app/squash/task app/squash/worker/buildtask.go app/squash/worker/buildtask_test.go app/squash/worker/profile.go
+git commit -m 'feat(squasharr): task, status-event and lease types; BuildTask resolves what the worker used to read' -- app/squash/task app/squash/worker/buildtask.go app/squash/worker/buildtask_test.go app/squash/worker/profile.go
 ```
 
 ---
@@ -1263,8 +1263,8 @@ git commit -m 'feat(squasharr): task, status-event and lease types; BuildTask re
   print columns, and docs.
 - Modify: `api/transcode/v1alpha1/transcodeprofile_types.go`: the `Hardware` enum and default,
   plus docs for `ActiveDeadline` and `TTLSecondsAfterFinished`.
-- Modify: `squasharr/worker/profile.go`, so `ProfileSpec` resolves `auto`.
-- Test: `squasharr/worker/unit_test.go`.
+- Modify: `app/squash/worker/profile.go`, so `ProfileSpec` resolves `auto`.
+- Test: `app/squash/worker/unit_test.go`.
 - Generated: `zz_generated.deepcopy.go`, `api/applyconfiguration/transcode/v1alpha1/*`, and
   `config/crd/bases/transcode.clustarr.io_transcode{jobs,profiles}.yaml`.
 
@@ -1283,7 +1283,7 @@ git commit -m 'feat(squasharr): task, status-event and lease types; BuildTask re
 
 - [ ] **Step 1: Write the failing test**
 
-In `squasharr/worker/unit_test.go`:
+In `app/squash/worker/unit_test.go`:
 
 ```go
 // An auto profile with no class chosen yet plans for CPU. Its profile hash is
@@ -1301,7 +1301,7 @@ func TestProfileSpecResolvesAutoToCPU(t *testing.T) {
 }
 ```
 
-Run: `go test ./squasharr/worker/ -run TestProfileSpecResolvesAutoToCPU`
+Run: `go test ./app/squash/worker/ -run TestProfileSpecResolvesAutoToCPU`
 Expected: FAIL to compile, "undefined: transcodev1alpha1.HardwareAuto".
 
 - [ ] **Step 2: Edit the types**
@@ -1366,7 +1366,7 @@ Add two print columns to the `TranscodeJob` type's markers (lines 314-320):
 
 - [ ] **Step 3: Resolve `auto` in `worker.ProfileSpec`**
 
-In `squasharr/worker/profile.go:46`, where the effective hardware is computed (an override, else
+In `app/squash/worker/profile.go:46`, where the effective hardware is computed (an override, else
 `spec.Hardware`), resolve `auto` before converting:
 
 ```go
@@ -1383,15 +1383,15 @@ Use `hw` wherever the function used the override or the spec value.
 
 - [ ] **Step 4: Regenerate and verify**
 
-Run: `make generate manifests && go test ./squasharr/worker/ ./pkg/crdcheck/... ./api/... ./squasharr/controller/transcodeprofile/...`
+Run: `make generate manifests && go test ./app/squash/worker/ ./pkg/crdcheck/... ./api/... ./app/squash/controller/transcodeprofile/...`
 Expected: PASS, with `KUBEBUILDER_ASSETS` exported. `TestNoCRDDefaultIsUnreachableFromGo` holds:
 `hardware` is an `omitempty` string, so a Go zero gets `auto`, and an explicit `cpu` survives.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add api/transcode config/crd api/applyconfiguration squasharr/worker/profile.go squasharr/worker/unit_test.go
-git commit -m 'feat(api): TranscodeJob workerPod, hardware, fallbackReason, nextAttemptAt and Blocked; hardware auto is the default' -- api/transcode config/crd api/applyconfiguration squasharr/worker/profile.go squasharr/worker/unit_test.go
+git add api/transcode config/crd api/applyconfiguration app/squash/worker/profile.go app/squash/worker/unit_test.go
+git commit -m 'feat(api): TranscodeJob workerPod, hardware, fallbackReason, nextAttemptAt and Blocked; hardware auto is the default' -- api/transcode config/crd api/applyconfiguration app/squash/worker/profile.go app/squash/worker/unit_test.go
 ```
 
 ---
@@ -1399,18 +1399,18 @@ git commit -m 'feat(api): TranscodeJob workerPod, hardware, fallbackReason, next
 ### Task 5: The worker package stops talking to Kubernetes
 
 The encode, verify and swap sequence becomes `worker.Process(ctx, task.Task, Options) Outcome`.
-The old `worker.Run(ctx, client, Options)` moves to `squasharr/run.go` as a short transitional
+The old `worker.Run(ctx, client, Options)` moves to `app/squash/run.go` as a short transitional
 adapter; Task 10 deletes it. The envtests are rewritten to call `Process` on a task built by the
 real `BuildTask` from real, apiserver-defaulted CRs, so their inputs come from the real producer.
 
 **Files:**
-- Create: `squasharr/worker/process.go`.
-- Modify: `squasharr/worker/run.go`: `runner` works from a `task.Task`, and `Run` is removed from
+- Create: `app/squash/worker/process.go`.
+- Modify: `app/squash/worker/run.go`: `runner` works from a `task.Task`, and `Run` is removed from
   this package.
-- Modify: `squasharr/run.go`: `runWorker` does its own Gets and status apply around `Process`.
-- Modify: `squasharr/worker/worker_envtest_test.go`, `squasharr/worker/telemetry_test.go`: call
+- Modify: `app/squash/run.go`: `runWorker` does its own Gets and status apply around `Process`.
+- Modify: `app/squash/worker/worker_envtest_test.go`, `app/squash/worker/telemetry_test.go`: call
   `Process`.
-- Test: `squasharr/worker/imports_test.go`.
+- Test: `app/squash/worker/imports_test.go`.
 
 **Interfaces:**
 - Consumes: `task.Task`, `worker.BuildTask` (Task 3).
@@ -1430,7 +1430,7 @@ real `BuildTask` from real, apiserver-defaulted CRs, so their inputs come from t
 
 - [ ] **Step 1: Write the failing import guard**
 
-`squasharr/worker/imports_test.go`:
+`app/squash/worker/imports_test.go`:
 
 ```go
 package worker
@@ -1457,11 +1457,11 @@ func TestWorkerPackageImportsNoKubernetesClient(t *testing.T) {
 	for _, dep := range strings.Fields(string(out)) {
 		for _, bad := range forbiddenForWorker {
 			if dep == strings.TrimSuffix(bad, "/") || strings.HasPrefix(dep, bad) {
-				t.Errorf("squasharr/worker depends on %s", dep)
+				t.Errorf("app/squash/worker depends on %s", dep)
 			}
 		}
 		if dep == "github.com/mediactl/clustarr/pkg/obs" {
-			t.Errorf("squasharr/worker depends on pkg/obs, which links controller-runtime; use pkg/obs/logging or tracing")
+			t.Errorf("app/squash/worker depends on pkg/obs, which links controller-runtime; use pkg/obs/logging or tracing")
 		}
 	}
 }
@@ -1469,13 +1469,13 @@ func TestWorkerPackageImportsNoKubernetesClient(t *testing.T) {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `go test ./squasharr/worker/ -run TestWorkerPackageImportsNoKubernetesClient`
-Expected: FAIL, with "squasharr/worker depends on sigs.k8s.io/controller-runtime/pkg/client" and
+Run: `go test ./app/squash/worker/ -run TestWorkerPackageImportsNoKubernetesClient`
+Expected: FAIL, with "app/squash/worker depends on sigs.k8s.io/controller-runtime/pkg/client" and
 "…pkg/k8s".
 
 - [ ] **Step 3: Convert `runner` to a task**
 
-In `squasharr/worker/run.go`:
+In `app/squash/worker/run.go`:
 - Replace the `runner` fields `c client.Client`, `key types.NamespacedName` and
   `jobUID types.UID` with `t task.Task` and `out Outcome`.
 - Delete `Run`, `getErr` and `applyWorkerStatus`.
@@ -1507,7 +1507,7 @@ In `squasharr/worker/run.go`:
 - `applyStderrTail` becomes `r.out.StderrTail = tail`.
 - `encode` builds its telemetry `schema.Ref` as `r.t.Job`.
 
-- [ ] **Step 4: Write `squasharr/worker/process.go`**
+- [ ] **Step 4: Write `app/squash/worker/process.go`**
 
 ```go
 // Outcome is how one Process call ended. Code classifies it the way the Job
@@ -1582,7 +1582,7 @@ func gpuEncodeFailed(err error) error {
   `out.Reason == task.ReasonSourceChanged`. Add a unit test that `ExitCode` still maps each new
   constructor to its code.
 
-- [ ] **Step 5: Move the adapter into `squasharr/run.go`**
+- [ ] **Step 5: Move the adapter into `app/squash/run.go`**
 
 `runWorker(ctx, o)` keeps the `ctrl.GetConfig` and `client.New`, the trace parent and the
 telemetry bus exactly as today (`run.go:501-540`). It replaces `worker.Run(ctx, c, wo)` with this
@@ -1655,7 +1655,7 @@ func exitForGet(err error) int {
 
 - [ ] **Step 6: Port the worker envtests to `Process`**
 
-In `squasharr/worker/worker_envtest_test.go`, add this helper and replace every
+In `app/squash/worker/worker_envtest_test.go`, add this helper and replace every
 `Run(ctx, testClient, f.options())` call with `f.process(t, testClient)`. Keep every filesystem,
 exit-code and result assertion, reading `out.Result` where a test read `status.result`:
 
@@ -1688,7 +1688,7 @@ func (f *fixture) process(t *testing.T, c client.Client) Outcome {
 
 - [ ] **Step 7: Run everything touched**
 
-Run: `go test ./squasharr/... ./cmd/clustarr/ -run 'Worker|Process|Telemetry|Squasharr'`
+Run: `go test ./app/squash/... ./cmd/clustarr/ -run 'Worker|Process|Telemetry|Squasharr'`
 Expected: PASS, including `TestWorkerPackageImportsNoKubernetesClient`. The ffmpeg envtests need
 `KUBEBUILDER_ASSETS` and `/usr/bin/ffmpeg`. `TestSquasharrWorkerExitCodeReachesTheProcess` still
 passes, because `runWorker` keeps its exit codes.
@@ -1696,8 +1696,8 @@ passes, because `runWorker` keeps its exit codes.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add squasharr/worker squasharr/run.go
-git commit -m 'refactor(squasharr): worker.Process runs one task from files alone; the kube adapter moves to runWorker' -- squasharr/worker squasharr/run.go
+git add app/squash/worker app/squash/run.go
+git commit -m 'refactor(squasharr): worker.Process runs one task from files alone; the kube adapter moves to runWorker' -- app/squash/worker app/squash/run.go
 ```
 
 ---
@@ -1705,10 +1705,10 @@ git commit -m 'refactor(squasharr): worker.Process runs one task from files alon
 ### Task 6: The worker loop: pull, lease, renew, report on the stream, settle
 
 **Files:**
-- Create: `squasharr/worker/serve.go`, `squasharr/worker/lease.go`, `squasharr/worker/report.go`.
-- Test: `squasharr/worker/serve_test.go` (membus and a clockwork fake clock, with a stub
+- Create: `app/squash/worker/serve.go`, `app/squash/worker/lease.go`, `app/squash/worker/report.go`.
+- Test: `app/squash/worker/serve_test.go` (membus and a clockwork fake clock, with a stub
   `Process`).
-- Test: `squasharr/worker/lease_nats_test.go` (an embedded nats-server; checks that bucket-TTL
+- Test: `app/squash/worker/lease_nats_test.go` (an embedded nats-server; checks that bucket-TTL
   expiry is extended by `Update`).
 
 **Interfaces:**
@@ -1739,7 +1739,7 @@ git commit -m 'refactor(squasharr): worker.Process runs one task from files alon
 
 - [ ] **Step 1: Write the failing tests**
 
-`squasharr/worker/serve_test.go`. The harness runs `Serve` against `membus.New(clock)` with the
+`app/squash/worker/serve_test.go`. The harness runs `Serve` against `membus.New(clock)` with the
 default single-node topology, a stub `Process` the test controls, and a results subscription
 standing in for squasharr:
 
@@ -2046,7 +2046,7 @@ func (f *failingUpdates) Update(ctx context.Context, key string, val []byte, rev
 }
 ```
 
-`squasharr/worker/lease_nats_test.go` starts an embedded server the way `telemetry_test.go:62`
+`app/squash/worker/lease_nats_test.go` starts an embedded server the way `telemetry_test.go:62`
 `progressKV` does, with a lease bucket TTL of 2s:
 
 ```go
@@ -2070,10 +2070,10 @@ func TestLeaseBucketTTLIsExtendedByUpdate(t *testing.T) {
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `go test ./squasharr/worker/ -run 'TestServe|TestLease'`
+Run: `go test ./app/squash/worker/ -run 'TestServe|TestLease'`
 Expected: FAIL to compile, "undefined: Serve".
 
-- [ ] **Step 3: Write `squasharr/worker/lease.go`**
+- [ ] **Step 3: Write `app/squash/worker/lease.go`**
 
 ```go
 var (
@@ -2165,7 +2165,7 @@ func (s *server) renew(ctx context.Context, stop context.CancelCauseFunc, m even
 }
 ```
 
-- [ ] **Step 4: Write `squasharr/worker/report.go`**
+- [ ] **Step 4: Write `app/squash/worker/report.go`**
 
 ```go
 // reporter publishes one delivery's status events in order. Progress arrives
@@ -2214,7 +2214,7 @@ func reasonFor(out Outcome) task.Reason {
 }
 ```
 
-- [ ] **Step 5: Write `squasharr/worker/serve.go`**
+- [ ] **Step 5: Write `app/squash/worker/serve.go`**
 
 ```go
 // Serve pulls this pool's tasks one at a time and runs each to a settled
@@ -2366,14 +2366,14 @@ failure the attempt simply runs again.
 
 - [ ] **Step 6: Run the tests**
 
-Run: `go test ./squasharr/worker/ -run 'TestServe|TestLease' -race`
+Run: `go test ./app/squash/worker/ -run 'TestServe|TestLease' -race`
 Expected: PASS. `TestLeaseBucketTTLIsExtendedByUpdate` takes about 7s against the embedded server.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add squasharr/worker/serve.go squasharr/worker/lease.go squasharr/worker/report.go squasharr/worker/serve_test.go squasharr/worker/lease_nats_test.go
-git commit -m 'feat(squasharr): the pool worker loop: pull one task, lease, renew, report claimed/progress/finished, ack after finished' -- squasharr/worker/serve.go squasharr/worker/lease.go squasharr/worker/report.go squasharr/worker/serve_test.go squasharr/worker/lease_nats_test.go
+git add app/squash/worker/serve.go app/squash/worker/lease.go app/squash/worker/report.go app/squash/worker/serve_test.go app/squash/worker/lease_nats_test.go
+git commit -m 'feat(squasharr): the pool worker loop: pull one task, lease, renew, report claimed/progress/finished, ack after finished' -- app/squash/worker/serve.go app/squash/worker/lease.go app/squash/worker/report.go app/squash/worker/serve_test.go app/squash/worker/lease_nats_test.go
 ```
 
 ---
@@ -2382,7 +2382,7 @@ git commit -m 'feat(squasharr): the pool worker loop: pull one task, lease, rene
 
 **Files:**
 - Create: `cmd/squasharr-worker/main.go`, `cmd/squasharr-worker/main_test.go`.
-- Create: `squasharr/worker/exit.go`.
+- Create: `app/squash/worker/exit.go`.
 - Create: `pkg/obs/obsflags/obsflags.go`. Move `bindObservabilityFlags` here from
   `cmd/clustarr/flags.go:198`.
 - Create: `pkg/fsops/umask.go` and `pkg/fsops/umask_test.go`. Move `parseUmask` and
@@ -2395,7 +2395,7 @@ git commit -m 'feat(squasharr): the pool worker loop: pull one task, lease, rene
 - Consumes: `worker.Serve` and `ServeOptions` (Task 6).
 - Produces:
   ```go
-  // squasharr/worker/exit.go
+  // app/squash/worker/exit.go
   const (
   	WorkerExitRetriable     = 2  // worker-level: NATS unreachable, ffmpeg missing
   	WorkerExitMisconfigured = 3  // bad or missing environment: the pool Job fails outright
@@ -2550,7 +2550,7 @@ func TestBinaryImportsNoKubernetesClient(t *testing.T) {
 Run: `go test ./cmd/squasharr-worker/`
 Expected: FAIL to compile, "undefined: run".
 
-- [ ] **Step 4: Write `squasharr/worker/exit.go` and `cmd/squasharr-worker/main.go`**
+- [ ] **Step 4: Write `app/squash/worker/exit.go` and `cmd/squasharr-worker/main.go`**
 
 `exit.go` holds the three constants from Interfaces, with this comment: "Process-level exit codes
 of cmd/squasharr-worker, distinct from the task classifications in run.go: those end up in a
@@ -2646,14 +2646,14 @@ In the Makefile `build` target, add a second line mirroring the first:
 
 - [ ] **Step 5: Run the tests and the build**
 
-Run: `go test ./cmd/squasharr-worker/ ./squasharr/worker/ && make build`
+Run: `go test ./cmd/squasharr-worker/ ./app/squash/worker/ && make build`
 Expected: PASS, and `bin/squasharr-worker` exists.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add cmd/squasharr-worker squasharr/worker/exit.go pkg/obs/obsflags pkg/fsops/umask.go pkg/fsops/umask_test.go cmd/clustarr/flags.go cmd/clustarr/root.go cmd/clustarr/umask.go cmd/clustarr/umask_test.go Makefile
-git commit -m 'feat(squasharr-worker): the NATS-only pool binary; exits 2, 3 or 10, never 0' -- cmd/squasharr-worker squasharr/worker/exit.go pkg/obs/obsflags pkg/fsops/umask.go pkg/fsops/umask_test.go cmd/clustarr/flags.go cmd/clustarr/root.go cmd/clustarr/umask.go cmd/clustarr/umask_test.go Makefile
+git add cmd/squasharr-worker app/squash/worker/exit.go pkg/obs/obsflags pkg/fsops/umask.go pkg/fsops/umask_test.go cmd/clustarr/flags.go cmd/clustarr/root.go cmd/clustarr/umask.go cmd/clustarr/umask_test.go Makefile
+git commit -m 'feat(squasharr-worker): the NATS-only pool binary; exits 2, 3 or 10, never 0' -- cmd/squasharr-worker app/squash/worker/exit.go pkg/obs/obsflags pkg/fsops/umask.go pkg/fsops/umask_test.go cmd/clustarr/flags.go cmd/clustarr/root.go cmd/clustarr/umask.go cmd/clustarr/umask_test.go Makefile
 ```
 
 ---
@@ -2661,11 +2661,11 @@ git commit -m 'feat(squasharr-worker): the NATS-only pool binary; exits 2, 3 or 
 ### Task 8: The pool renderer (pure)
 
 **Files:**
-- Create: `squasharr/controller/pool/doc.go`, `template.go`, `render.go`, `next.go`.
-- Test: `squasharr/controller/pool/template_test.go`, `render_test.go`, `next_test.go`.
-- Modify: `squasharr/controller/transcodejob/job.go`. Move out the pod-shape helpers and
+- Create: `app/squash/controller/pool/doc.go`, `template.go`, `render.go`, `next.go`.
+- Test: `app/squash/controller/pool/template_test.go`, `render_test.go`, `next_test.go`.
+- Modify: `app/squash/controller/transcodejob/job.go`. Move out the pod-shape helpers and
   constants listed below; `buildJob` calls the moved copies until Task 10 deletes it.
-- Modify: `squasharr/controller/transcodejob/plan.go`: `threadsFor` becomes `pool.Threads`.
+- Modify: `app/squash/controller/transcodejob/plan.go`: `threadsFor` becomes `pool.Threads`.
 - Move tests: `TestBuildJobPodSecurity`, `TestJobPodSecurityMatchesTheDeployments`,
   `TestFlooredDefaultsMatchTheGeneratedCRD`, `TestBuildJobIntelGetsTheRenderGroups`,
   `TestBuildJobPassesUmask` and `TestJobCPULimitEnvIsThePlannedThreads` move from `job_test.go`
@@ -2715,7 +2715,7 @@ git commit -m 'feat(squasharr-worker): the NATS-only pool binary; exits 2, 3 or 
 
 - [ ] **Step 1: Write the failing tests**
 
-`squasharr/controller/pool/render_test.go`:
+`app/squash/controller/pool/render_test.go`:
 
 ```go
 package pool
@@ -2852,7 +2852,7 @@ func TestRenderKeepsTheAppliedTemplateWhileRunning(t *testing.T) {
 }
 ```
 
-`squasharr/controller/pool/next_test.go`:
+`app/squash/controller/pool/next_test.go`:
 
 ```go
 func TestClassifyIgnoresApiserverDefaulting(t *testing.T) { // Review Focus 2
@@ -2941,7 +2941,7 @@ func TestTemplatePodsRunWithoutAServiceAccountToken(t *testing.T) {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `go test ./squasharr/controller/pool/`
+Run: `go test ./app/squash/controller/pool/`
 Expected: FAIL to compile, "undefined: Render".
 
 - [ ] **Step 3: Write `template.go`**
@@ -3259,15 +3259,15 @@ func failed(j *batchv1.Job) bool {
 
 - [ ] **Step 6: Run the tests**
 
-Run: `go test ./squasharr/controller/...`
+Run: `go test ./app/squash/controller/...`
 Expected: PASS: the new `pool` tests, and `transcodejob`'s remaining `job_test.go` through the
 moved helpers.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add squasharr/controller/pool squasharr/controller/transcodejob/job.go squasharr/controller/transcodejob/job_test.go squasharr/controller/transcodejob/plan.go
-git commit -m 'feat(squasharr): pool renderer: one complete declaration, applied-template drift, gang minCount = parallelism' -- squasharr/controller/pool squasharr/controller/transcodejob/job.go squasharr/controller/transcodejob/job_test.go squasharr/controller/transcodejob/plan.go
+git add app/squash/controller/pool app/squash/controller/transcodejob/job.go app/squash/controller/transcodejob/job_test.go app/squash/controller/transcodejob/plan.go
+git commit -m 'feat(squasharr): pool renderer: one complete declaration, applied-template drift, gang minCount = parallelism' -- app/squash/controller/pool app/squash/controller/transcodejob/job.go app/squash/controller/transcodejob/job_test.go app/squash/controller/transcodejob/plan.go
 ```
 
 ---
@@ -3278,8 +3278,8 @@ git commit -m 'feat(squasharr): pool renderer: one complete declaration, applied
 - Modify: `pkg/k8s/fieldmanager.go`: add `ManagerSquasharrPool FieldManager = "squasharr-pool"`
   to the const block and to `FieldManagers()`.
 - Modify: `pkg/k8s/fieldmanager_test.go`: add `"squasharr-pool"` to the expected list.
-- Create: `squasharr/controller/pool/pool_envtest_test.go`.
-- Create: `squasharr/controller/pool/errors.go`.
+- Create: `app/squash/controller/pool/pool_envtest_test.go`.
+- Create: `app/squash/controller/pool/errors.go`.
 
 **Interfaces:**
 - Consumes: `Render`, `Template`, `Classify`, `Next` (Task 8).
@@ -3291,7 +3291,7 @@ git commit -m 'feat(squasharr): pool renderer: one complete declaration, applied
 
 - [ ] **Step 1: Write the failing envtests**
 
-`squasharr/controller/pool/pool_envtest_test.go` (package `pool`):
+`app/squash/controller/pool/pool_envtest_test.go` (package `pool`):
 
 ```go
 func startEnv(t *testing.T, gates bool) client.Client {
@@ -3452,7 +3452,7 @@ func TestAGateEnabledLaterReadsAsRecreate(t *testing.T) {
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `go test ./squasharr/controller/pool/ -run 'TestPool|TestProfileEdit|TestAGate'`
+Run: `go test ./app/squash/controller/pool/ -run 'TestPool|TestProfileEdit|TestAGate'`
 Expected: FAIL to compile, "undefined: k8s.ManagerSquasharrPool".
 
 - [ ] **Step 3: Add the manager and `IsSchedulingImmutable`**
@@ -3467,7 +3467,7 @@ In `pkg/k8s/fieldmanager.go`, after `ManagerSquasharrWorker`:
 
 Add it to `FieldManagers()` and to `fieldmanager_test.go`'s expected list.
 
-`squasharr/controller/pool/errors.go`:
+`app/squash/controller/pool/errors.go`:
 
 ```go
 // IsSchedulingImmutable reports the apiserver refusing to add
@@ -3485,14 +3485,14 @@ func IsSchedulingImmutable(err error) bool {
 
 - [ ] **Step 4: Run the envtests**
 
-Run: `go test ./squasharr/controller/pool/ ./pkg/k8s/ -v -run 'TestPool|TestProfileEdit|TestAGate|TestFieldManagers'`
+Run: `go test ./app/squash/controller/pool/ ./pkg/k8s/ -v -run 'TestPool|TestProfileEdit|TestAGate|TestFieldManagers'`
 Expected: PASS in seconds, not milliseconds; a millisecond run means it skipped.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add pkg/k8s/fieldmanager.go pkg/k8s/fieldmanager_test.go squasharr/controller/pool/errors.go squasharr/controller/pool/pool_envtest_test.go
-git commit -m 'test(squasharr): pools against the 1.37 apiserver with and without WorkloadWithJob' -- pkg/k8s/fieldmanager.go pkg/k8s/fieldmanager_test.go squasharr/controller/pool/errors.go squasharr/controller/pool/pool_envtest_test.go
+git add pkg/k8s/fieldmanager.go pkg/k8s/fieldmanager_test.go app/squash/controller/pool/errors.go app/squash/controller/pool/pool_envtest_test.go
+git commit -m 'test(squasharr): pools against the 1.37 apiserver with and without WorkloadWithJob' -- pkg/k8s/fieldmanager.go pkg/k8s/fieldmanager_test.go app/squash/controller/pool/errors.go app/squash/controller/pool/pool_envtest_test.go
 ```
 
 ---
@@ -3507,28 +3507,28 @@ This is the switch-over. After it:
 - the in-process worker role is gone.
 
 **Files:**
-- Modify: `squasharr/controller/transcodejob/controller.go`: the new `Reconciler` fields; the
+- Modify: `app/squash/controller/transcodejob/controller.go`: the new `Reconciler` fields; the
   `Reconcile`, `advance` and `admit` rewiring; `afterWrite`.
-- Create: in `squasharr/controller/transcodejob/`:
+- Create: in `app/squash/controller/transcodejob/`:
   - `write.go`: `writeStatus`, `patchCAS`
   - `dispatch.go`: `dispatch`, `classFor`, `poolKeyFor`
   - `results.go`: the results consumer runnable and `handleEvent`
   - `decide.go`: the pure `Decide` and `applyDecision`
   - `decide_test.go`
-- Modify: `squasharr/controller/transcodejob/events.go`: the queued edge becomes "attempts
+- Modify: `app/squash/controller/transcodejob/events.go`: the queued edge becomes "attempts
   increased".
-- Modify: `squasharr/controller/transcodejob/metrics.go`: `setActive` over TranscodeJob slots.
+- Modify: `app/squash/controller/transcodejob/metrics.go`: `setActive` over TranscodeJob slots.
 - Delete: in `job.go`, `buildJob`, `jobName`, `jobFinished`, `jobSuspended`, the `JobConfig`
   struct and the leftover aliases; delete `job_test.go`'s per-task Job tests.
-- Modify: `squasharr/status/status.go`, `squasharr/status/split_test.go` and
-  `squasharr/status/status_envtest_test.go`.
+- Modify: `app/squash/status/status.go`, `app/squash/status/split_test.go` and
+  `app/squash/status/status_envtest_test.go`.
 - Modify: `pkg/k8s/fieldmanager.go` and `pkg/k8s/fieldmanager_test.go`: delete
   `ManagerSquasharrWorker`.
-- Modify: `squasharr/controller/transcodeprofile/controller.go`: replace stale SourceChanged jobs;
+- Modify: `app/squash/controller/transcodeprofile/controller.go`: replace stale SourceChanged jobs;
   its RBAC marker gains `delete` on `transcodejobs`.
-- Modify: `catalogarr/history/target.go` and its test: resolve schema `transcode.Task.v1`.
+- Modify: `app/catalog/history/target.go` and its test: resolve schema `transcode.Task.v1`.
   `pkg/k8s/deadletter.go:58`: list `transcode.Task`.
-- Modify: `squasharr/run.go`:
+- Modify: `app/squash/run.go`:
   - delete `RoleWorker`, `runWorker`, `runWorkerJob`, `exitForGet`, `ExitError`, `JobName` and
     the worker branch of `Validate`;
   - `jobConfig` becomes `poolConfig`;
@@ -3542,10 +3542,10 @@ This is the switch-over. After it:
   - delete `TestSquasharrWorkerExitCodeReachesTheProcess` and
     `TestExitCodeOnlyHonoursTheSquasharrWorker`.
 - Modify:
-  - `squasharr/controller/transcodejob/controller_envtest_test.go`, `events_envtest_test.go` and
+  - `app/squash/controller/transcodejob/controller_envtest_test.go`, `events_envtest_test.go` and
     `parity_envtest_test.go`;
-  - `squasharr/observability_test.go`;
-  - `importarr/worker/rescan/transcodeoutput_envtest_test.go:50`, where
+  - `app/squash/observability_test.go`;
+  - `app/import/worker/rescan/transcodeoutput_envtest_test.go:50`, where
     `ManagerSquasharrWorker` becomes `k8s.ManagerSquasharr`.
 
 **Interfaces:**
@@ -3578,14 +3578,14 @@ This is the switch-over. After it:
   type Decision struct { Phase transcodev1alpha1.TranscodeJobPhase; Reason, Message string
   	Block, Requeue, FallbackCPU, NoOp bool; After time.Duration }
   func Decide(ev task.StatusEvent, st transcodev1alpha1.TranscodeJobStatus, auto bool) Decision
-  // squasharr/status
+  // app/squash/status
   func PatchCAS(ctx context.Context, c client.Client, job *transcodev1alpha1.TranscodeJob,
   	mutate func(*transcodeac.TranscodeJobStatusApplyConfiguration)) error
   ```
 
 - [ ] **Step 1: Write the failing decision table test**
 
-`squasharr/controller/transcodejob/decide_test.go`:
+`app/squash/controller/transcodejob/decide_test.go`:
 
 ```go
 package transcodejob
@@ -3654,7 +3654,7 @@ func TestDecide(t *testing.T) {
 }
 ```
 
-Run: `go test ./squasharr/controller/transcodejob/ -run TestDecide`
+Run: `go test ./app/squash/controller/transcodejob/ -run TestDecide`
 Expected: FAIL to compile, "undefined: Decide".
 
 - [ ] **Step 2: Write `decide.go`**
@@ -3763,18 +3763,18 @@ Use the condition-type constants `transcodev1alpha1` declares (`transcodejob_typ
 plus Task 4's `ConditionBlocked`). If a constant's Go name differs from the one used here, use the
 declared name. Add `truncate(s string, n int) string` if the package lacks one.
 
-Run: `go test ./squasharr/controller/transcodejob/ -run TestDecide`
+Run: `go test ./app/squash/controller/transcodejob/ -run TestDecide`
 Expected: PASS.
 
 - [ ] **Step 3: Make status single-writer and add `PatchCAS`**
 
-In `squasharr/status/status.go`:
+In `app/squash/status/status.go`:
 - `ControllerFields` also always sends `StderrTail`, `WorkerPod`, `Hardware` and `FallbackReason`.
   It sends `Progress` (through `progressAC`), `Result` (through `resultAC`) and `NextAttemptAt`
   when they are non-nil.
 - Delete `WorkerFields` and the `ManagerSquasharrWorker` branch of `Patch`, so `Patch` accepts only
   `k8s.ManagerSquasharr`.
-- Add `PatchCAS`, following `catalogarr/worker/grab/kindops.go:181`:
+- Add `PatchCAS`, following `app/catalog/worker/grab/kindops.go:181`:
 
 ```go
 // PatchCAS applies squasharr's complete status for job, conditional on
@@ -4110,15 +4110,15 @@ and MediaFile helpers).
 
 - [ ] **Step 9: Resolve dead-lettered tasks to their TranscodeJob**
 
-- In `catalogarr/history/target.go`, add a resolver for payload schema `transcode.Task.v1`. It
+- In `app/catalog/history/target.go`, add a resolver for payload schema `transcode.Task.v1`. It
   decodes only `struct{ Job schema.Ref \`json:"job"\` }` and names the TranscodeJob
-  `(Job.Namespace, Job.Name)`, so catalogarr does not import `squasharr/task`.
+  `(Job.Namespace, Job.Name)`, so catalogarr does not import `app/squash/task`.
 - Add the schema to that package's resolver table test.
 - Add `transcode.Task` beside `transcode.JobEvent` in `pkg/k8s/deadletter.go:58`.
 
-- [ ] **Step 10: Remove the worker role from `squasharr/run.go` and `cmd/clustarr`**
+- [ ] **Step 10: Remove the worker role from `app/squash/run.go` and `cmd/clustarr`**
 
-In `squasharr/run.go`:
+In `app/squash/run.go`:
 - delete `RoleWorker` (`Roles()` returns `[]Role{RoleController}`), `runWorker`, `runWorkerJob`,
   `exitForGet`, `ExitError`, `JobName` and the worker `Validate` branch;
 - `jobConfig` becomes:
@@ -4147,7 +4147,7 @@ In `cmd/clustarr`:
 - delete the `--job` flag and `jobName`;
 - `exitCode` becomes `return 1`;
 - move the shared test helpers into `helpers_test.go`, then delete the two worker exit-code tests;
-- `squasharr/observability_test.go`'s `TestJobConfigCarriesTheControllerOptions` becomes
+- `app/squash/observability_test.go`'s `TestJobConfigCarriesTheControllerOptions` becomes
   `TestPoolConfigCarriesTheControllerOptions`, over `poolConfig`.
 
 - [ ] **Step 11: Write the controller envtests**
@@ -4286,7 +4286,7 @@ container change and a kept source.
 
 - [ ] **Step 12: Run everything squasharr and cmd touch**
 
-Run: `go test ./squasharr/... ./pkg/k8s/... ./cmd/clustarr/... ./catalogarr/history/... ./importarr/worker/rescan/...`
+Run: `go test ./app/squash/... ./pkg/k8s/... ./cmd/clustarr/... ./app/catalog/history/... ./app/import/worker/rescan/...`
 Expected: PASS with `KUBEBUILDER_ASSETS` set. Then run `make manifests`, copy the regenerated
 squasharr role into the chart's sentinel block, and run `make lint`: no new findings and no
 forbidigo hits.
@@ -4294,8 +4294,8 @@ forbidigo hits.
 - [ ] **Step 13: Commit**
 
 ```bash
-git add squasharr pkg/k8s catalogarr/history cmd/clustarr importarr/worker/rescan/transcodeoutput_envtest_test.go config/rbac/squasharr_role.yaml charts/clustarr/templates/rbac.yaml
-git commit -m 'feat(squasharr): dispatch over NATS; consume squasharr-transcode-results; one CAS status writer; requeue, fall back or block' -- squasharr pkg/k8s catalogarr/history cmd/clustarr importarr/worker/rescan/transcodeoutput_envtest_test.go config/rbac/squasharr_role.yaml charts/clustarr/templates/rbac.yaml
+git add squasharr pkg/k8s app/catalog/history cmd/clustarr app/import/worker/rescan/transcodeoutput_envtest_test.go config/rbac/squasharr_role.yaml charts/clustarr/templates/rbac.yaml
+git commit -m 'feat(squasharr): dispatch over NATS; consume squasharr-transcode-results; one CAS status writer; requeue, fall back or block' -- squasharr pkg/k8s app/catalog/history cmd/clustarr app/import/worker/rescan/transcodeoutput_envtest_test.go config/rbac/squasharr_role.yaml charts/clustarr/templates/rbac.yaml
 ```
 
 ---
@@ -4303,14 +4303,14 @@ git commit -m 'feat(squasharr): dispatch over NATS; consume squasharr-transcode-
 ### Task 11: Pools in the admission pass
 
 **Files:**
-- Modify: `squasharr/controller/transcodejob/controller.go`: a `pools` step after dispatch, a
+- Modify: `app/squash/controller/transcodejob/controller.go`: a `pools` step after dispatch, a
   watch on pool Jobs, and holding admission for draining pools.
-- Create: `squasharr/controller/transcodejob/pools.go`.
-- Modify: `squasharr/controller/transcodejob/doc.go:112`: the RBAC marker verbs become
+- Create: `app/squash/controller/transcodejob/pools.go`.
+- Modify: `app/squash/controller/transcodejob/doc.go:112`: the RBAC marker verbs become
   `get;list;watch;create;patch;delete`.
 - Generated: `config/rbac/squasharr_role.yaml`; copy it into the sentinel block in
   `charts/clustarr/templates/rbac.yaml`.
-- Test: `squasharr/controller/transcodejob/pools_envtest_test.go`.
+- Test: `app/squash/controller/transcodejob/pools_envtest_test.go`.
 
 **Interfaces:**
 - Consumes: `pool.*` (Tasks 8-9), `dispatch`, `classFor` and `poolKeyFor` (Task 10), `k8s.ManagerSquasharrPool`.
@@ -4373,7 +4373,7 @@ is the exact sequence and the exact assertions.
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `go test ./squasharr/controller/transcodejob/ -run 'TestPool|TestDraining|TestImageChange|TestFailedPool'`
+Run: `go test ./app/squash/controller/transcodejob/ -run 'TestPool|TestDraining|TestImageChange|TestFailedPool'`
 Expected: FAIL, "jobs.batch … not found".
 
 - [ ] **Step 3: Write `pools.go`**
@@ -4483,14 +4483,14 @@ Expected: PASS. Run `helm dependency build charts/clustarr` first in a fresh wor
 
 - [ ] **Step 5: Run the squasharr suites**
 
-Run: `go test ./squasharr/...`
+Run: `go test ./app/squash/...`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add squasharr/controller/transcodejob config/rbac/squasharr_role.yaml charts/clustarr/templates/rbac.yaml
-git commit -m 'feat(squasharr): pools follow dispatch: resume, scale up, suspend to zero, drain then reshape or recreate' -- squasharr/controller/transcodejob config/rbac/squasharr_role.yaml charts/clustarr/templates/rbac.yaml
+git add app/squash/controller/transcodejob config/rbac/squasharr_role.yaml charts/clustarr/templates/rbac.yaml
+git commit -m 'feat(squasharr): pools follow dispatch: resume, scale up, suspend to zero, drain then reshape or recreate' -- app/squash/controller/transcodejob config/rbac/squasharr_role.yaml charts/clustarr/templates/rbac.yaml
 ```
 
 ---
@@ -4498,13 +4498,13 @@ git commit -m 'feat(squasharr): pools follow dispatch: resume, scale up, suspend
 ### Task 12: Withdrawal: finalizer, cancelled lease, purge, sweep
 
 **Files:**
-- Modify: `squasharr/controller/transcodejob/dispatch.go`: add the finalizer before publishing.
-- Create: `squasharr/controller/transcodejob/withdraw.go`.
-- Modify: `squasharr/controller/transcodejob/controller.go`: handle deletion; handle
+- Modify: `app/squash/controller/transcodejob/dispatch.go`: add the finalizer before publishing.
+- Create: `app/squash/controller/transcodejob/withdraw.go`.
+- Modify: `app/squash/controller/transcodejob/controller.go`: handle deletion; handle
   `spec.suspend` on Queued and Running jobs; the `Admin events.StreamAdmin` field; a sweep every
   5m in `admit`.
-- Modify: `squasharr/run.go`: set `Admin: bus` (natsbus implements `events.StreamAdmin`).
-- Test: `squasharr/controller/transcodejob/withdraw_envtest_test.go`.
+- Modify: `app/squash/run.go`: set `Admin: bus` (natsbus implements `events.StreamAdmin`).
+- Test: `app/squash/controller/transcodejob/withdraw_envtest_test.go`.
 
 **Interfaces:**
 - Consumes: `events.StreamAdmin` (Task 2), `k8s.EnsureFinalizer` and `k8s.RemoveFinalizer`
@@ -4548,7 +4548,7 @@ Write each one out fully. The comments give the exact sequence and assertions.
 
 - [ ] **Step 2: Run to verify they fail**
 
-Run: `go test ./squasharr/controller/transcodejob/ -run 'TestSuspendWithdraws|TestDeleteWithdraws|TestDeleteReleases|TestSweep'`
+Run: `go test ./app/squash/controller/transcodejob/ -run 'TestSuspendWithdraws|TestDeleteWithdraws|TestDeleteReleases|TestSweep'`
 Expected: FAIL.
 
 - [ ] **Step 3: Write `withdraw.go`**
@@ -4598,14 +4598,14 @@ In `Reconcile`:
 
 - [ ] **Step 4: Run the tests**
 
-Run: `go test ./squasharr/controller/transcodejob/`
+Run: `go test ./app/squash/controller/transcodejob/`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add squasharr/controller/transcodejob squasharr/run.go
-git commit -m 'feat(squasharr): withdraw a dispatched task on suspend or delete, with a bounded finalizer and a sweep' -- squasharr/controller/transcodejob squasharr/run.go
+git add app/squash/controller/transcodejob app/squash/run.go
+git commit -m 'feat(squasharr): withdraw a dispatched task on suspend or delete, with a bounded finalizer and a sweep' -- app/squash/controller/transcodejob app/squash/run.go
 ```
 
 ---
@@ -4618,18 +4618,18 @@ CPU otherwise. A GPU failure, or a GPU pool that stays unschedulable, moves a jo
 `.spec.scheduling.schedulingConstraints.topology` set to that class's GPU label (Task 8).
 
 **Files:**
-- Create: `squasharr/controller/transcodejob/class.go`, `class_test.go` (pure),
+- Create: `app/squash/controller/transcodejob/class.go`, `class_test.go` (pure),
   `capacity.go` and `class_envtest_test.go`.
-- Modify: `squasharr/controller/transcodejob/dispatch.go`. `classFor` becomes capacity-aware for
+- Modify: `app/squash/controller/transcodejob/dispatch.go`. `classFor` becomes capacity-aware for
   `auto`, and `dispatch` re-plans when the chosen class differs from the plan's.
-- Modify: `squasharr/controller/transcodejob/controller.go`, so `admit` assigns classes in
+- Modify: `app/squash/controller/transcodejob/controller.go`, so `admit` assigns classes in
   priority order before `Admit`.
-- Modify: `squasharr/controller/transcodejob/pools.go`, for unschedulable GPU-pool detection and
+- Modify: `app/squash/controller/transcodejob/pools.go`, for unschedulable GPU-pool detection and
   rerouting.
-- Modify: `squasharr/controller/transcodejob/doc.go`. RBAC markers gain `nodes` (get, list, watch)
+- Modify: `app/squash/controller/transcodejob/doc.go`. RBAC markers gain `nodes` (get, list, watch)
   and `pods` (list).
 - Generated: `config/rbac/squasharr_role.yaml`, then copied into the chart's sentinel block.
-- Modify: `squasharr/run.go` (`Options.NodeLabelNVIDIA` and `Options.NodeLabelIntel`, passed to
+- Modify: `app/squash/run.go` (`Options.NodeLabelNVIDIA` and `Options.NodeLabelIntel`, passed to
   `pool.Config`), and `cmd/clustarr/services.go` and `flags.go` (`--gpu-node-label-nvidia` and
   `--gpu-node-label-intel`, defaulting to `pool.DefaultNodeLabelNVIDIA` and
   `pool.DefaultNodeLabelIntel`).
@@ -4680,7 +4680,7 @@ func TestChooseClass(t *testing.T) {
 }
 ```
 
-Run: `go test ./squasharr/controller/transcodejob/ -run TestChooseClass`
+Run: `go test ./app/squash/controller/transcodejob/ -run TestChooseClass`
 Expected: FAIL to compile, "undefined: ChooseClass".
 
 - [ ] **Step 2: Write `class.go` and `capacity.go`**
@@ -4741,7 +4741,7 @@ func nodeReady(n *corev1.Node) bool {
 }
 ```
 
-Run: `go test ./squasharr/controller/transcodejob/ -run TestChooseClass`
+Run: `go test ./app/squash/controller/transcodejob/ -run TestChooseClass`
 Expected: PASS.
 
 - [ ] **Step 3: Assign classes in `admit` and re-plan in `dispatch`**
@@ -4797,7 +4797,7 @@ CPU on the next pass, because `ChooseClass` sees the fallback reason.
   the GPU operator that sets each.
 - `poolConfig` copies both into `pool.Config`.
 - Extend `TestSquasharrManagerOptionsAndSlots` (`cli_test.go:374`) to parse both flags.
-- In `squasharr/controller/transcodejob/doc.go`, add
+- In `app/squash/controller/transcodejob/doc.go`, add
   `// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch` and
   `// +kubebuilder:rbac:groups="",resources=pods,verbs=list`.
 - Run `make manifests` and copy the role into the chart's sentinel block.
@@ -4855,7 +4855,7 @@ Write each outlined test out fully, in the style of Task 10's envtests (`deliver
 
 - [ ] **Step 7: Run and commit**
 
-Run: `go test ./squasharr/... ./cmd/clustarr/...`
+Run: `go test ./app/squash/... ./cmd/clustarr/...`
 Expected: PASS.
 
 ```bash
@@ -4882,11 +4882,11 @@ git commit -m 'feat(squasharr): hardware auto prefers a labelled GPU pool with a
   ClusterRole and binding block.
 - Modify: `charts/clustarr/templates/deployments.yaml:134-139`: delete the
   `CLUSTARR_WORKER_SERVICE_ACCOUNT` entry.
-- Modify: `squasharr/run.go`: delete `WorkerServiceAccount`, `DefaultWorkerServiceAccount` and its
+- Modify: `app/squash/run.go`: delete `WorkerServiceAccount`, `DefaultWorkerServiceAccount` and its
   `Validate` check.
 - Modify: `cmd/clustarr/services.go` and `flags.go`: delete `--worker-service-account` and
   `workerServiceAccountEnv`.
-- Modify: `squasharr/worker/doc.go`:
+- Modify: `app/squash/worker/doc.go`:
   - replace the "Status" and "RBAC" sections (lines 129-157, including the five
     `+kubebuilder:rbac` markers) with a "Reporting" section: the worker writes a lease, a result
     and progress to three KV buckets, and squasharr turns them into status (spec §9, §17);
@@ -4897,8 +4897,8 @@ git commit -m 'feat(squasharr): hardware auto prefers a labelled GPU pool with a
   - Delete `TestTranscodeJobServiceAccountHoldsTheWorkerRole` from `cmd/clustarr/helpers_test.go`
     (moved there in Task 10), or wherever it ended up.
   - `cmd/clustarr/cli_test.go:374-445`: delete the service-account assertions.
-  - `squasharr/observability_test.go:81-91`: drop `rel-squasharr-worker`.
-  - `squasharr/controller/transcodejob/controller_envtest_test.go`: drop `ServiceAccountName`.
+  - `app/squash/observability_test.go:81-91`: drop `rel-squasharr-worker`.
+  - `app/squash/controller/transcodejob/controller_envtest_test.go`: drop `ServiceAccountName`.
 - Modify: `test/e2e/transcode_test.go:20-37`, the header comment on the worker's ServiceAccount and
   ClusterRole.
 
@@ -4935,7 +4935,7 @@ Expected: `config/rbac/squasharr_worker_role.yaml` is not recreated.
 
 - [ ] **Step 4: Run the installer and RBAC suites**
 
-Run: `helm dependency build charts/clustarr && go test ./cmd/clustarr/... ./squasharr/...`
+Run: `helm dependency build charts/clustarr && go test ./cmd/clustarr/... ./app/squash/...`
 Expected: PASS, including `TestChartAndKustomizeAgreePerComponent`, `TestEveryGeneratedRoleMatchesItsMarkers`,
 `TestEachServiceAccountHoldsExactlyItsOwnRole` and the start envtest that runs every service under
 its own role.
@@ -4975,7 +4975,7 @@ git commit -m 'refactor: retire the squasharr-worker ServiceAccount, role and fl
 - Modify tests:
   - `cmd/clustarr/cli_test.go:382-383,399` and `start_envtest_test.go:410`, where
     `media-cuda`/`media` images become `transcoder-cuda`/`transcoder`;
-  - `grabarr/controller/downloadclient/workload.go:77`'s comment.
+  - `app/grab/controller/downloadclient/workload.go:77`'s comment.
 - Modify: `README.md:110`.
 
 - [ ] **Step 1: Write the failing check**
@@ -5180,8 +5180,8 @@ Expected:
 - [ ] **Step 6: Commit**
 
 ```bash
-git add -A images Makefile .github/workflows/release.yml hack/kind.sh charts/clustarr config/manager/squasharr.yaml cmd/clustarr grabarr/controller/downloadclient/workload.go README.md
-git commit -m 'build: Dockerfile.transcoder (transcoder, transcoder-cuda) carries the encoding runtime; media drops it' -- images Makefile .github/workflows/release.yml hack/kind.sh charts/clustarr config/manager/squasharr.yaml cmd/clustarr grabarr/controller/downloadclient/workload.go README.md
+git add -A images Makefile .github/workflows/release.yml hack/kind.sh charts/clustarr config/manager/squasharr.yaml cmd/clustarr app/grab/controller/downloadclient/workload.go README.md
+git commit -m 'build: Dockerfile.transcoder (transcoder, transcoder-cuda) carries the encoding runtime; media drops it' -- images Makefile .github/workflows/release.yml hack/kind.sh charts/clustarr config/manager/squasharr.yaml cmd/clustarr app/grab/controller/downloadclient/workload.go README.md
 ```
 
 ---
@@ -5279,7 +5279,7 @@ git commit -m 'test(e2e): scenario 12 follows the pool from zero and back; drop 
 
     > **A running Job's template is re-sent, not re-rendered.** An SSA manager that stops sending
     > a template field releases it, and a released field on a running Job is a rejected write. So
-    > `squasharr/controller/pool.Render` re-sends the template recorded in
+    > `app/squash/controller/pool.Render` re-sends the template recorded in
     > `squasharr.clustarr.io/applied-template`, and judges drift against that annotation rather
     > than the stored template, which carries apiserver defaults.
 - `config/keda/README.md`, if Task 16 left anything citing the slot scheduler as an alternative.

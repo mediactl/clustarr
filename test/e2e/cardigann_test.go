@@ -133,7 +133,7 @@ func TestCardigannIndexerLoginSearchFacadeAndProxy(t *testing.T) {
 	// --- The IndexerDefinition: testdata/cardigann/login-form.yml's own
 	// text, verbatim -- the single source of truth
 	// test/fixtures/cardigannstub's own doc comment names, never a copy.
-	yamlBytes, err := os.ReadFile("../../testdata/cardigann/login-form.yml")
+	yamlBytes, err := os.ReadFile("../data/cardigann/login-form.yml")
 	require.NoError(t, err)
 	def := &indexv1alpha1.IndexerDefinition{
 		ObjectMeta: metav1.ObjectMeta{Name: uniqueName("e2e10-def")},
