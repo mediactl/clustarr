@@ -77,8 +77,9 @@ type Field struct {
 }
 
 // toolbar is the bar itself: full-bleed under the header (the page's
-// padding is undone), its groups pushed to the edges. attrs land on the
-// bar, beside data-toolbar.
+// padding is undone), sticky beneath the top bar and the breadcrumb row
+// at a fixed height (h-14, which the library's A-Z bar counts on), its
+// groups pushed to the edges. attrs land on the bar, beside data-toolbar.
 func toolbar(attrs templ.Attributes) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -100,7 +101,7 @@ func toolbar(attrs templ.Attributes) templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div data-toolbar class=\"-mx-6 -mt-6 mb-6 flex flex-wrap items-stretch justify-between gap-2 border-b border-border bg-card px-2 py-1\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div data-toolbar class=\"sticky top-[5.25rem] z-10 -mx-6 -mt-6 mb-6 flex h-14 items-stretch justify-between gap-2 overflow-x-auto border-b border-border bg-card px-2 py-1\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -193,7 +194,7 @@ func toolbarForm(action string, fields []Field, iconName, label, dataAction stri
 		var templ_7745c5c3_Var4 templ.SafeURL
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(action))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 61, Col: 47}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 62, Col: 47}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 		if templ_7745c5c3_Err != nil {
@@ -219,7 +220,7 @@ func toolbarForm(action string, fields []Field, iconName, label, dataAction stri
 			var templ_7745c5c3_Var5 string
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.ResolveAttributeValue(f.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 63, Col: 37}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 64, Col: 37}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
 			if templ_7745c5c3_Err != nil {
@@ -232,7 +233,7 @@ func toolbarForm(action string, fields []Field, iconName, label, dataAction stri
 			var templ_7745c5c3_Var6 string
 			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(f.Value)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 63, Col: 55}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 64, Col: 55}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 			if templ_7745c5c3_Err != nil {
@@ -266,7 +267,7 @@ func toolbarForm(action string, fields []Field, iconName, label, dataAction stri
 			var templ_7745c5c3_Var8 string
 			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 67, Col: 16}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 68, Col: 16}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 			if templ_7745c5c3_Err != nil {
@@ -337,7 +338,7 @@ func toolbarTrigger(iconName, label string, attrs templ.Attributes) templ.Compon
 			var templ_7745c5c3_Var11 string
 			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 78, Col: 15}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/toolbar.templ`, Line: 79, Col: 15}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 			if templ_7745c5c3_Err != nil {

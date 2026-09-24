@@ -83,12 +83,14 @@ type Jump struct {
 const jumpButtonClass = "min-h-0 flex-1 px-1 py-0 text-[11px]"
 
 // jumpBar is Radarr's A-Z bar as a vertical button group down the right
-// edge, sticky and as tall as the viewport under the top bar: a link per
+// edge: sticky beneath the top bar, the breadcrumb row and the toolbar
+// (3rem + 2.25rem + 3.5rem, which is where 8.75rem comes from) and as
+// tall as the viewport under them, at rest and scrolled alike: a link per
 // letter that has titles, a disabled button per letter that does not,
 // each carrying data-jump for the tests.
 templ jumpBar(jumpsFor []Jump) {
 	if len(jumpsFor) > 0 {
-		<div data-jump-bar class="sticky top-12 hidden h-[calc(100vh-3rem)] shrink-0 self-start py-2 lg:block">
+		<div data-jump-bar class="sticky top-[8.75rem] -mt-6 -mr-6 hidden h-[calc(100vh-8.75rem)] shrink-0 self-start py-1 lg:block">
 			@buttongroup.ButtonGroup(buttongroup.Props{Orientation: buttongroup.OrientationVertical, Class: "h-full"}) {
 				for _, j := range jumpsFor {
 					if j.Enabled {

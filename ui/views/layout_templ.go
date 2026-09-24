@@ -177,7 +177,9 @@ func Layout(title string) templ.Component {
 // library's tabs, as Radarr's top nav -- and the page body: the
 // breadcrumb row and the page. The active sidebar entry is derived from
 // the title (activeFor); a tab's trigger swaps the page body through
-// htmx, so the top bar stays and the URL follows.
+// htmx, so the top bar stays and the URL follows. The top bar and the
+// breadcrumb row are sticky, as is a page's toolbar, so the library's A-Z
+// bar can sit exactly beneath them and fill the rest of the viewport.
 func Shell(c Chrome) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -206,7 +208,7 @@ func Shell(c Chrome) templ.Component {
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(c.Title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 103, Col: 19}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 105, Col: 19}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 		if templ_7745c5c3_Err != nil {
@@ -358,7 +360,7 @@ func Shell(c Chrome) templ.Component {
 											var templ_7745c5c3_Var14 string
 											templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(n.Label)
 											if templ_7745c5c3_Err != nil {
-												return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 126, Col: 27}
+												return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 128, Col: 27}
 											}
 											_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 											if templ_7745c5c3_Err != nil {
@@ -447,7 +449,7 @@ func Shell(c Chrome) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</header><div id=\"page-body\" class=\"flex flex-1 flex-col\"><div class=\"flex h-9 shrink-0 items-center border-b border-border px-4 text-sm\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</header><div id=\"page-body\" class=\"flex flex-1 flex-col\"><div class=\"sticky top-12 z-10 flex h-9 shrink-0 items-center border-b border-border bg-background px-4 text-sm\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -574,7 +576,7 @@ func breadcrumbs(crumbs []Crumb) templ.Component {
 									var templ_7745c5c3_Var21 string
 									templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(c.Label)
 									if templ_7745c5c3_Err != nil {
-										return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 167, Col: 71}
+										return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 169, Col: 71}
 									}
 									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 									if templ_7745c5c3_Err != nil {
@@ -602,7 +604,7 @@ func breadcrumbs(crumbs []Crumb) templ.Component {
 									var templ_7745c5c3_Var23 string
 									templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(c.Label)
 									if templ_7745c5c3_Err != nil {
-										return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 169, Col: 37}
+										return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 171, Col: 37}
 									}
 									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 									if templ_7745c5c3_Err != nil {
@@ -704,7 +706,7 @@ func topTabs(current projection.Tab) templ.Component {
 						var templ_7745c5c3_Var28 string
 						templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(tabLabel(tab))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 196, Col: 20}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 198, Col: 20}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 						if templ_7745c5c3_Err != nil {

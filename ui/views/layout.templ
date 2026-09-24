@@ -93,7 +93,9 @@ templ Layout(title string) {
 // library's tabs, as Radarr's top nav -- and the page body: the
 // breadcrumb row and the page. The active sidebar entry is derived from
 // the title (activeFor); a tab's trigger swaps the page body through
-// htmx, so the top bar stays and the URL follows.
+// htmx, so the top bar stays and the URL follows. The top bar and the
+// breadcrumb row are sticky, as is a page's toolbar, so the library's A-Z
+// bar can sit exactly beneath them and fill the rest of the viewport.
 templ Shell(c Chrome) {
 	<!DOCTYPE html>
 	<html lang="en">
@@ -139,7 +141,7 @@ templ Shell(c Chrome) {
 						@topTabs(c.Tab)
 					</header>
 					<div id="page-body" class="flex flex-1 flex-col">
-						<div class="flex h-9 shrink-0 items-center border-b border-border px-4 text-sm">
+						<div class="sticky top-12 z-10 flex h-9 shrink-0 items-center border-b border-border bg-background px-4 text-sm">
 							@breadcrumbs(c.Crumbs)
 						</div>
 						<div class="flex-1 p-6">

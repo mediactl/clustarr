@@ -39,10 +39,11 @@ type Field struct {
 }
 
 // toolbar is the bar itself: full-bleed under the header (the page's
-// padding is undone), its groups pushed to the edges. attrs land on the
-// bar, beside data-toolbar.
+// padding is undone), sticky beneath the top bar and the breadcrumb row
+// at a fixed height (h-14, which the library's A-Z bar counts on), its
+// groups pushed to the edges. attrs land on the bar, beside data-toolbar.
 templ toolbar(attrs templ.Attributes) {
-	<div data-toolbar class="-mx-6 -mt-6 mb-6 flex flex-wrap items-stretch justify-between gap-2 border-b border-border bg-card px-2 py-1" { attrs... }>
+	<div data-toolbar class="sticky top-[5.25rem] z-10 -mx-6 -mt-6 mb-6 flex h-14 items-stretch justify-between gap-2 overflow-x-auto border-b border-border bg-card px-2 py-1" { attrs... }>
 		{ children... }
 	</div>
 }
