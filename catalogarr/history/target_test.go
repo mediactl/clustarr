@@ -27,6 +27,7 @@ import (
 	"github.com/mediactl/clustarr/catalogarr/history"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/squasharr/task"
 )
 
 // envelopeFor encodes p and wraps it in an Envelope with key as Clustarr-Key,
@@ -173,6 +174,21 @@ func TestResolve_SelfContainedRefs(t *testing.T) {
 			JobRef: schema.Ref{Namespace: "default", Name: "job-1"},
 			Action: "succeeded",
 		})
+		got := history.Resolve(env)
+		require.Equal(t, history.Target{
+			Namespace: "default", Name: "job-1",
+			Kind: "TranscodeJob", APIVersion: "transcode.clustarr.io/v1alpha1",
+		}, got)
+	})
+
+	// A dead-lettered transcode task, built as squasharr dispatches it:
+	// catalogarr decodes only its job reference, so this holds the two
+	// packages to one JSON shape.
+	t.Run("transcode Task", func(t *testing.T) {
+		env := envelopeFor(t, "default/job-1", task.Task{
+			Job: schema.Ref{Namespace: "default", Name: "job-1", UID: "uid-1"}, Attempt: 2, Class: "cpu",
+		})
+		require.Equal(t, "transcode.Task.v1", env.Schema)
 		got := history.Resolve(env)
 		require.Equal(t, history.Target{
 			Namespace: "default", Name: "job-1",

@@ -55,7 +55,7 @@ import (
 //	                      LibraryScan  (importarr.ScanTask)
 //	index.clustarr.io     Indexer      (index.Release, IndexerEvent, RssTask)
 //	download.clustarr.io  Download     (catalog.ImportTask, download.DownloadEvent)
-//	transcode.clustarr.io TranscodeJob (transcode.JobEvent)
+//	transcode.clustarr.io TranscodeJob (transcode.JobEvent, transcode.Task)
 //	subtitle.clustarr.io  SubtitleRequest (subtitle.SubtitleEvent, FetchTask)
 //
 // Every other kind never carries it: a dead letter whose schema has no

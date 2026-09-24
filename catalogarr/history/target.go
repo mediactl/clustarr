@@ -161,6 +161,7 @@ var resolvers = map[string]resolver{
 	schema.RssTask{}.Schema():          resolveRssTask,
 	schema.DownloadEvent{}.Schema():    resolveDownloadEvent,
 	schema.JobEvent{}.Schema():         resolveJobEvent,
+	transcodeTaskRef{}.Schema():        resolveTranscodeTask,
 	schema.SubtitleEvent{}.Schema():    resolveSubtitleEvent,
 	schema.FetchTask{}.Schema():        resolveFetchTask,
 	schema.ScanTask{}.Schema():         resolveScanTask,
@@ -310,6 +311,28 @@ func resolveJobEvent(key string, data []byte) Target {
 		return Target{Namespace: namespaceOf(key)}
 	}
 	return refTarget(p.JobRef, transcodev1alpha1.GroupVersion.String(), "TranscodeJob")
+}
+
+// transcodeTaskRef is the one field of squasharr/task.Task a dead letter
+// needs: the TranscodeJob the task was dispatched for. It is decoded here
+// rather than importing squasharr/task, which would make catalogarr depend
+// on squasharr's worker types for one reference.
+type transcodeTaskRef struct {
+	Job schema.Ref `json:"job"`
+}
+
+// Schema implements schema.Payload; it is squasharr/task.Task's.
+func (transcodeTaskRef) Schema() string { return "transcode.Task.v1" }
+
+// resolveTranscodeTask names the TranscodeJob a dead-lettered transcode task
+// was dispatched for, so the DLQ projector annotates it and squasharr blocks
+// the job (spec §18.3).
+func resolveTranscodeTask(key string, data []byte) Target {
+	var p transcodeTaskRef
+	if err := schema.Decode(p.Schema(), data, &p); err != nil || p.Job.Name == "" {
+		return Target{Namespace: namespaceOf(key)}
+	}
+	return refTarget(p.Job, transcodev1alpha1.GroupVersion.String(), "TranscodeJob")
 }
 
 func resolveSubtitleEvent(key string, data []byte) Target {
