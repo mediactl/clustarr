@@ -46,6 +46,14 @@ type stubServer struct {
 	// refuse maps a message-id to a status code, usually 430.
 	refuse map[string]int
 
+	// refuseTimes answers 430 for an article this many times, then serves
+	// it: a propagation gap that closes.
+	refuseTimes map[string]int
+
+	// dropConn closes the connection instead of answering for an article
+	// this many times: a connection that dies mid-batch.
+	dropConn map[string]int
+
 	requireAuth bool
 	user, pass  string
 
@@ -78,10 +86,12 @@ func newStubServer(tb testing.TB) *stubServer {
 		tb.Fatalf("listen: %v", err)
 	}
 	s := &stubServer{
-		ln:       ln,
-		articles: map[string]stubArticle{},
-		refuse:   map[string]int{},
-		served:   map[string]int{},
+		ln:          ln,
+		articles:    map[string]stubArticle{},
+		refuse:      map[string]int{},
+		refuseTimes: map[string]int{},
+		dropConn:    map[string]int{},
+		served:      map[string]int{},
 	}
 	go s.acceptLoop()
 	tb.Cleanup(s.close)
@@ -229,6 +239,16 @@ func (s *stubServer) handle(c net.Conn) {
 				break
 			}
 			id := strings.Trim(strings.TrimSpace(cmd[5:]), "<>")
+			s.mu.Lock()
+			drop := s.dropConn[id] > 0
+			if drop {
+				s.dropConn[id]--
+			}
+			s.mu.Unlock()
+			if drop {
+				_ = w.Flush()
+				return
+			}
 			s.serveArticle(w, id, strings.HasPrefix(upper, "BODY "))
 		default:
 			_, _ = w.WriteString("500 unknown command\r\n")
@@ -242,6 +262,10 @@ func (s *stubServer) handle(c net.Conn) {
 func (s *stubServer) serveArticle(w *bufio.Writer, id string, wantBody bool) {
 	s.mu.Lock()
 	code, refused := s.refuse[id]
+	if !refused && s.refuseTimes[id] > 0 {
+		s.refuseTimes[id]--
+		code, refused = 430, true
+	}
 	art, have := s.articles[id]
 	delay := s.bodyDelay
 	s.mu.Unlock()

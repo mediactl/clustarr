@@ -19,6 +19,7 @@ package usenet
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -29,16 +30,20 @@ import (
 	"github.com/mediactl/clustarr/pkg/download"
 )
 
-// swissCheese is a four-article release two of whose articles the only
-// provider refuses: 50% health, below the default floor, and with no par2
-// volumes below the NZB's own critical health too.
+// swissCheese is a twelve-article release seven of whose articles the only
+// provider refuses: 41% health, below the default floor and past the few
+// bad articles SABnzbd tolerates, and with no par2 hopeless too.
 func swissCheese(t *testing.T) (*stubServer, []byte) {
 	t.Helper()
 	srv := newStubServer(t)
-	parts := [][]byte{partPayload(1, 400), partPayload(2, 400), partPayload(3, 400), partPayload(4, 400)}
+	parts := make([][]byte, 12)
+	for i := range parts {
+		parts[i] = partPayload(byte(i+1), 400)
+	}
 	nzb := buildNZB(t, srv, "Swiss.Cheese", []fileSpec{{name: "movie.mkv", parts: parts}})
-	srv.refuse["f0-p1@clustarr.test"] = 430
-	srv.refuse["f0-p2@clustarr.test"] = 430
+	for _, i := range []int{1, 2, 4, 6, 8, 9, 10} {
+		srv.refuse[fmt.Sprintf("f0-p%d@clustarr.test", i)] = 430
+	}
 	return srv, nzb
 }
 
@@ -70,7 +75,7 @@ func TestHealthActionPauseHoldsTheJobForAnOperator(t *testing.T) {
 
 	it := waitForHealthPause(t, c, id)
 	require.Equal(t, download.StatusPaused, it.Status)
-	require.Contains(t, it.Message, "health 50%")
+	require.Contains(t, it.Message, "health 41%")
 	require.Contains(t, it.Message, "healthAction pause")
 	require.False(t, it.FailureReason.IsFailure())
 
@@ -145,7 +150,7 @@ func TestHealthActionPauseAppliesToThePreCheck(t *testing.T) {
 
 	it := waitForHealthPause(t, c, id)
 	require.Equal(t, download.StatusPaused, it.Status)
-	require.Contains(t, it.Message, "pre-check found 2 of 4 articles missing")
+	require.Contains(t, it.Message, "pre-check found 7 of 12 articles missing")
 	require.Zero(t, it.DownloadedBytes, "the job fetched articles past a failed pre-check")
 }
 

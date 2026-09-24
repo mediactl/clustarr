@@ -113,89 +113,30 @@ func TestParseNZBRefusesAnOversizedOrEmptyPayload(t *testing.T) {
 	require.ErrorIs(t, err, ErrEmptyNZB)
 }
 
-func TestCriticalHealthPercentFollowsTheRecoveryBlocks(t *testing.T) {
-	// With no par2 in the set a single missing article is already fatal.
+// The floor follows SABnzbd's check_availability_ratio: 100.2% of the
+// non-par2 bytes must be present, counting par2 bytes as able to stand in
+// for missing ones. Block counts are irrelevant to it, as in SABnzbd.
+func TestCriticalHealthPercentFollowsSABnzbdsByteRule(t *testing.T) {
+	// No par2 at all: everything must be present (the gate's tolerance of a
+	// few bad articles is applied elsewhere).
 	none, err := parseNZB(nzbWith(t, "", "movie.mkv", "movie2.mkv"), defaultMaxNZBBytes)
 	require.NoError(t, err)
 	require.Equal(t, int32(100), none.criticalHealthPercent())
+	require.False(t, hopeless(none.TotalBytes, none.par2Bytes(), 0))
+	require.True(t, hopeless(none.TotalBytes, none.par2Bytes(), 1), "one missing byte and no par2")
 
-	// Four articles, one recovery block: 75% of the articles must survive.
+	// Half the bytes are par2: the set can lose almost all of its data.
 	withPar2, err := parseNZB(nzbWith(t, "",
 		"a.rar", "b.rar", "release.par2", "release.vol000+01.par2"), defaultMaxNZBBytes)
 	require.NoError(t, err)
-	require.Equal(t, 4, withPar2.TotalSegments)
-	require.Equal(t, 1, withPar2.recoveryBlocks())
-	require.Equal(t, int32(75), withPar2.criticalHealthPercent())
-}
+	require.Equal(t, int64(2000), withPar2.par2Bytes())
+	require.Equal(t, int32(0), withPar2.criticalHealthPercent())
+	require.False(t, hopeless(withPar2.TotalBytes, withPar2.par2Bytes(), 1000))
 
-// TestCriticalHealthPercentEstimatesFromVolumeSizesWithoutBlockCounts pins
-// the first real NZB grab on the owner's cluster (nzbgeek, 2026-09-24): 99
-// rar parts and seven par2 volumes named vol-01..vol-07 -- no "+NN" block
-// count anywhere -- so the set read as having no recovery capacity, the
-// floor came out at 100%, and the first failed article of 14,169 paused a
-// 10 GB transfer at 1%. The volumes' size says the set can lose about 2%.
-func TestCriticalHealthPercentEstimatesFromVolumeSizesWithoutBlockCounts(t *testing.T) {
-	sizes := []struct {
-		name  string
-		bytes int64
-	}{
-		{"13th.2016.1080p.WEBRip.X264-DEFLATE.vol-01.par2", 65340},
-		{"13th.2016.1080p.WEBRip.X264-DEFLATE.vol-02.par2", 10197048},
-		{"13th.2016.1080p.WEBRip.X264-DEFLATE.vol-03.par2", 5098576},
-		{"13th.2016.1080p.WEBRip.X264-DEFLATE.vol-04.par2", 20328756},
-		{"13th.2016.1080p.WEBRip.X264-DEFLATE.vol-05.par2", 40526936},
-		{"13th.2016.1080p.WEBRip.X264-DEFLATE.vol-06.par2", 80858060},
-		{"13th.2016.1080p.WEBRip.X264-DEFLATE.vol-07.par2", 40526936},
-	}
-	var b strings.Builder
-	b.WriteString(`<?xml version="1.0" encoding="utf-8"?>` + "\n")
-	b.WriteString(`<nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">`)
-	file := func(name string, bytes int64) {
-		fmt.Fprintf(&b, `<file poster="p@x" date="1788000000" subject="[1/1] - &#34;%s&#34; yEnc %d (1/1)">`, name, bytes)
-		b.WriteString(`<groups><group>alt.binaries.clustarr</group></groups><segments>`)
-		fmt.Fprintf(&b, `<segment bytes="%d" number="1">%s@clustarr.test</segment>`, bytes, name)
-		b.WriteString(`</segments></file>`)
-	}
-	for i := 1; i <= 10; i++ {
-		file(fmt.Sprintf("13th.2016.1080p.WEBRip.X264-DEFLATE.part%02d.rar", i), 1_000_000_000)
-	}
-	for _, s := range sizes {
-		file(s.name, s.bytes)
-	}
-	b.WriteString(`</nzb>`)
-
-	job, err := parseNZB([]byte(b.String()), defaultMaxNZBBytes)
-	require.NoError(t, err)
-
-	volumes := 0
-	for _, f := range job.Files {
-		if strings.HasSuffix(f.Name, ".par2") {
-			require.Equal(t, kindPar2Volume, f.Kind, f.Name)
-			require.Zero(t, f.Blocks, "%s names no block count", f.Name)
-			volumes++
-		}
-	}
-	require.Equal(t, 7, volumes)
-	require.Zero(t, job.recoveryBlocks())
-	require.Equal(t, int64(197_601_652), job.par2VolumeBytes())
-
-	// NZBGet: (size - 2*par) / (size - par) = 9,802,398,348 / 10,000,000,000.
-	require.Equal(t, int32(98), job.criticalHealthPercent())
-
-	// The set has no separate index, so repair takes its smallest volume.
-	require.Equal(t, "13th.2016.1080p.WEBRip.X264-DEFLATE.vol-01.par2", par2IndexFile(job.Files))
-
-	// An estimated floor never reads "one article is fatal", and a set whose
-	// recovery data outweighs its content can lose anything.
-	generous, err := parseNZB(nzbWith(t, "", "a.rar", "a.vol-01.par2", "a.vol-02.par2", "a.vol-03.par2"),
-		defaultMaxNZBBytes)
-	require.NoError(t, err)
-	require.Equal(t, int32(0), generous.criticalHealthPercent())
-	tiny := &nzbJob{
-		TotalSegments: 100, TotalBytes: 1_000_000,
-		Files: []nzbFile{{Name: "a.vol-01.par2", Kind: kindPar2Volume, Bytes: 1}},
-	}
-	require.Equal(t, int32(99), tiny.criticalHealthPercent())
+	// SABnzbd's margin: with 300 bytes of par2 over 10,000 of data, the
+	// missing bytes may reach 300 less 0.2% of the data, 280.
+	require.False(t, hopeless(10_300, 300, 280))
+	require.True(t, hopeless(10_300, 300, 281))
 }
 
 func TestPar2IndexFilePrefersTheSetWithTheMostRecoveryBlocks(t *testing.T) {

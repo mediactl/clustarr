@@ -114,6 +114,46 @@ func TestFetchBatchFailsOverToTheSecondServerOn430(t *testing.T) {
 	require.Equal(t, 0, primary.servedCount(ids[gap]))
 }
 
+// A connection that dies mid-batch says nothing about the articles it had
+// not answered: SABnzbd asks the same server again (max_art_tries). Before
+// this, one dropped connection on the only server left the rest of the
+// batch unanswered and stalled the job for the provider retry delay.
+func TestFetchBatchRetriesTheSameServerAfterADroppedConnection(t *testing.T) {
+	old := articleRetryBackoff
+	articleRetryBackoff = time.Millisecond
+	t.Cleanup(func() { articleRetryBackoff = old })
+
+	srv := newStubServer(t)
+	const total = 5
+	ids := make([]string, total)
+	payloads := make([][]byte, total)
+	for i := range total {
+		ids[i] = fmt.Sprintf("seg%d@clustarr.test", i)
+		payloads[i] = partPayload(byte(i), 700)
+		srv.addArticle(ids[i], "movie.mkv", int64(total*700), int64(i*700), i+1, total, payloads[i])
+	}
+	srv.dropConn[ids[2]] = 1 // the connection dies when article 2 is asked for, once
+
+	pool := testPool(t, 4, srv.provider("solo", 2, 1))
+	res, err := pool.FetchBatch(context.Background(), ids)
+	require.NoError(t, err)
+	for i, r := range res {
+		require.NoErrorf(t, r.Err, "article %d must be served after the retry", i)
+		require.Equalf(t, payloads[i], r.Body, "article %d decoded wrong", i)
+	}
+	_, accepted, _ := srv.stats()
+	require.GreaterOrEqual(t, accepted, 2, "the retry took a fresh connection")
+	require.Equal(t, 1, srv.servedCount(ids[0]), "articles answered before the drop are not asked again")
+
+	// Three dead connections in a row is the server's problem, not a blip:
+	// the batch fails over and what is left reads unavailable.
+	srv.dropConn[ids[4]] = maxArticleTries
+	res, err = pool.FetchBatch(context.Background(), []string{ids[3], ids[4]})
+	require.NoError(t, err)
+	require.NoError(t, res[0].Err)
+	require.ErrorIs(t, res[1].Err, ErrProvidersUnavailable)
+}
+
 func TestFetchBatchFailsOverWhenTheFirstServerRefusesTheConnection(t *testing.T) {
 	// A 502 at greeting is the other failover: the whole batch moves rather
 	// than one article.

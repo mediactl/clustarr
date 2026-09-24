@@ -362,6 +362,29 @@ func (p *Pool) Stats() []ServerStats {
 // FetchBatch fetches every id, pipelined within one connection per provider
 // attempt, and fails over between providers in priority order.
 //
+// maxArticleTries is SABnzbd's max_art_tries: how many connections one
+// server gets for the same articles in one batch before it is given up on.
+const maxArticleTries = 3
+
+// articleRetryBackoff is the wait before the second and third attempt,
+// multiplied by the attempt number. A variable so tests need not wait.
+var articleRetryBackoff = 250 * time.Millisecond
+
+// sleepCtx waits d or until ctx ends.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return ctx.Err()
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
 // # The 430 failover
 //
 // This is the behaviour real-world completion rates hang on, and it is the one
@@ -421,34 +444,54 @@ func (p *Pool) FetchBatch(ctx context.Context, ids []string) ([]Result, error) {
 			continue
 		}
 
-		batch := make([]string, len(pending))
-		for i, idx := range pending {
-			batch[i] = ids[idx]
-		}
-
-		err := s.withConn(ctx, func(c *conn) error {
-			return c.pipeline(ctx, "BODY", batch, p.depth, 222, true, func(i int, r io.Reader, ferr error) error {
-				idx := pending[i]
-				answered[idx] = true
-				if ferr != nil {
-					// 430 and friends: leave it pending for the next server.
-					res[idx].Err = ferr
-					return nil
+		// SABnzbd's max_art_tries: a connection that dies mid-batch -- a
+		// timeout, a reset, an idle drop the DATE probe did not catch --
+		// says nothing about the articles it had not answered, so they are
+		// asked again on a fresh connection to the SAME server, up to
+		// maxArticleTries in all, before the server is given up on for this
+		// batch. A refusal or an auth failure penalises the server and is
+		// not retried; a 430 is an answer, not a failure, and never gets
+		// here. Before this, one dropped connection on the only server
+		// stalled the whole job for the provider retry delay (2026-09-24).
+		answeredHere := make([]bool, len(ids))
+		for attempt := 1; ; attempt++ {
+			batch := make([]string, 0, len(pending))
+			asked := make([]int, 0, len(pending))
+			for _, idx := range pending {
+				if !done[idx] && !answeredHere[idx] {
+					batch = append(batch, ids[idx])
+					asked = append(asked, idx)
 				}
-				body, meta, derr := decodeArticle(r, p.maxArticle)
-				if derr != nil {
-					// Corrupt or truncated on THIS server. Leave it pending:
-					// the next provider may hold a good copy, which is the
-					// same argument as for a 430.
-					res[idx].Err = derr
+			}
+			if len(batch) == 0 {
+				break
+			}
+			err := s.withConn(ctx, func(c *conn) error {
+				return c.pipeline(ctx, "BODY", batch, p.depth, 222, true, func(i int, r io.Reader, ferr error) error {
+					idx := asked[i]
+					answered[idx] = true
+					answeredHere[idx] = true
+					if ferr != nil {
+						// 430 and friends: leave it pending for the next server.
+						res[idx].Err = ferr
+						return nil
+					}
+					body, meta, derr := decodeArticle(r, p.maxArticle)
+					if derr != nil {
+						// Corrupt or truncated on THIS server. Leave it pending:
+						// the next provider may hold a good copy, which is the
+						// same argument as for a 430.
+						res[idx].Err = derr
+						return nil
+					}
+					res[idx] = Result{Index: idx, Body: body, Meta: meta, Server: s.p.Name}
+					done[idx] = true
 					return nil
-				}
-				res[idx] = Result{Index: idx, Body: body, Meta: meta, Server: s.p.Name}
-				done[idx] = true
-				return nil
+				})
 			})
-		})
-		if err != nil {
+			if err == nil {
+				break
+			}
 			if ctxErr := ctxDone(ctx); ctxErr != nil {
 				return res, ctxErr
 			}
@@ -458,15 +501,25 @@ func (p *Pool) FetchBatch(ctx context.Context, ids []string) ([]Result, error) {
 			case errors.Is(err, errAuth):
 				s.penalise(penaltyAuth)
 			}
+			retry := attempt < maxArticleTries && !errors.Is(err, errConnectionRefusedByServer) &&
+				!errors.Is(err, errAuth) && s.available(time.Now())
+			if retry {
+				log.WarnContext(ctx, "nntp connection failed mid-batch; retrying the rest on the same provider",
+					"provider", s.p.Name, "attempt", attempt, "of", maxArticleTries, "error", err)
+				if err := sleepCtx(ctx, articleRetryBackoff*time.Duration(attempt)); err != nil {
+					return res, err
+				}
+				continue
+			}
 			log.WarnContext(ctx, "nntp provider failed a batch, failing over",
-				"provider", s.p.Name, "articles", len(batch), "error", err)
-			for _, idx := range pending {
+				"provider", s.p.Name, "articles", len(batch), "attempts", attempt, "error", err)
+			for _, idx := range asked {
 				if !done[idx] {
 					res[idx].Err = err
 				}
 			}
+			break
 		}
-
 		still := make([]int, 0, len(pending))
 		for _, idx := range pending {
 			if !done[idx] {

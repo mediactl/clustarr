@@ -132,6 +132,9 @@ func newTestClient(t *testing.T, cfg Config) (*Client, string, string) {
 	root := t.TempDir()
 	cfg.ScratchDir = filepath.Join(root, "scratch")
 	cfg.DataDir = filepath.Join(root, "data")
+	if cfg.ArticleRetryDelay == 0 {
+		cfg.ArticleRetryDelay = -1 // the retry pass waits for nothing in tests
+	}
 	c, err := New(cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
@@ -222,6 +225,47 @@ func TestAddIsIdempotentOnTheDownloadNameAcrossDifferingPayloads(t *testing.T) {
 	id3, err := c.Add(context.Background(), download.AddRequest{Name: "other", Payload: first, Category: "movies", Paused: true})
 	require.NoError(t, err)
 	require.Equal(t, id1, id3)
+}
+
+// A 430 on a reseller is often a gap that closes: the retry pass at the end
+// of the transfer asks once more, and a release that would have been
+// missing an article completes whole.
+func TestRetryPassRecoversAnArticleThatWasMissingAtFirst(t *testing.T) {
+	srv := newStubServer(t)
+	parts := [][]byte{partPayload(1, 900), partPayload(2, 900), partPayload(3, 900), partPayload(4, 512)}
+	nzb := buildNZB(t, srv, "Late.Article", []fileSpec{{name: "movie.mkv", parts: parts}})
+	srv.refuseTimes["f0-p2@clustarr.test"] = 1
+
+	c, _, dataDir := newTestClient(t, Config{Providers: []Provider{srv.provider("solo", 2, 1)}})
+	id, err := c.Add(context.Background(), download.AddRequest{Name: "Late.Article", Payload: nzb, Category: "movies"})
+	require.NoError(t, err)
+	it := waitForTerminal(t, c, id)
+	require.Equal(t, download.StatusCompleted, it.Status, "message: %s", it.Message)
+	require.NotNil(t, it.Health)
+	require.Zero(t, it.Health.FailedArticles, "the retry pass must clear the recovered article")
+	require.Equal(t, 1, srv.servedCount("f0-p2@clustarr.test"))
+
+	got, err := os.ReadFile(filepath.Join(dataDir, "movies", "Late.Article", "movie.mkv"))
+	require.NoError(t, err)
+	require.Equal(t, bytes.Join(parts, nil), got, "the recovered article lands at its offset")
+}
+
+// A few missing articles are tolerated as SABnzbd does -- but bare content
+// with holes must not be published as whole: with no par2 and no archive
+// to judge it, the job stops at post-processing for the operator.
+func TestBareContentWithMissingArticlesIsNotPublished(t *testing.T) {
+	srv := newStubServer(t)
+	parts := [][]byte{partPayload(1, 400), partPayload(2, 400), partPayload(3, 400), partPayload(4, 400)}
+	nzb := buildNZB(t, srv, "Holey", []fileSpec{{name: "movie.mkv", parts: parts}})
+	srv.refuse["f0-p1@clustarr.test"] = 430
+
+	c, _, dataDir := newTestClient(t, Config{Providers: []Provider{srv.provider("solo", 2, 1)}})
+	id, err := c.Add(context.Background(), download.AddRequest{Name: "Holey", Payload: nzb, Category: "movies"})
+	require.NoError(t, err)
+	it := waitForHealthPause(t, c, id)
+	require.Contains(t, it.Message, "1 of 4 articles missing, with no par2 to repair them and no archive")
+	_, err = os.Stat(filepath.Join(dataDir, "movies", "Holey"))
+	require.True(t, os.IsNotExist(err), "nothing is published past the gate")
 }
 
 func TestClientDownloadsAnNZBAndPublishesIt(t *testing.T) {

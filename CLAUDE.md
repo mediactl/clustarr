@@ -483,6 +483,16 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   asks the client (`download.ByName`) before fetching a payload again --
   every fetch is a grab the indexer counts. Torrents are unaffected: an
   info hash is the content.
+- **The usenet engine's missing-article rules are SABnzbd's, by
+  number.** `maxArticleTries` 3 same-server retries for a connection that
+  dies mid-batch (`max_art_tries`); `maxBadArticles` 5 tolerated before
+  any judgement (`MAX_BAD_ARTICLES`); `hopeless` is
+  `check_availability_ratio` with `req_completion_rate` 100.2%, in bytes
+  and integer arithmetic; plus one retry pass over every missing article
+  (`retryFailed`, `ArticleRetryDelay`) before a breach or at the end of the
+  transfer. Whole-percent health against a whole-percent floor decided a
+  10 GB job at the margin once ("96%" that was 96.98% against 97), so the
+  gate compares bytes, and the percentages in status are for reading only.
 - **Every cache strips `managedFields`, and the cache-sync timeout is ten
   minutes.** On the owner's library (15,630 Episodes, a 57 MB list that
   `kubectl` alone takes 40 s to fetch) captionarr crash-looped on

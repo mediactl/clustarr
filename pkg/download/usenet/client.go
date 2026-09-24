@@ -154,6 +154,12 @@ type Config struct {
 	// configured server could be asked for its articles
 	// ([ErrProvidersUnavailable]). Zero means [defaultProviderRetryDelay].
 	ProviderRetryDelay time.Duration
+
+	// ArticleRetryDelay is how long the job waits before its one retry pass
+	// over the articles every server said were missing, so a propagation
+	// or sync gap has a chance to close. Zero means
+	// [defaultArticleRetryDelay]; a negative value means no wait.
+	ArticleRetryDelay time.Duration
 }
 
 // defaultProviderRetryDelay is [Config.ProviderRetryDelay]'s default. It is
@@ -161,6 +167,10 @@ type Config struct {
 // penalised provider becomes available again rather than finding it still
 // sitting out.
 const defaultProviderRetryDelay = penaltyRefused
+
+// defaultArticleRetryDelay is [Config.ArticleRetryDelay]'s default: NZBGet's
+// ArticleInterval.
+const defaultArticleRetryDelay = 10 * time.Second
 
 // PostProcess mirrors downloadv1alpha1.PostProcessSpec with its pointers
 // resolved.
@@ -225,6 +235,12 @@ func New(cfg Config) (download.Client, error) {
 	}
 	if cfg.ProviderRetryDelay <= 0 {
 		cfg.ProviderRetryDelay = defaultProviderRetryDelay
+	}
+	switch {
+	case cfg.ArticleRetryDelay == 0:
+		cfg.ArticleRetryDelay = defaultArticleRetryDelay
+	case cfg.ArticleRetryDelay < 0:
+		cfg.ArticleRetryDelay = 0
 	}
 
 	workers := cfg.Workers
@@ -349,6 +365,11 @@ type job struct {
 	// rest of the job, so the breach that paused it does not pause it again.
 	healthPaused   bool
 	healthOverride bool
+
+	// retried is set once retryFailed has run; retryMu serialises the
+	// workers that might reach it at the same time through the gate.
+	retryMu sync.Mutex
+	retried bool
 
 	done           []bitset
 	failedSegs     []bitset
@@ -899,7 +920,27 @@ func (j *job) preCheck(ctx context.Context) error {
 		return nil
 	}
 	health := int32((len(ids) - len(missing)) * 100 / len(ids)) //nolint:gosec // bounded by 100.
-	if health < j.abortHealth || health < j.nzb.criticalHealthPercent() {
+	// The same tolerance and rule as the transfer's gate, on what STAT
+	// reported: a few missing articles are left to par2 or unrar.
+	var missingBytes int64
+	if len(missing) > maxBadArticles {
+		gone := make(map[string]bool, len(missing))
+		for _, id := range missing {
+			gone[id] = true
+		}
+		for _, f := range j.nzb.Files {
+			if f.Kind == kindPar2Index || f.Kind == kindPar2Volume {
+				continue
+			}
+			for _, sg := range f.Segments {
+				if gone[sg.ID] {
+					missingBytes += sg.Bytes
+				}
+			}
+		}
+	}
+	if len(missing) > maxBadArticles &&
+		(health < j.abortHealth || hopeless(j.nzb.TotalBytes, j.nzb.par2Bytes(), missingBytes)) {
 		if err := j.breach(ctx, fmt.Sprintf("pre-check found %d of %d articles missing (health %d%%)",
 			len(missing), len(ids), health), nil); err != nil {
 			return err
@@ -915,6 +956,9 @@ func (j *job) postProcess(ctx context.Context) error {
 	defer span.End()
 
 	if err := j.healthGate(ctx); err != nil {
+		return err
+	}
+	if err := j.unverifiableGate(ctx); err != nil {
 		return err
 	}
 	// The gate pauses rather than failing under the pause health action; the

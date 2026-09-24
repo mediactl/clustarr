@@ -55,6 +55,13 @@ func (b bitset) set(i int) {
 	b[i/64] |= 1 << (uint(i) % 64)
 }
 
+// clear unsets bit i.
+func (b bitset) clear(i int) {
+	if i/64 < len(b) {
+		b[i/64] &^= 1 << (uint(i) % 64) //nolint:gosec // i is a segment index.
+	}
+}
+
 func (b bitset) has(i int) bool {
 	if i < 0 || i/64 >= len(b) {
 		return false
@@ -279,12 +286,134 @@ dispatch:
 		return err
 	}
 
-	failed := j.failedArticles()
-	if failed > 0 {
+	if j.failedArticles() > 0 {
+		if err := j.retryFailed(ctx); err != nil {
+			return err
+		}
+	}
+	if failed := j.failedArticles(); failed > 0 {
 		log.WarnContext(ctx, "usenet transfer finished with missing articles",
 			"download", j.id, "failed", failed, "total", j.nzb.TotalSegments)
 	}
 	return j.checkpoint()
+}
+
+// retryFailed is the second chance every missing article gets: one more
+// pass over the failed segments, across every server, after
+// Config.ArticleRetryDelay. It runs once per job -- from the health gate
+// when a breach is imminent, else at the end of the transfer -- and clears
+// whatever it recovers. SABnzbd gives this chance only on an operator's
+// Retry; NZBGet's ArticleRetries gives it to every article. A 430 on a
+// reseller is often a propagation or sync gap that has closed by the time
+// the rest of the release is down (both grabs on 2026-09-24 lost 1-3% of
+// their articles to a single provider). A provider outage during the pass
+// is ErrProvidersUnavailable, which the caller waits out like any other.
+func (j *job) retryFailed(ctx context.Context) error {
+	j.retryMu.Lock()
+	defer j.retryMu.Unlock()
+	if j.retried {
+		return nil
+	}
+	j.retried = true
+
+	type seg struct{ fi, si int }
+	var failed []seg
+	j.mu.Lock()
+	for fi, b := range j.failedSegs {
+		for si := range j.nzb.Files[fi].Segments {
+			if b.has(si) {
+				failed = append(failed, seg{fi, si})
+			}
+		}
+	}
+	j.mu.Unlock()
+	if len(failed) == 0 {
+		return nil
+	}
+
+	log := logging.FromContext(ctx)
+	log.InfoContext(ctx, "usenet: retrying missing articles once more",
+		"download", j.id, "articles", len(failed), "delay", j.client.cfg.ArticleRetryDelay)
+	if err := sleepCtx(ctx, j.client.cfg.ArticleRetryDelay); err != nil {
+		return err
+	}
+
+	targets, err := j.openTargets()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		for _, f := range targets {
+			if f != nil {
+				_ = f.Close()
+			}
+		}
+	}()
+
+	depth := max(j.client.cfg.PipelineDepth, 1)
+	recovered := 0
+	for start := 0; start < len(failed); start += depth {
+		end := min(start+depth, len(failed))
+		chunk := failed[start:end]
+		ids := make([]string, len(chunk))
+		for i, sg := range chunk {
+			ids[i] = j.nzb.Files[sg.fi].Segments[sg.si].ID
+		}
+		results, err := j.client.pool.FetchBatch(ctx, ids)
+		if err != nil {
+			return err
+		}
+		for i, r := range results {
+			if errors.Is(r.Err, ErrProvidersUnavailable) {
+				return r.Err
+			}
+			if r.Err != nil {
+				continue
+			}
+			sg := chunk[i]
+			if err := j.writeSegment(targets[sg.fi], sg.fi, sg.si, r); err != nil {
+				return err
+			}
+			j.mu.Lock()
+			j.failedSegs[sg.fi].clear(sg.si)
+			j.mu.Unlock()
+			recovered++
+		}
+	}
+	log.InfoContext(ctx, "usenet: missing-article retry finished",
+		"download", j.id, "recovered", recovered, "stillMissing", len(failed)-recovered)
+	return j.checkpoint()
+}
+
+// missingBytes totals the failed segments of non-par2 files, SABnzbd's
+// bytes_missing: par2 that is absent does not stop the job completing.
+func (j *job) missingBytes() int64 {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	var total int64
+	for fi, b := range j.failedSegs {
+		f := &j.nzb.Files[fi]
+		if f.Kind == kindPar2Index || f.Kind == kindPar2Volume {
+			continue
+		}
+		for si := range f.Segments {
+			if b.has(si) {
+				total += f.Segments[si].Bytes
+			}
+		}
+	}
+	return total
+}
+
+// breached reports whether the job's missing articles cross a floor: the
+// operator's abortHealthPercent, or SABnzbd's hopelessness rule -- and only
+// once more than maxBadArticles are missing, which SABnzbd tolerates
+// outright so a plain RAR set unrar can verify is not abandoned for a few.
+func (j *job) breached() bool {
+	if j.failedArticles() <= maxBadArticles {
+		return false
+	}
+	return j.healthPercent() < j.abortHealth || hopeless(j.nzb.TotalBytes, j.nzb.par2Bytes(), j.missingBytes())
 }
 
 // fetchFirstArticles fetches segment 1 of every file in one pipelined sweep.
@@ -428,15 +557,38 @@ var ErrUnrecoverable = errors.New("usenet: too many articles missing to recover"
 // because finishing a 50GB transfer that par2 cannot repair wastes the whole
 // transfer. What "stops" means is the health action's ([job.breach]).
 func (j *job) healthGate(ctx context.Context) error {
-	health := j.healthPercent()
-	if health >= j.abortHealth && health >= j.nzb.criticalHealthPercent() {
+	if !j.breached() {
+		return nil
+	}
+	// Imminent breach: spend the second chance first, then judge again.
+	if err := j.retryFailed(ctx); err != nil {
+		return err
+	}
+	if !j.breached() {
 		return nil
 	}
 	j.mu.Lock()
 	last := j.lastError
 	j.mu.Unlock()
-	return j.breach(ctx, fmt.Sprintf("health %d%% is below the floor (abort %d%%, critical %d%%)",
-		health, j.abortHealth, j.nzb.criticalHealthPercent()), last)
+	return j.breach(ctx, fmt.Sprintf("health %d%% is below the floor (abort %d%%, critical %d%%): %d of %d articles missing",
+		j.healthPercent(), j.abortHealth, j.nzb.criticalHealthPercent(), j.failedArticles(), j.nzb.TotalSegments), last)
+}
+
+// unverifiableGate is the post-process rule SABnzbd does not have and the
+// importer needs: articles still missing after the retry pass are only
+// acceptable when par2 can repair them or an archive's own checksums will
+// judge the result. Bare content with holes would otherwise be published
+// as if whole, and the library would keep a damaged file.
+func (j *job) unverifiableGate(ctx context.Context) error {
+	failed := j.failedArticles()
+	if failed == 0 || j.nzb.par2Bytes() > 0 || len(archiveEntryPoints(j.nzb.Files)) > 0 {
+		return nil
+	}
+	j.mu.Lock()
+	last := j.lastError
+	j.mu.Unlock()
+	return j.breach(ctx, fmt.Sprintf("health %d%%: %d of %d articles missing, with no par2 to repair them and no archive to verify the result",
+		j.healthPercent(), failed, j.nzb.TotalSegments), last)
 }
 
 // breach applies [Config.HealthAction] to a health-floor breach described by

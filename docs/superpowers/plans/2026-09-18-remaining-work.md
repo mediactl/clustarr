@@ -1633,11 +1633,11 @@ what it left behind.
   names before the extras fix) carried the same reason and was blocklisted
   the same way. Give repair failures that are not article loss their own
   reason, or at least their own condition message.
-- [ ] **Critical health is estimated in bytes, but par2 recovers in
-  blocks.** With 5 MB blocks a lost 700 KB article costs a whole block, so
-  the byte-based NZBGet estimate (98% on the 2026-09-24 grab) overstates
-  what the set can lose; reading the block size from a par2 volume's main
-  packet once it lands would make the floor exact.
+- [x] **Critical health is estimated in bytes, but par2 recovers in
+  blocks.** Superseded on 2026-09-24 by SABnzbd's own byte rule
+  (`usenet.hopeless`, `check_availability_ratio`): SABnzbd does not count
+  blocks for this either, and tolerates five bad articles before judging.
+  par2's verdict after the fact is the block-exact answer.
 
 ### Deferred by decision: the unified manager topology (2026-09-24)
 

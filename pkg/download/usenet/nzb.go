@@ -264,52 +264,62 @@ func (j *nzbJob) recoveryBlocks() int {
 	return total
 }
 
-// criticalHealthPercent is the article-health floor below which par2 cannot
-// recover the set, as a whole percentage.
-//
-// NZBGet computes health as 1000 - failed/total*1000 and derives critical
-// health from the available recovery blocks. The same shape, on a 0-100 scale
-// and in integer arithmetic, because no float reaches api/.
-func (j *nzbJob) criticalHealthPercent() int32 {
-	if j.TotalSegments == 0 {
-		return 100
-	}
-	if blocks := j.recoveryBlocks(); blocks > 0 {
-		// A recovery block replaces roughly one article-sized slice, so the
-		// floor is the share of articles that must survive.
-		recoverable := min(blocks, j.TotalSegments)
-		survive := j.TotalSegments - recoverable
-		return int32(survive * 100 / j.TotalSegments) //nolint:gosec // bounded by 100.
-	}
-	// No volume names its block count (the "name.vol-01.par2" scheme), so
-	// estimate the capacity from the volumes' size the way NZBGet's
-	// NzbInfo::CalcCriticalHealth does: recovery data replaces about one
-	// byte per byte of itself, and the volumes can be damaged too, so their
-	// size counts twice against the total. Before this fallback such a set
-	// read as unrepairable and the first failed article of 14,169 paused a
-	// 10 GB transfer at 1% (2026-09-24). Nothing to estimate from means one
-	// missing article really is fatal.
-	parBytes := j.par2VolumeBytes()
-	if parBytes <= 0 || j.TotalBytes <= 0 {
-		return 100
-	}
-	if 2*parBytes >= j.TotalBytes {
-		return 0
-	}
-	pct := (j.TotalBytes - 2*parBytes) * 100 / (j.TotalBytes - parBytes)
-	// NZBGet caps an estimated floor at 999 per mille: a set that carries
-	// recovery data is never "one article is fatal".
-	return int32(min(pct, 99)) //nolint:gosec // bounded by 99.
-}
+// requiredCompletionPerMille is SABnzbd's req_completion_rate default,
+// 100.2%: the share of the non-par2 bytes that must be present, counting
+// par2 bytes as able to stand in for missing ones, with a 0.2% margin.
+const requiredCompletionPerMille = 1002
 
-// par2VolumeBytes totals the size of the recovery volumes, the fallback
-// measure of repair capacity when their names carry no block counts.
-func (j *nzbJob) par2VolumeBytes() int64 {
+// maxBadArticles is SABnzbd's MAX_BAD_ARTICLES: this many missing or bad
+// articles are ignored before any hopelessness check runs, so a release
+// with little or no par2 -- a plain RAR set unrar can verify -- is not
+// abandoned for a handful of articles.
+const maxBadArticles = 5
+
+// par2Bytes totals every par2 file, index and volumes, the way SABnzbd's
+// bytes_par2 does.
+func (j *nzbJob) par2Bytes() int64 {
 	var total int64
 	for _, f := range j.Files {
-		if f.Kind == kindPar2Volume {
+		if f.Kind == kindPar2Index || f.Kind == kindPar2Volume {
 			total += f.Bytes
 		}
 	}
 	return total
+}
+
+// hopeless is SABnzbd's check_availability_ratio: with missingBytes of
+// non-par2 data gone, the job cannot be completed when
+//
+//	100 * (bytes - missing) / (bytes - par2) < 100.2
+//
+// that is, when the missing data outweighs the recovery data by more than
+// the margin. The caller applies maxBadArticles first. Integer arithmetic,
+// so no float reaches api/.
+func hopeless(totalBytes, par2Bytes, missingBytes int64) bool {
+	nonPar := totalBytes - par2Bytes
+	if nonPar <= 0 || missingBytes <= 0 {
+		// Nothing missing is never hopeless -- the 0.2% margin would
+		// otherwise read a par2-less set as short of 100.2%.
+		return false
+	}
+	return (totalBytes-missingBytes)*1000 < requiredCompletionPerMille*nonPar
+}
+
+// criticalHealthPercent is the share of the non-par2 bytes that must be
+// present for the job to be completable under hopeless -- 100.2% less the
+// par2 share -- as a whole percentage for the status. A set without par2
+// reads 100; the maxBadArticles tolerance is applied by the gate, not here.
+func (j *nzbJob) criticalHealthPercent() int32 {
+	nonPar := j.TotalBytes - j.par2Bytes()
+	if nonPar <= 0 {
+		return 100
+	}
+	pct := requiredCompletionPerMille/10 - j.par2Bytes()*100/nonPar
+	switch {
+	case pct < 0:
+		return 0
+	case pct > 100:
+		return 100
+	}
+	return int32(pct) //nolint:gosec // bounded by 100.
 }
