@@ -439,6 +439,8 @@ func TestSquasharrWorkerSettingsComeFromTheEnvironment(t *testing.T) {
 	t.Setenv(workerImageEnv, "registry.example/media:1")
 	t.Setenv(workerImageCUDAEnv, "registry.example/media-cuda:1")
 	t.Setenv(dataClaimEnv, "release-clustarr-data")
+	t.Setenv(gpuNodeLabelNVIDIAEnv, "example.com/env-nvidia-gpu")
+	t.Setenv(gpuNodeLabelIntelEnv, "example.com/env-intel-gpu")
 	got := stub(t, &runSquasharr)
 	if _, err := execute(t, "squasharr", "--namespace", "clustarr"); err != nil {
 		t.Fatalf("clustarr squasharr: %v", err)
@@ -447,13 +449,26 @@ func TestSquasharrWorkerSettingsComeFromTheEnvironment(t *testing.T) {
 		t.Fatalf("the environment-configured options are invalid: %v", err)
 	}
 	for name, pair := range map[string][2]string{
-		workerImageEnv:     {got.WorkerImage, "registry.example/media:1"},
-		workerImageCUDAEnv: {got.WorkerImageCUDA, "registry.example/media-cuda:1"},
-		dataClaimEnv:       {got.DataClaimName, "release-clustarr-data"},
+		workerImageEnv:        {got.WorkerImage, "registry.example/media:1"},
+		workerImageCUDAEnv:    {got.WorkerImageCUDA, "registry.example/media-cuda:1"},
+		dataClaimEnv:          {got.DataClaimName, "release-clustarr-data"},
+		gpuNodeLabelNVIDIAEnv: {got.NodeLabelNVIDIA, "example.com/env-nvidia-gpu"},
+		gpuNodeLabelIntelEnv:  {got.NodeLabelIntel, "example.com/env-intel-gpu"},
 	} {
 		if pair[0] != pair[1] {
 			t.Errorf("$%s: got %q, want %q", name, pair[0], pair[1])
 		}
+	}
+
+	// An explicit flag still wins over the environment, the same as every
+	// other squasharr setting envOr defaults.
+	got = stub(t, &runSquasharr)
+	if _, err := execute(t, "squasharr", "--namespace", "clustarr",
+		"--gpu-node-label-nvidia", "flag.example/nvidia-gpu"); err != nil {
+		t.Fatalf("clustarr squasharr: %v", err)
+	}
+	if got.NodeLabelNVIDIA != "flag.example/nvidia-gpu" {
+		t.Errorf("--gpu-node-label-nvidia did not override $%s: %q", gpuNodeLabelNVIDIAEnv, got.NodeLabelNVIDIA)
 	}
 
 	// And the controller refuses to start without an image to stamp.

@@ -76,6 +76,17 @@ const (
 	workerImageEnv     = "CLUSTARR_WORKER_IMAGE"
 	workerImageCUDAEnv = "CLUSTARR_WORKER_IMAGE_CUDA"
 
+	// gpuNodeLabelNVIDIAEnv and gpuNodeLabelIntelEnv override the node label
+	// (set to "true") that marks a GPU node of each class, the defaults for
+	// --gpu-node-label-nvidia and --gpu-node-label-intel. Like
+	// intelRenderGroupsEnv, no shipped config/manager manifest sets them --
+	// pool.DefaultNodeLabelNVIDIA/DefaultNodeLabelIntel already match what
+	// the NVIDIA GPU Operator's GPU Feature Discovery and Intel's Node
+	// Feature Discovery set by default -- but the chart accepts an override
+	// for a cluster that labels its GPU nodes differently.
+	gpuNodeLabelNVIDIAEnv = "CLUSTARR_GPU_NODE_LABEL_NVIDIA"
+	gpuNodeLabelIntelEnv  = "CLUSTARR_GPU_NODE_LABEL_INTEL"
+
 	// dataClaimEnv is the RWX /data claim those Jobs mount, the default for
 	// squasharr's --data-claim, and likewise the claim grabarr's engine
 	// workloads mount, the default for grabarr's --data-claim. Only the

@@ -140,6 +140,15 @@ asked for them, so they can never be chart templates.
 {{- with .Values.squasharr.intelRenderGroups }}
 {{- $squashEnv = append $squashEnv (dict "name" "CLUSTARR_INTEL_RENDER_GROUPS" "value" (join "," .)) }}
 {{- end }}
+{{- /* GPU node labels: the binary's own defaults already match the NVIDIA
+       GPU Operator and Intel's Node Feature Discovery, so set only when
+       overridden. */}}
+{{- with .Values.squasharr.gpuNodeLabelNvidia }}
+{{- $squashEnv = append $squashEnv (dict "name" "CLUSTARR_GPU_NODE_LABEL_NVIDIA" "value" .) }}
+{{- end }}
+{{- with .Values.squasharr.gpuNodeLabelIntel }}
+{{- $squashEnv = append $squashEnv (dict "name" "CLUSTARR_GPU_NODE_LABEL_INTEL" "value" .) }}
+{{- end }}
 {{- include "clustarr.workload" (dict
       "root" $
       "component" "squasharr"

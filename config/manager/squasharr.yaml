@@ -112,6 +112,18 @@ spec:
             #     value: "109"
             # or run a container runtime with
             # device_ownership_from_security_context enabled instead.
+            #
+            # --gpu-node-label-nvidia/--gpu-node-label-intel
+            # ($CLUSTARR_GPU_NODE_LABEL_NVIDIA/_INTEL) default to
+            # nvidia.com/gpu.present and intel.feature.node.kubernetes.io/gpu
+            # -- what the NVIDIA GPU Operator's GPU Feature Discovery and
+            # Intel's Node Feature Discovery already set -- so nothing is set
+            # here either. Override only for a cluster that labels its GPU
+            # nodes differently:
+            #   - name: CLUSTARR_GPU_NODE_LABEL_NVIDIA
+            #     value: "my.org/nvidia-gpu"
+            #   - name: CLUSTARR_GPU_NODE_LABEL_INTEL
+            #     value: "my.org/intel-gpu"
           ports:
             - name: metrics
               containerPort: 8443

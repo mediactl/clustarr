@@ -310,6 +310,14 @@ squasharr:
   # default; leave it empty with a runtime that has
   # device_ownership_from_security_context enabled.
   intelRenderGroups: []
+  # Override the node label (set to "true") that marks a GPU node of each
+  # class (--gpu-node-label-nvidia/--gpu-node-label-intel). Empty uses the
+  # binary's own defaults, nvidia.com/gpu.present and
+  # intel.feature.node.kubernetes.io/gpu -- what the NVIDIA GPU Operator's
+  # GPU Feature Discovery and Intel's Node Feature Discovery set. Set these
+  # only if your cluster labels GPU nodes differently.
+  gpuNodeLabelNvidia: ""
+  gpuNodeLabelIntel: ""
   resources:
     requests:
       cpu: 50m

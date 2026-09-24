@@ -212,6 +212,14 @@
           "uniqueItems": true,
           "description": "squasharr --intel-render-groups: GIDs of the host group owning /dev/dri/renderD* on the Intel GPU nodes, added to every Intel transcode Job's pod as supplementalGroups. Host-specific, so no default."
         },
+        "gpuNodeLabelNvidia": {
+          "type": "string",
+          "description": "squasharr --gpu-node-label-nvidia override: the node label (set to \"true\") that marks an NVIDIA GPU node. Empty uses the binary's own default, nvidia.com/gpu.present (the NVIDIA GPU Operator's GPU Feature Discovery)."
+        },
+        "gpuNodeLabelIntel": {
+          "type": "string",
+          "description": "squasharr --gpu-node-label-intel override: the node label (set to \"true\") that marks an Intel GPU node. Empty uses the binary's own default, intel.feature.node.kubernetes.io/gpu (Intel's Node Feature Discovery)."
+        },
         "resources": { "$ref": "#/$defs/resources" },
         "nodeSelector": { "type": "object" },
         "tolerations": { "type": "array" },
