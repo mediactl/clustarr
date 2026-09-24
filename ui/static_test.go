@@ -155,6 +155,8 @@ func TestStaticRouteServesTheJumpTracker(t *testing.T) {
 	require.Contains(t, rec.Header().Get("Content-Type"), "javascript")
 	require.Contains(t, rec.Body.String(), "data-jump-bar")
 	require.Contains(t, rec.Body.String(), "data-jump-thumb")
+	require.Contains(t, rec.Body.String(), "data-load-prev", "the tracker fires the earlier-page sentinel when the reader scrolls up at the top")
+	require.Contains(t, rec.Body.String(), "loadprev")
 	require.Contains(t, rec.Body.String(), "data-total")
 	require.NotContains(t, rec.Body.String(), "data-current", "the thumb is positional, not a letter mark")
 	require.Contains(t, rec.Body.String(), "data-scrollbar", "the tracker keeps the hidden scrollbar in step with htmx swaps")

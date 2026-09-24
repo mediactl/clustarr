@@ -576,8 +576,13 @@ once scrolled into view (`hx-trigger="revealed"`), fetches the same
 window one page wider and swaps `#library-rows` whole -- the wider grid,
 the next sentinel and the stream element, which reconnects for the wider
 window so every live frame carries everything on screen; the sentinel
-goes once the window reaches the end. A jump still lands on the letter's
-page and scrolls on from there. The A–Z bar is fixed to the right edge of
+goes once the window reaches the end. A jump lands on the letter's page
+and scrolls on from there in both directions: a sentinel above the grid
+(`data-load-prev`) fetches the window one page earlier (the start moves
+back a page, the span grows by one) on a `loadprev` event the tracker
+script fires when the reader scrolls up at the top of the page, holding
+the first card on screen in place across the prepend; a click does the
+same. The A–Z bar is fixed to the right edge of
 the screen, from beneath the top bar, the breadcrumb row and the toolbar
 (all three sticky) to the bottom of the viewport, outside the grid's flow,
 its letters sharing the height, as Radarr's; a vendored tracker

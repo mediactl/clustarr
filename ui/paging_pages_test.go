@@ -253,11 +253,12 @@ func TestListStreamsPushOnlyTheRequestedWindow(t *testing.T) {
 		wantIn  string
 		wantOut string
 	}{
-		"pipeline":       {"/events/pipeline?page=3&per=50", `data-stage="`, 20, `default/e-119`, `default/e-099`},
-		"library":        {"/events/library/movies?page=2&per=50", `data-ref="`, 50, `default/m-050`, `default/m-100`},
-		"library window": {"/events/library/movies?page=1&per=50&pages=2", `data-ref="`, 100, `default/m-099`, `default/m-100`},
-		"unmatched":      {"/events/unmatched?page=5&per=25", `data-path="`, 20, `Unknown 100/`, `Unknown 099/`},
-		"downloads":      {"/events/downloads?page=1&per=25", `data-download="`, 25, `d-024`, `d-025`},
+		"pipeline":             {"/events/pipeline?page=3&per=50", `data-stage="`, 20, `default/e-119`, `default/e-099`},
+		"library":              {"/events/library/movies?page=2&per=50", `data-ref="`, 50, `default/m-050`, `default/m-100`},
+		"library window":       {"/events/library/movies?page=1&per=50&pages=2", `data-ref="`, 100, `default/m-099`, `default/m-100`},
+		"library later window": {"/events/library/movies?page=2&per=50", `data-ref="`, 50, `data-load-prev`, `default/m-049`},
+		"unmatched":            {"/events/unmatched?page=5&per=25", `data-path="`, 20, `Unknown 100/`, `Unknown 099/`},
+		"downloads":            {"/events/downloads?page=1&per=25", `data-download="`, 25, `d-024`, `d-025`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())

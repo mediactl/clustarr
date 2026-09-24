@@ -114,8 +114,35 @@ templ jumpBar(jumpsFor []Jump) {
 // list goes on, the sentinel that loads more. items is already the tab's
 // window.
 templ LibraryList(tab projection.Tab, p paging.Page, items []projection.LibraryItem) {
+	@loadPrev(tab, p)
 	@LibraryRows(items)
 	@loadMore(tab, p)
+}
+
+// loadPrev is the scroll's other direction (design 2026-09-24): after a
+// jump the window starts partway down the list, so a sentinel above the
+// grid fetches the same window one page earlier -- the start moves back
+// a page, the span grows by one -- and swaps #library-rows whole, like
+// loadMore. ui/static/jump.js fires its loadprev event when the reader
+// scrolls up at the top of the page and keeps the first card in place
+// across the prepend; a click does the same for anyone else. Nothing on
+// the first page.
+templ loadPrev(tab projection.Tab, p paging.Page) {
+	if p.Number > 1 {
+		{{ q := p.Values(p.Number - 1) }}
+		{{ q.Set("pages", fmt.Sprint(p.Pages+1)) }}
+		<div
+			data-load-prev
+			hx-get={ "/library/" + string(tab) + "?" + q.Encode() }
+			hx-trigger="loadprev, click"
+			hx-target="#library-rows"
+			hx-select="#library-rows"
+			hx-swap="outerHTML"
+			class="cursor-pointer py-3 text-center text-sm text-muted-foreground hover:text-foreground"
+		>
+			Load earlier…
+		</div>
+	}
 }
 
 // loadMore is the library's infinite scroll (design 2026-09-24): a

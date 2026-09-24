@@ -252,9 +252,22 @@ func TestLibraryScrollsInsteadOfPaging(t *testing.T) {
 	body = get("/library/movies?per=25&filter=unmonitored&sort=year")
 	requireTag(t, body, `data-load-more`, `hx-get="/library/movies?filter=unmonitored&amp;page=1&amp;pages=2&amp;per=25&amp;sort=year"`)
 
-	// A jump lands on the letter's page and scrolls on from there.
+	// A jump lands on the letter's page and scrolls on from there, and
+	// back: a sentinel above the grid fetches the window one page earlier
+	// (the start moves back, the span grows) when the reader scrolls up at
+	// the top; ui/static/jump.js fires it and keeps the reader's place.
 	body = get("/library/movies?page=3&per=25")
 	require.Equal(t, 25, strings.Count(body, `data-ref="`))
 	require.Contains(t, body, `data-ref="default/m-010"`, "the third page of 25 opens on K, the eleventh letter of five titles each")
 	requireTag(t, body, `data-load-more`, `hx-get="/library/movies?page=3&amp;pages=2&amp;per=25"`)
+	requireTag(t, body, `data-load-prev`, `hx-get="/library/movies?page=2&amp;pages=2&amp;per=25"`, `hx-trigger="loadprev, click"`,
+		`hx-target="#library-rows"`, `hx-select="#library-rows"`, `hx-swap="outerHTML"`)
+	require.Less(t, strings.Index(body, `data-load-prev`), strings.Index(body, `data-ref="`), "the earlier sentinel precedes the grid")
+
+	body = get("/library/movies?page=3&pages=2&per=25")
+	requireTag(t, body, `data-load-prev`, `hx-get="/library/movies?page=2&amp;pages=3&amp;per=25"`)
+	requireTag(t, body, `data-load-more`, `hx-get="/library/movies?page=3&amp;pages=3&amp;per=25"`)
+
+	body = get("/library/movies?page=1&per=25")
+	require.NotContains(t, body, `data-load-prev`, "nothing earlier than the first page")
 }

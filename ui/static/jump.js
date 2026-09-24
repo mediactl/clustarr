@@ -1,13 +1,24 @@
 /*
- * The A-Z bar's position thumb (design 2026-09-24, after Radarr's): a thin
- * mark along the strip whose place and length follow the range of items on
- * screen over the whole list -- not snapped to a letter, and stable across
- * the pages infinite scroll loads, because it counts items (#library-rows
- * carries the window's offset and the list's total) rather than pixels.
- * The document's native scrollbar hides while the bar is on the page. It
- * binds to the window and the document once and re-reads the DOM on every
- * run, so htmx swaps (a wider window, a filter, another tab) need nothing
- * more.
+ * The A-Z bar's position thumb and the scroll's upward direction (design
+ * 2026-09-24, after Radarr's).
+ *
+ * The thumb is a thin mark along the strip whose place and length follow
+ * the range of items on screen over the whole list -- not snapped to a
+ * letter, and stable across the pages infinite scroll loads, because it
+ * counts items (#library-rows carries the window's offset and the list's
+ * total) rather than pixels. The document's native scrollbar hides while
+ * the bar is on the page.
+ *
+ * After a jump the window starts partway down the list. The page's
+ * [data-load-prev] sentinel fetches the window one page earlier on its
+ * loadprev event, which fires here when the reader scrolls up at the top
+ * of the page (a wheel up at the very top, or an upward scroll that reaches
+ * it); the first card already on screen is held in place across the
+ * prepend, so nothing jumps.
+ *
+ * It binds to the window and the document once and re-reads the DOM on
+ * every run, so htmx swaps (a wider window, a filter, another tab) need
+ * nothing more.
  */
 (function () {
   function update() {
@@ -46,6 +57,7 @@
     thumb.style.top = top + 'px';
     thumb.style.height = len + 'px';
   }
+
   var queued = false;
   function schedule() {
     if (queued) return;
@@ -55,7 +67,55 @@
       update();
     });
   }
-  window.addEventListener('scroll', schedule, { passive: true });
+
+  // The upward direction: fire the earlier-page sentinel once per window
+  // when the reader is at the top and heading up. data-loading holds it
+  // until the swap replaces the sentinel.
+  var nearTop = 120;
+  function loadEarlier() {
+    var el = document.querySelector('[data-load-prev]');
+    if (!el || el.hasAttribute('data-loading') || !window.htmx) return;
+    el.setAttribute('data-loading', '');
+    window.htmx.trigger(el, 'loadprev');
+  }
+  var lastY = window.scrollY;
+  window.addEventListener('scroll', function () {
+    var y = window.scrollY;
+    if (y < lastY && y <= nearTop) loadEarlier();
+    lastY = y;
+    schedule();
+  }, { passive: true });
+  window.addEventListener('wheel', function (e) {
+    if (e.deltaY < 0 && window.scrollY <= nearTop) loadEarlier();
+  }, { passive: true });
+
+  // Hold the reader's place across a prepend: remember where the window's
+  // first card sits when the sentinel requests, and put it back there once
+  // the new rows are in (a mutation observer, since the swap replaces the
+  // element the request came from).
+  var anchor = null;
+  document.addEventListener('htmx:beforeRequest', function (e) {
+    var src = e.detail && e.detail.elt;
+    if (!src || !src.hasAttribute || !src.hasAttribute('data-load-prev')) return;
+    var rows = document.getElementById('library-rows');
+    var first = rows && rows.querySelector('[data-ref]');
+    if (!first) return;
+    anchor = { ref: first.getAttribute('data-ref'), top: first.getBoundingClientRect().top };
+  });
+  new MutationObserver(function () {
+    if (anchor) {
+      var rows = document.getElementById('library-rows');
+      var el = rows && rows.querySelector('[data-ref="' + anchor.ref.replace(/"/g, '\\"') + '"]');
+      if (el) {
+        var delta = el.getBoundingClientRect().top - anchor.top;
+        anchor = null;
+        if (delta) window.scrollBy(0, delta);
+        lastY = window.scrollY;
+      }
+    }
+    schedule();
+  }).observe(document.body, { childList: true, subtree: true });
+
   window.addEventListener('resize', schedule);
   document.addEventListener('htmx:afterSettle', schedule);
   document.addEventListener('htmx:afterSwap', schedule);
