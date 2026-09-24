@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package status_test
 
 import (
+	"context"
 	"encoding/json"
 	"reflect"
 	"sort"
@@ -90,4 +91,63 @@ func TestOwnedStatusPathsReadsLeavesPerManagerAndSubresource(t *testing.T) {
 	other, err := status.OwnedStatusPaths(managed, k8s.ManagerCatalogarr)
 	require.NoError(t, err)
 	assert.Equal(t, sets.New("metadata.selectedReleaseID", "phase"), other)
+}
+
+// A field added to OverlayEntry later must either reach OverlayEntryAC and
+// OverlayEntryLeaves or fail here: the renderer's apply is its complete
+// declaration of status.overlay, so an unsent leaf is a released leaf.
+func TestOverlayEntryACSendsEveryLeaf(t *testing.T) {
+	full := catalogv1alpha1.OverlayEntry{
+		ProfileRef: "critics", Digest: "abc", RenderedFrom: "def",
+		UpdatedAt: metav1.NewTime(time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)),
+	}
+	ac := status.OverlayEntryAC(full)
+
+	v := reflect.ValueOf(ac).Elem()
+	for i := range v.NumField() {
+		assert.False(t, v.Field(i).IsNil(), "OverlayEntryAC does not send %s", v.Type().Field(i).Name)
+	}
+
+	raw, err := json.Marshal(ac)
+	require.NoError(t, err)
+	var sent map[string]any
+	require.NoError(t, json.Unmarshal(raw, &sent))
+	keys := make([]string, 0, len(sent))
+	for k := range sent {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	assert.Equal(t, status.OverlayEntryLeaves, keys)
+
+	typed := reflect.TypeOf(catalogv1alpha1.OverlayEntry{})
+	assert.Equal(t, typed.NumField(), len(status.OverlayEntryLeaves), "OverlayEntryLeaves restates every OverlayEntry field")
+}
+
+// The two managers' top-level sets are disjoint: the split of spec §B.3.
+func TestGatewayAndRendererFieldsAreDisjoint(t *testing.T) {
+	assert.Empty(t, sets.New(status.GatewayFields...).Intersection(sets.New(status.RendererFields...)))
+	assert.Equal(t, []string{"overlay"}, status.RendererFields)
+	assert.Equal(t, k8s.ManagerCatalogarrArtwork, status.RendererManager)
+}
+
+// PatchOverlay refuses every manager but the renderer's before it touches
+// the client, so a nil client proves no apply was attempted.
+func TestPatchOverlayRefusesEveryOtherManager(t *testing.T) {
+	m := &catalogv1alpha1.Movie{ObjectMeta: metav1.ObjectMeta{Name: "heat", Namespace: "films"}}
+	for _, mgr := range k8s.FieldManagers() {
+		if mgr == status.RendererManager {
+			continue
+		}
+		err := status.PatchOverlay(context.Background(), nil, mgr, m, nil)
+		require.Error(t, err, "%s was allowed to write status.overlay", mgr)
+		assert.ErrorIs(t, err, status.ErrNotTheRenderer)
+	}
+}
+
+// Only Movie and Series carry status.overlay (spec §B.6).
+func TestPatchOverlayRefusesAKindWithoutAnOverlay(t *testing.T) {
+	err := status.PatchOverlay(context.Background(), nil, status.RendererManager,
+		&catalogv1alpha1.Album{ObjectMeta: metav1.ObjectMeta{Name: "ok", Namespace: "music"}}, nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, status.ErrNoOverlay)
 }

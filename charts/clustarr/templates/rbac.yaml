@@ -113,6 +113,7 @@ rules:
   - mediafiles/status
   - metadataproviders/status
   - movies/status
+  - overlayprofiles/status
   - qualityprofiles/status
   - rootfolders/status
   - searches/status
@@ -144,6 +145,7 @@ rules:
   resources:
   - delayprofiles
   - metadataproviders
+  - overlayprofiles
   - rootfolders
   verbs:
   - get

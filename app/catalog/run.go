@@ -49,6 +49,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
 	"github.com/mediactl/clustarr/app/catalog/controller/metadataprovider"
 	"github.com/mediactl/clustarr/app/catalog/controller/movie"
+	"github.com/mediactl/clustarr/app/catalog/controller/overlayprofile"
 	"github.com/mediactl/clustarr/app/catalog/controller/qualityprofile"
 	"github.com/mediactl/clustarr/app/catalog/controller/rootfolder"
 	searchctl "github.com/mediactl/clustarr/app/catalog/controller/search"
@@ -57,6 +58,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/history"
 	catalogmetadata "github.com/mediactl/clustarr/app/catalog/metadata"
 	"github.com/mediactl/clustarr/app/catalog/metadata/artwork"
+	renderer "github.com/mediactl/clustarr/app/catalog/worker/artwork"
 	"github.com/mediactl/clustarr/app/catalog/worker/grab"
 	"github.com/mediactl/clustarr/app/catalog/worker/redownload"
 	"github.com/mediactl/clustarr/app/catalog/worker/rssmatcher"
@@ -113,13 +115,18 @@ const (
 	// events.k8s.io Events on the owning CR.
 	RoleHistory Role = "history"
 
+	// RoleArtwork is the renderer (spec §C.6): the catalogarr-artwork-render
+	// consumer, which draws rating badges onto stored posters and writes
+	// status.overlay. Not leader-elected; it scales by consumer.
+	RoleArtwork Role = "artwork"
+
 	// RoleAll runs everything in one process, for kind and for development.
 	RoleAll Role = "all"
 )
 
 // Roles lists the valid --role values in spec order.
 func Roles() []Role {
-	return []Role{RoleController, RoleWorker, RoleMetadata, RoleHistory, RoleAll}
+	return []Role{RoleController, RoleWorker, RoleMetadata, RoleHistory, RoleArtwork, RoleAll}
 }
 
 // String returns the flag value.
@@ -162,7 +169,7 @@ func (r Role) RunsControllers() bool { return r.Has(RoleController) || r.Has(Rol
 
 // RunsWorkers reports whether this role consumes queue work.
 func (r Role) RunsWorkers() bool {
-	return r.Has(RoleWorker) || r.Has(RoleMetadata) || r.Has(RoleHistory) || r.Has(RoleAll)
+	return r.Has(RoleWorker) || r.Has(RoleMetadata) || r.Has(RoleHistory) || r.Has(RoleArtwork) || r.Has(RoleAll)
 }
 
 // Options is everything `clustarr catalogarr` needs.
@@ -407,6 +414,13 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		return fmt.Errorf("catalogarr: search: %w", err)
 	}
 
+	// Spec §C.4: which items each OverlayProfile badges, and the render
+	// tasks a selection change calls for. The renderer they reach is
+	// RoleArtwork's (setupArtworkWorker).
+	if err := (&overlayprofile.Reconciler{Client: c, Bus: bus}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("catalogarr: overlayprofile: %w", err)
+	}
+
 	// The operator's forced metadata refresh (clustarr.io/refresh-metadata):
 	// one metadata-only controller per kind with metadata of its own, beside
 	// the reconcilers that publish the scheduled refreshes.
@@ -493,8 +507,8 @@ func setupNonVideoControllers(mgr ctrl.Manager, bus events.Bus) error {
 	return nil
 }
 
-// setupWorkers registers the queue consumers, the metadata gateway and the
-// history sink plus DLQ projector.
+// setupWorkers registers the queue consumers, the metadata gateway, the
+// history sink plus DLQ projector, and the artwork renderer.
 //
 // The import and importlist consumers are importarr's
 // (work.importarr.fileimport, work.importarr.list -- amendment §A1.6).
@@ -513,6 +527,30 @@ func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		if err := setupHistory(mgr, bus); err != nil {
 			return err
 		}
+	}
+	if o.Role.Has(RoleArtwork) || o.Role.Has(RoleAll) {
+		if err := setupArtworkWorker(mgr, bus, o); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// setupArtworkWorker registers RoleArtwork's one consumer, the renderer
+// (spec §C.6): catalogarr-artwork-render, on every replica. It reads items
+// through the uncached API reader -- the recheck before each status.overlay
+// apply must see the gateway's latest ratings and poster, which a cache may
+// not have yet -- and lists OverlayProfiles through the manager's cache.
+func setupArtworkWorker(mgr ctrl.Manager, bus events.Bus, o Options) error {
+	topo := o.BusTopology()
+	h := &renderer.Handler{
+		Client:   mgr.GetClient(),
+		Reader:   mgr.GetAPIReader(),
+		Store:    bus.ObjectStore(events.BucketArtwork),
+		Topology: &topo,
+	}
+	if err := h.SetupWithManager(mgr, bus); err != nil {
+		return fmt.Errorf("catalogarr: add the artwork render consumer: %w", err)
 	}
 	return nil
 }

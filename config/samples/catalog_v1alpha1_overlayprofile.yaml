@@ -1,0 +1,22 @@
+# Badges the posters of every Movie and Series in this namespace labelled
+# clustarr.io/overlay=ratings with its TMDB score, bottom right (spec §C.4).
+#
+# Label an item to opt it in:
+#   kubectl label movie heat clustarr.io/overlay=ratings
+#
+# The renderer (catalogarr --role artwork) draws a badge only for a source
+# the item has a rating for; with none, the item keeps its plain poster.
+# Where two profiles select one item the lower name wins and the other
+# reports Overlap=True. status.hash moves with every render field, so an
+# edit here re-renders every poster the profile badges.
+apiVersion: catalog.clustarr.io/v1alpha1
+kind: OverlayProfile
+metadata:
+  name: ratings
+spec:
+  selector:
+    matchLabels:
+      clustarr.io/overlay: ratings
+  badges:
+    - source: tmdb
+  corner: bottomRight

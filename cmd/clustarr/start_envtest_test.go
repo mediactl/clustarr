@@ -180,6 +180,18 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 			d.Options, d.Role = o, catalogarr.RoleMetadata
 			return catalogarr.Run(ctx, d)
 		}},
+		// Spec §C.6: the renderer, a role with no named controller, so it
+		// runs beside the "all" case below, which proves `clustarr all`
+		// renders too -- through the OverlayProfile controller's task.
+		{
+			name: "app/catalog/artwork",
+			run: func(ctx context.Context, o k8s.Options) error {
+				d := catalogarr.DefaultOptions()
+				d.Options, d.Role = o, catalogarr.RoleArtwork
+				return catalogarr.Run(ctx, d)
+			},
+			verify: func(t *testing.T) { verifyRenderer(t, env.Config, natsURL, "render-probe", false) },
+		},
 		// --role history has no case of its own since X14: it registers
 		// the clustarr.io/replay handler, a controller per annotatable kind
 		// ("replay-movie", ...), and controller names are unique per
@@ -512,6 +524,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 			verify: func(t *testing.T) {
 				verifyNonVideoCatalog(t, env.Config, nvFake)
 				verifyHistory(t, env.Config, natsURL)
+				verifyRenderer(t, env.Config, natsURL, "render-probe-all", true)
 			},
 		},
 		//

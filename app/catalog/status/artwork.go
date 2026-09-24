@@ -28,10 +28,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     leaf but Album's metadata.selectedReleaseID, which is the Album
 //     reconciler's under k8s.ManagerCatalogarr -- and all of
 //     status.artwork, and declares both in ONE apply ([GatewayFields]);
-//   - the renderer owns status.overlay on Movie and Series under
-//     k8s.ManagerCatalogarrArtwork. Task C3 adds its set here; until then
-//     the only claim this file makes about overlay is that the gateway never
-//     touches it.
+//   - [RendererManager] (the artwork render role, catalogarr --role
+//     artwork) owns status.overlay on Movie and Series and nothing else
+//     ([RendererFields]); [PatchOverlay] is its one write, a complete
+//     declaration of all four leaves or of none.
 //
 // An over-claim is silent (CLAUDE.md): ForceOwnership lets the later
 // applier take a field without a conflict, so a split is proved only by
@@ -39,13 +39,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package status
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -88,6 +91,77 @@ func ArtworkEntries(entries []catalogv1alpha1.ArtworkEntry) []*catalogac.Artwork
 			WithUpdatedAt(e.UpdatedAt))
 	}
 	return out
+}
+
+// RendererManager is the artwork render role's field manager (spec §B.6:
+// "written by the renderer under a new manager k8s.ManagerCatalogarrArtwork").
+const RendererManager = k8s.ManagerCatalogarrArtwork
+
+// RendererFields are the top-level status fields RendererManager owns, on
+// Movie and Series only. Disjoint from [GatewayFields]: the renderer never
+// reads, writes or releases status.artwork, and the gateway never declares
+// status.overlay (spec §B.3).
+var RendererFields = []string{"overlay"}
+
+// OverlayEntryLeaves are the leaves of status.overlay. All four are required
+// by the CRD and [OverlayEntryAC] sends every one on every apply; SSA tracks
+// ownership per leaf, so an apply that sent three would release the fourth.
+var OverlayEntryLeaves = []string{"digest", "profileRef", "renderedFrom", "updatedAt"}
+
+// ErrNotTheRenderer is a [PatchOverlay] by any manager but [RendererManager].
+var ErrNotTheRenderer = errors.New("status: only the renderer (catalogarr-artwork) writes status.overlay")
+
+// ErrNoOverlay is a [PatchOverlay] of a kind with no status.overlay --
+// anything but Movie and Series.
+var ErrNoOverlay = errors.New("status: kind has no status.overlay")
+
+// OverlayEntryAC renders status.overlay's apply configuration with every
+// leaf set.
+func OverlayEntryAC(e catalogv1alpha1.OverlayEntry) *catalogac.OverlayEntryApplyConfiguration {
+	return catalogac.OverlayEntry().
+		WithProfileRef(e.ProfileRef).
+		WithDigest(e.Digest).
+		WithRenderedFrom(e.RenderedFrom).
+		WithUpdatedAt(e.UpdatedAt)
+}
+
+// PatchOverlay is the renderer's one status write: a single apply under
+// mgr, which must be [RendererManager], declaring exactly status.overlay --
+// entry's four leaves, or, with a nil entry, nothing at all, which releases
+// every overlay leaf the renderer owned and so removes status.overlay.
+//
+// The apply is built from the object's name and namespace alone and carries
+// no other status field, so it can neither release nor co-own the
+// gateway's status.metadata and status.artwork, nor any reconciler's leaf.
+// It refuses any other manager -- the grab path, the gateway and the item
+// reconcilers all write Movie.status, and a stray call from one of them
+// would silently co-own status.overlay (ForceOwnership) -- and any kind
+// but Movie and Series, before touching c.
+func PatchOverlay(ctx context.Context, c client.Client, mgr k8s.FieldManager, obj client.Object,
+	entry *catalogv1alpha1.OverlayEntry,
+) error {
+	if mgr != RendererManager {
+		return fmt.Errorf("%w: refused %q", ErrNotTheRenderer, mgr)
+	}
+	var ac k8s.ApplyConfiguration
+	switch obj.(type) {
+	case *catalogv1alpha1.Movie:
+		st := catalogac.MovieStatus()
+		if entry != nil {
+			st.WithOverlay(OverlayEntryAC(*entry))
+		}
+		ac = catalogac.Movie(obj.GetName(), obj.GetNamespace()).WithStatus(st)
+	case *catalogv1alpha1.Series:
+		st := catalogac.SeriesStatus()
+		if entry != nil {
+			st.WithOverlay(OverlayEntryAC(*entry))
+		}
+		ac = catalogac.Series(obj.GetName(), obj.GetNamespace()).WithStatus(st)
+	default:
+		return fmt.Errorf("%w: %T", ErrNoOverlay, obj)
+	}
+	_, err := k8s.PatchStatus(ctx, c, mgr, ac)
+	return err
 }
 
 // OwnedStatusPaths returns every status leaf manager owns through the

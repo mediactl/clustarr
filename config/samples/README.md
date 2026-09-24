@@ -1,7 +1,8 @@
 # config/samples
 
-**Empty on purpose.** Samples land here per Kind, together with the
-controller that gives that Kind meaning -- not before.
+Samples land here per Kind, together with the controller that gives that
+Kind meaning -- not before. The first is `catalog_v1alpha1_overlayprofile.yaml`
+(its controller's envtest applies and reconciles it).
 
 The 29 CRDs in `config/crd/bases` are generated and install cleanly, so it
 would be easy to write plausible-looking CR YAML for all of them today. It

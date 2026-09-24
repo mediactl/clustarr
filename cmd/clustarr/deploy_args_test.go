@@ -237,6 +237,7 @@ func TestCatalogarrRoleCombinations(t *testing.T) {
 		{"worker", false, true},
 		{"metadata", false, true},
 		{"history", false, true},
+		{"artwork", false, true},
 		{"all", true, true},
 		{"controller,worker,history", true, true},
 		{"worker,history", false, true},
