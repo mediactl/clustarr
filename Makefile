@@ -71,7 +71,7 @@ generate: ## Generate DeepCopy and apply-configuration code.
 # can never break a build unattended -- this target is for regenerating them
 # after editing a .templ file, not a build-time step.
 .PHONY: templ
-templ: ## Regenerate ui/views/*_templ.go from their .templ sources.
+templ: ## Regenerate ui/views/*_templ.go and ui/components/*/*_templ.go from their .templ sources.
 	go run github.com/a-h/templ/cmd/templ@v0.3.1020 generate
 
 # Tailwind's standalone CLI is a platform binary, not a Go module -- Phase G

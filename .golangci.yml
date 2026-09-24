@@ -36,6 +36,11 @@ linters:
     paths:
       - pkg/k8s
       - zz_generated
+      # shadcn-templ's vendored components (button, icon, pagination and
+      # the utils package they share), written by `shadcn-templ add` and
+      # overwritten by the next one, so a style fix here would not survive.
+      # ui/guard_test.go's never-writes guard still walks them.
+      - ui/components
 formatters:
   enable:
     - gofumpt

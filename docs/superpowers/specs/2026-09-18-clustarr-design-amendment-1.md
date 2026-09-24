@@ -452,6 +452,21 @@ then served by the UI from disk. The UI never calls a metadata provider itself,
 so provider rate limits stay owned by the one component that already manages
 them.
 
+### A3.4a Components and theme (as built, 2026-09-23)
+
+The UI's shared widgets come from shadcn-templ (`components.json` at the
+module root; `shadcn-templ add <component>` writes into `ui/components/`,
+whose `utils` package they share, and `make templ` regenerates them). The
+theme is `ui/theme/plex.json`, a shadcn registry item holding Clustarr's
+Plex look -- Plex Gold `#e5a00d` as the primary, Plex's dark gray `#282a2d`
+for surfaces on a darker page, 4px corners, the Open Sans face -- with the
+light and dark token sets identical, since Plex has one look. It was
+initialised with preset code `b1Fk1KzVQ` (style vega, base zinc, theme amber,
+radius small, Noto Sans, lucide) and the token file applied on top:
+`shadcn-templ apply --preset <raw URL of ui/theme/plex.json>`, because `init`
+reads a URL as a component registry, not a theme. The tokens live in
+`ui/static/input.css` (`:root` and `.dark`), which `make css` compiles.
+
 ### A3.5 Authentication
 
 Out of scope for v1, and stated rather than left implied. The UI binds inside the
