@@ -19,7 +19,12 @@ package k8s
 
 import (
 	"context"
+	"errors"
 	"testing"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -181,5 +186,40 @@ func TestIsDeleting(t *testing.T) {
 	}
 	if IsDeleting(&downloadv1alpha1.Download{}) {
 		t.Error("IsDeleting = true for a live object")
+	}
+}
+
+// An engine adding its finalizer to a Download the controller had just
+// applied status to got a Conflict, and a routine reconcile logged a
+// "Reconciler error". The add re-reads and retries instead.
+func TestEnsureFinalizerRetriesAConflict(t *testing.T) {
+	ctx := context.Background()
+	s := MustNewScheme()
+	const want = "download.clustarr.io/engine"
+	d := &downloadv1alpha1.Download{
+		ObjectMeta: metav1.ObjectMeta{Name: "inception-abc1234567", Namespace: "media"},
+	}
+	conflicts := 1
+	c := fake.NewClientBuilder().WithScheme(s).WithObjects(d).WithInterceptorFuncs(interceptor.Funcs{
+		Update: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			if conflicts > 0 {
+				conflicts--
+				return apierrors.NewConflict(schema.GroupResource{Group: "download.clustarr.io", Resource: "downloads"},
+					obj.GetName(), errors.New("the object has been modified"))
+			}
+			return cl.Update(ctx, obj, opts...)
+		},
+	}).Build()
+
+	wrote, err := EnsureFinalizer(ctx, c, d, want)
+	if err != nil {
+		t.Fatalf("EnsureFinalizer after one conflict: %v", err)
+	}
+	if !wrote || !HasFinalizer(d, want) {
+		t.Fatal("the finalizer was not added after the conflict cleared")
+	}
+	var got downloadv1alpha1.Download
+	if err := c.Get(ctx, client.ObjectKeyFromObject(d), &got); err != nil || !HasFinalizer(&got, want) {
+		t.Fatalf("the finalizer is not persisted: %v", err)
 	}
 }

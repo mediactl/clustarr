@@ -172,7 +172,7 @@ func Run(ctx context.Context, o Options) error {
 	if err != nil {
 		return fmt.Errorf("captionarr: load kubeconfig: %w", err)
 	}
-	mgr, err := ctrl.NewManager(cfg, o.ManagerOptions())
+	mgr, err := ctrl.NewManager(cfg, k8s.WithBaseContext(o.ManagerOptions(), ctx))
 	if err != nil {
 		return fmt.Errorf("captionarr: build manager: %w", err)
 	}

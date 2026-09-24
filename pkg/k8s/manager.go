@@ -225,6 +225,23 @@ func (o Options) ManagerOptions(leaderElectionID string, leaderElect bool) ctrl.
 	return opts
 }
 
+// WithBaseContext gives the manager's runnables ctx as their base context.
+//
+// controller-runtime derives every runnable's context -- and so every
+// Reconcile's -- from Options.BaseContext, which defaults to a fresh
+// context.Background; the context passed to mgr.Start only drives shutdown.
+// So the logger and tracer obs.Bootstrap put on the service's context never
+// reached a reconciler, a worker or an engine job: logging.FromContext fell
+// back to its discard logger and every application-level log line in every
+// service was silence, found when a 2 GB grab failed on the owner's cluster
+// with nothing in the engine's log but the framework's own lines
+// (2026-09-24). Every ctrl.NewManager call passes its options through here,
+// held by cmd/clustarr's TestEveryServiceGivesTheManagerItsBaseContext.
+func WithBaseContext(opts ctrl.Options, ctx context.Context) ctrl.Options {
+	opts.BaseContext = func() context.Context { return ctx }
+	return opts
+}
+
 func (o Options) leaderElectionNamespace() string {
 	if o.LeaderElectionNamespace != "" {
 		return o.LeaderElectionNamespace

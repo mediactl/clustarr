@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"strings"
 
+	"k8s.io/client-go/util/retry"
+
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -88,11 +90,29 @@ func EnsureFinalizer(ctx context.Context, c client.Client, obj client.Object, na
 	if IsDeleting(obj) || !controllerutil.AddFinalizer(obj, name) {
 		return false, nil
 	}
-	if err := c.Update(ctx, obj); err != nil {
+	// A whole-object Update races every other writer of the object: an
+	// engine adding its finalizer to a Download the controller had just
+	// applied status to got a Conflict, and controller-runtime logged a
+	// "Reconciler error" for a routine reconcile. Re-read and retry, the
+	// way client-go's RetryOnConflict is meant to be used; a deletion that
+	// started meanwhile is the no-op it is above.
+	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		if err := c.Update(ctx, obj); !apierrors.IsConflict(err) {
+			return err
+		}
+		if err := c.Get(ctx, client.ObjectKeyFromObject(obj), obj); err != nil {
+			return err
+		}
+		if IsDeleting(obj) || !controllerutil.AddFinalizer(obj, name) {
+			return nil
+		}
+		return apierrors.NewConflict(schema.GroupResource{}, obj.GetName(), nil)
+	})
+	if err != nil {
 		return false, fmt.Errorf("k8s: add finalizer %q to %s/%s: %w",
 			name, obj.GetNamespace(), obj.GetName(), err)
 	}
-	return true, nil
+	return HasFinalizer(obj, name), nil
 }
 
 // RemoveFinalizer drops name from obj and persists it, returning true when it

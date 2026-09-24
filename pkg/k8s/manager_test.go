@@ -18,8 +18,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package k8s
 
 import (
+	"context"
+	"io"
+	"log/slog"
 	"testing"
 	"time"
+
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -228,5 +233,22 @@ func TestManagerOptionsSurviveABigLibrary(t *testing.T) {
 				t.Fatalf("namespaces = %v, want the one configured", opts.Cache.DefaultNamespaces)
 			}
 		})
+	}
+}
+
+// controller-runtime hands every runnable a context derived from
+// Options.BaseContext, a fresh Background by default, and not from the one
+// passed to mgr.Start; so the logger obs.Bootstrap put on the service's
+// context reached no reconciler, and every service's own log lines were
+// silence. WithBaseContext is the one place that closes the gap.
+func TestWithBaseContextCarriesTheServicesLoggerToRunnables(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ctx := logging.NewContext(context.Background(), logger)
+	opts := WithBaseContext(DefaultOptions().ManagerOptions("catalogarr.clustarr.io", false), ctx)
+	if opts.BaseContext == nil {
+		t.Fatal("no BaseContext: runnables would get context.Background and its discard logger")
+	}
+	if got := logging.FromContext(opts.BaseContext()); got != logger {
+		t.Fatal("the runnables' base context does not carry the service's logger")
 	}
 }
