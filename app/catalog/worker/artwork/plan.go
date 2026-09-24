@@ -33,6 +33,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	catalogstatus "github.com/mediactl/clustarr/app/catalog/status"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -50,9 +51,10 @@ var ErrNoOverlay = errors.New("artwork: kind has no overlay")
 // the item's current inputs, whatever it says (§C.6).
 const ReasonProfile = "profile"
 
-// Overlaid reports whether kind carries an overlay: Movie and Series.
+// Overlaid reports whether kind carries an overlay: Movie and Series
+// (catalogstatus.HasOverlay, the one statement of the rule).
 func Overlaid(kind commonv1.MediaKind) bool {
-	return kind == commonv1.MediaKindMovie || kind == commonv1.MediaKindSeries
+	return catalogstatus.HasOverlay(kind)
 }
 
 // Item is a Movie or Series as the renderer and the OverlayProfile

@@ -230,10 +230,15 @@ func (p Pass) Run(ctx context.Context, key client.ObjectKey, kind commonv1.Media
 //
 // A failed publish fails the pass, so the delivery is retried and the
 // retry publishes again.
+//
+// Only a kind with an overlay gets a task at all (catalogstatus.HasOverlay:
+// Movie and Series). The other six kinds with artwork have a poster and
+// nothing to draw it onto; publishing for them handed the renderer a task
+// it could only refuse, and every refusal was dead-lettered.
 func (p Pass) publishRenders(ctx context.Context, fresh client.Object, kind commonv1.MediaKind,
 	before, freshItem item, merged []catalogv1alpha1.ArtworkEntry,
 ) error {
-	if p.Bus == nil {
+	if p.Bus == nil || !catalogstatus.HasOverlay(kind) {
 		return nil
 	}
 	if poster, ok := index(merged)[catalogv1alpha1.ImageTypePoster]; ok {

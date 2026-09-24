@@ -52,6 +52,7 @@ import (
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -114,6 +115,16 @@ var ErrNotTheRenderer = errors.New("status: only the renderer (catalogarr-artwor
 // ErrNoOverlay is a [PatchOverlay] of a kind with no status.overlay --
 // anything but Movie and Series.
 var ErrNoOverlay = errors.New("status: kind has no status.overlay")
+
+// HasOverlay reports whether kind carries status.overlay: Movie and Series
+// (spec §B.6). It is the one statement of that rule -- the gateway asks it
+// before publishing a render task, the renderer before drawing one
+// (app/catalog/worker/artwork.Overlaid) -- because two copies had drifted:
+// the gateway published a task for every kind with a poster, the renderer
+// discarded the non-video ones, and each discard was dead-lettered.
+func HasOverlay(kind commonv1.MediaKind) bool {
+	return kind == commonv1.MediaKindMovie || kind == commonv1.MediaKindSeries
+}
 
 // OverlayEntryAC renders status.overlay's apply configuration with every
 // leaf set.

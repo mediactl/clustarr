@@ -610,10 +610,16 @@ func TestTasksThatCannotRender(t *testing.T) {
 		require.NoError(t, f.h.Handle(ctx, renderTask(t, commonv1.MediaKindMovie, f.key.Namespace, "no-such-movie")))
 		assert.EqualValues(t, 0, f.store.puts.Load())
 	})
-	t.Run("a kind without an overlay is discarded", func(t *testing.T) {
-		err := f.h.Handle(ctx, renderTask(t, commonv1.MediaKindAlbum, f.key.Namespace, "ok-computer"))
-		var discard *events.DiscardError
-		assert.True(t, errors.As(err, &discard), "%v", err)
+	t.Run("a kind without an overlay is acknowledged, not dead-lettered", func(t *testing.T) {
+		// A Discard dead-letters (natsbus/membus copy it to the DLQ); a
+		// task for a kind that can never carry an overlay is nothing to
+		// do, not a poison message.
+		for _, kind := range []commonv1.MediaKind{
+			commonv1.MediaKindAlbum, commonv1.MediaKindBook, commonv1.MediaKindEpisode, commonv1.MediaKindComic,
+		} {
+			require.NoError(t, f.h.Handle(ctx, renderTask(t, kind, f.key.Namespace, "ok-computer")), "kind %s", kind)
+		}
+		assert.EqualValues(t, 0, f.store.puts.Load())
 	})
 	t.Run("an undecodable task is discarded", func(t *testing.T) {
 		err := f.h.Handle(ctx, &testMessage{env: &events.Envelope{Key: "a/b", Schema: "catalog.RenderOverlayTask.v1", Data: []byte("{")}})

@@ -26,43 +26,12 @@ import (
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/events/schema/schematest"
 )
 
-// allPayloads is every versioned payload the bus carries.
-func allPayloads() []schema.Payload {
-	return []schema.Payload{
-		schema.ItemEvent{},
-		schema.ReleaseEvent{},
-		schema.MediaFileEvent{},
-		schema.ImportListSynced{},
-		schema.SearchTask{},
-		schema.GrabTask{},
-		schema.ImportTask{},
-		schema.MetadataTask{},
-		schema.WantedScan{},
-		schema.MetadataRequest{},
-		schema.MetadataResponse{},
-		schema.Release{},
-		schema.IndexerEvent{},
-		schema.RssTask{},
-		schema.SearchRequest{},
-		schema.SearchResponse{},
-		schema.DownloadRequest{},
-		schema.DownloadResponse{},
-		schema.QueryRequest{},
-		schema.QueryResponse{},
-		schema.DownloadEvent{},
-		schema.DownloadProgress{},
-		schema.JobEvent{},
-		schema.TranscodeProgress{},
-		schema.SubtitleEvent{},
-		schema.FetchTask{},
-		schema.ScanTask{},
-		schema.ListTask{},
-		schema.ArtworkFetchTask{},
-		schema.RenderOverlayTask{},
-	}
-}
+// allPayloads is every versioned payload the bus carries -- the shared list
+// in schematest, which app/catalog/history's resolver guard ranges over too.
+func allPayloads() []schema.Payload { return schematest.Payloads() }
 
 // TestSchemaNamesAreUniqueAndVersioned pins the header contract: payloads are
 // versioned by Clustarr-Schema, so the value must name the struct and end in

@@ -221,7 +221,13 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) (err error) {
 		return events.Discard("envelope key is not <namespace>/<name>", fmt.Errorf("key=%q", env.Key))
 	}
 	if !Overlaid(task.MediaRef.Kind) {
-		return events.Discard("kind has no overlay", fmt.Errorf("%w: %q", ErrNoOverlay, task.MediaRef.Kind))
+		// A kind with no overlay has nothing to render: ack it, since a
+		// Discard dead-letters. The gateway no longer publishes one; this
+		// covers a task already queued by an older gateway during a
+		// rollout.
+		logging.FromContext(ctx).Debug("artwork: render task for a kind with no overlay; nothing to do",
+			"kind", task.MediaRef.Kind, "key", env.Key)
+		return nil
 	}
 
 	ctx, span := tracing.Start(ctx, "artwork.Render.Handle")

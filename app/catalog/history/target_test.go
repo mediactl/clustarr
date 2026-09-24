@@ -28,6 +28,7 @@ import (
 	"github.com/mediactl/clustarr/app/squash/task"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/events/schema/schematest"
 )
 
 // envelopeFor encodes p and wraps it in an Envelope with key as Clustarr-Key,
@@ -101,6 +102,24 @@ func TestResolve_CatalogMediaKinds(t *testing.T) {
 		})
 		got := history.Resolve(env)
 		require.Equal(t, "Comic", got.Kind)
+	})
+
+	t.Run("ArtworkFetchTask", func(t *testing.T) {
+		env := envelopeFor(t, "default/ok-computer", schema.ArtworkFetchTask{
+			MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: "ok-computer"},
+		})
+		require.Equal(t, history.Target{
+			Namespace: "default", Name: "ok-computer", Kind: "Album", APIVersion: catalogGV,
+		}, history.Resolve(env))
+	})
+
+	t.Run("RenderOverlayTask", func(t *testing.T) {
+		env := envelopeFor(t, "default/heat", schema.RenderOverlayTask{
+			MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "heat"}, Reason: "original",
+		})
+		require.Equal(t, history.Target{
+			Namespace: "default", Name: "heat", Kind: "Movie", APIVersion: catalogGV,
+		}, history.Resolve(env))
 	})
 
 	t.Run("unrecognised MediaKind leaves Kind empty but keeps the namespace", func(t *testing.T) {
@@ -294,4 +313,45 @@ func TestResolve_NamespaceOnlyAndUnresolvable(t *testing.T) {
 	t.Run("nil envelope resolves to the zero Target", func(t *testing.T) {
 		require.Equal(t, history.Target{}, history.Resolve(nil))
 	})
+}
+
+// neverDeadLettered are the payloads no durable consumer ever receives, and
+// so none can reach a DLQ for Resolve to name: request/reply RPC over core
+// NATS (no stream, no MaxDeliver) and 1 Hz progress telemetry written to the
+// clustarr-progress KV bucket. Each entry says which.
+var neverDeadLettered = map[string]string{
+	schema.MetadataRequest{}.Schema():   "RPC request, clustarr.rpc.catalogarr.metadata.*",
+	schema.MetadataResponse{}.Schema():  "RPC reply, clustarr.rpc.catalogarr.metadata.*",
+	schema.SearchRequest{}.Schema():     "RPC request, clustarr.rpc.indexarr.search",
+	schema.SearchResponse{}.Schema():    "RPC reply, clustarr.rpc.indexarr.search",
+	schema.DownloadRequest{}.Schema():   "RPC request, clustarr.rpc.indexarr.download",
+	schema.DownloadResponse{}.Schema():  "RPC reply, clustarr.rpc.indexarr.download",
+	schema.QueryRequest{}.Schema():      "RPC request, clustarr.rpc.indexarr.query",
+	schema.QueryResponse{}.Schema():     "RPC reply, clustarr.rpc.indexarr.query",
+	schema.DownloadProgress{}.Schema():  "KV telemetry, clustarr-progress download.<uid>",
+	schema.TranscodeProgress{}.Schema(): "KV telemetry, clustarr-progress transcode.<uid>",
+}
+
+// TestEveryPayloadHasAResolver ranges over the bus's whole payload list
+// (schematest.Payloads, the list pkg/events/schema's own guards use) and
+// requires a resolver for every payload a durable consumer can dead-letter.
+// ArtworkFetchTask and RenderOverlayTask shipped in that list with no
+// resolver, so the DLQ projector could name no object for either one's dead
+// letters; a payload added later fails here the day it lands.
+func TestEveryPayloadHasAResolver(t *testing.T) {
+	listed := map[string]bool{}
+	for _, p := range schematest.Payloads() {
+		name := p.Schema()
+		listed[name] = true
+		if why, exempt := neverDeadLettered[name]; exempt {
+			require.Falsef(t, history.HasResolver(name),
+				"%s has a resolver but is exempted as %q; drop the exemption", name, why)
+			continue
+		}
+		require.Truef(t, history.HasResolver(name),
+			"%s has no resolver in app/catalog/history/target.go: a dead letter of it names no object", name)
+	}
+	for name := range neverDeadLettered {
+		require.Truef(t, listed[name], "exemption %s names no payload in schematest.Payloads", name)
+	}
 }

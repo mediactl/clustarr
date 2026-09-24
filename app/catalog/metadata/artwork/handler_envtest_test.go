@@ -496,3 +496,41 @@ func TestAPosterDropPublishesTheNoneRender(t *testing.T) {
 	assertRender(t, envs[1], m.UID, artwork.RenderNoPoster)
 	assert.Equal(t, string(m.UID)+"/render/none", envs[1].ID)
 }
+
+// Only Movie and Series carry an overlay, so only they get a render task: a
+// pass that stores an Album's poster publishes none. Before the fix the
+// gateway published one for every kind with a poster and the renderer
+// refused each, dead-lettering it. The Movie pass beside it proves the
+// collector would have seen one.
+func TestANonOverlaidKindPublishesNoRender(t *testing.T) {
+	ctx := context.Background()
+	c := newEnvtestClient(t)
+	bus := membus.New(nil)
+	require.NoError(t, bus.Ensure(ctx, events.Default()))
+	renders := collectRenders(t, ctx, bus)
+	store := bus.ObjectStore(events.BucketArtwork)
+	srv := newImageServer(t)
+	body := pngBytes(t, 4, 6, color.White)
+	posterURL := srv.serve("/poster.png", "image/png", body)
+
+	m := seedMovie(t, ctx, c, store, "render-kinds", posterURL, body)
+	alb := &catalogv1alpha1.Album{
+		ObjectMeta: metav1.ObjectMeta{Name: "ok-computer", Namespace: m.Namespace},
+		Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: "radiohead", ReleaseGroupID: "b1392450-e666-3926-a536-22c65f834433"},
+	}
+	require.NoError(t, c.Create(ctx, alb))
+	_, err := k8s.PatchStatus(ctx, c, catalogstatus.GatewayManager, catalogac.Album(alb.Name, alb.Namespace).WithStatus(
+		catalogac.AlbumStatus().WithMetadata(catalogac.AlbumMetadata().WithTitle("OK Computer").
+			WithImages(catalogac.Image().WithType(catalogv1alpha1.ImageTypePoster).WithURL(posterURL)))))
+	require.NoError(t, err)
+
+	h := &artwork.Handler{Client: c, Reader: c, Bus: bus, Fetcher: &artwork.Fetcher{Store: store, HTTP: srv.Client()}}
+	require.NoError(t, h.Handle(ctx, fetchTask(t, commonv1.MediaKindAlbum, alb.Namespace, alb.Name)))
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(alb), alb))
+	require.Len(t, alb.Status.Artwork, 1, "the album's poster was stored and recorded")
+
+	require.NoError(t, h.Handle(ctx, fetchTask(t, commonv1.MediaKindMovie, m.Namespace, m.Name)))
+	envs := renders.settled(t, 1)
+	require.Len(t, envs, 1, "the movie's render, and nothing for the album")
+	assertRender(t, envs[0], m.UID, digestOf(body))
+}

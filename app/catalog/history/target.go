@@ -147,25 +147,27 @@ type resolver func(key string, data []byte) Target
 // index.DefinitionsSync this comment once cited never had a producer and was
 // removed in gap fixes Z2).
 var resolvers = map[string]resolver{
-	schema.ItemEvent{}.Schema():        resolveItemEvent,
-	schema.ReleaseEvent{}.Schema():     resolveReleaseEvent,
-	schema.MediaFileEvent{}.Schema():   resolveMediaFileEvent,
-	schema.ImportListSynced{}.Schema(): resolveImportListSynced,
-	schema.SearchTask{}.Schema():       resolveSearchTask,
-	schema.GrabTask{}.Schema():         resolveGrabTask,
-	schema.MetadataTask{}.Schema():     resolveMetadataTask,
-	schema.WantedScan{}.Schema():       resolveWantedScan,
-	schema.ImportTask{}.Schema():       resolveImportTask,
-	schema.Release{}.Schema():          resolveRelease,
-	schema.IndexerEvent{}.Schema():     resolveIndexerEvent,
-	schema.RssTask{}.Schema():          resolveRssTask,
-	schema.DownloadEvent{}.Schema():    resolveDownloadEvent,
-	schema.JobEvent{}.Schema():         resolveJobEvent,
-	transcodeTaskRef{}.Schema():        resolveTranscodeTask,
-	schema.SubtitleEvent{}.Schema():    resolveSubtitleEvent,
-	schema.FetchTask{}.Schema():        resolveFetchTask,
-	schema.ScanTask{}.Schema():         resolveScanTask,
-	schema.ListTask{}.Schema():         resolveListTask,
+	schema.ItemEvent{}.Schema():         resolveItemEvent,
+	schema.ReleaseEvent{}.Schema():      resolveReleaseEvent,
+	schema.MediaFileEvent{}.Schema():    resolveMediaFileEvent,
+	schema.ImportListSynced{}.Schema():  resolveImportListSynced,
+	schema.SearchTask{}.Schema():        resolveSearchTask,
+	schema.GrabTask{}.Schema():          resolveGrabTask,
+	schema.MetadataTask{}.Schema():      resolveMetadataTask,
+	schema.WantedScan{}.Schema():        resolveWantedScan,
+	schema.ImportTask{}.Schema():        resolveImportTask,
+	schema.Release{}.Schema():           resolveRelease,
+	schema.IndexerEvent{}.Schema():      resolveIndexerEvent,
+	schema.RssTask{}.Schema():           resolveRssTask,
+	schema.DownloadEvent{}.Schema():     resolveDownloadEvent,
+	schema.JobEvent{}.Schema():          resolveJobEvent,
+	transcodeTaskRef{}.Schema():         resolveTranscodeTask,
+	schema.SubtitleEvent{}.Schema():     resolveSubtitleEvent,
+	schema.FetchTask{}.Schema():         resolveFetchTask,
+	schema.ScanTask{}.Schema():          resolveScanTask,
+	schema.ListTask{}.Schema():          resolveListTask,
+	schema.ArtworkFetchTask{}.Schema():  resolveArtworkFetchTask,
+	schema.RenderOverlayTask{}.Schema(): resolveRenderOverlayTask,
 }
 
 // Resolve establishes the CR a domain event or dead-lettered envelope
@@ -231,6 +233,26 @@ func resolveSearchTask(key string, data []byte) Target {
 
 func resolveGrabTask(key string, data []byte) Target {
 	var p schema.GrabTask
+	if err := schema.Decode(p.Schema(), data, &p); err != nil {
+		return Target{Namespace: namespaceOf(key)}
+	}
+	return mediaTarget(namespaceOf(key), p.MediaRef.Name, p.MediaRef.Kind)
+}
+
+// resolveArtworkFetchTask and resolveRenderOverlayTask resolve M7's two
+// artwork work payloads (catalogarr-artwork-fetch, catalogarr-artwork-render)
+// the way every other MediaRef task resolves: the item's own name and kind,
+// namespaced by the envelope key.
+func resolveArtworkFetchTask(key string, data []byte) Target {
+	var p schema.ArtworkFetchTask
+	if err := schema.Decode(p.Schema(), data, &p); err != nil {
+		return Target{Namespace: namespaceOf(key)}
+	}
+	return mediaTarget(namespaceOf(key), p.MediaRef.Name, p.MediaRef.Kind)
+}
+
+func resolveRenderOverlayTask(key string, data []byte) Target {
+	var p schema.RenderOverlayTask
 	if err := schema.Decode(p.Schema(), data, &p); err != nil {
 		return Target{Namespace: namespaceOf(key)}
 	}
