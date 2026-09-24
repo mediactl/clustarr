@@ -65,6 +65,24 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // subject, and only then is the job recorded Queued with attempts+1 and
 // jobRef naming the pool Job. A source under no RootFolder is blocked here.
 //
+// Pools: after dispatching, the same pass sizes each (profile, class) pool
+// Job -- a long-lived work-queue batch/v1 Job running cmd/squasharr-worker,
+// rendered by squasharr/controller/pool and applied under squasharr-pool --
+// to the jobs dispatched to it (pools.go; spec §7). It is created or resumed
+// with work, raised as work grows, and suspended when none is left:
+// parallelism is never 0, a pool's zero is suspend. A pool is counted by
+// the class its Queued and Running jobs' status.hardware names, the class
+// their tasks went to (ruling R16). A profile edit that changes a pool's
+// template makes it drain: admission holds new work for it, it finishes
+// what it has and suspends, and once the Job controller has stopped its
+// pods it is reshaped in place (resources, nodeSelector, tolerations) or
+// deleted and recreated (anything else, a pool that predates gang
+// scheduling on a cluster that now has it, and -- ruling R15 -- a pool Job
+// that lost its applied-template annotation). A Failed pool is deleted, a
+// Warning Event recorded on its TranscodeProfile, and recreated after a
+// backoff of 1m doubling to 30m. A watch on the pool Jobs runs the pass
+// that acts on each change.
+//
 // Running / Succeeded / Failed come from the pool workers' status events on
 // squasharr-transcode-results (results.go): claimed and progress move a job
 // to Running; finished goes through [Decide], spec §18.3's next-step table --
@@ -112,14 +130,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // Package-level on purpose: controller-gen ignores markers attached to a
 // declaration, and envtest does not enforce RBAC. batch/v1 Jobs are the
-// pools (squasharr/controller/pool); rootfolders are listed at dispatch to
-// place the task's source.
+// pools (squasharr/controller/pool), deleted to recreate one; the Warning
+// Event on a Failed pool's TranscodeProfile is an events.k8s.io Event;
+// rootfolders are listed at dispatch to place the task's source.
 //
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodeprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=list
-// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;patch
+// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;patch;delete
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 package transcodejob

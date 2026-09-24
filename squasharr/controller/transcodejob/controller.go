@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -123,8 +124,8 @@ type Reconciler struct {
 	// Slots is the per-hardware budget, squasharr.Options.Slots.
 	Slots map[string]int32
 
-	// Pool is the deployment-level half of every pool Job (Task 11 renders
-	// them).
+	// Pool is the deployment-level half of every pool Job the admission
+	// pass renders (pools.go).
 	Pool pool.Config
 
 	// Recorder emits a Kubernetes Event on the TranscodeJob for each
@@ -146,6 +147,14 @@ type Reconciler struct {
 	// wake carries the results consumer's admission wake to the
 	// controller (SetupWithManager); nil outside a manager.
 	wake chan event.GenericEvent
+
+	// recreate names the pool Jobs the apiserver refused a gang minCount
+	// on (created before WorkloadWithJob was enabled): each drains and is
+	// recreated. poolBackoff is each Failed pool's recreation backoff.
+	// Only admission touches either, and MaxConcurrentReconciles 1
+	// serialises it, so admit initialises them lazily.
+	recreate    map[string]bool
+	poolBackoff map[string]poolBackoff
 }
 
 func (r *Reconciler) now() metav1.Time {
@@ -472,17 +481,22 @@ func (r *Reconciler) plan(ctx context.Context, tj *transcodev1alpha1.TranscodeJo
 // admit is one pass of the slot scheduler: every Planned job that is not
 // paused, deleting or waiting out its nextAttemptAt competes, under
 // [Admit], for the slots the dispatched (Queued or Running) jobs leave free,
-// and each one admitted is dispatched.
+// and each one admitted is dispatched. A job whose pool is draining for a
+// profile change is held out of the competition (pools.go, holding). Then
+// every pool is sized to the work dispatched to it (pools).
 //
 // TranscodeJobs are listed through Reader (uncached) so the count includes a
 // job the previous pass dispatched even if the informer has not caught up;
 // with MaxConcurrentReconciles pinned to 1 in SetupWithManager, and the
-// results consumer's wake routed through the same queue, that makes
-// over-admission impossible from inside one process.
+// results consumer's and the pool Job watch's wakes routed through the same
+// queue, that makes over-admission impossible from inside one process.
 func (r *Reconciler) admit(ctx context.Context) error {
 	ctx, span := tracing.Start(ctx, "transcodejob.Reconciler.admit")
 	defer span.End()
 	log := logging.FromContext(ctx)
+	if r.recreate == nil {
+		r.recreate, r.poolBackoff = map[string]bool{}, map[string]poolBackoff{}
+	}
 
 	var tjs transcodev1alpha1.TranscodeJobList
 	if err := r.reader().List(ctx, &tjs); err != nil {
@@ -496,9 +510,18 @@ func (r *Reconciler) admit(ctx context.Context) error {
 	for i := range profiles.Items {
 		byName[profiles.Items[i].Name] = &profiles.Items[i]
 	}
+	stored, err := r.poolJobs(ctx)
+	if err != nil {
+		return err
+	}
+	held := r.holding(stored, byName)
 
 	now := r.now().Time
-	var queued, running []Slot
+	var (
+		queued, running []Slot
+		errs            []error
+	)
+	candidates := map[string]*transcodev1alpha1.TranscodeJob{}
 	for i := range tjs.Items {
 		tj := &tjs.Items[i]
 		key := tj.Namespace + "/" + tj.Name
@@ -514,21 +537,27 @@ func (r *Reconciler) admit(ctx context.Context) error {
 			if !ok {
 				continue
 			}
+			class := r.classFor(tj, tp)
+			if k := poolKeyFor(tp, class); held[k] {
+				errs = append(errs, r.setHeldMessage(ctx, tj, holdMessage(k)))
+				continue
+			}
 			slot := Slot{
-				Key: key, Hardware: string(r.classFor(tj, tp)), Profile: tj.Spec.ProfileRef,
+				Key: key, Hardware: string(class), Profile: tj.Spec.ProfileRef,
 				Priority: tj.Spec.Priority, Created: tj.CreationTimestamp.Time,
 			}
 			if slot.Priority == 0 {
 				slot.Priority = tp.Spec.Priority
 			}
 			queued = append(queued, slot)
+			candidates[key] = tj
 		}
 	}
 
 	admitted := Admit(queued, running, Budget{Slots: r.Slots, ProfileLimits: profileLimits(profiles.Items)})
 	setActive(r.Slots, running, admitted)
-	var errs []error
 	for _, s := range admitted {
+		delete(candidates, s.Key)
 		ns, name, _ := strings.Cut(s.Key, "/")
 		if err := r.dispatch(ctx, types.NamespacedName{Namespace: ns, Name: name}, transcodev1alpha1.Hardware(s.Hardware)); err != nil {
 			errs = append(errs, err)
@@ -536,6 +565,23 @@ func (r *Reconciler) admit(ctx context.Context) error {
 		}
 		log.Info("dispatched transcode", "transcodeJob", s.Key, "hardware", s.Hardware, "priority", s.Priority)
 	}
+	for _, s := range queued {
+		// A job held by an earlier pass that is free now but found no slot
+		// says so, rather than claim a drain that is over.
+		if tj, ok := candidates[s.Key]; ok && strings.HasPrefix(tj.Status.Message, heldPrefix) {
+			errs = append(errs, r.setHeldMessage(ctx, tj, fmt.Sprintf("waiting for a free %s slot", s.Hardware)))
+		}
+	}
+
+	if len(admitted) > 0 {
+		// Count what the dispatches recorded: status.hardware is the class
+		// each task went to.
+		tjs = transcodev1alpha1.TranscodeJobList{}
+		if err := r.reader().List(ctx, &tjs); err != nil {
+			return errors.Join(append(errs, fmt.Errorf("transcodejob: list TranscodeJobs: %w", err))...)
+		}
+	}
+	errs = append(errs, r.pools(ctx, stored, byName, dispatchedPerPool(tjs.Items, byName)))
 	return errors.Join(errs...)
 }
 
@@ -621,6 +667,12 @@ func transcodeJobPredicate() predicate.Predicate {
 //     jobs, for a job Pending on the probe.
 //   - The results consumer's admission wake (results.go), when a job leaves
 //     Queued or Running: one admission pass, [admissionRequest].
+//   - A pool Job's creation, deletion, or change to its suspend, pods,
+//     startTime, failure or template hash ([poolJobPredicate]): one
+//     admission pass, which is what acts on a pool -- a stopped pool
+//     reshaped and its held work dispatched, a Failed or deleted pool
+//     recreated. One pass, not one per job of the profile: every pass
+//     already considers every job.
 //
 // Worker status events are not a watch: they arrive through the results
 // consumer, a separate runnable (ResultsConsumer) the caller adds to the
@@ -650,6 +702,9 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	r.wake = make(chan event.GenericEvent, 1)
+	admission := handler.EnqueueRequestsFromMapFunc(func(context.Context, client.Object) []reconcile.Request {
+		return []reconcile.Request{{NamespacedName: admissionRequest}}
+	})
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("transcodejob").
 		For(&transcodev1alpha1.TranscodeJob{}, builder.WithPredicates(transcodeJobPredicate())).
@@ -659,10 +714,8 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&catalogv1alpha1.MediaFile{},
 			handler.EnqueueRequestsFromMapFunc(r.mapIndexed(indexMediaFileRef, true)),
 			builder.WithPredicates(k8s.StatusFieldChanged(mediaFileSignal))).
-		WatchesRawSource(source.Channel(r.wake, handler.EnqueueRequestsFromMapFunc(
-			func(context.Context, client.Object) []reconcile.Request {
-				return []reconcile.Request{{NamespacedName: admissionRequest}}
-			}))).
+		Watches(&batchv1.Job{}, admission, builder.WithPredicates(poolJobPredicate())).
+		WatchesRawSource(source.Channel(r.wake, admission)).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 1}).
 		Complete(r)
 }

@@ -27,6 +27,10 @@ import (
 // delivers worker status events without a subscription.
 var HandleEventForTest = (*Reconciler).handleEvent
 
+// AdmissionRequestForTest is the request that runs one admission pass, as
+// the results consumer's wake and the pool Job watch enqueue it.
+var AdmissionRequestForTest = admissionRequest
+
 // PatchCASForTest is the one status write, for a test that races it.
 func (r *Reconciler) PatchCASForTest(ctx context.Context, tj *transcodev1alpha1.TranscodeJob, st *transcodev1alpha1.TranscodeJobStatus) error {
 	return r.patchCAS(ctx, tj, st)
