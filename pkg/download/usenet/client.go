@@ -394,6 +394,9 @@ type job struct {
 
 	// renames is the manifest's Renames, kept in step by renameObfuscated.
 	renames map[string]string
+	// par2Names is every name the par2 set records, from renameObfuscated,
+	// for adoptRepairedSet.
+	par2Names []string
 
 	done           []bitset
 	failedSegs     []bitset
@@ -1114,7 +1117,10 @@ func (j *job) repair(ctx context.Context) error {
 		}
 		return err
 	}
-	return removePar2Backups(ctx, j.contentDir(), j.nzb.Files)
+	if err := removePar2Backups(ctx, j.contentDir(), j.nzb.Files); err != nil {
+		return err
+	}
+	return j.adoptRepairedSet(ctx)
 }
 
 // publish moves the finished content into the data directory with one atomic

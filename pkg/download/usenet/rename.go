@@ -28,8 +28,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
+	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
@@ -46,59 +48,158 @@ import (
 
 var (
 	par2Magic        = []byte("PAR2\x00PKT")
+	par2MainType     = []byte("PAR 2.0\x00Main\x00\x00\x00\x00")
 	par2FileDescType = []byte("PAR 2.0\x00FileDesc")
+	par2IFSCType     = []byte("PAR 2.0\x00IFSC\x00\x00\x00\x00")
 )
 
 // par2FileDesc is one FileDesc packet: the name the set records for a file
 // and the MD5 of its first 16 KiB (or of the whole file when smaller).
 type par2FileDesc struct {
+	ID      [16]byte
 	Name    string
 	Hash16k [16]byte
 	Length  uint64
 }
 
+// par2Set is what a job's par2 files say about the set: the files it
+// describes and, from the IFSC packets, the MD5 of every slice of every
+// file -- the check par2 itself runs to recognise a file whose name it does
+// not know. Every volume repeats the packets, so a set merges by file id.
+type par2Set struct {
+	// SliceSize is the Main packet's slice size, zero until one is seen.
+	SliceSize uint64
+	// Files is keyed by file id.
+	Files map[[16]byte]par2FileDesc
+	// Slices maps a slice's MD5 to the id of the file it belongs to.
+	Slices map[[16]byte][16]byte
+}
+
+func newPar2Set() *par2Set {
+	return &par2Set{Files: map[[16]byte]par2FileDesc{}, Slices: map[[16]byte][16]byte{}}
+}
+
 // parsePar2FileDescs walks the packets of one par2 file and returns its
-// FileDesc packets. Unknown packet types are skipped by their length; the
-// walk stops at the first byte that is not a packet header, so a truncated
-// or damaged file yields what it can rather than an error.
+// FileDesc packets, sorted by name.
 func parsePar2FileDescs(r io.Reader) ([]par2FileDesc, error) {
+	set := newPar2Set()
+	err := set.parse(r)
+	out := make([]par2FileDesc, 0, len(set.Files))
+	for _, d := range set.Files {
+		out = append(out, d)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, err
+}
+
+// parse walks the packets of one par2 file into the set. Unknown packet
+// types are skipped by their length; the walk stops at the first byte that
+// is not a packet header, so a truncated or damaged file yields what it can
+// rather than an error.
+func (s *par2Set) parse(r io.Reader) error {
 	br := bufioReaderOf(r)
-	var out []par2FileDesc
 	for {
 		header := make([]byte, 64)
 		if _, err := io.ReadFull(br, header); err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-				return out, nil
+				return nil
 			}
-			return out, err
+			return err
 		}
 		if !bytes.Equal(header[:8], par2Magic) {
-			return out, nil
+			return nil
 		}
 		length := binary.LittleEndian.Uint64(header[8:16])
 		if length < 64 || length > 1<<26 {
-			return out, nil
+			return nil
 		}
 		body := make([]byte, length-64)
 		if _, err := io.ReadFull(br, body); err != nil {
-			return out, nil
+			return nil
 		}
-		if !bytes.Equal(header[48:64], par2FileDescType) {
-			continue
+		typ := header[48:64]
+		switch {
+		case bytes.Equal(typ, par2MainType):
+			// slice size 8, file count 4, then the file ids.
+			if len(body) >= 12 {
+				s.SliceSize = binary.LittleEndian.Uint64(body[:8])
+			}
+		case bytes.Equal(typ, par2FileDescType):
+			// file id 16, hash 16, hash16k 16, length 8, name.
+			if len(body) < 56 {
+				continue
+			}
+			var d par2FileDesc
+			copy(d.ID[:], body[:16])
+			copy(d.Hash16k[:], body[32:48])
+			d.Length = binary.LittleEndian.Uint64(body[48:56])
+			d.Name = strings.TrimRight(string(body[56:]), "\x00")
+			d.Name = filepath.Base(strings.ReplaceAll(d.Name, "\\", "/"))
+			if d.Name == "" || d.Name == "." || d.Name == "/" {
+				continue
+			}
+			s.Files[d.ID] = d
+		case bytes.Equal(typ, par2IFSCType):
+			// file id 16, then (MD5 16, CRC32 4) per slice.
+			if len(body) < 16 {
+				continue
+			}
+			var id [16]byte
+			copy(id[:], body[:16])
+			for off := 16; off+20 <= len(body); off += 20 {
+				var h [16]byte
+				copy(h[:], body[off:off+16])
+				s.Slices[h] = id
+			}
 		}
-		// file id 16, hash 16, hash16k 16, length 8, name.
-		if len(body) < 56 {
-			continue
+	}
+}
+
+// nameByHash16k returns the set's name for the file whose first 16 KiB
+// hash to h, or "".
+func (s *par2Set) nameByHash16k(h [16]byte) string {
+	for _, d := range s.Files {
+		if d.Hash16k == h {
+			return d.Name
 		}
-		var d par2FileDesc
-		copy(d.Hash16k[:], body[32:48])
-		d.Length = binary.LittleEndian.Uint64(body[48:56])
-		d.Name = strings.TrimRight(string(body[56:]), "\x00")
-		d.Name = filepath.Base(strings.ReplaceAll(d.Name, "\\", "/"))
-		if d.Name == "" || d.Name == "." || d.Name == "/" {
-			continue
+	}
+	return ""
+}
+
+// matchBySlice names a damaged file by any intact slice: it hashes the file
+// slice by slice (the last one zero-padded, as the IFSC rule has it) until
+// one MD5 is in the set. A hole in the first 16 KiB defeats hash16k, but
+// nearly every slice of a file missing a few articles is intact, and this
+// is the check par2 runs itself when it verifies an extra file. Without it
+// par2 rebuilt such a file under the set's name and left the holed copy
+// under the wire name, and the unpacker started from the holed copy.
+func (s *par2Set) matchBySlice(path string) string {
+	if s.SliceSize == 0 || s.SliceSize > 1<<30 || len(s.Slices) == 0 {
+		return ""
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = f.Close() }()
+	buf := make([]byte, s.SliceSize)
+	for {
+		n, err := io.ReadFull(f, buf)
+		if n == 0 {
+			return ""
 		}
-		out = append(out, d)
+		for i := n; i < len(buf); i++ {
+			buf[i] = 0
+		}
+		sum := md5.Sum(buf) //nolint:gosec // PAR2 specifies MD5.
+		if id, ok := s.Slices[sum]; ok {
+			if d, ok := s.Files[id]; ok {
+				return d.Name
+			}
+		}
+		if err != nil {
+			return ""
+		}
 	}
 }
 
@@ -194,7 +295,7 @@ func (j *job) renameObfuscated(ctx context.Context) {
 	log := logging.FromContext(ctx)
 	dir := j.contentDir()
 
-	descs := map[[16]byte]string{}
+	set := newPar2Set()
 	for _, f := range j.nzb.Files {
 		p := filepath.Join(dir, safeName(f.Name))
 		if f.Kind != kindPar2Index && f.Kind != kindPar2Volume && !isPar2File(p) {
@@ -204,13 +305,10 @@ func (j *job) renameObfuscated(ctx context.Context) {
 		if err != nil {
 			continue
 		}
-		found, err := parsePar2FileDescs(fh)
+		err = set.parse(fh)
 		_ = fh.Close()
 		if err != nil {
-			log.DebugContext(ctx, "usenet: par2 FileDesc parse failed", "file", f.Name, "error", err)
-		}
-		for _, d := range found {
-			descs[d.Hash16k] = d.Name
+			log.DebugContext(ctx, "usenet: par2 packet parse failed", "file", f.Name, "error", err)
 		}
 	}
 
@@ -247,20 +345,33 @@ func (j *job) renameObfuscated(ctx context.Context) {
 	}
 
 	renamed := 0
-	if len(descs) > 0 {
+	if len(set.Files) > 0 {
 		for i, f := range j.nzb.Files {
 			if f.Kind == kindPar2Index || f.Kind == kindPar2Volume {
 				continue
 			}
-			h, err := hash16k(filepath.Join(dir, safeName(f.Name)))
+			p := filepath.Join(dir, safeName(f.Name))
+			h, err := hash16k(p)
 			if err != nil {
 				continue
 			}
-			if want, ok := descs[h]; ok && want != f.Name {
+			want := set.nameByHash16k(h)
+			if want == "" {
+				want = set.matchBySlice(p)
+			}
+			if want != "" && want != f.Name {
 				rename(i, want)
 				renamed++
 			}
 		}
+		names := make([]string, 0, len(set.Files))
+		for _, d := range set.Files {
+			names = append(names, d.Name)
+		}
+		sort.Strings(names)
+		j.mu.Lock()
+		j.par2Names = names
+		j.mu.Unlock()
 	}
 	for i, f := range j.nzb.Files {
 		if hasUsableExtension(f.Name) {
@@ -296,6 +407,68 @@ func applyRenames(files []nzbFile, renames map[string]string) {
 // archive volume -- the case where par2 failing to repair is final. A
 // missing article in an nfo, a sample or a par2 volume leaves the archive
 // whole, and its own checksums can judge it.
+// adoptRepairedSet brings the job's file list into line with the set par2
+// has just verified. par2 recreates a target it cannot find under the set's
+// own name -- a file that never reached the disk because every one of its
+// articles failed, or one so holed that no slice matched -- and leaves a
+// holed copy where it was, under the wire name. The unpacker keys its entry
+// points and its volume chain on the file list, so the 2026-09-24 grab read
+// part01 from the holed copy and then could not find part03, which par2 had
+// renamed: a verified, repairable set failed as writeError. After a repair
+// the set's names are the content: every set file on disk that no entry
+// carries is adopted, and once one was, an archive entry with failed
+// articles that is not a set file is the holed copy par2 replaced -- it is
+// removed, and it is no longer an entry point. The gate on an adoption is
+// what keeps a damaged archive the set never covered (a subs.rar posted
+// without recovery data) where it is.
+func (j *job) adoptRepairedSet(ctx context.Context) error {
+	dir := j.contentDir()
+	log := logging.FromContext(ctx)
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if len(j.par2Names) == 0 {
+		return nil
+	}
+	carried := make(map[string]bool, len(j.nzb.Files))
+	for _, f := range j.nzb.Files {
+		carried[f.Name] = true
+	}
+	adopted := 0
+	for _, n := range j.par2Names {
+		if carried[n] {
+			continue
+		}
+		st, err := os.Lstat(filepath.Join(dir, safeName(n)))
+		if err != nil || !st.Mode().IsRegular() {
+			continue
+		}
+		j.nzb.Files = append(j.nzb.Files, nzbFile{Name: n, Kind: classify(n), Bytes: st.Size()})
+		adopted++
+		log.InfoContext(ctx, "usenet: adopted a file par2 rebuilt under the set's name", "download", j.id, "file", n)
+	}
+	if adopted == 0 {
+		return nil
+	}
+	isSet := make(map[string]bool, len(j.par2Names))
+	for _, n := range j.par2Names {
+		isSet[n] = true
+	}
+	for i := range j.failedSegs {
+		f := &j.nzb.Files[i]
+		if f.Kind != kindArchive || isSet[f.Name] || j.failedSegs[i].count() == 0 {
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(dir, safeName(f.Name))); err == nil {
+			if err := fsops.SafeRemove(ctx, dir, safeName(f.Name)); err != nil {
+				return err
+			}
+			log.InfoContext(ctx, "usenet: removed the holed copy of a file par2 rebuilt under the set's name", "download", j.id, "file", f.Name)
+		}
+		f.Kind = kindContent
+	}
+	return nil
+}
+
 func (j *job) failedInsideArchive() bool {
 	j.mu.Lock()
 	defer j.mu.Unlock()

@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package usenet
 
 import (
+	"bytes"
 	"context"
 	"math/rand"
 	"os"
@@ -144,4 +145,122 @@ func TestFailedInsideArchiveLooksOnlyAtArchiveVolumes(t *testing.T) {
 	require.False(t, j.failedInsideArchive(), "a hole in the nfo leaves the archive whole")
 	j.failedSegs[0].set(0) // the rar
 	require.True(t, j.failedInsideArchive())
+}
+
+// A file missing its first articles hashes to nothing the set knows, since
+// hash16k covers exactly the bytes that are gone. The IFSC packets know
+// every slice of it, and any intact slice names it -- which is what stops
+// par2 from rebuilding it under the set's name beside the holed copy.
+func TestRenameObfuscatedMatchesADamagedFileByAnIntactSlice(t *testing.T) {
+	bin := par2Binary(t)
+	c, _, _ := newTestClient(t, Config{Providers: []Provider{{Name: "p", Host: "127.0.0.1", Port: 1, Connections: 1}}, Par2Path: bin})
+
+	work := t.TempDir()
+	data := make([]byte, 200<<10)
+	_, _ = rand.New(rand.NewSource(11)).Read(data)
+	require.NoError(t, os.WriteFile(filepath.Join(work, "Some.Movie.2026.1080p.mkv"), data, 0o644))
+	create := exec.Command(bin, "c", "-q", "-b16", "-r50", "--", "Some.Movie.2026.1080p.par2", "Some.Movie.2026.1080p.mkv")
+	create.Dir = work
+	out, err := create.CombinedOutput()
+	require.NoErrorf(t, err, "par2 create: %s", out)
+
+	nzb := nzbWith(t, "", "z75QORTuwk9NHlDJbb53izyP7TQqFzG4", "Some.Movie.2026.1080p.par2", "Some.Movie.2026.1080p.vol00+8.par2")
+	parsed, err := parseNZB(nzb, defaultMaxNZBBytes)
+	require.NoError(t, err)
+	j := c.newJob("job1", "download-1", "movies", filepath.Join(c.cfg.ScratchDir, "movies", "job1"), parsed, nzb)
+	require.NoError(t, os.MkdirAll(j.contentDir(), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(j.dir, nzbName), nzb, 0o644))
+	// The wire copy has a hole across its first 4 KiB: inside hash16k's
+	// window and inside slice 0.
+	holed := append([]byte{}, data...)
+	for i := range holed[:4<<10] {
+		holed[i] = 0
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(j.contentDir(), "z75QORTuwk9NHlDJbb53izyP7TQqFzG4"), holed, 0o644))
+	require.NoError(t, os.Rename(filepath.Join(work, "Some.Movie.2026.1080p.par2"), filepath.Join(j.contentDir(), "Some.Movie.2026.1080p.par2")))
+	vols, _ := filepath.Glob(filepath.Join(work, "*.vol*.par2"))
+	require.NotEmpty(t, vols)
+	require.NoError(t, os.Rename(vols[0], filepath.Join(j.contentDir(), "Some.Movie.2026.1080p.vol00+8.par2")))
+	j.failedSegs[0].set(0)
+
+	j.renameObfuscated(context.Background())
+
+	_, err = os.Stat(filepath.Join(j.contentDir(), "Some.Movie.2026.1080p.mkv"))
+	require.NoError(t, err, "the holed file carries the set's name, matched by an intact slice")
+	require.Equal(t, "Some.Movie.2026.1080p.mkv", j.renames["z75QORTuwk9NHlDJbb53izyP7TQqFzG4"])
+
+	// par2 now repairs it in place rather than beside itself.
+	require.NoError(t, j.repair(context.Background()))
+	got, err := os.ReadFile(filepath.Join(j.contentDir(), "Some.Movie.2026.1080p.mkv"))
+	require.NoError(t, err)
+	require.True(t, bytes.Equal(data, got), "the file under the set's name is the repaired one")
+	entries, err := os.ReadDir(j.contentDir())
+	require.NoError(t, err)
+	for _, e := range entries {
+		require.NotEqual(t, "z75QORTuwk9NHlDJbb53izyP7TQqFzG4", e.Name(), "no second copy under the wire name")
+	}
+}
+
+// The 2026-09-24 grab: par2 rebuilt part01 under the set's obfuscated name
+// (every article of it had failed, so nothing on disk could be matched)
+// and left a holed part02 under its wire name; the unpacker, keyed on the
+// wire names, started from the holed copy and could not follow the chain.
+// After a repair the set's files are the content.
+func TestAdoptRepairedSetTakesTheTargetsParRebuiltUnderTheSetsName(t *testing.T) {
+	bin := par2Binary(t)
+	c, _, _ := newTestClient(t, Config{Providers: []Provider{{Name: "p", Host: "127.0.0.1", Port: 1, Connections: 1}}, Par2Path: bin})
+
+	work := t.TempDir()
+	rng := rand.New(rand.NewSource(13))
+	part := func(name string) []byte {
+		b := make([]byte, 100<<10)
+		_, _ = rng.Read(b)
+		require.NoError(t, os.WriteFile(filepath.Join(work, name), b, 0o644))
+		return b
+	}
+	p1 := part("2ef6f194995e4a11b055d0f2354ef0ba.part01.rar")
+	p2 := part("2ef6f194995e4a11b055d0f2354ef0ba.part02.rar")
+	create := exec.Command(bin, "c", "-q", "-b16", "-r200", "-n1", "--", "set.par2",
+		"2ef6f194995e4a11b055d0f2354ef0ba.part01.rar", "2ef6f194995e4a11b055d0f2354ef0ba.part02.rar")
+	create.Dir = work
+	out, err := create.CombinedOutput()
+	require.NoErrorf(t, err, "par2 create: %s", out)
+
+	nzb := nzbWith(t, "", "A.Scanner.Darkly.part01.rar", "A.Scanner.Darkly.part02.rar", "set.par2", "set.vol00+32.par2")
+	parsed, err := parseNZB(nzb, defaultMaxNZBBytes)
+	require.NoError(t, err)
+	j := c.newJob("job1", "download-1", "movies", filepath.Join(c.cfg.ScratchDir, "movies", "job1"), parsed, nzb)
+	require.NoError(t, os.MkdirAll(j.contentDir(), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(j.dir, nzbName), nzb, 0o644))
+	// part01 never reached the disk; part02 is there under its wire name
+	// with every slice holed, so no checksum names it.
+	j.failedSegs[0].set(0)
+	j.failedSegs[1].set(0)
+	require.NoError(t, os.WriteFile(filepath.Join(j.contentDir(), "A.Scanner.Darkly.part02.rar"), make([]byte, len(p2)), 0o644))
+	require.NoError(t, os.Rename(filepath.Join(work, "set.par2"), filepath.Join(j.contentDir(), "set.par2")))
+	vols, _ := filepath.Glob(filepath.Join(work, "*.vol*.par2"))
+	require.NotEmpty(t, vols)
+	require.NoError(t, os.Rename(vols[0], filepath.Join(j.contentDir(), "set.vol00+32.par2")))
+
+	j.renameObfuscated(context.Background())
+	require.NoError(t, j.repair(context.Background()))
+
+	require.Equal(t, []string{"2ef6f194995e4a11b055d0f2354ef0ba.part01.rar"}, archiveEntryPoints(j.nzb.Files),
+		"the entry point is the set's part01, not the wire name nothing was written under")
+	kinds := map[string]fileKind{}
+	for _, f := range j.nzb.Files {
+		kinds[f.Name] = f.Kind
+	}
+	require.Equal(t, kindArchive, kinds["2ef6f194995e4a11b055d0f2354ef0ba.part02.rar"], "the rebuilt part02 is carried as a volume of the chain")
+	require.Equal(t, kindContent, kinds["A.Scanner.Darkly.part02.rar"], "the holed copy is no volume of anything")
+	for name, want := range map[string][]byte{
+		"2ef6f194995e4a11b055d0f2354ef0ba.part01.rar": p1,
+		"2ef6f194995e4a11b055d0f2354ef0ba.part02.rar": p2,
+	} {
+		got, err := os.ReadFile(filepath.Join(j.contentDir(), name))
+		require.NoError(t, err, name)
+		require.True(t, bytes.Equal(want, got), "%s is the set's file", name)
+	}
+	_, err = os.Stat(filepath.Join(j.contentDir(), "A.Scanner.Darkly.part02.rar"))
+	require.ErrorIs(t, err, os.ErrNotExist, "the holed copy is gone")
 }
