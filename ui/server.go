@@ -184,6 +184,12 @@ type Options struct {
 	// reads -- and every method on it returns actions.ErrNoWriter.
 	Actions *actions.Actions
 
+	// Namespace is the namespace this process runs in (the --namespace
+	// flag, from POD_NAMESPACE): the Settings page's forms create a
+	// namespaced kind there unless the form names another. Empty renders
+	// the namespace input blank.
+	Namespace string
+
 	// Subscribe returns a channel that receives the current pipeline
 	// projection immediately upon subscribing, and again whenever it
 	// changes, plus a func that unsubscribes -- the shape

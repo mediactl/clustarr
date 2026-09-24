@@ -20,6 +20,7 @@ package views
 import (
 	"fmt"
 
+	"github.com/mediactl/clustarr/ui/components/button"
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	indexv1 "github.com/mediactl/clustarr/api/index/v1alpha1"
@@ -59,7 +60,7 @@ templ Settings(
 ) {
 	@Layout("Settings") {
 		<h1 class="mb-4 text-2xl font-bold">Settings</h1>
-		@settingsSection("Root Folders") {
+		@settingsSection("Root Folders", "rootfolders") {
 			if len(rootFolders) == 0 {
 				<p class="text-slate-400">No root folders configured.</p>
 			}
@@ -67,7 +68,7 @@ templ Settings(
 				@rootFolderCard(rf)
 			}
 		}
-		@settingsSection("Quality Profiles") {
+		@settingsSection("Quality Profiles", "qualityprofiles") {
 			if len(qualityProfiles) == 0 {
 				<p class="text-slate-400">No quality profiles configured.</p>
 			}
@@ -75,7 +76,7 @@ templ Settings(
 				@qualityProfileCard(qp)
 			}
 		}
-		@settingsSection("Indexers") {
+		@settingsSection("Indexers", "indexers") {
 			if len(indexers) == 0 {
 				<p class="text-slate-400">No indexers configured.</p>
 			}
@@ -83,7 +84,7 @@ templ Settings(
 				@indexerCard(idx)
 			}
 		}
-		@settingsSection("Download Clients") {
+		@settingsSection("Download Clients", "downloadclients") {
 			if len(downloadClients) == 0 {
 				<p class="text-slate-400">No download clients configured.</p>
 			}
@@ -91,7 +92,7 @@ templ Settings(
 				@downloadClientSettingsCard(dc)
 			}
 		}
-		@settingsSection("Metadata Providers") {
+		@settingsSection("Metadata Providers", "metadataproviders") {
 			if len(metadataProviders) == 0 {
 				<p class="text-slate-400">No metadata providers configured.</p>
 			}
@@ -99,7 +100,7 @@ templ Settings(
 				@metadataProviderCard(mp)
 			}
 		}
-		@settingsSection("Subtitle Providers") {
+		@settingsSection("Subtitle Providers", "subtitleproviders") {
 			if len(subtitleProviders) == 0 {
 				<p class="text-slate-400">No subtitle providers configured.</p>
 			}
@@ -107,7 +108,7 @@ templ Settings(
 				@subtitleProviderCard(sp)
 			}
 		}
-		@settingsSection("Subtitle Profiles") {
+		@settingsSection("Subtitle Profiles", "subtitleprofiles") {
 			if len(subtitleProfiles) == 0 {
 				<p class="text-slate-400">No subtitle profiles configured.</p>
 			}
@@ -115,7 +116,7 @@ templ Settings(
 				@subtitleProfileCard(sp)
 			}
 		}
-		@settingsSection("Transcode Profiles") {
+		@settingsSection("Transcode Profiles", "transcodeprofiles") {
 			if len(transcodeProfiles) == 0 {
 				<p class="text-slate-400">No transcode profiles configured.</p>
 			}
@@ -128,9 +129,14 @@ templ Settings(
 
 // settingsSection wraps one kind's cards under a heading, mirroring
 // downloads.templ's downloadClientsSection.
-templ settingsSection(title string) {
-	<section class="mb-8">
-		<h2 class="mb-2 text-lg font-semibold">{ title }</h2>
+templ settingsSection(title, slug string) {
+	<section class="mb-8" data-settings-kind={ slug }>
+		<div class="mb-2 flex items-center justify-between">
+			<h2 class="text-lg font-semibold">{ title }</h2>
+			@button.Button(button.Props{Href: "/settings/new/" + slug, Size: button.SizeSm, Variant: button.VariantOutline}) {
+				Add
+			}
+		</div>
 		<div class="grid gap-3 sm:grid-cols-2">
 			{ children... }
 		</div>
@@ -176,6 +182,7 @@ templ rootFolderCard(rf catalogv1.RootFolder) {
 				Save
 			</button>
 		</form>
+		@configActions("rootfolders", rf.Namespace, rf.Name)
 	</div>
 }
 
@@ -219,6 +226,7 @@ templ qualityProfileCard(qp catalogv1.QualityProfile) {
 				}
 			</button>
 		</form>
+		@configActions("qualityprofiles", "", qp.Name)
 	</div>
 }
 
@@ -247,6 +255,7 @@ templ indexerCard(idx indexv1.Indexer) {
 			<p class="mt-1 text-xs text-slate-500">credentials: Secret/{ idx.Spec.SecretRef.Name }</p>
 		}
 		@enabledPriorityForm(fmt.Sprintf("/settings/indexers/%s/%s", idx.Namespace, idx.Name), indexerEnabled(idx), idx.Spec.Priority, "indexer-"+idx.Name)
+		@configActions("indexers", idx.Namespace, idx.Name)
 	</div>
 }
 
@@ -270,6 +279,7 @@ templ downloadClientSettingsCard(dc downloadv1.DownloadClient) {
 		</div>
 		<p class="mt-1 text-xs text-slate-400">{ string(dc.Spec.Protocol) }</p>
 		@enabledPriorityForm(fmt.Sprintf("/settings/downloadclients/%s/%s", dc.Namespace, dc.Name), downloadClientEnabled(dc), dc.Spec.Priority, "downloadclient-"+dc.Name)
+		@configActions("downloadclients", dc.Namespace, dc.Name)
 	</div>
 }
 
@@ -295,6 +305,7 @@ templ metadataProviderCard(mp catalogv1.MetadataProvider) {
 			<p class="mt-1 text-xs text-slate-500">credentials: Secret/{ mp.Spec.SecretRef.Name }</p>
 		}
 		@enabledPriorityForm(fmt.Sprintf("/settings/metadataproviders/%s/%s", mp.Namespace, mp.Name), metadataProviderEnabled(mp), mp.Spec.Priority, "metadataprovider-"+mp.Name)
+		@configActions("metadataproviders", mp.Namespace, mp.Name)
 	</div>
 }
 
@@ -321,6 +332,7 @@ templ subtitleProviderCard(sp subtitlev1.SubtitleProvider) {
 			<p class="mt-1 text-xs text-slate-500">credentials: Secret/{ sp.Spec.SecretRef.Name }</p>
 		}
 		@enabledPriorityForm(fmt.Sprintf("/settings/subtitleproviders/%s/%s", sp.Namespace, sp.Name), sp.Spec.EnabledOrDefault(), sp.Spec.Priority, "subtitleprovider-"+sp.Name)
+		@configActions("subtitleproviders", sp.Namespace, sp.Name)
 	</div>
 }
 
@@ -358,6 +370,7 @@ templ subtitleProfileCard(sp subtitlev1.SubtitleProfile) {
 				}
 			</button>
 		</form>
+		@configActions("subtitleprofiles", "", sp.Name)
 	</div>
 }
 
@@ -398,6 +411,7 @@ templ transcodeProfileCard(tp transcodev1.TranscodeProfile) {
 				Save
 			</button>
 		</form>
+		@configActions("transcodeprofiles", "", tp.Name)
 	</div>
 }
 

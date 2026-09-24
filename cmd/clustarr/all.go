@@ -268,6 +268,7 @@ func allServices(
 				WaitForSync:          waitForSync,
 				Projected:            proj.Projected,
 				Actions:              acts,
+				Namespace:            o.Namespace,
 				Artwork:              artwork,
 				Plex:                 buildUIPlexOptions(plex.provider, plex.externalURL),
 				Entries:              proj.Entries,

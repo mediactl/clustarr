@@ -15,10 +15,9 @@
 # because re-deriving this file's scope every time a later page needs one
 # more kind is exactly the kind of drift a hand-written, rarely-touched file
 # invites. index.clustarr.io is the one exception: only "indexers" is
-# granted (the Settings page's own kind, Task G3-4), not IndexerDefinition or
-# IndexerProxy, which no page reads yet -- adding either is a one-line,
-# reviewable change for whichever future phase needs it, not a default to
-# grant early.
+# granted at first (the Settings page's own kind, Task G3-4);
+# indexerdefinitions and indexerproxies followed with the settings CRUD
+# design (2026-09-24), which lists them in the Indexer form's pickers.
 #
 # Writes (Phase G ruling R2, docs/superpowers/plans/2026-09-23-phase-g-parity.md;
 # amendment §A3.2 and, for the Settings-page patches, the G3-4 note under
@@ -32,9 +31,16 @@
 # clustarr-ui. ui/actions.Grants() declares the same set; the RBAC guard
 # holds this file's write verbs to exactly it.
 #
-# Never: any resource ending in "/status" (not even to read it), update,
-# delete or deletecollection, a wildcard, or a write verb on any resource
-# outside that set. The UI edits spec; the controllers own status.
+# Settings CRUD (docs/superpowers/specs/2026-09-24-settings-crud-design.md):
+# create and delete on the same eight kinds, so the Settings page can add
+# and remove what it edits; create and patch on secrets -- never get, list
+# or watch -- so the credentials a form collects can be stored without any
+# page being able to read one back; and reads on indexerdefinitions and
+# indexerproxies for the Indexer form's pickers.
+#
+# Never: any resource ending in "/status" (not even to read it), update or
+# deletecollection, a wildcard, or a write verb on any resource outside
+# that set. The UI edits spec; the controllers own status.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -78,6 +84,8 @@ rules:
 - apiGroups:
   - index.clustarr.io
   resources:
+  - indexerdefinitions
+  - indexerproxies
   - indexers
   verbs:
   - get
@@ -131,29 +139,46 @@ rules:
   - qualityprofiles
   - rootfolders
   verbs:
+  - create
   - patch
+  - delete
 - apiGroups:
   - index.clustarr.io
   resources:
   - indexers
   verbs:
+  - create
   - patch
+  - delete
 - apiGroups:
   - download.clustarr.io
   resources:
   - downloadclients
   verbs:
+  - create
   - patch
+  - delete
 - apiGroups:
   - subtitle.clustarr.io
   resources:
   - subtitleprofiles
   - subtitleproviders
   verbs:
+  - create
   - patch
+  - delete
 - apiGroups:
   - transcode.clustarr.io
   resources:
   - transcodeprofiles
   verbs:
+  - create
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
   - patch

@@ -91,8 +91,14 @@ Each item should show the cover art, monitored status and selected quality profi
   lists in status are how operators melt etcd.
 - **The scanner never guesses.** Unattributable files go to
   `LibraryScan.status.unmatched` with the reason, never a speculative item.
-- **The UI never writes status** and owns no CRD. User actions patch spec or
-  create short-lived resources, so anything the UI does, `kubectl` can do.
+- **The UI never writes status** and owns no CRD. User actions patch spec,
+  create short-lived resources, or -- since the settings CRUD design
+  (`docs/superpowers/specs/2026-09-24-settings-crud-design.md`) -- create,
+  patch and delete the eight Settings kinds (RootFolder, QualityProfile,
+  MetadataProvider, Indexer, DownloadClient, SubtitleProvider,
+  SubtitleProfile, TranscodeProfile) and create or patch the Secrets their
+  credentials live in, never reading one (the role grants no get, list or
+  watch on secrets). So anything the UI does, `kubectl` can do.
 - **The UI may hold a read-only bus connection.** Since M7, `cmd/clustarr`'s
   ui command calls `k8s.ConnectBus` and passes `Bus.ObjectStore(...)` into
   `ui.Options.Artwork` to serve `/art`; `ui/` still never imports `pkg/k8s`.

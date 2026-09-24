@@ -544,6 +544,7 @@ func buildUIPlexOptions(enabled bool, externalURL string) *ui.PlexOptions {
 
 func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	var bindAddress string
+	var namespace string
 	var authMode string
 	var natsURL string
 	var plexProvider bool
@@ -574,6 +575,8 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 	cmd.Flags().BoolVar(&plexProvider, "plex-provider", true,
 		"Serve the Plex Custom Metadata Provider at /plex/movies and /plex/tv (design spec §D). "+
 			"Unauthenticated by protocol: it must not sit behind a public ingress.")
+	cmd.Flags().StringVar(&namespace, "namespace", envOr(namespaceEnv, ""),
+		"Namespace the Settings page creates namespaced objects in by default. Defaults to $"+namespaceEnv+".")
 	cmd.Flags().StringVar(&externalURL, "external-url", envOr(externalURLEnv, ""),
 		"Absolute base every thumb, art and Image[].url the Plex provider hands Plex is built on, "+
 			"e.g. https://clustarr.example.com. Defaults to $"+externalURLEnv+". Required for "+
@@ -595,6 +598,7 @@ func newUICommand(lo *logging.Options, to *tracing.Options) *cobra.Command {
 			WaitForSync:          waitForSync,
 			Projected:            proj.Projected,
 			Actions:              acts,
+			Namespace:            namespace,
 			Artwork:              artwork,
 			Plex:                 buildUIPlexOptions(plexProvider, externalURL),
 			Entries:              proj.Entries,

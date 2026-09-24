@@ -61,8 +61,10 @@ var statusWriteSelectors = map[string]bool{
 // neverWriteSelectors are banned in every non-test file under ui/,
 // ui/actions included: controller-runtime's client.Writer verbs that no UI
 // action is allowed to make. config/rbac/ui_role.yaml grants no update and
-// no delete, so an Update, Delete or DeleteAllOf could only ever fail in a
-// real cluster -- and pass every envtest, which does not enforce RBAC.
+// no deletecollection, so an Update or DeleteAllOf could only ever fail in
+// a real cluster -- and pass every envtest, which does not enforce RBAC.
+// (Delete moved to actionWriteSelectors with the settings CRUD design,
+// 2026-09-24: the Settings page deletes the kinds it configures.)
 // Apply is the sixth client.Writer method, which D3-4's guard also did not
 // list; ui/actions' package doc says why the UI's spec edits are merge
 // patches rather than applies (an apply releases whatever the same manager
@@ -78,7 +80,6 @@ var statusWriteSelectors = map[string]bool{
 // events.ObjectStore this package is handed.
 var neverWriteSelectors = map[string]bool{
 	"Update":      true,
-	"Delete":      true,
 	"DeleteAllOf": true,
 	"Apply":       true,
 	"Put":         true,
@@ -89,13 +90,15 @@ var neverWriteSelectors = map[string]bool{
 	"Purge":       true,
 }
 
-// actionWriteSelectors are the two writes ui/actions exists to make --
-// actions.Writer's two methods, and the two write verbs ui_role.yaml grants
-// (create on searches and libraryscans, patch on the catalog kinds) -- and
+// actionWriteSelectors are the three writes ui/actions exists to make --
+// actions.Writer's three methods, and the three write verbs ui_role.yaml
+// grants (create on searches, libraryscans and the settings kinds, patch
+// on the catalog and settings kinds, delete on the settings kinds) -- and
 // are banned in every other file under ui/.
 var actionWriteSelectors = map[string]bool{
 	"Create": true,
 	"Patch":  true,
+	"Delete": true,
 }
 
 const modulePrefix = "github.com/mediactl/clustarr/"

@@ -40,10 +40,12 @@ var uiReadVerbs = map[string]bool{"get": true, "list": true, "watch": true}
 // uiNeverVerbs are refused on every resource, whatever else this file
 // allows, so that widening uiActionGrants by mistake cannot let one through:
 // the UI never updates (its spec edits are merge patches, see ui/actions'
-// package doc), never deletes, and never holds a wildcard or an
-// RBAC-escalation verb.
+// package doc), never bulk-deletes, and never holds a wildcard or an
+// RBAC-escalation verb. A single delete is allowed only where
+// uiActionGrants names it: the settings kinds (settings CRUD design,
+// 2026-09-24).
 var uiNeverVerbs = map[string]bool{
-	"update": true, "delete": true, "deletecollection": true,
+	"update": true, "deletecollection": true,
 	"*": true, "escalate": true, "bind": true, "impersonate": true,
 }
 
@@ -85,6 +87,28 @@ var uiActionGrants = map[uiGrant]bool{
 	{"subtitle.clustarr.io", "subtitleproviders", "patch"}:  true,
 	{"subtitle.clustarr.io", "subtitleprofiles", "patch"}:   true,
 	{"transcode.clustarr.io", "transcodeprofiles", "patch"}: true,
+
+	// Settings CRUD (docs/superpowers/specs/2026-09-24-settings-crud-design.md):
+	// the Settings page creates and deletes the same eight kinds, and writes
+	// -- never reads -- the Secrets their credentials live in.
+	{"catalog.clustarr.io", "rootfolders", "create"}:         true,
+	{"catalog.clustarr.io", "rootfolders", "delete"}:         true,
+	{"catalog.clustarr.io", "qualityprofiles", "create"}:     true,
+	{"catalog.clustarr.io", "qualityprofiles", "delete"}:     true,
+	{"catalog.clustarr.io", "metadataproviders", "create"}:   true,
+	{"catalog.clustarr.io", "metadataproviders", "delete"}:   true,
+	{"index.clustarr.io", "indexers", "create"}:              true,
+	{"index.clustarr.io", "indexers", "delete"}:              true,
+	{"download.clustarr.io", "downloadclients", "create"}:    true,
+	{"download.clustarr.io", "downloadclients", "delete"}:    true,
+	{"subtitle.clustarr.io", "subtitleproviders", "create"}:  true,
+	{"subtitle.clustarr.io", "subtitleproviders", "delete"}:  true,
+	{"subtitle.clustarr.io", "subtitleprofiles", "create"}:   true,
+	{"subtitle.clustarr.io", "subtitleprofiles", "delete"}:   true,
+	{"transcode.clustarr.io", "transcodeprofiles", "create"}: true,
+	{"transcode.clustarr.io", "transcodeprofiles", "delete"}: true,
+	{"", "secrets", "create"}:                                true,
+	{"", "secrets", "patch"}:                                 true,
 }
 
 // uiRoleRule mirrors a ClusterRole rules entry, including the fields no rule

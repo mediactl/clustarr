@@ -441,7 +441,7 @@ transcode from `TranscodeJob` phase plus its progress subject.
 | Library | Every collected and monitored item as a poster grid with a collection-status indicator, a detail modal, and a toolbar for filtering and bulk operations (monitor, unmonitor, search, delete) | SSE on status change |
 | Downloads | The queue per client, with speed and estimated completion per item, and actions to pause, remove and blocklist | SSE per item |
 | Import lists | Each list, its schedule, last sync, item counts, and the Trakt device-code flow when authorization is pending | Poll on sync |
-| Settings | Root folders, quality profiles, indexers, download clients, providers and profiles, each rendered from the corresponding resources with an edit form that patches spec | None |
+| Settings | Root folders, quality profiles, indexers, download clients, providers and profiles, each rendered from the corresponding resources with an edit form that patches spec; since the settings CRUD design (2026-09-24, `2026-09-24-settings-crud-design.md`) every kind is added, edited in full and deleted from forms derived from its CRD, with credentials written to Secrets the UI never reads | None |
 | Unmatched | Files the scanner could not attribute, with candidates and a manual-assign action | SSE on scan |
 
 The unmatched page is not in the brief but falls directly out of A1.5: a scanner

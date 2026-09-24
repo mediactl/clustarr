@@ -144,6 +144,20 @@ func TestGeneratedCSSCoversManualAssignFormClasses(t *testing.T) {
 			"manual-assign form was added")
 }
 
+// TestStaticRouteServesTheSettingsScript: the Settings forms' rows,
+// conditional sections and delete confirmations (settings CRUD design,
+// 2026-09-24) are a vendored script, embedded like the rest.
+func TestStaticRouteServesTheSettingsScript(t *testing.T) {
+	srv := ui.NewServer(t.Context(), ui.Options{})
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/settings.js", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Header().Get("Content-Type"), "javascript")
+	for _, hook := range []string{"data-add-row", "data-remove-row", "data-row-template", "__i__", "data-show-when", "data-confirm"} {
+		require.Contains(t, rec.Body.String(), hook)
+	}
+}
+
 // TestStaticRouteServesTheJumpTracker: the A-Z bar's scroll tracker
 // (design 2026-09-24: the small line beside the letter at the top of the
 // viewport, as Radarr's) is a vendored script, embedded like the rest.

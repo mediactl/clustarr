@@ -69,6 +69,11 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /import-lists", s.handleImportLists)
 	mux.HandleFunc("GET /events/import-lists", s.handleImportListsEvents)
 	mux.HandleFunc("GET /settings", s.handleSettings)
+	mux.HandleFunc("GET /settings/new/{kind}", s.handleSettingsNew)
+	mux.HandleFunc("POST /settings/new/{kind}", s.handleSettingsCreate)
+	mux.HandleFunc("GET /settings/edit/{kind}/{namespace}/{name}", s.handleSettingsEdit)
+	mux.HandleFunc("POST /settings/edit/{kind}/{namespace}/{name}", s.handleSettingsUpdate)
+	mux.HandleFunc("POST /settings/delete/{kind}/{namespace}/{name}", s.handleSettingsDelete)
 	mux.HandleFunc("POST /settings/rootfolders/{namespace}/{name}", s.handleSetRootFolderScanSchedule)
 	mux.HandleFunc("POST /settings/qualityprofiles/{name}", s.handleSetQualityProfileUpgradeAllowed)
 	mux.HandleFunc("POST /settings/indexers/{namespace}/{name}", s.handleSetIndexerSettings)
@@ -414,8 +419,16 @@ func actionErrorCode(err error) (code string, status int) {
 	switch {
 	case errors.Is(err, actions.ErrNoWriter):
 		return "no-writer", http.StatusServiceUnavailable
-	case errors.Is(err, actions.ErrInvalid):
+	case errors.Is(err, actions.ErrInvalid), apierrors.IsInvalid(err), apierrors.IsBadRequest(err):
+		// The apiserver's own rejection (a CEL rule, a required field) reads
+		// as invalid too: the settings forms show its message.
 		return "invalid", http.StatusBadRequest
+	case apierrors.IsNotFound(err):
+		return "not-found", http.StatusNotFound
+	case apierrors.IsAlreadyExists(err), apierrors.IsConflict(err):
+		return "conflict", http.StatusConflict
+	case apierrors.IsForbidden(err):
+		return "forbidden", http.StatusForbidden
 	default:
 		return "failed", http.StatusInternalServerError
 	}

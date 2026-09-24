@@ -35,9 +35,11 @@ import (
 
 // fakeWriter records every call and returns err from each.
 type fakeWriter struct {
-	err     error
-	creates []createCall
-	patches []patchCall
+	err       error
+	createErr error // returned by Create alone, when set
+	creates   []createCall
+	patches   []patchCall
+	deletes   []client.Object
 }
 
 type createCall struct {
@@ -56,6 +58,14 @@ func (f *fakeWriter) Create(_ context.Context, obj client.Object, opts ...client
 	var o client.CreateOptions
 	o.ApplyOptions(opts)
 	f.creates = append(f.creates, createCall{obj: obj, opts: o})
+	if f.createErr != nil {
+		return f.createErr
+	}
+	return f.err
+}
+
+func (f *fakeWriter) Delete(_ context.Context, obj client.Object, _ ...client.DeleteOption) error {
+	f.deletes = append(f.deletes, obj)
 	return f.err
 }
 

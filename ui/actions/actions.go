@@ -76,13 +76,15 @@ type Patcher interface {
 	Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error
 }
 
-// Writer is everything this package ever asks of the cluster: create and
-// patch. Not Update, Delete, Apply or Status -- config/rbac/ui_role.yaml
-// grants no verb that would let any of those succeed, and
-// ui/guard_test.go bans the calls.
+// Writer is everything this package ever asks of the cluster: create,
+// patch and, since the Settings page configures its kinds (settings CRUD
+// design, 2026-09-24), delete. Not Update, Apply or Status --
+// config/rbac/ui_role.yaml grants no verb that would let any of those
+// succeed, and ui/guard_test.go bans the calls.
 type Writer interface {
 	Creator
 	Patcher
+	Deleter
 }
 
 // monitorable is one catalog kind whose spec.monitored the UI can toggle:
@@ -149,6 +151,7 @@ func Grants() []Grant {
 		grants = append(grants, Grant{Group: group, Resource: monitorables[kind].resource, Verb: "patch"})
 	}
 	grants = append(grants, settingsGrants()...)
+	grants = append(grants, configGrants()...)
 	return grants
 }
 

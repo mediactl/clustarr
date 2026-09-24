@@ -1,0 +1,342 @@
+package views
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/checkbox"
+	"github.com/mediactl/clustarr/ui/components/input"
+	"github.com/mediactl/clustarr/ui/components/textarea"
+	"github.com/mediactl/clustarr/ui/forms"
+)
+
+// FormPage is one settings form page (settings CRUD design, 2026-09-24):
+// the render tree ui/forms built for the kind, the object's coordinates,
+// where the form posts and, after a rejected submission, what went wrong.
+type FormPage struct {
+	Form      *forms.Form
+	Namespace string
+	Name      string
+	// Action is where the form posts; DeleteAction, on an edit, where the
+	// delete form posts.
+	Action       string
+	DeleteAction string
+	// ErrorCode and Error come back with a rejected submission.
+	ErrorCode string
+	Error     string
+}
+
+func (p FormPage) title() string {
+	if p.Form.Mode == forms.ModeNew {
+		return "New " + p.Form.Kind.Singular
+	}
+	return "Edit " + p.Form.Kind.Singular
+}
+
+// SettingsForm renders a kind's form: the object's name and namespace,
+// then the overlay's sections. A section with a When renders
+// data-show-when, a row list its rows and a template, a Secret entry a
+// password input that is never filled in: ui/static/settings.js does the
+// showing, adding, removing and confirming.
+templ SettingsForm(p FormPage) {
+	@Layout("Settings") {
+		<h1 class="mb-1 text-2xl font-bold">{ p.title() }</h1>
+		if p.Form.Kind.Help != "" {
+			<p class="mb-6 max-w-3xl text-sm text-muted-foreground">{ p.Form.Kind.Help }</p>
+		}
+		if p.Error != "" {
+			<div class="mb-6">
+				@ActionError(p.ErrorCode, p.Error)
+			</div>
+		}
+		<form method="post" action={ templ.URL(p.Action) } data-settings-form class="max-w-4xl space-y-6">
+			<input type="hidden" name="return" value={ settingsReturnPath }/>
+			<fieldset data-section="Object" class="rounded-lg border bg-card p-4">
+				<legend class="px-1 text-sm font-semibold">{ strings.ToUpper(p.Form.Kind.Singular[:1]) + p.Form.Kind.Singular[1:] }</legend>
+				<div class="grid gap-4 sm:grid-cols-2">
+					<div data-field class="space-y-1.5">
+						<label for="__name" class="text-sm font-medium">Name</label>
+						@input.Input(input.Props{ID: "__name", Name: "__name", Value: p.Name, Required: true, ReadOnly: p.Form.Mode == forms.ModeEdit, Placeholder: "a-dns-1123-name"})
+						<p class="text-xs text-muted-foreground">Lower-case letters, digits, dots and dashes. Cannot change once created.</p>
+					</div>
+					if p.Form.Kind.Namespaced {
+						<div data-field class="space-y-1.5">
+							<label for="__namespace" class="text-sm font-medium">Namespace</label>
+							@input.Input(input.Props{ID: "__namespace", Name: "__namespace", Value: p.Namespace, Required: true, ReadOnly: p.Form.Mode == forms.ModeEdit})
+						</div>
+					}
+				</div>
+			</fieldset>
+			for _, s := range p.Form.Sections {
+				@formSection(s)
+			}
+			<div class="flex items-center gap-3">
+				@button.Button(button.Props{Type: "submit"}) {
+					Save
+				}
+				@button.Button(button.Props{Variant: button.VariantOutline, Href: settingsReturnPath}) {
+					Cancel
+				}
+			</div>
+		</form>
+		if p.DeleteAction != "" {
+			<form method="post" action={ templ.URL(p.DeleteAction) } data-confirm={ fmt.Sprintf("Delete %s %q? This cannot be undone.", p.Form.Kind.Singular, p.Name) } class="mt-8 max-w-4xl border-t pt-6">
+				<input type="hidden" name="return" value={ settingsReturnPath }/>
+				@button.Button(button.Props{Type: "submit", Variant: button.VariantDestructive}) {
+					Delete this { p.Form.Kind.Singular }
+				}
+			</form>
+		}
+	}
+}
+
+// whenAttr renders a When as "path=v1|v2", what settings.js reads.
+func whenAttr(w *forms.When) string {
+	if w == nil {
+		return ""
+	}
+	return w.Path + "=" + strings.Join(w.Values, "|")
+}
+
+templ formSection(s forms.Section) {
+	<fieldset
+		data-section={ s.Title }
+		if s.When != nil {
+			data-show-when={ whenAttr(s.When) }
+		}
+		if s.Advanced {
+			data-advanced
+		}
+		class="rounded-lg border bg-card p-4"
+	>
+		<legend class="px-1 text-sm font-semibold">{ s.Title }</legend>
+		if s.Help != "" {
+			<p class="mb-3 text-xs text-muted-foreground">{ s.Help }</p>
+		}
+		<div class="grid gap-4 sm:grid-cols-2">
+			for _, c := range s.Controls {
+				@formControl(c)
+			}
+		</div>
+	</fieldset>
+}
+
+// formControl renders one control by its type.
+templ formControl(c forms.Control) {
+	switch c.Type {
+		case forms.ControlRows:
+			@rowsControl(c)
+		case forms.ControlMap:
+			@mapControl(c)
+		case forms.ControlLines:
+			<div data-field class="space-y-1.5 sm:col-span-2" { whenAttrs(c.When)... }>
+				@fieldLabel(c)
+				@textarea.Textarea(textarea.Props{ID: controlID(c.Name), Name: c.Name, Value: strings.Join(c.Lines, "\n"), Rows: 3, Placeholder: "one per line"})
+				@fieldHelp(c)
+			</div>
+		case forms.ControlCheckbox:
+			<div data-field class="flex items-start gap-3 pt-6" { whenAttrs(c.When)... }>
+				<input type="hidden" name={ c.Name } value="false"/>
+				@checkbox.Checkbox(checkbox.Props{ID: controlID(c.Name), Name: c.Name, Value: "true", Checked: &c.Checked, Disabled: c.ReadOnly})
+				<div class="space-y-1">
+					<label for={ controlID(c.Name) } class="text-sm font-medium">{ c.Label }</label>
+					@fieldHelp(c)
+				</div>
+			</div>
+		case forms.ControlSelect:
+			<div data-field class="space-y-1.5" { whenAttrs(c.When)... }>
+				@fieldLabel(c)
+				<select
+					id={ controlID(c.Name) }
+					name={ c.Name }
+					required?={ c.Required && !c.ReadOnly }
+					disabled?={ c.ReadOnly }
+					class="dark:bg-input/30 border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full min-w-0 rounded-md border bg-transparent px-2.5 py-1 text-sm shadow-xs outline-none focus-visible:ring-3 disabled:cursor-not-allowed disabled:opacity-50"
+				>
+					for _, o := range c.Options {
+						<option value={ o.Value } selected?={ o.Value == c.Value }>{ o.Label }</option>
+					}
+				</select>
+				if c.ReadOnly {
+					// a disabled select posts nothing; its value rides a hidden input
+					<input type="hidden" name={ c.Name } value={ c.Value }/>
+				}
+				@fieldHelp(c)
+			</div>
+		case forms.ControlPassword:
+			<div data-field class="space-y-1.5" { whenAttrs(c.When)... }>
+				@fieldLabel(c)
+				// Never required in the browser: on an edit a blank entry means
+				// "keep the stored one", and a missing entry is the consumer's
+				// DependencyNotReady to report.
+				<input
+					type="password"
+					id={ controlID(c.Name) }
+					name={ c.Name }
+					autocomplete="new-password"
+					placeholder="unchanged"
+					class="dark:bg-input/30 border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full min-w-0 rounded-md border bg-transparent px-2.5 py-1 text-sm shadow-xs outline-none focus-visible:ring-3"
+				/>
+				@fieldHelp(c)
+			</div>
+		case forms.ControlNumber:
+			<div data-field class="space-y-1.5" { whenAttrs(c.When)... }>
+				@fieldLabel(c)
+				<input
+					type="number"
+					id={ controlID(c.Name) }
+					name={ c.Name }
+					if c.Value != "" {
+						value={ c.Value }
+					}
+					if c.Placeholder != "" {
+						placeholder={ c.Placeholder }
+					}
+					if c.Min != nil {
+						min={ number(*c.Min) }
+					}
+					if c.Max != nil {
+						max={ number(*c.Max) }
+					}
+					if c.Step != "" {
+						step={ c.Step }
+					}
+					required?={ c.Required }
+					readonly?={ c.ReadOnly }
+					class="dark:bg-input/30 border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full min-w-0 rounded-md border bg-transparent px-2.5 py-1 text-sm shadow-xs outline-none focus-visible:ring-3 read-only:opacity-70"
+				/>
+				@fieldHelp(c)
+			</div>
+		default:
+			<div data-field class="space-y-1.5" { whenAttrs(c.When)... }>
+				@fieldLabel(c)
+				@input.Input(input.Props{ID: controlID(c.Name), Name: c.Name, Value: c.Value, Placeholder: c.Placeholder, Required: c.Required, ReadOnly: c.ReadOnly})
+				@fieldHelp(c)
+			</div>
+	}
+}
+
+templ fieldLabel(c forms.Control) {
+	<label for={ controlID(c.Name) } class="text-sm font-medium">
+		{ c.Label }
+		if c.Required {
+			<span class="text-destructive" aria-hidden="true">*</span>
+		}
+	</label>
+}
+
+templ fieldHelp(c forms.Control) {
+	if c.Help != "" {
+		<p class="text-xs text-muted-foreground">{ c.Help }</p>
+	}
+}
+
+// rowsControl renders an array of objects: a row per element, each with
+// the item's controls and a Remove button, and a template for Add.
+templ rowsControl(c forms.Control) {
+	<div data-rows={ c.Name } class="space-y-3 sm:col-span-2 rounded-md border border-dashed p-3" { whenAttrs(c.When)... }>
+		<div class="flex items-center justify-between">
+			<div>
+				<span class="text-sm font-medium">{ c.Label }</span>
+				@fieldHelp(c)
+			</div>
+			@button.Button(button.Props{Type: "button", Size: button.SizeSm, Variant: button.VariantOutline, Attributes: templ.Attributes{"data-add-row": true}}) {
+				Add
+			}
+		</div>
+		<div data-rows-list class="space-y-3">
+			for _, row := range c.Rows {
+				@formRow(row.Controls)
+			}
+		</div>
+		<template data-row-template>
+			@formRow(c.Template)
+		</template>
+	</div>
+}
+
+templ formRow(controls []forms.Control) {
+	<div data-row class="grid gap-3 rounded-md border bg-background p-3 sm:grid-cols-3">
+		for _, rc := range controls {
+			@formControl(rc)
+		}
+		<div class="flex items-end sm:col-span-3">
+			@button.Button(button.Props{Type: "button", Size: button.SizeXs, Variant: button.VariantGhost, Attributes: templ.Attributes{"data-remove-row": true}}) {
+				Remove
+			}
+		</div>
+	</div>
+}
+
+// mapControl renders a string map as key/value rows.
+templ mapControl(c forms.Control) {
+	<div data-map={ c.Name } class="space-y-2 sm:col-span-2" { whenAttrs(c.When)... }>
+		<div class="flex items-center justify-between">
+			<div>
+				<span class="text-sm font-medium">{ c.Label }</span>
+				@fieldHelp(c)
+			</div>
+			@button.Button(button.Props{Type: "button", Size: button.SizeSm, Variant: button.VariantOutline, Attributes: templ.Attributes{"data-add-row": true}}) {
+				Add
+			}
+		</div>
+		<div data-rows-list class="space-y-2">
+			for i, pair := range c.Pairs {
+				@mapRow(c.Name, fmt.Sprint(i), pair)
+			}
+		</div>
+		<template data-row-template>
+			@mapRow(c.Name, "__i__", forms.Pair{})
+		</template>
+	</div>
+}
+
+templ mapRow(name, index string, pair forms.Pair) {
+	<div data-row class="flex items-center gap-2">
+		@input.Input(input.Props{Name: name + ".__k." + index, Value: pair.Key, Placeholder: "key", Class: "w-1/3"})
+		@input.Input(input.Props{Name: name + ".__v." + index, Value: pair.Value, Placeholder: "value"})
+		@button.Button(button.Props{Type: "button", Size: button.SizeXs, Variant: button.VariantGhost, Attributes: templ.Attributes{"data-remove-row": true}}) {
+			Remove
+		}
+	</div>
+}
+
+// whenAttrs is a control's own condition (a Secret entry shown for some
+// provider types), as attributes.
+func whenAttrs(w *forms.When) templ.Attributes {
+	if w == nil {
+		return nil
+	}
+	return templ.Attributes{"data-show-when": whenAttr(w)}
+}
+
+// controlID makes an input's id from its name; "__i__" stays so a cloned
+// row gets a fresh one.
+func controlID(name string) string {
+	return "f-" + strings.NewReplacer(".", "-", "[", "-", "]", "-").Replace(name)
+}
+
+func number(f float64) string {
+	return fmt.Sprintf("%v", f)
+}
+
+// configActions is the Edit link and Delete form on a Settings-page card.
+// namespace is "-" for a cluster-scoped kind, the form routes' placeholder.
+templ configActions(slug, namespace, name string) {
+	{{ ns := namespace }}
+	if ns == "" {
+		{{ ns = "-" }}
+	}
+	<div class="mt-3 flex items-center gap-2 border-t border-slate-800 pt-3">
+		@button.Button(button.Props{Href: fmt.Sprintf("/settings/edit/%s/%s/%s", slug, ns, name), Size: button.SizeXs, Variant: button.VariantOutline}) {
+			Edit
+		}
+		<form method="post" action={ templ.URL(fmt.Sprintf("/settings/delete/%s/%s/%s", slug, ns, name)) } data-confirm={ fmt.Sprintf("Delete %q? This cannot be undone.", name) }>
+			<input type="hidden" name="return" value={ settingsReturnPath }/>
+			@button.Button(button.Props{Type: "submit", Size: button.SizeXs, Variant: button.VariantGhost, Class: "text-destructive"}) {
+				Delete
+			}
+		</form>
+	</div>
+}

@@ -821,6 +821,8 @@ rules:
 - apiGroups:
   - index.clustarr.io
   resources:
+  - indexerdefinitions
+  - indexerproxies
   - indexers
   verbs:
   - get
@@ -874,31 +876,48 @@ rules:
   - qualityprofiles
   - rootfolders
   verbs:
+  - create
   - patch
+  - delete
 - apiGroups:
   - index.clustarr.io
   resources:
   - indexers
   verbs:
+  - create
   - patch
+  - delete
 - apiGroups:
   - download.clustarr.io
   resources:
   - downloadclients
   verbs:
+  - create
   - patch
+  - delete
 - apiGroups:
   - subtitle.clustarr.io
   resources:
   - subtitleprofiles
   - subtitleproviders
   verbs:
+  - create
   - patch
+  - delete
 - apiGroups:
   - transcode.clustarr.io
   resources:
   - transcodeprofiles
   verbs:
+  - create
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
   - patch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
