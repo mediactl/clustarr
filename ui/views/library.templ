@@ -96,7 +96,11 @@ const jumpButtonClass = "min-h-0 w-full flex-1 px-0 py-0 text-[11px]"
 // from) to the bottom of the viewport, outside the grid's flow (the grid
 // keeps clear of it with lg:pr-10). ui/static/jump.js places the thumb
 // (data-jump-thumb) along it in proportion to the items on screen over
-// the whole list, from #library-rows' data-offset and data-total: a link per
+// the whole list, from #library-rows' data-offset and data-total, and
+// drags it like a native scrollbar's thumb: a 12px grab strip (w-3) down
+// the strip's left edge drawing a 2px line, pointer events on, the
+// browser's touch panning off so a touch drag moves the thumb and not the
+// page. Then a link per
 // letter that has titles, a disabled button per letter that does not,
 // each carrying data-jump for the tests. A disabled letter lets pointer
 // events through: Chromium swallows wheel events over a disabled button,
@@ -104,7 +108,7 @@ const jumpButtonClass = "min-h-0 w-full flex-1 px-0 py-0 text-[11px]"
 templ jumpBar(jumpsFor []Jump) {
 	if len(jumpsFor) > 0 {
 		<div data-jump-bar class="fixed top-[8.75rem] right-0 bottom-0 z-10 hidden w-8 lg:block">
-			<div data-jump-thumb class="pointer-events-none absolute left-0 z-10 w-0.5 rounded-sm bg-primary" style="top: 0; height: 16px"></div>
+			<div data-jump-thumb class="absolute left-0 z-10 w-3 cursor-grab touch-none select-none rounded-l-sm border-l-2 border-primary active:cursor-grabbing" style="top: 0; height: 16px"></div>
 			@buttongroup.ButtonGroup(buttongroup.Props{Orientation: buttongroup.OrientationVertical, Class: "h-full w-full"}) {
 				for _, j := range jumpsFor {
 					if j.Enabled {
@@ -237,8 +241,9 @@ templ libraryCard(li projection.LibraryItem) {
 	}
 }
 
-// posterFill is the poster filling a 2:3 aspect-ratio box: the hotlinked
-// art (lazily, without a referrer, as poster's own doc says), or a
+// posterFill is the poster filling a 2:3 aspect-ratio box: the art at its
+// [projection.ArtURL] (lazily, as poster's own doc says -- ui/art.go serves
+// it, same-origin, so there is no referrer to withhold, ADR-0011), or a
 // placeholder that names the film when there is none, as Radarr's does.
 templ posterFill(url, title string) {
 	if url != "" {
@@ -246,7 +251,6 @@ templ posterFill(url, title string) {
 			src={ templ.URL(url) }
 			alt={ title }
 			loading="lazy"
-			referrerpolicy="no-referrer"
 			class="absolute inset-0 h-full w-full object-cover"
 		/>
 	} else {
@@ -272,20 +276,19 @@ templ monitoredBadge(monitored bool) {
 	}
 }
 
-// poster renders the cover art the provider published, hotlinked (spec
-// 2026-09-23-library-page-design, decision 1): lazily, so a long grid does
-// not fetch every image at once, and without a referrer, so the provider's
-// image CDN never learns the UI's address. It fills its container at
-// poster ratio (2:3 -- a square crop takes the faces off), so the caller
-// sizes the box. No art yet renders a placeholder of the same shape, never
-// a broken image.
+// poster renders the cover art at its [projection.ArtURL] -- ui/art.go's
+// own route, same-origin, never a provider's URL (ADR-0011, superseding
+// spec 2026-09-23-library-page-design decision 1): lazily, so a long grid
+// does not fetch every image at once. It fills its container at poster
+// ratio (2:3 -- a square crop takes the faces off), so the caller sizes the
+// box. No art yet renders a placeholder of the same shape, never a broken
+// image.
 templ poster(url, title string) {
 	if url != "" {
 		<img
 			src={ templ.URL(url) }
 			alt={ title }
 			loading="lazy"
-			referrerpolicy="no-referrer"
 			class="aspect-[2/3] w-full rounded-sm bg-muted object-cover"
 		/>
 	} else {
@@ -433,11 +436,12 @@ func tabLabel(tab projection.Tab) string {
 	}
 }
 
-// posterState is the card's data-poster value: "provider" when the card
-// hotlinks the provider's art, "none" when it shows the placeholder.
+// posterState is the card's data-poster value: "art" when the card has one
+// to show (its [projection.ArtURL], same-origin -- ADR-0011), "none" when
+// it shows the placeholder.
 func posterState(url string) string {
 	if url != "" {
-		return "provider"
+		return "art"
 	}
 	return "none"
 }

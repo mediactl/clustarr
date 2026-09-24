@@ -22,6 +22,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 
 	"k8s.io/apimachinery/pkg/types"
 
@@ -133,6 +134,10 @@ func (s *Server) handleArt(w http.ResponseWriter, r *http.Request) {
 	if ct := info.Headers[events.HeaderContentType]; ct != "" {
 		w.Header().Set("Content-Type", ct)
 	}
+	// Content-Length is known up front -- the object store's own ObjectInfo,
+	// not a guess -- so the client gets it without net/http falling back to
+	// chunked transfer encoding for what is always a fixed-size image.
+	w.Header().Set("Content-Length", strconv.FormatInt(info.Size, 10))
 	w.WriteHeader(http.StatusOK)
 	if _, err := io.Copy(w, body); err != nil {
 		logging.FromContext(ctx).Error("write artwork response", "error", err)

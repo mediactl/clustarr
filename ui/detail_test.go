@@ -161,7 +161,7 @@ func TestMoviePageHeroReadsTheGatheredMetadata(t *testing.T) {
 	body := detailPage(t, srv, "/library/default/movie/nerve")
 
 	hero := requireTag(t, body, `data-hero`, `data-ref="default/nerve"`, `data-kind="movie"`, `data-monitored="true"`,
-		`data-phase="Imported"`, `data-hasfile="true"`, `data-year="2016"`, `data-profile="hd-bluray-web"`, `data-poster="provider"`)
+		`data-phase="Imported"`, `data-hasfile="true"`, `data-year="2016"`, `data-profile="hd-bluray-web"`, `data-poster="art"`)
 	require.False(t, strings.HasPrefix(hero, "<a "))
 	heroAt := strings.Index(body, `data-hero`)
 	heroBody := section(t, body, `data-hero`)

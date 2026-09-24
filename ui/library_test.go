@@ -376,7 +376,8 @@ func TestLibraryRedirectsToTheMoviesTabAndRefusesOtherTabs(t *testing.T) {
 func tabFixtures() (movie, series projection.LibraryItem) {
 	movie = projection.LibraryItem{
 		Ref: types.NamespacedName{Namespace: "default", Name: "arrival"}, Kind: commonv1.MediaKindMovie,
-		Tab: projection.TabMovies, Title: "Arrival", Year: 2016, Poster: "https://img.example/arrival.jpg",
+		Tab: projection.TabMovies, Title: "Arrival", Year: 2016,
+		Poster:            projection.ArtURL(commonv1.MediaKindMovie, "arrival-uid", catalogv1.ImageTypePoster, "arrival-digest"),
 		QualityProfileRef: "hd-bluray-web", Monitored: true, Phase: "Imported", HasFile: true,
 	}
 	series = projection.LibraryItem{
@@ -386,10 +387,11 @@ func tabFixtures() (movie, series projection.LibraryItem) {
 	return movie, series
 }
 
-// A tab renders only its own kind's cards, each with the poster (hotlinked,
-// lazily, without a referrer), the year, the monitored badge and the quality
-// profile; a card with no poster yet renders a placeholder, never a broken
-// image. The tab strip links every tab and marks the current one.
+// A tab renders only its own kind's cards, each with the poster at its
+// [projection.ArtURL] (this ui's own /art route, same-origin, lazily,
+// ADR-0011), the year, the monitored badge and the quality profile; a card
+// with no poster yet renders a placeholder, never a broken image. The tab
+// strip links every tab and marks the current one.
 func TestLibraryTabRendersItsOwnCardsWithArtYearAndProfile(t *testing.T) {
 	movie, series := tabFixtures()
 	srv := ui.NewServer(t.Context(), ui.Options{
@@ -419,9 +421,9 @@ func TestLibraryTabRendersItsOwnCardsWithArtYearAndProfile(t *testing.T) {
 	body = rec.Body.String()
 	require.Contains(t, body, `data-ref="default/arrival"`)
 	require.NotContains(t, body, `data-ref="default/andor"`)
-	require.Contains(t, body, `src="https://img.example/arrival.jpg"`)
+	require.Contains(t, body, `src="`+movie.Poster+`"`)
 	require.Contains(t, body, `loading="lazy"`)
-	require.Contains(t, body, `referrerpolicy="no-referrer"`)
+	require.NotContains(t, body, `referrerpolicy`, "same-origin art has no provider referrer to withhold (ADR-0011)")
 	require.Contains(t, body, `data-profile="hd-bluray-web"`)
 }
 

@@ -88,7 +88,7 @@ func TestLibraryCardsFollowRadarrsPosterGrid(t *testing.T) {
 	require.Contains(t, card, `data-slot="item"`)
 	for _, attr := range []string{
 		`data-kind="movie"`, `data-monitored="true"`, `data-phase="Imported"`, `data-hasfile="true"`,
-		`data-year="2016"`, `data-profile="hd-bluray-web"`, `data-poster="provider"`,
+		`data-year="2016"`, `data-profile="hd-bluray-web"`, `data-poster="art"`,
 	} {
 		require.Contains(t, card, attr, "the card keeps the attribute the tests key on")
 	}

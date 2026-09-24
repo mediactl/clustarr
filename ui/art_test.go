@@ -20,6 +20,7 @@ package ui_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -79,6 +80,7 @@ func TestHandleArtPrefersOverlayOverOriginal(t *testing.T) {
 	require.Equal(t, "overlay-bytes", rec.Body.String())
 	require.Equal(t, `"`+overlay.Digest+`"`, rec.Header().Get("ETag"))
 	require.Equal(t, "image/png", rec.Header().Get("Content-Type"))
+	require.Equal(t, strconv.Itoa(len("overlay-bytes")), rec.Header().Get("Content-Length"))
 }
 
 // TestHandleArtFallsBackToOriginal: with only the original stored (no
@@ -97,6 +99,7 @@ func TestHandleArtFallsBackToOriginal(t *testing.T) {
 	require.Equal(t, "original-bytes", rec.Body.String())
 	require.Equal(t, `"`+original.Digest+`"`, rec.Header().Get("ETag"))
 	require.Equal(t, "image/jpeg", rec.Header().Get("Content-Type"))
+	require.Equal(t, strconv.Itoa(len("original-bytes")), rec.Header().Get("Content-Length"))
 }
 
 // TestHandleArt404WhenBothVariantsMissing: neither object written -> 404,
@@ -159,6 +162,7 @@ func TestHandleArtIfNoneMatchIs304WithNoBody(t *testing.T) {
 
 	require.Equal(t, http.StatusNotModified, rec.Code)
 	require.Empty(t, rec.Body.String())
+	require.Empty(t, rec.Header().Get("Content-Length"), "a 304 carries no body, so no Content-Length either")
 }
 
 // TestHandleArtCacheControlIsImmutableOnlyWhenVMatchesServedDigest: the
