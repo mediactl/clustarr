@@ -133,8 +133,8 @@ asked for them, so they can never be chart templates.
 {{- end }}
 {{- if .Values.squasharr.enabled }}
 {{- $squashEnv := list
-      (dict "name" "CLUSTARR_WORKER_IMAGE" "value" (include "clustarr.image" (dict "root" $ "which" "media")))
-      (dict "name" "CLUSTARR_WORKER_IMAGE_CUDA" "value" (include "clustarr.image" (dict "root" $ "which" "mediaCuda")))
+      (dict "name" "CLUSTARR_WORKER_IMAGE" "value" (include "clustarr.image" (dict "root" $ "which" "transcoder")))
+      (dict "name" "CLUSTARR_WORKER_IMAGE_CUDA" "value" (include "clustarr.image" (dict "root" $ "which" "transcoderCuda")))
       (dict "name" "CLUSTARR_DATA_CLAIM" "value" (default (printf "%s-data" (include "clustarr.fullname" $)) $.Values.storage.data.existingClaim)) }}
 {{- /* --intel-render-groups: host-specific, so set only when given. */}}
 {{- with .Values.squasharr.intelRenderGroups }}

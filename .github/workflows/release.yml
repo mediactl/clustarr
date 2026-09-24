@@ -1,11 +1,12 @@
 # Builds the container images and the Helm chart, and publishes them to the
 # repository's GitHub Container Registry namespace.
 #
-#   ghcr.io/<owner>/<repo>                  controller (images/Dockerfile.controller)
-#   ghcr.io/<owner>/<repo>/media            media      (images/Dockerfile.media)
-#   ghcr.io/<owner>/<repo>/media-cuda       media-cuda (images/Dockerfile.media-cuda, amd64 only)
-#   ghcr.io/<owner>/<repo>/e2e-fixtures     e2e fixture services (images/Dockerfile.e2e-fixtures)
-#   oci://ghcr.io/<owner>/<repo>/charts     the clustarr Helm chart
+#   ghcr.io/<owner>/<repo>                    controller      (images/Dockerfile.controller)
+#   ghcr.io/<owner>/<repo>/media              media           (images/Dockerfile.media)
+#   ghcr.io/<owner>/<repo>/transcoder         transcoder      (images/Dockerfile.transcoder, target transcoder)
+#   ghcr.io/<owner>/<repo>/transcoder-cuda    transcoder-cuda (images/Dockerfile.transcoder, target transcoder-cuda, amd64 only)
+#   ghcr.io/<owner>/<repo>/e2e-fixtures       e2e fixture services (images/Dockerfile.e2e-fixtures)
+#   oci://ghcr.io/<owner>/<repo>/charts       the clustarr Helm chart
 #
 # Pull requests build every image and lint the chart, and publish nothing.
 # A push to main publishes the images as :main and :sha-<short>. A tag
@@ -51,13 +52,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { image: controller, suffix: "", dockerfile: images/Dockerfile.controller, arch: amd64, runner: ubuntu-24.04 }
-          - { image: controller, suffix: "", dockerfile: images/Dockerfile.controller, arch: arm64, runner: ubuntu-24.04-arm }
-          - { image: media, suffix: /media, dockerfile: images/Dockerfile.media, arch: amd64, runner: ubuntu-24.04 }
-          - { image: media, suffix: /media, dockerfile: images/Dockerfile.media, arch: arm64, runner: ubuntu-24.04-arm }
-          - { image: media-cuda, suffix: /media-cuda, dockerfile: images/Dockerfile.media-cuda, arch: amd64, runner: ubuntu-24.04 }
-          - { image: e2e-fixtures, suffix: /e2e-fixtures, dockerfile: images/Dockerfile.e2e-fixtures, arch: amd64, runner: ubuntu-24.04 }
-          - { image: e2e-fixtures, suffix: /e2e-fixtures, dockerfile: images/Dockerfile.e2e-fixtures, arch: arm64, runner: ubuntu-24.04-arm }
+          - { image: controller, suffix: "", dockerfile: images/Dockerfile.controller, target: "", arch: amd64, runner: ubuntu-24.04 }
+          - { image: controller, suffix: "", dockerfile: images/Dockerfile.controller, target: "", arch: arm64, runner: ubuntu-24.04-arm }
+          - { image: media, suffix: /media, dockerfile: images/Dockerfile.media, target: "", arch: amd64, runner: ubuntu-24.04 }
+          - { image: media, suffix: /media, dockerfile: images/Dockerfile.media, target: "", arch: arm64, runner: ubuntu-24.04-arm }
+          - { image: transcoder, suffix: /transcoder, dockerfile: images/Dockerfile.transcoder, target: transcoder, arch: amd64, runner: ubuntu-24.04 }
+          - { image: transcoder, suffix: /transcoder, dockerfile: images/Dockerfile.transcoder, target: transcoder, arch: arm64, runner: ubuntu-24.04-arm }
+          - { image: transcoder-cuda, suffix: /transcoder-cuda, dockerfile: images/Dockerfile.transcoder, target: transcoder-cuda, arch: amd64, runner: ubuntu-24.04 }
+          - { image: e2e-fixtures, suffix: /e2e-fixtures, dockerfile: images/Dockerfile.e2e-fixtures, target: "", arch: amd64, runner: ubuntu-24.04 }
+          - { image: e2e-fixtures, suffix: /e2e-fixtures, dockerfile: images/Dockerfile.e2e-fixtures, target: "", arch: arm64, runner: ubuntu-24.04-arm }
     env:
       PUSH: ${{ github.event_name != 'pull_request' }}
     steps:
@@ -104,6 +107,7 @@ jobs:
         with:
           context: .
           file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
           platforms: linux/${{ matrix.arch }}
           build-args: VERSION=${{ steps.vars.outputs.version }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -126,7 +130,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           # Underscores, not hyphens: image names contain hyphens, so a pattern
-          # like digests-media-* would also match media-cuda's digests.
+          # like digests-transcoder-* would also match transcoder-cuda's digests.
           name: digests_${{ matrix.image }}_${{ matrix.arch }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
@@ -146,7 +150,8 @@ jobs:
         include:
           - { image: controller, suffix: "" }
           - { image: media, suffix: /media }
-          - { image: media-cuda, suffix: /media-cuda }
+          - { image: transcoder, suffix: /transcoder }
+          - { image: transcoder-cuda, suffix: /transcoder-cuda }
           - { image: e2e-fixtures, suffix: /e2e-fixtures }
     steps:
       - name: Download digests

@@ -8,11 +8,16 @@ fullnameOverride: ""
 # --------------------------------------------------------------------------
 # Images
 # --------------------------------------------------------------------------
-# Three images (§2):
-#   controller -- distroless static, no media tooling. indexarr only.
-#   media      -- debian-slim + ffmpeg 9/libx265/ffprobe/par2. Everything that
-#                 touches files: catalogarr, grabarr, squasharr, captionarr.
-#   mediaCuda  -- media on an nvidia/cuda base, for NVENC transcode Jobs.
+# Four images (§2, and the transcode-worker-pools design's §10):
+#   controller     -- distroless static, no media tooling. indexarr only.
+#   media          -- debian-slim + ffmpeg 9/libx265/ffprobe/par2. Everything
+#                      that touches files: catalogarr, grabarr, squasharr,
+#                      captionarr. Carries no encoding runtime.
+#   transcoder     -- the squasharr-worker binary plus ffmpeg/ffprobe and the
+#                      Intel QSV/VAAPI runtime; the only image squasharr's
+#                      pools stamp onto their pods.
+#   transcoderCuda -- transcoder on an nvidia/cuda base, for NVENC transcode
+#                      pools.
 # An empty tag falls back to .Chart.AppVersion.
 image:
   registry: ghcr.io
@@ -23,8 +28,11 @@ image:
   media:
     repository: mediactl/clustarr/media
     tag: ""
-  mediaCuda:
-    repository: mediactl/clustarr/media-cuda
+  transcoder:
+    repository: mediactl/clustarr/transcoder
+    tag: ""
+  transcoderCuda:
+    repository: mediactl/clustarr/transcoder-cuda
     tag: ""
 imagePullSecrets: []
 

@@ -108,7 +108,7 @@ pkg/
   version/           build metadata
 config/              kustomize: crd, default, manager, rbac, nats, keda, prometheus, samples
 charts/clustarr/     Helm umbrella chart (NATS, optional NACK and KEDA)
-images/              Dockerfile.controller, Dockerfile.media, Dockerfile.media-cuda
+images/              Dockerfile.controller, Dockerfile.media, Dockerfile.transcoder
 hack/                kind.sh, licence boilerplate
 docs/
   superpowers/specs/ the design spec

@@ -107,3 +107,44 @@ func TestChartImagesMatchConfig(t *testing.T) {
 			key, path, sortedKeys(deployed))
 	}
 }
+
+// TestTranscoderImagesAreWhatSquasharrStampsOntoPools holds the chart's
+// image.transcoder/image.transcoderCuda repositories, and
+// config/manager/squasharr.yaml's CLUSTARR_WORKER_IMAGE(_CUDA), to the
+// images images/Dockerfile.transcoder actually builds -- and that
+// Dockerfile.media-cuda is gone, replaced by Dockerfile.transcoder's
+// transcoder-cuda target (encoding libraries leave the shared media image;
+// see images/Dockerfile.transcoder's header).
+func TestTranscoderImagesAreWhatSquasharrStampsOntoPools(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	require.NoError(t, err)
+
+	raw, err := os.ReadFile(filepath.Join(root, "charts", "clustarr", "values.yaml"))
+	require.NoError(t, err, "read the chart values")
+
+	var values struct {
+		Image map[string]any `json:"image"`
+	}
+	require.NoError(t, yaml.Unmarshal(raw, &values), "parse the chart values")
+
+	repo := func(key string) string {
+		entry, ok := values.Image[key].(map[string]any)
+		require.True(t, ok, "charts/clustarr/values.yaml has no image.%s", key)
+		r, _ := entry["repository"].(string)
+		return r
+	}
+	require.Equal(t, "mediactl/clustarr/transcoder", repo("transcoder"),
+		"charts/clustarr/values.yaml's image.transcoder.repository")
+	require.Equal(t, "mediactl/clustarr/transcoder-cuda", repo("transcoderCuda"),
+		"charts/clustarr/values.yaml's image.transcoderCuda.repository")
+
+	manifest, err := os.ReadFile(filepath.Join(root, "config", "manager", "squasharr.yaml"))
+	require.NoError(t, err, "read config/manager/squasharr.yaml")
+	require.Contains(t, string(manifest), "ghcr.io/mediactl/clustarr/transcoder:dev")
+	require.Contains(t, string(manifest), "ghcr.io/mediactl/clustarr/transcoder-cuda:dev")
+	require.NotContains(t, string(manifest), "media-cuda")
+
+	_, err = os.Stat(filepath.Join(root, "images", "Dockerfile.media-cuda"))
+	require.True(t, os.IsNotExist(err),
+		"Dockerfile.media-cuda is replaced by Dockerfile.transcoder's transcoder-cuda target")
+}

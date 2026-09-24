@@ -101,9 +101,9 @@ spec:
             # binary reports over NATS, never Kubernetes, so it needs no
             # credentials.
             - name: CLUSTARR_WORKER_IMAGE
-              value: ghcr.io/mediactl/clustarr/media:dev
+              value: ghcr.io/mediactl/clustarr/transcoder:dev
             - name: CLUSTARR_WORKER_IMAGE_CUDA
-              value: ghcr.io/mediactl/clustarr/media-cuda:dev
+              value: ghcr.io/mediactl/clustarr/transcoder-cuda:dev
             # Intel transcode Jobs need the host's render group
             # (--intel-render-groups, $CLUSTARR_INTEL_RENDER_GROUPS): the GID
             # owning /dev/dri/renderD* on the Intel GPU nodes, which varies

@@ -1,0 +1,196 @@
+# syntax=docker/dockerfile:1.7
+#
+# ghcr.io/mediactl/clustarr/transcoder[-cuda] -- the squasharr-worker binary
+# and the only encoding runtime in the project (spec
+# docs/superpowers/specs/2026-09-23-transcode-worker-design.md §10). Two
+# targets from one file:
+#
+#   docker build -f images/Dockerfile.transcoder --target transcoder      -t ghcr.io/mediactl/clustarr/transcoder:dev .
+#   docker build -f images/Dockerfile.transcoder --target transcoder-cuda -t ghcr.io/mediactl/clustarr/transcoder-cuda:dev .
+#
+# The worker is static (CGO_ENABLED=0) and holds no Kubernetes credentials:
+# pool pods run with automountServiceAccountToken=false.
+#
+# * ffmpeg: static GPL build from BtbN/FFmpeg-Builds rather than the distro
+#   package. Debian bookworm ships ffmpeg 5.1; the spec needs ffmpeg 9 with
+#   libx265 4.x (Dolby Vision RPU passthrough, HDR10 metadata) and the NVENC
+#   headers compiled in. The BtbN GPL tarball has all of that, ships ffprobe,
+#   and only needs the NVIDIA driver libraries at runtime (injected by the
+#   NVIDIA container runtime, see the transcoder-cuda target below). Override
+#   FFMPEG_BRANCH / FFMPEG_URL to pin a specific build; set FFMPEG_SHA256 to
+#   verify the download.
+#
+# * Intel QSV/VAAPI runtime (transcoder, amd64 only). squasharr runs Intel
+#   transcode Jobs in THIS image (only nvidia Jobs use transcoder-cuda). The
+#   BtbN linux64 build does not carry the pieces an Intel encode loads at run
+#   time (verified in BtbN/FFmpeg-Builds scripts.d):
+#     - 50-vaapi/50-libva.sh links libva through gen-implib stubs, so ffmpeg
+#       dlopens the SYSTEM libva.so.2 and libva-drm.so.2, and libva then
+#       loads a driver from /usr/lib/x86_64-linux-gnu/dri.
+#     - 50-onevpl.sh links the libvpl DISPATCHER statically; it dlopens a
+#       runtime: libmfx-gen.so.1.2 (oneVPL GPU runtime, Tiger Lake / Gen12
+#       and newer, Arc) or libmfxhw64.so.1 (Media SDK, Broadwell..Ice Lake).
+#   So the amd64 image installs, from Debian bookworm:
+#     - intel-media-va-driver-non-free (component non-free; the iHD driver,
+#       pulls libva2 and libigdgmm12). The non-free build, not main's
+#       intel-media-va-driver: its free-kernel build has no HEVC 10-bit
+#       encode on Kaby Lake / Coffee Lake / Comet Lake (intel/media-driver
+#       README, "Decoding/Encoding Features": KBLx is D/Es full, D free),
+#       the most common homelab iGPUs, and squasharr's target is HEVC 10-bit.
+#     - libmfx-gen1.2 and libmfx1 (main): the two QSV runtimes above.
+#     - libva-drm2 (main): the DRM entry point; the Jobs open
+#       /dev/dri/renderD128 and never an X display.
+#   Verified on a Comet Lake iGPU (a Kaby Lake-family Gen9.5 part): the image
+#   built here, run as 1000:1000 with a read-only root filesystem and every
+#   capability dropped, encodes HEVC Main 10 through both hevc_qsv and
+#   hevc_vaapi with the argv pkg/transcode renders, HDR10 static metadata
+#   included (gap-fix X10 report).
+#   arm64 installs none of it: BtbN's linuxarm64 build has neither VAAPI nor
+#   libvpl, and Intel's drivers are amd64-only.
+#   What the operator still provides (none of it can live in an image):
+#     - the Intel GPU device plugin, which advertises gpu.intel.com/i915 (or
+#       /xe) and mounts /dev/dri/renderD* into the pod, on nodes labelled
+#       intel.feature.node.kubernetes.io/gpu=true (NFD);
+#     - the host's render group, whose GID is per install, as squasharr's
+#       Intel render groups (squasharr.Options.IntelRenderGroups, the
+#       --intel-render-groups flag) so the non-root user can open the render
+#       node -- or a container runtime with
+#       device_ownership_from_security_context enabled instead;
+#     - a host kernel and i915/xe firmware (GuC/HuC) that support the GPU.
+#
+# * CUDA (transcoder-cuda): the nvidia/cuda -base- flavour is enough for the
+#   BtbN ffmpeg build (it links NVENC/NVDEC/CUDA through the driver libraries
+#   the NVIDIA container runtime injects; CUDA filters are compiled with
+#   cuda-llvm, so no nvrtc or libnpp). Switch CUDA_BASE to a -runtime- tag
+#   only if you swap in an ffmpeg linked against libnpp/nvrtc. Pools set
+#   runtimeClassName and request nvidia.com/gpu (§6.4).
+#
+# Neither target contains par2: the worker never runs it.
+
+ARG GO_VERSION=1.27
+ARG FFMPEG_BRANCH=9.0
+ARG CUDA_BASE=nvidia/cuda:12.8.1-base-ubuntu24.04
+
+# ---------------------------------------------------------------------------
+# build: compile ./cmd/squasharr-worker, static (no cgo)
+# ---------------------------------------------------------------------------
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION} AS build
+ARG TARGETOS
+ARG TARGETARCH
+ARG VERSION=dev
+
+WORKDIR /src
+ENV CGO_ENABLED=0 \
+    GOFLAGS=-trimpath
+
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build \
+      -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=${VERSION}" \
+      -o /out/squasharr-worker ./cmd/squasharr-worker
+
+# ---------------------------------------------------------------------------
+# tools: fetch ffmpeg/ffprobe (identical to Dockerfile.media, minus par2)
+# ---------------------------------------------------------------------------
+FROM debian:bookworm-slim AS tools
+ARG TARGETARCH
+ARG FFMPEG_BRANCH
+ARG FFMPEG_URL=""
+ARG FFMPEG_SHA256=""
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl xz-utils \
+ && rm -rf /var/lib/apt/lists/*
+
+# ffmpeg + ffprobe
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) ff_arch=linux64 ;; \
+      arm64) ff_arch=linuxarm64 ;; \
+      *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    url="${FFMPEG_URL:-https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n${FFMPEG_BRANCH}-latest-${ff_arch}-gpl-${FFMPEG_BRANCH}.tar.xz}"; \
+    curl -fsSL -o /tmp/ffmpeg.tar.xz "${url}"; \
+    if [ -n "${FFMPEG_SHA256}" ]; then echo "${FFMPEG_SHA256}  /tmp/ffmpeg.tar.xz" | sha256sum -c -; fi; \
+    mkdir -p /tmp/ffmpeg /out/bin; \
+    tar -xJf /tmp/ffmpeg.tar.xz --strip-components=1 -C /tmp/ffmpeg; \
+    install -m 0755 /tmp/ffmpeg/bin/ffmpeg /tmp/ffmpeg/bin/ffprobe /out/bin/; \
+    /out/bin/ffmpeg -hide_banner -version | head -n 1; \
+    rm -rf /tmp/ffmpeg /tmp/ffmpeg.tar.xz
+
+# ---------------------------------------------------------------------------
+# transcoder: debian bookworm-slim + the Intel QSV/VAAPI runtime, non-root
+# 1000:1000, /data volume
+# ---------------------------------------------------------------------------
+FROM debian:bookworm-slim AS transcoder
+ARG TARGETARCH
+LABEL org.opencontainers.image.source="https://github.com/mediactl/clustarr" \
+      org.opencontainers.image.licenses="GPL-3.0-only" \
+      org.opencontainers.image.title="clustarr-transcoder"
+
+# The Intel QSV/VAAPI runtime is amd64-only; see the header. non-free is
+# enabled for the one package that needs it, and the grep fails the build
+# loudly should the base image's apt source ever change shape.
+RUN set -eux; \
+    intel=""; \
+    if [ "${TARGETARCH}" = "amd64" ]; then \
+      sed -i 's/^Components: main$/Components: main non-free/' /etc/apt/sources.list.d/debian.sources; \
+      grep -q '^Components: main non-free$' /etc/apt/sources.list.d/debian.sources; \
+      intel="intel-media-va-driver-non-free libmfx-gen1.2 libmfx1 libva-drm2"; \
+    fi; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates tzdata libstdc++6 ${intel}; \
+    rm -rf /var/lib/apt/lists/*; \
+    groupadd -g 1000 clustarr; \
+    useradd -u 1000 -g 1000 -M -d /nonexistent -s /usr/sbin/nologin clustarr; \
+    mkdir -p /data /scratch; \
+    chown 1000:1000 /data /scratch
+
+COPY --from=tools /out/bin/ffmpeg /out/bin/ffprobe /usr/local/bin/
+COPY --from=build /out/squasharr-worker /usr/local/bin/squasharr-worker
+
+# libva logs every driver load at info level on stderr, whatever ffmpeg's
+# -loglevel says, and the worker keeps only the last 4 KiB of stderr
+# (TranscodeJob.status.stderrTail): errors only, so the tail holds ffmpeg's
+# own error rather than libva's banner. Harmless where libva is absent.
+ENV LIBVA_MESSAGING_LEVEL=1
+
+VOLUME ["/data"]
+USER 1000:1000
+ENTRYPOINT ["/usr/local/bin/squasharr-worker"]
+
+# ---------------------------------------------------------------------------
+# transcoder-cuda: nvidia/cuda base, non-root 1000:1000, /data volume
+# ---------------------------------------------------------------------------
+FROM ${CUDA_BASE} AS transcoder-cuda
+LABEL org.opencontainers.image.source="https://github.com/mediactl/clustarr" \
+      org.opencontainers.image.licenses="GPL-3.0-only" \
+      org.opencontainers.image.title="clustarr-transcoder-cuda"
+
+# ubuntu:24.04 ships a default `ubuntu` user on uid 1000; replace it so the
+# uid/gid match the transcoder target and the fsGroup in config/manager.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates tzdata libstdc++6 \
+ && rm -rf /var/lib/apt/lists/* \
+ && (userdel -r ubuntu 2>/dev/null || true) \
+ && groupadd -g 1000 clustarr \
+ && useradd -u 1000 -g 1000 -M -d /nonexistent -s /usr/sbin/nologin clustarr \
+ && mkdir -p /data /scratch \
+ && chown 1000:1000 /data /scratch
+
+COPY --from=tools /out/bin/ffmpeg /out/bin/ffprobe /usr/local/bin/
+COPY --from=build /out/squasharr-worker /usr/local/bin/squasharr-worker
+
+# NVENC/NVDEC need the `video` capability in addition to the CUDA defaults.
+ENV NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=video,compute,utility
+
+VOLUME ["/data"]
+USER 1000:1000
+ENTRYPOINT ["/usr/local/bin/squasharr-worker"]

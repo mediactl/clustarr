@@ -73,9 +73,8 @@ const (
 	// engineContainerName is the one container every engine pod runs.
 	engineContainerName = "engine"
 
-	// clustarrBinary is images/Dockerfile.media's ENTRYPOINT (verified: both
-	// Dockerfile.media and Dockerfile.media-cuda set
-	// `ENTRYPOINT ["/usr/local/bin/clustarr"]`), needed only by the torrent
+	// clustarrBinary is images/Dockerfile.media's ENTRYPOINT
+	// (`ENTRYPOINT ["/usr/local/bin/clustarr"]`), needed only by the torrent
 	// container's shell wrapper -- every other container in the tree omits
 	// `command` entirely and lets the image's own entrypoint run, matching
 	// config/manager/grabarr.yaml's `args: ["grabarr", "--role", ...]`.

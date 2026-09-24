@@ -2,7 +2,7 @@
 #
 # ghcr.io/mediactl/clustarr -- static, cgo-free build of the single `clustarr`
 # binary on distroless. Used by indexarr (§2 of the design spec); the media
-# services use Dockerfile.media / Dockerfile.media-cuda, which share this
+# services use Dockerfile.media / Dockerfile.transcoder, which share this
 # build-stage shape.
 #
 #   docker build -f images/Dockerfile.controller -t ghcr.io/mediactl/clustarr:dev .

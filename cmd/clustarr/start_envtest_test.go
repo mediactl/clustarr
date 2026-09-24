@@ -405,7 +405,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 				d := squasharr.DefaultOptions()
 				d.Options = o
 				d.DataDir = t.TempDir()
-				d.WorkerImage = "ghcr.io/mediactl/clustarr/media:dev"
+				d.WorkerImage = "ghcr.io/mediactl/clustarr/transcoder:dev"
 				return squasharr.Run(ctx, d)
 			},
 			verify: func(t *testing.T) {

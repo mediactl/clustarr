@@ -11,13 +11,14 @@
     "image": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["registry", "pullPolicy", "controller", "media", "mediaCuda"],
+      "required": ["registry", "pullPolicy", "controller", "media", "transcoder", "transcoderCuda"],
       "properties": {
         "registry": { "type": "string" },
         "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] },
         "controller": { "$ref": "#/$defs/imageRef" },
         "media": { "$ref": "#/$defs/imageRef" },
-        "mediaCuda": { "$ref": "#/$defs/imageRef" }
+        "transcoder": { "$ref": "#/$defs/imageRef" },
+        "transcoderCuda": { "$ref": "#/$defs/imageRef" }
       }
     },
     "imagePullSecrets": {

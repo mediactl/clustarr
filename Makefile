@@ -8,6 +8,8 @@ GOLANGCI_LINT ?= $(GOBIN)/golangci-lint-v2
 ENVTEST_K8S_VERSION ?= 1.37.0
 IMG ?= ghcr.io/mediactl/clustarr:dev
 MEDIA_IMG ?= ghcr.io/mediactl/clustarr/media:dev
+TRANSCODER_IMG ?= ghcr.io/mediactl/clustarr/transcoder:dev
+TRANSCODER_CUDA_IMG ?= ghcr.io/mediactl/clustarr/transcoder-cuda:dev
 
 API_PATHS := ./api/...
 CRD_DIR := config/crd/bases
@@ -159,9 +161,14 @@ build: ## Build the clustarr binary.
 	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/squasharr-worker ./cmd/squasharr-worker
 
 .PHONY: docker-build
-docker-build: ## Build controller and media images.
+docker-build: ## Build controller, media and transcoder images.
 	docker build -f images/Dockerfile.controller -t $(IMG) .
 	docker build -f images/Dockerfile.media -t $(MEDIA_IMG) .
+	docker build -f images/Dockerfile.transcoder --target transcoder -t $(TRANSCODER_IMG) .
+
+.PHONY: docker-build-cuda
+docker-build-cuda: ## Build the CUDA transcoder image (amd64).
+	docker build -f images/Dockerfile.transcoder --target transcoder-cuda -t $(TRANSCODER_CUDA_IMG) .
 
 ##@ Test
 

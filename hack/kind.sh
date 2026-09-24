@@ -22,7 +22,7 @@
 #                                  `make deploy` will conflict with the Helm
 #                                  release.
 #   NATS_CHART_VERSION  nats Helm chart version            (default: 2.14.6)
-#   IMG / MEDIA_IMG     image tags for `load`              (defaults match the Makefile)
+#   IMG / MEDIA_IMG / TRANSCODER_IMG   image tags for `load`  (defaults match the Makefile)
 #
 # Idempotent: every step is skip-if-present or apply-if-changed.
 
@@ -37,6 +37,7 @@ NATS_CHART_VERSION="${NATS_CHART_VERSION:-2.14.6}"
 NATS_HELM_REPO="https://nats-io.github.io/k8s/helm/charts/"
 IMG="${IMG:-ghcr.io/mediactl/clustarr:dev}"
 MEDIA_IMG="${MEDIA_IMG:-ghcr.io/mediactl/clustarr/media:dev}"
+TRANSCODER_IMG="${TRANSCODER_IMG:-ghcr.io/mediactl/clustarr/transcoder:dev}"
 CONTEXT="kind-${CLUSTER_NAME}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -72,9 +73,21 @@ create_cluster() {
   if [[ -n "${NODE_IMAGE}" ]]; then
     image_line="  image: ${NODE_IMAGE}"
   fi
+  # WorkloadWithJob / GenericWorkload / TopologyAwareWorkloadScheduling and
+  # scheduling.k8s.io/v1alpha3 are the gates squasharr's pool Jobs need: the
+  # scheduler's gang plugin rides GenericWorkload, and a GPU pool's
+  # schedulingConstraints.topology needs TopologyAwareWorkloadScheduling
+  # (spec §18.5). All four are shared-registry names the 1.37 apiserver
+  # lists, so every component accepts them.
   kind create cluster --name "${CLUSTER_NAME}" --wait 120s --config=- <<KIND
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
+featureGates:
+  WorkloadWithJob: true
+  GenericWorkload: true
+  TopologyAwareWorkloadScheduling: true
+runtimeConfig:
+  "scheduling.k8s.io/v1alpha3": "true"
 nodes:
 - role: control-plane
 ${image_line}
@@ -189,7 +202,7 @@ kind cluster '${CLUSTER_NAME}' is ready (context ${CONTEXT}).
   NATS               -> nats://nats.${NAMESPACE}.svc:4222 (${KIND_NATS})
 
 Next:
-  make docker-build          # build ${IMG} and ${MEDIA_IMG}
+  make docker-build          # build ${IMG}, ${MEDIA_IMG} and ${TRANSCODER_IMG}
   hack/kind.sh load          # load them into the cluster
   make install               # apply CRDs   (kustomize build config/crd)
   make deploy                # apply config/default (namespace, PVCs, RBAC, managers, NATS)
@@ -202,7 +215,7 @@ cmd_load() {
   need docker
   cluster_exists || die "kind cluster '${CLUSTER_NAME}' does not exist; run 'hack/kind.sh up'"
   local img
-  for img in "${IMG}" "${MEDIA_IMG}"; do
+  for img in "${IMG}" "${MEDIA_IMG}" "${TRANSCODER_IMG}"; do
     if docker image inspect "${img}" >/dev/null 2>&1; then
       log "loading ${img}"
       kind load docker-image --name "${CLUSTER_NAME}" "${img}"

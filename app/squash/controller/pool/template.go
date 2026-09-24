@@ -76,10 +76,10 @@ const (
 	TmpMountPath      = "/tmp"
 
 	// podUID and podGID are the identity every pool pod runs as: the
-	// clustarr user images/Dockerfile.media and Dockerfile.media-cuda
-	// create, and the runAsUser/runAsGroup/fsGroup every Deployment under
-	// config/manager sets. TestJobPodSecurityMatchesTheDeployments holds
-	// the pool pod to config/manager/squasharr.yaml.
+	// clustarr user both of images/Dockerfile.transcoder's targets (transcoder,
+	// transcoder-cuda) create, and the runAsUser/runAsGroup/fsGroup every
+	// Deployment under config/manager sets. TestJobPodSecurityMatchesTheDeployments
+	// holds the pool pod to config/manager/squasharr.yaml.
 	podUID = int64(1000)
 	podGID = int64(1000)
 )

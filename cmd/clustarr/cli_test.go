@@ -380,8 +380,8 @@ func TestSquasharrManagerOptionsAndSlots(t *testing.T) {
 		"--slots", "cpu=4,nvidia=2,intel=0",
 		"--namespace", "clustarr",
 		"--leader-elect",
-		"--worker-image", "ghcr.io/mediactl/clustarr/media:dev",
-		"--worker-image-cuda", "ghcr.io/mediactl/clustarr/media-cuda:dev",
+		"--worker-image", "ghcr.io/mediactl/clustarr/transcoder:dev",
+		"--worker-image-cuda", "ghcr.io/mediactl/clustarr/transcoder-cuda:dev",
 		"--gpu-node-label-nvidia", "example.com/nvidia-gpu",
 		"--gpu-node-label-intel", "example.com/intel-gpu",
 	); err != nil {
@@ -399,7 +399,7 @@ func TestSquasharrManagerOptionsAndSlots(t *testing.T) {
 	if !got.ManagerOptions().LeaderElection {
 		t.Error("the squasharr controller did not take the leader lease")
 	}
-	if got.WorkerImage != "ghcr.io/mediactl/clustarr/media:dev" || got.WorkerImageCUDA != "ghcr.io/mediactl/clustarr/media-cuda:dev" {
+	if got.WorkerImage != "ghcr.io/mediactl/clustarr/transcoder:dev" || got.WorkerImageCUDA != "ghcr.io/mediactl/clustarr/transcoder-cuda:dev" {
 		t.Errorf("worker images = %q / %q, want the --worker-image/--worker-image-cuda values", got.WorkerImage, got.WorkerImageCUDA)
 	}
 	// Unset, the Jobs mount config/'s claim; they carry no ServiceAccount at
@@ -467,7 +467,7 @@ func TestSquasharrWorkerSettingsComeFromTheEnvironment(t *testing.T) {
 }
 
 // TestSquasharrIntelRenderGroups holds X14's --intel-render-groups (the
-// flag images/Dockerfile.media's header names) to squasharr.Options: from
+// flag images/Dockerfile.transcoder's header names) to squasharr.Options: from
 // the flag, from $CLUSTARR_INTEL_RENDER_GROUPS (which the chart sets), empty
 // by default because the host render GID varies per install, and a typo
 // refused at startup rather than at every Job's pod creation.
