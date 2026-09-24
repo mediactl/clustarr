@@ -8,8 +8,9 @@
 #
 # grabarr-engine is the identity of the engine pods the DownloadClient
 # controller creates (grabarr --engine-service-account); it holds only the
-# engines' own role, never grabarr's. The transcode Jobs' squasharr-worker
-# and ui are bound in their own files.
+# engines' own role, never grabarr's. ui is bound in its own file. The
+# transcode pool Jobs cmd/squasharr-worker runs carry no ServiceAccount at
+# all: squasharr is the sole writer of TranscodeJob.status, over NATS (X14).
 #
 # Until task X14 all of these pointed at one union clustarr-manager-role,
 # so every service held every other service's grants.

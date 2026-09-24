@@ -38,9 +38,11 @@ import (
 // A component runs under the role of the same name, or -- for a service's
 // second Deployment (catalogarr-metadata, importarr-worker,
 // captionarr-worker) -- under its service's: the name before its last
-// "-<suffix>". The engine pods (grabarr-engine) and the transcode Jobs
-// (squasharr-worker) have roles of their own. The chart is rendered under
-// two release names, since its names carry the fullname.
+// "-<suffix>". The engine pods (grabarr-engine) have a role of their own;
+// the transcode Jobs the pool renderer creates carry no ServiceAccount at
+// all (X14: squasharr is the only writer of TranscodeJob.status, over NATS,
+// so the pool pods need no Kubernetes credentials). The chart is rendered
+// under two release names, since its names carry the fullname.
 func TestEachServiceAccountHoldsExactlyItsOwnRole(t *testing.T) {
 	helm := findTool(t, "helm")
 	kustomize := findTool(t, "kustomize")
@@ -75,12 +77,11 @@ func TestEachServiceAccountHoldsExactlyItsOwnRole(t *testing.T) {
 			r := decodeRendered(t, tc.out)
 
 			// Every component some pod runs as: the Deployments' own
-			// ServiceAccounts, plus the two identities no Deployment of
-			// the installer's runs -- the engine pods and the transcode
-			// Jobs, which the controllers create at runtime.
+			// ServiceAccounts, plus the one identity no Deployment of
+			// the installer's runs -- the engine pods, which the
+			// DownloadClient controller creates at runtime.
 			accounts := map[string]string{
-				tc.prefix + "grabarr-engine":   "grabarr-engine",
-				tc.prefix + "squasharr-worker": "squasharr-worker",
+				tc.prefix + "grabarr-engine": "grabarr-engine",
 			}
 			for _, d := range r.deployments {
 				component := d.Spec.Template.Labels["app.kubernetes.io/component"]
@@ -89,7 +90,7 @@ func TestEachServiceAccountHoldsExactlyItsOwnRole(t *testing.T) {
 				}
 				accounts[d.Spec.Template.Spec.ServiceAccountName] = component
 			}
-			require.GreaterOrEqual(t, len(accounts), 12,
+			require.GreaterOrEqual(t, len(accounts), 11,
 				"found only %d Clustarr identities; this guard is not reading what it thinks it is", len(accounts))
 
 			for account, component := range accounts {
@@ -112,6 +113,46 @@ func TestEachServiceAccountHoldsExactlyItsOwnRole(t *testing.T) {
 				require.Equal(t, want[identity], sortedGrants(grantsOf(role.Rules)),
 					"ServiceAccount %q (%s) holds ClusterRole %q, whose grants are not %s's own generated role",
 					account, component, boundTo[0], identity)
+			}
+		})
+	}
+}
+
+// TestNoInstallerShipsASquasharrWorkerIdentity is X14's guard: the
+// per-task transcode Job used to run as its own squasharr-worker
+// ServiceAccount, bound to a ClusterRole generated from
+// app/squash/worker's RBAC markers, so it could patch TranscodeJob.status
+// directly. The pool Jobs cmd/squasharr-worker runs report over NATS
+// instead (spec §18.1, §18.2) and hold no Kubernetes credentials at all, so
+// neither installer should render a squasharr-worker ServiceAccount,
+// ClusterRole or ClusterRoleBinding any more -- read from what each
+// installer actually renders, using the same run/decodeRendered helpers
+// TestEachServiceAccountHoldsExactlyItsOwnRole uses.
+func TestNoInstallerShipsASquasharrWorkerIdentity(t *testing.T) {
+	helm := findTool(t, "helm")
+	kustomize := findTool(t, "kustomize")
+	root, err := filepath.Abs("../..")
+	require.NoError(t, err)
+
+	cases := map[string][]byte{
+		"helm template clustarr":   run(t, root, helm, "template", "clustarr", "charts/clustarr"),
+		"helm template media":      run(t, root, helm, "template", "media", "charts/clustarr"),
+		"kustomize config/default": run(t, root, kustomize, "build", "config/default"),
+	}
+	for name, out := range cases {
+		t.Run(name, func(t *testing.T) {
+			r := decodeRendered(t, out)
+			for sa := range r.serviceAccounts {
+				require.NotContains(t, sa, "squasharr-worker",
+					"%s still renders ServiceAccount %q: pool pods run with no ServiceAccount token", name, sa)
+			}
+			for roleName := range r.roles {
+				require.NotContains(t, roleName, "squasharr-worker",
+					"%s still renders ClusterRole %q: pool pods run with no ServiceAccount token", name, roleName)
+			}
+			for _, b := range r.bindings {
+				require.NotContains(t, b.Name, "squasharr-worker",
+					"%s still renders ClusterRoleBinding %q: pool pods run with no ServiceAccount token", name, b.Name)
 			}
 		})
 	}

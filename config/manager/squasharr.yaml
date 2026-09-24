@@ -1,26 +1,18 @@
 # squasharr -- TranscodeProfile/TranscodeJob controllers and the slot
 # scheduler. Design spec §3, §6.4.
 #
-# The transcode work itself runs as batch/v1 Jobs that this controller creates
-# suspended and unsuspends once a slot is free (--slots cpu=2,nvidia=1,intel=1);
-# there is no long-lived worker Deployment. config/keda has an optional
-# ScaledJob example for bursting those workers.
+# The transcode work itself runs as per-(profile, class) pool Jobs that this
+# controller manages (X14): the pool binary, cmd/squasharr-worker, holds no
+# Kubernetes credentials at all -- it reports over NATS (spec §18.1) and the
+# pool pods carry no ServiceAccount -- so squasharr is the sole writer of
+# TranscodeJob.status.
 #
 # /data is mounted so the controller can stat sources and sweep the recycle
-# bin; the heavy I/O happens in the Jobs.
+# bin; the heavy I/O happens in the pool Jobs.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: squasharr
----
-# The identity every transcode Job pod runs as (--worker-service-account's
-# default). It holds only the worker's own ClusterRole
-# (config/rbac/squasharr_worker_role.yaml, generated from
-# app/squash/worker's markers), never squasharr's own role.
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: squasharr-worker
 ---
 apiVersion: v1
 kind: Service
@@ -103,10 +95,11 @@ spec:
             # this Deployment's resources.
             - name: GOMEMLIMIT
               value: "429496730"
-            # Images stamped into the TranscodeJob pods this controller creates
-            # (--worker-image, --worker-image-cuda). The Jobs run as the
-            # squasharr-worker ServiceAccount above and mount clustarr-data,
-            # both the flags' own defaults.
+            # Images stamped into the pool Job pods this controller manages
+            # (--worker-image, --worker-image-cuda). The pods mount
+            # clustarr-data and carry no ServiceAccount (X14): the pool
+            # binary reports over NATS, never Kubernetes, so it needs no
+            # credentials.
             - name: CLUSTARR_WORKER_IMAGE
               value: ghcr.io/mediactl/clustarr/media:dev
             - name: CLUSTARR_WORKER_IMAGE_CUDA

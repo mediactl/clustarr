@@ -402,10 +402,8 @@ func TestSquasharrManagerOptionsAndSlots(t *testing.T) {
 	if got.WorkerImage != "ghcr.io/mediactl/clustarr/media:dev" || got.WorkerImageCUDA != "ghcr.io/mediactl/clustarr/media-cuda:dev" {
 		t.Errorf("worker images = %q / %q, want the --worker-image/--worker-image-cuda values", got.WorkerImage, got.WorkerImageCUDA)
 	}
-	// Unset, the Jobs run as config/'s squasharr-worker and mount its claim.
-	if got.WorkerServiceAccount != squasharr.DefaultWorkerServiceAccount {
-		t.Errorf("WorkerServiceAccount = %q, want the default %q", got.WorkerServiceAccount, squasharr.DefaultWorkerServiceAccount)
-	}
+	// Unset, the Jobs mount config/'s claim; they carry no ServiceAccount at
+	// all (X14: the pool binary reports over NATS, never Kubernetes).
 	if got.DataClaimName != "clustarr-data" {
 		t.Errorf("DataClaimName = %q, want clustarr-data", got.DataClaimName)
 	}
@@ -433,14 +431,13 @@ func TestSquasharrManagerOptionsAndSlots(t *testing.T) {
 }
 
 // The squasharr Deployment configures its Jobs by environment, not argv:
-// config/manager sets the two images, and the chart also sets the worker
-// ServiceAccount and data claim, whose names carry the release fullname.
-// Each variable must reach its flag, or the chart's Jobs would run as an
-// account that does not exist.
+// config/manager sets the two images, and the chart also sets the data
+// claim, whose name carries the release fullname. Each variable must reach
+// its flag, or the chart's pool Jobs would mount a claim that does not
+// exist.
 func TestSquasharrWorkerSettingsComeFromTheEnvironment(t *testing.T) {
 	t.Setenv(workerImageEnv, "registry.example/media:1")
 	t.Setenv(workerImageCUDAEnv, "registry.example/media-cuda:1")
-	t.Setenv(workerServiceAccountEnv, "release-clustarr-squasharr-worker")
 	t.Setenv(dataClaimEnv, "release-clustarr-data")
 	got := stub(t, &runSquasharr)
 	if _, err := execute(t, "squasharr", "--namespace", "clustarr"); err != nil {
@@ -450,10 +447,9 @@ func TestSquasharrWorkerSettingsComeFromTheEnvironment(t *testing.T) {
 		t.Fatalf("the environment-configured options are invalid: %v", err)
 	}
 	for name, pair := range map[string][2]string{
-		workerImageEnv:          {got.WorkerImage, "registry.example/media:1"},
-		workerImageCUDAEnv:      {got.WorkerImageCUDA, "registry.example/media-cuda:1"},
-		workerServiceAccountEnv: {got.WorkerServiceAccount, "release-clustarr-squasharr-worker"},
-		dataClaimEnv:            {got.DataClaimName, "release-clustarr-data"},
+		workerImageEnv:     {got.WorkerImage, "registry.example/media:1"},
+		workerImageCUDAEnv: {got.WorkerImageCUDA, "registry.example/media-cuda:1"},
+		dataClaimEnv:       {got.DataClaimName, "release-clustarr-data"},
 	} {
 		if pair[0] != pair[1] {
 			t.Errorf("$%s: got %q, want %q", name, pair[0], pair[1])

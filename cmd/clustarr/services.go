@@ -230,7 +230,6 @@ func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 		dataDir         string
 		workerImage     string
 		workerImageCUDA string
-		workerAccount   string
 		dataClaim       string
 		renderGroups    string
 		labelNVIDIA     string
@@ -243,7 +242,7 @@ func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 		Long: "squasharr owns transcode.clustarr.io: it watches MediaFiles for non-compliant\n" +
 			"video and dispatches HEVC 10-bit / AAC transcodes, admitted against a\n" +
 			"per-hardware slot budget, to per-profile worker pools over NATS. The pool\n" +
-			"pods run the squasharr-worker binary.",
+			"pods run the squasharr-worker binary and hold no Kubernetes credentials.",
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 	}
@@ -260,11 +259,6 @@ func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 	cmd.Flags().StringVar(&workerImageCUDA, "worker-image-cuda", envOr(workerImageCUDAEnv, defaults.WorkerImageCUDA),
 		"Image the controller stamps onto nvidia transcode pools; empty uses --worker-image. "+
 			"Defaults to $"+workerImageCUDAEnv+".")
-	cmd.Flags().StringVar(&workerAccount, "worker-service-account",
-		envOr(workerServiceAccountEnv, defaults.WorkerServiceAccount),
-		"ServiceAccount transcode Job pods run as; it must hold the worker's RBAC "+
-			"(config/rbac/squasharr_worker_role.yaml). Defaults to $"+workerServiceAccountEnv+", then "+
-			squasharr.DefaultWorkerServiceAccount+".")
 	cmd.Flags().StringVar(&dataClaim, "data-claim", envOr(dataClaimEnv, defaults.DataClaimName),
 		"RWX PersistentVolumeClaim transcode Jobs mount at --data-dir. Defaults to $"+dataClaimEnv+".")
 	cmd.Flags().StringVar(&renderGroups, "intel-render-groups", envOr(intelRenderGroupsEnv, ""),
@@ -291,19 +285,18 @@ func newSquasharrCommand(lo *logging.Options, to *tracing.Options) *cobra.Comman
 			return fmt.Errorf("--intel-render-groups: %w", err)
 		}
 		return runSquasharr(cmd.Context(), squasharr.Options{
-			Options:              *common,
-			Role:                 squasharr.Role(role),
-			Slots:                budget,
-			DataDir:              dataDir,
-			WorkerImage:          workerImage,
-			WorkerImageCUDA:      workerImageCUDA,
-			WorkerServiceAccount: workerAccount,
-			DataClaimName:        dataClaim,
-			IntelRenderGroups:    gids,
-			NodeLabelNVIDIA:      labelNVIDIA,
-			NodeLabelIntel:       labelIntel,
-			Logging:              *lo,
-			Tracing:              tracingFor(to, squasharr.ServiceName),
+			Options:           *common,
+			Role:              squasharr.Role(role),
+			Slots:             budget,
+			DataDir:           dataDir,
+			WorkerImage:       workerImage,
+			WorkerImageCUDA:   workerImageCUDA,
+			DataClaimName:     dataClaim,
+			IntelRenderGroups: gids,
+			NodeLabelNVIDIA:   labelNVIDIA,
+			NodeLabelIntel:    labelIntel,
+			Logging:           *lo,
+			Tracing:           tracingFor(to, squasharr.ServiceName),
 		})
 	}
 	return cmd

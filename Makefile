@@ -27,26 +27,27 @@ CRD_DIR := config/crd/bases
 #
 #   * a service's role reads every package under its directory, so a new
 #     package that grows a marker is covered with no list to update;
-#   * grabarr-engine and squasharr-worker are the two sub-identities that run
-#     as separate pods under their own ServiceAccount: the engine pods the
-#     DownloadClient controller creates, and the transcode Jobs. Their roles
-#     read only their own packages, and grabarr's reads everything under
-#     app/grab/ EXCEPT the engines -- the controller never needs an engine's
-#     grants. squasharr's still reads app/squash/worker: the controller writes
-#     the same TranscodeJob status the worker does.
+#   * grabarr-engine is the one sub-identity that runs as separate pods under
+#     its own ServiceAccount: the engine pods the DownloadClient controller
+#     creates. Its role reads only its own packages, and grabarr's reads
+#     everything under app/grab/ EXCEPT the engines -- the controller never
+#     needs an engine's grants. The transcode pool Jobs cmd/squasharr-worker
+#     runs are the other kind of per-pod workload, but carry no
+#     ServiceAccount and so no role of their own: squasharr is the sole
+#     writer of TranscodeJob.status, over NATS (X14), and app/squash/worker
+#     holds no RBAC markers.
 #
 # cmd/clustarr's guards read RBAC_ROLES and RBAC_PATHS_* from here rather than
 # restating them: TestEveryPackageWithRBACMarkersIsInARole fails when a
 # package with markers is in no role, and the chart copies of every role are
 # held byte-identical to these files by TestChartRBACMatchesTheGeneratedRoles.
-RBAC_ROLES := catalogarr importarr indexarr grabarr grabarr-engine squasharr squasharr-worker captionarr
+RBAC_ROLES := catalogarr importarr indexarr grabarr grabarr-engine squasharr captionarr
 RBAC_PATHS_catalogarr := ./app/catalog/...
 RBAC_PATHS_importarr := ./app/import/...
 RBAC_PATHS_indexarr := ./app/indexer/...
 RBAC_PATHS_grabarr := ./app/grab ./app/grab/controller/... ./app/grab/status
 RBAC_PATHS_grabarr-engine := ./app/grab/engine/... ./app/grab/status
 RBAC_PATHS_squasharr := ./app/squash/...
-RBAC_PATHS_squasharr-worker := ./app/squash/worker
 RBAC_PATHS_captionarr := ./app/caption/...
 
 .PHONY: all

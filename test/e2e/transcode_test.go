@@ -20,21 +20,24 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Task E-5 -- transcode fixtures and Phase H scenario 12 (M4, squasharr).
 //
 // Phase E's code is complete and wired (E-4, 35c298e/b001001): squasharr
-// registers the TranscodeProfile and TranscodeJob controllers and the
-// worker role under `clustarr squasharr --role worker`; config/manager/
-// squasharr.yaml (composed into config/e2e through config/default) already
-// ships the squasharr and squasharr-worker ServiceAccounts, the worker's
-// own ClusterRole and binding (config/rbac/squasharr_worker_role*.yaml),
+// registers the TranscodeProfile and TranscodeJob controllers and the slot
+// scheduler; config/manager/squasharr.yaml (composed into config/e2e
+// through config/default) ships the squasharr ServiceAccount,
 // --worker-image/--worker-image-cuda pointed at ghcr.io/mediactl/clustarr/
 // media:dev via CLUSTARR_WORKER_IMAGE(_CUDA), and a --slots cpu=2,nvidia=1,
 // intel=1 budget; hack/e2e.sh already builds and kind-loads the media image
 // (`make docker-build`) and waits on deployment/squasharr's rollout. Nothing
 // in config/e2e needed adding for this file's scenario to reach a real
-// worker Job pod -- verified by reading config/manager/squasharr.yaml,
-// config/rbac/kustomization.yaml, config/default/kustomization.yaml,
-// app/squash/run.go's DefaultOptions (DefaultWorkerServiceAccount =
-// "squasharr-worker", matching the plain ServiceAccount name exactly) and
+// worker pod -- verified by reading config/manager/squasharr.yaml,
+// config/rbac/kustomization.yaml, config/default/kustomization.yaml and
 // hack/e2e.sh's own WORKLOADS list, not assumed.
+//
+// X14 retired the per-Job `squasharr-worker` ServiceAccount, ClusterRole
+// and binding (config/rbac/squasharr_worker_role*.yaml, and `clustarr
+// squasharr --role worker`) along with them: the transcode itself now runs
+// on per-(profile, class) pool Jobs whose pods carry no ServiceAccount at
+// all and report over NATS, not the apiserver (design spec §18.1, §18.2).
+// A pool Job's pod is what this scenario now waits on reaching Running.
 //
 // This file adds no static TranscodeProfile manifest to config/e2e either,
 // deliberately: newTranscodeProfile below scopes every profile it creates to

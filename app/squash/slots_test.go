@@ -114,8 +114,8 @@ func TestRolesAndValidate(t *testing.T) {
 	if err := o.Validate(); err != nil {
 		t.Fatalf("the default options plus a worker image are invalid: %v", err)
 	}
-	if o.WorkerServiceAccount != DefaultWorkerServiceAccount || o.DataClaimName == "" {
-		t.Errorf("DefaultOptions lost the worker ServiceAccount or data claim: %+v", o)
+	if o.DataClaimName == "" {
+		t.Errorf("DefaultOptions lost the data claim: %+v", o)
 	}
 
 	// The controller stamps the worker image onto every pool it creates.
@@ -124,10 +124,6 @@ func TestRolesAndValidate(t *testing.T) {
 		t.Error("a controller without --worker-image was accepted")
 	}
 	o.WorkerImage = "ghcr.io/mediactl/clustarr/media:dev"
-	o.WorkerServiceAccount = ""
-	if err := o.Validate(); err == nil {
-		t.Error("a controller without --worker-service-account was accepted; its pods would run as the namespace default")
-	}
 
 	// Tasks are dispatched on the bus: a controller without one could
 	// dispatch nothing.

@@ -127,35 +127,23 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // unlink of a retired source, then drops the library's name for the original
 // outright.
 //
-// # Status
+// # Reporting
 //
 // This package writes none: [Process] reads and writes files only, and
 // reports progress, the result and stderr on the returned Outcome (and, for
-// progress, through [Options.OnProgress] as it happens). [Serve] publishes
-// them as status events on squasharr-transcode-results, and squasharr --
-// the only writer of TranscodeJob.status -- records them. The 1 Hz
-// telemetry in clustarr-progress is best effort for UIs and needs no RBAC.
+// progress, through [Options.OnProgress] as it happens). It never talks to
+// Kubernetes, and holds no Kubernetes credentials at all -- the pool Job
+// pods it runs in carry no ServiceAccount (design spec §18.1).
 //
-// # RBAC: these markers are the Job pod's whole Role
+// [Serve] is what turns an Outcome into the three things the caller reports:
 //
-// The Job pod does not run as squasharr's ServiceAccount, so the manager
-// ClusterRole -- which these markers also feed, like every marker under
-// app/squash/ -- is not what it holds. `make manifests` runs controller-gen a
-// second time over THIS package alone and writes
-// config/rbac/squasharr_worker_role.yaml, bound to the squasharr-worker
-// ServiceAccount that squasharr's --worker-service-account names on every
-// Job. So the markers below are the single source: add a Get here and the
-// worker's own Role gains it on the next regeneration, and
-// cmd/clustarr's TestSquasharrWorkerRoleMatchesTheWorkerMarkers fails until
-// that regeneration is committed.
-//
-// transcodejobs/status patch is the server-side apply app/squash/status.Patch
-// makes; app/squash/status declares the same grant for the controller, but
-// its markers do not reach this Role.
-//
-// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get
-// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs/status,verbs=patch
-// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodeprofiles,verbs=get
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=list
+//   - a lease held in the clustarr-transcode-leases KV bucket, fencing a
+//     redelivered task against a still-live attempt (spec §7, §17);
+//   - claimed, progress and finished [task.StatusEvent]s published on
+//     clustarr.work.transcode.result.<jobUID>, which squasharr's
+//     squasharr-transcode-results consumer turns into TranscodeJob.status --
+//     the only writer of it, through one compare-and-swap apply path (design
+//     spec §18.1, §18.2);
+//   - 1 Hz telemetry written to the clustarr-progress KV bucket, best effort
+//     for UIs and needing no RBAC either.
 package worker

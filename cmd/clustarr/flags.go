@@ -76,12 +76,6 @@ const (
 	workerImageEnv     = "CLUSTARR_WORKER_IMAGE"
 	workerImageCUDAEnv = "CLUSTARR_WORKER_IMAGE_CUDA"
 
-	// workerServiceAccountEnv is the ServiceAccount those Jobs run as, the
-	// default for --worker-service-account. Only the chart sets it: its
-	// ServiceAccounts carry the release fullname, while config/'s is the
-	// flag's own default.
-	workerServiceAccountEnv = "CLUSTARR_WORKER_SERVICE_ACCOUNT"
-
 	// dataClaimEnv is the RWX /data claim those Jobs mount, the default for
 	// squasharr's --data-claim, and likewise the claim grabarr's engine
 	// workloads mount, the default for grabarr's --data-claim. Only the

@@ -162,13 +162,6 @@ func FormatSlots(slots map[string]int32) string {
 	return strings.Join(parts, ",")
 }
 
-// DefaultWorkerServiceAccount is the ServiceAccount transcode Job pods run
-// as: config/manager/squasharr.yaml declares it and
-// config/rbac/squasharr_worker_role_binding.yaml binds it to the worker's
-// own ClusterRole. The chart names it <fullname>-squasharr-worker and passes
-// that through $CLUSTARR_WORKER_SERVICE_ACCOUNT.
-const DefaultWorkerServiceAccount = "squasharr-worker"
-
 // Options is everything `clustarr squasharr` needs.
 type Options struct {
 	k8s.Options
@@ -189,13 +182,6 @@ type Options struct {
 	// WorkerImageCUDA is the image nvidia pools run (--worker-image-cuda).
 	// Empty falls back to WorkerImage.
 	WorkerImageCUDA string
-
-	// WorkerServiceAccount is the ServiceAccount every transcode Job's pod
-	// runs as (--worker-service-account). It must hold the worker's RBAC --
-	// app/squash/worker/doc.go's markers, generated into their own
-	// ClusterRole -- and NOT this controller's; left empty, the pods would
-	// run as the namespace default and fail their first Get.
-	WorkerServiceAccount string
 
 	// DataClaimName is the RWX PersistentVolumeClaim pool pods mount at
 	// DataDir (--data-claim): the same claim this Deployment mounts.
@@ -229,14 +215,13 @@ type Options struct {
 // DefaultOptions returns the options the Deployment gets with no flags.
 func DefaultOptions() Options {
 	return Options{
-		Options:              k8s.DefaultOptions(),
-		Role:                 RoleController,
-		Slots:                DefaultSlots(),
-		DataDir:              DefaultDataDir,
-		WorkerServiceAccount: DefaultWorkerServiceAccount,
-		DataClaimName:        pool.DefaultDataClaimName,
-		NodeLabelNVIDIA:      pool.DefaultNodeLabelNVIDIA,
-		NodeLabelIntel:       pool.DefaultNodeLabelIntel,
+		Options:         k8s.DefaultOptions(),
+		Role:            RoleController,
+		Slots:           DefaultSlots(),
+		DataDir:         DefaultDataDir,
+		DataClaimName:   pool.DefaultDataClaimName,
+		NodeLabelNVIDIA: pool.DefaultNodeLabelNVIDIA,
+		NodeLabelIntel:  pool.DefaultNodeLabelIntel,
 	}
 }
 
@@ -273,10 +258,6 @@ func (o Options) Validate() error {
 	if o.WorkerImage == "" {
 		return fmt.Errorf("squasharr: --worker-image is required for --role %s: "+
 			"every transcode pool it creates runs that image", o.Role)
-	}
-	if o.WorkerServiceAccount == "" {
-		return fmt.Errorf("squasharr: --worker-service-account is required for --role %s: "+
-			"a pod on the namespace default ServiceAccount holds none of the worker's RBAC", o.Role)
 	}
 	if o.DataClaimName == "" {
 		return fmt.Errorf("squasharr: --data-claim is required for --role %s", o.Role)
@@ -359,8 +340,7 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 
-	log.Info("starting", "role", o.Role, "slots", FormatSlots(o.Slots),
-		"workerImage", o.WorkerImage, "workerServiceAccount", o.WorkerServiceAccount)
+	log.Info("starting", "role", o.Role, "slots", FormatSlots(o.Slots), "workerImage", o.WorkerImage)
 	if err := mgr.Start(ctx); err != nil {
 		return fmt.Errorf("squasharr: manager: %w", err)
 	}
