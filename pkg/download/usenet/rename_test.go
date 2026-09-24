@@ -20,10 +20,12 @@ package usenet
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -263,4 +265,93 @@ func TestAdoptRepairedSetTakesTheTargetsParRebuiltUnderTheSetsName(t *testing.T)
 	}
 	_, err = os.Stat(filepath.Join(j.contentDir(), "A.Scanner.Darkly.part02.rar"))
 	require.ErrorIs(t, err, os.ErrNotExist, "the holed copy is gone")
+}
+
+// A par2 file with a hole -- one missing article's worth of zeros -- is
+// ordinary. The scan resynchronises past a packet whose header the hole
+// took and drops a packet whose body it damaged, rather than stopping at
+// the first or taking a FileDesc's holed name at face value (parchive-go's
+// packet scan, reviewed 2026-09-24).
+func TestPar2ParseResynchronisesPastAHoleAndDropsACorruptPacket(t *testing.T) {
+	bin := par2Binary(t)
+	work := t.TempDir()
+	rng := rand.New(rand.NewSource(17))
+	for _, n := range []string{"Some.Movie.part01.rar", "Some.Movie.part02.rar"} {
+		b := make([]byte, 64<<10)
+		_, _ = rng.Read(b)
+		require.NoError(t, os.WriteFile(filepath.Join(work, n), b, 0o644))
+	}
+	create := exec.Command(bin, "c", "-q", "-b8", "-r50", "-n1", "--", "set.par2", "Some.Movie.part01.rar", "Some.Movie.part02.rar")
+	create.Dir = work
+	out, err := create.CombinedOutput()
+	require.NoErrorf(t, err, "par2 create: %s", out)
+	vols, _ := filepath.Glob(filepath.Join(work, "set.vol*.par2"))
+	require.Len(t, vols, 1)
+	raw, err := os.ReadFile(vols[0])
+	require.NoError(t, err)
+
+	// Where each packet starts, from an intact scan.
+	type pkt struct {
+		off  int64
+		typ  string
+		size int64
+	}
+	var pkts []pkt
+	for off := int64(0); off+64 <= int64(len(raw)); {
+		if !bytes.Equal(raw[off:off+8], par2Magic) {
+			off++
+			continue
+		}
+		size := int64(binary.LittleEndian.Uint64(raw[off+8 : off+16]))
+		pkts = append(pkts, pkt{off, string(bytes.TrimRight(raw[off+48:off+64], "\x00")), size})
+		off += size
+	}
+	// Every copy of a FileDesc, by file id: a volume repeats its critical
+	// packets, and a hole must take every copy for the packet to be lost.
+	copies := map[string][]pkt{}
+	var ids []string
+	for _, p := range pkts {
+		if strings.HasSuffix(p.typ, "FileDesc") {
+			id := string(raw[p.off+64 : p.off+80])
+			if _, seen := copies[id]; !seen {
+				ids = append(ids, id)
+			}
+			copies[id] = append(copies[id], p)
+		}
+	}
+	require.Len(t, ids, 2)
+	intact := newPar2Set()
+	intact.parse(bytes.NewReader(raw), int64(len(raw)))
+	require.Len(t, intact.Files, 2)
+	require.NotEmpty(t, intact.Slices)
+
+	// A hole over the first FileDesc's header: everything after it is
+	// still read, and that FileDesc is not.
+	holed := append([]byte{}, raw...)
+	for _, d := range copies[ids[0]] {
+		for i := d.off; i < d.off+40; i++ {
+			holed[i] = 0
+		}
+	}
+	got := newPar2Set()
+	got.parse(bytes.NewReader(holed), int64(len(holed)))
+	require.Len(t, got.Files, 1, "the FileDesc after the hole is read")
+	require.Equal(t, len(intact.Slices), len(got.Slices), "the IFSC packets after the hole are read")
+	require.Equal(t, intact.SliceSize, got.SliceSize)
+
+	// A hole inside the second FileDesc's name: that packet is dropped, not
+	// taken with a garbage name.
+	damaged := append([]byte{}, raw...)
+	for _, d := range copies[ids[1]] {
+		nameOff := d.off + 64 + 56
+		for i := nameOff; i < nameOff+4; i++ {
+			damaged[i] = 'X'
+		}
+	}
+	got = newPar2Set()
+	got.parse(bytes.NewReader(damaged), int64(len(damaged)))
+	require.Len(t, got.Files, 1)
+	for _, d := range got.Files {
+		require.NotContains(t, d.Name, "XXXX", "a FileDesc whose MD5 does not match is never taken")
+	}
 }

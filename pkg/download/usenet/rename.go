@@ -18,7 +18,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package usenet
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/md5" //nolint:gosec // PAR2's hash16k is MD5 by specification.
@@ -82,75 +81,133 @@ func newPar2Set() *par2Set {
 // parsePar2FileDescs walks the packets of one par2 file and returns its
 // FileDesc packets, sorted by name.
 func parsePar2FileDescs(r io.Reader) ([]par2FileDesc, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxPar2Bytes+1))
+	if err != nil {
+		return nil, err
+	}
 	set := newPar2Set()
-	err := set.parse(r)
+	set.parse(bytes.NewReader(data), int64(len(data)))
 	out := make([]par2FileDesc, 0, len(set.Files))
 	for _, d := range set.Files {
 		out = append(out, d)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out, err
+	return out, nil
 }
 
-// parse walks the packets of one par2 file into the set. Unknown packet
-// types are skipped by their length; the walk stops at the first byte that
-// is not a packet header, so a truncated or damaged file yields what it can
-// rather than an error.
-func (s *par2Set) parse(r io.Reader) error {
-	br := bufioReaderOf(r)
-	for {
-		header := make([]byte, 64)
-		if _, err := io.ReadFull(br, header); err != nil {
-			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-				return nil
-			}
-			return err
+// maxPar2Bytes bounds one par2 file read whole; parse itself reads by offset.
+const maxPar2Bytes = 1 << 30
+
+// par2ScanChunk is how far parse reads ahead when looking for the next packet
+// header after a corrupt one.
+const par2ScanChunk = 1 << 20
+
+// parse walks the packets of one par2 file into the set.
+//
+// It is a resynchronising scan, the way parchive-go and par2cmdline read a
+// file: a packet whose header is not where the previous packet's length
+// said, whose length runs past the file, or whose MD5 (over everything
+// after the digest) does not match is corrupt, and the scan resumes at the
+// byte after its magic rather than stopping. A par2 volume with a missing
+// article is ordinary on a frugal provider -- the hole is one article's
+// worth of zeros -- and a scan that stopped at the first bad header lost
+// every FileDesc and IFSC packet after it, so nothing was renamed; a scan
+// that took a FileDesc with a hole in its name at face value would rename
+// a file to garbage. Only the packets the set consumes are hashed; a
+// recovery packet's body is skipped by its length.
+func (s *par2Set) parse(r io.ReaderAt, size int64) {
+	header := make([]byte, 64)
+	var off int64
+	for off+64 <= size {
+		if _, err := r.ReadAt(header, off); err != nil {
+			return
 		}
 		if !bytes.Equal(header[:8], par2Magic) {
-			return nil
+			off = s.nextMagic(r, size, off+1)
+			continue
 		}
-		length := binary.LittleEndian.Uint64(header[8:16])
-		if length < 64 || length > 1<<26 {
-			return nil
-		}
-		body := make([]byte, length-64)
-		if _, err := io.ReadFull(br, body); err != nil {
-			return nil
+		length := int64(binary.LittleEndian.Uint64(header[8:16])) //nolint:gosec // bounded below
+		if length < 64 || length%4 != 0 || length > size-off {
+			off++
+			continue
 		}
 		typ := header[48:64]
-		switch {
-		case bytes.Equal(typ, par2MainType):
-			// slice size 8, file count 4, then the file ids.
-			if len(body) >= 12 {
-				s.SliceSize = binary.LittleEndian.Uint64(body[:8])
-			}
-		case bytes.Equal(typ, par2FileDescType):
-			// file id 16, hash 16, hash16k 16, length 8, name.
-			if len(body) < 56 {
-				continue
-			}
-			var d par2FileDesc
-			copy(d.ID[:], body[:16])
-			copy(d.Hash16k[:], body[32:48])
-			d.Length = binary.LittleEndian.Uint64(body[48:56])
-			d.Name = strings.TrimRight(string(body[56:]), "\x00")
-			d.Name = filepath.Base(strings.ReplaceAll(d.Name, "\\", "/"))
-			if d.Name == "" || d.Name == "." || d.Name == "/" {
-				continue
-			}
-			s.Files[d.ID] = d
-		case bytes.Equal(typ, par2IFSCType):
-			// file id 16, then (MD5 16, CRC32 4) per slice.
-			if len(body) < 16 {
-				continue
-			}
-			var id [16]byte
-			copy(id[:], body[:16])
-			for off := 16; off+20 <= len(body); off += 20 {
-				var h [16]byte
-				copy(h[:], body[off:off+16])
-				s.Slices[h] = id
-			}
+		consumed := bytes.Equal(typ, par2MainType) || bytes.Equal(typ, par2FileDescType) || bytes.Equal(typ, par2IFSCType)
+		if !consumed {
+			off += length
+			continue
+		}
+		body := make([]byte, length-64)
+		if _, err := r.ReadAt(body, off+64); err != nil {
+			return
+		}
+		h := md5.New() //nolint:gosec // PAR2 specifies MD5.
+		h.Write(header[32:64])
+		h.Write(body)
+		if !bytes.Equal(h.Sum(nil), header[16:32]) {
+			off++
+			continue
+		}
+		s.take(typ, body)
+		off += length
+	}
+}
+
+// nextMagic returns the offset of the next packet magic at or after from,
+// or size when there is none.
+func (s *par2Set) nextMagic(r io.ReaderAt, size, from int64) int64 {
+	buf := make([]byte, par2ScanChunk)
+	for from < size {
+		n, err := r.ReadAt(buf, from)
+		if n == 0 {
+			return size
+		}
+		if i := bytes.Index(buf[:n], par2Magic); i >= 0 {
+			return from + int64(i)
+		}
+		if err != nil || n < len(par2Magic) {
+			return size
+		}
+		// Keep the tail: a magic can straddle two reads.
+		from += int64(n - (len(par2Magic) - 1))
+	}
+	return size
+}
+
+// take records one verified packet of a consumed type.
+func (s *par2Set) take(typ, body []byte) {
+	switch {
+	case bytes.Equal(typ, par2MainType):
+		// slice size 8, file count 4, then the file ids.
+		if len(body) >= 12 {
+			s.SliceSize = binary.LittleEndian.Uint64(body[:8])
+		}
+	case bytes.Equal(typ, par2FileDescType):
+		// file id 16, hash 16, hash16k 16, length 8, name.
+		if len(body) < 56 {
+			return
+		}
+		var d par2FileDesc
+		copy(d.ID[:], body[:16])
+		copy(d.Hash16k[:], body[32:48])
+		d.Length = binary.LittleEndian.Uint64(body[48:56])
+		d.Name = strings.TrimRight(string(body[56:]), "\x00")
+		d.Name = filepath.Base(strings.ReplaceAll(d.Name, "\\", "/"))
+		if d.Name == "" || d.Name == "." || d.Name == "/" {
+			return
+		}
+		s.Files[d.ID] = d
+	case bytes.Equal(typ, par2IFSCType):
+		// file id 16, then (MD5 16, CRC32 4) per slice.
+		if len(body) < 16 {
+			return
+		}
+		var id [16]byte
+		copy(id[:], body[:16])
+		for o := 16; o+20 <= len(body); o += 20 {
+			var h [16]byte
+			copy(h[:], body[o:o+16])
+			s.Slices[h] = id
 		}
 	}
 }
@@ -305,11 +362,10 @@ func (j *job) renameObfuscated(ctx context.Context) {
 		if err != nil {
 			continue
 		}
-		err = set.parse(fh)
-		_ = fh.Close()
-		if err != nil {
-			log.DebugContext(ctx, "usenet: par2 packet parse failed", "file", f.Name, "error", err)
+		if st, err := fh.Stat(); err == nil {
+			set.parse(fh, st.Size())
 		}
+		_ = fh.Close()
 	}
 
 	rename := func(i int, to string) {
@@ -505,12 +561,4 @@ func (j *job) checkDiskSpace() error {
 		}
 	}
 	return nil
-}
-
-// bufioReaderOf wraps r in a bufio.Reader unless it already is one.
-func bufioReaderOf(r io.Reader) *bufio.Reader {
-	if br, ok := r.(*bufio.Reader); ok {
-		return br
-	}
-	return bufio.NewReader(r)
 }
