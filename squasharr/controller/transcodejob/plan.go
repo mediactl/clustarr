@@ -65,18 +65,6 @@ func mediaInfoFromFile(path string, mf *catalogv1alpha1.MediaFile, tag string) (
 	return info, nil
 }
 
-// threadsFor is the x265 pools= size the worker will render for a Job built
-// from profile: threadsFromResources of the same floored resources buildJob
-// stamps on the container, which is also what buildJob hands the worker as
-// CLUSTARR_CPU_LIMIT (worker.ThreadsFromEnv) -- the Downward API's
-// limits.cpu, rounded up to whole cores, when there is a CPU limit, else a
-// stated default rather than the node's CPUs. So status.plan's pools= is the
-// worker's.
-func threadsFor(profile *transcodev1alpha1.TranscodeProfile) int32 {
-	threads, _ := threadsFromResources(resourcesFor(profile))
-	return threads
-}
-
 // containerChange reports whether planning source under a profile that
 // writes container changes the file's container, and returns both sides for
 // the Planned condition's message. The comparison is case-insensitive on the

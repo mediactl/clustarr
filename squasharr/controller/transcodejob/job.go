@@ -29,6 +29,7 @@ import (
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/squasharr/controller/pool"
 	"github.com/mediactl/clustarr/squasharr/worker"
 )
 
@@ -52,119 +53,60 @@ const (
 	AnnotationTranscodeJob = "transcode.clustarr.io/transcodejob"
 )
 
-// Pod-shape constants.
+// Pod-shape constants not moved to squasharr/controller/pool: containerName
+// and backoffLimit are per-task-Job values, distinct from the pool's own
+// ContainerName and BackoffLimit.
 const (
-	containerName     = "transcode"
-	dataVolumeName    = "data"
-	scratchVolumeName = "scratch"
-	scratchMountPath  = "/scratch"
-
-	// DefaultDataClaimName is the RWX claim every clustarr pod mounts at
-	// /data, the same "clustarr-data" grabarr's DefaultDataClaimName names.
-	DefaultDataClaimName = "clustarr-data"
-
-	// DefaultDataDir is where the Job mounts it and what --data-dir says.
-	DefaultDataDir = "/data"
-
-	backoffLimit = int32(2)
-
-	resourceNVIDIAGPU = corev1.ResourceName("nvidia.com/gpu")
-	resourceIntelGPU  = corev1.ResourceName("gpu.intel.com/i915")
-
-	nodeLabelNVIDIA = "nvidia.com/gpu.present"
-	nodeLabelIntel  = "intel.feature.node.kubernetes.io/gpu"
-
-	tmpVolumeName = "tmp"
-	tmpMountPath  = "/tmp"
-
-	// podUID and podGID are the identity every transcode Job pod runs as:
-	// the clustarr user images/Dockerfile.media and Dockerfile.media-cuda
-	// create, and the runAsUser/runAsGroup/fsGroup every Deployment under
-	// config/manager sets. TestJobPodSecurityMatchesTheDeployments holds
-	// the Job to config/manager/squasharr.yaml.
-	podUID = int64(1000)
-	podGID = int64(1000)
-
-	// UmaskEnv is §11's UMASK, passed through to the worker so it creates
-	// files with the same mode the Deployments do.
-	UmaskEnv = "UMASK"
+	containerName = "transcode"
+	backoffLimit  = int32(2)
 )
 
-// The TranscodeProfile defaults buildJob floors a zero to. Each restates a
-// +kubebuilder:default in transcodeprofile_types.go, and
-// TestFlooredDefaultsMatchTheGeneratedCRD holds them to the generated CRD.
-//
-// They exist because a kubebuilder default fills only an ABSENT field, and
-// encoding/json always sends a struct: a profile created by a Go client
-// carries activeDeadline "0s", resources {} and scratch "0", present and
-// zero, so the apiserver defaults none of them. Unfloored, that Job would
-// run with no deadline, no resource limits and an unbounded scratch
-// volume. None of those zeros has a coherent meaning, which is the D1
-// precedent's test for flooring (Indexer.spec.timeout).
+// Moved to squasharr/controller/pool in Task 8 (the pool renderer): the
+// volume names and mount paths, the GPU resource and node-label constants,
+// DefaultDataClaimName, DefaultDataDir and UmaskEnv. These aliases keep
+// buildJob and its remaining tests compiling until Task 10 deletes the
+// per-task Job code (ruling R3); the exported ones (DefaultDataClaimName,
+// UmaskEnv) are also squasharr/run.go's own reference, so they keep their
+// casing here.
+const (
+	DefaultDataClaimName = pool.DefaultDataClaimName
+	DefaultDataDir       = pool.DefaultDataDir
+	UmaskEnv             = pool.UmaskEnv
 
-var defaultScratch = resource.MustParse("20Gi")
+	dataVolumeName    = pool.DataVolumeName
+	scratchVolumeName = pool.ScratchVolumeName
+	scratchMountPath  = pool.ScratchMountPath
+	tmpVolumeName     = pool.TmpVolumeName
+	tmpMountPath      = pool.TmpMountPath
+)
 
-func defaultResources() corev1.ResourceRequirements {
-	return corev1.ResourceRequirements{Limits: corev1.ResourceList{
-		corev1.ResourceCPU:    resource.MustParse("8"),
-		corev1.ResourceMemory: resource.MustParse("4Gi"),
-	}}
-}
+// GPU resource names and node labels: superseded by pool.GPUResource (a map)
+// and pool.DefaultNodeLabelNVIDIA/DefaultNodeLabelIntel (ruling R3). These
+// local vars keep buildJob's switch statement unchanged until Task 10.
+var (
+	resourceNVIDIAGPU = pool.GPUResource[transcodev1alpha1.HardwareNVIDIA]
+	resourceIntelGPU  = pool.GPUResource[transcodev1alpha1.HardwareIntel]
+	nodeLabelNVIDIA   = pool.DefaultNodeLabelNVIDIA
+	nodeLabelIntel    = pool.DefaultNodeLabelIntel
+)
 
-// defaultThreads is x265's pools= for a Job whose container has neither a
-// CPU limit nor a CPU request: the 8 cores of the CPU limit a profile with
-// no resources at all runs with (defaultResources).
-var defaultThreads = wholeCores(defaultResources().Limits[corev1.ResourceCPU])
-
-// wholeCores rounds a CPU quantity up to whole cores, as the Downward API
-// renders limits.cpu with divisor 1.
-func wholeCores(q resource.Quantity) int32 {
-	return int32((q.MilliValue() + 999) / 1000) //nolint:gosec // a pod's CPU count, far below int32's range
-}
-
-// threadsFromResources is x265's pools= size for a Job container with
-// resources r, and whether it comes from a CPU limit.
-//
-// With a CPU limit it is the limit rounded up to whole cores: exactly what
-// the Downward API renders into worker.CPULimitEnv, which buildJob then
-// wires from limits.cpu (§6.4). With no limit the Downward API would render
-// the NODE's allocatable CPU, which the controller planning the job cannot
-// know, so status.plan's pools= would differ from the worker's argv. Such a
-// Job is given a stated default instead, as a literal CLUSTARR_CPU_LIMIT
-// value the planner uses too: the CPU request rounded up (the share the
-// scheduler guarantees), else [defaultThreads].
-func threadsFromResources(r corev1.ResourceRequirements) (threads int32, fromLimit bool) {
-	if cpu, ok := r.Limits[corev1.ResourceCPU]; ok && cpu.Sign() > 0 {
-		return wholeCores(cpu), true
-	}
-	if cpu, ok := r.Requests[corev1.ResourceCPU]; ok && cpu.Sign() > 0 {
-		return wholeCores(cpu), false
-	}
-	return defaultThreads, false
-}
+// Moved to squasharr/controller/pool in Task 8: resourcesFor,
+// threadsFromResources, scratchSource, addGPU, requireNodeLabel,
+// podSecurityContext and containerSecurityContext. buildJob calls these
+// local aliases until Task 10 deletes it (ruling R3).
+var (
+	resourcesFor             = pool.ResourcesFor
+	threadsFromResources     = pool.ThreadsFromResources
+	scratchSource            = pool.ScratchSource
+	addGPU                   = pool.AddGPU
+	requireNodeLabel         = pool.RequireNodeLabel
+	podSecurityContext       = pool.PodSecurityContext
+	containerSecurityContext = pool.ContainerSecurityContext
+)
 
 // activeDeadlineFor floors spec.activeDeadline at the CRD default.
 func activeDeadlineFor(p *transcodev1alpha1.TranscodeProfile) time.Duration {
 	return worker.ActiveDeadline(p.Spec)
-}
-
-// resourcesFor floors an entirely empty spec.resources at the CRD default.
-// Anything the operator did set is kept as it is: a profile with only a
-// memory limit meant exactly that.
-func resourcesFor(p *transcodev1alpha1.TranscodeProfile) corev1.ResourceRequirements {
-	r := p.Spec.Resources
-	if len(r.Limits) == 0 && len(r.Requests) == 0 && len(r.Claims) == 0 {
-		return defaultResources()
-	}
-	return *r.DeepCopy()
-}
-
-// scratchFor floors spec.scratch at the CRD default.
-func scratchFor(p *transcodev1alpha1.TranscodeProfile) resource.Quantity {
-	if p.Spec.Scratch.Sign() > 0 {
-		return p.Spec.Scratch.DeepCopy()
-	}
-	return defaultScratch.DeepCopy()
 }
 
 // JobConfig is everything about a transcode Job that does not come from the
@@ -387,34 +329,6 @@ func buildJob(tj *transcodev1alpha1.TranscodeJob, profile *transcodev1alpha1.Tra
 	}
 }
 
-// podSecurityContext is the pod half of the security settings every
-// Deployment under config/manager carries: non-root as the images' clustarr
-// user, the RuntimeDefault seccomp profile, and fsGroup on the RWX /data
-// volume with OnRootMismatch so a large library is not re-chowned on every
-// pod start.
-func podSecurityContext() *corev1.PodSecurityContext {
-	return &corev1.PodSecurityContext{
-		RunAsNonRoot:        ptr.To(true),
-		RunAsUser:           ptr.To(podUID),
-		RunAsGroup:          ptr.To(podGID),
-		FSGroup:             ptr.To(podGID),
-		FSGroupChangePolicy: ptr.To(corev1.FSGroupChangeOnRootMismatch),
-		SeccompProfile:      &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
-	}
-}
-
-// containerSecurityContext is the container half: no privilege escalation,
-// every capability dropped, and a read-only root filesystem. The worker
-// writes only under /data (the .part output beside the source), /scratch and
-// /tmp, and each of those is a volume.
-func containerSecurityContext() *corev1.SecurityContext {
-	return &corev1.SecurityContext{
-		AllowPrivilegeEscalation: ptr.To(false),
-		ReadOnlyRootFilesystem:   ptr.To(true),
-		Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
-	}
-}
-
 // podFailurePolicy is ruling R4, against the exit codes squasharr/worker
 // declares (worker.ExitInvalidSource = 3, worker.ExitVerifyFailed = 4). A
 // pod evicted, preempted or drained (DisruptionTarget) is replaced without
@@ -438,39 +352,6 @@ func podFailurePolicy() *batchv1.PodFailurePolicy {
 				Operator:      batchv1.PodFailurePolicyOnExitCodesOpIn,
 				Values:        []int32{worker.ExitInvalidSource, worker.ExitVerifyFailed},
 			},
-		},
-	}}
-}
-
-func scratchSource(profile *transcodev1alpha1.TranscodeProfile) *corev1.EmptyDirVolumeSource {
-	q := scratchFor(profile)
-	return &corev1.EmptyDirVolumeSource{SizeLimit: &q}
-}
-
-// addGPU requests count of a GPU resource. Extended resources cannot be
-// overcommitted, so the request, when set, must equal the limit; setting
-// only the limit lets the apiserver default the request to it.
-func addGPU(rr *corev1.ResourceRequirements, name corev1.ResourceName, count int64) {
-	if rr.Limits == nil {
-		rr.Limits = corev1.ResourceList{}
-	}
-	q := *resource.NewQuantity(count, resource.DecimalSI)
-	rr.Limits[name] = q
-	if rr.Requests != nil {
-		if _, ok := rr.Requests[name]; ok {
-			rr.Requests[name] = q
-		}
-	}
-}
-
-func requireNodeLabel(key string) *corev1.Affinity {
-	return &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
-		RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-			NodeSelectorTerms: []corev1.NodeSelectorTerm{{
-				MatchExpressions: []corev1.NodeSelectorRequirement{{
-					Key: key, Operator: corev1.NodeSelectorOpIn, Values: []string{"true"},
-				}},
-			}},
 		},
 	}}
 }

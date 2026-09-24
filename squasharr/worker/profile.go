@@ -174,7 +174,7 @@ func MaxOutputToSourcePercent(p transcodev1alpha1.PolicySpec) int32 {
 }
 
 // DefaultActiveDeadline is the per-task deadline when the profile sets none.
-// squasharr/controller/transcodejob/job_test.go:TestFlooredDefaultsMatchTheGeneratedCRD
+// squasharr/controller/pool/template_test.go:TestFlooredDefaultsMatchTheGeneratedCRD
 // holds it to the CRD default.
 const DefaultActiveDeadline = 48 * time.Hour
 

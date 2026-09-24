@@ -49,6 +49,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/transcode"
+	"github.com/mediactl/clustarr/squasharr/controller/pool"
 	squasharrstatus "github.com/mediactl/clustarr/squasharr/status"
 	"github.com/mediactl/clustarr/squasharr/worker"
 )
@@ -330,7 +331,7 @@ func (r *Reconciler) plan(ctx context.Context, tj *transcodev1alpha1.TranscodeJo
 	result, err := transcode.Plan(info, worker.ProfileSpec(profile.Spec, tj.Spec.Hardware), allEncoders(),
 		transcode.PlanMeta{
 			ProfileName: profile.Name, ProfileHash: profile.Status.Hash,
-			Threads: threadsFor(profile), OutputPath: outPath,
+			Threads: pool.Threads(profile), OutputPath: outPath,
 		})
 	if err != nil {
 		// Plan errors only on inputs that no retry fixes (no video stream,
