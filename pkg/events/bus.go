@@ -19,6 +19,8 @@ package events
 
 import (
 	"context"
+	"errors"
+	"io"
 	"time"
 )
 
@@ -298,8 +300,55 @@ type KV interface {
 	Watch(ctx context.Context, pattern string) (<-chan Entry, error)
 }
 
+// ObjectInfo describes one object in an ObjectStore, or the outcome of a
+// write to it.
+type ObjectInfo struct {
+	// Name is the object's key inside the bucket, built by ArtworkKey.
+	Name string
+
+	// Size is the object's length in bytes.
+	Size int64
+
+	// Digest is the hex SHA-256 of the content.
+	Digest string
+
+	// ModTime is when this object was last written.
+	ModTime time.Time
+
+	// Headers are the caller-supplied headers Put stored alongside the
+	// object (Content-Type, Clustarr-Source, Clustarr-Source-URL,
+	// Clustarr-Rendered-From; spec §B.2).
+	Headers map[string]string
+}
+
+// ObjectStore is a single bucket of the broker's object store, spec §B.1.
+// natsbus binds it to a jetstream.ObjectStore; membus keeps it in memory.
+type ObjectStore interface {
+	// Get returns name's current info and its content. The caller must close
+	// the reader. A missing object is ErrObjectNotFound.
+	Get(ctx context.Context, name string) (ObjectInfo, io.ReadCloser, error)
+
+	// Put writes name unconditionally, reading r to completion, and returns
+	// the stored object's info.
+	Put(ctx context.Context, name string, r io.Reader, headers map[string]string) (ObjectInfo, error)
+
+	// Delete removes name. Deleting an absent object is not an error.
+	Delete(ctx context.Context, name string) error
+
+	// Info returns name's current metadata without its content. A missing
+	// object is ErrObjectNotFound.
+	Info(ctx context.Context, name string) (ObjectInfo, error)
+
+	// List returns the info of every object whose name starts with prefix.
+	List(ctx context.Context, prefix string) ([]ObjectInfo, error)
+}
+
+// ErrObjectNotFound is returned by ObjectStore.Get and ObjectStore.Info for a
+// missing object.
+var ErrObjectNotFound = errors.New("events: object not found")
+
 // Bus is the whole broker contract: publish, subscribe, request/reply,
-// key/value and topology management.
+// key/value, object storage and topology management.
 type Bus interface {
 	Publisher
 	Subscriber
@@ -307,6 +356,9 @@ type Bus interface {
 
 	// KV binds to a bucket created by Ensure.
 	KV(bucket string) KV
+
+	// ObjectStore binds to an object-store bucket created by Ensure.
+	ObjectStore(bucket string) ObjectStore
 
 	// Ensure creates or updates every stream, consumer and bucket in t. It is
 	// idempotent and safe to run from every replica at startup. It returns

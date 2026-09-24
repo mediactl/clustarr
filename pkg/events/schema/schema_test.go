@@ -59,6 +59,8 @@ func allPayloads() []schema.Payload {
 		schema.FetchTask{},
 		schema.ScanTask{},
 		schema.ListTask{},
+		schema.ArtworkFetchTask{},
+		schema.RenderOverlayTask{},
 	}
 }
 

@@ -160,12 +160,23 @@ type BucketSpec struct {
 	LimitMarkerTTL time.Duration
 }
 
+// ObjectStoreSpec is the declarative configuration of one object-store
+// bucket (spec §B.1).
+type ObjectStoreSpec struct {
+	Name        string
+	Description string
+	Storage     Storage
+	MaxBytes    int64
+	Replicas    int
+}
+
 // Topology is the full broker layout Clustarr expects: every stream, durable
-// consumer and key/value bucket.
+// consumer, key/value bucket and object-store bucket.
 type Topology struct {
-	Streams   []StreamSpec
-	Consumers []ConsumerSpec
-	Buckets   []BucketSpec
+	Streams      []StreamSpec
+	Consumers    []ConsumerSpec
+	Buckets      []BucketSpec
+	ObjectStores []ObjectStoreSpec
 }
 
 // Stream returns the named stream spec.
@@ -233,6 +244,10 @@ func (t Topology) ForSingleNode() Topology {
 		out.Buckets[i].Replicas = 1
 		out.Buckets[i].Storage = StorageMemory
 	}
+	for i := range out.ObjectStores {
+		out.ObjectStores[i].Replicas = 1
+		out.ObjectStores[i].Storage = StorageMemory
+	}
 	return out
 }
 
@@ -290,9 +305,10 @@ func scaleToBudget(streams []StreamSpec, budget, floor int64) {
 
 func (t Topology) clone() Topology {
 	out := Topology{
-		Streams:   append([]StreamSpec(nil), t.Streams...),
-		Consumers: append([]ConsumerSpec(nil), t.Consumers...),
-		Buckets:   append([]BucketSpec(nil), t.Buckets...),
+		Streams:      append([]StreamSpec(nil), t.Streams...),
+		Consumers:    append([]ConsumerSpec(nil), t.Consumers...),
+		Buckets:      append([]BucketSpec(nil), t.Buckets...),
+		ObjectStores: append([]ObjectStoreSpec(nil), t.ObjectStores...),
 	}
 	for i := range out.Streams {
 		out.Streams[i].Subjects = append([]string(nil), out.Streams[i].Subjects...)
@@ -399,6 +415,24 @@ func (t Topology) Validate() error {
 			}
 		}
 	}
+	objectStores := map[string]bool{}
+	for _, o := range t.ObjectStores {
+		if o.Name == "" {
+			errs = append(errs, fieldErr("ObjectStoreSpec.Name", "is required"))
+			continue
+		}
+		if objectStores[o.Name] {
+			errs = append(errs, fieldErr("ObjectStoreSpec.Name", "duplicate object store "+o.Name))
+		}
+		objectStores[o.Name] = true
+		for _, r := range o.Name {
+			if r == '.' {
+				errs = append(errs, fieldErr("ObjectStoreSpec.Name",
+					"object store names cannot contain dots: "+o.Name))
+				break
+			}
+		}
+	}
 	return errors.Join(errs...)
 }
 
@@ -459,9 +493,10 @@ const (
 // the bucket keeps them, idle and empty, until an operator removes them.
 func Default() Topology {
 	return Topology{
-		Streams:   defaultStreams(),
-		Consumers: defaultConsumers(),
-		Buckets:   defaultBuckets(),
+		Streams:      defaultStreams(),
+		Consumers:    defaultConsumers(),
+		Buckets:      defaultBuckets(),
+		ObjectStores: defaultObjectStores(),
 	}
 }
 
@@ -615,6 +650,28 @@ func defaultConsumers() []ConsumerSpec {
 			MaxAckPending: 32,
 		},
 		{
+			// The metadata gateway's ImportArtwork durable (spec §B.7). Same
+			// tuning as ConsumerCatalogMetadata: it runs inside the same
+			// role and the fetch does the same class of work, one outbound
+			// HTTP GET plus an object-store Put.
+			Name: ConsumerCatalogArtworkFetch, Stream: StreamWorkCatalogarr,
+			Filters: []string{FilterCatalogArtworkFetch},
+			AckWait: 60 * s, MaxDeliver: 8,
+			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
+			MaxAckPending: 32,
+		},
+		{
+			// The renderer role's durable (spec §C.6), same tuning again:
+			// it is not leader-elected and scales by consumer, so the
+			// headroom that matters is per-task retry budget, not
+			// singleton throughput.
+			Name: ConsumerCatalogArtworkRender, Stream: StreamWorkCatalogarr,
+			Filters: []string{FilterCatalogArtworkRender},
+			AckWait: 60 * s, MaxDeliver: 8,
+			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
+			MaxAckPending: 32,
+		},
+		{
 			Name: ConsumerCatalogHistory, Stream: StreamEvents,
 			Filters: []string{FilterAllEvents},
 			AckWait: 30 * s, MaxDeliver: 3,
@@ -741,5 +798,21 @@ func defaultBuckets() []BucketSpec {
 			"Transcode task leases: created by the claiming worker, renewed with Update, expired by the server; squasharr writes cancel markers."),
 		b(BucketImportList, 7*24*time.Hour, "Import list items, kept out of status."),
 		b(BucketDedup, 24*time.Hour, "Import fingerprints for re-import no-ops."),
+	}
+}
+
+// defaultObjectStores is the object-store half of the topology, spec §B.2.
+// Ensure's creation side (jetstream.ObjectStore) is task B1's; this only
+// declares the layout so Validate, clone and ForSingleNode have something to
+// walk.
+func defaultObjectStores() []ObjectStoreSpec {
+	return []ObjectStoreSpec{
+		{
+			Name:        BucketArtwork,
+			Description: "Artwork originals and overlays",
+			Storage:     StorageFile,
+			MaxBytes:    ArtworkMaxBytes,
+			Replicas:    3,
+		},
 	}
 }

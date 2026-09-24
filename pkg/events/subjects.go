@@ -24,6 +24,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"k8s.io/apimachinery/pkg/types"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
 // Stream names.
@@ -84,42 +88,46 @@ const (
 
 // Stream subject filters, as configured on the streams themselves.
 const (
-	FilterAllEvents        = "clustarr.evt.>"
-	FilterAllReleases      = "clustarr.rel.>"
-	FilterWorkCatalogarr   = "clustarr.work.catalogarr.>"
-	FilterWorkImportarr    = "clustarr.work.importarr.>"
-	FilterWorkIndexarr     = "clustarr.work.indexarr.>"
-	FilterWorkCaptionarr   = "clustarr.work.captionarr.>"
-	FilterWorkSquasharr    = "clustarr.work.transcode.>"
-	FilterTranscodeResults = "clustarr.work.transcode.result.>"
-	FilterAllDLQ           = "clustarr.dlq.>"
-	FilterCatalogSearch    = "clustarr.work.catalogarr.search.>"
-	FilterCatalogGrab      = "clustarr.work.catalogarr.grab.>"
-	FilterCatalogMetadata  = "clustarr.work.catalogarr.metadata.>"
-	FilterCatalogWanted    = "clustarr.work.catalogarr.wantedscan.>"
-	FilterImportScan       = "clustarr.work.importarr.scan.>"
-	FilterImportList       = "clustarr.work.importarr.list.>"
-	FilterImportFile       = "clustarr.work.importarr.fileimport.>"
-	FilterIndexRSS         = "clustarr.work.indexarr.rss.>"
-	FilterCaptionFetch     = "clustarr.work.captionarr.fetch.>"
+	FilterAllEvents            = "clustarr.evt.>"
+	FilterAllReleases          = "clustarr.rel.>"
+	FilterWorkCatalogarr       = "clustarr.work.catalogarr.>"
+	FilterWorkImportarr        = "clustarr.work.importarr.>"
+	FilterWorkIndexarr         = "clustarr.work.indexarr.>"
+	FilterWorkCaptionarr       = "clustarr.work.captionarr.>"
+	FilterWorkSquasharr        = "clustarr.work.transcode.>"
+	FilterTranscodeResults     = "clustarr.work.transcode.result.>"
+	FilterAllDLQ               = "clustarr.dlq.>"
+	FilterCatalogSearch        = "clustarr.work.catalogarr.search.>"
+	FilterCatalogGrab          = "clustarr.work.catalogarr.grab.>"
+	FilterCatalogMetadata      = "clustarr.work.catalogarr.metadata.>"
+	FilterCatalogWanted        = "clustarr.work.catalogarr.wantedscan.>"
+	FilterImportScan           = "clustarr.work.importarr.scan.>"
+	FilterImportList           = "clustarr.work.importarr.list.>"
+	FilterImportFile           = "clustarr.work.importarr.fileimport.>"
+	FilterIndexRSS             = "clustarr.work.indexarr.rss.>"
+	FilterCaptionFetch         = "clustarr.work.captionarr.fetch.>"
+	FilterCatalogArtworkFetch  = "clustarr.work.catalogarr.artwork.fetch.>"
+	FilterCatalogArtworkRender = "clustarr.work.catalogarr.artwork.render.>"
 )
 
 // Durable consumer names.
 const (
-	ConsumerCatalogRSSMatcher  = "catalogarr-rss-matcher"
-	ConsumerCatalogSearchHigh  = "catalogarr-search-high"
-	ConsumerCatalogSearchNorm  = "catalogarr-search-normal"
-	ConsumerCatalogGrab        = "catalogarr-grab"
-	ConsumerCatalogMetadata    = "catalogarr-metadata"
-	ConsumerCatalogHistory     = "catalogarr-history"
-	ConsumerImportScan         = "importarr-scan"
-	ConsumerImportList         = "importarr-list"
-	ConsumerImportFile         = "importarr-fileimport"
-	ConsumerIndexRSS           = "indexarr-rss"
-	ConsumerCaptionFetchHigh   = "captionarr-fetch-high"
-	ConsumerCaptionFetchNormal = "captionarr-fetch-normal"
-	ConsumerSquasharrResults   = "squasharr-transcode-results"
-	ConsumerDLQProjector       = "clustarr-dlq-projector"
+	ConsumerCatalogRSSMatcher    = "catalogarr-rss-matcher"
+	ConsumerCatalogSearchHigh    = "catalogarr-search-high"
+	ConsumerCatalogSearchNorm    = "catalogarr-search-normal"
+	ConsumerCatalogGrab          = "catalogarr-grab"
+	ConsumerCatalogMetadata      = "catalogarr-metadata"
+	ConsumerCatalogHistory       = "catalogarr-history"
+	ConsumerImportScan           = "importarr-scan"
+	ConsumerImportList           = "importarr-list"
+	ConsumerImportFile           = "importarr-fileimport"
+	ConsumerIndexRSS             = "indexarr-rss"
+	ConsumerCaptionFetchHigh     = "captionarr-fetch-high"
+	ConsumerCaptionFetchNormal   = "captionarr-fetch-normal"
+	ConsumerSquasharrResults     = "squasharr-transcode-results"
+	ConsumerDLQProjector         = "clustarr-dlq-projector"
+	ConsumerCatalogArtworkFetch  = "catalogarr-artwork-fetch"
+	ConsumerCatalogArtworkRender = "catalogarr-artwork-render"
 )
 
 // Key/value bucket names. NATS bucket names may not contain dots.
@@ -135,6 +143,22 @@ const (
 	BucketImportList       = "clustarr-importlist"
 	BucketDedup            = "clustarr-dedup"
 	BucketTranscodeLeases  = "clustarr-transcode-leases"
+)
+
+// BucketArtwork is the object-store bucket holding artwork originals and
+// overlays (spec §B.2). Unlike the key/value buckets above it holds objects
+// named by ArtworkKey, but the same NATS bucket-name rule applies: no dots.
+const BucketArtwork = "clustarr-artwork"
+
+// ArtworkMaxBytes is the artwork bucket's byte limit, spec §B.2.
+const ArtworkMaxBytes int64 = 5 * GiB
+
+// ArtworkVariant is "original" or "overlay", the last token of an
+// ArtworkKey and the Clustarr-Rendered-From-bearing half of the split
+// between the metadata gateway and the renderer (spec §B.2, §B.3).
+const (
+	ArtworkVariantOriginal = "original"
+	ArtworkVariantOverlay  = "overlay"
 )
 
 // Priority is the work-queue lane a task is placed in. It is the third token
@@ -314,6 +338,44 @@ func WorkRSSSubject(indexerUID string) string {
 func WorkFetchSubject(p Priority, requestUID, langKey string) string {
 	return fmt.Sprintf("clustarr.work.captionarr.fetch.%s.%s.%s",
 		tok(string(p)), tok(requestUID), tok(langKey))
+}
+
+// WorkArtworkFetchSubject builds
+// clustarr.work.catalogarr.artwork.fetch.<mediaKey>, consumed by the
+// metadata gateway's ConsumerCatalogArtworkFetch (spec §B.7).
+func WorkArtworkFetchSubject(mediaKey string) string {
+	return "clustarr.work.catalogarr.artwork.fetch." + tok(mediaKey)
+}
+
+// WorkArtworkRenderSubject builds
+// clustarr.work.catalogarr.artwork.render.<mediaKey>, consumed by the
+// renderer role's ConsumerCatalogArtworkRender (spec §C.6).
+func WorkArtworkRenderSubject(mediaKey string) string {
+	return "clustarr.work.catalogarr.artwork.render." + tok(mediaKey)
+}
+
+// ArtworkKey builds the object name for one artwork object in
+// events.BucketArtwork: "<kind>/<uid>/<imageType>/<variant>", e.g.
+// "movie/8b2c.../poster/original" (spec §B.2).
+//
+// It panics on an empty part or a part containing "/": the built name uses
+// "/" as its own segment separator, so a caller-supplied "/" would forge a
+// segment boundary the same way an unescaped "." would inside a subject
+// token (see MediaKey's doc comment). Every part -- the media kind, the
+// object's UID, the CRD's ImageType enum and ArtworkVariantOriginal/Overlay
+// -- is a value the caller controls, not user input, so a panic here is a
+// caller bug, not a runtime condition to recover from.
+func ArtworkKey(kind commonv1.MediaKind, uid types.UID, imageType, variant string) string {
+	parts := []string{string(kind), string(uid), imageType, variant}
+	for _, p := range parts {
+		if p == "" {
+			panic("events: ArtworkKey: empty part")
+		}
+		if strings.Contains(p, "/") {
+			panic(fmt.Sprintf("events: ArtworkKey: part %q contains \"/\"", p))
+		}
+	}
+	return strings.Join(parts, "/")
 }
 
 // ScheduleSubject returns the holding subject for a scheduled publish to

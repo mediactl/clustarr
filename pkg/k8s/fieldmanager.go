@@ -144,6 +144,19 @@ const (
 	// ManagerCatalogarrSeries).
 	ManagerCatalogarrFanout FieldManager = "catalogarr-fanout"
 
+	// ManagerCatalogarrArtwork is the renderer role (catalogarr --role
+	// artwork, spec §C.6, §B.6). On Movie and Series it applies
+	// status.overlay and nothing else, and writes only "overlay" objects in
+	// the artwork bucket -- it never touches "original" objects or
+	// status.artwork, which belong to ManagerCatalogarrMetadata, the
+	// metadata gateway (spec §B.3): two writers split by variant, the same
+	// discipline as the MediaFile spec/status split. Distinct from every
+	// other catalogarr manager for the same reason ManagerCatalogarrMetadata
+	// and ManagerCatalogarrGrab are: server-side apply replaces a manager's
+	// whole ownership set on every apply, so a shared name would let one
+	// role's apply silently release the other's fields.
+	ManagerCatalogarrArtwork FieldManager = "catalogarr-artwork"
+
 	// ManagerImportarr is the importarr controller manager. It owns ImportList,
 	// ImportExclusion and LibraryScan status.
 	//
@@ -290,6 +303,7 @@ func FieldManagers() []FieldManager {
 		ManagerCatalogarrMetadata,
 		ManagerCatalogarrGrab,
 		ManagerCatalogarrFanout,
+		ManagerCatalogarrArtwork,
 		ManagerImportarr,
 		ManagerImportarrWorker,
 		ManagerIndexarr,

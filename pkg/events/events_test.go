@@ -22,6 +22,9 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/apimachinery/pkg/types"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 )
 
@@ -505,5 +508,132 @@ func TestDeadLetterSubjectNamesTheFailedTask(t *testing.T) {
 					env.Headers[events.HeaderDLQSubject], tc.subject)
 			}
 		})
+	}
+}
+
+// TestArtworkKey pins the object name shape spec §B.2 gives: one poster
+// original's key, readable and stable.
+func TestArtworkKey(t *testing.T) {
+	uid := types.UID("8b2c1e3a-0000-0000-0000-000000000000")
+	got := events.ArtworkKey(commonv1.MediaKindMovie, uid, "poster", events.ArtworkVariantOriginal)
+	want := "movie/" + string(uid) + "/poster/original"
+	if got != want {
+		t.Errorf("ArtworkKey = %q, want %q", got, want)
+	}
+}
+
+// TestArtworkKeyPanicsOnBadPart guards the invariant the doc comment states:
+// an empty part or a part containing "/" would forge or erase a segment
+// boundary in the object name, so ArtworkKey panics rather than building a
+// key that silently collides with -- or is indistinguishable from -- another
+// item's.
+func TestArtworkKeyPanicsOnBadPart(t *testing.T) {
+	cases := []struct {
+		name                    string
+		kind                    commonv1.MediaKind
+		uid, imageType, variant string
+	}{
+		{"empty uid", commonv1.MediaKindMovie, "", "poster", events.ArtworkVariantOriginal},
+		{"empty image type", commonv1.MediaKindMovie, "u1", "", events.ArtworkVariantOriginal},
+		{"empty variant", commonv1.MediaKindMovie, "u1", "poster", ""},
+		{"slash in image type", commonv1.MediaKindMovie, "u1", "a/b", events.ArtworkVariantOriginal},
+		{"slash in uid", commonv1.MediaKindMovie, "a/b", "poster", events.ArtworkVariantOriginal},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatalf("ArtworkKey(%q, %q, %q, %q) did not panic",
+						tc.kind, tc.uid, tc.imageType, tc.variant)
+				}
+			}()
+			events.ArtworkKey(tc.kind, types.UID(tc.uid), tc.imageType, tc.variant)
+		})
+	}
+}
+
+// TestArtworkWorkSubjectsResolveToCatalogarr proves the fetch and render
+// work subjects (spec §B.7, §C.6) land in CLUSTARR_WORK_CATALOGARR and are
+// picked up by their own durable and no other durable's filter, the same
+// property TestImportarrWorkTopology holds for the importarr subjects.
+func TestArtworkWorkSubjectsResolveToCatalogarr(t *testing.T) {
+	top := events.Default()
+	cases := []struct {
+		subject      string
+		consumer     string
+		otherFilters []string
+	}{
+		{
+			events.WorkArtworkFetchSubject("m1"), events.ConsumerCatalogArtworkFetch,
+			[]string{events.FilterCatalogArtworkRender},
+		},
+		{
+			events.WorkArtworkRenderSubject("m1"), events.ConsumerCatalogArtworkRender,
+			[]string{events.FilterCatalogArtworkFetch},
+		},
+	}
+	for _, tc := range cases {
+		got, ok := top.StreamForSubject(tc.subject)
+		if !ok || got.Name != events.StreamWorkCatalogarr {
+			t.Errorf("%s routes to %v (found=%v), want %s",
+				tc.subject, got.Name, ok, events.StreamWorkCatalogarr)
+		}
+		c, ok := top.Consumer(tc.consumer)
+		if !ok {
+			t.Fatalf("consumer %s is missing", tc.consumer)
+		}
+		if c.Stream != events.StreamWorkCatalogarr {
+			t.Errorf("consumer %s reads %s, want %s", c.Name, c.Stream, events.StreamWorkCatalogarr)
+		}
+		matched := false
+		for _, f := range c.Filters {
+			if events.SubjectMatches(f, tc.subject) {
+				matched = true
+			}
+		}
+		if !matched {
+			t.Errorf("consumer %s does not match %s (filters %v)", c.Name, tc.subject, c.Filters)
+		}
+		for _, f := range tc.otherFilters {
+			if events.SubjectMatches(f, tc.subject) {
+				t.Errorf("%s also matches the other consumer's filter %s", tc.subject, f)
+			}
+		}
+	}
+}
+
+// TestTopologyValidateRejectsDuplicateObjectStore mirrors
+// TestTopologyValidateCatchesBadConsumer for the new ObjectStores slice.
+func TestTopologyValidateRejectsDuplicateObjectStore(t *testing.T) {
+	top := events.Default()
+	top.ObjectStores = append(top.ObjectStores, top.ObjectStores[0])
+	if err := top.Validate(); err == nil {
+		t.Fatal("Validate accepted a duplicate object-store name")
+	}
+}
+
+// TestDefaultObjectStoreIsArtwork pins spec §B.2's single declared bucket.
+func TestDefaultObjectStoreIsArtwork(t *testing.T) {
+	top := events.Default()
+	if len(top.ObjectStores) != 1 {
+		t.Fatalf("ObjectStores = %+v, want exactly one", top.ObjectStores)
+	}
+	o := top.ObjectStores[0]
+	if o.Name != events.BucketArtwork {
+		t.Errorf("Name = %q, want %q", o.Name, events.BucketArtwork)
+	}
+	if o.Storage != events.StorageFile {
+		t.Errorf("Storage = %q, want %q", o.Storage, events.StorageFile)
+	}
+	if o.MaxBytes != events.ArtworkMaxBytes {
+		t.Errorf("MaxBytes = %d, want %d", o.MaxBytes, events.ArtworkMaxBytes)
+	}
+	if o.Replicas != 3 {
+		t.Errorf("Replicas = %d, want 3", o.Replicas)
+	}
+
+	single := top.ForSingleNode().ObjectStores[0]
+	if single.Replicas != 1 || single.Storage != events.StorageMemory {
+		t.Errorf("ForSingleNode object store = %+v", single)
 	}
 }
