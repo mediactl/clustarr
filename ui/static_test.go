@@ -162,9 +162,15 @@ func TestStaticRouteServesTheJumpTracker(t *testing.T) {
 	require.Contains(t, rec.Body.String(), "data-total")
 	require.NotContains(t, rec.Body.String(), "data-current", "the thumb is positional, not a letter mark")
 	require.Contains(t, rec.Body.String(), "data-scrollbar", "the tracker keeps the hidden scrollbar in step with htmx swaps")
+	require.Contains(t, rec.Body.String(), "pointerdown", "the thumb drags like a native scrollbar's (2026-09-24)")
+	require.Contains(t, rec.Body.String(), "setPointerCapture", "a drag follows the pointer out of the strip")
+	require.Contains(t, rec.Body.String(), "pointercancel", "a cancelled pointer lets go of the thumb too")
 
 	rec = httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/app.css", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Regexp(t, `html\[data-scrollbar="?hidden"?\][^{]*\{[^}]*scrollbar-width:\s*none`, rec.Body.String(), "the stylesheet hides the document scrollbar under data-scrollbar")
+	for _, class := range []string{".cursor-grab", ".touch-none", ".border-l-2"} {
+		require.Contains(t, rec.Body.String(), class, "ui/static/app.css lacks %s, which the draggable thumb wears; run `make css`", class)
+	}
 }

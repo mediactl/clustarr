@@ -148,7 +148,13 @@ func TestLibraryPageHasBreadcrumbsTabsAndAJumpBar(t *testing.T) {
 	// the tracker script places along the strip in proportion to the item
 	// range on screen over the whole list, not snapped to a letter.
 	require.NotContains(t, bar, "relative", "a second position utility would override fixed and drop the strip to the page's end")
-	requireTag(t, body[barAt:], `data-jump-thumb`, `bg-primary`, `absolute`)
+	// The thumb drags like a native scrollbar's (2026-09-24): a grab strip
+	// wider than the 2px line it draws, pointer events on (it is the drag
+	// handle), the browser's touch panning off so a touch drag moves the
+	// thumb and not the page. ui/static/jump.js does the dragging.
+	thumb := requireTag(t, body[barAt:], `data-jump-thumb`, `absolute`, `border-primary`, `cursor-grab`, `touch-none`, `select-none`)
+	require.NotContains(t, thumb, "pointer-events-none", "the thumb takes the pointer; it is the drag handle")
+	require.NotContains(t, thumb, "w-0.5", "the grab strip is wider than the line it draws")
 	require.NotContains(t, body, `data-letter=`, "cards carry no letter; the thumb is positional")
 	headEnd := strings.Index(body, "</head>")
 	require.GreaterOrEqual(t, headEnd, 0)
