@@ -98,3 +98,80 @@ func TestIndexSweeperPrunesOnceOnStartBeforeTicking(t *testing.T) {
 	require.GreaterOrEqual(t, store.prunedCount(), 1,
 		"indexSweeper.Start must prune once on startup, before the first IndexSweepInterval tick")
 }
+
+// validOptions is a base Options that passes Validate() as-is: DefaultOptions
+// already gives Role/IndexPath/FacadeBindAddress/FacadeAPIKeySecret, and
+// k8s.DefaultOptions gives a non-empty NATSURL; Namespace is added because
+// FacadeEnabled() (RoleAll runs workers, and the default facade address is
+// not disabled) requires one, and because k8s.Options.Validate rejects
+// --leader-elect with neither --namespace nor --leader-election-namespace
+// set -- a namespace the leader-election cases below need regardless of
+// indexarr's own DSN-gated check.
+func validOptions() Options {
+	o := DefaultOptions()
+	o.Namespace = "media"
+	return o
+}
+
+// TestLeaderElectionIsGatedOnIndexDSN is the coordinator's required
+// pre-review fix for A2: spec §A.3 says a Postgres-backed release index
+// (--index-dsn) may run several indexarr replicas, and ruling R1 only binds
+// at runtime if the MANAGER actually elects -- indexSweeper declaring
+// NeedLeaderElection is inert against a manager that never enables
+// election, and so is every Indexer/IndexerDefinition/IndexerProxy
+// controller (each a manager.LeaderElectionRunnable by controller-runtime's
+// own default), which would otherwise double-reconcile across replicas.
+//
+// The table exercises Validate and ManagerOptions together because the
+// property under test is the PAIR: Validate must not reject the flag
+// combination ManagerOptions is about to act on.
+func TestLeaderElectionIsGatedOnIndexDSN(t *testing.T) {
+	tests := []struct {
+		name         string
+		indexDSN     string
+		leaderElect  bool
+		wantErr      string // substring, or "" for no error
+		wantElection bool   // only checked when wantErr == ""
+	}{
+		{
+			name:         "SQLite, no --leader-elect: valid, no election (unchanged behaviour)",
+			indexDSN:     "",
+			leaderElect:  false,
+			wantElection: false,
+		},
+		{
+			name:        "SQLite, --leader-elect: still rejected, message now names --index-dsn",
+			indexDSN:    "",
+			leaderElect: true,
+			wantErr:     "--leader-elect is supported only with --index-dsn",
+		},
+		{
+			name:         "Postgres, no --leader-elect: valid, election forced on regardless of the flag",
+			indexDSN:     "postgres://clustarr:secret@postgres.example:5432/clustarr?sslmode=disable",
+			leaderElect:  false,
+			wantElection: true,
+		},
+		{
+			name:         "Postgres, --leader-elect: accepted (redundant), election on",
+			indexDSN:     "postgres://clustarr:secret@postgres.example:5432/clustarr?sslmode=disable",
+			leaderElect:  true,
+			wantElection: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := validOptions()
+			o.IndexDSN = tt.indexDSN
+			o.LeaderElect = tt.leaderElect
+
+			err := o.Validate()
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantElection, o.ManagerOptions().LeaderElection,
+				"ManagerOptions().LeaderElection must be keyed on IndexDSN, not on --leader-elect")
+		})
+	}
+}

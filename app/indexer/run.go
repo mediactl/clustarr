@@ -224,11 +224,18 @@ func (o Options) Validate() error {
 	if !o.UsesBus() {
 		return fmt.Errorf("indexarr: --nats-url is required; the search RPC and the release firehose both use the bus")
 	}
-	// Leader election adds nothing to a service §3 already pins to one
-	// replica with a Recreate strategy, and it would make the restart of the
-	// only replica wait out a lease.
-	if o.LeaderElect {
-		return fmt.Errorf("indexarr: --leader-elect is not supported; §3 pins indexarr to exactly one replica")
+	// Leader election adds nothing to a service §3 pins to one replica with
+	// a Recreate strategy under SQLite, and it would make the restart of
+	// the only replica wait out a lease. With --index-dsn indexarr may run
+	// several replicas (spec §A.3), and ManagerOptions enables leader
+	// election UNCONDITIONALLY in that case -- every controller, and
+	// [indexSweeper] (ruling R1), must be a cluster singleton once more than
+	// one replica can be reconciling -- so --leader-elect is accepted here,
+	// though redundant: Postgres mode elects regardless of the flag's own
+	// value. Only the SQLite case (no DSN) still rejects it.
+	if o.LeaderElect && o.IndexDSN == "" {
+		return fmt.Errorf("indexarr: --leader-elect is supported only with --index-dsn; " +
+			"§3 pins indexarr to exactly one replica under SQLite")
 	}
 	if o.FacadeEnabled() {
 		if o.FacadeBindAddress == "" {
@@ -311,8 +318,20 @@ func (o Options) FacadeEnabled() bool {
 // catalogarr's metadata gateway reads Secrets through a cached client, so the
 // union keeps list;watch. Splitting the role per service is the fix that
 // would cash this in.
+//
+// # Leader election is keyed on IndexDSN, not on o.LeaderElect
+//
+// Contrast every sibling service's own ManagerOptions, which honours the
+// flag directly: under SQLite (empty IndexDSN) §3 pins indexarr to one
+// replica and Validate rejects --leader-elect outright, so there is nothing
+// to elect; under Postgres (spec §A.3) indexarr may run several replicas,
+// and every controller plus [indexSweeper] (ruling R1) must be a cluster
+// singleton the moment a second replica can exist -- not merely when an
+// operator remembers to pass the flag. Options.Validate still accepts
+// --leader-elect when IndexDSN is set, but it is a no-op there: this is
+// always on.
 func (o Options) ManagerOptions() ctrl.Options {
-	opts := o.Options.ManagerOptions(LeaderElectionID, false)
+	opts := o.Options.ManagerOptions(LeaderElectionID, o.IndexDSN != "")
 	opts.Client.Cache = &client.CacheOptions{
 		DisableFor: []client.Object{&corev1.Secret{}},
 	}
@@ -653,19 +672,23 @@ func setupBundle(mgr ctrl.Manager, o Options) error {
 //
 // The RPC responder and the RSS worker are each a [k8s.EveryReplica],
 // directly or through rss.Worker.SetupWithManager: every replica answers
-// search RPCs and polls RSS. The retention sweep is [indexSweeper] instead
-// (ruling R1): a Postgres-backed index (IndexDSN) may run several replicas,
-// and only one of them may prune, so it declares NeedLeaderElection.
-// indexarr's manager never enables leader election today (see
-// Options.ManagerOptions), so a non-electing process is treated as elected
-// and indexSweeper runs immediately regardless -- under SQLite's single
-// replica that single replica is always "the leader" and nothing observable
-// changes, exactly as it would for a bare manager.RunnableFunc. That is a
-// deployment detail a future change (enabling leader election once a DSN is
-// set) can invalidate silently, and it is why Phase C's readiness deadlock
-// survived review, so nothing here relies on it: indexSweeper declares the
-// property it actually needs rather than the property today's wiring
-// happens to give it for free.
+// search RPCs and polls RSS, regardless of leader election. The retention
+// sweep is [indexSweeper] instead (ruling R1): a Postgres-backed index
+// (IndexDSN) may run several replicas, and only one of them may prune, so it
+// declares NeedLeaderElection.
+//
+// Options.ManagerOptions enables leader election precisely when IndexDSN is
+// set (see its own doc comment), so indexSweeper's NeedLeaderElection binds
+// for real under Postgres: exactly one replica runs it, and every
+// controller-runtime controller -- which also declares NeedLeaderElection by
+// default -- stops double-reconciling the moment a second replica exists.
+// Under SQLite the manager still never elects, so a non-electing process is
+// treated as elected and indexSweeper runs immediately regardless -- under
+// SQLite's single replica that single replica is always "the leader" and
+// nothing observable changes, exactly as it would for a bare
+// manager.RunnableFunc. indexSweeper still declares NeedLeaderElection
+// itself rather than leaning on that SQLite-only coincidence, because the
+// coincidence stops holding the moment IndexDSN is set.
 //
 // It returns the three verb bodies it built, so [setupFacade] serves the
 // SAME instances the RPC responder does: one download.Service with one
