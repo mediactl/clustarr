@@ -92,7 +92,7 @@ const jumpButtonClass = "min-h-0 w-full flex-1 px-0 py-0 text-[11px]"
 // each carrying data-jump for the tests.
 templ jumpBar(jumpsFor []Jump) {
 	if len(jumpsFor) > 0 {
-		<div data-jump-bar class="fixed top-[8.75rem] right-0 bottom-0 z-10 hidden w-8 lg:block relative">
+		<div data-jump-bar class="fixed top-[8.75rem] right-0 bottom-0 z-10 hidden w-8 lg:block">
 			<div data-jump-thumb class="pointer-events-none absolute left-0 z-10 w-0.5 rounded-sm bg-primary" style="top: 0; height: 16px"></div>
 			@buttongroup.ButtonGroup(buttongroup.Props{Orientation: buttongroup.OrientationVertical, Class: "h-full w-full"}) {
 				for _, j := range jumpsFor {

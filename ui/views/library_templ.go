@@ -252,7 +252,7 @@ func jumpBar(jumpsFor []Jump) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		if len(jumpsFor) > 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<div data-jump-bar class=\"fixed top-[8.75rem] right-0 bottom-0 z-10 hidden w-8 lg:block relative\"><div data-jump-thumb class=\"pointer-events-none absolute left-0 z-10 w-0.5 rounded-sm bg-primary\" style=\"top: 0; height: 16px\"></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<div data-jump-bar class=\"fixed top-[8.75rem] right-0 bottom-0 z-10 hidden w-8 lg:block\"><div data-jump-thumb class=\"pointer-events-none absolute left-0 z-10 w-0.5 rounded-sm bg-primary\" style=\"top: 0; height: 16px\"></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
